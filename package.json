@@ -1,0 +1,52 @@
+{
+  "name": "capital-command",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "\"C:\\Users\\nvandewetering\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\node\\bin\\node.exe\" .\\node_modules\\next\\dist\\bin\\next dev",
+    "build": "\"C:\\Users\\nvandewetering\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\node\\bin\\node.exe\" .\\node_modules\\next\\dist\\bin\\next build",
+    "start": "\"C:\\Users\\nvandewetering\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\node\\bin\\node.exe\" .\\node_modules\\next\\dist\\bin\\next start",
+    "lint": "\"C:\\Users\\nvandewetering\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\node\\bin\\node.exe\" .\\node_modules\\eslint\\bin\\eslint.js .",
+    "typecheck": "\"C:\\Users\\nvandewetering\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\node\\bin\\node.exe\" .\\node_modules\\typescript\\bin\\tsc --noEmit",
+    "test": "powershell -NoProfile -ExecutionPolicy Bypass -File .\\scripts\\run-tests.ps1",
+    "format": "\"C:\\Users\\nvandewetering\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\node\\bin\\node.exe\" .\\node_modules\\prettier\\bin\\prettier.cjs --write ."
+  },
+  "dependencies": {
+    "@hookform/resolvers": "^5.0.1",
+    "clsx": "^2.1.1",
+    "date-fns": "^4.1.0",
+    "lucide-react": "^0.511.0",
+    "next": "^15.3.2",
+    "next-themes": "^0.4.6",
+    "papaparse": "^5.5.3",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0",
+    "react-markdown": "^10.1.0",
+    "react-hook-form": "^7.56.4",
+    "recharts": "^2.15.3",
+    "remark-gfm": "^4.0.1",
+    "sonner": "^2.0.3",
+    "tailwind-merge": "^3.3.0",
+    "zod": "^3.24.4"
+  },
+  "devDependencies": {
+    "@next/eslint-plugin-next": "^15.5.15",
+    "@tailwindcss/postcss": "^4.1.5",
+    "@eslint/eslintrc": "^3.3.1",
+    "@types/node": "^22.15.17",
+    "@types/papaparse": "^5.3.16",
+    "@types/react": "^19.1.2",
+    "@types/react-dom": "^19.1.2",
+    "eslint": "^9.26.0",
+    "eslint-config-next": "^15.3.2",
+    "eslint-plugin-jsx-a11y": "^6.10.2",
+    "eslint-plugin-react": "^7.37.5",
+    "eslint-plugin-react-hooks": "^7.0.0",
+    "postcss": "^8.5.3",
+    "prettier": "^3.5.3",
+    "tailwindcss": "^4.1.5",
+    "tsx": "^4.20.6",
+    "typescript": "^5.8.3",
+    "vitest": "^3.1.2"
+  }
+}
