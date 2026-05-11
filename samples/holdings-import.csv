@@ -1,0 +1,3 @@
+ticker,name,assetClass,account,quantity,averageCost,currentPrice,notes
+VFV,Vanguard S&P 500 Index ETF,ETFs,Wealthsimple TFSA,20,112.50,118.20,Sample import row
+SHOP,Shopify,Stocks,Questrade RRSP,6,89.40,95.10,Watch position sizing
