@@ -8,8 +8,13 @@ For Phase 1, the app uses a server-side JSON store instead of SQLite/Supabase/Co
 
 ## Planned setup
 
-1. Install dependencies with `\.\.tools\pnpm.exe install`
-2. Start the app with `\.\.tools\pnpm.exe exec next dev`
+1. Install dependencies with `pnpm install`
+2. Start the app with `pnpm dev`
+
+If you prefer npm:
+
+1. `npm install`
+2. `npm run dev`
 
 ## Environment
 
