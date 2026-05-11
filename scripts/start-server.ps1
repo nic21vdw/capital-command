@@ -1,7 +1,7 @@
 $ErrorActionPreference = "Stop"
 
 $root = Split-Path -Parent $PSScriptRoot
-$node = "C:\Users\nvandewetering\.cache\codex-runtimes\codex-primary-runtime\dependencies\node\bin\node.exe"
+$node = if ($env:node) { $env:node } else { "node" }
 $stdout = Join-Path $root "server.out.log"
 $stderr = Join-Path $root "server.err.log"
 $pidFile = Join-Path $root "server.pid"
