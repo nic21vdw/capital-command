@@ -1,0 +1,209 @@
+"use client";
+
+import { createContext, startTransition, useContext, useEffect, useState } from "react";
+import { toast } from "sonner";
+import { derivePortfolioSummary } from "@/lib/derive";
+import type { AppData, Goal, Holding, ResearchNote, Settings, WatchlistItem } from "@/types/domain";
+
+interface BootstrapPayload {
+  data: AppData;
+  summary: ReturnType<typeof derivePortfolioSummary>;
+  apiStatus: {
+    hasAlphaVantageKey: boolean;
+  };
+}
+
+interface AppContextValue extends BootstrapPayload {
+  loading: boolean;
+  mutate: (action: string, payload?: unknown, options?: { successMessage?: string }) => Promise<void>;
+  refresh: () => Promise<void>;
+}
+
+const AppContext = createContext<AppContextValue | null>(null);
+
+async function readBootstrap(): Promise<BootstrapPayload> {
+  const response = await fetch("/api/bootstrap", { cache: "no-store" });
+  if (!response.ok) {
+    throw new Error("Unable to load app data");
+  }
+  return response.json();
+}
+
+export function AppProvider({ children }: { children: React.ReactNode }) {
+  const [payload, setPayload] = useState<BootstrapPayload | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  const refresh = async () => {
+    setLoading(true);
+    try {
+      const next = await readBootstrap();
+      startTransition(() => setPayload(next));
+    } catch {
+      toast.error("Unable to load Capital Command data.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      void refresh();
+    }, 0);
+
+    return () => window.clearTimeout(timer);
+  }, []);
+
+  const mutate = async (action: string, payload?: unknown, options?: { successMessage?: string }) => {
+    try {
+      const response = await fetch("/api/data", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({ action, payload })
+      });
+
+      if (!response.ok) {
+        throw new Error("mutation failed");
+      }
+
+      const json = (await response.json()) as Partial<BootstrapPayload> & { duplicates?: string[] };
+      startTransition(() =>
+        setPayload((current) => ({
+          data: json.data ?? current?.data ?? payloadFallback.data,
+          summary: json.summary ?? current?.summary ?? payloadFallback.summary,
+          apiStatus: current?.apiStatus ?? payloadFallback.apiStatus
+        }))
+      );
+
+      if (json.duplicates?.length) {
+        toast.warning(`Skipped duplicates: ${json.duplicates.join(", ")}`);
+      }
+
+      if (options?.successMessage) {
+        toast.success(options.successMessage);
+      }
+    } catch {
+      toast.error("That action could not be completed.");
+    }
+  };
+
+  if (!payload) {
+    return (
+      <AppContext.Provider value={{ ...payloadFallback, loading, mutate, refresh }}>
+        {children}
+      </AppContext.Provider>
+    );
+  }
+
+  return <AppContext.Provider value={{ ...payload, loading, mutate, refresh }}>{children}</AppContext.Provider>;
+}
+
+const payloadFallback: BootstrapPayload = {
+  data: {
+    holdings: [],
+    watchlist: [],
+    researchNotes: [],
+    goals: [],
+    accounts: [],
+    portfolioSnapshots: [],
+    settings: {
+      currency: "CAD",
+      theme: "dark"
+    }
+  },
+  summary: derivePortfolioSummary({
+    holdings: [],
+    watchlist: [],
+    researchNotes: [],
+    goals: [],
+    accounts: [],
+    portfolioSnapshots: [],
+    settings: {
+      currency: "CAD",
+      theme: "dark"
+    }
+  }),
+  apiStatus: {
+    hasAlphaVantageKey: false
+  }
+};
+
+export function useAppData() {
+  const context = useContext(AppContext);
+  if (!context) {
+    throw new Error("useAppData must be used inside AppProvider");
+  }
+  return context;
+}
+
+export function makeHolding(input?: Partial<Holding>): Holding {
+  return {
+    id: input?.id ?? `holding-${crypto.randomUUID()}`,
+    ticker: input?.ticker ?? "",
+    name: input?.name ?? "",
+    assetClass: input?.assetClass ?? "Stocks",
+    account: input?.account ?? "Wealthsimple TFSA",
+    quantity: input?.quantity ?? 0,
+    averageCost: input?.averageCost ?? 0,
+    currentPrice: input?.currentPrice,
+    manualPrice: input?.manualPrice,
+    dividendYield: input?.dividendYield,
+    notes: input?.notes ?? "",
+    updatedAt: new Date().toISOString()
+  };
+}
+
+export function makeWatchlistItem(input?: Partial<WatchlistItem>): WatchlistItem {
+  return {
+    id: input?.id ?? `watchlist-${crypto.randomUUID()}`,
+    ticker: input?.ticker ?? "",
+    name: input?.name ?? "",
+    assetClass: input?.assetClass ?? "Stocks",
+    currentPrice: input?.currentPrice,
+    targetBuyPrice: input?.targetBuyPrice,
+    reason: input?.reason ?? "",
+    riskRating: input?.riskRating ?? 3,
+    convictionRating: input?.convictionRating ?? 3,
+    notes: input?.notes ?? "",
+    dateAdded: input?.dateAdded ?? new Date().toISOString()
+  };
+}
+
+export function makeResearchNote(input?: Partial<ResearchNote>): ResearchNote {
+  const now = new Date().toISOString();
+  return {
+    id: input?.id ?? `note-${crypto.randomUUID()}`,
+    title: input?.title ?? "",
+    relatedTicker: input?.relatedTicker ?? "",
+    thesis: input?.thesis ?? "",
+    bullCase: input?.bullCase ?? "",
+    bearCase: input?.bearCase ?? "",
+    keyRisks: input?.keyRisks ?? "",
+    valuationThoughts: input?.valuationThoughts ?? "",
+    sourceLinks: input?.sourceLinks ?? [],
+    tags: input?.tags ?? [],
+    body: input?.body ?? "",
+    createdAt: input?.createdAt ?? now,
+    updatedAt: now
+  };
+}
+
+export function makeGoal(input?: Partial<Goal>): Goal {
+  return {
+    id: input?.id ?? `goal-${crypto.randomUUID()}`,
+    goalName: input?.goalName ?? "",
+    targetAmount: input?.targetAmount ?? 0,
+    currentAmount: input?.currentAmount ?? 0,
+    targetDate: input?.targetDate,
+    monthlyContribution: input?.monthlyContribution,
+    notes: input?.notes ?? ""
+  };
+}
+
+export function makeSettings(input?: Partial<Settings>): Settings {
+  return {
+    currency: input?.currency ?? "CAD",
+    theme: input?.theme ?? "dark"
+  };
+}
