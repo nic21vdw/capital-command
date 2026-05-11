@@ -3,13 +3,13 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "\"C:\\Users\\nvandewetering\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\node\\bin\\node.exe\" .\\node_modules\\next\\dist\\bin\\next dev",
-    "build": "\"C:\\Users\\nvandewetering\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\node\\bin\\node.exe\" .\\node_modules\\next\\dist\\bin\\next build",
-    "start": "\"C:\\Users\\nvandewetering\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\node\\bin\\node.exe\" .\\node_modules\\next\\dist\\bin\\next start",
-    "lint": "\"C:\\Users\\nvandewetering\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\node\\bin\\node.exe\" .\\node_modules\\eslint\\bin\\eslint.js .",
-    "typecheck": "\"C:\\Users\\nvandewetering\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\node\\bin\\node.exe\" .\\node_modules\\typescript\\bin\\tsc --noEmit",
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint .",
+    "typecheck": "tsc --noEmit",
     "test": "powershell -NoProfile -ExecutionPolicy Bypass -File .\\scripts\\run-tests.ps1",
-    "format": "\"C:\\Users\\nvandewetering\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\node\\bin\\node.exe\" .\\node_modules\\prettier\\bin\\prettier.cjs --write ."
+    "format": "prettier --write ."
   },
   "dependencies": {
     "@hookform/resolvers": "^5.0.1",
