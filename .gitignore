@@ -1,0 +1,10 @@
+.next
+node_modules
+.pnpm-store
+.env
+coverage
+dist
+.test-dist
+*.log
+server.pid
+tsconfig.tsbuildinfo
