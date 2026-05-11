@@ -1,0 +1,1 @@
+Styles are managed through src/app/globals.css for this MVP.
