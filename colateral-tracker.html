@@ -457,6 +457,42 @@
     <p class="history-empty" id="history-empty">No sessions yet. Hit start when you sit down to build.</p>
   </div>
 
+  <!-- GitHub -->
+  <div class="card">
+    <div class="card-head">
+      <div>
+        <p class="eyebrow">Shipping signal</p>
+        <h2>GitHub activity</h2>
+      </div>
+      <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
+        <input id="gh-user" type="text" placeholder="github-username"
+               style="height:36px; border-radius:12px; border:1px solid var(--panel-border); background:rgba(0,0,0,0.3); color:var(--fg); padding:0 12px; font-family:inherit; font-size:13px; outline:none; min-width:180px;" />
+        <button class="btn btn-secondary" id="gh-load" style="padding:8px 14px;">Load</button>
+      </div>
+    </div>
+    <div id="gh-summary" class="stats" style="margin-top:16px;">
+      <div class="card" style="padding:14px;">
+        <p class="stat-label">Commits this week</p>
+        <p class="stat-value" id="gh-week" style="font-size:22px; margin-top:4px;">—</p>
+      </div>
+      <div class="card" style="padding:14px;">
+        <p class="stat-label">Commits total</p>
+        <p class="stat-value" id="gh-total" style="font-size:22px; margin-top:4px;">—</p>
+      </div>
+      <div class="card" style="padding:14px;">
+        <p class="stat-label">Active repos</p>
+        <p class="stat-value" id="gh-repos" style="font-size:22px; margin-top:4px;">—</p>
+      </div>
+      <div class="card" style="padding:14px;">
+        <p class="stat-label">PRs / Issues</p>
+        <p class="stat-value" id="gh-prs" style="font-size:22px; margin-top:4px;">—</p>
+      </div>
+    </div>
+    <ul class="history-list" id="gh-list"></ul>
+    <p class="history-empty" id="gh-empty">Enter a GitHub username above and click Load to pull public activity.</p>
+    <p id="gh-meta" style="color:var(--muted); font-size:12px; margin:12px 0 0;"></p>
+  </div>
+
   <!-- Badges -->
   <div class="card">
     <div class="card-head">
@@ -697,6 +733,14 @@ function formatHMS(seconds) {
   const s = Math.floor(seconds % 60);
   return [h, m, s].map(pad).join(":");
 }
+function formatDuration(durationMinutes) {
+  const totalSeconds = Math.round(durationMinutes * 60);
+  if (totalSeconds < 60) return `${totalSeconds} sec`;
+  if (durationMinutes < 60) return `${Math.round(durationMinutes)} min`;
+  const h = Math.floor(durationMinutes / 60);
+  const m = Math.round(durationMinutes % 60);
+  return `${h}h ${m}m`;
+}
 const microcopy = [
   "Momentum compounds.",
   "Another brick in the empire.",
@@ -798,12 +842,11 @@ function render() {
     $("#history-empty").style.display = "none";
     list.innerHTML = ordered.slice(0, 20).map(s => {
       const xp = sessionXP(s.durationMinutes);
-      const hours = (s.durationMinutes / 60).toFixed(2);
       return `
         <li class="history-item">
           <div class="history-text">
             <p class="history-when">${prettyDateTime(s.startTime)}</p>
-            <p class="history-stats">${hours} h · ${s.durationMinutes} min · +${xp} XP</p>
+            <p class="history-stats">${formatDuration(s.durationMinutes)} · +${xp} XP</p>
           </div>
           <div class="actions">
             <button class="icon-btn" data-edit="${s.id}" title="Edit">
@@ -840,8 +883,11 @@ function endSession() {
   if (!state.activeSession) return;
   const start = new Date(state.activeSession.startTime);
   const end = new Date();
-  const durationMinutes = Math.max(0, Math.round((end.getTime() - start.getTime()) / 60000));
-  if (durationMinutes > 0) {
+  const elapsedMs = end.getTime() - start.getTime();
+  // Drop only truly empty sessions (< 1 second). Anything else is recorded
+  // with a precise float duration so short sessions still count for the day.
+  if (elapsedMs >= 1000) {
+    const durationMinutes = elapsedMs / 60000;
     state.sessions.push({
       id: newId("session"),
       startTime: start.toISOString(),
@@ -873,7 +919,7 @@ function saveEdit() {
   const startDate = new Date(startVal);
   const endDate = new Date(endVal);
   if (endDate <= startDate) return;
-  const durationMinutes = Math.max(0, Math.round((endDate.getTime() - startDate.getTime()) / 60000));
+  const durationMinutes = Math.max(0, (endDate.getTime() - startDate.getTime()) / 60000);
   state.sessions = state.sessions.map(s => s.id === editingId ? {
     ...s,
     startTime: startDate.toISOString(),
@@ -949,6 +995,164 @@ for (const id of ["edit-modal", "reset-modal"]) {
     if (e.target.id === id) e.target.classList.remove("open");
   });
 }
+
+// ---------- GitHub integration ----------
+// Pulls public events from the unauthenticated GitHub REST API. No auth, so
+// only public activity is visible and rate limit is 60 req/hour per IP.
+// Events are read-only — they don't affect XP or stats. The username and the
+// last fetched payload are cached in localStorage so the dashboard hydrates
+// instantly on reload without burning the rate limit.
+const GH_USER_KEY = "colateral-gh-user-v1";
+const GH_CACHE_KEY = "colateral-gh-cache-v1";
+
+function loadGhUser() {
+  return localStorage.getItem(GH_USER_KEY) || "";
+}
+function saveGhUser(user) {
+  if (user) localStorage.setItem(GH_USER_KEY, user);
+  else localStorage.removeItem(GH_USER_KEY);
+}
+function loadGhCache() {
+  try {
+    const raw = localStorage.getItem(GH_CACHE_KEY);
+    return raw ? JSON.parse(raw) : null;
+  } catch { return null; }
+}
+function saveGhCache(payload) {
+  localStorage.setItem(GH_CACHE_KEY, JSON.stringify(payload));
+}
+
+async function fetchGithub(username) {
+  if (!username) return;
+  $("#gh-meta").textContent = `Fetching activity for ${username}…`;
+  try {
+    const res = await fetch(
+      `https://api.github.com/users/${encodeURIComponent(username)}/events/public?per_page=100`,
+      { headers: { Accept: "application/vnd.github+json" } }
+    );
+    if (res.status === 404) { $("#gh-meta").textContent = `GitHub user "${username}" not found.`; return; }
+    if (res.status === 403) {
+      $("#gh-meta").textContent = "GitHub rate limit hit. Try again in an hour, or wait.";
+      return;
+    }
+    if (!res.ok) { $("#gh-meta").textContent = `GitHub returned HTTP ${res.status}.`; return; }
+    const events = await res.json();
+    const payload = { username, fetchedAt: new Date().toISOString(), events };
+    saveGhCache(payload);
+    renderGithub(payload);
+  } catch (err) {
+    $("#gh-meta").textContent = `Could not reach GitHub: ${err.message}`;
+  }
+}
+
+function summarizeGithub(events) {
+  // Pull out commits from PushEvents — each push can carry multiple commits.
+  const commits = [];
+  const prs = [];
+  for (const ev of events) {
+    if (ev.type === "PushEvent" && ev.payload?.commits) {
+      for (const c of ev.payload.commits) {
+        if (c.distinct === false) continue; // skip merge-duplicate commits
+        commits.push({
+          sha: c.sha,
+          message: c.message,
+          repo: ev.repo?.name || "",
+          time: ev.created_at,
+          url: `https://github.com/${ev.repo?.name}/commit/${c.sha}`
+        });
+      }
+    } else if (ev.type === "PullRequestEvent" || ev.type === "IssuesEvent") {
+      prs.push({
+        type: ev.type === "PullRequestEvent" ? "PR" : "Issue",
+        action: ev.payload?.action,
+        title: ev.payload?.pull_request?.title || ev.payload?.issue?.title || "",
+        repo: ev.repo?.name || "",
+        time: ev.created_at,
+        url: ev.payload?.pull_request?.html_url || ev.payload?.issue?.html_url || ""
+      });
+    }
+  }
+  // Sort newest first
+  commits.sort((a, b) => b.time.localeCompare(a.time));
+  prs.sort((a, b) => b.time.localeCompare(a.time));
+
+  const sevenDaysAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
+  const weekCommits = commits.filter(c => new Date(c.time).getTime() >= sevenDaysAgo).length;
+  const repos = new Set(commits.map(c => c.repo)).size;
+  return { commits, prs, weekCommits, totalCommits: commits.length, repos };
+}
+
+function renderGithub(payload) {
+  if (!payload) {
+    $("#gh-empty").style.display = "";
+    $("#gh-list").innerHTML = "";
+    $("#gh-meta").textContent = "";
+    for (const id of ["gh-week", "gh-total", "gh-repos", "gh-prs"]) $(`#${id}`).textContent = "—";
+    return;
+  }
+  const s = summarizeGithub(payload.events);
+  $("#gh-week").textContent = s.weekCommits.toString();
+  $("#gh-total").textContent = s.totalCommits.toString();
+  $("#gh-repos").textContent = s.repos.toString();
+  $("#gh-prs").textContent = s.prs.length.toString();
+
+  const items = [];
+  for (const c of s.commits.slice(0, 12)) {
+    items.push({
+      time: c.time,
+      title: c.message.split("\n")[0].slice(0, 100),
+      sub: `commit · ${c.repo}`,
+      url: c.url
+    });
+  }
+  for (const pr of s.prs.slice(0, 5)) {
+    items.push({
+      time: pr.time,
+      title: pr.title,
+      sub: `${pr.type} ${pr.action || ""} · ${pr.repo}`,
+      url: pr.url
+    });
+  }
+  items.sort((a, b) => b.time.localeCompare(a.time));
+
+  if (items.length === 0) {
+    $("#gh-empty").textContent = `No recent public activity for ${payload.username}.`;
+    $("#gh-empty").style.display = "";
+    $("#gh-list").innerHTML = "";
+  } else {
+    $("#gh-empty").style.display = "none";
+    $("#gh-list").innerHTML = items.slice(0, 15).map(item => `
+      <li class="history-item">
+        <div class="history-text">
+          <p class="history-when">
+            ${item.url ? `<a href="${item.url}" target="_blank" rel="noopener" style="color:inherit; text-decoration:none;">${escapeHtml(item.title)}</a>` : escapeHtml(item.title)}
+          </p>
+          <p class="history-stats">${escapeHtml(item.sub)} · ${prettyDateTime(item.time)}</p>
+        </div>
+      </li>`).join("");
+  }
+  $("#gh-meta").textContent = `${payload.username} · cached ${prettyDateTime(payload.fetchedAt)} · click Load to refresh`;
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
+}
+
+// Wire up GitHub controls
+const savedUser = loadGhUser();
+if (savedUser) $("#gh-user").value = savedUser;
+const cached = loadGhCache();
+if (cached) renderGithub(cached);
+
+$("#gh-load").addEventListener("click", () => {
+  const user = $("#gh-user").value.trim();
+  saveGhUser(user);
+  if (user) fetchGithub(user);
+  else renderGithub(null);
+});
+$("#gh-user").addEventListener("keydown", (e) => {
+  if (e.key === "Enter") $("#gh-load").click();
+});
 
 if (state.activeSession) startTicker();
 render();
