@@ -1,0 +1,957 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Colateral · Founder Progress Tracker</title>
+<style>
+  :root {
+    --bg: #04111d;
+    --panel: rgba(255, 255, 255, 0.04);
+    --panel-border: rgba(255, 255, 255, 0.08);
+    --fg: #eef4ff;
+    --muted: #8d9aae;
+    --accent: #d5ff7f;
+    --accent-strong: #e2ffab;
+    --teal: #7de2d1;
+    --red: #fca5a5;
+    --danger-bg: rgba(239, 68, 68, 0.15);
+    --danger-bg-hover: rgba(239, 68, 68, 0.25);
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  html { color-scheme: dark; }
+  body {
+    min-height: 100vh;
+    color: var(--fg);
+    font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    background:
+      radial-gradient(circle at top left, rgba(111, 168, 254, 0.18), transparent 24%),
+      radial-gradient(circle at top right, rgba(213, 255, 127, 0.12), transparent 22%),
+      linear-gradient(180deg, #04111d 0%, #071827 48%, #03111d 100%);
+    background-attachment: fixed;
+    font-variant-numeric: tabular-nums;
+  }
+  .shell {
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 24px 20px 64px;
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+  }
+  header.top { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: flex-end; gap: 12px; }
+  .eyebrow { font-size: 11px; text-transform: uppercase; letter-spacing: 0.32em; color: var(--muted); margin: 0; }
+  h1 { font-size: 28px; margin: 8px 0 4px; font-weight: 600; }
+  .tagline { color: var(--muted); margin: 0; font-size: 14px; }
+
+  .card {
+    background: linear-gradient(180deg, rgba(255,255,255,0.06), rgba(255,255,255,0.03));
+    border: 1px solid var(--panel-border);
+    border-radius: 24px;
+    padding: 20px;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.28);
+    backdrop-filter: blur(4px);
+    position: relative;
+    overflow: hidden;
+  }
+  .card .glow {
+    position: absolute;
+    pointer-events: none;
+    background: radial-gradient(circle, rgba(213,255,127,0.35), transparent 60%);
+    filter: blur(40px);
+    opacity: 0.35;
+  }
+
+  /* Buttons */
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    padding: 10px 16px;
+    border-radius: 16px;
+    border: 0;
+    font-size: 14px;
+    font-weight: 500;
+    cursor: pointer;
+    font-family: inherit;
+    transition: background 0.15s, color 0.15s, transform 0.05s;
+  }
+  .btn:active { transform: translateY(1px); }
+  .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+  .btn-primary { background: var(--accent); color: #000; }
+  .btn-primary:hover:not(:disabled) { background: var(--accent-strong); }
+  .btn-secondary { background: rgba(255,255,255,0.06); color: var(--fg); }
+  .btn-secondary:hover { background: rgba(255,255,255,0.10); }
+  .btn-ghost { background: transparent; color: var(--muted); }
+  .btn-ghost:hover { background: rgba(255,255,255,0.05); color: var(--fg); }
+  .btn-danger { background: var(--danger-bg); color: var(--red); }
+  .btn-danger:hover:not(:disabled) { background: var(--danger-bg-hover); }
+  .btn-lg { padding: 14px 22px; font-size: 16px; }
+  .btn-icon { padding: 8px; }
+
+  /* Timer card */
+  .timer-card { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 20px; }
+  .timer-value { font-size: clamp(2.5rem, 6vw, 4rem); font-weight: 600; line-height: 1; margin: 12px 0; color: var(--fg); }
+  .timer-meta { color: var(--muted); font-size: 14px; margin: 0; }
+
+  /* XP card */
+  .xp-card { display: flex; flex-direction: column; gap: 14px; }
+  .xp-head { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: baseline; gap: 8px; }
+  .xp-level { font-size: 28px; font-weight: 600; margin: 4px 0 0; }
+  .xp-total { font-size: 20px; font-weight: 600; margin: 4px 0 0; }
+  .xp-bar-track {
+    height: 16px;
+    width: 100%;
+    background: rgba(255,255,255,0.10);
+    border-radius: 999px;
+    overflow: hidden;
+  }
+  .xp-bar-fill {
+    height: 100%;
+    border-radius: 999px;
+    background: linear-gradient(90deg, var(--accent-strong), var(--accent) 60%, var(--teal));
+    box-shadow: 0 0 24px rgba(213,255,127,0.45);
+    transition: width 0.5s;
+  }
+  .xp-footer { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px; color: var(--muted); font-size: 13px; }
+
+  /* Stats grid */
+  .stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; }
+  @media (max-width: 900px) { .stats { grid-template-columns: repeat(2, 1fr); } }
+  @media (max-width: 480px) { .stats { grid-template-columns: 1fr; } }
+  .stat-label { font-size: 13px; color: var(--muted); margin: 0; }
+  .stat-value { font-size: 28px; font-weight: 600; margin: 8px 0 0; color: var(--fg); }
+  .stat-detail { font-size: 13px; color: var(--muted); margin: 8px 0 0; }
+  .stat-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
+  .stat-icon {
+    background: rgba(255,255,255,0.06);
+    color: var(--accent);
+    padding: 10px;
+    border-radius: 14px;
+    line-height: 0;
+  }
+
+  /* Streak + chart row */
+  .row-3 { display: grid; grid-template-columns: 1fr 2fr; gap: 16px; }
+  @media (max-width: 900px) { .row-3 { grid-template-columns: 1fr; } }
+
+  .streak-sub { margin-top: 18px; display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .streak-sub > div {
+    border: 1px solid var(--panel-border);
+    background: rgba(0,0,0,0.2);
+    border-radius: 14px;
+    padding: 10px 12px;
+  }
+  .streak-sub-label { color: var(--muted); font-size: 12px; display: flex; align-items: center; gap: 6px; }
+  .streak-sub-value { font-size: 16px; font-weight: 600; margin: 4px 0 0; }
+  .badge-on { color: var(--accent); }
+  .badge-off { color: var(--muted); }
+
+  /* Weekly chart */
+  .weekly-grid {
+    margin-top: 16px;
+    display: grid;
+    grid-template-columns: repeat(7, 1fr);
+    gap: 12px;
+    height: 220px;
+    align-items: end;
+  }
+  .weekly-day { display: flex; flex-direction: column; align-items: center; gap: 6px; height: 100%; }
+  .weekly-bar-track {
+    width: 100%;
+    flex: 1;
+    background: rgba(255,255,255,0.04);
+    border-radius: 8px;
+    position: relative;
+    display: flex;
+    align-items: flex-end;
+    overflow: hidden;
+  }
+  .weekly-bar-fill {
+    width: 100%;
+    background: linear-gradient(180deg, var(--accent-strong), var(--accent));
+    border-radius: 8px 8px 4px 4px;
+    transition: height 0.4s;
+    min-height: 1px;
+  }
+  .weekly-bar-fill[data-empty="true"] { background: rgba(255,255,255,0.08); }
+  .weekly-label { font-size: 11px; color: var(--muted); }
+  .weekly-hours { font-size: 11px; color: var(--fg); }
+
+  /* Session history */
+  .history-list { list-style: none; padding: 0; margin: 12px 0 0; }
+  .history-item {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 0;
+    border-bottom: 1px solid rgba(255,255,255,0.05);
+  }
+  .history-item:last-child { border-bottom: 0; }
+  .history-text { flex: 1; min-width: 0; }
+  .history-when { color: var(--fg); font-size: 14px; font-weight: 500; margin: 0; }
+  .history-stats { color: var(--muted); font-size: 12px; margin: 2px 0 0; }
+  .history-empty { color: var(--muted); font-size: 14px; margin: 16px 0 0; }
+  .actions { display: flex; gap: 4px; }
+  .icon-btn { background: transparent; border: 0; color: var(--muted); cursor: pointer; padding: 6px; border-radius: 10px; }
+  .icon-btn:hover { background: rgba(255,255,255,0.06); color: var(--fg); }
+  .icon-btn.danger:hover { color: var(--red); }
+
+  /* Badges */
+  .badge-grid {
+    margin-top: 16px;
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    gap: 12px;
+  }
+  @media (max-width: 900px) { .badge-grid { grid-template-columns: repeat(3, 1fr); } }
+  @media (max-width: 480px) { .badge-grid { grid-template-columns: repeat(2, 1fr); } }
+  .badge {
+    border: 1px solid var(--panel-border);
+    background: rgba(0,0,0,0.2);
+    border-radius: 16px;
+    padding: 12px;
+    opacity: 0.5;
+  }
+  .badge.unlocked {
+    border-color: rgba(213,255,127,0.4);
+    background: rgba(213,255,127,0.08);
+    box-shadow: 0 0 24px rgba(213,255,127,0.18);
+    opacity: 1;
+  }
+  .badge-icon {
+    display: inline-flex;
+    background: rgba(255,255,255,0.06);
+    color: var(--accent);
+    padding: 8px;
+    border-radius: 10px;
+    margin-bottom: 8px;
+  }
+  .badge-label { font-size: 13px; font-weight: 500; color: var(--fg); margin: 0; }
+  .badge-desc { font-size: 11px; color: var(--muted); margin: 4px 0 0; }
+
+  /* Warning banner */
+  .warn-card {
+    border-color: rgba(250, 204, 21, 0.25) !important;
+    background: rgba(250, 204, 21, 0.06) !important;
+  }
+  .warn-head { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 12px; }
+  .warn-title { color: #fef9c3; font-size: 14px; font-weight: 500; margin: 0; }
+  .warn-meta { color: var(--muted); font-size: 12px; margin: 2px 0 0; }
+
+  /* Card-row card heads */
+  .card-head { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+  .card-head h2 { font-size: 18px; font-weight: 600; margin: 6px 0 0; color: var(--fg); }
+  .card-head .meta { color: var(--muted); font-size: 13px; margin: 0; }
+
+  /* Modal */
+  .modal-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.7);
+    backdrop-filter: blur(4px);
+    display: none;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+    z-index: 50;
+  }
+  .modal-overlay.open { display: flex; }
+  .modal {
+    background: rgba(8, 18, 32, 0.95);
+    border: 1px solid var(--panel-border);
+    border-radius: 24px;
+    padding: 24px;
+    width: 100%;
+    max-width: 480px;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+  }
+  .modal h3 { margin: 0 0 4px; font-size: 18px; font-weight: 600; }
+  .modal .desc { color: var(--muted); font-size: 14px; margin: 0 0 16px; }
+  .field { display: flex; flex-direction: column; gap: 6px; margin-bottom: 12px; color: var(--muted); font-size: 13px; }
+  .field input {
+    height: 40px;
+    border-radius: 12px;
+    border: 1px solid var(--panel-border);
+    background: rgba(0,0,0,0.3);
+    color: var(--fg);
+    padding: 0 12px;
+    font-family: inherit;
+    font-size: 14px;
+    outline: none;
+  }
+  .field input:focus { border-color: var(--accent); }
+  .modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 12px; }
+  .mono { font-family: ui-monospace, SFMono-Regular, monospace; color: var(--fg); }
+</style>
+</head>
+<body>
+<div class="shell">
+  <header class="top">
+    <div>
+      <p class="eyebrow">Colateral AI</p>
+      <h1>Founder progress tracker</h1>
+      <p class="tagline" id="tagline">Momentum compounds.</p>
+    </div>
+    <button class="btn btn-ghost" id="reset-btn">Reset all data</button>
+  </header>
+
+  <div id="long-session-warn"></div>
+
+  <!-- Timer -->
+  <div class="card timer-card" id="timer-card">
+    <div class="glow" style="top:-100px; right:-100px; width:280px; height:280px;"></div>
+    <div style="position:relative;">
+      <p class="eyebrow" id="timer-eyebrow">Session timer</p>
+      <p class="timer-value" id="timer-value">00:00:00</p>
+      <p class="timer-meta" id="timer-meta">Hit start when you sit down to build.</p>
+    </div>
+    <div style="position:relative;">
+      <button class="btn btn-primary btn-lg" id="start-btn">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
+        Start Session
+      </button>
+      <button class="btn btn-danger btn-lg" id="end-btn" style="display:none;">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="1"/></svg>
+        End Session
+      </button>
+    </div>
+  </div>
+
+  <!-- XP Progress -->
+  <div class="card xp-card">
+    <div class="glow" style="left:50%; bottom:-150px; width:300px; height:200px; transform:translateX(-50%);"></div>
+    <div class="xp-head" style="position:relative;">
+      <div>
+        <p class="eyebrow">Level</p>
+        <p class="xp-level" id="xp-level">L1</p>
+      </div>
+      <div style="text-align:right;">
+        <p class="eyebrow">Total XP</p>
+        <p class="xp-total" id="xp-total">0</p>
+      </div>
+    </div>
+    <div class="xp-bar-track" style="position:relative;">
+      <div class="xp-bar-fill" id="xp-bar-fill" style="width:0%;"></div>
+    </div>
+    <div class="xp-footer" style="position:relative;">
+      <span id="xp-into-level">0 / 500 XP this level</span>
+      <span id="xp-to-next">500 XP to L2</span>
+    </div>
+  </div>
+
+  <!-- Stats grid -->
+  <div class="stats">
+    <div class="card">
+      <div class="stat-head">
+        <div>
+          <p class="stat-label">Total hours</p>
+          <p class="stat-value" id="stat-hours">0.00</p>
+          <p class="stat-detail">Independent of XP</p>
+        </div>
+        <div class="stat-icon">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+        </div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="stat-head">
+        <div>
+          <p class="stat-label">Sessions</p>
+          <p class="stat-value" id="stat-sessions">0</p>
+          <p class="stat-detail">All-time completed</p>
+        </div>
+        <div class="stat-icon">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="4" y1="9" x2="20" y2="9"/><line x1="4" y1="15" x2="20" y2="15"/><line x1="10" y1="3" x2="8" y2="21"/><line x1="16" y1="3" x2="14" y2="21"/></svg>
+        </div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="stat-head">
+        <div>
+          <p class="stat-label">Total XP</p>
+          <p class="stat-value" id="stat-xp">0</p>
+          <p class="stat-detail" id="stat-xp-detail">Level 1</p>
+        </div>
+        <div class="stat-icon">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+        </div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="stat-head">
+        <div>
+          <p class="stat-label">Longest streak</p>
+          <p class="stat-value" id="stat-longest">0d</p>
+          <p class="stat-detail" id="stat-longest-detail">Reignite today</p>
+        </div>
+        <div class="stat-icon">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2 L13.5 8 L20 9 L15 13.5 L16.5 20 L12 16.5 L7.5 20 L9 13.5 L4 9 L10.5 8 Z"/></svg>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Streak + Weekly chart -->
+  <div class="row-3">
+    <div class="card">
+      <div class="stat-head">
+        <div>
+          <p class="eyebrow">Streak</p>
+          <p class="stat-value" style="margin-top:8px;">
+            <span id="streak-current">0</span>
+            <span style="font-size:14px; color:var(--muted); font-weight:400;">days</span>
+          </p>
+          <p class="stat-detail" id="streak-tagline">Start the streak today</p>
+        </div>
+        <div class="stat-icon">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M13.5.67s.74 2.65.74 4.8c0 2.06-1.35 3.73-3.41 3.73-2.07 0-3.63-1.67-3.63-3.73l.03-.36C5.21 7.51 4 10.62 4 14c0 4.42 3.58 8 8 8s8-3.58 8-8C20 8.61 17.41 3.8 13.5.67zM11.71 19c-1.78 0-3.22-1.4-3.22-3.14 0-1.62 1.05-2.76 2.81-3.12 1.77-.36 3.6-1.21 4.62-2.58.39 1.29.59 2.65.59 4.04 0 2.65-2.15 4.8-4.8 4.8z"/></svg>
+        </div>
+      </div>
+      <div class="streak-sub">
+        <div>
+          <p class="streak-sub-label">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg>
+            Longest
+          </p>
+          <p class="streak-sub-value" id="streak-longest">0 days</p>
+        </div>
+        <div>
+          <p class="streak-sub-label">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2"/></svg>
+            Bonuses
+          </p>
+          <p class="streak-sub-value" style="font-size:13px;">
+            <span id="bonus-today" class="badge-off">Daily pending</span>
+            <span style="color:var(--muted); margin: 0 6px;">·</span>
+            <span id="bonus-week" class="badge-off">Weekly pending</span>
+          </p>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-head">
+        <div>
+          <p class="eyebrow">This week</p>
+          <h2>Hours by day</h2>
+        </div>
+        <p class="meta">Momentum compounds.</p>
+      </div>
+      <div class="weekly-grid" id="weekly-grid"></div>
+    </div>
+  </div>
+
+  <!-- Session history -->
+  <div class="card">
+    <div class="card-head">
+      <div>
+        <p class="eyebrow">Recent sessions</p>
+        <h2>Another brick in the empire</h2>
+      </div>
+      <p class="meta"><span id="history-count">0</span> total</p>
+    </div>
+    <ul class="history-list" id="history-list"></ul>
+    <p class="history-empty" id="history-empty">No sessions yet. Hit start when you sit down to build.</p>
+  </div>
+
+  <!-- Badges -->
+  <div class="card">
+    <div class="card-head">
+      <div>
+        <p class="eyebrow">Milestones</p>
+        <h2>Badges</h2>
+      </div>
+      <p class="meta"><span id="badges-unlocked">0</span> / <span id="badges-total">0</span> unlocked</p>
+    </div>
+    <div class="badge-grid" id="badge-grid"></div>
+  </div>
+
+  <p style="text-align:center; color:var(--muted); font-size:12px; margin-top:8px;">
+    All data is stored locally in this browser. To back it up, export your localStorage.
+  </p>
+</div>
+
+<!-- Edit session modal -->
+<div class="modal-overlay" id="edit-modal">
+  <div class="modal">
+    <h3>Edit session</h3>
+    <p class="desc">Adjust the start or end time. Totals will recompute.</p>
+    <label class="field">Start
+      <input type="datetime-local" id="edit-start" />
+    </label>
+    <label class="field">End
+      <input type="datetime-local" id="edit-end" />
+    </label>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" id="edit-cancel">Cancel</button>
+      <button class="btn btn-primary" id="edit-save">Save changes</button>
+    </div>
+  </div>
+</div>
+
+<!-- Reset modal -->
+<div class="modal-overlay" id="reset-modal">
+  <div class="modal">
+    <h3>Reset all progress data?</h3>
+    <p class="desc">This deletes every session, every XP event, your streak, and your level. There is no undo.</p>
+    <label class="field">Type <span class="mono">RESET</span> to confirm.
+      <input type="text" id="reset-confirm" placeholder="RESET" />
+    </label>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" id="reset-cancel">Cancel</button>
+      <button class="btn btn-danger" id="reset-confirm-btn" disabled>Wipe everything</button>
+    </div>
+  </div>
+</div>
+
+<script>
+"use strict";
+
+// ---------- Constants (XP rules) ----------
+const XP_PER_HOUR = 100;
+const DAILY_STREAK_BONUS = 25;
+const WEEKLY_MILESTONE_BONUS = 250;
+const WEEKLY_MILESTONE_DAYS = 5;
+const XP_PER_LEVEL = 500;
+const STORAGE_KEY = "colateral-progress-v1";
+
+// ---------- State ----------
+let state = { sessions: [], activeSession: null };
+let editingId = null;
+let tickHandle = null;
+
+// ---------- Persistence ----------
+function load() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return { sessions: [], activeSession: null };
+    const parsed = JSON.parse(raw);
+    return {
+      sessions: Array.isArray(parsed.sessions) ? parsed.sessions : [],
+      activeSession: parsed.activeSession || null
+    };
+  } catch { return { sessions: [], activeSession: null }; }
+}
+function save() { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); }
+
+// ---------- Date helpers ----------
+function pad(n) { return n.toString().padStart(2, "0"); }
+function toLocalDateKey(d) {
+  const date = d instanceof Date ? d : new Date(d);
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+}
+function startOfWeek(d) {
+  const date = new Date(d);
+  const day = date.getDay(); // 0=Sun..6=Sat
+  const diff = day === 0 ? -6 : 1 - day;
+  date.setDate(date.getDate() + diff);
+  date.setHours(0, 0, 0, 0);
+  return date;
+}
+function weekKey(d) { return toLocalDateKey(startOfWeek(d)); }
+function addDays(d, n) {
+  const date = new Date(d);
+  date.setDate(date.getDate() + n);
+  return date;
+}
+function prettyDateTime(iso) {
+  const d = new Date(iso);
+  const monthDay = d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+  const time = d.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+  return `${monthDay} · ${time}`;
+}
+function shortWeekday(d) {
+  return new Date(d).toLocaleDateString(undefined, { weekday: "short" });
+}
+function newId(prefix) {
+  if (window.crypto && crypto.randomUUID) return `${prefix}-${crypto.randomUUID()}`;
+  return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+// ---------- Calculations ----------
+// 1h = 100 XP, rounded to integer per session.
+function sessionXP(durationMinutes) {
+  return Math.round((durationMinutes / 60) * XP_PER_HOUR);
+}
+
+// Level: 500 XP per level, Level 1 starts at 0 XP.
+function levelFromXP(totalXP) {
+  const safe = Math.max(0, totalXP);
+  const currentLevel = Math.floor(safe / XP_PER_LEVEL) + 1;
+  const xpIntoLevel = safe % XP_PER_LEVEL;
+  const xpToNextLevel = XP_PER_LEVEL - xpIntoLevel;
+  const percent = (xpIntoLevel / XP_PER_LEVEL) * 100;
+  return { currentLevel, xpIntoLevel, xpToNextLevel, percent };
+}
+
+// XP events derived from sessions in chronological order.
+// Daily streak bonus: +25 once per calendar day, first session of that day.
+// Weekly milestone bonus: +250 the first time 5 distinct days are logged in a Mon-Sun week.
+function buildXPEvents(sessions) {
+  const ordered = [...sessions].sort((a, b) => a.startTime.localeCompare(b.startTime));
+  const events = [];
+  const seenDays = new Set();
+  const weekDays = new Map(); // weekKey -> Set of dayKeys
+  const weeklyAwarded = new Set();
+  for (const s of ordered) {
+    const xp = sessionXP(s.durationMinutes);
+    if (xp > 0) events.push({ type: "session", amount: xp, date: s.date });
+    if (!seenDays.has(s.date)) {
+      seenDays.add(s.date);
+      events.push({ type: "daily_streak_bonus", amount: DAILY_STREAK_BONUS, date: s.date });
+    }
+    const wk = weekKey(s.startTime);
+    let set = weekDays.get(wk);
+    if (!set) { set = new Set(); weekDays.set(wk, set); }
+    set.add(s.date);
+    if (set.size >= WEEKLY_MILESTONE_DAYS && !weeklyAwarded.has(wk)) {
+      weeklyAwarded.add(wk);
+      events.push({ type: "weekly_milestone_bonus", amount: WEEKLY_MILESTONE_BONUS, date: s.date, weekKey: wk });
+    }
+  }
+  return events;
+}
+
+// Current streak: consecutive days ending today (or yesterday if today has no session).
+function computeStreaks(sessions, today = new Date()) {
+  if (sessions.length === 0) return { current: 0, longest: 0 };
+  const dayKeys = [...new Set(sessions.map(s => s.date))].sort();
+  let longest = 1, run = 1;
+  for (let i = 1; i < dayKeys.length; i++) {
+    const prev = new Date(dayKeys[i - 1]);
+    const expected = toLocalDateKey(addDays(prev, 1));
+    if (dayKeys[i] === expected) { run++; longest = Math.max(longest, run); }
+    else { run = 1; }
+  }
+  const todayKey = toLocalDateKey(today);
+  const daySet = new Set(dayKeys);
+  let cursor = todayKey;
+  if (!daySet.has(cursor)) {
+    cursor = toLocalDateKey(addDays(new Date(cursor), -1));
+    if (!daySet.has(cursor)) return { current: 0, longest };
+  }
+  let current = 0;
+  while (daySet.has(cursor)) {
+    current++;
+    cursor = toLocalDateKey(addDays(new Date(cursor), -1));
+  }
+  return { current, longest: Math.max(longest, current) };
+}
+
+// 7-day window for the current Mon-Sun week containing today.
+function buildWeeklyChart(sessions, today = new Date()) {
+  const start = startOfWeek(today);
+  const days = [];
+  for (let i = 0; i < 7; i++) {
+    const d = addDays(start, i);
+    const key = toLocalDateKey(d);
+    const minutes = sessions.filter(s => s.date === key).reduce((a, s) => a + s.durationMinutes, 0);
+    days.push({ date: key, label: shortWeekday(d), hours: minutes / 60 });
+  }
+  return days;
+}
+
+function computeBadges(stats, sessions) {
+  return [
+    { id: "first", label: "First Commit", desc: "Log your first session", unlocked: sessions.length >= 1 },
+    { id: "ten-sess", label: "Cadence", desc: "Complete 10 sessions", unlocked: stats.totalSessions >= 10 },
+    { id: "ten-h", label: "Deep Work", desc: "Log 10 total hours", unlocked: stats.totalHours >= 10 },
+    { id: "fifty-h", label: "Builder", desc: "Log 50 total hours", unlocked: stats.totalHours >= 50 },
+    { id: "hundred-h", label: "Operator", desc: "Log 100 total hours", unlocked: stats.totalHours >= 100 },
+    { id: "streak-3", label: "Momentum", desc: "Hit a 3-day streak", unlocked: stats.longestStreak >= 3 },
+    { id: "streak-7", label: "Week On", desc: "Hit a 7-day streak", unlocked: stats.longestStreak >= 7 },
+    { id: "streak-30", label: "Discipline", desc: "Hit a 30-day streak", unlocked: stats.longestStreak >= 30 },
+    { id: "level-5", label: "Founder Mode", desc: "Reach Level 5", unlocked: stats.currentLevel >= 5 },
+    { id: "level-10", label: "Compounded", desc: "Reach Level 10", unlocked: stats.currentLevel >= 10 }
+  ];
+}
+
+function derive(now = new Date()) {
+  const xpEvents = buildXPEvents(state.sessions);
+  const totalXP = xpEvents.reduce((a, e) => a + e.amount, 0);
+  const totalMinutes = state.sessions.reduce((a, s) => a + s.durationMinutes, 0);
+  const totalHours = totalMinutes / 60;
+  const { current: currentStreak, longest: longestStreak } = computeStreaks(state.sessions, now);
+  const lvl = levelFromXP(totalXP);
+  const stats = {
+    totalHours, totalSessions: state.sessions.length,
+    currentStreak, longestStreak, totalXP, ...lvl
+  };
+  const todayKey = toLocalDateKey(now);
+  const wk = weekKey(now);
+  const bonusToday = xpEvents.some(e => e.type === "daily_streak_bonus" && e.date === todayKey);
+  const bonusThisWeek = xpEvents.some(e => e.type === "weekly_milestone_bonus" && weekKey(e.date) === wk);
+  return {
+    stats, weekly: buildWeeklyChart(state.sessions, now),
+    bonusToday, bonusThisWeek, badges: computeBadges(stats, state.sessions)
+  };
+}
+
+// ---------- Formatting ----------
+function formatHMS(seconds) {
+  const h = Math.floor(seconds / 3600);
+  const m = Math.floor((seconds % 3600) / 60);
+  const s = Math.floor(seconds % 60);
+  return [h, m, s].map(pad).join(":");
+}
+const microcopy = [
+  "Momentum compounds.",
+  "Another brick in the empire.",
+  "Build streak active.",
+  "Founder mode engaged."
+];
+
+// ---------- Render ----------
+function render() {
+  const now = new Date();
+  const d = derive(now);
+
+  // Tagline rotates with current streak.
+  $("#tagline").textContent = microcopy[d.stats.currentStreak % microcopy.length];
+
+  // Timer
+  const active = state.activeSession;
+  const elapsedSeconds = active
+    ? Math.max(0, Math.floor((now.getTime() - new Date(active.startTime).getTime()) / 1000))
+    : 0;
+  $("#timer-value").textContent = formatHMS(elapsedSeconds);
+  $("#timer-eyebrow").textContent = active ? "Founder mode engaged" : "Session timer";
+  $("#timer-meta").textContent = active
+    ? `Started ${prettyDateTime(active.startTime)}`
+    : "Hit start when you sit down to build.";
+  $("#start-btn").style.display = active ? "none" : "";
+  $("#end-btn").style.display = active ? "" : "none";
+
+  // 6h+ warn
+  const warn = $("#long-session-warn");
+  if (active && elapsedSeconds > 6 * 3600) {
+    warn.innerHTML = `
+      <div class="card warn-card">
+        <div class="warn-head">
+          <div>
+            <p class="warn-title">This session has been running for ${(elapsedSeconds / 3600).toFixed(1)} hours.</p>
+            <p class="warn-meta">Started ${prettyDateTime(active.startTime)}. End it now if you forgot.</p>
+          </div>
+          <div style="display:flex; gap:8px;">
+            <button class="btn btn-secondary" id="warn-discard">Discard</button>
+            <button class="btn btn-primary" id="warn-end">End now</button>
+          </div>
+        </div>
+      </div>`;
+    $("#warn-discard").onclick = () => { state.activeSession = null; save(); render(); };
+    $("#warn-end").onclick = endSession;
+  } else { warn.innerHTML = ""; }
+
+  // XP card
+  $("#xp-level").textContent = `L${d.stats.currentLevel}`;
+  $("#xp-total").textContent = d.stats.totalXP.toLocaleString();
+  $("#xp-bar-fill").style.width = `${Math.min(100, Math.max(0, d.stats.percent))}%`;
+  $("#xp-into-level").textContent = `${d.stats.xpIntoLevel} / 500 XP this level`;
+  $("#xp-to-next").textContent = `${d.stats.xpToNextLevel} XP to L${d.stats.currentLevel + 1}`;
+
+  // Stats grid
+  $("#stat-hours").textContent = d.stats.totalHours.toFixed(2);
+  $("#stat-sessions").textContent = d.stats.totalSessions.toString();
+  $("#stat-xp").textContent = d.stats.totalXP.toLocaleString();
+  $("#stat-xp-detail").textContent = `Level ${d.stats.currentLevel}`;
+  $("#stat-longest").textContent = `${d.stats.longestStreak}d`;
+  $("#stat-longest-detail").textContent = d.stats.currentStreak > 0
+    ? `Current: ${d.stats.currentStreak}d` : "Reignite today";
+
+  // Streak card
+  $("#streak-current").textContent = d.stats.currentStreak.toString();
+  $("#streak-tagline").textContent = d.stats.currentStreak > 0
+    ? "Build streak active" : "Start the streak today";
+  $("#streak-longest").textContent = `${d.stats.longestStreak} days`;
+  const todayBonusEl = $("#bonus-today");
+  todayBonusEl.textContent = d.bonusToday ? "+25 today" : "Daily pending";
+  todayBonusEl.className = d.bonusToday ? "badge-on" : "badge-off";
+  const weekBonusEl = $("#bonus-week");
+  weekBonusEl.textContent = d.bonusThisWeek ? "+250 week" : "Weekly pending";
+  weekBonusEl.className = d.bonusThisWeek ? "badge-on" : "badge-off";
+
+  // Weekly chart
+  const maxHours = Math.max(0.5, ...d.weekly.map(w => w.hours));
+  $("#weekly-grid").innerHTML = d.weekly.map(w => {
+    const height = (w.hours / maxHours) * 100;
+    return `
+      <div class="weekly-day">
+        <span class="weekly-hours">${w.hours > 0 ? w.hours.toFixed(1) + "h" : ""}</span>
+        <div class="weekly-bar-track">
+          <div class="weekly-bar-fill" style="height:${height}%" data-empty="${w.hours === 0}"></div>
+        </div>
+        <span class="weekly-label">${w.label}</span>
+      </div>`;
+  }).join("");
+
+  // Session history
+  const ordered = [...state.sessions].sort((a, b) => b.startTime.localeCompare(a.startTime));
+  $("#history-count").textContent = state.sessions.length.toString();
+  const list = $("#history-list");
+  if (ordered.length === 0) {
+    list.innerHTML = "";
+    $("#history-empty").style.display = "";
+  } else {
+    $("#history-empty").style.display = "none";
+    list.innerHTML = ordered.slice(0, 20).map(s => {
+      const xp = sessionXP(s.durationMinutes);
+      const hours = (s.durationMinutes / 60).toFixed(2);
+      return `
+        <li class="history-item">
+          <div class="history-text">
+            <p class="history-when">${prettyDateTime(s.startTime)}</p>
+            <p class="history-stats">${hours} h · ${s.durationMinutes} min · +${xp} XP</p>
+          </div>
+          <div class="actions">
+            <button class="icon-btn" data-edit="${s.id}" title="Edit">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+            </button>
+            <button class="icon-btn danger" data-delete="${s.id}" title="Delete">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-2 14a2 2 0 0 1-2 2H9a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2"/></svg>
+            </button>
+          </div>
+        </li>`;
+    }).join("");
+  }
+
+  // Badges
+  $("#badges-unlocked").textContent = d.badges.filter(b => b.unlocked).length.toString();
+  $("#badges-total").textContent = d.badges.length.toString();
+  $("#badge-grid").innerHTML = d.badges.map(b => `
+    <div class="badge ${b.unlocked ? "unlocked" : ""}">
+      <div class="badge-icon">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="7"/><polyline points="8.21 13.89 7 23 12 20 17 23 15.79 13.88"/></svg>
+      </div>
+      <p class="badge-label">${b.label}</p>
+      <p class="badge-desc">${b.desc}</p>
+    </div>`).join("");
+}
+
+// ---------- Actions ----------
+function startSession() {
+  if (state.activeSession) return;
+  state.activeSession = { id: newId("active"), startTime: new Date().toISOString() };
+  save(); startTicker(); render();
+}
+function endSession() {
+  if (!state.activeSession) return;
+  const start = new Date(state.activeSession.startTime);
+  const end = new Date();
+  const durationMinutes = Math.max(0, Math.round((end.getTime() - start.getTime()) / 60000));
+  if (durationMinutes > 0) {
+    state.sessions.push({
+      id: newId("session"),
+      startTime: start.toISOString(),
+      endTime: end.toISOString(),
+      durationMinutes,
+      date: toLocalDateKey(start)
+    });
+  }
+  state.activeSession = null;
+  save(); stopTicker(); render();
+}
+function deleteSession(id) {
+  state.sessions = state.sessions.filter(s => s.id !== id);
+  save(); render();
+}
+function openEdit(id) {
+  const s = state.sessions.find(x => x.id === id);
+  if (!s) return;
+  editingId = id;
+  $("#edit-start").value = toLocalInput(s.startTime);
+  $("#edit-end").value = toLocalInput(s.endTime);
+  $("#edit-modal").classList.add("open");
+}
+function saveEdit() {
+  if (!editingId) return;
+  const startVal = $("#edit-start").value;
+  const endVal = $("#edit-end").value;
+  if (!startVal || !endVal) return;
+  const startDate = new Date(startVal);
+  const endDate = new Date(endVal);
+  if (endDate <= startDate) return;
+  const durationMinutes = Math.max(0, Math.round((endDate.getTime() - startDate.getTime()) / 60000));
+  state.sessions = state.sessions.map(s => s.id === editingId ? {
+    ...s,
+    startTime: startDate.toISOString(),
+    endTime: endDate.toISOString(),
+    durationMinutes,
+    date: toLocalDateKey(startDate)
+  } : s);
+  editingId = null;
+  $("#edit-modal").classList.remove("open");
+  save(); render();
+}
+function toLocalInput(iso) {
+  const d = new Date(iso);
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+function resetAll() {
+  state = { sessions: [], activeSession: null };
+  localStorage.removeItem(STORAGE_KEY);
+  stopTicker();
+  $("#reset-modal").classList.remove("open");
+  $("#reset-confirm").value = "";
+  $("#reset-confirm-btn").disabled = true;
+  render();
+}
+
+// ---------- Ticker ----------
+function startTicker() {
+  if (tickHandle) return;
+  tickHandle = setInterval(render, 1000);
+}
+function stopTicker() {
+  if (tickHandle) { clearInterval(tickHandle); tickHandle = null; }
+}
+
+// ---------- Helpers ----------
+function $(sel) { return document.querySelector(sel); }
+
+// ---------- Wire up ----------
+state = load();
+
+$("#start-btn").addEventListener("click", startSession);
+$("#end-btn").addEventListener("click", endSession);
+
+$("#reset-btn").addEventListener("click", () => {
+  $("#reset-confirm").value = "";
+  $("#reset-confirm-btn").disabled = true;
+  $("#reset-modal").classList.add("open");
+});
+$("#reset-cancel").addEventListener("click", () => $("#reset-modal").classList.remove("open"));
+$("#reset-confirm").addEventListener("input", (e) => {
+  $("#reset-confirm-btn").disabled = e.target.value.trim().toUpperCase() !== "RESET";
+});
+$("#reset-confirm-btn").addEventListener("click", resetAll);
+
+$("#edit-cancel").addEventListener("click", () => {
+  editingId = null;
+  $("#edit-modal").classList.remove("open");
+});
+$("#edit-save").addEventListener("click", saveEdit);
+
+document.addEventListener("click", (e) => {
+  const editId = e.target.closest?.("[data-edit]")?.getAttribute("data-edit");
+  if (editId) { openEdit(editId); return; }
+  const delId = e.target.closest?.("[data-delete]")?.getAttribute("data-delete");
+  if (delId) {
+    if (confirm("Delete this session? Totals will recompute.")) deleteSession(delId);
+  }
+});
+
+// Close modals by clicking the overlay backdrop.
+for (const id of ["edit-modal", "reset-modal"]) {
+  $(`#${id}`).addEventListener("click", (e) => {
+    if (e.target.id === id) e.target.classList.remove("open");
+  });
+}
+
+if (state.activeSession) startTicker();
+render();
+</script>
+</body>
+</html>
