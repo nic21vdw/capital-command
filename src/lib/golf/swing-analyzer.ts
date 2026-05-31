@@ -407,7 +407,7 @@ export function analyzeSwing(frames: FrameWithPose[]): SwingAnalysis {
   const addressL = getLandmarks('address')
   const topL = getLandmarks('top')
   const impactL = getLandmarks('impact')
-  const followL = getLandmarks('follow_through')
+  const followL = getLandmarks('finish')
 
   const addressSpine = addressL ? spineAngle(addressL) : null
   const impactSpine = impactL ? spineAngle(impactL) : null

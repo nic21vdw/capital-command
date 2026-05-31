@@ -28,6 +28,7 @@ export function buildInitialFrames(duration: number): FrameWithPose[] {
     timestamp: duration * defaultPct,
     dataUrl: '',
     pose: null,
+    annotatedUrl: null,
     processing: false,
     error: null,
   }))
