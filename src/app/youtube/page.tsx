@@ -1,12 +1,12 @@
 import { Suspense } from "react";
 import { AppShell } from "@/components/layout/app-shell";
-import { FinancesPage } from "@/components/finance/finances-page";
+import { YouTubePage } from "@/components/creator/youtube-page";
 
 export default function Page() {
   return (
     <AppShell>
       <Suspense>
-        <FinancesPage />
+        <YouTubePage />
       </Suspense>
     </AppShell>
   );

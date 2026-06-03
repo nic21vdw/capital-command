@@ -1,10 +1,5 @@
-import { AppShell } from "@/components/layout/app-shell";
-import { WatchlistPage } from "@/components/watchlist/watchlist-page";
+import { redirect } from "next/navigation";
 
 export default function Page() {
-  return (
-    <AppShell>
-      <WatchlistPage />
-    </AppShell>
-  );
+  redirect("/finance?tab=watchlist");
 }

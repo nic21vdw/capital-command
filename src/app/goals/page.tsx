@@ -1,10 +1,5 @@
-import { GoalsPage } from "@/components/goals/goals-page";
-import { AppShell } from "@/components/layout/app-shell";
+import { redirect } from "next/navigation";
 
 export default function Page() {
-  return (
-    <AppShell>
-      <GoalsPage />
-    </AppShell>
-  );
+  redirect("/finance?tab=goals");
 }

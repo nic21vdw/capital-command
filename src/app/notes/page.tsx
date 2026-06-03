@@ -1,10 +1,5 @@
-import { AppShell } from "@/components/layout/app-shell";
-import { NotesPage } from "@/components/notes/notes-page";
+import { redirect } from "next/navigation";
 
 export default function Page() {
-  return (
-    <AppShell>
-      <NotesPage />
-    </AppShell>
-  );
+  redirect("/youtube?tab=notes");
 }
