@@ -98,6 +98,14 @@ if errorlevel 1 (
   exit /b 1
 )
 
+REM --- Free port 3000 if a previous run is still using it ------
+REM  This stops a leftover server from an earlier launch so the app
+REM  always opens on the same address (http://localhost:3000).
+for /f "tokens=5" %%P in ('netstat -ano ^| findstr /R /C:":3000 .*LISTENING"') do (
+  echo Stopping a previous instance still using port 3000 (PID %%P)...
+  taskkill /F /PID %%P >nul 2>nul
+)
+
 REM --- 4/4: Start the app and open the browser ----------------
 echo [4/4] Starting the app...
 echo.
@@ -109,7 +117,8 @@ echo.
 REM Open the browser shortly after the server has had time to boot.
 start "" cmd /c "timeout /t 6 >nul & start "" http://localhost:3000"
 
-REM Run the dev server in this window (this blocks until you close it).
-call npm run dev
+REM Run the dev server in this window, pinned to port 3000 so the URL above
+REM always matches. This blocks until you close the window.
+call npm run dev -- -p 3000
 
 endlocal
