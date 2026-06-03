@@ -7,6 +7,7 @@
   --muted-foreground: #516071;
   --accent: #c8f46d;
   --accent-strong: #ddff98;
+  --accent-contrast: #0c1308;
 }
 
 .dark {
@@ -16,6 +17,75 @@
   --muted-foreground: #8d9aae;
   --accent: #d5ff7f;
   --accent-strong: #e2ffab;
+  --accent-contrast: #0c1308;
+}
+
+/* Accent themes. The data-accent attribute on <html> swaps the accent palette
+   used across buttons, highlights, and chart strokes (which read var(--accent)). */
+[data-accent="lime"] {
+  --accent: #c8f46d;
+  --accent-strong: #ddff98;
+  --accent-contrast: #0c1308;
+}
+.dark[data-accent="lime"] {
+  --accent: #d5ff7f;
+  --accent-strong: #e2ffab;
+  --accent-contrast: #0c1308;
+}
+
+[data-accent="stripe"] {
+  --accent: #7c5cff;
+  --accent-strong: #9b87ff;
+  --accent-contrast: #ffffff;
+}
+.dark[data-accent="stripe"] {
+  --accent: #9b87ff;
+  --accent-strong: #b9aaff;
+  --accent-contrast: #0c0a1a;
+}
+
+[data-accent="ocean"] {
+  --accent: #2fb6c4;
+  --accent-strong: #5fd6e2;
+  --accent-contrast: #04141a;
+}
+.dark[data-accent="ocean"] {
+  --accent: #4fd6e2;
+  --accent-strong: #7ee9f2;
+  --accent-contrast: #04141a;
+}
+
+[data-accent="sunset"] {
+  --accent: #ff8a4c;
+  --accent-strong: #ffb07a;
+  --accent-contrast: #1a0c04;
+}
+.dark[data-accent="sunset"] {
+  --accent: #ffa463;
+  --accent-strong: #ffc499;
+  --accent-contrast: #1a0c04;
+}
+
+[data-accent="rose"] {
+  --accent: #f0568c;
+  --accent-strong: #ff84ad;
+  --accent-contrast: #1a0410;
+}
+.dark[data-accent="rose"] {
+  --accent: #ff6f9f;
+  --accent-strong: #ff9bbd;
+  --accent-contrast: #1a0410;
+}
+
+[data-accent="mono"] {
+  --accent: #1f2937;
+  --accent-strong: #374151;
+  --accent-contrast: #ffffff;
+}
+.dark[data-accent="mono"] {
+  --accent: #e6edf6;
+  --accent-strong: #ffffff;
+  --accent-contrast: #0c1219;
 }
 
 * {

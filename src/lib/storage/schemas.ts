@@ -55,9 +55,25 @@ export const goalSchema = z.object({
   notes: z.string().optional()
 });
 
+export const expenseSchema = z.object({
+  id: z.string(),
+  name: z.string().trim().min(1),
+  vendor: z.string().optional(),
+  category: z.enum(["Hardware", "AI Subscription", "Cloud", "Software", "Peripherals", "Other"]),
+  frequency: z.enum(["one-time", "monthly", "yearly"]),
+  amount: z.coerce.number().min(0),
+  currency: z.enum(["CAD", "USD"]),
+  date: z.string(),
+  active: z.coerce.boolean(),
+  notes: z.string().optional(),
+  createdAt: z.string(),
+  updatedAt: z.string()
+});
+
 export const settingsSchema = z.object({
   currency: z.enum(["CAD", "USD"]),
-  theme: z.enum(["light", "dark", "system"])
+  theme: z.enum(["light", "dark", "system"]),
+  accentTheme: z.enum(["lime", "stripe", "ocean", "sunset", "rose", "mono"]).optional()
 });
 
 export const appDataSchema = z.object({
@@ -80,6 +96,7 @@ export const appDataSchema = z.object({
       totalValue: z.coerce.number()
     })
   ),
+  expenses: z.array(expenseSchema).default([]),
   settings: settingsSchema
 });
 
