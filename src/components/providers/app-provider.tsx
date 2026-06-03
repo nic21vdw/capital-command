@@ -3,7 +3,7 @@
 import { createContext, startTransition, useContext, useEffect, useState } from "react";
 import { toast } from "sonner";
 import { derivePortfolioSummary } from "@/lib/derive";
-import type { AppData, Goal, Holding, ResearchNote, Settings, WatchlistItem } from "@/types/domain";
+import type { AppData, Expense, Goal, Holding, ResearchNote, Settings, WatchlistItem } from "@/types/domain";
 
 interface BootstrapPayload {
   data: AppData;
@@ -107,6 +107,7 @@ const payloadFallback: BootstrapPayload = {
     goals: [],
     accounts: [],
     portfolioSnapshots: [],
+    expenses: [],
     settings: {
       currency: "CAD",
       theme: "dark"
@@ -119,6 +120,7 @@ const payloadFallback: BootstrapPayload = {
     goals: [],
     accounts: [],
     portfolioSnapshots: [],
+    expenses: [],
     settings: {
       currency: "CAD",
       theme: "dark"
@@ -204,6 +206,25 @@ export function makeGoal(input?: Partial<Goal>): Goal {
 export function makeSettings(input?: Partial<Settings>): Settings {
   return {
     currency: input?.currency ?? "CAD",
-    theme: input?.theme ?? "dark"
+    theme: input?.theme ?? "dark",
+    accentTheme: input?.accentTheme ?? "lime"
+  };
+}
+
+export function makeExpense(input?: Partial<Expense>): Expense {
+  const now = new Date().toISOString();
+  return {
+    id: input?.id ?? `expense-${crypto.randomUUID()}`,
+    name: input?.name ?? "",
+    vendor: input?.vendor ?? "",
+    category: input?.category ?? "AI Subscription",
+    frequency: input?.frequency ?? "monthly",
+    amount: input?.amount ?? 0,
+    currency: input?.currency ?? "USD",
+    date: input?.date ?? now.slice(0, 10),
+    active: input?.active ?? true,
+    notes: input?.notes ?? "",
+    createdAt: input?.createdAt ?? now,
+    updatedAt: now
   };
 }

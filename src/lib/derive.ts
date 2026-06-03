@@ -12,6 +12,7 @@ import {
   groupByAccount,
   groupByAssetClass
 } from "@/lib/calculations/portfolio";
+import { deriveExpenseSummary } from "@/lib/calculations/expenses";
 import type { AppData } from "@/types/domain";
 
 export function derivePortfolioSummary(data: AppData) {
@@ -22,6 +23,7 @@ export function derivePortfolioSummary(data: AppData) {
 
   return {
     holdings,
+    expenseSummary: deriveExpenseSummary(data.expenses ?? [], data.settings.currency),
     totalPortfolioValue,
     totalCostBasis,
     totalGainLoss,

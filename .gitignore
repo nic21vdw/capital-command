@@ -10,3 +10,4 @@ dist
 *.log
 server.pid
 tsconfig.tsbuildinfo
+data/capital-command.json
