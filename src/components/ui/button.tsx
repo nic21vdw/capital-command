@@ -2,7 +2,7 @@ import type { ButtonHTMLAttributes } from "react";
 import { cn } from "@/lib/utils";
 
 const variants = {
-  primary: "bg-[var(--accent)] text-black hover:bg-[var(--accent-strong)]",
+  primary: "bg-[var(--accent)] text-[var(--accent-contrast)] hover:bg-[var(--accent-strong)]",
   secondary: "bg-white/6 text-white hover:bg-white/10",
   ghost: "bg-transparent text-[var(--muted-foreground)] hover:bg-white/5 hover:text-white",
   danger: "bg-red-500/15 text-red-200 hover:bg-red-500/25"

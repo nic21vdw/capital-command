@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Toaster } from "sonner";
 import { AppProvider } from "@/components/providers/app-provider";
+import { AccentThemeProvider, AccentThemeScript } from "@/components/providers/accent-theme-provider";
 import { ThemeProvider } from "@/components/providers/theme-provider";
 import "@/app/globals.css";
 
@@ -12,12 +13,17 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
     <html lang="en" suppressHydrationWarning>
+      <head>
+        <AccentThemeScript />
+      </head>
       <body>
         <ThemeProvider>
-          <AppProvider>
-            {children}
-            <Toaster richColors position="top-right" />
-          </AppProvider>
+          <AccentThemeProvider>
+            <AppProvider>
+              {children}
+              <Toaster richColors position="top-right" />
+            </AppProvider>
+          </AccentThemeProvider>
         </ThemeProvider>
       </body>
     </html>
