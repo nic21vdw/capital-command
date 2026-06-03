@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { ChartPie, Flag, LayoutDashboard, NotebookText, Rocket, Settings, Sparkles, WalletCards } from "lucide-react";
+import { ChartPie, Flag, LayoutDashboard, NotebookText, Rocket, Settings, Sparkles, WalletCards, Youtube } from "lucide-react";
 import { useTheme } from "next-themes";
 import { AppFooter } from "@/components/layout/app-footer";
 import { Button } from "@/components/ui/button";
@@ -15,6 +15,7 @@ const navItems = [
   { href: "/notes", label: "Research Notes", icon: NotebookText },
   { href: "/goals", label: "Goals", icon: Flag },
   { href: "/insights", label: "Insights", icon: Sparkles },
+  { href: "/creator", label: "Creator Studio", icon: Youtube },
   { href: "/progress", label: "Founder Mode", icon: Rocket },
   { href: "/settings", label: "Settings", icon: Settings }
 ];

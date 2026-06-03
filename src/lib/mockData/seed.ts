@@ -172,5 +172,82 @@ export const seedData: AppData = {
     { date: "2026-04-29", totalValue: 33340 },
     { date: "2026-04-30", totalValue: 33720 },
     { date: "2026-05-01", totalValue: 34190 }
+  ],
+  creatorProfile: {
+    channelName: "Capital Command",
+    platform: "YouTube",
+    subscribers: 740,
+    totalViews: 92400,
+    watchHours: 3120,
+    monetized: false,
+    subscriberGoal: 1000,
+    monthlyRevenueGoal: 1500,
+    updatedAt: now
+  },
+  contentItems: [
+    {
+      id: "c-1",
+      title: "How I track my portfolio every Sunday",
+      type: "Video",
+      platform: "YouTube",
+      status: "Published",
+      publishDate: "2026-04-27",
+      url: "https://youtube.com",
+      views: 8420,
+      likes: 612,
+      comments: 87,
+      watchHours: 410,
+      revenue: 142.5,
+      notes: "Best performing upload this month. Make a follow-up.",
+      createdAt: "2026-04-20T12:00:00.000Z",
+      updatedAt: "2026-04-28T12:00:00.000Z"
+    },
+    {
+      id: "c-2",
+      title: "Live market open + Q&A",
+      type: "Stream",
+      platform: "YouTube",
+      status: "Published",
+      publishDate: "2026-04-30",
+      views: 1960,
+      likes: 188,
+      comments: 240,
+      watchHours: 520,
+      revenue: 64.2,
+      notes: "Strong chat engagement. Schedule weekly.",
+      createdAt: "2026-04-29T12:00:00.000Z",
+      updatedAt: "2026-04-30T22:00:00.000Z"
+    },
+    {
+      id: "c-3",
+      title: "3 ETFs I'd buy and hold for 20 years",
+      type: "Video",
+      platform: "YouTube",
+      status: "Editing",
+      publishDate: "2026-05-04",
+      notes: "B-roll done. Needs thumbnail + chapters.",
+      createdAt: "2026-04-28T12:00:00.000Z",
+      updatedAt: "2026-05-01T09:00:00.000Z"
+    },
+    {
+      id: "c-4",
+      title: "TFSA vs RRSP in 60 seconds",
+      type: "Short",
+      platform: "YouTube",
+      status: "Scripting",
+      notes: "Hook: 'You're probably using the wrong account.'",
+      createdAt: "2026-05-01T08:00:00.000Z",
+      updatedAt: "2026-05-01T08:00:00.000Z"
+    },
+    {
+      id: "c-5",
+      title: "Reacting to my worst stock picks",
+      type: "Video",
+      platform: "YouTube",
+      status: "Idea",
+      notes: "Vulnerable + educational angle. Could perform well.",
+      createdAt: "2026-05-01T08:30:00.000Z",
+      updatedAt: "2026-05-01T08:30:00.000Z"
+    }
   ]
 };

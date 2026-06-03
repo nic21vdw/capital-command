@@ -60,6 +60,38 @@ export const settingsSchema = z.object({
   theme: z.enum(["light", "dark", "system"])
 });
 
+export const contentItemSchema = z.object({
+  id: z.string(),
+  title: z.string().trim().min(1),
+  type: z.enum(["Video", "Short", "Stream", "Podcast"]),
+  platform: z.enum(["YouTube", "Twitch", "TikTok", "Instagram", "Other"]),
+  status: z.enum(["Idea", "Scripting", "Recording", "Editing", "Scheduled", "Published"]),
+  publishDate: z.string().optional(),
+  url: z.string().optional(),
+  views: z.coerce.number().min(0).optional(),
+  likes: z.coerce.number().min(0).optional(),
+  comments: z.coerce.number().min(0).optional(),
+  watchHours: z.coerce.number().min(0).optional(),
+  revenue: z.coerce.number().min(0).optional(),
+  notes: z.string().optional(),
+  createdAt: z.string(),
+  updatedAt: z.string()
+});
+
+export const creatorProfileSchema = z.object({
+  channelName: z.string().trim().default(""),
+  platform: z.enum(["YouTube", "Twitch", "TikTok", "Instagram", "Other"]).default("YouTube"),
+  subscribers: z.coerce.number().min(0).default(0),
+  totalViews: z.coerce.number().min(0).default(0),
+  watchHours: z.coerce.number().min(0).default(0),
+  monetized: z.coerce.boolean().default(false),
+  subscriberGoal: z.coerce.number().min(0).default(1000),
+  monthlyRevenueGoal: z.coerce.number().min(0).default(0),
+  updatedAt: z.string().default(() => new Date().toISOString())
+});
+
+export const defaultCreatorProfile = creatorProfileSchema.parse({});
+
 export const appDataSchema = z.object({
   holdings: z.array(holdingSchema),
   watchlist: z.array(watchlistSchema),
@@ -80,6 +112,8 @@ export const appDataSchema = z.object({
       totalValue: z.coerce.number()
     })
   ),
+  contentItems: z.array(contentItemSchema).default([]),
+  creatorProfile: creatorProfileSchema.default(defaultCreatorProfile),
   settings: settingsSchema
 });
 

@@ -104,6 +104,42 @@ export interface Settings {
   theme: "light" | "dark" | "system";
 }
 
+export type ContentType = "Video" | "Short" | "Stream" | "Podcast";
+
+export type ContentPlatform = "YouTube" | "Twitch" | "TikTok" | "Instagram" | "Other";
+
+export type ContentStatus = "Idea" | "Scripting" | "Recording" | "Editing" | "Scheduled" | "Published";
+
+export interface ContentItem {
+  id: string;
+  title: string;
+  type: ContentType;
+  platform: ContentPlatform;
+  status: ContentStatus;
+  publishDate?: string;
+  url?: string;
+  views?: number;
+  likes?: number;
+  comments?: number;
+  watchHours?: number;
+  revenue?: number;
+  notes?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CreatorProfile {
+  channelName: string;
+  platform: ContentPlatform;
+  subscribers: number;
+  totalViews: number;
+  watchHours: number;
+  monetized: boolean;
+  subscriberGoal: number;
+  monthlyRevenueGoal: number;
+  updatedAt: string;
+}
+
 export interface AppData {
   holdings: Holding[];
   watchlist: WatchlistItem[];
@@ -111,5 +147,7 @@ export interface AppData {
   goals: Goal[];
   accounts: Account[];
   portfolioSnapshots: PortfolioSnapshot[];
+  contentItems: ContentItem[];
+  creatorProfile: CreatorProfile;
   settings: Settings;
 }
