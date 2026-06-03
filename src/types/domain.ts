@@ -126,10 +126,18 @@ export interface Expense {
 
 export type AccentTheme = "lime" | "stripe" | "ocean" | "sunset" | "rose" | "mono";
 
+export interface UserProfile {
+  /** Display name shown in the profile bar. */
+  displayName?: string;
+  /** Avatar image stored as a data URL. */
+  avatar?: string;
+}
+
 export interface Settings {
   currency: "CAD" | "USD";
   theme: "light" | "dark" | "system";
   accentTheme?: AccentTheme;
+  profile?: UserProfile;
 }
 
 export type ContentType = "Video" | "Short" | "Stream" | "Podcast";

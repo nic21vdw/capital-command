@@ -70,10 +70,17 @@ export const expenseSchema = z.object({
   updatedAt: z.string()
 });
 
+export const userProfileSchema = z.object({
+  displayName: z.string().trim().max(60).optional(),
+  // Avatar is stored inline as a data URL; cap the size to keep payloads sane.
+  avatar: z.string().max(2_000_000).optional()
+});
+
 export const settingsSchema = z.object({
   currency: z.enum(["CAD", "USD"]),
   theme: z.enum(["light", "dark", "system"]),
-  accentTheme: z.enum(["lime", "stripe", "ocean", "sunset", "rose", "mono"]).optional()
+  accentTheme: z.enum(["lime", "stripe", "ocean", "sunset", "rose", "mono"]).optional(),
+  profile: userProfileSchema.optional()
 });
 
 export const contentItemSchema = z.object({
