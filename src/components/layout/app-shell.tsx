@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import { ChartPie, Clapperboard, CreditCard, Flag, LayoutDashboard, NotebookText, Rocket, Settings, Sparkles, WalletCards, Youtube } from "lucide-react";
 import { useTheme } from "next-themes";
 import { AppFooter } from "@/components/layout/app-footer";
+import { ProfileBar } from "@/components/layout/profile-bar";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
@@ -44,7 +45,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                   href={item.href}
                   className={cn(
                     "flex items-center gap-3 rounded-2xl px-4 py-3 text-sm transition",
-                    active ? "bg-white text-black" : "text-[var(--muted-foreground)] hover:bg-white/6 hover:text-white"
+                    active
+                      ? "bg-[var(--accent)] text-[var(--accent-contrast)]"
+                      : "text-[var(--muted-foreground)] hover:bg-white/6 hover:text-white"
                   )}
                 >
                   <Icon className="h-4 w-4" />
@@ -67,6 +70,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         </div>
       </aside>
       <main className="min-w-0 flex-1">
+        <ProfileBar />
         <div className="mb-4 flex items-center gap-2 overflow-x-auto rounded-3xl border border-white/8 bg-[var(--panel)] p-2 lg:hidden">
           {navItems.map((item) => {
             const active = pathname === item.href;
@@ -76,7 +80,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 href={item.href}
                 className={cn(
                   "whitespace-nowrap rounded-2xl px-4 py-2 text-sm",
-                  active ? "bg-white text-black" : "text-[var(--muted-foreground)]"
+                  active ? "bg-[var(--accent)] text-[var(--accent-contrast)]" : "text-[var(--muted-foreground)]"
                 )}
               >
                 {item.label}

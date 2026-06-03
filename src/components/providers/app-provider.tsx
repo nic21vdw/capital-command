@@ -223,7 +223,8 @@ export function makeSettings(input?: Partial<Settings>): Settings {
   return {
     currency: input?.currency ?? "CAD",
     theme: input?.theme ?? "dark",
-    accentTheme: input?.accentTheme ?? "lime"
+    accentTheme: input?.accentTheme ?? "lime",
+    profile: input?.profile
   };
 }
 
