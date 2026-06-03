@@ -99,9 +99,73 @@ export interface PortfolioSnapshot {
   totalValue: number;
 }
 
+export type ExpenseCategory =
+  | "Hardware"
+  | "AI Subscription"
+  | "Cloud"
+  | "Software"
+  | "Peripherals"
+  | "Other";
+
+export type ExpenseFrequency = "one-time" | "monthly" | "yearly";
+
+export interface Expense {
+  id: string;
+  name: string;
+  vendor?: string;
+  category: ExpenseCategory;
+  frequency: ExpenseFrequency;
+  amount: number;
+  currency: "CAD" | "USD";
+  date: string;
+  active: boolean;
+  notes?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export type AccentTheme = "lime" | "stripe" | "ocean" | "sunset" | "rose" | "mono";
+
 export interface Settings {
   currency: "CAD" | "USD";
   theme: "light" | "dark" | "system";
+  accentTheme?: AccentTheme;
+}
+
+export type ContentType = "Video" | "Short" | "Stream" | "Podcast";
+
+export type ContentPlatform = "YouTube" | "Twitch" | "TikTok" | "Instagram" | "Other";
+
+export type ContentStatus = "Idea" | "Scripting" | "Recording" | "Editing" | "Scheduled" | "Published";
+
+export interface ContentItem {
+  id: string;
+  title: string;
+  type: ContentType;
+  platform: ContentPlatform;
+  status: ContentStatus;
+  publishDate?: string;
+  url?: string;
+  views?: number;
+  likes?: number;
+  comments?: number;
+  watchHours?: number;
+  revenue?: number;
+  notes?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CreatorProfile {
+  channelName: string;
+  platform: ContentPlatform;
+  subscribers: number;
+  totalViews: number;
+  watchHours: number;
+  monetized: boolean;
+  subscriberGoal: number;
+  monthlyRevenueGoal: number;
+  updatedAt: string;
 }
 
 export interface AppData {
@@ -111,5 +175,41 @@ export interface AppData {
   goals: Goal[];
   accounts: Account[];
   portfolioSnapshots: PortfolioSnapshot[];
+  expenses: Expense[];
+  contentItems: ContentItem[];
+  creatorProfile: CreatorProfile;
   settings: Settings;
+}
+
+export interface TrendPoint {
+  label: string;
+  value: number;
+}
+
+export interface BillingMetric {
+  amount: number;
+  previousAmount: number;
+  changePercent: number;
+  trend: TrendPoint[];
+}
+
+export interface PaymentBreakdownItem {
+  label: string;
+  amount: number;
+  color: string;
+}
+
+export interface BillingOverview {
+  source: "stripe" | "mock";
+  currency: "CAD" | "USD";
+  updatedAt: string;
+  grossVolume: BillingMetric;
+  netVolume: BillingMetric;
+  mrr: BillingMetric;
+  mrrGrowthRate: BillingMetric;
+  activeSubscribers: BillingMetric;
+  churnRate: BillingMetric;
+  paymentBreakdown: PaymentBreakdownItem[];
+  disputes: number;
+  highRiskPayments: number;
 }

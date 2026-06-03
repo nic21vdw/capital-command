@@ -1,6 +1,7 @@
 "use client";
 
 import { useTheme } from "next-themes";
+import { ThemePicker } from "@/components/finance/theme-picker";
 import { useAppData } from "@/components/providers/app-provider";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -19,6 +20,7 @@ export function SettingsPage() {
         title="App configuration"
         description="Control theme, currency, refresh behavior, and data exports without exposing secrets."
       />
+      <ThemePicker />
       <div className="grid gap-4 xl:grid-cols-2">
         <Card>
           <h2 className="text-xl font-semibold text-white">Preferences</h2>

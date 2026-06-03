@@ -3,7 +3,7 @@ import { formatISO } from "date-fns";
 import { derivePortfolioSummary } from "@/lib/derive";
 import { getMarketDataProvider } from "@/lib/marketData";
 import { seedData } from "@/lib/mockData/seed";
-import { appDataSchema, goalSchema, holdingSchema, importHoldingSchema, researchNoteSchema, settingsSchema, watchlistSchema } from "@/lib/storage/schemas";
+import { appDataSchema, contentItemSchema, creatorProfileSchema, defaultCreatorProfile, expenseSchema, goalSchema, holdingSchema, importHoldingSchema, researchNoteSchema, settingsSchema, watchlistSchema } from "@/lib/storage/schemas";
 import { readAppData, resetAppData, writeAppData } from "@/lib/storage/store";
 import type { AppData, Holding } from "@/types/domain";
 
@@ -185,8 +185,44 @@ export async function POST(request: NextRequest) {
       data = { ...data, goals: data.goals.filter((item) => item.id !== id) };
       break;
     }
+    case "upsertExpense": {
+      const parsed = expenseSchema.parse(payload);
+      const exists = data.expenses.some((item) => item.id === parsed.id);
+      data = {
+        ...data,
+        expenses: exists
+          ? data.expenses.map((item) => (item.id === parsed.id ? parsed : item))
+          : [parsed, ...data.expenses]
+      };
+      break;
+    }
+    case "deleteExpense": {
+      const id = String(payload);
+      data = { ...data, expenses: data.expenses.filter((item) => item.id !== id) };
+      break;
+    }
     case "updateSettings": {
       data = { ...data, settings: settingsSchema.parse(payload) };
+      break;
+    }
+    case "upsertContentItem": {
+      const parsed = contentItemSchema.parse(payload);
+      const exists = data.contentItems.some((item) => item.id === parsed.id);
+      data = {
+        ...data,
+        contentItems: exists
+          ? data.contentItems.map((item) => (item.id === parsed.id ? parsed : item))
+          : [parsed, ...data.contentItems]
+      };
+      break;
+    }
+    case "deleteContentItem": {
+      const id = String(payload);
+      data = { ...data, contentItems: data.contentItems.filter((item) => item.id !== id) };
+      break;
+    }
+    case "updateCreatorProfile": {
+      data = { ...data, creatorProfile: creatorProfileSchema.parse(payload) };
       break;
     }
     case "importHoldings": {
@@ -226,7 +262,7 @@ export async function POST(request: NextRequest) {
       return success(data);
     }
     case "deleteAllData": {
-      data = { ...seedData, holdings: [], watchlist: [], researchNotes: [], goals: [], portfolioSnapshots: [] };
+      data = { ...seedData, holdings: [], watchlist: [], researchNotes: [], goals: [], portfolioSnapshots: [], expenses: [], contentItems: [], creatorProfile: defaultCreatorProfile };
       break;
     }
     default:

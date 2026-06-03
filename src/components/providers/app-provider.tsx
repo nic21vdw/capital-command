@@ -3,7 +3,7 @@
 import { createContext, startTransition, useContext, useEffect, useState } from "react";
 import { toast } from "sonner";
 import { derivePortfolioSummary } from "@/lib/derive";
-import type { AppData, Goal, Holding, ResearchNote, Settings, WatchlistItem } from "@/types/domain";
+import type { AppData, ContentItem, CreatorProfile, Expense, Goal, Holding, ResearchNote, Settings, WatchlistItem } from "@/types/domain";
 
 interface BootstrapPayload {
   data: AppData;
@@ -99,6 +99,18 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   return <AppContext.Provider value={{ ...payload, loading, mutate, refresh }}>{children}</AppContext.Provider>;
 }
 
+const emptyCreatorProfile: CreatorProfile = {
+  channelName: "",
+  platform: "YouTube",
+  subscribers: 0,
+  totalViews: 0,
+  watchHours: 0,
+  monetized: false,
+  subscriberGoal: 1000,
+  monthlyRevenueGoal: 0,
+  updatedAt: new Date(0).toISOString()
+};
+
 const payloadFallback: BootstrapPayload = {
   data: {
     holdings: [],
@@ -107,6 +119,9 @@ const payloadFallback: BootstrapPayload = {
     goals: [],
     accounts: [],
     portfolioSnapshots: [],
+    expenses: [],
+    contentItems: [],
+    creatorProfile: emptyCreatorProfile,
     settings: {
       currency: "CAD",
       theme: "dark"
@@ -119,6 +134,9 @@ const payloadFallback: BootstrapPayload = {
     goals: [],
     accounts: [],
     portfolioSnapshots: [],
+    expenses: [],
+    contentItems: [],
+    creatorProfile: emptyCreatorProfile,
     settings: {
       currency: "CAD",
       theme: "dark"
@@ -204,6 +222,60 @@ export function makeGoal(input?: Partial<Goal>): Goal {
 export function makeSettings(input?: Partial<Settings>): Settings {
   return {
     currency: input?.currency ?? "CAD",
-    theme: input?.theme ?? "dark"
+    theme: input?.theme ?? "dark",
+    accentTheme: input?.accentTheme ?? "lime"
+  };
+}
+
+export function makeExpense(input?: Partial<Expense>): Expense {
+  const now = new Date().toISOString();
+  return {
+    id: input?.id ?? `expense-${crypto.randomUUID()}`,
+    name: input?.name ?? "",
+    vendor: input?.vendor ?? "",
+    category: input?.category ?? "AI Subscription",
+    frequency: input?.frequency ?? "monthly",
+    amount: input?.amount ?? 0,
+    currency: input?.currency ?? "USD",
+    date: input?.date ?? now.slice(0, 10),
+    active: input?.active ?? true,
+    notes: input?.notes ?? "",
+    createdAt: input?.createdAt ?? now,
+    updatedAt: now
+  };
+}
+
+export function makeContentItem(input?: Partial<ContentItem>): ContentItem {
+  const now = new Date().toISOString();
+  return {
+    id: input?.id ?? `content-${crypto.randomUUID()}`,
+    title: input?.title ?? "",
+    type: input?.type ?? "Video",
+    platform: input?.platform ?? "YouTube",
+    status: input?.status ?? "Idea",
+    publishDate: input?.publishDate,
+    url: input?.url ?? "",
+    views: input?.views,
+    likes: input?.likes,
+    comments: input?.comments,
+    watchHours: input?.watchHours,
+    revenue: input?.revenue,
+    notes: input?.notes ?? "",
+    createdAt: input?.createdAt ?? now,
+    updatedAt: now
+  };
+}
+
+export function makeCreatorProfile(input?: Partial<CreatorProfile>): CreatorProfile {
+  return {
+    channelName: input?.channelName ?? "",
+    platform: input?.platform ?? "YouTube",
+    subscribers: input?.subscribers ?? 0,
+    totalViews: input?.totalViews ?? 0,
+    watchHours: input?.watchHours ?? 0,
+    monetized: input?.monetized ?? false,
+    subscriberGoal: input?.subscriberGoal ?? 1000,
+    monthlyRevenueGoal: input?.monthlyRevenueGoal ?? 0,
+    updatedAt: new Date().toISOString()
   };
 }
