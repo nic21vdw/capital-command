@@ -1,10 +1,5 @@
-import { HoldingsPage } from "@/components/holdings/holdings-page";
-import { AppShell } from "@/components/layout/app-shell";
+import { redirect } from "next/navigation";
 
 export default function Page() {
-  return (
-    <AppShell>
-      <HoldingsPage />
-    </AppShell>
-  );
+  redirect("/finance?tab=holdings");
 }

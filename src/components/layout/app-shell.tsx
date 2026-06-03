@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { ChartPie, Clapperboard, CreditCard, Flag, LayoutDashboard, NotebookText, Rocket, Settings, Sparkles, WalletCards, Youtube } from "lucide-react";
+import { Clapperboard, LayoutDashboard, Rocket, Settings, Wallet, Youtube } from "lucide-react";
 import { useTheme } from "next-themes";
 import { AppFooter } from "@/components/layout/app-footer";
 import { Button } from "@/components/ui/button";
@@ -10,15 +10,10 @@ import { cn } from "@/lib/utils";
 
 const navItems = [
   { href: "/", label: "Dashboard", icon: LayoutDashboard },
-  { href: "/holdings", label: "Holdings", icon: WalletCards },
-  { href: "/watchlist", label: "Watchlist", icon: ChartPie },
-  { href: "/notes", label: "Research Notes", icon: NotebookText },
-  { href: "/goals", label: "Goals", icon: Flag },
-  { href: "/finance", label: "Finance & Billing", icon: CreditCard },
-  { href: "/insights", label: "Insights", icon: Sparkles },
-  { href: "/creator", label: "Creator Studio", icon: Youtube },
+  { href: "/finance", label: "Finances", icon: Wallet },
+  { href: "/youtube", label: "YouTube", icon: Youtube },
+  { href: "/golf", label: "Golf", icon: Clapperboard },
   { href: "/progress", label: "Founder Mode", icon: Rocket },
-  { href: "/golf", label: "Swing Analyzer", icon: Clapperboard },
   { href: "/settings", label: "Settings", icon: Settings }
 ];
 

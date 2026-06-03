@@ -1,10 +1,5 @@
-import { CreatorPage } from "@/components/creator/creator-page";
-import { AppShell } from "@/components/layout/app-shell";
+import { redirect } from "next/navigation";
 
 export default function Page() {
-  return (
-    <AppShell>
-      <CreatorPage />
-    </AppShell>
-  );
+  redirect("/youtube?tab=studio");
 }

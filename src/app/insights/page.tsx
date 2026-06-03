@@ -1,10 +1,5 @@
-import { DashboardInsightsPage } from "@/components/dashboard/insights-page";
-import { AppShell } from "@/components/layout/app-shell";
+import { redirect } from "next/navigation";
 
 export default function Page() {
-  return (
-    <AppShell>
-      <DashboardInsightsPage />
-    </AppShell>
-  );
+  redirect("/finance?tab=insights");
 }
