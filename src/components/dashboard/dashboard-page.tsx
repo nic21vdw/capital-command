@@ -4,6 +4,7 @@ import { ArrowDownRight, ArrowUpRight, BriefcaseBusiness, CircleDollarSign, Land
 import { AllocationDonutChart } from "@/components/charts/allocation-donut-chart";
 import { AssetClassBarChart } from "@/components/charts/asset-class-bar-chart";
 import { PortfolioLineChart } from "@/components/charts/portfolio-line-chart";
+import { QuoteOfTheDayCard } from "@/components/dashboard/quote-of-the-day-card";
 import { useAppData } from "@/components/providers/app-provider";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
@@ -39,6 +40,7 @@ export function DashboardPage() {
         title="Capital Command"
         description="A clean command center for your portfolio, watchlist, research, and long-term plan."
       />
+      <QuoteOfTheDayCard />
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <StatCard
           label="Total portfolio value"
