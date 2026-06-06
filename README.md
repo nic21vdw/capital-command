@@ -24,6 +24,60 @@ If you prefer npm:
 1. `npm install`
 2. `npm run dev`
 
+## Local Command Dashboard Launcher
+
+If you are not a developer and just want to open the Command Dashboard on your
+own Windows PC, use the double-click launcher instead of typing commands.
+
+### How to use the `.bat` file
+
+1. Open the project folder in File Explorer.
+2. Double-click **`launch-colateral-command-dashboard.bat`**.
+3. A black Command Prompt window opens and sets everything up for you.
+4. Your browser opens the dashboard at **<http://localhost:3000>**.
+   (If it doesn't open on its own, type that address into your browser.)
+
+The very first run installs the app's building blocks and can take a few
+minutes. After that, launches are fast because that step is skipped.
+
+### What command is being run behind the scenes
+
+The launcher simply runs the project's normal startup steps for you:
+
+- `npm install` — but **only the first time**, when the `node_modules` folder
+  is missing. On later runs this is skipped.
+- `npm run dev` — starts the local development server (Next.js) on port 3000.
+
+That's the same thing a developer would type by hand; the `.bat` file just
+remembers it for you.
+
+### How to stop the server
+
+The dashboard runs for as long as the black launcher window stays open. To
+stop it, either:
+
+- Press **Ctrl + C** inside that window, or
+- Simply **close the window**.
+
+Once it's stopped, <http://localhost:3000> will no longer load until you launch
+it again.
+
+### If the port is already in use
+
+If you see a message like *"port 3000 is already in use"*, it usually means the
+dashboard is already running in another window (or a previous run didn't fully
+close). To fix it:
+
+1. Find and close any older launcher / Command Prompt windows, then
+   double-click the `.bat` again.
+2. If that doesn't help, restart your PC to clear the leftover server, then
+   launch again.
+
+> Tip: there is also a `start-capital-command.bat` launcher. That one first
+> downloads the latest version of the app from GitHub before starting. Use
+> `launch-colateral-command-dashboard.bat` when you just want to run the copy
+> already on your PC.
+
 ## Environment
 
 Copy `.env.example` to `.env` and optionally set `ALPHA_VANTAGE_API_KEY`.
