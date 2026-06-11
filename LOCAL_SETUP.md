@@ -75,6 +75,25 @@ That's it. Each launch automatically grabs the latest changes first.
 
 ---
 
+## Creator tools (Thumbnail Generator & Clipping Agent)
+
+Both tools live in the sidebar and work out of the box:
+
+- **Thumbnail Generator** runs entirely in your browser — no setup needed.
+- **Clipping Agent** processes videos locally with FFmpeg. A static FFmpeg
+  build is installed automatically with `npm install` (the launcher does this
+  for you). Generated clips are stored under `data\clips\` and stay on your PC.
+
+Two optional API keys in `.env` unlock extras on the Clipping Agent (the page
+tells you exactly which one is missing if a feature is skipped):
+
+- `OPENAI_API_KEY` — Whisper transcription, which enables exported `.srt`
+  captions and transcript-aware metadata.
+- `ANTHROPIC_API_KEY` — Claude-generated clip titles, hooks, descriptions,
+  captions, and hashtags.
+
+---
+
 ## A note on your local data
 
 Your local app data (`data\capital-command.json`), installed packages

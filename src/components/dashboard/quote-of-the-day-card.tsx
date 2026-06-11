@@ -1,18 +1,18 @@
 "use client";
 
 import { Quote as QuoteIcon } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useSyncExternalStore } from "react";
 import { Card } from "@/components/ui/card";
-import { getQuoteOfTheDay, type Quote } from "@/lib/quotes";
+import { getQuoteOfTheDay } from "@/lib/quotes";
+
+const subscribe = () => () => {};
+const getServerSnapshot = () => null;
 
 export function QuoteOfTheDayCard() {
-  // Resolve the quote on the client after mount so the selection uses the
-  // viewer's local calendar day and avoids a server/client hydration mismatch.
-  const [quote, setQuote] = useState<Quote | null>(null);
-
-  useEffect(() => {
-    setQuote(getQuoteOfTheDay());
-  }, []);
+  // Resolve the quote on the client so the selection uses the viewer's local
+  // calendar day; the server snapshot is null to avoid a hydration mismatch.
+  // getQuoteOfTheDay returns a stable reference per day, so it's a valid snapshot.
+  const quote = useSyncExternalStore(subscribe, getQuoteOfTheDay, getServerSnapshot);
 
   return (
     <Card className="bg-[linear-gradient(135deg,var(--card-from),var(--card-to))]">
