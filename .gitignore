@@ -12,3 +12,9 @@ server.pid
 tsconfig.tsbuildinfo
 data/capital-command.json
 data/clips/
+
+# twitter-prep local data (personal, not committed)
+twitter-prep/brief.md
+twitter-prep/reply_log.json
+__pycache__/
+*.pyc
