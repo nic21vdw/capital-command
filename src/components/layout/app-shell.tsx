@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Clapperboard, Image as ImageIcon, LayoutDashboard, Rocket, Scissors, Settings, Wallet, Youtube } from "lucide-react";
+import { Clapperboard, Image as ImageIcon, LayoutDashboard, Scissors, Settings, Wallet, Youtube } from "lucide-react";
 import { useTheme } from "next-themes";
 import { AppFooter } from "@/components/layout/app-footer";
 import { ProfileBar } from "@/components/layout/profile-bar";
@@ -16,7 +16,6 @@ const navItems = [
   { href: "/thumbnails", label: "Thumbnail Generator", icon: ImageIcon },
   { href: "/clips", label: "Clipping Agent", icon: Scissors },
   { href: "/golf", label: "Golf", icon: Clapperboard },
-  { href: "/progress", label: "Founder Mode", icon: Rocket },
   { href: "/settings", label: "Settings", icon: Settings }
 ];
 
@@ -30,7 +29,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         <div className="sticky top-4 rounded-[32px] border border-white/10 bg-[var(--panel)] p-6 shadow-2xl">
           <div className="mb-8">
             <p className="text-xs uppercase tracking-[0.32em] text-[var(--muted-foreground)]">Capital Command</p>
-            <h1 className="mt-2 text-2xl font-semibold text-white">Your investing command center</h1>
+            <h1 className="mt-2 text-2xl font-semibold text-white">Portfolio, research, and content in one place</h1>
           </div>
           <nav className="space-y-2">
             {navItems.map((item) => {
@@ -54,7 +53,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             })}
           </nav>
           <div className="mt-8 rounded-3xl border border-white/10 bg-black/20 p-4">
-            <p className="text-sm text-white">Calm, clear, and built for long-term thinking.</p>
+            <p className="text-sm text-white">Switch between light and dark.</p>
             <div className="mt-4 flex gap-2">
               <Button variant="secondary" onClick={() => setTheme("dark")} className="flex-1">
                 Dark

@@ -126,8 +126,8 @@ export function YouTubeStudioPage() {
             {overview.channelName || "Your channel"}
           </h1>
           <p className="mt-2 max-w-2xl text-sm text-[var(--muted-foreground)]">
-            A Studio-style read on your channel — every post, monetization progress, and which uploads are pulling
-            their weight. Open the real Studio any time to dig deeper.
+            Your posts, monetization, and how each upload is performing. Open YouTube Studio any time for more
+            detail.
           </p>
         </div>
         <a href={STUDIO_URL} target="_blank" rel="noreferrer">
@@ -227,7 +227,7 @@ export function YouTubeStudioPage() {
           {monetization.eligible ? (
             <div className="mt-5 flex items-start gap-2 rounded-2xl border border-emerald-400/20 bg-emerald-400/5 p-4 text-sm text-emerald-200">
               <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />
-              <span>Both thresholds are met — you can apply for the Partner Program from YouTube Studio.</span>
+              <span>Both thresholds are met. You can apply for the Partner Program from YouTube Studio.</span>
             </div>
           ) : (
             <div className="mt-5 space-y-2 rounded-2xl border border-white/8 bg-black/20 p-4 text-sm">

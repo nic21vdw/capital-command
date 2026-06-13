@@ -114,7 +114,7 @@ export function ThumbnailGeneratorPage() {
       <PageHeader
         eyebrow="Creator Tools"
         title="Thumbnail Generator"
-        description="Create scroll-stopping 1280×720 YouTube thumbnails from an uploaded image, a title, and a style preset — rendered locally in your browser."
+        description="Create 1280×720 YouTube thumbnails from an image, a title, and a style preset. Everything renders in your browser."
       />
 
       <div className="grid gap-4 xl:grid-cols-[0.9fr_1.1fr]">
@@ -123,7 +123,7 @@ export function ThumbnailGeneratorPage() {
           <Card>
             <h2 className="text-lg font-semibold text-white">Source</h2>
             <p className="mt-1 text-sm text-[var(--muted-foreground)]">
-              Optional — a face or product shot fills the right side of the thumbnail.
+              Optional. A face or product shot fills the right side of the thumbnail.
             </p>
             <input
               ref={fileInputRef}
@@ -247,7 +247,7 @@ export function ThumbnailGeneratorPage() {
 
             <div className="mt-4">
               <span className="mb-2 block text-xs uppercase tracking-wide text-[var(--muted-foreground)]">
-                Palette — {style.palettes[paletteIndex % style.palettes.length].name}
+                Palette: {style.palettes[paletteIndex % style.palettes.length].name}
               </span>
               <div className="flex flex-wrap gap-2">
                 {style.palettes.map((palette, index) => (
@@ -280,7 +280,7 @@ export function ThumbnailGeneratorPage() {
           {(ideas.length > 0 || treatments.length > 0) && (
             <Card>
               <h2 className="text-lg font-semibold text-white">Copy ideas</h2>
-              <p className="mt-1 text-sm text-[var(--muted-foreground)]">Derived from your title — click to use as thumbnail text.</p>
+              <p className="mt-1 text-sm text-[var(--muted-foreground)]">Derived from your title. Click to use as thumbnail text.</p>
               <div className="mt-3 flex flex-wrap gap-2">
                 {ideas.map((idea) => (
                   <button

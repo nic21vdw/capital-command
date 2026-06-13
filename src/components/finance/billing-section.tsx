@@ -78,7 +78,7 @@ export function BillingSection({ currency }: { currency: "CAD" | "USD" }) {
         <Card className="border-amber-300/20 bg-amber-300/5">
           <p className="text-sm text-white">
             Connect Stripe to see your real numbers. Add <code className="text-[var(--accent)]">STRIPE_SECRET_KEY</code> to
-            your environment and refresh — the dashboard falls back to representative sample data until then.
+            your environment and refresh. Until then, the dashboard shows sample data.
           </p>
         </Card>
       ) : null}

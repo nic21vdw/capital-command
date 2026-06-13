@@ -12,10 +12,10 @@ interface Props {
 }
 
 const TIPS = [
-  'Film from face-on or down-the-line — avoid angles in between',
+  'Film from face-on or down-the-line, not angles in between',
   'Ensure your full body is visible from head to feet',
   'Good lighting with a plain background gives the best pose detection',
-  'Landscape orientation works best — at least 720p resolution',
+  'Landscape orientation works best, at least 720p resolution',
   'A slow-motion video will give more accurate frame selection',
 ]
 

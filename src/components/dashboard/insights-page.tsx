@@ -17,11 +17,11 @@ export function DashboardInsightsPage() {
       <PageHeader
         eyebrow="Insights"
         title="Portfolio observations"
-        description="Neutral, high-level portfolio context to help you review whether your current positioning still matches your plan."
+        description="A few observations about your current positioning."
       />
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <InsightCard title="Largest position" body={`Your largest holding is ${summary.largestPositionPercentage.toFixed(2)}% of the portfolio.`} />
-        <InsightCard title="Concentration risk" body={`Current concentration risk reads as ${summary.concentrationRisk.toLowerCase()}. Consider reviewing whether this matches your plan.`} />
+        <InsightCard title="Concentration risk" body={`Concentration risk is currently ${summary.concentrationRisk.toLowerCase()}.`} />
         <InsightCard title="Cash percentage" body={`Cash-like positions represent ${summary.cashPercentage.toFixed(2)}% of the portfolio.`} />
         <InsightCard title="Annual dividends" body={`Estimated annual dividends are ${formatCurrency(summary.estimatedAnnualDividends, data.settings.currency)} based on available yield data.`} />
       </div>

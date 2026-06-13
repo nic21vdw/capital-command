@@ -48,8 +48,8 @@ export function WatchlistPage() {
     <div className="space-y-6">
       <PageHeader
         eyebrow="Watchlist"
-        title="Ideas worth revisiting"
-        description="Keep possible future positions organized with target prices, reasons, and conviction signals."
+        title="Watchlist"
+        description="Track potential positions with target prices and reasons."
         actions={
           <div className="flex gap-2">
             <Button variant="ghost" onClick={() => setView(view === "cards" ? "table" : "cards")}>

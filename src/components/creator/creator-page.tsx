@@ -103,8 +103,8 @@ export function CreatorPage() {
     <div className="space-y-6">
       <PageHeader
         eyebrow="Creator Studio"
-        title={profile.channelName ? profile.channelName : "Your content command center"}
-        description="Track subscriber growth, monetization progress, and every upload and stream from idea to published."
+        title={profile.channelName ? profile.channelName : "Your channel"}
+        description="Track subscriber growth, monetization, and every upload and stream."
         actions={
           <div className="flex gap-2">
             <Button variant="secondary" onClick={() => setShowChannelModal(true)}>
@@ -251,7 +251,7 @@ export function CreatorPage() {
       <Modal
         open={showContentModal}
         title={editing ? "Edit content" : "Add content"}
-        description="Track an upload or stream from idea to published."
+        description="Track an upload or stream."
         onClose={() => {
           setShowContentModal(false);
           setEditing(null);

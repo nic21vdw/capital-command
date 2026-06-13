@@ -245,7 +245,7 @@ export function GolfSwingPage() {
     if (!hasPoseData) {
       toast.warning('Pose not detected. Try better lighting and ensure full body is visible.')
     } else {
-      toast.success(`Analysis complete — ${result.issues.length} issue${result.issues.length !== 1 ? 's' : ''} found`)
+      toast.success(`Analysis complete. ${result.issues.length} issue${result.issues.length !== 1 ? 's' : ''} found.`)
     }
   }, [videoUrl, frames])
 
@@ -260,12 +260,12 @@ export function GolfSwingPage() {
           <div className="flex flex-col gap-5 sm:flex-row sm:items-start sm:justify-between">
             <div className="space-y-1">
               <p className="text-xs uppercase tracking-[0.32em] text-[var(--muted-foreground)]">
-                Visual AI Coach · 11-Phase Analysis · Browser-Based
+11-phase swing analysis, in your browser
               </p>
               <h1 className="text-2xl font-bold text-white">Golf Swing Analyzer V2</h1>
               <p className="max-w-md text-sm leading-relaxed text-[var(--muted-foreground)]">
-                Upload a swing video and get annotated fault frames, top-3 priority issues, pro comparison,
-                and a full coach-ready lesson plan — all in your browser.
+                Upload a swing video and get annotated fault frames, top priority issues, a pro comparison,
+                and a coach-ready lesson plan, all in your browser.
               </p>
             </div>
 
