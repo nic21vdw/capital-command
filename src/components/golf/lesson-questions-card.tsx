@@ -1,6 +1,6 @@
 'use client'
 
-import { MessageSquareQuote, Copy, Check, Star } from 'lucide-react'
+import { MessageSquareQuote, Copy, Check } from 'lucide-react'
 import { useState } from 'react'
 import type { SwingAnalysisV2 } from '@/lib/golf/types'
 
@@ -36,14 +36,10 @@ export function LessonQuestionsCard({ analysis, isAnalyzing }: Props) {
                 <span className="rounded-md bg-[var(--accent)]/20 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-[var(--accent)]">
                   Step 7
                 </span>
-                <span className="flex items-center gap-1 rounded-md bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-semibold text-amber-400">
-                  <Star className="h-2.5 w-2.5 fill-amber-400" />
-                  Killer feature
-                </span>
               </div>
               <h2 className="text-sm font-semibold text-white">Questions to Ask Your Coach</h2>
               <p className="mt-0.5 text-xs text-[var(--muted-foreground)]">
-                Generated from your swing data — not generic advice
+                Generated from your swing data
               </p>
             </div>
           </div>
@@ -78,7 +74,7 @@ export function LessonQuestionsCard({ analysis, isAnalyzing }: Props) {
             <div>
               <p className="text-sm font-medium text-white/60">Questions appear after analysis</p>
               <p className="mt-1 text-xs leading-relaxed text-[var(--muted-foreground)]">
-                These are personalised to your swing faults — they make your next lesson 10× more productive.
+                These are based on your specific swing faults, so your next lesson is more focused.
               </p>
             </div>
           </div>

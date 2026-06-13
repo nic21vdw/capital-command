@@ -38,7 +38,7 @@ export function DashboardPage() {
       <PageHeader
         eyebrow="Dashboard"
         title="Capital Command"
-        description="A clean command center for your portfolio, watchlist, research, and long-term plan."
+        description="Overview of your portfolio, watchlist, and research notes."
       />
       <QuoteOfTheDayCard />
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
@@ -72,7 +72,7 @@ export function DashboardPage() {
           <div className="mb-4 flex items-center justify-between">
             <div>
               <h2 className="text-xl font-semibold text-white">Portfolio value</h2>
-              <p className="text-sm text-[var(--muted-foreground)]">Simple trend view from your stored snapshots.</p>
+              <p className="text-sm text-[var(--muted-foreground)]">Value over time from your saved snapshots.</p>
             </div>
             <Badge>{formatPercent(summary.simplePerformance)}</Badge>
           </div>

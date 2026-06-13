@@ -83,7 +83,7 @@ export function HoldingsPage() {
       <PageHeader
         eyebrow="Holdings"
         title="Portfolio positions"
-        description="Track allocations, cost basis, gains, and manual price overrides in one place."
+        description="Track allocations, cost basis, gains, and manual price overrides."
         actions={
           <div className="flex flex-wrap gap-2">
             <Button variant="secondary" onClick={() => void mutate("refreshPrices", undefined, { successMessage: "Prices refreshed." })}>

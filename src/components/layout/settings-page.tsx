@@ -18,8 +18,8 @@ export function SettingsPage() {
     <div className="space-y-6">
       <PageHeader
         eyebrow="Settings"
-        title="App configuration"
-        description="Control theme, currency, refresh behavior, and data exports without exposing secrets."
+        title="Settings"
+        description="Control theme, currency, refresh behavior, and data exports."
       />
       <ProfileSettings />
       <ThemePicker />

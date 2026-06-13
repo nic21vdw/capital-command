@@ -125,7 +125,7 @@ export function CoachModeCard({ analysis }: Props) {
           </div>
         ) : analysis.coachPlanItems.length === 0 ? (
           <div className="flex flex-col items-center gap-3 py-10 text-center">
-            <p className="text-sm font-semibold text-emerald-400">No issues to plan for — keep practising!</p>
+            <p className="text-sm font-semibold text-emerald-400">No issues to plan for. Keep practising.</p>
             <p className="text-xs text-[var(--muted-foreground)]">Focus on consistency and tempo.</p>
           </div>
         ) : (

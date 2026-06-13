@@ -238,7 +238,7 @@ export function SwingNotesCard({ analysis, isAnalyzing }: Props) {
               <p className="text-xs leading-relaxed text-[var(--muted-foreground)]">
                 <strong className="text-white/50">Disclaimer:</strong> AI-assisted feedback via automated
                 pose estimation. Not a replacement for a certified PGA / LPGA golf coach. Use this as a
-                conversation starter — not a diagnosis.
+                conversation starter, not a diagnosis.
               </p>
             </div>
           </div>

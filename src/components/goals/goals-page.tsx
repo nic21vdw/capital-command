@@ -37,8 +37,8 @@ export function GoalsPage() {
     <div className="space-y-6">
       <PageHeader
         eyebrow="Goals"
-        title="Long-term targets with real context"
-        description="Track what you are building toward and how much progress you have already locked in."
+        title="Goals"
+        description="Track your long-term targets and how close you are to each."
         actions={
           <Button onClick={() => { setEditing(makeGoal()); setShowModal(true); }}>
             <Plus className="mr-2 h-4 w-4" />

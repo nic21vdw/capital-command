@@ -93,7 +93,7 @@ export function ClippingAgentPage() {
         return;
       }
       if (file.size > MAX_UPLOAD_BYTES) {
-        toast.error(`That file is ${(file.size / 1_000_000).toFixed(0)}MB — the limit is 500MB. Trim or compress it first.`);
+        toast.error(`That file is ${(file.size / 1_000_000).toFixed(0)}MB. The limit is 500MB, so trim or compress it first.`);
         return;
       }
 
@@ -112,7 +112,7 @@ export function ClippingAgentPage() {
         if (xhr.status === 201) {
           const { job } = JSON.parse(xhr.responseText) as { job: ClipJob };
           setActiveJobId(job.id);
-          toast.success("Upload complete — processing started.");
+          toast.success("Upload complete. Processing started.");
           void refresh();
         } else {
           let message = "Upload failed.";
@@ -126,7 +126,7 @@ export function ClippingAgentPage() {
       };
       xhr.onerror = () => {
         setUploadPct(null);
-        toast.error("Upload failed — is the dev server still running?");
+        toast.error("Upload failed. Is the dev server still running?");
       };
       setUploadPct(0);
       xhr.send(form);
@@ -157,14 +157,14 @@ export function ClippingAgentPage() {
       <PageHeader
         eyebrow="Creator Tools"
         title="Clipping Agent"
-        description="Upload a long-form video and get ranked, vertical short-form clips with captions and metadata — scored by audio energy, hooks, and pacing."
+        description="Upload a long-form video and get ranked vertical short-form clips with captions and metadata, scored by audio energy, hooks, and pacing."
       />
 
       <div className="grid gap-4 xl:grid-cols-[0.85fr_1.15fr]">
         {/* Left: upload + history */}
         <div className="space-y-4">
           <Card>
-            <h2 className="text-lg font-semibold text-white">Step 1 — Upload video</h2>
+            <h2 className="text-lg font-semibold text-white">Step 1: Upload video</h2>
             <p className="mt-1 text-sm text-[var(--muted-foreground)]">
               MP4, MOV, WebM, MKV, or AVI · up to 500MB · at least 20 seconds long.
             </p>
@@ -181,7 +181,7 @@ export function ClippingAgentPage() {
             />
             <div className="mt-4">
               <Input
-                placeholder="Video topic (optional — improves title & caption suggestions)"
+                placeholder="Video topic (optional, improves title and caption suggestions)"
                 value={topic}
                 onChange={(event) => setTopic(event.target.value)}
               />
@@ -220,7 +220,7 @@ export function ClippingAgentPage() {
               <p className="mt-2 text-sm text-[var(--muted-foreground)]">Loading…</p>
             ) : jobs.length === 0 ? (
               <p className="mt-2 text-sm text-[var(--muted-foreground)]">
-                Nothing yet. Upload a video above — each run shows up here with its clips, ready to re-open or delete.
+                Nothing yet. Upload a video above. Each run shows up here with its clips, ready to re-open or delete.
               </p>
             ) : (
               <div className="mt-3 space-y-2">
@@ -331,7 +331,7 @@ export function ClippingAgentPage() {
                     </div>
                     <Progress value={activeJob.progress} />
                     <p className="text-xs text-[var(--muted-foreground)]">
-                      Long videos can take several minutes. You can leave this page — the job keeps running.
+                      Long videos can take several minutes. You can leave this page and the job keeps running.
                     </p>
                   </div>
                 )}

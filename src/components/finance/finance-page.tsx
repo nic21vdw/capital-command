@@ -19,7 +19,7 @@ export function FinancePage() {
       <PageHeader
         eyebrow="Finance"
         title="Finance & billing"
-        description="Stripe revenue metrics alongside what you're spending on AI, cloud, and your computer setup."
+        description="Stripe revenue alongside your spending on AI, cloud, and hardware."
         actions={
           <Button variant="secondary" onClick={() => setShowAppearance((value) => !value)}>
             <Palette className="mr-2 h-4 w-4" />

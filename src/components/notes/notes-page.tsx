@@ -47,8 +47,8 @@ export function NotesPage() {
     <div className="space-y-6">
       <PageHeader
         eyebrow="Research Notes"
-        title="Your investment thinking, captured cleanly"
-        description="Keep thesis notes, bull and bear cases, valuation thoughts, and supporting links in one calm workspace."
+        title="Research notes"
+        description="Keep thesis notes, bull and bear cases, valuations, and supporting links together."
         actions={
           <Button onClick={() => { setEditing(makeResearchNote()); setShowModal(true); }}>
             <Plus className="mr-2 h-4 w-4" />
