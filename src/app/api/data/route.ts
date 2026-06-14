@@ -5,7 +5,7 @@ import { ensureExecution } from "@/lib/execution/server";
 import { todayLocal } from "@/lib/execution/dates";
 import { getMarketDataProvider } from "@/lib/marketData";
 import { seedData } from "@/lib/mockData/seed";
-import { appDataSchema, contentItemSchema, creatorProfileSchema, defaultCreatorProfile, executionCompletionSchema, executionGoalSchema, expenseSchema, goalSchema, holdingSchema, importHoldingSchema, researchNoteSchema, settingsSchema, watchlistSchema } from "@/lib/storage/schemas";
+import { appDataSchema, contentItemSchema, creatorProfileSchema, defaultCreatorProfile, executionCompletionSchema, executionGoalSchema, expenseSchema, goalSchema, holdingSchema, importHoldingSchema, researchNoteSchema, settingsSchema, watchlistSchema, xActivitySchema, xStrategySchema } from "@/lib/storage/schemas";
 import { readAppData, resetAppData, writeAppData } from "@/lib/storage/store";
 import type { AppData, ExecutionGoal, Holding } from "@/types/domain";
 
@@ -225,6 +225,40 @@ export async function POST(request: NextRequest) {
     }
     case "updateCreatorProfile": {
       data = { ...data, creatorProfile: creatorProfileSchema.parse(payload) };
+      break;
+    }
+    case "logXActivity": {
+      const parsed = xActivitySchema.parse(payload);
+      data = {
+        ...data,
+        xStrategy: {
+          ...data.xStrategy,
+          activities: [parsed, ...data.xStrategy.activities]
+        }
+      };
+      break;
+    }
+    case "deleteXActivity": {
+      const id = String(payload);
+      data = {
+        ...data,
+        xStrategy: {
+          ...data.xStrategy,
+          activities: data.xStrategy.activities.filter((item) => item.id !== id)
+        }
+      };
+      break;
+    }
+    case "updateXBrief": {
+      const brief = xStrategySchema.shape.brief.parse((payload as { brief?: unknown })?.brief);
+      data = { ...data, xStrategy: { ...data.xStrategy, brief } };
+      break;
+    }
+    case "updateXTargets": {
+      const input = (payload ?? {}) as { dailyReplyTarget?: unknown; dailyPostTarget?: unknown };
+      const dailyReplyTarget = xStrategySchema.shape.dailyReplyTarget.parse(input.dailyReplyTarget);
+      const dailyPostTarget = xStrategySchema.shape.dailyPostTarget.parse(input.dailyPostTarget);
+      data = { ...data, xStrategy: { ...data.xStrategy, dailyReplyTarget, dailyPostTarget } };
       break;
     }
     case "importHoldings": {

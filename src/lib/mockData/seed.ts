@@ -1,3 +1,4 @@
+import { defaultXStrategy } from "@/lib/storage/schemas";
 import type { AppData } from "@/types/domain";
 
 const now = "2026-05-01T09:00:00.000Z";
@@ -7,6 +8,7 @@ export const seedData: AppData = {
     currency: "CAD",
     theme: "dark"
   },
+  xStrategy: defaultXStrategy,
   // Execution goals are seeded lazily on first dashboard load (see
   // ensureExecution) so that pre-existing data files migrate cleanly too.
   executionGoals: [],
