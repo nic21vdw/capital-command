@@ -176,6 +176,26 @@ export interface CreatorProfile {
   updatedAt: string;
 }
 
+export type XActivityType = "reply" | "post";
+
+export interface XActivity {
+  id: string;
+  type: XActivityType;
+  date: string; // YYYY-MM-DD (local day the activity happened)
+  account?: string; // for replies: the handle replied to
+  topic: string;
+  text: string; // the exact reply or post text
+  engagement?: string;
+  createdAt: string;
+}
+
+export interface XStrategy {
+  brief: string; // positioning / voice / strategy (markdown)
+  dailyReplyTarget: number; // minimum quality replies per day
+  dailyPostTarget: number; // minimum original posts per day
+  activities: XActivity[];
+}
+
 export interface AppData {
   holdings: Holding[];
   watchlist: WatchlistItem[];
@@ -186,6 +206,7 @@ export interface AppData {
   expenses: Expense[];
   contentItems: ContentItem[];
   creatorProfile: CreatorProfile;
+  xStrategy: XStrategy;
   settings: Settings;
 }
 

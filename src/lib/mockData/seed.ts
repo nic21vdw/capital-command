@@ -1,3 +1,4 @@
+import { defaultXStrategy } from "@/lib/storage/schemas";
 import type { AppData } from "@/types/domain";
 
 const now = "2026-05-01T09:00:00.000Z";
@@ -7,6 +8,7 @@ export const seedData: AppData = {
     currency: "CAD",
     theme: "dark"
   },
+  xStrategy: defaultXStrategy,
   accounts: [
     { id: "acct-tfsa", name: "Wealthsimple TFSA", type: "TFSA", institution: "Wealthsimple", currency: "CAD" },
     { id: "acct-rrsp", name: "Questrade RRSP", type: "RRSP", institution: "Questrade", currency: "CAD" },

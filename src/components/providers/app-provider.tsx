@@ -3,7 +3,9 @@
 import { createContext, startTransition, useContext, useEffect, useState } from "react";
 import { toast } from "sonner";
 import { derivePortfolioSummary } from "@/lib/derive";
-import type { AppData, ContentItem, CreatorProfile, Expense, Goal, Holding, ResearchNote, Settings, WatchlistItem } from "@/types/domain";
+import { localDateKey } from "@/lib/x-strategy/analytics";
+import { defaultXStrategy } from "@/lib/storage/schemas";
+import type { AppData, ContentItem, CreatorProfile, Expense, Goal, Holding, ResearchNote, Settings, WatchlistItem, XActivity, XActivityType } from "@/types/domain";
 
 interface BootstrapPayload {
   data: AppData;
@@ -122,6 +124,7 @@ const payloadFallback: BootstrapPayload = {
     expenses: [],
     contentItems: [],
     creatorProfile: emptyCreatorProfile,
+    xStrategy: defaultXStrategy,
     settings: {
       currency: "CAD",
       theme: "dark"
@@ -137,6 +140,7 @@ const payloadFallback: BootstrapPayload = {
     expenses: [],
     contentItems: [],
     creatorProfile: emptyCreatorProfile,
+    xStrategy: defaultXStrategy,
     settings: {
       currency: "CAD",
       theme: "dark"
@@ -278,5 +282,19 @@ export function makeCreatorProfile(input?: Partial<CreatorProfile>): CreatorProf
     subscriberGoal: input?.subscriberGoal ?? 1000,
     monthlyRevenueGoal: input?.monthlyRevenueGoal ?? 0,
     updatedAt: new Date().toISOString()
+  };
+}
+
+export function makeXActivity(input?: Partial<XActivity>): XActivity {
+  const now = new Date().toISOString();
+  return {
+    id: input?.id ?? `x-${crypto.randomUUID()}`,
+    type: (input?.type as XActivityType) ?? "reply",
+    date: input?.date ?? localDateKey(),
+    account: input?.account ?? "",
+    topic: input?.topic ?? "",
+    text: input?.text ?? "",
+    engagement: input?.engagement ?? "",
+    createdAt: input?.createdAt ?? now
   };
 }

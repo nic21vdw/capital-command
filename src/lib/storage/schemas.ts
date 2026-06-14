@@ -115,6 +115,73 @@ export const creatorProfileSchema = z.object({
 
 export const defaultCreatorProfile = creatorProfileSchema.parse({});
 
+// Default positioning/voice/strategy used the first time the X tool loads.
+// Editable in the tool; persisted in the app data store.
+export const DEFAULT_X_BRIEF = `# X Reply Brief
+
+## Positioning
+I am Nic Vandewetering (@nic21vdw), a Structural EIT building CoLateral AI: software and AI tools for structural-engineering workflows. My positioning is at the intersection of structural engineering, AI coding agents (Claude Code, Codex), vibe coding, agentic engineering, professional review and verification, and building sophisticated vertical software without a traditional software team.
+
+## Core angles
+- Code generation is becoming cheap; judgment, verification, and problem definition become more valuable
+- More agents increase review and coordination requirements unless design intent and acceptance criteria are explicit
+- In professional engineering, an AI system must preserve assumptions, expose uncertainty, document decisions, and support human review
+- The valuable product is the verification and workflow harness around the model, not the model-generated output itself
+- AI tools become valuable in vertical industries when they understand the review process, not merely the calculation
+- Output volume is a poor metric unless the output can be efficiently validated
+- Professional workflows need traceability, controlled assumptions, and clear responsibility boundaries
+
+## Search topics
+Claude Code, Codex, agentic engineering, vibe coding, AI coding agents, parallel agents, harness engineering, context engineering, AI code review, evaluation and verification, vertical AI, AI tools for professional or regulated industries, human judgment as the bottleneck, moving from prototypes to reliable production systems
+
+## Accounts to check regularly
+@mvanhorn, @petergyang, @sachinrekhi, @martinfowler
+
+## Voice rules
+- Write like a sharp engineer who understands business and software
+- Confident, specific, natural, respectful, slightly provocative when justified
+- Based on consequences not abstract philosophy
+- 2-4 sentences maximum
+- Do NOT start with: Great post, Exactly, This, Couldn't agree more
+- Do NOT use hashtags or emojis
+- Do NOT sound like a motivational influencer
+- Do NOT mention CoLateral unless directly relevant
+- Do NOT turn the reply into a sales pitch
+- Do NOT claim to be a licensed professional engineer
+- Do NOT invent projects, results, revenue, customers, or statistics
+- Do NOT use overly polished AI phrasing or excessive em dashes
+
+## Selection criteria
+- Published recently enough to still have an active conversation
+- Directly relevant to AI-assisted software development
+- Gives me an opportunity to add an engineering or professional-workflow perspective
+- Has meaningful engagement but is not so overwhelmed with replies that mine will disappear
+- Is not political, inflammatory, spammy, promotional bait, or engagement farming
+- Only proceed if the best opportunity scores at least 80/100
+
+## Execution instructions
+Search recent posts using the suggested queries. Read the full post, linked material when necessary, and enough of the thread to understand context. Score possible posts on: relevance to positioning, freshness, credibility of the author, ability to add an original insight, probability of creating a real conversation, risk of sounding generic or self-promotional. Draft three possible replies privately. Critique them for generic language, unsupported claims, and AI-sounding phrasing. Choose and refine the strongest reply. Enter it into the X composer. Re-read it alongside the original post. Post it. Report: account replied to, summary of original post, exact reply posted, why this was the strongest opportunity, one possible follow-up response if the author replies.`;
+
+export const xActivitySchema = z.object({
+  id: z.string(),
+  type: z.enum(["reply", "post"]),
+  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  account: z.string().trim().optional(),
+  topic: z.string().trim().min(1),
+  text: z.string().trim().min(1),
+  engagement: z.string().trim().optional(),
+  createdAt: z.string().default(() => new Date().toISOString())
+});
+
+export const xStrategySchema = z.object({
+  brief: z.string().default(DEFAULT_X_BRIEF),
+  dailyReplyTarget: z.coerce.number().int().min(0).default(3),
+  dailyPostTarget: z.coerce.number().int().min(0).default(1),
+  activities: z.array(xActivitySchema).default([])
+});
+
+export const defaultXStrategy = xStrategySchema.parse({});
+
 export const appDataSchema = z.object({
   holdings: z.array(holdingSchema),
   watchlist: z.array(watchlistSchema),
@@ -138,6 +205,7 @@ export const appDataSchema = z.object({
   expenses: z.array(expenseSchema).default([]),
   contentItems: z.array(contentItemSchema).default([]),
   creatorProfile: creatorProfileSchema.default(defaultCreatorProfile),
+  xStrategy: xStrategySchema.default(defaultXStrategy),
   settings: settingsSchema
 });
 
