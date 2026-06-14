@@ -115,6 +115,72 @@ export const creatorProfileSchema = z.object({
 
 export const defaultCreatorProfile = creatorProfileSchema.parse({});
 
+export const executionCategorySchema = z.enum([
+  "X / Twitter",
+  "Reddit",
+  "YouTube",
+  "CoLateral",
+  "Structural Engineering",
+  "Community & Networking"
+]);
+
+export const executionGoalSchema = z.object({
+  id: z.string(),
+  title: z.string().trim().min(1),
+  description: z.string().optional(),
+  category: executionCategorySchema,
+  frequency: z.enum(["daily", "weekly"]),
+  dailyTarget: z.coerce.number().min(0),
+  weeklyTarget: z.coerce.number().min(0),
+  icon: z.string().trim().min(1),
+  displayOrder: z.coerce.number().int(),
+  active: z.coerce.boolean(),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+  archivedAt: z.string().optional()
+});
+
+export const executionCompletionSchema = z.object({
+  id: z.string(),
+  goalId: z.string(),
+  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Expected YYYY-MM-DD"),
+  timestamp: z.string(),
+  quantity: z.coerce.number().int().min(1),
+  source: z.literal("manual"),
+  note: z.string().optional(),
+  createdAt: z.string()
+});
+
+export const executionPeriodSchema = z.object({
+  id: z.string(),
+  goalId: z.string(),
+  weekStart: z.string(),
+  weekEnd: z.string(),
+  baseline: z.coerce.number().min(0),
+  startingDebt: z.coerce.number().min(0),
+  effectiveRequired: z.coerce.number().min(0),
+  completed: z.coerce.number().min(0),
+  baselineCompleted: z.coerce.number().min(0),
+  debtPaid: z.coerce.number().min(0),
+  newDebt: z.coerce.number().min(0),
+  endingDebt: z.coerce.number().min(0),
+  overachievement: z.coerce.number().min(0),
+  successful: z.coerce.boolean(),
+  finalized: z.coerce.boolean(),
+  finalizedAt: z.string().optional()
+});
+
+export const executionDebtSchema = z.object({
+  id: z.string(),
+  goalId: z.string(),
+  originWeekStart: z.string(),
+  originalQuantity: z.coerce.number().min(0),
+  remainingQuantity: z.coerce.number().min(0),
+  repaidQuantity: z.coerce.number().min(0),
+  createdAt: z.string(),
+  fullyRepaidAt: z.string().optional()
+});
+
 // Default positioning/voice/strategy used the first time the X tool loads.
 // Editable in the tool; persisted in the app data store.
 export const DEFAULT_X_BRIEF = `# X Reply Brief
@@ -206,7 +272,12 @@ export const appDataSchema = z.object({
   contentItems: z.array(contentItemSchema).default([]),
   creatorProfile: creatorProfileSchema.default(defaultCreatorProfile),
   xStrategy: xStrategySchema.default(defaultXStrategy),
-  settings: settingsSchema
+  settings: settingsSchema,
+  executionGoals: z.array(executionGoalSchema).default([]),
+  executionCompletions: z.array(executionCompletionSchema).default([]),
+  executionPeriods: z.array(executionPeriodSchema).default([]),
+  executionDebt: z.array(executionDebtSchema).default([]),
+  executionSeededAt: z.string().optional()
 });
 
 export const importHoldingSchema = z.object({

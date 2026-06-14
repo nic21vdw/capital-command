@@ -9,6 +9,12 @@ export const seedData: AppData = {
     theme: "dark"
   },
   xStrategy: defaultXStrategy,
+  // Execution goals are seeded lazily on first dashboard load (see
+  // ensureExecution) so that pre-existing data files migrate cleanly too.
+  executionGoals: [],
+  executionCompletions: [],
+  executionPeriods: [],
+  executionDebt: [],
   accounts: [
     { id: "acct-tfsa", name: "Wealthsimple TFSA", type: "TFSA", institution: "Wealthsimple", currency: "CAD" },
     { id: "acct-rrsp", name: "Questrade RRSP", type: "RRSP", institution: "Questrade", currency: "CAD" },
