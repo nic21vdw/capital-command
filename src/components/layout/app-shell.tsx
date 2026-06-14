@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Clapperboard, Image as ImageIcon, LayoutDashboard, Scissors, Settings, Wallet, Youtube } from "lucide-react";
+import { Clapperboard, Image as ImageIcon, LayoutDashboard, Scissors, Settings, Target, Wallet, Youtube } from "lucide-react";
 import { useTheme } from "next-themes";
 import { AppFooter } from "@/components/layout/app-footer";
 import { ProfileBar } from "@/components/layout/profile-bar";
@@ -11,6 +11,7 @@ import { cn } from "@/lib/utils";
 
 const navItems = [
   { href: "/", label: "Dashboard", icon: LayoutDashboard },
+  { href: "/execution", label: "Execution", icon: Target },
   { href: "/finance", label: "Finances", icon: Wallet },
   { href: "/youtube", label: "YouTube", icon: Youtube },
   { href: "/thumbnails", label: "Thumbnail Generator", icon: ImageIcon },

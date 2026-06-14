@@ -176,6 +176,90 @@ export interface CreatorProfile {
   updatedAt: string;
 }
 
+// ---------------------------------------------------------------------------
+// Execution dashboard (recurring brand-building accountability)
+// ---------------------------------------------------------------------------
+
+export type ExecutionCategory =
+  | "X / Twitter"
+  | "Reddit"
+  | "YouTube"
+  | "CoLateral"
+  | "Structural Engineering"
+  | "Community & Networking";
+
+export type ExecutionFrequency = "daily" | "weekly";
+
+/**
+ * A recurring goal. `weeklyTarget` is always the baseline weekly requirement;
+ * for daily goals it is derived as `dailyTarget * 7` so that all debt and
+ * reconciliation math can operate on a single weekly granularity.
+ */
+export interface ExecutionGoal {
+  id: string;
+  title: string;
+  description?: string;
+  category: ExecutionCategory;
+  frequency: ExecutionFrequency;
+  /** Per-day target for daily goals; 0 for weekly goals. */
+  dailyTarget: number;
+  /** Baseline weekly requirement. Daily goals: dailyTarget * 7. */
+  weeklyTarget: number;
+  /** lucide-react icon key (resolved via the execution icon registry). */
+  icon: string;
+  displayOrder: number;
+  active: boolean;
+  createdAt: string;
+  updatedAt: string;
+  archivedAt?: string;
+}
+
+/** An immutable record of a single manual completion (event-sourced). */
+export interface ExecutionCompletion {
+  id: string;
+  goalId: string;
+  /** Local YYYY-MM-DD the work counts toward. */
+  date: string;
+  /** ISO timestamp of when it was logged. */
+  timestamp: string;
+  quantity: number;
+  source: "manual";
+  note?: string;
+  createdAt: string;
+}
+
+/** A finalized weekly snapshot for a goal. Frozen once the week ends. */
+export interface ExecutionPeriod {
+  id: string;
+  goalId: string;
+  weekStart: string;
+  weekEnd: string;
+  baseline: number;
+  startingDebt: number;
+  effectiveRequired: number;
+  completed: number;
+  baselineCompleted: number;
+  debtPaid: number;
+  newDebt: number;
+  endingDebt: number;
+  overachievement: number;
+  successful: boolean;
+  finalized: boolean;
+  finalizedAt?: string;
+}
+
+/** A single debt ledger entry. Repayments are applied oldest-first. */
+export interface ExecutionDebtEntry {
+  id: string;
+  goalId: string;
+  originWeekStart: string;
+  originalQuantity: number;
+  remainingQuantity: number;
+  repaidQuantity: number;
+  createdAt: string;
+  fullyRepaidAt?: string;
+}
+
 export interface AppData {
   holdings: Holding[];
   watchlist: WatchlistItem[];
@@ -187,6 +271,12 @@ export interface AppData {
   contentItems: ContentItem[];
   creatorProfile: CreatorProfile;
   settings: Settings;
+  executionGoals: ExecutionGoal[];
+  executionCompletions: ExecutionCompletion[];
+  executionPeriods: ExecutionPeriod[];
+  executionDebt: ExecutionDebtEntry[];
+  /** ISO timestamp recorded the first time default goals were seeded. */
+  executionSeededAt?: string;
 }
 
 export interface TrendPoint {

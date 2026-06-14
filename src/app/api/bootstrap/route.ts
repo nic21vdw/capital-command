@@ -1,9 +1,18 @@
 import { NextResponse } from "next/server";
 import { derivePortfolioSummary } from "@/lib/derive";
-import { readAppData } from "@/lib/storage/store";
+import { ensureExecution } from "@/lib/execution/server";
+import { readAppData, writeAppData } from "@/lib/storage/store";
 
 export async function GET() {
-  const data = await readAppData();
+  const stored = await readAppData();
+
+  // Seed default execution goals and reconcile any ended weeks into debt before
+  // the dashboard renders, persisting the result so reconciliation is durable.
+  const ensured = ensureExecution(stored);
+  const data = ensured.data;
+  if (ensured.changed) {
+    await writeAppData(data);
+  }
 
   return NextResponse.json({
     data,

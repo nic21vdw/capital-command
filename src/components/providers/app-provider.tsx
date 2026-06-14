@@ -3,7 +3,7 @@
 import { createContext, startTransition, useContext, useEffect, useState } from "react";
 import { toast } from "sonner";
 import { derivePortfolioSummary } from "@/lib/derive";
-import type { AppData, ContentItem, CreatorProfile, Expense, Goal, Holding, ResearchNote, Settings, WatchlistItem } from "@/types/domain";
+import type { AppData, ContentItem, CreatorProfile, ExecutionCategory, ExecutionGoal, Expense, Goal, Holding, ResearchNote, Settings, WatchlistItem } from "@/types/domain";
 
 interface BootstrapPayload {
   data: AppData;
@@ -111,37 +111,29 @@ const emptyCreatorProfile: CreatorProfile = {
   updatedAt: new Date(0).toISOString()
 };
 
-const payloadFallback: BootstrapPayload = {
-  data: {
-    holdings: [],
-    watchlist: [],
-    researchNotes: [],
-    goals: [],
-    accounts: [],
-    portfolioSnapshots: [],
-    expenses: [],
-    contentItems: [],
-    creatorProfile: emptyCreatorProfile,
-    settings: {
-      currency: "CAD",
-      theme: "dark"
-    }
+const emptyAppData: AppData = {
+  holdings: [],
+  watchlist: [],
+  researchNotes: [],
+  goals: [],
+  accounts: [],
+  portfolioSnapshots: [],
+  expenses: [],
+  contentItems: [],
+  creatorProfile: emptyCreatorProfile,
+  settings: {
+    currency: "CAD",
+    theme: "dark"
   },
-  summary: derivePortfolioSummary({
-    holdings: [],
-    watchlist: [],
-    researchNotes: [],
-    goals: [],
-    accounts: [],
-    portfolioSnapshots: [],
-    expenses: [],
-    contentItems: [],
-    creatorProfile: emptyCreatorProfile,
-    settings: {
-      currency: "CAD",
-      theme: "dark"
-    }
-  }),
+  executionGoals: [],
+  executionCompletions: [],
+  executionPeriods: [],
+  executionDebt: []
+};
+
+const payloadFallback: BootstrapPayload = {
+  data: emptyAppData,
+  summary: derivePortfolioSummary(emptyAppData),
   apiStatus: {
     hasAlphaVantageKey: false
   }
@@ -264,6 +256,28 @@ export function makeContentItem(input?: Partial<ContentItem>): ContentItem {
     notes: input?.notes ?? "",
     createdAt: input?.createdAt ?? now,
     updatedAt: now
+  };
+}
+
+export function makeExecutionGoal(input?: Partial<ExecutionGoal>): ExecutionGoal {
+  const now = new Date().toISOString();
+  const frequency = input?.frequency ?? "weekly";
+  const dailyTarget = input?.dailyTarget ?? (frequency === "daily" ? 1 : 0);
+  const weeklyTarget = input?.weeklyTarget ?? (frequency === "daily" ? dailyTarget * 7 : 1);
+  return {
+    id: input?.id ?? `xgoal-${crypto.randomUUID()}`,
+    title: input?.title ?? "",
+    description: input?.description ?? "",
+    category: (input?.category ?? "CoLateral") as ExecutionCategory,
+    frequency,
+    dailyTarget,
+    weeklyTarget,
+    icon: input?.icon ?? "Target",
+    displayOrder: input?.displayOrder ?? 0,
+    active: input?.active ?? true,
+    createdAt: input?.createdAt ?? now,
+    updatedAt: now,
+    archivedAt: input?.archivedAt
   };
 }
 
