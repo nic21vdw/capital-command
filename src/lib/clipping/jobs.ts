@@ -1,10 +1,12 @@
-import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rm, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { detectSilences, extractEnergy, fallbackCandidates, selectCandidates } from "@/lib/clipping/analysis";
-import { hasAudioStream, probeDuration, runFfmpeg } from "@/lib/clipping/ffmpeg";
+import { downloadAudio, downloadSection, fetchVideoMeta } from "@/lib/clipping/download";
+import { hasAudioStream, probeDuration } from "@/lib/clipping/ffmpeg";
 import { generateClipMetadata } from "@/lib/clipping/metadata";
+import { renderVertical, renderWide, type RenderRange } from "@/lib/clipping/render";
 import { buildSrtForRange, excerptForRange, transcribe } from "@/lib/clipping/transcribe";
-import type { ClipJob, TranscriptSegment } from "@/lib/clipping/types";
+import type { ClipCandidate, ClipJob, TranscriptSegment } from "@/lib/clipping/types";
 
 const clipsRoot = path.join(process.cwd(), "data", "clips");
 const jobsFile = path.join(clipsRoot, "jobs.json");
@@ -87,12 +89,41 @@ export async function createJob(fileName: string, topic: string | undefined, sou
   await loadJobs();
   const id = crypto.randomUUID().slice(0, 8);
   const ext = path.extname(fileName).toLowerCase() || ".mp4";
+  const job = await newJob(id, fileName, topic, "upload");
+
+  const sourcePath = path.join(uploadDir(id), `source${ext}`);
+  await writeFile(sourcePath, sourceBytes);
+  await persistJobs();
+
+  // Run the pipeline without blocking the upload response; the client polls.
+  void runUploadPipeline(job, sourcePath).catch((error) => failJob(job, error));
+  return job;
+}
+
+export async function createJobFromUrl(url: string, topic: string | undefined): Promise<ClipJob> {
+  await loadJobs();
+  const id = crypto.randomUUID().slice(0, 8);
+  const job = await newJob(id, url, topic, "url");
+  job.sourceUrl = url;
+  await persistJobs();
+
+  void runUrlPipeline(job, url).catch((error) => failJob(job, error));
+  return job;
+}
+
+async function newJob(
+  id: string,
+  fileName: string,
+  topic: string | undefined,
+  source: ClipJob["source"]
+): Promise<ClipJob> {
   const job: ClipJob = {
     id,
     fileName,
     topic: topic || undefined,
+    source,
     status: "queued",
-    stage: "uploading",
+    stage: source === "url" ? "downloading" : "uploading",
     progress: 2,
     notices: [],
     createdAt: new Date().toISOString(),
@@ -101,25 +132,19 @@ export async function createJob(fileName: string, topic: string | undefined, sou
     clips: []
   };
   jobs.set(id, job);
-
   await mkdir(uploadDir(id), { recursive: true });
   await mkdir(outputDir(id), { recursive: true });
-  const sourcePath = path.join(uploadDir(id), `source${ext}`);
-  await writeFile(sourcePath, sourceBytes);
-  await persistJobs();
-
-  // Run the pipeline without blocking the upload response; the client polls.
-  void runPipeline(job, sourcePath).catch(async (error) => {
-    await update(job, {
-      status: "error",
-      error: error instanceof Error ? error.message : String(error)
-    });
-  });
-
   return job;
 }
 
-async function runPipeline(job: ClipJob, sourcePath: string) {
+async function failJob(job: ClipJob, error: unknown) {
+  await update(job, { status: "error", error: error instanceof Error ? error.message : String(error) });
+}
+
+// --- Source-specific entry points -----------------------------------------
+
+/** Pipeline for a browser-uploaded file: analyze and render from disk. */
+async function runUploadPipeline(job: ClipJob, sourcePath: string) {
   await update(job, { status: "processing", stage: "probing", progress: 5 });
   const durationSec = await probeDuration(sourcePath);
   if (durationSec < 20) {
@@ -127,17 +152,74 @@ async function runPipeline(job: ClipJob, sourcePath: string) {
   }
   await update(job, { durationSec: Math.round(durationSec) });
 
-  // 1. Audio energy + silence analysis (works fully offline).
   const audioPresent = await hasAudioStream(sourcePath);
+  await analyzeAndRender(job, {
+    analysisInput: sourcePath,
+    durationSec,
+    audioPresent,
+    // Each clip is trimmed straight out of the full uploaded file.
+    prepareClipInput: async (clip) => ({
+      inputPath: sourcePath,
+      range: { start: clip.start, duration: clip.end - clip.start }
+    })
+  });
+}
+
+/** Pipeline for a pasted VOD URL: download audio for analysis, then fetch only the chosen ranges. */
+async function runUrlPipeline(job: ClipJob, url: string) {
+  await update(job, { status: "processing", stage: "downloading", progress: 5 });
+  const meta = await fetchVideoMeta(url);
+  if (meta.title) await update(job, { fileName: meta.title });
+  if (meta.durationSec && meta.durationSec < 20) {
+    throw new Error("That VOD is shorter than 20 seconds — pick a longer stream to clip from.");
+  }
+
+  // Audio-only download keeps this fast even for multi-hour streams.
+  const audioPath = await downloadAudio(url, uploadDir(job.id), (pct) =>
+    void update(job, { progress: 5 + Math.round((pct / 100) * 12) })
+  );
+  const durationSec = meta.durationSec || (await probeDuration(audioPath));
+  await update(job, { durationSec: Math.round(durationSec) });
+
+  await analyzeAndRender(job, {
+    analysisInput: audioPath,
+    durationSec,
+    audioPresent: true,
+    // Each clip is fetched as its own short section straight from the source URL.
+    prepareClipInput: async (clip, index) => {
+      const segPath = path.join(uploadDir(job.id), `seg-${String(index + 1).padStart(2, "0")}.mp4`);
+      const produced = await downloadSection(url, clip.start, clip.end, segPath);
+      return { inputPath: produced, cleanup: produced };
+    }
+  });
+}
+
+// --- Shared analysis + render core ----------------------------------------
+
+type PipelineOptions = {
+  /** File the energy/silence/transcription analysis runs against. */
+  analysisInput: string;
+  durationSec: number;
+  audioPresent: boolean;
+  /** Resolves the input (and optional trim) for rendering a given clip. */
+  prepareClipInput: (
+    clip: ClipCandidate,
+    index: number
+  ) => Promise<{ inputPath: string; range?: RenderRange; cleanup?: string }>;
+};
+
+async function analyzeAndRender(job: ClipJob, opts: PipelineOptions) {
+  const { analysisInput, durationSec, audioPresent } = opts;
   let transcriptSegments: TranscriptSegment[] | null = null;
 
+  // 1. Audio energy + silence analysis (works fully offline).
   if (audioPresent) {
-    await update(job, { stage: "analyzing-audio", progress: 12 });
-    const [windows, silences] = await Promise.all([extractEnergy(sourcePath), detectSilences(sourcePath)]);
+    await update(job, { stage: "analyzing-audio", progress: 22 });
+    const [windows, silences] = await Promise.all([extractEnergy(analysisInput), detectSilences(analysisInput)]);
 
-    // 2. Optional transcription (Whisper).
-    await update(job, { stage: "transcribing", progress: 30 });
-    const transcript = await transcribe(sourcePath, uploadDir(job.id));
+    // 2. Optional transcription (Whisper), chunked for long recordings.
+    await update(job, { stage: "transcribing", progress: 32 });
+    const transcript = await transcribe(analysisInput, uploadDir(job.id));
     if (transcript.segments) {
       transcriptSegments = transcript.segments;
       await update(job, { transcriptAvailable: true });
@@ -145,57 +227,44 @@ async function runPipeline(job: ClipJob, sourcePath: string) {
       job.notices.push(transcript.reason);
     }
 
-    await update(job, { stage: "selecting-clips", progress: 42 });
+    await update(job, { stage: "selecting-clips", progress: 44 });
     job.clips = selectCandidates(windows, silences, durationSec);
   } else {
     job.notices.push("This video has no audio track, so clips were spaced evenly instead of ranked by energy.");
-    await update(job, { stage: "selecting-clips", progress: 42 });
+    await update(job, { stage: "selecting-clips", progress: 44 });
     job.clips = fallbackCandidates(durationSec, "No audio track");
   }
   await persistJobs();
 
-  // 3. Render each candidate as a vertical 9:16 clip (blurred-background pad).
+  // 3. Render each candidate as both a vertical 9:16 short and a 16:9 widescreen cut.
   for (let i = 0; i < job.clips.length; i++) {
     const clip = job.clips[i];
-    await update(job, {
-      stage: "rendering-clips",
-      progress: 45 + Math.round((i / job.clips.length) * 40)
-    });
-    const fileName = `clip-${String(i + 1).padStart(2, "0")}.mp4`;
-    await runFfmpeg([
-      "-y",
-      "-ss",
-      String(clip.start),
-      "-t",
-      String(clip.end - clip.start),
-      "-i",
-      sourcePath,
-      "-filter_complex",
-      "[0:v]split=2[bg][fg];" +
-        "[bg]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,boxblur=24:4,eq=brightness=-0.08[bgb];" +
-        "[fg]scale=1080:-2[fgs];" +
-        "[bgb][fgs]overlay=(W-w)/2:(H-h)/2",
-      "-c:v",
-      "libx264",
-      "-preset",
-      "veryfast",
-      "-crf",
-      "23",
-      ...(audioPresent ? ["-c:a", "aac", "-b:a", "128k"] : ["-an"]),
-      "-movflags",
-      "+faststart",
-      path.join(outputDir(job.id), fileName)
-    ]);
-    clip.file = fileName;
+    await update(job, { stage: "rendering-clips", progress: 46 + Math.round((i / job.clips.length) * 38) });
+    try {
+      const { inputPath, range, cleanup } = await opts.prepareClipInput(clip, i);
+      const verticalName = `clip-${String(i + 1).padStart(2, "0")}.mp4`;
+      const wideName = `clip-${String(i + 1).padStart(2, "0")}-wide.mp4`;
+      await renderVertical(inputPath, path.join(outputDir(job.id), verticalName), audioPresent, range);
+      await renderWide(inputPath, path.join(outputDir(job.id), wideName), audioPresent, range);
+      clip.file = verticalName;
+      clip.wideFile = wideName;
+      if (cleanup) await unlink(cleanup).catch(() => undefined);
+    } catch (error) {
+      job.notices.push(
+        `Clip ${i + 1} (${Math.round(clip.start)}s) could not be rendered: ${error instanceof Error ? error.message : String(error)}.`
+      );
+    }
+    await persistJobs();
   }
 
   // 4. Per-clip SRT captions when a transcript exists.
   if (transcriptSegments) {
     await update(job, { stage: "writing-captions", progress: 88 });
     for (const clip of job.clips) {
+      if (!clip.file) continue;
       const srt = buildSrtForRange(transcriptSegments, clip.start, clip.end);
       if (srt) {
-        const srtName = clip.file!.replace(/\.mp4$/, ".srt");
+        const srtName = clip.file.replace(/\.mp4$/, ".srt");
         await writeFile(path.join(outputDir(job.id), srtName), srt, "utf8");
         clip.srtFile = srtName;
       }

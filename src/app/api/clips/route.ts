@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { FFMPEG_MISSING_MESSAGE, resolveFfmpeg, runFfmpeg } from "@/lib/clipping/ffmpeg";
-import { ACCEPTED_VIDEO_TYPES, createJob, listJobs, MAX_UPLOAD_BYTES } from "@/lib/clipping/jobs";
+import { ACCEPTED_VIDEO_TYPES, createJob, createJobFromUrl, listJobs, MAX_UPLOAD_BYTES } from "@/lib/clipping/jobs";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -18,6 +18,23 @@ export async function POST(request: NextRequest) {
     await runFfmpeg(["-version"], { allowFailure: true });
   } catch {
     return NextResponse.json({ error: FFMPEG_MISSING_MESSAGE }, { status: 500 });
+  }
+
+  // A JSON body means "clip from this VOD URL"; multipart means a file upload.
+  if (request.headers.get("content-type")?.includes("application/json")) {
+    let body: { url?: unknown; topic?: unknown };
+    try {
+      body = (await request.json()) as typeof body;
+    } catch {
+      return NextResponse.json({ error: "Expected a JSON body with a `url` field." }, { status: 400 });
+    }
+    const url = typeof body.url === "string" ? body.url.trim() : "";
+    const topic = typeof body.topic === "string" ? body.topic.trim() : "";
+    if (!/^https?:\/\/\S+$/i.test(url)) {
+      return NextResponse.json({ error: "Enter a valid http(s) video/VOD URL." }, { status: 400 });
+    }
+    const job = await createJobFromUrl(url, topic || undefined);
+    return NextResponse.json({ job }, { status: 201 });
   }
 
   let form: FormData;
