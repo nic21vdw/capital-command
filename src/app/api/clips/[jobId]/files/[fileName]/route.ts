@@ -19,7 +19,7 @@ export async function GET(
   }
 
   // Only files the job itself produced may be served — no path traversal.
-  const known = job.clips.flatMap((clip) => [clip.file, clip.srtFile]).filter(Boolean);
+  const known = job.clips.flatMap((clip) => [clip.file, clip.wideFile, clip.srtFile]).filter(Boolean);
   if (!known.includes(fileName)) {
     return NextResponse.json({ error: "File not found for this job." }, { status: 404 });
   }

@@ -2,6 +2,7 @@ export type ClipJobStatus = "queued" | "processing" | "done" | "error";
 
 export type ClipJobStage =
   | "uploading"
+  | "downloading"
   | "probing"
   | "analyzing-audio"
   | "transcribing"
@@ -38,8 +39,10 @@ export type ClipCandidate = {
   score: number;
   breakdown: ClipScoreBreakdown;
   rationale: string;
-  /** Output filename inside the job's output directory, set once rendered. */
+  /** Vertical 9:16 (Shorts/Reels/TikTok) output filename, set once rendered. */
   file?: string;
+  /** Widescreen 16:9 (long-form) output filename, set once rendered. */
+  wideFile?: string;
   /** SRT caption filename, set when a transcript was available. */
   srtFile?: string;
   /** Short transcript excerpt for this range, when available. */
@@ -51,6 +54,10 @@ export type ClipJob = {
   id: string;
   fileName: string;
   topic?: string;
+  /** Where the source came from: a browser upload or a pasted VOD URL. */
+  source: "upload" | "url";
+  /** Original VOD URL when source is "url". */
+  sourceUrl?: string;
   status: ClipJobStatus;
   stage: ClipJobStage;
   /** 0-100 across the whole pipeline. */

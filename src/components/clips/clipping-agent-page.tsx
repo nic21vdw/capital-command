@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { AlertTriangle, Check, Copy, Download, Film, Loader2, Trash2, UploadCloud } from "lucide-react";
+import { AlertTriangle, Check, Copy, Download, Film, Link as LinkIcon, Loader2, Trash2, UploadCloud } from "lucide-react";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -17,18 +17,19 @@ const ACCEPT = ".mp4,.mov,.webm,.mkv,.avi,video/*";
 
 const STAGE_LABELS: Record<ClipJobStage, string> = {
   uploading: "Uploading",
+  downloading: "Downloading stream audio",
   probing: "Reading video",
   "analyzing-audio": "Analyzing audio energy",
   transcribing: "Transcribing",
   "selecting-clips": "Selecting clip candidates",
-  "rendering-clips": "Rendering vertical clips",
+  "rendering-clips": "Rendering clips (vertical + widescreen)",
   "writing-captions": "Writing captions",
   "generating-metadata": "Generating titles & captions",
   finished: "Done"
 };
 
 const STEPS: Array<{ label: string; stages: ClipJobStage[] }> = [
-  { label: "Upload", stages: ["uploading", "probing"] },
+  { label: "Source", stages: ["uploading", "downloading", "probing"] },
   { label: "Analyze", stages: ["analyzing-audio", "transcribing", "selecting-clips"] },
   { label: "Render", stages: ["rendering-clips", "writing-captions"] },
   { label: "Review", stages: ["generating-metadata", "finished"] }
@@ -60,6 +61,8 @@ export function ClippingAgentPage() {
   const [activeJobId, setActiveJobId] = useState<string | null>(null);
   const [topic, setTopic] = useState("");
   const [uploadPct, setUploadPct] = useState<number | null>(null);
+  const [url, setUrl] = useState("");
+  const [submittingUrl, setSubmittingUrl] = useState(false);
 
   const activeJob = jobs.find((job) => job.id === activeJobId) ?? jobs[0] ?? null;
   const processing = activeJob?.status === "processing" || activeJob?.status === "queued";
@@ -134,6 +137,35 @@ export function ClippingAgentPage() {
     [topic, refresh]
   );
 
+  const submitUrl = useCallback(async () => {
+    const trimmed = url.trim();
+    if (!/^https?:\/\/\S+$/i.test(trimmed)) {
+      toast.error("Paste a full video/VOD link starting with http:// or https://.");
+      return;
+    }
+    setSubmittingUrl(true);
+    try {
+      const response = await fetch("/api/clips", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url: trimmed, topic: topic.trim() })
+      });
+      const data = (await response.json()) as { job?: ClipJob; error?: string };
+      if (response.ok && data.job) {
+        setActiveJobId(data.job.id);
+        setUrl("");
+        toast.success("Link accepted. Downloading and analyzing the stream.");
+        void refresh();
+      } else {
+        toast.error(data.error ?? "Could not start the job from that URL.");
+      }
+    } catch {
+      toast.error("Request failed. Is the dev server still running?");
+    } finally {
+      setSubmittingUrl(false);
+    }
+  }, [url, topic, refresh]);
+
   const removeJob = async (job: ClipJob) => {
     const response = await fetch(`/api/clips/${job.id}`, { method: "DELETE" });
     if (response.ok) {
@@ -157,16 +189,17 @@ export function ClippingAgentPage() {
       <PageHeader
         eyebrow="Creator Tools"
         title="Clipping Agent"
-        description="Upload a long-form video and get ranked vertical short-form clips with captions and metadata, scored by audio energy, hooks, and pacing."
+        description="Paste a stream URL (or upload a file) and get ranked clip suggestions — each rendered as both a 9:16 short and a 16:9 long-form cut, with captions and metadata, scored by audio energy, hooks, and pacing."
       />
 
       <div className="grid gap-4 xl:grid-cols-[0.85fr_1.15fr]">
         {/* Left: upload + history */}
         <div className="space-y-4">
           <Card>
-            <h2 className="text-lg font-semibold text-white">Step 1: Upload video</h2>
+            <h2 className="text-lg font-semibold text-white">Step 1: Add a stream</h2>
             <p className="mt-1 text-sm text-[var(--muted-foreground)]">
-              MP4, MOV, WebM, MKV, or AVI · up to 500MB · at least 20 seconds long.
+              Paste a YouTube or Twitch VOD link — only the audio and the chosen clip ranges are
+              downloaded, so even 90-minute streams process fast.
             </p>
             <input
               ref={fileInputRef}
@@ -185,6 +218,28 @@ export function ClippingAgentPage() {
                 value={topic}
                 onChange={(event) => setTopic(event.target.value)}
               />
+            </div>
+
+            <div className="mt-4 flex flex-col gap-2 sm:flex-row">
+              <Input
+                placeholder="https://youtube.com/watch?v=… or a Twitch VOD link"
+                value={url}
+                onChange={(event) => setUrl(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" && !submittingUrl) void submitUrl();
+                }}
+                disabled={submittingUrl}
+              />
+              <Button onClick={() => void submitUrl()} disabled={submittingUrl || !url.trim()}>
+                {submittingUrl ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <LinkIcon className="mr-2 h-4 w-4" />}
+                Clip from URL
+              </Button>
+            </div>
+
+            <div className="my-4 flex items-center gap-3 text-xs text-[var(--muted-foreground)]">
+              <span className="h-px flex-1 bg-white/10" />
+              or upload a file (MP4/MOV/WebM/MKV/AVI · up to 500MB)
+              <span className="h-px flex-1 bg-white/10" />
             </div>
             {uploadPct !== null ? (
               <div className="mt-4 space-y-2 rounded-2xl border border-white/10 bg-black/20 p-4">
@@ -279,8 +334,8 @@ export function ClippingAgentPage() {
               <Film className="h-8 w-8 text-[var(--accent)]" />
               <p className="text-sm font-semibold text-white">No job selected</p>
               <p className="max-w-md text-sm text-[var(--muted-foreground)]">
-                Upload a long-form video on the left. The agent analyzes audio energy, finds the strongest moments, renders
-                9:16 clips with a blurred-background fallback, and suggests titles and captions.
+                Paste a VOD link or upload a video on the left. The agent analyzes audio energy, finds the strongest
+                moments, renders each as a 9:16 short and a 16:9 long-form cut, and suggests titles and captions.
               </p>
             </Card>
           ) : (
@@ -381,13 +436,35 @@ function ClipCard({ clip, index, jobId }: { clip: ClipCandidate; index: number; 
   return (
     <Card>
       <div className="flex flex-col gap-5 sm:flex-row">
-        {clip.file && (
-          <video
-            src={fileUrl(jobId, clip.file)}
-            controls
-            preload="metadata"
-            className="aspect-[9/16] w-full max-w-[210px] shrink-0 self-start rounded-2xl bg-black ring-1 ring-white/10"
-          />
+        {(clip.file || clip.wideFile) && (
+          <div className="flex w-full shrink-0 flex-col gap-3 sm:w-[210px]">
+            {clip.file && (
+              <div>
+                <p className="mb-1 text-[11px] font-medium uppercase tracking-wide text-[var(--muted-foreground)]">
+                  9:16 Short
+                </p>
+                <video
+                  src={fileUrl(jobId, clip.file)}
+                  controls
+                  preload="metadata"
+                  className="aspect-[9/16] w-full rounded-2xl bg-black ring-1 ring-white/10"
+                />
+              </div>
+            )}
+            {clip.wideFile && (
+              <div>
+                <p className="mb-1 text-[11px] font-medium uppercase tracking-wide text-[var(--muted-foreground)]">
+                  16:9 Long-form
+                </p>
+                <video
+                  src={fileUrl(jobId, clip.wideFile)}
+                  controls
+                  preload="metadata"
+                  className="aspect-video w-full rounded-2xl bg-black ring-1 ring-white/10"
+                />
+              </div>
+            )}
+          </div>
         )}
         <div className="min-w-0 flex-1 space-y-4">
           <div className="flex flex-wrap items-center gap-2">
@@ -443,7 +520,15 @@ function ClipCard({ clip, index, jobId }: { clip: ClipCandidate; index: number; 
               <a href={fileUrl(jobId, clip.file, true)}>
                 <Button>
                   <Download className="mr-2 h-4 w-4" />
-                  Download clip
+                  Download 9:16
+                </Button>
+              </a>
+            )}
+            {clip.wideFile && (
+              <a href={fileUrl(jobId, clip.wideFile, true)}>
+                <Button variant="secondary">
+                  <Download className="mr-2 h-4 w-4" />
+                  Download 16:9
                 </Button>
               </a>
             )}
