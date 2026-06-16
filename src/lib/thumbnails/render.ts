@@ -1,6 +1,6 @@
 import { getStyle } from "@/lib/thumbnails/backgrounds";
-import type { Palette, TextEmphasis, TextPosition, ThumbnailOptions } from "@/lib/thumbnails/types";
-import { INTENSITY_FACTOR, THUMB_HEIGHT as H, THUMB_WIDTH as W } from "@/lib/thumbnails/types";
+import type { Palette, TextEmphasis, TextPosition, ThumbnailOptions, Transform } from "@/lib/thumbnails/types";
+import { DEFAULT_TRANSFORM, INTENSITY_FACTOR, isDefaultTransform, THUMB_HEIGHT as H, THUMB_WIDTH as W } from "@/lib/thumbnails/types";
 
 const FONT_STACK = '"Arial Black", "Segoe UI", system-ui, sans-serif';
 
@@ -27,25 +27,46 @@ function wrapText(ctx: CanvasRenderingContext2D, text: string, maxWidth: number)
   return lines;
 }
 
-function drawSubjectImage(ctx: CanvasRenderingContext2D, image: HTMLImageElement, palette: Palette) {
-  // Subject panel on the right ~45%, full height, with a soft fade into the
-  // background on its left edge and a grounding shadow.
+function drawSubjectImage(
+  ctx: CanvasRenderingContext2D,
+  image: HTMLImageElement,
+  palette: Palette,
+  transform: Transform
+) {
   const panelX = W * 0.55;
   const panelW = W - panelX;
-  const scale = Math.max(panelW / image.width, H / image.height);
+  const baseScale = Math.max(panelW / image.width, H / image.height);
+
+  // Default placement: subject panel on the right ~45%, full height, with a
+  // soft fade into the background on its left edge.
+  if (isDefaultTransform(transform)) {
+    const dw = image.width * baseScale;
+    const dh = image.height * baseScale;
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(panelX, 0, panelW, H);
+    ctx.clip();
+    ctx.drawImage(image, panelX + (panelW - dw) / 2, (H - dh) / 2, dw, dh);
+    const fade = ctx.createLinearGradient(panelX, 0, panelX + 160, 0);
+    fade.addColorStop(0, palette.bg1);
+    fade.addColorStop(1, "rgba(0,0,0,0)");
+    ctx.fillStyle = fade;
+    ctx.fillRect(panelX, 0, 160, H);
+    ctx.restore();
+    return;
+  }
+
+  // Once the user moves/scales/rotates, drop the panel clip so the subject can
+  // be placed freely anywhere on the canvas.
+  const scale = baseScale * transform.scale;
   const dw = image.width * scale;
   const dh = image.height * scale;
-
+  const cx = panelX + panelW / 2 + (transform.offsetX / 100) * W;
+  const cy = H / 2 + (transform.offsetY / 100) * H;
   ctx.save();
-  ctx.beginPath();
-  ctx.rect(panelX, 0, panelW, H);
-  ctx.clip();
-  ctx.drawImage(image, panelX + (panelW - dw) / 2, (H - dh) / 2, dw, dh);
-  const fade = ctx.createLinearGradient(panelX, 0, panelX + 160, 0);
-  fade.addColorStop(0, palette.bg1);
-  fade.addColorStop(1, "rgba(0,0,0,0)");
-  ctx.fillStyle = fade;
-  ctx.fillRect(panelX, 0, 160, H);
+  ctx.translate(cx, cy);
+  ctx.rotate((transform.rotation * Math.PI) / 180);
+  ctx.drawImage(image, -dw / 2, -dh / 2, dw, dh);
   ctx.restore();
 }
 
@@ -67,7 +88,8 @@ function drawText(
   emphasis: TextEmphasis,
   position: TextPosition,
   baseSize: number,
-  hasSubjectImage: boolean
+  hasSubjectImage: boolean,
+  transform: Transform
 ) {
   // When a subject occupies the right side, keep text in the left column.
   const maxWidth = position === "center" && !hasSubjectImage ? W * 0.86 : W * 0.6 - 80;
@@ -88,6 +110,18 @@ function drawText(
 
   ctx.textAlign = metrics.align;
   ctx.textBaseline = "alphabetic";
+
+  // Apply free move / scale / rotate around the text block's centre. The block
+  // is drawn at its base position; the transform shifts the whole group.
+  const widestLine = Math.max(...lines.map((line) => ctx.measureText(line).width));
+  const pivotX = metrics.align === "center" ? metrics.x : metrics.x + widestLine / 2;
+  const pivotY = metrics.yStart - lineHeight * 0.8 + (lines.length * lineHeight) / 2;
+  ctx.save();
+  ctx.translate((transform.offsetX / 100) * W, (transform.offsetY / 100) * H);
+  ctx.translate(pivotX, pivotY);
+  ctx.rotate((transform.rotation * Math.PI) / 180);
+  ctx.scale(transform.scale, transform.scale);
+  ctx.translate(-pivotX, -pivotY);
 
   if (emphasis === "boxed") {
     // One translucent panel behind the whole block.
@@ -130,6 +164,8 @@ function drawText(
     ctx.shadowBlur = 0;
     ctx.shadowOffsetY = 0;
   });
+
+  ctx.restore();
 }
 
 function contrastFor(hex: string): string {
@@ -157,7 +193,7 @@ export function renderThumbnail(canvas: HTMLCanvasElement, options: ThumbnailOpt
   // Split-screen and blurred-frame consume the image inside the background.
   const subjectDrawn = Boolean(options.image) && !style.usesImageAsBackdrop && options.style !== "split-screen";
   if (options.image && subjectDrawn) {
-    drawSubjectImage(ctx, options.image, palette);
+    drawSubjectImage(ctx, options.image, palette, options.imageTransform ?? DEFAULT_TRANSFORM);
   }
 
   const text = options.uppercase ? options.text.toUpperCase() : options.text;
@@ -169,7 +205,8 @@ export function renderThumbnail(canvas: HTMLCanvasElement, options: ThumbnailOpt
       options.emphasis,
       options.position,
       SIZE_BASE[options.size],
-      subjectDrawn || options.style === "split-screen"
+      subjectDrawn || options.style === "split-screen",
+      options.textTransform ?? DEFAULT_TRANSFORM
     );
   }
 }

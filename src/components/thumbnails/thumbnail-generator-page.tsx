@@ -1,7 +1,8 @@
 "use client";
 
+import type { PointerEvent as ReactPointerEvent } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Copy, Download, ImagePlus, Sparkles, X } from "lucide-react";
+import { Copy, Download, ImagePlus, Move, RotateCcw, Sparkles, Type, X } from "lucide-react";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -12,12 +13,26 @@ import { Select } from "@/components/ui/select";
 import { BACKGROUND_STYLES, getStyle } from "@/lib/thumbnails/backgrounds";
 import { buildVariants, renderThumbnail, renderToDataUrl } from "@/lib/thumbnails/render";
 import { overlayIdeas, titleTreatments } from "@/lib/thumbnails/suggestions";
-import type { BackgroundStyleId, Intensity, TextEmphasis, TextPosition, TextSize, ThumbnailOptions } from "@/lib/thumbnails/types";
+import type {
+  BackgroundStyleId,
+  Intensity,
+  TextEmphasis,
+  TextPosition,
+  TextSize,
+  ThumbnailOptions,
+  Transform
+} from "@/lib/thumbnails/types";
+import { DEFAULT_TRANSFORM } from "@/lib/thumbnails/types";
 import { cn } from "@/lib/utils";
 
 const MAX_IMAGE_BYTES = 15 * 1024 * 1024;
 
 type Variant = { label: string; png: string; jpeg: string };
+type MoveTarget = "image" | "text";
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.min(max, Math.max(min, value));
+}
 
 function downloadDataUrl(dataUrl: string, fileName: string) {
   const link = document.createElement("a");
@@ -35,6 +50,75 @@ async function copyText(text: string, what: string) {
   }
 }
 
+function TransformSlider({
+  label,
+  value,
+  min,
+  max,
+  step,
+  suffix,
+  format,
+  onChange
+}: {
+  label: string;
+  value: number;
+  min: number;
+  max: number;
+  step: number;
+  suffix?: string;
+  format?: (value: number) => string;
+  onChange: (value: number) => void;
+}) {
+  return (
+    <label className="block">
+      <span className="mb-1 flex items-center justify-between text-xs text-[var(--muted-foreground)]">
+        <span>{label}</span>
+        <span className="tabular-nums text-white">{format ? format(value) : value}{suffix}</span>
+      </span>
+      <input
+        type="range"
+        min={min}
+        max={max}
+        step={step}
+        value={value}
+        onChange={(event) => onChange(Number(event.target.value))}
+        className="h-1.5 w-full cursor-pointer appearance-none rounded-full bg-white/15 accent-[var(--accent)]"
+      />
+    </label>
+  );
+}
+
+function TransformControls({
+  transform,
+  onChange,
+  withScale = true
+}: {
+  transform: Transform;
+  onChange: (next: Transform) => void;
+  withScale?: boolean;
+}) {
+  const set = (patch: Partial<Transform>) => onChange({ ...transform, ...patch });
+  return (
+    <div className="grid gap-3 sm:grid-cols-2">
+      <TransformSlider label="Horizontal" value={transform.offsetX} min={-100} max={100} step={1} suffix="%" onChange={(v) => set({ offsetX: v })} />
+      <TransformSlider label="Vertical" value={transform.offsetY} min={-100} max={100} step={1} suffix="%" onChange={(v) => set({ offsetY: v })} />
+      {withScale && (
+        <TransformSlider
+          label="Scale"
+          value={transform.scale}
+          min={0.2}
+          max={3}
+          step={0.05}
+          suffix="×"
+          format={(v) => v.toFixed(2)}
+          onChange={(v) => set({ scale: v })}
+        />
+      )}
+      <TransformSlider label="Rotate" value={transform.rotation} min={-180} max={180} step={1} suffix="°" onChange={(v) => set({ rotation: v })} />
+    </div>
+  );
+}
+
 export function ThumbnailGeneratorPage() {
   const previewRef = useRef<HTMLCanvasElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -50,13 +134,47 @@ export function ThumbnailGeneratorPage() {
   const [position, setPosition] = useState<TextPosition>("left");
   const [size, setSize] = useState<TextSize>("medium");
   const [uppercase, setUppercase] = useState(true);
+  const [imageTransform, setImageTransform] = useState<Transform>(DEFAULT_TRANSFORM);
+  const [textTransform, setTextTransform] = useState<Transform>(DEFAULT_TRANSFORM);
+  const [moveTarget, setMoveTarget] = useState<MoveTarget>("text");
   const [variants, setVariants] = useState<Variant[]>([]);
 
   const style = getStyle(styleId);
+  const imageIsBackdrop = Boolean(style.usesImageAsBackdrop) || styleId === "split-screen";
+  const canMoveImage = Boolean(image) && !imageIsBackdrop;
   const options: ThumbnailOptions = useMemo(
-    () => ({ image, text: overlayText, style: styleId, paletteIndex, intensity, emphasis, position, size, uppercase }),
-    [image, overlayText, styleId, paletteIndex, intensity, emphasis, position, size, uppercase]
+    () => ({ image, text: overlayText, style: styleId, paletteIndex, intensity, emphasis, position, size, uppercase, imageTransform, textTransform }),
+    [image, overlayText, styleId, paletteIndex, intensity, emphasis, position, size, uppercase, imageTransform, textTransform]
   );
+
+  // Drag-to-move on the preview canvas. Updates whichever layer is the active
+  // move target by nudging its offset in canvas-percentage units.
+  const dragState = useRef<{ startX: number; startY: number; baseX: number; baseY: number; setter: (next: Transform) => void; base: Transform } | null>(null);
+
+  const onPreviewPointerDown = useCallback(
+    (event: ReactPointerEvent<HTMLCanvasElement>) => {
+      const target: MoveTarget = moveTarget;
+      if (target === "image" && !canMoveImage) return;
+      const base = target === "image" ? imageTransform : textTransform;
+      const setter = target === "image" ? setImageTransform : setTextTransform;
+      dragState.current = { startX: event.clientX, startY: event.clientY, baseX: base.offsetX, baseY: base.offsetY, setter, base };
+      event.currentTarget.setPointerCapture(event.pointerId);
+    },
+    [moveTarget, canMoveImage, imageTransform, textTransform]
+  );
+
+  const onPreviewPointerMove = useCallback((event: ReactPointerEvent<HTMLCanvasElement>) => {
+    const drag = dragState.current;
+    if (!drag) return;
+    const rect = event.currentTarget.getBoundingClientRect();
+    const dx = ((event.clientX - drag.startX) / rect.width) * 100;
+    const dy = ((event.clientY - drag.startY) / rect.height) * 100;
+    drag.setter({ ...drag.base, offsetX: clamp(drag.baseX + dx, -100, 100), offsetY: clamp(drag.baseY + dy, -100, 100) });
+  }, []);
+
+  const endPreviewDrag = useCallback(() => {
+    dragState.current = null;
+  }, []);
 
   // Live preview re-renders on every settings change.
   useEffect(() => {
@@ -277,6 +395,79 @@ export function ThumbnailGeneratorPage() {
             </Button>
           </Card>
 
+          <Card>
+            <div className="flex items-center justify-between">
+              <h2 className="text-lg font-semibold text-white">Layout & placement</h2>
+              <span className="text-xs text-[var(--muted-foreground)]">Drag on the preview to move</span>
+            </div>
+            <p className="mt-1 text-sm text-[var(--muted-foreground)]">
+              Move, scale, and rotate your face/image and your text independently.
+            </p>
+
+            <div className="mt-4 flex gap-2">
+              <button
+                type="button"
+                onClick={() => setMoveTarget("image")}
+                disabled={!canMoveImage}
+                className={cn(
+                  "flex flex-1 items-center justify-center gap-1.5 rounded-xl border px-3 py-2 text-sm font-medium transition",
+                  moveTarget === "image"
+                    ? "border-[var(--accent)] bg-[var(--accent)]/10 text-white"
+                    : "border-white/10 text-[var(--muted-foreground)] hover:border-white/30",
+                  !canMoveImage && "cursor-not-allowed opacity-40"
+                )}
+              >
+                <Move className="h-4 w-4" /> Image
+              </button>
+              <button
+                type="button"
+                onClick={() => setMoveTarget("text")}
+                className={cn(
+                  "flex flex-1 items-center justify-center gap-1.5 rounded-xl border px-3 py-2 text-sm font-medium transition",
+                  moveTarget === "text"
+                    ? "border-[var(--accent)] bg-[var(--accent)]/10 text-white"
+                    : "border-white/10 text-[var(--muted-foreground)] hover:border-white/30"
+                )}
+              >
+                <Type className="h-4 w-4" /> Text
+              </button>
+            </div>
+
+            {moveTarget === "image" ? (
+              <div className="mt-4">
+                {canMoveImage ? (
+                  <>
+                    <TransformControls transform={imageTransform} onChange={setImageTransform} />
+                    <button
+                      type="button"
+                      onClick={() => setImageTransform(DEFAULT_TRANSFORM)}
+                      className="mt-3 flex items-center gap-1.5 text-xs text-[var(--muted-foreground)] transition hover:text-white"
+                    >
+                      <RotateCcw className="h-3.5 w-3.5" /> Reset image
+                    </button>
+                  </>
+                ) : (
+                  <p className="mt-2 rounded-xl border border-white/10 bg-black/20 px-3 py-3 text-sm text-[var(--muted-foreground)]">
+                    {image
+                      ? "This background uses your image as its own backdrop, so placement is fixed. Pick a different background to move the image freely."
+                      : "Upload an image to move, scale, and rotate it."}
+                  </p>
+                )}
+              </div>
+            ) : (
+              <div className="mt-4">
+                <TransformControls transform={textTransform} onChange={setTextTransform} />
+                <button
+                  type="button"
+                  onClick={() => setTextTransform(DEFAULT_TRANSFORM)}
+                  className="mt-3 flex items-center gap-1.5 text-xs text-[var(--muted-foreground)] transition hover:text-white"
+                >
+                  <RotateCcw className="h-3.5 w-3.5" /> Reset text
+                </button>
+              </div>
+            )}
+          </Card>
+
           {(ideas.length > 0 || treatments.length > 0) && (
             <Card>
               <h2 className="text-lg font-semibold text-white">Copy ideas</h2>
@@ -322,7 +513,17 @@ export function ThumbnailGeneratorPage() {
               <h2 className="text-lg font-semibold text-white">Preview</h2>
               <Badge>1280 × 720</Badge>
             </div>
-            <canvas ref={previewRef} className="mt-4 aspect-video w-full rounded-2xl border border-white/10 bg-black/40" />
+            <canvas
+              ref={previewRef}
+              onPointerDown={onPreviewPointerDown}
+              onPointerMove={onPreviewPointerMove}
+              onPointerUp={endPreviewDrag}
+              onPointerCancel={endPreviewDrag}
+              className="mt-4 aspect-video w-full cursor-move touch-none rounded-2xl border border-white/10 bg-black/40"
+            />
+            <p className="mt-2 text-xs text-[var(--muted-foreground)]">
+              Drag the preview to reposition the <span className="text-white">{moveTarget}</span> · use the Layout panel to scale and rotate.
+            </p>
             <div className="mt-4 flex flex-wrap gap-2">
               <Button onClick={() => downloadDataUrl(renderToDataUrl(options, "png"), exportName(".png"))}>
                 <Download className="mr-2 h-4 w-4" />
