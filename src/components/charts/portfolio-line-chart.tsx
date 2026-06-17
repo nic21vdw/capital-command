@@ -10,8 +10,8 @@ export function PortfolioLineChart({ data }: { data: PortfolioSnapshot[] }) {
         <LineChart data={data}>
           <XAxis dataKey="date" stroke="#728197" tickLine={false} axisLine={false} />
           <YAxis stroke="#728197" tickLine={false} axisLine={false} />
-          <Tooltip contentStyle={{ background: "#07111f", borderRadius: 16, border: "1px solid rgba(255,255,255,0.1)" }} />
-          <Line type="monotone" dataKey="totalValue" stroke="#d5ff7f" strokeWidth={3} dot={false} />
+          <Tooltip contentStyle={{ background: "var(--surface)", borderRadius: 12, border: "1px solid var(--border)", color: "var(--foreground)" }} />
+          <Line type="monotone" dataKey="totalValue" stroke="var(--accent)" strokeWidth={3} dot={false} />
         </LineChart>
       </ResponsiveContainer>
     </div>

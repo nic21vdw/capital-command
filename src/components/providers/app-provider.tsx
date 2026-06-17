@@ -126,7 +126,7 @@ const emptyAppData: AppData = {
   xStrategy: defaultXStrategy,
   settings: {
     currency: "CAD",
-    theme: "dark"
+    themePreset: "slate"
   },
   executionGoals: [],
   executionCompletions: [],
@@ -217,8 +217,7 @@ export function makeGoal(input?: Partial<Goal>): Goal {
 export function makeSettings(input?: Partial<Settings>): Settings {
   return {
     currency: input?.currency ?? "CAD",
-    theme: input?.theme ?? "dark",
-    accentTheme: input?.accentTheme ?? "lime",
+    themePreset: input?.themePreset ?? "slate",
     profile: input?.profile
   };
 }

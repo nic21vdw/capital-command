@@ -20,7 +20,7 @@ export function StatCard({
           <p className="mt-2 text-3xl font-semibold text-white">{value}</p>
           {detail ? <p className="mt-2 text-sm text-[var(--muted-foreground)]">{detail}</p> : null}
         </div>
-        {icon ? <div className="rounded-2xl bg-white/6 p-3 text-[var(--accent)]">{icon}</div> : null}
+        {icon ? <div className="rounded-lg bg-white/6 p-3 text-[var(--accent)]">{icon}</div> : null}
       </div>
     </Card>
   );

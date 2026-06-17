@@ -10,7 +10,7 @@ export function HoldingPerformanceChart({ data }: { data: EnrichedHolding[] }) {
         <BarChart data={data}>
           <XAxis dataKey="ticker" stroke="#728197" tickLine={false} axisLine={false} />
           <YAxis stroke="#728197" tickLine={false} axisLine={false} />
-          <Tooltip contentStyle={{ background: "#07111f", borderRadius: 16, border: "1px solid rgba(255,255,255,0.1)" }} />
+          <Tooltip contentStyle={{ background: "var(--surface)", borderRadius: 12, border: "1px solid var(--border)", color: "var(--foreground)" }} />
           <Bar dataKey="gainLossPercent" fill="#6ea8fe" radius={[10, 10, 0, 0]} />
         </BarChart>
       </ResponsiveContainer>

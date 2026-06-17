@@ -78,8 +78,9 @@ export const userProfileSchema = z.object({
 
 export const settingsSchema = z.object({
   currency: z.enum(["CAD", "USD"]),
-  theme: z.enum(["light", "dark", "system"]),
-  accentTheme: z.enum(["lime", "stripe", "ocean", "sunset", "rose", "mono"]).optional(),
+  // Unknown/legacy values (e.g. old accent ids) gracefully fall back to undefined,
+  // and the UI resolves that to the default preset at runtime.
+  themePreset: z.enum(["slate", "midnight", "graphite", "forest", "paper", "arctic"]).optional().catch(undefined),
   profile: userProfileSchema.optional()
 });
 

@@ -35,7 +35,7 @@ export function Tabs({ tabs, paramKey = "tab" }: { tabs: TabItem[]; paramKey?: s
 
   return (
     <div className="space-y-6">
-      <div className="flex gap-2 overflow-x-auto rounded-3xl border border-white/8 bg-[var(--panel)] p-2">
+      <div className="flex gap-1 overflow-x-auto rounded-lg border border-[var(--border)] bg-[var(--panel)] p-1">
         {tabs.map((tab) => {
           const Icon = tab.icon;
           const isActive = current?.id === tab.id;
@@ -45,8 +45,10 @@ export function Tabs({ tabs, paramKey = "tab" }: { tabs: TabItem[]; paramKey?: s
               type="button"
               onClick={() => select(tab.id)}
               className={cn(
-                "flex items-center gap-2 whitespace-nowrap rounded-2xl px-4 py-2 text-sm transition",
-                isActive ? "bg-white text-black" : "text-[var(--muted-foreground)] hover:bg-white/6 hover:text-white"
+                "flex items-center gap-2 whitespace-nowrap rounded-md px-4 py-2 text-sm transition",
+                isActive
+                  ? "bg-[var(--accent)] text-[var(--accent-contrast)]"
+                  : "text-[var(--muted-foreground)] hover:bg-white/6 hover:text-white"
               )}
             >
               {Icon ? <Icon className="h-4 w-4" /> : null}

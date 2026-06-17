@@ -9,7 +9,7 @@ export function AssetClassBarChart({ data }: { data: Array<{ name: string; value
         <BarChart data={data}>
           <XAxis dataKey="name" stroke="#728197" tickLine={false} axisLine={false} />
           <YAxis stroke="#728197" tickLine={false} axisLine={false} />
-          <Tooltip contentStyle={{ background: "#07111f", borderRadius: 16, border: "1px solid rgba(255,255,255,0.1)" }} />
+          <Tooltip contentStyle={{ background: "var(--surface)", borderRadius: 12, border: "1px solid var(--border)", color: "var(--foreground)" }} />
           <Bar dataKey="value" fill="#7de2d1" radius={[10, 10, 0, 0]} />
         </BarChart>
       </ResponsiveContainer>

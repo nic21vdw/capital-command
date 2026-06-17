@@ -124,7 +124,7 @@ export interface Expense {
   updatedAt: string;
 }
 
-export type AccentTheme = "lime" | "stripe" | "ocean" | "sunset" | "rose" | "mono";
+export type ThemePreset = "slate" | "midnight" | "graphite" | "forest" | "paper" | "arctic";
 
 export interface UserProfile {
   /** Display name shown in the profile bar. */
@@ -135,8 +135,8 @@ export interface UserProfile {
 
 export interface Settings {
   currency: "CAD" | "USD";
-  theme: "light" | "dark" | "system";
-  accentTheme?: AccentTheme;
+  /** Active full theme preset (sets background, surfaces, text, and accent together). */
+  themePreset?: ThemePreset;
   profile?: UserProfile;
 }
 
