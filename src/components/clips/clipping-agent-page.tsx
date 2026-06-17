@@ -1,7 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
-import { AlertTriangle, Check, Copy, Download, Film, Link as LinkIcon, Loader2, Trash2, UploadCloud } from "lucide-react";
+import { useCallback, useEffect, useState } from "react";
+import { AlertTriangle, Check, Download, Film, Link as LinkIcon, Loader2, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -12,27 +12,19 @@ import { Progress } from "@/components/ui/progress";
 import type { ClipCandidate, ClipJob, ClipJobStage } from "@/lib/clipping/types";
 import { cn } from "@/lib/utils";
 
-const MAX_UPLOAD_BYTES = 500 * 1024 * 1024;
-const ACCEPT = ".mp4,.mov,.webm,.mkv,.avi,video/*";
-
 const STAGE_LABELS: Record<ClipJobStage, string> = {
-  uploading: "Uploading",
   downloading: "Downloading stream audio",
-  probing: "Reading video",
-  "analyzing-audio": "Analyzing audio energy",
-  transcribing: "Transcribing",
-  "selecting-clips": "Selecting clip candidates",
-  "rendering-clips": "Rendering clips (vertical + widescreen)",
-  "writing-captions": "Writing captions",
-  "generating-metadata": "Generating titles & captions",
+  analyzing: "Analyzing audio energy",
+  selecting: "Selecting the best moments",
+  rendering: "Rendering 9:16 clips",
   finished: "Done"
 };
 
 const STEPS: Array<{ label: string; stages: ClipJobStage[] }> = [
-  { label: "Source", stages: ["uploading", "downloading", "probing"] },
-  { label: "Analyze", stages: ["analyzing-audio", "transcribing", "selecting-clips"] },
-  { label: "Render", stages: ["rendering-clips", "writing-captions"] },
-  { label: "Review", stages: ["generating-metadata", "finished"] }
+  { label: "Download", stages: ["downloading"] },
+  { label: "Analyze", stages: ["analyzing", "selecting"] },
+  { label: "Render", stages: ["rendering"] },
+  { label: "Done", stages: ["finished"] }
 ];
 
 function formatTimestamp(seconds: number) {
@@ -41,26 +33,15 @@ function formatTimestamp(seconds: number) {
   return `${m}:${String(s).padStart(2, "0")}`;
 }
 
-async function copyText(text: string, what: string) {
-  try {
-    await navigator.clipboard.writeText(text);
-    toast.success(`${what} copied.`);
-  } catch {
-    toast.error("Clipboard access was blocked by the browser.");
-  }
-}
-
 function fileUrl(jobId: string, fileName: string, download = false) {
   return `/api/clips/${jobId}/files/${encodeURIComponent(fileName)}${download ? "?download=1" : ""}`;
 }
 
 export function ClippingAgentPage() {
-  const fileInputRef = useRef<HTMLInputElement>(null);
   const [jobs, setJobs] = useState<ClipJob[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [activeJobId, setActiveJobId] = useState<string | null>(null);
   const [topic, setTopic] = useState("");
-  const [uploadPct, setUploadPct] = useState<number | null>(null);
   const [url, setUrl] = useState("");
   const [submittingUrl, setSubmittingUrl] = useState(false);
 
@@ -88,54 +69,6 @@ export function ClippingAgentPage() {
     const timer = setInterval(() => void refresh(), 2500);
     return () => clearInterval(timer);
   }, [jobs, refresh]);
-
-  const upload = useCallback(
-    (file: File) => {
-      if (!file.type.startsWith("video/") && !/\.(mp4|mov|webm|mkv|avi)$/i.test(file.name)) {
-        toast.error(`"${file.name}" is not a supported video. Use MP4, MOV, WebM, MKV, or AVI.`);
-        return;
-      }
-      if (file.size > MAX_UPLOAD_BYTES) {
-        toast.error(`That file is ${(file.size / 1_000_000).toFixed(0)}MB. The limit is 500MB, so trim or compress it first.`);
-        return;
-      }
-
-      const form = new FormData();
-      form.append("video", file);
-      form.append("topic", topic.trim());
-
-      // XHR instead of fetch so we get real upload progress for large files.
-      const xhr = new XMLHttpRequest();
-      xhr.open("POST", "/api/clips");
-      xhr.upload.onprogress = (event) => {
-        if (event.lengthComputable) setUploadPct(Math.round((event.loaded / event.total) * 100));
-      };
-      xhr.onload = () => {
-        setUploadPct(null);
-        if (xhr.status === 201) {
-          const { job } = JSON.parse(xhr.responseText) as { job: ClipJob };
-          setActiveJobId(job.id);
-          toast.success("Upload complete. Processing started.");
-          void refresh();
-        } else {
-          let message = "Upload failed.";
-          try {
-            message = (JSON.parse(xhr.responseText) as { error: string }).error;
-          } catch {
-            /* keep generic message */
-          }
-          toast.error(message);
-        }
-      };
-      xhr.onerror = () => {
-        setUploadPct(null);
-        toast.error("Upload failed. Is the dev server still running?");
-      };
-      setUploadPct(0);
-      xhr.send(form);
-    },
-    [topic, refresh]
-  );
 
   const submitUrl = useCallback(async () => {
     const trimmed = url.trim();
@@ -189,32 +122,21 @@ export function ClippingAgentPage() {
       <PageHeader
         eyebrow="Creator Tools"
         title="Clipping Agent"
-        description="Paste a stream URL (or upload a file) and get ranked clip suggestions — each rendered as both a 9:16 short and a 16:9 long-form cut, with captions and metadata, scored by audio energy, hooks, and pacing."
+        description="Paste a YouTube or Twitch VOD link. The agent finds the strongest moments by audio energy and renders each as a ready-to-post 9:16 short — no uploads, no API keys."
       />
 
       <div className="grid gap-4 xl:grid-cols-[0.85fr_1.15fr]">
-        {/* Left: upload + history */}
+        {/* Left: add stream + history */}
         <div className="space-y-4">
           <Card>
-            <h2 className="text-lg font-semibold text-white">Step 1: Add a stream</h2>
+            <h2 className="text-lg font-semibold text-white">Add a stream</h2>
             <p className="mt-1 text-sm text-[var(--muted-foreground)]">
               Paste a YouTube or Twitch VOD link — only the audio and the chosen clip ranges are
               downloaded, so even 90-minute streams process fast.
             </p>
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept={ACCEPT}
-              className="hidden"
-              onChange={(event) => {
-                const file = event.target.files?.[0];
-                if (file) upload(file);
-                event.target.value = "";
-              }}
-            />
             <div className="mt-4">
               <Input
-                placeholder="Video topic (optional, improves title and caption suggestions)"
+                placeholder="Video topic (optional)"
                 value={topic}
                 onChange={(event) => setTopic(event.target.value)}
               />
@@ -232,41 +154,12 @@ export function ClippingAgentPage() {
               />
               <Button onClick={() => void submitUrl()} disabled={submittingUrl || !url.trim()}>
                 {submittingUrl ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <LinkIcon className="mr-2 h-4 w-4" />}
-                Clip from URL
+                Clip it
               </Button>
             </div>
-
-            <div className="my-4 flex items-center gap-3 text-xs text-[var(--muted-foreground)]">
-              <span className="h-px flex-1 bg-white/10" />
-              or upload a file (MP4/MOV/WebM/MKV/AVI · up to 500MB)
-              <span className="h-px flex-1 bg-white/10" />
-            </div>
-            {uploadPct !== null ? (
-              <div className="mt-4 space-y-2 rounded-2xl border border-white/10 bg-black/20 p-4">
-                <div className="flex items-center justify-between text-sm">
-                  <span className="flex items-center gap-2 text-white">
-                    <Loader2 className="h-4 w-4 animate-spin" /> Uploading…
-                  </span>
-                  <span className="text-[var(--muted-foreground)]">{uploadPct}%</span>
-                </div>
-                <Progress value={uploadPct} />
-              </div>
-            ) : (
-              <div
-                onClick={() => fileInputRef.current?.click()}
-                onDrop={(event) => {
-                  event.preventDefault();
-                  const file = event.dataTransfer.files[0];
-                  if (file) upload(file);
-                }}
-                onDragOver={(event) => event.preventDefault()}
-                className="mt-4 flex cursor-pointer flex-col items-center gap-2 rounded-2xl border-2 border-dashed border-white/12 bg-white/3 py-10 transition hover:border-[var(--accent)]/50"
-              >
-                <UploadCloud className="h-7 w-7 text-[var(--accent)]" />
-                <p className="text-sm font-semibold text-white">Drop a video here or click to browse</p>
-                <p className="text-xs text-[var(--muted-foreground)]">Processing happens locally with FFmpeg</p>
-              </div>
-            )}
+            <p className="mt-3 text-xs text-[var(--muted-foreground)]">
+              Clips are rendered locally with FFmpeg and saved under <code>data\clips\</code> on your PC.
+            </p>
           </Card>
 
           <Card>
@@ -275,7 +168,7 @@ export function ClippingAgentPage() {
               <p className="mt-2 text-sm text-[var(--muted-foreground)]">Loading…</p>
             ) : jobs.length === 0 ? (
               <p className="mt-2 text-sm text-[var(--muted-foreground)]">
-                Nothing yet. Upload a video above. Each run shows up here with its clips, ready to re-open or delete.
+                Nothing yet. Paste a link above. Each run shows up here with its clips, ready to re-open or delete.
               </p>
             ) : (
               <div className="mt-3 space-y-2">
@@ -334,8 +227,8 @@ export function ClippingAgentPage() {
               <Film className="h-8 w-8 text-[var(--accent)]" />
               <p className="text-sm font-semibold text-white">No job selected</p>
               <p className="max-w-md text-sm text-[var(--muted-foreground)]">
-                Paste a VOD link or upload a video on the left. The agent analyzes audio energy, finds the strongest
-                moments, renders each as a 9:16 short and a 16:9 long-form cut, and suggests titles and captions.
+                Paste a VOD link on the left. The agent analyzes audio energy, finds the strongest moments, and renders
+                each as a 9:16 short you can download.
               </p>
             </Card>
           ) : (
@@ -423,47 +316,17 @@ export function ClippingAgentPage() {
 }
 
 function ClipCard({ clip, index, jobId }: { clip: ClipCandidate; index: number; jobId: string }) {
-  const metadataText = clip.metadata
-    ? [
-        `Title: ${clip.metadata.title}`,
-        `Hook: ${clip.metadata.hook}`,
-        `Description: ${clip.metadata.description}`,
-        `Caption: ${clip.metadata.caption}`,
-        `Hashtags: ${clip.metadata.hashtags.map((tag) => `#${tag}`).join(" ")}`
-      ].join("\n")
-    : null;
-
   return (
     <Card>
       <div className="flex flex-col gap-5 sm:flex-row">
-        {(clip.file || clip.wideFile) && (
-          <div className="flex w-full shrink-0 flex-col gap-3 sm:w-[210px]">
-            {clip.file && (
-              <div>
-                <p className="mb-1 text-[11px] font-medium uppercase tracking-wide text-[var(--muted-foreground)]">
-                  9:16 Short
-                </p>
-                <video
-                  src={fileUrl(jobId, clip.file)}
-                  controls
-                  preload="metadata"
-                  className="aspect-[9/16] w-full rounded-2xl bg-black ring-1 ring-white/10"
-                />
-              </div>
-            )}
-            {clip.wideFile && (
-              <div>
-                <p className="mb-1 text-[11px] font-medium uppercase tracking-wide text-[var(--muted-foreground)]">
-                  16:9 Long-form
-                </p>
-                <video
-                  src={fileUrl(jobId, clip.wideFile)}
-                  controls
-                  preload="metadata"
-                  className="aspect-video w-full rounded-2xl bg-black ring-1 ring-white/10"
-                />
-              </div>
-            )}
+        {clip.file && (
+          <div className="w-full shrink-0 sm:w-[210px]">
+            <video
+              src={fileUrl(jobId, clip.file)}
+              controls
+              preload="metadata"
+              className="aspect-[9/16] w-full rounded-2xl bg-black ring-1 ring-white/10"
+            />
           </div>
         )}
         <div className="min-w-0 flex-1 space-y-4">
@@ -501,52 +364,16 @@ function ClipCard({ clip, index, jobId }: { clip: ClipCandidate; index: number; 
             </div>
           )}
 
-          {clip.metadata && (
-            <div className="space-y-2 rounded-2xl border border-white/10 bg-black/20 p-4">
-              <p className="text-sm font-semibold text-white">{clip.metadata.title}</p>
-              <p className="text-xs text-[var(--muted-foreground)]">
-                <span className="text-white/70">Hook:</span> {clip.metadata.hook}
-              </p>
-              <p className="text-xs text-[var(--muted-foreground)]">{clip.metadata.description}</p>
-              <p className="text-xs text-[var(--muted-foreground)]">
-                <span className="text-white/70">Caption:</span> {clip.metadata.caption}
-              </p>
-              <p className="text-xs text-[var(--accent)]">{clip.metadata.hashtags.map((tag) => `#${tag}`).join(" ")}</p>
-            </div>
-          )}
-
-          <div className="flex flex-wrap gap-2">
-            {clip.file && (
+          {clip.file && (
+            <div className="flex flex-wrap gap-2">
               <a href={fileUrl(jobId, clip.file, true)}>
                 <Button>
                   <Download className="mr-2 h-4 w-4" />
                   Download 9:16
                 </Button>
               </a>
-            )}
-            {clip.wideFile && (
-              <a href={fileUrl(jobId, clip.wideFile, true)}>
-                <Button variant="secondary">
-                  <Download className="mr-2 h-4 w-4" />
-                  Download 16:9
-                </Button>
-              </a>
-            )}
-            {clip.srtFile && (
-              <a href={fileUrl(jobId, clip.srtFile, true)}>
-                <Button variant="secondary">
-                  <Download className="mr-2 h-4 w-4" />
-                  Captions (.srt)
-                </Button>
-              </a>
-            )}
-            {metadataText && (
-              <Button variant="secondary" onClick={() => void copyText(metadataText, "Metadata")}>
-                <Copy className="mr-2 h-4 w-4" />
-                Copy metadata
-              </Button>
-            )}
-          </div>
+            </div>
+          )}
         </div>
       </div>
     </Card>
