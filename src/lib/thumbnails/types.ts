@@ -41,6 +41,10 @@ export type ThumbnailOptions = {
   position: TextPosition;
   size: TextSize;
   uppercase: boolean;
+  /** Font catalog id (see lib/thumbnails/fonts). */
+  fontId: string;
+  /** Custom text color as a hex string, or "auto" to follow the palette. */
+  textColor: string;
 };
 
 export const INTENSITY_FACTOR: Record<Intensity, number> = {

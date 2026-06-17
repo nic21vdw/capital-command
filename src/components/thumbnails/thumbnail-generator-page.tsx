@@ -10,12 +10,14 @@ import { Input } from "@/components/ui/input";
 import { PageHeader } from "@/components/ui/page-header";
 import { Select } from "@/components/ui/select";
 import { BACKGROUND_STYLES, getStyle } from "@/lib/thumbnails/backgrounds";
+import { DEFAULT_FONT_ID, FONT_OPTIONS, GOOGLE_FONTS_HREF, ensureFontLoaded, getFont } from "@/lib/thumbnails/fonts";
 import { buildVariants, renderThumbnail, renderToDataUrl } from "@/lib/thumbnails/render";
 import { overlayIdeas, titleTreatments } from "@/lib/thumbnails/suggestions";
 import type { BackgroundStyleId, Intensity, TextEmphasis, TextPosition, TextSize, ThumbnailOptions } from "@/lib/thumbnails/types";
 import { cn } from "@/lib/utils";
 
 const MAX_IMAGE_BYTES = 15 * 1024 * 1024;
+const DEFAULT_TEXT_COLOR = "#ffffff";
 
 type Variant = { label: string; png: string; jpeg: string };
 
@@ -50,20 +52,59 @@ export function ThumbnailGeneratorPage() {
   const [position, setPosition] = useState<TextPosition>("left");
   const [size, setSize] = useState<TextSize>("medium");
   const [uppercase, setUppercase] = useState(true);
+  const [fontId, setFontId] = useState<string>(DEFAULT_FONT_ID);
+  const [customColor, setCustomColor] = useState(false);
+  const [textColor, setTextColor] = useState(DEFAULT_TEXT_COLOR);
+  const [fontsLoaded, setFontsLoaded] = useState(0);
   const [variants, setVariants] = useState<Variant[]>([]);
 
   const style = getStyle(styleId);
   const options: ThumbnailOptions = useMemo(
-    () => ({ image, text: overlayText, style: styleId, paletteIndex, intensity, emphasis, position, size, uppercase }),
-    [image, overlayText, styleId, paletteIndex, intensity, emphasis, position, size, uppercase]
+    () => ({
+      image,
+      text: overlayText,
+      style: styleId,
+      paletteIndex,
+      intensity,
+      emphasis,
+      position,
+      size,
+      uppercase,
+      fontId,
+      textColor: customColor ? textColor : "auto"
+    }),
+    [image, overlayText, styleId, paletteIndex, intensity, emphasis, position, size, uppercase, fontId, customColor, textColor]
   );
 
-  // Live preview re-renders on every settings change.
+  // Pull in the Google Fonts stylesheet once, then warm up the font cache so
+  // the canvas renders the real faces instead of falling back to a system font.
+  useEffect(() => {
+    if (!document.getElementById("thumbnail-google-fonts")) {
+      const link = document.createElement("link");
+      link.id = "thumbnail-google-fonts";
+      link.rel = "stylesheet";
+      link.href = GOOGLE_FONTS_HREF;
+      document.head.appendChild(link);
+    }
+  }, []);
+
+  // Ensure the selected font is decoded before (re)rendering the preview.
+  useEffect(() => {
+    let active = true;
+    void ensureFontLoaded(getFont(fontId)).then(() => {
+      if (active) setFontsLoaded((n) => n + 1);
+    });
+    return () => {
+      active = false;
+    };
+  }, [fontId]);
+
+  // Live preview re-renders on every settings change (and once fonts finish).
   useEffect(() => {
     if (previewRef.current) {
       renderThumbnail(previewRef.current, options);
     }
-  }, [options]);
+  }, [options, fontsLoaded]);
 
   const handleFile = useCallback((file: File) => {
     if (!file.type.startsWith("image/")) {
@@ -234,6 +275,47 @@ export function ThumbnailGeneratorPage() {
                   <option value="large">Large</option>
                 </Select>
               </label>
+              <label className="block">
+                <span className="mb-1.5 block text-xs uppercase tracking-wide text-[var(--muted-foreground)]">Font</span>
+                <Select value={fontId} onChange={(event) => setFontId(event.target.value)}>
+                  {FONT_OPTIONS.map((font) => (
+                    <option key={font.id} value={font.id}>
+                      {font.label}
+                    </option>
+                  ))}
+                </Select>
+              </label>
+              <div className="block">
+                <span className="mb-1.5 block text-xs uppercase tracking-wide text-[var(--muted-foreground)]">Text color</span>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setCustomColor(false)}
+                    className={cn(
+                      "h-9 rounded-xl border px-3 text-xs font-medium transition",
+                      customColor
+                        ? "border-white/10 text-[var(--muted-foreground)] hover:border-white/30"
+                        : "border-[var(--accent)] text-white ring-2 ring-[var(--accent)]/40"
+                    )}
+                  >
+                    Auto
+                  </button>
+                  <input
+                    type="color"
+                    value={textColor}
+                    title="Custom text color"
+                    onChange={(event) => {
+                      setTextColor(event.target.value);
+                      setCustomColor(true);
+                    }}
+                    className={cn(
+                      "h-9 w-9 cursor-pointer rounded-xl border bg-transparent p-0.5 transition",
+                      customColor ? "border-[var(--accent)] ring-2 ring-[var(--accent)]/40" : "border-white/10 hover:border-white/30"
+                    )}
+                  />
+                  <span className="text-xs text-[var(--muted-foreground)]">{customColor ? textColor.toUpperCase() : "Palette default"}</span>
+                </div>
+              </div>
               <label className="flex items-end gap-2 pb-3 text-sm text-[var(--muted-foreground)]">
                 <input
                   type="checkbox"

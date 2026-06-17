@@ -1,8 +1,7 @@
 import { getStyle } from "@/lib/thumbnails/backgrounds";
+import { getFont } from "@/lib/thumbnails/fonts";
 import type { Palette, TextEmphasis, TextPosition, ThumbnailOptions } from "@/lib/thumbnails/types";
 import { INTENSITY_FACTOR, THUMB_HEIGHT as H, THUMB_WIDTH as W } from "@/lib/thumbnails/types";
-
-const FONT_STACK = '"Arial Black", "Segoe UI", system-ui, sans-serif';
 
 const SIZE_BASE: Record<ThumbnailOptions["size"], number> = {
   small: 84,
@@ -67,7 +66,10 @@ function drawText(
   emphasis: TextEmphasis,
   position: TextPosition,
   baseSize: number,
-  hasSubjectImage: boolean
+  hasSubjectImage: boolean,
+  fontStack: string,
+  fontWeight: number,
+  textColor: string
 ) {
   // When a subject occupies the right side, keep text in the left column.
   const maxWidth = position === "center" && !hasSubjectImage ? W * 0.86 : W * 0.6 - 80;
@@ -76,7 +78,7 @@ function drawText(
 
   // Shrink-to-fit: cap at 3 lines and make sure every line fits.
   for (; fontSize >= 48; fontSize -= 6) {
-    ctx.font = `900 ${fontSize}px ${FONT_STACK}`;
+    ctx.font = `${fontWeight} ${fontSize}px ${fontStack}`;
     lines = wrapText(ctx, text, maxWidth);
     const widest = Math.max(...lines.map((line) => ctx.measureText(line).width));
     if (lines.length <= 3 && widest <= maxWidth) break;
@@ -109,9 +111,13 @@ function drawText(
     }
   });
 
+  // A custom color overrides the palette everywhere; "auto" keeps the original
+  // behavior (palette text, with contrast text on highlight bars).
+  const custom = textColor && textColor !== "auto";
+
   lines.forEach((line, index) => {
     const y = metrics.yStart + index * lineHeight;
-    ctx.font = `900 ${fontSize}px ${FONT_STACK}`;
+    ctx.font = `${fontWeight} ${fontSize}px ${fontStack}`;
     if (emphasis === "outline") {
       ctx.lineJoin = "round";
       ctx.lineWidth = Math.max(8, fontSize * 0.12);
@@ -124,7 +130,7 @@ function drawText(
       ctx.shadowOffsetY = 6;
     }
     // Highlight bars need contrast text; everything else uses the palette text.
-    ctx.fillStyle = emphasis === "highlight-bar" ? contrastFor(palette.accent) : palette.text;
+    ctx.fillStyle = custom ? textColor : emphasis === "highlight-bar" ? contrastFor(palette.accent) : palette.text;
     ctx.fillText(line, metrics.x, y);
     ctx.shadowColor = "transparent";
     ctx.shadowBlur = 0;
@@ -162,6 +168,7 @@ export function renderThumbnail(canvas: HTMLCanvasElement, options: ThumbnailOpt
 
   const text = options.uppercase ? options.text.toUpperCase() : options.text;
   if (text.trim()) {
+    const font = getFont(options.fontId);
     drawText(
       ctx,
       text.trim(),
@@ -169,7 +176,10 @@ export function renderThumbnail(canvas: HTMLCanvasElement, options: ThumbnailOpt
       options.emphasis,
       options.position,
       SIZE_BASE[options.size],
-      subjectDrawn || options.style === "split-screen"
+      subjectDrawn || options.style === "split-screen",
+      font.stack,
+      font.weight,
+      options.textColor
     );
   }
 }
