@@ -6,7 +6,7 @@ const now = "2026-05-01T09:00:00.000Z";
 export const seedData: AppData = {
   settings: {
     currency: "CAD",
-    theme: "dark"
+    themePreset: "slate"
   },
   xStrategy: defaultXStrategy,
   // Execution goals are seeded lazily on first dashboard load (see

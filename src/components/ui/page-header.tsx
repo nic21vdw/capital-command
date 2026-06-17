@@ -14,8 +14,8 @@ export function PageHeader({
   return (
     <div className="mb-6 flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
       <div>
-        <p className="text-xs uppercase tracking-[0.32em] text-[var(--muted-foreground)]">{eyebrow}</p>
-        <h1 className="mt-2 text-3xl font-semibold text-white">{title}</h1>
+        <p className="text-[11px] font-medium uppercase tracking-wider text-[var(--muted-foreground)]">{eyebrow}</p>
+        <h1 className="mt-1.5 text-2xl font-semibold text-white">{title}</h1>
         <p className="mt-2 max-w-3xl text-sm text-[var(--muted-foreground)]">{description}</p>
       </div>
       {actions}

@@ -1,8 +1,7 @@
 import type { Metadata } from "next";
 import { Toaster } from "sonner";
 import { AppProvider } from "@/components/providers/app-provider";
-import { AccentThemeProvider, AccentThemeScript } from "@/components/providers/accent-theme-provider";
-import { ThemeProvider } from "@/components/providers/theme-provider";
+import { ThemePresetProvider, ThemePresetScript } from "@/components/providers/theme-preset-provider";
 import "@/app/globals.css";
 
 export const metadata: Metadata = {
@@ -14,17 +13,15 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
   return (
     <html lang="en" suppressHydrationWarning>
       <head>
-        <AccentThemeScript />
+        <ThemePresetScript />
       </head>
       <body>
-        <ThemeProvider>
-          <AccentThemeProvider>
-            <AppProvider>
-              {children}
-              <Toaster richColors position="top-right" />
-            </AppProvider>
-          </AccentThemeProvider>
-        </ThemeProvider>
+        <ThemePresetProvider>
+          <AppProvider>
+            {children}
+            <Toaster richColors position="top-right" />
+          </AppProvider>
+        </ThemePresetProvider>
       </body>
     </html>
   );

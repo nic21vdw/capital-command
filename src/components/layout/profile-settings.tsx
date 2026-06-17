@@ -74,9 +74,9 @@ export function ProfileSettings() {
 
   return (
     <Card>
-      <h2 className="text-xl font-semibold text-white">Profile</h2>
-      <p className="mt-2 text-sm text-[var(--muted-foreground)]">
-        Set the name and picture shown in the profile bar at the top of every page.
+      <h2 className="text-lg font-semibold text-white">Profile</h2>
+      <p className="mt-1 text-sm text-[var(--muted-foreground)]">
+        Set the name and picture shown in the sidebar.
       </p>
       <div className="mt-4 flex flex-col gap-5 sm:flex-row sm:items-start">
         <div className="flex flex-col items-center gap-2">

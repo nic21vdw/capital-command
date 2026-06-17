@@ -36,7 +36,7 @@ export function SparklineChart({
           />
           <YAxis hide stroke="#728197" tickLine={false} axisLine={false} domain={["dataMin", "dataMax"]} />
           <Tooltip
-            contentStyle={{ background: "#07111f", borderRadius: 14, border: "1px solid rgba(255,255,255,0.1)" }}
+            contentStyle={{ background: "var(--surface)", borderRadius: 12, border: "1px solid var(--border)", color: "var(--foreground)" }}
             labelStyle={{ color: "#8d9aae" }}
           />
           <Area

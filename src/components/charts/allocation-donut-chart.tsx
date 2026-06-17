@@ -13,7 +13,7 @@ export function AllocationDonutChart({ data }: { data: Array<{ name: string; val
               <Cell key={entry.name} fill={chartColors[index % chartColors.length]} />
             ))}
           </Pie>
-          <Tooltip contentStyle={{ background: "#07111f", borderRadius: 16, border: "1px solid rgba(255,255,255,0.1)" }} />
+          <Tooltip contentStyle={{ background: "var(--surface)", borderRadius: 12, border: "1px solid var(--border)", color: "var(--foreground)" }} />
         </PieChart>
       </ResponsiveContainer>
     </div>

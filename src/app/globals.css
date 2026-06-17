@@ -1,134 +1,163 @@
 @import "tailwindcss";
 
+/*
+  Theme system
+  ------------
+  The app is driven by a single `data-theme` attribute on <html>. Each theme is a
+  complete preset: it sets the page background, surfaces, borders, text, and accent
+  together — not just an accent swatch. There is no separate light/dark class; a
+  theme is inherently light or dark and declares its own `color-scheme`.
+
+  Most components were authored with white-based utilities (text-white, bg-white/x,
+  border-white/x), which Tailwind compiles to var(--color-white). Each theme remaps
+  --color-white to its "ink" color (near-white on dark themes, near-black on light
+  themes) so those utilities resolve to readable values everywhere.
+*/
+
 :root {
-  --background: #eff2f4;
+  /* Fallback = Slate (also applied by the pre-paint script before hydration). */
+  --background: #0b0d12;
+  --foreground: #e7eaf0;
+  --color-white: #ffffff;
+  --panel: #12151c;
+  --surface: #14181f;
+  --surface-2: #181d26;
+  --border: rgba(255, 255, 255, 0.08);
+  --border-strong: rgba(255, 255, 255, 0.14);
+  --muted-foreground: #9aa3b2;
+  --accent: #5b8def;
+  --accent-strong: #7aa2f7;
+  --accent-contrast: #07101f;
+  --card-from: #14181f;
+  --card-to: #14181f;
+  --shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
+  color-scheme: dark;
+}
+
+[data-theme="slate"] {
+  --background: #0b0d12;
+  --foreground: #e7eaf0;
+  --color-white: #ffffff;
+  --panel: #12151c;
+  --surface: #14181f;
+  --surface-2: #181d26;
+  --border: rgba(255, 255, 255, 0.08);
+  --border-strong: rgba(255, 255, 255, 0.14);
+  --muted-foreground: #9aa3b2;
+  --accent: #5b8def;
+  --accent-strong: #7aa2f7;
+  --accent-contrast: #07101f;
+  --card-from: #14181f;
+  --card-to: #14181f;
+  --shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
+  color-scheme: dark;
+}
+
+[data-theme="midnight"] {
+  --background: #05070d;
+  --foreground: #e6ebf5;
+  --color-white: #ffffff;
+  --panel: #0a0e17;
+  --surface: #0c1119;
+  --surface-2: #101726;
+  --border: rgba(255, 255, 255, 0.07);
+  --border-strong: rgba(255, 255, 255, 0.13);
+  --muted-foreground: #8b95ab;
+  --accent: #4f7dff;
+  --accent-strong: #6f97ff;
+  --accent-contrast: #ffffff;
+  --card-from: #0c1119;
+  --card-to: #0c1119;
+  --shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
+  color-scheme: dark;
+}
+
+[data-theme="graphite"] {
+  --background: #0d0d0f;
+  --foreground: #ededee;
+  --color-white: #ffffff;
+  --panel: #151517;
+  --surface: #18181b;
+  --surface-2: #1d1d20;
+  --border: rgba(255, 255, 255, 0.08);
+  --border-strong: rgba(255, 255, 255, 0.15);
+  --muted-foreground: #9a9aa1;
+  --accent: #e4e4e7;
+  --accent-strong: #fafafa;
+  --accent-contrast: #18181b;
+  --card-from: #18181b;
+  --card-to: #18181b;
+  --shadow: 0 1px 2px rgba(0, 0, 0, 0.45);
+  color-scheme: dark;
+}
+
+[data-theme="forest"] {
+  --background: #08110d;
+  --foreground: #e6efe9;
+  --color-white: #ffffff;
+  --panel: #0d1813;
+  --surface: #0f1c16;
+  --surface-2: #13241c;
+  --border: rgba(255, 255, 255, 0.08);
+  --border-strong: rgba(255, 255, 255, 0.14);
+  --muted-foreground: #8fa79a;
+  --accent: #2fd08a;
+  --accent-strong: #57e0a3;
+  --accent-contrast: #04150d;
+  --card-from: #0f1c16;
+  --card-to: #0f1c16;
+  --shadow: 0 1px 2px rgba(0, 0, 0, 0.45);
+  color-scheme: dark;
+}
+
+[data-theme="paper"] {
+  --background: #f5f4ef;
+  --foreground: #1b1a16;
+  --color-white: #1b1a16;
+  --panel: #ffffff;
+  --surface: #ffffff;
+  --surface-2: #f1efe8;
+  --border: rgba(27, 26, 22, 0.12);
+  --border-strong: rgba(27, 26, 22, 0.2);
+  --muted-foreground: #6c6a60;
+  --accent: #2f6df0;
+  --accent-strong: #235bd6;
+  --accent-contrast: #ffffff;
+  --card-from: #ffffff;
+  --card-to: #ffffff;
+  --shadow: 0 1px 2px rgba(27, 26, 22, 0.06), 0 1px 3px rgba(27, 26, 22, 0.1);
+  color-scheme: light;
+}
+
+[data-theme="arctic"] {
+  --background: #eef1f6;
   --foreground: #0f1722;
-  --panel: rgba(255, 255, 255, 0.76);
-  --muted-foreground: #516071;
-  --accent: #c8f46d;
-  --accent-strong: #ddff98;
-  --accent-contrast: #0c1308;
-  --card-from: rgba(15, 23, 34, 0.05);
-  --card-to: rgba(15, 23, 34, 0.02);
-}
-
-.dark {
-  --background: #04111d;
-  --foreground: #eef4ff;
-  --panel: rgba(8, 18, 32, 0.82);
-  --muted-foreground: #8d9aae;
-  --accent: #d5ff7f;
-  --accent-strong: #e2ffab;
-  --accent-contrast: #0c1308;
-  --card-from: rgba(255, 255, 255, 0.06);
-  --card-to: rgba(255, 255, 255, 0.03);
-}
-
-/* This UI was built dark-first: most surfaces and text use white-based
-   utilities (text-white, bg-white/x, border-white/x), which Tailwind compiles
-   to var(--color-white). Remapping that token to a dark ink in light mode flips
-   all of them to readable values app-wide, instead of only the few panels that
-   already read --foreground / --panel. Dark mode keeps the default #fff. */
-:root:not(.dark) {
   --color-white: #0f1722;
-}
-
-/* Accent themes. The data-accent attribute on <html> swaps the accent palette
-   used across buttons, highlights, and chart strokes (which read var(--accent)). */
-[data-accent="lime"] {
-  --accent: #c8f46d;
-  --accent-strong: #ddff98;
-  --accent-contrast: #0c1308;
-}
-.dark[data-accent="lime"] {
-  --accent: #d5ff7f;
-  --accent-strong: #e2ffab;
-  --accent-contrast: #0c1308;
-}
-
-[data-accent="stripe"] {
-  --accent: #7c5cff;
-  --accent-strong: #9b87ff;
+  --panel: #ffffff;
+  --surface: #ffffff;
+  --surface-2: #f3f6fa;
+  --border: rgba(15, 23, 34, 0.1);
+  --border-strong: rgba(15, 23, 34, 0.18);
+  --muted-foreground: #546072;
+  --accent: #0ea5e9;
+  --accent-strong: #0b8fcf;
   --accent-contrast: #ffffff;
-}
-.dark[data-accent="stripe"] {
-  --accent: #9b87ff;
-  --accent-strong: #b9aaff;
-  --accent-contrast: #0c0a1a;
-}
-
-[data-accent="ocean"] {
-  --accent: #2fb6c4;
-  --accent-strong: #5fd6e2;
-  --accent-contrast: #04141a;
-}
-.dark[data-accent="ocean"] {
-  --accent: #4fd6e2;
-  --accent-strong: #7ee9f2;
-  --accent-contrast: #04141a;
-}
-
-[data-accent="sunset"] {
-  --accent: #ff8a4c;
-  --accent-strong: #ffb07a;
-  --accent-contrast: #1a0c04;
-}
-.dark[data-accent="sunset"] {
-  --accent: #ffa463;
-  --accent-strong: #ffc499;
-  --accent-contrast: #1a0c04;
-}
-
-[data-accent="rose"] {
-  --accent: #f0568c;
-  --accent-strong: #ff84ad;
-  --accent-contrast: #1a0410;
-}
-.dark[data-accent="rose"] {
-  --accent: #ff6f9f;
-  --accent-strong: #ff9bbd;
-  --accent-contrast: #1a0410;
-}
-
-[data-accent="mono"] {
-  --accent: #1f2937;
-  --accent-strong: #374151;
-  --accent-contrast: #ffffff;
-}
-.dark[data-accent="mono"] {
-  --accent: #e6edf6;
-  --accent-strong: #ffffff;
-  --accent-contrast: #0c1219;
+  --card-from: #ffffff;
+  --card-to: #ffffff;
+  --shadow: 0 1px 2px rgba(15, 23, 34, 0.06), 0 1px 3px rgba(15, 23, 34, 0.1);
+  color-scheme: light;
 }
 
 * {
   box-sizing: border-box;
 }
 
-html {
-  color-scheme: light;
-}
-
-.dark {
-  color-scheme: dark;
-}
-
 body {
   margin: 0;
   min-height: 100vh;
-  background:
-    radial-gradient(circle at top left, rgba(111, 168, 254, 0.12), transparent 24%),
-    radial-gradient(circle at top right, rgba(124, 92, 255, 0.08), transparent 22%),
-    linear-gradient(180deg, #eef2f6 0%, #e6ecf2 48%, #eef2f6 100%);
+  background: var(--background);
   color: var(--foreground);
   font-family: ui-sans-serif, system-ui, sans-serif;
-}
-
-.dark body {
-  background:
-    radial-gradient(circle at top left, rgba(111, 168, 254, 0.18), transparent 24%),
-    radial-gradient(circle at top right, rgba(213, 255, 127, 0.12), transparent 22%),
-    linear-gradient(180deg, #04111d 0%, #071827 48%, #03111d 100%);
 }
 
 a {
