@@ -1,16 +1,6 @@
 export type ClipJobStatus = "queued" | "processing" | "done" | "error";
 
-export type ClipJobStage =
-  | "uploading"
-  | "downloading"
-  | "probing"
-  | "analyzing-audio"
-  | "transcribing"
-  | "selecting-clips"
-  | "rendering-clips"
-  | "writing-captions"
-  | "generating-metadata"
-  | "finished";
+export type ClipJobStage = "downloading" | "analyzing" | "selecting" | "rendering" | "finished";
 
 export type ClipScoreBreakdown = {
   /** Loudness of the opening seconds vs the whole stream (0-100). */
@@ -23,14 +13,6 @@ export type ClipScoreBreakdown = {
   intensity: number;
 };
 
-export type ClipMetadata = {
-  title: string;
-  hook: string;
-  description: string;
-  caption: string;
-  hashtags: string[];
-};
-
 export type ClipCandidate = {
   id: string;
   /** Seconds into the source video. */
@@ -41,39 +23,23 @@ export type ClipCandidate = {
   rationale: string;
   /** Vertical 9:16 (Shorts/Reels/TikTok) output filename, set once rendered. */
   file?: string;
-  /** Widescreen 16:9 (long-form) output filename, set once rendered. */
-  wideFile?: string;
-  /** SRT caption filename, set when a transcript was available. */
-  srtFile?: string;
-  /** Short transcript excerpt for this range, when available. */
-  transcriptExcerpt?: string;
-  metadata?: ClipMetadata;
 };
 
 export type ClipJob = {
   id: string;
+  /** Display name — the VOD title once known, otherwise the URL. */
   fileName: string;
   topic?: string;
-  /** Where the source came from: a browser upload or a pasted VOD URL. */
-  source: "upload" | "url";
-  /** Original VOD URL when source is "url". */
-  sourceUrl?: string;
+  /** The VOD URL this job clips from. */
+  sourceUrl: string;
   status: ClipJobStatus;
   stage: ClipJobStage;
   /** 0-100 across the whole pipeline. */
   progress: number;
   error?: string;
-  /** Non-fatal warnings shown in the UI (e.g. missing API keys). */
+  /** Non-fatal warnings shown in the UI. */
   notices: string[];
   createdAt: string;
   durationSec?: number;
-  transcriptAvailable: boolean;
-  metadataAvailable: boolean;
   clips: ClipCandidate[];
-};
-
-export type TranscriptSegment = {
-  start: number;
-  end: number;
-  text: string;
 };

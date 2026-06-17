@@ -19,7 +19,7 @@ export async function GET(
   }
 
   // Only files the job itself produced may be served — no path traversal.
-  const known = job.clips.flatMap((clip) => [clip.file, clip.wideFile, clip.srtFile]).filter(Boolean);
+  const known = job.clips.map((clip) => clip.file).filter(Boolean);
   if (!known.includes(fileName)) {
     return NextResponse.json({ error: "File not found for this job." }, { status: 404 });
   }
@@ -32,12 +32,11 @@ export async function GET(
     return NextResponse.json({ error: "The file no longer exists on disk." }, { status: 404 });
   }
 
-  const isVideo = fileName.endsWith(".mp4");
   const stream = Readable.toWeb(createReadStream(filePath)) as ReadableStream;
   const download = request.nextUrl.searchParams.get("download") === "1";
   return new NextResponse(stream, {
     headers: {
-      "Content-Type": isVideo ? "video/mp4" : "application/x-subrip",
+      "Content-Type": "video/mp4",
       "Content-Length": String(size),
       ...(download ? { "Content-Disposition": `attachment; filename="${jobId}-${fileName}"` } : {})
     }
