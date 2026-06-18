@@ -11,6 +11,7 @@ import { PageHeader } from "@/components/ui/page-header";
 import { Select } from "@/components/ui/select";
 import { BACKGROUND_STYLES, getStyle } from "@/lib/thumbnails/backgrounds";
 import { removeImageBackground } from "@/lib/thumbnails/bg-removal";
+import { appleEmojiUrl, subscribeEmojiLoaded } from "@/lib/thumbnails/emoji";
 import { DEFAULT_FONT_ID, ensureFontLoaded, FONT_OPTIONS, getFont, GOOGLE_FONTS_HREF } from "@/lib/thumbnails/fonts";
 import { buildVariants, computeLayout, hitTest, renderEditor, renderThumbnail, renderToDataUrl } from "@/lib/thumbnails/render";
 import { overlayIdeas, titleTreatments } from "@/lib/thumbnails/suggestions";
@@ -55,6 +56,11 @@ async function copyText(text: string, what: string) {
 
 function clamp(value: number, min: number, max: number) {
   return Math.min(max, Math.max(min, value));
+}
+
+/** Sticker layer ids are minted as `sticker-N` (see addSticker). */
+function isStickerId(id: string) {
+  return id.startsWith("sticker-");
 }
 
 let layerCounter = 0;
@@ -193,6 +199,10 @@ export function ThumbnailGeneratorPage() {
     document.head.appendChild(link);
   }, []);
 
+  // Re-render once an Apple emoji image finishes loading (the canvas falls back
+  // to the native emoji font until then).
+  useEffect(() => subscribeEmojiLoaded(() => setFontTick((n) => n + 1)), []);
+
   // Warm up the selected font, then re-render once it's ready (canvas silently
   // falls back to a system face if the font hasn't loaded yet).
   useEffect(() => {
@@ -213,7 +223,12 @@ export function ThumbnailGeneratorPage() {
     } else {
       renderThumbnail(previewRef.current, options);
     }
-    setSmallPreview(previewRef.current.toDataURL("image/jpeg", 0.9));
+    try {
+      setSmallPreview(previewRef.current.toDataURL("image/jpeg", 0.9));
+    } catch {
+      // toDataURL throws if the canvas is tainted by a cross-origin asset; keep
+      // the last good preview rather than crashing the editor.
+    }
   }, [options, editing, selectedId, fontTick]);
 
   const handleFiles = useCallback((files: FileList | File[]) => {
@@ -266,6 +281,9 @@ export function ThumbnailGeneratorPage() {
     (partial: Partial<Transform>) => {
       if (selectedId === "text") {
         setTextTransform((current) => ({ ...current, ...partial }));
+      } else if (selectedId && isStickerId(selectedId)) {
+        // Stickers store x/y/scale/rotation as top-level fields (same keys as Transform).
+        setStickers((current) => current.map((s) => (s.id === selectedId ? { ...s, ...partial } : s)));
       } else if (selectedId) {
         setImages((current) =>
           current.map((layer) => (layer.id === selectedId ? { ...layer, transform: { ...layer.transform, ...partial } } : layer))
@@ -277,8 +295,12 @@ export function ThumbnailGeneratorPage() {
 
   const selectedTransform: Transform | null = useMemo(() => {
     if (selectedId === "text") return textTransform;
+    if (selectedId && isStickerId(selectedId)) {
+      const sticker = stickers.find((s) => s.id === selectedId);
+      return sticker ? { x: sticker.x, y: sticker.y, scale: sticker.scale, rotation: sticker.rotation } : null;
+    }
     return images.find((layer) => layer.id === selectedId)?.transform ?? null;
-  }, [selectedId, textTransform, images]);
+  }, [selectedId, textTransform, images, stickers]);
 
   const enterEditMode = useCallback(() => {
     setManualLayout(true);
@@ -354,6 +376,8 @@ export function ThumbnailGeneratorPage() {
     const y = clamp(point.y / canvas.height - drag.offsetY, 0, 1);
     if (drag.id === "text") {
       setTextTransform((current) => ({ ...current, x, y }));
+    } else if (isStickerId(drag.id)) {
+      setStickers((current) => current.map((s) => (s.id === drag.id ? { ...s, x, y } : s)));
     } else {
       setImages((current) => current.map((layer) => (layer.id === drag.id ? { ...layer, transform: { ...layer.transform, x, y } } : layer)));
     }
@@ -378,8 +402,8 @@ export function ThumbnailGeneratorPage() {
   const removeSticker = (id: string) => setStickers((prev) => prev.filter((s) => s.id !== id));
 
   const generateVariants = () => {
-    if (!overlayText.trim() && images.length === 0) {
-      toast.error("Add thumbnail text or upload an image first.");
+    if (!overlayText.trim() && images.length === 0 && stickers.length === 0) {
+      toast.error("Add an image, emoji, or thumbnail text first.");
       return;
     }
     const specs = buildVariants(options);
@@ -392,7 +416,16 @@ export function ThumbnailGeneratorPage() {
   const exportName = (suffix: string) =>
     `thumbnail-${(title || overlayText || "untitled").toLowerCase().replace(/[^a-z0-9]+/g, "-").slice(0, 40)}${suffix}`;
 
-  const selectedLabel = selectedId === "text" ? "Text" : images.find((l) => l.id === selectedId)?.name ?? null;
+  const stickerLabel = (sticker: Sticker, index: number) => `${sticker.type[0].toUpperCase()}${sticker.type.slice(1)} ${index + 1}`;
+  const selectedLabel =
+    selectedId === "text"
+      ? "Text"
+      : selectedId && isStickerId(selectedId)
+        ? (() => {
+            const index = stickers.findIndex((s) => s.id === selectedId);
+            return index >= 0 ? stickerLabel(stickers[index], index) : null;
+          })()
+        : images.find((l) => l.id === selectedId)?.name ?? null;
   const customColor = textColor !== "auto";
 
   return (
@@ -658,6 +691,23 @@ export function ThumbnailGeneratorPage() {
                       Image {index + 1}
                     </button>
                   ))}
+                  {stickers.map((sticker, index) => (
+                    <button
+                      key={sticker.id}
+                      type="button"
+                      onClick={() => setSelectedId(sticker.id)}
+                      className={cn(
+                        "inline-flex items-center gap-1 rounded-xl border px-3 py-1.5 text-xs font-medium transition",
+                        selectedId === sticker.id ? "border-[var(--accent)] bg-[var(--accent)]/10 text-white" : "border-white/10 bg-black/20 text-[var(--muted-foreground)] hover:border-white/30"
+                      )}
+                    >
+                      {sticker.type === "emoji" && sticker.text ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img src={appleEmojiUrl(sticker.text)} alt={sticker.text} className="h-4 w-4" />
+                      ) : null}
+                      {stickerLabel(sticker, index)}
+                    </button>
+                  ))}
                 </div>
 
                 {selectedTransform && selectedLabel ? (
@@ -670,7 +720,11 @@ export function ThumbnailGeneratorPage() {
                       {selectedId !== "text" && (
                         <button
                           type="button"
-                          onClick={() => selectedId && removeImage(selectedId)}
+                          onClick={() => {
+                            if (!selectedId) return;
+                            if (isStickerId(selectedId)) removeSticker(selectedId);
+                            else removeImage(selectedId);
+                          }}
                           className="flex items-center gap-1 text-xs text-[var(--muted-foreground)] transition hover:text-red-400"
                         >
                           <Trash2 className="h-3.5 w-3.5" /> Remove
@@ -858,7 +912,9 @@ export function ThumbnailGeneratorPage() {
 
           <Card>
             <h2 className="text-lg font-semibold text-white">Call-outs</h2>
-            <p className="mt-1 text-sm text-[var(--muted-foreground)]">Add circles, arrows, emoji, and number badges. Position them with the sliders.</p>
+            <p className="mt-1 text-sm text-[var(--muted-foreground)]">
+              Add circles, arrows, emoji, and number badges. Drag them on the canvas in edit mode, or fine-tune with the sliders.
+            </p>
             <div className="mt-3 flex flex-wrap gap-2">
               {STICKER_PRESETS.map((preset) => (
                 <button
@@ -895,13 +951,15 @@ export function ThumbnailGeneratorPage() {
                           <button
                             key={emoji}
                             type="button"
+                            title={emoji}
                             onClick={() => updateSticker(sticker.id, { text: emoji })}
                             className={cn(
-                              "rounded-lg px-2 py-1 text-base transition",
+                              "rounded-lg p-1.5 transition",
                               sticker.text === emoji ? "bg-[var(--accent)]/25 ring-1 ring-[var(--accent)]" : "bg-white/5 hover:bg-white/10"
                             )}
                           >
-                            {emoji}
+                            {/* eslint-disable-next-line @next/next/no-img-element */}
+                            <img src={appleEmojiUrl(emoji)} alt={emoji} className="h-6 w-6" />
                           </button>
                         ))}
                       </div>

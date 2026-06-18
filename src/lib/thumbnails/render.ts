@@ -1,4 +1,5 @@
 import { getStyle } from "@/lib/thumbnails/backgrounds";
+import { getAppleEmojiImage } from "@/lib/thumbnails/emoji";
 import { getFont, type FontOption } from "@/lib/thumbnails/fonts";
 import { lineWidth, tokenizeHighlights, wrapTokens, type Line, type Token } from "@/lib/thumbnails/text";
 import type { ImageLayer, Palette, Sticker, TextEmphasis, TextPosition, Transform, ThumbnailOptions } from "@/lib/thumbnails/types";
@@ -275,6 +276,28 @@ function drawImageLayer(ctx: CanvasRenderingContext2D, layer: ImageLayer, palett
 
 /* ----------------------------- sticker drawing ---------------------------- */
 
+/** Box size of an emoji glyph at scale 1, in canvas pixels. */
+const EMOJI_SIZE = 150;
+
+/**
+ * Half-width/half-height of a sticker's bounding box at its current scale, kept
+ * in sync with `drawSticker` so selection and hit-testing line up with the art.
+ */
+function stickerHalfExtents(s: Sticker): { halfW: number; halfH: number } {
+  const scale = s.scale;
+  switch (s.type) {
+    case "circle":
+      return { halfW: 158 * scale, halfH: 122 * scale };
+    case "arrow":
+      return { halfW: 112 * scale, halfH: 40 * scale };
+    case "badge":
+      return { halfW: 106 * scale, halfH: 106 * scale };
+    case "emoji":
+    default:
+      return { halfW: (EMOJI_SIZE / 2) * scale, halfH: (EMOJI_SIZE / 2) * scale };
+  }
+}
+
 function drawSticker(ctx: CanvasRenderingContext2D, s: Sticker) {
   const cx = s.x * W;
   const cy = s.y * H;
@@ -305,10 +328,18 @@ function drawSticker(ctx: CanvasRenderingContext2D, s: Sticker) {
     ctx.closePath();
     ctx.fill();
   } else if (s.type === "emoji") {
-    ctx.font = `${130 * scale}px "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", sans-serif`;
-    ctx.textAlign = "center";
-    ctx.textBaseline = "middle";
-    ctx.fillText(s.text || "🔥", 0, 0);
+    const glyph = s.text || "🔥";
+    const apple = getAppleEmojiImage(glyph);
+    if (apple) {
+      const size = EMOJI_SIZE * scale;
+      ctx.drawImage(apple, -size / 2, -size / 2, size, size);
+    } else {
+      // Until the Apple image loads (or if it can't), use the platform emoji font.
+      ctx.font = `${130 * scale}px "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", sans-serif`;
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillText(glyph, 0, 0);
+    }
   } else if (s.type === "badge") {
     const radius = 100 * scale;
     ctx.fillStyle = s.color;
@@ -339,7 +370,7 @@ function drawSticker(ctx: CanvasRenderingContext2D, s: Sticker) {
 /** Axis-aligned-in-local-space bounds of a layer, in canvas pixels. */
 export type LayoutBox = {
   id: string;
-  kind: "text" | "image";
+  kind: "text" | "image" | "sticker";
   cx: number;
   cy: number;
   halfW: number;
@@ -399,6 +430,20 @@ export function computeLayout(options: ThumbnailOptions): LayoutBox[] {
       rotation: options.textTransform.rotation
     });
   }
+
+  // Stickers sit on top of everything else, so they hit-test first.
+  options.stickers.forEach((sticker) => {
+    const { halfW, halfH } = stickerHalfExtents(sticker);
+    boxes.push({
+      id: sticker.id,
+      kind: "sticker",
+      cx: sticker.x * W,
+      cy: sticker.y * H,
+      halfW,
+      halfH,
+      rotation: sticker.rotation
+    });
+  });
 
   return boxes;
 }
