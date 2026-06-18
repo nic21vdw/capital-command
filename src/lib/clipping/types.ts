@@ -44,4 +44,11 @@ export type ClipJob = {
   /** Drive-synced folder the clips were copied into, when CLIPS_DRIVE_DIR is set. */
   driveFolder?: string;
   clips: ClipCandidate[];
+  /**
+   * Source-relative caption segments fetched on demand from the platform's
+   * automatic captions. Cached so re-opening the editor is instant.
+   */
+  sourceCaptions?: import("@/types/domain").CaptionSegment[];
+  captionsFetchedAt?: string;
+  captionsError?: string;
 };

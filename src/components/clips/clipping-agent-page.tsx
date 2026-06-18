@@ -1,14 +1,18 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { AlertTriangle, Check, Download, Film, Link as LinkIcon, Loader2, Trash2 } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { AlertTriangle, Check, Download, Film, Link as LinkIcon, Loader2, SquarePlay, Trash2 } from "lucide-react";
 import { toast } from "sonner";
+import { useAppData } from "@/components/providers/app-provider";
+import { makeClipProject } from "@/lib/clipping/editor";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { PageHeader } from "@/components/ui/page-header";
 import { Progress } from "@/components/ui/progress";
+import type { AISuggestion } from "@/types/domain";
 import type { ClipCandidate, ClipJob, ClipJobStage } from "@/lib/clipping/types";
 import { cn } from "@/lib/utils";
 
@@ -38,6 +42,8 @@ function fileUrl(jobId: string, fileName: string, download = false) {
 }
 
 export function ClippingAgentPage() {
+  const router = useRouter();
+  const { mutate } = useAppData();
   const [jobs, setJobs] = useState<ClipJob[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [activeJobId, setActiveJobId] = useState<string | null>(null);
@@ -98,6 +104,33 @@ export function ClippingAgentPage() {
       setSubmittingUrl(false);
     }
   }, [url, topic, refresh]);
+
+  const editClip = useCallback(
+    async (job: ClipJob, clip: ClipCandidate, index: number) => {
+      if (!clip.file) return;
+      const project = makeClipProject({
+        jobId: job.id,
+        name: `${job.fileName} — clip ${index + 1}`,
+        sourceFile: clip.file,
+        sourceUrl: job.sourceUrl,
+        clipStart: clip.start,
+        clipEnd: clip.end
+      });
+      const suggestion: AISuggestion = {
+        id: `sug-${crypto.randomUUID().slice(0, 8)}`,
+        start: 0,
+        end: project.baseDurationSec,
+        score: clip.score,
+        rationale: clip.rationale,
+        status: "pending",
+        addedToTimeline: false
+      };
+      project.suggestions = [suggestion];
+      await mutate("upsertClipProject", project);
+      router.push(`/editor?open=${project.id}`);
+    },
+    [mutate, router]
+  );
 
   const removeJob = async (job: ClipJob) => {
     const response = await fetch(`/api/clips/${job.id}`, { method: "DELETE" });
@@ -314,7 +347,13 @@ export function ClippingAgentPage() {
 
               {activeJob.status === "done" &&
                 activeJob.clips.map((clip, index) => (
-                  <ClipCard key={clip.id} clip={clip} index={index} jobId={activeJob.id} />
+                  <ClipCard
+                    key={clip.id}
+                    clip={clip}
+                    index={index}
+                    jobId={activeJob.id}
+                    onEdit={() => void editClip(activeJob, clip, index)}
+                  />
                 ))}
             </>
           )}
@@ -324,7 +363,7 @@ export function ClippingAgentPage() {
   );
 }
 
-function ClipCard({ clip, index, jobId }: { clip: ClipCandidate; index: number; jobId: string }) {
+function ClipCard({ clip, index, jobId, onEdit }: { clip: ClipCandidate; index: number; jobId: string; onEdit: () => void }) {
   return (
     <Card>
       <div className="flex flex-col gap-5 sm:flex-row">
@@ -381,6 +420,10 @@ function ClipCard({ clip, index, jobId }: { clip: ClipCandidate; index: number; 
                   Download 9:16
                 </Button>
               </a>
+              <Button variant="secondary" onClick={onEdit}>
+                <SquarePlay className="mr-2 h-4 w-4" />
+                Open in editor
+              </Button>
             </div>
           )}
         </div>

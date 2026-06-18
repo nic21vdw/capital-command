@@ -1,0 +1,164 @@
+import { describe, expect, it } from "vitest";
+import {
+  buildAss,
+  chunkWords,
+  formatSrtTime,
+  formatVttTime,
+  mergeSegments,
+  parseSubtitleWords,
+  parseSubtitles,
+  parseTimestamp,
+  serializeSrt,
+  serializeVtt,
+  splitSegment,
+  windowSegments
+} from "./captions";
+import { defaultCaptionStyle } from "@/lib/storage/schemas";
+import type { CaptionSegment } from "@/types/domain";
+
+const seg = (id: string, start: number, end: number, text: string): CaptionSegment => ({
+  id,
+  start,
+  end,
+  text,
+  words: text.split(" ").map((t, i) => ({ text: t, start: start + i, end: start + i + 1 })),
+  enabled: true
+});
+
+describe("parseTimestamp", () => {
+  it("reads HH:MM:SS.mmm and MM:SS.mmm", () => {
+    expect(parseTimestamp("00:00:02.500")).toBeCloseTo(2.5);
+    expect(parseTimestamp("01:02:03.000")).toBeCloseTo(3723);
+    expect(parseTimestamp("00:05.000")).toBeCloseTo(5);
+  });
+});
+
+describe("time formatting", () => {
+  it("formats SRT with comma and VTT with dot", () => {
+    expect(formatSrtTime(3723.25)).toBe("01:02:03,250");
+    expect(formatVttTime(3723.25)).toBe("01:02:03.250");
+  });
+});
+
+describe("parseSubtitleWords", () => {
+  it("recovers word-level timing from YouTube-style inline timestamps", () => {
+    const vtt = [
+      "WEBVTT",
+      "",
+      "00:00:00.000 --> 00:00:02.000",
+      "<00:00:00.300><c> Hello</c><00:00:00.900><c> brave</c><00:00:01.400><c> world</c>",
+      ""
+    ].join("\n");
+    const words = parseSubtitleWords(vtt);
+    expect(words.map((w) => w.text)).toEqual(["Hello", "brave", "world"]);
+    expect(words[0].start).toBeCloseTo(0.3);
+    expect(words[1].start).toBeCloseTo(0.9);
+    // ends close against the following word's start
+    expect(words[0].end).toBeCloseTo(0.9);
+  });
+
+  it("dedupes rolling cues that repeat the same word at the same time", () => {
+    const vtt = [
+      "WEBVTT",
+      "",
+      "00:00:00.000 --> 00:00:01.000",
+      "<00:00:00.300><c> hello</c>",
+      "",
+      "00:00:01.000 --> 00:00:02.000",
+      "<00:00:00.300><c> hello</c><00:00:01.300><c> there</c>",
+      ""
+    ].join("\n");
+    const words = parseSubtitleWords(vtt);
+    expect(words.map((w) => w.text)).toEqual(["hello", "there"]);
+  });
+
+  it("spreads plain cues without inline timing across their duration", () => {
+    const srt = ["1", "00:00:00,000 --> 00:00:04,000", "one two three four", ""].join("\n");
+    const words = parseSubtitleWords(srt);
+    expect(words.map((w) => w.text)).toEqual(["one", "two", "three", "four"]);
+    expect(words[0].start).toBeCloseTo(0);
+    expect(words[1].start).toBeCloseTo(1);
+  });
+});
+
+describe("chunkWords / parseSubtitles", () => {
+  it("breaks on sentence punctuation and max word count", () => {
+    const words = "a b c. d e f g h i".split(" ").map((t, i) => ({ text: t, start: i, end: i + 1 }));
+    const segs = chunkWords(words, 7);
+    expect(segs[0].text).toBe("a b c.");
+    expect(segs.length).toBeGreaterThan(1);
+  });
+
+  it("produces segments with monotonic timing", () => {
+    const vtt = [
+      "WEBVTT",
+      "",
+      "00:00:00.000 --> 00:00:03.000",
+      "<00:00:00.100><c> one</c><00:00:01.000><c> two.</c><00:00:02.000><c> three</c>",
+      ""
+    ].join("\n");
+    const segs = parseSubtitles(vtt, 7);
+    expect(segs.length).toBeGreaterThanOrEqual(1);
+    expect(segs[0].end).toBeGreaterThan(segs[0].start);
+  });
+});
+
+describe("windowSegments", () => {
+  it("shifts to clip-local time and drops out-of-range segments", () => {
+    const segs = [seg("a", 5, 8, "hello world"), seg("b", 20, 23, "later text")];
+    const windowed = windowSegments(segs, 4, 10);
+    expect(windowed).toHaveLength(1);
+    expect(windowed[0].start).toBeCloseTo(1);
+    expect(windowed[0].end).toBeCloseTo(4);
+  });
+});
+
+describe("split / merge", () => {
+  it("splits a segment at a time into two", () => {
+    const [left, right] = splitSegment(seg("a", 0, 6, "one two three four five six"), 3);
+    expect(left.end).toBeCloseTo(3);
+    expect(right.start).toBeCloseTo(3);
+    expect(left.text.length).toBeGreaterThan(0);
+    expect(right.text.length).toBeGreaterThan(0);
+  });
+
+  it("merges two segments preserving the earliest start and latest end", () => {
+    const merged = mergeSegments(seg("a", 0, 2, "hello"), seg("b", 2, 5, "world there"));
+    expect(merged.start).toBeCloseTo(0);
+    expect(merged.end).toBeCloseTo(5);
+    expect(merged.text).toBe("hello world there");
+  });
+});
+
+describe("serialization", () => {
+  const segs = [seg("a", 0, 2, "hello world"), { ...seg("b", 2, 4, "skip me"), enabled: false }];
+
+  it("serializes enabled segments to SRT", () => {
+    const srt = serializeSrt(segs);
+    expect(srt).toContain("00:00:00,000 --> 00:00:02,000");
+    expect(srt).toContain("hello world");
+    expect(srt).not.toContain("skip me");
+  });
+
+  it("serializes enabled segments to VTT", () => {
+    const vtt = serializeVtt(segs);
+    expect(vtt.startsWith("WEBVTT")).toBe(true);
+    expect(vtt).toContain("00:00:00.000 --> 00:00:02.000");
+  });
+});
+
+describe("buildAss", () => {
+  it("emits a valid ASS document with a styled Default and dialogue events", () => {
+    const ass = buildAss([seg("a", 0, 2, "hello world")], defaultCaptionStyle, 1080, 1920, false);
+    expect(ass).toContain("[Script Info]");
+    expect(ass).toContain("PlayResX: 1080");
+    expect(ass).toContain("Style: Default");
+    expect(ass).toContain("Dialogue: 0,0:00:00.00,0:00:02.00");
+    expect(ass).toContain("hello world");
+  });
+
+  it("emits karaoke \\k tags when highlighting the current word", () => {
+    const ass = buildAss([seg("a", 0, 2, "hello world")], defaultCaptionStyle, 1080, 1920, true);
+    expect(ass).toContain("\\k");
+  });
+});
