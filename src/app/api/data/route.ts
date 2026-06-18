@@ -5,7 +5,7 @@ import { ensureExecution } from "@/lib/execution/server";
 import { todayLocal } from "@/lib/execution/dates";
 import { getMarketDataProvider } from "@/lib/marketData";
 import { seedData } from "@/lib/mockData/seed";
-import { appDataSchema, contentItemSchema, creatorProfileSchema, defaultCreatorProfile, executionCompletionSchema, executionGoalSchema, expenseSchema, goalSchema, holdingSchema, importHoldingSchema, researchNoteSchema, settingsSchema, watchlistSchema, xActivitySchema, xStrategySchema } from "@/lib/storage/schemas";
+import { appDataSchema, contentItemSchema, creatorProfileSchema, defaultCreatorProfile, executionCompletionSchema, executionGoalSchema, expenseSchema, goalSchema, holdingSchema, importHoldingSchema, researchNoteSchema, savedThumbnailSchema, settingsSchema, watchlistSchema, xActivitySchema, xStrategySchema } from "@/lib/storage/schemas";
 import { readAppData, resetAppData, writeAppData } from "@/lib/storage/store";
 import type { AppData, ExecutionGoal, Holding } from "@/types/domain";
 
@@ -223,6 +223,22 @@ export async function POST(request: NextRequest) {
       data = { ...data, contentItems: data.contentItems.filter((item) => item.id !== id) };
       break;
     }
+    case "upsertSavedThumbnail": {
+      const parsed = savedThumbnailSchema.parse(payload);
+      const exists = data.savedThumbnails.some((item) => item.id === parsed.id);
+      data = {
+        ...data,
+        savedThumbnails: exists
+          ? data.savedThumbnails.map((item) => (item.id === parsed.id ? parsed : item))
+          : [parsed, ...data.savedThumbnails]
+      };
+      break;
+    }
+    case "deleteSavedThumbnail": {
+      const id = String(payload);
+      data = { ...data, savedThumbnails: data.savedThumbnails.filter((item) => item.id !== id) };
+      break;
+    }
     case "updateCreatorProfile": {
       data = { ...data, creatorProfile: creatorProfileSchema.parse(payload) };
       break;
@@ -410,7 +426,7 @@ export async function POST(request: NextRequest) {
       return success(data);
     }
     case "deleteAllData": {
-      data = { ...seedData, holdings: [], watchlist: [], researchNotes: [], goals: [], portfolioSnapshots: [], expenses: [], contentItems: [], creatorProfile: defaultCreatorProfile, executionGoals: [], executionCompletions: [], executionPeriods: [], executionDebt: [], executionSeededAt: new Date().toISOString() };
+      data = { ...seedData, holdings: [], watchlist: [], researchNotes: [], goals: [], portfolioSnapshots: [], expenses: [], contentItems: [], creatorProfile: defaultCreatorProfile, executionGoals: [], executionCompletions: [], executionPeriods: [], executionDebt: [], savedThumbnails: [], executionSeededAt: new Date().toISOString() };
       break;
     }
     default:

@@ -15,6 +15,7 @@ export const seedData: AppData = {
   executionCompletions: [],
   executionPeriods: [],
   executionDebt: [],
+  savedThumbnails: [],
   accounts: [
     { id: "acct-tfsa", name: "Wealthsimple TFSA", type: "TFSA", institution: "Wealthsimple", currency: "CAD" },
     { id: "acct-rrsp", name: "Questrade RRSP", type: "RRSP", institution: "Questrade", currency: "CAD" },

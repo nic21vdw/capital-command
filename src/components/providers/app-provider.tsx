@@ -131,7 +131,8 @@ const emptyAppData: AppData = {
   executionGoals: [],
   executionCompletions: [],
   executionPeriods: [],
-  executionDebt: []
+  executionDebt: [],
+  savedThumbnails: []
 };
 
 const payloadFallback: BootstrapPayload = {
