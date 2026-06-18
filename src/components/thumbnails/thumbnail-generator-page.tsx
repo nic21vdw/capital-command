@@ -1,7 +1,31 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Copy, Download, Eraser, FolderOpen, ImagePlus, Layers, MousePointer2, Plus, RotateCw, Save, Sparkles, Trash2, X, ZoomIn } from "lucide-react";
+import {
+  ArrowDownToLine,
+  ArrowUpToLine,
+  ChevronsDown,
+  ChevronsUp,
+  Copy,
+  CopyPlus,
+  Download,
+  Eraser,
+  FolderOpen,
+  ImagePlus,
+  Layers,
+  Link2,
+  Link2Off,
+  Lock,
+  MousePointer2,
+  Pencil,
+  Plus,
+  RotateCcw,
+  Save,
+  Sparkles,
+  Trash2,
+  Unlock,
+  X
+} from "lucide-react";
 import { toast } from "sonner";
 import { useAppData } from "@/components/providers/app-provider";
 import { Badge } from "@/components/ui/badge";
@@ -14,12 +38,25 @@ import { BACKGROUND_STYLES, getStyle } from "@/lib/thumbnails/backgrounds";
 import { removeImageBackground } from "@/lib/thumbnails/bg-removal";
 import { appleEmojiUrl, subscribeEmojiLoaded } from "@/lib/thumbnails/emoji";
 import { DEFAULT_FONT_ID, ensureFontLoaded, FONT_OPTIONS, getFont, GOOGLE_FONTS_HREF } from "@/lib/thumbnails/fonts";
-import { buildVariants, computeLayout, hitTest, renderEditor, renderThumbnail, renderToDataUrl } from "@/lib/thumbnails/render";
+import {
+  buildVariants,
+  computeLayout,
+  hitTest,
+  hitTestHandle,
+  IMAGE_BASE_WIDTH,
+  renderEditor,
+  renderThumbnail,
+  renderToDataUrl,
+  renderToSizedDataUrl,
+  type Corner
+} from "@/lib/thumbnails/render";
 import { overlayIdeas, titleTreatments } from "@/lib/thumbnails/suggestions";
 import {
   DEFAULT_TEXT_TRANSFORM,
   DEFAULT_TREATMENT,
   defaultImageTransform,
+  effectiveOpacity,
+  effectiveScaleY,
   MAX_IMAGES,
   type BackgroundStyleId,
   type ImageLayer,
@@ -88,6 +125,12 @@ function clamp(value: number, min: number, max: number) {
   return Math.min(max, Math.max(min, value));
 }
 
+/** Wrap any degree value into the (-180, 180] range. */
+function normalizeAngle(deg: number): number {
+  const wrapped = ((deg % 360) + 360) % 360;
+  return wrapped > 180 ? wrapped - 360 : wrapped;
+}
+
 /** Sticker layer ids are minted as `sticker-N` (see addSticker). */
 function isStickerId(id: string) {
   return id.startsWith("sticker-");
@@ -149,6 +192,101 @@ function Range({
   );
 }
 
+/** A compact numeric input with a label, used for precise transform editing. */
+function NumberField({
+  label,
+  value,
+  min,
+  max,
+  step = 1,
+  suffix,
+  disabled,
+  onChange
+}: {
+  label: string;
+  value: number;
+  min?: number;
+  max?: number;
+  step?: number;
+  suffix?: string;
+  disabled?: boolean;
+  onChange: (value: number) => void;
+}) {
+  return (
+    <label className="block">
+      <span className="mb-1 block text-[10px] uppercase tracking-wide text-[var(--muted-foreground)]">{label}</span>
+      <div className="flex items-center rounded-lg border border-white/10 bg-black/20 focus-within:border-[var(--accent)]">
+        <input
+          type="number"
+          value={Number.isFinite(value) ? Math.round(value * 100) / 100 : 0}
+          min={min}
+          max={max}
+          step={step}
+          disabled={disabled}
+          onChange={(event) => {
+            const next = Number(event.target.value);
+            if (Number.isFinite(next)) onChange(next);
+          }}
+          className="h-9 w-full bg-transparent px-2 text-sm text-white outline-none disabled:opacity-50"
+        />
+        {suffix ? <span className="pr-2 text-xs text-[var(--muted-foreground)]">{suffix}</span> : null}
+      </div>
+    </label>
+  );
+}
+
+/** Small square icon button used in the selected-layer toolbar. */
+function ToolButton({
+  title,
+  onClick,
+  disabled,
+  active,
+  danger,
+  children
+}: {
+  title: string;
+  onClick: () => void;
+  disabled?: boolean;
+  active?: boolean;
+  danger?: boolean;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      title={title}
+      aria-label={title}
+      onClick={onClick}
+      disabled={disabled}
+      className={cn(
+        "flex h-8 w-8 items-center justify-center rounded-lg border text-[var(--muted-foreground)] transition disabled:opacity-30",
+        active
+          ? "border-[var(--accent)] bg-[var(--accent)]/15 text-white"
+          : danger
+            ? "border-white/10 bg-white/5 hover:border-red-500/40 hover:bg-red-500/15 hover:text-red-300"
+            : "border-white/10 bg-white/5 hover:border-white/30 hover:text-white"
+      )}
+    >
+      {children}
+    </button>
+  );
+}
+
+type SaveStatus = "idle" | "unsaved" | "saving" | "saved" | "error";
+
+/** A small pill reflecting the current save state. */
+function SaveStatusBadge({ status }: { status: SaveStatus }) {
+  const map: Record<SaveStatus, { label: string; className: string }> = {
+    idle: { label: "Not saved", className: "border-white/10 bg-white/5 text-[var(--muted-foreground)]" },
+    unsaved: { label: "Unsaved changes", className: "border-amber-400/30 bg-amber-400/10 text-amber-200" },
+    saving: { label: "Saving…", className: "border-sky-400/30 bg-sky-400/10 text-sky-200" },
+    saved: { label: "Saved", className: "border-emerald-400/30 bg-emerald-400/10 text-emerald-200" },
+    error: { label: "Save failed", className: "border-red-500/40 bg-red-500/15 text-red-200" }
+  };
+  const { label, className } = map[status];
+  return <span className={cn("shrink-0 rounded-full border px-2.5 py-1 text-[11px] font-medium", className)}>{label}</span>;
+}
+
 export function ThumbnailGeneratorPage() {
   const previewRef = useRef<HTMLCanvasElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -183,6 +321,9 @@ export function ThumbnailGeneratorPage() {
   // Call-outs + export
   const [stickers, setStickers] = useState<Sticker[]>([]);
   const [exportScale, setExportScale] = useState(1);
+  const [exportWidth, setExportWidth] = useState(1280);
+  const [exportHeight, setExportHeight] = useState(720);
+  const [exportFormat, setExportFormat] = useState<"png" | "jpeg">("png");
   const [smallPreview, setSmallPreview] = useState("");
   const [variants, setVariants] = useState<Variant[]>([]);
 
@@ -195,6 +336,10 @@ export function ThumbnailGeneratorPage() {
   const [currentSavedId, setCurrentSavedId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [loadingSavedId, setLoadingSavedId] = useState<string | null>(null);
+  const [saveStatus, setSaveStatus] = useState<SaveStatus>("idle");
+  const [autosave, setAutosave] = useState(true);
+  const [renamingId, setRenamingId] = useState<string | null>(null);
+  const [renameDraft, setRenameDraft] = useState("");
 
   const style = getStyle(styleId);
   const options: ThumbnailOptions = useMemo(
@@ -314,20 +459,82 @@ export function ThumbnailGeneratorPage() {
     });
   }, []);
 
+  const moveLayerEdge = useCallback((id: string, edge: "front" | "back") => {
+    setImages((current) => {
+      const index = current.findIndex((layer) => layer.id === id);
+      if (index < 0) return current;
+      const next = [...current];
+      const [layer] = next.splice(index, 1);
+      // Array order is back-to-front, so "front" is the end of the array.
+      if (edge === "front") next.push(layer);
+      else next.unshift(layer);
+      return next;
+    });
+  }, []);
+
+  const duplicateImage = useCallback((source: ImageLayer) => {
+    const copy: ImageLayer = {
+      ...source,
+      id: nextLayerId(),
+      name: `${source.name} copy`,
+      // Nudge the duplicate so it's visible against the original's position.
+      transform: { ...source.transform, x: clamp(source.transform.x + 0.04, 0, 1), y: clamp(source.transform.y + 0.04, 0, 1) },
+      treatment: { ...source.treatment }
+    };
+    setImages((existing) => {
+      const at = existing.findIndex((layer) => layer.id === source.id);
+      const next = [...existing];
+      next.splice(at < 0 ? existing.length : at + 1, 0, copy);
+      return next;
+    });
+    setSelectedId(copy.id);
+  }, []);
+
+  const toggleLock = useCallback((id: string) => {
+    setImages((current) => current.map((layer) => (layer.id === id ? { ...layer, locked: !layer.locked } : layer)));
+  }, []);
+
+  const toggleAspectLock = useCallback((id: string) => {
+    setImages((current) =>
+      current.map((layer) => {
+        if (layer.id !== id) return layer;
+        const willLock = !(layer.lockAspect ?? true);
+        // Re-locking aspect collapses height back to proportional with width.
+        const transform = willLock ? { ...layer.transform, scaleY: layer.transform.scale } : layer.transform;
+        return { ...layer, lockAspect: willLock, transform };
+      })
+    );
+  }, []);
+
+  const resetTransform = useCallback((id: string) => {
+    if (id === "text") {
+      setTextTransform(DEFAULT_TEXT_TRANSFORM);
+      return;
+    }
+    setImages((current) =>
+      current.map((layer, index) =>
+        layer.id === id ? { ...layer, transform: defaultImageTransform(index), lockAspect: true } : layer
+      )
+    );
+    toast.success("Transform reset.");
+  }, []);
+
+  const updateTransformById = useCallback((id: string, partial: Partial<Transform>) => {
+    if (id === "text") {
+      setTextTransform((current) => ({ ...current, ...partial }));
+    } else if (isStickerId(id)) {
+      // Stickers store x/y/scale/rotation as top-level fields (same keys as Transform).
+      setStickers((current) => current.map((s) => (s.id === id ? { ...s, ...partial } : s)));
+    } else {
+      setImages((current) => current.map((layer) => (layer.id === id ? { ...layer, transform: { ...layer.transform, ...partial } } : layer)));
+    }
+  }, []);
+
   const updateSelectedTransform = useCallback(
     (partial: Partial<Transform>) => {
-      if (selectedId === "text") {
-        setTextTransform((current) => ({ ...current, ...partial }));
-      } else if (selectedId && isStickerId(selectedId)) {
-        // Stickers store x/y/scale/rotation as top-level fields (same keys as Transform).
-        setStickers((current) => current.map((s) => (s.id === selectedId ? { ...s, ...partial } : s)));
-      } else if (selectedId) {
-        setImages((current) =>
-          current.map((layer) => (layer.id === selectedId ? { ...layer, transform: { ...layer.transform, ...partial } } : layer))
-        );
-      }
+      if (selectedId) updateTransformById(selectedId, partial);
     },
-    [selectedId]
+    [selectedId, updateTransformById]
   );
 
   const selectedTransform: Transform | null = useMemo(() => {
@@ -338,6 +545,12 @@ export function ThumbnailGeneratorPage() {
     }
     return images.find((layer) => layer.id === selectedId)?.transform ?? null;
   }, [selectedId, textTransform, images, stickers]);
+
+  // The selected image layer (null when text/sticker/nothing is selected).
+  const selectedImage = useMemo(
+    () => images.find((layer) => layer.id === selectedId) ?? null,
+    [images, selectedId]
+  );
 
   const enterEditMode = useCallback(() => {
     setManualLayout(true);
@@ -376,8 +589,20 @@ export function ThumbnailGeneratorPage() {
     }
   };
 
-  // ----- Interactive dragging on the canvas -----
-  const dragRef = useRef<{ id: string; offsetX: number; offsetY: number } | null>(null);
+  // ----- Interactive dragging / resizing / rotating on the canvas -----
+  type DragState =
+    | { mode: "move"; id: string; offsetX: number; offsetY: number }
+    | {
+        mode: "resize";
+        id: string;
+        corner: Corner;
+        startScale: number;
+        startScaleY: number;
+        startHalfW: number;
+        startHalfH: number;
+      }
+    | { mode: "rotate"; id: string; cx: number; cy: number };
+  const dragRef = useRef<DragState | null>(null);
 
   const pointerToCanvas = (clientX: number, clientY: number) => {
     const canvas = previewRef.current;
@@ -386,21 +611,60 @@ export function ThumbnailGeneratorPage() {
     return { x: ((clientX - rect.left) / rect.width) * canvas.width, y: ((clientY - rect.top) / rect.height) * canvas.height };
   };
 
+  /** Whether a layer is a locked image (locked images can be selected, not moved). */
+  const isLocked = (id: string) => imagesRef.current.find((layer) => layer.id === id)?.locked ?? false;
+
   const handlePointerDown = (event: React.PointerEvent<HTMLCanvasElement>) => {
     if (!editing) return;
     const point = pointerToCanvas(event.clientX, event.clientY);
     if (!point) return;
+    const canvas = previewRef.current!;
     const layout = computeLayout(optionsRef.current);
-    // Topmost layer first (text is last in the layout array).
+
+    // First, if a layer is already selected, check its resize/rotate handles.
+    const selectedBox = layout.find((box) => box.id === selectedId);
+    if (selectedBox && !isLocked(selectedBox.id)) {
+      const handle = hitTestHandle(selectedBox, point.x, point.y);
+      if (handle) {
+        canvas.setPointerCapture(event.pointerId);
+        if (handle === "rotate") {
+          dragRef.current = { mode: "rotate", id: selectedBox.id, cx: selectedBox.cx, cy: selectedBox.cy };
+        } else {
+          dragRef.current = {
+            mode: "resize",
+            id: selectedBox.id,
+            corner: handle,
+            startScale: scaleOf(selectedBox.id),
+            startScaleY: scaleYOf(selectedBox.id),
+            startHalfW: selectedBox.halfW,
+            startHalfH: selectedBox.halfH
+          };
+        }
+        return;
+      }
+    }
+
+    // Otherwise select / move the topmost layer under the pointer.
     const hit = [...layout].reverse().find((box) => hitTest(box, point.x, point.y));
     if (!hit) {
       setSelectedId(null);
       return;
     }
     setSelectedId(hit.id);
-    const canvas = previewRef.current!;
-    dragRef.current = { id: hit.id, offsetX: point.x / canvas.width - hit.cx / canvas.width, offsetY: point.y / canvas.height - hit.cy / canvas.height };
+    if (isLocked(hit.id)) return; // selectable but not draggable
+    dragRef.current = { mode: "move", id: hit.id, offsetX: point.x / canvas.width - hit.cx / canvas.width, offsetY: point.y / canvas.height - hit.cy / canvas.height };
     canvas.setPointerCapture(event.pointerId);
+  };
+
+  /** Current width-scale of any layer kind (text/stickers use a single scale). */
+  const scaleOf = (id: string): number => {
+    if (id === "text") return optionsRef.current.textTransform.scale;
+    if (isStickerId(id)) return stickers.find((s) => s.id === id)?.scale ?? 1;
+    return imagesRef.current.find((l) => l.id === id)?.transform.scale ?? 1;
+  };
+  const scaleYOf = (id: string): number => {
+    const layer = imagesRef.current.find((l) => l.id === id);
+    return layer ? effectiveScaleY(layer.transform) : scaleOf(id);
   };
 
   const handlePointerMove = (event: React.PointerEvent<HTMLCanvasElement>) => {
@@ -409,14 +673,50 @@ export function ThumbnailGeneratorPage() {
     const point = pointerToCanvas(event.clientX, event.clientY);
     const canvas = previewRef.current;
     if (!point || !canvas) return;
-    const x = clamp(point.x / canvas.width - drag.offsetX, 0, 1);
-    const y = clamp(point.y / canvas.height - drag.offsetY, 0, 1);
-    if (drag.id === "text") {
-      setTextTransform((current) => ({ ...current, x, y }));
-    } else if (isStickerId(drag.id)) {
-      setStickers((current) => current.map((s) => (s.id === drag.id ? { ...s, x, y } : s)));
+
+    if (drag.mode === "move") {
+      const x = clamp(point.x / canvas.width - drag.offsetX, 0, 1);
+      const y = clamp(point.y / canvas.height - drag.offsetY, 0, 1);
+      if (drag.id === "text") {
+        setTextTransform((current) => ({ ...current, x, y }));
+      } else if (isStickerId(drag.id)) {
+        setStickers((current) => current.map((s) => (s.id === drag.id ? { ...s, x, y } : s)));
+      } else {
+        setImages((current) => current.map((layer) => (layer.id === drag.id ? { ...layer, transform: { ...layer.transform, x, y } } : layer)));
+      }
+      return;
+    }
+
+    if (drag.mode === "rotate") {
+      let deg = (Math.atan2(point.y - drag.cy, point.x - drag.cx) * 180) / Math.PI + 90;
+      if (event.shiftKey) deg = Math.round(deg / 15) * 15; // snap with Shift
+      deg = Math.round(deg);
+      updateTransformById(drag.id, { rotation: deg });
+      return;
+    }
+
+    // Resize: ratio of the dragged corner's distance from center vs. its start.
+    const box = computeLayout(optionsRef.current).find((b) => b.id === drag.id);
+    if (!box) return;
+    const angle = (-box.rotation * Math.PI) / 180;
+    const dx = point.x - box.cx;
+    const dy = point.y - box.cy;
+    const localX = Math.abs(dx * Math.cos(angle) - dy * Math.sin(angle));
+    const localY = Math.abs(dx * Math.sin(angle) + dy * Math.cos(angle));
+    const widthRatio = localX / Math.max(1, drag.startHalfW);
+    const heightRatio = localY / Math.max(1, drag.startHalfH);
+
+    const layer = imagesRef.current.find((l) => l.id === drag.id);
+    const proportional = !layer || (layer.lockAspect ?? true);
+    if (proportional) {
+      const ratio = Math.max(widthRatio, heightRatio);
+      const nextScale = clamp(drag.startScale * ratio, 0.05, 14);
+      updateTransformById(drag.id, layer ? { scale: nextScale, scaleY: nextScale } : { scale: nextScale });
     } else {
-      setImages((current) => current.map((layer) => (layer.id === drag.id ? { ...layer, transform: { ...layer.transform, x, y } } : layer)));
+      updateTransformById(drag.id, {
+        scale: clamp(drag.startScale * widthRatio, 0.05, 14),
+        scaleY: clamp(drag.startScaleY * heightRatio, 0.05, 14)
+      });
     }
   };
 
@@ -438,6 +738,52 @@ export function ThumbnailGeneratorPage() {
   const updateSticker = (id: string, patch: Partial<Sticker>) => setStickers((prev) => prev.map((s) => (s.id === id ? { ...s, ...patch } : s)));
   const removeSticker = (id: string) => setStickers((prev) => prev.filter((s) => s.id !== id));
 
+  // ----- Keyboard: nudge with arrows, big nudge with Shift, delete to remove -----
+  useEffect(() => {
+    if (!editing || !selectedId) return;
+    const handler = (event: KeyboardEvent) => {
+      // Ignore when typing into a form field.
+      const target = event.target as HTMLElement | null;
+      if (target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable)) return;
+      if (isLocked(selectedId)) return;
+
+      if (event.key === "Delete" || event.key === "Backspace") {
+        if (selectedId === "text") return; // text is cleared via its input, not deleted
+        event.preventDefault();
+        if (isStickerId(selectedId)) removeSticker(selectedId);
+        else removeImage(selectedId);
+        return;
+      }
+
+      const arrows: Record<string, [number, number]> = {
+        ArrowLeft: [-1, 0],
+        ArrowRight: [1, 0],
+        ArrowUp: [0, -1],
+        ArrowDown: [0, 1]
+      };
+      const delta = arrows[event.key];
+      if (!delta) return;
+      event.preventDefault();
+      const stepPx = event.shiftKey ? 20 : 2;
+      const dx = (delta[0] * stepPx) / 1280;
+      const dy = (delta[1] * stepPx) / 720;
+      const current =
+        selectedId === "text"
+          ? optionsRef.current.textTransform
+          : isStickerId(selectedId)
+            ? stickers.find((s) => s.id === selectedId)
+            : imagesRef.current.find((l) => l.id === selectedId)?.transform;
+      if (!current) return;
+      updateTransformById(selectedId, {
+        x: clamp(current.x + dx, 0, 1),
+        y: clamp(current.y + dy, 0, 1)
+      });
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editing, selectedId, stickers]);
+
   const generateVariants = () => {
     if (!overlayText.trim() && images.length === 0 && stickers.length === 0) {
       toast.error("Add an image, emoji, or thumbnail text first.");
@@ -451,26 +797,20 @@ export function ThumbnailGeneratorPage() {
   // ----- Saved thumbnails -----
   const currentSaved = savedThumbnails.find((item) => item.id === currentSavedId) ?? null;
 
-  const saveThumbnail = async (asNew = false) => {
-    if (!overlayText.trim() && images.length === 0) {
-      toast.error("Add thumbnail text or an image before saving.");
-      return;
-    }
-    setSaving(true);
-    try {
-      const reuseId = !asNew && currentSavedId ? currentSavedId : null;
-      const existing = reuseId ? savedThumbnails.find((item) => item.id === reuseId) : null;
-      const now = new Date().toISOString();
-      const id = reuseId ?? `thumb-${crypto.randomUUID()}`;
-      const name = (title || overlayText || "Untitled thumbnail").trim().slice(0, 80) || "Untitled thumbnail";
-      const payload: SavedThumbnail = {
-        id,
-        name,
-        // Quarter-size JPEG (320×180) keeps the gallery card light.
-        preview: renderToDataUrl(options, "jpeg", 0.25),
+  // Explicit project name (overrides the auto-derived name once set/renamed).
+  const [projectName, setProjectName] = useState("");
+  const derivedName = (projectName || title || overlayText || "Untitled thumbnail").trim().slice(0, 80) || "Untitled thumbnail";
+
+  // Lightweight signature of all editable state (excludes raw image bytes — id +
+  // treatment changes already cover background-removal/upload edits). Used to
+  // detect unsaved changes and drive autosave without serializing megabytes.
+  const stateSignature = useMemo(
+    () =>
+      JSON.stringify({
+        projectName,
         title,
         overlayText,
-        style: styleId,
+        styleId,
         paletteIndex,
         intensity,
         emphasis,
@@ -483,27 +823,112 @@ export function ThumbnailGeneratorPage() {
         textTransform,
         manualLayout,
         exportScale,
-        images: images.map((layer) => ({
-          id: layer.id,
-          name: layer.name,
-          src: imageToDataUrl(layer.image),
-          transform: layer.transform,
-          treatment: layer.treatment
-        })),
+        exportWidth,
+        exportHeight,
         stickers,
-        createdAt: existing?.createdAt ?? now,
-        updatedAt: now
-      };
-      await mutate("upsertSavedThumbnail", payload, {
-        successMessage: existing ? `Updated "${name}".` : `Saved "${name}".`
-      });
-      setCurrentSavedId(id);
-    } catch {
-      toast.error("Could not save this thumbnail.");
-    } finally {
-      setSaving(false);
-    }
-  };
+        images: images.map((l) => ({ id: l.id, name: l.name, t: l.transform, tm: l.treatment, locked: l.locked, la: l.lockAspect }))
+      }),
+    [projectName, title, overlayText, styleId, paletteIndex, intensity, emphasis, position, size, uppercase, fontId, textColor, highlightColor, textTransform, manualLayout, exportScale, exportWidth, exportHeight, stickers, images]
+  );
+
+  // The signature last written to storage; current !== this means "unsaved".
+  const savedSignatureRef = useRef<string | null>(null);
+  // Set while a project load is settling, so autosave doesn't treat the freshly
+  // restored state as an unsaved edit.
+  const pendingCleanLoadRef = useRef(false);
+
+  /** Build the full persisted payload for a given identity. */
+  const buildPayload = useCallback(
+    (id: string, name: string, createdAt: string): SavedThumbnail => ({
+      id,
+      name,
+      // Quarter-size JPEG keeps the gallery card light.
+      preview: renderToDataUrl(optionsRef.current, "jpeg", 0.25),
+      title,
+      overlayText,
+      style: styleId,
+      paletteIndex,
+      intensity,
+      emphasis,
+      position,
+      size,
+      uppercase,
+      fontId,
+      textColor,
+      highlightColor,
+      textTransform,
+      manualLayout,
+      exportScale,
+      exportWidth,
+      exportHeight,
+      images: imagesRef.current.map((layer) => ({
+        id: layer.id,
+        name: layer.name,
+        src: imageToDataUrl(layer.image),
+        transform: layer.transform,
+        treatment: layer.treatment,
+        locked: layer.locked,
+        lockAspect: layer.lockAspect
+      })),
+      stickers,
+      createdAt,
+      updatedAt: new Date().toISOString()
+    }),
+    [title, overlayText, styleId, paletteIndex, intensity, emphasis, position, size, uppercase, fontId, textColor, highlightColor, textTransform, manualLayout, exportScale, exportWidth, exportHeight, stickers]
+  );
+
+  /**
+   * Persist the current setup. `asNew` mints a fresh project (Save As / first
+   * save); otherwise it updates the current one. `silent` is used by autosave.
+   * Returns the saved id, or null when persistence was skipped/failed.
+   */
+  const persist = useCallback(
+    async ({ asNew = false, silent = false }: { asNew?: boolean; silent?: boolean } = {}): Promise<string | null> => {
+      if (!overlayText.trim() && imagesRef.current.length === 0) {
+        if (!silent) toast.error("Add thumbnail text or an image before saving.");
+        return null;
+      }
+      const reuseId = !asNew && currentSavedId ? currentSavedId : null;
+      const existing = reuseId ? savedThumbnails.find((item) => item.id === reuseId) : null;
+      const id = reuseId ?? `thumb-${crypto.randomUUID()}`;
+      const name = derivedName;
+      const signature = stateSignature;
+      setSaving(true);
+      setSaveStatus("saving");
+      try {
+        const payload = buildPayload(id, name, existing?.createdAt ?? new Date().toISOString());
+        await mutate("upsertSavedThumbnail", payload, silent ? undefined : { successMessage: existing ? `Updated "${name}".` : `Saved "${name}".` });
+        savedSignatureRef.current = signature;
+        setCurrentSavedId(id);
+        setSaveStatus("saved");
+        return id;
+      } catch {
+        setSaveStatus("error");
+        if (!silent) toast.error("Could not save this thumbnail.");
+        return null;
+      } finally {
+        setSaving(false);
+      }
+    },
+    [overlayText, currentSavedId, savedThumbnails, derivedName, stateSignature, buildPayload, mutate]
+  );
+
+  const saveThumbnail = (asNew = false) => void persist({ asNew });
+
+  // Autosave: after the signature changes on an already-saved project, wait for
+  // a quiet moment then persist silently. Manual edits flip the status to
+  // "unsaved" immediately so the indicator is honest.
+  useEffect(() => {
+    if (pendingCleanLoadRef.current) return; // a load is settling; not a real edit
+    if (savedSignatureRef.current === null) return; // nothing saved yet this session
+    if (stateSignature === savedSignatureRef.current) return;
+    setSaveStatus("unsaved");
+    if (!autosave || !currentSavedId) return;
+    const timer = window.setTimeout(() => {
+      void persist({ silent: true });
+    }, 1500);
+    return () => window.clearTimeout(timer);
+  }, [stateSignature, autosave, currentSavedId, persist]);
 
   const loadThumbnail = async (saved: SavedThumbnail) => {
     setLoadingSavedId(saved.id);
@@ -516,13 +941,16 @@ export function ThumbnailGeneratorPage() {
           name: item.name,
           image: await loadImage(item.src),
           transform: item.transform,
-          treatment: item.treatment
+          treatment: item.treatment,
+          locked: item.locked,
+          lockAspect: item.lockAspect
         }))
       );
       // Keep the sticker id generator ahead of any restored sticker ids.
       stickerSeq.current = Math.max(stickerSeq.current, maxIdSuffix(saved.stickers.map((s) => s.id)));
 
       setImages(layers);
+      setProjectName(saved.name);
       setTitle(saved.title);
       setOverlayText(saved.overlayText);
       setStyleId(saved.style as BackgroundStyleId);
@@ -538,10 +966,16 @@ export function ThumbnailGeneratorPage() {
       setTextTransform(saved.textTransform);
       setManualLayout(saved.manualLayout);
       setExportScale(saved.exportScale);
+      setExportWidth(saved.exportWidth ?? 1280);
+      setExportHeight(saved.exportHeight ?? 720);
       setStickers(saved.stickers);
       setSelectedId(null);
       setEditing(false);
       setCurrentSavedId(saved.id);
+      // Mark the just-loaded state as clean; the effect below captures the
+      // freshly-computed signature on the next tick.
+      pendingCleanLoadRef.current = true;
+      setSaveStatus("saved");
       toast.success(`Loaded "${saved.name}".`);
     } catch {
       toast.error("Could not load that thumbnail.");
@@ -550,9 +984,49 @@ export function ThumbnailGeneratorPage() {
     }
   };
 
+  // When a project is loaded, the editor state updates across several setters;
+  // capture the resulting signature once as the clean baseline so autosave
+  // doesn't immediately fire.
+  useEffect(() => {
+    if (pendingCleanLoadRef.current) {
+      savedSignatureRef.current = stateSignature;
+      pendingCleanLoadRef.current = false;
+    }
+  }, [stateSignature]);
+
   const deleteSavedThumbnail = async (saved: SavedThumbnail) => {
     await mutate("deleteSavedThumbnail", saved.id, { successMessage: `Deleted "${saved.name}".` });
-    setCurrentSavedId((current) => (current === saved.id ? null : current));
+    setCurrentSavedId((current) => {
+      if (current === saved.id) {
+        savedSignatureRef.current = null;
+        setSaveStatus("idle");
+        return null;
+      }
+      return current;
+    });
+  };
+
+  const renameSavedThumbnail = async (saved: SavedThumbnail, nextName: string) => {
+    const name = nextName.trim().slice(0, 80);
+    if (!name || name === saved.name) {
+      setRenamingId(null);
+      return;
+    }
+    await mutate("upsertSavedThumbnail", { ...saved, name, updatedAt: new Date().toISOString() }, { successMessage: `Renamed to "${name}".` });
+    if (currentSavedId === saved.id) setProjectName(name);
+    setRenamingId(null);
+  };
+
+  const duplicateSavedThumbnail = async (saved: SavedThumbnail) => {
+    const now = new Date().toISOString();
+    const copy: SavedThumbnail = {
+      ...saved,
+      id: `thumb-${crypto.randomUUID()}`,
+      name: `${saved.name} copy`.slice(0, 80),
+      createdAt: now,
+      updatedAt: now
+    };
+    await mutate("upsertSavedThumbnail", copy, { successMessage: `Duplicated "${saved.name}".` });
   };
 
   const ideas = useMemo(() => overlayIdeas(title), [title]);
@@ -615,9 +1089,42 @@ export function ThumbnailGeneratorPage() {
                       )}
                     </button>
                     <div className="flex items-center gap-1 px-2.5 py-2">
-                      <p className="min-w-0 flex-1 truncate text-xs font-medium text-white" title={saved.name}>
-                        {saved.name}
-                      </p>
+                      {renamingId === saved.id ? (
+                        <input
+                          autoFocus
+                          value={renameDraft}
+                          onChange={(event) => setRenameDraft(event.target.value)}
+                          onBlur={() => void renameSavedThumbnail(saved, renameDraft)}
+                          onKeyDown={(event) => {
+                            if (event.key === "Enter") void renameSavedThumbnail(saved, renameDraft);
+                            if (event.key === "Escape") setRenamingId(null);
+                          }}
+                          className="min-w-0 flex-1 rounded-md border border-[var(--accent)] bg-black/40 px-1.5 py-0.5 text-xs text-white outline-none"
+                        />
+                      ) : (
+                        <p className="min-w-0 flex-1 truncate text-xs font-medium text-white" title={saved.name}>
+                          {saved.name}
+                        </p>
+                      )}
+                      <button
+                        type="button"
+                        title="Rename"
+                        onClick={() => {
+                          setRenamingId(saved.id);
+                          setRenameDraft(saved.name);
+                        }}
+                        className="flex h-7 w-7 items-center justify-center rounded-lg bg-white/8 text-[var(--muted-foreground)] transition hover:bg-white/15 hover:text-white"
+                      >
+                        <Pencil className="h-3.5 w-3.5" />
+                      </button>
+                      <button
+                        type="button"
+                        title="Duplicate project"
+                        onClick={() => void duplicateSavedThumbnail(saved)}
+                        className="flex h-7 w-7 items-center justify-center rounded-lg bg-white/8 text-[var(--muted-foreground)] transition hover:bg-white/15 hover:text-white"
+                      >
+                        <CopyPlus className="h-3.5 w-3.5" />
+                      </button>
                       <button
                         type="button"
                         title="Open"
@@ -913,65 +1420,171 @@ export function ThumbnailGeneratorPage() {
                   ))}
                 </div>
 
-                {selectedTransform && selectedLabel ? (
-                  <div className="space-y-3 rounded-2xl border border-white/10 bg-black/20 p-3">
-                    <div className="flex items-center justify-between">
-                      <span className="flex items-center gap-2 text-sm font-medium text-white">
-                        <Layers className="h-4 w-4 text-[var(--accent)]" />
-                        {selectedLabel}
-                      </span>
-                      {selectedId !== "text" && (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            if (!selectedId) return;
-                            if (isStickerId(selectedId)) removeSticker(selectedId);
-                            else removeImage(selectedId);
-                          }}
-                          className="flex items-center gap-1 text-xs text-[var(--muted-foreground)] transition hover:text-red-400"
-                        >
-                          <Trash2 className="h-3.5 w-3.5" /> Remove
-                        </button>
-                      )}
-                    </div>
-                    <label className="block">
-                      <span className="mb-1 flex items-center justify-between text-xs text-[var(--muted-foreground)]">
-                        <span className="flex items-center gap-1">
-                          <ZoomIn className="h-3.5 w-3.5" /> Scale
-                        </span>
-                        <span>{selectedTransform.scale.toFixed(2)}×</span>
-                      </span>
-                      <input
-                        type="range"
-                        min={0.2}
-                        max={5}
-                        step={0.01}
-                        value={selectedTransform.scale}
-                        onChange={(event) => updateSelectedTransform({ scale: Number(event.target.value) })}
-                        className="w-full accent-[var(--accent)]"
-                      />
-                    </label>
-                    <label className="block">
-                      <span className="mb-1 flex items-center justify-between text-xs text-[var(--muted-foreground)]">
-                        <span className="flex items-center gap-1">
-                          <RotateCw className="h-3.5 w-3.5" /> Rotation
-                        </span>
-                        <span>{Math.round(selectedTransform.rotation)}°</span>
-                      </span>
-                      <input
-                        type="range"
-                        min={-180}
-                        max={180}
-                        step={1}
-                        value={selectedTransform.rotation}
-                        onChange={(event) => updateSelectedTransform({ rotation: Number(event.target.value) })}
-                        className="w-full accent-[var(--accent)]"
-                      />
-                    </label>
-                  </div>
+                {selectedTransform && selectedLabel && selectedId ? (
+                  (() => {
+                    const aspect = selectedImage ? selectedImage.image.height / selectedImage.image.width : 1;
+                    const baseHeight = IMAGE_BASE_WIDTH * aspect;
+                    const widthPx = IMAGE_BASE_WIDTH * selectedTransform.scale;
+                    const heightPx = IMAGE_BASE_WIDTH * effectiveScaleY(selectedTransform) * aspect;
+                    const proportional = selectedImage ? selectedImage.lockAspect ?? true : true;
+                    const locked = selectedImage?.locked ?? false;
+                    return (
+                      <div className="space-y-3 rounded-2xl border border-white/10 bg-black/20 p-3">
+                        <div className="flex items-center justify-between">
+                          <span className="flex min-w-0 items-center gap-2 text-sm font-medium text-white">
+                            <Layers className="h-4 w-4 shrink-0 text-[var(--accent)]" />
+                            <span className="truncate">{selectedLabel}</span>
+                            {locked && <Lock className="h-3.5 w-3.5 shrink-0 text-[var(--muted-foreground)]" />}
+                          </span>
+                        </div>
+
+                        {/* Layer action toolbar (image layers only). */}
+                        {selectedImage && (
+                          <div className="flex flex-wrap gap-1.5">
+                            <ToolButton
+                              title="Duplicate"
+                              disabled={images.length >= MAX_IMAGES}
+                              onClick={() => duplicateImage(selectedImage)}
+                            >
+                              <CopyPlus className="h-4 w-4" />
+                            </ToolButton>
+                            <ToolButton title={locked ? "Unlock" : "Lock"} active={locked} onClick={() => toggleLock(selectedId)}>
+                              {locked ? <Lock className="h-4 w-4" /> : <Unlock className="h-4 w-4" />}
+                            </ToolButton>
+                            <ToolButton title="Bring to front" disabled={locked} onClick={() => moveLayerEdge(selectedId, "front")}>
+                              <ChevronsUp className="h-4 w-4" />
+                            </ToolButton>
+                            <ToolButton title="Bring forward" disabled={locked} onClick={() => moveLayer(selectedId, 1)}>
+                              <ArrowUpToLine className="h-4 w-4" />
+                            </ToolButton>
+                            <ToolButton title="Send backward" disabled={locked} onClick={() => moveLayer(selectedId, -1)}>
+                              <ArrowDownToLine className="h-4 w-4" />
+                            </ToolButton>
+                            <ToolButton title="Send to back" disabled={locked} onClick={() => moveLayerEdge(selectedId, "back")}>
+                              <ChevronsDown className="h-4 w-4" />
+                            </ToolButton>
+                            <ToolButton title="Reset transform" disabled={locked} onClick={() => resetTransform(selectedId)}>
+                              <RotateCcw className="h-4 w-4" />
+                            </ToolButton>
+                            <ToolButton title="Delete" danger disabled={locked} onClick={() => removeImage(selectedId)}>
+                              <Trash2 className="h-4 w-4" />
+                            </ToolButton>
+                          </div>
+                        )}
+
+                        <div className="grid grid-cols-2 gap-2">
+                          <NumberField
+                            label="X"
+                            value={selectedTransform.x * 1280}
+                            suffix="px"
+                            disabled={locked}
+                            onChange={(v) => updateSelectedTransform({ x: clamp(v / 1280, 0, 1) })}
+                          />
+                          <NumberField
+                            label="Y"
+                            value={selectedTransform.y * 720}
+                            suffix="px"
+                            disabled={locked}
+                            onChange={(v) => updateSelectedTransform({ y: clamp(v / 720, 0, 1) })}
+                          />
+                          {selectedImage ? (
+                            <>
+                              <NumberField
+                                label="Width"
+                                value={widthPx}
+                                min={8}
+                                suffix="px"
+                                disabled={locked}
+                                onChange={(v) => {
+                                  const scale = clamp(v / IMAGE_BASE_WIDTH, 0.02, 14);
+                                  updateSelectedTransform(proportional ? { scale, scaleY: scale } : { scale });
+                                }}
+                              />
+                              <NumberField
+                                label="Height"
+                                value={heightPx}
+                                min={8}
+                                suffix="px"
+                                disabled={locked}
+                                onChange={(v) => {
+                                  const next = clamp(v / baseHeight, 0.02, 14);
+                                  updateSelectedTransform(proportional ? { scale: next, scaleY: next } : { scaleY: next });
+                                }}
+                              />
+                            </>
+                          ) : (
+                            <NumberField
+                              label="Scale"
+                              value={selectedTransform.scale * 100}
+                              min={5}
+                              suffix="%"
+                              disabled={locked}
+                              onChange={(v) => updateSelectedTransform({ scale: clamp(v / 100, 0.05, 14) })}
+                            />
+                          )}
+                          <NumberField
+                            label="Rotation"
+                            value={selectedTransform.rotation}
+                            suffix="°"
+                            disabled={locked}
+                            onChange={(v) => updateSelectedTransform({ rotation: normalizeAngle(v) })}
+                          />
+                          <NumberField
+                            label="Opacity"
+                            value={effectiveOpacity(selectedTransform) * 100}
+                            min={0}
+                            max={100}
+                            suffix="%"
+                            disabled={locked}
+                            onChange={(v) => updateSelectedTransform({ opacity: clamp(v / 100, 0, 1) })}
+                          />
+                        </div>
+
+                        {/* Opacity + rotation sliders for quick dragging. */}
+                        <Range
+                          label="Opacity"
+                          value={effectiveOpacity(selectedTransform)}
+                          min={0}
+                          max={1}
+                          step={0.01}
+                          onChange={(v) => updateSelectedTransform({ opacity: v })}
+                          format={(v) => `${Math.round(v * 100)}%`}
+                        />
+                        <Range
+                          label="Rotation"
+                          value={selectedTransform.rotation}
+                          min={-180}
+                          max={180}
+                          step={1}
+                          onChange={(v) => updateSelectedTransform({ rotation: v })}
+                          format={(v) => `${Math.round(v)}°`}
+                        />
+
+                        {selectedImage && (
+                          <label className="flex items-center gap-2 text-xs text-[var(--muted-foreground)]">
+                            <button
+                              type="button"
+                              onClick={() => toggleAspectLock(selectedId)}
+                              disabled={locked}
+                              className={cn(
+                                "inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 transition disabled:opacity-30",
+                                proportional ? "border-[var(--accent)]/50 bg-[var(--accent)]/10 text-white" : "border-white/10 bg-white/5 hover:border-white/30"
+                              )}
+                            >
+                              {proportional ? <Link2 className="h-3.5 w-3.5" /> : <Link2Off className="h-3.5 w-3.5" />}
+                              {proportional ? "Aspect locked (proportional)" : "Free width / height"}
+                            </button>
+                          </label>
+                        )}
+                        <p className="text-[11px] text-[var(--muted-foreground)]">
+                          Drag corners to resize, the top handle to rotate. Arrow keys nudge, Shift+arrows move further, Delete removes.
+                        </p>
+                      </div>
+                    );
+                  })()
                 ) : (
                   <p className="rounded-2xl border border-dashed border-white/10 bg-black/20 px-3 py-3 text-xs text-[var(--muted-foreground)]">
-                    Select a layer above (or click it on the canvas) to scale and rotate it.
+                    Select a layer above (or click it on the canvas) to move, scale, rotate, and adjust opacity.
                   </p>
                 )}
               </div>
@@ -1282,40 +1895,92 @@ export function ThumbnailGeneratorPage() {
               </p>
             </div>
 
-            <div className="mt-4 flex flex-wrap items-center gap-2">
-              <Button onClick={() => void saveThumbnail(false)} disabled={saving}>
-                <Save className="mr-2 h-4 w-4" />
-                {saving ? "Saving…" : currentSaved ? "Save changes" : "Save thumbnail"}
-              </Button>
-              {currentSaved && (
-                <Button variant="secondary" onClick={() => void saveThumbnail(true)} disabled={saving}>
-                  <Plus className="mr-2 h-4 w-4" />
-                  Save as new
+            {/* ---- Project / save ---- */}
+            <div className="mt-4 space-y-3 rounded-2xl border border-white/10 bg-black/20 p-3">
+              <div className="flex items-center gap-2">
+                <Input
+                  placeholder="Project name"
+                  value={projectName}
+                  onChange={(event) => setProjectName(event.target.value)}
+                  className="h-9 flex-1"
+                />
+                <SaveStatusBadge status={saveStatus} />
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                <Button onClick={() => saveThumbnail(false)} disabled={saving}>
+                  <Save className="mr-2 h-4 w-4" />
+                  {saving ? "Saving…" : currentSaved ? "Save" : "Save project"}
                 </Button>
-              )}
-              {currentSaved && (
-                <span className="text-xs text-[var(--muted-foreground)]">
-                  Editing <span className="text-white">{currentSaved.name}</span>
-                </span>
-              )}
+                {currentSaved && (
+                  <Button variant="secondary" onClick={() => saveThumbnail(true)} disabled={saving}>
+                    <CopyPlus className="mr-2 h-4 w-4" />
+                    Save as
+                  </Button>
+                )}
+                <label className="ml-auto flex items-center gap-2 text-xs text-[var(--muted-foreground)]">
+                  <input
+                    type="checkbox"
+                    checked={autosave}
+                    onChange={(event) => setAutosave(event.target.checked)}
+                    className="h-4 w-4 rounded border-white/20 bg-black/20"
+                  />
+                  Autosave
+                </label>
+              </div>
             </div>
 
-            <div className="mt-3 flex flex-wrap items-center gap-2">
-              <Button onClick={() => downloadDataUrl(renderToDataUrl(options, "png", exportScale), exportName(".png"))}>
+            {/* ---- Export ---- */}
+            <div className="mt-3 space-y-3 rounded-2xl border border-white/10 bg-black/20 p-3">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-xs font-semibold uppercase tracking-wide text-[var(--muted-foreground)]">Export</span>
+                <div className="ml-auto flex flex-wrap gap-1.5">
+                  {[
+                    { label: "1280×720", w: 1280, h: 720 },
+                    { label: "1920×1080", w: 1920, h: 1080 },
+                    { label: "2560×1440", w: 2560, h: 1440 }
+                  ].map((preset) => (
+                    <button
+                      key={preset.label}
+                      type="button"
+                      onClick={() => {
+                        setExportWidth(preset.w);
+                        setExportHeight(preset.h);
+                      }}
+                      className={cn(
+                        "rounded-lg border px-2.5 py-1 text-[11px] font-medium transition",
+                        exportWidth === preset.w && exportHeight === preset.h
+                          ? "border-[var(--accent)] bg-[var(--accent)]/10 text-white"
+                          : "border-white/10 bg-white/5 text-[var(--muted-foreground)] hover:border-white/30"
+                      )}
+                    >
+                      {preset.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div className="grid grid-cols-3 gap-2">
+                <NumberField label="Width" value={exportWidth} min={16} max={8192} suffix="px" onChange={(v) => setExportWidth(clamp(Math.round(v), 16, 8192))} />
+                <NumberField label="Height" value={exportHeight} min={16} max={8192} suffix="px" onChange={(v) => setExportHeight(clamp(Math.round(v), 16, 8192))} />
+                <label className="block">
+                  <span className="mb-1 block text-[10px] uppercase tracking-wide text-[var(--muted-foreground)]">Format</span>
+                  <Select value={exportFormat} onChange={(event) => setExportFormat(event.target.value as "png" | "jpeg")} className="h-9 px-2">
+                    <option value="png">PNG</option>
+                    <option value="jpeg">JPG</option>
+                  </Select>
+                </label>
+              </div>
+              <Button
+                className="w-full"
+                onClick={() =>
+                  downloadDataUrl(
+                    renderToSizedDataUrl(options, exportWidth, exportHeight, exportFormat),
+                    exportName(`-${exportWidth}x${exportHeight}.${exportFormat === "png" ? "png" : "jpg"}`)
+                  )
+                }
+              >
                 <Download className="mr-2 h-4 w-4" />
-                Download PNG
+                Export {exportWidth}×{exportHeight} {exportFormat.toUpperCase()}
               </Button>
-              <Button variant="secondary" onClick={() => downloadDataUrl(renderToDataUrl(options, "jpeg", exportScale), exportName(".jpg"))}>
-                <Download className="mr-2 h-4 w-4" />
-                Download JPEG
-              </Button>
-              <label className="ml-auto flex items-center gap-2 text-xs text-[var(--muted-foreground)]">
-                Export
-                <Select value={String(exportScale)} onChange={(event) => setExportScale(Number(event.target.value))} className="h-9 w-auto px-2">
-                  <option value="1">1× (1280)</option>
-                  <option value="2">2× (2560)</option>
-                </Select>
-              </label>
             </div>
             <p className="mt-3 text-xs text-[var(--muted-foreground)]">{style.description}</p>
           </Card>
