@@ -5,7 +5,7 @@ import { ensureExecution } from "@/lib/execution/server";
 import { todayLocal } from "@/lib/execution/dates";
 import { getMarketDataProvider } from "@/lib/marketData";
 import { seedData } from "@/lib/mockData/seed";
-import { appDataSchema, clipProjectSchema, contentItemSchema, creatorProfileSchema, defaultCreatorProfile, executionCompletionSchema, executionGoalSchema, expenseSchema, goalSchema, holdingSchema, importHoldingSchema, researchNoteSchema, savedThumbnailSchema, settingsSchema, watchlistSchema, xActivitySchema, xStrategySchema } from "@/lib/storage/schemas";
+import { appDataSchema, clipProjectSchema, contentItemSchema, creatorProfileSchema, defaultCreatorProfile, executionCompletionSchema, executionGoalSchema, expenseSchema, goalSchema, holdingSchema, importHoldingSchema, researchNoteSchema, savedThumbnailSchema, settingsSchema, videoProjectSchema, watchlistSchema, xActivitySchema, xStrategySchema } from "@/lib/storage/schemas";
 import { readAppData, resetAppData, writeAppData } from "@/lib/storage/store";
 import type { AppData, ExecutionGoal, Holding } from "@/types/domain";
 
@@ -255,6 +255,22 @@ export async function POST(request: NextRequest) {
       data = { ...data, clipProjects: data.clipProjects.filter((item) => item.id !== id) };
       break;
     }
+    case "upsertVideoProject": {
+      const parsed = videoProjectSchema.parse(payload);
+      const exists = data.videoProjects.some((item) => item.id === parsed.id);
+      data = {
+        ...data,
+        videoProjects: exists
+          ? data.videoProjects.map((item) => (item.id === parsed.id ? parsed : item))
+          : [parsed, ...data.videoProjects]
+      };
+      break;
+    }
+    case "deleteVideoProject": {
+      const id = String(payload);
+      data = { ...data, videoProjects: data.videoProjects.filter((item) => item.id !== id) };
+      break;
+    }
     case "updateCreatorProfile": {
       data = { ...data, creatorProfile: creatorProfileSchema.parse(payload) };
       break;
@@ -442,7 +458,7 @@ export async function POST(request: NextRequest) {
       return success(data);
     }
     case "deleteAllData": {
-      data = { ...seedData, holdings: [], watchlist: [], researchNotes: [], goals: [], portfolioSnapshots: [], expenses: [], contentItems: [], creatorProfile: defaultCreatorProfile, executionGoals: [], executionCompletions: [], executionPeriods: [], executionDebt: [], savedThumbnails: [], clipProjects: [], executionSeededAt: new Date().toISOString() };
+      data = { ...seedData, holdings: [], watchlist: [], researchNotes: [], goals: [], portfolioSnapshots: [], expenses: [], contentItems: [], creatorProfile: defaultCreatorProfile, executionGoals: [], executionCompletions: [], executionPeriods: [], executionDebt: [], savedThumbnails: [], clipProjects: [], videoProjects: [], executionSeededAt: new Date().toISOString() };
       break;
     }
     default:

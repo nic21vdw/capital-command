@@ -513,6 +513,87 @@ export interface ClipProject {
   updatedAt: string;
 }
 
+// ---------------------------------------------------------------------------
+// Video Clip Creator (non-destructive timeline editor)
+// ---------------------------------------------------------------------------
+
+export type AspectPreset = "9:16" | "16:9" | "1:1" | "4:5" | "custom";
+export type FramingMode = "fit" | "fill" | "crop";
+
+export interface RegionRect {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
+export interface ClipFraming {
+  mode: FramingMode;
+  x: number;
+  y: number;
+  scale: number;
+  rotation: number;
+  srcRect: RegionRect;
+}
+
+export interface CameraOverlay {
+  enabled: boolean;
+  srcRect: RegionRect;
+  destRect: RegionRect;
+  radius: number;
+}
+
+export interface ClipBackground {
+  type: "blur" | "color";
+  color: string;
+}
+
+export interface VideoClip {
+  id: string;
+  sourceStart: number;
+  sourceEnd: number;
+  volume: number;
+  muted: boolean;
+  speed: number;
+  fadeIn: number;
+  fadeOut: number;
+  background: ClipBackground;
+  layoutPreset: string;
+  camera: CameraOverlay;
+  /** Framing keyed by aspect-ratio id, so switching ratios is lossless. */
+  framing: Record<string, ClipFraming>;
+}
+
+export interface VideoSource {
+  id: string;
+  kind: "upload" | "url";
+  fileName: string;
+  url?: string;
+  mime: string;
+  durationSec: number;
+  width: number;
+  height: number;
+  hasAudio: boolean;
+  sizeBytes: number;
+}
+
+export interface AspectRatio {
+  preset: AspectPreset;
+  w: number;
+  h: number;
+}
+
+export interface VideoProject {
+  id: string;
+  name: string;
+  source: VideoSource | null;
+  aspect: AspectRatio;
+  exportPreset: string;
+  clips: VideoClip[];
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface AppData {
   holdings: Holding[];
   watchlist: WatchlistItem[];
@@ -533,6 +614,7 @@ export interface AppData {
   executionSeededAt?: string;
   savedThumbnails: SavedThumbnail[];
   clipProjects: ClipProject[];
+  videoProjects: VideoProject[];
 }
 
 export interface TrendPoint {

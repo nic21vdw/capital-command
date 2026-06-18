@@ -133,7 +133,8 @@ const emptyAppData: AppData = {
   executionPeriods: [],
   executionDebt: [],
   savedThumbnails: [],
-  clipProjects: []
+  clipProjects: [],
+  videoProjects: []
 };
 
 const payloadFallback: BootstrapPayload = {

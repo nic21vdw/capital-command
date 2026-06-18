@@ -457,6 +457,96 @@ export const clipProjectSchema = z.object({
   updatedAt: z.string()
 });
 
+// ----- Video Clip Creator (non-destructive timeline editor) -----
+// A project stores only edit *instructions* against a single stored source
+// video, so large files are never duplicated and projects survive a refresh.
+
+const regionRectSchema = z.object({
+  x: z.coerce.number().default(0),
+  y: z.coerce.number().default(0),
+  w: z.coerce.number().default(1),
+  h: z.coerce.number().default(1)
+});
+
+// How the source sits inside one output frame for a given aspect ratio.
+const framingSchema = z.object({
+  // fit = letterbox (contain), fill/crop = cover; crop adds manual zoom/pan.
+  mode: z.enum(["fit", "fill", "crop"]).default("fill"),
+  // Pan as a fraction of the frame (-1..1), independent zoom, rotation in deg.
+  x: z.coerce.number().default(0),
+  y: z.coerce.number().default(0),
+  scale: z.coerce.number().min(0.1).max(8).default(1),
+  rotation: z.coerce.number().default(0),
+  // Portion of the *source* shown by the primary layer (screen-focused crops).
+  srcRect: regionRectSchema.default({ x: 0, y: 0, w: 1, h: 1 })
+});
+
+// Optional second region of the same source (e.g. the webcam) composited on
+// top — drives the camera-above / below / side-by-side livestream layouts.
+const cameraOverlaySchema = z.object({
+  enabled: z.coerce.boolean().default(false),
+  srcRect: regionRectSchema.default({ x: 0.7, y: 0, w: 0.3, h: 0.3 }),
+  destRect: regionRectSchema.default({ x: 0, y: 0, w: 1, h: 0.35 }),
+  radius: z.coerce.number().min(0).max(50).default(0)
+});
+
+const clipBackgroundSchema = z.object({
+  type: z.enum(["blur", "color"]).default("blur"),
+  color: z.string().default("#000000")
+});
+
+export const videoClipSchema = z.object({
+  id: z.string(),
+  // Trim points into the source, in seconds. Non-destructive.
+  sourceStart: z.coerce.number().min(0).default(0),
+  sourceEnd: z.coerce.number().min(0).default(0),
+  volume: z.coerce.number().min(0).max(2).default(1),
+  muted: z.coerce.boolean().default(false),
+  speed: z.coerce.number().min(0.25).max(4).default(1),
+  fadeIn: z.coerce.number().min(0).default(0),
+  fadeOut: z.coerce.number().min(0).default(0),
+  background: clipBackgroundSchema.default({ type: "blur", color: "#000000" }),
+  layoutPreset: z.string().default("none"),
+  camera: cameraOverlaySchema.default({
+    enabled: false,
+    srcRect: { x: 0.7, y: 0, w: 0.3, h: 0.3 },
+    destRect: { x: 0, y: 0, w: 1, h: 0.35 },
+    radius: 0
+  }),
+  // Framing kept separately per aspect-ratio id so switching ratios is lossless.
+  framing: z.record(z.string(), framingSchema).default({})
+});
+
+const videoSourceSchema = z.object({
+  id: z.string(),
+  kind: z.enum(["upload", "url"]).default("upload"),
+  fileName: z.string().default("source"),
+  url: z.string().optional(),
+  mime: z.string().default("video/mp4"),
+  durationSec: z.coerce.number().min(0).default(0),
+  width: z.coerce.number().min(0).default(0),
+  height: z.coerce.number().min(0).default(0),
+  hasAudio: z.coerce.boolean().default(true),
+  sizeBytes: z.coerce.number().min(0).default(0)
+});
+
+const aspectRatioSchema = z.object({
+  preset: z.enum(["9:16", "16:9", "1:1", "4:5", "custom"]).default("9:16"),
+  w: z.coerce.number().min(1).default(9),
+  h: z.coerce.number().min(1).default(16)
+});
+
+export const videoProjectSchema = z.object({
+  id: z.string(),
+  name: z.string().trim().min(1).default("Untitled project"),
+  source: videoSourceSchema.nullable().default(null),
+  aspect: aspectRatioSchema.default({ preset: "9:16", w: 9, h: 16 }),
+  exportPreset: z.string().default("short-1080x1920"),
+  clips: z.array(videoClipSchema).default([]),
+  createdAt: z.string(),
+  updatedAt: z.string()
+});
+
 export const appDataSchema = z.object({
   holdings: z.array(holdingSchema),
   watchlist: z.array(watchlistSchema),
@@ -488,7 +578,8 @@ export const appDataSchema = z.object({
   executionDebt: z.array(executionDebtSchema).default([]),
   executionSeededAt: z.string().optional(),
   savedThumbnails: z.array(savedThumbnailSchema).default([]),
-  clipProjects: z.array(clipProjectSchema).default([])
+  clipProjects: z.array(clipProjectSchema).default([]),
+  videoProjects: z.array(videoProjectSchema).default([])
 });
 
 export const importHoldingSchema = z.object({
