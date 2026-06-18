@@ -280,6 +280,72 @@ export interface XStrategy {
   activities: XActivity[];
 }
 
+export interface SavedThumbnailTransform {
+  x: number;
+  y: number;
+  scale: number;
+  rotation: number;
+}
+
+export interface SavedThumbnailTreatment {
+  cutout: boolean;
+  flip: boolean;
+  stroke: number;
+  strokeColor: string;
+  glow: number;
+  shadow: boolean;
+  backlight: boolean;
+  saturate: number;
+  contrast: number;
+  brightness: number;
+}
+
+export interface SavedThumbnailImage {
+  id: string;
+  name: string;
+  /** PNG data URL of the (possibly cut-out) image. */
+  src: string;
+  transform: SavedThumbnailTransform;
+  treatment: SavedThumbnailTreatment;
+}
+
+export interface SavedThumbnailSticker {
+  id: string;
+  type: "circle" | "arrow" | "emoji" | "badge";
+  x: number;
+  y: number;
+  scale: number;
+  rotation: number;
+  color: string;
+  text: string;
+}
+
+export interface SavedThumbnail {
+  id: string;
+  name: string;
+  /** Small JPEG data URL used for the gallery card. */
+  preview: string;
+  title: string;
+  overlayText: string;
+  style: string;
+  paletteIndex: number;
+  intensity: "subtle" | "balanced" | "bold";
+  emphasis: "outline" | "highlight-bar" | "boxed" | "clean";
+  position: "left" | "bottom-left" | "center";
+  size: "small" | "medium" | "large";
+  uppercase: boolean;
+  fontId: string;
+  textColor: string;
+  highlightColor: string;
+  textTransform: SavedThumbnailTransform;
+  manualLayout: boolean;
+  exportScale: number;
+  images: SavedThumbnailImage[];
+  stickers: SavedThumbnailSticker[];
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface AppData {
   holdings: Holding[];
   watchlist: WatchlistItem[];
@@ -298,6 +364,7 @@ export interface AppData {
   executionDebt: ExecutionDebtEntry[];
   /** ISO timestamp recorded the first time default goals were seeded. */
   executionSeededAt?: string;
+  savedThumbnails: SavedThumbnail[];
 }
 
 export interface TrendPoint {

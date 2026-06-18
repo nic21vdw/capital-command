@@ -1,8 +1,9 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Copy, Download, Eraser, ImagePlus, Layers, MousePointer2, Plus, RotateCw, Sparkles, Trash2, X, ZoomIn } from "lucide-react";
+import { Copy, Download, Eraser, FolderOpen, ImagePlus, Layers, MousePointer2, Plus, RotateCw, Save, Sparkles, Trash2, X, ZoomIn } from "lucide-react";
 import { toast } from "sonner";
+import { useAppData } from "@/components/providers/app-provider";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -32,10 +33,39 @@ import {
   type Transform
 } from "@/lib/thumbnails/types";
 import { cn } from "@/lib/utils";
+import type { SavedThumbnail } from "@/types/domain";
 
 const MAX_IMAGE_BYTES = 15 * 1024 * 1024;
 
 type Variant = { label: string; png: string; jpeg: string };
+
+/** Serialize a layer image to a PNG data URL so it survives a save/reload. */
+function imageToDataUrl(image: HTMLImageElement): string {
+  const canvas = document.createElement("canvas");
+  canvas.width = image.naturalWidth || image.width;
+  canvas.height = image.naturalHeight || image.height;
+  const ctx = canvas.getContext("2d");
+  ctx?.drawImage(image, 0, 0);
+  return canvas.toDataURL("image/png");
+}
+
+/** Decode a data URL back into an HTMLImageElement. */
+function loadImage(src: string): Promise<HTMLImageElement> {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => resolve(img);
+    img.onerror = () => reject(new Error("Could not decode image"));
+    img.src = src;
+  });
+}
+
+/** Highest numeric suffix in a list of ids like `img-3` / `sticker-7`. */
+function maxIdSuffix(ids: string[]): number {
+  return ids.reduce((max, id) => {
+    const n = Number(id.split("-").pop());
+    return Number.isFinite(n) && n > max ? n : max;
+  }, 0);
+}
 
 function downloadDataUrl(dataUrl: string, fileName: string) {
   const link = document.createElement("a");
@@ -152,6 +182,13 @@ export function ThumbnailGeneratorPage() {
 
   // Bumped once a networked font has finished loading, to force a re-render.
   const [fontTick, setFontTick] = useState(0);
+
+  // Saved thumbnail projects (persisted in the app data store).
+  const { data, mutate } = useAppData();
+  const savedThumbnails = data.savedThumbnails;
+  const [currentSavedId, setCurrentSavedId] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [loadingSavedId, setLoadingSavedId] = useState<string | null>(null);
 
   const style = getStyle(styleId);
   const options: ThumbnailOptions = useMemo(
@@ -387,6 +424,113 @@ export function ThumbnailGeneratorPage() {
     toast.success(`Generated ${specs.length} variants.`);
   };
 
+  // ----- Saved thumbnails -----
+  const currentSaved = savedThumbnails.find((item) => item.id === currentSavedId) ?? null;
+
+  const saveThumbnail = async (asNew = false) => {
+    if (!overlayText.trim() && images.length === 0) {
+      toast.error("Add thumbnail text or an image before saving.");
+      return;
+    }
+    setSaving(true);
+    try {
+      const reuseId = !asNew && currentSavedId ? currentSavedId : null;
+      const existing = reuseId ? savedThumbnails.find((item) => item.id === reuseId) : null;
+      const now = new Date().toISOString();
+      const id = reuseId ?? `thumb-${crypto.randomUUID()}`;
+      const name = (title || overlayText || "Untitled thumbnail").trim().slice(0, 80) || "Untitled thumbnail";
+      const payload: SavedThumbnail = {
+        id,
+        name,
+        // Quarter-size JPEG (320×180) keeps the gallery card light.
+        preview: renderToDataUrl(options, "jpeg", 0.25),
+        title,
+        overlayText,
+        style: styleId,
+        paletteIndex,
+        intensity,
+        emphasis,
+        position,
+        size,
+        uppercase,
+        fontId,
+        textColor,
+        highlightColor,
+        textTransform,
+        manualLayout,
+        exportScale,
+        images: images.map((layer) => ({
+          id: layer.id,
+          name: layer.name,
+          src: imageToDataUrl(layer.image),
+          transform: layer.transform,
+          treatment: layer.treatment
+        })),
+        stickers,
+        createdAt: existing?.createdAt ?? now,
+        updatedAt: now
+      };
+      await mutate("upsertSavedThumbnail", payload, {
+        successMessage: existing ? `Updated "${name}".` : `Saved "${name}".`
+      });
+      setCurrentSavedId(id);
+    } catch {
+      toast.error("Could not save this thumbnail.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const loadThumbnail = async (saved: SavedThumbnail) => {
+    setLoadingSavedId(saved.id);
+    try {
+      // Fresh layer ids (via the shared generator) so restored layers never
+      // collide with any added later this session.
+      const layers: ImageLayer[] = await Promise.all(
+        saved.images.map(async (item) => ({
+          id: nextLayerId(),
+          name: item.name,
+          image: await loadImage(item.src),
+          transform: item.transform,
+          treatment: item.treatment
+        }))
+      );
+      // Keep the sticker id generator ahead of any restored sticker ids.
+      stickerSeq.current = Math.max(stickerSeq.current, maxIdSuffix(saved.stickers.map((s) => s.id)));
+
+      setImages(layers);
+      setTitle(saved.title);
+      setOverlayText(saved.overlayText);
+      setStyleId(saved.style as BackgroundStyleId);
+      setPaletteIndex(saved.paletteIndex);
+      setIntensity(saved.intensity);
+      setEmphasis(saved.emphasis);
+      setPosition(saved.position);
+      setSize(saved.size);
+      setUppercase(saved.uppercase);
+      setFontId(saved.fontId);
+      setTextColor(saved.textColor);
+      setHighlightColor(saved.highlightColor);
+      setTextTransform(saved.textTransform);
+      setManualLayout(saved.manualLayout);
+      setExportScale(saved.exportScale);
+      setStickers(saved.stickers);
+      setSelectedId(null);
+      setEditing(false);
+      setCurrentSavedId(saved.id);
+      toast.success(`Loaded "${saved.name}".`);
+    } catch {
+      toast.error("Could not load that thumbnail.");
+    } finally {
+      setLoadingSavedId(null);
+    }
+  };
+
+  const deleteSavedThumbnail = async (saved: SavedThumbnail) => {
+    await mutate("deleteSavedThumbnail", saved.id, { successMessage: `Deleted "${saved.name}".` });
+    setCurrentSavedId((current) => (current === saved.id ? null : current));
+  };
+
   const ideas = useMemo(() => overlayIdeas(title), [title]);
   const treatments = useMemo(() => titleTreatments(title), [title]);
   const exportName = (suffix: string) =>
@@ -406,6 +550,65 @@ export function ThumbnailGeneratorPage() {
       <div className="grid gap-4 xl:grid-cols-[0.9fr_1.1fr]">
         {/* Left: controls */}
         <div className="space-y-4">
+          <Card>
+            <div className="flex items-center justify-between">
+              <h2 className="text-lg font-semibold text-white">Saved thumbnails</h2>
+              <Badge>{savedThumbnails.length}</Badge>
+            </div>
+            <p className="mt-1 text-sm text-[var(--muted-foreground)]">
+              Save the current setup to your library and reopen it any time. Use <span className="text-white">Save thumbnail</span> next to the preview.
+            </p>
+
+            {savedThumbnails.length === 0 ? (
+              <p className="mt-3 rounded-2xl border border-dashed border-white/10 bg-black/20 px-3 py-4 text-xs text-[var(--muted-foreground)]">
+                Nothing saved yet. Build a thumbnail, then hit Save — your images, text, layout, and call-outs are all stored.
+              </p>
+            ) : (
+              <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                {savedThumbnails.map((saved) => (
+                  <div
+                    key={saved.id}
+                    className={cn(
+                      "group overflow-hidden rounded-2xl border transition",
+                      currentSavedId === saved.id ? "border-[var(--accent)] ring-1 ring-[var(--accent)]/40" : "border-white/10 hover:border-white/30"
+                    )}
+                  >
+                    <button type="button" onClick={() => void loadThumbnail(saved)} className="block w-full text-left" disabled={loadingSavedId === saved.id}>
+                      {saved.preview ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img src={saved.preview} alt={saved.name} className="aspect-video w-full bg-black/40 object-cover" />
+                      ) : (
+                        <div className="flex aspect-video w-full items-center justify-center bg-black/40 text-xs text-[var(--muted-foreground)]">No preview</div>
+                      )}
+                    </button>
+                    <div className="flex items-center gap-1 px-2.5 py-2">
+                      <p className="min-w-0 flex-1 truncate text-xs font-medium text-white" title={saved.name}>
+                        {saved.name}
+                      </p>
+                      <button
+                        type="button"
+                        title="Open"
+                        onClick={() => void loadThumbnail(saved)}
+                        disabled={loadingSavedId === saved.id}
+                        className="flex h-7 w-7 items-center justify-center rounded-lg bg-white/8 text-[var(--muted-foreground)] transition hover:bg-white/15 hover:text-white disabled:opacity-40"
+                      >
+                        <FolderOpen className="h-3.5 w-3.5" />
+                      </button>
+                      <button
+                        type="button"
+                        title="Delete"
+                        onClick={() => void deleteSavedThumbnail(saved)}
+                        className="flex h-7 w-7 items-center justify-center rounded-lg bg-white/8 text-[var(--muted-foreground)] transition hover:bg-red-500/20 hover:text-red-400"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </Card>
+
           <Card>
             <div className="flex items-center justify-between">
               <h2 className="text-lg font-semibold text-white">Images</h2>
@@ -687,7 +890,7 @@ export function ThumbnailGeneratorPage() {
                       <input
                         type="range"
                         min={0.2}
-                        max={3}
+                        max={5}
                         step={0.01}
                         value={selectedTransform.scale}
                         onChange={(event) => updateSelectedTransform({ scale: Number(event.target.value) })}
@@ -978,8 +1181,8 @@ export function ThumbnailGeneratorPage() {
           )}
         </div>
 
-        {/* Right: preview + variants */}
-        <div className="space-y-4">
+        {/* Right: preview + variants — pinned in view while the controls scroll. */}
+        <div className="space-y-4 xl:sticky xl:top-4 xl:self-start xl:max-h-[calc(100vh-2rem)] xl:overflow-y-auto xl:pr-1">
           <Card>
             <div className="flex items-center justify-between">
               <h2 className="text-lg font-semibold text-white">Preview</h2>
@@ -1022,6 +1225,24 @@ export function ThumbnailGeneratorPage() {
             </div>
 
             <div className="mt-4 flex flex-wrap items-center gap-2">
+              <Button onClick={() => void saveThumbnail(false)} disabled={saving}>
+                <Save className="mr-2 h-4 w-4" />
+                {saving ? "Saving…" : currentSaved ? "Save changes" : "Save thumbnail"}
+              </Button>
+              {currentSaved && (
+                <Button variant="secondary" onClick={() => void saveThumbnail(true)} disabled={saving}>
+                  <Plus className="mr-2 h-4 w-4" />
+                  Save as new
+                </Button>
+              )}
+              {currentSaved && (
+                <span className="text-xs text-[var(--muted-foreground)]">
+                  Editing <span className="text-white">{currentSaved.name}</span>
+                </span>
+              )}
+            </div>
+
+            <div className="mt-3 flex flex-wrap items-center gap-2">
               <Button onClick={() => downloadDataUrl(renderToDataUrl(options, "png", exportScale), exportName(".png"))}>
                 <Download className="mr-2 h-4 w-4" />
                 Download PNG

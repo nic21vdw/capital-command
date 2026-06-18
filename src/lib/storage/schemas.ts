@@ -249,6 +249,77 @@ export const xStrategySchema = z.object({
 
 export const defaultXStrategy = xStrategySchema.parse({});
 
+// ----- Saved thumbnails (Thumbnail Generator) -----
+// A persisted thumbnail project: all of the generator's settings plus the
+// uploaded images serialized as PNG data URLs so a project can be reopened
+// later, similar to how clipping jobs are kept around.
+const thumbnailTransformSchema = z.object({
+  x: z.coerce.number(),
+  y: z.coerce.number(),
+  scale: z.coerce.number(),
+  rotation: z.coerce.number()
+});
+
+const thumbnailTreatmentSchema = z.object({
+  cutout: z.coerce.boolean(),
+  flip: z.coerce.boolean(),
+  stroke: z.coerce.number(),
+  strokeColor: z.string(),
+  glow: z.coerce.number(),
+  shadow: z.coerce.boolean(),
+  backlight: z.coerce.boolean(),
+  saturate: z.coerce.number(),
+  contrast: z.coerce.number(),
+  brightness: z.coerce.number()
+});
+
+const thumbnailImageSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  // PNG data URL of the (possibly cut-out) image.
+  src: z.string(),
+  transform: thumbnailTransformSchema,
+  treatment: thumbnailTreatmentSchema
+});
+
+const thumbnailStickerSchema = z.object({
+  id: z.string(),
+  type: z.enum(["circle", "arrow", "emoji", "badge"]),
+  x: z.coerce.number(),
+  y: z.coerce.number(),
+  scale: z.coerce.number(),
+  rotation: z.coerce.number(),
+  color: z.string(),
+  text: z.string()
+});
+
+export const savedThumbnailSchema = z.object({
+  id: z.string(),
+  name: z.string().trim().min(1).default("Untitled thumbnail"),
+  // Small JPEG data URL used for the gallery card.
+  preview: z.string().default(""),
+  title: z.string().default(""),
+  overlayText: z.string().default(""),
+  // Background style id — kept loose so renaming a style never drops a project.
+  style: z.string().default("gradient"),
+  paletteIndex: z.coerce.number().int().default(0),
+  intensity: z.enum(["subtle", "balanced", "bold"]).default("balanced"),
+  emphasis: z.enum(["outline", "highlight-bar", "boxed", "clean"]).default("outline"),
+  position: z.enum(["left", "bottom-left", "center"]).default("left"),
+  size: z.enum(["small", "medium", "large"]).default("medium"),
+  uppercase: z.coerce.boolean().default(true),
+  fontId: z.string().default("arial-black"),
+  textColor: z.string().default("auto"),
+  highlightColor: z.string().default("#ffd34d"),
+  textTransform: thumbnailTransformSchema,
+  manualLayout: z.coerce.boolean().default(false),
+  exportScale: z.coerce.number().default(1),
+  images: z.array(thumbnailImageSchema).default([]),
+  stickers: z.array(thumbnailStickerSchema).default([]),
+  createdAt: z.string(),
+  updatedAt: z.string()
+});
+
 export const appDataSchema = z.object({
   holdings: z.array(holdingSchema),
   watchlist: z.array(watchlistSchema),
@@ -278,7 +349,8 @@ export const appDataSchema = z.object({
   executionCompletions: z.array(executionCompletionSchema).default([]),
   executionPeriods: z.array(executionPeriodSchema).default([]),
   executionDebt: z.array(executionDebtSchema).default([]),
-  executionSeededAt: z.string().optional()
+  executionSeededAt: z.string().optional(),
+  savedThumbnails: z.array(savedThumbnailSchema).default([])
 });
 
 export const importHoldingSchema = z.object({
