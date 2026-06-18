@@ -1,6 +1,7 @@
 import { mkdir, readFile, rm, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { detectSilences, extractEnergy, selectCandidates } from "@/lib/clipping/analysis";
+import { copyClipsToDrive, driveDir } from "@/lib/clipping/drive";
 import { downloadAudio, downloadSection, fetchVideoMeta } from "@/lib/clipping/download";
 import { probeDuration } from "@/lib/clipping/ffmpeg";
 import { renderVertical } from "@/lib/clipping/render";
@@ -149,6 +150,27 @@ async function runPipeline(job: ClipJob, url: string) {
       );
     }
     await persistJobs();
+  }
+
+  // Optionally mirror the finished clips into a Google Drive-synced folder.
+  // No API or sign-in: this just copies files into a local folder that Google
+  // Drive for Desktop syncs (see CLIPS_DRIVE_DIR in .env). Off unless set.
+  if (driveDir()) {
+    const rendered = job.clips
+      .filter((clip) => clip.file)
+      .map((clip) => ({ sourcePath: path.join(outputDir(job.id), clip.file as string), fileName: clip.file as string }));
+    if (rendered.length > 0) {
+      try {
+        const { folder, copied } = await copyClipsToDrive(job.fileName, rendered);
+        job.driveFolder = folder;
+        job.notices.push(`Copied ${copied} clip${copied === 1 ? "" : "s"} to your Google Drive folder: ${folder}`);
+      } catch (error) {
+        job.notices.push(
+          `Could not copy clips to your Google Drive folder: ${error instanceof Error ? error.message : String(error)}.`
+        );
+      }
+      await persistJobs();
+    }
   }
 
   await update(job, { status: "done", stage: "finished", progress: 100 });
