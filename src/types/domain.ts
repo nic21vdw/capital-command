@@ -285,6 +285,10 @@ export interface SavedThumbnailTransform {
   y: number;
   scale: number;
   rotation: number;
+  /** Optional independent height scale (proportional when omitted). */
+  scaleY?: number;
+  /** Layer opacity 0..1 (fully opaque when omitted). */
+  opacity?: number;
 }
 
 export interface SavedThumbnailTreatment {
@@ -307,6 +311,8 @@ export interface SavedThumbnailImage {
   src: string;
   transform: SavedThumbnailTransform;
   treatment: SavedThumbnailTreatment;
+  locked?: boolean;
+  lockAspect?: boolean;
 }
 
 export interface SavedThumbnailSticker {
@@ -340,6 +346,8 @@ export interface SavedThumbnail {
   textTransform: SavedThumbnailTransform;
   manualLayout: boolean;
   exportScale: number;
+  exportWidth?: number;
+  exportHeight?: number;
   images: SavedThumbnailImage[];
   stickers: SavedThumbnailSticker[];
   createdAt: string;

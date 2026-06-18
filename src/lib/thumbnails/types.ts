@@ -45,14 +45,30 @@ export type Intensity = "subtle" | "balanced" | "bold";
 /**
  * Free-placement transform for a layer. `x`/`y` are the layer center as a
  * fraction of the canvas (0..1), `scale` is a multiplier on the layer's
- * natural size, and `rotation` is in degrees.
+ * natural size (its width), and `rotation` is in degrees.
+ *
+ * `scaleY` is an optional independent height multiplier. When omitted (or equal
+ * to `scale`), the layer scales proportionally; when set, width and height scale
+ * independently. `opacity` is 0..1 and defaults to 1.
  */
 export type Transform = {
   x: number;
   y: number;
   scale: number;
   rotation: number;
+  scaleY?: number;
+  opacity?: number;
 };
+
+/** Effective height multiplier — proportional (equal to `scale`) by default. */
+export function effectiveScaleY(t: Transform): number {
+  return t.scaleY ?? t.scale;
+}
+
+/** Effective opacity — fully opaque by default. */
+export function effectiveOpacity(t: Transform): number {
+  return t.opacity ?? 1;
+}
 
 /**
  * Per-image cut-out treatment: the MrBeast/Dan Martell-style subject look.
@@ -98,6 +114,10 @@ export type ImageLayer = {
   image: HTMLImageElement;
   transform: Transform;
   treatment: ImageTreatment;
+  /** When locked the layer can't be dragged, resized, rotated, or deleted. */
+  locked?: boolean;
+  /** When true (default) width/height scale proportionally together. */
+  lockAspect?: boolean;
 };
 
 export type StickerType = "circle" | "arrow" | "emoji" | "badge";

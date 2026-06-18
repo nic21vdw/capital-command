@@ -257,7 +257,11 @@ const thumbnailTransformSchema = z.object({
   x: z.coerce.number(),
   y: z.coerce.number(),
   scale: z.coerce.number(),
-  rotation: z.coerce.number()
+  rotation: z.coerce.number(),
+  // Optional independent height scale and layer opacity (back-compat: omitted
+  // means proportional scaling and full opacity).
+  scaleY: z.coerce.number().optional(),
+  opacity: z.coerce.number().min(0).max(1).optional()
 });
 
 const thumbnailTreatmentSchema = z.object({
@@ -279,7 +283,9 @@ const thumbnailImageSchema = z.object({
   // PNG data URL of the (possibly cut-out) image.
   src: z.string(),
   transform: thumbnailTransformSchema,
-  treatment: thumbnailTreatmentSchema
+  treatment: thumbnailTreatmentSchema,
+  locked: z.coerce.boolean().optional(),
+  lockAspect: z.coerce.boolean().optional()
 });
 
 const thumbnailStickerSchema = z.object({
@@ -314,6 +320,9 @@ export const savedThumbnailSchema = z.object({
   textTransform: thumbnailTransformSchema,
   manualLayout: z.coerce.boolean().default(false),
   exportScale: z.coerce.number().default(1),
+  // Preferred export dimensions (defaults to the 1280×720 YouTube preset).
+  exportWidth: z.coerce.number().int().min(16).max(8192).default(1280),
+  exportHeight: z.coerce.number().int().min(16).max(8192).default(720),
   images: z.array(thumbnailImageSchema).default([]),
   stickers: z.array(thumbnailStickerSchema).default([]),
   createdAt: z.string(),
