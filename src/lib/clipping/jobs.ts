@@ -4,6 +4,7 @@ import { detectSilences, extractEnergy, selectCandidates } from "@/lib/clipping/
 import { downloadAudio, downloadSection, fetchVideoMeta } from "@/lib/clipping/download";
 import { probeDuration } from "@/lib/clipping/ffmpeg";
 import { renderVertical } from "@/lib/clipping/render";
+import { fetchAutoCaptions } from "@/lib/clipping/transcription";
 import type { ClipJob } from "@/lib/clipping/types";
 
 const clipsRoot = path.join(process.cwd(), "data", "clips");
@@ -72,6 +73,25 @@ export async function deleteJob(id: string) {
 async function update(job: ClipJob, patch: Partial<ClipJob>) {
   Object.assign(job, patch);
   await persistJobs();
+}
+
+/**
+ * Fetches (and caches) automatic captions for a job from the source platform.
+ * Force re-fetch to regenerate. Errors are stored on the job, not thrown, so a
+ * source without captions degrades gracefully to manual captioning.
+ */
+export async function fetchJobCaptions(id: string, force = false): Promise<ClipJob | undefined> {
+  await loadJobs();
+  const job = jobs.get(id);
+  if (!job) return undefined;
+  if (job.sourceCaptions && job.sourceCaptions.length > 0 && !force) return job;
+  try {
+    const segments = await fetchAutoCaptions(job.sourceUrl, workDir(id));
+    await update(job, { sourceCaptions: segments, captionsFetchedAt: new Date().toISOString(), captionsError: undefined });
+  } catch (error) {
+    await update(job, { captionsError: error instanceof Error ? error.message : String(error) });
+  }
+  return job;
 }
 
 async function failJob(job: ClipJob, error: unknown) {

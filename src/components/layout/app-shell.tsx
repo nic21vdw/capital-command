@@ -9,6 +9,7 @@ import {
   LayoutDashboard,
   Scissors,
   Settings,
+  SquarePlay,
   Target,
   Wallet,
   Youtube,
@@ -36,6 +37,7 @@ const navGroups: NavGroup[] = [
       { href: "/youtube", label: "YouTube", icon: Youtube },
       { href: "/thumbnails", label: "Thumbnails", icon: ImageIcon },
       { href: "/clips", label: "Clipping Agent", icon: Scissors },
+      { href: "/editor", label: "Clip Editor", icon: SquarePlay },
       { href: "/golf", label: "Golf", icon: Clapperboard },
       { href: "/x-strategy", label: "Reply Studio", icon: AtSign }
     ]

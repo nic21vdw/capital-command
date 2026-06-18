@@ -36,7 +36,10 @@ export type FfmpegResult = {
 };
 
 /** Runs ffmpeg with the given args, capturing stdout/stderr. */
-export function runFfmpeg(args: string[], { allowFailure = false } = {}): Promise<FfmpegResult> {
+export function runFfmpeg(
+  args: string[],
+  { allowFailure = false, onLine }: { allowFailure?: boolean; onLine?: (line: string) => void } = {}
+): Promise<FfmpegResult> {
   const bin = resolveFfmpeg();
   return new Promise((resolve, reject) => {
     if (!bin) {
@@ -46,13 +49,22 @@ export function runFfmpeg(args: string[], { allowFailure = false } = {}): Promis
     const child = spawn(bin, args, { windowsHide: true });
     let stdout = "";
     let stderr = "";
+    let lineBuffer = "";
     child.stdout.on("data", (chunk) => {
       stdout += String(chunk);
     });
     child.stderr.on("data", (chunk) => {
-      stderr += String(chunk);
+      const text = String(chunk);
+      stderr += text;
       // Keep memory bounded on long renders; we only ever parse the tail.
       if (stderr.length > 400_000) stderr = stderr.slice(-200_000);
+      if (onLine) {
+        // ffmpeg redraws progress with \r; split on both so we see live time=.
+        lineBuffer += text;
+        const parts = lineBuffer.split(/[\r\n]/);
+        lineBuffer = parts.pop() ?? "";
+        for (const part of parts) if (part.trim()) onLine(part.trim());
+      }
     });
     child.on("error", (error) => {
       if ((error as NodeJS.ErrnoException).code === "ENOENT") {

@@ -42,4 +42,11 @@ export type ClipJob = {
   createdAt: string;
   durationSec?: number;
   clips: ClipCandidate[];
+  /**
+   * Source-relative caption segments fetched on demand from the platform's
+   * automatic captions. Cached so re-opening the editor is instant.
+   */
+  sourceCaptions?: import("@/types/domain").CaptionSegment[];
+  captionsFetchedAt?: string;
+  captionsError?: string;
 };

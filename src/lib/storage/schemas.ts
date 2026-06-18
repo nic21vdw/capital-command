@@ -320,6 +320,134 @@ export const savedThumbnailSchema = z.object({
   updatedAt: z.string()
 });
 
+// ----- Clip Editor projects -----
+// Non-destructive edit instructions layered over a rendered clip. Loose
+// .catch/.default usage keeps old saved projects loading after the shape grows.
+
+const captionWordSchema = z.object({
+  text: z.string(),
+  start: z.coerce.number().min(0),
+  end: z.coerce.number().min(0)
+});
+
+const captionSegmentSchema = z.object({
+  id: z.string(),
+  start: z.coerce.number().min(0),
+  end: z.coerce.number().min(0),
+  text: z.string(),
+  words: z.array(captionWordSchema).default([]),
+  enabled: z.coerce.boolean().default(true)
+});
+
+export const captionStyleSchema = z.object({
+  fontFamily: z.string().default("Inter, system-ui, sans-serif"),
+  fontScale: z.coerce.number().min(0.02).max(0.2).default(0.06),
+  fontWeight: z.coerce.number().int().min(100).max(900).default(800),
+  textColor: z.string().default("#ffffff"),
+  highlightColor: z.string().default("#7c5cff"),
+  backgroundColor: z.string().default("#000000"),
+  backgroundOpacity: z.coerce.number().min(0).max(1).default(0.4),
+  outlineWidth: z.coerce.number().min(0).max(10).default(2),
+  shadow: z.coerce.number().min(0).max(10).default(2),
+  position: z.enum(["top", "middle", "bottom", "lower-third"]).default("bottom"),
+  alignment: z.enum(["left", "center", "right"]).default("center"),
+  maxWordsPerCaption: z.coerce.number().int().min(1).max(40).default(7),
+  wordsPerLine: z.coerce.number().int().min(1).max(20).default(4),
+  animation: z.enum(["none", "fade", "pop", "karaoke"]).default("fade"),
+  uppercase: z.coerce.boolean().default(false)
+});
+
+export const defaultCaptionStyle = captionStyleSchema.parse({});
+
+const overlaySchema = z.object({
+  id: z.string(),
+  kind: z.enum(["text", "title", "image", "logo", "watermark"]),
+  text: z.string().optional(),
+  // Image overlays carry a data URL; cap so the JSON store stays sane.
+  src: z.string().max(8_000_000).optional(),
+  x: z.coerce.number().default(0.5),
+  y: z.coerce.number().default(0.5),
+  scale: z.coerce.number().min(0.05).max(8).default(1),
+  rotation: z.coerce.number().default(0),
+  opacity: z.coerce.number().min(0).max(1).default(1),
+  z: z.coerce.number().int().default(0),
+  locked: z.coerce.boolean().default(false),
+  start: z.coerce.number().min(0).default(0),
+  end: z.coerce.number().min(0).default(0),
+  color: z.string().optional(),
+  background: z.string().optional(),
+  fontFamily: z.string().optional(),
+  fontWeight: z.coerce.number().int().optional(),
+  align: z.enum(["left", "center", "right"]).optional()
+});
+
+const clipAudioSchema = z.object({
+  clipVolume: z.coerce.number().min(0).max(2).default(1),
+  fadeIn: z.coerce.number().min(0).max(10).default(0),
+  fadeOut: z.coerce.number().min(0).max(10).default(0),
+  musicSrc: z.string().max(20_000_000).optional(),
+  musicName: z.string().optional(),
+  musicVolume: z.coerce.number().min(0).max(2).default(0.5)
+});
+
+export const defaultClipAudio = clipAudioSchema.parse({});
+
+const clipExportSettingsSchema = z.object({
+  preset: z.enum(["shorts", "longform", "square", "portrait", "custom"]).default("shorts"),
+  width: z.coerce.number().int().min(64).max(4096).default(1080),
+  height: z.coerce.number().int().min(64).max(4096).default(1920),
+  fps: z.coerce.number().int().min(1).max(120).default(30),
+  quality: z.enum(["high", "medium", "low"]).default("high"),
+  format: z.enum(["mp4", "webm"]).default("mp4"),
+  burnCaptions: z.coerce.boolean().default(true),
+  separateSubtitle: z.coerce.boolean().default(false),
+  watermark: z.coerce.boolean().default(false),
+  filename: z.string().default("clip")
+});
+
+export const defaultClipExportSettings = clipExportSettingsSchema.parse({});
+
+const aiSuggestionSchema = z.object({
+  id: z.string(),
+  start: z.coerce.number().min(0),
+  end: z.coerce.number().min(0),
+  score: z.coerce.number().default(0),
+  rationale: z.string().default(""),
+  status: z.enum(["pending", "approved", "rejected"]).default("pending"),
+  addedToTimeline: z.coerce.boolean().default(false)
+});
+
+export const clipProjectSchema = z.object({
+  id: z.string(),
+  name: z.string().trim().min(1).default("Untitled clip"),
+  jobId: z.string(),
+  sourceFile: z.string(),
+  sourceUrl: z.string().default(""),
+  baseDurationSec: z.coerce.number().min(0).default(0),
+  baseWidth: z.coerce.number().int().min(1).default(1080),
+  baseHeight: z.coerce.number().int().min(1).default(1920),
+  clipStart: z.coerce.number().min(0).default(0),
+  clipEnd: z.coerce.number().min(0).default(0),
+  aspectRatio: z.enum(["9:16", "16:9", "1:1", "4:5", "custom"]).default("9:16"),
+  reframe: z
+    .object({
+      scale: z.coerce.number().min(0.1).max(8).default(1),
+      offsetX: z.coerce.number().min(-1).max(1).default(0),
+      offsetY: z.coerce.number().min(-1).max(1).default(0)
+    })
+    .default({ scale: 1, offsetX: 0, offsetY: 0 }),
+  captions: z.array(captionSegmentSchema).default([]),
+  captionStyle: captionStyleSchema.default(defaultCaptionStyle),
+  captionsVisible: z.coerce.boolean().default(true),
+  highlightCurrentWord: z.coerce.boolean().default(false),
+  overlays: z.array(overlaySchema).default([]),
+  audio: clipAudioSchema.default(defaultClipAudio),
+  exportSettings: clipExportSettingsSchema.default(defaultClipExportSettings),
+  suggestions: z.array(aiSuggestionSchema).default([]),
+  createdAt: z.string(),
+  updatedAt: z.string()
+});
+
 export const appDataSchema = z.object({
   holdings: z.array(holdingSchema),
   watchlist: z.array(watchlistSchema),
@@ -350,7 +478,8 @@ export const appDataSchema = z.object({
   executionPeriods: z.array(executionPeriodSchema).default([]),
   executionDebt: z.array(executionDebtSchema).default([]),
   executionSeededAt: z.string().optional(),
-  savedThumbnails: z.array(savedThumbnailSchema).default([])
+  savedThumbnails: z.array(savedThumbnailSchema).default([]),
+  clipProjects: z.array(clipProjectSchema).default([])
 });
 
 export const importHoldingSchema = z.object({

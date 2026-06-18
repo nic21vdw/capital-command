@@ -346,6 +346,165 @@ export interface SavedThumbnail {
   updatedAt: string;
 }
 
+// ----- Clip Editor -----
+// A non-destructive editing project layered on top of a rendered clip. The
+// source clip file is never modified; everything below is an instruction set
+// that the preview renders live and the export pipeline bakes into a new file.
+
+/** One spoken word with its own start/end (where the source provides it). */
+export interface CaptionWord {
+  text: string;
+  /** Seconds, relative to the clip. */
+  start: number;
+  end: number;
+}
+
+/** A phrase-level caption segment. */
+export interface CaptionSegment {
+  id: string;
+  /** Seconds, relative to the clip. */
+  start: number;
+  end: number;
+  text: string;
+  words: CaptionWord[];
+  /** Disabled segments are kept but neither shown nor burned in. */
+  enabled: boolean;
+}
+
+export type CaptionPosition = "top" | "middle" | "bottom" | "lower-third";
+export type CaptionAlignment = "left" | "center" | "right";
+export type CaptionAnimation = "none" | "fade" | "pop" | "karaoke";
+
+export interface CaptionStyle {
+  fontFamily: string;
+  /** Font size as a fraction of output height (keeps it readable at any size). */
+  fontScale: number;
+  fontWeight: number;
+  textColor: string;
+  highlightColor: string;
+  backgroundColor: string;
+  backgroundOpacity: number;
+  outlineWidth: number;
+  shadow: number;
+  position: CaptionPosition;
+  alignment: CaptionAlignment;
+  maxWordsPerCaption: number;
+  wordsPerLine: number;
+  animation: CaptionAnimation;
+  uppercase: boolean;
+}
+
+export type CaptionPresetId = "minimal" | "bold-shorts" | "highlight-word" | "lower-third" | "colateral-purple";
+
+export type OverlayKind = "text" | "title" | "image" | "logo" | "watermark";
+
+export interface Overlay {
+  id: string;
+  kind: OverlayKind;
+  /** Text content for text/title overlays. */
+  text?: string;
+  /** Data URL for image/logo/watermark overlays. */
+  src?: string;
+  /** Center position, normalized 0..1 of the frame. */
+  x: number;
+  y: number;
+  /** Scale relative to a default size (1 = default). */
+  scale: number;
+  rotation: number;
+  opacity: number;
+  /** Stacking order; higher renders on top. */
+  z: number;
+  locked: boolean;
+  /** Visible window in clip-seconds. */
+  start: number;
+  end: number;
+  // Text styling (ignored for image overlays).
+  color?: string;
+  background?: string;
+  fontFamily?: string;
+  fontWeight?: number;
+  align?: CaptionAlignment;
+}
+
+export interface ClipAudio {
+  /** 0 = mute, 1 = unchanged, up to 2 = +6 dB. */
+  clipVolume: number;
+  fadeIn: number;
+  fadeOut: number;
+  /** Optional background music as a data URL. */
+  musicSrc?: string;
+  musicName?: string;
+  musicVolume: number;
+}
+
+export type AspectRatioId = "9:16" | "16:9" | "1:1" | "4:5" | "custom";
+
+export interface ReframeTransform {
+  /** Zoom of the source inside the frame (1 = fit). */
+  scale: number;
+  /** Pan, normalized -1..1 of the spare space. */
+  offsetX: number;
+  offsetY: number;
+}
+
+export type ExportPresetId = "shorts" | "longform" | "square" | "portrait" | "custom";
+export type ExportQuality = "high" | "medium" | "low";
+export type ExportFormat = "mp4" | "webm";
+
+export interface ClipExportSettings {
+  preset: ExportPresetId;
+  width: number;
+  height: number;
+  fps: number;
+  quality: ExportQuality;
+  format: ExportFormat;
+  burnCaptions: boolean;
+  separateSubtitle: boolean;
+  watermark: boolean;
+  filename: string;
+}
+
+export type SuggestionStatus = "pending" | "approved" | "rejected";
+
+export interface AISuggestion {
+  id: string;
+  /** Seconds, relative to the clip. */
+  start: number;
+  end: number;
+  score: number;
+  rationale: string;
+  status: SuggestionStatus;
+  addedToTimeline: boolean;
+}
+
+export interface ClipProject {
+  id: string;
+  name: string;
+  /** The clip job this project was created from. */
+  jobId: string;
+  /** Rendered base clip filename inside the job's output dir. */
+  sourceFile: string;
+  sourceUrl: string;
+  baseDurationSec: number;
+  baseWidth: number;
+  baseHeight: number;
+  /** Where this clip sits inside the source VOD (for caption offset/suggestions). */
+  clipStart: number;
+  clipEnd: number;
+  aspectRatio: AspectRatioId;
+  reframe: ReframeTransform;
+  captions: CaptionSegment[];
+  captionStyle: CaptionStyle;
+  captionsVisible: boolean;
+  highlightCurrentWord: boolean;
+  overlays: Overlay[];
+  audio: ClipAudio;
+  exportSettings: ClipExportSettings;
+  suggestions: AISuggestion[];
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface AppData {
   holdings: Holding[];
   watchlist: WatchlistItem[];
@@ -365,6 +524,7 @@ export interface AppData {
   /** ISO timestamp recorded the first time default goals were seeded. */
   executionSeededAt?: string;
   savedThumbnails: SavedThumbnail[];
+  clipProjects: ClipProject[];
 }
 
 export interface TrendPoint {
