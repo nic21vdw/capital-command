@@ -94,6 +94,26 @@ Both tools live in the sidebar and work out of the box:
   `data\clips\bin\` automatically. Generated clips are stored under
   `data\clips\outputs\` and stay on your PC.
 
+### Optional: auto-save clips to Google Drive (no API, no sign-in)
+
+If you want every finished clip to also land in your Google Drive — organized
+into `clipping agent\<stream title>\` — you don't need any API keys or OAuth.
+You just let **Google Drive for Desktop** do the syncing:
+
+1. Install **Google Drive for Desktop**
+   (<https://www.google.com/drive/download/>) and sign in. It adds a folder on
+   your PC (for example `G:\My Drive` on Windows) that mirrors your Drive.
+2. In your `.env`, set `CLIPS_DRIVE_DIR` to a path inside that synced folder —
+   the top of your Drive is fine:
+   - Windows: `CLIPS_DRIVE_DIR=G:\My Drive`
+   - macOS: `CLIPS_DRIVE_DIR=/Users/you/Library/CloudStorage/GoogleDrive-you@gmail.com/My Drive`
+3. Restart the app. From then on, when a job finishes, its clips are copied to
+   `<CLIPS_DRIVE_DIR>\clipping agent\<stream title>\` and Google Drive for
+   Desktop uploads them to the cloud automatically. The Clipping Agent shows a
+   "Saved to Google Drive" confirmation on each finished job.
+
+Leave `CLIPS_DRIVE_DIR` blank to keep clips only under `data\clips\outputs\`.
+
 ---
 
 ## A note on your local data

@@ -41,5 +41,7 @@ export type ClipJob = {
   notices: string[];
   createdAt: string;
   durationSec?: number;
+  /** Drive-synced folder the clips were copied into, when CLIPS_DRIVE_DIR is set. */
+  driveFolder?: string;
   clips: ClipCandidate[];
 };

@@ -291,6 +291,15 @@ export function ClippingAgentPage() {
                   </div>
                 )}
 
+                {activeJob.driveFolder && (
+                  <div className="mt-4 flex items-start gap-3 rounded-2xl border border-emerald-400/25 bg-emerald-500/8 p-3">
+                    <Check className="mt-0.5 h-4 w-4 shrink-0 text-emerald-400" />
+                    <p className="text-xs leading-relaxed text-emerald-100">
+                      Saved to Google Drive · <code>clipping agent/{activeJob.fileName}</code>
+                    </p>
+                  </div>
+                )}
+
                 {activeJob.notices.length > 0 && (
                   <div className="mt-4 space-y-2">
                     {activeJob.notices.map((notice) => (
