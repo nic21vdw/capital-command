@@ -35,7 +35,7 @@ const navGroups: NavGroup[] = [
     items: [
       { href: "/youtube", label: "YouTube", icon: Youtube },
       { href: "/thumbnails", label: "Thumbnails", icon: ImageIcon },
-      { href: "/clips", label: "Clipping Agent", icon: Scissors },
+      { href: "/clips", label: "Clip Creator", icon: Scissors },
       { href: "/golf", label: "Golf", icon: Clapperboard },
       { href: "/x-strategy", label: "Reply Studio", icon: AtSign }
     ]
