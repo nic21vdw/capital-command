@@ -160,7 +160,7 @@ export function ClippingAgentPage() {
 
       <div className="grid gap-4 xl:grid-cols-[0.85fr_1.15fr]">
         {/* Left: add stream + history */}
-        <div className="space-y-4">
+        <div className="min-w-0 space-y-4">
           <Card>
             <h2 className="text-lg font-semibold text-white">Add a stream</h2>
             <p className="mt-1 text-sm text-[var(--muted-foreground)]">
@@ -254,7 +254,7 @@ export function ClippingAgentPage() {
         </div>
 
         {/* Right: pipeline status + results */}
-        <div className="space-y-4">
+        <div className="min-w-0 space-y-4">
           {!activeJob ? (
             <Card className="flex flex-col items-center gap-3 py-14 text-center">
               <Film className="h-8 w-8 text-[var(--accent)]" />
@@ -320,7 +320,7 @@ export function ClippingAgentPage() {
                 {activeJob.status === "error" && (
                   <div className="mt-4 flex items-start gap-3 rounded-2xl border border-red-400/25 bg-red-500/8 p-4">
                     <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-red-400" />
-                    <p className="text-sm text-red-200">{activeJob.error}</p>
+                    <p className="min-w-0 break-words text-sm text-red-200">{activeJob.error}</p>
                   </div>
                 )}
 
@@ -338,7 +338,7 @@ export function ClippingAgentPage() {
                     {activeJob.notices.map((notice) => (
                       <div key={notice} className="flex items-start gap-3 rounded-2xl border border-amber-400/25 bg-amber-500/8 p-3">
                         <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-400" />
-                        <p className="text-xs leading-relaxed text-amber-100">{notice}</p>
+                        <p className="min-w-0 break-words text-xs leading-relaxed text-amber-100">{notice}</p>
                       </div>
                     ))}
                   </div>
