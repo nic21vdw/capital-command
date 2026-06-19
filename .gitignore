@@ -12,3 +12,4 @@ server.pid
 tsconfig.tsbuildinfo
 data/capital-command.json
 data/clips/
+backups/
