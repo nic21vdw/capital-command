@@ -58,11 +58,11 @@ function initialsFrom(name: string) {
 function Brand() {
   return (
     <Link href="/" className="flex items-center gap-3">
-      <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-[var(--accent)] text-sm font-bold text-[var(--accent-contrast)]">
-        CC
+      <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-gradient-to-br from-[#a855f7] to-[#7c3aed] text-sm font-bold tracking-tight text-white shadow-[0_2px_10px_rgba(124,58,237,0.45)]">
+        NV
       </span>
       <span className="flex flex-col leading-tight">
-        <span className="text-sm font-semibold text-white">Capital Command</span>
+        <span className="text-sm font-semibold text-white">Nic Vandewetering</span>
         <span className="text-xs text-[var(--muted-foreground)]">Portfolio &amp; content</span>
       </span>
     </Link>

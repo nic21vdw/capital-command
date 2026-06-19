@@ -221,7 +221,7 @@ export function PropertiesPanel({
       {/* Layout presets */}
       <section className="space-y-2">
         <h3 className="text-sm font-semibold text-white">Layouts</h3>
-        <p className="text-xs text-[var(--muted-foreground)]">For footage with your camera + the Capital Command interface.</p>
+        <p className="text-xs text-[var(--muted-foreground)]">For footage with your camera + the Nic Vandewetering interface.</p>
         <div className="grid grid-cols-2 gap-1.5">
           {LAYOUT_PRESETS.filter((p) => p.id !== "none").map((preset) => (
             <button
