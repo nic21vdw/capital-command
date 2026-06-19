@@ -32,13 +32,45 @@ export async function GET(
     return NextResponse.json({ error: "The file no longer exists on disk." }, { status: 404 });
   }
 
-  const stream = Readable.toWeb(createReadStream(filePath)) as ReadableStream;
   const download = request.nextUrl.searchParams.get("download") === "1";
+  const disposition: Record<string, string> = download
+    ? { "Content-Disposition": `attachment; filename="${jobId}-${fileName}"` }
+    : {};
+
+  // Honour HTTP Range requests so the editor's <video> element can start playing
+  // and seek immediately instead of downloading the entire clip first. Without
+  // this, opening a clip in the editor blocks until the whole file transfers.
+  const range = request.headers.get("range");
+  if (range && !download) {
+    const match = /bytes=(\d*)-(\d*)/.exec(range);
+    let start = match && match[1] ? Number(match[1]) : 0;
+    let end = match && match[2] ? Number(match[2]) : size - 1;
+    if (Number.isNaN(start) || start < 0) start = 0;
+    if (Number.isNaN(end) || end >= size) end = size - 1;
+    if (start > end) {
+      return new NextResponse(null, { status: 416, headers: { "Content-Range": `bytes */${size}` } });
+    }
+    const partial = Readable.toWeb(createReadStream(filePath, { start, end })) as ReadableStream;
+    return new NextResponse(partial, {
+      status: 206,
+      headers: {
+        "Content-Type": "video/mp4",
+        "Content-Length": String(end - start + 1),
+        "Content-Range": `bytes ${start}-${end}/${size}`,
+        "Accept-Ranges": "bytes",
+        "Cache-Control": "private, max-age=3600"
+      }
+    });
+  }
+
+  const stream = Readable.toWeb(createReadStream(filePath)) as ReadableStream;
   return new NextResponse(stream, {
     headers: {
       "Content-Type": "video/mp4",
       "Content-Length": String(size),
-      ...(download ? { "Content-Disposition": `attachment; filename="${jobId}-${fileName}"` } : {})
+      "Accept-Ranges": "bytes",
+      "Cache-Control": "private, max-age=3600",
+      ...disposition
     }
   });
 }

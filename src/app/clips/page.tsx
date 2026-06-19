@@ -1,10 +1,10 @@
 import { AppShell } from "@/components/layout/app-shell";
-import { ClipsWorkspace } from "@/components/clips/clips-workspace";
+import { ClippingAgentPage } from "@/components/clips/clipping-agent-page";
 
 export default function Page() {
   return (
     <AppShell>
-      <ClipsWorkspace />
+      <ClippingAgentPage />
     </AppShell>
   );
 }
