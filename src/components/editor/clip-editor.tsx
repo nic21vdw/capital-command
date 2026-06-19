@@ -50,6 +50,7 @@ export function ClipEditor({ initialProject, onClose }: { initialProject: ClipPr
   const [fetchingCaptions, setFetchingCaptions] = useState(false);
   const [exportState, setExportState] = useState<ExportUiState>({ status: "idle", progress: 0 });
   const [saved, setSaved] = useState(true);
+  const [saving, setSaving] = useState(false);
 
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const videoSrc = `/api/clips/${project.jobId}/files/${encodeURIComponent(project.sourceFile)}`;
@@ -84,6 +85,20 @@ export function ClipEditor({ initialProject, onClose }: { initialProject: ClipPr
   const patch = useCallback((partial: Partial<ClipProject>) => {
     setProject((prev) => ({ ...prev, ...partial }));
   }, []);
+
+  // Explicit save so you can lock in progress on demand instead of waiting for autosave.
+  const saveNow = useCallback(async () => {
+    setSaving(true);
+    try {
+      await mutate("upsertClipProject", { ...project, updatedAt: new Date().toISOString() });
+      setSaved(true);
+      toast.success("Project saved to Projects.");
+    } catch {
+      toast.error("Could not save the project. Try again.");
+    } finally {
+      setSaving(false);
+    }
+  }, [project, mutate]);
 
   const seek = useCallback((t: number) => {
     const v = videoRef.current;
@@ -396,7 +411,13 @@ export function ClipEditor({ initialProject, onClose }: { initialProject: ClipPr
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center gap-3">
-        <Button variant="ghost" onClick={onClose}>
+        <Button
+          variant="ghost"
+          onClick={() => {
+            // Flush any pending edits before leaving so nothing is lost on navigation.
+            void (saved ? Promise.resolve() : saveNow()).then(onClose);
+          }}
+        >
           <ArrowLeft className="mr-2 h-4 w-4" /> Projects
         </Button>
         <input
@@ -405,8 +426,12 @@ export function ClipEditor({ initialProject, onClose }: { initialProject: ClipPr
           className="h-9 min-w-0 flex-1 rounded-lg border border-transparent bg-transparent px-2 text-lg font-semibold text-white outline-none hover:border-[var(--border)] focus:border-[var(--accent)]"
         />
         <span className={cn("flex items-center gap-1.5 text-xs", saved ? "text-emerald-300" : "text-[var(--muted-foreground)]")}>
-          <Save className="h-3.5 w-3.5" /> {saved ? "Saved" : "Saving…"}
+          <span className={cn("h-1.5 w-1.5 rounded-full", saved ? "bg-emerald-300" : "bg-amber-300")} />
+          {saved ? "All changes saved" : "Unsaved changes"}
         </span>
+        <Button onClick={() => void saveNow()} disabled={saving || saved}>
+          <Save className="mr-2 h-4 w-4" /> {saving ? "Saving…" : saved ? "Saved" : "Save"}
+        </Button>
       </div>
 
       <div className="grid gap-4 lg:grid-cols-[1.15fr_0.85fr]">
