@@ -589,7 +589,7 @@ export function ExportPanel({ api }: { api: EditorApi }) {
 
       <div className="space-y-2">
         <Toggle label="Burn captions into video" checked={e.burnCaptions} onChange={(v) => set({ burnCaptions: v })} />
-        <Toggle label="Watermark" checked={e.watermark} onChange={(v) => set({ watermark: v })} />
+        <Toggle label="CoLateral AI watermark" checked={e.watermark} onChange={(v) => set({ watermark: v })} />
       </div>
 
       <Field label="Filename">

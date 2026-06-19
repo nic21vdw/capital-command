@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   buildAss,
+  buildWatermarkDialogue,
   chunkWords,
   formatSrtTime,
   formatVttTime,
@@ -160,5 +161,18 @@ describe("buildAss", () => {
   it("emits karaoke \\k tags when highlighting the current word", () => {
     const ass = buildAss([seg("a", 0, 2, "hello world")], defaultCaptionStyle, 1080, 1920, true);
     expect(ass).toContain("\\k");
+  });
+});
+
+describe("buildWatermarkDialogue", () => {
+  it("renders a bottom-left CoLateral AI lockup spanning the given range", () => {
+    const line = buildWatermarkDialogue(1920, 0, 12.5);
+    // Two dialogue lines (badge + wordmark) on the Watermark style, layer 2.
+    const lines = line.split("\n");
+    expect(lines).toHaveLength(2);
+    expect(lines[0]).toMatch(/^Dialogue: 2,0:00:00.00,0:00:12.50,Watermark,/);
+    expect(lines[0]).toContain("\\an1"); // badge anchored bottom-left
+    expect(lines[0]).toContain("\\p1"); // drawn purple badge
+    expect(lines[1]).toContain("CoLateral AI");
   });
 });
