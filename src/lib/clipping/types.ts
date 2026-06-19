@@ -3,13 +3,13 @@ export type ClipJobStatus = "queued" | "processing" | "done" | "error";
 export type ClipJobStage = "downloading" | "analyzing" | "selecting" | "rendering" | "finished";
 
 export type ClipScoreBreakdown = {
-  /** Loudness of the opening seconds vs the whole stream (0-100). */
+  /** Strength of the opening line — question/number/curiosity wording blended with opening loudness (0-100). */
   hook: number;
-  /** Energy variance inside the clip — proxy for pacing (0-100). */
+  /** Delivery liveliness — spoken words-per-second blended with energy variation (0-100). */
   pacing: number;
-  /** How cleanly the clip starts/ends on natural pauses (0-100). */
+  /** How self-contained the clip is — complete sentence boundaries and no dangling references, plus pause snapping (0-100). */
   standalone: number;
-  /** Overall loudness percentile of the clip (0-100). */
+  /** Emotional punch — overall loudness blended with emphatic language (0-100). */
   intensity: number;
 };
 
@@ -21,6 +21,8 @@ export type ClipCandidate = {
   score: number;
   breakdown: ClipScoreBreakdown;
   rationale: string;
+  /** First spoken words of the clip, shown to explain the hook score. */
+  hookQuote?: string;
   /** Vertical 9:16 (Shorts/Reels/TikTok) output filename, set once rendered. */
   file?: string;
 };

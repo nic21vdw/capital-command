@@ -1,5 +1,7 @@
 import { runFfmpeg } from "@/lib/clipping/ffmpeg";
+import { analyzeTranscript, densityScore } from "@/lib/clipping/text-signals";
 import type { ClipCandidate, ClipScoreBreakdown } from "@/lib/clipping/types";
+import type { CaptionSegment } from "@/types/domain";
 
 export type EnergyWindow = {
   /** Window start time in seconds. */
@@ -122,7 +124,8 @@ function round1(value: number) {
 export function selectCandidates(
   windows: EnergyWindow[],
   silences: SilenceRange[],
-  durationSec: number
+  durationSec: number,
+  captions: CaptionSegment[] = []
 ): ClipCandidate[] {
   if (windows.length === 0) return fallbackCandidates(durationSec, "No audio energy data was available");
 
@@ -186,26 +189,59 @@ export function selectCandidates(
       ? opening.reduce((sum, w) => sum + w.rms, 0) / opening.length
       : mean;
 
-    const breakdown: ClipScoreBreakdown = {
-      hook: Math.round(percentileOf(sortedRms, openingMean)),
-      pacing: Math.round(Math.min(100, Math.sqrt(variance) * 14)),
-      standalone: (startSnapped ? 50 : 20) + (endSnapped ? 50 : 20),
-      intensity: Math.round(percentileOf(sortedRms, mean))
-    };
-    breakdown.standalone = Math.min(100, breakdown.standalone);
+    // Audio-only measurements (always available).
+    const openingLoudness = Math.round(percentileOf(sortedRms, openingMean));
+    const loudnessPercentile = Math.round(percentileOf(sortedRms, mean));
+    const varianceScore = Math.round(Math.min(100, Math.sqrt(variance) * 14));
+    const boundaryScore = Math.min(100, (startSnapped ? 50 : 20) + (endSnapped ? 50 : 20));
+
+    // Content measurements from the transcript, when captions cover this clip.
+    const text = analyzeTranscript(captions, start, end);
+
+    // Blend the two so each score reflects *what is said* and *how it sounds*.
+    // With no transcript, every weight collapses to the audio signal alone.
+    const breakdown: ClipScoreBreakdown = text.hasText
+      ? {
+          hook: Math.round(text.hook * 0.65 + openingLoudness * 0.35),
+          pacing: Math.round(densityScore(text.wordsPerSecond) * 0.6 + varianceScore * 0.4),
+          standalone: Math.round(text.standalone * 0.7 + boundaryScore * 0.3),
+          intensity: Math.round(loudnessPercentile * 0.6 + text.intensity * 0.4)
+        }
+      : {
+          hook: openingLoudness,
+          pacing: varianceScore,
+          standalone: boundaryScore,
+          intensity: loudnessPercentile
+        };
+
     const score = Math.round(
       breakdown.hook * 0.35 + breakdown.intensity * 0.3 + breakdown.pacing * 0.2 + breakdown.standalone * 0.15
     );
 
-    const rationaleParts = [
-      `Opens at the ${breakdown.hook}th loudness percentile of the stream`,
-      breakdown.pacing >= 55 ? "high energy variation suggests fast pacing" : "steady delivery throughout",
-      startSnapped && endSnapped
-        ? "starts and ends on natural pauses"
-        : startSnapped || endSnapped
-          ? "one boundary lands on a natural pause"
-          : "boundaries were energy-based (no clean pause nearby)"
-    ];
+    const rationaleParts: string[] = [];
+    if (text.hasText) {
+      rationaleParts.push(`Opens with “${text.opening}…”`);
+      rationaleParts.push(`about ${text.wordsPerSecond.toFixed(1)} words/sec`);
+      for (const note of text.notes.slice(0, 2)) rationaleParts.push(note);
+      rationaleParts.push(
+        breakdown.standalone >= 70
+          ? "reads as a complete, self-contained thought"
+          : breakdown.standalone >= 45
+            ? "mostly self-contained — may need a tighter start or end"
+            : "leans on surrounding context — trim to a cleaner sentence boundary"
+      );
+    } else {
+      rationaleParts.push(`Opens at the ${openingLoudness}th loudness percentile of the stream`);
+      rationaleParts.push(varianceScore >= 55 ? "high energy variation suggests fast pacing" : "steady delivery throughout");
+      rationaleParts.push(
+        startSnapped && endSnapped
+          ? "starts and ends on natural pauses"
+          : startSnapped || endSnapped
+            ? "one boundary lands on a natural pause"
+            : "boundaries were energy-based (no clean pause nearby)"
+      );
+      rationaleParts.push("(no transcript available — scored from audio energy only)");
+    }
 
     candidates.push({
       id: `clip-${candidates.length + 1}`,
@@ -213,7 +249,8 @@ export function selectCandidates(
       end: round1(end),
       score,
       breakdown,
-      rationale: rationaleParts.join("; ") + "."
+      rationale: rationaleParts.join("; ") + ".",
+      hookQuote: text.hasText ? text.opening : undefined
     });
   }
 

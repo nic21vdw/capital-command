@@ -145,12 +145,24 @@ async function runPipeline(job: ClipJob, url: string) {
   const durationSec = meta.durationSec || (await probeDuration(audioPath));
   await update(job, { durationSec: Math.round(durationSec) });
 
-  // 2. Pick the strongest moments from audio energy (fully offline).
+  // 2. Pick the strongest moments from audio energy + the transcript.
   await update(job, { stage: "analyzing", progress: 32 });
   const [windows, silences] = await Promise.all([extractEnergy(audioPath), detectSilences(audioPath)]);
 
+  // Pull the source's automatic captions now so scoring can read what is said,
+  // not just how loud it is. Failure is non-fatal: scoring falls back to audio.
+  let captions: import("@/types/domain").CaptionSegment[] = [];
+  try {
+    captions = await fetchAutoCaptions(url, workDir(job.id));
+    await update(job, { sourceCaptions: captions, captionsFetchedAt: new Date().toISOString() });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    await update(job, { captionsError: message });
+    job.notices.push(`No transcript available, so clips were scored from audio energy only. (${message})`);
+  }
+
   await update(job, { stage: "selecting", progress: 46 });
-  job.clips = selectCandidates(windows, silences, durationSec);
+  job.clips = selectCandidates(windows, silences, durationSec, captions);
   await persistJobs();
 
   // 3. Fetch each chosen range from the source and render a 9:16 short.
