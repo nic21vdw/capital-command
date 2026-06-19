@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { RotateCw } from "lucide-react";
+import { FileVideo, RotateCw } from "lucide-react";
 import { aspectDimensions } from "@/lib/clipping/editor";
 import { cn } from "@/lib/utils";
 import type { CaptionStyle, ClipProject, Overlay } from "@/types/domain";
@@ -219,6 +219,10 @@ export function EditorPreview({
   const bgRef = useRef<HTMLVideoElement>(null);
   const frameRef = useRef<HTMLDivElement>(null);
   const [frameSize, setFrameSize] = useState({ w: 360, h: 640 });
+  // Track which src failed rather than a bare boolean, so changing the source
+  // automatically clears the error without an effect or a ref read in render.
+  const [erroredSrc, setErroredSrc] = useState<string | null>(null);
+  const loadError = erroredSrc === videoSrc;
 
   // Measure the rendered frame so overlay/caption sizing is pixel-accurate.
   useEffect(() => {
@@ -288,9 +292,25 @@ export function EditorPreview({
           ref={fgRef}
           src={videoSrc}
           playsInline
+          onError={() => setErroredSrc(videoSrc)}
+          onLoadedData={() => setErroredSrc((s) => (s === videoSrc ? null : s))}
           className="absolute inset-0 h-full w-full object-contain"
           style={{ transform: `scale(${scale}) translate(${offsetX * 25}%, ${offsetY * 25}%)` }}
         />
+
+        {/* Clear, actionable state when the clip's video can't be loaded — far
+            better than a silent black frame plus an uncaught media error. */}
+        {loadError && (
+          <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-black/80 px-6 text-center">
+            <FileVideo className="h-7 w-7 text-[var(--accent)]" />
+            <p className="text-sm font-semibold text-white">This clip&apos;s video isn&apos;t available</p>
+            <p className="max-w-xs text-xs text-[var(--muted-foreground)]">
+              The rendered file couldn&apos;t be loaded — it may have been removed from the server or the render never
+              finished. Re-render the clip in the Clip Creator, then start a new project. Captions, overlays, and export
+              settings on this project are still saved.
+            </p>
+          </div>
+        )}
 
         {/* Safe-area guide. */}
         <div className="pointer-events-none absolute inset-[5%] rounded-md border border-dashed border-white/15" />

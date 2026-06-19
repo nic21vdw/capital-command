@@ -111,8 +111,14 @@ export function ClipEditor({ initialProject, onClose }: { initialProject: ClipPr
     const v = videoRef.current;
     if (!v) return;
     if (v.paused) {
-      void v.play();
-      setPlaying(true);
+      // A missing/unsupported source rejects this promise; swallow it so it does
+      // not surface as an uncaught NotSupportedError in the dev overlay.
+      v.play()
+        .then(() => setPlaying(true))
+        .catch(() => {
+          setPlaying(false);
+          toast.error("This clip's video could not be played. The rendered file may be missing.");
+        });
     } else {
       v.pause();
       setPlaying(false);

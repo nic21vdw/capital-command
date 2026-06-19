@@ -8,6 +8,11 @@ import { getJob, outputDir } from "@/lib/clipping/jobs";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
+/**
+ * Serves a rendered clip file with HTTP Range support so the <video> element can
+ * seek and stream instead of re-downloading the whole file on every scrub. Range
+ * support is what keeps preview playback responsive in the Clip Editor.
+ */
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ jobId: string; fileName: string }> }
@@ -33,13 +38,11 @@ export async function GET(
   }
 
   const download = request.nextUrl.searchParams.get("download") === "1";
-  const disposition: Record<string, string> = download
-    ? { "Content-Disposition": `attachment; filename="${jobId}-${fileName}"` }
-    : {};
 
-  // Honour HTTP Range requests so the editor's <video> element can start playing
-  // and seek immediately instead of downloading the entire clip first. Without
-  // this, opening a clip in the editor blocks until the whole file transfers.
+  // Honour HTTP Range requests with a 206 partial response so the editor's
+  // <video> element can start playing and seek immediately instead of
+  // downloading the entire clip first, and large clips never load fully into
+  // browser memory.
   const range = request.headers.get("range");
   if (range && !download) {
     const match = /bytes=(\d*)-(\d*)/.exec(range);
@@ -50,8 +53,8 @@ export async function GET(
     if (start > end) {
       return new NextResponse(null, { status: 416, headers: { "Content-Range": `bytes */${size}` } });
     }
-    const partial = Readable.toWeb(createReadStream(filePath, { start, end })) as ReadableStream;
-    return new NextResponse(partial, {
+    const stream = Readable.toWeb(createReadStream(filePath, { start, end })) as ReadableStream;
+    return new NextResponse(stream, {
       status: 206,
       headers: {
         "Content-Type": "video/mp4",
@@ -63,14 +66,14 @@ export async function GET(
     });
   }
 
+  const headers: Record<string, string> = {
+    "Content-Type": "video/mp4",
+    "Content-Length": String(size),
+    "Accept-Ranges": "bytes",
+    "Cache-Control": "private, max-age=3600"
+  };
+  if (download) headers["Content-Disposition"] = `attachment; filename="${jobId}-${fileName}"`;
+
   const stream = Readable.toWeb(createReadStream(filePath)) as ReadableStream;
-  return new NextResponse(stream, {
-    headers: {
-      "Content-Type": "video/mp4",
-      "Content-Length": String(size),
-      "Accept-Ranges": "bytes",
-      "Cache-Control": "private, max-age=3600",
-      ...disposition
-    }
-  });
+  return new NextResponse(stream, { headers });
 }
