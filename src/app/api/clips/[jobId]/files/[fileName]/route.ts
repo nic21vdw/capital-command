@@ -32,13 +32,58 @@ export async function GET(
     return NextResponse.json({ error: "The file no longer exists on disk." }, { status: 404 });
   }
 
-  const stream = Readable.toWeb(createReadStream(filePath)) as ReadableStream;
   const download = request.nextUrl.searchParams.get("download") === "1";
+  const baseHeaders: Record<string, string> = {
+    "Content-Type": "video/mp4",
+    // Without this, inline <video> playback in Chrome often drops the audio
+    // track because it can't range-fetch the MP4's audio sample tables.
+    "Accept-Ranges": "bytes",
+    ...(download ? { "Content-Disposition": `attachment; filename="${jobId}-${fileName}"` } : {})
+  };
+
+  // Honour HTTP Range requests so browsers can stream and seek the clip
+  // (and reliably play its audio) without downloading the whole file first.
+  const range = request.headers.get("range");
+  if (range) {
+    const match = /^bytes=(\d*)-(\d*)$/.exec(range.trim());
+    if (match && (match[1] !== "" || match[2] !== "")) {
+      let start = match[1] === "" ? NaN : Number(match[1]);
+      let end = match[2] === "" ? NaN : Number(match[2]);
+
+      if (Number.isNaN(start)) {
+        // Suffix range: bytes=-N → the final N bytes.
+        start = Math.max(0, size - end);
+        end = size - 1;
+      } else if (Number.isNaN(end)) {
+        end = size - 1;
+      }
+
+      if (start > end || start >= size) {
+        return new NextResponse(null, {
+          status: 416,
+          headers: { "Content-Range": `bytes */${size}`, "Accept-Ranges": "bytes" }
+        });
+      }
+
+      end = Math.min(end, size - 1);
+      const chunkSize = end - start + 1;
+      const partial = Readable.toWeb(createReadStream(filePath, { start, end })) as ReadableStream;
+      return new NextResponse(partial, {
+        status: 206,
+        headers: {
+          ...baseHeaders,
+          "Content-Range": `bytes ${start}-${end}/${size}`,
+          "Content-Length": String(chunkSize)
+        }
+      });
+    }
+  }
+
+  const stream = Readable.toWeb(createReadStream(filePath)) as ReadableStream;
   return new NextResponse(stream, {
     headers: {
-      "Content-Type": "video/mp4",
-      "Content-Length": String(size),
-      ...(download ? { "Content-Disposition": `attachment; filename="${jobId}-${fileName}"` } : {})
+      ...baseHeaders,
+      "Content-Length": String(size)
     }
   });
 }
