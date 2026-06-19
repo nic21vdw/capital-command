@@ -6,7 +6,8 @@ import { downloadAudio, downloadSection, fetchVideoMeta } from "@/lib/clipping/d
 import { probeDuration } from "@/lib/clipping/ffmpeg";
 import { renderVertical } from "@/lib/clipping/render";
 import { fetchAutoCaptions } from "@/lib/clipping/transcription";
-import type { ClipJob } from "@/lib/clipping/types";
+import { selectByTranscript, transcriptSelectionConfigured } from "@/lib/clipping/transcript-select";
+import type { ClipCandidate, ClipJob } from "@/lib/clipping/types";
 
 const clipsRoot = path.join(process.cwd(), "data", "clips");
 const jobsFile = path.join(clipsRoot, "jobs.json");
@@ -127,8 +128,9 @@ export async function createJobFromUrl(url: string, topic: string | undefined): 
 /**
  * The whole pipeline for a pasted VOD URL:
  *   1. Download just the audio (fast even for multi-hour streams).
- *   2. Score the loudest, best-paced moments offline.
- *   3. Fetch each chosen range and render it as a 9:16 short.
+ *   2. Read the FULL transcript and pick the best moments from anywhere in the
+ *      stream (Claude), falling back to whole-stream energy analysis offline.
+ *   3. Fetch each chosen range and render it as a 9:16 short — in parallel.
  */
 async function runPipeline(job: ClipJob, url: string) {
   // 1. Read metadata, then grab the audio track for analysis.
@@ -145,30 +147,55 @@ async function runPipeline(job: ClipJob, url: string) {
   const durationSec = meta.durationSec || (await probeDuration(audioPath));
   await update(job, { durationSec: Math.round(durationSec) });
 
-  // 2. Pick the strongest moments from audio energy + the transcript.
-  await update(job, { stage: "analyzing", progress: 32 });
-  const [windows, silences] = await Promise.all([extractEnergy(audioPath), detectSilences(audioPath)]);
-
-  // Pull the source's automatic captions now so scoring can read what is said,
-  // not just how loud it is. Failure is non-fatal: scoring falls back to audio.
-  let captions: import("@/types/domain").CaptionSegment[] = [];
+  // 2. Read the whole transcript and pick the best moments from across the
+  //    entire stream. Captions double as the editor's source captions.
+  await update(job, { stage: "analyzing", progress: 30 });
+  let transcript: ClipJob["sourceCaptions"] = [];
   try {
-    captions = await fetchAutoCaptions(url, workDir(job.id));
-    await update(job, { sourceCaptions: captions, captionsFetchedAt: new Date().toISOString() });
+    transcript = await fetchAutoCaptions(url, workDir(job.id));
+    if (transcript.length > 0) {
+      await update(job, {
+        sourceCaptions: transcript,
+        captionsFetchedAt: new Date().toISOString(),
+        captionsError: undefined
+      });
+    }
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    await update(job, { captionsError: message });
-    job.notices.push(`No transcript available, so clips were scored from audio energy only. (${message})`);
+    await update(job, { captionsError: error instanceof Error ? error.message : String(error) });
   }
 
-  await update(job, { stage: "selecting", progress: 46 });
-  job.clips = selectCandidates(windows, silences, durationSec, captions);
+  await update(job, { stage: "selecting", progress: 42 });
+  let candidates: ClipCandidate[] | null = null;
+  if (transcript && transcript.length > 0) {
+    candidates = await selectByTranscript(transcript, durationSec, job.topic);
+  }
+
+  if (!candidates || candidates.length === 0) {
+    // No transcript or no API key: score moments from audio energy across the
+    // whole stream instead. We still pass the transcript (if any) so scoring
+    // can read what is said, not just how loud it is.
+    const [windows, silences] = await Promise.all([extractEnergy(audioPath), detectSilences(audioPath)]);
+    candidates = selectCandidates(windows, silences, durationSec, transcript ?? []);
+    if (transcript && transcript.length > 0 && !transcriptSelectionConfigured()) {
+      job.notices.push(
+        "Set ANTHROPIC_API_KEY to pick clips by reading the full transcript — used whole-stream audio-energy analysis instead."
+      );
+    } else if (!transcript || transcript.length === 0) {
+      job.notices.push(
+        "No transcript was available for this source — picked moments from whole-stream audio energy instead."
+      );
+    }
+  }
+  job.clips = candidates;
   await persistJobs();
 
-  // 3. Fetch each chosen range from the source and render a 9:16 short.
-  for (let i = 0; i < job.clips.length; i++) {
+  // 3. Fetch each chosen range from the source and render a 9:16 short. These
+  //    are network- and CPU-bound, so we run a few at once instead of waiting
+  //    for each clip to finish before starting the next.
+  let completed = 0;
+  const total = job.clips.length;
+  const renderOne = async (i: number) => {
     const clip = job.clips[i];
-    await update(job, { stage: "rendering", progress: 50 + Math.round((i / job.clips.length) * 48) });
     const segPath = path.join(workDir(job.id), `seg-${String(i + 1).padStart(2, "0")}.mp4`);
     try {
       const produced = await downloadSection(url, clip.start, clip.end, segPath);
@@ -181,8 +208,21 @@ async function runPipeline(job: ClipJob, url: string) {
         `Clip ${i + 1} (${Math.round(clip.start)}s) could not be rendered: ${error instanceof Error ? error.message : String(error)}.`
       );
     }
-    await persistJobs();
-  }
+    completed += 1;
+    await update(job, { stage: "rendering", progress: 50 + Math.round((completed / total) * 48) });
+  };
+
+  await update(job, { stage: "rendering", progress: 50 });
+  const concurrency = Math.min(3, total);
+  let nextIndex = 0;
+  const worker = async () => {
+    while (true) {
+      const i = nextIndex++;
+      if (i >= total) break;
+      await renderOne(i);
+    }
+  };
+  await Promise.all(Array.from({ length: Math.max(1, concurrency) }, worker));
 
   // Optionally mirror the finished clips into a Google Drive-synced folder.
   // No API or sign-in: this just copies files into a local folder that Google

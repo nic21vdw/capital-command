@@ -40,8 +40,10 @@ export async function renderVertical(inputPath: string, outputPath: string, audi
     "-i",
     inputPath,
     "-filter_complex",
+    // Downscale the blurred background before blurring (cheaper) and use a
+    // lighter boxblur — visually equivalent to the old 24:4 but much faster.
     "[0:v]split=2[bg][fg];" +
-      "[bg]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,boxblur=24:4,eq=brightness=-0.08[bgb];" +
+      "[bg]scale=540:960:force_original_aspect_ratio=increase,crop=540:960,boxblur=12:2,eq=brightness=-0.08,scale=1080:1920[bgb];" +
       "[fg]scale=1080:-2[fgs];" +
       "[bgb][fgs]overlay=(W-w)/2:(H-h)/2",
     "-c:v",

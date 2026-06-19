@@ -13,6 +13,9 @@ export type EnergyWindow = {
 export type SilenceRange = { start: number; end: number };
 
 const WINDOW_SEC = 0.5;
+// downloadAudio always produces 16 kHz mono, so a fixed-size frame of this many
+// samples is exactly WINDOW_SEC long.
+const WINDOW_SAMPLES = Math.round(WINDOW_SEC * 16000);
 const MIN_CLIP_SEC = 15;
 const MAX_CLIP_SEC = 60;
 const TARGET_CLIP_SEC = 38;
@@ -27,7 +30,11 @@ export async function extractEnergy(inputPath: string): Promise<EnergyWindow[]> 
     "-map",
     "a:0",
     "-af",
-    `astats=metadata=1:reset=${WINDOW_SEC},ametadata=mode=print:key=lavfi.astats.Overall.RMS_level:file=-`,
+    // Re-chunk the audio into fixed WINDOW_SEC frames, then reset astats every
+    // frame so each printed RMS describes exactly one window. (astats' own
+    // `reset` is a FRAME count, not seconds — passing seconds left stats
+    // cumulative, which biased every peak toward the start of the stream.)
+    `asetnsamples=n=${WINDOW_SAMPLES}:p=0,astats=metadata=1:reset=1,ametadata=mode=print:key=lavfi.astats.Overall.RMS_level:file=-`,
     "-f",
     "null",
     "-"

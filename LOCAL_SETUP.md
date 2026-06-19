@@ -81,12 +81,16 @@ Both tools live in the sidebar and work out of the box:
 
 - **Thumbnail Generator** runs entirely in your browser — no setup needed.
 - **Clipping Agent** turns a livestream VOD into ready-to-post shorts, with
-  **no uploads and no API keys**. Paste a **YouTube or Twitch VOD link** and it:
+  **no uploads needed**. Paste a **YouTube or Twitch VOD link** and it:
   1. Downloads just the audio (so even a 90-minute stream is fast and never
      needs the whole multi-GB file).
-  2. Finds the strongest moments by audio energy.
+  2. Reads the **full transcript end-to-end** and picks the strongest
+     self-contained moments from **anywhere in the stream** (not just the start).
+     This uses Claude when `ANTHROPIC_API_KEY` is set in `.env`; without a key it
+     falls back to whole-stream audio-energy analysis (still fully offline).
   3. Downloads only those ranges and renders each as a **9:16 vertical short**
-     (Shorts/Reels/TikTok).
+     (Shorts/Reels/TikTok), rendering several clips in parallel so the whole
+     job finishes much faster.
 
   Processing happens locally with FFmpeg — a static build is installed
   automatically with `npm install` (the launcher does this for you). The first

@@ -201,6 +201,12 @@ export async function downloadAudio(
 /**
  * Downloads a single time range [startSec, endSec] of the source as an MP4,
  * capped at 720p so it stays fast and small. Returns the produced file path.
+ *
+ * We deliberately do NOT pass --force-keyframes-at-cuts: that flag re-encodes
+ * the whole section just to land cuts on exact frames, which is the single
+ * biggest slowdown per clip. yt-dlp instead stream-copies from the nearest
+ * keyframe (much faster), and the final 9:16 render re-encodes anyway, so the
+ * precise trim is applied there.
  */
 export async function downloadSection(
   url: string,
@@ -219,7 +225,6 @@ export async function downloadSection(
       "b[height<=720][ext=mp4]/b[height<=720]/bv*[height<=720]+ba/b",
       "--download-sections",
       `*${startSec.toFixed(2)}-${endSec.toFixed(2)}`,
-      "--force-keyframes-at-cuts",
       "--no-playlist",
       "--no-part",
       "--merge-output-format",
