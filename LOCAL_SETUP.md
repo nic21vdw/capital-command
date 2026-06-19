@@ -122,3 +122,48 @@ Your local app data (`data\capital-command.json`), installed packages
 (`node_modules`), and your `.env` settings stay on your PC and are **not**
 overwritten when the launcher updates the code, so your settings and data are
 preserved across updates.
+
+Under the hood there is **no database** — everything the dashboard remembers
+(jobs, settings, tracked content, and so on) lives in that single
+`data\capital-command.json` file. That makes backups easy: copy that one file
+somewhere safe and you've saved everything.
+
+---
+
+## Backing up your data to Google Drive
+
+Because all your data is one file, it's worth keeping a copy off your PC in case
+the file is ever lost or corrupted. There's a one-click backup that drops a
+timestamped snapshot into your Google Drive — **no API keys and no sign-in**, the
+same way the optional clip-syncing works.
+
+### One-time setup
+1. Install **Google Drive for Desktop**
+   (<https://www.google.com/drive/download/>) and sign in, if you haven't
+   already. It adds a synced folder on your PC (for example `G:\My Drive`).
+2. In your `.env`, set `BACKUP_DRIVE_DIR` to a path inside that synced folder:
+   - Windows: `BACKUP_DRIVE_DIR=G:\My Drive`
+   - (If you already set `CLIPS_DRIVE_DIR`, you can skip this — the backup reuses
+     it automatically.)
+
+### Each time you want a backup
+Double-click **`backup-to-drive.bat`** (in the project folder, next to the
+launcher). It copies your data to:
+
+```
+<your Drive folder>\Nic Vandewetering Backups\capital-command-<date>_<time>.json
+```
+
+Google Drive for Desktop then syncs that file to the cloud automatically. Do this
+whenever you like — once a month is plenty. The most recent 24 snapshots are
+kept and older ones are tidied up automatically.
+
+> If you leave `BACKUP_DRIVE_DIR` (and `CLIPS_DRIVE_DIR`) blank, the backup still
+> runs but saves into a local `backups\` folder inside the project — handy, but
+> it stays on this PC only and isn't synced to the cloud.
+
+### Restoring from a backup
+To roll back to a saved snapshot, close the app, then copy the snapshot file from
+your Drive folder back to `data\capital-command.json` (rename it to exactly
+`capital-command.json`, replacing the current one). Start the app again and your
+data is back to that point in time.
