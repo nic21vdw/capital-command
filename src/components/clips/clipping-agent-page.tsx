@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { AlertTriangle, Check, Download, Film, Link as LinkIcon, Loader2, SquarePlay, Trash2 } from "lucide-react";
+import { AlertTriangle, Check, Download, Film, Info, Link as LinkIcon, Loader2, SquarePlay, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { useAppData } from "@/components/providers/app-provider";
 import { makeClipProject } from "@/lib/clipping/editor";
@@ -29,6 +29,42 @@ const STEPS: Array<{ label: string; stages: ClipJobStage[] }> = [
   { label: "Analyze", stages: ["analyzing", "selecting"] },
   { label: "Render", stages: ["rendering"] },
   { label: "Done", stages: ["finished"] }
+];
+
+/** Plain-language explanation of every score, surfaced in the dashboard. */
+const SCORE_GUIDE: Array<{ key: keyof ClipCandidate["breakdown"]; label: string; measures: string; improve: string }> = [
+  {
+    key: "hook",
+    label: "Hook",
+    measures:
+      "How attention-grabbing the first seconds are. Reads the opening line of the transcript for questions, numbers, “you”, and curiosity words, blended with how loud the open is versus the stream.",
+    improve:
+      "Trim the start so the clip opens on a question, a bold claim, or a number — not filler like “so…”, “um”, or mid-thought."
+  },
+  {
+    key: "pacing",
+    label: "Pacing",
+    measures:
+      "Delivery liveliness. Combines spoken words-per-second (≈2.6 wps scores highest) with how much the audio energy rises and falls. Long silent or monotone stretches pull it down.",
+    improve:
+      "Pick moments with energetic, varied delivery and few dead-air gaps. Cut long pauses and rambling sections."
+  },
+  {
+    key: "standalone",
+    label: "Standalone",
+    measures:
+      "Whether the clip makes sense on its own. Checks that it starts and ends on complete sentences and does NOT open on a back-reference like “this”, “that”, or “and”, plus whether the cut lands on a natural pause.",
+    improve:
+      "Move the start/end so the clip begins a new sentence and finishes a full thought. Avoid opening on a word that points to something said earlier."
+  },
+  {
+    key: "intensity",
+    label: "Intensity",
+    measures:
+      "Emotional punch. Overall loudness percentile of the clip blended with emphatic language (exclamations, ALL-CAPS, words like “insane”, “never”, “huge”).",
+    improve:
+      "Choose peaks where the speaker is fired up, raising their voice, or making an emphatic point rather than calmly explaining."
+  }
 ];
 
 function formatTimestamp(seconds: number) {
@@ -155,7 +191,7 @@ export function ClippingAgentPage() {
       <PageHeader
         eyebrow="Creator Tools"
         title="Auto Clipper"
-        description="Paste a YouTube or Twitch VOD link. The agent finds the strongest moments by audio energy and renders each as a ready-to-post 9:16 short — no uploads, no API keys."
+        description="Paste a YouTube or Twitch VOD link. The agent reads the transcript and the audio energy to find the strongest moments, scores each on Hook, Pacing, Standalone, and Intensity, and renders them as ready-to-post 9:16 shorts — no uploads, no API keys."
       />
 
       <div className="grid gap-4 xl:grid-cols-[0.85fr_1.15fr]">
@@ -355,6 +391,8 @@ export function ClippingAgentPage() {
                     onEdit={() => void editClip(activeJob, clip, index)}
                   />
                 ))}
+
+              {activeJob.status === "done" && activeJob.clips.some((clip) => clip.score > 0) && <ScoreLegend />}
             </>
           )}
         </div>
@@ -393,20 +431,13 @@ function ClipCard({ clip, index, jobId, onEdit }: { clip: ClipCandidate; index: 
 
           {clip.score > 0 && (
             <div className="grid grid-cols-2 gap-x-6 gap-y-2 sm:grid-cols-4">
-              {(
-                [
-                  ["Hook", clip.breakdown.hook],
-                  ["Pacing", clip.breakdown.pacing],
-                  ["Standalone", clip.breakdown.standalone],
-                  ["Intensity", clip.breakdown.intensity]
-                ] as const
-              ).map(([label, value]) => (
-                <div key={label}>
+              {SCORE_GUIDE.map(({ key, label, measures, improve }) => (
+                <div key={key} title={`${measures}\n\nHow to raise it: ${improve}`}>
                   <div className="mb-1 flex items-center justify-between text-[11px] text-[var(--muted-foreground)]">
-                    <span>{label}</span>
-                    <span className="text-white">{value}</span>
+                    <span className="cursor-help underline decoration-dotted underline-offset-2">{label}</span>
+                    <span className="text-white">{clip.breakdown[key]}</span>
                   </div>
-                  <Progress value={value} className="h-1.5" />
+                  <Progress value={clip.breakdown[key]} className="h-1.5" />
                 </div>
               ))}
             </div>
@@ -428,6 +459,36 @@ function ClipCard({ clip, index, jobId, onEdit }: { clip: ClipCandidate; index: 
           )}
         </div>
       </div>
+    </Card>
+  );
+}
+
+/** Always-on reference explaining what every score means and how to raise it. */
+function ScoreLegend() {
+  return (
+    <Card>
+      <div className="flex items-center gap-2">
+        <Info className="h-4 w-4 text-[var(--accent)]" />
+        <h2 className="text-lg font-semibold text-white">How these scores work</h2>
+      </div>
+      <p className="mt-1 text-sm text-[var(--muted-foreground)]">
+        Each clip is rated 0–100 on four signals measured from its transcript and audio. The overall{" "}
+        <span className="text-white">Score</span> weights them Hook 35%, Intensity 30%, Pacing 20%, Standalone 15%.
+        When a source has no captions, scores fall back to audio energy only.
+      </p>
+      <dl className="mt-4 space-y-4">
+        {SCORE_GUIDE.map(({ key, label, measures, improve }) => (
+          <div key={key} className="rounded-2xl border border-white/10 bg-black/20 p-4">
+            <dt className="text-sm font-semibold text-white">{label}</dt>
+            <dd className="mt-1 text-xs leading-relaxed text-[var(--muted-foreground)]">
+              <span className="text-white/80">What it measures:</span> {measures}
+            </dd>
+            <dd className="mt-1.5 text-xs leading-relaxed text-[var(--muted-foreground)]">
+              <span className="text-[var(--accent)]">How to raise it:</span> {improve}
+            </dd>
+          </div>
+        ))}
+      </dl>
     </Card>
   );
 }
