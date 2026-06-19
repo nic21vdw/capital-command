@@ -154,7 +154,7 @@ export function ClippingAgentPage() {
     <div className="space-y-6">
       <PageHeader
         eyebrow="Creator Tools"
-        title="Clipping Agent"
+        title="Auto Clipper"
         description="Paste a YouTube or Twitch VOD link. The agent finds the strongest moments by audio energy and renders each as a ready-to-post 9:16 short — no uploads, no API keys."
       />
 
