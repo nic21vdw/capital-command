@@ -61,6 +61,33 @@ function CaptionLayer({ project, time, frameH }: { project: ClipProject; time: n
   );
 }
 
+function WatermarkLayer({ frameH }: { frameH: number }) {
+  const fs = Math.max(10, frameH * 0.03);
+  const badge = fs * 1.15;
+  return (
+    <div
+      className="pointer-events-none absolute flex items-center gap-[0.4em]"
+      style={{ left: `${frameH * 0.035}px`, bottom: `${frameH * 0.035}px`, opacity: 0.86 }}
+    >
+      <span
+        className="block"
+        style={{
+          width: badge,
+          height: badge,
+          borderRadius: badge * 0.28,
+          background: "linear-gradient(135deg, #a855f7, #7c3aed)"
+        }}
+      />
+      <span
+        className="font-bold leading-none"
+        style={{ fontSize: fs, color: "#ffffff", textShadow: "0 1px 2px rgba(0,0,0,0.5)" }}
+      >
+        CoLateral AI
+      </span>
+    </div>
+  );
+}
+
 function hexWithAlpha(hex: string, alpha: number): string {
   const clean = hex.replace("#", "");
   const r = parseInt(clean.slice(0, 2) || "00", 16);
@@ -280,6 +307,8 @@ export function EditorPreview({
         ))}
 
         <CaptionLayer project={project} time={time} frameH={frameH} />
+
+        {project.exportSettings.watermark && <WatermarkLayer frameH={frameH} />}
       </div>
     </div>
   );

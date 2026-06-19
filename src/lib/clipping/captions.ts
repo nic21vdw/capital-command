@@ -305,9 +305,12 @@ export function buildAss(
     "[V4+ Styles]",
     "Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding",
     `Style: Default,${style.fontFamily.split(",")[0].trim()},${fontSize},${primary},${assColor(style.highlightColor)},${outline},${back},${bold},0,0,0,100,100,0,0,${borderStyle},${style.outlineWidth},${style.shadow},${assAlignment(style)},40,40,${marginV},1`,
+    // Dedicated watermark style: drop-shadow outline (BorderStyle 1), never an
+    // opaque caption box, so the CoLateral lockup stays legible on any frame.
+    `Style: Watermark,${style.fontFamily.split(",")[0].trim()},${Math.max(10, Math.round(height * 0.03))},&H00FFFFFF,&H00FFFFFF,&H00000000,&H80000000,-1,0,0,0,100,100,0,0,1,2,2,1,40,40,40,1`,
     "",
     "[Events]",
-    "Format: Layer, Start, End, Style, MarginL, MarginR, MarginV, Effect, Text"
+    "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text"
   ];
 
   const events: string[] = [];
@@ -363,6 +366,40 @@ export function buildTextOverlayDialogue(
   const bold = opts.bold ? "\\b1" : "";
   const tag = `{\\an5\\pos(${px},${py})\\fs${fs}\\1c${color}${alpha}${rot}${bold}}`;
   return `Dialogue: 1,${formatAssTime(opts.start)},${formatAssTime(opts.end)},Default,,0,0,0,,${tag}${escapeAss(text)}`;
+}
+
+/** Brand colors for the CoLateral watermark. */
+const COLATERAL_PURPLE = "#a855f7";
+
+/**
+ * A bottom-left CoLateral watermark lockup — a purple rounded badge next to the
+ * "CoLateral AI" wordmark — burned for the whole clip. Emitted as two
+ * separately positioned ASS lines (badge \an1, wordmark \an4 vertically centered
+ * on the badge) so layout stays exact regardless of font metrics.
+ */
+export function buildWatermarkDialogue(height: number, start: number, end: number): string {
+  const pad = Math.round(height * 0.035);
+  const fs = Math.max(10, Math.round(height * 0.03));
+  const b = Math.round(fs * 1.15); // badge side
+  const gap = Math.round(fs * 0.4);
+  const r = Math.max(2, Math.round(b * 0.28)); // corner radius
+  const baseY = height - pad; // bottom of the badge
+  const midY = baseY - Math.round(b / 2); // vertical center of the badge
+  // Rounded square spanning x:[0,b], y:[-b,0]; with \an1 its bottom-left sits at pos.
+  const path =
+    `m ${r} ${-b} l ${b - r} ${-b} b ${b} ${-b} ${b} ${-b} ${b} ${-b + r} ` +
+    `l ${b} ${-r} b ${b} 0 ${b} 0 ${b - r} 0 ` +
+    `l ${r} 0 b 0 0 0 0 0 ${-r} ` +
+    `l 0 ${-b + r} b 0 ${-b} 0 ${-b} ${r} ${-b}`;
+  const purple = assColor(COLATERAL_PURPLE);
+  // \alpha keeps the lockup subtle; the Watermark style carries the outline/shadow.
+  const badge =
+    `Dialogue: 2,${formatAssTime(start)},${formatAssTime(end)},Watermark,,0,0,0,,` +
+    `{\\an1\\pos(${pad},${baseY})\\bord0\\shad0\\alpha&H22&\\1c${purple}\\p1}${path}`;
+  const wordmark =
+    `Dialogue: 2,${formatAssTime(start)},${formatAssTime(end)},Watermark,,0,0,0,,` +
+    `{\\an4\\pos(${pad + b + gap},${midY})\\alpha&H22&\\fs${fs}}CoLateral AI`;
+  return `${badge}\n${wordmark}`;
 }
 
 // --- Style presets ---------------------------------------------------------

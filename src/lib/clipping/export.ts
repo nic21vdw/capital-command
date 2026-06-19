@@ -1,6 +1,6 @@
 import { mkdir, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { buildAss, buildTextOverlayDialogue } from "@/lib/clipping/captions";
+import { buildAss, buildTextOverlayDialogue, buildWatermarkDialogue } from "@/lib/clipping/captions";
 import { hasAudioStream, probeDuration, runFfmpeg } from "@/lib/clipping/ffmpeg";
 import { outputDir, workDir } from "@/lib/clipping/jobs";
 import { reframeChain } from "@/lib/clipping/render";
@@ -104,7 +104,11 @@ function buildExportAss(spec: ExportSpec, w: number, h: number): string {
         h
       )
     );
-  return overlayLines.length ? `${captionDoc}${overlayLines.join("\n")}\n` : captionDoc;
+  const extra = [...overlayLines];
+  if (spec.settings.watermark) {
+    extra.push(buildWatermarkDialogue(h, 0, spec.baseDurationSec));
+  }
+  return extra.length ? `${captionDoc}${extra.join("\n")}\n` : captionDoc;
 }
 
 /** Escapes a filesystem path for use inside an ffmpeg filtergraph argument. */
