@@ -411,7 +411,7 @@ export const seedData: AppData = {
     }
   ],
   creatorProfile: {
-    channelName: "Capital Command",
+    channelName: "Nic Vandewetering",
     platform: "YouTube",
     subscribers: 740,
     totalViews: 92400,

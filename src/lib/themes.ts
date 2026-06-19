@@ -49,6 +49,15 @@ export const themePresets: ThemePresetDef[] = [
     accent: "#2fd08a"
   },
   {
+    id: "dracula",
+    label: "Dracula",
+    description: "Dark with a vibrant purple accent",
+    mode: "dark",
+    background: "#282a36",
+    surface: "#343746",
+    accent: "#bd93f9"
+  },
+  {
     id: "paper",
     label: "Paper",
     description: "Warm light, easy on the eyes",

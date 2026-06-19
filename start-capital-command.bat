@@ -1,9 +1,9 @@
 @echo off
 setlocal enabledelayedexpansion
-title Capital Command - Local Launcher
+title Nic Vandewetering - Local Launcher
 
 REM ============================================================
-REM  Capital Command - one-click local launcher (Windows)
+REM  Nic Vandewetering - one-click local launcher (Windows)
 REM
 REM  Double-click this file to:
 REM    1. Pull the latest changes from GitHub (the "main" branch)
@@ -19,7 +19,7 @@ cd /d "%~dp0"
 
 echo.
 echo ============================================
-echo   Capital Command - starting up
+echo   Nic Vandewetering - starting up
 echo ============================================
 echo.
 
@@ -44,9 +44,9 @@ if errorlevel 1 (
   exit /b 1
 )
 
-REM --- Make sure this folder is the Capital Command git repo ---
+REM --- Make sure this folder is the Nic Vandewetering git repo ---
 if not exist ".git" (
-  echo [ERROR] This folder is not a git checkout of Capital Command.
+  echo [ERROR] This folder is not a git checkout of Nic Vandewetering.
   echo Please follow the first-time steps in LOCAL_SETUP.md.
   echo.
   pause

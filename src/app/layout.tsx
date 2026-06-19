@@ -5,7 +5,7 @@ import { ThemePresetProvider, ThemePresetScript } from "@/components/providers/t
 import "@/app/globals.css";
 
 export const metadata: Metadata = {
-  title: "Capital Command",
+  title: "Nic Vandewetering",
   description: "A personal investment dashboard for tracking holdings, goals, and research."
 };
 

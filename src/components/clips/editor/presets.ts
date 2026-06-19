@@ -54,7 +54,7 @@ export function withFraming(clip: VideoClip, aspect: AspectRatio, framing: ClipF
 
 // --- Livestream layout presets -------------------------------------------
 // Each preset reframes the *same* source for vertical output of footage that
-// contains both a webcam and the Capital Command interface.
+// contains both a webcam and the Nic Vandewetering interface.
 
 export type LayoutPreset = {
   id: string;

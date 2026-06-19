@@ -21,7 +21,7 @@ const EXECUTION_INSTRUCTIONS = `EXECUTION INSTRUCTIONS FOR THIS SESSION
 6. Critique the three drafts for generic language, unsupported claims, and AI-sounding phrasing.
 7. Choose and refine the single strongest reply.
 8. Enter it into the X composer and re-read it alongside the original post.
-9. Post it, then come back and log it in Capital Command (Reply tab).
+9. Post it, then come back and log it in Nic Vandewetering (Reply tab).
 10. Report back: account replied to, a summary of the original post, the exact reply you posted, why this was the strongest opportunity, and one possible follow-up if the author replies.`;
 
 export async function generateSearchStrategy(

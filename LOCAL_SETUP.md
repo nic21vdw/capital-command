@@ -1,6 +1,6 @@
-# Running Capital Command locally on your PC
+# Running Nic Vandewetering locally on your PC
 
-This guide gets Capital Command running on your own Windows computer so you can
+This guide gets Nic Vandewetering running on your own Windows computer so you can
 open it in your browser, always loaded with the latest changes from the cloud.
 
 ## How it works (the short version)

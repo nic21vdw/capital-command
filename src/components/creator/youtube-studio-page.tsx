@@ -145,7 +145,7 @@ export function YouTubeStudioPage() {
           <span>Live from the YouTube API.</span>
         ) : (
           <span>
-            Showing the data you track in Capital Command. Connect the YouTube API (set{" "}
+            Showing the data you track in Nic Vandewetering. Connect the YouTube API (set{" "}
             <code className="rounded bg-white/10 px-1 py-0.5 text-xs text-white">YOUTUBE_API_KEY</code>) to pull these
             numbers automatically.
           </span>

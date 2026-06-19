@@ -124,7 +124,7 @@ export interface Expense {
   updatedAt: string;
 }
 
-export type ThemePreset = "slate" | "midnight" | "graphite" | "forest" | "paper" | "arctic";
+export type ThemePreset = "slate" | "midnight" | "graphite" | "forest" | "dracula" | "paper" | "arctic";
 
 export interface UserProfile {
   /** Display name shown in the profile bar. */

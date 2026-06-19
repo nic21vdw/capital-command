@@ -1,6 +1,6 @@
-# Capital Command
+# Nic Vandewetering
 
-Capital Command is a personal investment dashboard MVP built with Next.js, TypeScript, Tailwind CSS, and a local JSON persistence layer. It is designed for personal tracking and organization, not financial advice or trading.
+Nic Vandewetering is a personal investment dashboard MVP built with Next.js, TypeScript, Tailwind CSS, and a local JSON persistence layer. It is designed for personal tracking and organization, not financial advice or trading.
 
 ## Finance & Billing
 

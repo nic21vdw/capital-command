@@ -41,7 +41,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       const next = await readBootstrap();
       startTransition(() => setPayload(next));
     } catch {
-      toast.error("Unable to load Capital Command data.");
+      toast.error("Unable to load Nic Vandewetering data.");
     } finally {
       setLoading(false);
     }
