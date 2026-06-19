@@ -18,7 +18,7 @@ import { cn } from "@/lib/utils";
 
 const STAGE_LABELS: Record<ClipJobStage, string> = {
   downloading: "Downloading stream audio",
-  analyzing: "Analyzing audio energy",
+  analyzing: "Reading the transcript",
   selecting: "Selecting the best moments",
   rendering: "Rendering 9:16 clips",
   finished: "Done"
