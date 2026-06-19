@@ -33,7 +33,9 @@ export async function GET(
   }
 
   const download = request.nextUrl.searchParams.get("download") === "1";
-  const disposition = download ? { "Content-Disposition": `attachment; filename="${jobId}-${fileName}"` } : {};
+  const disposition: Record<string, string> = download
+    ? { "Content-Disposition": `attachment; filename="${jobId}-${fileName}"` }
+    : {};
 
   // Honour HTTP Range requests so the <video> element can seek. Without a 206
   // response the browser can't jump to an arbitrary position and snaps the
