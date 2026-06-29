@@ -22,7 +22,7 @@ if (Test-Path $pidFile) {
 
 Remove-Item $stdout, $stderr -ErrorAction SilentlyContinue
 
-$command = "cd /d `"$root`" && `"$node`" .\node_modules\next\dist\bin\next start --hostname 127.0.0.1 --port 3000 1>`"$stdout`" 2>`"$stderr`""
+$command = "cd /d `"$root`" && `"$node`" scripts\prepare-dev-cache.mjs && npm.cmd run build && `"$node`" .\node_modules\next\dist\bin\next start --hostname 127.0.0.1 --port 3000 1>`"$stdout`" 2>`"$stderr`""
 $psi = New-Object System.Diagnostics.ProcessStartInfo
 $psi.FileName = "C:\Windows\System32\cmd.exe"
 $psi.Arguments = "/c `"$command`""

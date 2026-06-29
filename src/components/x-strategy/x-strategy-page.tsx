@@ -198,11 +198,7 @@ function BriefTab({ analysis, week }: { analysis: XAnalysis; week: WeekStatus })
       const json = (await response.json()) as GenerateResponse;
       setBrief(json.sessionBrief);
       setReason(json.reason);
-      if (!json.configured) {
-        toast.warning("ANTHROPIC_API_KEY not set — built the brief without AI search suggestions.");
-      } else {
-        toast.success("Session brief ready.");
-      }
+      toast.success("Session brief ready.");
     } catch {
       toast.error("Could not generate the session brief.");
     } finally {

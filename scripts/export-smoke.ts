@@ -90,6 +90,8 @@ async function main() {
     jobId,
     sourceFile: "clip-base.mp4",
     baseDurationSec: 3,
+    trimStart: 0,
+    trimEnd: 3,
     reframe: { scale: 1, offsetX: 0, offsetY: 0 },
     captions,
     captionStyle: { ...defaultCaptionStyle, animation: "karaoke" },

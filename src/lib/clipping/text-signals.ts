@@ -163,9 +163,10 @@ export function analyzeTranscript(
   return { hasText: true, opening, wordsPerSecond, hook, standalone, intensity, notes };
 }
 
-/** Maps spoken words-per-second to a 0-100 "lively but legible" pacing score. */
+/** Maps spoken words-per-second to a 0-100 word-density score. */
 export function densityScore(wordsPerSecond: number): number {
   if (wordsPerSecond <= 0) return 0;
-  const ideal = 2.6; // conversational-but-energetic delivery
-  return clamp(100 - Math.abs(wordsPerSecond - ideal) * 28);
+  if (wordsPerSecond < 1.2) return clamp(wordsPerSecond * 42);
+  if (wordsPerSecond <= 3.4) return clamp(55 + (wordsPerSecond - 1.2) * 20);
+  return clamp(100 - (wordsPerSecond - 3.4) * 16);
 }

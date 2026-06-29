@@ -1,16 +1,25 @@
-import { mkdir, readFile, rm, unlink, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rename, rm, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { detectSilences, extractEnergy, selectCandidates } from "@/lib/clipping/analysis";
 import { copyClipsToDrive, driveDir } from "@/lib/clipping/drive";
 import { downloadAudio, downloadSection, fetchVideoMeta } from "@/lib/clipping/download";
 import { probeDuration } from "@/lib/clipping/ffmpeg";
-import { renderVertical } from "@/lib/clipping/render";
+import { CLIP_LAYOUTS, DEFAULT_CLIP_LAYOUT } from "@/lib/clipping/layouts";
+import { renderClipLayout } from "@/lib/clipping/render";
 import { fetchAutoCaptions } from "@/lib/clipping/transcription";
-import { selectByTranscript, transcriptSelectionConfigured } from "@/lib/clipping/transcript-select";
-import type { ClipCandidate, ClipJob } from "@/lib/clipping/types";
+import { selectByTranscript } from "@/lib/clipping/transcript-select";
+import type { ClipCandidate, ClipJob, ClipLayoutOverrides, ClipLayoutPreset } from "@/lib/clipping/types";
 
 const clipsRoot = path.join(process.cwd(), "data", "clips");
 const jobsFile = path.join(clipsRoot, "jobs.json");
+let persistQueue = Promise.resolve();
+
+const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+function isTransientReplaceError(error: unknown) {
+  const code = (error as NodeJS.ErrnoException).code;
+  return code === "EPERM" || code === "EACCES" || code === "EBUSY";
+}
 
 // Job state lives on globalThis: in Next dev each route gets its own module
 // graph, so plain module-level state would not be shared between the create
@@ -26,7 +35,18 @@ async function loadJobs() {
   if (g.__clipJobsLoaded) return;
   g.__clipJobsLoaded = true;
   try {
-    const raw = await readFile(jobsFile, "utf8");
+    let raw = "";
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      try {
+        raw = await readFile(jobsFile, "utf8");
+        JSON.parse(raw);
+        break;
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === "ENOENT") return;
+        if (attempt === 2) throw error;
+        await new Promise((resolve) => setTimeout(resolve, 40));
+      }
+    }
     for (const job of JSON.parse(raw) as ClipJob[]) {
       // Anything mid-flight when the server stopped can't resume.
       if (job.status === "processing" || job.status === "queued") {
@@ -41,9 +61,32 @@ async function loadJobs() {
 }
 
 async function persistJobs() {
-  await mkdir(clipsRoot, { recursive: true });
-  const list = [...jobs.values()].sort((a, b) => b.createdAt.localeCompare(a.createdAt)).slice(0, 50);
-  await writeFile(jobsFile, JSON.stringify(list, null, 2), "utf8");
+  const write = async () => {
+    await mkdir(clipsRoot, { recursive: true });
+    const list = [...jobs.values()].sort((a, b) => b.createdAt.localeCompare(a.createdAt)).slice(0, 50);
+    const payload = JSON.stringify(list, null, 2);
+    const tmpPath = `${jobsFile}.${process.pid}.${Date.now()}.tmp`;
+    await writeFile(tmpPath, payload, "utf8");
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      try {
+        await rename(tmpPath, jobsFile);
+        return;
+      } catch (error) {
+        if (!isTransientReplaceError(error) || attempt === 4) {
+          if (isTransientReplaceError(error)) {
+            await writeFile(jobsFile, payload, "utf8");
+            await unlink(tmpPath).catch(() => undefined);
+            return;
+          }
+          await unlink(tmpPath).catch(() => undefined);
+          throw error;
+        }
+        await wait(100 * (attempt + 1));
+      }
+    }
+  };
+  persistQueue = persistQueue.then(write, write);
+  await persistQueue;
 }
 
 export async function listJobs(): Promise<ClipJob[]> {
@@ -70,6 +113,22 @@ export async function deleteJob(id: string) {
   await rm(workDir(id), { recursive: true, force: true });
   await rm(outputDir(id), { recursive: true, force: true });
   await persistJobs();
+}
+
+export async function retryMissingRenders(id: string): Promise<ClipJob | undefined> {
+  await loadJobs();
+  const job = jobs.get(id);
+  if (!job) return undefined;
+  if (job.status === "processing" || job.status === "queued") {
+    throw new Error("This job is already processing.");
+  }
+  const missingIndexes = job.clips.map((clip, index) => (clip.file ? -1 : index)).filter((index) => index >= 0);
+  if (missingIndexes.length === 0) return job;
+
+  job.notices = job.notices.filter((notice) => !/^Clip \d+ \(/.test(notice));
+  await update(job, { status: "processing", stage: "rendering", progress: 50, notices: job.notices });
+  void renderClipIndexes(job, missingIndexes).catch((error) => failJob(job, error));
+  return job;
 }
 
 async function update(job: ClipJob, patch: Partial<ClipJob>) {
@@ -100,14 +159,22 @@ async function failJob(job: ClipJob, error: unknown) {
   await update(job, { status: "error", error: error instanceof Error ? error.message : String(error) });
 }
 
-export async function createJobFromUrl(url: string, topic: string | undefined): Promise<ClipJob> {
+export async function createJobFromUrl(
+  url: string,
+  topic: string | undefined,
+  options: { renderLayout?: ClipLayoutPreset; renderVariants?: boolean; layoutOverrides?: ClipLayoutOverrides } = {}
+): Promise<ClipJob> {
   await loadJobs();
   const id = crypto.randomUUID().slice(0, 8);
+  const renderLayout = options.renderLayout && options.renderLayout in CLIP_LAYOUTS ? options.renderLayout : DEFAULT_CLIP_LAYOUT;
   const job: ClipJob = {
     id,
     fileName: url,
     topic: topic || undefined,
     sourceUrl: url,
+    renderLayout,
+    renderVariants: Boolean(options.renderVariants),
+    layoutOverrides: options.layoutOverrides,
     status: "queued",
     stage: "downloading",
     progress: 2,
@@ -171,16 +238,11 @@ async function runPipeline(job: ClipJob, url: string) {
   }
 
   if (!candidates || candidates.length === 0) {
-    // No transcript or no API key: score moments from audio energy across the
-    // whole stream instead. We still pass the transcript (if any) so scoring
+    // Score moments from audio energy across the whole stream. We still pass the transcript (if any) so scoring
     // can read what is said, not just how loud it is.
     const [windows, silences] = await Promise.all([extractEnergy(audioPath), detectSilences(audioPath)]);
     candidates = selectCandidates(windows, silences, durationSec, transcript ?? []);
-    if (transcript && transcript.length > 0 && !transcriptSelectionConfigured()) {
-      job.notices.push(
-        "Set ANTHROPIC_API_KEY to pick clips by reading the full transcript — used whole-stream audio-energy analysis instead."
-      );
-    } else if (!transcript || transcript.length === 0) {
+    if (!transcript || transcript.length === 0) {
       job.notices.push(
         "No transcript was available for this source — picked moments from whole-stream audio energy instead."
       );
@@ -189,40 +251,10 @@ async function runPipeline(job: ClipJob, url: string) {
   job.clips = candidates;
   await persistJobs();
 
-  // 3. Fetch each chosen range from the source and render a 9:16 short. These
-  //    are network- and CPU-bound, so we run a few at once instead of waiting
-  //    for each clip to finish before starting the next.
-  let completed = 0;
-  const total = job.clips.length;
-  const renderOne = async (i: number) => {
-    const clip = job.clips[i];
-    const segPath = path.join(workDir(job.id), `seg-${String(i + 1).padStart(2, "0")}.mp4`);
-    try {
-      const produced = await downloadSection(url, clip.start, clip.end, segPath);
-      const verticalName = `clip-${String(i + 1).padStart(2, "0")}.mp4`;
-      await renderVertical(produced, path.join(outputDir(job.id), verticalName), true);
-      clip.file = verticalName;
-      await unlink(produced).catch(() => undefined);
-    } catch (error) {
-      job.notices.push(
-        `Clip ${i + 1} (${Math.round(clip.start)}s) could not be rendered: ${error instanceof Error ? error.message : String(error)}.`
-      );
-    }
-    completed += 1;
-    await update(job, { stage: "rendering", progress: 50 + Math.round((completed / total) * 48) });
-  };
-
-  await update(job, { stage: "rendering", progress: 50 });
-  const concurrency = Math.min(3, total);
-  let nextIndex = 0;
-  const worker = async () => {
-    while (true) {
-      const i = nextIndex++;
-      if (i >= total) break;
-      await renderOne(i);
-    }
-  };
-  await Promise.all(Array.from({ length: Math.max(1, concurrency) }, worker));
+  await renderClipIndexes(
+    job,
+    job.clips.map((_, index) => index)
+  );
 
   // Optionally mirror the finished clips into a Google Drive-synced folder.
   // No API or sign-in: this just copies files into a local folder that Google
@@ -245,5 +277,56 @@ async function runPipeline(job: ClipJob, url: string) {
     }
   }
 
+  await update(job, { status: "done", stage: "finished", progress: 100 });
+}
+
+async function renderClipIndexes(job: ClipJob, indexes: number[]) {
+  // Fetch each chosen range from the source and render a 9:16 short. These are
+  // network- and CPU-bound, so keep concurrency modest to avoid source throttles.
+  let completed = 0;
+  const total = indexes.length;
+  const renderOne = async (i: number) => {
+    const clip = job.clips[i];
+    const segPath = path.join(workDir(job.id), `seg-${String(i + 1).padStart(2, "0")}.mp4`);
+    try {
+      const produced = await downloadSection(job.sourceUrl, clip.start, clip.end, segPath);
+      const baseName = `clip-${String(i + 1).padStart(2, "0")}`;
+      const primaryLayout = job.renderLayout ?? DEFAULT_CLIP_LAYOUT;
+      const layoutOverrides = job.layoutOverrides;
+      const primaryName = `${baseName}.mp4`;
+      await renderClipLayout(produced, path.join(outputDir(job.id), primaryName), true, primaryLayout, layoutOverrides);
+      clip.file = primaryName;
+      clip.layoutPreset = primaryLayout;
+      clip.variants = [{ layoutPreset: primaryLayout, file: primaryName, label: CLIP_LAYOUTS[primaryLayout].label }];
+
+      if (job.renderVariants) {
+        const alternateLayouts = (Object.keys(CLIP_LAYOUTS) as ClipLayoutPreset[]).filter((layout) => layout !== primaryLayout);
+        for (const layout of alternateLayouts) {
+          const variantName = `${baseName}-${layout}.mp4`;
+          await renderClipLayout(produced, path.join(outputDir(job.id), variantName), true, layout, layoutOverrides);
+          clip.variants.push({ layoutPreset: layout, file: variantName, label: CLIP_LAYOUTS[layout].label });
+        }
+      }
+      await unlink(produced).catch(() => undefined);
+    } catch (error) {
+      job.notices.push(
+        `Clip ${i + 1} (${Math.round(clip.start)}s) could not be rendered: ${error instanceof Error ? error.message : String(error)}.`
+      );
+    }
+    completed += 1;
+    await update(job, { stage: "rendering", progress: 50 + Math.round((completed / total) * 48) });
+  };
+
+  await update(job, { stage: "rendering", progress: 50 });
+  const concurrency = Math.min(2, total);
+  let nextIndex = 0;
+  const worker = async () => {
+    while (true) {
+      const listIndex = nextIndex++;
+      if (listIndex >= total) break;
+      await renderOne(indexes[listIndex]);
+    }
+  };
+  await Promise.all(Array.from({ length: Math.max(1, concurrency) }, worker));
   await update(job, { status: "done", stage: "finished", progress: 100 });
 }

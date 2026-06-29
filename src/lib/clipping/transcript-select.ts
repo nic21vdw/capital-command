@@ -131,7 +131,7 @@ function toCandidate(
     intensity: Math.round(clamp(Number(raw.intensity ?? 70), 0, 100))
   };
   const score = Math.round(
-    breakdown.hook * 0.35 + breakdown.intensity * 0.3 + breakdown.pacing * 0.2 + breakdown.standalone * 0.15
+    breakdown.hook * 0.28 + breakdown.intensity * 0.24 + breakdown.pacing * 0.33 + breakdown.standalone * 0.15
   );
   const title = raw.title?.trim();
   const reason = raw.reason?.trim() || "Selected from the transcript as a strong standalone moment.";
@@ -183,7 +183,7 @@ Return ONLY a JSON array (no prose) of objects with these fields:
 - "title": a short punchy title for the clip (string)
 - "reason": one sentence on why this moment makes a great clip (string)
 - "hook": 0-100, how strong the opening line is as a scroll-stopping hook
-- "pacing": 0-100, how energetic / fast-moving the moment is
+- "pacing": 0-100, word density and how much useful speech is packed into the moment
 - "standalone": 0-100, how well it stands on its own without context
 - "intensity": 0-100, the strength of the emotional or informational payoff
 

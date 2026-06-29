@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, startTransition, useContext, useEffect, useState } from "react";
+import { createContext, startTransition, useCallback, useContext, useEffect, useState } from "react";
 import { toast } from "sonner";
 import { derivePortfolioSummary } from "@/lib/derive";
 import { localDateKey } from "@/lib/x-strategy/analytics";
@@ -35,7 +35,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [payload, setPayload] = useState<BootstrapPayload | null>(null);
   const [loading, setLoading] = useState(true);
 
-  const refresh = async () => {
+  const refresh = useCallback(async () => {
     setLoading(true);
     try {
       const next = await readBootstrap();
@@ -45,7 +45,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -53,9 +53,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }, 0);
 
     return () => window.clearTimeout(timer);
-  }, []);
+  }, [refresh]);
 
-  const mutate = async (action: string, payload?: unknown, options?: { successMessage?: string }) => {
+  const mutate = useCallback(async (action: string, payload?: unknown, options?: { successMessage?: string }) => {
     try {
       const response = await fetch("/api/data", {
         method: "POST",
@@ -88,7 +88,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     } catch {
       toast.error("That action could not be completed.");
     }
-  };
+  }, []);
 
   if (!payload) {
     return (

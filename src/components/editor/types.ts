@@ -14,6 +14,8 @@ export interface EditorApi {
   time: number;
   seek: (t: number) => void;
   patch: (partial: Partial<ClipProject>) => void;
+  setTrim: (start: number, end: number) => void;
+  generateTitle: () => void;
 
   // Captions
   fetchingCaptions: boolean;

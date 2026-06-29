@@ -1,11 +1,11 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ArrowLeft, Crop, Layers, ListMusic, Pause, Play, Save, Sparkles, SquarePen, Subtitles, Type, Upload } from "lucide-react";
+import { ArrowLeft, Crop, Layers, ListMusic, Pause, Play, Save, Scissors, Sparkles, SquarePen, Subtitles, Type, Upload, Volume2, VolumeX } from "lucide-react";
 import { toast } from "sonner";
 import { useAppData } from "@/components/providers/app-provider";
 import { chunkWords, serializeSrt, serializeVtt, splitSegment, mergeSegments, windowSegments } from "@/lib/clipping/captions";
-import { formatClock } from "@/lib/clipping/editor";
+import { formatClock, generateClipTitle } from "@/lib/clipping/editor";
 import { Button } from "@/components/ui/button";
 import { EditorPreview } from "@/components/editor/preview";
 import { EditorTimeline } from "@/components/editor/timeline";
@@ -17,6 +17,7 @@ import {
   ReframePanel,
   StylePanel,
   SuggestionsPanel,
+  TrimPanel,
   TranscriptPanel
 } from "@/components/editor/panels";
 import { cn } from "@/lib/utils";
@@ -24,6 +25,7 @@ import type { CaptionSegment, ClipProject, Overlay, OverlayKind, SuggestionStatu
 import type { EditorApi, ExportUiState } from "@/components/editor/types";
 
 const TABS = [
+  { id: "trim", label: "Trim", icon: Scissors },
   { id: "captions", label: "Captions", icon: Subtitles },
   { id: "transcript", label: "Transcript", icon: Type },
   { id: "style", label: "Style", icon: SquarePen },
@@ -43,7 +45,9 @@ export function ClipEditor({ initialProject, onClose }: { initialProject: ClipPr
   const [project, setProject] = useState<ClipProject>(initialProject);
   const [time, setTime] = useState(0);
   const [playing, setPlaying] = useState(false);
-  const [tab, setTab] = useState<(typeof TABS)[number]["id"]>("captions");
+  const [tab, setTab] = useState<(typeof TABS)[number]["id"]>("trim");
+  const [muted, setMuted] = useState(false);
+  const [volume, setVolume] = useState(1);
   const [selectedCaptionId, setSelectedCaptionId] = useState<string | null>(null);
   const [selectedOverlayId, setSelectedOverlayId] = useState<string | null>(null);
   const [search, setSearch] = useState("");
@@ -53,20 +57,46 @@ export function ClipEditor({ initialProject, onClose }: { initialProject: ClipPr
   const [saving, setSaving] = useState(false);
 
   const videoRef = useRef<HTMLVideoElement | null>(null);
-  const videoSrc = `/api/clips/${project.jobId}/files/${encodeURIComponent(project.sourceFile)}`;
+  const trimEndRef = useRef(0);
+  const lastTimeUpdateRef = useRef(0);
+  const videoSrc = `/api/clips/${project.jobId}/files/${encodeURIComponent(project.sourceFile)}?project=${encodeURIComponent(project.id)}`;
   const duration = project.baseDurationSec;
+  const trimStart = Math.max(0, Math.min(project.trimStart ?? 0, duration));
+  const trimEnd = Math.max(trimStart + 0.1, Math.min(project.trimEnd || duration, duration));
 
-  // Track playback time with rAF for smooth caption/word highlighting.
+  useEffect(() => {
+    trimEndRef.current = trimEnd;
+  }, [trimEnd]);
+
+  // Track playback without re-rendering the whole editor on every animation frame.
   useEffect(() => {
     let raf = 0;
-    const tick = () => {
+    const tick = (now: number) => {
       const v = videoRef.current;
-      if (v) setTime(v.currentTime);
+      if (v) {
+        const end = trimEndRef.current;
+        if (!v.paused && v.currentTime >= end - 0.02) {
+          v.pause();
+          v.currentTime = end;
+          setPlaying(false);
+          setTime(end);
+        } else if (now - lastTimeUpdateRef.current >= 90 || v.paused) {
+          lastTimeUpdateRef.current = now;
+          setTime(v.currentTime);
+        }
+      }
       raf = requestAnimationFrame(tick);
     };
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
   }, []);
+
+  useEffect(() => {
+    const v = videoRef.current;
+    if (!v) return;
+    v.muted = muted;
+    v.volume = volume;
+  }, [muted, volume]);
 
   // Debounced autosave so every edit survives a refresh.
   const firstRender = useRef(true);
@@ -84,6 +114,20 @@ export function ClipEditor({ initialProject, onClose }: { initialProject: ClipPr
 
   const patch = useCallback((partial: Partial<ClipProject>) => {
     setProject((prev) => ({ ...prev, ...partial }));
+  }, []);
+
+  const handleVideoReady = useCallback((el: HTMLVideoElement | null) => {
+    videoRef.current = el;
+    if (el) {
+      el.onplay = () => setPlaying(true);
+      el.onpause = () => setPlaying(false);
+      el.muted = muted;
+      el.volume = volume;
+    }
+  }, [muted, volume]);
+
+  const handleReframeChange = useCallback((partial: Partial<ClipProject["reframe"]>) => {
+    setProject((prev) => ({ ...prev, reframe: { ...prev.reframe, ...partial } }));
   }, []);
 
   // Explicit save so you can lock in progress on demand instead of waiting for autosave.
@@ -107,23 +151,88 @@ export function ClipEditor({ initialProject, onClose }: { initialProject: ClipPr
     setTime(clamped);
   }, [duration]);
 
+  const scrubTo = useCallback((t: number) => {
+    const v = videoRef.current;
+    const shouldResume = Boolean(v && !v.paused);
+    seek(t);
+    if (shouldResume && v) {
+      requestAnimationFrame(() => {
+        void v.play().then(() => setPlaying(true)).catch(() => undefined);
+      });
+    }
+  }, [seek]);
+
+  const setTrim = useCallback((start: number, end: number) => {
+    const nextStart = Math.max(0, Math.min(start, duration - 0.1));
+    const nextEnd = Math.max(nextStart + 0.1, Math.min(end, duration));
+    patch({ trimStart: nextStart, trimEnd: nextEnd });
+    if (time < nextStart || time > nextEnd) seek(nextStart);
+  }, [duration, patch, seek, time]);
+
   const togglePlay = useCallback(() => {
     const v = videoRef.current;
     if (!v) return;
+    if (v.currentTime < trimStart || v.currentTime >= trimEnd) {
+      v.currentTime = trimStart;
+      setTime(trimStart);
+    }
+    v.muted = muted;
+    v.volume = volume;
     if (v.paused) {
-      // A missing/unsupported source rejects this promise; swallow it so it does
-      // not surface as an uncaught NotSupportedError in the dev overlay.
+      // Call play() directly from the user gesture. Waiting for canplay first can
+      // lose browser user-activation and make the transport button feel dead.
+      // Do not force load() here: it interrupts Chromium's pending play request
+      // and leaves the preview paused at 0 while metadata finishes loading.
       v.play()
         .then(() => setPlaying(true))
-        .catch(() => {
-          setPlaying(false);
-          toast.error("This clip's video could not be played. The rendered file may be missing.");
+        .catch((error) => {
+          if (v.error) {
+            setPlaying(false);
+            toast.error("This clip's video could not be played. The rendered file may be missing.");
+            return;
+          }
+          v.muted = true;
+          setMuted(true);
+          v.play()
+            .then(() => {
+              setPlaying(true);
+              toast.info("Preview started muted. Turn audio back on when you need it.");
+            })
+            .catch(() => {
+              setPlaying(false);
+              const message = error instanceof Error ? error.message : String(error ?? "");
+              toast.error(message.includes("interrupted") ? "Preview is still loading. Try play again in a moment." : "Preview playback could not start.");
+            });
         });
     } else {
       v.pause();
       setPlaying(false);
     }
-  }, []);
+  }, [muted, trimEnd, trimStart, volume]);
+
+  const generateTitle = useCallback(async () => {
+    let captions = project.captions;
+    if (captions.length === 0) {
+      setFetchingCaptions(true);
+      try {
+        const res = await fetch(`/api/clips/${project.jobId}/captions`, { method: "POST" });
+        const data = (await res.json()) as { captions?: CaptionSegment[]; error?: string };
+        if (res.ok) {
+          const windowed = windowSegments(data.captions ?? [], project.clipStart, project.clipEnd);
+          const words = windowed.flatMap((s) => s.words);
+          captions = words.length ? chunkWords(words, project.captionStyle.maxWordsPerCaption) : windowed;
+        } else {
+          toast.error(data.error ?? "Could not fetch captions for title generation.");
+        }
+      } finally {
+        setFetchingCaptions(false);
+      }
+    }
+    const trimmedCaptions = captions.filter((caption) => caption.end > trimStart && caption.start < trimEnd);
+    const title = generateClipTitle(trimmedCaptions.length ? trimmedCaptions : captions, project.name);
+    patch({ title, name: title, captions });
+    toast.success("Generated clip title.");
+  }, [project.captions, project.captionStyle.maxWordsPerCaption, project.clipEnd, project.clipStart, project.jobId, project.name, trimEnd, trimStart, patch]);
 
   // --- Caption operations ---
   const updateCaption = useCallback((id: string, partial: Partial<CaptionSegment>) => {
@@ -365,6 +474,8 @@ export function ClipEditor({ initialProject, onClose }: { initialProject: ClipPr
     time,
     seek,
     patch,
+    setTrim,
+    generateTitle,
     fetchingCaptions,
     regenerateCaptions,
     addCaption,
@@ -397,6 +508,8 @@ export function ClipEditor({ initialProject, onClose }: { initialProject: ClipPr
     switch (tab) {
       case "captions":
         return <CaptionsPanel api={api} />;
+      case "trim":
+        return <TrimPanel api={api} />;
       case "transcript":
         return <TranscriptPanel api={api} />;
       case "style":
@@ -447,16 +560,11 @@ export function ClipEditor({ initialProject, onClose }: { initialProject: ClipPr
             project={project}
             time={time}
             videoSrc={videoSrc}
-            onVideoReady={(el) => {
-              videoRef.current = el;
-              if (el) {
-                el.onplay = () => setPlaying(true);
-                el.onpause = () => setPlaying(false);
-              }
-            }}
+            onVideoReady={handleVideoReady}
             selectedOverlayId={selectedOverlayId}
             onSelectOverlay={setSelectedOverlayId}
             onOverlayChange={updateOverlay}
+            onReframeChange={handleReframeChange}
           />
           <div className="flex items-center gap-3 rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 py-2">
             <button type="button" onClick={togglePlay} className="flex h-9 w-9 items-center justify-center rounded-full bg-[var(--accent)] text-[var(--accent-contrast)]">
@@ -470,15 +578,32 @@ export function ClipEditor({ initialProject, onClose }: { initialProject: ClipPr
               max={duration}
               step={0.01}
               value={time}
-              onChange={(e) => seek(Number(e.target.value))}
+              onChange={(e) => scrubTo(Number(e.target.value))}
               className="ml-2 h-1.5 flex-1 cursor-pointer appearance-none rounded-full bg-white/15 accent-[var(--accent)]"
+            />
+            <button type="button" onClick={() => setMuted((value) => !value)} className="flex h-8 w-8 items-center justify-center rounded-lg border border-[var(--border)] text-[var(--muted-foreground)] hover:text-white">
+              {muted ? <VolumeX className="h-4 w-4" /> : <Volume2 className="h-4 w-4" />}
+            </button>
+            <input
+              aria-label="Preview volume"
+              type="range"
+              min={0}
+              max={1}
+              step={0.05}
+              value={muted ? 0 : volume}
+              onChange={(e) => {
+                const next = Number(e.target.value);
+                setVolume(next);
+                setMuted(next <= 0);
+              }}
+              className="h-1.5 w-24 cursor-pointer appearance-none rounded-full bg-white/15 accent-[var(--accent)]"
             />
           </div>
           <EditorTimeline
             project={project}
             time={time}
             duration={duration}
-            onSeek={seek}
+            onSeek={scrubTo}
             selectedCaptionId={selectedCaptionId}
             onSelectCaption={setSelectedCaptionId}
             onCaptionChange={updateCaption}

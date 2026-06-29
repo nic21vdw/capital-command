@@ -64,18 +64,23 @@ if errorlevel 1 (
   exit /b 1
 )
 
-REM --- 2/4: Update local files to exactly match the cloud -----
-REM  This makes your PC mirror the latest "main" branch.
-REM  Your local app data (data\capital-command.json), node_modules
-REM  and .env are git-ignored, so they are preserved.
-echo [2/4] Updating local files to match the cloud...
+REM --- 2/4: Update local files when it is safe ----------------
+REM  Keep local edits intact. If files are modified, skip the update
+REM  instead of wiping local work.
+echo [2/4] Checking whether local files can be updated safely...
 git checkout main >nul 2>nul
-git reset --hard origin/main
 if errorlevel 1 (
-  echo [ERROR] Could not update local files to match the cloud.
-  echo.
-  pause
-  exit /b 1
+  echo [WARN] Could not switch to main. Keeping your current branch.
+) else (
+  git diff --quiet
+  if errorlevel 1 (
+    echo [WARN] Local edits found. Skipping automatic update so your work is preserved.
+  ) else (
+    git pull --ff-only origin main
+    if errorlevel 1 (
+      echo [WARN] Could not fast-forward from GitHub. Keeping your current files.
+    )
+  )
 )
 
 REM --- Make sure an .env exists so the app can run -------------

@@ -32,8 +32,7 @@ export async function generateSearchStrategy(
   if (!process.env.ANTHROPIC_API_KEY) {
     return {
       strategy: null,
-      reason:
-        "AI search suggestions skipped: set ANTHROPIC_API_KEY in .env to generate today's search queries and account picks."
+      reason: null
     };
   }
 

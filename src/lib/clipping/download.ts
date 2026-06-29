@@ -1,6 +1,7 @@
 import { spawn } from "node:child_process";
 import { createWriteStream } from "node:fs";
-import { chmod, mkdir, readdir, rename, stat } from "node:fs/promises";
+import { mkdirSync } from "node:fs";
+import { chmod, mkdir, readdir, rename, rm, stat } from "node:fs/promises";
 import path from "node:path";
 import { Readable } from "node:stream";
 import { resolveFfmpeg } from "@/lib/clipping/ffmpeg";
@@ -8,6 +9,7 @@ import { resolveFfmpeg } from "@/lib/clipping/ffmpeg";
 // yt-dlp ships a single self-contained binary per platform, so we can fetch and
 // cache it on first use instead of asking the user to install anything.
 const binDir = path.join(process.cwd(), "data", "clips", "bin");
+const pyInstallerTempDir = path.join(binDir, "pyi-temp");
 
 function binaryName() {
   if (process.platform === "win32") return "yt-dlp.exe";
@@ -93,6 +95,15 @@ export async function ensureYtDlp(): Promise<string> {
 
 export type YtDlpResult = { stdout: string; stderr: string; code: number };
 
+const TRANSIENT_MEDIA_PATTERNS = [
+  /403\s+Forbidden/i,
+  /access denied/i,
+  /HTTP Error 403/i,
+  /requested format is not available/i,
+  /fragment.*not found/i,
+  /unable to download/i
+];
+
 /** Runs yt-dlp, streaming stderr lines to an optional progress callback. */
 export function runYtDlp(
   args: string[],
@@ -100,7 +111,16 @@ export function runYtDlp(
   { onLine, allowFailure = false }: { onLine?: (line: string) => void; allowFailure?: boolean } = {}
 ): Promise<YtDlpResult> {
   return new Promise((resolve, reject) => {
-    const child = spawn(bin, args, { windowsHide: true });
+    mkdirSync(pyInstallerTempDir, { recursive: true });
+    const child = spawn(bin, args, {
+      env: {
+        ...process.env,
+        TMP: pyInstallerTempDir,
+        TEMP: pyInstallerTempDir,
+        TMPDIR: pyInstallerTempDir
+      },
+      windowsHide: true
+    });
     let stdout = "";
     let stderr = "";
     let lineBuffer = "";
@@ -136,13 +156,35 @@ const ffmpegArgs = () => {
   return loc ? ["--ffmpeg-location", loc] : [];
 };
 
+const youtubeExtractorArgs = (clients: string) => ["--force-ipv4", "--extractor-args", `youtube:player_client=${clients}`];
+
+function jsRuntimeArgs() {
+  return process.execPath ? ["--js-runtimes", `node:${process.execPath}`] : [];
+}
+
+function isTransientMediaFailure(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  return TRANSIENT_MEDIA_PATTERNS.some((pattern) => pattern.test(message));
+}
+
+function cleanYtDlpError(error: unknown) {
+  const message = error instanceof Error ? error.message : String(error);
+  if (/403\s+Forbidden|access denied|HTTP Error 403/i.test(message)) {
+    return "The source blocked one temporary media URL while rendering this clip. The app retried with fresh source URLs, but that exact range is still unavailable right now.";
+  }
+  if (/requested format is not available/i.test(message)) {
+    return "The selected video format was not available for this source. Try the job again or choose a different clip range.";
+  }
+  return message.replace(/https?:\/\/\S+/g, "[media URL]").slice(0, 280);
+}
+
 export type VideoMeta = { title: string; durationSec: number; id: string };
 
 /** Reads VOD metadata (title, duration) without downloading the media. */
 export async function fetchVideoMeta(url: string): Promise<VideoMeta> {
   const bin = await ensureYtDlp();
   const { stdout } = await runYtDlp(
-    ["--dump-single-json", "--no-playlist", "--no-warnings", url],
+    ["--dump-single-json", "--no-playlist", "--no-warnings", ...jsRuntimeArgs(), url],
     bin
   );
   let data: { title?: string; duration?: number; id?: string };
@@ -169,33 +211,48 @@ export async function downloadAudio(
 ): Promise<string> {
   const bin = await ensureYtDlp();
   const template = path.join(destDir, "source-audio.%(ext)s");
-  await runYtDlp(
-    [
-      "-x",
-      "--audio-format",
-      "mp3",
-      "--audio-quality",
-      "7",
-      "--postprocessor-args",
-      "ExtractAudio:-ac 1 -ar 16000",
-      "--no-playlist",
-      "--no-part",
-      "-o",
-      template,
-      ...ffmpegArgs(),
-      url
-    ],
-    bin,
-    {
-      onLine: (line) => {
-        const m = line.match(/\[download\]\s+([\d.]+)%/);
-        if (m && onProgress) onProgress(Number(m[1]));
-      }
+  const baseArgs = [
+    "-x",
+    "--audio-format",
+    "mp3",
+    "--audio-quality",
+    "7",
+    "--postprocessor-args",
+    "ExtractAudio:-ac 1 -ar 16000",
+    "--no-playlist",
+    "--no-part",
+    "-o",
+    template,
+    ...jsRuntimeArgs(),
+    ...ffmpegArgs()
+  ];
+  const attempts = [
+    baseArgs,
+    [...youtubeExtractorArgs("web"), ...baseArgs],
+    [...youtubeExtractorArgs("ios,web"), ...baseArgs],
+    [...youtubeExtractorArgs("android,ios,web"), ...baseArgs]
+  ];
+  let lastError: unknown;
+
+  for (const args of attempts) {
+    await rmProduced(destDir, "source-audio.");
+    try {
+      await runYtDlp([...args, url], bin, {
+        onLine: (line) => {
+          const m = line.match(/\[download\]\s+([\d.]+)%/);
+          if (m && onProgress) onProgress(Number(m[1]));
+        }
+      });
+      const produced = await findProduced(destDir, "source-audio.");
+      if (produced) return produced;
+      lastError = new Error("Audio download finished but no audio file was produced.");
+    } catch (error) {
+      lastError = error;
+      if (!isTransientMediaFailure(error)) break;
     }
-  );
-  const produced = await findProduced(destDir, "source-audio.");
-  if (!produced) throw new Error("Audio download finished but no audio file was produced.");
-  return produced;
+  }
+
+  throw new Error(cleanYtDlpError(lastError));
 }
 
 /**
@@ -219,32 +276,47 @@ export async function downloadSection(
   const dir = path.dirname(destPath);
   const base = path.basename(destPath, path.extname(destPath));
   const template = path.join(dir, `${base}.%(ext)s`);
-  await runYtDlp(
-    [
-      "-f",
-      "b[height<=720][ext=mp4]/b[height<=720]/bv*[height<=720]+ba/b",
-      "--download-sections",
-      `*${startSec.toFixed(2)}-${endSec.toFixed(2)}`,
-      "--no-playlist",
-      "--no-part",
-      "--merge-output-format",
-      "mp4",
-      "-o",
-      template,
-      ...ffmpegArgs(),
-      url
-    ],
-    bin,
-    {
-      onLine: (line) => {
-        const m = line.match(/\[download\]\s+([\d.]+)%/);
-        if (m && onProgress) onProgress(Number(m[1]));
-      }
+  const baseArgs = [
+    "-f",
+    "b[height<=720][ext=mp4]/b[height<=720]/bv*[height<=720]+ba/b",
+    "--download-sections",
+    `*${startSec.toFixed(2)}-${endSec.toFixed(2)}`,
+    "--no-playlist",
+    "--no-part",
+    "--merge-output-format",
+    "mp4",
+    "-o",
+    template,
+    ...jsRuntimeArgs(),
+    ...ffmpegArgs()
+  ];
+  const attempts = [
+    baseArgs,
+    [...youtubeExtractorArgs("web"), ...baseArgs],
+    [...youtubeExtractorArgs("ios,web"), ...baseArgs],
+    [...youtubeExtractorArgs("android,ios,web"), ...baseArgs]
+  ];
+  let lastError: unknown;
+
+  for (const args of attempts) {
+    await rmProduced(dir, `${base}.`);
+    try {
+      await runYtDlp([...args, url], bin, {
+        onLine: (line) => {
+          const m = line.match(/\[download\]\s+([\d.]+)%/);
+          if (m && onProgress) onProgress(Number(m[1]));
+        }
+      });
+      const produced = await findProduced(dir, `${base}.`);
+      if (produced) return produced;
+      lastError = new Error(`Section ${startSec}-${endSec}s download produced no file.`);
+    } catch (error) {
+      lastError = error;
+      if (!isTransientMediaFailure(error)) break;
     }
-  );
-  const produced = await findProduced(dir, `${base}.`);
-  if (!produced) throw new Error(`Section ${startSec}-${endSec}s download produced no file.`);
-  return produced;
+  }
+
+  throw new Error(cleanYtDlpError(lastError));
 }
 
 /** Finds the file yt-dlp actually wrote (its extension can differ from the template). */
@@ -252,4 +324,13 @@ async function findProduced(dir: string, prefix: string): Promise<string | null>
   const entries = await readdir(dir);
   const match = entries.find((name) => name.startsWith(prefix) && !name.endsWith(".part"));
   return match ? path.join(dir, match) : null;
+}
+
+async function rmProduced(dir: string, prefix: string): Promise<void> {
+  const entries = await readdir(dir).catch(() => []);
+  await Promise.all(
+    entries
+      .filter((name) => name.startsWith(prefix))
+      .map((name) => rm(path.join(dir, name), { force: true }))
+  );
 }

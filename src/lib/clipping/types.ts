@@ -2,6 +2,25 @@ export type ClipJobStatus = "queued" | "processing" | "done" | "error";
 
 export type ClipJobStage = "downloading" | "analyzing" | "selecting" | "rendering" | "finished";
 
+export type ClipLayoutPreset = "center" | "restream-stack" | "screen-focus" | "face-focus";
+
+export type ClipLayoutRect = { x: number; y: number; w: number; h: number };
+
+export type ClipLayoutLayerOverride = {
+  source?: ClipLayoutRect;
+  dest?: ClipLayoutRect;
+  fit?: "cover" | "contain";
+};
+
+export type ClipLayoutOverrides = Partial<
+  Record<
+    ClipLayoutPreset,
+    {
+      layers?: ClipLayoutLayerOverride[];
+    }
+  >
+>;
+
 export type ClipScoreBreakdown = {
   /** Strength of the opening line — question/number/curiosity wording blended with opening loudness (0-100). */
   hook: number;
@@ -25,6 +44,14 @@ export type ClipCandidate = {
   hookQuote?: string;
   /** Vertical 9:16 (Shorts/Reels/TikTok) output filename, set once rendered. */
   file?: string;
+  /** Layout used by the primary rendered file. */
+  layoutPreset?: ClipLayoutPreset;
+  /** Optional alternate compositions rendered from the same moment. */
+  variants?: Array<{
+    layoutPreset: ClipLayoutPreset;
+    file: string;
+    label: string;
+  }>;
 };
 
 export type ClipJob = {
@@ -34,6 +61,9 @@ export type ClipJob = {
   topic?: string;
   /** The VOD URL this job clips from. */
   sourceUrl: string;
+  renderLayout?: ClipLayoutPreset;
+  renderVariants?: boolean;
+  layoutOverrides?: ClipLayoutOverrides;
   status: ClipJobStatus;
   stage: ClipJobStage;
   /** 0-100 across the whole pipeline. */

@@ -210,7 +210,7 @@ export function selectCandidates(
     const breakdown: ClipScoreBreakdown = text.hasText
       ? {
           hook: Math.round(text.hook * 0.65 + openingLoudness * 0.35),
-          pacing: Math.round(densityScore(text.wordsPerSecond) * 0.6 + varianceScore * 0.4),
+          pacing: Math.round(densityScore(text.wordsPerSecond) * 0.82 + varianceScore * 0.18),
           standalone: Math.round(text.standalone * 0.7 + boundaryScore * 0.3),
           intensity: Math.round(loudnessPercentile * 0.6 + text.intensity * 0.4)
         }
@@ -222,13 +222,13 @@ export function selectCandidates(
         };
 
     const score = Math.round(
-      breakdown.hook * 0.35 + breakdown.intensity * 0.3 + breakdown.pacing * 0.2 + breakdown.standalone * 0.15
+      breakdown.hook * 0.28 + breakdown.intensity * 0.24 + breakdown.pacing * 0.33 + breakdown.standalone * 0.15
     );
 
     const rationaleParts: string[] = [];
     if (text.hasText) {
       rationaleParts.push(`Opens with “${text.opening}…”`);
-      rationaleParts.push(`about ${text.wordsPerSecond.toFixed(1)} words/sec`);
+      rationaleParts.push(`word density: ${text.wordsPerSecond.toFixed(1)} words/sec`);
       for (const note of text.notes.slice(0, 2)) rationaleParts.push(note);
       rationaleParts.push(
         breakdown.standalone >= 70

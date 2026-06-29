@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { FileVideo, RotateCw } from "lucide-react";
 import { aspectDimensions } from "@/lib/clipping/editor";
 import { cn } from "@/lib/utils";
-import type { CaptionStyle, ClipProject, Overlay } from "@/types/domain";
+import type { CaptionStyle, ClipProject, Overlay, ReframeTransform } from "@/types/domain";
 
 function captionPositionClasses(style: CaptionStyle): string {
   if (style.position === "top") return "top-[6%] items-start";
@@ -196,6 +196,14 @@ function clamp(v: number, min: number, max: number) {
   return Math.min(max, Math.max(min, v));
 }
 
+type PreviewMediaState = {
+  src: string;
+  fgReady: boolean;
+  bgReady: boolean;
+  fgError: boolean;
+  bgError: boolean;
+};
+
 export function EditorPreview({
   project,
   time,
@@ -203,7 +211,8 @@ export function EditorPreview({
   onVideoReady,
   selectedOverlayId,
   onSelectOverlay,
-  onOverlayChange
+  onOverlayChange,
+  onReframeChange
 }: {
   project: ClipProject;
   time: number;
@@ -212,6 +221,7 @@ export function EditorPreview({
   selectedOverlayId: string | null;
   onSelectOverlay: (id: string | null) => void;
   onOverlayChange: (id: string, partial: Partial<Overlay>) => void;
+  onReframeChange: (partial: Partial<ReframeTransform>) => void;
 }) {
   const dims = aspectDimensions(project.aspectRatio);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -219,10 +229,29 @@ export function EditorPreview({
   const bgRef = useRef<HTMLVideoElement>(null);
   const frameRef = useRef<HTMLDivElement>(null);
   const [frameSize, setFrameSize] = useState({ w: 360, h: 640 });
-  // Track which src failed rather than a bare boolean, so changing the source
-  // automatically clears the error without an effect or a ref read in render.
-  const [erroredSrc, setErroredSrc] = useState<string | null>(null);
-  const loadError = erroredSrc === videoSrc;
+  const [mediaState, setMediaState] = useState<PreviewMediaState>({
+    src: videoSrc,
+    fgReady: false,
+    bgReady: false,
+    fgError: false,
+    bgError: false
+  });
+  const loadError =
+    mediaState.src === videoSrc &&
+    mediaState.fgError &&
+    mediaState.bgError &&
+    !mediaState.fgReady &&
+    !mediaState.bgReady;
+  const markMedia = (partial: Partial<Omit<PreviewMediaState, "src">>) => {
+    setMediaState((current) => ({
+      src: videoSrc,
+      fgReady: current.src === videoSrc ? current.fgReady : false,
+      bgReady: current.src === videoSrc ? current.bgReady : false,
+      fgError: current.src === videoSrc ? current.fgError : false,
+      bgError: current.src === videoSrc ? current.bgError : false,
+      ...partial
+    }));
+  };
 
   // Measure the rendered frame so overlay/caption sizing is pixel-accurate.
   useEffect(() => {
@@ -266,6 +295,26 @@ export function EditorPreview({
   const frameW = frameSize.w;
   const frameH = frameSize.h;
   const { scale, offsetX, offsetY } = project.reframe;
+  const beginPan = (e: React.PointerEvent) => {
+    if (e.button !== 0) return;
+    e.stopPropagation();
+    onSelectOverlay(null);
+    const sx = e.clientX;
+    const sy = e.clientY;
+    const startX = offsetX;
+    const startY = offsetY;
+    const move = (ev: PointerEvent) => {
+      const dx = ((ev.clientX - sx) / Math.max(1, frameW)) * 2;
+      const dy = ((ev.clientY - sy) / Math.max(1, frameH)) * 2;
+      onReframeChange({ offsetX: clamp(startX + dx, -1, 1), offsetY: clamp(startY + dy, -1, 1) });
+    };
+    const up = () => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+  };
   const visibleOverlays = [...project.overlays]
     .filter((o) => time >= o.start && (o.end <= o.start || time <= o.end))
     .sort((a, b) => a.z - b.z);
@@ -274,9 +323,9 @@ export function EditorPreview({
     <div ref={containerRef} className="flex items-center justify-center">
       <div
         ref={frameRef}
-        className="relative max-h-[62vh] overflow-hidden rounded-xl bg-black ring-1 ring-white/10"
+        className="relative max-h-[62vh] cursor-grab overflow-hidden rounded-xl bg-black ring-1 ring-white/10 active:cursor-grabbing"
         style={{ aspectRatio: `${dims.w} / ${dims.h}`, width: dims.w >= dims.h ? "min(100%, 720px)" : "auto", height: dims.w >= dims.h ? "auto" : "62vh" }}
-        onPointerDown={() => onSelectOverlay(null)}
+        onPointerDown={beginPan}
       >
         {/* Blurred fill background (mirrors the export's reframe). */}
         <video
@@ -284,6 +333,10 @@ export function EditorPreview({
           src={videoSrc}
           muted
           playsInline
+          preload="auto"
+          onError={() => markMedia({ bgError: true })}
+          onLoadedData={() => markMedia({ bgReady: true, bgError: false })}
+          onCanPlay={() => markMedia({ bgReady: true, bgError: false })}
           className="absolute inset-0 h-full w-full object-cover"
           style={{ filter: "blur(24px) brightness(0.6)", transform: "scale(1.1)" }}
         />
@@ -291,11 +344,16 @@ export function EditorPreview({
         <video
           ref={fgRef}
           src={videoSrc}
+          controls
+          controlsList="nodownload noplaybackrate"
           playsInline
-          onError={() => setErroredSrc(videoSrc)}
-          onLoadedData={() => setErroredSrc((s) => (s === videoSrc ? null : s))}
-          className="absolute inset-0 h-full w-full object-contain"
-          style={{ transform: `scale(${scale}) translate(${offsetX * 25}%, ${offsetY * 25}%)` }}
+          preload="auto"
+          onPointerDown={(event) => event.stopPropagation()}
+          onError={() => markMedia({ fgError: true })}
+          onLoadedData={() => markMedia({ fgReady: true, fgError: false })}
+          onCanPlay={() => markMedia({ fgReady: true, fgError: false })}
+          className="absolute inset-0 h-full w-full object-cover"
+          style={{ transform: `translate(${offsetX * 25}%, ${offsetY * 25}%) scale(${Math.max(1, scale)})` }}
         />
 
         {/* Clear, actionable state when the clip's video can't be loaded — far

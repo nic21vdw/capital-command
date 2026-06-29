@@ -16,6 +16,8 @@ export type ExportSpec = {
   jobId: string;
   sourceFile: string;
   baseDurationSec: number;
+  trimStart: number;
+  trimEnd: number;
   reframe: { scale: number; offsetX: number; offsetY: number };
   captions: CaptionSegment[];
   captionStyle: CaptionStyle;
@@ -60,10 +62,54 @@ function dataUrlToBuffer(src: string): Buffer | null {
   return Buffer.from(m[1], "base64");
 }
 
+function trimStartSec(spec: ExportSpec): number {
+  return Math.max(0, Math.min(spec.trimStart || 0, spec.baseDurationSec));
+}
+
+function trimDuration(spec: ExportSpec): number {
+  const start = trimStartSec(spec);
+  const end = Math.max(start + 0.1, Math.min(spec.trimEnd || spec.baseDurationSec, spec.baseDurationSec));
+  return end - start;
+}
+
+function shiftedCaptions(spec: ExportSpec): CaptionSegment[] {
+  const start = trimStartSec(spec);
+  const end = start + trimDuration(spec);
+  return spec.captions
+    .filter((caption) => caption.end > start && caption.start < end)
+    .map((caption) => ({
+      ...caption,
+      start: Math.max(0, caption.start - start),
+      end: Math.min(end, caption.end) - start,
+      words: caption.words
+        .filter((word) => word.end > start && word.start < end)
+        .map((word) => ({
+          ...word,
+          start: Math.max(0, word.start - start),
+          end: Math.min(end, word.end) - start
+        }))
+    }));
+}
+
+function shiftedOverlays(spec: ExportSpec): Overlay[] {
+  const start = trimStartSec(spec);
+  const end = start + trimDuration(spec);
+  return spec.overlays
+    .filter((overlay) => {
+      const overlayEnd = overlay.end > overlay.start ? overlay.end : spec.baseDurationSec;
+      return overlayEnd > start && overlay.start < end;
+    })
+    .map((overlay) => ({
+      ...overlay,
+      start: Math.max(0, overlay.start - start),
+      end: Math.min(end, overlay.end > overlay.start ? overlay.end : spec.baseDurationSec) - start
+    }));
+}
+
 async function writeOverlayImages(spec: ExportSpec, dir: string) {
   const images: { overlay: Overlay; file: string }[] = [];
   let i = 0;
-  for (const overlay of spec.overlays) {
+  for (const overlay of shiftedOverlays(spec)) {
     if ((overlay.kind === "text" || overlay.kind === "title") && !overlay.src) continue;
     if (!overlay.src) continue;
     const buf = dataUrlToBuffer(overlay.src);
@@ -77,14 +123,17 @@ async function writeOverlayImages(spec: ExportSpec, dir: string) {
 
 /** Generates the combined ASS document (captions + positioned text overlays). */
 function buildExportAss(spec: ExportSpec, w: number, h: number): string {
+  const dur = trimDuration(spec);
+  const captions = shiftedCaptions(spec);
+  const overlays = shiftedOverlays(spec);
   const captionDoc = buildAss(
-    spec.captionsVisible ? spec.captions : [],
+    spec.captionsVisible ? captions : [],
     spec.captionStyle,
     w,
     h,
     spec.highlightCurrentWord
   );
-  const overlayLines = spec.overlays
+  const overlayLines = overlays
     .filter((o) => (o.kind === "text" || o.kind === "title") && o.text && o.text.trim())
     .map((o) =>
       buildTextOverlayDialogue(
@@ -93,7 +142,7 @@ function buildExportAss(spec: ExportSpec, w: number, h: number): string {
           x: o.x,
           y: o.y,
           start: o.start,
-          end: o.end > o.start ? o.end : spec.baseDurationSec,
+          end: o.end > o.start ? o.end : dur,
           fontScale: (o.kind === "title" ? 0.09 : 0.05) * o.scale,
           color: o.color ?? "#ffffff",
           rotation: o.rotation,
@@ -106,7 +155,7 @@ function buildExportAss(spec: ExportSpec, w: number, h: number): string {
     );
   const extra = [...overlayLines];
   if (spec.settings.watermark) {
-    extra.push(buildWatermarkDialogue(h, 0, spec.baseDurationSec));
+    extra.push(buildWatermarkDialogue(h, 0, dur));
   }
   return extra.length ? `${captionDoc}${extra.join("\n")}\n` : captionDoc;
 }
@@ -121,6 +170,8 @@ async function buildArgs(spec: ExportSpec, dir: string): Promise<{ args: string[
   const w = settings.width;
   const h = settings.height;
   const basePath = path.join(outputDir(spec.jobId), spec.sourceFile);
+  const start = trimStartSec(spec);
+  const dur = trimDuration(spec);
   const hasAudio = await hasAudioStream(basePath).catch(() => false);
 
   const images = await writeOverlayImages(spec, dir);
@@ -130,7 +181,7 @@ async function buildArgs(spec: ExportSpec, dir: string): Promise<{ args: string[
   const ext = settings.format === "webm" ? "webm" : "mp4";
   const outFile = path.join(outputDir(spec.jobId), `export-${path.basename(dir)}.${ext}`);
 
-  const inputs: string[] = ["-i", basePath];
+  const inputs: string[] = ["-ss", start.toFixed(2), "-i", basePath];
   for (const img of images) inputs.push("-i", img.file);
   let musicIndex = -1;
   if (spec.audio.musicSrc) {
@@ -158,7 +209,7 @@ async function buildArgs(spec: ExportSpec, dir: string): Promise<{ args: string[
     parts.push(
       `[${inputIdx}:v]format=rgba,colorchannelmixer=aa=${o.opacity.toFixed(3)},scale=${targetW}:-1${rotate}[ov${k}]`
     );
-    const enable = `:enable='between(t,${o.start},${o.end > o.start ? o.end : spec.baseDurationSec})'`;
+    const enable = `:enable='between(t,${o.start},${o.end > o.start ? o.end : dur})'`;
     const next = `vov${k}`;
     parts.push(`[${last}][ov${k}]overlay=x=W*${o.x.toFixed(4)}-w/2:y=H*${o.y.toFixed(4)}-h/2${enable}[${next}]`);
     last = next;
@@ -167,7 +218,6 @@ async function buildArgs(spec: ExportSpec, dir: string): Promise<{ args: string[
 
   // --- Audio filtergraph ---
   let audioMapped = false;
-  const dur = spec.baseDurationSec;
   const fadeOutStart = Math.max(0, dur - spec.audio.fadeOut);
   if (hasAudio) {
     const af: string[] = [`volume=${spec.audio.clipVolume.toFixed(3)}`];
@@ -232,7 +282,7 @@ async function runExport(record: ExportRecord, spec: ExportSpec) {
   const dir = path.join(workDir(spec.jobId), `export-${record.id}`);
   await mkdir(dir, { recursive: true });
   const { args, outFile } = await buildArgs(spec, dir);
-  const total = Math.max(0.1, spec.baseDurationSec);
+  const total = Math.max(0.1, trimDuration(spec));
 
   await runFfmpeg(args, {
     onLine: (line) => {

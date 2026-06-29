@@ -39,6 +39,8 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     jobId,
     sourceFile: project.sourceFile,
     baseDurationSec: project.baseDurationSec,
+    trimStart: project.trimStart,
+    trimEnd: project.trimEnd || project.baseDurationSec,
     reframe: project.reframe,
     captions: project.captions,
     captionStyle: project.captionStyle,

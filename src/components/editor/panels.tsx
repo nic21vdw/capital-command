@@ -26,7 +26,7 @@ import { ASPECT_LABELS, EXPORT_PRESETS, applyCaptionPreset, aspectDimensions, fo
 import { Button } from "@/components/ui/button";
 import { ColorField, Field, NumberField, RangeField, SelectField, Toggle } from "@/components/editor/controls";
 import { cn } from "@/lib/utils";
-import type { CaptionPresetId, ExportPresetId, OverlayKind } from "@/types/domain";
+import type { AspectRatioId, CaptionPresetId, ExportPresetId, OverlayKind } from "@/types/domain";
 import type { EditorApi } from "@/components/editor/types";
 
 // --- Captions panel --------------------------------------------------------
@@ -302,10 +302,71 @@ export function StylePanel({ api }: { api: EditorApi }) {
 
 // --- Reframe panel ---------------------------------------------------------
 
+export function TrimPanel({ api }: { api: EditorApi }) {
+  const { project } = api;
+  const duration = project.baseDurationSec;
+  const trimStart = Math.max(0, Math.min(project.trimStart ?? 0, duration));
+  const trimEnd = Math.max(trimStart + 0.1, Math.min(project.trimEnd || duration, duration));
+  const setStart = (value: number) => api.setTrim(value, Math.max(value + 0.1, trimEnd));
+  const setEnd = (value: number) => api.setTrim(Math.min(trimStart, value - 0.1), value);
+
+  return (
+    <div className="space-y-4">
+      <div className="rounded-lg border border-[var(--border)] bg-black/20 p-3">
+        <p className="text-sm font-semibold text-white">Clip trim</p>
+        <p className="mt-1 text-xs text-[var(--muted-foreground)]">
+          Playback and export use this range: {formatClock(trimStart)} to {formatClock(trimEnd)}.
+        </p>
+      </div>
+
+      <div className="grid grid-cols-2 gap-3">
+        <NumberField label="Start" value={Number(trimStart.toFixed(2))} min={0} max={trimEnd - 0.1} step={0.05} onChange={setStart} />
+        <NumberField label="End" value={Number(trimEnd.toFixed(2))} min={trimStart + 0.1} max={duration} step={0.05} onChange={setEnd} />
+      </div>
+
+      <RangeField label="Trim start" value={trimStart} min={0} max={Math.max(0.1, trimEnd - 0.1)} step={0.05} onChange={setStart} format={formatClock} />
+      <RangeField label="Trim end" value={trimEnd} min={Math.min(duration, trimStart + 0.1)} max={duration} step={0.05} onChange={setEnd} format={formatClock} />
+
+      <div className="space-y-2 rounded-lg border border-[var(--border)] p-3">
+        <Field label="Generated title">
+          <input
+            value={project.title || project.name}
+            onChange={(event) => api.patch({ title: event.target.value, name: event.target.value })}
+            className="h-9 w-full rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-2.5 text-sm text-white outline-none focus:border-[var(--accent)]"
+          />
+        </Field>
+        <Button variant="secondary" onClick={api.generateTitle} disabled={api.fetchingCaptions}>
+          {api.fetchingCaptions ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Sparkles className="mr-2 h-4 w-4" />}
+          Generate from captions
+        </Button>
+      </div>
+    </div>
+  );
+}
+
 export function ReframePanel({ api }: { api: EditorApi }) {
   const { project } = api;
   const r = project.reframe;
   const dims = aspectDimensions(project.aspectRatio);
+  const aspectPreset: Record<Exclude<AspectRatioId, "custom">, ExportPresetId> = {
+    "9:16": "shorts",
+    "16:9": "longform",
+    "1:1": "square",
+    "4:5": "portrait"
+  };
+  const setAspect = (aspectRatio: Exclude<AspectRatioId, "custom">) => {
+    const nextDims = aspectDimensions(aspectRatio);
+    api.patch({
+      aspectRatio,
+      exportSettings: {
+        ...project.exportSettings,
+        preset: aspectPreset[aspectRatio],
+        width: nextDims.w,
+        height: nextDims.h
+      }
+    });
+  };
+
   return (
     <div className="space-y-4">
       <Field label="Aspect ratio">
@@ -314,7 +375,7 @@ export function ReframePanel({ api }: { api: EditorApi }) {
             <button
               key={a}
               type="button"
-              onClick={() => api.patch({ aspectRatio: a })}
+              onClick={() => setAspect(a)}
               className={cn(
                 "rounded-lg border px-3 py-2 text-sm transition",
                 project.aspectRatio === a ? "border-[var(--accent)] bg-[var(--accent)]/10 text-white" : "border-[var(--border)] text-[var(--muted-foreground)] hover:text-white"
@@ -326,13 +387,13 @@ export function ReframePanel({ api }: { api: EditorApi }) {
         </div>
       </Field>
       <p className="text-xs text-[var(--muted-foreground)]">
-        Output {dims.w}×{dims.h}. Reframe to keep the subject in frame; uncovered space is filled with a blurred copy.
+        Output {dims.w}x{dims.h}. Drag the preview to pan, then zoom to crop tighter around the subject.
       </p>
-      <RangeField label="Zoom" value={r.scale} min={0.5} max={3} step={0.05} onChange={(v) => api.patch({ reframe: { ...r, scale: v } })} format={(v) => `${v.toFixed(2)}×`} />
+      <RangeField label="Crop zoom" value={Math.max(1, r.scale)} min={1} max={4} step={0.05} onChange={(v) => api.patch({ reframe: { ...r, scale: v } })} format={(v) => `${v.toFixed(2)}x`} />
       <RangeField label="Pan X" value={r.offsetX} min={-1} max={1} step={0.02} onChange={(v) => api.patch({ reframe: { ...r, offsetX: v } })} />
       <RangeField label="Pan Y" value={r.offsetY} min={-1} max={1} step={0.02} onChange={(v) => api.patch({ reframe: { ...r, offsetY: v } })} />
       <Button variant="ghost" onClick={() => api.patch({ reframe: { scale: 1, offsetX: 0, offsetY: 0 } })}>
-        Reset reframe
+        Reset crop
       </Button>
     </div>
   );

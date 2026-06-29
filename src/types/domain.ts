@@ -499,6 +499,11 @@ export interface ClipProject {
   /** Where this clip sits inside the source VOD (for caption offset/suggestions). */
   clipStart: number;
   clipEnd: number;
+  /** Non-destructive trim points inside the rendered clip. */
+  trimStart: number;
+  trimEnd: number;
+  /** Short generated/editorial title for this clip. */
+  title: string;
   aspectRatio: AspectRatioId;
   reframe: ReframeTransform;
   captions: CaptionSegment[];

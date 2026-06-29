@@ -24,7 +24,10 @@ export async function GET(
   }
 
   // Only files the job itself produced may be served — no path traversal.
-  const known = job.clips.map((clip) => clip.file).filter(Boolean);
+  const known = job.clips.flatMap((clip) => [
+    clip.file,
+    ...(clip.variants ?? []).map((variant) => variant.file)
+  ]).filter(Boolean);
   if (!known.includes(fileName)) {
     return NextResponse.json({ error: "File not found for this job." }, { status: 404 });
   }
@@ -61,7 +64,7 @@ export async function GET(
         "Content-Length": String(end - start + 1),
         "Content-Range": `bytes ${start}-${end}/${size}`,
         "Accept-Ranges": "bytes",
-        "Cache-Control": "private, max-age=3600"
+        "Cache-Control": "private, no-cache"
       }
     });
   }
@@ -70,7 +73,7 @@ export async function GET(
     "Content-Type": "video/mp4",
     "Content-Length": String(size),
     "Accept-Ranges": "bytes",
-    "Cache-Control": "private, max-age=3600"
+    "Cache-Control": "private, no-cache"
   };
   if (download) headers["Content-Disposition"] = `attachment; filename="${jobId}-${fileName}"`;
 

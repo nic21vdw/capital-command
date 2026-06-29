@@ -437,6 +437,9 @@ export const clipProjectSchema = z.object({
   baseHeight: z.coerce.number().int().min(1).default(1920),
   clipStart: z.coerce.number().min(0).default(0),
   clipEnd: z.coerce.number().min(0).default(0),
+  trimStart: z.coerce.number().min(0).default(0),
+  trimEnd: z.coerce.number().min(0).default(0),
+  title: z.string().default(""),
   aspectRatio: z.enum(["9:16", "16:9", "1:1", "4:5", "custom"]).default("9:16"),
   reframe: z
     .object({

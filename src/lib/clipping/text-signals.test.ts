@@ -56,10 +56,10 @@ describe("analyzeTranscript", () => {
 });
 
 describe("densityScore", () => {
-  it("peaks around conversational delivery and falls off at the extremes", () => {
-    expect(densityScore(2.6)).toBe(100);
+  it("rewards higher word density and only tapers at extreme speed", () => {
     expect(densityScore(0)).toBe(0);
-    expect(densityScore(2.6)).toBeGreaterThan(densityScore(0.5));
-    expect(densityScore(2.6)).toBeGreaterThan(densityScore(5));
+    expect(densityScore(2.8)).toBeGreaterThan(densityScore(1.4));
+    expect(densityScore(3.4)).toBeGreaterThanOrEqual(99);
+    expect(densityScore(3.4)).toBeGreaterThan(densityScore(5));
   });
 });

@@ -6,6 +6,7 @@ import {
 } from "@/lib/storage/schemas";
 import type {
   AspectRatioId,
+  CaptionSegment,
   CaptionPresetId,
   CaptionStyle,
   ClipProject,
@@ -52,6 +53,62 @@ export function formatClock(seconds: number): string {
   return `${m}:${String(sec).padStart(2, "0")}.${String(cs).padStart(2, "0")}`;
 }
 
+const TITLE_STOPWORDS = new Set([
+  "about",
+  "after",
+  "again",
+  "because",
+  "being",
+  "could",
+  "from",
+  "have",
+  "here",
+  "just",
+  "like",
+  "really",
+  "right",
+  "that",
+  "this",
+  "what",
+  "when",
+  "where",
+  "which",
+  "with",
+  "would",
+  "your",
+  "you're"
+]);
+
+function titleCaseWord(word: string): string {
+  if (word.length <= 2 && word === word.toUpperCase()) return word;
+  return word.charAt(0).toUpperCase() + word.slice(1).toLowerCase();
+}
+
+export function generateClipTitle(captions: CaptionSegment[], fallback = "Untitled clip"): string {
+  const text = captions
+    .map((caption) => caption.text)
+    .join(" ")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!text) return fallback;
+
+  const sentence = text.split(/(?<=[.!?])\s+/).find((part) => part.trim().split(/\s+/).length >= 3) ?? text;
+  const words = sentence
+    .replace(/[^\w\s'-]/g, "")
+    .split(/\s+/)
+    .map((word) => word.trim())
+    .filter((word) => word && !TITLE_STOPWORDS.has(word.toLowerCase()))
+    .slice(0, 7);
+  const raw = words.length >= 3 ? words.join(" ") : sentence.split(/\s+/).slice(0, 7).join(" ");
+  return raw
+    .split(/\s+/)
+    .map(titleCaseWord)
+    .join(" ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 80);
+}
+
 /** Builds a fresh clip project from a rendered job clip. */
 export function makeClipProject(input: {
   jobId: string;
@@ -74,6 +131,9 @@ export function makeClipProject(input: {
     baseHeight: 1920,
     clipStart: input.clipStart,
     clipEnd: input.clipEnd,
+    trimStart: 0,
+    trimEnd: duration,
+    title: "",
     aspectRatio: "9:16",
     reframe: { scale: 1, offsetX: 0, offsetY: 0 },
     captions: [],
