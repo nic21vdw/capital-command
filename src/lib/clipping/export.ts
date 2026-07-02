@@ -189,9 +189,22 @@ function centerBlurChain(
   );
 }
 
+/** Letterboxes the full source frame into the output with no blur fill. */
+function fitChain(inLabel: string, outLabel: string, w: number, h: number): string {
+  return (
+    `[${inLabel}]scale=${w}:${h}:force_original_aspect_ratio=decrease,` +
+    `pad=${w}:${h}:(ow-iw)/2:(oh-ih)/2:color=black,setsar=1[${outLabel}]`
+  );
+}
+
 function sourceCompositionChain(spec: ExportSpec, w: number, h: number): string {
-  if (spec.compositionMode === "stacked-split" && w === 1080 && h === 1920) {
-    return stackedLayoutChain("restream-stack").replace(/\[vout\]$/, "[v0]");
+  const stacked = spec.compositionMode === "stacked-split" || spec.compositionMode === "stacked-split-flip";
+  if (stacked && w === 1080 && h === 1920) {
+    const layout = spec.compositionMode === "stacked-split-flip" ? "face-stack" : "restream-stack";
+    return stackedLayoutChain(layout).replace(/\[vout\]$/, "[v0]");
+  }
+  if (spec.compositionMode === "fit") {
+    return fitChain("0:v", "v0", w, h);
   }
   if (spec.compositionMode === "crop-fill") {
     return reframeChain("0:v", "v0", w, h, spec.reframe.scale, spec.reframe.offsetX, spec.reframe.offsetY);

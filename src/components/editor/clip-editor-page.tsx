@@ -63,17 +63,6 @@ function projectFromClip(job: ClipJob, clip: ClipCandidate, index: number, sourc
   project.captions = words.length ? chunkWords(words, project.captionStyle.maxWordsPerCaption) : windowed;
   project.title = generateClipTitle(project.captions, `Clip ${index + 1}`);
   if (project.title) project.name = project.title;
-  project.suggestions = [
-    {
-      id: `sug-${crypto.randomUUID().slice(0, 8)}`,
-      start: 0,
-      end: project.baseDurationSec,
-      score: clip.score,
-      rationale: clip.rationale,
-      status: "pending",
-      addedToTimeline: false
-    }
-  ];
   return project;
 }
 
@@ -81,7 +70,7 @@ export function ClipEditorPage() {
   const { data, mutate } = useAppData();
   const projects = data.clipProjects;
   const searchParams = useSearchParams();
-  // Allow deep-linking straight into a project (e.g. from the Clipping Agent).
+  // Allow deep-linking straight into a project (e.g. from the Clip Generator).
   const [openId, setOpenId] = useState<string | null>(() => searchParams.get("open"));
   const sourceJobId = searchParams.get("job");
   const sourceFile = searchParams.get("file");
@@ -187,13 +176,31 @@ export function ClipEditorPage() {
     setOpenId(project.id);
   };
 
+  // Switching clips from the editor's clip bin: reuse an existing project for
+  // that clip if there is one, otherwise start a fresh project.
+  const switchToClip = (job: ClipJob, clip: ClipCandidate, index: number) => {
+    const existing = projects.find((p) => p.jobId === job.id && p.sourceFile === clip.file);
+    if (existing) {
+      setOpenId(existing.id);
+      return;
+    }
+    void createFromClip(job, clip, index);
+  };
+
   const deleteProject = async (project: ClipProject) => {
     await mutate("deleteClipProject", project.id, { successMessage: "Project deleted." });
     if (openId === project.id) setOpenId(null);
   };
 
   if (openProject) {
-    return <ClipEditor key={openProject.id} initialProject={openProject} onClose={() => setOpenId(null)} />;
+    return (
+      <ClipEditor
+        key={openProject.id}
+        initialProject={openProject}
+        onClose={() => setOpenId(null)}
+        onOpenClip={switchToClip}
+      />
+    );
   }
 
   return (
@@ -201,7 +208,7 @@ export function ClipEditorPage() {
       <PageHeader
         eyebrow="Creator Tools"
         title="Clip Editor"
-        description="Open a rendered clip to add captions, overlays, reframing, and audio, then export a finished video. Edits are non-destructive and saved automatically."
+        description="Open a clip to trim it on the timeline, pick a short-form layout, and export. Edits are non-destructive and saved automatically."
         actions={
           <Button onClick={openPicker}>
             <Plus className="mr-2 h-4 w-4" />
@@ -215,7 +222,7 @@ export function ClipEditorPage() {
           <Clapperboard className="h-8 w-8 text-[var(--accent)]" />
           <p className="text-sm font-semibold text-white">No clip projects yet</p>
           <p className="max-w-md text-sm text-[var(--muted-foreground)]">
-            Render some clips in the Clipping Agent first, then start a project here to caption, brand, and export them.
+            Generate clips from a stream in the Clip Generator first, then open one here to trim, caption, and export it.
           </p>
           <Button onClick={openPicker} className="mt-1">
             <Plus className="mr-2 h-4 w-4" />
@@ -272,7 +279,7 @@ export function ClipEditorPage() {
             <Film className="mx-auto h-7 w-7 text-[var(--accent)]" />
             <p className="text-sm text-white">No rendered clips found.</p>
             <p className="text-sm text-[var(--muted-foreground)]">
-              Use the Clipping Agent to render clips from a VOD link first, then come back here.
+              Use the Clip Generator to make clips from a stream first, then come back here.
             </p>
           </div>
         ) : (

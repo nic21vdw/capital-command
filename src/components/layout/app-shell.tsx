@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   ChevronLeft,
   ChevronRight,
@@ -112,14 +112,19 @@ function ProfileFooter({ collapsed = false }: { collapsed?: boolean }) {
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const settingsActive = pathname === "/settings";
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
-    if (typeof window === "undefined") return false;
-    try {
-      return window.localStorage.getItem(SIDEBAR_COLLAPSED_KEY) === "1";
-    } catch {
-      return false;
-    }
-  });
+  // Read the stored preference after mount: reading localStorage inside the
+  // useState initializer makes the client's first render disagree with the
+  // server HTML and triggers a React hydration error.
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  useEffect(() => {
+    queueMicrotask(() => {
+      try {
+        if (window.localStorage.getItem(SIDEBAR_COLLAPSED_KEY) === "1") setSidebarCollapsed(true);
+      } catch {
+        // Non-critical preference read.
+      }
+    });
+  }, []);
 
   const toggleSidebar = () => {
     setSidebarCollapsed((current) => {
@@ -137,7 +142,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     <div className="mx-auto flex min-h-screen max-w-[1600px] gap-6 px-4 py-4 lg:px-6">
       <aside className={cn("hidden shrink-0 transition-[width] duration-200 lg:block", sidebarCollapsed ? "w-20" : "w-64")}>
         <div className="sticky top-4 flex h-[calc(100vh-2rem)] flex-col rounded-xl border border-[var(--border)] bg-[var(--panel)] p-4">
-          <div className={cn("flex items-center pb-4", sidebarCollapsed ? "justify-center" : "justify-between gap-2 px-1")}>
+          {/* When collapsed the rail is too narrow for the brand and the toggle
+              side by side, so stack them instead of letting them overflow. */}
+          <div className={cn("flex pb-4", sidebarCollapsed ? "flex-col items-center gap-2" : "items-center justify-between gap-2 px-1")}>
             <Brand collapsed={sidebarCollapsed} />
             <button
               type="button"

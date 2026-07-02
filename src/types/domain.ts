@@ -455,7 +455,7 @@ export interface ReframeTransform {
   offsetY: number;
 }
 
-export type ClipCompositionMode = "center-blur" | "crop-fill" | "stacked-split";
+export type ClipCompositionMode = "center-blur" | "crop-fill" | "stacked-split" | "stacked-split-flip" | "fit";
 
 export type ExportPresetId = "shorts" | "longform" | "square" | "portrait" | "custom";
 export type ExportQuality = "high" | "medium" | "low";

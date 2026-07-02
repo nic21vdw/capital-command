@@ -14,12 +14,9 @@ import {
   Plus,
   RefreshCw,
   Scissors,
-  Search,
-  Sparkles,
   Trash2,
   Type,
-  Unlock,
-  X
+  Unlock
 } from "lucide-react";
 import { CAPTION_PRESETS } from "@/lib/clipping/captions";
 import { ASPECT_LABELS, EXPORT_PRESETS, applyCaptionPreset, aspectDimensions, formatClock } from "@/lib/clipping/editor";
@@ -29,23 +26,54 @@ import { cn } from "@/lib/utils";
 import type { AspectRatioId, CaptionPresetId, ClipCompositionMode, ExportPresetId, OverlayKind } from "@/types/domain";
 import type { EditorApi } from "@/components/editor/types";
 
-const COMPOSITION_OPTIONS: Array<{ id: ClipCompositionMode; label: string; detail: string }> = [
-  {
-    id: "center-blur",
-    label: "Center + blur",
-    detail: "Full 16:9 source centered over a faded background."
-  },
-  {
-    id: "stacked-split",
-    label: "Top/bottom split",
-    detail: "Screen on top with the camera/reaction area below."
-  },
-  {
-    id: "crop-fill",
-    label: "Crop fill",
-    detail: "Fill the output frame with manual zoom and pan."
-  }
+/** Short-form layout presets. `vertical` presets only make sense at 9:16 and
+ *  switch the project there when picked. */
+const LAYOUT_PRESETS: Array<{ id: ClipCompositionMode; label: string; detail: string; vertical?: boolean }> = [
+  { id: "stacked-split", label: "Screen + face", detail: "Screen on top, face camera below.", vertical: true },
+  { id: "stacked-split-flip", label: "Face + screen", detail: "Face camera on top, screen below.", vertical: true },
+  { id: "center-blur", label: "Centered + blur", detail: "Clip centered over a blurred, zoomed copy of itself." },
+  { id: "crop-fill", label: "Crop to fill", detail: "Fill the frame — zoom and pan to the main content." },
+  { id: "fit", label: "Fullscreen", detail: "The whole source frame, letterboxed." }
 ];
+
+/** Like Field, but for groups of buttons — a <label> wrapper would forward
+ *  clicks on the caption to the first button and break accessible names. */
+function Group({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="space-y-1.5">
+      <p className="text-xs font-medium text-[var(--muted-foreground)]">{label}</p>
+      {children}
+    </div>
+  );
+}
+
+/** Tiny 9:16 diagram of what each layout does. */
+function LayoutThumb({ id }: { id: ClipCompositionMode }) {
+  return (
+    <span className="relative block h-14 w-8 shrink-0 overflow-hidden rounded border border-white/15 bg-black/60">
+      {id === "stacked-split" && (
+        <>
+          <span className="absolute inset-x-0 top-0 h-[56%] bg-white/25" />
+          <span className="absolute inset-x-0 bottom-0 h-[42%] bg-[var(--accent)]/70" />
+        </>
+      )}
+      {id === "stacked-split-flip" && (
+        <>
+          <span className="absolute inset-x-0 top-0 h-[42%] bg-[var(--accent)]/70" />
+          <span className="absolute inset-x-0 bottom-0 h-[56%] bg-white/25" />
+        </>
+      )}
+      {id === "center-blur" && (
+        <>
+          <span className="absolute inset-0 bg-white/10" />
+          <span className="absolute inset-x-0 top-1/2 h-[34%] -translate-y-1/2 bg-white/35" />
+        </>
+      )}
+      {id === "crop-fill" && <span className="absolute inset-0 bg-white/35" />}
+      {id === "fit" && <span className="absolute inset-x-0 top-1/2 h-[30%] -translate-y-1/2 bg-white/35" />}
+    </span>
+  );
+}
 
 // --- Captions panel --------------------------------------------------------
 
@@ -128,86 +156,6 @@ export function CaptionsPanel({ api }: { api: EditorApi }) {
   );
 }
 
-// --- Transcript panel ------------------------------------------------------
-
-export function TranscriptPanel({ api }: { api: EditorApi }) {
-  const { project } = api;
-  const [selStart, setSelStart] = useState<number | null>(null);
-  const [selEnd, setSelEnd] = useState<number | null>(null);
-  const term = api.search.trim().toLowerCase();
-  const matches = term ? project.captions.filter((c) => c.text.toLowerCase().includes(term)) : project.captions;
-
-  const toggleSelect = (start: number, end: number) => {
-    if (selStart === null) {
-      setSelStart(start);
-      setSelEnd(end);
-    } else {
-      setSelStart(Math.min(selStart, start));
-      setSelEnd(Math.max(selEnd ?? end, end));
-    }
-  };
-
-  return (
-    <div className="space-y-3">
-      <div className="flex items-center gap-2 rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-2.5">
-        <Search className="h-4 w-4 text-[var(--muted-foreground)]" />
-        <input
-          value={api.search}
-          onChange={(e) => api.setSearch(e.target.value)}
-          placeholder="Search transcript"
-          className="h-9 w-full bg-transparent text-sm text-white outline-none"
-        />
-      </div>
-
-      {selStart !== null && selEnd !== null && (
-        <div className="flex items-center justify-between gap-2 rounded-lg border border-[var(--accent)]/40 bg-[var(--accent)]/10 p-2 text-xs text-white">
-          <span>
-            Selected {formatClock(selStart)} → {formatClock(selEnd)}
-          </span>
-          <div className="flex gap-1.5">
-            <Button
-              className="px-2 py-1 text-xs"
-              onClick={() => {
-                api.createClipFromRange(selStart, selEnd);
-                setSelStart(null);
-                setSelEnd(null);
-              }}
-            >
-              Make clip
-            </Button>
-            <Button variant="ghost" className="px-2 py-1 text-xs" onClick={() => { setSelStart(null); setSelEnd(null); }}>
-              Clear
-            </Button>
-          </div>
-        </div>
-      )}
-
-      {project.captions.length === 0 ? (
-        <p className="text-sm text-[var(--muted-foreground)]">No transcript yet — regenerate captions in the Captions tab.</p>
-      ) : (
-        <div className="max-h-[48vh] space-y-1 overflow-y-auto pr-1 text-sm leading-relaxed">
-          {matches.map((c) => (
-            <span
-              key={c.id}
-              role="button"
-              tabIndex={0}
-              onClick={(e) => {
-                if (e.shiftKey) toggleSelect(c.start, c.end);
-                else api.seek(c.start);
-              }}
-              className="mr-1 inline cursor-pointer rounded px-0.5 text-[var(--muted-foreground)] hover:bg-white/10 hover:text-white"
-              title={`${formatClock(c.start)} — click to seek, shift-click to select range`}
-            >
-              {c.text}{" "}
-            </span>
-          ))}
-        </div>
-      )}
-      <p className="text-[11px] text-white/40">Click to seek · Shift-click two lines to select a range, then “Make clip”.</p>
-    </div>
-  );
-}
-
 // --- Style panel -----------------------------------------------------------
 
 export function StylePanel({ api }: { api: EditorApi }) {
@@ -216,7 +164,7 @@ export function StylePanel({ api }: { api: EditorApi }) {
 
   return (
     <div className="space-y-4">
-      <Field label="Presets">
+      <Group label="Presets">
         <div className="flex flex-wrap gap-1.5">
           {(Object.keys(CAPTION_PRESETS) as CaptionPresetId[]).map((id) => (
             <button
@@ -229,7 +177,7 @@ export function StylePanel({ api }: { api: EditorApi }) {
             </button>
           ))}
         </div>
-      </Field>
+      </Group>
 
       <div className="grid grid-cols-2 gap-3">
         <SelectField
@@ -318,51 +266,9 @@ export function StylePanel({ api }: { api: EditorApi }) {
   );
 }
 
-// --- Reframe panel ---------------------------------------------------------
+// --- Layout panel ------------------------------------------------------------
 
-export function TrimPanel({ api }: { api: EditorApi }) {
-  const { project } = api;
-  const duration = project.baseDurationSec;
-  const trimStart = Math.max(0, Math.min(project.trimStart ?? 0, duration));
-  const trimEnd = Math.max(trimStart + 0.1, Math.min(project.trimEnd || duration, duration));
-  const setStart = (value: number) => api.setTrim(value, Math.max(value + 0.1, trimEnd));
-  const setEnd = (value: number) => api.setTrim(Math.min(trimStart, value - 0.1), value);
-
-  return (
-    <div className="space-y-4">
-      <div className="rounded-lg border border-[var(--border)] bg-black/20 p-3">
-        <p className="text-sm font-semibold text-white">Clip trim</p>
-        <p className="mt-1 text-xs text-[var(--muted-foreground)]">
-          Playback and export use this range: {formatClock(trimStart)} to {formatClock(trimEnd)}.
-        </p>
-      </div>
-
-      <div className="grid grid-cols-2 gap-3">
-        <NumberField label="Start" value={Number(trimStart.toFixed(2))} min={0} max={trimEnd - 0.1} step={0.05} onChange={setStart} />
-        <NumberField label="End" value={Number(trimEnd.toFixed(2))} min={trimStart + 0.1} max={duration} step={0.05} onChange={setEnd} />
-      </div>
-
-      <RangeField label="Trim start" value={trimStart} min={0} max={Math.max(0.1, trimEnd - 0.1)} step={0.05} onChange={setStart} format={formatClock} />
-      <RangeField label="Trim end" value={trimEnd} min={Math.min(duration, trimStart + 0.1)} max={duration} step={0.05} onChange={setEnd} format={formatClock} />
-
-      <div className="space-y-2 rounded-lg border border-[var(--border)] p-3">
-        <Field label="Generated title">
-          <input
-            value={project.title || project.name}
-            onChange={(event) => api.patch({ title: event.target.value, name: event.target.value })}
-            className="h-9 w-full rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-2.5 text-sm text-white outline-none focus:border-[var(--accent)]"
-          />
-        </Field>
-        <Button variant="secondary" onClick={api.generateTitle} disabled={api.fetchingCaptions}>
-          {api.fetchingCaptions ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Sparkles className="mr-2 h-4 w-4" />}
-          Generate from captions
-        </Button>
-      </div>
-    </div>
-  );
-}
-
-export function ReframePanel({ api }: { api: EditorApi }) {
+export function LayoutPanel({ api }: { api: EditorApi }) {
   const { project } = api;
   const r = project.reframe;
   const dims = aspectDimensions(project.aspectRatio);
@@ -385,9 +291,49 @@ export function ReframePanel({ api }: { api: EditorApi }) {
     });
   };
 
+  const pickLayout = (preset: (typeof LAYOUT_PRESETS)[number]) => {
+    // Stacked layouts are rendered at 1080x1920, so they force 9:16 output.
+    if (preset.vertical && project.aspectRatio !== "9:16") {
+      const nextDims = aspectDimensions("9:16");
+      api.patch({
+        compositionMode: preset.id,
+        aspectRatio: "9:16",
+        exportSettings: { ...project.exportSettings, preset: "shorts", width: nextDims.w, height: nextDims.h }
+      });
+    } else {
+      api.patch({ compositionMode: preset.id });
+    }
+  };
+
+  const showReframe = project.compositionMode === "center-blur" || project.compositionMode === "crop-fill";
+
   return (
     <div className="space-y-4">
-      <Field label="Aspect ratio">
+      <Group label="Layout">
+        <div className="space-y-1.5">
+          {LAYOUT_PRESETS.map((preset) => (
+            <button
+              key={preset.id}
+              type="button"
+              onClick={() => pickLayout(preset)}
+              className={cn(
+                "flex w-full items-center gap-3 rounded-lg border px-3 py-2 text-left transition",
+                project.compositionMode === preset.id
+                  ? "border-[var(--accent)] bg-[var(--accent)]/10 text-white"
+                  : "border-[var(--border)] text-[var(--muted-foreground)] hover:text-white"
+              )}
+            >
+              <LayoutThumb id={preset.id} />
+              <span className="min-w-0">
+                <span className="block text-sm font-medium">{preset.label}</span>
+                <span className="mt-0.5 block text-xs text-[var(--muted-foreground)]">{preset.detail}</span>
+              </span>
+            </button>
+          ))}
+        </div>
+      </Group>
+
+      <Group label="Output">
         <div className="grid grid-cols-2 gap-1.5">
           {(["9:16", "16:9", "1:1", "4:5"] as const).map((a) => (
             <button
@@ -403,36 +349,22 @@ export function ReframePanel({ api }: { api: EditorApi }) {
             </button>
           ))}
         </div>
-      </Field>
-      <p className="text-xs text-[var(--muted-foreground)]">
-        Output {dims.w}x{dims.h}. Start from the 16:9 source master, then choose how it should sit inside the final frame.
-      </p>
-      <Field label="Composition">
-        <div className="space-y-1.5">
-          {COMPOSITION_OPTIONS.map((option) => (
-            <button
-              key={option.id}
-              type="button"
-              onClick={() => api.patch({ compositionMode: option.id })}
-              className={cn(
-                "w-full rounded-lg border px-3 py-2 text-left transition",
-                project.compositionMode === option.id
-                  ? "border-[var(--accent)] bg-[var(--accent)]/10 text-white"
-                  : "border-[var(--border)] text-[var(--muted-foreground)] hover:text-white"
-              )}
-            >
-              <span className="block text-sm font-medium">{option.label}</span>
-              <span className="mt-0.5 block text-xs text-[var(--muted-foreground)]">{option.detail}</span>
-            </button>
-          ))}
-        </div>
-      </Field>
-      <RangeField label="Crop zoom" value={Math.max(1, r.scale)} min={1} max={4} step={0.05} onChange={(v) => api.patch({ reframe: { ...r, scale: v } })} format={(v) => `${v.toFixed(2)}x`} />
-      <RangeField label="Pan X" value={r.offsetX} min={-1} max={1} step={0.02} onChange={(v) => api.patch({ reframe: { ...r, offsetX: v } })} />
-      <RangeField label="Pan Y" value={r.offsetY} min={-1} max={1} step={0.02} onChange={(v) => api.patch({ reframe: { ...r, offsetY: v } })} />
-      <Button variant="ghost" onClick={() => api.patch({ reframe: { scale: 1, offsetX: 0, offsetY: 0 } })}>
-        Reset crop
-      </Button>
+        <p className="mt-1.5 text-xs text-[var(--muted-foreground)]">
+          Exports at {dims.w}x{dims.h}. 9:16 covers Shorts, TikTok, Reels, and X.
+        </p>
+      </Group>
+
+      {showReframe && (
+        <>
+          <RangeField label="Zoom" value={Math.max(1, r.scale)} min={1} max={4} step={0.05} onChange={(v) => api.patch({ reframe: { ...r, scale: v } })} format={(v) => `${v.toFixed(2)}x`} />
+          <RangeField label="Pan X" value={r.offsetX} min={-1} max={1} step={0.02} onChange={(v) => api.patch({ reframe: { ...r, offsetX: v } })} />
+          <RangeField label="Pan Y" value={r.offsetY} min={-1} max={1} step={0.02} onChange={(v) => api.patch({ reframe: { ...r, offsetY: v } })} />
+          <p className="text-xs text-[var(--muted-foreground)]">Tip: you can also drag the preview to pan.</p>
+          <Button variant="ghost" onClick={() => api.patch({ reframe: { scale: 1, offsetX: 0, offsetY: 0 } })}>
+            Reset zoom & pan
+          </Button>
+        </>
+      )}
     </div>
   );
 }
@@ -570,65 +502,6 @@ export function AudioPanel({ api }: { api: EditorApi }) {
   );
 }
 
-// --- Suggestions panel -----------------------------------------------------
-
-export function SuggestionsPanel({ api }: { api: EditorApi }) {
-  const { project } = api;
-  return (
-    <div className="space-y-3">
-      <p className="flex items-center gap-2 text-xs text-[var(--muted-foreground)]">
-        <Sparkles className="h-4 w-4 text-[var(--accent)]" />
-        AI-recommended moments from the source analysis. They never change your edits unless you add them.
-      </p>
-      {project.suggestions.length === 0 ? (
-        <p className="text-sm text-[var(--muted-foreground)]">No suggestions for this clip.</p>
-      ) : (
-        <div className="max-h-[52vh] space-y-2 overflow-y-auto pr-1">
-          {project.suggestions.map((sug) => (
-            <div
-              key={sug.id}
-              className={cn(
-                "rounded-lg border p-2.5",
-                sug.status === "approved" && "border-emerald-400/40 bg-emerald-400/8",
-                sug.status === "rejected" && "border-red-400/30 bg-red-400/5 opacity-60",
-                sug.status === "pending" && "border-[var(--border)] bg-black/20"
-              )}
-            >
-              <div className="flex items-center gap-2">
-                <button type="button" onClick={() => api.seek(sug.start)} className="font-mono text-[11px] text-[var(--accent)] hover:underline">
-                  {formatClock(sug.start)} → {formatClock(sug.end)}
-                </button>
-                {sug.score > 0 && <span className="rounded-full bg-white/10 px-2 py-0.5 text-[10px] text-white">Score {sug.score}</span>}
-              </div>
-              <p className="mt-1 text-xs leading-relaxed text-[var(--muted-foreground)]">{sug.rationale}</p>
-              <div className="mt-2 grid grid-cols-2 gap-2">
-                <NumberField label="Start" value={Number(sug.start.toFixed(2))} step={0.1} min={0} onChange={(v) => api.trimSuggestion(sug.id, v, sug.end)} />
-                <NumberField label="End" value={Number(sug.end.toFixed(2))} step={0.1} min={0} onChange={(v) => api.trimSuggestion(sug.id, sug.start, v)} />
-              </div>
-              <div className="mt-2 flex flex-wrap gap-1.5">
-                <Button className="px-2 py-1 text-xs" onClick={() => api.setSuggestionStatus(sug.id, "approved")}>
-                  <Check className="mr-1 h-3 w-3" /> Approve
-                </Button>
-                <Button variant="ghost" className="px-2 py-1 text-xs" onClick={() => api.setSuggestionStatus(sug.id, "rejected")}>
-                  <X className="mr-1 h-3 w-3" /> Reject
-                </Button>
-                <Button
-                  variant="secondary"
-                  className="px-2 py-1 text-xs"
-                  disabled={sug.addedToTimeline}
-                  onClick={() => api.addSuggestionToTimeline(sug.id)}
-                >
-                  {sug.addedToTimeline ? "Added" : "Add to timeline"}
-                </Button>
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
 // --- Export panel ----------------------------------------------------------
 
 export function ExportPanel({ api }: { api: EditorApi }) {
@@ -644,7 +517,7 @@ export function ExportPanel({ api }: { api: EditorApi }) {
 
   return (
     <div className="space-y-4">
-      <Field label="Target">
+      <Group label="Target">
         <div className="grid grid-cols-2 gap-1.5">
           {(Object.keys(EXPORT_PRESETS) as ExportPresetId[]).map((id) => (
             <button
@@ -660,7 +533,7 @@ export function ExportPanel({ api }: { api: EditorApi }) {
             </button>
           ))}
         </div>
-      </Field>
+      </Group>
 
       {e.preset === "custom" && (
         <div className="grid grid-cols-2 gap-3">

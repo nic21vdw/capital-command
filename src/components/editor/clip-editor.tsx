@@ -1,7 +1,21 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ArrowLeft, Crop, Layers, ListMusic, Pause, Play, Save, Scissors, Sparkles, SquarePen, Subtitles, Type, Upload, Volume2, VolumeX } from "lucide-react";
+import {
+  ArrowLeft,
+  Layers,
+  LayoutTemplate,
+  ListMusic,
+  Pause,
+  Play,
+  Save,
+  Sparkles,
+  SquarePen,
+  Subtitles,
+  Upload,
+  Volume2,
+  VolumeX
+} from "lucide-react";
 import { toast } from "sonner";
 import { useAppData } from "@/components/providers/app-provider";
 import { chunkWords, serializeSrt, serializeVtt, splitSegment, mergeSegments, windowSegments } from "@/lib/clipping/captions";
@@ -13,26 +27,21 @@ import {
   AudioPanel,
   CaptionsPanel,
   ExportPanel,
+  LayoutPanel,
   OverlaysPanel,
-  ReframePanel,
-  StylePanel,
-  SuggestionsPanel,
-  TrimPanel,
-  TranscriptPanel
+  StylePanel
 } from "@/components/editor/panels";
 import { cn } from "@/lib/utils";
-import type { CaptionSegment, ClipProject, Overlay, OverlayKind, SuggestionStatus } from "@/types/domain";
+import type { CaptionSegment, ClipProject, Overlay, OverlayKind } from "@/types/domain";
+import type { ClipCandidate, ClipJob } from "@/lib/clipping/types";
 import type { EditorApi, ExportUiState } from "@/components/editor/types";
 
 const TABS = [
-  { id: "trim", label: "Trim", icon: Scissors },
+  { id: "layout", label: "Layout", icon: LayoutTemplate },
   { id: "captions", label: "Captions", icon: Subtitles },
-  { id: "transcript", label: "Transcript", icon: Type },
   { id: "style", label: "Style", icon: SquarePen },
-  { id: "reframe", label: "Reframe", icon: Crop },
-  { id: "overlays", label: "Overlays", icon: Layers },
+  { id: "overlays", label: "Text", icon: Layers },
   { id: "audio", label: "Audio", icon: ListMusic },
-  { id: "suggestions", label: "AI", icon: Sparkles },
   { id: "export", label: "Export", icon: Upload }
 ] as const;
 
@@ -40,21 +49,29 @@ function uid(prefix: string) {
   return `${prefix}-${crypto.randomUUID().slice(0, 8)}`;
 }
 
-export function ClipEditor({ initialProject, onClose }: { initialProject: ClipProject; onClose: () => void }) {
+export function ClipEditor({
+  initialProject,
+  onClose,
+  onOpenClip
+}: {
+  initialProject: ClipProject;
+  onClose: () => void;
+  onOpenClip?: (job: ClipJob, clip: ClipCandidate, index: number) => void;
+}) {
   const { mutate } = useAppData();
   const [project, setProject] = useState<ClipProject>(initialProject);
   const [time, setTime] = useState(0);
   const [playing, setPlaying] = useState(false);
-  const [tab, setTab] = useState<(typeof TABS)[number]["id"]>("trim");
+  const [tab, setTab] = useState<(typeof TABS)[number]["id"]>("layout");
   const [muted, setMuted] = useState(false);
   const [volume, setVolume] = useState(1);
   const [selectedCaptionId, setSelectedCaptionId] = useState<string | null>(null);
   const [selectedOverlayId, setSelectedOverlayId] = useState<string | null>(null);
-  const [search, setSearch] = useState("");
   const [fetchingCaptions, setFetchingCaptions] = useState(false);
   const [exportState, setExportState] = useState<ExportUiState>({ status: "idle", progress: 0 });
   const [saved, setSaved] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [sourceJob, setSourceJob] = useState<ClipJob | null>(null);
 
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const trimEndRef = useRef(0);
@@ -67,6 +84,25 @@ export function ClipEditor({ initialProject, onClose }: { initialProject: ClipPr
   useEffect(() => {
     trimEndRef.current = trimEnd;
   }, [trimEnd]);
+
+  // The clip bin: other detected moments from the same stream, one click away.
+  useEffect(() => {
+    let cancelled = false;
+    const load = async () => {
+      try {
+        const res = await fetch(`/api/clips/${project.jobId}`, { cache: "no-store" });
+        if (!res.ok || cancelled) return;
+        const { job } = (await res.json()) as { job: ClipJob };
+        if (!cancelled) setSourceJob(job);
+      } catch {
+        // The bin is optional — the editor works without it.
+      }
+    };
+    void load();
+    return () => {
+      cancelled = true;
+    };
+  }, [project.jobId]);
 
   // Track playback without re-rendering the whole editor on every animation frame.
   useEffect(() => {
@@ -136,13 +172,20 @@ export function ClipEditor({ initialProject, onClose }: { initialProject: ClipPr
     try {
       await mutate("upsertClipProject", { ...project, updatedAt: new Date().toISOString() });
       setSaved(true);
-      toast.success("Project saved to Projects.");
+      toast.success("Project saved.");
     } catch {
       toast.error("Could not save the project. Try again.");
     } finally {
       setSaving(false);
     }
   }, [project, mutate]);
+
+  const flushThen = useCallback(
+    (next: () => void) => {
+      void (saved ? Promise.resolve() : saveNow()).then(next);
+    },
+    [saved, saveNow]
+  );
 
   const seek = useCallback((t: number) => {
     const v = videoRef.current;
@@ -166,8 +209,33 @@ export function ClipEditor({ initialProject, onClose }: { initialProject: ClipPr
     const nextStart = Math.max(0, Math.min(start, duration - 0.1));
     const nextEnd = Math.max(nextStart + 0.1, Math.min(end, duration));
     patch({ trimStart: nextStart, trimEnd: nextEnd });
-    if (time < nextStart || time > nextEnd) seek(nextStart);
-  }, [duration, patch, seek, time]);
+  }, [duration, patch]);
+
+  const resetTrim = useCallback(() => {
+    patch({ trimStart: 0, trimEnd: duration });
+  }, [duration, patch]);
+
+  // Split the current selection at the playhead: this project keeps the first
+  // half; the second half is saved as its own project so both can be exported.
+  const splitAtPlayhead = useCallback(() => {
+    if (time <= trimStart + 0.2 || time >= trimEnd - 0.2) {
+      toast.error("Move the playhead inside the selection to split.");
+      return;
+    }
+    const now = new Date().toISOString();
+    const secondPart: ClipProject = {
+      ...project,
+      id: `clip-${crypto.randomUUID()}`,
+      name: `${project.name} (part 2)`,
+      trimStart: time,
+      trimEnd,
+      createdAt: now,
+      updatedAt: now
+    };
+    patch({ trimEnd: time });
+    void mutate("upsertClipProject", secondPart);
+    toast.success("Clip split — the second half was saved as its own project.");
+  }, [mutate, patch, project, time, trimEnd, trimStart]);
 
   const togglePlay = useCallback(() => {
     const v = videoRef.current;
@@ -348,69 +416,6 @@ export function ClipEditor({ initialProject, onClose }: { initialProject: ClipPr
     }));
   }, []);
 
-  // --- Suggestions ---
-  const setSuggestionStatus = useCallback((id: string, status: SuggestionStatus) => {
-    setProject((p) => ({ ...p, suggestions: p.suggestions.map((s) => (s.id === id ? { ...s, status } : s)) }));
-  }, []);
-
-  const trimSuggestion = useCallback((id: string, start: number, end: number) => {
-    setProject((p) => ({ ...p, suggestions: p.suggestions.map((s) => (s.id === id ? { ...s, start, end } : s)) }));
-  }, []);
-
-  const addSuggestionToTimeline = useCallback((id: string) => {
-    setProject((p) => {
-      const s = p.suggestions.find((x) => x.id === id);
-      if (!s) return p;
-      const overlay: Overlay = {
-        id: uid("ov"),
-        kind: "title",
-        text: "Suggested moment",
-        x: 0.5,
-        y: 0.15,
-        scale: 1,
-        rotation: 0,
-        opacity: 0.9,
-        z: p.overlays.length,
-        locked: false,
-        start: s.start,
-        end: Math.min(p.baseDurationSec, s.start + 2.5),
-        color: "#ffd34d",
-        fontWeight: 800,
-        align: "center"
-      };
-      toast.success("Suggestion marked on the timeline.");
-      return {
-        ...p,
-        overlays: [...p.overlays, overlay],
-        suggestions: p.suggestions.map((x) => (x.id === id ? { ...x, status: "approved", addedToTimeline: true } : x))
-      };
-    });
-  }, []);
-
-  // --- Transcript -> clip ---
-  const createClipFromRange = useCallback((start: number, end: number) => {
-    seek(start);
-    toast.success(`Marked clip ${formatClock(start)}–${formatClock(end)}. Set export trim or add a title to anchor it.`);
-    const overlay: Overlay = {
-      id: uid("ov"),
-      kind: "title",
-      text: "Clip start",
-      x: 0.5,
-      y: 0.12,
-      scale: 0.8,
-      rotation: 0,
-      opacity: 0.85,
-      z: project.overlays.length,
-      locked: false,
-      start,
-      end: Math.min(duration, start + 2),
-      color: "#7c5cff",
-      fontWeight: 800,
-      align: "center"
-    };
-    setProject((p) => ({ ...p, overlays: [...p.overlays, overlay] }));
-  }, [seek, duration, project.overlays.length]);
-
   // --- Export ---
   const downloadSubtitles = useCallback((format: "srt" | "vtt") => {
     const text = format === "srt" ? serializeSrt(project.captions) : serializeVtt(project.captions);
@@ -486,9 +491,6 @@ export function ClipEditor({ initialProject, onClose }: { initialProject: ClipPr
     toggleCaption,
     selectedCaptionId,
     setSelectedCaptionId,
-    search,
-    setSearch,
-    createClipFromRange,
     addOverlay,
     updateOverlay,
     deleteOverlay,
@@ -496,9 +498,6 @@ export function ClipEditor({ initialProject, onClose }: { initialProject: ClipPr
     reorderOverlay,
     selectedOverlayId,
     setSelectedOverlayId,
-    setSuggestionStatus,
-    trimSuggestion,
-    addSuggestionToTimeline,
     exportState,
     runExport,
     downloadSubtitles
@@ -506,44 +505,43 @@ export function ClipEditor({ initialProject, onClose }: { initialProject: ClipPr
 
   const renderPanel = () => {
     switch (tab) {
+      case "layout":
+        return <LayoutPanel api={api} />;
       case "captions":
         return <CaptionsPanel api={api} />;
-      case "trim":
-        return <TrimPanel api={api} />;
-      case "transcript":
-        return <TranscriptPanel api={api} />;
       case "style":
         return <StylePanel api={api} />;
-      case "reframe":
-        return <ReframePanel api={api} />;
       case "overlays":
         return <OverlaysPanel api={api} />;
       case "audio":
         return <AudioPanel api={api} />;
-      case "suggestions":
-        return <SuggestionsPanel api={api} />;
       case "export":
         return <ExportPanel api={api} />;
     }
   };
 
+  const binClips = sourceJob?.clips.filter((clip) => clip.file) ?? [];
+
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center gap-3">
-        <Button
-          variant="ghost"
-          onClick={() => {
-            // Flush any pending edits before leaving so nothing is lost on navigation.
-            void (saved ? Promise.resolve() : saveNow()).then(onClose);
-          }}
-        >
+        <Button variant="ghost" onClick={() => flushThen(onClose)}>
           <ArrowLeft className="mr-2 h-4 w-4" /> Projects
         </Button>
         <input
           value={project.name}
-          onChange={(e) => patch({ name: e.target.value })}
+          onChange={(e) => patch({ name: e.target.value, title: e.target.value })}
           className="h-9 min-w-0 flex-1 rounded-lg border border-transparent bg-transparent px-2 text-lg font-semibold text-white outline-none hover:border-[var(--border)] focus:border-[var(--accent)]"
         />
+        <button
+          type="button"
+          onClick={() => void generateTitle()}
+          disabled={fetchingCaptions}
+          title="Generate a title from the captions"
+          className="flex h-8 w-8 items-center justify-center rounded-lg border border-[var(--border)] text-[var(--muted-foreground)] transition hover:text-white disabled:opacity-40"
+        >
+          <Sparkles className="h-4 w-4" />
+        </button>
         <span className={cn("flex items-center gap-1.5 text-xs", saved ? "text-emerald-300" : "text-[var(--muted-foreground)]")}>
           <span className={cn("h-1.5 w-1.5 rounded-full", saved ? "bg-emerald-300" : "bg-amber-300")} />
           {saved ? "All changes saved" : "Unsaved changes"}
@@ -553,9 +551,58 @@ export function ClipEditor({ initialProject, onClose }: { initialProject: ClipPr
         </Button>
       </div>
 
-      <div className="grid gap-4 lg:grid-cols-[1.15fr_0.85fr]">
-        {/* Left: preview + transport + timeline */}
-        <div className="space-y-3">
+      <div
+        className={cn(
+          "grid gap-4 lg:grid-cols-[minmax(0,1fr)_330px]",
+          binClips.length > 1 && onOpenClip && "2xl:grid-cols-[220px_minmax(0,1fr)_330px]"
+        )}
+      >
+        {/* Left: other clips from the same stream */}
+        {binClips.length > 1 && onOpenClip && (
+          <div className="hidden min-w-0 2xl:block">
+            <div className="space-y-2 rounded-xl border border-[var(--border)] bg-[var(--surface)] p-3">
+              <p className="text-[11px] font-medium uppercase tracking-wider text-[var(--muted-foreground)]">
+                Clips from this stream
+              </p>
+              <div className="max-h-[70vh] space-y-1.5 overflow-y-auto pr-1">
+                {sourceJob &&
+                  binClips.map((clip) => {
+                    const index = sourceJob.clips.indexOf(clip);
+                    const active = clip.file === project.sourceFile;
+                    return (
+                      <button
+                        key={clip.id}
+                        type="button"
+                        disabled={active}
+                        onClick={() => flushThen(() => onOpenClip(sourceJob, clip, index))}
+                        className={cn(
+                          "flex w-full items-center gap-2.5 rounded-lg border p-2 text-left transition",
+                          active
+                            ? "border-[var(--accent)] bg-[var(--accent)]/10"
+                            : "border-[var(--border)] hover:border-[var(--border-strong)]"
+                        )}
+                      >
+                        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-black/40 font-mono text-xs text-white">
+                          {index + 1}
+                        </span>
+                        <span className="min-w-0">
+                          <span className="block truncate text-xs font-medium text-white">
+                            {clip.hookQuote || `Clip ${index + 1}`}
+                          </span>
+                          <span className="block text-[11px] text-[var(--muted-foreground)]">
+                            {Math.round(clip.end - clip.start)}s{clip.score > 0 ? ` · score ${clip.score}` : ""}
+                          </span>
+                        </span>
+                      </button>
+                    );
+                  })}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Center: preview + transport + timeline */}
+        <div className="min-w-0 space-y-3">
           <EditorPreview
             project={project}
             time={time}
@@ -567,12 +614,18 @@ export function ClipEditor({ initialProject, onClose }: { initialProject: ClipPr
             onReframeChange={handleReframeChange}
           />
           <div className="flex items-center gap-3 rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 py-2">
-            <button type="button" onClick={togglePlay} className="flex h-9 w-9 items-center justify-center rounded-full bg-[var(--accent)] text-[var(--accent-contrast)]">
+            <button
+              type="button"
+              onClick={togglePlay}
+              aria-label={playing ? "Pause preview" : "Play preview"}
+              className="flex h-9 w-9 items-center justify-center rounded-full bg-[var(--accent)] text-[var(--accent-contrast)]"
+            >
               {playing ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />}
             </button>
             <span className="font-mono text-sm text-white">{formatClock(time)}</span>
             <span className="text-sm text-[var(--muted-foreground)]">/ {formatClock(duration)}</span>
             <input
+              aria-label="Scrub preview"
               type="range"
               min={0}
               max={duration}
@@ -581,7 +634,12 @@ export function ClipEditor({ initialProject, onClose }: { initialProject: ClipPr
               onChange={(e) => scrubTo(Number(e.target.value))}
               className="ml-2 h-1.5 flex-1 cursor-pointer appearance-none rounded-full bg-white/15 accent-[var(--accent)]"
             />
-            <button type="button" onClick={() => setMuted((value) => !value)} className="flex h-8 w-8 items-center justify-center rounded-lg border border-[var(--border)] text-[var(--muted-foreground)] hover:text-white">
+            <button
+              type="button"
+              onClick={() => setMuted((value) => !value)}
+              aria-label={muted ? "Unmute preview" : "Mute preview"}
+              className="flex h-8 w-8 items-center justify-center rounded-lg border border-[var(--border)] text-[var(--muted-foreground)] hover:text-white"
+            >
               {muted ? <VolumeX className="h-4 w-4" /> : <Volume2 className="h-4 w-4" />}
             </button>
             <input
@@ -603,7 +661,12 @@ export function ClipEditor({ initialProject, onClose }: { initialProject: ClipPr
             project={project}
             time={time}
             duration={duration}
+            trimStart={trimStart}
+            trimEnd={trimEnd}
             onSeek={scrubTo}
+            onSetTrim={setTrim}
+            onResetTrim={resetTrim}
+            onSplit={splitAtPlayhead}
             selectedCaptionId={selectedCaptionId}
             onSelectCaption={setSelectedCaptionId}
             onCaptionChange={updateCaption}
@@ -614,7 +677,7 @@ export function ClipEditor({ initialProject, onClose }: { initialProject: ClipPr
         </div>
 
         {/* Right: tabbed editing panels */}
-        <div className="space-y-3">
+        <div className="min-w-0 space-y-3">
           <div className="flex flex-wrap gap-1 rounded-xl border border-[var(--border)] bg-[var(--surface)] p-1">
             {TABS.map((t) => {
               const Icon = t.icon;
