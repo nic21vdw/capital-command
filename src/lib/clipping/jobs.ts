@@ -1,14 +1,13 @@
 import { mkdir, readFile, rename, rm, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { detectSilences, extractEnergy, selectCandidates } from "@/lib/clipping/analysis";
+import { TARGET_CLIP_COUNT, detectSilences, extractEnergy, selectCandidates } from "@/lib/clipping/analysis";
 import { copyClipsToDrive, driveDir } from "@/lib/clipping/drive";
 import { downloadAudio, downloadSection, fetchVideoMeta } from "@/lib/clipping/download";
 import { probeDuration } from "@/lib/clipping/ffmpeg";
-import { CLIP_LAYOUTS, DEFAULT_CLIP_LAYOUT } from "@/lib/clipping/layouts";
-import { renderClipLayout } from "@/lib/clipping/render";
+import { renderSourceClip } from "@/lib/clipping/render";
 import { fetchAutoCaptions } from "@/lib/clipping/transcription";
 import { selectByTranscript } from "@/lib/clipping/transcript-select";
-import type { ClipCandidate, ClipJob, ClipLayoutOverrides, ClipLayoutPreset } from "@/lib/clipping/types";
+import type { ClipCandidate, ClipJob } from "@/lib/clipping/types";
 
 const clipsRoot = path.join(process.cwd(), "data", "clips");
 const jobsFile = path.join(clipsRoot, "jobs.json");
@@ -159,22 +158,38 @@ async function failJob(job: ClipJob, error: unknown) {
   await update(job, { status: "error", error: error instanceof Error ? error.message : String(error) });
 }
 
+function overlapRatio(a: { start: number; end: number }, b: { start: number; end: number }) {
+  const inter = Math.max(0, Math.min(a.end, b.end) - Math.max(a.start, b.start));
+  const union = Math.max(a.end, b.end) - Math.min(a.start, b.start);
+  return union > 0 ? inter / union : 0;
+}
+
+function mergeClipCandidates(primary: ClipCandidate[], supplemental: ClipCandidate[]) {
+  const merged: ClipCandidate[] = [];
+  for (const candidate of [...primary, ...supplemental]) {
+    if (merged.length >= TARGET_CLIP_COUNT) break;
+    if (merged.some((existing) => overlapRatio(existing, candidate) > 0.45)) continue;
+    merged.push(candidate);
+  }
+  for (const candidate of supplemental) {
+    if (merged.length >= TARGET_CLIP_COUNT) break;
+    if (merged.some((existing) => Math.abs(existing.start - candidate.start) < 1)) continue;
+    merged.push(candidate);
+  }
+  return merged.slice(0, TARGET_CLIP_COUNT).map((candidate, index) => ({ ...candidate, id: `clip-${index + 1}` }));
+}
+
 export async function createJobFromUrl(
   url: string,
-  topic: string | undefined,
-  options: { renderLayout?: ClipLayoutPreset; renderVariants?: boolean; layoutOverrides?: ClipLayoutOverrides } = {}
+  topic: string | undefined
 ): Promise<ClipJob> {
   await loadJobs();
   const id = crypto.randomUUID().slice(0, 8);
-  const renderLayout = options.renderLayout && options.renderLayout in CLIP_LAYOUTS ? options.renderLayout : DEFAULT_CLIP_LAYOUT;
   const job: ClipJob = {
     id,
     fileName: url,
     topic: topic || undefined,
     sourceUrl: url,
-    renderLayout,
-    renderVariants: Boolean(options.renderVariants),
-    layoutOverrides: options.layoutOverrides,
     status: "queued",
     stage: "downloading",
     progress: 2,
@@ -197,7 +212,7 @@ export async function createJobFromUrl(
  *   1. Download just the audio (fast even for multi-hour streams).
  *   2. Read the FULL transcript and pick the best moments from anywhere in the
  *      stream (Claude), falling back to whole-stream energy analysis offline.
- *   3. Fetch each chosen range and render it as a 9:16 short — in parallel.
+ *   3. Fetch each chosen range and render it as a neutral 16:9 source clip in parallel.
  */
 async function runPipeline(job: ClipJob, url: string) {
   // 1. Read metadata, then grab the audio track for analysis.
@@ -237,11 +252,12 @@ async function runPipeline(job: ClipJob, url: string) {
     candidates = await selectByTranscript(transcript, durationSec, job.topic);
   }
 
-  if (!candidates || candidates.length === 0) {
+  if (!candidates || candidates.length < TARGET_CLIP_COUNT) {
     // Score moments from audio energy across the whole stream. We still pass the transcript (if any) so scoring
     // can read what is said, not just how loud it is.
     const [windows, silences] = await Promise.all([extractEnergy(audioPath), detectSilences(audioPath)]);
-    candidates = selectCandidates(windows, silences, durationSec, transcript ?? []);
+    const energyCandidates = selectCandidates(windows, silences, durationSec, transcript ?? []);
+    candidates = candidates && candidates.length > 0 ? mergeClipCandidates(candidates, energyCandidates) : energyCandidates;
     if (!transcript || transcript.length === 0) {
       job.notices.push(
         "No transcript was available for this source — picked moments from whole-stream audio energy instead."
@@ -281,7 +297,7 @@ async function runPipeline(job: ClipJob, url: string) {
 }
 
 async function renderClipIndexes(job: ClipJob, indexes: number[]) {
-  // Fetch each chosen range from the source and render a 9:16 short. These are
+  // Fetch each chosen range from the source and render a neutral 16:9 source clip. These are
   // network- and CPU-bound, so keep concurrency modest to avoid source throttles.
   let completed = 0;
   const total = indexes.length;
@@ -291,22 +307,11 @@ async function renderClipIndexes(job: ClipJob, indexes: number[]) {
     try {
       const produced = await downloadSection(job.sourceUrl, clip.start, clip.end, segPath);
       const baseName = `clip-${String(i + 1).padStart(2, "0")}`;
-      const primaryLayout = job.renderLayout ?? DEFAULT_CLIP_LAYOUT;
-      const layoutOverrides = job.layoutOverrides;
       const primaryName = `${baseName}.mp4`;
-      await renderClipLayout(produced, path.join(outputDir(job.id), primaryName), true, primaryLayout, layoutOverrides);
+      await renderSourceClip(produced, path.join(outputDir(job.id), primaryName), true);
       clip.file = primaryName;
-      clip.layoutPreset = primaryLayout;
-      clip.variants = [{ layoutPreset: primaryLayout, file: primaryName, label: CLIP_LAYOUTS[primaryLayout].label }];
-
-      if (job.renderVariants) {
-        const alternateLayouts = (Object.keys(CLIP_LAYOUTS) as ClipLayoutPreset[]).filter((layout) => layout !== primaryLayout);
-        for (const layout of alternateLayouts) {
-          const variantName = `${baseName}-${layout}.mp4`;
-          await renderClipLayout(produced, path.join(outputDir(job.id), variantName), true, layout, layoutOverrides);
-          clip.variants.push({ layoutPreset: layout, file: variantName, label: CLIP_LAYOUTS[layout].label });
-        }
-      }
+      clip.layoutPreset = undefined;
+      clip.variants = undefined;
       await unlink(produced).catch(() => undefined);
     } catch (error) {
       job.notices.push(

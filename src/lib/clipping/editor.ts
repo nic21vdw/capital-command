@@ -109,7 +109,7 @@ export function generateClipTitle(captions: CaptionSegment[], fallback = "Untitl
     .slice(0, 80);
 }
 
-/** Builds a fresh clip project from a rendered job clip. */
+/** Builds a fresh clip project from a rendered 16:9 source master. */
 export function makeClipProject(input: {
   jobId: string;
   name: string;
@@ -127,14 +127,15 @@ export function makeClipProject(input: {
     sourceFile: input.sourceFile,
     sourceUrl: input.sourceUrl,
     baseDurationSec: duration,
-    baseWidth: 1080,
-    baseHeight: 1920,
+    baseWidth: 1920,
+    baseHeight: 1080,
     clipStart: input.clipStart,
     clipEnd: input.clipEnd,
     trimStart: 0,
     trimEnd: duration,
     title: "",
-    aspectRatio: "9:16",
+    aspectRatio: "16:9",
+    compositionMode: "center-blur",
     reframe: { scale: 1, offsetX: 0, offsetY: 0 },
     captions: [],
     captionStyle: { ...defaultCaptionStyle },

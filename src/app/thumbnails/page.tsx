@@ -1,10 +1,5 @@
-import { AppShell } from "@/components/layout/app-shell";
-import { ThumbnailGeneratorPage } from "@/components/thumbnails/thumbnail-generator-page";
+import { redirect } from "next/navigation";
 
 export default function Page() {
-  return (
-    <AppShell>
-      <ThumbnailGeneratorPage />
-    </AppShell>
-  );
+  redirect("/clips");
 }

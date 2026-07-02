@@ -227,6 +227,7 @@ export function EditorPreview({
   const containerRef = useRef<HTMLDivElement>(null);
   const fgRef = useRef<HTMLVideoElement>(null);
   const bgRef = useRef<HTMLVideoElement>(null);
+  const splitRef = useRef<HTMLVideoElement>(null);
   const frameRef = useRef<HTMLDivElement>(null);
   const [frameSize, setFrameSize] = useState({ w: 360, h: 640 });
   const [mediaState, setMediaState] = useState<PreviewMediaState>({
@@ -275,10 +276,13 @@ export function EditorPreview({
     const fg = fgRef.current;
     const bg = bgRef.current;
     if (!fg || !bg) return;
+    const followers = [bg, splitRef.current].filter((el): el is HTMLVideoElement => Boolean(el));
     const sync = () => {
-      if (Math.abs(bg.currentTime - fg.currentTime) > 0.12) bg.currentTime = fg.currentTime;
-      if (fg.paused && !bg.paused) bg.pause();
-      if (!fg.paused && bg.paused) void bg.play().catch(() => undefined);
+      for (const follower of followers) {
+        if (Math.abs(follower.currentTime - fg.currentTime) > 0.12) follower.currentTime = fg.currentTime;
+        if (fg.paused && !follower.paused) follower.pause();
+        if (!fg.paused && follower.paused) void follower.play().catch(() => undefined);
+      }
     };
     fg.addEventListener("play", sync);
     fg.addEventListener("pause", sync);
@@ -295,6 +299,8 @@ export function EditorPreview({
   const frameW = frameSize.w;
   const frameH = frameSize.h;
   const { scale, offsetX, offsetY } = project.reframe;
+  const isStackedSplit = project.compositionMode === "stacked-split" && dims.h > dims.w;
+  const foregroundFit = project.compositionMode === "crop-fill" ? "object-cover" : "object-contain";
   const beginPan = (e: React.PointerEvent) => {
     if (e.button !== 0) return;
     e.stopPropagation();
@@ -340,21 +346,46 @@ export function EditorPreview({
           className="absolute inset-0 h-full w-full object-cover"
           style={{ filter: "blur(24px) brightness(0.6)", transform: "scale(1.1)" }}
         />
-        {/* Foreground video with reframe transform. */}
-        <video
-          ref={fgRef}
-          src={videoSrc}
-          controls
-          controlsList="nodownload noplaybackrate"
-          playsInline
-          preload="auto"
-          onPointerDown={(event) => event.stopPropagation()}
-          onError={() => markMedia({ fgError: true })}
-          onLoadedData={() => markMedia({ fgReady: true, fgError: false })}
-          onCanPlay={() => markMedia({ fgReady: true, fgError: false })}
-          className="absolute inset-0 h-full w-full object-cover"
-          style={{ transform: `translate(${offsetX * 25}%, ${offsetY * 25}%) scale(${Math.max(1, scale)})` }}
-        />
+        {isStackedSplit ? (
+          <>
+            <video
+              ref={fgRef}
+              src={videoSrc}
+              controls
+              controlsList="nodownload noplaybackrate"
+              playsInline
+              preload="auto"
+              onPointerDown={(event) => event.stopPropagation()}
+              onError={() => markMedia({ fgError: true })}
+              onLoadedData={() => markMedia({ fgReady: true, fgError: false })}
+              onCanPlay={() => markMedia({ fgReady: true, fgError: false })}
+              className="absolute inset-x-0 top-0 h-[56%] w-full object-cover object-top"
+            />
+            <video
+              ref={splitRef}
+              src={videoSrc}
+              muted
+              playsInline
+              preload="auto"
+              className="pointer-events-none absolute inset-x-0 bottom-0 h-[44%] w-full object-cover object-[78%_24%]"
+            />
+          </>
+        ) : (
+          <video
+            ref={fgRef}
+            src={videoSrc}
+            controls
+            controlsList="nodownload noplaybackrate"
+            playsInline
+            preload="auto"
+            onPointerDown={(event) => event.stopPropagation()}
+            onError={() => markMedia({ fgError: true })}
+            onLoadedData={() => markMedia({ fgReady: true, fgError: false })}
+            onCanPlay={() => markMedia({ fgReady: true, fgError: false })}
+            className={cn("absolute inset-0 h-full w-full", foregroundFit)}
+            style={{ transform: `translate(${offsetX * 25}%, ${offsetY * 25}%) scale(${Math.max(1, scale)})` }}
+          />
+        )}
 
         {/* Clear, actionable state when the clip's video can't be loaded — far
             better than a silent black frame plus an uncaught media error. */}

@@ -42,11 +42,11 @@ export type ClipCandidate = {
   rationale: string;
   /** First spoken words of the clip, shown to explain the hook score. */
   hookQuote?: string;
-  /** Vertical 9:16 (Shorts/Reels/TikTok) output filename, set once rendered. */
+  /** Neutral full-frame 16:9 source master filename, set once rendered. */
   file?: string;
-  /** Layout used by the primary rendered file. */
+  /** Legacy layout used by older rendered files. New files are neutral source masters. */
   layoutPreset?: ClipLayoutPreset;
-  /** Optional alternate compositions rendered from the same moment. */
+  /** Legacy alternate compositions rendered from the same moment. */
   variants?: Array<{
     layoutPreset: ClipLayoutPreset;
     file: string;

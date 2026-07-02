@@ -1,10 +1,10 @@
 import { AppShell } from "@/components/layout/app-shell";
-import { DashboardPage } from "@/components/dashboard/dashboard-page";
+import { ClipGeneratorPage } from "@/components/clips/clip-generator-page";
 
 export default function Page() {
   return (
     <AppShell>
-      <DashboardPage />
+      <ClipGeneratorPage />
     </AppShell>
   );
 }

@@ -17,9 +17,12 @@ describe("makeClipProject", () => {
   it("derives duration from the clip window and uses sane defaults", () => {
     const p = baseProject();
     expect(p.baseDurationSec).toBeCloseTo(30);
-    expect(p.aspectRatio).toBe("9:16");
+    expect(p.baseWidth).toBe(1920);
+    expect(p.baseHeight).toBe(1080);
+    expect(p.aspectRatio).toBe("16:9");
+    expect(p.compositionMode).toBe("center-blur");
     expect(p.captionsVisible).toBe(true);
-    expect(p.exportSettings.width).toBe(1080);
+    expect(p.exportSettings.width).toBe(1920);
   });
 });
 
