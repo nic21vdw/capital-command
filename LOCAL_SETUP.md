@@ -75,12 +75,12 @@ That's it. Each launch automatically grabs the latest changes first.
 
 ---
 
-## Creator tools (Thumbnail Generator & Clipping Agent)
+## Creator tools (Thumbnail Generator & Clip Generator)
 
 Both tools live in the sidebar and work out of the box:
 
 - **Thumbnail Generator** runs entirely in your browser — no setup needed.
-- **Clipping Agent** turns a livestream VOD into ready-to-post shorts, with
+- **Clip Generator** turns a livestream VOD into ready-to-post shorts, with
   **no uploads needed**. Paste a **YouTube or Twitch VOD link** and it:
   1. Downloads just the audio (so even a 90-minute stream is fast and never
      needs the whole multi-GB file).
@@ -113,7 +113,7 @@ You just let **Google Drive for Desktop** do the syncing:
    - macOS: `CLIPS_DRIVE_DIR=/Users/you/Library/CloudStorage/GoogleDrive-you@gmail.com/My Drive`
 3. Restart the app. From then on, when a job finishes, its clips are copied to
    `<CLIPS_DRIVE_DIR>\clipping agent\<stream title>\` and Google Drive for
-   Desktop uploads them to the cloud automatically. The Clipping Agent shows a
+   Desktop uploads them to the cloud automatically. The Clip Generator shows a
    "Saved to Google Drive" confirmation on each finished job.
 
 Leave `CLIPS_DRIVE_DIR` blank to keep clips only under `data\clips\outputs\`.

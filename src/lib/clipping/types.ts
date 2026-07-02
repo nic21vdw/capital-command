@@ -2,7 +2,7 @@ export type ClipJobStatus = "queued" | "processing" | "done" | "error";
 
 export type ClipJobStage = "downloading" | "analyzing" | "selecting" | "rendering" | "finished";
 
-export type ClipLayoutPreset = "center" | "restream-stack" | "screen-focus" | "face-focus";
+export type ClipLayoutPreset = "center" | "restream-stack" | "face-stack" | "screen-focus" | "face-focus";
 
 export type ClipLayoutRect = { x: number; y: number; w: number; h: number };
 
@@ -59,8 +59,10 @@ export type ClipJob = {
   /** Display name — the VOD title once known, otherwise the URL. */
   fileName: string;
   topic?: string;
-  /** The VOD URL this job clips from. */
+  /** The VOD URL this job clips from, or `upload://<sourceId>` for local uploads. */
   sourceUrl: string;
+  /** Set when the job was created from an uploaded file instead of a URL. */
+  sourceId?: string;
   renderLayout?: ClipLayoutPreset;
   renderVariants?: boolean;
   layoutOverrides?: ClipLayoutOverrides;

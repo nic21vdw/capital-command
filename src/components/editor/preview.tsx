@@ -299,7 +299,10 @@ export function EditorPreview({
   const frameW = frameSize.w;
   const frameH = frameSize.h;
   const { scale, offsetX, offsetY } = project.reframe;
-  const isStackedSplit = project.compositionMode === "stacked-split" && dims.h > dims.w;
+  const stackFaceOnTop = project.compositionMode === "stacked-split-flip";
+  const isStackedSplit =
+    (project.compositionMode === "stacked-split" || stackFaceOnTop) && dims.h > dims.w;
+  const isFit = project.compositionMode === "fit";
   const foregroundFit = project.compositionMode === "crop-fill" ? "object-cover" : "object-contain";
   const beginPan = (e: React.PointerEvent) => {
     if (e.button !== 0) return;
@@ -333,7 +336,9 @@ export function EditorPreview({
         style={{ aspectRatio: `${dims.w} / ${dims.h}`, width: dims.w >= dims.h ? "min(100%, 720px)" : "auto", height: dims.w >= dims.h ? "auto" : "62vh" }}
         onPointerDown={beginPan}
       >
-        {/* Blurred fill background (mirrors the export's reframe). */}
+        {/* Blurred fill background (mirrors the export's reframe). Kept mounted
+            in "fit" mode so media readiness tracking stays stable — the export
+            letterboxes over black there, so it's just hidden. */}
         <video
           ref={bgRef}
           src={videoSrc}
@@ -343,11 +348,12 @@ export function EditorPreview({
           onError={() => markMedia({ bgError: true })}
           onLoadedData={() => markMedia({ bgReady: true, bgError: false })}
           onCanPlay={() => markMedia({ bgReady: true, bgError: false })}
-          className="absolute inset-0 h-full w-full object-cover"
+          className={cn("absolute inset-0 h-full w-full object-cover", isFit && "opacity-0")}
           style={{ filter: "blur(24px) brightness(0.6)", transform: "scale(1.1)" }}
         />
         {isStackedSplit ? (
           <>
+            {/* Screen layer (drives playback). */}
             <video
               ref={fgRef}
               src={videoSrc}
@@ -359,15 +365,22 @@ export function EditorPreview({
               onError={() => markMedia({ fgError: true })}
               onLoadedData={() => markMedia({ fgReady: true, fgError: false })}
               onCanPlay={() => markMedia({ fgReady: true, fgError: false })}
-              className="absolute inset-x-0 top-0 h-[56%] w-full object-cover object-top"
+              className={cn(
+                "absolute inset-x-0 h-[56%] w-full object-cover object-top",
+                stackFaceOnTop ? "bottom-0" : "top-0"
+              )}
             />
+            {/* Face-camera layer (follows the screen layer). */}
             <video
               ref={splitRef}
               src={videoSrc}
               muted
               playsInline
               preload="auto"
-              className="pointer-events-none absolute inset-x-0 bottom-0 h-[44%] w-full object-cover object-[78%_24%]"
+              className={cn(
+                "pointer-events-none absolute inset-x-0 h-[44%] w-full object-cover object-[78%_24%]",
+                stackFaceOnTop ? "top-0" : "bottom-0"
+              )}
             />
           </>
         ) : (
@@ -383,7 +396,11 @@ export function EditorPreview({
             onLoadedData={() => markMedia({ fgReady: true, fgError: false })}
             onCanPlay={() => markMedia({ fgReady: true, fgError: false })}
             className={cn("absolute inset-0 h-full w-full", foregroundFit)}
-            style={{ transform: `translate(${offsetX * 25}%, ${offsetY * 25}%) scale(${Math.max(1, scale)})` }}
+            style={
+              isFit
+                ? undefined
+                : { transform: `translate(${offsetX * 25}%, ${offsetY * 25}%) scale(${Math.max(1, scale)})` }
+            }
           />
         )}
 
@@ -395,8 +412,8 @@ export function EditorPreview({
             <p className="text-sm font-semibold text-white">This clip&apos;s video isn&apos;t available</p>
             <p className="max-w-xs text-xs text-[var(--muted-foreground)]">
               The rendered file couldn&apos;t be loaded — it may have been removed from the server or the render never
-              finished. Re-render the clip in the Clip Creator, then start a new project. Captions, overlays, and export
-              settings on this project are still saved.
+              finished. Re-render the clip in the Clip Generator, then start a new project. Captions, overlays, and
+              export settings on this project are still saved.
             </p>
           </div>
         )}

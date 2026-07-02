@@ -1,10 +1,11 @@
 import { mkdir, readFile, rename, rm, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { TARGET_CLIP_COUNT, detectSilences, extractEnergy, selectCandidates } from "@/lib/clipping/analysis";
+import { TARGET_CLIP_COUNT, detectSilences, extractEnergy, fallbackCandidates, selectCandidates } from "@/lib/clipping/analysis";
 import { copyClipsToDrive, driveDir } from "@/lib/clipping/drive";
 import { downloadAudio, downloadSection, fetchVideoMeta } from "@/lib/clipping/download";
-import { probeDuration } from "@/lib/clipping/ffmpeg";
+import { hasAudioStream, probeDuration, runFfmpeg } from "@/lib/clipping/ffmpeg";
 import { renderSourceClip } from "@/lib/clipping/render";
+import { readSourceMeta, sourceFilePath, type SourceMeta } from "@/lib/clipping/sources";
 import { fetchAutoCaptions } from "@/lib/clipping/transcription";
 import { selectByTranscript } from "@/lib/clipping/transcript-select";
 import type { ClipCandidate, ClipJob } from "@/lib/clipping/types";
@@ -145,6 +146,13 @@ export async function fetchJobCaptions(id: string, force = false): Promise<ClipJ
   const job = jobs.get(id);
   if (!job) return undefined;
   if (job.sourceCaptions && job.sourceCaptions.length > 0 && !force) return job;
+  if (job.sourceId) {
+    // Uploaded files have no platform captions to fetch.
+    await update(job, {
+      captionsError: "Uploaded videos have no automatic captions. Add caption segments manually in the editor."
+    });
+    return job;
+  }
   try {
     const segments = await fetchAutoCaptions(job.sourceUrl, workDir(id));
     await update(job, { sourceCaptions: segments, captionsFetchedAt: new Date().toISOString(), captionsError: undefined });
@@ -205,6 +213,93 @@ export async function createJobFromUrl(
   // Run the pipeline without blocking the response; the client polls.
   void runPipeline(job, url).catch((error) => failJob(job, error));
   return job;
+}
+
+/** Creates a clip job from a previously uploaded source file. */
+export async function createJobFromUpload(sourceId: string, topic: string | undefined): Promise<ClipJob> {
+  await loadJobs();
+  const meta = await readSourceMeta(sourceId);
+  if (!meta) throw new Error("That uploaded video could not be found. Upload it again.");
+  const id = crypto.randomUUID().slice(0, 8);
+  const job: ClipJob = {
+    id,
+    fileName: meta.fileName,
+    topic: topic || undefined,
+    sourceUrl: `upload://${sourceId}`,
+    sourceId,
+    status: "queued",
+    stage: "downloading",
+    progress: 2,
+    notices: [],
+    createdAt: new Date().toISOString(),
+    clips: []
+  };
+  jobs.set(id, job);
+  await mkdir(workDir(id), { recursive: true });
+  await mkdir(outputDir(id), { recursive: true });
+  await persistJobs();
+
+  void runLocalPipeline(job, meta).catch((error) => failJob(job, error));
+  return job;
+}
+
+/**
+ * The pipeline for an uploaded file mirrors the URL pipeline, with ffmpeg
+ * standing in for yt-dlp: extract the audio for analysis, pick moments from
+ * whole-stream energy (uploads have no platform transcript), then cut and
+ * render each range from the local file.
+ */
+async function runLocalPipeline(job: ClipJob, meta: SourceMeta) {
+  await update(job, { status: "processing", stage: "downloading", progress: 5 });
+  const srcPath = sourceFilePath(meta);
+  const durationSec = meta.durationSec || (await probeDuration(srcPath));
+  if (durationSec < 20) {
+    throw new Error("That video is shorter than 20 seconds — pick a longer recording to clip from.");
+  }
+  await update(job, { durationSec: Math.round(durationSec) });
+
+  const audioPresent = await hasAudioStream(srcPath).catch(() => false);
+  let audioPath: string | null = null;
+  if (audioPresent) {
+    audioPath = path.join(workDir(job.id), "source-audio.mp3");
+    await runFfmpeg(["-y", "-i", srcPath, "-vn", "-ac", "1", "-ar", "16000", "-b:a", "64k", audioPath]);
+  }
+  await update(job, { stage: "analyzing", progress: 30 });
+
+  await update(job, { stage: "selecting", progress: 42 });
+  let candidates: ClipCandidate[];
+  if (audioPath) {
+    const [windows, silences] = await Promise.all([extractEnergy(audioPath), detectSilences(audioPath)]);
+    candidates = selectCandidates(windows, silences, durationSec, []);
+    job.notices.push("Uploads have no platform transcript — moments were picked from whole-stream audio energy.");
+  } else {
+    candidates = fallbackCandidates(durationSec, "This video has no audio track");
+  }
+  job.clips = candidates;
+  await persistJobs();
+
+  await renderClipIndexes(
+    job,
+    job.clips.map((_, index) => index)
+  );
+  await update(job, { status: "done", stage: "finished", progress: 100 });
+}
+
+/** Cuts [start, end] out of a local file with a fast keyframe seek + stream copy. */
+async function cutLocalSection(srcPath: string, start: number, end: number, destPath: string): Promise<string> {
+  await runFfmpeg([
+    "-y",
+    "-ss",
+    Math.max(0, start).toFixed(2),
+    "-i",
+    srcPath,
+    "-t",
+    Math.max(0.1, end - start).toFixed(2),
+    "-c",
+    "copy",
+    destPath
+  ]);
+  return destPath;
 }
 
 /**
@@ -301,11 +396,17 @@ async function renderClipIndexes(job: ClipJob, indexes: number[]) {
   // network- and CPU-bound, so keep concurrency modest to avoid source throttles.
   let completed = 0;
   const total = indexes.length;
+  const uploadMeta = job.sourceId ? await readSourceMeta(job.sourceId) : null;
+  if (job.sourceId && !uploadMeta) {
+    throw new Error("The uploaded source file for this job is gone. Upload the video again.");
+  }
   const renderOne = async (i: number) => {
     const clip = job.clips[i];
     const segPath = path.join(workDir(job.id), `seg-${String(i + 1).padStart(2, "0")}.mp4`);
     try {
-      const produced = await downloadSection(job.sourceUrl, clip.start, clip.end, segPath);
+      const produced = uploadMeta
+        ? await cutLocalSection(sourceFilePath(uploadMeta), clip.start, clip.end, segPath)
+        : await downloadSection(job.sourceUrl, clip.start, clip.end, segPath);
       const baseName = `clip-${String(i + 1).padStart(2, "0")}`;
       const primaryName = `${baseName}.mp4`;
       await renderSourceClip(produced, path.join(outputDir(job.id), primaryName), true);

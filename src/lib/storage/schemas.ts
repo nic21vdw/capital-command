@@ -441,7 +441,7 @@ export const clipProjectSchema = z.object({
   trimEnd: z.coerce.number().min(0).default(0),
   title: z.string().default(""),
   aspectRatio: z.enum(["9:16", "16:9", "1:1", "4:5", "custom"]).default("16:9"),
-  compositionMode: z.enum(["center-blur", "crop-fill", "stacked-split"]).default("center-blur"),
+  compositionMode: z.enum(["center-blur", "crop-fill", "stacked-split", "stacked-split-flip", "fit"]).default("center-blur"),
   reframe: z
     .object({
       scale: z.coerce.number().min(0.1).max(8).default(1),

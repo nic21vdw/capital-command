@@ -1,4 +1,4 @@
-import type { CaptionSegment, ClipProject, Overlay, OverlayKind, SuggestionStatus } from "@/types/domain";
+import type { CaptionSegment, ClipProject, Overlay, OverlayKind } from "@/types/domain";
 
 export type ExportUiState = {
   status: "idle" | "starting" | "processing" | "done" | "error";
@@ -29,11 +29,6 @@ export interface EditorApi {
   selectedCaptionId: string | null;
   setSelectedCaptionId: (id: string | null) => void;
 
-  // Transcript
-  search: string;
-  setSearch: (value: string) => void;
-  createClipFromRange: (start: number, end: number) => void;
-
   // Overlays
   addOverlay: (kind: OverlayKind, src?: string) => void;
   updateOverlay: (id: string, partial: Partial<Overlay>) => void;
@@ -42,11 +37,6 @@ export interface EditorApi {
   reorderOverlay: (id: string, direction: "up" | "down") => void;
   selectedOverlayId: string | null;
   setSelectedOverlayId: (id: string | null) => void;
-
-  // Suggestions
-  setSuggestionStatus: (id: string, status: SuggestionStatus) => void;
-  trimSuggestion: (id: string, start: number, end: number) => void;
-  addSuggestionToTimeline: (id: string) => void;
 
   // Export
   exportState: ExportUiState;

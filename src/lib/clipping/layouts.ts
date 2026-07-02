@@ -27,6 +27,15 @@ export const CLIP_LAYOUTS: Record<ClipLayoutPreset, ClipLayoutDefinition> = {
       { kind: "face", fit: "contain", source: streamerCameraSource, dest: { x: 0, y: 0.56, w: 1, h: 0.44 } }
     ]
   },
+  "face-stack": {
+    label: "Face + screen",
+    description: "Flipped split: camera reaction up top, screen below.",
+    previewHint: "Best when the reaction is the star and the screen is supporting context.",
+    layers: [
+      { kind: "face", fit: "contain", source: streamerCameraSource, dest: { x: 0, y: 0, w: 1, h: 0.44 } },
+      { kind: "screen", source: { x: 0, y: 0, w: 1, h: 0.68 }, dest: { x: 0, y: 0.44, w: 1, h: 0.56 } }
+    ]
+  },
   "screen-focus": {
     label: "Screen lead",
     description: "Clipo-style screen lead with a small face inset.",
