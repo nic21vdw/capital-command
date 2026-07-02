@@ -455,6 +455,8 @@ export interface ReframeTransform {
   offsetY: number;
 }
 
+export type ClipCompositionMode = "center-blur" | "crop-fill" | "stacked-split";
+
 export type ExportPresetId = "shorts" | "longform" | "square" | "portrait" | "custom";
 export type ExportQuality = "high" | "medium" | "low";
 export type ExportFormat = "mp4" | "webm";
@@ -505,6 +507,8 @@ export interface ClipProject {
   /** Short generated/editorial title for this clip. */
   title: string;
   aspectRatio: AspectRatioId;
+  /** How the 16:9 source master is composed inside the chosen output frame. */
+  compositionMode: ClipCompositionMode;
   reframe: ReframeTransform;
   captions: CaptionSegment[];
   captionStyle: CaptionStyle;

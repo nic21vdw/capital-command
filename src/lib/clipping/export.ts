@@ -3,11 +3,12 @@ import path from "node:path";
 import { buildAss, buildTextOverlayDialogue, buildWatermarkDialogue } from "@/lib/clipping/captions";
 import { hasAudioStream, probeDuration, runFfmpeg } from "@/lib/clipping/ffmpeg";
 import { outputDir, workDir } from "@/lib/clipping/jobs";
-import { reframeChain } from "@/lib/clipping/render";
+import { reframeChain, stackedLayoutChain } from "@/lib/clipping/render";
 import type {
   CaptionSegment,
   CaptionStyle,
   ClipAudio,
+  ClipCompositionMode,
   ClipExportSettings,
   Overlay
 } from "@/types/domain";
@@ -18,6 +19,7 @@ export type ExportSpec = {
   baseDurationSec: number;
   trimStart: number;
   trimEnd: number;
+  compositionMode: ClipCompositionMode;
   reframe: { scale: number; offsetX: number; offsetY: number };
   captions: CaptionSegment[];
   captionStyle: CaptionStyle;
@@ -165,6 +167,38 @@ function escapeFilterPath(p: string): string {
   return p.replace(/\\/g, "/").replace(/:/g, "\\:").replace(/'/g, "\\'");
 }
 
+function centerBlurChain(
+  inLabel: string,
+  outLabel: string,
+  w: number,
+  h: number,
+  scale = 1,
+  offsetX = 0,
+  offsetY = 0
+): string {
+  const cropScale = Math.max(1, scale);
+  const sx = Math.max(-1, Math.min(1, offsetX));
+  const sy = Math.max(-1, Math.min(1, offsetY));
+  const x = `(W-w)/2+${sx.toFixed(4)}*(W-w)/2`;
+  const y = `(H-h)/2+${sy.toFixed(4)}*(H-h)/2`;
+  return (
+    `[${inLabel}]split=2[__bg][__fg];` +
+    `[__bg]scale=${w}:${h}:force_original_aspect_ratio=increase,crop=${w}:${h},boxblur=24:4,eq=brightness=-0.1[__bgb];` +
+    `[__fg]scale=${w}:${h}:force_original_aspect_ratio=decrease,scale=iw*${cropScale}:ih*${cropScale},setsar=1[__fgs];` +
+    `[__bgb][__fgs]overlay=x='${x}':y='${y}'[${outLabel}]`
+  );
+}
+
+function sourceCompositionChain(spec: ExportSpec, w: number, h: number): string {
+  if (spec.compositionMode === "stacked-split" && w === 1080 && h === 1920) {
+    return stackedLayoutChain("restream-stack").replace(/\[vout\]$/, "[v0]");
+  }
+  if (spec.compositionMode === "crop-fill") {
+    return reframeChain("0:v", "v0", w, h, spec.reframe.scale, spec.reframe.offsetX, spec.reframe.offsetY);
+  }
+  return centerBlurChain("0:v", "v0", w, h, spec.reframe.scale, spec.reframe.offsetX, spec.reframe.offsetY);
+}
+
 async function buildArgs(spec: ExportSpec, dir: string): Promise<{ args: string[]; outFile: string }> {
   const { settings } = spec;
   const w = settings.width;
@@ -196,7 +230,7 @@ async function buildArgs(spec: ExportSpec, dir: string): Promise<{ args: string[
 
   // --- Video filtergraph ---
   const parts: string[] = [];
-  parts.push(reframeChain("0:v", "v0", w, h, spec.reframe.scale, spec.reframe.offsetX, spec.reframe.offsetY));
+  parts.push(sourceCompositionChain(spec, w, h));
   let last = "v0";
   images.forEach((img, k) => {
     const inputIdx = 1 + k;

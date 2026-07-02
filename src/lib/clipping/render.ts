@@ -76,6 +76,34 @@ export function reframeChain(
 }
 
 /**
+ * Renders the selected source range as a neutral 16:9 master clip. The full
+ * source frame is preserved with contain scaling so any later vertical,
+ * square, or portrait crop can be made non-destructively from this file.
+ */
+export async function renderSourceClip(inputPath: string, outputPath: string, audioPresent: boolean) {
+  await runFfmpeg([
+    "-y",
+    "-i",
+    inputPath,
+    "-filter_complex",
+    "[0:v]scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:(ow-iw)/2:(oh-ih)/2:color=0x050914,setsar=1,format=yuv420p[vout]",
+    "-map",
+    "[vout]",
+    ...(audioPresent ? ["-map", "0:a?"] : []),
+    "-c:v",
+    "libx264",
+    "-preset",
+    "veryfast",
+    "-crf",
+    "20",
+    ...(audioPresent ? ["-c:a", "aac", "-b:a", "160k"] : ["-an"]),
+    "-movflags",
+    "+faststart",
+    outputPath
+  ]);
+}
+
+/**
  * Renders a 9:16 vertical clip (Shorts/Reels/TikTok) with the source centered
  * over a blurred, dimmed fill of itself so nothing is cropped away. The input
  * is already trimmed to the clip range, so the whole file is rendered.

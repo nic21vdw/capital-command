@@ -26,8 +26,26 @@ import { ASPECT_LABELS, EXPORT_PRESETS, applyCaptionPreset, aspectDimensions, fo
 import { Button } from "@/components/ui/button";
 import { ColorField, Field, NumberField, RangeField, SelectField, Toggle } from "@/components/editor/controls";
 import { cn } from "@/lib/utils";
-import type { AspectRatioId, CaptionPresetId, ExportPresetId, OverlayKind } from "@/types/domain";
+import type { AspectRatioId, CaptionPresetId, ClipCompositionMode, ExportPresetId, OverlayKind } from "@/types/domain";
 import type { EditorApi } from "@/components/editor/types";
+
+const COMPOSITION_OPTIONS: Array<{ id: ClipCompositionMode; label: string; detail: string }> = [
+  {
+    id: "center-blur",
+    label: "Center + blur",
+    detail: "Full 16:9 source centered over a faded background."
+  },
+  {
+    id: "stacked-split",
+    label: "Top/bottom split",
+    detail: "Screen on top with the camera/reaction area below."
+  },
+  {
+    id: "crop-fill",
+    label: "Crop fill",
+    detail: "Fill the output frame with manual zoom and pan."
+  }
+];
 
 // --- Captions panel --------------------------------------------------------
 
@@ -387,8 +405,28 @@ export function ReframePanel({ api }: { api: EditorApi }) {
         </div>
       </Field>
       <p className="text-xs text-[var(--muted-foreground)]">
-        Output {dims.w}x{dims.h}. Drag the preview to pan, then zoom to crop tighter around the subject.
+        Output {dims.w}x{dims.h}. Start from the 16:9 source master, then choose how it should sit inside the final frame.
       </p>
+      <Field label="Composition">
+        <div className="space-y-1.5">
+          {COMPOSITION_OPTIONS.map((option) => (
+            <button
+              key={option.id}
+              type="button"
+              onClick={() => api.patch({ compositionMode: option.id })}
+              className={cn(
+                "w-full rounded-lg border px-3 py-2 text-left transition",
+                project.compositionMode === option.id
+                  ? "border-[var(--accent)] bg-[var(--accent)]/10 text-white"
+                  : "border-[var(--border)] text-[var(--muted-foreground)] hover:text-white"
+              )}
+            >
+              <span className="block text-sm font-medium">{option.label}</span>
+              <span className="mt-0.5 block text-xs text-[var(--muted-foreground)]">{option.detail}</span>
+            </button>
+          ))}
+        </div>
+      </Field>
       <RangeField label="Crop zoom" value={Math.max(1, r.scale)} min={1} max={4} step={0.05} onChange={(v) => api.patch({ reframe: { ...r, scale: v } })} format={(v) => `${v.toFixed(2)}x`} />
       <RangeField label="Pan X" value={r.offsetX} min={-1} max={1} step={0.02} onChange={(v) => api.patch({ reframe: { ...r, offsetX: v } })} />
       <RangeField label="Pan Y" value={r.offsetY} min={-1} max={1} step={0.02} onChange={(v) => api.patch({ reframe: { ...r, offsetY: v } })} />

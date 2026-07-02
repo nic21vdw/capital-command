@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { Clapperboard, Film, Loader2, Plus, Trash2 } from "lucide-react";
 import { useAppData } from "@/components/providers/app-provider";
@@ -17,13 +17,23 @@ import type { ClipCandidate, ClipJob } from "@/lib/clipping/types";
 
 const EDITOR_DRAFT_PREFIX = "capital-command:clip-editor-draft:";
 
+function formatDate(value?: string) {
+  if (!value) return "Unknown date";
+  return new Date(value).toLocaleString();
+}
+
+function sourceLabel(job: ClipJob | null, fallbackJobId: string) {
+  return job?.fileName || `Job ${fallbackJobId}`;
+}
+
 function readDraftProject(openId: string): ClipProject | null {
   if (typeof window === "undefined") return null;
   for (const storage of [sessionStorage, localStorage]) {
     const raw = storage.getItem(`${EDITOR_DRAFT_PREFIX}${openId}`);
     if (!raw) continue;
     try {
-      return JSON.parse(raw) as ClipProject;
+      const parsed = JSON.parse(raw) as ClipProject;
+      return { ...parsed, compositionMode: parsed.compositionMode ?? "center-blur" };
     } catch {
       storage.removeItem(`${EDITOR_DRAFT_PREFIX}${openId}`);
     }
@@ -83,6 +93,27 @@ export function ClipEditorPage() {
 
   const storedProject = projects.find((p) => p.id === openId) ?? null;
   const openProject = storedProject ?? (draftProject?.id === openId ? draftProject : null);
+  const jobsById = useMemo(() => new Map(jobs.map((job) => [job.id, job])), [jobs]);
+  const renderableJobs = useMemo(
+    () =>
+      jobs
+        .filter((job) => job.status === "done" && job.clips.some((clip) => clip.file))
+        .sort((a, b) => b.createdAt.localeCompare(a.createdAt)),
+    [jobs]
+  );
+  const sortedProjects = useMemo(
+    () =>
+      [...projects].sort((a, b) => {
+        const jobA = jobsById.get(a.jobId);
+        const jobB = jobsById.get(b.jobId);
+        const sourceOrder = sourceLabel(jobA ?? null, a.jobId).localeCompare(sourceLabel(jobB ?? null, b.jobId));
+        if (sourceOrder !== 0) return sourceOrder;
+        const jobDateOrder = (jobB?.createdAt ?? "").localeCompare(jobA?.createdAt ?? "");
+        if (jobDateOrder !== 0) return jobDateOrder;
+        return b.updatedAt.localeCompare(a.updatedAt);
+      }),
+    [jobsById, projects]
+  );
 
   useEffect(() => {
     if (!openId || storedProject || typeof window === "undefined") {
@@ -119,16 +150,16 @@ export function ClipEditorPage() {
     };
   }, [draftProject, mutate, openId, sourceClipIndex, sourceFile, sourceJobId, storedProject]);
 
-  const loadJobs = useCallback(async () => {
-    setLoadingJobs(true);
+  const loadJobs = useCallback(async (showLoading = true) => {
+    if (showLoading) setLoadingJobs(true);
     try {
       const res = await fetch("/api/clips", { cache: "no-store" });
       if (res.ok) {
         const { jobs: list } = (await res.json()) as { jobs: ClipJob[] };
-        setJobs(list.filter((j) => j.status === "done" && j.clips.some((c) => c.file)));
+        setJobs(list);
       }
     } finally {
-      setLoadingJobs(false);
+      if (showLoading) setLoadingJobs(false);
     }
   }, []);
 
@@ -136,6 +167,16 @@ export function ClipEditorPage() {
     setPicking(true);
     void loadJobs();
   };
+
+  useEffect(() => {
+    let cancelled = false;
+    queueMicrotask(() => {
+      if (!cancelled) void loadJobs(false);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [loadJobs]);
 
   const createFromClip = async (job: ClipJob, clip: ClipCandidate, index: number) => {
     const project = projectFromClip(job, clip, index);
@@ -183,11 +224,14 @@ export function ClipEditorPage() {
         </Card>
       ) : (
         <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-          {projects.map((project) => (
+          {sortedProjects.map((project) => (
             <Card key={project.id} className="space-y-3">
               <div className="flex items-start justify-between gap-2">
                 <div className="min-w-0">
                   <p className="truncate font-medium text-white">{project.name}</p>
+                  <p className="truncate text-xs text-[var(--muted-foreground)]">
+                    From {sourceLabel(jobsById.get(project.jobId) ?? null, project.jobId)}
+                  </p>
                   <p className="text-xs text-[var(--muted-foreground)]">
                     {project.aspectRatio} · {project.captions.length} captions · {project.overlays.length} overlays
                   </p>
@@ -223,7 +267,7 @@ export function ClipEditorPage() {
           <div className="flex items-center gap-2 py-8 text-sm text-[var(--muted-foreground)]">
             <Loader2 className="h-4 w-4 animate-spin" /> Loading rendered clips…
           </div>
-        ) : jobs.length === 0 ? (
+        ) : renderableJobs.length === 0 ? (
           <div className="space-y-2 py-6 text-center">
             <Film className="mx-auto h-7 w-7 text-[var(--accent)]" />
             <p className="text-sm text-white">No rendered clips found.</p>
@@ -233,9 +277,12 @@ export function ClipEditorPage() {
           </div>
         ) : (
           <div className="max-h-[68vh] space-y-3 overflow-y-auto">
-            {jobs.map((job) => (
+            {renderableJobs.map((job) => (
               <div key={job.id} className="space-y-1.5">
                 <p className="truncate text-sm font-medium text-white">{job.fileName}</p>
+                <p className="truncate text-xs text-[var(--muted-foreground)]">
+                  Job {job.id} - {formatDate(job.createdAt)} - {job.sourceUrl}
+                </p>
                 <div className="grid grid-cols-3 gap-1.5 sm:grid-cols-4 lg:grid-cols-6">
                   {job.clips
                     .filter((c) => c.file)

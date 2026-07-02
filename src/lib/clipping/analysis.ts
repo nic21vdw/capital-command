@@ -19,7 +19,8 @@ const WINDOW_SAMPLES = Math.round(WINDOW_SEC * 16000);
 const MIN_CLIP_SEC = 15;
 const MAX_CLIP_SEC = 60;
 const TARGET_CLIP_SEC = 38;
-const MAX_CANDIDATES = 6;
+export const TARGET_CLIP_COUNT = 10;
+const MAX_CANDIDATES = TARGET_CLIP_COUNT;
 
 /** Extracts per-window RMS loudness for the first audio stream. */
 export async function extractEnergy(inputPath: string): Promise<EnergyWindow[]> {
@@ -271,14 +272,28 @@ export function selectCandidates(
   }
   if (kept.length === 0) return fallbackCandidates(durationSec, "Energy analysis found no usable peaks");
 
+  if (kept.length < MAX_CANDIDATES) {
+    const fillers = fallbackCandidates(durationSec, "Supplemental timeline coverage added after the strongest peaks");
+    for (const filler of fillers) {
+      if (kept.length >= MAX_CANDIDATES) break;
+      if (kept.some((existing) => overlapRatio(existing, filler) > 0.35)) continue;
+      kept.push(filler);
+    }
+    for (const filler of fillers) {
+      if (kept.length >= MAX_CANDIDATES) break;
+      if (kept.some((existing) => Math.abs(existing.start - filler.start) < 1)) continue;
+      kept.push(filler);
+    }
+  }
+
   kept.sort((a, b) => b.score - a.score);
   return kept.map((candidate, index) => ({ ...candidate, id: `clip-${index + 1}` }));
 }
 
 /** Evenly spaced segments when there is no audio signal to score against. */
 export function fallbackCandidates(durationSec: number, reason: string): ClipCandidate[] {
-  const clipLen = Math.min(45, Math.max(10, durationSec));
-  const count = Math.max(1, Math.min(3, Math.floor(durationSec / (clipLen * 1.5))));
+  const clipLen = Math.min(TARGET_CLIP_SEC, Math.max(10, durationSec));
+  const count = Math.max(1, Math.min(TARGET_CLIP_COUNT, Math.floor(durationSec / (clipLen * 1.15))));
   const candidates: ClipCandidate[] = [];
   for (let i = 0; i < count; i++) {
     const start = round1(((i + 0.5) / count) * durationSec - clipLen / 2);

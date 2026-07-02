@@ -402,9 +402,9 @@ const clipAudioSchema = z.object({
 export const defaultClipAudio = clipAudioSchema.parse({});
 
 const clipExportSettingsSchema = z.object({
-  preset: z.enum(["shorts", "longform", "square", "portrait", "custom"]).default("shorts"),
-  width: z.coerce.number().int().min(64).max(4096).default(1080),
-  height: z.coerce.number().int().min(64).max(4096).default(1920),
+  preset: z.enum(["shorts", "longform", "square", "portrait", "custom"]).default("longform"),
+  width: z.coerce.number().int().min(64).max(4096).default(1920),
+  height: z.coerce.number().int().min(64).max(4096).default(1080),
   fps: z.coerce.number().int().min(1).max(120).default(30),
   quality: z.enum(["high", "medium", "low"]).default("high"),
   format: z.enum(["mp4", "webm"]).default("mp4"),
@@ -433,14 +433,15 @@ export const clipProjectSchema = z.object({
   sourceFile: z.string(),
   sourceUrl: z.string().default(""),
   baseDurationSec: z.coerce.number().min(0).default(0),
-  baseWidth: z.coerce.number().int().min(1).default(1080),
-  baseHeight: z.coerce.number().int().min(1).default(1920),
+  baseWidth: z.coerce.number().int().min(1).default(1920),
+  baseHeight: z.coerce.number().int().min(1).default(1080),
   clipStart: z.coerce.number().min(0).default(0),
   clipEnd: z.coerce.number().min(0).default(0),
   trimStart: z.coerce.number().min(0).default(0),
   trimEnd: z.coerce.number().min(0).default(0),
   title: z.string().default(""),
-  aspectRatio: z.enum(["9:16", "16:9", "1:1", "4:5", "custom"]).default("9:16"),
+  aspectRatio: z.enum(["9:16", "16:9", "1:1", "4:5", "custom"]).default("16:9"),
+  compositionMode: z.enum(["center-blur", "crop-fill", "stacked-split"]).default("center-blur"),
   reframe: z
     .object({
       scale: z.coerce.number().min(0.1).max(8).default(1),

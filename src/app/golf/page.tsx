@@ -1,15 +1,10 @@
-import { AppShell } from '@/components/layout/app-shell'
-import { GolfSwingPage } from '@/components/golf/golf-swing-page'
+import { redirect } from "next/navigation";
 
 export const metadata = {
-  title: 'Swing Analyzer | Nic Vandewetering',
-  description: 'AI-powered golf swing analysis using pose detection.',
-}
+  title: "Clip Generator | Nic Vandewetering",
+  description: "Turn long YouTube streams into short clips."
+};
 
 export default function GolfPage() {
-  return (
-    <AppShell>
-      <GolfSwingPage />
-    </AppShell>
-  )
+  redirect("/clips");
 }

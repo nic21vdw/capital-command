@@ -1,4 +1,5 @@
 import Anthropic from "@anthropic-ai/sdk";
+import { TARGET_CLIP_COUNT } from "@/lib/clipping/analysis";
 import type { CaptionSegment } from "@/types/domain";
 import type { ClipCandidate, ClipScoreBreakdown } from "@/lib/clipping/types";
 
@@ -14,7 +15,7 @@ import type { ClipCandidate, ClipScoreBreakdown } from "@/lib/clipping/types";
 
 const MIN_CLIP_SEC = 15;
 const MAX_CLIP_SEC = 60;
-const TARGET_CLIPS = 6;
+const TARGET_CLIPS = TARGET_CLIP_COUNT;
 // Keep the timeline we send to the model bounded regardless of stream length so
 // even a multi-hour VOD is covered end-to-end (we just coarsen the granularity).
 const MAX_TIMELINE_LINES = 1500;
@@ -142,7 +143,7 @@ function toCandidate(
     end: round1(end),
     score,
     breakdown,
-    rationale: title ? `“${title}” — ${reason}` : reason
+    rationale: title ? `"${title}" - ${reason}` : reason
   };
 }
 
@@ -168,13 +169,15 @@ export async function selectByTranscript(
 
   const userPrompt = `Below is the FULL timestamped transcript of a ${clock(durationSec)} stream. Each line is "[mm:ss] text" (timestamps may be h:mm:ss for long streams).
 
-Read the ENTIRE transcript, beginning to end, and choose the ${TARGET_CLIPS} best moments to cut into short-form vertical clips (TikTok / Reels / Shorts).
+Read the ENTIRE transcript, beginning to end, and choose exactly ${TARGET_CLIPS} best moments to cut into short-form clips.
 
 Rules:
-- Choose moments from ACROSS THE WHOLE STREAM — do not cluster them all near the start. Spread them over the full timeline.
+- Choose moments from ACROSS THE WHOLE STREAM - do not cluster them all near the start. Spread them over the full timeline.
 - Each clip must be a self-contained thought that makes sense without surrounding context.
 - Each clip must be between ${MIN_CLIP_SEC} and ${MAX_CLIP_SEC} seconds long.
 - Favour strong hooks, emotional or surprising payoffs, hot takes, stories, and quotable lines.
+- Prefer variety: mix strong openings, tactical explanations, funny reactions, disagreement, turning points, and clean story payoffs when the transcript supports them.
+- Avoid picking multiple moments that make the same point unless the later one has a clearly better hook or payoff.
 - ${topicLine}
 
 Return ONLY a JSON array (no prose) of objects with these fields:
@@ -194,7 +197,7 @@ ${timeline}`;
     const client = new Anthropic();
     const response = await client.messages.create({
       model: "claude-opus-4-8",
-      max_tokens: 2000,
+      max_tokens: 3200,
       system:
         "You are an expert short-form video editor who finds the most viral, self-contained moments inside long livestream transcripts. You always return strict JSON.",
       messages: [{ role: "user", content: userPrompt }]

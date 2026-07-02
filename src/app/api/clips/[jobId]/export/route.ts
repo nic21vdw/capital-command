@@ -41,6 +41,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     baseDurationSec: project.baseDurationSec,
     trimStart: project.trimStart,
     trimEnd: project.trimEnd || project.baseDurationSec,
+    compositionMode: project.compositionMode,
     reframe: project.reframe,
     captions: project.captions,
     captionStyle: project.captionStyle,

@@ -2,17 +2,13 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useState } from "react";
 import {
-  AtSign,
-  Clapperboard,
-  Image as ImageIcon,
-  LayoutDashboard,
+  ChevronLeft,
+  ChevronRight,
   Settings,
   SquarePlay,
-  Target,
-  Wallet,
   Wand2,
-  Youtube,
   type LucideIcon
 } from "lucide-react";
 import { AppFooter } from "@/components/layout/app-footer";
@@ -24,27 +20,16 @@ type NavGroup = { label: string; items: NavItem[] };
 
 const navGroups: NavGroup[] = [
   {
-    label: "Workspace",
+    label: "YouTube tools",
     items: [
-      { href: "/", label: "Dashboard", icon: LayoutDashboard },
-      { href: "/execution", label: "Execution", icon: Target },
-      { href: "/finance", label: "Finances", icon: Wallet }
-    ]
-  },
-  {
-    label: "Creator tools",
-    items: [
-      { href: "/youtube", label: "YouTube", icon: Youtube },
-      { href: "/thumbnails", label: "Thumbnails", icon: ImageIcon },
-      { href: "/clips", label: "Auto Clipper", icon: Wand2 },
-      { href: "/editor", label: "Clip Editor", icon: SquarePlay },
-      { href: "/golf", label: "Golf", icon: Clapperboard },
-      { href: "/x-strategy", label: "Reply Studio", icon: AtSign }
+      { href: "/clips", label: "Clip Generator", icon: Wand2 },
+      { href: "/editor", label: "Clip Editor", icon: SquarePlay }
     ]
   }
 ];
 
 const allNavItems = navGroups.flatMap((group) => group.items);
+const SIDEBAR_COLLAPSED_KEY = "capital-command:sidebar-collapsed";
 
 function initialsFrom(name: string) {
   const parts = name.trim().split(/\s+/).filter(Boolean);
@@ -55,39 +40,41 @@ function initialsFrom(name: string) {
     .join("");
 }
 
-function Brand() {
+function Brand({ collapsed = false }: { collapsed?: boolean }) {
   return (
-    <Link href="/" className="flex items-center gap-3">
+    <Link href="/" className={cn("flex items-center gap-3", collapsed && "justify-center")} title="Dashboard">
       <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-gradient-to-br from-[#a855f7] to-[#7c3aed] text-sm font-bold tracking-tight text-white shadow-[0_2px_10px_rgba(124,58,237,0.45)]">
         NV
       </span>
-      <span className="flex flex-col leading-tight">
+      <span className={cn("flex flex-col leading-tight", collapsed && "hidden")}>
         <span className="text-sm font-semibold text-white">Nic Vandewetering</span>
-        <span className="text-xs text-[var(--muted-foreground)]">Portfolio &amp; content</span>
+        <span className="text-xs text-[var(--muted-foreground)]">YouTube creator tools</span>
       </span>
     </Link>
   );
 }
 
-function NavLink({ item, active }: { item: NavItem; active: boolean }) {
+function NavLink({ item, active, collapsed = false }: { item: NavItem; active: boolean; collapsed?: boolean }) {
   const Icon = item.icon;
   return (
     <Link
       href={item.href}
+      title={collapsed ? item.label : undefined}
       className={cn(
         "flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition",
+        collapsed && "justify-center px-2",
         active
           ? "bg-white/8 font-medium text-white"
           : "text-[var(--muted-foreground)] hover:bg-white/5 hover:text-white"
       )}
     >
       <Icon className={cn("h-4 w-4 shrink-0", active && "text-[var(--accent)]")} />
-      {item.label}
+      {!collapsed && item.label}
     </Link>
   );
 }
 
-function ProfileFooter() {
+function ProfileFooter({ collapsed = false }: { collapsed?: boolean }) {
   const { data } = useAppData();
   const profile = data.settings.profile;
   const displayName = profile?.displayName?.trim();
@@ -98,7 +85,11 @@ function ProfileFooter() {
     <Link
       href="/settings"
       aria-label="Open profile settings"
-      className="flex items-center gap-3 rounded-lg border border-[var(--border)] px-3 py-2.5 transition hover:border-[var(--border-strong)]"
+      title={collapsed ? displayName || "Profile settings" : undefined}
+      className={cn(
+        "flex items-center gap-3 rounded-lg border border-[var(--border)] px-3 py-2.5 transition hover:border-[var(--border-strong)]",
+        collapsed && "justify-center px-2"
+      )}
     >
       <span className="flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded-full bg-[var(--accent)] text-xs font-semibold text-[var(--accent-contrast)]">
         {avatar ? (
@@ -108,7 +99,7 @@ function ProfileFooter() {
           initials || "?"
         )}
       </span>
-      <span className="flex min-w-0 flex-col leading-tight">
+      <span className={cn("flex min-w-0 flex-col leading-tight", collapsed && "hidden")}>
         <span className="truncate text-sm font-medium text-white">{displayName || "Set up profile"}</span>
         <span className="truncate text-xs text-[var(--muted-foreground)]">
           {displayName ? "View settings" : "Add your name & photo"}
@@ -121,29 +112,58 @@ function ProfileFooter() {
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const settingsActive = pathname === "/settings";
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
+    if (typeof window === "undefined") return false;
+    try {
+      return window.localStorage.getItem(SIDEBAR_COLLAPSED_KEY) === "1";
+    } catch {
+      return false;
+    }
+  });
+
+  const toggleSidebar = () => {
+    setSidebarCollapsed((current) => {
+      const next = !current;
+      try {
+        window.localStorage.setItem(SIDEBAR_COLLAPSED_KEY, next ? "1" : "0");
+      } catch {
+        // Non-critical preference persistence.
+      }
+      return next;
+    });
+  };
 
   return (
     <div className="mx-auto flex min-h-screen max-w-[1600px] gap-6 px-4 py-4 lg:px-6">
-      <aside className="hidden w-64 shrink-0 lg:block">
+      <aside className={cn("hidden shrink-0 transition-[width] duration-200 lg:block", sidebarCollapsed ? "w-20" : "w-64")}>
         <div className="sticky top-4 flex h-[calc(100vh-2rem)] flex-col rounded-xl border border-[var(--border)] bg-[var(--panel)] p-4">
-          <div className="px-1 pb-4">
-            <Brand />
+          <div className={cn("flex items-center pb-4", sidebarCollapsed ? "justify-center" : "justify-between gap-2 px-1")}>
+            <Brand collapsed={sidebarCollapsed} />
+            <button
+              type="button"
+              onClick={toggleSidebar}
+              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-[var(--border)] text-[var(--muted-foreground)] transition hover:border-[var(--border-strong)] hover:text-white"
+              aria-label={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
+              title={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
+            >
+              {sidebarCollapsed ? <ChevronRight className="h-4 w-4" /> : <ChevronLeft className="h-4 w-4" />}
+            </button>
           </div>
           <nav className="flex-1 space-y-6 overflow-y-auto">
             {navGroups.map((group) => (
               <div key={group.label} className="space-y-1">
-                <p className="px-3 pb-1 text-[11px] font-medium uppercase tracking-wider text-[var(--muted-foreground)]">
+                <p className={cn("px-3 pb-1 text-[11px] font-medium uppercase tracking-wider text-[var(--muted-foreground)]", sidebarCollapsed && "sr-only")}>
                   {group.label}
                 </p>
                 {group.items.map((item) => (
-                  <NavLink key={item.href} item={item} active={pathname === item.href} />
+                  <NavLink key={item.href} item={item} active={pathname === item.href} collapsed={sidebarCollapsed} />
                 ))}
               </div>
             ))}
           </nav>
           <div className="mt-4 space-y-3 border-t border-[var(--border)] pt-4">
-            <NavLink item={{ href: "/settings", label: "Settings", icon: Settings }} active={settingsActive} />
-            <ProfileFooter />
+            <NavLink item={{ href: "/settings", label: "Settings", icon: Settings }} active={settingsActive} collapsed={sidebarCollapsed} />
+            <ProfileFooter collapsed={sidebarCollapsed} />
           </div>
         </div>
       </aside>
