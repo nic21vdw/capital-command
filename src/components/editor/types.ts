@@ -8,10 +8,12 @@ export type ExportUiState = {
   error?: string;
 };
 
-/** The full set of actions the editor panels operate through. */
+/** The full set of actions the editor panels operate through. Deliberately
+ *  excludes the live playhead time: the panels never render it, and keeping it
+ *  out lets the api object stay referentially stable across playback frames so
+ *  the memoized panels skip re-rendering while the video plays. */
 export interface EditorApi {
   project: ClipProject;
-  time: number;
   seek: (t: number) => void;
   patch: (partial: Partial<ClipProject>) => void;
   setTrim: (start: number, end: number) => void;

@@ -57,7 +57,9 @@ export function Tabs({ tabs, paramKey = "tab" }: { tabs: TabItem[]; paramKey?: s
           );
         })}
       </div>
-      <div>{current?.content}</div>
+      <div key={current?.id} className="panel-enter">
+        {current?.content}
+      </div>
     </div>
   );
 }
