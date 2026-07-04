@@ -313,24 +313,55 @@ export function buildAss(
     "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text"
   ];
 
+  const highlight = assColor(style.highlightColor);
+  const wordsPerLine = Math.max(1, style.wordsPerLine);
+  const transform = (word: string) => escapeAss(style.uppercase ? word.toUpperCase() : word);
+  // Pop-in: the phrase lands at 90% and springs to full size in ~110 ms.
+  const popIn = "{\\fscx90\\fscy90\\t(0,110,\\fscx100\\fscy100)}";
+  const entrance = style.animation === "fade" ? "{\\fad(150,150)}" : style.animation === "pop" ? popIn : "";
+
   const events: string[] = [];
   for (const seg of segments) {
     if (!seg.enabled || !seg.text.trim()) continue;
-    let text: string;
+
     if (highlightCurrentWord && seg.words.length > 0) {
-      // \k karaoke: each word lights up with SecondaryColour as it's spoken.
-      text = seg.words
-        .map((w) => {
-          const durCs = Math.max(1, Math.round((Math.max(w.end, w.start + 0.05) - w.start) * 100));
-          return `{\\k${durCs}}${escapeAss(style.uppercase ? w.text.toUpperCase() : w.text)} `;
-        })
-        .join("")
-        .trim();
-    } else {
-      text = escapeAss(style.uppercase ? seg.text.toUpperCase() : seg.text);
+      // Word-synced captions the way clip apps burn them: one dialogue event
+      // per spoken word showing the WHOLE phrase, with the current word
+      // re-colored (and popped slightly larger). "karaoke" keeps already
+      // spoken words lit and dims upcoming ones for a progressive fill.
+      const words = [...seg.words].sort((a, b) => a.start - b.start);
+      const karaoke = style.animation === "karaoke";
+      for (let i = 0; i < words.length; i++) {
+        const eventStart = i === 0 ? seg.start : Math.max(seg.start, words[i].start);
+        const eventEnd = i === words.length - 1 ? seg.end : Math.min(seg.end, Math.max(eventStart + 0.01, words[i + 1].start));
+        if (eventEnd <= eventStart) continue;
+        const text = words
+          .map((w, j) => {
+            const breakTag = j > 0 && j % wordsPerLine === 0 ? "\\N" : j > 0 ? " " : "";
+            let styled: string;
+            if (j === i) {
+              const popTag = style.animation === "pop" || karaoke ? "\\fscx112\\fscy112" : "";
+              styled = `{\\1c${highlight}${popTag}}${transform(w.text)}{\\r}`;
+            } else if (karaoke && j < i) {
+              styled = `{\\1c${highlight}}${transform(w.text)}{\\r}`;
+            } else if (karaoke && j > i) {
+              styled = `{\\alpha&H70&}${transform(w.text)}{\\r}`;
+            } else {
+              styled = transform(w.text);
+            }
+            return breakTag + styled;
+          })
+          .join("");
+        // Entrance animation only on the first event so the phrase pops once.
+        const prefix = i === 0 ? entrance : "";
+        events.push(`Dialogue: 0,${formatAssTime(eventStart)},${formatAssTime(eventEnd)},Default,,0,0,0,,${prefix}${text}`);
+      }
+      continue;
     }
-    const prefix = style.animation === "fade" ? "{\\fad(150,150)}" : "";
-    events.push(`Dialogue: 0,${formatAssTime(seg.start)},${formatAssTime(seg.end)},Default,,0,0,0,,${prefix}${text}`);
+
+    const tokens = seg.text.trim().split(/\s+/);
+    const text = tokens.map((tok, j) => (j > 0 && j % wordsPerLine === 0 ? "\\N" : j > 0 ? " " : "") + transform(tok)).join("");
+    events.push(`Dialogue: 0,${formatAssTime(seg.start)},${formatAssTime(seg.end)},Default,,0,0,0,,${entrance}${text}`);
   }
 
   return `${header.join("\n")}\n${events.join("\n")}\n`;

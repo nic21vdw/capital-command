@@ -14,15 +14,20 @@ const baseProject = () =>
   });
 
 describe("makeClipProject", () => {
-  it("derives duration from the clip window and uses sane defaults", () => {
+  it("derives duration from the clip window and opens Shorts-ready", () => {
     const p = baseProject();
     expect(p.baseDurationSec).toBeCloseTo(30);
     expect(p.baseWidth).toBe(1920);
     expect(p.baseHeight).toBe(1080);
-    expect(p.aspectRatio).toBe("16:9");
+    // New projects target Shorts/Reels out of the box: 9:16 vertical export
+    // with word-synced captions on.
+    expect(p.aspectRatio).toBe("9:16");
     expect(p.compositionMode).toBe("center-blur");
     expect(p.captionsVisible).toBe(true);
-    expect(p.exportSettings.width).toBe(1920);
+    expect(p.highlightCurrentWord).toBe(true);
+    expect(p.exportSettings.preset).toBe("shorts");
+    expect(p.exportSettings.width).toBe(1080);
+    expect(p.exportSettings.height).toBe(1920);
   });
 });
 

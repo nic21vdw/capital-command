@@ -348,21 +348,24 @@ const captionSegmentSchema = z.object({
   enabled: z.coerce.boolean().default(true)
 });
 
+// Defaults follow the short-form captioning style popularized by CapCut /
+// Opus Clip: big bold outlined words in short phrases, no caption box, the
+// spoken word highlighted, sitting in the lower third of a 9:16 frame.
 export const captionStyleSchema = z.object({
   fontFamily: z.string().default("Inter, system-ui, sans-serif"),
-  fontScale: z.coerce.number().min(0.02).max(0.2).default(0.06),
+  fontScale: z.coerce.number().min(0.02).max(0.2).default(0.052),
   fontWeight: z.coerce.number().int().min(100).max(900).default(800),
   textColor: z.string().default("#ffffff"),
-  highlightColor: z.string().default("#7c5cff"),
+  highlightColor: z.string().default("#ffd34d"),
   backgroundColor: z.string().default("#000000"),
-  backgroundOpacity: z.coerce.number().min(0).max(1).default(0.4),
-  outlineWidth: z.coerce.number().min(0).max(10).default(2),
+  backgroundOpacity: z.coerce.number().min(0).max(1).default(0),
+  outlineWidth: z.coerce.number().min(0).max(10).default(3),
   shadow: z.coerce.number().min(0).max(10).default(2),
-  position: z.enum(["top", "middle", "bottom", "lower-third"]).default("bottom"),
+  position: z.enum(["top", "middle", "bottom", "lower-third"]).default("lower-third"),
   alignment: z.enum(["left", "center", "right"]).default("center"),
-  maxWordsPerCaption: z.coerce.number().int().min(1).max(40).default(7),
+  maxWordsPerCaption: z.coerce.number().int().min(1).max(40).default(4),
   wordsPerLine: z.coerce.number().int().min(1).max(20).default(4),
-  animation: z.enum(["none", "fade", "pop", "karaoke"]).default("fade"),
+  animation: z.enum(["none", "fade", "pop", "karaoke"]).default("pop"),
   uppercase: z.coerce.boolean().default(false)
 });
 
@@ -401,10 +404,12 @@ const clipAudioSchema = z.object({
 
 export const defaultClipAudio = clipAudioSchema.parse({});
 
+// Shorts/Reels-first: clips default to a 1080x1920 vertical export so a fresh
+// project is publishable straight from the editor with no extra setup.
 const clipExportSettingsSchema = z.object({
-  preset: z.enum(["shorts", "longform", "square", "portrait", "custom"]).default("longform"),
-  width: z.coerce.number().int().min(64).max(4096).default(1920),
-  height: z.coerce.number().int().min(64).max(4096).default(1080),
+  preset: z.enum(["shorts", "longform", "square", "portrait", "custom"]).default("shorts"),
+  width: z.coerce.number().int().min(64).max(4096).default(1080),
+  height: z.coerce.number().int().min(64).max(4096).default(1920),
   fps: z.coerce.number().int().min(1).max(120).default(30),
   quality: z.enum(["high", "medium", "low"]).default("high"),
   format: z.enum(["mp4", "webm"]).default("mp4"),
@@ -440,8 +445,10 @@ export const clipProjectSchema = z.object({
   trimStart: z.coerce.number().min(0).default(0),
   trimEnd: z.coerce.number().min(0).default(0),
   title: z.string().default(""),
-  aspectRatio: z.enum(["9:16", "16:9", "1:1", "4:5", "custom"]).default("16:9"),
-  compositionMode: z.enum(["center-blur", "crop-fill", "stacked-split", "stacked-split-flip", "fit"]).default("center-blur"),
+  aspectRatio: z.enum(["9:16", "16:9", "1:1", "4:5", "custom"]).default("9:16"),
+  compositionMode: z
+    .enum(["center-blur", "crop-fill", "stacked-split", "stacked-split-flip", "screen-lead", "face-lead", "fit"])
+    .default("center-blur"),
   reframe: z
     .object({
       scale: z.coerce.number().min(0.1).max(8).default(1),
@@ -449,10 +456,18 @@ export const clipProjectSchema = z.object({
       offsetY: z.coerce.number().min(-1).max(1).default(0)
     })
     .default({ scale: 1, offsetX: 0, offsetY: 0 }),
+  faceSource: z
+    .object({
+      x: z.coerce.number().min(0).max(1).default(0.58),
+      y: z.coerce.number().min(0).max(1).default(0.05),
+      w: z.coerce.number().min(0.01).max(1).default(0.42),
+      h: z.coerce.number().min(0.01).max(1).default(0.5)
+    })
+    .optional(),
   captions: z.array(captionSegmentSchema).default([]),
   captionStyle: captionStyleSchema.default(defaultCaptionStyle),
   captionsVisible: z.coerce.boolean().default(true),
-  highlightCurrentWord: z.coerce.boolean().default(false),
+  highlightCurrentWord: z.coerce.boolean().default(true),
   overlays: z.array(overlaySchema).default([]),
   audio: clipAudioSchema.default(defaultClipAudio),
   exportSettings: clipExportSettingsSchema.default(defaultClipExportSettings),

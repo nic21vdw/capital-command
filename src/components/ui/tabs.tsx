@@ -45,9 +45,9 @@ export function Tabs({ tabs, paramKey = "tab" }: { tabs: TabItem[]; paramKey?: s
               type="button"
               onClick={() => select(tab.id)}
               className={cn(
-                "flex items-center gap-2 whitespace-nowrap rounded-md px-4 py-2 text-sm transition",
+                "flex items-center gap-2 whitespace-nowrap rounded-md px-4 py-2 text-sm transition-all duration-200 ease-out",
                 isActive
-                  ? "bg-[var(--accent)] text-[var(--accent-contrast)]"
+                  ? "bg-[var(--accent)] text-[var(--accent-contrast)] shadow-sm"
                   : "text-[var(--muted-foreground)] hover:bg-white/6 hover:text-white"
               )}
             >
@@ -57,7 +57,10 @@ export function Tabs({ tabs, paramKey = "tab" }: { tabs: TabItem[]; paramKey?: s
           );
         })}
       </div>
-      <div>{current?.content}</div>
+      {/* Keyed so switching tabs animates the incoming panel in. */}
+      <div key={current?.id} className="panel-in">
+        {current?.content}
+      </div>
     </div>
   );
 }

@@ -67,6 +67,7 @@ export function ClipEditor({
   const [volume, setVolume] = useState(1);
   const [selectedCaptionId, setSelectedCaptionId] = useState<string | null>(null);
   const [selectedOverlayId, setSelectedOverlayId] = useState<string | null>(null);
+  const [faceCropEditing, setFaceCropEditing] = useState(false);
   const [fetchingCaptions, setFetchingCaptions] = useState(false);
   const [exportState, setExportState] = useState<ExportUiState>({ status: "idle", progress: 0 });
   const [saved, setSaved] = useState(true);
@@ -127,7 +128,14 @@ export function ClipEditor({
     return () => cancelAnimationFrame(raf);
   }, []);
 
+  // Mirror mute/volume into refs so handleVideoReady can stay identity-stable:
+  // if it changed with muted/volume, the preview would re-bind (and previously
+  // re-mount) its video elements on every audio tweak.
+  const mutedRef = useRef(muted);
+  const volumeRef = useRef(volume);
   useEffect(() => {
+    mutedRef.current = muted;
+    volumeRef.current = volume;
     const v = videoRef.current;
     if (!v) return;
     v.muted = muted;
@@ -157,14 +165,17 @@ export function ClipEditor({
     if (el) {
       el.onplay = () => setPlaying(true);
       el.onpause = () => setPlaying(false);
-      el.muted = muted;
-      el.volume = volume;
+      el.muted = mutedRef.current;
+      el.volume = volumeRef.current;
+    } else {
+      setPlaying(false);
     }
-  }, [muted, volume]);
+  }, []);
 
   const handleReframeChange = useCallback((partial: Partial<ClipProject["reframe"]>) => {
     setProject((prev) => ({ ...prev, reframe: { ...prev.reframe, ...partial } }));
   }, []);
+
 
   // Explicit save so you can lock in progress on demand instead of waiting for autosave.
   const saveNow = useCallback(async () => {
@@ -481,6 +492,8 @@ export function ClipEditor({
     patch,
     setTrim,
     generateTitle,
+    faceCropEditing,
+    setFaceCropEditing,
     fetchingCaptions,
     regenerateCaptions,
     addCaption,
@@ -608,10 +621,14 @@ export function ClipEditor({
             time={time}
             videoSrc={videoSrc}
             onVideoReady={handleVideoReady}
+            onTogglePlay={togglePlay}
             selectedOverlayId={selectedOverlayId}
             onSelectOverlay={setSelectedOverlayId}
             onOverlayChange={updateOverlay}
             onReframeChange={handleReframeChange}
+            faceCropEditing={faceCropEditing}
+            onFaceCropEditingChange={setFaceCropEditing}
+            onFaceSourceChange={(rect) => patch({ faceSource: rect })}
           />
           <div className="flex items-center gap-3 rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 py-2">
             <button
@@ -697,7 +714,10 @@ export function ClipEditor({
               );
             })}
           </div>
-          <div className="rounded-xl border border-[var(--border)] bg-[var(--surface)] p-4">{renderPanel()}</div>
+          {/* Keyed so switching tools animates the incoming panel in. */}
+          <div key={tab} className="panel-in rounded-xl border border-[var(--border)] bg-[var(--surface)] p-4">
+            {renderPanel()}
+          </div>
         </div>
       </div>
     </div>

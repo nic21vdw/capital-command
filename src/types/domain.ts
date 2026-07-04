@@ -455,7 +455,14 @@ export interface ReframeTransform {
   offsetY: number;
 }
 
-export type ClipCompositionMode = "center-blur" | "crop-fill" | "stacked-split" | "stacked-split-flip" | "fit";
+export type ClipCompositionMode =
+  | "center-blur"
+  | "crop-fill"
+  | "stacked-split"
+  | "stacked-split-flip"
+  | "screen-lead"
+  | "face-lead"
+  | "fit";
 
 export type ExportPresetId = "shorts" | "longform" | "square" | "portrait" | "custom";
 export type ExportQuality = "high" | "medium" | "low";
@@ -510,6 +517,11 @@ export interface ClipProject {
   /** How the 16:9 source master is composed inside the chosen output frame. */
   compositionMode: ClipCompositionMode;
   reframe: ReframeTransform;
+  /**
+   * Where the face camera sits inside the source frame (normalized). Used by
+   * the split/lead layouts; defaults to the top-right streamer camera spot.
+   */
+  faceSource?: RegionRect;
   captions: CaptionSegment[];
   captionStyle: CaptionStyle;
   captionsVisible: boolean;

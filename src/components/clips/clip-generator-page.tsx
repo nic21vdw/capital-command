@@ -32,7 +32,7 @@ const EDITOR_DRAFT_PREFIX = "capital-command:clip-editor-draft:";
 
 const STAGE_LABELS: Record<ClipJobStage, string> = {
   downloading: "Fetching the source",
-  analyzing: "Reading the transcript",
+  analyzing: "Transcribing the audio",
   selecting: "Picking the best moments",
   rendering: "Rendering clips",
   finished: "Ready"
@@ -245,7 +245,7 @@ export function ClipGeneratorPage() {
       <PageHeader
         eyebrow="YouTube creator tools"
         title="Clip Generator"
-        description="Turn a raw livestream into short clips: add a stream, review the detected moments, and open one in the editor to trim and export."
+        description="Turn a raw livestream or recording into short clips: every source is transcribed and captioned automatically, the best moments are picked and titled, and each clip opens in the editor ready to export for Shorts and Reels."
       />
 
       <div className="grid gap-4 xl:grid-cols-[340px_minmax(0,1fr)]">
@@ -505,16 +505,34 @@ function ClipCard({
   onEdit: () => void;
 }) {
   const duration = Math.round(clip.end - clip.start);
+  const videoRef = useRef<HTMLVideoElement>(null);
+
+  // Hover (or focus) scrubs the clip silently — lets you scan moments without
+  // opening the editor.
+  const startPreview = () => {
+    const v = videoRef.current;
+    if (!v) return;
+    v.muted = true;
+    void v.play().catch(() => undefined);
+  };
+  const stopPreview = () => {
+    const v = videoRef.current;
+    if (!v) return;
+    v.pause();
+    v.currentTime = 0;
+  };
 
   return (
-    <Card className="overflow-hidden p-0">
+    <Card className="animate-in overflow-hidden p-0 transition-all duration-200 hover:border-[var(--border-strong)] hover:shadow-lg">
       <div className="grid min-h-full md:grid-cols-[200px_minmax(0,1fr)]">
-        <div className="relative bg-black">
+        <div className="relative bg-black" onPointerEnter={startPreview} onPointerLeave={stopPreview}>
           {clip.file && (
             <video
+              ref={videoRef}
               src={fileUrl(jobId, clip.file)}
               preload="metadata"
               muted
+              loop
               playsInline
               className="aspect-video h-full min-h-32 w-full object-contain md:aspect-auto"
             />

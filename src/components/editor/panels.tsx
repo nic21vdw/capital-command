@@ -6,6 +6,7 @@ import {
   ArrowUp,
   Check,
   Copy,
+  Crop,
   Download,
   Image as ImageIcon,
   Loader2,
@@ -20,6 +21,7 @@ import {
 } from "lucide-react";
 import { CAPTION_PRESETS } from "@/lib/clipping/captions";
 import { ASPECT_LABELS, EXPORT_PRESETS, applyCaptionPreset, aspectDimensions, formatClock } from "@/lib/clipping/editor";
+import { CLIP_LAYOUTS, DEFAULT_FACE_SOURCE, LAYOUT_MODE_PRESETS } from "@/lib/clipping/layouts";
 import { Button } from "@/components/ui/button";
 import { ColorField, Field, NumberField, RangeField, SelectField, Toggle } from "@/components/editor/controls";
 import { cn } from "@/lib/utils";
@@ -29,11 +31,22 @@ import type { EditorApi } from "@/components/editor/types";
 /** Short-form layout presets. `vertical` presets only make sense at 9:16 and
  *  switch the project there when picked. */
 const LAYOUT_PRESETS: Array<{ id: ClipCompositionMode; label: string; detail: string; vertical?: boolean }> = [
-  { id: "stacked-split", label: "Screen + face", detail: "Screen on top, face camera below.", vertical: true },
-  { id: "stacked-split-flip", label: "Face + screen", detail: "Face camera on top, screen below.", vertical: true },
+  { id: "stacked-split", label: "Screen + face", detail: "Full screen on top, face camera below.", vertical: true },
+  { id: "stacked-split-flip", label: "Face + screen", detail: "Face camera on top, full screen below.", vertical: true },
+  { id: "screen-lead", label: "Screen lead", detail: "Screen leads, small face inset underneath.", vertical: true },
+  { id: "face-lead", label: "Face lead", detail: "Face leads, screen kept as a context banner.", vertical: true },
   { id: "center-blur", label: "Centered + blur", detail: "Clip centered over a blurred, zoomed copy of itself." },
   { id: "crop-fill", label: "Crop to fill", detail: "Fill the frame — zoom and pan to the main content." },
   { id: "fit", label: "Fullscreen", detail: "The whole source frame, letterboxed." }
+];
+
+/** Quick face-camera positions for the split layouts (normalized source rects). */
+const FACE_CROP_PRESETS: Array<{ id: string; label: string; rect: { x: number; y: number; w: number; h: number } }> = [
+  { id: "top-right", label: "Top right", rect: { x: 0.58, y: 0.05, w: 0.42, h: 0.5 } },
+  { id: "top-left", label: "Top left", rect: { x: 0, y: 0.05, w: 0.42, h: 0.5 } },
+  { id: "bottom-right", label: "Bottom right", rect: { x: 0.58, y: 0.45, w: 0.42, h: 0.5 } },
+  { id: "bottom-left", label: "Bottom left", rect: { x: 0, y: 0.45, w: 0.42, h: 0.5 } },
+  { id: "center", label: "Center", rect: { x: 0.25, y: 0.15, w: 0.5, h: 0.7 } }
 ];
 
 /** Like Field, but for groups of buttons — a <label> wrapper would forward
@@ -53,14 +66,26 @@ function LayoutThumb({ id }: { id: ClipCompositionMode }) {
     <span className="relative block h-14 w-8 shrink-0 overflow-hidden rounded border border-white/15 bg-black/60">
       {id === "stacked-split" && (
         <>
-          <span className="absolute inset-x-0 top-0 h-[56%] bg-white/25" />
-          <span className="absolute inset-x-0 bottom-0 h-[42%] bg-[var(--accent)]/70" />
+          <span className="absolute inset-x-0 top-[6%] h-[42%] bg-white/25" />
+          <span className="absolute inset-x-0 top-[52%] h-[42%] bg-[var(--accent)]/70" />
         </>
       )}
       {id === "stacked-split-flip" && (
         <>
-          <span className="absolute inset-x-0 top-0 h-[42%] bg-[var(--accent)]/70" />
-          <span className="absolute inset-x-0 bottom-0 h-[56%] bg-white/25" />
+          <span className="absolute inset-x-0 top-[6%] h-[42%] bg-[var(--accent)]/70" />
+          <span className="absolute inset-x-0 top-[52%] h-[42%] bg-white/25" />
+        </>
+      )}
+      {id === "screen-lead" && (
+        <>
+          <span className="absolute inset-x-0 top-[12%] h-[44%] bg-white/25" />
+          <span className="absolute right-[8%] top-[60%] h-[24%] w-[38%] bg-[var(--accent)]/70" />
+        </>
+      )}
+      {id === "face-lead" && (
+        <>
+          <span className="absolute inset-x-[5%] top-[6%] h-[26%] bg-white/25" />
+          <span className="absolute inset-x-0 top-[36%] h-[56%] bg-[var(--accent)]/70" />
         </>
       )}
       {id === "center-blur" && (
@@ -292,6 +317,8 @@ export function LayoutPanel({ api }: { api: EditorApi }) {
   };
 
   const pickLayout = (preset: (typeof LAYOUT_PRESETS)[number]) => {
+    // Leaving the camera layouts also leaves face-crop adjustment mode.
+    if (!LAYOUT_MODE_PRESETS[preset.id]) api.setFaceCropEditing(false);
     // Stacked layouts are rendered at 1080x1920, so they force 9:16 output.
     if (preset.vertical && project.aspectRatio !== "9:16") {
       const nextDims = aspectDimensions("9:16");
@@ -306,6 +333,22 @@ export function LayoutPanel({ api }: { api: EditorApi }) {
   };
 
   const showReframe = project.compositionMode === "center-blur" || project.compositionMode === "crop-fill";
+  const activeLayout = LAYOUT_MODE_PRESETS[project.compositionMode];
+  const hasFaceLayer = activeLayout ? CLIP_LAYOUTS[activeLayout].layers.some((l) => l.kind === "face") : false;
+  const face = project.faceSource ?? DEFAULT_FACE_SOURCE;
+  const setFace = (partial: Partial<typeof face>) => {
+    const next = { ...face, ...partial };
+    api.patch({
+      faceSource: {
+        x: Math.min(Math.max(0, next.x), 1 - Math.max(0.05, Math.min(next.w, 1))),
+        y: Math.min(Math.max(0, next.y), 1 - Math.max(0.05, Math.min(next.h, 1))),
+        w: Math.max(0.05, Math.min(next.w, 1)),
+        h: Math.max(0.05, Math.min(next.h, 1))
+      }
+    });
+  };
+  const faceMatches = (rect: typeof face) =>
+    Math.abs(rect.x - face.x) < 0.01 && Math.abs(rect.y - face.y) < 0.01 && Math.abs(rect.w - face.w) < 0.01 && Math.abs(rect.h - face.h) < 0.01;
 
   return (
     <div className="space-y-4">
@@ -317,10 +360,10 @@ export function LayoutPanel({ api }: { api: EditorApi }) {
               type="button"
               onClick={() => pickLayout(preset)}
               className={cn(
-                "flex w-full items-center gap-3 rounded-lg border px-3 py-2 text-left transition",
+                "flex w-full items-center gap-3 rounded-lg border px-3 py-2 text-left transition-all duration-200",
                 project.compositionMode === preset.id
                   ? "border-[var(--accent)] bg-[var(--accent)]/10 text-white"
-                  : "border-[var(--border)] text-[var(--muted-foreground)] hover:text-white"
+                  : "border-[var(--border)] text-[var(--muted-foreground)] hover:border-[var(--border-strong)] hover:text-white"
               )}
             >
               <LayoutThumb id={preset.id} />
@@ -332,6 +375,45 @@ export function LayoutPanel({ api }: { api: EditorApi }) {
           ))}
         </div>
       </Group>
+
+      {hasFaceLayer && (
+        <Group label="Face camera crop">
+          <p className="text-xs text-[var(--muted-foreground)]">
+            Point this at where the camera sits in the source — the layout crops it out and re-frames it.
+          </p>
+          <Button
+            variant={api.faceCropEditing ? "primary" : "secondary"}
+            className="w-full"
+            onClick={() => api.setFaceCropEditing(!api.faceCropEditing)}
+          >
+            <Crop className="mr-2 h-4 w-4" />
+            {api.faceCropEditing ? "Done adjusting" : "Adjust on preview"}
+          </Button>
+          <div className="flex flex-wrap gap-1.5">
+            {FACE_CROP_PRESETS.map((preset) => (
+              <button
+                key={preset.id}
+                type="button"
+                onClick={() => api.patch({ faceSource: { ...preset.rect } })}
+                className={cn(
+                  "rounded-full border px-2.5 py-1 text-xs transition",
+                  faceMatches(preset.rect)
+                    ? "border-[var(--accent)] bg-[var(--accent)]/10 text-white"
+                    : "border-[var(--border)] text-[var(--muted-foreground)] hover:border-[var(--accent)] hover:text-white"
+                )}
+              >
+                {preset.label}
+              </button>
+            ))}
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <RangeField label="Position X" value={face.x} min={0} max={1} step={0.01} onChange={(v) => setFace({ x: v })} format={(v) => `${Math.round(v * 100)}%`} />
+            <RangeField label="Position Y" value={face.y} min={0} max={1} step={0.01} onChange={(v) => setFace({ y: v })} format={(v) => `${Math.round(v * 100)}%`} />
+            <RangeField label="Width" value={face.w} min={0.1} max={1} step={0.01} onChange={(v) => setFace({ w: v })} format={(v) => `${Math.round(v * 100)}%`} />
+            <RangeField label="Height" value={face.h} min={0.1} max={1} step={0.01} onChange={(v) => setFace({ h: v })} format={(v) => `${Math.round(v * 100)}%`} />
+          </div>
+        </Group>
+      )}
 
       <Group label="Output">
         <div className="grid grid-cols-2 gap-1.5">
@@ -359,10 +441,15 @@ export function LayoutPanel({ api }: { api: EditorApi }) {
           <RangeField label="Zoom" value={Math.max(1, r.scale)} min={1} max={4} step={0.05} onChange={(v) => api.patch({ reframe: { ...r, scale: v } })} format={(v) => `${v.toFixed(2)}x`} />
           <RangeField label="Pan X" value={r.offsetX} min={-1} max={1} step={0.02} onChange={(v) => api.patch({ reframe: { ...r, offsetX: v } })} />
           <RangeField label="Pan Y" value={r.offsetY} min={-1} max={1} step={0.02} onChange={(v) => api.patch({ reframe: { ...r, offsetY: v } })} />
-          <p className="text-xs text-[var(--muted-foreground)]">Tip: you can also drag the preview to pan.</p>
-          <Button variant="ghost" onClick={() => api.patch({ reframe: { scale: 1, offsetX: 0, offsetY: 0 } })}>
-            Reset zoom & pan
-          </Button>
+          <p className="text-xs text-[var(--muted-foreground)]">Tip: drag the preview to pan; double-click it to re-center.</p>
+          <div className="flex gap-2">
+            <Button variant="secondary" onClick={() => api.patch({ reframe: { ...r, offsetX: 0, offsetY: 0 } })}>
+              Center
+            </Button>
+            <Button variant="ghost" onClick={() => api.patch({ reframe: { scale: 1, offsetX: 0, offsetY: 0 } })}>
+              Reset zoom & pan
+            </Button>
+          </div>
         </>
       )}
     </div>

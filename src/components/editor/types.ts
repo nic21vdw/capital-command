@@ -17,6 +17,12 @@ export interface EditorApi {
   setTrim: (start: number, end: number) => void;
   generateTitle: () => void;
 
+  // Layout
+  /** When true, the preview shows the full source frame with draggable
+   *  face-crop extents instead of the composed layout. */
+  faceCropEditing: boolean;
+  setFaceCropEditing: (v: boolean) => void;
+
   // Captions
   fetchingCaptions: boolean;
   regenerateCaptions: () => void;

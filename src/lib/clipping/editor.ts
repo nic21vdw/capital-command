@@ -109,7 +109,11 @@ export function generateClipTitle(captions: CaptionSegment[], fallback = "Untitl
     .slice(0, 80);
 }
 
-/** Builds a fresh clip project from a rendered 16:9 source master. */
+/**
+ * Builds a fresh clip project from a rendered 16:9 source master. Projects
+ * open Shorts/Reels-ready: 9:16 vertical, blur-filled framing, and word-synced
+ * captions on — the goal is export-and-upload with zero extra setup.
+ */
 export function makeClipProject(input: {
   jobId: string;
   name: string;
@@ -134,13 +138,13 @@ export function makeClipProject(input: {
     trimStart: 0,
     trimEnd: duration,
     title: "",
-    aspectRatio: "16:9",
+    aspectRatio: "9:16",
     compositionMode: "center-blur",
     reframe: { scale: 1, offsetX: 0, offsetY: 0 },
     captions: [],
     captionStyle: { ...defaultCaptionStyle },
     captionsVisible: true,
-    highlightCurrentWord: false,
+    highlightCurrentWord: true,
     overlays: [],
     audio: { ...defaultClipAudio },
     exportSettings: { ...defaultClipExportSettings },
