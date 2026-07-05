@@ -2,7 +2,18 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import { AlertTriangle, CalendarClock, CheckCircle2, ExternalLink, Instagram, Loader2, Music2, Play, Youtube } from "lucide-react";
+import {
+  AlertTriangle,
+  CalendarClock,
+  CheckCircle2,
+  ExternalLink,
+  Facebook,
+  Instagram,
+  Loader2,
+  Music2,
+  Play,
+  Youtube
+} from "lucide-react";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -29,7 +40,8 @@ import type { PlatformId, PlatformState, QueueItem } from "@/lib/publisher/types
 const PLATFORM_TABS: Array<{ id: PlatformId; icon: typeof Youtube }> = [
   { id: "youtube", icon: Youtube },
   { id: "tiktok", icon: Music2 },
-  { id: "instagram", icon: Instagram }
+  { id: "instagram", icon: Instagram },
+  { id: "facebook", icon: Facebook }
 ];
 
 export function UploadingCenterPage() {

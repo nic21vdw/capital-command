@@ -90,10 +90,10 @@ Copy `.env.example` to `.env` and optionally set `ALPHA_VANTAGE_API_KEY`.
 - Secrets are never rendered in the UI and should never be logged.
 - For deployment, store env vars in your platform secret manager and keep server-side write access scoped to the app data directory only.
 
-## Scheduled publishing (YouTube Shorts · Instagram Reels · TikTok)
+## Scheduled publishing (YouTube Shorts · Instagram Reels · Facebook Reels · TikTok)
 
 Finished clips can be queued with a caption and a target publish time, then
-published to all three platforms — official APIs only, and runnable for $0.
+published to all four platforms — official APIs only, and runnable for $0.
 Everything lives in `src/lib/publisher/` and is **off by default**: with
 `PUBLISH_ENABLED` unset the clipper behaves exactly as before.
 
@@ -110,10 +110,12 @@ Everything lives in `src/lib/publisher/` and is **off by default**: with
   with `status.publishAt`, and YouTube publishes it at the target time even if
   nothing else ever runs again. Each upload costs ~1600 of your 10,000 daily
   quota units (≈6 uploads/day by default).
-- **Instagram and TikTok have no server-side scheduling**, so a runner wakes
-  up, finds due items, and publishes them: Instagram via the create-container →
-  `media_publish` flow (the video must be at a public HTTPS URL — that's what
-  the R2 bucket is for), TikTok via Direct Post with `FILE_UPLOAD`.
+- **Instagram, Facebook, and TikTok have no server-side scheduling**, so a
+  runner wakes up, finds due items, and publishes them: Instagram via the
+  create-container → `media_publish` flow, Facebook via the equivalent
+  video_reels start → finish flow (both need the video at a public HTTPS
+  URL — that's what the R2 bucket is for), TikTok via Direct Post with
+  `FILE_UPLOAD`.
 - **Metadata** — title/description/hashtags are generated with Claude when
   `ANTHROPIC_API_KEY` is set (same as clip selection), with an offline
   fallback; anything you pass explicitly wins.
@@ -124,7 +126,7 @@ Everything lives in `src/lib/publisher/` and is **off by default**: with
 
 The **Uploading Center** in the sidebar is the point-and-click way to drive
 the queue. It lists the clips from the latest generator run with thumbnails,
-lets you edit title/caption, pick a platform (YouTube · TikTok · Instagram)
+lets you edit title/caption, pick a platform (YouTube · TikTok · Instagram · Facebook)
 and a schedule slot — weekdays at 07:30 / 12:30 / 19:30 `PUBLISH_TIMEZONE`,
 stored as UTC — or drag a clip straight onto the 14-day board. It also shows
 a YouTube quota meter (uploads today vs the `YOUTUBE_DAILY_UPLOAD_BUDGET`,
@@ -132,7 +134,7 @@ default 6) and a **Connect YouTube** button: set `YOUTUBE_CLIENT_ID` /
 `YOUTUBE_CLIENT_SECRET` in `.env` (OAuth client type **Web application** with
 redirect URI `http://localhost:3000/api/auth/google/callback`), click
 Connect, approve, done — the refresh token is stored server-side in
-`data/publisher-tokens.json`, never in the browser. TikTok/Instagram
+`data/publisher-tokens.json`, never in the browser. TikTok/Instagram/Facebook
 assignments save as `manual` reminders until those APIs are connected.
 
 ### Ways to run it
@@ -191,6 +193,19 @@ local scheduler and the Actions cron against the same queue at the same time.
    Note: API-published Reels are always **public**; use a test account for
    trial runs. ~50 API posts per rolling 24 h.
 
+**Facebook (Graph API Video Reels publishing)**
+1. Create (or use) a **Facebook Page**.
+2. [developers.facebook.com](https://developers.facebook.com) → create an app
+   (or reuse the Instagram app) → add the Facebook Login/Pages product.
+3. Grant `pages_manage_posts` and `pages_read_engagement`, then generate a
+   **long-lived Page access token** (not a user token) → `FB_PAGE_ACCESS_TOKEN`.
+4. Find the Page id (Page → About, or `GET /me/accounts` with a user token) →
+   `FB_PAGE_ID`.
+5. Configure the `S3_*` variables — Facebook pulls the video from a public
+   HTTPS URL (`file_url`), so clips must be hosted (see R2 below).
+   Note: API-published Reels are always **public**; use a test Page for
+   trial runs.
+
 **TikTok (Content Posting API)**
 1. [developers.tiktok.com](https://developers.tiktok.com) → create an app →
    add **Content Posting API** → request the `video.publish` scope.
@@ -223,6 +238,8 @@ local scheduler and the Actions cron against the same queue at the same time.
      `publish:list` shows its post id.
    - **Instagram**: use `--visibility public` on a test account; the Reel goes
      live and `publish:list` shows the media id.
+   - **Facebook**: use `--visibility public` on a test Page; the Reel goes
+     live and `publish:list` shows the video id.
 5. Run `npm run publish:run` again — everything reports "no due items";
    nothing double-posts.
 6. For GitHub Actions: add the repo secrets listed in

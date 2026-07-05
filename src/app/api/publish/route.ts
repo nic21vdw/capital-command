@@ -32,7 +32,7 @@ const enqueueSchema = z.object({
   title: z.string().min(1).optional(),
   caption: z.string().min(1).optional(),
   hashtags: z.array(z.string()).optional(),
-  platforms: z.array(z.enum(["youtube", "instagram", "tiktok"])).optional(),
+  platforms: z.array(z.enum(["youtube", "instagram", "tiktok", "facebook"])).optional(),
   visibility: z.enum(["public", "private", "unlisted"]).optional()
 });
 

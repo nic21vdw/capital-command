@@ -7,9 +7,9 @@
  * make re-runs idempotent (an already-published platform is never retried).
  */
 
-export type PlatformId = "youtube" | "instagram" | "tiktok";
+export type PlatformId = "youtube" | "instagram" | "tiktok" | "facebook";
 
-export const ALL_PLATFORMS: PlatformId[] = ["youtube", "instagram", "tiktok"];
+export const ALL_PLATFORMS: PlatformId[] = ["youtube", "instagram", "tiktok", "facebook"];
 
 /** Desired visibility of the finished post, mapped per platform. */
 export type Visibility = "public" | "private" | "unlisted";

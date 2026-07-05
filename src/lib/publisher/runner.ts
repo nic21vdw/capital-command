@@ -1,6 +1,7 @@
 import { mkdtemp, stat } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { facebookAdapter } from "@/lib/publisher/adapters/facebook";
 import { instagramAdapter } from "@/lib/publisher/adapters/instagram";
 import { tiktokAdapter } from "@/lib/publisher/adapters/tiktok";
 import { youtubeAdapter } from "@/lib/publisher/adapters/youtube";
@@ -70,7 +71,8 @@ export type RunDueOptions = {
 export const defaultAdapters: Record<PlatformId, PlatformAdapter> = {
   youtube: youtubeAdapter,
   instagram: instagramAdapter,
-  tiktok: tiktokAdapter
+  tiktok: tiktokAdapter,
+  facebook: facebookAdapter
 };
 
 /** Finds the clip bytes: the local file when present, else the hosted copy. */
