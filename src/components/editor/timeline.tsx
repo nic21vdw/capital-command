@@ -81,6 +81,7 @@ export function EditorTimeline({
   /** Click/drag on the empty track scrubs the playhead. */
   const beginScrub = (e: React.PointerEvent) => {
     if (e.button !== 0) return;
+    e.preventDefault(); // keep the browser from starting a text selection that spreads across the page
     onSeek(pxToSec(e.clientX));
     const move = (ev: PointerEvent) => onSeek(pxToSec(ev.clientX));
     const up = () => {
@@ -94,6 +95,7 @@ export function EditorTimeline({
   const beginTrimDrag = (mode: "start" | "end" | "move", e: React.PointerEvent) => {
     if (e.button !== 0) return;
     e.stopPropagation();
+    e.preventDefault();
     const grabX = e.clientX;
     const grabAt = pxToSec(grabX);
     const startAtGrab = trimStart;
@@ -135,6 +137,7 @@ export function EditorTimeline({
     item: { id: string; start: number; end: number }
   ) => (e: React.PointerEvent) => {
     e.stopPropagation();
+    e.preventDefault();
     if (kind === "caption") onSelectCaption(item.id);
     else onSelectOverlay(item.id);
     const startX = e.clientX;
@@ -165,7 +168,7 @@ export function EditorTimeline({
   const pct = (t: number) => `${(Math.max(0, Math.min(dur, t)) / dur) * 100}%`;
 
   return (
-    <div className="space-y-2 rounded-xl border border-[var(--border)] bg-[var(--surface)] p-3">
+    <div className="select-none space-y-2 rounded-xl border border-[var(--border)] bg-[var(--surface)] p-3">
       {/* Toolbar: selection readout + zoom + trim actions */}
       <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
         <span className="text-sm text-white">
