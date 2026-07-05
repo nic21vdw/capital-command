@@ -1,9 +1,9 @@
 @echo off
 setlocal enabledelayedexpansion
-title Nic Vandewetering - Local Launcher
+title Capital Command - Local Launcher
 
 REM ============================================================
-REM  Nic Vandewetering - one-click local launcher (Windows)
+REM  Capital Command - one-click local launcher (Windows)
 REM
 REM  You can run this file two ways:
 REM    * From inside a cloned/downloaded app folder, OR
@@ -26,7 +26,7 @@ cd /d "%~dp0"
 
 echo.
 echo ============================================
-echo   Nic Vandewetering - starting up
+echo   Capital Command - starting up
 echo ============================================
 echo.
 

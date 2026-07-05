@@ -2,7 +2,7 @@ import { getStyle } from "@/lib/thumbnails/backgrounds";
 import { getAppleEmojiImage } from "@/lib/thumbnails/emoji";
 import { getFont, type FontOption } from "@/lib/thumbnails/fonts";
 import { lineWidth, tokenizeHighlights, wrapTokens, type Line, type Token } from "@/lib/thumbnails/text";
-import type { ImageLayer, Palette, Sticker, TextEmphasis, TextPosition, Transform, ThumbnailOptions } from "@/lib/thumbnails/types";
+import type { ImageLayer, Palette, Sticker, TextEmphasis, TextPosition, ThumbnailOptions, Transform } from "@/lib/thumbnails/types";
 import { effectiveOpacity, effectiveScaleY, INTENSITY_FACTOR, THUMB_HEIGHT as H, THUMB_WIDTH as W } from "@/lib/thumbnails/types";
 
 const SIZE_BASE: Record<ThumbnailOptions["size"], number> = {
