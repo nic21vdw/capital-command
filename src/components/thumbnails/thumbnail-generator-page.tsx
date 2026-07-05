@@ -1983,6 +1983,17 @@ export function ThumbnailGeneratorPage() {
                 <Download className="mr-2 h-4 w-4" />
                 Export {exportWidth}×{exportHeight} {exportFormat.toUpperCase()}
               </Button>
+              <label className="ml-auto flex items-center gap-2 text-xs text-[var(--muted-foreground)]">
+                Export
+                <Select
+                  value={String(exportScale)}
+                  onChange={(event) => setExportScale(Number(event.target.value))}
+                  className="h-9 w-auto px-2"
+                >
+                  <option value="1">1× (1280)</option>
+                  <option value="2">2× (2560)</option>
+                </Select>
+              </label>
             </div>
             <p className="mt-3 text-xs text-[var(--muted-foreground)]">{style.description}</p>
           </Card>
