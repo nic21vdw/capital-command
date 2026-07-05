@@ -2,7 +2,7 @@ import { getStyle } from "@/lib/thumbnails/backgrounds";
 import { getAppleEmojiImage } from "@/lib/thumbnails/emoji";
 import { getFont, type FontOption } from "@/lib/thumbnails/fonts";
 import { lineWidth, tokenizeHighlights, wrapTokens, type Line, type Token } from "@/lib/thumbnails/text";
-import type { ImageLayer, Palette, Sticker, TextEmphasis, TextPosition, Transform, ThumbnailOptions } from "@/lib/thumbnails/types";
+import type { ImageLayer, Palette, Sticker, TextEmphasis, TextPosition, ThumbnailOptions, Transform } from "@/lib/thumbnails/types";
 import { effectiveOpacity, effectiveScaleY, INTENSITY_FACTOR, THUMB_HEIGHT as H, THUMB_WIDTH as W } from "@/lib/thumbnails/types";
 
 const SIZE_BASE: Record<ThumbnailOptions["size"], number> = {
@@ -174,10 +174,9 @@ function drawSubjectImage(ctx: CanvasRenderingContext2D, image: HTMLImageElement
   // the background on its left edge.
   const panelX = W * 0.55;
   const panelW = W - panelX;
-  const scale = Math.max(panelW / image.width, H / image.height);
-  const dw = image.width * scale;
-  const dh = image.height * scale;
-
+  const baseScale = Math.max(panelW / image.width, H / image.height);
+  const dw = image.width * baseScale;
+  const dh = image.height * baseScale;
   ctx.save();
   ctx.beginPath();
   ctx.rect(panelX, 0, panelW, H);
