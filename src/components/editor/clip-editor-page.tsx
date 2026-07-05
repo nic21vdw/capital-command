@@ -12,6 +12,7 @@ import { Card } from "@/components/ui/card";
 import { Modal } from "@/components/ui/modal";
 import { PageHeader } from "@/components/ui/page-header";
 import { ClipEditor } from "@/components/editor/clip-editor";
+import { EditorExportsProvider } from "@/components/editor/exports-provider";
 import type { ClipProject } from "@/types/domain";
 import type { ClipCandidate, ClipJob } from "@/lib/clipping/types";
 
@@ -193,18 +194,7 @@ export function ClipEditorPage() {
     if (openId === project.id) setOpenId(null);
   };
 
-  if (openProject) {
-    return (
-      <ClipEditor
-        key={openProject.id}
-        initialProject={openProject}
-        onClose={() => setOpenId(null)}
-        onOpenClip={switchToClip}
-      />
-    );
-  }
-
-  return (
+  const projectList = (
     <div className="space-y-6">
       <PageHeader
         eyebrow="Creator Tools"
@@ -331,5 +321,22 @@ export function ClipEditorPage() {
         )}
       </Modal>
     </div>
+  );
+
+  // A single provider wraps both views so background renders keep reporting
+  // progress across clip switches and while the project list is showing.
+  return (
+    <EditorExportsProvider>
+      {openProject ? (
+        <ClipEditor
+          key={openProject.id}
+          initialProject={openProject}
+          onClose={() => setOpenId(null)}
+          onOpenClip={switchToClip}
+        />
+      ) : (
+        projectList
+      )}
+    </EditorExportsProvider>
   );
 }
