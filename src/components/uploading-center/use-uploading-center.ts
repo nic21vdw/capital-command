@@ -62,10 +62,17 @@ function clipHeadline(clip: ClipCandidate, index: number) {
   return quoted?.[1] ?? `Clip ${index + 1}`;
 }
 
-/** The queue stores repo-relative paths (possibly with Windows separators). */
+/**
+ * The queue stores repo-relative paths (possibly with Windows separators).
+ * When a landscape clip was re-rendered vertical at enqueue time, clipPath is
+ * the derived render and sourceClipPath is the file the card knows about.
+ */
 function itemMatchesClip(item: QueueItem, clip: ReadyClip): boolean {
-  const normalized = item.clipPath.replace(/\\/g, "/");
-  return normalized.endsWith(`/${clip.jobId}/${clip.file}`) || (item.jobId === clip.jobId && normalized.endsWith(`/${clip.file}`));
+  return [item.clipPath, item.sourceClipPath].some((candidate) => {
+    if (!candidate) return false;
+    const normalized = candidate.replace(/\\/g, "/");
+    return normalized.endsWith(`/${clip.jobId}/${clip.file}`) || (item.jobId === clip.jobId && normalized.endsWith(`/${clip.file}`));
+  });
 }
 
 export function remoteUrlFor(platform: PlatformId, postId: string | undefined): string | null {
@@ -73,6 +80,20 @@ export function remoteUrlFor(platform: PlatformId, postId: string | undefined): 
   if (platform === "youtube") return `https://www.youtube.com/watch?v=${postId}`;
   return null;
 }
+
+/** The channel's "Content" page in YouTube Studio (Studio home when unknown). */
+export function studioContentUrl(channelId: string | null | undefined): string {
+  return channelId ? `https://studio.youtube.com/channel/${channelId}/videos` : "https://studio.youtube.com";
+}
+
+/** What the post-upload confirmation dialog shows after a YouTube upload. */
+export type UploadSuccess = {
+  title: string;
+  videoUrl: string;
+  status: "scheduled" | "published";
+  /** Go-live instant, UTC ISO-8601. */
+  publishAt: string;
+};
 
 async function readError(response: Response): Promise<string> {
   try {
@@ -93,6 +114,8 @@ export function useUploadingCenter() {
   const [activeJobId, setActiveJobId] = useState<string | null>(null);
   /** Key of the action in flight ("schedule:<clipKey>", "publish:<id>", …). */
   const [busy, setBusy] = useState<string | null>(null);
+  /** Set right after a YouTube upload succeeds; drives the confirmation dialog. */
+  const [uploadSuccess, setUploadSuccess] = useState<UploadSuccess | null>(null);
   const remindedRef = useRef(new Set<string>());
 
   const refresh = useCallback(async (options?: { channelRefresh?: boolean }) => {
@@ -191,7 +214,7 @@ export function useUploadingCenter() {
       if (!item.jobId) continue;
       const job = jobs.find((candidate) => candidate.id === item.jobId);
       if (!job) continue;
-      const normalized = item.clipPath.replace(/\\/g, "/");
+      const normalized = (item.sourceClipPath ?? item.clipPath).replace(/\\/g, "/");
       const clip = job.clips.find((candidate) => {
         const file = candidate.downloadFile ?? candidate.file;
         return file ? normalized.endsWith(`/${file}`) : false;
@@ -307,11 +330,18 @@ export function useUploadingCenter() {
         // The backend uploads YouTube posts right away (private + publishAt,
         // so the video shows as Scheduled in YouTube Studio) and reports how
         // that went; TikTok/Instagram just queue.
-        const { report } = (await response.json()) as {
+        const { item, report } = (await response.json()) as {
+          item?: QueueItem;
           report?: { outcomes: Array<{ platform: string; outcome: string; detail: string }> };
         };
         const outcome = report?.outcomes.find((entry) => entry.platform === draft.platform);
-        if (outcome?.outcome === "scheduled") {
+        const postId = draft.platform === "youtube" ? item?.platforms.youtube?.postId : undefined;
+        const videoUrl = remoteUrlFor(draft.platform, postId);
+        if ((outcome?.outcome === "scheduled" || outcome?.outcome === "published") && item && videoUrl) {
+          // The confirmation dialog (video link + YouTube Studio button)
+          // replaces the plain toast for a completed YouTube upload.
+          setUploadSuccess({ title: item.title, videoUrl, status: outcome.outcome, publishAt: item.publishAt });
+        } else if (outcome?.outcome === "scheduled") {
           toast.success("Uploaded to YouTube — it now shows as Scheduled on your channel.");
         } else if (outcome?.outcome === "published") {
           toast.success(`Published to ${PLATFORM_LABELS[draft.platform]}.`);
@@ -320,7 +350,7 @@ export function useUploadingCenter() {
         } else {
           toast.success(`Scheduled for ${PLATFORM_LABELS[draft.platform]}.`);
         }
-        await refresh();
+        await refresh({ channelRefresh: draft.platform === "youtube" });
         return true;
       } finally {
         setBusy(null);
@@ -385,6 +415,8 @@ export function useUploadingCenter() {
     itemsByPlatformSlot,
     thumbnailForItem,
     busy,
+    uploadSuccess,
+    dismissUploadSuccess: () => setUploadSuccess(null),
     renameClip,
     schedule,
     publishNow,

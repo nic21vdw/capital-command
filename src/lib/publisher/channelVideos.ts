@@ -38,6 +38,8 @@ export type ChannelSchedule = {
   needsReconnect: boolean;
   /** When the data was last actually read from YouTube. */
   fetchedAt: string | null;
+  /** The connected channel's id — used to deep-link into YouTube Studio. */
+  channelId: string | null;
   videos: ChannelVideo[];
   error: string | null;
 };
@@ -58,20 +60,27 @@ export async function youtubeChannelSchedule(options: { force?: boolean; now?: D
   const now = options.now ?? new Date();
   const { youtube } = publisherConfig();
   if (!youtube.clientId || !youtube.clientSecret || !youtube.refreshToken) {
-    return { configured: false, needsReconnect: false, fetchedAt: null, videos: [], error: null };
+    return { configured: false, needsReconnect: false, fetchedAt: null, channelId: null, videos: [], error: null };
   }
   if (!options.force && cache && now.getTime() - cache.at < CACHE_TTL_MS) return cache.schedule;
 
   let schedule: ChannelSchedule;
   try {
-    const videos = await fetchChannelVideos(now);
-    schedule = { configured: true, needsReconnect: false, fetchedAt: now.toISOString(), videos, error: null };
+    const { channelId, videos } = await fetchChannelVideos(now);
+    schedule = { configured: true, needsReconnect: false, fetchedAt: now.toISOString(), channelId, videos, error: null };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     if (/HTTP 403/.test(message)) {
       // The refresh token was minted with only youtube.upload (before the
       // readonly scope was added) — reads 403 until the user reconnects.
-      schedule = { configured: true, needsReconnect: true, fetchedAt: now.toISOString(), videos: [], error: null };
+      schedule = {
+        configured: true,
+        needsReconnect: true,
+        fetchedAt: now.toISOString(),
+        channelId: cache?.schedule.channelId ?? null,
+        videos: [],
+        error: null
+      };
     } else {
       // Transient failure: keep the last good data visible and don't cache
       // the error, so the next poll retries immediately.
@@ -79,6 +88,7 @@ export async function youtubeChannelSchedule(options: { force?: boolean; now?: D
         configured: true,
         needsReconnect: false,
         fetchedAt: cache?.schedule.fetchedAt ?? null,
+        channelId: cache?.schedule.channelId ?? null,
         videos: cache?.schedule.videos ?? [],
         error: message
       };
@@ -88,19 +98,20 @@ export async function youtubeChannelSchedule(options: { force?: boolean; now?: D
   return schedule;
 }
 
-async function fetchChannelVideos(now: Date): Promise<ChannelVideo[]> {
+async function fetchChannelVideos(now: Date): Promise<{ channelId: string | null; videos: ChannelVideo[] }> {
   const token = await youtubeAccessToken();
   const auth = { Authorization: `Bearer ${token}` };
 
   const channels = await fetchJson<{
-    items?: Array<{ contentDetails?: { relatedPlaylists?: { uploads?: string } } }>;
-  }>(`${API}/channels?part=contentDetails&mine=true`, {
+    items?: Array<{ id?: string; contentDetails?: { relatedPlaylists?: { uploads?: string } } }>;
+  }>(`${API}/channels?part=id,contentDetails&mine=true`, {
     label: "YouTube channel lookup",
     method: "GET",
     headers: auth
   });
+  const channelId = channels.items?.[0]?.id ?? null;
   const uploadsPlaylist = channels.items?.[0]?.contentDetails?.relatedPlaylists?.uploads;
-  if (!uploadsPlaylist) return [];
+  if (!uploadsPlaylist) return { channelId, videos: [] };
 
   const playlist = await fetchJson<{ items?: Array<{ contentDetails?: { videoId?: string } }> }>(
     `${API}/playlistItems?part=contentDetails&playlistId=${encodeURIComponent(uploadsPlaylist)}&maxResults=${MAX_VIDEOS}`,
@@ -109,7 +120,7 @@ async function fetchChannelVideos(now: Date): Promise<ChannelVideo[]> {
   const ids = (playlist.items ?? [])
     .map((item) => item.contentDetails?.videoId)
     .filter((id): id is string => Boolean(id));
-  if (ids.length === 0) return [];
+  if (ids.length === 0) return { channelId, videos: [] };
 
   const details = await fetchJson<{ items?: VideoResource[] }>(
     `${API}/videos?part=snippet,status&id=${ids.join(",")}&maxResults=${MAX_VIDEOS}`,
@@ -123,7 +134,7 @@ async function fetchChannelVideos(now: Date): Promise<ChannelVideo[]> {
     if (video) videos.push(video);
   }
   videos.sort((a, b) => a.publishAtUtc.localeCompare(b.publishAtUtc));
-  return videos;
+  return { channelId, videos };
 }
 
 function toChannelVideo(resource: VideoResource, publishedCutoffMs: number): ChannelVideo | null {

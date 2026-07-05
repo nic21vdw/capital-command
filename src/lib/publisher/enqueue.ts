@@ -6,6 +6,7 @@ import { hostMedia } from "@/lib/publisher/hosting";
 import { generateClipMetadata } from "@/lib/publisher/metadata";
 import { newPlatformState, publishQueue } from "@/lib/publisher/queue";
 import { resolvePublishAt } from "@/lib/publisher/time";
+import { prepareVerticalMedia } from "@/lib/publisher/vertical";
 import type { PlatformId, PlatformState, QueueItem, Visibility } from "@/lib/publisher/types";
 
 const PLATFORM_LABELS: Record<PlatformId, string> = { youtube: "YouTube", instagram: "Instagram", tiktok: "TikTok" };
@@ -75,6 +76,16 @@ export async function enqueue(options: EnqueueOptions): Promise<QueueItem> {
     );
   }
 
+  // Everything this publisher posts is short-form vertical (Shorts / Reels /
+  // TikTok). A landscape source is re-rendered vertical here — before hosting
+  // and before the queue records the path — because YouTube classifies Shorts
+  // purely by the file's aspect ratio and duration; a landscape upload would
+  // land as a long-form video.
+  const prepared = await prepareVerticalMedia(absolute, platforms);
+  if (prepared.converted) {
+    console.log(`[publisher] ${path.basename(absolute)} is landscape — posting the 9:16 render ${path.basename(prepared.path)}`);
+  }
+
   const publishAtDate =
     options.publishAt instanceof Date ? options.publishAt : resolvePublishAt(options.publishAt, config.timezone);
 
@@ -89,7 +100,8 @@ export async function enqueue(options: EnqueueOptions): Promise<QueueItem> {
   const id = crypto.randomUUID().slice(0, 8);
   const item: QueueItem = {
     id,
-    clipPath: path.relative(process.cwd(), absolute),
+    clipPath: path.relative(process.cwd(), prepared.path),
+    ...(prepared.converted ? { sourceClipPath: path.relative(process.cwd(), absolute) } : {}),
     title,
     caption,
     hashtags,
@@ -103,7 +115,7 @@ export async function enqueue(options: EnqueueOptions): Promise<QueueItem> {
   };
 
   if (needsHosting && hostingConfigured(config)) {
-    const hosted = await hostMedia(absolute, id);
+    const hosted = await hostMedia(prepared.path, id);
     item.mediaKey = hosted.key;
   }
 

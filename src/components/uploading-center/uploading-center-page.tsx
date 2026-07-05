@@ -2,11 +2,12 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import { AlertTriangle, CheckCircle2, ExternalLink, Instagram, Loader2, Music2, Youtube } from "lucide-react";
+import { AlertTriangle, CalendarClock, CheckCircle2, ExternalLink, Instagram, Loader2, Music2, Play, Youtube } from "lucide-react";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { Modal } from "@/components/ui/modal";
 import { PageHeader } from "@/components/ui/page-header";
 import { Tabs } from "@/components/ui/tabs";
 import { ClipQueue } from "@/components/uploading-center/clip-queue";
@@ -16,9 +17,11 @@ import { StatusChip } from "@/components/uploading-center/status-chip";
 import {
   PLATFORM_LABELS,
   remoteUrlFor,
+  studioContentUrl,
   useUploadingCenter,
   type ClipDraft,
-  type ReadyClip
+  type ReadyClip,
+  type UploadSuccess
 } from "@/components/uploading-center/use-uploading-center";
 import type { ChannelVideo } from "@/lib/publisher/channelVideos";
 import type { PlatformId, PlatformState, QueueItem } from "@/lib/publisher/types";
@@ -45,6 +48,8 @@ export function UploadingCenterPage() {
     itemsByPlatformSlot,
     thumbnailForItem,
     busy,
+    uploadSuccess,
+    dismissUploadSuccess,
     renameClip,
     schedule,
     publishNow,
@@ -155,6 +160,17 @@ export function UploadingCenterPage() {
       icon,
       content: (
         <div className="space-y-4">
+          {id === "youtube" && configured ? (
+            <div className="flex justify-end">
+              <Button
+                variant="secondary"
+                className="h-8 px-3 text-xs"
+                onClick={() => window.open(studioContentUrl(channel?.channelId), "_blank", "noopener")}
+              >
+                <ExternalLink className="mr-1.5 h-3.5 w-3.5" /> Open YouTube Studio Content
+              </Button>
+            </div>
+          ) : null}
           {id === "youtube" && !configured ? (
             <ConnectYoutubeNotice />
           ) : null}
@@ -198,7 +214,7 @@ export function UploadingCenterPage() {
       <PageHeader
         eyebrow="YouTube tools"
         title="Uploading Center"
-        description="Assign finished clips to a platform and a slot. YouTube uploads immediately as a scheduled video — it appears under Scheduled in YouTube Studio and goes live at the slot time on its own; TikTok and Instagram queue as manual reminders until a unified posting API is connected."
+        description="Assign finished clips to a platform and a slot. Dropping a clip on a slot uploads it to YouTube immediately as a scheduled Short (landscape clips are re-rendered vertical automatically) — it appears under Scheduled in YouTube Studio and goes live at the slot time on its own; TikTok and Instagram queue as manual reminders until a unified posting API is connected."
         actions={
           <div className="flex w-full max-w-sm flex-col gap-2">
             {overview?.platforms.youtube.configured ? (
@@ -269,7 +285,84 @@ export function UploadingCenterPage() {
           </div>
         </div>
       )}
+
+      <UploadSuccessDialog
+        success={uploadSuccess}
+        channelId={channel?.channelId ?? null}
+        timezone={overview?.timezone}
+        onClose={dismissUploadSuccess}
+      />
     </div>
+  );
+}
+
+/**
+ * Confirmation shown the moment a drag-dropped (or Schedule-button) clip has
+ * finished uploading to YouTube: a link straight to the video and a big
+ * button into the channel's Content page in YouTube Studio.
+ */
+function UploadSuccessDialog({
+  success,
+  channelId,
+  timezone,
+  onClose
+}: {
+  success: UploadSuccess | null;
+  channelId: string | null;
+  timezone?: string;
+  onClose: () => void;
+}) {
+  if (!success) return null;
+  const scheduled = success.status === "scheduled";
+  const goLive = new Intl.DateTimeFormat("en-US", {
+    ...(timezone ? { timeZone: timezone } : {}),
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit"
+  }).format(new Date(success.publishAt));
+  return (
+    <Modal
+      open
+      title={scheduled ? "Uploaded — scheduled on YouTube" : "Published to YouTube"}
+      description={
+        scheduled
+          ? `“${success.title}” is on your channel as a Short and goes live ${goLive}.`
+          : `“${success.title}” is live on your channel as a Short.`
+      }
+      onClose={onClose}
+    >
+      <div className="space-y-4">
+        <div className="flex items-center gap-2 rounded-lg border border-emerald-400/25 bg-emerald-400/8 px-3 py-2 text-xs text-emerald-200">
+          <CheckCircle2 className="h-4 w-4 shrink-0" />
+          {scheduled
+            ? "Nothing else to do — YouTube publishes it at the slot time on its own."
+            : "The upload is done — no further steps needed."}
+        </div>
+        <div className="flex flex-col gap-2 sm:flex-row">
+          <Button
+            variant="secondary"
+            className="h-11 flex-1"
+            onClick={() => window.open(success.videoUrl, "_blank", "noopener")}
+          >
+            <Play className="mr-2 h-4 w-4" /> Watch the video
+          </Button>
+          <Button
+            className="h-11 flex-1"
+            onClick={() => window.open(studioContentUrl(channelId), "_blank", "noopener")}
+          >
+            <ExternalLink className="mr-2 h-4 w-4" /> Open YouTube Studio Content
+          </Button>
+        </div>
+        {scheduled ? (
+          <p className="flex items-center gap-1.5 text-xs text-[var(--muted-foreground)]">
+            <CalendarClock className="h-3.5 w-3.5 shrink-0" />
+            Scheduled videos show under Content → Scheduled in YouTube Studio until they go live.
+          </p>
+        ) : null}
+      </div>
+    </Modal>
   );
 }
 
