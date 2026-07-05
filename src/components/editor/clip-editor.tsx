@@ -419,8 +419,11 @@ export function ClipEditor({
       locked: false,
       start: 0,
       end: duration,
-      color: "#ffffff",
-      fontWeight: 600,
+      // Text overlays default to Dracula purple in the caption's Inter-bold
+      // style so a fresh overlay matches the burned-in captions out of the box.
+      color: "#bd93f9",
+      fontFamily: "Inter, system-ui, sans-serif",
+      fontWeight: 800,
       align: "center"
     };
     setProject((p) => ({ ...p, overlays: [...p.overlays, overlay] }));
