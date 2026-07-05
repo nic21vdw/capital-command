@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
+import { ClipPreview } from "@/components/uploading-center/clip-preview";
 import { StatusChip } from "@/components/uploading-center/status-chip";
 import {
   PLATFORM_LABELS,
@@ -17,12 +18,6 @@ import type { ScheduleSlot } from "@/lib/publisher/slots";
 import type { PlatformId, QueueItem } from "@/lib/publisher/types";
 
 export const CLIP_DRAG_TYPE = "application/x-capital-command-clip";
-
-function formatDuration(seconds: number) {
-  const m = Math.floor(seconds / 60);
-  const s = seconds % 60;
-  return `${m}:${String(s).padStart(2, "0")}`;
-}
 
 /**
  * One clip from the current run: thumbnail, editable title/caption, platform
@@ -61,17 +56,13 @@ export function ClipCard({
       className="rounded-xl border border-[var(--border)] bg-[var(--surface-2)] p-3 transition hover:border-[var(--border-strong)]"
     >
       <div className="flex gap-3">
-        <div className="relative w-24 shrink-0 self-start">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            src={clip.thumbnailUrl}
-            alt=""
-            className="aspect-[9/16] w-full rounded-lg border border-[var(--border)] bg-black object-cover"
-            loading="lazy"
+        <div className="w-24 shrink-0 self-start">
+          <ClipPreview
+            thumbnailUrl={clip.thumbnailUrl}
+            previewUrl={clip.previewUrl}
+            headline={clip.headline}
+            durationSec={clip.durationSec}
           />
-          <span className="absolute bottom-1 right-1 rounded bg-black/75 px-1 py-0.5 text-[10px] font-medium tabular-nums text-white">
-            {formatDuration(clip.durationSec)}
-          </span>
         </div>
         <div className="min-w-0 flex-1 space-y-2">
           <div className="flex items-start gap-2">
