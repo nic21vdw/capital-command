@@ -37,6 +37,28 @@ describe("publish queue state machine", () => {
     expect(item.platforms.tiktok?.error).toBe("bad request");
   });
 
+  it("stamps uploadedAt once on first success, for the quota meter", async () => {
+    const { queue } = makeQueue();
+    const item = testItem({ publishAt: PUBLISH_AT, platformIds: ["instagram"] });
+    await queue.add(item);
+
+    await queue.recordSuccess(item, "instagram", { status: "uploaded", containerId: "c1" }, DUE);
+    expect(item.platforms.instagram?.uploadedAt).toBe(DUE.toISOString());
+    const later = new Date(DUE.getTime() + 5 * 60_000);
+    await queue.recordSuccess(item, "instagram", { status: "published", postId: "m1" }, later);
+    expect(item.platforms.instagram?.uploadedAt).toBe(DUE.toISOString());
+  });
+
+  it("manual posts (unconfigured platforms) are reminders, never due for the runner", async () => {
+    const { queue } = makeQueue();
+    const item = testItem({ publishAt: PUBLISH_AT, platformIds: ["tiktok"] });
+    item.platforms.tiktok!.status = "manual";
+    await queue.add(item);
+
+    expect(queue.duePlatforms(item, DUE)).toEqual([]);
+    expect(queue.duePlatforms(item, new Date("2027-01-01T00:00:00Z"))).toEqual([]);
+  });
+
   it("transient failures back off exponentially, then fail permanently at maxAttempts", async () => {
     const { queue } = makeQueue();
     const item = testItem({ publishAt: PUBLISH_AT, platformIds: ["tiktok"] });

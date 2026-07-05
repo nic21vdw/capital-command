@@ -6,7 +6,17 @@ import { hostMedia } from "@/lib/publisher/hosting";
 import { generateClipMetadata } from "@/lib/publisher/metadata";
 import { newPlatformState, publishQueue } from "@/lib/publisher/queue";
 import { resolvePublishAt } from "@/lib/publisher/time";
-import type { PlatformId, QueueItem, Visibility } from "@/lib/publisher/types";
+import type { PlatformId, PlatformState, QueueItem, Visibility } from "@/lib/publisher/types";
+
+const PLATFORM_LABELS: Record<PlatformId, string> = { youtube: "YouTube", instagram: "Instagram", tiktok: "TikTok" };
+
+function manualPlatformState(platform: PlatformId): PlatformState {
+  return {
+    status: "manual",
+    attempts: 0,
+    note: `${PLATFORM_LABELS[platform]} isn't connected yet — post this clip by hand at the scheduled time, or add credentials in .env so future posts publish automatically.`
+  };
+}
 
 /**
  * enqueue(clip_path, caption, publish_at, platforms) — the single entry point
@@ -48,11 +58,18 @@ export async function enqueue(options: EnqueueOptions): Promise<QueueItem> {
   );
   if (platforms.length === 0) throw new Error("No platforms selected (check PUBLISH_PLATFORMS).");
 
+  // Platforms without credentials still save — as "manual" reminders — so
+  // assigning a clip to TikTok/Instagram before those APIs are connected
+  // never errors. When a unified posting API lands, configuring credentials
+  // is all it takes for the same platforms to publish automatically.
+  const configured = new Set(configuredPlatforms(config));
+  const igAutomated = platforms.includes("instagram") && configured.has("instagram");
+
   const needsHosting =
-    platforms.includes("instagram") ||
+    igAutomated ||
     config.queueBackend === "r2" ||
     process.env.TIKTOK_UPLOAD_MODE?.trim().toLowerCase() === "url";
-  if (platforms.includes("instagram") && !hostingConfigured(config)) {
+  if (igAutomated && !hostingConfigured(config)) {
     throw new Error(
       "Instagram needs the clip at a public HTTPS URL. Configure S3_ENDPOINT/S3_BUCKET/S3_ACCESS_KEY_ID/S3_SECRET_ACCESS_KEY (Cloudflare R2 free tier) or drop instagram from the platforms."
     );
@@ -80,7 +97,9 @@ export async function enqueue(options: EnqueueOptions): Promise<QueueItem> {
     visibility: options.visibility ?? config.defaultVisibility,
     createdAt: new Date().toISOString(),
     jobId: options.jobId,
-    platforms: Object.fromEntries(platforms.map((p) => [p, newPlatformState()]))
+    platforms: Object.fromEntries(
+      platforms.map((p) => [p, configured.has(p) ? newPlatformState() : manualPlatformState(p)])
+    )
   };
 
   if (needsHosting && hostingConfigured(config)) {

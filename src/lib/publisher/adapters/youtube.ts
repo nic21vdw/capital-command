@@ -25,7 +25,9 @@ let cachedToken: { accessToken: string; expiresAt: number } | null = null;
 async function accessToken(): Promise<string> {
   const { youtube } = publisherConfig();
   if (!youtube.clientId || !youtube.clientSecret || !youtube.refreshToken) {
-    throw new PermanentError("YouTube is not configured. Set YOUTUBE_CLIENT_ID, YOUTUBE_CLIENT_SECRET and YOUTUBE_REFRESH_TOKEN.");
+    throw new PermanentError(
+      "YouTube is not configured. Set YOUTUBE_CLIENT_ID and YOUTUBE_CLIENT_SECRET, then use Connect YouTube in the Uploading Center (or set YOUTUBE_REFRESH_TOKEN)."
+    );
   }
   if (cachedToken && cachedToken.expiresAt > Date.now() + 60_000) return cachedToken.accessToken;
   const data = await fetchJson<{ access_token: string; expires_in: number }>(TOKEN_URL, {

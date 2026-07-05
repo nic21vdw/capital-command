@@ -30,7 +30,7 @@ function tzOffsetMs(utcMs: number, timeZone: string): number {
 }
 
 /** Interprets naive wall-clock fields as a moment in `timeZone`. */
-function zonedToUtc(
+export function zonedToUtc(
   timeZone: string,
   y: number,
   mo: number,
