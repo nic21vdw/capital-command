@@ -27,7 +27,10 @@ import { deriveStudioOverview } from "@/lib/youtube/studio";
 import type { StudioVideoRow, StudioVisibility } from "@/lib/youtube/types";
 import { cn, formatCurrency } from "@/lib/utils";
 
-const STUDIO_URL = "https://studio.youtube.com";
+// "UC" is a channel-agnostic placeholder YouTube resolves to the signed-in
+// user's own channel, so this deep-links straight to the Content tab instead of
+// the dashboard that the bare studio.youtube.com root lands on.
+const STUDIO_URL = "https://studio.youtube.com/channel/UC/videos/upload";
 
 type RowFilter = "all" | "Video" | "Short" | "Stream" | "Podcast";
 
