@@ -1,6 +1,6 @@
 "use client";
 
-import { memo, useRef, useState } from "react";
+import { memo, useMemo, useRef, useState } from "react";
 import {
   ArrowDown,
   ArrowUp,
@@ -16,12 +16,22 @@ import {
   Plus,
   RefreshCw,
   Scissors,
+  Sparkles,
   Trash2,
   Type,
   Unlock
 } from "lucide-react";
 import { CAPTION_PRESETS } from "@/lib/clipping/captions";
-import { ASPECT_LABELS, EXPORT_PRESETS, applyCaptionPreset, aspectDimensions, formatClock } from "@/lib/clipping/editor";
+import {
+  ASPECT_LABELS,
+  EXPORT_PRESETS,
+  applyCaptionPreset,
+  aspectDimensions,
+  formatClock,
+  generateClipDescription,
+  generateClipHashtags,
+  generateClipTitleCandidates
+} from "@/lib/clipping/editor";
 import { CLIP_LAYOUTS, DEFAULT_FACE_SOURCE, DEFAULT_SCREEN_SOURCE, LAYOUT_MODE_PRESETS } from "@/lib/clipping/layouts";
 import { useAppData } from "@/components/providers/app-provider";
 import { Button } from "@/components/ui/button";
@@ -803,22 +813,7 @@ export const ExportPanel = memo(function ExportPanel({ api }: { api: EditorApi }
         <Toggle label="CoLateral AI watermark" checked={e.watermark} onChange={(v) => set({ watermark: v })} />
       </div>
 
-      <Field label="Filename">
-        <input
-          value={e.filename}
-          onChange={(ev) => set({ filename: ev.target.value })}
-          className="h-9 w-full rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-2.5 text-sm text-white outline-none focus:border-[var(--accent)]"
-        />
-      </Field>
-
-      <div className="flex flex-wrap gap-2">
-        <Button variant="secondary" onClick={() => api.downloadSubtitles("srt")}>
-          <Download className="mr-2 h-4 w-4" /> SRT
-        </Button>
-        <Button variant="secondary" onClick={() => api.downloadSubtitles("vtt")}>
-          <Download className="mr-2 h-4 w-4" /> VTT
-        </Button>
-      </div>
+      <PublishMetaSection api={api} />
 
       <div className="rounded-lg border border-[var(--border)] p-3">
         <Button onClick={api.runExport} disabled={state.status === "starting" || state.status === "processing"} className="w-full">
@@ -878,6 +873,160 @@ export const ExportPanel = memo(function ExportPanel({ api }: { api: EditorApi }
     </div>
   );
 });
+
+// --- Publish metadata (titles + description) -------------------------------
+
+/** Suggested, YouTube-ready alternative titles, a description, and hashtags —
+ *  all derived from the clip's captions. Click a title to apply it; copy the
+ *  description or hashtags straight into the upload form. */
+function PublishMetaSection({ api }: { api: EditorApi }) {
+  const { captions, title } = api.project;
+
+  const titleOptions = useMemo(() => generateClipTitleCandidates(captions).slice(0, 5), [captions]);
+  const hashtags = useMemo(() => generateClipHashtags(captions), [captions]);
+  const suggestedDescription = useMemo(() => generateClipDescription(captions), [captions]);
+
+  // The description is editable; reseed it whenever the captions change enough
+  // to produce a different suggestion (and the user hasn't diverged from it).
+  // Adjusting state during render is React's recommended pattern here — it
+  // avoids a wasted commit + effect pass.
+  const [description, setDescription] = useState(suggestedDescription);
+  const [edited, setEdited] = useState(false);
+  const [lastSuggestion, setLastSuggestion] = useState(suggestedDescription);
+  if (suggestedDescription !== lastSuggestion) {
+    setLastSuggestion(suggestedDescription);
+    if (!edited) setDescription(suggestedDescription);
+  }
+
+  if (captions.length === 0) {
+    return (
+      <Group label="Titles & description">
+        <p className="rounded-lg border border-dashed border-[var(--border)] p-3 text-xs text-[var(--muted-foreground)]">
+          Add captions on the <strong>Captions</strong> tab (or hit <strong>Regenerate</strong>) and we&apos;ll suggest
+          YouTube-ready titles, a description, and hashtags here.
+        </p>
+      </Group>
+    );
+  }
+
+  return (
+    <div className="space-y-4 rounded-lg border border-[var(--border)] bg-black/20 p-3">
+      <div className="flex items-center gap-2">
+        <Sparkles className="h-4 w-4 text-[var(--accent)]" />
+        <p className="text-sm font-medium text-white">Titles &amp; description</p>
+      </div>
+
+      <Group label="Suggested titles">
+        {titleOptions.length === 0 ? (
+          <p className="text-xs text-[var(--muted-foreground)]">Not enough caption text to suggest titles yet.</p>
+        ) : (
+          <div className="space-y-1.5">
+            {titleOptions.map((option) => {
+              const active = option === title;
+              return (
+                <div
+                  key={option}
+                  className={cn(
+                    "flex items-center gap-2 rounded-lg border px-2.5 py-1.5 transition",
+                    active ? "border-[var(--accent)]/60 bg-[var(--accent)]/8" : "border-[var(--border)]"
+                  )}
+                >
+                  <button
+                    type="button"
+                    onClick={() => api.patch({ title: option, name: option })}
+                    title="Use this title"
+                    className="min-w-0 flex-1 truncate text-left text-sm text-white hover:text-[var(--accent)]"
+                  >
+                    {option}
+                  </button>
+                  {active ? (
+                    <span className="shrink-0 text-[10px] font-medium uppercase tracking-wide text-[var(--accent)]">In use</span>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => api.patch({ title: option, name: option })}
+                      className="shrink-0 rounded-md border border-[var(--border)] px-2 py-0.5 text-[11px] text-[var(--muted-foreground)] transition hover:border-[var(--accent)] hover:text-white"
+                    >
+                      Use
+                    </button>
+                  )}
+                  <CopyButton value={option} title="Copy title" />
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </Group>
+
+      <Group label="Suggested description">
+        <textarea
+          value={description}
+          onChange={(ev) => {
+            setEdited(true);
+            setDescription(ev.target.value);
+          }}
+          rows={5}
+          className="w-full resize-none rounded-md border border-[var(--border)] bg-[var(--surface-2)] p-2 text-sm text-white outline-none focus:border-[var(--accent)]"
+        />
+        <div className="flex items-center gap-2">
+          <CopyButton value={description} title="Copy description" label="Copy" />
+          {edited && (
+            <button
+              type="button"
+              onClick={() => {
+                setEdited(false);
+                setDescription(suggestedDescription);
+              }}
+              className="inline-flex items-center gap-1.5 rounded-md border border-[var(--border)] px-2.5 py-1 text-xs text-[var(--muted-foreground)] transition hover:border-[var(--accent)] hover:text-white"
+            >
+              <RefreshCw className="h-3.5 w-3.5" /> Reset
+            </button>
+          )}
+        </div>
+      </Group>
+
+      {hashtags.length > 0 && (
+        <Group label="Hashtags">
+          <div className="flex flex-wrap items-center gap-1.5">
+            {hashtags.map((tag) => (
+              <span key={tag} className="rounded-full border border-[var(--border)] px-2.5 py-1 text-xs text-[var(--muted-foreground)]">
+                {tag}
+              </span>
+            ))}
+            <CopyButton value={hashtags.join(" ")} title="Copy hashtags" label="Copy" />
+          </div>
+        </Group>
+      )}
+    </div>
+  );
+}
+
+function CopyButton({ value, title, label }: { value: string; title: string; label?: string }) {
+  const [copied, setCopied] = useState(false);
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(value);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1500);
+    } catch {
+      // Clipboard blocked (e.g. insecure context) — nothing useful to surface.
+    }
+  };
+  return (
+    <button
+      type="button"
+      onClick={copy}
+      title={title}
+      className={cn(
+        "inline-flex shrink-0 items-center gap-1.5 rounded-md border border-[var(--border)] px-2 py-1 text-xs transition hover:border-[var(--accent)] hover:text-white",
+        copied ? "text-emerald-300" : "text-[var(--muted-foreground)]"
+      )}
+    >
+      {copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
+      {label ? <span>{copied ? "Copied" : label}</span> : null}
+    </button>
+  );
+}
 
 // --- small shared bits -----------------------------------------------------
 
