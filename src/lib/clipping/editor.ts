@@ -42,7 +42,8 @@ export function aspectDimensions(aspect: AspectRatioId): { w: number; h: number 
 }
 
 export function applyCaptionPreset(style: CaptionStyle, preset: CaptionPresetId): CaptionStyle {
-  return { ...style, ...CAPTION_PRESETS[preset].style };
+  // Presets bring their own `position`, so drop any drag-placed offsets.
+  return { ...style, ...CAPTION_PRESETS[preset].style, offsetX: undefined, offsetY: undefined };
 }
 
 export function formatClock(seconds: number): string {

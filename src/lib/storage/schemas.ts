@@ -366,7 +366,10 @@ export const captionStyleSchema = z.object({
   maxWordsPerCaption: z.coerce.number().int().min(1).max(40).default(4),
   wordsPerLine: z.coerce.number().int().min(1).max(20).default(4),
   animation: z.enum(["none", "fade", "pop", "karaoke"]).default("pop"),
-  uppercase: z.coerce.boolean().default(false)
+  uppercase: z.coerce.boolean().default(false),
+  // Free caption placement from dragging on the preview (overrides `position`).
+  offsetX: z.coerce.number().min(0).max(1).optional(),
+  offsetY: z.coerce.number().min(0).max(1).optional()
 });
 
 export const defaultCaptionStyle = captionStyleSchema.parse({});
