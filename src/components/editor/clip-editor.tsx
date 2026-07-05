@@ -1,8 +1,10 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import {
   ArrowLeft,
+  CalendarClock,
   Check,
   Layers,
   LayoutTemplate,
@@ -64,6 +66,7 @@ export function ClipEditor({
 }) {
   const { data, mutate } = useAppData();
   const { exportStateFor, startExport } = useEditorExports();
+  const router = useRouter();
   const [project, setProject] = useState<ClipProject>(initialProject);
   const [time, setTime] = useState(0);
   const [playing, setPlaying] = useState(false);
@@ -504,15 +507,64 @@ export function ClipEditor({
     URL.revokeObjectURL(url);
   }, [project.captions, project.name, project.exportSettings.filename]);
 
+  // Snapshot of the project as of the last render we started, so Schedule
+  // Short knows whether the finished export still matches the current edits.
+  const lastExportedRef = useRef<string | null>(null);
+
   // Kick off the render through the shared provider, which keeps polling it in
   // the background even after this editor unmounts (e.g. you switch clips).
   const runExport = useCallback(() => {
+    lastExportedRef.current = JSON.stringify(project);
     void startExport(project);
   }, [project, startExport]);
 
   // Live progress for this clip, sourced from the background tracker so a render
   // started here still shows its progress when you leave and come back.
   const exportState = exportStateFor(project.id);
+
+  // --- Schedule Short: render the edits, then jump to the Uploading Center
+  // with this clip pre-selected so it can be dropped straight onto a slot.
+  const [schedulePending, setSchedulePending] = useState(false);
+  const goToUploadingCenter = useCallback(() => {
+    const params = new URLSearchParams({ scheduleJob: project.jobId, scheduleClip: project.sourceFile });
+    router.push(`/uploading-center?${params.toString()}`);
+  }, [project.jobId, project.sourceFile, router]);
+
+  const scheduleShort = useCallback(() => {
+    const snapshot = JSON.stringify(project);
+    // Only skip the render when the last export finished AND nothing changed
+    // since — what gets posted must be exactly what's on screen.
+    if (exportState.status === "done" && lastExportedRef.current === snapshot) {
+      flushThen(goToUploadingCenter);
+      return;
+    }
+    setSchedulePending(true);
+    const rendering = exportState.status === "processing" || exportState.status === "starting";
+    if (!rendering) {
+      lastExportedRef.current = snapshot;
+      void startExport(project); // persists the project before rendering
+    }
+    toast.info("Rendering your Short — you'll land in the Uploading Center when it's ready.");
+  }, [exportState.status, flushThen, goToUploadingCenter, project, startExport]);
+
+  useEffect(() => {
+    if (!schedulePending) return;
+    if (exportState.status !== "done" && exportState.status !== "error") return;
+    let cancelled = false;
+    // Deferred so the state updates land after the render pass, not inside it.
+    queueMicrotask(() => {
+      if (cancelled) return;
+      setSchedulePending(false);
+      if (exportState.status === "done") {
+        goToUploadingCenter();
+      } else {
+        toast.error(exportState.error ?? "The render failed — check the Export tab and try again.");
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [schedulePending, exportState.status, exportState.error, goToUploadingCenter]);
 
   // Memoized (and deliberately without the live playhead time) so the panels,
   // which are React.memo components, don't re-render on every playback frame.
@@ -620,6 +672,17 @@ export function ClipEditor({
         </span>
         <Button onClick={() => void saveNow()} disabled={saving || saved}>
           <Save className="mr-2 h-4 w-4" /> {saving ? "Saving…" : saved ? "Saved" : "Save"}
+        </Button>
+        <Button onClick={scheduleShort} disabled={schedulePending} title="Render this Short and pick its slot in the Uploading Center">
+          {schedulePending ? (
+            <>
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Rendering… {exportState.progress}%
+            </>
+          ) : (
+            <>
+              <CalendarClock className="mr-2 h-4 w-4" /> Schedule Short
+            </>
+          )}
         </Button>
       </div>
 

@@ -7,7 +7,6 @@ import {
   ChevronLeft,
   ChevronRight,
   Settings,
-  SquarePlay,
   UploadCloud,
   Wand2,
   type LucideIcon
@@ -24,7 +23,8 @@ const navGroups: NavGroup[] = [
     label: "YouTube tools",
     items: [
       { href: "/clips", label: "Clip Generator", icon: Wand2 },
-      { href: "/editor", label: "Clip Editor", icon: SquarePlay },
+      // The Clip Editor has no nav tab of its own: every clip is edited from
+      // its card in the Clip Generator, which deep-links into /editor.
       { href: "/uploading-center", label: "Uploading Center", icon: UploadCloud }
     ]
   }

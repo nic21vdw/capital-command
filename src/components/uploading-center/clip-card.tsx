@@ -31,6 +31,7 @@ export function ClipCard({
   isSlotTaken,
   scheduledItems,
   scheduling,
+  highlighted = false,
   onDraftChange,
   onTitleCommit,
   onSchedule
@@ -41,6 +42,8 @@ export function ClipCard({
   isSlotTaken: (platform: PlatformId, slotUtc: string) => boolean;
   scheduledItems: QueueItem[];
   scheduling: boolean;
+  /** Accent ring while this clip is being placed onto the board. */
+  highlighted?: boolean;
   onDraftChange: (draft: ClipDraft) => void;
   /** Persist the typed title (fires on blur/Enter, not on every keystroke). */
   onTitleCommit: () => void;
@@ -55,7 +58,10 @@ export function ClipCard({
         event.dataTransfer.setData(CLIP_DRAG_TYPE, clip.key);
         event.dataTransfer.effectAllowed = "copy";
       }}
-      className="rounded-xl border border-[var(--border)] bg-[var(--surface-2)] p-3 transition hover:border-[var(--border-strong)]"
+      className={cn(
+        "rounded-xl border border-[var(--border)] bg-[var(--surface-2)] p-3 transition hover:border-[var(--border-strong)]",
+        highlighted && "border-[var(--accent)] ring-1 ring-[var(--accent)]/50"
+      )}
     >
       <div className="flex gap-3">
         <div className="w-24 shrink-0 self-start">

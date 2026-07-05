@@ -35,6 +35,7 @@ export function ScheduleBoard({
   channelVideoAtSlot,
   onDropClip,
   onUploadVideo,
+  onSelectSlot,
   onPublishNow,
   onRemove,
   busy
@@ -48,6 +49,8 @@ export function ScheduleBoard({
   onDropClip: (slotUtc: string, clipKey: string) => void;
   /** A video file from the user's computer dropped on (or picked for) a slot. */
   onUploadVideo: (slotUtc: string, file: File) => void;
+  /** When set (a clip is being placed), open slots become click targets. */
+  onSelectSlot?: (slotUtc: string) => void;
   onPublishNow: (item: QueueItem) => void;
   onRemove: (item: QueueItem) => void;
   busy: string | null;
@@ -126,6 +129,7 @@ export function ScheduleBoard({
               onDropClip={onDropClip}
               onUploadVideo={onUploadVideo}
               onRequestUpload={requestUpload}
+              onSelectSlot={onSelectSlot}
               onPublishNow={onPublishNow}
               onRemove={onRemove}
               busy={busy}
@@ -148,6 +152,7 @@ function BoardRow({
   onDropClip,
   onUploadVideo,
   onRequestUpload,
+  onSelectSlot,
   onPublishNow,
   onRemove,
   busy
@@ -163,6 +168,7 @@ function BoardRow({
   onUploadVideo: (slotUtc: string, file: File) => void;
   /** Opens the board's file picker targeting this slot. */
   onRequestUpload: (slotUtc: string) => void;
+  onSelectSlot?: (slotUtc: string) => void;
   onPublishNow: (item: QueueItem) => void;
   onRemove: (item: QueueItem) => void;
   busy: string | null;
@@ -300,6 +306,24 @@ function BoardRow({
               <Loader2 className="h-4 w-4 animate-spin text-[var(--accent)]" />
               Uploading…
             </div>
+          );
+        }
+        if (onSelectSlot) {
+          // Placement mode (arriving from the editor's Schedule Short): every
+          // open slot is a one-click target for the pre-selected clip.
+          return (
+            <button
+              key={slot.id}
+              type="button"
+              onClick={() => onSelectSlot(slot.utc)}
+              className={cn(
+                "flex min-h-16 cursor-pointer flex-col items-center justify-center gap-0.5 rounded-lg border border-dashed border-[var(--accent)]/50 bg-[var(--accent)]/5 text-[11px] text-[var(--muted-foreground)] transition hover:border-[var(--accent)] hover:bg-[var(--accent)]/15 hover:text-white",
+                isToday && "border-[var(--accent)]/70"
+              )}
+            >
+              <span className={cn("text-[10px]", isToday && "font-medium text-[var(--accent)]")}>{slot.time}</span>
+              Schedule here
+            </button>
           );
         }
         return (

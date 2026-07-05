@@ -27,6 +27,7 @@ export function ClipQueue({
   isSlotTaken,
   itemsForClip,
   busy,
+  highlightedKey,
   onSchedule,
   onAutoAssign
 }: {
@@ -41,6 +42,8 @@ export function ClipQueue({
   isSlotTaken: (platform: PlatformId, slotUtc: string) => boolean;
   itemsForClip: (clip: ReadyClip) => QueueItem[];
   busy: string | null;
+  /** Clip currently being placed onto the board (arrived via Schedule Short). */
+  highlightedKey?: string | null;
   onSchedule: (clip: ReadyClip) => void;
   onAutoAssign: () => void;
 }) {
@@ -99,6 +102,7 @@ export function ClipQueue({
               isSlotTaken={isSlotTaken}
               scheduledItems={itemsForClip(clip)}
               scheduling={busy === `schedule:${clip.key}`}
+              highlighted={clip.key === highlightedKey}
               onDraftChange={(draft) => onDraftChange(clip, draft)}
               onTitleCommit={() => onTitleCommit(clip)}
               onSchedule={() => onSchedule(clip)}
