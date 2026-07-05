@@ -39,6 +39,7 @@ export function UploadingCenterPage() {
     readyClips,
     itemsForClip,
     itemsByPlatformSlot,
+    thumbnailForItem,
     busy,
     renameClip,
     schedule,
@@ -148,6 +149,7 @@ export function UploadingCenterPage() {
             platform={id}
             slots={slots}
             itemAtSlot={itemAtSlot}
+            thumbnailForItem={thumbnailForItem}
             onDropClip={(slotUtc, clipKey) => handleDrop(id, slotUtc, clipKey)}
             onPublishNow={(item) => void publishNow(item)}
             onRemove={(item) => void remove(item)}
@@ -166,7 +168,7 @@ export function UploadingCenterPage() {
       <PageHeader
         eyebrow="YouTube tools"
         title="Uploading Center"
-        description="Assign finished clips to a platform and a slot. YouTube uploads privately and goes live at the scheduled time on its own; TikTok and Instagram queue as manual reminders until a unified posting API is connected."
+        description="Assign finished clips to a platform and a slot. YouTube uploads immediately as a scheduled video — it appears under Scheduled in YouTube Studio and goes live at the slot time on its own; TikTok and Instagram queue as manual reminders until a unified posting API is connected."
         actions={
           <div className="flex w-full max-w-sm flex-col gap-2">
             {overview?.platforms.youtube.configured ? (
@@ -230,7 +232,8 @@ export function UploadingCenterPage() {
             <Tabs tabs={tabs} paramKey="platform" />
             {overview ? (
               <p className="mt-3 text-xs text-[var(--muted-foreground)]">
-                Slots are weekdays at 07:30, 12:30 and 19:30 ({overview.timezone}); stored in UTC.
+                Weekday slots at 07:30, 12:30 and 19:30; weekend slots at 10:00, 13:00 and 19:00 ({overview.timezone});
+                stored in UTC.
               </p>
             ) : null}
           </div>

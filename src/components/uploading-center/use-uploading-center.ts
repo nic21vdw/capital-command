@@ -172,6 +172,35 @@ export function useUploadingCenter() {
     [queueItems]
   );
 
+  /**
+   * Poster-frame URL for a queue item, resolved through the clip job it came
+   * from (CLI-enqueued items without a jobId have no preview). Prefers the
+   * pre-rendered poster; falls back to on-demand frame extraction.
+   */
+  const thumbnailByItemId = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const item of queueItems) {
+      if (!item.jobId) continue;
+      const job = jobs.find((candidate) => candidate.id === item.jobId);
+      if (!job) continue;
+      const normalized = item.clipPath.replace(/\\/g, "/");
+      const clip = job.clips.find((candidate) => {
+        const file = candidate.downloadFile ?? candidate.file;
+        return file ? normalized.endsWith(`/${file}`) : false;
+      });
+      if (!clip) continue;
+      // The thumbnail endpoint only serves files the job produced (clip.file);
+      // downloadFile renders aren't in that list.
+      if (clip.posterFile) {
+        map.set(item.id, `/api/clips/${job.id}/files/${encodeURIComponent(clip.posterFile)}`);
+      } else if (clip.file) {
+        map.set(item.id, `/api/clips/${job.id}/thumbnail/${encodeURIComponent(clip.file)}`);
+      }
+    }
+    return map;
+  }, [jobs, queueItems]);
+  const thumbnailForItem = useCallback((item: QueueItem) => thumbnailByItemId.get(item.id) ?? null, [thumbnailByItemId]);
+
   /** Occupied slots per platform, keyed by the slot's UTC instant. */
   const itemsByPlatformSlot = useMemo(() => {
     const map = new Map<PlatformId, Map<string, QueueItem>>();
@@ -248,7 +277,22 @@ export function useUploadingCenter() {
           toast.error(await readError(response));
           return false;
         }
-        toast.success(`Scheduled for ${PLATFORM_LABELS[draft.platform]}.`);
+        // The backend uploads YouTube posts right away (private + publishAt,
+        // so the video shows as Scheduled in YouTube Studio) and reports how
+        // that went; TikTok/Instagram just queue.
+        const { report } = (await response.json()) as {
+          report?: { outcomes: Array<{ platform: string; outcome: string; detail: string }> };
+        };
+        const outcome = report?.outcomes.find((entry) => entry.platform === draft.platform);
+        if (outcome?.outcome === "scheduled") {
+          toast.success("Uploaded to YouTube — it now shows as Scheduled on your channel.");
+        } else if (outcome?.outcome === "published") {
+          toast.success(`Published to ${PLATFORM_LABELS[draft.platform]}.`);
+        } else if (outcome?.outcome === "failed" || outcome?.outcome === "retrying") {
+          toast.warning(`Scheduled, but the upload hit a snag: ${outcome.detail || outcome.outcome}. It will retry.`);
+        } else {
+          toast.success(`Scheduled for ${PLATFORM_LABELS[draft.platform]}.`);
+        }
         await refresh();
         return true;
       } finally {
@@ -309,6 +353,7 @@ export function useUploadingCenter() {
     readyClips,
     itemsForClip,
     itemsByPlatformSlot,
+    thumbnailForItem,
     busy,
     renameClip,
     schedule,
