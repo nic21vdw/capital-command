@@ -66,6 +66,7 @@ function statusClass(status: ClipJobStatus) {
 }
 
 function clipHeadline(clip: ClipCandidate, index: number) {
+  if (clip.title) return clip.title;
   if (clip.hookQuote) return clip.hookQuote;
   const quoted = clip.rationale.match(/"([^"]{8,90})"/);
   return quoted?.[1] ?? `Clip ${index + 1}`;
@@ -244,6 +245,52 @@ export function ClipGeneratorPage() {
       void mutate("upsertClipProject", project);
     },
     [clipProjects, mutate, router]
+  );
+
+  const renameProject = useCallback(
+    async (job: ClipJob, fileName: string) => {
+      const trimmed = fileName.trim();
+      if (!trimmed || trimmed === job.fileName) return;
+      setJobs((prev) => prev.map((j) => (j.id === job.id ? { ...j, fileName: trimmed } : j)));
+      try {
+        const response = await fetch(`/api/clips/${job.id}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ fileName: trimmed })
+        });
+        if (!response.ok) throw new Error();
+      } catch {
+        toast.error("Could not rename the project.");
+        void refresh();
+      }
+    },
+    [refresh]
+  );
+
+  const renameClip = useCallback(
+    async (job: ClipJob, clip: ClipCandidate, title: string) => {
+      const trimmed = title.trim();
+      if (trimmed === (clip.title ?? "")) return;
+      setJobs((prev) =>
+        prev.map((j) =>
+          j.id === job.id
+            ? { ...j, clips: j.clips.map((c) => (c.id === clip.id ? { ...c, title: trimmed || undefined } : c)) }
+            : j
+        )
+      );
+      try {
+        const response = await fetch(`/api/clips/${job.id}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ clipId: clip.id, clipTitle: trimmed })
+        });
+        if (!response.ok) throw new Error();
+      } catch {
+        toast.error("Could not rename the clip.");
+        void refresh();
+      }
+    },
+    [refresh]
   );
 
   const removeJob = async (job: ClipJob) => {
@@ -436,7 +483,14 @@ export function ClipGeneratorPage() {
                       {activeJob.durationSec ? <Badge>{formatTimestamp(activeJob.durationSec)}</Badge> : null}
                       {activeJob.topic && <Badge>{activeJob.topic}</Badge>}
                     </div>
-                    <h2 className="mt-3 truncate text-2xl font-semibold text-white">{activeJob.fileName}</h2>
+                    <EditableTitle
+                      as="h2"
+                      text={activeJob.fileName}
+                      onCommit={(next) => void renameProject(activeJob, next)}
+                      ariaLabel="Project title"
+                      className="mt-3 truncate text-2xl font-semibold text-white"
+                      inputClassName="mt-3 w-full rounded-md border border-[var(--accent)]/50 bg-black/40 px-2 py-1 text-2xl font-semibold text-white outline-none"
+                    />
                     <p className="mt-1 truncate text-xs text-[var(--muted-foreground)]">
                       {activeJob.sourceId ? "Uploaded file" : activeJob.sourceUrl}
                     </p>
@@ -523,6 +577,7 @@ export function ClipGeneratorPage() {
                             index={index}
                             jobId={activeJob.id}
                             onEdit={() => void editClip(activeJob, clip, index)}
+                            onRename={(title) => void renameClip(activeJob, clip, title)}
                           />
                         ) : null
                       )}
@@ -535,6 +590,75 @@ export function ClipGeneratorPage() {
         </div>
       </div>
     </div>
+  );
+}
+
+function EditableTitle({
+  text,
+  onCommit,
+  as: Tag = "h2",
+  className,
+  inputClassName,
+  ariaLabel
+}: {
+  text: string;
+  onCommit: (next: string) => void;
+  as?: "h2" | "h3";
+  className?: string;
+  inputClassName?: string;
+  ariaLabel: string;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(text);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (editing) {
+      const el = inputRef.current;
+      el?.focus();
+      el?.select();
+    }
+  }, [editing]);
+
+  const commit = () => {
+    setEditing(false);
+    const next = draft.trim();
+    if (next && next !== text) onCommit(next);
+  };
+
+  if (editing) {
+    return (
+      <input
+        ref={inputRef}
+        value={draft}
+        aria-label={ariaLabel}
+        onChange={(event) => setDraft(event.target.value)}
+        onBlur={commit}
+        onKeyDown={(event) => {
+          if (event.key === "Enter") {
+            event.preventDefault();
+            commit();
+          } else if (event.key === "Escape") {
+            event.preventDefault();
+            setEditing(false);
+          }
+        }}
+        className={inputClassName}
+      />
+    );
+  }
+
+  return (
+    <Tag
+      className={cn("cursor-text", className)}
+      title="Double-click to rename"
+      onDoubleClick={() => {
+        setDraft(text);
+        setEditing(true);
+      }}
+    >
+      {text}
+    </Tag>
   );
 }
 
@@ -558,17 +682,19 @@ function ClipCard({
   clip,
   index,
   jobId,
-  onEdit
+  onEdit,
+  onRename
 }: {
   clip: ClipCandidate;
   index: number;
   jobId: string;
   onEdit: () => void;
+  onRename: (title: string) => void;
 }) {
   const duration = Math.round(clip.end - clip.start);
   const videoRef = useRef<HTMLVideoElement>(null);
-  // Prefer the ready-to-post download clip (centered 9:16, captioned, watermarked)
-  // once it exists so the preview matches exactly what Download hands back. Until
+  // Prefer the ready-to-post download clip (centered 9:16, captioned) once it
+  // exists so the preview matches exactly what Download hands back. Until
   // then fall back to the instant preview or the neutral master.
   const playbackFile = clip.downloadFile ?? clip.previewFile ?? clip.file;
   const stopTimerRef = useRef<number | null>(null);
@@ -639,7 +765,13 @@ function ClipCard({
               // (and show black boxes) while the page loads. Prefer the
               // eagerly-generated poster frame, falling back to the on-demand
               // thumbnail route for clips rendered before it existed.
-              poster={clip.posterFile ? fileUrl(jobId, clip.posterFile) : clip.file ? thumbnailUrl(jobId, clip.file) : undefined}
+              poster={
+                clip.posterFile
+                  ? fileUrl(jobId, clip.posterFile)
+                  : clip.file
+                    ? thumbnailUrl(jobId, clip.file)
+                    : undefined
+              }
               preload="none"
               muted
               loop
@@ -653,7 +785,14 @@ function ClipCard({
         </div>
         <div className="flex min-w-0 flex-col gap-3 p-4">
           <div className="min-w-0">
-            <h3 className="line-clamp-2 text-base font-semibold text-white">{clipHeadline(clip, index)}</h3>
+            <EditableTitle
+              as="h3"
+              text={clipHeadline(clip, index)}
+              onCommit={onRename}
+              ariaLabel={`Clip ${index + 1} title`}
+              className="line-clamp-2 text-base font-semibold text-white"
+              inputClassName="w-full rounded-md border border-[var(--accent)]/50 bg-black/40 px-2 py-1 text-base font-semibold text-white outline-none"
+            />
             <div className="mt-2 flex flex-wrap gap-1.5">
               <Badge>
                 {formatTimestamp(clip.start)} - {formatTimestamp(clip.end)}

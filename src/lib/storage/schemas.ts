@@ -393,6 +393,9 @@ const overlaySchema = z.object({
   x: z.coerce.number().default(0.5),
   y: z.coerce.number().default(0.5),
   scale: z.coerce.number().min(0.05).max(8).default(1),
+  // Text-box wrapping width as a fraction of the frame; omitted on legacy
+  // overlays, which fall back to the auto width.
+  width: z.coerce.number().min(0.05).max(2).optional(),
   rotation: z.coerce.number().default(0),
   opacity: z.coerce.number().min(0).max(1).default(1),
   z: z.coerce.number().int().default(0),

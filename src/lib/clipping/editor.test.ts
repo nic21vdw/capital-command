@@ -1,7 +1,25 @@
 import { describe, expect, it } from "vitest";
-import { applyCaptionPreset, aspectDimensions, makeClipProject } from "./editor";
+import {
+  applyCaptionPreset,
+  aspectDimensions,
+  generateClipDescription,
+  generateClipHashtags,
+  generateClipTitle,
+  generateClipTitleCandidates,
+  makeClipProject
+} from "./editor";
 import { appDataSchema, clipProjectSchema, defaultCaptionStyle } from "@/lib/storage/schemas";
 import { seedData } from "@/lib/mockData/seed";
+import type { CaptionSegment } from "@/types/domain";
+
+const caption = (id: string, text: string): CaptionSegment => ({
+  id,
+  start: 0,
+  end: 1,
+  text,
+  words: [],
+  enabled: true
+});
 
 const baseProject = () =>
   makeClipProject({
@@ -45,6 +63,63 @@ describe("applyCaptionPreset", () => {
     const styled = applyCaptionPreset(defaultCaptionStyle, "bold-shorts");
     expect(styled.uppercase).toBe(true);
     expect(styled.fontWeight).toBe(900);
+  });
+});
+
+describe("generateClipTitleCandidates", () => {
+  it("drops weak opener and dangling closer words for a cleaner title", () => {
+    // The old generator produced "Is The Marketing Scheme We Want To".
+    const captions = [caption("c1", "Is the marketing scheme we want to run this quarter really working out.")];
+    const [best] = generateClipTitleCandidates(captions);
+    expect(best).toBeTruthy();
+    expect(best.toLowerCase().startsWith("is the")).toBe(false);
+    expect(/\bto$/i.test(best)).toBe(false);
+    // First word is capitalized (proper title case).
+    expect(best[0]).toBe(best[0].toUpperCase());
+  });
+
+  it("ranks hooky, well-sized titles ahead of weaker fragments", () => {
+    const captions = [
+      caption("c1", "Um so yeah okay."),
+      caption("c2", "The biggest mistake new investors make every single year is chasing hype.")
+    ];
+    const candidates = generateClipTitleCandidates(captions);
+    expect(candidates.length).toBeGreaterThan(0);
+    expect(candidates[0].toLowerCase()).toContain("biggest mistake");
+  });
+
+  it("returns an empty list when there is no caption text", () => {
+    expect(generateClipTitleCandidates([])).toEqual([]);
+    expect(generateClipTitle([], "Fallback")).toBe("Fallback");
+  });
+});
+
+describe("generateClipHashtags", () => {
+  it("surfaces the most-repeated meaningful words as hashtags", () => {
+    const captions = [
+      caption("c1", "Bitcoin is the future. Bitcoin will change finance."),
+      caption("c2", "Everyone should understand bitcoin and finance before investing in finance.")
+    ];
+    const tags = generateClipHashtags(captions);
+    expect(tags).toContain("#Bitcoin");
+    expect(tags.every((tag) => tag.startsWith("#"))).toBe(true);
+  });
+});
+
+describe("generateClipDescription", () => {
+  it("builds a description with a CTA and hashtags from the transcript", () => {
+    const captions = [
+      caption("c1", "Bitcoin is the future of money. Bitcoin keeps growing every year."),
+      caption("c2", "Everyone should learn about bitcoin and money management today.")
+    ];
+    const description = generateClipDescription(captions);
+    expect(description).toContain("Bitcoin");
+    expect(description).toContain("subscribe");
+    expect(description).toContain("#Bitcoin");
+  });
+
+  it("returns an empty string with no captions", () => {
+    expect(generateClipDescription([])).toBe("");
   });
 });
 

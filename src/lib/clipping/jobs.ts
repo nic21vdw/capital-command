@@ -1,7 +1,7 @@
 import { mkdir, readFile, rename, rm, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { TARGET_CLIP_COUNT, detectSilences, extractEnergy, fallbackCandidates, selectCandidates } from "@/lib/clipping/analysis";
-import { buildAss, buildWatermarkDialogue, chunkWords, windowSegments } from "@/lib/clipping/captions";
+import { buildAss, chunkWords, windowSegments } from "@/lib/clipping/captions";
 import { copyClipsToDrive, driveDir } from "@/lib/clipping/drive";
 import { downloadAudio, downloadSection, fetchVideoMeta } from "@/lib/clipping/download";
 import { hasAudioStream, probeDuration, runFfmpeg } from "@/lib/clipping/ffmpeg";
@@ -138,6 +138,33 @@ export async function retryMissingRenders(id: string): Promise<ClipJob | undefin
 async function update(job: ClipJob, patch: Partial<ClipJob>) {
   Object.assign(job, patch);
   await persistJobs();
+}
+
+/**
+ * Renames a job (the project/stream title) and/or a single clip's title.
+ * Returns the updated job, or `undefined` if the job is gone. Blank titles are
+ * ignored for the project name (it must always have a label) and clear a clip's
+ * custom title (falling back to the auto-derived headline).
+ */
+export async function renameJob(
+  id: string,
+  patch: { fileName?: string; clipId?: string; clipTitle?: string }
+): Promise<ClipJob | undefined> {
+  await loadJobs();
+  const job = jobs.get(id);
+  if (!job) return undefined;
+  if (typeof patch.fileName === "string") {
+    const trimmed = patch.fileName.trim();
+    if (trimmed) job.fileName = trimmed;
+  }
+  if (patch.clipId) {
+    const clip = job.clips.find((candidate) => candidate.id === patch.clipId);
+    if (!clip) throw new Error("That clip is no longer part of this job.");
+    const trimmed = (patch.clipTitle ?? "").trim();
+    clip.title = trimmed || undefined;
+  }
+  await persistJobs();
+  return job;
 }
 
 /**
@@ -456,12 +483,11 @@ const DOWNLOAD_FRAME_H = 1920;
 
 /**
  * Writes the ASS document burned into a clip's ready-to-post download render:
- * the clip's word-synced captions (windowed to the clip range and styled like a
- * fresh editor project) plus the CoLateral watermark pinned to the top-left, and
- * returns its path. The watermark is always burned, so this never returns empty.
+ * the clip's word-synced captions, windowed to the clip range and styled like a
+ * fresh editor project, and returns its path. No watermark is burned — the clip
+ * ships clean, matching the editor's watermark-off default.
  */
 async function writeClipDownloadAss(job: ClipJob, clip: ClipCandidate, index: number): Promise<string> {
-  const durationSec = Math.max(0.1, clip.end - clip.start);
   const style = defaultCaptionStyle;
   // Window the source captions into clip-local time, then re-chunk the words the
   // same way the editor does so the burned captions match what opening the clip
@@ -470,9 +496,8 @@ async function writeClipDownloadAss(job: ClipJob, clip: ClipCandidate, index: nu
   const words = windowed.flatMap((segment) => segment.words);
   const captions = words.length ? chunkWords(words, style.maxWordsPerCaption) : windowed;
   const captionDoc = buildAss(captions, style, DOWNLOAD_FRAME_W, DOWNLOAD_FRAME_H, true);
-  const watermark = buildWatermarkDialogue(DOWNLOAD_FRAME_H, 0, durationSec, "top");
   const assPath = path.join(workDir(job.id), `caps-${String(index + 1).padStart(2, "0")}.ass`);
-  await writeFile(assPath, `${captionDoc}${watermark}\n`, "utf8");
+  await writeFile(assPath, `${captionDoc}\n`, "utf8");
   return assPath;
 }
 
@@ -524,7 +549,7 @@ async function renderClipIndexes(job: ClipJob, indexes: number[]) {
       clip.layoutPreset = undefined;
       clip.variants = undefined;
       // Compose the ready-to-post download clip: centered 9:16 over a blurred
-      // fill, with word-synced captions and the watermark burned in at the top.
+      // fill, with word-synced captions burned in (no watermark by default).
       // Best-effort — if it fails, the neutral master above stays downloadable.
       try {
         const downloadName = `${baseName}-ready.mp4`;

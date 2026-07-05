@@ -54,70 +54,141 @@ export function formatClock(seconds: number): string {
   return `${m}:${String(sec).padStart(2, "0")}.${String(cs).padStart(2, "0")}`;
 }
 
-const TITLE_STOPWORDS = new Set([
-  "about",
-  "after",
-  "again",
-  "because",
-  "being",
-  "could",
-  "from",
-  "have",
-  "here",
-  "just",
-  "like",
-  "really",
-  "right",
-  "that",
-  "this",
-  "what",
-  "when",
-  "where",
-  "which",
-  "with",
-  "would",
-  "your",
-  "you're"
+// Spoken disfluencies and weak fillers dropped from anywhere in a title.
+const TITLE_FILLERS = new Set([
+  "um", "uh", "er", "erm", "ah", "oh", "hmm", "like", "basically", "actually",
+  "honestly", "literally", "really", "just", "kinda", "sorta", "yeah", "yep",
+  "okay", "ok", "right", "anyway", "anyways", "obviously", "essentially"
 ]);
 
-function titleCaseWord(word: string): string {
-  if (word.length <= 2 && word === word.toUpperCase()) return word;
-  return word.charAt(0).toUpperCase() + word.slice(1).toLowerCase();
+// Weak words that make a poor first or last word of a title (articles,
+// prepositions, conjunctions, auxiliaries, pronouns). Trimmed only from the
+// edges — kept in the interior so the phrase stays grammatical.
+const WEAK_EDGE_WORDS = new Set([
+  "a", "an", "the", "and", "but", "or", "nor", "so", "for", "to", "of", "in",
+  "on", "at", "by", "with", "as", "from", "that", "this", "these", "those",
+  "is", "are", "was", "were", "be", "been", "am", "i", "we", "you", "he",
+  "she", "it", "they", "my", "our", "your", "then", "now", "well", "because",
+  "cause", "if", "when", "while", "about", "into", "than", "there", "here"
+]);
+
+// Small words kept lowercase in the middle of a title (proper title case).
+const LOWERCASE_IN_TITLE = new Set([
+  "a", "an", "the", "and", "but", "or", "nor", "for", "of", "to", "in", "on",
+  "at", "by", "with", "as", "from", "vs", "via", "per"
+]);
+
+// Punchy, curiosity-driving words that make a clip title land on YouTube.
+const HOOK_WORDS = new Set([
+  "why", "how", "what", "secret", "secrets", "never", "always", "best", "worst",
+  "biggest", "reason", "mistake", "mistakes", "truth", "stop", "need", "should",
+  "must", "real", "proven", "easy", "fast", "free", "new", "ultimate", "insane",
+  "crazy", "warning", "avoid", "nobody", "everyone", "everything", "actually",
+  "wrong", "right", "win", "winning", "lose", "money", "growth"
+]);
+
+function smartTitleCase(words: string[]): string {
+  return words
+    .map((word, i) => {
+      // Preserve short acronyms already in caps (AI, NFT, SEO, USA).
+      if (word.length <= 4 && /^[A-Z0-9]+$/.test(word) && /[A-Z]/.test(word)) return word;
+      const lower = word.toLowerCase();
+      if (i !== 0 && i !== words.length - 1 && LOWERCASE_IN_TITLE.has(lower)) return lower;
+      return lower.charAt(0).toUpperCase() + lower.slice(1);
+    })
+    .join(" ");
 }
 
-function titleFromSentence(sentence: string): string {
-  const words = sentence
-    .replace(/[^\w\s'-]/g, "")
+/** Turns a raw spoken sentence into a tidy, YouTube-ready title, or "" if the
+ *  fragment is too thin to make a real title. */
+function titleFromSentence(sentence: string, maxWords = 10, maxChars = 70): string {
+  let tokens = sentence
+    // Drop caption noise markers like [Music] or (laughs).
+    .replace(/[\[(][^\])]*[\])]/g, " ")
+    .replace(/[^\w\s'-]/g, " ")
     .split(/\s+/)
     .map((word) => word.trim())
-    .filter((word) => word && !TITLE_STOPWORDS.has(word.toLowerCase()))
-    .slice(0, 7);
-  const raw = words.length >= 3 ? words.join(" ") : sentence.split(/\s+/).slice(0, 7).join(" ");
-  return raw
-    .split(/\s+/)
-    .map(titleCaseWord)
-    .join(" ")
-    .replace(/\s+/g, " ")
-    .trim()
-    .slice(0, 80);
+    .filter(Boolean)
+    // Strip pure disfluencies from anywhere in the phrase.
+    .filter((word) => !TITLE_FILLERS.has(word.toLowerCase()));
+
+  // Trim weak opener/closer words so titles don't start on "Is The…" or end
+  // on a dangling "…We Want To".
+  while (tokens.length && WEAK_EDGE_WORDS.has(tokens[0].toLowerCase())) tokens.shift();
+  tokens = tokens.slice(0, maxWords);
+  while (tokens.length && WEAK_EDGE_WORDS.has(tokens[tokens.length - 1].toLowerCase())) tokens.pop();
+
+  if (tokens.length < 3) return "";
+
+  let title = smartTitleCase(tokens);
+  if (title.length > maxChars) {
+    // Truncate at the last word boundary that fits, then re-trim weak endings.
+    const cut = title.slice(0, maxChars);
+    const trimmed = cut.slice(0, cut.lastIndexOf(" ")).split(" ");
+    while (trimmed.length && WEAK_EDGE_WORDS.has(trimmed[trimmed.length - 1].toLowerCase())) trimmed.pop();
+    title = trimmed.join(" ");
+  }
+  return title.trim();
 }
 
-/** Every distinct title candidate the captions can produce, in transcript order. */
-export function generateClipTitleCandidates(captions: CaptionSegment[]): string[] {
-  const text = captions
+/** Rough "how clickable is this" score used to rank title candidates. */
+function scoreTitle(title: string): number {
+  const words = title.split(/\s+/);
+  let score = 0;
+  const n = words.length;
+  if (n >= 4 && n <= 9) score += 3;
+  else if (n === 3 || n === 10 || n === 11) score += 1;
+  for (const word of words) {
+    if (HOOK_WORDS.has(word.toLowerCase())) score += 2;
+    if (/^\d/.test(word)) score += 2;
+  }
+  if (title.length >= 30 && title.length <= 65) score += 2;
+  return score;
+}
+
+function transcriptText(captions: CaptionSegment[]): string {
+  return captions
     .map((caption) => caption.text)
     .join(" ")
+    .replace(/[\[(][^\])]*[\])]/g, " ")
     .replace(/\s+/g, " ")
     .trim();
+}
+
+/** Every distinct title candidate the captions can produce, best first. */
+export function generateClipTitleCandidates(captions: CaptionSegment[]): string[] {
+  const text = transcriptText(captions);
   if (!text) return [];
 
   const sentences = text.split(/(?<=[.!?])\s+/).filter((part) => part.trim().split(/\s+/).length >= 3);
-  const candidates = (sentences.length ? sentences : [text]).map(titleFromSentence).filter(Boolean);
-  return [...new Set(candidates)];
+  const raw = (sentences.length ? sentences : [text]).map((s) => titleFromSentence(s));
+
+  // If punctuation gave us little to work with (common with auto-captions),
+  // also slice the transcript into overlapping windows for more options.
+  if (raw.filter(Boolean).length < 3) {
+    const words = text.split(/\s+/);
+    for (let i = 0; i < words.length && raw.length < 12; i += 6) {
+      raw.push(titleFromSentence(words.slice(i, i + 9).join(" ")));
+    }
+  }
+
+  const seen = new Set<string>();
+  const scored = raw
+    .filter(Boolean)
+    .filter((title) => {
+      const key = title.toLowerCase();
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    })
+    .map((title, idx) => ({ title, score: scoreTitle(title), idx }));
+
+  scored.sort((a, b) => b.score - a.score || a.idx - b.idx);
+  return scored.map((entry) => entry.title);
 }
 
 /**
- * Picks a title from the captions. Without `avoid`, returns the first
+ * Picks a title from the captions. Without `avoid`, returns the best-scored
  * candidate (stable for auto-titling). With `avoid` set to the current title,
  * re-rolls: picks a random candidate other than `avoid` when possible.
  */
@@ -128,6 +199,80 @@ export function generateClipTitle(captions: CaptionSegment[], fallback = "Untitl
   const fresh = candidates.filter((candidate) => candidate !== avoid);
   const pool = fresh.length ? fresh : candidates;
   return pool[Math.floor(Math.random() * pool.length)];
+}
+
+// Common words never worth turning into a hashtag.
+const HASHTAG_STOPWORDS = new Set([
+  "about", "after", "again", "against", "along", "already", "also", "although",
+  "always", "another", "around", "because", "become", "before", "being",
+  "below", "between", "both", "cannot", "could", "doing", "done", "down",
+  "during", "each", "either", "enough", "even", "ever", "every", "from",
+  "gonna", "gotta", "have", "here", "hers", "himself", "into", "itself",
+  "just", "keep", "kind", "like", "little", "make", "many", "maybe", "mean",
+  "might", "more", "most", "much", "must", "myself", "never", "next", "night",
+  "nothing", "only", "other", "over", "really", "right", "said", "same",
+  "should", "since", "some", "something", "still", "such", "sure", "take",
+  "than", "that", "their", "them", "then", "there", "these", "they", "thing",
+  "things", "think", "this", "those", "through", "time", "today", "together",
+  "under", "until", "very", "want", "well", "were", "what", "when", "where",
+  "which", "while", "with", "without", "would", "your", "yourself", "yeah",
+  "okay", "going", "know", "just", "were", "been", "will", "your", "look",
+  "looking", "come", "coming", "goes", "getting", "guys", "guy", "stuff"
+]);
+
+/** Topical hashtags pulled from the most-repeated meaningful words. */
+export function generateClipHashtags(captions: CaptionSegment[], max = 4): string[] {
+  const text = transcriptText(captions).toLowerCase();
+  if (!text) return [];
+  const counts = new Map<string, number>();
+  for (const raw of text.split(/[^a-z0-9]+/)) {
+    const word = raw.trim();
+    if (word.length < 4 || HASHTAG_STOPWORDS.has(word) || /^\d+$/.test(word)) continue;
+    counts.set(word, (counts.get(word) ?? 0) + 1);
+  }
+  return [...counts.entries()]
+    .filter(([, count]) => count >= 2)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, max)
+    .map(([word]) => `#${word.charAt(0).toUpperCase()}${word.slice(1)}`);
+}
+
+/** A short, publish-ready description drawn from the transcript, capped off
+ *  with topical hashtags. */
+export function generateClipDescription(captions: CaptionSegment[]): string {
+  const text = transcriptText(captions);
+  if (!text) return "";
+
+  const sentences = text
+    .split(/(?<=[.!?])\s+/)
+    .map((sentence) =>
+      sentence
+        .split(/\s+/)
+        .filter((word) => !TITLE_FILLERS.has(word.toLowerCase()))
+        .join(" ")
+        .trim()
+    )
+    .filter((sentence) => sentence.split(/\s+/).length >= 4);
+
+  const lead: string[] = [];
+  let length = 0;
+  for (const sentence of sentences.length ? sentences : [text]) {
+    if (length + sentence.length > 300 && lead.length) break;
+    lead.push(sentence);
+    length += sentence.length;
+    if (lead.length >= 2) break;
+  }
+
+  let summary = lead.join(" ").slice(0, 320).trim();
+  if (summary) {
+    summary = summary.charAt(0).toUpperCase() + summary.slice(1);
+    if (!/[.!?]$/.test(summary)) summary += ".";
+  }
+
+  const hashtags = generateClipHashtags(captions);
+  return [summary, "👉 Like & subscribe for more clips like this.", hashtags.join(" ")]
+    .filter(Boolean)
+    .join("\n\n");
 }
 
 /**

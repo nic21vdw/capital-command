@@ -40,13 +40,15 @@ export type ClipCandidate = {
   score: number;
   breakdown: ClipScoreBreakdown;
   rationale: string;
+  /** Creator-set title. Overrides the auto-derived headline when present. */
+  title?: string;
   /** First spoken words of the clip, shown to explain the hook score. */
   hookQuote?: string;
   /** Neutral full-frame 16:9 source master filename, set once rendered. */
   file?: string;
   /**
    * Ready-to-post download filename: a 9:16 vertical centered over a blurred
-   * fill, with the word-synced captions and the CoLateral watermark burned in.
+   * fill, with the word-synced captions burned in (no watermark by default).
    * This is what the preview offers for download; the editor still opens the
    * neutral `file` master so every layer stays adjustable.
    */

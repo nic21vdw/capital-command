@@ -151,9 +151,9 @@ function buildExportAss(spec: ExportSpec, w: number, h: number): string {
           start: o.start,
           end: o.end > o.start ? o.end : dur,
           fontScale: 0.05 * o.scale,
-          color: o.color ?? "#ffffff",
+          color: o.color ?? "#bd93f9",
           rotation: o.rotation,
-          bold: (o.fontWeight ?? 700) >= 600,
+          bold: (o.fontWeight ?? 800) >= 600,
           opacity: o.opacity
         },
         w,
