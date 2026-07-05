@@ -41,6 +41,7 @@ export async function GET(
   const known = job.clips.flatMap((clip) => [
     clip.file,
     clip.downloadFile,
+    clip.editedFile,
     clip.previewFile,
     clip.posterFile,
     ...(clip.variants ?? []).map((variant) => variant.file)

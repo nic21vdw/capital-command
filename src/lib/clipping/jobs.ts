@@ -1,10 +1,10 @@
-import { mkdir, readFile, rename, rm, unlink, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rename, rm, stat, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { TARGET_CLIP_COUNT, detectSilences, extractEnergy, fallbackCandidates, selectCandidates } from "@/lib/clipping/analysis";
 import { buildAss, chunkWords, windowSegments } from "@/lib/clipping/captions";
 import { copyClipsToDrive, driveDir } from "@/lib/clipping/drive";
 import { downloadAudio, downloadSection, fetchVideoMeta } from "@/lib/clipping/download";
-import { hasAudioStream, probeDuration, runFfmpeg } from "@/lib/clipping/ffmpeg";
+import { hasAudioStream, probeDimensions, probeDuration, runFfmpeg } from "@/lib/clipping/ffmpeg";
 import { renderCaptionedVertical, renderPreviewAssets, renderSourceClip } from "@/lib/clipping/render";
 import { readSourceMeta, sourceFilePath, type SourceMeta } from "@/lib/clipping/sources";
 import { defaultCaptionStyle } from "@/lib/storage/schemas";
@@ -501,6 +501,70 @@ async function writeClipDownloadAss(job: ClipJob, clip: ClipCandidate, index: nu
   return assPath;
 }
 
+/**
+ * Records a finished Clip Editor export against the clip candidate it was cut
+ * from, so the Clip Generator and the Uploading Center surface the edited clip
+ * instead of the auto-generated render. No-op when the export's source master
+ * doesn't belong to a known clip.
+ */
+export async function attachEditedClipRender(jobId: string, sourceFile: string, exportFile: string) {
+  await loadJobs();
+  const job = jobs.get(jobId);
+  const clip = job?.clips.find(
+    (candidate) => candidate.file === sourceFile || candidate.variants?.some((variant) => variant.file === sourceFile)
+  );
+  if (!job || !clip) return;
+  clip.editedFile = exportFile;
+  await persistJobs();
+}
+
+/**
+ * Guarantees a Shorts-ready file for publishing: given any rendered file in a
+ * job's output folder, returns the name of a 9:16 vertical version of it.
+ * Vertical files pass through untouched; a widescreen file (e.g. the 16:9
+ * master of an older job whose ready render never happened) is composed into
+ * the standard centered + blurred-fill vertical — with the clip's word-synced
+ * captions burned in when the file is a clip's neutral master.
+ */
+export async function ensureVerticalClipFile(jobId: string, fileName: string): Promise<string> {
+  await loadJobs();
+  const job = jobs.get(jobId);
+  const filePath = path.join(outputDir(jobId), fileName);
+  const dims = await probeDimensions(filePath);
+  if (dims.height > dims.width) return fileName;
+
+  const clip = job?.clips.find(
+    (candidate) => candidate.file === fileName || candidate.downloadFile === fileName || candidate.editedFile === fileName
+  );
+  const isMaster = Boolean(clip && clip.file === fileName);
+
+  // The clip may already have a vertical ready render — reuse it.
+  if (clip && isMaster && clip.downloadFile) {
+    const readyPath = path.join(outputDir(jobId), clip.downloadFile);
+    const ready = await probeDimensions(readyPath).catch(() => null);
+    if (ready && ready.height > ready.width) return clip.downloadFile;
+  }
+
+  const verticalName = `${path.parse(fileName).name}-vertical.mp4`;
+  const verticalPath = path.join(outputDir(jobId), verticalName);
+  const existing = await stat(verticalPath).catch(() => null);
+  if (!existing || existing.size < 1024) {
+    const audio = await hasAudioStream(filePath).catch(() => false);
+    // Only the neutral master gets captions burned in; edited exports and
+    // ready renders already carry theirs, and double-burning looks broken.
+    let assPath: string | null = null;
+    if (job && clip && isMaster) {
+      assPath = await writeClipDownloadAss(job, clip, job.clips.indexOf(clip)).catch(() => null);
+    }
+    await renderCaptionedVertical(filePath, verticalPath, assPath, audio);
+  }
+  if (job && clip && isMaster && !clip.downloadFile) {
+    clip.downloadFile = verticalName;
+    await persistJobs();
+  }
+  return verticalName;
+}
+
 async function renderClipIndexes(job: ClipJob, indexes: number[]) {
   // Fetch each chosen range from the source and render a neutral 16:9 source clip. These are
   // network- and CPU-bound, so keep concurrency modest to avoid source throttles.
@@ -548,17 +612,28 @@ async function renderClipIndexes(job: ClipJob, indexes: number[]) {
       void ensureClipThumbnail(outputDir(job.id), primaryName);
       clip.layoutPreset = undefined;
       clip.variants = undefined;
+      // The master was re-cut, so any earlier editor export no longer matches it.
+      clip.editedFile = undefined;
       // Compose the ready-to-post download clip: centered 9:16 over a blurred
       // fill, with word-synced captions burned in (no watermark by default).
-      // Best-effort — if it fails, the neutral master above stays downloadable.
+      // Clips must always ship Shorts-ready, so a caption failure falls back
+      // to the same 9:16 composition without burned captions — never to the
+      // widescreen master.
       try {
         const downloadName = `${baseName}-ready.mp4`;
-        const assPath = await writeClipDownloadAss(job, clip, i);
-        await renderCaptionedVertical(produced, path.join(outputDir(job.id), downloadName), assPath, true);
+        const downloadPath = path.join(outputDir(job.id), downloadName);
+        try {
+          const assPath = await writeClipDownloadAss(job, clip, i);
+          await renderCaptionedVertical(produced, downloadPath, assPath, true);
+        } catch {
+          await renderCaptionedVertical(produced, downloadPath, null, true);
+        }
         clip.downloadFile = downloadName;
         await persistJobs();
       } catch {
-        // Leave clip.downloadFile unset; the UI falls back to the master.
+        // Even the plain vertical render failed (ffmpeg trouble); the UI
+        // falls back to the master and publishing re-renders on demand.
+        job.notices.push(`Clip ${i + 1}: the 9:16 vertical render failed — it will be re-rendered when scheduled.`);
       }
       await unlink(produced).catch(() => undefined);
     } catch (error) {

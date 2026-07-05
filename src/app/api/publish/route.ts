@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import path from "node:path";
 import { z } from "zod";
-import { outputDir } from "@/lib/clipping/jobs";
+import { ensureVerticalClipFile, outputDir } from "@/lib/clipping/jobs";
 import { publisherConfig } from "@/lib/publisher/config";
 import { enqueue } from "@/lib/publisher/enqueue";
 import { publishQueue } from "@/lib/publisher/queue";
@@ -66,7 +66,22 @@ export async function POST(request: NextRequest) {
     if (!resolved.startsWith(path.resolve(base) + path.sep)) {
       return NextResponse.json({ error: "Invalid file name." }, { status: 400 });
     }
-    clipPath = resolved;
+    // Shorts guarantee: clips always post as 9:16 verticals. If the picked
+    // file is widescreen (e.g. an old job that only has the 16:9 master),
+    // render the centered + blurred-fill vertical now and post that instead.
+    try {
+      const verticalFile = await ensureVerticalClipFile(body.jobId, body.file);
+      clipPath = path.resolve(base, verticalFile);
+    } catch (error) {
+      return NextResponse.json(
+        {
+          error: `Could not prepare the 9:16 vertical render for this clip: ${
+            error instanceof Error ? error.message : String(error)
+          }`
+        },
+        { status: 400 }
+      );
+    }
   }
   if (!clipPath) {
     return NextResponse.json({ error: "Provide either clipPath or jobId + file." }, { status: 400 });

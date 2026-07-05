@@ -54,6 +54,13 @@ export type ClipCandidate = {
    */
   downloadFile?: string;
   /**
+   * Latest Clip Editor export for this clip. When present it supersedes
+   * `downloadFile` everywhere a finished clip is shown or posted (Clip
+   * Generator playback/download, Uploading Center), so the edited clip and
+   * the clip that gets uploaded are always the same file.
+   */
+  editedFile?: string;
+  /**
    * Instant preview filename: a faststart stream-copy of the cut section,
    * published the moment the section exists so the UI can play the clip
    * while the HD master render is still running.
