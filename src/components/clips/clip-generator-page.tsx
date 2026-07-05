@@ -436,12 +436,11 @@ export function ClipGeneratorPage() {
             ) : (
               <div className="space-y-2">
                 {jobs.map((job) => (
-                  <button
+                  <div
                     key={job.id}
-                    type="button"
                     onClick={() => setActiveJobId(job.id)}
                     className={cn(
-                      "w-full rounded-lg border p-3 text-left transition",
+                      "w-full cursor-pointer rounded-lg border p-3 text-left transition",
                       activeJob?.id === job.id
                         ? "border-[var(--accent)]/70 bg-[var(--accent)]/10"
                         : "border-white/10 bg-black/20 hover:border-white/25"
@@ -455,12 +454,28 @@ export function ClipGeneratorPage() {
                           {job.clips.length > 0 && ` · ${job.clips.length} clips`}
                         </p>
                       </div>
-                      <Badge className={cn("shrink-0", statusClass(job.status))}>{statusLabel(job)}</Badge>
+                      <div className="flex shrink-0 items-center gap-1.5">
+                        <Badge className={statusClass(job.status)}>{statusLabel(job)}</Badge>
+                        {job.status !== "processing" && job.status !== "queued" && (
+                          <button
+                            type="button"
+                            aria-label="Delete stream"
+                            title="Delete stream"
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              void removeJob(job);
+                            }}
+                            className="flex h-6 w-6 items-center justify-center rounded-md text-[var(--muted-foreground)] transition hover:bg-red-500/10 hover:text-red-400"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </button>
+                        )}
+                      </div>
                     </div>
                     {(job.status === "processing" || job.status === "queued") && (
                       <Progress value={job.progress} className="mt-3 h-1.5" />
                     )}
-                  </button>
+                  </div>
                 ))}
               </div>
             )}
