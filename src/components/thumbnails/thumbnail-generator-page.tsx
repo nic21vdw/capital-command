@@ -616,6 +616,7 @@ export function ThumbnailGeneratorPage() {
 
   const handlePointerDown = (event: React.PointerEvent<HTMLCanvasElement>) => {
     if (!editing) return;
+    event.preventDefault(); // keep the browser from starting a text selection that spreads across the page
     const point = pointerToCanvas(event.clientX, event.clientY);
     if (!point) return;
     const canvas = previewRef.current!;
@@ -1870,7 +1871,7 @@ export function ThumbnailGeneratorPage() {
               onPointerUp={endDrag}
               onPointerCancel={endDrag}
               className={cn(
-                "mt-4 aspect-video w-full touch-none rounded-2xl border bg-black/40",
+                "mt-4 aspect-video w-full touch-none select-none rounded-2xl border bg-black/40",
                 editing ? "cursor-move border-[var(--accent)]/60" : "cursor-pointer border-white/10"
               )}
             />

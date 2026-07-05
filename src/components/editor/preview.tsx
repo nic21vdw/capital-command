@@ -303,6 +303,7 @@ function OverlayItem({
   const onPointerDown = (mode: "move" | "scale" | "rotate") => (e: React.PointerEvent) => {
     if (overlay.locked || editing) return;
     e.stopPropagation();
+    e.preventDefault(); // keep the browser from starting a text selection that spreads across the page
     onSelect();
     const sx = e.clientX;
     const sy = e.clientY;
@@ -355,7 +356,7 @@ function OverlayItem({
               ref={editRef}
               contentEditable
               suppressContentEditableWarning
-              className="block min-w-[1ch] cursor-text whitespace-pre-wrap break-words px-1 text-center outline-none"
+              className="block min-w-[1ch] cursor-text select-text whitespace-pre-wrap break-words px-1 text-center outline-none"
               style={{
                 maxWidth: frame.w * 0.9,
                 fontFamily: overlay.fontFamily ?? "Inter, system-ui, sans-serif",
@@ -778,6 +779,7 @@ export function EditorPreview({
   // export pan range. A still click (no movement) toggles playback instead.
   const beginPointer = (e: React.PointerEvent) => {
     if (e.button !== 0) return;
+    e.preventDefault(); // keep the browser from starting a text selection that spreads across the page
     onSelectOverlay(null);
     setCaptionSelected(false);
     const sx = e.clientX;
@@ -823,7 +825,7 @@ export function EditorPreview({
         ref={frameRef}
         data-preview-frame
         className={cn(
-          "relative overflow-hidden rounded-2xl bg-black shadow-[0_18px_48px_-12px_rgba(0,0,0,0.55)] ring-1 ring-white/10",
+          "relative select-none overflow-hidden rounded-2xl bg-black shadow-[0_18px_48px_-12px_rgba(0,0,0,0.55)] ring-1 ring-white/10",
           canPan && "cursor-grab active:cursor-grabbing"
         )}
         style={{
