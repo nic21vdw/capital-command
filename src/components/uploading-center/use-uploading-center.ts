@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import type { ClipCandidate, ClipJob } from "@/lib/clipping/types";
+import { placeChannelVideos, type ChannelPlacement } from "@/lib/publisher/channelPlacement";
 import type { ChannelSchedule, ChannelVideo } from "@/lib/publisher/channelVideos";
 import type { ScheduleSlot } from "@/lib/publisher/slots";
 import type { YoutubeQuota } from "@/lib/publisher/quota";
@@ -367,12 +368,22 @@ export function useUploadingCenter() {
     return channel.videos.filter((video) => !ownPostIds.has(video.videoId));
   }, [channel, queueItems]);
 
-  /** Channel videos keyed by their UTC instant, for exact slot matching. */
-  const channelVideosBySlot = useMemo(() => {
-    const map = new Map<string, ChannelVideo>();
-    for (const video of channelVideos) map.set(new Date(video.publishAtUtc).toISOString(), video);
-    return map;
-  }, [channelVideos]);
+  /**
+   * The channel's videos placed onto the visible grid: slot occupants (times
+   * on or within a few minutes of a slot), per-day markers for videos at any
+   * other time that day, and the rest outside the window. This is what stops
+   * a slot — or a whole day — from being double-booked against what is
+   * already scheduled on YouTube itself.
+   */
+  const channelPlacement = useMemo<ChannelPlacement>(() => {
+    const youtubeItems = itemsByPlatformSlot.get("youtube");
+    return placeChannelVideos({
+      videos: channelVideos,
+      slots: overview?.slots ?? [],
+      isSlotOccupied: (slotUtc) => Boolean(youtubeItems?.has(slotUtc)),
+      timeZone: overview?.timezone ?? "UTC"
+    });
+  }, [channelVideos, itemsByPlatformSlot, overview]);
 
   /**
    * Surfaces the result of a successful enqueue response (from /api/publish
@@ -581,7 +592,9 @@ export function useUploadingCenter() {
     slotWindowLoading: overview !== null && (overview.slotOffsetDays ?? 0) !== slotOffsetDays,
     channel,
     channelVideos,
-    channelVideosBySlot,
+    channelVideosBySlot: channelPlacement.bySlotUtc,
+    channelDayMarkers: channelPlacement.dayMarkers,
+    channelVideosOutsideWindow: channelPlacement.outsideWindow,
     queueItems,
     jobsWithClips,
     activeJob,
