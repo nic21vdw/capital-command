@@ -318,10 +318,10 @@ export function ClipEditor({
       }
     }
     const trimmedCaptions = captions.filter((caption) => caption.end > trimStart && caption.start < trimEnd);
-    const title = generateClipTitle(trimmedCaptions.length ? trimmedCaptions : captions, project.name);
+    const title = generateClipTitle(trimmedCaptions.length ? trimmedCaptions : captions, project.name, project.title);
     patch({ title, name: title, captions });
     toast.success("Generated clip title.");
-  }, [project.captions, project.captionStyle.maxWordsPerCaption, project.clipEnd, project.clipStart, project.jobId, project.name, trimEnd, trimStart, patch]);
+  }, [project.captions, project.captionStyle.maxWordsPerCaption, project.clipEnd, project.clipStart, project.jobId, project.name, project.title, trimEnd, trimStart, patch]);
 
   // --- Caption operations ---
   const updateCaption = useCallback((id: string, partial: Partial<CaptionSegment>) => {

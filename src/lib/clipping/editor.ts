@@ -84,15 +84,7 @@ function titleCaseWord(word: string): string {
   return word.charAt(0).toUpperCase() + word.slice(1).toLowerCase();
 }
 
-export function generateClipTitle(captions: CaptionSegment[], fallback = "Untitled clip"): string {
-  const text = captions
-    .map((caption) => caption.text)
-    .join(" ")
-    .replace(/\s+/g, " ")
-    .trim();
-  if (!text) return fallback;
-
-  const sentence = text.split(/(?<=[.!?])\s+/).find((part) => part.trim().split(/\s+/).length >= 3) ?? text;
+function titleFromSentence(sentence: string): string {
   const words = sentence
     .replace(/[^\w\s'-]/g, "")
     .split(/\s+/)
@@ -107,6 +99,34 @@ export function generateClipTitle(captions: CaptionSegment[], fallback = "Untitl
     .replace(/\s+/g, " ")
     .trim()
     .slice(0, 80);
+}
+
+/** Every distinct title candidate the captions can produce, in transcript order. */
+export function generateClipTitleCandidates(captions: CaptionSegment[]): string[] {
+  const text = captions
+    .map((caption) => caption.text)
+    .join(" ")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!text) return [];
+
+  const sentences = text.split(/(?<=[.!?])\s+/).filter((part) => part.trim().split(/\s+/).length >= 3);
+  const candidates = (sentences.length ? sentences : [text]).map(titleFromSentence).filter(Boolean);
+  return [...new Set(candidates)];
+}
+
+/**
+ * Picks a title from the captions. Without `avoid`, returns the first
+ * candidate (stable for auto-titling). With `avoid` set to the current title,
+ * re-rolls: picks a random candidate other than `avoid` when possible.
+ */
+export function generateClipTitle(captions: CaptionSegment[], fallback = "Untitled clip", avoid?: string): string {
+  const candidates = generateClipTitleCandidates(captions);
+  if (!candidates.length) return fallback;
+  if (avoid === undefined) return candidates[0];
+  const fresh = candidates.filter((candidate) => candidate !== avoid);
+  const pool = fresh.length ? fresh : candidates;
+  return pool[Math.floor(Math.random() * pool.length)];
 }
 
 /**
