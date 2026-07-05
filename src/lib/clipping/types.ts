@@ -40,6 +40,8 @@ export type ClipCandidate = {
   score: number;
   breakdown: ClipScoreBreakdown;
   rationale: string;
+  /** Creator-set title. Overrides the auto-derived headline when present. */
+  title?: string;
   /** First spoken words of the clip, shown to explain the hook score. */
   hookQuote?: string;
   /** Neutral full-frame 16:9 source master filename, set once rendered. */

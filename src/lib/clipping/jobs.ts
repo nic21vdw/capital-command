@@ -141,6 +141,33 @@ async function update(job: ClipJob, patch: Partial<ClipJob>) {
 }
 
 /**
+ * Renames a job (the project/stream title) and/or a single clip's title.
+ * Returns the updated job, or `undefined` if the job is gone. Blank titles are
+ * ignored for the project name (it must always have a label) and clear a clip's
+ * custom title (falling back to the auto-derived headline).
+ */
+export async function renameJob(
+  id: string,
+  patch: { fileName?: string; clipId?: string; clipTitle?: string }
+): Promise<ClipJob | undefined> {
+  await loadJobs();
+  const job = jobs.get(id);
+  if (!job) return undefined;
+  if (typeof patch.fileName === "string") {
+    const trimmed = patch.fileName.trim();
+    if (trimmed) job.fileName = trimmed;
+  }
+  if (patch.clipId) {
+    const clip = job.clips.find((candidate) => candidate.id === patch.clipId);
+    if (!clip) throw new Error("That clip is no longer part of this job.");
+    const trimmed = (patch.clipTitle ?? "").trim();
+    clip.title = trimmed || undefined;
+  }
+  await persistJobs();
+  return job;
+}
+
+/**
  * Fetches (and caches) automatic captions for a job. Platform captions are
  * tried first for URL sources, with local Whisper transcription as a fallback
  * so every source with an audio track gets captions. Force re-fetch to
