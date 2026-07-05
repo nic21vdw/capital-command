@@ -363,12 +363,12 @@ function OverlayItem({
               style={{
                 maxWidth: frame.w * 0.9,
                 fontFamily: overlay.fontFamily ?? "Inter, system-ui, sans-serif",
-                fontWeight: overlay.fontWeight ?? 600,
+                fontWeight: overlay.fontWeight ?? 800,
                 fontSize: 0.05 * frame.h,
-                color: overlay.color ?? "#ffffff",
+                color: overlay.color ?? "#bd93f9",
                 background: overlay.background ?? "transparent",
                 textShadow: "0 2px 6px rgba(0,0,0,0.6)",
-                caretColor: overlay.color ?? "#ffffff"
+                caretColor: overlay.color ?? "#bd93f9"
               }}
               onPointerDown={(e) => e.stopPropagation()}
               onInput={(e) => onChange({ text: e.currentTarget.textContent ?? "" })}
@@ -394,9 +394,9 @@ function OverlayItem({
               style={{
                 maxWidth: frame.w * 0.9,
                 fontFamily: overlay.fontFamily ?? "Inter, system-ui, sans-serif",
-                fontWeight: overlay.fontWeight ?? 600,
+                fontWeight: overlay.fontWeight ?? 800,
                 fontSize: 0.05 * frame.h,
-                color: overlay.color ?? "#ffffff",
+                color: overlay.color ?? "#bd93f9",
                 background: overlay.background ?? "transparent",
                 textShadow: "0 2px 6px rgba(0,0,0,0.6)"
               }}
