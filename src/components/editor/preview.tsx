@@ -267,6 +267,10 @@ function WatermarkLayer({ frameH }: { frameH: number }) {
 
 // --- Overlays ----------------------------------------------------------------
 
+// Fraction of the frame width a text box wraps at before the user resizes it.
+// Matches the legacy `frame.w * 0.9` cap so untouched overlays render the same.
+const DEFAULT_TEXT_WIDTH = 0.9;
+
 function OverlayItem({
   overlay,
   selected,
@@ -300,7 +304,7 @@ function OverlayItem({
     sel?.addRange(range);
   }, [editing]);
 
-  const onPointerDown = (mode: "move" | "scale" | "rotate") => (e: React.PointerEvent) => {
+  const onPointerDown = (mode: "move" | "scale" | "rotate" | "width") => (e: React.PointerEvent) => {
     if (overlay.locked || editing) return;
     e.stopPropagation();
     e.preventDefault(); // keep the browser from starting a text selection that spreads across the page
@@ -311,6 +315,7 @@ function OverlayItem({
     const oy = overlay.y;
     const os = overlay.scale;
     const orot = overlay.rotation;
+    const ow = overlay.width ?? DEFAULT_TEXT_WIDTH;
     const move = (ev: PointerEvent) => {
       const dxFrac = (ev.clientX - sx) / frame.w;
       const dyFrac = (ev.clientY - sy) / frame.h;
@@ -319,6 +324,11 @@ function OverlayItem({
       // the practical text sizes spread across the whole drag instead of being
       // squeezed into the first sliver before an unusably large maximum.
       else if (mode === "scale") onChange({ scale: clamp(os + (dxFrac + dyFrac) * 1.2, 0.1, 3) });
+      // Widen/narrow the text box by dragging the side handle. The box is
+      // centered and grows from both edges, so a right-edge drag of `d` px
+      // changes total width by `2d`; divide by the visual scale to work in the
+      // box's own coordinates. Wide keeps words on one line; narrow wraps them.
+      else if (mode === "width") onChange({ width: clamp(ow + (dxFrac / os) * 2, 0.05, 2) });
       else onChange({ rotation: orot + dxFrac * 180 });
     };
     const up = () => {
@@ -330,6 +340,12 @@ function OverlayItem({
   };
 
   const isText = overlay.kind === "text";
+
+  // Once the user drags the side handle, `width` pins both the box width and the
+  // wrapping boundary; until then the box stays content-sized and only wraps
+  // near the frame edge, matching the pre-resize behavior.
+  const boxWidth = isText && overlay.width != null ? overlay.width * frame.w : undefined;
+  const widthStyle = { width: boxWidth, maxWidth: boxWidth ?? frame.w * DEFAULT_TEXT_WIDTH };
 
   return (
     <div
@@ -361,7 +377,7 @@ function OverlayItem({
               suppressContentEditableWarning
               className="block min-w-[1ch] cursor-text select-text whitespace-pre-wrap break-words px-1 text-center outline-none"
               style={{
-                maxWidth: frame.w * 0.9,
+                ...widthStyle,
                 fontFamily: overlay.fontFamily ?? "Inter, system-ui, sans-serif",
                 fontWeight: overlay.fontWeight ?? 600,
                 fontSize: 0.05 * frame.h,
@@ -392,7 +408,7 @@ function OverlayItem({
             <span
               className="block whitespace-pre-wrap break-words px-1 text-center"
               style={{
-                maxWidth: frame.w * 0.9,
+                ...widthStyle,
                 fontFamily: overlay.fontFamily ?? "Inter, system-ui, sans-serif",
                 fontWeight: overlay.fontWeight ?? 600,
                 fontSize: 0.05 * frame.h,
@@ -411,6 +427,14 @@ function OverlayItem({
 
         {selected && !overlay.locked && !editing && (
           <>
+            {isText && (
+              <span
+                onPointerDown={onPointerDown("width")}
+                title="Drag to widen or narrow the text box"
+                className="absolute -right-2 top-1/2 h-4 w-4 -translate-y-1/2 cursor-ew-resize rounded-full border-2 border-white bg-[var(--accent)]"
+                style={{ touchAction: "none" }}
+              />
+            )}
             <span
               onPointerDown={onPointerDown("scale")}
               className="absolute -bottom-2 -right-2 h-4 w-4 cursor-nwse-resize rounded-full border-2 border-white bg-[var(--accent)]"

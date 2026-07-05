@@ -431,6 +431,11 @@ export interface Overlay {
   y: number;
   /** Scale relative to a default size (1 = default). */
   scale: number;
+  /** Text-box width as a fraction of the frame width, used as the wrapping
+   *  boundary for text overlays. Widen it to string words onto one line;
+   *  narrow it to force wrapping across multiple lines. Undefined keeps the
+   *  legacy auto width (wrap near the frame edge). Ignored for images. */
+  width?: number;
   rotation: number;
   opacity: number;
   /** Stacking order; higher renders on top. */
