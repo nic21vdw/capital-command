@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import {
   AlertTriangle,
   CalendarClock,
@@ -114,6 +114,7 @@ export function UploadingCenterPage() {
 
   // Surface the OAuth redirect result exactly once.
   const searchParams = useSearchParams();
+  const router = useRouter();
   const oauthToastShown = useRef(false);
   useEffect(() => {
     if (oauthToastShown.current) return;
@@ -144,19 +145,61 @@ export function UploadingCenterPage() {
     [itemAtSlot, channelVideosBySlot]
   );
 
+  // Placement mode: the editor's Schedule Short button lands here with
+  // ?scheduleJob=…&scheduleClip=…; that clip is pre-selected and every open
+  // slot becomes a one-click target (dragging still works too).
+  const [placingKey, setPlacingKey] = useState<string | null>(null);
+  const placementConsumed = useRef(false);
+  const scheduleJobParam = searchParams.get("scheduleJob");
+  const scheduleClipParam = searchParams.get("scheduleClip");
+  useEffect(() => {
+    if (placementConsumed.current || !loaded || !scheduleJobParam || !scheduleClipParam) return;
+    let cancelled = false;
+    // Deferred so the state updates land after the render pass, not inside it.
+    queueMicrotask(() => {
+      if (cancelled || placementConsumed.current) return;
+      setActiveJobId(scheduleJobParam);
+      // The clip is matched by any file it was ever postable as, so the param
+      // can be the editor's source file while the card shows the edited render.
+      const clip = readyClips.find(
+        (candidate) => candidate.jobId === scheduleJobParam && candidate.allFiles.includes(scheduleClipParam)
+      );
+      if (!clip) return; // readyClips still switching to that job — retry on the next render
+      placementConsumed.current = true;
+      setPlacingKey(clip.key);
+      router.replace("/uploading-center");
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [loaded, readyClips, router, scheduleClipParam, scheduleJobParam, setActiveJobId]);
+  const placingClip = useMemo(
+    () => (placingKey ? (readyClips.find((clip) => clip.key === placingKey) ?? null) : null),
+    [placingKey, readyClips]
+  );
+
   const handleSchedule = useCallback(
-    (clip: ReadyClip, override?: Partial<ClipDraft>) => {
-      void schedule(clip, { ...draftFor(clip), ...override });
-    },
+    (clip: ReadyClip, override?: Partial<ClipDraft>) => schedule(clip, { ...draftFor(clip), ...override }),
     [draftFor, schedule]
   );
   const handleDrop = useCallback(
     (platform: PlatformId, slotUtc: string, clipKey: string) => {
       const clip = readyClips.find((candidate) => candidate.key === clipKey);
       if (!clip) return;
-      handleSchedule(clip, { platform, slotUtc });
+      void handleSchedule(clip, { platform, slotUtc }).then((ok) => {
+        if (ok && clipKey === placingKey) setPlacingKey(null);
+      });
     },
-    [handleSchedule, readyClips]
+    [handleSchedule, placingKey, readyClips]
+  );
+  const handleSelectSlot = useCallback(
+    (platform: PlatformId, slotUtc: string) => {
+      if (!placingClip || busy) return;
+      void handleSchedule(placingClip, { platform, slotUtc }).then((ok) => {
+        if (ok) setPlacingKey(null);
+      });
+    },
+    [busy, handleSchedule, placingClip]
   );
 
   const slots = useMemo(() => overview?.slots ?? [], [overview]);
@@ -254,6 +297,7 @@ export function UploadingCenterPage() {
             channelVideoAtSlot={id === "youtube" ? channelVideoAtSlot : undefined}
             onDropClip={(slotUtc, clipKey) => handleDrop(id, slotUtc, clipKey)}
             onUploadVideo={(slotUtc, file) => void uploadToSlot(file, { platform: id, slotUtc })}
+            onSelectSlot={placingClip ? (slotUtc) => handleSelectSlot(id, slotUtc) : undefined}
             onPublishNow={(item) => void publishNow(item)}
             onRemove={(item) => void remove(item)}
             busy={busy}
@@ -306,6 +350,19 @@ export function UploadingCenterPage() {
         }
       />
 
+      {placingClip ? (
+        <div className="mb-4 flex flex-wrap items-center gap-3 rounded-lg border border-[var(--accent)]/40 bg-[var(--accent)]/10 px-3 py-2.5">
+          <CalendarClock className="h-4 w-4 shrink-0 text-[var(--accent)]" />
+          <p className="min-w-0 flex-1 text-sm text-white">
+            Scheduling <span className="font-semibold">“{placingClip.headline}”</span> — click any open slot on the
+            calendar (or drag the card) and the upload is scheduled for that time.
+          </p>
+          <Button variant="ghost" className="h-8 px-3 text-xs" onClick={() => setPlacingKey(null)}>
+            Cancel
+          </Button>
+        </div>
+      ) : null}
+
       {!loaded ? (
         <Card className="flex items-center justify-center py-16">
           <Loader2 className="h-5 w-5 animate-spin text-[var(--muted-foreground)]" />
@@ -335,7 +392,8 @@ export function UploadingCenterPage() {
             isSlotTaken={isSlotTaken}
             itemsForClip={itemsForClip}
             busy={busy}
-            onSchedule={(clip) => handleSchedule(clip)}
+            highlightedKey={placingKey}
+            onSchedule={(clip) => void handleSchedule(clip)}
             onAutoAssign={handleAutoAssign}
           />
           <div className="min-w-0">
