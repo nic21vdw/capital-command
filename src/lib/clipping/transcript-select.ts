@@ -1,5 +1,6 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { TARGET_CLIP_COUNT } from "@/lib/clipping/analysis";
+import { resolveThoughtEnd } from "@/lib/clipping/thought-end";
 import type { CaptionSegment } from "@/types/domain";
 import type { ClipCandidate, ClipScoreBreakdown } from "@/lib/clipping/types";
 
@@ -19,6 +20,13 @@ const MIN_CLIP_SEC = 15;
 // can survive, but nothing longer than this is ever produced.
 const PREFERRED_MAX_CLIP_SEC = 30;
 const MAX_CLIP_SEC = 45;
+// A clip may run this many seconds past its proposed end so the speaker can
+// finish the sentence they are in — a slightly longer clip that concludes the
+// thought beats a shorter one that cuts off mid-sentence.
+const END_EXTENSION_SEC = 10;
+// And when no conclusion exists ahead, pull back at most this far to the
+// previous completed thought instead of ending mid-sentence.
+const END_TRIM_SEC = 6;
 const TARGET_CLIPS = TARGET_CLIP_COUNT;
 // Keep the timeline we send to the model bounded regardless of stream length so
 // even a multi-hour VOD is covered end-to-end (we just coarsen the granularity).
@@ -112,8 +120,8 @@ function toCandidate(
   raw: RawClip,
   index: number,
   durationSec: number,
-  starts: number[],
-  ends: number[]
+  segments: CaptionSegment[],
+  starts: number[]
 ): ClipCandidate | null {
   let start = Number(raw.start);
   let end = Number(raw.end);
@@ -122,11 +130,21 @@ function toCandidate(
   end = clamp(end, 0, durationSec);
   if (end <= start) return null;
 
-  // Snap to natural sentence boundaries so clips don't start/end mid-word.
+  // Snap the start to a caption boundary so the clip doesn't open mid-word.
   start = snap(start, starts, 3);
-  end = snap(end, ends, 3);
-  if (end - start < MIN_CLIP_SEC) end = Math.min(durationSec, start + MIN_CLIP_SEC);
-  if (end - start > MAX_CLIP_SEC) end = start + MAX_CLIP_SEC;
+  // The end gets stricter treatment than "nearest caption boundary": caption
+  // segments routinely break mid-sentence, so the end must land where a
+  // thought actually concludes. Prefer running a few seconds longer to let
+  // the speaker finish; trim back to the previous completed thought only when
+  // nothing concludes ahead.
+  const minEnd = Math.min(start + MIN_CLIP_SEC, durationSec);
+  const resolved = resolveThoughtEnd(segments, Math.max(end, minEnd), {
+    minEnd,
+    maxEnd: Math.min(durationSec, start + MAX_CLIP_SEC),
+    maxExtension: END_EXTENSION_SEC,
+    maxTrim: END_TRIM_SEC
+  });
+  end = resolved.end;
   if (end - start < Math.min(MIN_CLIP_SEC, durationSec)) return null;
 
   const breakdown: ClipScoreBreakdown = {
@@ -178,7 +196,8 @@ Read the ENTIRE transcript, beginning to end, and choose exactly ${TARGET_CLIPS}
 Rules:
 - Choose moments from ACROSS THE WHOLE STREAM - do not cluster them all near the start. Spread them over the full timeline.
 - Each clip must be a self-contained thought that makes sense without surrounding context.
-- Each clip should be between ${MIN_CLIP_SEC} and ${PREFERRED_MAX_CLIP_SEC} seconds long. Only exceed ${PREFERRED_MAX_CLIP_SEC} seconds when the moment is one continuous thought that would be ruined by cutting it shorter, and never exceed ${MAX_CLIP_SEC} seconds.
+- THE ENDING IS CRITICAL: before finalizing each clip, re-read the transcript around your chosen "end" time and check what the speaker is saying right there. The clip must end where the thought CONCLUDES — the end of the sentence that completes the point, story, or punchline. Never end while the speaker is mid-sentence, and never end right after they have started a NEW sentence or point that the clip won't finish. If the thought concludes a few seconds after your ideal end, extend the end to include it — a slightly longer clip that lands the conclusion is always better than one that cuts off.
+- Each clip should be between ${MIN_CLIP_SEC} and ${PREFERRED_MAX_CLIP_SEC} seconds long. You may exceed ${PREFERRED_MAX_CLIP_SEC} seconds when needed to let a thought conclude, or when the moment is one continuous thought that would be ruined by cutting it shorter - but never exceed ${MAX_CLIP_SEC} seconds.
 - Favour strong hooks, emotional or surprising payoffs, hot takes, stories, and quotable lines.
 - Prefer variety: mix strong openings, tactical explanations, funny reactions, disagreement, turning points, and clean story payoffs when the transcript supports them.
 - Avoid picking multiple moments that make the same point unless the later one has a clearly better hook or payoff.
@@ -214,9 +233,8 @@ ${timeline}`;
       .join("\n");
 
     const starts = segments.map((s) => s.start);
-    const ends = segments.map((s) => s.end);
     const candidates = parseClips(text)
-      .map((raw, index) => toCandidate(raw, index, durationSec, starts, ends))
+      .map((raw, index) => toCandidate(raw, index, durationSec, segments, starts))
       .filter((c): c is ClipCandidate => c !== null);
 
     if (candidates.length === 0) return null;

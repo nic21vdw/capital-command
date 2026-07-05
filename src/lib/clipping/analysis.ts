@@ -1,5 +1,6 @@
 import { runFfmpeg } from "@/lib/clipping/ffmpeg";
 import { analyzeTranscript, densityScore } from "@/lib/clipping/text-signals";
+import { resolveThoughtEnd } from "@/lib/clipping/thought-end";
 import type { ClipCandidate, ClipScoreBreakdown } from "@/lib/clipping/types";
 import type { CaptionSegment } from "@/types/domain";
 
@@ -18,8 +19,15 @@ const WINDOW_SEC = 0.5;
 const WINDOW_SAMPLES = Math.round(WINDOW_SEC * 16000);
 const MIN_CLIP_SEC = 15;
 // Energy analysis can't judge whether a moment truly needs extra runtime, so it
-// stays inside the preferred 15-30s band outright.
+// stays inside the preferred 15-30s band outright...
 const MAX_CLIP_SEC = 30;
+// ...except to let a thought finish: when the transcript shows the speaker is
+// still mid-sentence at the cut, the end may run this far past MAX_CLIP_SEC so
+// the clip concludes instead of cutting them off.
+const END_EXTENSION_SEC = 10;
+// When nothing concludes ahead, pull the end back at most this far to the
+// previous completed thought rather than ending mid-sentence.
+const END_TRIM_SEC = 6;
 const TARGET_CLIP_SEC = 24;
 export const TARGET_CLIP_COUNT = 10;
 const MAX_CANDIDATES = TARGET_CLIP_COUNT;
@@ -188,6 +196,19 @@ export function selectCandidates(
     start = Math.max(0, start);
     end = Math.min(durationSec, Math.max(end, start + MIN_CLIP_SEC));
     if (end - start > MAX_CLIP_SEC) end = start + MAX_CLIP_SEC;
+
+    // A silence is not the same as a finished thought — the speaker may have
+    // merely paused mid-sentence, or already started the next point. When a
+    // transcript exists, land the end where a thought actually concludes,
+    // running a little past the usual cap if that finishes the sentence.
+    if (captions.length > 0) {
+      end = resolveThoughtEnd(captions, end, {
+        minEnd: Math.min(start + MIN_CLIP_SEC, durationSec),
+        maxEnd: Math.min(durationSec, start + MAX_CLIP_SEC + END_EXTENSION_SEC),
+        maxExtension: END_EXTENSION_SEC,
+        maxTrim: END_TRIM_SEC
+      }).end;
+    }
     if (end - start < Math.min(MIN_CLIP_SEC, durationSec)) continue;
 
     const inClip = windows.filter((w) => w.time >= start && w.time <= end);
