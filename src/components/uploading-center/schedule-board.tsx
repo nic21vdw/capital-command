@@ -80,7 +80,12 @@ export function ScheduleBoard({
   );
 
   return (
-    <div className="overflow-x-auto">
+    // Bounded, scrollable pane so the slot-time header row can freeze in place
+    // ("frozen pane") while the 14 days scroll under it. A plain window-sticky
+    // header can't work here: this wrapper scrolls horizontally on narrow
+    // screens, and any overflow container makes `overflow-y` a scroll context
+    // that would trap a `top-0` sticky against the wrapper instead of the page.
+    <div className="max-h-[calc(100vh-8rem)] overflow-auto">
       <input
         ref={fileInputRef}
         type="file"
@@ -99,11 +104,11 @@ export function ScheduleBoard({
           className="grid gap-1.5"
           style={{ gridTemplateColumns: `7rem repeat(${columnCount}, minmax(0, 1fr))` }}
         >
-          <div />
+          <div className="sticky top-0 z-20 bg-[var(--background)]" />
           {headers.map((header, index) => (
             <div
               key={index}
-              className="px-1 text-center text-[11px] font-medium uppercase tracking-wider text-[var(--muted-foreground)]"
+              className="sticky top-0 z-20 bg-[var(--background)] px-1 pb-1.5 text-center text-[11px] font-medium uppercase tracking-wider text-[var(--muted-foreground)]"
             >
               {header}
             </div>
