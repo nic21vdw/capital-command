@@ -324,7 +324,7 @@ function OverlayItem({
     window.addEventListener("pointerup", up);
   };
 
-  const isText = overlay.kind === "text" || overlay.kind === "title";
+  const isText = overlay.kind === "text";
 
   return (
     <div
@@ -357,8 +357,8 @@ function OverlayItem({
               className="block min-w-[1ch] cursor-text whitespace-pre px-1 outline-none"
               style={{
                 fontFamily: overlay.fontFamily ?? "Inter, system-ui, sans-serif",
-                fontWeight: overlay.fontWeight ?? (overlay.kind === "title" ? 800 : 600),
-                fontSize: (overlay.kind === "title" ? 0.09 : 0.05) * frame.h,
+                fontWeight: overlay.fontWeight ?? 600,
+                fontSize: 0.05 * frame.h,
                 color: overlay.color ?? "#ffffff",
                 background: overlay.background ?? "transparent",
                 textShadow: "0 2px 6px rgba(0,0,0,0.6)",
@@ -383,8 +383,8 @@ function OverlayItem({
               className="block whitespace-pre px-1"
               style={{
                 fontFamily: overlay.fontFamily ?? "Inter, system-ui, sans-serif",
-                fontWeight: overlay.fontWeight ?? (overlay.kind === "title" ? 800 : 600),
-                fontSize: (overlay.kind === "title" ? 0.09 : 0.05) * frame.h,
+                fontWeight: overlay.fontWeight ?? 600,
+                fontSize: 0.05 * frame.h,
                 color: overlay.color ?? "#ffffff",
                 background: overlay.background ?? "transparent",
                 textShadow: "0 2px 6px rgba(0,0,0,0.6)"

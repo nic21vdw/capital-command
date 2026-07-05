@@ -568,7 +568,7 @@ export const OverlaysPanel = memo(function OverlaysPanel({ api }: { api: EditorA
                 api.selectedOverlayId === o.id ? "border-[var(--accent)]/60 bg-[var(--accent)]/8 text-white" : "border-[var(--border)] text-[var(--muted-foreground)]"
               )}
             >
-              <span className="truncate">{o.kind === "text" || o.kind === "title" ? o.text || o.kind : o.kind}</span>
+              <span className="truncate">{o.kind === "text" ? o.text || o.kind : o.kind}</span>
               <div className="ml-auto flex items-center gap-1">
                 <IconBtn title="Layer up" onClick={() => api.reorderOverlay(o.id, "up")}><ArrowUp className="h-3.5 w-3.5" /></IconBtn>
                 <IconBtn title="Layer down" onClick={() => api.reorderOverlay(o.id, "down")}><ArrowDown className="h-3.5 w-3.5" /></IconBtn>
@@ -585,7 +585,7 @@ export const OverlaysPanel = memo(function OverlaysPanel({ api }: { api: EditorA
 
       {selected && (
         <div className="space-y-3 rounded-lg border border-[var(--border)] p-3">
-          {(selected.kind === "text" || selected.kind === "title") && (
+          {selected.kind === "text" && (
             <>
               <Field label="Text">
                 <textarea
