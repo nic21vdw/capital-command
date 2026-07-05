@@ -84,14 +84,23 @@ function CaptionLayer({
   project,
   video,
   fallbackTime,
-  frameH
+  frameW,
+  frameH,
+  selected,
+  onSelect,
+  onStyleChange
 }: {
   project: ClipProject;
   video: HTMLVideoElement | null;
   fallbackTime: number;
+  frameW: number;
   frameH: number;
+  selected: boolean;
+  onSelect: (v: boolean) => void;
+  onStyleChange?: (partial: Partial<CaptionStyle>) => void;
 }) {
   const time = useCaptionClock(video, fallbackTime);
+  const blockRef = useRef<HTMLSpanElement>(null);
   if (!project.captionsVisible) return null;
   const seg = project.captions.find((s) => s.enabled && time >= s.start && time < s.end);
   if (!seg) return null;
@@ -118,13 +127,82 @@ function CaptionLayer({
     if (line.length) lines.push(line);
   }
 
+  const interactive = Boolean(onStyleChange);
+  const hasCustomPos = style.offsetX !== undefined && style.offsetY !== undefined;
+
+  // Drag to move / scale, mirroring OverlayItem. On the first move of a
+  // preset-positioned caption we convert its measured center into normalized
+  // offsets so the block keeps its exact spot and follows the pointer from
+  // there on.
+  const beginDrag = (mode: "move" | "scale") => (e: React.PointerEvent) => {
+    if (!interactive || e.button !== 0) return;
+    e.stopPropagation();
+    e.preventDefault();
+    onSelect(true);
+    const frameEl = (e.currentTarget as HTMLElement).closest("[data-preview-frame]");
+    const block = blockRef.current;
+    if (!frameEl || !block) return;
+    const frameRect = frameEl.getBoundingClientRect();
+    const blockRect = block.getBoundingClientRect();
+    const startX = hasCustomPos
+      ? (style.offsetX as number)
+      : (blockRect.left + blockRect.width / 2 - frameRect.left) / Math.max(1, frameRect.width);
+    const startY = hasCustomPos
+      ? (style.offsetY as number)
+      : (blockRect.top + blockRect.height / 2 - frameRect.top) / Math.max(1, frameRect.height);
+    const startScale = style.fontScale;
+    const sx = e.clientX;
+    const sy = e.clientY;
+    const move = (ev: PointerEvent) => {
+      const dx = ev.clientX - sx;
+      const dy = ev.clientY - sy;
+      if (mode === "move") {
+        onStyleChange?.({
+          offsetX: clamp(startX + dx / Math.max(1, frameRect.width), 0.02, 0.98),
+          offsetY: clamp(startY + dy / Math.max(1, frameRect.height), 0.02, 0.98)
+        });
+      } else {
+        // The handle roughly tracks the pointer: growing the font by the
+        // dragged pixel distance keeps the gesture feeling direct.
+        const px = startScale * frameRect.height + (dx + dy) / 2;
+        onStyleChange?.({ fontScale: clamp(px / Math.max(1, frameRect.height), 0.02, 0.16) });
+      }
+    };
+    const up = () => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+  };
+
   return (
-    <div className={cn("pointer-events-none absolute inset-x-0 z-10 flex px-[6%]", captionPositionClasses(style))}>
-      <div className={cn("w-full", align)}>
+    <div
+      className={cn(
+        "pointer-events-none absolute z-10 flex",
+        hasCustomPos ? "" : cn("inset-x-0 px-[6%]", captionPositionClasses(style))
+      )}
+      style={
+        hasCustomPos
+          ? {
+              left: `${(style.offsetX as number) * 100}%`,
+              top: `${(style.offsetY as number) * 100}%`,
+              transform: "translate(-50%, -50%)",
+              maxWidth: frameW * 0.92
+            }
+          : undefined
+      }
+    >
+      <div className={cn(hasCustomPos ? "" : "w-full", align)}>
         <span
+          ref={blockRef}
           key={seg.id}
+          onPointerDown={beginDrag("move")}
           className={cn(
-            "inline-block rounded-lg px-2 py-0.5 leading-tight",
+            "relative inline-block rounded-lg px-2 py-0.5 leading-tight",
+            interactive && "pointer-events-auto cursor-move touch-none",
+            interactive && selected && "outline outline-2 outline-[var(--accent)]",
+            interactive && !selected && "hover:outline hover:outline-1 hover:outline-white/50",
             animate === "pop" && "animate-[caption-pop_180ms_cubic-bezier(0.2,1.4,0.4,1)_both]",
             animate === "fade" && "animate-[caption-fade_220ms_ease-out_both]"
           )}
@@ -148,6 +226,12 @@ function CaptionLayer({
                 </span>
               ))
             : transform(seg.text)}
+          {interactive && selected && (
+            <span
+              onPointerDown={beginDrag("scale")}
+              className="absolute -bottom-2 -right-2 h-4 w-4 cursor-nwse-resize touch-none rounded-full border-2 border-white bg-[var(--accent)]"
+            />
+          )}
         </span>
       </div>
     </div>
@@ -487,6 +571,7 @@ export function EditorPreview({
   onSelectOverlay,
   onOverlayChange,
   onReframeChange,
+  onCaptionStyleChange,
   faceCropEditing = false,
   onFaceCropEditingChange,
   onFaceSourceChange
@@ -500,6 +585,7 @@ export function EditorPreview({
   onSelectOverlay: (id: string | null) => void;
   onOverlayChange: (id: string, partial: Partial<Overlay>) => void;
   onReframeChange: (partial: Partial<ReframeTransform>) => void;
+  onCaptionStyleChange?: (partial: Partial<CaptionStyle>) => void;
   faceCropEditing?: boolean;
   onFaceCropEditingChange?: (v: boolean) => void;
   onFaceSourceChange?: (rect: Rect) => void;
@@ -512,6 +598,7 @@ export function EditorPreview({
   const [frameSize, setFrameSize] = useState({ w: 360, h: 640 });
   const [videoAspect, setVideoAspect] = useState(project.baseWidth / Math.max(1, project.baseHeight));
   const [fgVideo, setFgVideo] = useState<HTMLVideoElement | null>(null);
+  const [captionSelected, setCaptionSelected] = useState(false);
   // Keyed by src so a clip switch automatically clears a previous failure.
   const [failedSrc, setFailedSrc] = useState<string | null>(null);
   const loadFailed = failedSrc === videoSrc;
@@ -615,6 +702,7 @@ export function EditorPreview({
   const beginPointer = (e: React.PointerEvent) => {
     if (e.button !== 0) return;
     onSelectOverlay(null);
+    setCaptionSelected(false);
     const sx = e.clientX;
     const sy = e.clientY;
     const startX = project.reframe.offsetX;
@@ -655,6 +743,7 @@ export function EditorPreview({
     <div className="flex items-center justify-center">
       <div
         ref={frameRef}
+        data-preview-frame
         className={cn(
           "relative overflow-hidden rounded-2xl bg-black shadow-[0_18px_48px_-12px_rgba(0,0,0,0.55)] ring-1 ring-white/10",
           canPan && "cursor-grab active:cursor-grabbing"
@@ -738,7 +827,18 @@ export function EditorPreview({
             />
           ))}
 
-        {!croppingFace && <CaptionLayer project={project} video={fgVideo} fallbackTime={time} frameH={frameH} />}
+        {!croppingFace && (
+          <CaptionLayer
+            project={project}
+            video={fgVideo}
+            fallbackTime={time}
+            frameW={frameW}
+            frameH={frameH}
+            selected={captionSelected}
+            onSelect={setCaptionSelected}
+            onStyleChange={onCaptionStyleChange}
+          />
+        )}
 
         {!croppingFace && project.exportSettings.watermark && <WatermarkLayer frameH={frameH} />}
 

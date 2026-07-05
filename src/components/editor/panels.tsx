@@ -251,7 +251,8 @@ export const StylePanel = memo(function StylePanel({ api }: { api: EditorApi }) 
         <SelectField
           label="Position"
           value={s.position}
-          onChange={(v) => set({ position: v })}
+          // Picking a preset slot discards any drag-placed position.
+          onChange={(v) => set({ position: v, offsetX: undefined, offsetY: undefined })}
           options={[
             { value: "top", label: "Top" },
             { value: "middle", label: "Middle" },
@@ -270,6 +271,21 @@ export const StylePanel = memo(function StylePanel({ api }: { api: EditorApi }) 
           ]}
         />
       </div>
+      {s.offsetX !== undefined && s.offsetY !== undefined && (
+        <div className="flex items-center justify-between rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-xs">
+          <span className="text-[var(--muted-foreground)]">
+            Custom placement ({Math.round(s.offsetX * 100)}%, {Math.round(s.offsetY * 100)}%) — drag the caption on the
+            preview to adjust.
+          </span>
+          <button
+            type="button"
+            className="shrink-0 rounded-md border border-[var(--border)] px-2 py-1 font-medium hover:bg-white/5"
+            onClick={() => set({ offsetX: undefined, offsetY: undefined })}
+          >
+            Reset
+          </button>
+        </div>
+      )}
       <div className="grid grid-cols-2 gap-3">
         <NumberField label="Max words / caption" value={s.maxWordsPerCaption} min={1} max={20} onChange={(v) => set({ maxWordsPerCaption: v })} />
         <NumberField label="Words / line" value={s.wordsPerLine} min={1} max={12} onChange={(v) => set({ wordsPerLine: v })} />

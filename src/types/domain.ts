@@ -400,6 +400,13 @@ export interface CaptionStyle {
   wordsPerLine: number;
   animation: CaptionAnimation;
   uppercase: boolean;
+  /**
+   * Free placement set by dragging the caption on the preview: normalized
+   * 0..1 center of the caption block. When both are set they override
+   * `position`; clearing them returns the caption to the preset slot.
+   */
+  offsetX?: number;
+  offsetY?: number;
 }
 
 export type CaptionPresetId = "minimal" | "bold-shorts" | "highlight-word" | "lower-third" | "colateral-purple";

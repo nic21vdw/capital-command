@@ -667,6 +667,9 @@ export function ClipEditor({
             onSelectOverlay={setSelectedOverlayId}
             onOverlayChange={updateOverlay}
             onReframeChange={handleReframeChange}
+            onCaptionStyleChange={(partial) =>
+              setProject((p) => ({ ...p, captionStyle: { ...p.captionStyle, ...partial } }))
+            }
             faceCropEditing={faceCropEditing}
             onFaceCropEditingChange={setFaceCropEditing}
             onFaceSourceChange={(rect) => patch({ faceSource: rect })}
