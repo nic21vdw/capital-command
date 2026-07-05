@@ -444,11 +444,13 @@ export function ClipEditor({
       kind,
       text: kind === "text" ? "Text" : undefined,
       src,
+      // Watermarks default to a full-width banner across the top of the short:
+      // the base image width is 0.4× the frame, so 2.5× scale spans it edge to edge.
       x: 0.5,
-      y: kind === "watermark" ? 0.9 : 0.5,
-      scale: kind === "watermark" ? 0.5 : 1,
+      y: kind === "watermark" ? 0.05 : 0.5,
+      scale: kind === "watermark" ? 2.5 : 1,
       rotation: 0,
-      opacity: kind === "watermark" ? 0.6 : 1,
+      opacity: 1,
       z: project.overlays.length,
       locked: false,
       start: 0,
