@@ -7,7 +7,7 @@ import { hasAudioStream, probeDuration, runFfmpeg } from "@/lib/clipping/ffmpeg"
 import { renderPreviewAssets, renderSourceClip } from "@/lib/clipping/render";
 import { readSourceMeta, sourceFilePath, type SourceMeta } from "@/lib/clipping/sources";
 import { ensureClipThumbnail } from "@/lib/clipping/thumbnails";
-import { fetchAutoCaptions } from "@/lib/clipping/transcription";
+import { fetchSourceCaptions } from "@/lib/clipping/transcription";
 import { selectByTranscript } from "@/lib/clipping/transcript-select";
 import { transcribeMedia } from "@/lib/clipping/whisper";
 import type { ClipCandidate, ClipJob } from "@/lib/clipping/types";
@@ -139,9 +139,11 @@ async function update(job: ClipJob, patch: Partial<ClipJob>) {
 }
 
 /**
- * Fetches (and caches) automatic captions for a job from the source platform.
- * Force re-fetch to regenerate. Errors are stored on the job, not thrown, so a
- * source without captions degrades gracefully to manual captioning.
+ * Fetches (and caches) automatic captions for a job. Platform captions are
+ * tried first for URL sources, with local Whisper transcription as a fallback
+ * so every source with an audio track gets captions. Force re-fetch to
+ * regenerate. Errors are stored on the job, not thrown, so a source that
+ * truly can't be transcribed degrades gracefully to manual captioning.
  */
 export async function fetchJobCaptions(id: string, force = false): Promise<ClipJob | undefined> {
   await loadJobs();
@@ -157,7 +159,14 @@ export async function fetchJobCaptions(id: string, force = false): Promise<ClipJ
       if (!meta.hasAudio) throw new Error("This video has no audio track, so there is nothing to transcribe.");
       segments = await transcribeMedia(sourceFilePath(meta), workDir(id));
     } else {
-      segments = await fetchAutoCaptions(job.sourceUrl, workDir(id));
+      // Reuse the audio the pipeline downloaded when it still exists;
+      // fetchSourceCaptions re-downloads it otherwise.
+      const result = await fetchSourceCaptions(
+        job.sourceUrl,
+        workDir(id),
+        path.join(workDir(id), "source-audio.mp3")
+      );
+      segments = result.segments;
     }
     await update(job, { sourceCaptions: segments, captionsFetchedAt: new Date().toISOString(), captionsError: undefined });
   } catch (error) {
@@ -363,7 +372,16 @@ async function runPipeline(job: ClipJob, url: string) {
   await update(job, { stage: "analyzing", progress: 30 });
   let transcript: ClipJob["sourceCaptions"] = [];
   try {
-    transcript = await fetchAutoCaptions(url, workDir(job.id));
+    // Platform captions first, local Whisper transcription of the audio we
+    // just downloaded as a fallback — a source without platform captions
+    // still gets automatic captions.
+    const result = await fetchSourceCaptions(url, workDir(job.id), audioPath);
+    transcript = result.segments;
+    if (result.source === "local") {
+      job.notices.push(
+        "This source has no platform captions, so captions were generated locally with on-device transcription."
+      );
+    }
     if (transcript.length > 0) {
       await update(job, {
         sourceCaptions: transcript,
