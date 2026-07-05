@@ -517,10 +517,11 @@ export const CAPTION_PRESETS: Record<CaptionPresetId, { label: string; style: Pa
       textColor: "#ffffff",
       highlightColor: "#a585ff",
       backgroundColor: "#2a1a5e",
-      backgroundOpacity: 0.85,
-      outlineWidth: 0,
+      backgroundOpacity: 0,
+      outlineWidth: 3,
       shadow: 2,
       position: "bottom",
+      alignment: "center",
       animation: "fade",
       maxWordsPerCaption: 6,
       uppercase: false
