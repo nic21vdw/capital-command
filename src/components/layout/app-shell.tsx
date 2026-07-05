@@ -141,7 +141,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   };
 
   return (
-    <div className="mx-auto flex min-h-screen max-w-[1600px] gap-6 px-4 py-4 lg:px-6">
+    <div className="flex min-h-screen gap-6 px-4 py-4 lg:px-6">
       <aside className={cn("hidden shrink-0 transition-[width] duration-300 lg:block", sidebarCollapsed ? "w-20" : "w-64")}>
         <div className="sticky top-4 flex h-[calc(100vh-2rem)] flex-col rounded-xl border border-[var(--border)] bg-[var(--panel)] p-4">
           {/* When collapsed the rail is too narrow for the brand and the toggle

@@ -2,7 +2,6 @@
 
 import { CalendarClock, ExternalLink, GripVertical, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { ClipPreview } from "@/components/uploading-center/clip-preview";
@@ -67,12 +66,15 @@ export function ClipCard({
         <div className="min-w-0 flex-1 space-y-2">
           <div className="flex items-start gap-2">
             <GripVertical className="mt-3 h-4 w-4 shrink-0 cursor-grab text-[var(--muted-foreground)]" />
-            <Input
+            {/* Wrapping textarea (not a single-line input) so long titles stay
+                fully visible; field-sizing grows it to fit the content. */}
+            <Textarea
               value={draft.title}
               maxLength={100}
-              onChange={(event) => onDraftChange({ ...draft, title: event.target.value })}
+              rows={1}
+              onChange={(event) => onDraftChange({ ...draft, title: event.target.value.replace(/\n/g, " ") })}
               placeholder="Title"
-              className="h-9"
+              className="field-sizing-content min-h-9 resize-none py-2"
             />
           </div>
           <Textarea
