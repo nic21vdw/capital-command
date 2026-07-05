@@ -9,7 +9,12 @@ import { resolvePublishAt } from "@/lib/publisher/time";
 import { prepareVerticalMedia } from "@/lib/publisher/vertical";
 import type { PlatformId, PlatformState, QueueItem, Visibility } from "@/lib/publisher/types";
 
-const PLATFORM_LABELS: Record<PlatformId, string> = { youtube: "YouTube", instagram: "Instagram", tiktok: "TikTok" };
+const PLATFORM_LABELS: Record<PlatformId, string> = {
+  youtube: "YouTube",
+  instagram: "Instagram",
+  tiktok: "TikTok",
+  facebook: "Facebook"
+};
 
 function manualPlatformState(platform: PlatformId): PlatformState {
   return {

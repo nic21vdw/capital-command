@@ -60,6 +60,13 @@ export type PublisherConfig = {
     accessToken: string | null;
     graphApiVersion: string;
   };
+  facebook: {
+    /** The Facebook Page id to post to (not the user id). */
+    pageId: string | null;
+    /** Page access token (not a user token) with pages_manage_posts. */
+    pageAccessToken: string | null;
+    graphApiVersion: string;
+  };
   tiktok: {
     clientKey: string | null;
     clientSecret: string | null;
@@ -140,6 +147,13 @@ export function publisherConfig(): PublisherConfig {
       // https://developers.facebook.com/docs/graph-api/changelog
       graphApiVersion: str("IG_GRAPH_API_VERSION") ?? "v23.0"
     },
+    facebook: {
+      pageId: str("FB_PAGE_ID"),
+      pageAccessToken: str("FB_PAGE_ACCESS_TOKEN"),
+      // VERIFY: bump as Meta retires Graph API versions — see the changelog at
+      // https://developers.facebook.com/docs/graph-api/changelog
+      graphApiVersion: str("FB_GRAPH_API_VERSION") ?? "v23.0"
+    },
     tiktok: {
       clientKey: str("TIKTOK_CLIENT_KEY"),
       clientSecret: str("TIKTOK_CLIENT_SECRET"),
@@ -164,6 +178,7 @@ export function configuredPlatforms(config = publisherConfig()): PlatformId[] {
       return Boolean(config.youtube.clientId && config.youtube.clientSecret && config.youtube.refreshToken);
     }
     if (p === "instagram") return Boolean(config.instagram.userId && config.instagram.accessToken);
+    if (p === "facebook") return Boolean(config.facebook.pageId && config.facebook.pageAccessToken);
     return Boolean(config.tiktok.clientKey && config.tiktok.clientSecret && config.tiktok.refreshToken);
   });
 }

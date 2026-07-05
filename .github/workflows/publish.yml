@@ -1,10 +1,11 @@
 # Scheduled clip publishing — the free, always-on trigger.
 #
 # Every 15 minutes this runs the publisher's run_due entrypoint, which
-# publishes any queued clips whose publish time has arrived (Instagram Reels
-# and TikTok have no server-side scheduling, so something must call their
-# publish APIs at the right moment even when your PC is off; YouTube is
-# scheduled natively at upload time and does not depend on this workflow).
+# publishes any queued clips whose publish time has arrived (Instagram Reels,
+# Facebook Reels, and TikTok have no server-side scheduling, so something must
+# call their publish APIs at the right moment even when your PC is off;
+# YouTube is scheduled natively at upload time and does not depend on this
+# workflow).
 #
 # IMPORTANT: this workflow only works with the R2 queue backend, because the
 # Actions runner cannot see your PC's data/ folder. Set BOTH of these:
@@ -13,7 +14,7 @@
 #   - here via the env block below (already set).
 #
 # Repo secrets to create (Settings → Secrets and variables → Actions):
-#   PUBLISH_PLATFORMS            e.g. youtube,instagram,tiktok (optional)
+#   PUBLISH_PLATFORMS            e.g. youtube,instagram,tiktok,facebook (optional)
 #   PUBLISH_TIMEZONE             e.g. America/Toronto (optional)
 #   PUBLISH_DEFAULT_VISIBILITY   public | private | unlisted (optional)
 #   YOUTUBE_CLIENT_ID            Google Cloud OAuth client id
@@ -21,6 +22,8 @@
 #   YOUTUBE_REFRESH_TOKEN        OAuth refresh token (see README)
 #   IG_USER_ID                   Instagram professional account user id
 #   IG_ACCESS_TOKEN              long-lived Instagram/Page access token
+#   FB_PAGE_ID                   Facebook Page id
+#   FB_PAGE_ACCESS_TOKEN         long-lived Facebook Page access token
 #   TIKTOK_CLIENT_KEY            TikTok developer app client key
 #   TIKTOK_CLIENT_SECRET         TikTok developer app client secret
 #   TIKTOK_REFRESH_TOKEN         TikTok OAuth refresh token
@@ -81,6 +84,8 @@ jobs:
           YOUTUBE_REFRESH_TOKEN: ${{ secrets.YOUTUBE_REFRESH_TOKEN }}
           IG_USER_ID: ${{ secrets.IG_USER_ID }}
           IG_ACCESS_TOKEN: ${{ secrets.IG_ACCESS_TOKEN }}
+          FB_PAGE_ID: ${{ secrets.FB_PAGE_ID }}
+          FB_PAGE_ACCESS_TOKEN: ${{ secrets.FB_PAGE_ACCESS_TOKEN }}
           TIKTOK_CLIENT_KEY: ${{ secrets.TIKTOK_CLIENT_KEY }}
           TIKTOK_CLIENT_SECRET: ${{ secrets.TIKTOK_CLIENT_SECRET }}
           TIKTOK_REFRESH_TOKEN: ${{ secrets.TIKTOK_REFRESH_TOKEN }}

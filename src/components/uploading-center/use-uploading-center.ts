@@ -52,7 +52,8 @@ export type ClipDraft = {
 export const PLATFORM_LABELS: Record<PlatformId, string> = {
   youtube: "YouTube",
   tiktok: "TikTok",
-  instagram: "Instagram"
+  instagram: "Instagram",
+  facebook: "Facebook"
 };
 
 // Keep in sync with the Clip Generator's headline: the creator/auto title on
