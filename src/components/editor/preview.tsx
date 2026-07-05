@@ -6,13 +6,14 @@ import { aspectDimensions } from "@/lib/clipping/editor";
 import {
   CLIP_LAYOUTS,
   DEFAULT_FACE_SOURCE,
+  DEFAULT_SCREEN_SOURCE,
   LAYOUT_MODE_PRESETS,
-  withFaceSource,
+  withLayerSources,
   type ClipLayoutDefinition,
   type Rect
 } from "@/lib/clipping/layouts";
 import { cn } from "@/lib/utils";
-import type { CaptionStyle, ClipProject, Overlay, ReframeTransform } from "@/types/domain";
+import type { CaptionStyle, ClipProject, CropTarget, Overlay, ReframeTransform } from "@/types/domain";
 
 function clamp(v: number, min: number, max: number) {
   return Math.min(max, Math.max(min, v));
@@ -634,9 +635,10 @@ export function EditorPreview({
   onOverlayChange,
   onReframeChange,
   onCaptionStyleChange,
-  faceCropEditing = false,
-  onFaceCropEditingChange,
-  onFaceSourceChange
+  cropEditing = null,
+  onCropEditingChange,
+  onFaceSourceChange,
+  onScreenSourceChange
 }: {
   project: ClipProject;
   time: number;
@@ -650,9 +652,11 @@ export function EditorPreview({
   onOverlayChange: (id: string, partial: Partial<Overlay>) => void;
   onReframeChange: (partial: Partial<ReframeTransform>) => void;
   onCaptionStyleChange?: (partial: Partial<CaptionStyle>) => void;
-  faceCropEditing?: boolean;
-  onFaceCropEditingChange?: (v: boolean) => void;
+  /** Which source-crop rect (face camera or screen) is being adjusted. */
+  cropEditing?: CropTarget;
+  onCropEditingChange?: (target: CropTarget) => void;
   onFaceSourceChange?: (rect: Rect) => void;
+  onScreenSourceChange?: (rect: Rect) => void;
 }) {
   const dims = aspectDimensions(project.aspectRatio);
   const fgRef = useRef<HTMLVideoElement>(null);
@@ -669,12 +673,21 @@ export function EditorPreview({
 
   const layoutPreset = LAYOUT_MODE_PRESETS[project.compositionMode];
   const layout: ClipLayoutDefinition | null = layoutPreset
-    ? withFaceSource(CLIP_LAYOUTS[layoutPreset], project.faceSource ?? DEFAULT_FACE_SOURCE)
+    ? withLayerSources(CLIP_LAYOUTS[layoutPreset], {
+        face: project.faceSource ?? DEFAULT_FACE_SOURCE,
+        screen: project.screenSource ?? DEFAULT_SCREEN_SOURCE
+      })
     : null;
   const hasFaceLayer = Boolean(layout?.layers.some((l) => l.kind === "face"));
-  const croppingFace = faceCropEditing && hasFaceLayer && Boolean(onFaceSourceChange);
+  const cropTarget: CropTarget =
+    cropEditing === "face" && hasFaceLayer && onFaceSourceChange
+      ? "face"
+      : cropEditing === "screen" && layout && onScreenSourceChange
+        ? "screen"
+        : null;
+  const cropping = cropTarget !== null;
   const isFit = project.compositionMode === "fit";
-  const canPan = !croppingFace && (project.compositionMode === "center-blur" || project.compositionMode === "crop-fill");
+  const canPan = !cropping && (project.compositionMode === "center-blur" || project.compositionMode === "crop-fill");
 
   // Measure the rendered frame so all geometry is pixel-accurate.
   useEffect(() => {
@@ -735,9 +748,9 @@ export function EditorPreview({
   // Plain computation (cheap arithmetic) — memoizing on `layout` would be
   // pointless since its identity changes with every project edit.
   const geometry = (() => {
-    // While the face crop is being adjusted, show the whole source frame so
-    // the user can see (and drag) exactly what the camera crop captures.
-    if (croppingFace) {
+    // While a source crop is being adjusted, show the whole source frame so
+    // the user can see (and drag) exactly what the crop captures.
+    if (cropping) {
       return {
         screen: reframeGeometry("fit", frameW, frameH, videoAspect, { scale: 1, offsetX: 0, offsetY: 0 }),
         face: null
@@ -888,9 +901,9 @@ export function EditorPreview({
         )}
 
         {/* Safe-area guide. */}
-        {!croppingFace && <div className="pointer-events-none absolute inset-[5%] z-10 rounded-md border border-dashed border-white/15" />}
+        {!cropping && <div className="pointer-events-none absolute inset-[5%] z-10 rounded-md border border-dashed border-white/15" />}
 
-        {!croppingFace &&
+        {!cropping &&
           visibleOverlays.map((overlay) => (
             <OverlayItem
               key={overlay.id}
@@ -902,7 +915,7 @@ export function EditorPreview({
             />
           ))}
 
-        {!croppingFace && (
+        {!cropping && (
           <CaptionLayer
             project={project}
             video={fgVideo}
@@ -915,10 +928,10 @@ export function EditorPreview({
           />
         )}
 
-        {!croppingFace && project.exportSettings.watermark && <WatermarkLayer frameH={frameH} />}
+        {!cropping && project.exportSettings.watermark && <WatermarkLayer frameH={frameH} />}
 
-        {/* Drag-to-adjust face-camera crop, right on the preview. */}
-        {croppingFace && onFaceSourceChange && (
+        {/* Drag-to-adjust source crop (face camera or screen), right on the preview. */}
+        {cropTarget === "face" && onFaceSourceChange && (
           <CropRectEditor
             frame={geometry.screen.video}
             rect={project.faceSource ?? DEFAULT_FACE_SOURCE}
@@ -926,33 +939,44 @@ export function EditorPreview({
             label="Face camera"
           />
         )}
+        {cropTarget === "screen" && onScreenSourceChange && (
+          <CropRectEditor
+            frame={geometry.screen.video}
+            rect={project.screenSource ?? DEFAULT_SCREEN_SOURCE}
+            onChange={onScreenSourceChange}
+            label="Screen"
+          />
+        )}
 
-        {/* Face-crop mode toggle, shown whenever the layout uses a camera crop. */}
-        {hasFaceLayer && onFaceCropEditingChange && (
-          <button
-            type="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              onFaceCropEditingChange(!croppingFace);
-            }}
-            onPointerDown={(e) => e.stopPropagation()}
-            className={cn(
-              "absolute right-2 top-2 z-40 flex items-center gap-1.5 rounded-full border px-2.5 py-1.5 text-[11px] font-medium backdrop-blur transition-all duration-200",
-              croppingFace
-                ? "border-transparent bg-[var(--accent)] text-[var(--accent-contrast)] shadow-lg"
-                : "border-white/15 bg-black/55 text-white/85 hover:bg-black/75 hover:text-white"
-            )}
-          >
-            {croppingFace ? (
-              <>
-                <Check className="h-3.5 w-3.5" /> Done
-              </>
-            ) : (
-              <>
-                <Crop className="h-3.5 w-3.5" /> Adjust face crop
-              </>
-            )}
-          </button>
+        {/* Crop mode toggles, shown whenever the layout crops the source. */}
+        {layout && onCropEditingChange && (
+          <div className="absolute right-2 top-2 z-40 flex flex-col items-end gap-1.5">
+            {(cropping
+              ? ([{ target: null as CropTarget, label: "Done" }] as const)
+              : [
+                  { target: "screen" as CropTarget, label: "Adjust screen crop" },
+                  ...(hasFaceLayer ? [{ target: "face" as CropTarget, label: "Adjust face crop" }] : [])
+                ]
+            ).map(({ target, label }) => (
+              <button
+                key={label}
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onCropEditingChange(target);
+                }}
+                onPointerDown={(e) => e.stopPropagation()}
+                className={cn(
+                  "flex items-center gap-1.5 rounded-full border px-2.5 py-1.5 text-[11px] font-medium backdrop-blur transition-all duration-200",
+                  cropping
+                    ? "border-transparent bg-[var(--accent)] text-[var(--accent-contrast)] shadow-lg"
+                    : "border-white/15 bg-black/55 text-white/85 hover:bg-black/75 hover:text-white"
+                )}
+              >
+                {cropping ? <Check className="h-3.5 w-3.5" /> : <Crop className="h-3.5 w-3.5" />} {label}
+              </button>
+            ))}
+          </div>
         )}
       </div>
     </div>

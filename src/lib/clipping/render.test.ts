@@ -61,6 +61,19 @@ describe("reframeChain", () => {
     expect(filter).toContain("crop=iw*0.3400:ih*0.4600:iw*0.6200:ih*0.0200");
   });
 
+  it("applies a per-project screen source override to every screen layer", () => {
+    const filter = stackedLayoutChain("restream-stack", undefined, 1080, 1920, undefined, {
+      x: 0.05,
+      y: 0.1,
+      w: 0.55,
+      h: 0.8
+    });
+    // Screen layer crops down to the requested region…
+    expect(filter).toContain("crop=iw*0.5500:ih*0.8000:iw*0.0500:ih*0.1000");
+    // …while the face layer keeps its default streamer-camera crop.
+    expect(filter).toContain("crop=iw*0.4200:ih*0.5000:iw*0.5800:ih*0.0500");
+  });
+
   it("applies saved streamer framing overrides to the rendered layout", () => {
     const filter = stackedLayoutChain("face-focus", {
       "face-focus": {

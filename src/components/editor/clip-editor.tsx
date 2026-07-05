@@ -32,7 +32,7 @@ import {
   StylePanel
 } from "@/components/editor/panels";
 import { cn } from "@/lib/utils";
-import type { CaptionSegment, ClipProject, Overlay, OverlayKind } from "@/types/domain";
+import type { CaptionSegment, ClipProject, CropTarget, Overlay, OverlayKind } from "@/types/domain";
 import type { ClipCandidate, ClipJob } from "@/lib/clipping/types";
 import type { EditorApi, ExportUiState } from "@/components/editor/types";
 
@@ -67,7 +67,7 @@ export function ClipEditor({
   const [volume, setVolume] = useState(1);
   const [selectedCaptionId, setSelectedCaptionId] = useState<string | null>(null);
   const [selectedOverlayId, setSelectedOverlayId] = useState<string | null>(null);
-  const [faceCropEditing, setFaceCropEditing] = useState(false);
+  const [cropEditing, setCropEditing] = useState<CropTarget>(null);
   const [fetchingCaptions, setFetchingCaptions] = useState(false);
   const [exportState, setExportState] = useState<ExportUiState>({ status: "idle", progress: 0 });
   const [saved, setSaved] = useState(true);
@@ -510,8 +510,8 @@ export function ClipEditor({
       patch,
       setTrim,
       generateTitle,
-      faceCropEditing,
-      setFaceCropEditing,
+      cropEditing,
+      setCropEditing,
       fetchingCaptions,
       regenerateCaptions,
       addCaption,
@@ -539,8 +539,8 @@ export function ClipEditor({
       patch,
       setTrim,
       generateTitle,
-      faceCropEditing,
-      setFaceCropEditing,
+      cropEditing,
+      setCropEditing,
       fetchingCaptions,
       regenerateCaptions,
       addCaption,
@@ -676,9 +676,10 @@ export function ClipEditor({
             onCaptionStyleChange={(partial) =>
               setProject((p) => ({ ...p, captionStyle: { ...p.captionStyle, ...partial } }))
             }
-            faceCropEditing={faceCropEditing}
-            onFaceCropEditingChange={setFaceCropEditing}
+            cropEditing={cropEditing}
+            onCropEditingChange={setCropEditing}
             onFaceSourceChange={(rect) => patch({ faceSource: rect })}
+            onScreenSourceChange={(rect) => patch({ screenSource: rect })}
           />
           <div className="flex items-center gap-3 rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 py-2">
             <button

@@ -44,6 +44,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     compositionMode: project.compositionMode,
     reframe: project.reframe,
     faceSource: project.faceSource,
+    screenSource: project.screenSource,
     captions: project.captions,
     captionStyle: project.captionStyle,
     captionsVisible: project.captionsVisible,

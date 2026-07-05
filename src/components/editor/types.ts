@@ -1,4 +1,4 @@
-import type { CaptionSegment, ClipProject, Overlay, OverlayKind } from "@/types/domain";
+import type { CaptionSegment, ClipProject, CropTarget, Overlay, OverlayKind } from "@/types/domain";
 
 export type ExportUiState = {
   status: "idle" | "starting" | "processing" | "done" | "error";
@@ -20,10 +20,10 @@ export interface EditorApi {
   generateTitle: () => void;
 
   // Layout
-  /** When true, the preview shows the full source frame with draggable
-   *  face-crop extents instead of the composed layout. */
-  faceCropEditing: boolean;
-  setFaceCropEditing: (v: boolean) => void;
+  /** When set, the preview shows the full source frame with draggable
+   *  crop extents (face camera or screen) instead of the composed layout. */
+  cropEditing: CropTarget;
+  setCropEditing: (target: CropTarget) => void;
 
   // Captions
   fetchingCaptions: boolean;
