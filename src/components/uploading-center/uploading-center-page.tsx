@@ -20,6 +20,7 @@ import {
   type ClipDraft,
   type ReadyClip
 } from "@/components/uploading-center/use-uploading-center";
+import type { ChannelVideo } from "@/lib/publisher/channelVideos";
 import type { PlatformId, PlatformState, QueueItem } from "@/lib/publisher/types";
 
 const PLATFORM_TABS: Array<{ id: PlatformId; icon: typeof Youtube }> = [
@@ -32,6 +33,9 @@ export function UploadingCenterPage() {
   const {
     loaded,
     overview,
+    channel,
+    channelVideos,
+    channelVideosBySlot,
     queueItems,
     jobsWithClips,
     activeJob,
@@ -101,9 +105,16 @@ export function UploadingCenterPage() {
     (platform: PlatformId, slotUtc: string) => itemsByPlatformSlot.get(platform)?.get(slotUtc),
     [itemsByPlatformSlot]
   );
+  // A slot is taken by a queue item or — on YouTube — by a video already
+  // scheduled/published on the channel itself at that exact time.
+  const channelVideoAtSlot = useCallback(
+    (slotUtc: string) => channelVideosBySlot.get(slotUtc),
+    [channelVideosBySlot]
+  );
   const isSlotTaken = useCallback(
-    (platform: PlatformId, slotUtc: string) => Boolean(itemAtSlot(platform, slotUtc)),
-    [itemAtSlot]
+    (platform: PlatformId, slotUtc: string) =>
+      Boolean(itemAtSlot(platform, slotUtc)) || (platform === "youtube" && channelVideosBySlot.has(slotUtc)),
+    [itemAtSlot, channelVideosBySlot]
   );
 
   const handleSchedule = useCallback(
@@ -129,6 +140,15 @@ export function UploadingCenterPage() {
     const offGrid = queueItems.filter(
       (item) => item.platforms[id] && !slotUtcSet.has(new Date(item.publishAt).toISOString())
     );
+    // Channel videos whose time doesn't land on a free grid slot are listed
+    // beside the board with their exact upload/go-live time instead.
+    const offSlotVideos =
+      id === "youtube"
+        ? channelVideos.filter((video) => {
+            const utc = new Date(video.publishAtUtc).toISOString();
+            return !slotUtcSet.has(utc) || Boolean(itemAtSlot("youtube", utc));
+          })
+        : [];
     return {
       id,
       label: PLATFORM_LABELS[id],
@@ -137,6 +157,9 @@ export function UploadingCenterPage() {
         <div className="space-y-4">
           {id === "youtube" && !configured ? (
             <ConnectYoutubeNotice />
+          ) : null}
+          {id === "youtube" && configured && channel?.needsReconnect ? (
+            <ReconnectYoutubeNotice />
           ) : null}
           {id !== "youtube" && !configured ? (
             <p className="flex items-center gap-2 rounded-lg border border-amber-400/25 bg-amber-400/8 px-3 py-2 text-xs text-amber-200">
@@ -150,6 +173,7 @@ export function UploadingCenterPage() {
             slots={slots}
             itemAtSlot={itemAtSlot}
             thumbnailForItem={thumbnailForItem}
+            channelVideoAtSlot={id === "youtube" ? channelVideoAtSlot : undefined}
             onDropClip={(slotUtc, clipKey) => handleDrop(id, slotUtc, clipKey)}
             onPublishNow={(item) => void publishNow(item)}
             onRemove={(item) => void remove(item)}
@@ -157,6 +181,12 @@ export function UploadingCenterPage() {
           />
           {offGrid.length > 0 ? (
             <OffGridList platform={id} items={offGrid} onPublishNow={publishNow} onRemove={remove} busy={busy} />
+          ) : null}
+          {offSlotVideos.length > 0 ? <ChannelVideoList videos={offSlotVideos} timezone={overview?.timezone} /> : null}
+          {id === "youtube" && channel?.error ? (
+            <p className="truncate text-[11px] text-[var(--muted-foreground)]" title={channel.error}>
+              Couldn&apos;t refresh the YouTube schedule — showing the last known state.
+            </p>
           ) : null}
         </div>
       )
@@ -243,6 +273,21 @@ export function UploadingCenterPage() {
   );
 }
 
+function ReconnectYoutubeNotice() {
+  return (
+    <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-amber-400/25 bg-amber-400/8 px-3 py-2">
+      <p className="flex items-center gap-2 text-xs text-amber-200">
+        <AlertTriangle className="h-4 w-4 shrink-0" />
+        Uploads still work, but the current connection can&apos;t read your channel — reconnect to see the videos
+        already scheduled on YouTube here.
+      </p>
+      <Button variant="secondary" className="h-8 px-3 text-xs" onClick={() => (window.location.href = "/api/auth/google")}>
+        Reconnect YouTube
+      </Button>
+    </div>
+  );
+}
+
 function ConnectYoutubeNotice() {
   return (
     <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-amber-400/25 bg-amber-400/8 px-3 py-2">
@@ -253,6 +298,49 @@ function ConnectYoutubeNotice() {
       <Button variant="secondary" className="h-8 px-3 text-xs" onClick={() => (window.location.href = "/api/auth/google")}>
         Connect YouTube
       </Button>
+    </div>
+  );
+}
+
+/**
+ * Videos already on the YouTube channel whose time doesn't land on a free
+ * grid slot: "Scheduled to go live …" for upcoming uploads, "Uploaded …" for
+ * recently published ones. Read-only — they're managed in YouTube Studio.
+ */
+function ChannelVideoList({ videos, timezone }: { videos: ChannelVideo[]; timezone?: string }) {
+  const formatTime = (utc: string) =>
+    new Intl.DateTimeFormat("en-US", {
+      ...(timezone ? { timeZone: timezone } : {}),
+      weekday: "short",
+      month: "short",
+      day: "numeric",
+      hour: "numeric",
+      minute: "2-digit"
+    }).format(new Date(utc));
+  return (
+    <div className="space-y-2">
+      <p className="text-[11px] font-medium uppercase tracking-wider text-[var(--muted-foreground)]">
+        Also on your YouTube channel
+      </p>
+      {videos.map((video) => (
+        <div
+          key={video.videoId}
+          className="flex items-center gap-3 rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-3 py-2 text-xs"
+          title={video.title}
+        >
+          <StatusChip status={video.status} />
+          <span className="truncate font-medium text-white">{video.title}</span>
+          <span className="whitespace-nowrap text-[var(--muted-foreground)]">
+            {video.status === "scheduled"
+              ? `Scheduled to go live ${formatTime(video.publishAtUtc)}`
+              : `Uploaded ${formatTime(video.publishAtUtc)}`}
+          </span>
+          <span className="flex-1" />
+          <a href={video.url} target="_blank" rel="noreferrer" aria-label="Open on YouTube" className="text-[var(--accent)]">
+            <ExternalLink className="h-3.5 w-3.5" />
+          </a>
+        </div>
+      ))}
     </div>
   );
 }

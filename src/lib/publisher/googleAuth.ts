@@ -14,8 +14,11 @@ import { getCachedToken, setCachedToken } from "@/lib/publisher/tokens";
 
 const AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth";
 const TOKEN_URL = "https://oauth2.googleapis.com/token";
-// youtube.readonly is only used to read the connected channel's name and
-// avatar for the "YouTube connected" badge.
+// youtube.readonly is used both to read the connected channel's name/avatar
+// for the "YouTube connected" badge and to list the channel's own uploads so
+// the Uploading Center can show what is already scheduled on YouTube itself.
+// Tokens minted before readonly was added still upload fine but fail channel
+// reads with a 403 — the UI surfaces that as a "reconnect" prompt.
 const SCOPE = "https://www.googleapis.com/auth/youtube.upload https://www.googleapis.com/auth/youtube.readonly";
 const CHANNELS_URL = "https://www.googleapis.com/youtube/v3/channels?part=snippet&mine=true";
 

@@ -6,6 +6,7 @@ import { StatusChip } from "@/components/uploading-center/status-chip";
 import { CLIP_DRAG_TYPE } from "@/components/uploading-center/clip-card";
 import { remoteUrlFor } from "@/components/uploading-center/use-uploading-center";
 import { cn } from "@/lib/utils";
+import type { ChannelVideo } from "@/lib/publisher/channelVideos";
 import type { ScheduleSlot } from "@/lib/publisher/slots";
 import type { PlatformId, PlatformState, QueueItem } from "@/lib/publisher/types";
 
@@ -14,13 +15,16 @@ import type { PlatformId, PlatformState, QueueItem } from "@/lib/publisher/types
  * per day, a column per slot. Weekday and weekend slot times differ (07:30 /
  * 12:30 / 19:30 vs 10:00 / 13:00 / 19:00), so each cell carries its own time
  * label. Filled slots show the clip's poster frame with its status; empty
- * future slots accept a dragged clip.
+ * future slots accept a dragged clip. On the YouTube board, slots whose time
+ * matches a video already on the channel (scheduled in Studio, or published)
+ * render that video read-only.
  */
 export function ScheduleBoard({
   platform,
   slots,
   itemAtSlot,
   thumbnailForItem,
+  channelVideoAtSlot,
   onDropClip,
   onPublishNow,
   onRemove,
@@ -30,6 +34,8 @@ export function ScheduleBoard({
   slots: ScheduleSlot[];
   itemAtSlot: (platform: PlatformId, slotUtc: string) => QueueItem | undefined;
   thumbnailForItem: (item: QueueItem) => string | null;
+  /** YouTube only: a video already on the channel occupying this exact slot. */
+  channelVideoAtSlot?: (slotUtc: string) => ChannelVideo | undefined;
   onDropClip: (slotUtc: string, clipKey: string) => void;
   onPublishNow: (item: QueueItem) => void;
   onRemove: (item: QueueItem) => void;
@@ -76,6 +82,7 @@ export function ScheduleBoard({
               daySlots={daySlots}
               itemAtSlot={itemAtSlot}
               thumbnailForItem={thumbnailForItem}
+              channelVideoAtSlot={channelVideoAtSlot}
               dragOverSlot={dragOverSlot}
               setDragOverSlot={setDragOverSlot}
               onDropClip={onDropClip}
@@ -95,6 +102,7 @@ function BoardRow({
   daySlots,
   itemAtSlot,
   thumbnailForItem,
+  channelVideoAtSlot,
   dragOverSlot,
   setDragOverSlot,
   onDropClip,
@@ -106,6 +114,7 @@ function BoardRow({
   daySlots: ScheduleSlot[];
   itemAtSlot: (platform: PlatformId, slotUtc: string) => QueueItem | undefined;
   thumbnailForItem: (item: QueueItem) => string | null;
+  channelVideoAtSlot?: (slotUtc: string) => ChannelVideo | undefined;
   dragOverSlot: string | null;
   setDragOverSlot: (id: string | null) => void;
   onDropClip: (slotUtc: string, clipKey: string) => void;
@@ -189,6 +198,36 @@ function BoardRow({
                     </>
                   )}
                 </div>
+              </div>
+            </div>
+          );
+        }
+        const video = channelVideoAtSlot?.(slot.utc);
+        if (video) {
+          // Already occupied on YouTube itself — read-only: it wasn't created
+          // by this queue, so it can only be managed from YouTube Studio.
+          return (
+            <div
+              key={slot.id}
+              className="min-h-16 rounded-lg border border-[var(--border-strong)] bg-white/6 p-2"
+              title={video.title}
+            >
+              <p className="truncate text-xs font-medium text-white">{video.title}</p>
+              <div className="mt-1.5 flex items-center gap-1.5">
+                <StatusChip status={video.status} />
+                <a
+                  href={video.url}
+                  target="_blank"
+                  rel="noreferrer"
+                  aria-label="Open on YouTube"
+                  className="text-[var(--accent)]"
+                >
+                  <ExternalLink className="h-3.5 w-3.5" />
+                </a>
+                <span className="flex-1" />
+                <span className="text-[10px] font-medium uppercase tracking-wider text-[var(--muted-foreground)]">
+                  On YouTube
+                </span>
               </div>
             </div>
           );

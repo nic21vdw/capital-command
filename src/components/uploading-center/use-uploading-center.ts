@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import type { ClipCandidate, ClipJob } from "@/lib/clipping/types";
+import type { ChannelSchedule, ChannelVideo } from "@/lib/publisher/channelVideos";
 import type { ScheduleSlot } from "@/lib/publisher/slots";
 import type { YoutubeQuota } from "@/lib/publisher/quota";
 import type { PlatformId, QueueItem } from "@/lib/publisher/types";
@@ -87,13 +88,14 @@ export function useUploadingCenter() {
   const [jobs, setJobs] = useState<ClipJob[]>([]);
   const [queueItems, setQueueItems] = useState<QueueItem[]>([]);
   const [overview, setOverview] = useState<Overview | null>(null);
+  const [channel, setChannel] = useState<ChannelSchedule | null>(null);
   const [loaded, setLoaded] = useState(false);
   const [activeJobId, setActiveJobId] = useState<string | null>(null);
   /** Key of the action in flight ("schedule:<clipKey>", "publish:<id>", …). */
   const [busy, setBusy] = useState<string | null>(null);
   const remindedRef = useRef(new Set<string>());
 
-  const refresh = useCallback(async () => {
+  const refresh = useCallback(async (options?: { channelRefresh?: boolean }) => {
     // Sequential local fetches; a failure keeps the last good data and the
     // 60s tick tries again.
     try {
@@ -103,6 +105,12 @@ export function useUploadingCenter() {
       if (queueRes.ok) setQueueItems(((await queueRes.json()) as { items?: QueueItem[] }).items ?? []);
       const overviewRes = await fetch("/api/publish/overview?days=14", { cache: "no-store" });
       if (overviewRes.ok) setOverview((await overviewRes.json()) as Overview);
+      // The channel schedule is cached 5 minutes server-side; channelRefresh
+      // bypasses that right after a publish so the new video appears at once.
+      const channelRes = await fetch(`/api/publish/youtube-channel${options?.channelRefresh ? "?refresh=1" : ""}`, {
+        cache: "no-store"
+      });
+      if (channelRes.ok) setChannel((await channelRes.json()) as ChannelSchedule);
     } catch {
       // Offline or malformed payload — retry on the next tick.
     } finally {
@@ -250,6 +258,25 @@ export function useUploadingCenter() {
     [refresh]
   );
 
+  /**
+   * Videos that live on the YouTube channel itself, minus the ones this queue
+   * created — those already render as queue items (matched by video id).
+   */
+  const channelVideos = useMemo<ChannelVideo[]>(() => {
+    if (!channel) return [];
+    const ownPostIds = new Set(
+      queueItems.map((item) => item.platforms.youtube?.postId).filter((id): id is string => Boolean(id))
+    );
+    return channel.videos.filter((video) => !ownPostIds.has(video.videoId));
+  }, [channel, queueItems]);
+
+  /** Channel videos keyed by their UTC instant, for exact slot matching. */
+  const channelVideosBySlot = useMemo(() => {
+    const map = new Map<string, ChannelVideo>();
+    for (const video of channelVideos) map.set(new Date(video.publishAtUtc).toISOString(), video);
+    return map;
+  }, [channelVideos]);
+
   const schedule = useCallback(
     async (clip: ReadyClip, draft: ClipDraft) => {
       if (!draft.slotUtc) {
@@ -320,7 +347,7 @@ export function useUploadingCenter() {
           else toast.success(line);
         }
         if (report.outcomes.length === 0) toast.info("Nothing left to publish on that post.");
-        await refresh();
+        await refresh({ channelRefresh: true });
       } finally {
         setBusy(null);
       }
@@ -346,6 +373,9 @@ export function useUploadingCenter() {
   return {
     loaded,
     overview,
+    channel,
+    channelVideos,
+    channelVideosBySlot,
     queueItems,
     jobsWithClips,
     activeJob,
