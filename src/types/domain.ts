@@ -340,6 +340,12 @@ export interface SavedThumbnail {
   position: "left" | "bottom-left" | "center";
   size: "small" | "medium" | "large";
   uppercase: boolean;
+  /** Heavier text weight (Ctrl+B). Absent on thumbnails saved before this. */
+  bold?: boolean;
+  /** Italic text style (Ctrl+I). Absent on thumbnails saved before this. */
+  italic?: boolean;
+  /** Underlined text (Ctrl+U). Absent on thumbnails saved before this. */
+  underline?: boolean;
   fontId: string;
   textColor: string;
   highlightColor: string;
@@ -531,6 +537,12 @@ export interface ClipProject {
    * the split/lead layouts; defaults to the top-right streamer camera spot.
    */
   faceSource?: RegionRect;
+  /**
+   * Which part of the source frame the screen layer shows (normalized). Used
+   * by the split/lead layouts to crop out the camera overlay or zoom in on
+   * the screen content; defaults to the full frame.
+   */
+  screenSource?: RegionRect;
   captions: CaptionSegment[];
   captionStyle: CaptionStyle;
   captionsVisible: boolean;
@@ -549,6 +561,9 @@ export interface ClipProject {
 
 export type AspectPreset = "9:16" | "16:9" | "1:1" | "4:5" | "custom";
 export type FramingMode = "fit" | "fill" | "crop";
+
+/** Which source-crop rect is being adjusted on the editor preview. */
+export type CropTarget = "face" | "screen" | null;
 
 export interface RegionRect {
   x: number;

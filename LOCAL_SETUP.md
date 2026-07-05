@@ -10,9 +10,9 @@ middleman**:
 
 1. When work is done in the cloud, the changes are pushed to GitHub and merged
    into the `main` branch.
-2. On your PC, you double-click **`start-capital-command.bat`**. It pulls the
-   latest `main` from GitHub, installs anything new, starts the app, and opens
-   your browser.
+2. On your PC, you double-click **`start-capital-command.bat`**. It downloads (or
+   updates to) the latest `main` from GitHub, installs anything new, starts the
+   app, and opens your browser.
 
 So every time you launch the `.bat` file, you get the most up-to-date version of
 everything.
@@ -35,24 +35,39 @@ defaults). This lets your PC download code from GitHub.
 Download and install the **LTS** version from <https://nodejs.org> (accept the
 defaults). This runs the app.
 
-### 3. Download (clone) the repository
-Pick a folder where you want the project to live (for example, your Documents
-folder). Open it, type `cmd` in the address bar of File Explorer, and press
-Enter to open a command prompt there. Then run:
+> The launcher checks for both of these. If either is missing, it tells you and
+> stops, so install them first.
 
-```bat
-git clone https://github.com/nic21vdw/capital-command.git
-```
+---
 
-This creates a `capital-command` folder containing everything, including the
-`start-capital-command.bat` launcher.
+## Getting the launcher
+
+You only need the **`start-capital-command.bat`** file — it can download the rest
+of the app for you. Pick whichever of these is easiest:
+
+- **Easiest:** Save just the launcher. Open
+  <https://raw.githubusercontent.com/nic21vdw/capital-command/main/start-capital-command.bat>,
+  then press **Ctrl+S** to save it somewhere handy like your Desktop.
+- **Or download the whole project:** On the GitHub page click the green
+  **Code** button → **Download ZIP**, then **right-click the ZIP → Extract All**.
+  (Important: extract it first — don't run the `.bat` from inside the ZIP.)
+- **Or clone it** (if you're comfortable with a command prompt):
+  ```bat
+  cd %USERPROFILE%\Documents
+  git clone https://github.com/nic21vdw/capital-command.git
+  ```
+
+However you got it, the launcher figures out the rest. If it's sitting on its own
+(not inside a proper project folder), it downloads a fresh copy of the app into
+`C:\Users\<you>\capital-command-app` and runs from there.
 
 ---
 
 ## Everyday use
 
-1. Open the `capital-command` folder.
-2. Double-click **`start-capital-command.bat`**.
+1. Double-click **`start-capital-command.bat`**.
+2. The first run takes a few minutes (it downloads the app and its
+   dependencies). Later runs are quick.
 3. Wait for the browser to open at <http://localhost:3000>.
 4. Keep the black launcher window open while you use the app. Close it when
    you're done (this stops the local server).
@@ -63,15 +78,20 @@ That's it. Each launch automatically grabs the latest changes first.
 
 ## Troubleshooting
 
+- **Nothing happens / the window flashes and closes** — usually one of:
+  - You ran it from *inside* the downloaded ZIP. Extract the ZIP first
+    (right-click → Extract All), then run the extracted `.bat`.
+  - Windows blocked a file downloaded from the internet. Right-click the
+    `.bat` → **Properties** → tick **Unblock** (if shown) → **OK**, then try
+    again. If you see a blue "Windows protected your PC" box, click **More
+    info** → **Run anyway**.
+  - To see the actual message, open the folder, click the address bar, type
+    `cmd`, press Enter, then type `start-capital-command.bat` — errors will
+    stay on screen.
 - **"Git is not installed" / "Node.js is not installed"** — finish the one-time
   setup steps above, then run the launcher again.
 - **The browser opens before the app is ready** — give it a few seconds and
   refresh the page; the first launch takes longer while it builds.
-- **Port already in use** — another app (or a previous run) is using port 3000.
-  Close the old launcher window, then start again.
-- **Nothing happens / it closes instantly** — make sure you double-clicked the
-  `.bat` from inside the cloned `capital-command` folder, not a copy somewhere
-  else.
 
 ---
 

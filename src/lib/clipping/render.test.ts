@@ -1,6 +1,9 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { CLIP_LAYOUTS } from "./layouts";
-import { reframeChain, stackedLayoutChain } from "./render";
+import { reframeChain, renderCaptionedVertical, stackedLayoutChain } from "./render";
+
+const runFfmpeg = vi.fn((..._args: unknown[]): Promise<void> => Promise.resolve());
+vi.mock("./ffmpeg", () => ({ runFfmpeg: (...args: unknown[]) => runFfmpeg(...args) }));
 
 describe("reframeChain", () => {
   it("uses cover crop math so zoom and pan affect the exported frame", () => {
@@ -61,6 +64,19 @@ describe("reframeChain", () => {
     expect(filter).toContain("crop=iw*0.3400:ih*0.4600:iw*0.6200:ih*0.0200");
   });
 
+  it("applies a per-project screen source override to every screen layer", () => {
+    const filter = stackedLayoutChain("restream-stack", undefined, 1080, 1920, undefined, {
+      x: 0.05,
+      y: 0.1,
+      w: 0.55,
+      h: 0.8
+    });
+    // Screen layer crops down to the requested region…
+    expect(filter).toContain("crop=iw*0.5500:ih*0.8000:iw*0.0500:ih*0.1000");
+    // …while the face layer keeps its default streamer-camera crop.
+    expect(filter).toContain("crop=iw*0.4200:ih*0.5000:iw*0.5800:ih*0.0500");
+  });
+
   it("applies saved streamer framing overrides to the rendered layout", () => {
     const filter = stackedLayoutChain("face-focus", {
       "face-focus": {
@@ -69,5 +85,36 @@ describe("reframeChain", () => {
     });
 
     expect(filter).toContain("crop=iw*0.3400:ih*0.4600:iw*0.6200:ih*0.0200");
+  });
+});
+
+describe("renderCaptionedVertical", () => {
+  function filterOf(calls: unknown[][]): string {
+    const args = (calls[0]?.[0] ?? []) as string[];
+    return args[args.indexOf("-filter_complex") + 1];
+  }
+
+  it("composes a centered 9:16 clip over a blurred fill and burns in the ass overlay", async () => {
+    runFfmpeg.mockClear();
+    await renderCaptionedVertical("in.mp4", "out.mp4", "/tmp/caps.ass", true);
+    const filter = filterOf(runFfmpeg.mock.calls);
+    // Centered vertical over a blurred, dimmed fill of itself (nothing cropped).
+    expect(filter).toContain("scale=1080:-2[fgs]");
+    expect(filter).toContain("boxblur=12:2");
+    expect(filter).toContain("overlay=(W-w)/2:(H-h)/2");
+    // Burns the caption/watermark document in.
+    expect(filter).toContain("ass='/tmp/caps.ass'[vout]");
+  });
+
+  it("skips the ass filter when there is nothing to burn in", async () => {
+    runFfmpeg.mockClear();
+    await renderCaptionedVertical("in.mp4", "out.mp4", null, false);
+    const filter = filterOf(runFfmpeg.mock.calls);
+    expect(filter).toContain("[vc]null[vout]");
+    expect(filter).not.toContain("ass=");
+    // No audio track means no aac mapping.
+    const args = runFfmpeg.mock.calls[0][0] as string[];
+    expect(args).toContain("-an");
+    expect(args).not.toContain("aac");
   });
 });

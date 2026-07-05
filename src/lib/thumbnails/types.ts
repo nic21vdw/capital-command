@@ -154,6 +154,12 @@ export type ThumbnailOptions = {
   position: TextPosition;
   size: TextSize;
   uppercase: boolean;
+  /** Render the text with a heavier weight (Ctrl+B). */
+  bold: boolean;
+  /** Render the text in an italic (slanted) style (Ctrl+I). */
+  italic: boolean;
+  /** Draw an underline beneath each line of text (Ctrl+U). */
+  underline: boolean;
 
   // Text styling
   /** Font catalog id (see lib/thumbnails/fonts). */

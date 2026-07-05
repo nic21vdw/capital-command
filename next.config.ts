@@ -1,7 +1,13 @@
 import type { NextConfig } from "next";
+import { fileURLToPath } from "node:url";
+import { dirname } from "node:path";
+
+const projectRoot = dirname(fileURLToPath(import.meta.url));
 
 const nextConfig: NextConfig = {
-  outputFileTracingRoot: process.cwd(),
+  // Pin the workspace root to this project so Next.js doesn't get confused by
+  // stray lockfiles elsewhere on the machine (e.g. in the user's home folder).
+  outputFileTracingRoot: projectRoot,
   // ffmpeg-static resolves its binary path via __dirname, which breaks when
   // bundled — keep it external so the resolved path points at node_modules.
   // @huggingface/transformers ships native ONNX runtimes that must not be

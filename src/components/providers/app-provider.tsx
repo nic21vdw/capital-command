@@ -39,10 +39,15 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setLoading(true);
     try {
       const next = await readBootstrap();
-      startTransition(() => setPayload(next));
+      // Clear `loading` in the same transition that commits the payload —
+      // if it cleared first, consumers would briefly see "loaded" state with
+      // stale data and could mount from local fallbacks (e.g. editor drafts).
+      startTransition(() => {
+        setPayload(next);
+        setLoading(false);
+      });
     } catch {
       toast.error("Unable to load Nic Vandewetering data.");
-    } finally {
       setLoading(false);
     }
   }, []);

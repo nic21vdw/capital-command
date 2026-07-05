@@ -12,10 +12,10 @@ import { Card } from "@/components/ui/card";
 import { Modal } from "@/components/ui/modal";
 import { PageHeader } from "@/components/ui/page-header";
 import { ClipEditor } from "@/components/editor/clip-editor";
+import { clearDraftProject, readDraftProject, writeDraftProject } from "@/components/editor/drafts";
+import { EditorExportsProvider } from "@/components/editor/exports-provider";
 import type { ClipProject } from "@/types/domain";
 import type { ClipCandidate, ClipJob } from "@/lib/clipping/types";
-
-const EDITOR_DRAFT_PREFIX = "capital-command:clip-editor-draft:";
 
 function formatDate(value?: string) {
   if (!value) return "Unknown date";
@@ -24,28 +24,6 @@ function formatDate(value?: string) {
 
 function sourceLabel(job: ClipJob | null, fallbackJobId: string) {
   return job?.fileName || `Job ${fallbackJobId}`;
-}
-
-function readDraftProject(openId: string): ClipProject | null {
-  if (typeof window === "undefined") return null;
-  for (const storage of [sessionStorage, localStorage]) {
-    const raw = storage.getItem(`${EDITOR_DRAFT_PREFIX}${openId}`);
-    if (!raw) continue;
-    try {
-      const parsed = JSON.parse(raw) as ClipProject;
-      return { ...parsed, compositionMode: parsed.compositionMode ?? "center-blur" };
-    } catch {
-      storage.removeItem(`${EDITOR_DRAFT_PREFIX}${openId}`);
-    }
-  }
-  return null;
-}
-
-function writeDraftProject(project: ClipProject) {
-  if (typeof window === "undefined") return;
-  const raw = JSON.stringify(project);
-  sessionStorage.setItem(`${EDITOR_DRAFT_PREFIX}${project.id}`, raw);
-  localStorage.setItem(`${EDITOR_DRAFT_PREFIX}${project.id}`, raw);
 }
 
 function projectFromClip(job: ClipJob, clip: ClipCandidate, index: number, sourceFile = clip.file): ClipProject | null {
@@ -68,7 +46,7 @@ function projectFromClip(job: ClipJob, clip: ClipCandidate, index: number, sourc
 }
 
 export function ClipEditorPage() {
-  const { data, mutate } = useAppData();
+  const { data, mutate, loading } = useAppData();
   const projects = data.clipProjects;
   const searchParams = useSearchParams();
   // Allow deep-linking straight into a project (e.g. from the Clip Generator).
@@ -82,7 +60,17 @@ export function ClipEditorPage() {
   const [draftProject, setDraftProject] = useState<ClipProject | null>(null);
 
   const storedProject = projects.find((p) => p.id === openId) ?? null;
-  const openProject = storedProject ?? (draftProject?.id === openId ? draftProject : null);
+  const draftForOpen = draftProject?.id === openId ? draftProject : null;
+  // The store is the source of truth; the local draft only wins when it is
+  // strictly newer (a save that never reached the server). While the app data
+  // is still loading we never mount from a draft — an out-of-date draft would
+  // shadow the saved project and the next autosave would overwrite real edits.
+  const openProject =
+    storedProject && draftForOpen
+      ? draftForOpen.updatedAt > storedProject.updatedAt
+        ? draftForOpen
+        : storedProject
+      : (storedProject ?? (loading ? null : draftForOpen));
   const jobsById = useMemo(() => new Map(jobs.map((job) => [job.id, job])), [jobs]);
   const renderableJobs = useMemo(
     () =>
@@ -105,17 +93,26 @@ export function ClipEditorPage() {
     [jobsById, projects]
   );
 
+  // Always load the draft alongside the stored copy so the freshest of the
+  // two can be picked above — never let one silently mask the other.
   useEffect(() => {
-    if (!openId || storedProject || typeof window === "undefined") {
-      if (storedProject) queueMicrotask(() => setDraftProject(null));
-      return;
-    }
-    const parsed = readDraftProject(openId);
-    if (parsed) queueMicrotask(() => setDraftProject(parsed));
-  }, [openId, storedProject]);
+    if (!openId || typeof window === "undefined") return;
+    let cancelled = false;
+    queueMicrotask(() => {
+      if (!cancelled) setDraftProject(readDraftProject(openId));
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [openId]);
 
+  // Rebuilding a project from the job is only valid for the id the page was
+  // deep-linked with: after switching clips inside the editor the job/file/clip
+  // URL params still describe the original clip, and hydrating them into the
+  // currently open project would overwrite it with the wrong clip's defaults.
+  const deepLinkId = searchParams.get("open");
   useEffect(() => {
-    if (!openId || storedProject || draftProject || !sourceJobId || !sourceFile) return;
+    if (!openId || openId !== deepLinkId || storedProject || draftProject || !sourceJobId || !sourceFile) return;
     let cancelled = false;
     const hydrateFromJob = async () => {
       const response = await fetch(`/api/clips/${sourceJobId}`, { cache: "no-store" });
@@ -138,7 +135,7 @@ export function ClipEditorPage() {
     return () => {
       cancelled = true;
     };
-  }, [draftProject, mutate, openId, sourceClipIndex, sourceFile, sourceJobId, storedProject]);
+  }, [deepLinkId, draftProject, mutate, openId, sourceClipIndex, sourceFile, sourceJobId, storedProject]);
 
   const loadJobs = useCallback(async (showLoading = true) => {
     if (showLoading) setLoadingJobs(true);
@@ -180,7 +177,10 @@ export function ClipEditorPage() {
   // Switching clips from the editor's clip bin: reuse an existing project for
   // that clip if there is one, otherwise start a fresh project.
   const switchToClip = (job: ClipJob, clip: ClipCandidate, index: number) => {
-    const existing = projects.find((p) => p.jobId === job.id && p.sourceFile === clip.file);
+    // Duplicates can exist for one clip; resume the most recently edited one.
+    const existing = projects
+      .filter((p) => p.jobId === job.id && p.sourceFile === clip.file)
+      .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))[0];
     if (existing) {
       setOpenId(existing.id);
       return;
@@ -189,22 +189,22 @@ export function ClipEditorPage() {
   };
 
   const deleteProject = async (project: ClipProject) => {
+    clearDraftProject(project.id);
     await mutate("deleteClipProject", project.id, { successMessage: "Project deleted." });
     if (openId === project.id) setOpenId(null);
   };
 
-  if (openProject) {
+  // A project was requested but the store is still loading (or a just-created
+  // project hasn't landed yet) — hold instead of flashing the project list.
+  if (!openProject && openId && loading) {
     return (
-      <ClipEditor
-        key={openProject.id}
-        initialProject={openProject}
-        onClose={() => setOpenId(null)}
-        onOpenClip={switchToClip}
-      />
+      <div className="flex items-center gap-2 py-16 text-sm text-[var(--muted-foreground)]">
+        <Loader2 className="h-4 w-4 animate-spin" /> Loading clip project…
+      </div>
     );
   }
 
-  return (
+  const projectList = (
     <div className="space-y-6">
       <PageHeader
         eyebrow="Creator Tools"
@@ -331,5 +331,22 @@ export function ClipEditorPage() {
         )}
       </Modal>
     </div>
+  );
+
+  // A single provider wraps both views so background renders keep reporting
+  // progress across clip switches and while the project list is showing.
+  return (
+    <EditorExportsProvider>
+      {openProject ? (
+        <ClipEditor
+          key={openProject.id}
+          initialProject={openProject}
+          onClose={() => setOpenId(null)}
+          onOpenClip={switchToClip}
+        />
+      ) : (
+        projectList
+      )}
+    </EditorExportsProvider>
   );
 }

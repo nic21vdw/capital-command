@@ -25,10 +25,9 @@ import { Progress } from "@/components/ui/progress";
 import { Textarea } from "@/components/ui/textarea";
 import { chunkWords, windowSegments } from "@/lib/clipping/captions";
 import { generateClipTitle, makeClipProject } from "@/lib/clipping/editor";
-import { cn } from "@/lib/utils";
+import { writeDraftProject } from "@/components/editor/drafts";
+import { cn, safeFilename } from "@/lib/utils";
 import type { ClipCandidate, ClipJob, ClipJobStage, ClipJobStatus } from "@/lib/clipping/types";
-
-const EDITOR_DRAFT_PREFIX = "capital-command:clip-editor-draft:";
 
 const STAGE_LABELS: Record<ClipJobStage, string> = {
   downloading: "Fetching the source",
@@ -74,7 +73,8 @@ function clipHeadline(clip: ClipCandidate, index: number) {
 
 export function ClipGeneratorPage() {
   const router = useRouter();
-  const { mutate } = useAppData();
+  const { data, mutate } = useAppData();
+  const clipProjects = data.clipProjects;
   const [jobs, setJobs] = useState<ClipJob[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [activeJobId, setActiveJobId] = useState<string | null>(null);
@@ -204,6 +204,21 @@ export function ClipGeneratorPage() {
   const editClip = useCallback(
     async (job: ClipJob, clip: ClipCandidate, index: number, sourceFile = clip.file) => {
       if (!sourceFile) return;
+      // Re-open the existing project for this clip so earlier edits are kept —
+      // only build a fresh project the first time a clip is opened.
+      const existing = clipProjects
+        .filter((p) => p.jobId === job.id && p.sourceFile === sourceFile)
+        .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))[0];
+      if (existing) {
+        const params = new URLSearchParams({
+          open: existing.id,
+          job: job.id,
+          file: sourceFile,
+          clip: String(index)
+        });
+        router.push(`/editor?${params.toString()}`);
+        return;
+      }
       const project = makeClipProject({
         jobId: job.id,
         name: `${job.fileName} - clip ${index + 1}`,
@@ -218,11 +233,7 @@ export function ClipGeneratorPage() {
       project.captions = words.length ? chunkWords(words, project.captionStyle.maxWordsPerCaption) : windowed;
       project.title = generateClipTitle(project.captions, `Clip ${index + 1}`);
       if (project.title) project.name = project.title;
-      if (typeof window !== "undefined") {
-        const draft = JSON.stringify(project);
-        sessionStorage.setItem(`${EDITOR_DRAFT_PREFIX}${project.id}`, draft);
-        localStorage.setItem(`${EDITOR_DRAFT_PREFIX}${project.id}`, draft);
-      }
+      writeDraftProject(project);
       const params = new URLSearchParams({
         open: project.id,
         job: job.id,
@@ -232,7 +243,7 @@ export function ClipGeneratorPage() {
       router.push(`/editor?${params.toString()}`);
       void mutate("upsertClipProject", project);
     },
-    [mutate, router]
+    [clipProjects, mutate, router]
   );
 
   const removeJob = async (job: ClipJob) => {
@@ -556,9 +567,10 @@ function ClipCard({
 }) {
   const duration = Math.round(clip.end - clip.start);
   const videoRef = useRef<HTMLVideoElement>(null);
-  // The instant preview holds the same content as the HD master (the master is
-  // a re-encode of the same section), so cards always play the lighter file.
-  const playbackFile = clip.previewFile ?? clip.file;
+  // Prefer the ready-to-post download clip (centered 9:16, captioned, watermarked)
+  // once it exists so the preview matches exactly what Download hands back. Until
+  // then fall back to the instant preview or the neutral master.
+  const playbackFile = clip.downloadFile ?? clip.previewFile ?? clip.file;
   const stopTimerRef = useRef<number | null>(null);
 
   // Once a hover preview starts, let it run at least this long even if the
@@ -674,8 +686,8 @@ function ClipCard({
                 Open in editor
               </Button>
               <a
-                href={fileUrl(jobId, clip.file, true)}
-                download={`${jobId}-${clip.file}`}
+                href={fileUrl(jobId, clip.downloadFile ?? clip.file, true)}
+                download={`${safeFilename(clipHeadline(clip, index))}.${(clip.downloadFile ?? clip.file).split(".").pop() || "mp4"}`}
                 className="inline-flex items-center justify-center rounded-lg border border-[var(--border)] px-3 py-1.5 text-xs font-medium text-[var(--muted-foreground)] transition hover:border-[var(--border-strong)] hover:text-white"
               >
                 <Download className="mr-1.5 h-3.5 w-3.5" />

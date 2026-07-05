@@ -365,7 +365,7 @@ export const captionStyleSchema = z.object({
   fontScale: z.coerce.number().min(0.02).max(0.2).default(0.052),
   fontWeight: z.coerce.number().int().min(100).max(900).default(800),
   textColor: z.string().default("#ffffff"),
-  highlightColor: z.string().default("#ffd34d"),
+  highlightColor: z.string().default("#bd93f9"),
   backgroundColor: z.string().default("#000000"),
   backgroundOpacity: z.coerce.number().min(0).max(1).default(0),
   outlineWidth: z.coerce.number().min(0).max(10).default(3),
@@ -476,6 +476,14 @@ export const clipProjectSchema = z.object({
       y: z.coerce.number().min(0).max(1).default(0.05),
       w: z.coerce.number().min(0.01).max(1).default(0.42),
       h: z.coerce.number().min(0.01).max(1).default(0.5)
+    })
+    .optional(),
+  screenSource: z
+    .object({
+      x: z.coerce.number().min(0).max(1).default(0),
+      y: z.coerce.number().min(0).max(1).default(0),
+      w: z.coerce.number().min(0.01).max(1).default(1),
+      h: z.coerce.number().min(0.01).max(1).default(1)
     })
     .optional(),
   captions: z.array(captionSegmentSchema).default([]),

@@ -6,13 +6,14 @@ import { aspectDimensions } from "@/lib/clipping/editor";
 import {
   CLIP_LAYOUTS,
   DEFAULT_FACE_SOURCE,
+  DEFAULT_SCREEN_SOURCE,
   LAYOUT_MODE_PRESETS,
-  withFaceSource,
+  withLayerSources,
   type ClipLayoutDefinition,
   type Rect
 } from "@/lib/clipping/layouts";
 import { cn } from "@/lib/utils";
-import type { CaptionStyle, ClipProject, Overlay, ReframeTransform } from "@/types/domain";
+import type { CaptionStyle, ClipProject, CropTarget, Overlay, ReframeTransform } from "@/types/domain";
 
 function clamp(v: number, min: number, max: number) {
   return Math.min(max, Math.max(min, v));
@@ -302,6 +303,7 @@ function OverlayItem({
   const onPointerDown = (mode: "move" | "scale" | "rotate") => (e: React.PointerEvent) => {
     if (overlay.locked || editing) return;
     e.stopPropagation();
+    e.preventDefault(); // keep the browser from starting a text selection that spreads across the page
     onSelect();
     const sx = e.clientX;
     const sy = e.clientY;
@@ -313,7 +315,10 @@ function OverlayItem({
       const dxFrac = (ev.clientX - sx) / frame.w;
       const dyFrac = (ev.clientY - sy) / frame.h;
       if (mode === "move") onChange({ x: clamp(ox + dxFrac, 0, 1), y: clamp(oy + dyFrac, 0, 1) });
-      else if (mode === "scale") onChange({ scale: clamp(os + (dxFrac + dyFrac) * 2, 0.1, 8) });
+      // Scale by dragging the corner handle. The gain and ceiling are tuned so
+      // the practical text sizes spread across the whole drag instead of being
+      // squeezed into the first sliver before an unusably large maximum.
+      else if (mode === "scale") onChange({ scale: clamp(os + (dxFrac + dyFrac) * 1.2, 0.1, 3) });
       else onChange({ rotation: orot + dxFrac * 180 });
     };
     const up = () => {
@@ -354,8 +359,9 @@ function OverlayItem({
               ref={editRef}
               contentEditable
               suppressContentEditableWarning
-              className="block min-w-[1ch] cursor-text whitespace-pre px-1 outline-none"
+              className="block min-w-[1ch] cursor-text select-text whitespace-pre-wrap break-words px-1 text-center outline-none"
               style={{
+                maxWidth: frame.w * 0.9,
                 fontFamily: overlay.fontFamily ?? "Inter, system-ui, sans-serif",
                 fontWeight: overlay.fontWeight ?? 600,
                 fontSize: 0.05 * frame.h,
@@ -369,9 +375,13 @@ function OverlayItem({
               onBlur={() => setEditing(null)}
               onKeyDown={(e) => {
                 e.stopPropagation();
-                if (e.key === "Enter" && !e.shiftKey) {
+                if (e.key === "Enter") {
+                  // Enter starts a new line inside the text box. Insert a raw
+                  // "\n" (rather than the browser's default block/`<br>`) so the
+                  // uncontrolled span's textContent stays clean and `whitespace-pre`
+                  // renders the break. Blur (click away) still commits the edit.
                   e.preventDefault();
-                  e.currentTarget.blur();
+                  document.execCommand("insertText", false, "\n");
                 } else if (e.key === "Escape") {
                   onChange({ text: editing.initial });
                   e.currentTarget.blur();
@@ -380,8 +390,9 @@ function OverlayItem({
             />
           ) : (
             <span
-              className="block whitespace-pre px-1"
+              className="block whitespace-pre-wrap break-words px-1 text-center"
               style={{
+                maxWidth: frame.w * 0.9,
                 fontFamily: overlay.fontFamily ?? "Inter, system-ui, sans-serif",
                 fontWeight: overlay.fontWeight ?? 600,
                 fontSize: 0.05 * frame.h,
@@ -632,9 +643,10 @@ export function EditorPreview({
   onOverlayChange,
   onReframeChange,
   onCaptionStyleChange,
-  faceCropEditing = false,
-  onFaceCropEditingChange,
-  onFaceSourceChange
+  cropEditing = null,
+  onCropEditingChange,
+  onFaceSourceChange,
+  onScreenSourceChange
 }: {
   project: ClipProject;
   time: number;
@@ -648,9 +660,11 @@ export function EditorPreview({
   onOverlayChange: (id: string, partial: Partial<Overlay>) => void;
   onReframeChange: (partial: Partial<ReframeTransform>) => void;
   onCaptionStyleChange?: (partial: Partial<CaptionStyle>) => void;
-  faceCropEditing?: boolean;
-  onFaceCropEditingChange?: (v: boolean) => void;
+  /** Which source-crop rect (face camera or screen) is being adjusted. */
+  cropEditing?: CropTarget;
+  onCropEditingChange?: (target: CropTarget) => void;
   onFaceSourceChange?: (rect: Rect) => void;
+  onScreenSourceChange?: (rect: Rect) => void;
 }) {
   const dims = aspectDimensions(project.aspectRatio);
   const fgRef = useRef<HTMLVideoElement>(null);
@@ -667,12 +681,21 @@ export function EditorPreview({
 
   const layoutPreset = LAYOUT_MODE_PRESETS[project.compositionMode];
   const layout: ClipLayoutDefinition | null = layoutPreset
-    ? withFaceSource(CLIP_LAYOUTS[layoutPreset], project.faceSource ?? DEFAULT_FACE_SOURCE)
+    ? withLayerSources(CLIP_LAYOUTS[layoutPreset], {
+        face: project.faceSource ?? DEFAULT_FACE_SOURCE,
+        screen: project.screenSource ?? DEFAULT_SCREEN_SOURCE
+      })
     : null;
   const hasFaceLayer = Boolean(layout?.layers.some((l) => l.kind === "face"));
-  const croppingFace = faceCropEditing && hasFaceLayer && Boolean(onFaceSourceChange);
+  const cropTarget: CropTarget =
+    cropEditing === "face" && hasFaceLayer && onFaceSourceChange
+      ? "face"
+      : cropEditing === "screen" && layout && onScreenSourceChange
+        ? "screen"
+        : null;
+  const cropping = cropTarget !== null;
   const isFit = project.compositionMode === "fit";
-  const canPan = !croppingFace && (project.compositionMode === "center-blur" || project.compositionMode === "crop-fill");
+  const canPan = !cropping && (project.compositionMode === "center-blur" || project.compositionMode === "crop-fill");
 
   // Measure the rendered frame so all geometry is pixel-accurate.
   useEffect(() => {
@@ -733,9 +756,9 @@ export function EditorPreview({
   // Plain computation (cheap arithmetic) — memoizing on `layout` would be
   // pointless since its identity changes with every project edit.
   const geometry = (() => {
-    // While the face crop is being adjusted, show the whole source frame so
-    // the user can see (and drag) exactly what the camera crop captures.
-    if (croppingFace) {
+    // While a source crop is being adjusted, show the whole source frame so
+    // the user can see (and drag) exactly what the crop captures.
+    if (cropping) {
       return {
         screen: reframeGeometry("fit", frameW, frameH, videoAspect, { scale: 1, offsetX: 0, offsetY: 0 }),
         face: null
@@ -763,6 +786,7 @@ export function EditorPreview({
   // export pan range. A still click (no movement) toggles playback instead.
   const beginPointer = (e: React.PointerEvent) => {
     if (e.button !== 0) return;
+    e.preventDefault(); // keep the browser from starting a text selection that spreads across the page
     onSelectOverlay(null);
     setCaptionSelected(false);
     const sx = e.clientX;
@@ -808,7 +832,7 @@ export function EditorPreview({
         ref={frameRef}
         data-preview-frame
         className={cn(
-          "relative overflow-hidden rounded-2xl bg-black shadow-[0_18px_48px_-12px_rgba(0,0,0,0.55)] ring-1 ring-white/10",
+          "relative select-none overflow-hidden rounded-2xl bg-black shadow-[0_18px_48px_-12px_rgba(0,0,0,0.55)] ring-1 ring-white/10",
           canPan && "cursor-grab active:cursor-grabbing"
         )}
         style={{
@@ -817,6 +841,13 @@ export function EditorPreview({
           height: dims.w >= dims.h ? "auto" : "min(62vh, 780px)"
         }}
         onPointerDown={beginPointer}
+        onScroll={(e) => {
+          // overflow-hidden still scrolls programmatically (e.g. the text-edit
+          // caret being scrolled into view), which pans the whole preview with
+          // no way back. Pin it in place.
+          e.currentTarget.scrollLeft = 0;
+          e.currentTarget.scrollTop = 0;
+        }}
         onDoubleClick={() => canPan && onReframeChange({ offsetX: 0, offsetY: 0 })}
         title={canPan ? "Drag to pan - double-click to center" : undefined}
       >
@@ -879,9 +910,9 @@ export function EditorPreview({
         )}
 
         {/* Safe-area guide. */}
-        {!croppingFace && <div className="pointer-events-none absolute inset-[5%] z-10 rounded-md border border-dashed border-white/15" />}
+        {!cropping && <div className="pointer-events-none absolute inset-[5%] z-10 rounded-md border border-dashed border-white/15" />}
 
-        {!croppingFace &&
+        {!cropping &&
           visibleOverlays.map((overlay) => (
             <OverlayItem
               key={overlay.id}
@@ -893,7 +924,7 @@ export function EditorPreview({
             />
           ))}
 
-        {!croppingFace && (
+        {!cropping && (
           <CaptionLayer
             project={project}
             video={fgVideo}
@@ -906,10 +937,10 @@ export function EditorPreview({
           />
         )}
 
-        {!croppingFace && project.exportSettings.watermark && <WatermarkLayer frameH={frameH} />}
+        {!cropping && project.exportSettings.watermark && <WatermarkLayer frameH={frameH} />}
 
-        {/* Drag-to-adjust face-camera crop, right on the preview. */}
-        {croppingFace && onFaceSourceChange && (
+        {/* Drag-to-adjust source crop (face camera or screen), right on the preview. */}
+        {cropTarget === "face" && onFaceSourceChange && (
           <CropRectEditor
             frame={geometry.screen.video}
             rect={project.faceSource ?? DEFAULT_FACE_SOURCE}
@@ -917,33 +948,44 @@ export function EditorPreview({
             label="Face camera"
           />
         )}
+        {cropTarget === "screen" && onScreenSourceChange && (
+          <CropRectEditor
+            frame={geometry.screen.video}
+            rect={project.screenSource ?? DEFAULT_SCREEN_SOURCE}
+            onChange={onScreenSourceChange}
+            label="Screen"
+          />
+        )}
 
-        {/* Face-crop mode toggle, shown whenever the layout uses a camera crop. */}
-        {hasFaceLayer && onFaceCropEditingChange && (
-          <button
-            type="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              onFaceCropEditingChange(!croppingFace);
-            }}
-            onPointerDown={(e) => e.stopPropagation()}
-            className={cn(
-              "absolute right-2 top-2 z-40 flex items-center gap-1.5 rounded-full border px-2.5 py-1.5 text-[11px] font-medium backdrop-blur transition-all duration-200",
-              croppingFace
-                ? "border-transparent bg-[var(--accent)] text-[var(--accent-contrast)] shadow-lg"
-                : "border-white/15 bg-black/55 text-white/85 hover:bg-black/75 hover:text-white"
-            )}
-          >
-            {croppingFace ? (
-              <>
-                <Check className="h-3.5 w-3.5" /> Done
-              </>
-            ) : (
-              <>
-                <Crop className="h-3.5 w-3.5" /> Adjust face crop
-              </>
-            )}
-          </button>
+        {/* Crop mode toggles, shown whenever the layout crops the source. */}
+        {layout && onCropEditingChange && (
+          <div className="absolute right-2 top-2 z-40 flex flex-col items-end gap-1.5">
+            {(cropping
+              ? ([{ target: null as CropTarget, label: "Done" }] as const)
+              : [
+                  { target: "screen" as CropTarget, label: "Adjust screen crop" },
+                  ...(hasFaceLayer ? [{ target: "face" as CropTarget, label: "Adjust face crop" }] : [])
+                ]
+            ).map(({ target, label }) => (
+              <button
+                key={label}
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onCropEditingChange(target);
+                }}
+                onPointerDown={(e) => e.stopPropagation()}
+                className={cn(
+                  "flex items-center gap-1.5 rounded-full border px-2.5 py-1.5 text-[11px] font-medium backdrop-blur transition-all duration-200",
+                  cropping
+                    ? "border-transparent bg-[var(--accent)] text-[var(--accent-contrast)] shadow-lg"
+                    : "border-white/15 bg-black/55 text-white/85 hover:bg-black/75 hover:text-white"
+                )}
+              >
+                {cropping ? <Check className="h-3.5 w-3.5" /> : <Crop className="h-3.5 w-3.5" />} {label}
+              </button>
+            ))}
+          </div>
         )}
       </div>
     </div>

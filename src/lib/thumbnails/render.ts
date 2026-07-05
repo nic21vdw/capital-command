@@ -24,16 +24,30 @@ function contrastFor(hex: string): string {
 
 /* ------------------------------- text drawing ----------------------------- */
 
+/** Optional bold/italic/underline styling applied to the whole text block. */
+type TextStyle = { bold?: boolean; italic?: boolean; underline?: boolean };
+
+/**
+ * Build a canvas `font` shorthand honoring the block's bold/italic styling.
+ * Bold lifts the font's natural weight (single-weight display faces get faux
+ * bold from the browser); italic prepends the slanted style.
+ */
+function fontSpec(font: FontOption, fontSize: number, style?: TextStyle): string {
+  const italic = style?.italic ? "italic " : "";
+  const weight = style?.bold ? Math.max(font.weight, 800) : font.weight;
+  return `${italic}${weight} ${fontSize}px ${font.stack}`;
+}
+
 /**
  * Shrink-to-fit a tokenized text block at the requested font: returns the font
  * size and wrapped lines (cap of 3 lines, every line within `maxWidth`).
  */
-function fitTokens(ctx: CanvasRenderingContext2D, tokens: Token[], baseSize: number, maxWidth: number, font: FontOption) {
+function fitTokens(ctx: CanvasRenderingContext2D, tokens: Token[], baseSize: number, maxWidth: number, font: FontOption, style?: TextStyle) {
   let fontSize = baseSize;
   let lines: Line[] = [];
   const measure = (text: string) => ctx.measureText(text).width;
   for (; fontSize >= 48; fontSize -= 6) {
-    ctx.font = `${font.weight} ${fontSize}px ${font.stack}`;
+    ctx.font = fontSpec(font, fontSize, style);
     lines = wrapTokens(tokens, maxWidth, measure);
     const widest = Math.max(0, ...lines.map((line) => lineWidth(line, measure)));
     if (lines.length <= 3 && widest <= maxWidth) break;
@@ -58,9 +72,10 @@ function paintLines(
   emphasis: TextEmphasis,
   font: FontOption,
   textColor: string,
-  highlightColor: string
+  highlightColor: string,
+  style?: TextStyle
 ) {
-  ctx.font = `${font.weight} ${fontSize}px ${font.stack}`;
+  ctx.font = fontSpec(font, fontSize, style);
   ctx.textAlign = "left";
   const space = ctx.measureText(" ").width;
   const lineHeight = fontSize * 1.14;
@@ -92,7 +107,7 @@ function paintLines(
 
     let x = startX;
     for (const token of line) {
-      ctx.font = `${font.weight} ${fontSize}px ${font.stack}`;
+      ctx.font = fontSpec(font, fontSize, style);
       const tw = measure(token.text);
 
       if (emphasis === "outline") {
@@ -121,6 +136,18 @@ function paintLines(
       ctx.shadowOffsetY = 0;
       x += tw + space;
     }
+
+    // Underline the full width of the line, just below the baseline. The stroke
+    // is trimmed by the trailing space added after the last token.
+    if (style?.underline && line.length > 0) {
+      const endX = x - space;
+      ctx.strokeStyle = mainColor;
+      ctx.lineWidth = Math.max(3, fontSize * 0.06);
+      ctx.beginPath();
+      ctx.moveTo(startX, y + fontSize * 0.16);
+      ctx.lineTo(endX, y + fontSize * 0.16);
+      ctx.stroke();
+    }
   });
 }
 
@@ -139,21 +166,23 @@ function textBlockMetrics(position: TextPosition, lineCount: number, lineHeight:
 function drawTextAuto(ctx: CanvasRenderingContext2D, rawText: string, palette: Palette, o: ThumbnailOptions, hasSubjectImage: boolean, font: FontOption) {
   const maxWidth = o.position === "center" && !hasSubjectImage ? W * 0.86 : W * 0.6 - 80;
   const tokens = tokenizeHighlights(rawText);
-  const { fontSize, lines } = fitTokens(ctx, tokens, SIZE_BASE[o.size], maxWidth, font);
+  const textStyle: TextStyle = { bold: o.bold, italic: o.italic, underline: o.underline };
+  const { fontSize, lines } = fitTokens(ctx, tokens, SIZE_BASE[o.size], maxWidth, font, textStyle);
 
   const lineHeight = fontSize * 1.14;
   const effectivePosition = hasSubjectImage && o.position === "center" ? "left" : o.position;
   const metrics = textBlockMetrics(effectivePosition, lines.length, lineHeight);
 
   ctx.textBaseline = "alphabetic";
-  paintLines(ctx, lines, metrics.x, metrics.yStart, metrics.align, fontSize, palette, o.emphasis, font, o.textColor, o.highlightColor);
+  paintLines(ctx, lines, metrics.x, metrics.yStart, metrics.align, fontSize, palette, o.emphasis, font, o.textColor, o.highlightColor, textStyle);
 }
 
 /** Free-placement text block: centered on its transform, optionally rotated. */
 function drawTextLayer(ctx: CanvasRenderingContext2D, rawText: string, palette: Palette, o: ThumbnailOptions, font: FontOption) {
   const transform = o.textTransform;
   const tokens = tokenizeHighlights(rawText);
-  const { fontSize, lines } = fitTokens(ctx, tokens, SIZE_BASE[o.size] * transform.scale, W * 0.8, font);
+  const textStyle: TextStyle = { bold: o.bold, italic: o.italic, underline: o.underline };
+  const { fontSize, lines } = fitTokens(ctx, tokens, SIZE_BASE[o.size] * transform.scale, W * 0.8, font, textStyle);
   const lineHeight = fontSize * 1.14;
   const blockHeight = lines.length * lineHeight;
 
@@ -163,7 +192,7 @@ function drawTextLayer(ctx: CanvasRenderingContext2D, rawText: string, palette: 
   ctx.rotate((transform.rotation * Math.PI) / 180);
   ctx.textBaseline = "alphabetic";
   const yStart = -blockHeight / 2 + lineHeight * 0.8;
-  paintLines(ctx, lines, 0, yStart, "center", fontSize, palette, o.emphasis, font, o.textColor, o.highlightColor);
+  paintLines(ctx, lines, 0, yStart, "center", fontSize, palette, o.emphasis, font, o.textColor, o.highlightColor, textStyle);
   ctx.restore();
 }
 
@@ -419,9 +448,10 @@ export function computeLayout(options: ThumbnailOptions): LayoutBox[] {
     const ctx = getMeasureCtx();
     const font = getFont(options.fontId);
     const tokens = tokenizeHighlights(text.trim());
-    const { fontSize, lines } = fitTokens(ctx, tokens, SIZE_BASE[options.size] * options.textTransform.scale, W * 0.8, font);
+    const textStyle: TextStyle = { bold: options.bold, italic: options.italic, underline: options.underline };
+    const { fontSize, lines } = fitTokens(ctx, tokens, SIZE_BASE[options.size] * options.textTransform.scale, W * 0.8, font, textStyle);
     const lineHeight = fontSize * 1.14;
-    ctx.font = `${font.weight} ${fontSize}px ${font.stack}`;
+    ctx.font = fontSpec(font, fontSize, textStyle);
     const measure = (t: string) => ctx.measureText(t).width;
     const widest = Math.max(0, ...lines.map((line) => lineWidth(line, measure)));
     boxes.push({

@@ -8,6 +8,7 @@ import {
   Copy,
   Crop,
   Download,
+  FolderDown,
   Image as ImageIcon,
   Loader2,
   Lock,
@@ -21,11 +22,11 @@ import {
 } from "lucide-react";
 import { CAPTION_PRESETS } from "@/lib/clipping/captions";
 import { ASPECT_LABELS, EXPORT_PRESETS, applyCaptionPreset, aspectDimensions, formatClock } from "@/lib/clipping/editor";
-import { CLIP_LAYOUTS, DEFAULT_FACE_SOURCE, LAYOUT_MODE_PRESETS } from "@/lib/clipping/layouts";
+import { CLIP_LAYOUTS, DEFAULT_FACE_SOURCE, DEFAULT_SCREEN_SOURCE, LAYOUT_MODE_PRESETS } from "@/lib/clipping/layouts";
 import { useAppData } from "@/components/providers/app-provider";
 import { Button } from "@/components/ui/button";
 import { ColorField, Field, NumberField, RangeField, SelectField, Toggle } from "@/components/editor/controls";
-import { cn } from "@/lib/utils";
+import { cn, safeFilename } from "@/lib/utils";
 import type { AspectRatioId, CaptionPresetId, ClipCompositionMode, ExportPresetId, OverlayKind } from "@/types/domain";
 import type { EditorApi } from "@/components/editor/types";
 
@@ -337,8 +338,8 @@ export const LayoutPanel = memo(function LayoutPanel({ api }: { api: EditorApi }
   };
 
   const pickLayout = (preset: (typeof LAYOUT_PRESETS)[number]) => {
-    // Leaving the camera layouts also leaves face-crop adjustment mode.
-    if (!LAYOUT_MODE_PRESETS[preset.id]) api.setFaceCropEditing(false);
+    // Leaving the camera layouts also leaves crop adjustment mode.
+    if (!LAYOUT_MODE_PRESETS[preset.id]) api.setCropEditing(null);
     // Stacked layouts are rendered at 1080x1920, so they force 9:16 output.
     if (preset.vertical && project.aspectRatio !== "9:16") {
       const nextDims = aspectDimensions("9:16");
@@ -356,19 +357,23 @@ export const LayoutPanel = memo(function LayoutPanel({ api }: { api: EditorApi }
   const activeLayout = LAYOUT_MODE_PRESETS[project.compositionMode];
   const hasFaceLayer = activeLayout ? CLIP_LAYOUTS[activeLayout].layers.some((l) => l.kind === "face") : false;
   const face = project.faceSource ?? DEFAULT_FACE_SOURCE;
+  const screen = project.screenSource ?? DEFAULT_SCREEN_SOURCE;
+  const clampSourceRect = (next: { x: number; y: number; w: number; h: number }) => ({
+    x: Math.min(Math.max(0, next.x), 1 - Math.max(0.05, Math.min(next.w, 1))),
+    y: Math.min(Math.max(0, next.y), 1 - Math.max(0.05, Math.min(next.h, 1))),
+    w: Math.max(0.05, Math.min(next.w, 1)),
+    h: Math.max(0.05, Math.min(next.h, 1))
+  });
   const setFace = (partial: Partial<typeof face>) => {
-    const next = { ...face, ...partial };
-    api.patch({
-      faceSource: {
-        x: Math.min(Math.max(0, next.x), 1 - Math.max(0.05, Math.min(next.w, 1))),
-        y: Math.min(Math.max(0, next.y), 1 - Math.max(0.05, Math.min(next.h, 1))),
-        w: Math.max(0.05, Math.min(next.w, 1)),
-        h: Math.max(0.05, Math.min(next.h, 1))
-      }
-    });
+    api.patch({ faceSource: clampSourceRect({ ...face, ...partial }) });
+  };
+  const setScreen = (partial: Partial<typeof screen>) => {
+    api.patch({ screenSource: clampSourceRect({ ...screen, ...partial }) });
   };
   const faceMatches = (rect: typeof face) =>
     Math.abs(rect.x - face.x) < 0.01 && Math.abs(rect.y - face.y) < 0.01 && Math.abs(rect.w - face.w) < 0.01 && Math.abs(rect.h - face.h) < 0.01;
+  const screenIsFullFrame =
+    screen.x < 0.005 && screen.y < 0.005 && screen.w > 0.995 && screen.h > 0.995;
 
   return (
     <div className="space-y-4">
@@ -396,18 +401,48 @@ export const LayoutPanel = memo(function LayoutPanel({ api }: { api: EditorApi }
         </div>
       </Group>
 
+      {activeLayout && (
+        <Group label="Screen crop">
+          <p className="text-xs text-[var(--muted-foreground)]">
+            Which part of the source the screen panel shows. Shrink it to cut the camera out of the screen and zoom
+            in on the content.
+          </p>
+          <div className="flex gap-1.5">
+            <Button
+              variant={api.cropEditing === "screen" ? "primary" : "secondary"}
+              className="flex-1"
+              onClick={() => api.setCropEditing(api.cropEditing === "screen" ? null : "screen")}
+            >
+              <Crop className="mr-2 h-4 w-4" />
+              {api.cropEditing === "screen" ? "Done adjusting" : "Adjust on preview"}
+            </Button>
+            {!screenIsFullFrame && (
+              <Button variant="ghost" onClick={() => api.patch({ screenSource: { ...DEFAULT_SCREEN_SOURCE } })}>
+                Reset
+              </Button>
+            )}
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <RangeField label="Position X" value={screen.x} min={0} max={1} step={0.01} onChange={(v) => setScreen({ x: v })} format={(v) => `${Math.round(v * 100)}%`} />
+            <RangeField label="Position Y" value={screen.y} min={0} max={1} step={0.01} onChange={(v) => setScreen({ y: v })} format={(v) => `${Math.round(v * 100)}%`} />
+            <RangeField label="Width" value={screen.w} min={0.1} max={1} step={0.01} onChange={(v) => setScreen({ w: v })} format={(v) => `${Math.round(v * 100)}%`} />
+            <RangeField label="Height" value={screen.h} min={0.1} max={1} step={0.01} onChange={(v) => setScreen({ h: v })} format={(v) => `${Math.round(v * 100)}%`} />
+          </div>
+        </Group>
+      )}
+
       {hasFaceLayer && (
         <Group label="Face camera crop">
           <p className="text-xs text-[var(--muted-foreground)]">
             Point this at where the camera sits in the source — the layout crops it out and re-frames it.
           </p>
           <Button
-            variant={api.faceCropEditing ? "primary" : "secondary"}
+            variant={api.cropEditing === "face" ? "primary" : "secondary"}
             className="w-full"
-            onClick={() => api.setFaceCropEditing(!api.faceCropEditing)}
+            onClick={() => api.setCropEditing(api.cropEditing === "face" ? null : "face")}
           >
             <Crop className="mr-2 h-4 w-4" />
-            {api.faceCropEditing ? "Done adjusting" : "Adjust on preview"}
+            {api.cropEditing === "face" ? "Done adjusting" : "Adjust on preview"}
           </Button>
           <div className="flex flex-wrap gap-1.5">
             {FACE_CROP_PRESETS.map((preset) => (
@@ -666,11 +701,57 @@ export const ExportPanel = memo(function ExportPanel({ api }: { api: EditorApi }
   const e = api.project.exportSettings;
   const set = (partial: Partial<typeof e>) => api.patch({ exportSettings: { ...e, ...partial } });
   const state = api.exportState;
+  const [savingToFolder, setSavingToFolder] = useState(false);
 
   const applyPreset = (preset: ExportPresetId) => {
     const p = EXPORT_PRESETS[preset];
     set({ preset, width: p.w, height: p.h });
     if (p.aspect !== "custom") api.patch({ aspectRatio: p.aspect });
+  };
+
+  // "Take clip to folder": use the File System Access API so the user picks the
+  // destination folder instead of the file landing in the browser's downloads.
+  const saveToFolder = async () => {
+    if (state.status !== "done" || !state.exportId) return;
+    const suggestedName = `${e.filename || "clip"}.${e.format}`;
+    const url = `/api/clips/${api.project.jobId}/export/${state.exportId}?file=1&download=1`;
+
+    const picker = (window as unknown as { showSaveFilePicker?: (opts: {
+      suggestedName?: string;
+      types?: Array<{ description?: string; accept: Record<string, string[]> }>;
+    }) => Promise<{ createWritable: () => Promise<{ write: (data: Blob) => Promise<void>; close: () => Promise<void> }> }> }).showSaveFilePicker;
+
+    // Browsers without the File System Access API (e.g. Firefox/Safari) fall
+    // back to a normal download.
+    if (!picker) {
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = suggestedName;
+      a.click();
+      return;
+    }
+
+    setSavingToFolder(true);
+    try {
+      const mime = e.format === "webm" ? "video/webm" : "video/mp4";
+      const handle = await picker({
+        suggestedName,
+        types: [{ description: "Video", accept: { [mime]: [`.${e.format}`] } }]
+      });
+      const res = await fetch(url, { cache: "no-store" });
+      if (!res.ok) throw new Error("Could not fetch the exported file.");
+      const blob = await res.blob();
+      const writable = await handle.createWritable();
+      await writable.write(blob);
+      await writable.close();
+    } catch (err) {
+      // AbortError = the user closed the folder picker; not worth surfacing.
+      if (!(err instanceof DOMException && err.name === "AbortError")) {
+        console.error("Save to folder failed", err);
+      }
+    } finally {
+      setSavingToFolder(false);
+    }
   };
 
   return (
@@ -768,11 +849,29 @@ export const ExportPanel = memo(function ExportPanel({ api }: { api: EditorApi }
               className="w-full rounded-md bg-black"
               style={{ maxHeight: "30vh" }}
             />
-            <a href={`/api/clips/${api.project.jobId}/export/${state.exportId}?file=1&download=1`} download>
-              <Button variant="secondary" className="w-full">
-                <Download className="mr-2 h-4 w-4" /> Download {e.filename}.{e.format}
-              </Button>
-            </a>
+            {(() => {
+              const downloadName = safeFilename(api.project.name || e.filename);
+              return (
+                <a
+                  href={`/api/clips/${api.project.jobId}/export/${state.exportId}?file=1&download=1&name=${encodeURIComponent(
+                    downloadName
+                  )}`}
+                  download={`${downloadName}.${e.format}`}
+                >
+                  <Button variant="secondary" className="w-full">
+                    <Download className="mr-2 h-4 w-4" /> Download {downloadName}.{e.format}
+                  </Button>
+                </a>
+              );
+            })()}
+            <Button variant="secondary" className="w-full" onClick={saveToFolder} disabled={savingToFolder}>
+              {savingToFolder ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : (
+                <FolderDown className="mr-2 h-4 w-4" />
+              )}
+              Take clip to folder
+            </Button>
           </div>
         )}
       </div>
