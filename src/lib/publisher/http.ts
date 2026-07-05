@@ -1,0 +1,95 @@
+/**
+ * Small fetch helpers shared by the platform adapters. Errors are classified
+ * so the runner knows whether to retry with backoff (transient) or mark the
+ * platform failed with a reason (permanent).
+ */
+
+export class TransientError extends Error {
+  readonly transient = true;
+}
+
+export class PermanentError extends Error {
+  readonly transient = false;
+}
+
+/**
+ * Thrown by adapters when the platform accepted the media but has not finished
+ * processing it within this run. The runner records status "uploaded" with the
+ * mid-flight handle so the next run resumes instead of re-sending the video.
+ */
+export class StillProcessingError extends TransientError {
+  constructor(
+    readonly containerId: string,
+    message: string
+  ) {
+    super(message);
+  }
+}
+
+export function isTransient(error: unknown): boolean {
+  if (error instanceof TransientError) return true;
+  if (error instanceof PermanentError) return false;
+  // Network-level failures (DNS, reset, timeout) surface as generic errors.
+  return true;
+}
+
+/** 408/429 and all 5xx are worth retrying; other 4xx are caller mistakes. */
+function classifyStatus(status: number, message: string): TransientError | PermanentError {
+  if (status === 408 || status === 429 || status >= 500) return new TransientError(message);
+  return new PermanentError(message);
+}
+
+async function readBody(response: Response): Promise<string> {
+  try {
+    return (await response.text()).slice(0, 2000);
+  } catch {
+    return "";
+  }
+}
+
+export type JsonRequest = {
+  method?: string;
+  headers?: Record<string, string>;
+  body?: string | URLSearchParams | Buffer;
+  /** Label used in error messages, e.g. "YouTube resumable init". */
+  label: string;
+};
+
+/** Performs a request and parses JSON, throwing classified errors. */
+export async function fetchJson<T = Record<string, unknown>>(url: string, request: JsonRequest): Promise<T> {
+  const response = await doFetch(url, request);
+  const text = await readBody(response);
+  if (!response.ok) {
+    throw classifyStatus(response.status, `${request.label} failed (HTTP ${response.status}): ${text}`);
+  }
+  try {
+    return (text ? JSON.parse(text) : {}) as T;
+  } catch {
+    throw new PermanentError(`${request.label} returned unparseable JSON: ${text.slice(0, 200)}`);
+  }
+}
+
+/** Performs a request where the caller needs the raw Response (e.g. headers). */
+export async function fetchRaw(url: string, request: JsonRequest): Promise<Response> {
+  const response = await doFetch(url, request);
+  if (!response.ok) {
+    const text = await readBody(response);
+    throw classifyStatus(response.status, `${request.label} failed (HTTP ${response.status}): ${text}`);
+  }
+  return response;
+}
+
+async function doFetch(url: string, request: JsonRequest): Promise<Response> {
+  try {
+    return await fetch(url, {
+      method: request.method ?? "POST",
+      headers: request.headers,
+      // Buffer is a valid BodyInit in Node but the DOM lib types don't know it.
+      body: request.body as BodyInit | undefined
+    });
+  } catch (error) {
+    throw new TransientError(
+      `${request.label} network error: ${error instanceof Error ? error.message : String(error)}`
+    );
+  }
+}
