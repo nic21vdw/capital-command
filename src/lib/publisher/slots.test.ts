@@ -51,6 +51,25 @@ describe("generateSlots", () => {
     ]);
   });
 
+  it("pages forward with startDayOffset: the window starts N days after today", () => {
+    // Same Wed Mar 4 2026 anchor, next two-week period → Mar 18-31.
+    const slots = generateSlots({ timeZone: TZ, now: new Date("2026-03-04T15:00:00Z"), startDayOffset: 14 });
+    expect(slots).toHaveLength(42);
+    expect(slots[0].dateKey).toBe("2026-03-18");
+    expect(slots[slots.length - 1].dateKey).toBe("2026-03-31");
+    // A future window contains neither today nor past slots.
+    expect(slots.some((s) => s.today)).toBe(false);
+    expect(slots.some((s) => s.past)).toBe(false);
+    // Weekend detection still tracks the actual calendar day.
+    expect(slots.filter((s) => s.dateKey === "2026-03-21").map((s) => s.time)).toEqual(["10:00", "13:00", "19:00"]); // Saturday
+  });
+
+  it("keeps UTC conversion correct in offset windows that cross DST", () => {
+    // Window Mar 4 + 4 = Mar 8-21; DST starts Sun Mar 8 2026 in Toronto.
+    const slots = generateSlots({ timeZone: TZ, now: new Date("2026-03-04T15:00:00Z"), startDayOffset: 4 });
+    expect(slot(slots, "2026-03-09 07:30").utc).toBe("2026-03-09T11:30:00.000Z"); // EDT
+  });
+
   it("starts from the local calendar date, not the UTC one", () => {
     // 02:00Z on Mar 5 is still 21:00 Mar 4 in Toronto.
     const slots = generateSlots({ timeZone: TZ, now: new Date("2026-03-05T02:00:00Z") });

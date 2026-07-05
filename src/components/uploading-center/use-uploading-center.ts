@@ -23,8 +23,13 @@ export type Overview = {
   timezone: string;
   platforms: Record<PlatformId, { configured: boolean; account?: YoutubeAccount | null }>;
   quota: YoutubeQuota;
+  /** Which window the slots below belong to, in days after today. */
+  slotOffsetDays: number;
   slots: ScheduleSlot[];
 };
+
+/** The schedule grid always shows a two-week window. */
+export const SLOT_WINDOW_DAYS = 14;
 
 export type ReadyClip = {
   /** Stable key: jobId + the exact output file that would be posted. */
@@ -136,6 +141,12 @@ export function useUploadingCenter() {
   /** Set right after a YouTube upload succeeds; drives the confirmation dialog. */
   const [uploadSuccess, setUploadSuccess] = useState<UploadSuccess | null>(null);
   const remindedRef = useRef(new Set<string>());
+  /**
+   * Which two-week window the schedule grid shows, in days after today
+   * (0 = the current period, 14 = the next one, …). Changing it recreates
+   * `refresh`, and the page's fetch effect re-runs with the new window.
+   */
+  const [slotOffsetDays, setSlotOffsetDays] = useState(0);
 
   const refresh = useCallback(async (options?: { channelRefresh?: boolean }) => {
     // Sequential local fetches; a failure keeps the last good data and the
@@ -145,7 +156,9 @@ export function useUploadingCenter() {
       if (jobsRes.ok) setJobs(((await jobsRes.json()) as { jobs: ClipJob[] }).jobs);
       const queueRes = await fetch("/api/publish", { cache: "no-store" });
       if (queueRes.ok) setQueueItems(((await queueRes.json()) as { items?: QueueItem[] }).items ?? []);
-      const overviewRes = await fetch("/api/publish/overview?days=14", { cache: "no-store" });
+      const overviewRes = await fetch(`/api/publish/overview?days=${SLOT_WINDOW_DAYS}&offsetDays=${slotOffsetDays}`, {
+        cache: "no-store"
+      });
       if (overviewRes.ok) setOverview((await overviewRes.json()) as Overview);
       // The channel schedule is cached 5 minutes server-side; channelRefresh
       // bypasses that right after a publish so the new video appears at once.
@@ -158,7 +171,7 @@ export function useUploadingCenter() {
     } finally {
       setLoaded(true);
     }
-  }, []);
+  }, [slotOffsetDays]);
 
   // NOTE: the initial fetch + 60s poll effect lives in UploadingCenterPage —
   // react-hooks/set-state-in-effect flags `void refresh()` inside a custom
@@ -522,6 +535,10 @@ export function useUploadingCenter() {
   return {
     loaded,
     overview,
+    slotOffsetDays,
+    setSlotOffsetDays,
+    /** True while the slots on screen still belong to the previous window. */
+    slotWindowLoading: overview !== null && (overview.slotOffsetDays ?? 0) !== slotOffsetDays,
     channel,
     channelVideos,
     channelVideosBySlot,

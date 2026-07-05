@@ -3,7 +3,9 @@ import { zonedToUtc } from "@/lib/publisher/time";
 /**
  * The Uploading Center's schedule grid: every day at fixed local times
  * (weekdays default 07:30 / 12:30 / 19:30, weekends 10:00 / 13:00 / 19:00 in
- * PUBLISH_TIMEZONE), generated for the next N days starting today. Slots are
+ * PUBLISH_TIMEZONE), generated for an N-day window that starts today by
+ * default or `startDayOffset` days later (how the Uploading Center pages
+ * forward through future two-week periods). Slots are
  * computed on the server so the wall-clock labels are in the configured
  * timezone and the stored instant is UTC, with DST handled by zonedToUtc
  * (07:30 Toronto is 12:30Z in winter but 11:30Z in summer).
@@ -33,6 +35,8 @@ export type ScheduleSlot = {
 export type SlotOptions = {
   timeZone: string;
   days?: number;
+  /** First day of the window, in days after today (0 = today). */
+  startDayOffset?: number;
   now?: Date;
   times?: string[];
   weekendTimes?: string[];
@@ -56,6 +60,7 @@ export function generateSlots(options: SlotOptions): ScheduleSlot[] {
   const {
     timeZone,
     days = 14,
+    startDayOffset = 0,
     now = new Date(),
     times = DEFAULT_SLOT_TIMES,
     weekendTimes = DEFAULT_WEEKEND_SLOT_TIMES
@@ -63,7 +68,7 @@ export function generateSlots(options: SlotOptions): ScheduleSlot[] {
   const today = localDateParts(now, timeZone);
   const slots: ScheduleSlot[] = [];
 
-  for (let offset = 0; offset < days; offset += 1) {
+  for (let offset = startDayOffset; offset < startDayOffset + days; offset += 1) {
     // Date.UTC normalizes day overflow, giving clean calendar arithmetic; the
     // result is only used for its calendar fields, never as an instant.
     const calendarDay = new Date(Date.UTC(today.year, today.month - 1, today.day + offset));
