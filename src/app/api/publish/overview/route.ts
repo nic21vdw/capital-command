@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { configuredPlatforms, publisherConfig } from "@/lib/publisher/config";
+import { youtubeChannelInfo } from "@/lib/publisher/googleAuth";
 import { youtubeQuota } from "@/lib/publisher/quota";
 import { publishQueue } from "@/lib/publisher/queue";
 import { generateSlots } from "@/lib/publisher/slots";
@@ -28,7 +29,10 @@ export async function GET(request: NextRequest) {
     enabled: config.enabled,
     timezone: config.timezone,
     platforms: {
-      youtube: { configured: configured.has("youtube") },
+      youtube: {
+        configured: configured.has("youtube"),
+        account: configured.has("youtube") ? await youtubeChannelInfo() : null
+      },
       instagram: { configured: configured.has("instagram") },
       tiktok: { configured: configured.has("tiktok") }
     },
