@@ -14,7 +14,11 @@ import type { ClipCandidate, ClipScoreBreakdown } from "@/lib/clipping/types";
  */
 
 const MIN_CLIP_SEC = 15;
-const MAX_CLIP_SEC = 60;
+// Clips should normally land between 15 and 30 seconds. The hard cap is a bit
+// higher so a genuinely continuous moment (e.g. a ~45s story that can't be cut)
+// can survive, but nothing longer than this is ever produced.
+const PREFERRED_MAX_CLIP_SEC = 30;
+const MAX_CLIP_SEC = 45;
 const TARGET_CLIPS = TARGET_CLIP_COUNT;
 // Keep the timeline we send to the model bounded regardless of stream length so
 // even a multi-hour VOD is covered end-to-end (we just coarsen the granularity).
@@ -174,7 +178,7 @@ Read the ENTIRE transcript, beginning to end, and choose exactly ${TARGET_CLIPS}
 Rules:
 - Choose moments from ACROSS THE WHOLE STREAM - do not cluster them all near the start. Spread them over the full timeline.
 - Each clip must be a self-contained thought that makes sense without surrounding context.
-- Each clip must be between ${MIN_CLIP_SEC} and ${MAX_CLIP_SEC} seconds long.
+- Each clip should be between ${MIN_CLIP_SEC} and ${PREFERRED_MAX_CLIP_SEC} seconds long. Only exceed ${PREFERRED_MAX_CLIP_SEC} seconds when the moment is one continuous thought that would be ruined by cutting it shorter, and never exceed ${MAX_CLIP_SEC} seconds.
 - Favour strong hooks, emotional or surprising payoffs, hot takes, stories, and quotable lines.
 - Prefer variety: mix strong openings, tactical explanations, funny reactions, disagreement, turning points, and clean story payoffs when the transcript supports them.
 - Avoid picking multiple moments that make the same point unless the later one has a clearly better hook or payoff.
