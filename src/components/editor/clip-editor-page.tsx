@@ -11,6 +11,7 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Modal } from "@/components/ui/modal";
 import { PageHeader } from "@/components/ui/page-header";
+import { Select } from "@/components/ui/select";
 import { ClipEditor } from "@/components/editor/clip-editor";
 import { clearDraftProject, readDraftProject, writeDraftProject } from "@/components/editor/drafts";
 import { EditorExportsProvider } from "@/components/editor/exports-provider";
@@ -58,6 +59,7 @@ export function ClipEditorPage() {
   const [jobs, setJobs] = useState<ClipJob[]>([]);
   const [loadingJobs, setLoadingJobs] = useState(false);
   const [draftProject, setDraftProject] = useState<ClipProject | null>(null);
+  const [filterJobId, setFilterJobId] = useState<string>("all");
 
   const storedProject = projects.find((p) => p.id === openId) ?? null;
   const draftForOpen = draftProject?.id === openId ? draftProject : null;
@@ -91,6 +93,24 @@ export function ClipEditorPage() {
         return b.updatedAt.localeCompare(a.updatedAt);
       }),
     [jobsById, projects]
+  );
+  // One option per source video that actually has projects, in the same
+  // source-first order the grid uses.
+  const sourceOptions = useMemo(() => {
+    const seen = new Map<string, string>();
+    for (const project of sortedProjects) {
+      if (!seen.has(project.jobId)) {
+        seen.set(project.jobId, sourceLabel(jobsById.get(project.jobId) ?? null, project.jobId));
+      }
+    }
+    return [...seen.entries()].map(([jobId, label]) => ({ jobId, label }));
+  }, [jobsById, sortedProjects]);
+  // A deleted project can leave the filter pointing at a source with no
+  // projects left — fall back to showing everything instead of an empty grid.
+  const activeFilter = sourceOptions.some((option) => option.jobId === filterJobId) ? filterJobId : "all";
+  const visibleProjects = useMemo(
+    () => (activeFilter === "all" ? sortedProjects : sortedProjects.filter((project) => project.jobId === activeFilter)),
+    [activeFilter, sortedProjects]
   );
 
   // Always load the draft alongside the stored copy so the freshest of the
@@ -211,10 +231,27 @@ export function ClipEditorPage() {
         title="Clip Editor"
         description="Open a clip to trim it on the timeline, pick a short-form layout, and export. Edits are non-destructive and saved automatically."
         actions={
-          <Button onClick={openPicker}>
-            <Plus className="mr-2 h-4 w-4" />
-            New project
-          </Button>
+          <div className="flex items-center gap-2">
+            {sourceOptions.length > 1 ? (
+              <Select
+                value={activeFilter}
+                onChange={(event) => setFilterJobId(event.target.value)}
+                className="h-9 w-auto max-w-56"
+                aria-label="Filter by source video"
+              >
+                <option value="all">All sources</option>
+                {sourceOptions.map((option) => (
+                  <option key={option.jobId} value={option.jobId}>
+                    {option.label}
+                  </option>
+                ))}
+              </Select>
+            ) : null}
+            <Button onClick={openPicker}>
+              <Plus className="mr-2 h-4 w-4" />
+              New project
+            </Button>
+          </div>
         }
       />
 
@@ -232,7 +269,7 @@ export function ClipEditorPage() {
         </Card>
       ) : (
         <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-          {sortedProjects.map((project) => (
+          {visibleProjects.map((project) => (
             <Card key={project.id} className="animate-in space-y-3 transition-all duration-200 hover:border-[var(--border-strong)] hover:shadow-lg">
               <div className="flex items-start justify-between gap-2">
                 <div className="min-w-0">
