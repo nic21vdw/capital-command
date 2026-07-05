@@ -7,11 +7,14 @@ import type { PlatformId, PlatformState, PostResult, QueueItem } from "@/lib/pub
  * The publish queue and its per-platform state machine.
  *
  *   pending → uploaded → published
- *   pending → scheduled (YouTube native publishAt — terminal for the runner)
+ *   pending → scheduled → published (YouTube native publishAt; once the slot
+ *             time passes the runner verifies the video went public and
+ *             forces it public if YouTube did not flip it)
  *   pending/uploaded → failed (permanent, with reason)
  *
- * Idempotency: `published`, `scheduled` and `failed` are terminal, so re-runs
- * of the runner can never double-post. Transient errors keep the platform in
+ * Idempotency: `published` and `failed` are terminal, and `scheduled` only
+ * ever finalizes (verify/flip visibility, never a re-upload), so re-runs of
+ * the runner can never double-post. Transient errors keep the platform in
  * its current state and only bump attempts/nextAttemptAt.
  */
 
@@ -71,13 +74,18 @@ export class PublishQueue {
    *    away and YouTube itself publishes at publishAt, so a downtime-proof
    *    schedule exists even if the runner sleeps through the publish time;
    *  - Instagram/TikTok are due once publishAt <= now (no native scheduling);
+   *  - "scheduled" posts come due again once publishAt <= now, so the runner
+   *    can verify the platform really made them public (and force it if not);
    *  - respects retry backoff (nextAttemptAt) and soft claims.
    */
   duePlatforms(item: QueueItem, now: Date): PlatformId[] {
     const due: PlatformId[] = [];
     for (const [platform, state] of Object.entries(item.platforms) as [PlatformId, PlatformState][]) {
-      if (isTerminalStatus(state.status)) continue;
-      const timeDue = platform === "youtube" || new Date(item.publishAt).getTime() <= now.getTime();
+      const awaitingFlip = state.status === "scheduled";
+      if (isTerminalStatus(state.status) && !awaitingFlip) continue;
+      const timeDue = awaitingFlip
+        ? new Date(item.publishAt).getTime() <= now.getTime()
+        : platform === "youtube" || new Date(item.publishAt).getTime() <= now.getTime();
       if (!timeDue) continue;
       if (state.nextAttemptAt && new Date(state.nextAttemptAt).getTime() > now.getTime()) continue;
       if (state.claimedAt) {
@@ -153,7 +161,11 @@ export class PublishQueue {
   }
 }
 
-/** States the runner never touches again (manual posts are reminders, not jobs). */
+/**
+ * States the runner never publishes again (manual posts are reminders, not
+ * jobs). "scheduled" is terminal for uploads but still comes due once its
+ * publishAt passes, for the verify-went-public finalize step.
+ */
 export function isTerminalStatus(status: PlatformState["status"]): boolean {
   return status === "published" || status === "failed" || status === "scheduled" || status === "manual";
 }

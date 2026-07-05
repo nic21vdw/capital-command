@@ -108,4 +108,77 @@ describe("youtube adapter", () => {
     expect(result.status).toBe("published");
     expect(result.postId).toBe("vid-456");
   });
+
+  describe("finalize (verify the public flip after the slot time)", () => {
+    it("marks published without touching the video when YouTube already flipped it", async () => {
+      const requests = mockFetchRoutes([
+        { match: "oauth2.googleapis.com/token", respond: () => jsonResponse({ access_token: "at-1", expires_in: 3600 }) },
+        {
+          match: "id=vid-123",
+          respond: () => jsonResponse({ items: [{ status: { privacyStatus: "public", selfDeclaredMadeForKids: false } }] })
+        }
+      ]);
+      const adapter = await loadAdapter();
+      const item = testItem({ visibility: "public", platformIds: ["youtube"] });
+
+      const result = await adapter.finalize!(item, { status: "scheduled", attempts: 0, postId: "vid-123" });
+
+      expect(result.status).toBe("published");
+      expect(result.postId).toBe("vid-123");
+      // Token refresh + status check only — no videos.update.
+      expect(requests).toHaveLength(2);
+      expect(requests[1].method).toBe("GET");
+    });
+
+    it("forces privacyStatus public via videos.update when the video is still private", async () => {
+      const requests = mockFetchRoutes([
+        { match: "oauth2.googleapis.com/token", respond: () => jsonResponse({ access_token: "at-1", expires_in: 3600 }) },
+        {
+          match: "id=vid-123",
+          respond: () =>
+            jsonResponse({
+              items: [
+                {
+                  status: {
+                    privacyStatus: "private",
+                    publishAt: "2027-01-15T18:30:00Z",
+                    selfDeclaredMadeForKids: false,
+                    embeddable: true
+                  }
+                }
+              ]
+            })
+        },
+        { match: "youtube/v3/videos?part=status", respond: () => jsonResponse({ id: "vid-123" }) }
+      ]);
+      const adapter = await loadAdapter();
+      const item = testItem({ visibility: "public", platformIds: ["youtube"] });
+
+      const result = await adapter.finalize!(item, { status: "scheduled", attempts: 0, postId: "vid-123" });
+
+      const update = requests[2];
+      expect(update.method).toBe("PUT");
+      const body = JSON.parse(String(update.body));
+      expect(body.id).toBe("vid-123");
+      expect(body.status.privacyStatus).toBe("public");
+      // The stale publishAt must not be resent; the rest of the part survives.
+      expect(body.status.publishAt).toBeUndefined();
+      expect(body.status.embeddable).toBe(true);
+      expect(body.status.selfDeclaredMadeForKids).toBe(false);
+      expect(result.status).toBe("published");
+    });
+
+    it("fails permanently when the video no longer exists", async () => {
+      mockFetchRoutes([
+        { match: "oauth2.googleapis.com/token", respond: () => jsonResponse({ access_token: "at-1", expires_in: 3600 }) },
+        { match: "id=vid-gone", respond: () => jsonResponse({ items: [] }) }
+      ]);
+      const adapter = await loadAdapter();
+      const item = testItem({ visibility: "public", platformIds: ["youtube"] });
+
+      await expect(adapter.finalize!(item, { status: "scheduled", attempts: 0, postId: "vid-gone" })).rejects.toThrow(
+        /not found/
+      );
+    });
+  });
 });

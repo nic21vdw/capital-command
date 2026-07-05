@@ -20,7 +20,9 @@ export type Visibility = "public" | "private" | "unlisted";
  *   uploaded  → bytes/container accepted by the platform but not yet live
  *               (IG container created, TikTok upload processing)
  *   scheduled → YouTube upload done with status.publishAt set; YouTube itself
- *               publishes at the target time, no runner needed
+ *               publishes at the target time. Once publishAt passes, the
+ *               runner verifies the flip happened and forces the video public
+ *               if it did not (see PlatformAdapter.finalize)
  *   published → live (or live as private/SELF_ONLY when that was requested)
  *   failed    → permanently failed; the error field says why
  *   manual    → the platform had no credentials when the post was created, so
@@ -110,4 +112,11 @@ export interface PlatformAdapter {
    * http.ts to control retry behavior.
    */
   publish(input: PublishInput): Promise<PostResult>;
+  /**
+   * Follow-through for platforms with native scheduling: called once a
+   * "scheduled" post's publishAt has passed, to verify the platform actually
+   * made it public and force it public if not. Must be idempotent and must
+   * not re-upload media. Returns "published" on success.
+   */
+  finalize?(item: QueueItem, state: PlatformState): Promise<PostResult>;
 };

@@ -9,7 +9,7 @@ import { mediaHost } from "@/lib/publisher/hosting";
 import { PermanentError, StillProcessingError, isTransient } from "@/lib/publisher/http";
 import { PublishQueue, isTerminalStatus, publishQueue } from "@/lib/publisher/queue";
 import { formatInTimezone } from "@/lib/publisher/time";
-import type { PlatformAdapter, PlatformId, PlatformState, PublishInput, PublishPlan, QueueItem } from "@/lib/publisher/types";
+import type { PlatformAdapter, PlatformId, PlatformState, PostResult, PublishInput, PublishPlan, QueueItem } from "@/lib/publisher/types";
 
 /**
  * The scheduler/runner. run_due(now) processes every queue item that is due
@@ -17,7 +17,9 @@ import type { PlatformAdapter, PlatformId, PlatformState, PublishInput, PublishP
  *
  *  - YouTube items upload immediately (whenever the runner first sees them)
  *    with status.publishAt — YouTube then publishes natively at the target
- *    time, so YouTube posts survive runner downtime.
+ *    time, so YouTube posts survive runner downtime. Once the target time
+ *    passes, the runner double-checks the video actually went public and
+ *    forces it public if YouTube ignored publishAt (adapter.finalize).
  *  - Instagram/TikTok items fire once publishAt <= now, because those APIs
  *    have no server-side scheduling.
  *
@@ -165,7 +167,9 @@ export async function runDue(now: Date = new Date(), options: RunDueOptions = {}
       const item = await queue.get(options.itemId);
       const platforms = item
         ? (Object.entries(item.platforms) as [PlatformId, PlatformState][])
-            .filter(([, state]) => !isTerminalStatus(state.status))
+            // "scheduled" is included so "publish now" flips the video public
+            // immediately instead of waiting for the slot time.
+            .filter(([, state]) => !isTerminalStatus(state.status) || state.status === "scheduled")
             .map(([platform]) => platform)
         : [];
       due = item && platforms.length > 0 ? [{ item, platforms }] : [];
@@ -189,14 +193,24 @@ export async function runDue(now: Date = new Date(), options: RunDueOptions = {}
         if (!adapter.configured()) {
           throw new PermanentError(`${platform} credentials are not configured in .env.`);
         }
-        await queue.claim(item, platform, now);
-        // Resolve media lazily and once per item, not per platform.
-        localPath ??= await resolveLocalMedia(item, config);
-        if (item.mediaKey && publicUrl === undefined) {
-          publicUrl = (await mediaHost(config)?.publicUrl(item.mediaKey)) ?? undefined;
+        const state = item.platforms[platform];
+        let result: PostResult;
+        if (state?.status === "scheduled") {
+          // Already uploaded with native scheduling; verify the platform made
+          // it public at the slot time and force it if not. No media needed.
+          if (!adapter.finalize) continue;
+          await queue.claim(item, platform, now);
+          result = await adapter.finalize(item, state);
+        } else {
+          await queue.claim(item, platform, now);
+          // Resolve media lazily and once per item, not per platform.
+          localPath ??= await resolveLocalMedia(item, config);
+          if (item.mediaKey && publicUrl === undefined) {
+            publicUrl = (await mediaHost(config)?.publicUrl(item.mediaKey)) ?? undefined;
+          }
+          const input: PublishInput = { item, localPath, publicUrl };
+          result = await adapter.publish(input);
         }
-        const input: PublishInput = { item, localPath, publicUrl };
-        const result = await adapter.publish(input);
         await queue.recordSuccess(item, platform, result, now);
         record(result.status, result.detail ?? "");
       } catch (error) {
