@@ -50,6 +50,10 @@ function fileUrl(jobId: string, fileName: string, download = false) {
   return `/api/clips/${jobId}/files/${encodeURIComponent(fileName)}${download ? "?download=1" : ""}`;
 }
 
+function thumbnailUrl(jobId: string, fileName: string) {
+  return `/api/clips/${jobId}/thumbnail/${encodeURIComponent(fileName)}`;
+}
+
 function statusLabel(job: ClipJob) {
   if (job.status === "queued" || job.status === "processing") return STAGE_LABELS[job.stage];
   if (job.status === "done") return "Ready";
@@ -79,6 +83,8 @@ export function ClipGeneratorPage() {
   const [submitting, setSubmitting] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [retryingJobId, setRetryingJobId] = useState<string | null>(null);
+  const [dragActive, setDragActive] = useState(false);
+  const dragDepth = useRef(0);
   const uploadInputRef = useRef<HTMLInputElement>(null);
 
   const activeJob = useMemo(
@@ -175,6 +181,24 @@ export function ClipGeneratorPage() {
       }
     },
     [brief, startJob]
+  );
+
+  const onDrop = useCallback(
+    (event: React.DragEvent) => {
+      event.preventDefault();
+      dragDepth.current = 0;
+      setDragActive(false);
+      if (submitting || uploading) return;
+      const file = Array.from(event.dataTransfer.files).find(
+        (item) => item.type.startsWith("video/") || /\.(mp4|mov|mkv|webm|avi|m4v)$/i.test(item.name)
+      );
+      if (!file) {
+        toast.error("Drop a video file (mp4, mov, mkv, webm...).");
+        return;
+      }
+      void uploadFile(file);
+    },
+    [submitting, uploading, uploadFile]
   );
 
   const editClip = useCallback(
@@ -301,15 +325,36 @@ export function ClipGeneratorPage() {
                   event.target.value = "";
                 }}
               />
-              <Button
-                variant="secondary"
-                onClick={() => uploadInputRef.current?.click()}
-                disabled={busy}
-                className="w-full"
+              <div
+                onDragEnter={(event) => {
+                  event.preventDefault();
+                  dragDepth.current += 1;
+                  setDragActive(true);
+                }}
+                onDragOver={(event) => event.preventDefault()}
+                onDragLeave={(event) => {
+                  event.preventDefault();
+                  dragDepth.current = Math.max(0, dragDepth.current - 1);
+                  if (dragDepth.current === 0) setDragActive(false);
+                }}
+                onDrop={onDrop}
+                className={cn(
+                  "rounded-lg border border-dashed p-1 transition",
+                  dragActive
+                    ? "border-[var(--accent)] bg-[var(--accent)]/10"
+                    : "border-transparent"
+                )}
               >
-                {uploading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Upload className="mr-2 h-4 w-4" />}
-                {uploading ? "Uploading..." : "Upload a video file"}
-              </Button>
+                <Button
+                  variant="secondary"
+                  onClick={() => uploadInputRef.current?.click()}
+                  disabled={busy}
+                  className="w-full"
+                >
+                  {uploading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Upload className="mr-2 h-4 w-4" />}
+                  {dragActive ? "Drop to upload" : uploading ? "Uploading..." : "Upload a video file"}
+                </Button>
+              </div>
             </div>
           </Card>
 
@@ -514,21 +559,60 @@ function ClipCard({
   // The instant preview holds the same content as the HD master (the master is
   // a re-encode of the same section), so cards always play the lighter file.
   const playbackFile = clip.previewFile ?? clip.file;
+  const stopTimerRef = useRef<number | null>(null);
+
+  // Once a hover preview starts, let it run at least this long even if the
+  // pointer leaves — a quick flick across the grid shouldn't cut the preview
+  // off after half a second.
+  const MIN_PREVIEW_SECONDS = 5;
+
+  const cancelPendingStop = () => {
+    if (stopTimerRef.current !== null) {
+      window.clearInterval(stopTimerRef.current);
+      stopTimerRef.current = null;
+    }
+  };
 
   // Hover (or focus) scrubs the clip silently — lets you scan moments without
   // opening the editor.
   const startPreview = () => {
     const v = videoRef.current;
     if (!v) return;
+    cancelPendingStop();
     v.muted = true;
+    // The card mounts with preload="none" so the grid renders instantly off
+    // the poster; only start buffering the mp4 once someone shows interest.
+    v.preload = "auto";
     void v.play().catch(() => undefined);
   };
   const stopPreview = () => {
     const v = videoRef.current;
     if (!v) return;
-    v.pause();
-    v.currentTime = 0;
+    const finish = () => {
+      cancelPendingStop();
+      v.pause();
+      v.currentTime = 0;
+    };
+    // Compare against played time (currentTime, since previews start at 0)
+    // rather than wall-clock time, so buffering stalls don't eat the minimum.
+    const minimum = Number.isFinite(v.duration)
+      ? Math.min(MIN_PREVIEW_SECONDS, Math.max(0, v.duration - 0.25))
+      : MIN_PREVIEW_SECONDS;
+    if (v.paused || v.currentTime >= minimum) {
+      finish();
+      return;
+    }
+    cancelPendingStop();
+    stopTimerRef.current = window.setInterval(() => {
+      if (v.currentTime >= minimum || v.paused) finish();
+    }, 200);
   };
+  useEffect(
+    () => () => {
+      if (stopTimerRef.current !== null) window.clearInterval(stopTimerRef.current);
+    },
+    []
+  );
 
   return (
     <Card className="animate-in overflow-hidden p-0 transition-all duration-200 hover:border-[var(--border-strong)] hover:shadow-lg">
@@ -538,8 +622,13 @@ function ClipCard({
             <video
               ref={videoRef}
               src={fileUrl(jobId, playbackFile)}
-              poster={clip.posterFile ? fileUrl(jobId, clip.posterFile) : undefined}
-              preload="metadata"
+              // The poster paints the card instantly; the mp4 itself is not
+              // touched until hover, so ten cards don't fight over bandwidth
+              // (and show black boxes) while the page loads. Prefer the
+              // eagerly-generated poster frame, falling back to the on-demand
+              // thumbnail route for clips rendered before it existed.
+              poster={clip.posterFile ? fileUrl(jobId, clip.posterFile) : thumbnailUrl(jobId, clip.file)}
+              preload="none"
               muted
               loop
               playsInline

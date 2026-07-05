@@ -319,6 +319,12 @@ export function buildAss(
   // Pop-in: the phrase lands at 90% and springs to full size in ~110 ms.
   const popIn = "{\\fscx90\\fscy90\\t(0,110,\\fscx100\\fscy100)}";
   const entrance = style.animation === "fade" ? "{\\fad(150,150)}" : style.animation === "pop" ? popIn : "";
+  // Drag-placed captions carry a normalized center; anchor every event there
+  // (\an5 = center anchor) so the burn-in matches the preview exactly.
+  const posTag =
+    style.offsetX !== undefined && style.offsetY !== undefined
+      ? `{\\an5\\pos(${Math.round(style.offsetX * width)},${Math.round(style.offsetY * height)})}`
+      : "";
 
   const events: string[] = [];
   for (const seg of segments) {
@@ -354,14 +360,14 @@ export function buildAss(
           .join("");
         // Entrance animation only on the first event so the phrase pops once.
         const prefix = i === 0 ? entrance : "";
-        events.push(`Dialogue: 0,${formatAssTime(eventStart)},${formatAssTime(eventEnd)},Default,,0,0,0,,${prefix}${text}`);
+        events.push(`Dialogue: 0,${formatAssTime(eventStart)},${formatAssTime(eventEnd)},Default,,0,0,0,,${posTag}${prefix}${text}`);
       }
       continue;
     }
 
     const tokens = seg.text.trim().split(/\s+/);
     const text = tokens.map((tok, j) => (j > 0 && j % wordsPerLine === 0 ? "\\N" : j > 0 ? " " : "") + transform(tok)).join("");
-    events.push(`Dialogue: 0,${formatAssTime(seg.start)},${formatAssTime(seg.end)},Default,,0,0,0,,${entrance}${text}`);
+    events.push(`Dialogue: 0,${formatAssTime(seg.start)},${formatAssTime(seg.end)},Default,,0,0,0,,${posTag}${entrance}${text}`);
   }
 
   return `${header.join("\n")}\n${events.join("\n")}\n`;
@@ -511,10 +517,11 @@ export const CAPTION_PRESETS: Record<CaptionPresetId, { label: string; style: Pa
       textColor: "#ffffff",
       highlightColor: "#a585ff",
       backgroundColor: "#2a1a5e",
-      backgroundOpacity: 0.85,
-      outlineWidth: 0,
+      backgroundOpacity: 0,
+      outlineWidth: 3,
       shadow: 2,
       position: "bottom",
+      alignment: "center",
       animation: "fade",
       maxWordsPerCaption: 6,
       uppercase: false

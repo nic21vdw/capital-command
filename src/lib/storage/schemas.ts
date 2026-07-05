@@ -76,6 +76,15 @@ export const userProfileSchema = z.object({
   avatar: z.string().max(2_000_000).optional()
 });
 
+/** Reusable brand images (data URLs) shared by every clip project: upload a
+ *  logo/watermark once, then toggle it on in any clip editor. */
+export const brandAssetsSchema = z.object({
+  logoSrc: z.string().max(8_000_000).optional(),
+  watermarkSrc: z.string().max(8_000_000).optional()
+});
+
+export const defaultBrandAssets = brandAssetsSchema.parse({});
+
 export const settingsSchema = z.object({
   currency: z.enum(["CAD", "USD"]),
   // Unknown/legacy values (e.g. old accent ids) gracefully fall back to undefined,
@@ -366,14 +375,18 @@ export const captionStyleSchema = z.object({
   maxWordsPerCaption: z.coerce.number().int().min(1).max(40).default(4),
   wordsPerLine: z.coerce.number().int().min(1).max(20).default(4),
   animation: z.enum(["none", "fade", "pop", "karaoke"]).default("pop"),
-  uppercase: z.coerce.boolean().default(false)
+  uppercase: z.coerce.boolean().default(false),
+  // Free caption placement from dragging on the preview (overrides `position`).
+  offsetX: z.coerce.number().min(0).max(1).optional(),
+  offsetY: z.coerce.number().min(0).max(1).optional()
 });
 
 export const defaultCaptionStyle = captionStyleSchema.parse({});
 
 const overlaySchema = z.object({
   id: z.string(),
-  kind: z.enum(["text", "title", "image", "logo", "watermark"]),
+  // Legacy "title" overlays (removed) load back in as plain text.
+  kind: z.preprocess((v) => (v === "title" ? "text" : v), z.enum(["text", "image", "logo", "watermark"])),
   text: z.string().optional(),
   // Image overlays carry a data URL; cap so the JSON store stays sane.
   src: z.string().max(8_000_000).optional(),
@@ -599,7 +612,8 @@ export const appDataSchema = z.object({
   executionSeededAt: z.string().optional(),
   savedThumbnails: z.array(savedThumbnailSchema).default([]),
   clipProjects: z.array(clipProjectSchema).default([]),
-  videoProjects: z.array(videoProjectSchema).default([])
+  videoProjects: z.array(videoProjectSchema).default([]),
+  brandAssets: brandAssetsSchema.default(defaultBrandAssets)
 });
 
 export const importHoldingSchema = z.object({

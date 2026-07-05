@@ -5,7 +5,7 @@ import { ensureExecution } from "@/lib/execution/server";
 import { todayLocal } from "@/lib/execution/dates";
 import { getMarketDataProvider } from "@/lib/marketData";
 import { seedData } from "@/lib/mockData/seed";
-import { appDataSchema, clipProjectSchema, contentItemSchema, creatorProfileSchema, defaultCreatorProfile, executionCompletionSchema, executionGoalSchema, expenseSchema, goalSchema, holdingSchema, importHoldingSchema, researchNoteSchema, savedThumbnailSchema, settingsSchema, videoProjectSchema, watchlistSchema, xActivitySchema, xStrategySchema } from "@/lib/storage/schemas";
+import { appDataSchema, brandAssetsSchema, clipProjectSchema, contentItemSchema, creatorProfileSchema, defaultCreatorProfile, executionCompletionSchema, executionGoalSchema, expenseSchema, goalSchema, holdingSchema, importHoldingSchema, researchNoteSchema, savedThumbnailSchema, settingsSchema, videoProjectSchema, watchlistSchema, xActivitySchema, xStrategySchema } from "@/lib/storage/schemas";
 import { readAppData, resetAppData, writeAppData } from "@/lib/storage/store";
 import type { AppData, ExecutionGoal, Holding } from "@/types/domain";
 
@@ -201,6 +201,10 @@ export async function POST(request: NextRequest) {
     case "deleteExpense": {
       const id = String(payload);
       data = { ...data, expenses: data.expenses.filter((item) => item.id !== id) };
+      break;
+    }
+    case "updateBrandAssets": {
+      data = { ...data, brandAssets: brandAssetsSchema.parse(payload) };
       break;
     }
     case "updateSettings": {

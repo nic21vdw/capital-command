@@ -323,10 +323,10 @@ export function ClipEditor({
       }
     }
     const trimmedCaptions = captions.filter((caption) => caption.end > trimStart && caption.start < trimEnd);
-    const title = generateClipTitle(trimmedCaptions.length ? trimmedCaptions : captions, project.name);
+    const title = generateClipTitle(trimmedCaptions.length ? trimmedCaptions : captions, project.name, project.title);
     patch({ title, name: title, captions });
     toast.success("Generated clip title.");
-  }, [project.captions, project.captionStyle.maxWordsPerCaption, project.clipEnd, project.clipStart, project.jobId, project.name, trimEnd, trimStart, patch]);
+  }, [project.captions, project.captionStyle.maxWordsPerCaption, project.clipEnd, project.clipStart, project.jobId, project.name, project.title, trimEnd, trimStart, patch]);
 
   // --- Caption operations ---
   const updateCaption = useCallback((id: string, partial: Partial<CaptionSegment>) => {
@@ -398,7 +398,7 @@ export function ClipEditor({
     const overlay: Overlay = {
       id: uid("ov"),
       kind,
-      text: kind === "text" || kind === "title" ? (kind === "title" ? "Title" : "Text") : undefined,
+      text: kind === "text" ? "Text" : undefined,
       src,
       x: 0.5,
       y: kind === "watermark" ? 0.9 : 0.5,
@@ -408,9 +408,9 @@ export function ClipEditor({
       z: project.overlays.length,
       locked: false,
       start: 0,
-      end: kind === "title" ? Math.min(duration, 3) : duration,
+      end: duration,
       color: "#ffffff",
-      fontWeight: kind === "title" ? 800 : 600,
+      fontWeight: 600,
       align: "center"
     };
     setProject((p) => ({ ...p, overlays: [...p.overlays, overlay] }));
@@ -673,6 +673,9 @@ export function ClipEditor({
             onSelectOverlay={setSelectedOverlayId}
             onOverlayChange={updateOverlay}
             onReframeChange={handleReframeChange}
+            onCaptionStyleChange={(partial) =>
+              setProject((p) => ({ ...p, captionStyle: { ...p.captionStyle, ...partial } }))
+            }
             faceCropEditing={faceCropEditing}
             onFaceCropEditingChange={setFaceCropEditing}
             onFaceSourceChange={(rect) => patch({ faceSource: rect })}

@@ -400,16 +400,23 @@ export interface CaptionStyle {
   wordsPerLine: number;
   animation: CaptionAnimation;
   uppercase: boolean;
+  /**
+   * Free placement set by dragging the caption on the preview: normalized
+   * 0..1 center of the caption block. When both are set they override
+   * `position`; clearing them returns the caption to the preset slot.
+   */
+  offsetX?: number;
+  offsetY?: number;
 }
 
 export type CaptionPresetId = "minimal" | "bold-shorts" | "highlight-word" | "lower-third" | "colateral-purple";
 
-export type OverlayKind = "text" | "title" | "image" | "logo" | "watermark";
+export type OverlayKind = "text" | "image" | "logo" | "watermark";
 
 export interface Overlay {
   id: string;
   kind: OverlayKind;
-  /** Text content for text/title overlays. */
+  /** Text content for text overlays. */
   text?: string;
   /** Data URL for image/logo/watermark overlays. */
   src?: string;
@@ -638,6 +645,15 @@ export interface AppData {
   savedThumbnails: SavedThumbnail[];
   clipProjects: ClipProject[];
   videoProjects: VideoProject[];
+  /** Reusable brand images (logo/watermark) shared across all clip projects. */
+  brandAssets?: BrandAssets;
+}
+
+export interface BrandAssets {
+  /** Data URL of the default logo image. */
+  logoSrc?: string;
+  /** Data URL of the default watermark image. */
+  watermarkSrc?: string;
 }
 
 export interface TrendPoint {
