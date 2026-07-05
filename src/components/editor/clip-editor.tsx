@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowLeft,
   Layers,
@@ -67,6 +67,7 @@ export function ClipEditor({
   const [volume, setVolume] = useState(1);
   const [selectedCaptionId, setSelectedCaptionId] = useState<string | null>(null);
   const [selectedOverlayId, setSelectedOverlayId] = useState<string | null>(null);
+  const [faceCropEditing, setFaceCropEditing] = useState(false);
   const [fetchingCaptions, setFetchingCaptions] = useState(false);
   const [exportState, setExportState] = useState<ExportUiState>({ status: "idle", progress: 0 });
   const [saved, setSaved] = useState(true);
@@ -76,6 +77,10 @@ export function ClipEditor({
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const trimEndRef = useRef(0);
   const lastTimeUpdateRef = useRef(0);
+  // Mirrors `time` for callbacks that only need the playhead when invoked, so
+  // they don't have to be re-created (and re-render memoized children) on
+  // every playback frame.
+  const timeRef = useRef(0);
   const videoSrc = `/api/clips/${project.jobId}/files/${encodeURIComponent(project.sourceFile)}?project=${encodeURIComponent(project.id)}`;
   const duration = project.baseDurationSec;
   const trimStart = Math.max(0, Math.min(project.trimStart ?? 0, duration));
@@ -115,9 +120,11 @@ export function ClipEditor({
           v.pause();
           v.currentTime = end;
           setPlaying(false);
+          timeRef.current = end;
           setTime(end);
         } else if (now - lastTimeUpdateRef.current >= 90 || v.paused) {
           lastTimeUpdateRef.current = now;
+          timeRef.current = v.currentTime;
           setTime(v.currentTime);
         }
       }
@@ -127,7 +134,14 @@ export function ClipEditor({
     return () => cancelAnimationFrame(raf);
   }, []);
 
+  // Mirror mute/volume into refs so handleVideoReady can stay identity-stable:
+  // if it changed with muted/volume, the preview would re-bind (and previously
+  // re-mount) its video elements on every audio tweak.
+  const mutedRef = useRef(muted);
+  const volumeRef = useRef(volume);
   useEffect(() => {
+    mutedRef.current = muted;
+    volumeRef.current = volume;
     const v = videoRef.current;
     if (!v) return;
     v.muted = muted;
@@ -152,19 +166,24 @@ export function ClipEditor({
     setProject((prev) => ({ ...prev, ...partial }));
   }, []);
 
+  // Reads muted/volume through refs so the callback stays stable — otherwise
+  // every step of a volume drag would re-run the preview's video-ready effect.
   const handleVideoReady = useCallback((el: HTMLVideoElement | null) => {
     videoRef.current = el;
     if (el) {
       el.onplay = () => setPlaying(true);
       el.onpause = () => setPlaying(false);
-      el.muted = muted;
-      el.volume = volume;
+      el.muted = mutedRef.current;
+      el.volume = volumeRef.current;
+    } else {
+      setPlaying(false);
     }
-  }, [muted, volume]);
+  }, []);
 
   const handleReframeChange = useCallback((partial: Partial<ClipProject["reframe"]>) => {
     setProject((prev) => ({ ...prev, reframe: { ...prev.reframe, ...partial } }));
   }, []);
+
 
   // Explicit save so you can lock in progress on demand instead of waiting for autosave.
   const saveNow = useCallback(async () => {
@@ -191,6 +210,7 @@ export function ClipEditor({
     const v = videoRef.current;
     const clamped = Math.max(0, Math.min(duration, t));
     if (v) v.currentTime = clamped;
+    timeRef.current = clamped;
     setTime(clamped);
   }, [duration]);
 
@@ -218,7 +238,8 @@ export function ClipEditor({
   // Split the current selection at the playhead: this project keeps the first
   // half; the second half is saved as its own project so both can be exported.
   const splitAtPlayhead = useCallback(() => {
-    if (time <= trimStart + 0.2 || time >= trimEnd - 0.2) {
+    const at = timeRef.current;
+    if (at <= trimStart + 0.2 || at >= trimEnd - 0.2) {
       toast.error("Move the playhead inside the selection to split.");
       return;
     }
@@ -227,15 +248,15 @@ export function ClipEditor({
       ...project,
       id: `clip-${crypto.randomUUID()}`,
       name: `${project.name} (part 2)`,
-      trimStart: time,
+      trimStart: at,
       trimEnd,
       createdAt: now,
       updatedAt: now
     };
-    patch({ trimEnd: time });
+    patch({ trimEnd: at });
     void mutate("upsertClipProject", secondPart);
     toast.success("Clip split — the second half was saved as its own project.");
-  }, [mutate, patch, project, time, trimEnd, trimStart]);
+  }, [mutate, patch, project, trimEnd, trimStart]);
 
   const togglePlay = useCallback(() => {
     const v = videoRef.current;
@@ -329,25 +350,26 @@ export function ClipEditor({
   }, [project.jobId, project.clipStart, project.clipEnd, project.captionStyle.maxWordsPerCaption, patch]);
 
   const addCaption = useCallback(() => {
-    const start = time;
+    const start = timeRef.current;
     const seg: CaptionSegment = { id: uid("cap"), start, end: Math.min(duration, start + 2), text: "New caption", words: [], enabled: true };
     setProject((p) => ({ ...p, captions: [...p.captions, seg].sort((a, b) => a.start - b.start) }));
     setSelectedCaptionId(seg.id);
-  }, [time, duration]);
+  }, [duration]);
 
   const splitCaption = useCallback((id: string) => {
+    const at = timeRef.current;
     setProject((p) => {
       const idx = p.captions.findIndex((c) => c.id === id);
       if (idx < 0) return p;
       const seg = p.captions[idx];
-      if (time <= seg.start || time >= seg.end) {
+      if (at <= seg.start || at >= seg.end) {
         toast.error("Move the playhead inside the caption to split it.");
         return p;
       }
-      const [a, b] = splitSegment(seg, time);
+      const [a, b] = splitSegment(seg, at);
       return { ...p, captions: [...p.captions.slice(0, idx), a, b, ...p.captions.slice(idx + 1)] };
     });
-  }, [time]);
+  }, []);
 
   const mergeCaptionWithNext = useCallback((id: string) => {
     setProject((p) => {
@@ -474,34 +496,66 @@ export function ClipEditor({
     return () => clearInterval(timer);
   }, [exportState.status, exportState.exportId, project.jobId]);
 
-  const api: EditorApi = {
-    project,
-    time,
-    seek,
-    patch,
-    setTrim,
-    generateTitle,
-    fetchingCaptions,
-    regenerateCaptions,
-    addCaption,
-    updateCaption,
-    deleteCaption,
-    splitCaption,
-    mergeCaptionWithNext,
-    toggleCaption,
-    selectedCaptionId,
-    setSelectedCaptionId,
-    addOverlay,
-    updateOverlay,
-    deleteOverlay,
-    duplicateOverlay,
-    reorderOverlay,
-    selectedOverlayId,
-    setSelectedOverlayId,
-    exportState,
-    runExport,
-    downloadSubtitles
-  };
+  // Memoized (and deliberately without the live playhead time) so the panels,
+  // which are React.memo components, don't re-render on every playback frame.
+  const api: EditorApi = useMemo(
+    () => ({
+      project,
+      seek,
+      patch,
+      setTrim,
+      generateTitle,
+      faceCropEditing,
+      setFaceCropEditing,
+      fetchingCaptions,
+      regenerateCaptions,
+      addCaption,
+      updateCaption,
+      deleteCaption,
+      splitCaption,
+      mergeCaptionWithNext,
+      toggleCaption,
+      selectedCaptionId,
+      setSelectedCaptionId,
+      addOverlay,
+      updateOverlay,
+      deleteOverlay,
+      duplicateOverlay,
+      reorderOverlay,
+      selectedOverlayId,
+      setSelectedOverlayId,
+      exportState,
+      runExport,
+      downloadSubtitles
+    }),
+    [
+      project,
+      seek,
+      patch,
+      setTrim,
+      generateTitle,
+      faceCropEditing,
+      setFaceCropEditing,
+      fetchingCaptions,
+      regenerateCaptions,
+      addCaption,
+      updateCaption,
+      deleteCaption,
+      splitCaption,
+      mergeCaptionWithNext,
+      toggleCaption,
+      selectedCaptionId,
+      addOverlay,
+      updateOverlay,
+      deleteOverlay,
+      duplicateOverlay,
+      reorderOverlay,
+      selectedOverlayId,
+      exportState,
+      runExport,
+      downloadSubtitles
+    ]
+  );
 
   const renderPanel = () => {
     switch (tab) {
@@ -608,10 +662,14 @@ export function ClipEditor({
             time={time}
             videoSrc={videoSrc}
             onVideoReady={handleVideoReady}
+            onTogglePlay={togglePlay}
             selectedOverlayId={selectedOverlayId}
             onSelectOverlay={setSelectedOverlayId}
             onOverlayChange={updateOverlay}
             onReframeChange={handleReframeChange}
+            faceCropEditing={faceCropEditing}
+            onFaceCropEditingChange={setFaceCropEditing}
+            onFaceSourceChange={(rect) => patch({ faceSource: rect })}
           />
           <div className="flex items-center gap-3 rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 py-2">
             <button
@@ -697,7 +755,9 @@ export function ClipEditor({
               );
             })}
           </div>
-          <div className="rounded-xl border border-[var(--border)] bg-[var(--surface)] p-4">{renderPanel()}</div>
+          <div key={tab} className="panel-enter rounded-xl border border-[var(--border)] bg-[var(--surface)] p-4">
+            {renderPanel()}
+          </div>
         </div>
       </div>
     </div>

@@ -14,41 +14,51 @@ describe("reframeChain", () => {
     expect(chain).not.toContain("force_original_aspect_ratio=decrease");
   });
 
-  it("exposes Restream-style stacked layout presets", () => {
-    expect(CLIP_LAYOUTS["restream-stack"].label).toBe("Screen + face");
-    expect(CLIP_LAYOUTS["restream-stack"].layers).toHaveLength(2);
-    expect(CLIP_LAYOUTS["restream-stack"].layers[0]).toMatchObject({
-      kind: "screen",
-      source: { x: 0, y: 0, w: 1, h: 0.68 },
-      dest: { x: 0, y: 0, w: 1, h: 0.56 }
-    });
-    expect(CLIP_LAYOUTS["restream-stack"].layers[1]).toMatchObject({
+  it("keeps the whole screen visible in the stacked layouts (contain) while faces fill their slot (cover)", () => {
+    const stack = CLIP_LAYOUTS["restream-stack"];
+    expect(stack.label).toBe("Screen + face");
+    expect(stack.layers).toHaveLength(2);
+    expect(stack.layers[0]).toMatchObject({ kind: "screen", fit: "contain", source: { x: 0, y: 0, w: 1, h: 1 } });
+    expect(stack.layers[1]).toMatchObject({
       kind: "face",
-      fit: "contain",
-      source: { x: 0.58, y: 0.05, w: 0.42, h: 0.5 },
-      dest: { x: 0, y: 0.56, w: 1, h: 0.44 }
+      fit: "cover",
+      source: { x: 0.58, y: 0.05, w: 0.42, h: 0.5 }
     });
   });
 
   it("makes Face lead a camera-first composition", () => {
-    expect(CLIP_LAYOUTS["face-focus"].layers[0]).toMatchObject({
-      kind: "screen",
-      dest: { x: 0.05, y: 0.04, w: 0.9, h: 0.25 }
-    });
+    expect(CLIP_LAYOUTS["face-focus"].layers[0]).toMatchObject({ kind: "screen", fit: "contain" });
     expect(CLIP_LAYOUTS["face-focus"].layers[1]).toMatchObject({
       kind: "face",
-      fit: "contain",
-      source: { x: 0.58, y: 0.05, w: 0.42, h: 0.5 },
-      dest: { x: 0, y: 0.34, w: 1, h: 0.56 }
+      fit: "cover",
+      dest: { x: 0, y: 0.36, w: 1, h: 0.56 }
     });
   });
 
-  it("renders face layers with contain scaling from the top-right streamer camera", () => {
+  it("splits the input explicitly and centers contain layers over the blur base", () => {
     const filter = stackedLayoutChain("restream-stack");
 
+    // One split feeds the blur base plus every layer — no reused input pads.
+    expect(filter).toContain("split=3[base0][in0][in1]");
+    // Screen layer: contain (decrease) with NO opaque pad — the blurred base
+    // shows through the letterbox instead of a dark box.
     expect(filter).toContain("force_original_aspect_ratio=decrease");
-    expect(filter).toContain("pad=1080:845:(ow-iw)/2:(oh-ih)/2");
+    expect(filter).not.toContain("pad=");
+    // Layers are centered inside their dest rects.
+    expect(filter).toMatch(/overlay=\d+\+\(\d+-w\)\/2:\d+\+\(\d+-h\)\/2/);
+    // Face layer crops the top-right streamer camera region.
     expect(filter).toContain("crop=iw*0.4200:ih*0.5000:iw*0.5800:ih*0.0500");
+  });
+
+  it("scales the layout chain to any output size", () => {
+    const filter = stackedLayoutChain("restream-stack", undefined, 540, 960);
+    expect(filter).toContain("scale=270:480");
+    expect(filter).toContain("scale=540:960");
+  });
+
+  it("applies a per-project face source override to every face layer", () => {
+    const filter = stackedLayoutChain("face-focus", undefined, 1080, 1920, { x: 0.62, y: 0.02, w: 0.34, h: 0.46 });
+    expect(filter).toContain("crop=iw*0.3400:ih*0.4600:iw*0.6200:ih*0.0200");
   });
 
   it("applies saved streamer framing overrides to the rendered layout", () => {

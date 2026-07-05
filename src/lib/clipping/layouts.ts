@@ -1,6 +1,15 @@
 import type { ClipLayoutOverrides, ClipLayoutPreset } from "@/lib/clipping/types";
+import type { ClipCompositionMode } from "@/types/domain";
 
 export type Rect = { x: number; y: number; w: number; h: number };
+
+/** Editor composition modes that render through the shared layout geometry. */
+export const LAYOUT_MODE_PRESETS: Partial<Record<ClipCompositionMode, ClipLayoutPreset>> = {
+  "stacked-split": "restream-stack",
+  "stacked-split-flip": "face-stack",
+  "screen-lead": "screen-focus",
+  "face-lead": "face-focus"
+};
 export type LayoutLayer = { source: Rect; dest: Rect; kind: "screen" | "face"; fit?: "cover" | "contain" };
 export type ClipLayoutDefinition = {
   label: string;
@@ -9,40 +18,52 @@ export type ClipLayoutDefinition = {
   layers: LayoutLayer[];
 };
 
-const streamerCameraSource: Rect = { x: 0.58, y: 0.05, w: 0.42, h: 0.5 };
+/**
+ * Default face-camera region: streamers usually park the camera overlay in the
+ * top-right corner of the screen. Projects can override this per clip.
+ */
+export const DEFAULT_FACE_SOURCE: Rect = { x: 0.58, y: 0.05, w: 0.42, h: 0.5 };
+const streamerCameraSource = DEFAULT_FACE_SOURCE;
 
+/**
+ * Layout geometry rules (all rects are normalized to the 9:16 output frame):
+ * - Screen layers use `contain` so no screen content is ever cropped away —
+ *   the blurred base fills any letterbox space.
+ * - Face layers use `cover` so the camera always fills its slot edge-to-edge
+ *   (cropping a webcam feed is fine; bars around a face look broken).
+ */
 export const CLIP_LAYOUTS: Record<ClipLayoutPreset, ClipLayoutDefinition> = {
   center: {
     label: "Centered vertical",
     description: "A classic Shorts crop over a blurred fill.",
     previewHint: "Best when the source is already framed vertically or the speaker is centered.",
-    layers: [{ kind: "screen", source: { x: 0, y: 0, w: 1, h: 1 }, dest: { x: 0.08, y: 0.22, w: 0.84, h: 0.56 } }]
+    layers: [{ kind: "screen", fit: "contain", source: { x: 0, y: 0, w: 1, h: 1 }, dest: { x: 0, y: 0.22, w: 1, h: 0.56 } }]
   },
   "restream-stack": {
     label: "Screen + face",
-    description: "Restream-style split: screen up top, camera reaction below.",
+    description: "Split layout: full screen up top, camera reaction below.",
     previewHint: "Best for screen-share streams with the camera overlay in the top-right.",
     layers: [
-      { kind: "screen", source: { x: 0, y: 0, w: 1, h: 0.68 }, dest: { x: 0, y: 0, w: 1, h: 0.56 } },
-      { kind: "face", fit: "contain", source: streamerCameraSource, dest: { x: 0, y: 0.56, w: 1, h: 0.44 } }
+      { kind: "screen", fit: "contain", source: { x: 0, y: 0, w: 1, h: 1 }, dest: { x: 0, y: 0.06, w: 1, h: 0.42 } },
+      { kind: "face", fit: "cover", source: streamerCameraSource, dest: { x: 0, y: 0.5, w: 1, h: 0.44 } }
     ]
   },
   "face-stack": {
     label: "Face + screen",
-    description: "Flipped split: camera reaction up top, screen below.",
+    description: "Flipped split: camera reaction up top, full screen below.",
     previewHint: "Best when the reaction is the star and the screen is supporting context.",
     layers: [
-      { kind: "face", fit: "contain", source: streamerCameraSource, dest: { x: 0, y: 0, w: 1, h: 0.44 } },
-      { kind: "screen", source: { x: 0, y: 0, w: 1, h: 0.68 }, dest: { x: 0, y: 0.44, w: 1, h: 0.56 } }
+      { kind: "face", fit: "cover", source: streamerCameraSource, dest: { x: 0, y: 0.06, w: 1, h: 0.44 } },
+      { kind: "screen", fit: "contain", source: { x: 0, y: 0, w: 1, h: 1 }, dest: { x: 0, y: 0.52, w: 1, h: 0.42 } }
     ]
   },
   "screen-focus": {
     label: "Screen lead",
-    description: "Clipo-style screen lead with a small face inset.",
+    description: "The full screen leads with a small face inset overlaid below it.",
     previewHint: "Best when the screen content is the point and the face is supporting context.",
     layers: [
-      { kind: "screen", source: { x: 0, y: 0, w: 1, h: 0.72 }, dest: { x: 0, y: 0.08, w: 1, h: 0.78 } },
-      { kind: "face", fit: "contain", source: streamerCameraSource, dest: { x: 0.54, y: 0.62, w: 0.4, h: 0.26 } }
+      { kind: "screen", fit: "contain", source: { x: 0, y: 0, w: 1, h: 1 }, dest: { x: 0, y: 0.12, w: 1, h: 0.44 } },
+      { kind: "face", fit: "cover", source: streamerCameraSource, dest: { x: 0.56, y: 0.6, w: 0.38, h: 0.24 } }
     ]
   },
   "face-focus": {
@@ -50,8 +71,8 @@ export const CLIP_LAYOUTS: Record<ClipLayoutPreset, ClipLayoutDefinition> = {
     description: "Face-first layout with the screen retained as a context banner.",
     previewHint: "Best for reaction, commentary, and talking-head moments from screen-share streams.",
     layers: [
-      { kind: "screen", source: { x: 0, y: 0, w: 1, h: 0.68 }, dest: { x: 0.05, y: 0.04, w: 0.9, h: 0.25 } },
-      { kind: "face", fit: "contain", source: streamerCameraSource, dest: { x: 0, y: 0.34, w: 1, h: 0.56 } }
+      { kind: "screen", fit: "contain", source: { x: 0, y: 0, w: 1, h: 1 }, dest: { x: 0.05, y: 0.06, w: 0.9, h: 0.26 } },
+      { kind: "face", fit: "cover", source: streamerCameraSource, dest: { x: 0, y: 0.36, w: 1, h: 0.56 } }
     ]
   }
 };
@@ -87,6 +108,19 @@ export function resolveClipLayout(
         fit: layerOverride?.fit ?? layer.fit
       };
     })
+  };
+}
+
+/** Replaces the face-camera source rect across every face layer of a layout. */
+export function withFaceSource(
+  definition: ClipLayoutDefinition,
+  faceSource: Rect | undefined
+): ClipLayoutDefinition {
+  if (!faceSource) return definition;
+  const face = normalizeRect(faceSource);
+  return {
+    ...definition,
+    layers: definition.layers.map((layer) => (layer.kind === "face" ? { ...layer, source: face } : layer))
   };
 }
 

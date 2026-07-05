@@ -8,6 +8,7 @@ import { renderSourceClip } from "@/lib/clipping/render";
 import { readSourceMeta, sourceFilePath, type SourceMeta } from "@/lib/clipping/sources";
 import { fetchAutoCaptions } from "@/lib/clipping/transcription";
 import { selectByTranscript } from "@/lib/clipping/transcript-select";
+import { transcribeMedia } from "@/lib/clipping/whisper";
 import type { ClipCandidate, ClipJob } from "@/lib/clipping/types";
 
 const clipsRoot = path.join(process.cwd(), "data", "clips");
@@ -146,15 +147,17 @@ export async function fetchJobCaptions(id: string, force = false): Promise<ClipJ
   const job = jobs.get(id);
   if (!job) return undefined;
   if (job.sourceCaptions && job.sourceCaptions.length > 0 && !force) return job;
-  if (job.sourceId) {
-    // Uploaded files have no platform captions to fetch.
-    await update(job, {
-      captionsError: "Uploaded videos have no automatic captions. Add caption segments manually in the editor."
-    });
-    return job;
-  }
   try {
-    const segments = await fetchAutoCaptions(job.sourceUrl, workDir(id));
+    let segments;
+    if (job.sourceId) {
+      // Uploaded files have no platform captions — transcribe them locally.
+      const meta = await readSourceMeta(job.sourceId);
+      if (!meta) throw new Error("The uploaded source file for this job is gone. Upload the video again.");
+      if (!meta.hasAudio) throw new Error("This video has no audio track, so there is nothing to transcribe.");
+      segments = await transcribeMedia(sourceFilePath(meta), workDir(id));
+    } else {
+      segments = await fetchAutoCaptions(job.sourceUrl, workDir(id));
+    }
     await update(job, { sourceCaptions: segments, captionsFetchedAt: new Date().toISOString(), captionsError: undefined });
   } catch (error) {
     await update(job, { captionsError: error instanceof Error ? error.message : String(error) });
@@ -245,9 +248,10 @@ export async function createJobFromUpload(sourceId: string, topic: string | unde
 
 /**
  * The pipeline for an uploaded file mirrors the URL pipeline, with ffmpeg
- * standing in for yt-dlp: extract the audio for analysis, pick moments from
- * whole-stream energy (uploads have no platform transcript), then cut and
- * render each range from the local file.
+ * standing in for yt-dlp: extract the audio, transcribe it locally with
+ * Whisper (word-level timing for the editor's synced captions), pick the best
+ * moments from the transcript — falling back to whole-stream audio energy —
+ * then cut and render each range from the local file.
  */
 async function runLocalPipeline(job: ClipJob, meta: SourceMeta) {
   await update(job, { status: "processing", stage: "downloading", progress: 5 });
@@ -264,16 +268,45 @@ async function runLocalPipeline(job: ClipJob, meta: SourceMeta) {
     audioPath = path.join(workDir(job.id), "source-audio.mp3");
     await runFfmpeg(["-y", "-i", srcPath, "-vn", "-ac", "1", "-ar", "16000", "-b:a", "64k", audioPath]);
   }
-  await update(job, { stage: "analyzing", progress: 30 });
+
+  // Transcribe the upload locally so captions, titles, and moment selection
+  // all work exactly like they do for platform VODs.
+  await update(job, { stage: "analyzing", progress: 20 });
+  let transcript: ClipJob["sourceCaptions"] = [];
+  if (audioPath) {
+    try {
+      transcript = await transcribeMedia(audioPath, workDir(job.id));
+      if (transcript.length > 0) {
+        await update(job, {
+          sourceCaptions: transcript,
+          captionsFetchedAt: new Date().toISOString(),
+          captionsError: undefined
+        });
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      job.notices.push(`Automatic captions unavailable: ${message}`);
+      await update(job, { captionsError: message });
+    }
+  }
 
   await update(job, { stage: "selecting", progress: 42 });
-  let candidates: ClipCandidate[];
-  if (audioPath) {
-    const [windows, silences] = await Promise.all([extractEnergy(audioPath), detectSilences(audioPath)]);
-    candidates = selectCandidates(windows, silences, durationSec, []);
-    job.notices.push("Uploads have no platform transcript — moments were picked from whole-stream audio energy.");
-  } else {
-    candidates = fallbackCandidates(durationSec, "This video has no audio track");
+  let candidates: ClipCandidate[] | null = null;
+  if (transcript && transcript.length > 0) {
+    candidates = await selectByTranscript(transcript, durationSec, job.topic);
+  }
+  if (!candidates || candidates.length < TARGET_CLIP_COUNT) {
+    if (audioPath) {
+      const [windows, silences] = await Promise.all([extractEnergy(audioPath), detectSilences(audioPath)]);
+      const energyCandidates = selectCandidates(windows, silences, durationSec, transcript ?? []);
+      candidates =
+        candidates && candidates.length > 0 ? mergeClipCandidates(candidates, energyCandidates) : energyCandidates;
+      if (!transcript || transcript.length === 0) {
+        job.notices.push("No transcript was available — moments were picked from whole-stream audio energy instead.");
+      }
+    } else {
+      candidates = fallbackCandidates(durationSec, "This video has no audio track");
+    }
   }
   job.clips = candidates;
   await persistJobs();

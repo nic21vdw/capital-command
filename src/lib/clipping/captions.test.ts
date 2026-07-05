@@ -158,9 +158,45 @@ describe("buildAss", () => {
     expect(ass).toContain("hello world");
   });
 
-  it("emits karaoke \\k tags when highlighting the current word", () => {
+  it("emits one dialogue event per spoken word with the active word highlighted", () => {
     const ass = buildAss([seg("a", 0, 2, "hello world")], defaultCaptionStyle, 1080, 1920, true);
-    expect(ass).toContain("\\k");
+    const dialogues = ass.split("\n").filter((line) => line.startsWith("Dialogue: 0,"));
+    // Two words -> two events covering the phrase, each showing the full text.
+    expect(dialogues).toHaveLength(2);
+    expect(dialogues[0]).toContain("hello");
+    expect(dialogues[0]).toContain("world");
+    // The active word is re-colored with the highlight colour and popped.
+    expect(dialogues[0]).toContain("\\1c");
+    expect(dialogues[0]).toContain("\\fscx112");
+    // The first event starts at the segment start, the second at word 2.
+    expect(dialogues[0]).toMatch(/^Dialogue: 0,0:00:00\.00,0:00:01\.00/);
+    expect(dialogues[1]).toMatch(/^Dialogue: 0,0:00:01\.00,0:00:02\.00/);
+  });
+
+  it("keeps spoken words lit and dims upcoming ones in karaoke mode", () => {
+    const ass = buildAss(
+      [seg("a", 0, 3, "one two three")],
+      { ...defaultCaptionStyle, animation: "karaoke" },
+      1080,
+      1920,
+      true
+    );
+    const dialogues = ass.split("\n").filter((line) => line.startsWith("Dialogue: 0,"));
+    expect(dialogues).toHaveLength(3);
+    // Middle event: word 1 spoken (highlight), word 3 upcoming (dimmed alpha).
+    expect(dialogues[1]).toContain("\\alpha&H70&");
+    expect((dialogues[1].match(/\\1c/g) ?? []).length).toBeGreaterThanOrEqual(2);
+  });
+
+  it("wraps lines every wordsPerLine words", () => {
+    const ass = buildAss(
+      [seg("a", 0, 4, "one two three four")],
+      { ...defaultCaptionStyle, wordsPerLine: 2 },
+      1080,
+      1920,
+      false
+    );
+    expect(ass).toContain("one two\\Nthree four");
   });
 });
 

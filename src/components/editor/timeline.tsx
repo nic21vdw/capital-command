@@ -303,6 +303,7 @@ export function EditorTimeline({
                 <button
                   key={c.id}
                   type="button"
+                  data-no-press
                   onPointerDown={beginBlockDrag("caption", c)}
                   className={cn(
                     "absolute top-1 bottom-1 overflow-hidden rounded px-1.5 text-left text-[10px] leading-tight transition",
@@ -331,6 +332,7 @@ export function EditorTimeline({
                   <button
                     key={o.id}
                     type="button"
+                    data-no-press
                     onPointerDown={beginBlockDrag("overlay", { id: o.id, start: o.start, end })}
                     className={cn(
                       "absolute top-1 bottom-1 overflow-hidden rounded px-1.5 text-left text-[10px] text-black/80 transition",

@@ -129,23 +129,25 @@ export function Toggle({ label, checked, onChange }: { label: string; checked: b
   return (
     <button
       type="button"
+      role="switch"
+      aria-checked={checked}
       onClick={() => onChange(!checked)}
       className={cn(
-        "flex items-center justify-between gap-3 rounded-lg border px-3 py-2 text-sm transition",
+        "flex items-center justify-between gap-3 rounded-lg border px-3 py-2 text-sm transition-colors duration-200",
         checked ? "border-[var(--accent)]/50 bg-[var(--accent)]/10 text-white" : "border-[var(--border)] text-[var(--muted-foreground)] hover:text-white"
       )}
     >
       <span>{label}</span>
       <span
         className={cn(
-          "relative h-5 w-9 shrink-0 rounded-full transition",
+          "relative h-5 w-9 shrink-0 rounded-full transition-colors duration-200",
           checked ? "bg-[var(--accent)]" : "bg-white/15"
         )}
       >
         <span
           className={cn(
-            "absolute top-0.5 h-4 w-4 rounded-full bg-white transition-all",
-            checked ? "left-[18px]" : "left-0.5"
+            "absolute left-0.5 top-0.5 h-4 w-4 rounded-full bg-white shadow-sm transition-transform duration-200 ease-out",
+            checked && "translate-x-[16px]"
           )}
         />
       </span>

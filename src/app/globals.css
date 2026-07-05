@@ -1,6 +1,20 @@
 @import "tailwindcss";
 
 /*
+  Motion system
+  -------------
+  iOS-style motion everywhere: every Tailwind `transition*` utility picks up the
+  UIKit ease-out curve and a slightly longer duration, so hovers, presses, and
+  state changes all decelerate the way native iOS controls do.
+*/
+@theme {
+  --ease-ios: cubic-bezier(0.32, 0.72, 0, 1);
+  --ease-ios-spring: cubic-bezier(0.175, 0.885, 0.32, 1.1);
+  --default-transition-timing-function: cubic-bezier(0.32, 0.72, 0, 1);
+  --default-transition-duration: 200ms;
+}
+
+/*
   Theme system
   ------------
   The app is driven by a single `data-theme` attribute on <html>. Each theme is a
@@ -177,11 +191,133 @@ body {
   background: var(--background);
   color: var(--foreground);
   font-family: ui-sans-serif, system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  /* Enter animations slide content in from the right; clip the brief overhang
+     instead of flashing a horizontal scrollbar. */
+  overflow-x: clip;
 }
 
 a {
   color: inherit;
   text-decoration: none;
+}
+
+/*
+  iOS-style press feedback
+  ------------------------
+  Buttons and block-level links compress slightly while pressed, like native
+  UIKit controls. `scale` (the individual transform property) is used instead of
+  `transform` so Tailwind translate/rotate utilities keep working, and inline
+  text links are unaffected because inline boxes are not transformable.
+  Lives in @layer base so any utility class can still override it, and
+  `[data-no-press]` opts an element out entirely.
+*/
+@layer base {
+  button,
+  [role="button"],
+  a,
+  input,
+  select,
+  textarea,
+  label,
+  summary {
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  button,
+  [role="button"],
+  a,
+  summary {
+    touch-action: manipulation;
+  }
+
+  :where(button, [role="button"], a):not([data-no-press]) {
+    transition: scale 180ms var(--ease-ios);
+  }
+
+  :where(button, [role="button"], a):not([data-no-press]):not(:disabled):active {
+    scale: 0.97;
+  }
+}
+
+/*
+  Enter animations
+  ----------------
+  Page navigations push in from the right like a UINavigationController;
+  modals rise and spring like a sheet; tab panels cross-fade with a small lift.
+  `backwards` fill keeps the first frame stable, and once an animation finishes
+  the element reverts to its untransformed base state (so position: fixed
+  descendants are unaffected afterwards).
+*/
+@keyframes ios-page-enter {
+  from {
+    opacity: 0;
+    transform: translate3d(16px, 0, 0);
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+  }
+}
+
+@keyframes ios-fade-enter {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes ios-sheet-enter {
+  from {
+    opacity: 0;
+    transform: translate3d(0, 18px, 0) scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+}
+
+@keyframes ios-panel-enter {
+  from {
+    opacity: 0;
+    transform: translate3d(0, 6px, 0);
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+  }
+}
+
+.page-enter {
+  animation: ios-page-enter 320ms var(--ease-ios) backwards;
+}
+
+.modal-backdrop-enter {
+  animation: ios-fade-enter 220ms ease-out backwards;
+}
+
+.modal-panel-enter {
+  animation: ios-sheet-enter 300ms var(--ease-ios-spring) backwards;
+}
+
+.panel-enter {
+  animation: ios-panel-enter 240ms var(--ease-ios) backwards;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .page-enter,
+  .modal-backdrop-enter,
+  .modal-panel-enter,
+  .panel-enter {
+    animation: none;
+  }
+
+  :where(button, [role="button"], a):active {
+    scale: none;
+  }
 }
 
 table {
@@ -191,4 +327,152 @@ table {
 th,
 td {
   text-align: left;
+}
+
+/*
+  Motion system
+  -------------
+  Shared keyframes + utilities so panels, cards, and captions move with one
+  consistent voice: quick, springy entrances and quiet exits. Everything is
+  disabled for users who prefer reduced motion.
+*/
+
+@keyframes fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes scale-in {
+  from {
+    opacity: 0;
+    transform: scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+/* Short-form caption entrances (mirrored by the export's ASS \t/\fad tags). */
+@keyframes caption-pop {
+  from {
+    opacity: 0;
+    transform: scale(0.9);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes caption-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes progress-sheen {
+  from {
+    background-position: 0 0;
+  }
+  to {
+    background-position: 32px 0;
+  }
+}
+
+.animate-in {
+  animation: fade-up 0.35s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/*
+  Range sliders
+  -------------
+  Components use `appearance-none` tracks; without explicit thumb styling
+  WebKit renders nothing draggable. One consistent, theme-aware slider.
+*/
+
+input[type="range"] {
+  --slider-thumb-size: 14px;
+}
+
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: var(--slider-thumb-size);
+  height: var(--slider-thumb-size);
+  border-radius: 9999px;
+  background: var(--accent);
+  border: 2px solid color-mix(in srgb, var(--color-white) 90%, transparent);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.4);
+  cursor: pointer;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+input[type="range"]::-webkit-slider-thumb:hover {
+  transform: scale(1.15);
+}
+
+input[type="range"]::-webkit-slider-thumb:active {
+  transform: scale(1.05);
+}
+
+input[type="range"]::-moz-range-thumb {
+  width: var(--slider-thumb-size);
+  height: var(--slider-thumb-size);
+  border-radius: 9999px;
+  background: var(--accent);
+  border: 2px solid color-mix(in srgb, var(--color-white) 90%, transparent);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.4);
+  cursor: pointer;
+  transition: transform 0.15s ease;
+}
+
+/* Subtle, consistent scrollbars inside panels and track lists. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--color-white) 18%, transparent) transparent;
+}
+
+*::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+*::-webkit-scrollbar-thumb {
+  border-radius: 9999px;
+  background: color-mix(in srgb, var(--color-white) 16%, transparent);
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background: color-mix(in srgb, var(--color-white) 28%, transparent);
+}
+
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* Keyboard focus that matches the theme instead of the browser default. */
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 4px;
 }

@@ -3,14 +3,17 @@ import path from "node:path";
 import { buildAss, buildTextOverlayDialogue, buildWatermarkDialogue } from "@/lib/clipping/captions";
 import { hasAudioStream, probeDuration, runFfmpeg } from "@/lib/clipping/ffmpeg";
 import { outputDir, workDir } from "@/lib/clipping/jobs";
+import { LAYOUT_MODE_PRESETS } from "@/lib/clipping/layouts";
 import { reframeChain, stackedLayoutChain } from "@/lib/clipping/render";
+import { maybeAutoEnqueueExport } from "@/lib/publisher/enqueue";
 import type {
   CaptionSegment,
   CaptionStyle,
   ClipAudio,
   ClipCompositionMode,
   ClipExportSettings,
-  Overlay
+  Overlay,
+  RegionRect
 } from "@/types/domain";
 
 export type ExportSpec = {
@@ -21,6 +24,7 @@ export type ExportSpec = {
   trimEnd: number;
   compositionMode: ClipCompositionMode;
   reframe: { scale: number; offsetX: number; offsetY: number };
+  faceSource?: RegionRect;
   captions: CaptionSegment[];
   captionStyle: CaptionStyle;
   captionsVisible: boolean;
@@ -198,10 +202,9 @@ function fitChain(inLabel: string, outLabel: string, w: number, h: number): stri
 }
 
 function sourceCompositionChain(spec: ExportSpec, w: number, h: number): string {
-  const stacked = spec.compositionMode === "stacked-split" || spec.compositionMode === "stacked-split-flip";
-  if (stacked && w === 1080 && h === 1920) {
-    const layout = spec.compositionMode === "stacked-split-flip" ? "face-stack" : "restream-stack";
-    return stackedLayoutChain(layout).replace(/\[vout\]$/, "[v0]");
+  const layoutPreset = LAYOUT_MODE_PRESETS[spec.compositionMode];
+  if (layoutPreset && h > w) {
+    return stackedLayoutChain(layoutPreset, undefined, w, h, spec.faceSource).replace(/\[vout\]$/, "[v0]");
   }
   if (spec.compositionMode === "fit") {
     return fitChain("0:v", "v0", w, h);
@@ -350,4 +353,13 @@ async function runExport(record: ExportRecord, spec: ExportSpec) {
   record.file = path.basename(outFile);
   record.progress = 100;
   record.status = "done";
+
+  // Opt-in scheduled publishing: when PUBLISH_ENABLED and PUBLISH_AUTO_ENQUEUE
+  // are set, the finished export joins the publish queue (YouTube Shorts /
+  // Instagram Reels / TikTok). No-op otherwise, and never fails the export.
+  void maybeAutoEnqueueExport({
+    jobId: spec.jobId,
+    exportPath: outFile,
+    spokenText: spec.captions.map((caption) => caption.text).join(" ")
+  });
 }

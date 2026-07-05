@@ -232,7 +232,7 @@ export function ClipEditorPage() {
       ) : (
         <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
           {sortedProjects.map((project) => (
-            <Card key={project.id} className="space-y-3">
+            <Card key={project.id} className="animate-in space-y-3 transition-all duration-200 hover:border-[var(--border-strong)] hover:shadow-lg">
               <div className="flex items-start justify-between gap-2">
                 <div className="min-w-0">
                   <p className="truncate font-medium text-white">{project.name}</p>

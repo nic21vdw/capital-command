@@ -98,6 +98,14 @@ Both tools live in the sidebar and work out of the box:
   `data\clips\bin\` automatically. Generated clips are stored under
   `data\clips\outputs\` and stay on your PC.
 
+  **Uploaded video files are transcribed locally** with Whisper (no API key,
+  no audio leaves your PC), so uploads get the same word-synced captions,
+  auto-titles, and transcript-driven moment picking as VOD links. The first
+  upload downloads the speech model (~150 MB) into `data\clips\bin\whisper-models\`
+  and reuses it afterwards. To trade accuracy for speed, set
+  `CLIPS_WHISPER_MODEL=Xenova/whisper-tiny.en` in `.env` (default:
+  `Xenova/whisper-base.en`).
+
 ### Optional: auto-save clips to Google Drive (no API, no sign-in)
 
 If you want every finished clip to also land in your Google Drive — organized
