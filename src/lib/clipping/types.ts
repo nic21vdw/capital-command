@@ -46,7 +46,7 @@ export type ClipCandidate = {
   file?: string;
   /**
    * Ready-to-post download filename: a 9:16 vertical centered over a blurred
-   * fill, with the word-synced captions and the CoLateral watermark burned in.
+   * fill, with the word-synced captions burned in (no watermark by default).
    * This is what the preview offers for download; the editor still opens the
    * neutral `file` master so every layer stays adjustable.
    */

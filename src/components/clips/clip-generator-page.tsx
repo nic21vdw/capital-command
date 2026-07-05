@@ -567,8 +567,8 @@ function ClipCard({
 }) {
   const duration = Math.round(clip.end - clip.start);
   const videoRef = useRef<HTMLVideoElement>(null);
-  // Prefer the ready-to-post download clip (centered 9:16, captioned, watermarked)
-  // once it exists so the preview matches exactly what Download hands back. Until
+  // Prefer the ready-to-post download clip (centered 9:16, captioned) once it
+  // exists so the preview matches exactly what Download hands back. Until
   // then fall back to the instant preview or the neutral master.
   const playbackFile = clip.downloadFile ?? clip.previewFile ?? clip.file;
   const stopTimerRef = useRef<number | null>(null);
