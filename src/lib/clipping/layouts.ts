@@ -25,6 +25,10 @@ export type ClipLayoutDefinition = {
 export const DEFAULT_FACE_SOURCE: Rect = { x: 0.58, y: 0.05, w: 0.42, h: 0.5 };
 const streamerCameraSource = DEFAULT_FACE_SOURCE;
 
+/** Default screen region: the whole source frame. Projects can shrink this to
+ *  crop out the camera overlay and zoom in on the screen content. */
+export const DEFAULT_SCREEN_SOURCE: Rect = { x: 0, y: 0, w: 1, h: 1 };
+
 /**
  * Layout geometry rules (all rects are normalized to the 9:16 output frame):
  * - Screen layers use `contain` so no screen content is ever cropped away —
@@ -116,11 +120,24 @@ export function withFaceSource(
   definition: ClipLayoutDefinition,
   faceSource: Rect | undefined
 ): ClipLayoutDefinition {
-  if (!faceSource) return definition;
-  const face = normalizeRect(faceSource);
+  return withLayerSources(definition, { face: faceSource });
+}
+
+/** Replaces the source rects of a layout's layers by kind (face camera and/or
+ *  screen). Undefined entries leave that kind's sources untouched. */
+export function withLayerSources(
+  definition: ClipLayoutDefinition,
+  sources: { face?: Rect; screen?: Rect }
+): ClipLayoutDefinition {
+  const face = sources.face ? normalizeRect(sources.face) : undefined;
+  const screen = sources.screen ? normalizeRect(sources.screen) : undefined;
+  if (!face && !screen) return definition;
   return {
     ...definition,
-    layers: definition.layers.map((layer) => (layer.kind === "face" ? { ...layer, source: face } : layer))
+    layers: definition.layers.map((layer) => {
+      const source = layer.kind === "face" ? face : screen;
+      return source ? { ...layer, source } : layer;
+    })
   };
 }
 

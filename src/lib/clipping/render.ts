@@ -1,5 +1,5 @@
 import { runFfmpeg } from "@/lib/clipping/ffmpeg";
-import { DEFAULT_CLIP_LAYOUT, resolveClipLayout, withFaceSource, type LayoutLayer, type Rect } from "@/lib/clipping/layouts";
+import { DEFAULT_CLIP_LAYOUT, resolveClipLayout, withLayerSources, type LayoutLayer, type Rect } from "@/lib/clipping/layouts";
 import type { ClipLayoutOverrides, ClipLayoutPreset } from "@/lib/clipping/types";
 
 const FRAME_W = 1080;
@@ -173,9 +173,13 @@ export function stackedLayoutChain(
   layoutOverrides?: ClipLayoutOverrides,
   frameW: number = FRAME_W,
   frameH: number = FRAME_H,
-  faceSource?: Rect
+  faceSource?: Rect,
+  screenSource?: Rect
 ): string {
-  const definition = withFaceSource(resolveClipLayout(layout, layoutOverrides), faceSource);
+  const definition = withLayerSources(resolveClipLayout(layout, layoutOverrides), {
+    face: faceSource,
+    screen: screenSource
+  });
   const blurW = Math.max(2, Math.round(frameW / 2));
   const blurH = Math.max(2, Math.round(frameH / 2));
   if (definition.layers.length === 0) {

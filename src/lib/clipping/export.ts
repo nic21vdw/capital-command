@@ -25,6 +25,7 @@ export type ExportSpec = {
   compositionMode: ClipCompositionMode;
   reframe: { scale: number; offsetX: number; offsetY: number };
   faceSource?: RegionRect;
+  screenSource?: RegionRect;
   captions: CaptionSegment[];
   captionStyle: CaptionStyle;
   captionsVisible: boolean;
@@ -204,7 +205,7 @@ function fitChain(inLabel: string, outLabel: string, w: number, h: number): stri
 function sourceCompositionChain(spec: ExportSpec, w: number, h: number): string {
   const layoutPreset = LAYOUT_MODE_PRESETS[spec.compositionMode];
   if (layoutPreset && h > w) {
-    return stackedLayoutChain(layoutPreset, undefined, w, h, spec.faceSource).replace(/\[vout\]$/, "[v0]");
+    return stackedLayoutChain(layoutPreset, undefined, w, h, spec.faceSource, spec.screenSource).replace(/\[vout\]$/, "[v0]");
   }
   if (spec.compositionMode === "fit") {
     return fitChain("0:v", "v0", w, h);

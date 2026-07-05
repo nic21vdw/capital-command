@@ -478,6 +478,14 @@ export const clipProjectSchema = z.object({
       h: z.coerce.number().min(0.01).max(1).default(0.5)
     })
     .optional(),
+  screenSource: z
+    .object({
+      x: z.coerce.number().min(0).max(1).default(0),
+      y: z.coerce.number().min(0).max(1).default(0),
+      w: z.coerce.number().min(0.01).max(1).default(1),
+      h: z.coerce.number().min(0.01).max(1).default(1)
+    })
+    .optional(),
   captions: z.array(captionSegmentSchema).default([]),
   captionStyle: captionStyleSchema.default(defaultCaptionStyle),
   captionsVisible: z.coerce.boolean().default(true),

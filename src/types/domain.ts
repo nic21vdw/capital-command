@@ -531,6 +531,12 @@ export interface ClipProject {
    * the split/lead layouts; defaults to the top-right streamer camera spot.
    */
   faceSource?: RegionRect;
+  /**
+   * Which part of the source frame the screen layer shows (normalized). Used
+   * by the split/lead layouts to crop out the camera overlay or zoom in on
+   * the screen content; defaults to the full frame.
+   */
+  screenSource?: RegionRect;
   captions: CaptionSegment[];
   captionStyle: CaptionStyle;
   captionsVisible: boolean;
@@ -549,6 +555,9 @@ export interface ClipProject {
 
 export type AspectPreset = "9:16" | "16:9" | "1:1" | "4:5" | "custom";
 export type FramingMode = "fit" | "fill" | "crop";
+
+/** Which source-crop rect is being adjusted on the editor preview. */
+export type CropTarget = "face" | "screen" | null;
 
 export interface RegionRect {
   x: number;
