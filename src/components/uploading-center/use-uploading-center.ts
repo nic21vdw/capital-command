@@ -329,6 +329,59 @@ export function useUploadingCenter() {
     [refresh]
   );
 
+  /**
+   * Batch form of `schedule` for the Auto Assign button: each clip arrives
+   * pre-paired with a free slot. Posts sequentially (the queue store isn't
+   * safe under concurrent writes), summarizes in one toast, refreshes once.
+   */
+  const autoAssign = useCallback(
+    async (assignments: Array<{ clip: ReadyClip; draft: ClipDraft }>) => {
+      if (assignments.length === 0) return;
+      setBusy("auto-assign");
+      let scheduled = 0;
+      let firstError: string | null = null;
+      try {
+        for (const { clip, draft } of assignments) {
+          try {
+            const response = await fetch("/api/publish", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                jobId: clip.jobId,
+                file: clip.file,
+                publishAt: draft.slotUtc,
+                title: draft.title.trim() || undefined,
+                caption: draft.caption.trim() || undefined,
+                platforms: [draft.platform],
+                visibility: "public"
+              })
+            });
+            if (!response.ok) {
+              firstError ??= await readError(response);
+              continue;
+            }
+            scheduled += 1;
+          } catch {
+            firstError ??= "Network error while scheduling.";
+          }
+        }
+        if (scheduled === assignments.length) {
+          toast.success(`Auto-assigned ${scheduled} clip${scheduled === 1 ? "" : "s"} to the next open slots.`);
+        } else if (scheduled > 0) {
+          toast.warning(
+            `Auto-assigned ${scheduled} of ${assignments.length} clips${firstError ? ` — ${firstError}` : "."}`
+          );
+        } else {
+          toast.error(firstError ?? "Auto assign failed.");
+        }
+        await refresh();
+      } finally {
+        setBusy(null);
+      }
+    },
+    [refresh]
+  );
+
   const publishNow = useCallback(
     async (item: QueueItem) => {
       setBusy(`publish:${item.id}`);
@@ -387,6 +440,7 @@ export function useUploadingCenter() {
     busy,
     renameClip,
     schedule,
+    autoAssign,
     publishNow,
     remove,
     refresh
