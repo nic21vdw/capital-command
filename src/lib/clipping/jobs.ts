@@ -1,11 +1,13 @@
 import { mkdir, readFile, rename, rm, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { TARGET_CLIP_COUNT, detectSilences, extractEnergy, fallbackCandidates, selectCandidates } from "@/lib/clipping/analysis";
+import { buildAss, buildWatermarkDialogue, chunkWords, windowSegments } from "@/lib/clipping/captions";
 import { copyClipsToDrive, driveDir } from "@/lib/clipping/drive";
 import { downloadAudio, downloadSection, fetchVideoMeta } from "@/lib/clipping/download";
 import { hasAudioStream, probeDuration, runFfmpeg } from "@/lib/clipping/ffmpeg";
-import { renderPreviewAssets, renderSourceClip } from "@/lib/clipping/render";
+import { renderCaptionedVertical, renderPreviewAssets, renderSourceClip } from "@/lib/clipping/render";
 import { readSourceMeta, sourceFilePath, type SourceMeta } from "@/lib/clipping/sources";
+import { defaultCaptionStyle } from "@/lib/storage/schemas";
 import { ensureClipThumbnail } from "@/lib/clipping/thumbnails";
 import { fetchSourceCaptions } from "@/lib/clipping/transcription";
 import { selectByTranscript } from "@/lib/clipping/transcript-select";
@@ -424,8 +426,12 @@ async function runPipeline(job: ClipJob, url: string) {
   // Drive for Desktop syncs (see CLIPS_DRIVE_DIR in .env). Off unless set.
   if (driveDir()) {
     const rendered = job.clips
-      .filter((clip) => clip.file)
-      .map((clip) => ({ sourcePath: path.join(outputDir(job.id), clip.file as string), fileName: clip.file as string }));
+      .filter((clip) => clip.downloadFile || clip.file)
+      .map((clip) => {
+        // Mirror the ready-to-post download clip when it rendered, else the master.
+        const fileName = (clip.downloadFile ?? clip.file) as string;
+        return { sourcePath: path.join(outputDir(job.id), fileName), fileName };
+      });
     if (rendered.length > 0) {
       try {
         const { folder, copied } = await copyClipsToDrive(job.fileName, rendered);
@@ -441,6 +447,33 @@ async function runPipeline(job: ClipJob, url: string) {
   }
 
   await update(job, { status: "done", stage: "finished", progress: 100 });
+}
+
+// The ready-to-post download clip is composed at 9:16 (1080x1920), matching a
+// fresh editor project's default vertical export.
+const DOWNLOAD_FRAME_W = 1080;
+const DOWNLOAD_FRAME_H = 1920;
+
+/**
+ * Writes the ASS document burned into a clip's ready-to-post download render:
+ * the clip's word-synced captions (windowed to the clip range and styled like a
+ * fresh editor project) plus the CoLateral watermark pinned to the top-left, and
+ * returns its path. The watermark is always burned, so this never returns empty.
+ */
+async function writeClipDownloadAss(job: ClipJob, clip: ClipCandidate, index: number): Promise<string> {
+  const durationSec = Math.max(0.1, clip.end - clip.start);
+  const style = defaultCaptionStyle;
+  // Window the source captions into clip-local time, then re-chunk the words the
+  // same way the editor does so the burned captions match what opening the clip
+  // in the editor would show.
+  const windowed = windowSegments(job.sourceCaptions ?? [], clip.start, clip.end);
+  const words = windowed.flatMap((segment) => segment.words);
+  const captions = words.length ? chunkWords(words, style.maxWordsPerCaption) : windowed;
+  const captionDoc = buildAss(captions, style, DOWNLOAD_FRAME_W, DOWNLOAD_FRAME_H, true);
+  const watermark = buildWatermarkDialogue(DOWNLOAD_FRAME_H, 0, durationSec, "top");
+  const assPath = path.join(workDir(job.id), `caps-${String(index + 1).padStart(2, "0")}.ass`);
+  await writeFile(assPath, `${captionDoc}${watermark}\n`, "utf8");
+  return assPath;
 }
 
 async function renderClipIndexes(job: ClipJob, indexes: number[]) {
@@ -490,6 +523,18 @@ async function renderClipIndexes(job: ClipJob, indexes: number[]) {
       void ensureClipThumbnail(outputDir(job.id), primaryName);
       clip.layoutPreset = undefined;
       clip.variants = undefined;
+      // Compose the ready-to-post download clip: centered 9:16 over a blurred
+      // fill, with word-synced captions and the watermark burned in at the top.
+      // Best-effort — if it fails, the neutral master above stays downloadable.
+      try {
+        const downloadName = `${baseName}-ready.mp4`;
+        const assPath = await writeClipDownloadAss(job, clip, i);
+        await renderCaptionedVertical(produced, path.join(outputDir(job.id), downloadName), assPath, true);
+        clip.downloadFile = downloadName;
+        await persistJobs();
+      } catch {
+        // Leave clip.downloadFile unset; the UI falls back to the master.
+      }
       await unlink(produced).catch(() => undefined);
     } catch (error) {
       job.notices.push(

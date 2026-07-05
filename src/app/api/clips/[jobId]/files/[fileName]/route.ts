@@ -40,6 +40,7 @@ export async function GET(
   // Only files the job itself produced may be served — no path traversal.
   const known = job.clips.flatMap((clip) => [
     clip.file,
+    clip.downloadFile,
     clip.previewFile,
     clip.posterFile,
     ...(clip.variants ?? []).map((variant) => variant.file)

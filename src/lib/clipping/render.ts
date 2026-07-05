@@ -168,6 +168,54 @@ export async function renderVertical(inputPath: string, outputPath: string, audi
   ]);
 }
 
+/** Escapes a filesystem path for use inside an ffmpeg filtergraph argument. */
+function escapeFilterPath(p: string): string {
+  return p.replace(/\\/g, "/").replace(/:/g, "\\:").replace(/'/g, "\\'");
+}
+
+/**
+ * Renders the ready-to-post download clip the Clip Generator hands back by
+ * default: a 9:16 vertical centered over a blurred, dimmed fill of itself
+ * (nothing cropped away), with an optional burned-in ASS overlay carrying the
+ * word-synced captions and the CoLateral watermark. `assPath` is a subtitle
+ * document to burn in; pass null to render the composition alone.
+ */
+export async function renderCaptionedVertical(
+  inputPath: string,
+  outputPath: string,
+  assPath: string | null,
+  audioPresent: boolean
+) {
+  const composition =
+    "[0:v]split=2[bg][fg];" +
+    "[bg]scale=540:960:force_original_aspect_ratio=increase,crop=540:960,boxblur=12:2,eq=brightness=-0.08,scale=1080:1920[bgb];" +
+    "[fg]scale=1080:-2[fgs];" +
+    "[bgb][fgs]overlay=(W-w)/2:(H-h)/2,setsar=1[vc]";
+  const filter = assPath
+    ? `${composition};[vc]ass='${escapeFilterPath(assPath)}'[vout]`
+    : `${composition};[vc]null[vout]`;
+  await runFfmpeg([
+    "-y",
+    "-i",
+    inputPath,
+    "-filter_complex",
+    filter,
+    "-map",
+    "[vout]",
+    ...(audioPresent ? ["-map", "0:a?"] : []),
+    "-c:v",
+    "libx264",
+    "-preset",
+    "veryfast",
+    "-crf",
+    "23",
+    ...(audioPresent ? ["-c:a", "aac", "-b:a", "128k"] : ["-an"]),
+    "-movflags",
+    "+faststart",
+    outputPath
+  ]);
+}
+
 export function stackedLayoutChain(
   layout: ClipLayoutPreset,
   layoutOverrides?: ClipLayoutOverrides,

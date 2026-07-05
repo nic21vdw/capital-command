@@ -567,9 +567,10 @@ function ClipCard({
 }) {
   const duration = Math.round(clip.end - clip.start);
   const videoRef = useRef<HTMLVideoElement>(null);
-  // The instant preview holds the same content as the HD master (the master is
-  // a re-encode of the same section), so cards always play the lighter file.
-  const playbackFile = clip.previewFile ?? clip.file;
+  // Prefer the ready-to-post download clip (centered 9:16, captioned, watermarked)
+  // once it exists so the preview matches exactly what Download hands back. Until
+  // then fall back to the instant preview or the neutral master.
+  const playbackFile = clip.downloadFile ?? clip.previewFile ?? clip.file;
   const stopTimerRef = useRef<number | null>(null);
 
   // Once a hover preview starts, let it run at least this long even if the
@@ -685,8 +686,8 @@ function ClipCard({
                 Open in editor
               </Button>
               <a
-                href={fileUrl(jobId, clip.file, true)}
-                download={`${safeFilename(clipHeadline(clip, index))}.${clip.file.split(".").pop() || "mp4"}`}
+                href={fileUrl(jobId, clip.downloadFile ?? clip.file, true)}
+                download={`${safeFilename(clipHeadline(clip, index))}.${(clip.downloadFile ?? clip.file).split(".").pop() || "mp4"}`}
                 className="inline-flex items-center justify-center rounded-lg border border-[var(--border)] px-3 py-1.5 text-xs font-medium text-[var(--muted-foreground)] transition hover:border-[var(--border-strong)] hover:text-white"
               >
                 <Download className="mr-1.5 h-3.5 w-3.5" />
