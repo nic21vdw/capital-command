@@ -393,7 +393,7 @@ export function ClipEditor({
     const overlay: Overlay = {
       id: uid("ov"),
       kind,
-      text: kind === "text" || kind === "title" ? (kind === "title" ? "Title" : "Text") : undefined,
+      text: kind === "text" ? "Text" : undefined,
       src,
       x: 0.5,
       y: kind === "watermark" ? 0.9 : 0.5,
@@ -403,9 +403,9 @@ export function ClipEditor({
       z: project.overlays.length,
       locked: false,
       start: 0,
-      end: kind === "title" ? Math.min(duration, 3) : duration,
+      end: duration,
       color: "#ffffff",
-      fontWeight: kind === "title" ? 800 : 600,
+      fontWeight: 600,
       align: "center"
     };
     setProject((p) => ({ ...p, overlays: [...p.overlays, overlay] }));

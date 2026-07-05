@@ -404,12 +404,12 @@ export interface CaptionStyle {
 
 export type CaptionPresetId = "minimal" | "bold-shorts" | "highlight-word" | "lower-third" | "colateral-purple";
 
-export type OverlayKind = "text" | "title" | "image" | "logo" | "watermark";
+export type OverlayKind = "text" | "image" | "logo" | "watermark";
 
 export interface Overlay {
   id: string;
   kind: OverlayKind;
-  /** Text content for text/title overlays. */
+  /** Text content for text overlays. */
   text?: string;
   /** Data URL for image/logo/watermark overlays. */
   src?: string;

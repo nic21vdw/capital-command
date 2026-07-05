@@ -373,7 +373,8 @@ export const defaultCaptionStyle = captionStyleSchema.parse({});
 
 const overlaySchema = z.object({
   id: z.string(),
-  kind: z.enum(["text", "title", "image", "logo", "watermark"]),
+  // Legacy "title" overlays (removed) load back in as plain text.
+  kind: z.preprocess((v) => (v === "title" ? "text" : v), z.enum(["text", "image", "logo", "watermark"])),
   text: z.string().optional(),
   // Image overlays carry a data URL; cap so the JSON store stays sane.
   src: z.string().max(8_000_000).optional(),

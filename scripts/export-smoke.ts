@@ -69,7 +69,7 @@ async function main() {
   const overlays: Overlay[] = [
     {
       id: "o1",
-      kind: "title",
+      kind: "text",
       text: "SMOKE TEST",
       x: 0.5,
       y: 0.2,

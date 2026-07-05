@@ -116,7 +116,7 @@ async function writeOverlayImages(spec: ExportSpec, dir: string) {
   const images: { overlay: Overlay; file: string }[] = [];
   let i = 0;
   for (const overlay of shiftedOverlays(spec)) {
-    if ((overlay.kind === "text" || overlay.kind === "title") && !overlay.src) continue;
+    if (overlay.kind === "text" && !overlay.src) continue;
     if (!overlay.src) continue;
     const buf = dataUrlToBuffer(overlay.src);
     if (!buf) continue;
@@ -140,7 +140,7 @@ function buildExportAss(spec: ExportSpec, w: number, h: number): string {
     spec.highlightCurrentWord
   );
   const overlayLines = overlays
-    .filter((o) => (o.kind === "text" || o.kind === "title") && o.text && o.text.trim())
+    .filter((o) => o.kind === "text" && o.text && o.text.trim())
     .map((o) =>
       buildTextOverlayDialogue(
         o.text as string,
@@ -149,7 +149,7 @@ function buildExportAss(spec: ExportSpec, w: number, h: number): string {
           y: o.y,
           start: o.start,
           end: o.end > o.start ? o.end : dur,
-          fontScale: (o.kind === "title" ? 0.09 : 0.05) * o.scale,
+          fontScale: 0.05 * o.scale,
           color: o.color ?? "#ffffff",
           rotation: o.rotation,
           bold: (o.fontWeight ?? 700) >= 600,

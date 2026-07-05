@@ -480,7 +480,6 @@ export const OverlaysPanel = memo(function OverlaysPanel({ api }: { api: EditorA
     <div className="space-y-3">
       <div className="grid grid-cols-3 gap-1.5">
         <AddBtn icon={<Type className="h-4 w-4" />} label="Text" onClick={() => api.addOverlay("text")} />
-        <AddBtn icon={<Type className="h-4 w-4" />} label="Title card" onClick={() => api.addOverlay("title")} />
         <AddBtn icon={<ImageIcon className="h-4 w-4" />} label="Image" onClick={() => { setPendingKind("image"); fileRef.current?.click(); }} />
         <AddBtn icon={<ImageIcon className="h-4 w-4" />} label="Logo" onClick={() => { setPendingKind("logo"); fileRef.current?.click(); }} />
         <AddBtn icon={<ImageIcon className="h-4 w-4" />} label="Watermark" onClick={() => { setPendingKind("watermark"); fileRef.current?.click(); }} />
@@ -489,7 +488,7 @@ export const OverlaysPanel = memo(function OverlaysPanel({ api }: { api: EditorA
 
       <div className="max-h-[22vh] space-y-1.5 overflow-y-auto pr-1">
         {project.overlays.length === 0 ? (
-          <p className="text-sm text-[var(--muted-foreground)]">No overlays. Add text, a title card, image, logo, or watermark.</p>
+          <p className="text-sm text-[var(--muted-foreground)]">No overlays. Add text, an image, logo, or watermark.</p>
         ) : (
           [...project.overlays].sort((a, b) => b.z - a.z).map((o) => (
             <div
@@ -500,7 +499,7 @@ export const OverlaysPanel = memo(function OverlaysPanel({ api }: { api: EditorA
                 api.selectedOverlayId === o.id ? "border-[var(--accent)]/60 bg-[var(--accent)]/8 text-white" : "border-[var(--border)] text-[var(--muted-foreground)]"
               )}
             >
-              <span className="truncate">{o.kind === "text" || o.kind === "title" ? o.text || o.kind : o.kind}</span>
+              <span className="truncate">{o.kind === "text" ? o.text || o.kind : o.kind}</span>
               <div className="ml-auto flex items-center gap-1">
                 <IconBtn title="Layer up" onClick={() => api.reorderOverlay(o.id, "up")}><ArrowUp className="h-3.5 w-3.5" /></IconBtn>
                 <IconBtn title="Layer down" onClick={() => api.reorderOverlay(o.id, "down")}><ArrowDown className="h-3.5 w-3.5" /></IconBtn>
@@ -517,7 +516,7 @@ export const OverlaysPanel = memo(function OverlaysPanel({ api }: { api: EditorA
 
       {selected && (
         <div className="space-y-3 rounded-lg border border-[var(--border)] p-3">
-          {(selected.kind === "text" || selected.kind === "title") && (
+          {selected.kind === "text" && (
             <>
               <Field label="Text">
                 <textarea
