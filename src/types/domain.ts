@@ -340,6 +340,12 @@ export interface SavedThumbnail {
   position: "left" | "bottom-left" | "center";
   size: "small" | "medium" | "large";
   uppercase: boolean;
+  /** Heavier text weight (Ctrl+B). Absent on thumbnails saved before this. */
+  bold?: boolean;
+  /** Italic text style (Ctrl+I). Absent on thumbnails saved before this. */
+  italic?: boolean;
+  /** Underlined text (Ctrl+U). Absent on thumbnails saved before this. */
+  underline?: boolean;
   fontId: string;
   textColor: string;
   highlightColor: string;
