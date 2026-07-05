@@ -40,6 +40,7 @@ export function UploadingCenterPage() {
     itemsForClip,
     itemsByPlatformSlot,
     busy,
+    renameClip,
     schedule,
     publishNow,
     remove,
@@ -58,7 +59,9 @@ export function UploadingCenterPage() {
   }, [refresh]);
 
   // One draft (title/caption/target/slot) per clip card, kept up here so a
-  // drag-drop onto the board uses whatever was typed on the card.
+  // drag-drop onto the board uses whatever was typed on the card. The title
+  // itself is persisted to the backend clip on commit (blur/Enter), so it
+  // survives navigating away — the draft only carries in-progress typing.
   const [drafts, setDrafts] = useState<Record<string, ClipDraft>>({});
   const draftFor = useCallback(
     (clip: ReadyClip): ClipDraft =>
@@ -68,6 +71,14 @@ export function UploadingCenterPage() {
   const onDraftChange = useCallback((clip: ReadyClip, draft: ClipDraft) => {
     setDrafts((current) => ({ ...current, [clip.key]: draft }));
   }, []);
+  const onTitleCommit = useCallback(
+    (clip: ReadyClip) => {
+      const draft = drafts[clip.key];
+      if (!draft || draft.title.trim() === clip.headline) return;
+      void renameClip(clip, draft.title);
+    },
+    [drafts, renameClip]
+  );
 
   // Surface the OAuth redirect result exactly once.
   const searchParams = useSearchParams();
@@ -209,6 +220,7 @@ export function UploadingCenterPage() {
             slots={slots}
             draftFor={draftFor}
             onDraftChange={onDraftChange}
+            onTitleCommit={onTitleCommit}
             isSlotTaken={isSlotTaken}
             itemsForClip={itemsForClip}
             busy={busy}

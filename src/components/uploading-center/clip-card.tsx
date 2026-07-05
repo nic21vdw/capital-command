@@ -32,6 +32,7 @@ export function ClipCard({
   scheduledItems,
   scheduling,
   onDraftChange,
+  onTitleCommit,
   onSchedule
 }: {
   clip: ReadyClip;
@@ -41,6 +42,8 @@ export function ClipCard({
   scheduledItems: QueueItem[];
   scheduling: boolean;
   onDraftChange: (draft: ClipDraft) => void;
+  /** Persist the typed title (fires on blur/Enter, not on every keystroke). */
+  onTitleCommit: () => void;
   onSchedule: () => void;
 }) {
   const openSlots = slots.filter((slot) => !slot.past && !isSlotTaken(draft.platform, slot.utc));
@@ -73,6 +76,10 @@ export function ClipCard({
               maxLength={100}
               rows={1}
               onChange={(event) => onDraftChange({ ...draft, title: event.target.value.replace(/\n/g, " ") })}
+              onBlur={onTitleCommit}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") event.currentTarget.blur();
+              }}
               placeholder="Title"
               className="field-sizing-content min-h-9 resize-none py-2"
             />

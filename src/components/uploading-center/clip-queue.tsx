@@ -22,6 +22,7 @@ export function ClipQueue({
   slots,
   draftFor,
   onDraftChange,
+  onTitleCommit,
   isSlotTaken,
   itemsForClip,
   busy,
@@ -34,6 +35,7 @@ export function ClipQueue({
   slots: ScheduleSlot[];
   draftFor: (clip: ReadyClip) => ClipDraft;
   onDraftChange: (clip: ReadyClip, draft: ClipDraft) => void;
+  onTitleCommit: (clip: ReadyClip) => void;
   isSlotTaken: (platform: PlatformId, slotUtc: string) => boolean;
   itemsForClip: (clip: ReadyClip) => QueueItem[];
   busy: string | null;
@@ -76,6 +78,7 @@ export function ClipQueue({
               scheduledItems={itemsForClip(clip)}
               scheduling={busy === `schedule:${clip.key}`}
               onDraftChange={(draft) => onDraftChange(clip, draft)}
+              onTitleCommit={() => onTitleCommit(clip)}
               onSchedule={() => onSchedule(clip)}
             />
           ))}

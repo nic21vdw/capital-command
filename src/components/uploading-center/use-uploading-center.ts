@@ -29,6 +29,8 @@ export type ReadyClip = {
   /** Stable key: jobId + the exact output file that would be posted. */
   key: string;
   jobId: string;
+  /** Backend clip-candidate id, used to persist title edits via PATCH. */
+  clipId: string;
   /** File name inside the job's output folder (the ready-to-post render). */
   file: string;
   headline: string;
@@ -50,7 +52,10 @@ export const PLATFORM_LABELS: Record<PlatformId, string> = {
   instagram: "Instagram"
 };
 
+// Keep in sync with the Clip Generator's headline: the creator/auto title on
+// the backend clip wins, then the hook quote, then a quote from the rationale.
 function clipHeadline(clip: ClipCandidate, index: number) {
+  if (clip.title) return clip.title;
   if (clip.hookQuote) return clip.hookQuote;
   const quoted = clip.rationale.match(/"([^"]{8,90})"/);
   return quoted?.[1] ?? `Clip ${index + 1}`;
@@ -148,6 +153,7 @@ export function useUploadingCenter() {
         {
           key: `${activeJob.id}/${file}`,
           jobId: activeJob.id,
+          clipId: clip.id,
           file,
           headline: clipHeadline(clip, index),
           durationSec: Math.max(0, Math.round(clip.end - clip.start)),
@@ -178,6 +184,42 @@ export function useUploadingCenter() {
     }
     return map;
   }, [queueItems]);
+
+  /**
+   * Persists a title edit on the backend clip so it survives navigation and
+   * shows up identically in the Clip Generator and Clip Editor. A blank title
+   * clears the custom title back to the auto-derived headline.
+   */
+  const renameClip = useCallback(
+    async (clip: ReadyClip, title: string) => {
+      const trimmed = title.trim();
+      // Optimistic: reflect the new title in the local jobs immediately.
+      setJobs((prev) =>
+        prev.map((job) =>
+          job.id === clip.jobId
+            ? {
+                ...job,
+                clips: job.clips.map((candidate) =>
+                  candidate.id === clip.clipId ? { ...candidate, title: trimmed || undefined } : candidate
+                )
+              }
+            : job
+        )
+      );
+      try {
+        const response = await fetch(`/api/clips/${clip.jobId}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ clipId: clip.clipId, clipTitle: trimmed })
+        });
+        if (!response.ok) throw new Error(await readError(response));
+      } catch {
+        toast.error("Could not save the clip title.");
+        await refresh();
+      }
+    },
+    [refresh]
+  );
 
   const schedule = useCallback(
     async (clip: ReadyClip, draft: ClipDraft) => {
@@ -268,6 +310,7 @@ export function useUploadingCenter() {
     itemsForClip,
     itemsByPlatformSlot,
     busy,
+    renameClip,
     schedule,
     publishNow,
     remove,
