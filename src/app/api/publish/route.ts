@@ -5,9 +5,12 @@ import { outputDir } from "@/lib/clipping/jobs";
 import { publisherConfig } from "@/lib/publisher/config";
 import { enqueue } from "@/lib/publisher/enqueue";
 import { publishQueue } from "@/lib/publisher/queue";
+import { runDue, type RunReport } from "@/lib/publisher/runner";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+// The post-enqueue upload streams the whole clip to YouTube.
+export const maxDuration = 300;
 
 /** GET /api/publish — the queue with per-platform status. */
 export async function GET() {
@@ -33,7 +36,15 @@ const enqueueSchema = z.object({
   visibility: z.enum(["public", "private", "unlisted"]).optional()
 });
 
-/** POST /api/publish — enqueue a finished clip for scheduled publishing. */
+/**
+ * POST /api/publish — enqueue a finished clip for scheduled publishing, then
+ * immediately process whatever is already due on it. YouTube counts as due
+ * the moment it's queued (the upload goes up private with status.publishAt,
+ * so it appears in YouTube Studio as Scheduled right away and YouTube flips
+ * it live at the slot time); TikTok/Instagram stay queued until their time.
+ * An upload failure doesn't fail the enqueue — the item stays queued and the
+ * scheduler retries.
+ */
 export async function POST(request: NextRequest) {
   const config = publisherConfig();
   if (!config.enabled) {
@@ -61,8 +72,9 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Provide either clipPath or jobId + file." }, { status: 400 });
   }
 
+  let item;
   try {
-    const item = await enqueue({
+    item = await enqueue({
       clipPath,
       publishAt: body.publishAt,
       title: body.title,
@@ -72,8 +84,19 @@ export async function POST(request: NextRequest) {
       visibility: body.visibility,
       jobId: body.jobId
     });
-    return NextResponse.json({ item }, { status: 201 });
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : String(error) }, { status: 400 });
   }
+
+  let report: RunReport | undefined;
+  try {
+    report = await runDue(new Date(), { itemId: item.id });
+  } catch (error) {
+    console.warn(
+      `[publisher] immediate run for ${item.id} failed (the scheduler will retry): ${error instanceof Error ? error.message : String(error)}`
+    );
+  }
+  // Re-read so the response carries the post-upload platform states.
+  const saved = await publishQueue(config).get(item.id);
+  return NextResponse.json({ item: saved ?? item, report }, { status: 201 });
 }
