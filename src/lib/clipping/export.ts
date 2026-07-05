@@ -5,6 +5,7 @@ import { hasAudioStream, probeDuration, runFfmpeg } from "@/lib/clipping/ffmpeg"
 import { outputDir, workDir } from "@/lib/clipping/jobs";
 import { LAYOUT_MODE_PRESETS } from "@/lib/clipping/layouts";
 import { reframeChain, stackedLayoutChain } from "@/lib/clipping/render";
+import { maybeAutoEnqueueExport } from "@/lib/publisher/enqueue";
 import type {
   CaptionSegment,
   CaptionStyle,
@@ -352,4 +353,13 @@ async function runExport(record: ExportRecord, spec: ExportSpec) {
   record.file = path.basename(outFile);
   record.progress = 100;
   record.status = "done";
+
+  // Opt-in scheduled publishing: when PUBLISH_ENABLED and PUBLISH_AUTO_ENQUEUE
+  // are set, the finished export joins the publish queue (YouTube Shorts /
+  // Instagram Reels / TikTok). No-op otherwise, and never fails the export.
+  void maybeAutoEnqueueExport({
+    jobId: spec.jobId,
+    exportPath: outFile,
+    spokenText: spec.captions.map((caption) => caption.text).join(" ")
+  });
 }

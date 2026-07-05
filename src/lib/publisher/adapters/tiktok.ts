@@ -1,0 +1,253 @@
+import { open, stat } from "node:fs/promises";
+import { publisherConfig } from "@/lib/publisher/config";
+import { PermanentError, StillProcessingError, fetchJson, fetchRaw } from "@/lib/publisher/http";
+import { composeCaption } from "@/lib/publisher/metadata";
+import { getCachedToken, setCachedToken } from "@/lib/publisher/tokens";
+import { formatInTimezone, toRfc3339Utc } from "@/lib/publisher/time";
+import type { PlatformAdapter, PostResult, PublishInput, PublishPlan } from "@/lib/publisher/types";
+
+/**
+ * TikTok Content Posting API (Direct Post).
+ *
+ * No native scheduling exists, so the runner calls this at the target time.
+ *
+ * Audit gate: until the TikTok app passes audit, posts from it can only be
+ * SELF_ONLY (visible to the account owner). This adapter forces SELF_ONLY
+ * whenever TIKTOK_AUDITED is not true, so the same code works in sandbox
+ * today and goes public with a single .env flip after approval.
+ *
+ * Primary source is FILE_UPLOAD (direct binary upload — no hosting needed);
+ * PULL_FROM_URL is available via TIKTOK_UPLOAD_MODE=url and requires the
+ * hosting bucket plus a URL prefix/domain verified in the TikTok developer
+ * portal.
+ */
+
+const API_BASE = "https://open.tiktokapis.com/v2";
+const REFRESH_TOKEN_CACHE_KEY = "tiktok.refreshToken";
+const POLL_INTERVAL_MS = 10_000;
+const MAX_POLLS_PER_RUN = 24;
+
+// FILE_UPLOAD chunking rules: each chunk must be 5 MB – 64 MB, and the final
+// chunk may absorb the trailing remainder (up to 128 MB). Whole files under
+// 64 MB upload as a single chunk — the common case for a short clip.
+// VERIFY: exact merge rules for the final chunk are described in the official
+// media-transfer guide: https://developers.tiktok.com/doc/content-posting-api-media-transfer-guide
+const SINGLE_CHUNK_MAX = 64 * 1024 * 1024;
+const CHUNK_SIZE = 32 * 1024 * 1024;
+
+type TiktokEnvelope<T> = { data?: T; error?: { code?: string; message?: string } };
+
+function assertOk<T>(payload: TiktokEnvelope<T>, label: string): T {
+  const code = payload.error?.code;
+  if (code && code !== "ok") {
+    throw new PermanentError(`${label} returned error ${code}: ${payload.error?.message ?? ""}`);
+  }
+  if (!payload.data) throw new PermanentError(`${label} returned no data.`);
+  return payload.data;
+}
+
+let cachedAccess: { accessToken: string; expiresAt: number } | null = null;
+
+async function accessToken(): Promise<string> {
+  const { tiktok } = publisherConfig();
+  if (!tiktok.clientKey || !tiktok.clientSecret || !tiktok.refreshToken) {
+    throw new PermanentError("TikTok is not configured. Set TIKTOK_CLIENT_KEY, TIKTOK_CLIENT_SECRET and TIKTOK_REFRESH_TOKEN.");
+  }
+  if (cachedAccess && cachedAccess.expiresAt > Date.now() + 60_000) return cachedAccess.accessToken;
+
+  // TikTok may rotate the refresh token — prefer the persisted rotation over
+  // the .env seed, and store any new value the response carries.
+  const refreshToken = (await getCachedToken(REFRESH_TOKEN_CACHE_KEY)) ?? tiktok.refreshToken;
+  const data = await fetchJson<{
+    access_token?: string;
+    expires_in?: number;
+    refresh_token?: string;
+    error?: string;
+    error_description?: string;
+  }>(`${API_BASE}/oauth/token/`, {
+    label: "TikTok token refresh",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({
+      client_key: tiktok.clientKey,
+      client_secret: tiktok.clientSecret,
+      grant_type: "refresh_token",
+      refresh_token: refreshToken
+    })
+  });
+  if (!data.access_token) {
+    throw new PermanentError(`TikTok token refresh failed: ${data.error ?? ""} ${data.error_description ?? ""}`.trim());
+  }
+  if (data.refresh_token && data.refresh_token !== refreshToken) {
+    await setCachedToken(REFRESH_TOKEN_CACHE_KEY, data.refresh_token);
+  }
+  cachedAccess = { accessToken: data.access_token, expiresAt: Date.now() + (data.expires_in ?? 3600) * 1000 };
+  return cachedAccess.accessToken;
+}
+
+function privacyLevel(input: PublishInput): string {
+  const { tiktok } = publisherConfig();
+  if (!tiktok.audited) return "SELF_ONLY";
+  return input.item.visibility === "public" ? "PUBLIC_TO_EVERYONE" : "SELF_ONLY";
+}
+
+function chunkPlan(size: number): { chunkSize: number; totalChunkCount: number } {
+  if (size <= SINGLE_CHUNK_MAX) return { chunkSize: size, totalChunkCount: 1 };
+  return { chunkSize: CHUNK_SIZE, totalChunkCount: Math.floor(size / CHUNK_SIZE) };
+}
+
+function uploadMode(): "file" | "url" {
+  return process.env.TIKTOK_UPLOAD_MODE?.trim().toLowerCase() === "url" ? "url" : "file";
+}
+
+type InitBody = {
+  post_info: {
+    title: string;
+    privacy_level: string;
+    disable_duet: boolean;
+    disable_comment: boolean;
+    disable_stitch: boolean;
+  };
+  source_info:
+    | { source: "FILE_UPLOAD"; video_size: number; chunk_size: number; total_chunk_count: number }
+    | { source: "PULL_FROM_URL"; video_url: string };
+};
+
+function buildInitBody(input: PublishInput, size: number): InitBody {
+  const caption = composeCaption(input.item).slice(0, 2200);
+  const post_info = {
+    // TikTok has no separate description field; hashtags go in the title text.
+    title: caption,
+    privacy_level: privacyLevel(input),
+    disable_duet: false,
+    disable_comment: false,
+    disable_stitch: false
+  };
+  if (uploadMode() === "url") {
+    if (!input.publicUrl) {
+      throw new PermanentError("TIKTOK_UPLOAD_MODE=url needs hosted media — configure the S3_* variables, or switch back to file mode.");
+    }
+    // VERIFY: PULL_FROM_URL requires the URL prefix or domain to be verified
+    // in the TikTok developer portal before TikTok will fetch from it.
+    return { post_info, source_info: { source: "PULL_FROM_URL", video_url: input.publicUrl } };
+  }
+  const { chunkSize, totalChunkCount } = chunkPlan(size);
+  return {
+    post_info,
+    source_info: { source: "FILE_UPLOAD", video_size: size, chunk_size: chunkSize, total_chunk_count: totalChunkCount }
+  };
+}
+
+async function uploadChunks(uploadUrl: string, localPath: string, size: number): Promise<void> {
+  const { chunkSize, totalChunkCount } = chunkPlan(size);
+  const handle = await open(localPath, "r");
+  try {
+    for (let chunk = 0; chunk < totalChunkCount; chunk += 1) {
+      const start = chunk * chunkSize;
+      // The final chunk absorbs the remainder of the file.
+      const end = chunk === totalChunkCount - 1 ? size : start + chunkSize;
+      const buffer = Buffer.alloc(end - start);
+      await handle.read(buffer, 0, buffer.length, start);
+      await fetchRaw(uploadUrl, {
+        label: `TikTok chunk upload ${chunk + 1}/${totalChunkCount}`,
+        method: "PUT",
+        headers: {
+          "Content-Type": "video/mp4",
+          "Content-Length": String(buffer.length),
+          "Content-Range": `bytes ${start}-${end - 1}/${size}`
+        },
+        body: buffer
+      });
+    }
+  } finally {
+    await handle.close();
+  }
+}
+
+async function pollStatus(publishId: string, token: string): Promise<PostResult> {
+  for (let poll = 0; poll < MAX_POLLS_PER_RUN; poll += 1) {
+    const payload = await fetchJson<TiktokEnvelope<{ status?: string; publicaly_available_post_id?: number[]; fail_reason?: string }>>(
+      `${API_BASE}/post/publish/status/fetch/`,
+      {
+        label: "TikTok status fetch",
+        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json; charset=UTF-8" },
+        body: JSON.stringify({ publish_id: publishId })
+      }
+    );
+    const data = assertOk(payload, "TikTok status fetch");
+    if (data.status === "PUBLISH_COMPLETE") {
+      // VERIFY: the post id field is spelled "publicaly_available_post_id" in
+      // the official status-fetch reference (sic).
+      const postId = data.publicaly_available_post_id?.[0];
+      return {
+        status: "published",
+        postId: postId ? String(postId) : publishId,
+        containerId: publishId,
+        detail: "PUBLISH_COMPLETE"
+      };
+    }
+    if (data.status === "FAILED") {
+      throw new PermanentError(`TikTok publish failed: ${data.fail_reason ?? "unknown reason"}`);
+    }
+    await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS));
+  }
+  throw new StillProcessingError(publishId, "TikTok is still processing the upload — will resume on the next run.");
+}
+
+export const tiktokAdapter: PlatformAdapter = {
+  id: "tiktok",
+
+  configured(): boolean {
+    const { tiktok } = publisherConfig();
+    return Boolean(tiktok.clientKey && tiktok.clientSecret && tiktok.refreshToken);
+  },
+
+  async validateAuth(): Promise<void> {
+    await accessToken();
+  },
+
+  buildPlan(input: PublishInput): PublishPlan {
+    const config = publisherConfig();
+    const publishAt = new Date(input.item.publishAt);
+    const body = buildInitBody(input, 0);
+    return {
+      platform: "tiktok",
+      endpoint: `${API_BASE}/post/publish/video/init/`,
+      payload: { ...body },
+      publishAtUtc: toRfc3339Utc(publishAt),
+      publishAtLocal: formatInTimezone(publishAt, config.timezone),
+      notes: [
+        "No native scheduling — the runner fires this at the target time.",
+        config.tiktok.audited
+          ? "App is audited: visibility follows the item setting."
+          : "App not audited yet (TIKTOK_AUDITED unset): forced to SELF_ONLY sandbox posting.",
+        uploadMode() === "url" ? "Source: PULL_FROM_URL from hosted media." : "Source: FILE_UPLOAD (direct binary, no hosting needed)."
+      ]
+    };
+  },
+
+  async publish(input: PublishInput): Promise<PostResult> {
+    const token = await accessToken();
+
+    // Resume: if a previous run already initialized/uploaded, just poll.
+    const pending = input.item.platforms.tiktok?.containerId;
+    if (pending) return pollStatus(pending, token);
+
+    const size = (await stat(input.localPath)).size;
+    const initPayload = await fetchJson<TiktokEnvelope<{ publish_id?: string; upload_url?: string }>>(
+      `${API_BASE}/post/publish/video/init/`,
+      {
+        label: "TikTok publish init",
+        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json; charset=UTF-8" },
+        body: JSON.stringify(buildInitBody(input, size))
+      }
+    );
+    const init = assertOk(initPayload, "TikTok publish init");
+    if (!init.publish_id) throw new PermanentError("TikTok publish init returned no publish_id.");
+
+    if (uploadMode() === "file") {
+      if (!init.upload_url) throw new PermanentError("TikTok publish init returned no upload_url for FILE_UPLOAD.");
+      await uploadChunks(init.upload_url, input.localPath, size);
+    }
+    return pollStatus(init.publish_id, token);
+  }
+};

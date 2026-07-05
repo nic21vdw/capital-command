@@ -1,0 +1,92 @@
+# Scheduled clip publishing — the free, always-on trigger.
+#
+# Every 15 minutes this runs the publisher's run_due entrypoint, which
+# publishes any queued clips whose publish time has arrived (Instagram Reels
+# and TikTok have no server-side scheduling, so something must call their
+# publish APIs at the right moment even when your PC is off; YouTube is
+# scheduled natively at upload time and does not depend on this workflow).
+#
+# IMPORTANT: this workflow only works with the R2 queue backend, because the
+# Actions runner cannot see your PC's data/ folder. Set BOTH of these:
+#   - locally in .env:            PUBLISH_QUEUE_BACKEND=r2  (so enqueue writes
+#     the queue to the bucket and uploads each clip's media alongside it)
+#   - here via the env block below (already set).
+#
+# Repo secrets to create (Settings → Secrets and variables → Actions):
+#   PUBLISH_PLATFORMS            e.g. youtube,instagram,tiktok (optional)
+#   PUBLISH_TIMEZONE             e.g. America/Toronto (optional)
+#   PUBLISH_DEFAULT_VISIBILITY   public | private | unlisted (optional)
+#   YOUTUBE_CLIENT_ID            Google Cloud OAuth client id
+#   YOUTUBE_CLIENT_SECRET        Google Cloud OAuth client secret
+#   YOUTUBE_REFRESH_TOKEN        OAuth refresh token (see README)
+#   IG_USER_ID                   Instagram professional account user id
+#   IG_ACCESS_TOKEN              long-lived Instagram/Page access token
+#   TIKTOK_CLIENT_KEY            TikTok developer app client key
+#   TIKTOK_CLIENT_SECRET         TikTok developer app client secret
+#   TIKTOK_REFRESH_TOKEN         TikTok OAuth refresh token
+#   TIKTOK_AUDITED               "true" only after your app passes TikTok audit
+#   S3_ENDPOINT                  R2/S3 endpoint, e.g. https://<account>.r2.cloudflarestorage.com
+#   S3_BUCKET                    bucket name
+#   S3_ACCESS_KEY_ID             bucket access key
+#   S3_SECRET_ACCESS_KEY         bucket secret key
+#   S3_PUBLIC_BASE_URL           optional public bucket URL (else presigned URLs)
+#
+# Platforms without secrets are simply skipped — set only what you use.
+
+name: Publish scheduled clips
+
+on:
+  schedule:
+    # Every 15 minutes. GitHub cron can drift a few minutes under load — posts
+    # fire at the first run at/after their publish time.
+    - cron: "*/15 * * * *"
+  # Manual trigger for testing (Actions tab → Publish scheduled clips → Run).
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Dry run (validate auth + print plan, post nothing)"
+        type: boolean
+        default: false
+
+concurrency:
+  # Never let two runs process the queue at the same time.
+  group: publish-queue
+  cancel-in-progress: false
+
+jobs:
+  run-due:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      # The repo does not commit a lockfile, so npm install (not ci).
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+
+      - name: Run due publishes
+        run: npx tsx src/lib/publisher/cli.ts run-due ${{ inputs.dry_run && '--dry-run' || '' }}
+        env:
+          PUBLISH_ENABLED: "true"
+          PUBLISH_QUEUE_BACKEND: "r2"
+          PUBLISH_PLATFORMS: ${{ secrets.PUBLISH_PLATFORMS }}
+          PUBLISH_TIMEZONE: ${{ secrets.PUBLISH_TIMEZONE }}
+          PUBLISH_DEFAULT_VISIBILITY: ${{ secrets.PUBLISH_DEFAULT_VISIBILITY }}
+          YOUTUBE_CLIENT_ID: ${{ secrets.YOUTUBE_CLIENT_ID }}
+          YOUTUBE_CLIENT_SECRET: ${{ secrets.YOUTUBE_CLIENT_SECRET }}
+          YOUTUBE_REFRESH_TOKEN: ${{ secrets.YOUTUBE_REFRESH_TOKEN }}
+          IG_USER_ID: ${{ secrets.IG_USER_ID }}
+          IG_ACCESS_TOKEN: ${{ secrets.IG_ACCESS_TOKEN }}
+          TIKTOK_CLIENT_KEY: ${{ secrets.TIKTOK_CLIENT_KEY }}
+          TIKTOK_CLIENT_SECRET: ${{ secrets.TIKTOK_CLIENT_SECRET }}
+          TIKTOK_REFRESH_TOKEN: ${{ secrets.TIKTOK_REFRESH_TOKEN }}
+          TIKTOK_AUDITED: ${{ secrets.TIKTOK_AUDITED }}
+          S3_ENDPOINT: ${{ secrets.S3_ENDPOINT }}
+          S3_BUCKET: ${{ secrets.S3_BUCKET }}
+          S3_ACCESS_KEY_ID: ${{ secrets.S3_ACCESS_KEY_ID }}
+          S3_SECRET_ACCESS_KEY: ${{ secrets.S3_SECRET_ACCESS_KEY }}
+          S3_PUBLIC_BASE_URL: ${{ secrets.S3_PUBLIC_BASE_URL }}
