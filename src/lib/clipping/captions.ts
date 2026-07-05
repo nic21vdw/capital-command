@@ -402,7 +402,33 @@ export function buildTextOverlayDialogue(
   const rot = opts.rotation ? `\\frz${(-opts.rotation).toFixed(1)}` : "";
   const bold = opts.bold ? "\\b1" : "";
   const tag = `{\\an5\\pos(${px},${py})\\fs${fs}\\1c${color}${alpha}${rot}${bold}}`;
-  return `Dialogue: 1,${formatAssTime(opts.start)},${formatAssTime(opts.end)},Default,,0,0,0,,${tag}${escapeAss(text)}`;
+  // Mirror the preview's wrapping: text is capped at 90% of the frame width and
+  // wraps (breaking long words) instead of running past the border.
+  const maxChars = Math.max(1, Math.floor((width * 0.9) / (fs * 0.55)));
+  const wrapped = text
+    .split("\n")
+    .flatMap((line) => wrapLine(line, maxChars))
+    .join("\n");
+  return `Dialogue: 1,${formatAssTime(opts.start)},${formatAssTime(opts.end)},Default,,0,0,0,,${tag}${escapeAss(wrapped)}`;
+}
+
+/** Greedy word-wrap; words longer than maxChars are hard-broken. */
+function wrapLine(line: string, maxChars: number): string[] {
+  const out: string[] = [];
+  let current = "";
+  for (const word of line.split(/\s+/).filter(Boolean)) {
+    for (let i = 0; i < word.length; i += maxChars) {
+      const chunk = word.slice(i, i + maxChars);
+      if (!current) current = chunk;
+      else if (current.length + 1 + chunk.length <= maxChars) current += ` ${chunk}`;
+      else {
+        out.push(current);
+        current = chunk;
+      }
+    }
+  }
+  if (current) out.push(current);
+  return out.length ? out : [""];
 }
 
 /** Brand colors for the CoLateral watermark. */

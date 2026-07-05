@@ -354,8 +354,9 @@ function OverlayItem({
               ref={editRef}
               contentEditable
               suppressContentEditableWarning
-              className="block min-w-[1ch] cursor-text whitespace-pre px-1 outline-none"
+              className="block min-w-[1ch] cursor-text whitespace-pre-wrap break-words px-1 text-center outline-none"
               style={{
+                maxWidth: frame.w * 0.9,
                 fontFamily: overlay.fontFamily ?? "Inter, system-ui, sans-serif",
                 fontWeight: overlay.fontWeight ?? 600,
                 fontSize: 0.05 * frame.h,
@@ -380,8 +381,9 @@ function OverlayItem({
             />
           ) : (
             <span
-              className="block whitespace-pre px-1"
+              className="block whitespace-pre-wrap break-words px-1 text-center"
               style={{
+                maxWidth: frame.w * 0.9,
                 fontFamily: overlay.fontFamily ?? "Inter, system-ui, sans-serif",
                 fontWeight: overlay.fontWeight ?? 600,
                 fontSize: 0.05 * frame.h,
@@ -817,6 +819,13 @@ export function EditorPreview({
           height: dims.w >= dims.h ? "auto" : "min(62vh, 780px)"
         }}
         onPointerDown={beginPointer}
+        onScroll={(e) => {
+          // overflow-hidden still scrolls programmatically (e.g. the text-edit
+          // caret being scrolled into view), which pans the whole preview with
+          // no way back. Pin it in place.
+          e.currentTarget.scrollLeft = 0;
+          e.currentTarget.scrollTop = 0;
+        }}
         onDoubleClick={() => canPan && onReframeChange({ offsetX: 0, offsetY: 0 })}
         title={canPan ? "Drag to pan - double-click to center" : undefined}
       >
