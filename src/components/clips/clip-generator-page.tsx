@@ -25,10 +25,9 @@ import { Progress } from "@/components/ui/progress";
 import { Textarea } from "@/components/ui/textarea";
 import { chunkWords, windowSegments } from "@/lib/clipping/captions";
 import { generateClipTitle, makeClipProject } from "@/lib/clipping/editor";
+import { writeDraftProject } from "@/components/editor/drafts";
 import { cn } from "@/lib/utils";
 import type { ClipCandidate, ClipJob, ClipJobStage, ClipJobStatus } from "@/lib/clipping/types";
-
-const EDITOR_DRAFT_PREFIX = "capital-command:clip-editor-draft:";
 
 const STAGE_LABELS: Record<ClipJobStage, string> = {
   downloading: "Fetching the source",
@@ -74,7 +73,8 @@ function clipHeadline(clip: ClipCandidate, index: number) {
 
 export function ClipGeneratorPage() {
   const router = useRouter();
-  const { mutate } = useAppData();
+  const { data, mutate } = useAppData();
+  const clipProjects = data.clipProjects;
   const [jobs, setJobs] = useState<ClipJob[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [activeJobId, setActiveJobId] = useState<string | null>(null);
@@ -204,6 +204,21 @@ export function ClipGeneratorPage() {
   const editClip = useCallback(
     async (job: ClipJob, clip: ClipCandidate, index: number, sourceFile = clip.file) => {
       if (!sourceFile) return;
+      // Re-open the existing project for this clip so earlier edits are kept —
+      // only build a fresh project the first time a clip is opened.
+      const existing = clipProjects
+        .filter((p) => p.jobId === job.id && p.sourceFile === sourceFile)
+        .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))[0];
+      if (existing) {
+        const params = new URLSearchParams({
+          open: existing.id,
+          job: job.id,
+          file: sourceFile,
+          clip: String(index)
+        });
+        router.push(`/editor?${params.toString()}`);
+        return;
+      }
       const project = makeClipProject({
         jobId: job.id,
         name: `${job.fileName} - clip ${index + 1}`,
@@ -218,11 +233,7 @@ export function ClipGeneratorPage() {
       project.captions = words.length ? chunkWords(words, project.captionStyle.maxWordsPerCaption) : windowed;
       project.title = generateClipTitle(project.captions, `Clip ${index + 1}`);
       if (project.title) project.name = project.title;
-      if (typeof window !== "undefined") {
-        const draft = JSON.stringify(project);
-        sessionStorage.setItem(`${EDITOR_DRAFT_PREFIX}${project.id}`, draft);
-        localStorage.setItem(`${EDITOR_DRAFT_PREFIX}${project.id}`, draft);
-      }
+      writeDraftProject(project);
       const params = new URLSearchParams({
         open: project.id,
         job: job.id,
@@ -232,7 +243,7 @@ export function ClipGeneratorPage() {
       router.push(`/editor?${params.toString()}`);
       void mutate("upsertClipProject", project);
     },
-    [mutate, router]
+    [clipProjects, mutate, router]
   );
 
   const removeJob = async (job: ClipJob) => {

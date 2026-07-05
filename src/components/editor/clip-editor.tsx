@@ -31,6 +31,7 @@ import {
   OverlaysPanel,
   StylePanel
 } from "@/components/editor/panels";
+import { writeDraftProject } from "@/components/editor/drafts";
 import { cn } from "@/lib/utils";
 import type { CaptionSegment, ClipProject, Overlay, OverlayKind } from "@/types/domain";
 import type { ClipCandidate, ClipJob } from "@/lib/clipping/types";
@@ -162,7 +163,11 @@ export function ClipEditor({
     }
     setSaved(false);
     const timer = setTimeout(() => {
-      void mutate("upsertClipProject", { ...project, updatedAt: new Date().toISOString() }).then(() => setSaved(true));
+      const next = { ...project, updatedAt: new Date().toISOString() };
+      // Mirror every save into the local draft so a reload can never resurrect
+      // an out-of-date snapshot (and edits survive even if the server save fails).
+      writeDraftProject(next);
+      void mutate("upsertClipProject", next).then(() => setSaved(true));
     }, 700);
     return () => clearTimeout(timer);
   }, [project, mutate]);
@@ -194,7 +199,9 @@ export function ClipEditor({
   const saveNow = useCallback(async () => {
     setSaving(true);
     try {
-      await mutate("upsertClipProject", { ...project, updatedAt: new Date().toISOString() });
+      const next = { ...project, updatedAt: new Date().toISOString() };
+      writeDraftProject(next);
+      await mutate("upsertClipProject", next);
       setSaved(true);
       toast.success("Project saved.");
     } catch {
@@ -459,7 +466,9 @@ export function ClipEditor({
     setExportState({ status: "starting", progress: 0 });
     try {
       // Persist first so the server export reads the latest edit instructions.
-      await mutate("upsertClipProject", { ...project, updatedAt: new Date().toISOString() });
+      const next = { ...project, updatedAt: new Date().toISOString() };
+      writeDraftProject(next);
+      await mutate("upsertClipProject", next);
       const res = await fetch(`/api/clips/${project.jobId}/export`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
