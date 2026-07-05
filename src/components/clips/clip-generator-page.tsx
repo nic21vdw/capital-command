@@ -25,7 +25,7 @@ import { Progress } from "@/components/ui/progress";
 import { Textarea } from "@/components/ui/textarea";
 import { chunkWords, windowSegments } from "@/lib/clipping/captions";
 import { generateClipTitle, makeClipProject } from "@/lib/clipping/editor";
-import { cn } from "@/lib/utils";
+import { cn, safeFilename } from "@/lib/utils";
 import type { ClipCandidate, ClipJob, ClipJobStage, ClipJobStatus } from "@/lib/clipping/types";
 
 const EDITOR_DRAFT_PREFIX = "capital-command:clip-editor-draft:";
@@ -675,7 +675,7 @@ function ClipCard({
               </Button>
               <a
                 href={fileUrl(jobId, clip.file, true)}
-                download={`${jobId}-${clip.file}`}
+                download={`${safeFilename(clipHeadline(clip, index))}.${clip.file.split(".").pop() || "mp4"}`}
                 className="inline-flex items-center justify-center rounded-lg border border-[var(--border)] px-3 py-1.5 text-xs font-medium text-[var(--muted-foreground)] transition hover:border-[var(--border-strong)] hover:text-white"
               >
                 <Download className="mr-1.5 h-3.5 w-3.5" />

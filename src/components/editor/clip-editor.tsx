@@ -31,7 +31,7 @@ import {
   OverlaysPanel,
   StylePanel
 } from "@/components/editor/panels";
-import { cn } from "@/lib/utils";
+import { cn, safeFilename } from "@/lib/utils";
 import type { CaptionSegment, ClipProject, Overlay, OverlayKind } from "@/types/domain";
 import type { ClipCandidate, ClipJob } from "@/lib/clipping/types";
 import type { EditorApi, ExportUiState } from "@/components/editor/types";
@@ -450,10 +450,10 @@ export function ClipEditor({
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `${project.exportSettings.filename || "clip"}.${format}`;
+    a.download = `${safeFilename(project.name || project.exportSettings.filename)}.${format}`;
     a.click();
     URL.revokeObjectURL(url);
-  }, [project.captions, project.exportSettings.filename]);
+  }, [project.captions, project.name, project.exportSettings.filename]);
 
   const runExport = useCallback(async () => {
     setExportState({ status: "starting", progress: 0 });
