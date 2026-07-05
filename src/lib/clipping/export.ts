@@ -2,7 +2,7 @@ import { mkdir, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { buildAss, buildTextOverlayDialogue, buildWatermarkDialogue } from "@/lib/clipping/captions";
 import { hasAudioStream, probeDuration, runFfmpeg } from "@/lib/clipping/ffmpeg";
-import { outputDir, workDir } from "@/lib/clipping/jobs";
+import { attachEditedClipRender, outputDir, workDir } from "@/lib/clipping/jobs";
 import { LAYOUT_MODE_PRESETS } from "@/lib/clipping/layouts";
 import { reframeChain, stackedLayoutChain } from "@/lib/clipping/render";
 import { maybeAutoEnqueueExport } from "@/lib/publisher/enqueue";
@@ -354,6 +354,10 @@ async function runExport(record: ExportRecord, spec: ExportSpec) {
   record.file = path.basename(outFile);
   record.progress = 100;
   record.status = "done";
+
+  // Record the export on the clip it was cut from so the Clip Generator and
+  // the Uploading Center pick up the edited clip instead of the auto render.
+  await attachEditedClipRender(spec.jobId, spec.sourceFile, record.file).catch(() => undefined);
 
   // Opt-in scheduled publishing: when PUBLISH_ENABLED and PUBLISH_AUTO_ENQUEUE
   // are set, the finished export joins the publish queue (YouTube Shorts /

@@ -93,6 +93,16 @@ export async function probeDuration(inputPath: string): Promise<number> {
   return Number(match[1]) * 3600 + Number(match[2]) * 60 + Number(match[3]);
 }
 
+/** Reads the video frame size by parsing `ffmpeg -i` output. */
+export async function probeDimensions(inputPath: string): Promise<{ width: number; height: number }> {
+  const { stderr } = await runFfmpeg(["-hide_banner", "-i", inputPath], { allowFailure: true });
+  const match = stderr.match(/Stream #\d+:\d+.*Video:.*?(\d{2,5})x(\d{2,5})/);
+  if (!match) {
+    throw new Error("Could not read the video dimensions — the file may be corrupt or not a video.");
+  }
+  return { width: Number(match[1]), height: Number(match[2]) };
+}
+
 /** Whether the file has at least one audio stream. */
 export async function hasAudioStream(inputPath: string): Promise<boolean> {
   const { stderr } = await runFfmpeg(["-hide_banner", "-i", inputPath], { allowFailure: true });

@@ -34,6 +34,8 @@ export type ReadyClip = {
   clipId: string;
   /** File name inside the job's output folder (the ready-to-post render). */
   file: string;
+  /** Every file this clip has ever been postable as, for queue matching. */
+  allFiles: string[];
   headline: string;
   durationSec: number;
   thumbnailUrl: string;
@@ -66,13 +68,29 @@ function clipHeadline(clip: ClipCandidate, index: number) {
  * The queue stores repo-relative paths (possibly with Windows separators).
  * When a landscape clip was re-rendered vertical at enqueue time, clipPath is
  * the derived render and sourceClipPath is the file the card knows about.
+ * Matches against every file the clip was ever postable as (master, ready
+ * render, editor export, on-demand vertical), so items scheduled before the
+ * clip was edited still show on its card.
  */
 function itemMatchesClip(item: QueueItem, clip: ReadyClip): boolean {
   return [item.clipPath, item.sourceClipPath].some((candidate) => {
     if (!candidate) return false;
     const normalized = candidate.replace(/\\/g, "/");
-    return normalized.endsWith(`/${clip.jobId}/${clip.file}`) || (item.jobId === clip.jobId && normalized.endsWith(`/${clip.file}`));
+    return clip.allFiles.some(
+      (file) => normalized.endsWith(`/${clip.jobId}/${file}`) || (item.jobId === clip.jobId && normalized.endsWith(`/${file}`))
+    );
   });
+}
+
+/** All postable file names for a backend clip, most-preferred first. */
+function clipFiles(clip: ClipCandidate): string[] {
+  const files = [clip.editedFile, clip.downloadFile, clip.file].filter((file): file is string => Boolean(file));
+  // The publish API converts a widescreen master to `<name>-vertical.mp4`
+  // on the fly; recognize those queue entries as this clip's too.
+  for (const file of [...files]) {
+    files.push(`${file.replace(/\.[^.]+$/, "")}-vertical.mp4`);
+  }
+  return files;
 }
 
 export function remoteUrlFor(platform: PlatformId, postId: string | undefined): string | null {
@@ -164,7 +182,7 @@ export function useUploadingCenter() {
   const jobsWithClips = useMemo(
     () =>
       jobs
-        .filter((job) => job.clips.some((clip) => clip.downloadFile || clip.file))
+        .filter((job) => job.clips.some((clip) => clip.editedFile || clip.downloadFile || clip.file))
         .sort((a, b) => b.createdAt.localeCompare(a.createdAt)),
     [jobs]
   );
@@ -176,8 +194,10 @@ export function useUploadingCenter() {
   const readyClips = useMemo<ReadyClip[]>(() => {
     if (!activeJob) return [];
     return activeJob.clips.flatMap((clip, index) => {
-      // Prefer the ready-to-post vertical render; fall back to the master.
-      const file = clip.downloadFile ?? clip.file;
+      // Prefer the Clip Editor's export (the edited clip IS the clip), then
+      // the ready-to-post vertical render; the master is a last resort and
+      // the publish API re-renders it vertical before anything is posted.
+      const file = clip.editedFile ?? clip.downloadFile ?? clip.file;
       if (!file) return [];
       const thumbSource = clip.file ?? file;
       return [
@@ -186,6 +206,7 @@ export function useUploadingCenter() {
           jobId: activeJob.id,
           clipId: clip.id,
           file,
+          allFiles: clipFiles(clip),
           headline: clipHeadline(clip, index),
           durationSec: Math.max(0, Math.round(clip.end - clip.start)),
           thumbnailUrl: clip.posterFile
@@ -215,10 +236,9 @@ export function useUploadingCenter() {
       const job = jobs.find((candidate) => candidate.id === item.jobId);
       if (!job) continue;
       const normalized = (item.sourceClipPath ?? item.clipPath).replace(/\\/g, "/");
-      const clip = job.clips.find((candidate) => {
-        const file = candidate.downloadFile ?? candidate.file;
-        return file ? normalized.endsWith(`/${file}`) : false;
-      });
+      const clip = job.clips.find((candidate) =>
+        clipFiles(candidate).some((file) => normalized.endsWith(`/${file}`))
+      );
       if (!clip) continue;
       // The thumbnail endpoint only serves files the job produced (clip.file);
       // downloadFile renders aren't in that list.
