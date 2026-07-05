@@ -26,7 +26,7 @@ import { CLIP_LAYOUTS, DEFAULT_FACE_SOURCE, DEFAULT_SCREEN_SOURCE, LAYOUT_MODE_P
 import { useAppData } from "@/components/providers/app-provider";
 import { Button } from "@/components/ui/button";
 import { ColorField, Field, NumberField, RangeField, SelectField, Toggle } from "@/components/editor/controls";
-import { cn } from "@/lib/utils";
+import { cn, safeFilename } from "@/lib/utils";
 import type { AspectRatioId, CaptionPresetId, ClipCompositionMode, ExportPresetId, OverlayKind } from "@/types/domain";
 import type { EditorApi } from "@/components/editor/types";
 
@@ -849,11 +849,21 @@ export const ExportPanel = memo(function ExportPanel({ api }: { api: EditorApi }
               className="w-full rounded-md bg-black"
               style={{ maxHeight: "30vh" }}
             />
-            <a href={`/api/clips/${api.project.jobId}/export/${state.exportId}?file=1&download=1`} download>
-              <Button variant="secondary" className="w-full">
-                <Download className="mr-2 h-4 w-4" /> Download {e.filename}.{e.format}
-              </Button>
-            </a>
+            {(() => {
+              const downloadName = safeFilename(api.project.name || e.filename);
+              return (
+                <a
+                  href={`/api/clips/${api.project.jobId}/export/${state.exportId}?file=1&download=1&name=${encodeURIComponent(
+                    downloadName
+                  )}`}
+                  download={`${downloadName}.${e.format}`}
+                >
+                  <Button variant="secondary" className="w-full">
+                    <Download className="mr-2 h-4 w-4" /> Download {downloadName}.{e.format}
+                  </Button>
+                </a>
+              );
+            })()}
             <Button variant="secondary" className="w-full" onClick={saveToFolder} disabled={savingToFolder}>
               {savingToFolder ? (
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />

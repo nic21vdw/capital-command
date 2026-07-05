@@ -5,6 +5,7 @@ import { Readable } from "node:stream";
 import { NextRequest, NextResponse } from "next/server";
 import { getExport } from "@/lib/clipping/export";
 import { outputDir } from "@/lib/clipping/jobs";
+import { safeFilename } from "@/lib/utils";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -39,12 +40,17 @@ export async function GET(
 
   const download = request.nextUrl.searchParams.get("download") === "1";
   const contentType = record.format === "webm" ? "video/webm" : "video/mp4";
+  const ext = record.format === "webm" ? "webm" : "mp4";
+  // Name the downloaded file after the project when the client passes a name;
+  // otherwise fall back to the generated on-disk filename.
+  const requestedName = request.nextUrl.searchParams.get("name");
+  const downloadName = requestedName ? `${safeFilename(requestedName)}.${ext}` : record.file;
   const stream = Readable.toWeb(createReadStream(filePath)) as ReadableStream;
   return new NextResponse(stream, {
     headers: {
       "Content-Type": contentType,
       "Content-Length": String(size),
-      ...(download ? { "Content-Disposition": `attachment; filename="${record.file}"` } : {})
+      ...(download ? { "Content-Disposition": `attachment; filename="${downloadName}"` } : {})
     }
   });
 }
