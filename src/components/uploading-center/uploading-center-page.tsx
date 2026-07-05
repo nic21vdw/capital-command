@@ -64,6 +64,7 @@ export function UploadingCenterPage() {
     dismissUploadSuccess,
     renameClip,
     schedule,
+    uploadToSlot,
     autoAssign,
     publishNow,
     remove,
@@ -238,6 +239,7 @@ export function UploadingCenterPage() {
             thumbnailForItem={thumbnailForItem}
             channelVideoAtSlot={id === "youtube" ? channelVideoAtSlot : undefined}
             onDropClip={(slotUtc, clipKey) => handleDrop(id, slotUtc, clipKey)}
+            onUploadVideo={(slotUtc, file) => void uploadToSlot(file, { platform: id, slotUtc })}
             onPublishNow={(item) => void publishNow(item)}
             onRemove={(item) => void remove(item)}
             busy={busy}
@@ -261,7 +263,7 @@ export function UploadingCenterPage() {
       <PageHeader
         eyebrow="YouTube tools"
         title="Uploading Center"
-        description="Assign finished clips to a platform and a slot. Dropping a clip on a slot uploads it to YouTube immediately as a scheduled Short (landscape clips are re-rendered vertical automatically) — it appears under Scheduled in YouTube Studio and goes live at the slot time on its own; TikTok and Instagram queue as manual reminders until a unified posting API is connected."
+        description="Assign finished clips to a platform and a slot. Dropping a clip — or a video file straight from your computer — on a slot uploads it to YouTube immediately as a scheduled Short (landscape clips are re-rendered vertical automatically) — it appears under Scheduled in YouTube Studio and goes live at the slot time on its own; TikTok and Instagram queue as manual reminders until a unified posting API is connected."
         actions={
           <div className="flex w-full max-w-sm flex-col gap-2">
             {overview?.platforms.youtube.configured ? (

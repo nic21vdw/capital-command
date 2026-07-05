@@ -1,7 +1,8 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import { ExternalLink, Loader2, Send, Trash2 } from "lucide-react";
+import { useMemo, useRef, useState } from "react";
+import { ExternalLink, Loader2, Send, Trash2, Upload } from "lucide-react";
+import { toast } from "sonner";
 import { StatusChip } from "@/components/uploading-center/status-chip";
 import { CLIP_DRAG_TYPE } from "@/components/uploading-center/clip-card";
 import { remoteUrlFor } from "@/components/uploading-center/use-uploading-center";
@@ -15,10 +16,17 @@ import type { PlatformId, PlatformState, QueueItem } from "@/lib/publisher/types
  * per day, a column per slot. Weekday and weekend slot times differ (07:30 /
  * 12:30 / 19:30 vs 10:00 / 13:00 / 19:00), so each cell carries its own time
  * label. Filled slots show the clip's poster frame with its status; empty
- * future slots accept a dragged clip. On the YouTube board, slots whose time
+ * future slots accept a dragged clip, a video file dropped straight from the
+ * computer, or an Upload-button pick. On the YouTube board, slots whose time
  * matches a video already on the channel (scheduled in Studio, or published)
  * render that video read-only.
  */
+
+/** A dropped/picked file counts as video by MIME type or a known extension. */
+function isVideoFile(file: File) {
+  return file.type.startsWith("video/") || /\.(mp4|mov|m4v|webm|mkv|avi)$/i.test(file.name);
+}
+
 export function ScheduleBoard({
   platform,
   slots,
@@ -26,6 +34,7 @@ export function ScheduleBoard({
   thumbnailForItem,
   channelVideoAtSlot,
   onDropClip,
+  onUploadVideo,
   onPublishNow,
   onRemove,
   busy
@@ -37,11 +46,22 @@ export function ScheduleBoard({
   /** YouTube only: a video already on the channel occupying this exact slot. */
   channelVideoAtSlot?: (slotUtc: string) => ChannelVideo | undefined;
   onDropClip: (slotUtc: string, clipKey: string) => void;
+  /** A video file from the user's computer dropped on (or picked for) a slot. */
+  onUploadVideo: (slotUtc: string, file: File) => void;
   onPublishNow: (item: QueueItem) => void;
   onRemove: (item: QueueItem) => void;
   busy: string | null;
 }) {
   const [dragOverSlot, setDragOverSlot] = useState<string | null>(null);
+
+  // One hidden file input for the whole board; the slot whose Upload button
+  // opened the picker is remembered so the chosen file lands on it.
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const uploadSlotRef = useRef<string | null>(null);
+  const requestUpload = (slotUtc: string) => {
+    uploadSlotRef.current = slotUtc;
+    fileInputRef.current?.click();
+  };
 
   const days = useMemo(() => {
     const byDate = new Map<string, ScheduleSlot[]>();
@@ -61,6 +81,19 @@ export function ScheduleBoard({
 
   return (
     <div className="overflow-x-auto">
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="video/*"
+        className="hidden"
+        onChange={(event) => {
+          const file = event.target.files?.[0];
+          event.target.value = "";
+          const slotUtc = uploadSlotRef.current;
+          uploadSlotRef.current = null;
+          if (file && slotUtc) onUploadVideo(slotUtc, file);
+        }}
+      />
       <div className="min-w-[560px]">
         <div
           className="grid gap-1.5"
@@ -86,6 +119,8 @@ export function ScheduleBoard({
               dragOverSlot={dragOverSlot}
               setDragOverSlot={setDragOverSlot}
               onDropClip={onDropClip}
+              onUploadVideo={onUploadVideo}
+              onRequestUpload={requestUpload}
               onPublishNow={onPublishNow}
               onRemove={onRemove}
               busy={busy}
@@ -106,6 +141,8 @@ function BoardRow({
   dragOverSlot,
   setDragOverSlot,
   onDropClip,
+  onUploadVideo,
+  onRequestUpload,
   onPublishNow,
   onRemove,
   busy
@@ -118,6 +155,9 @@ function BoardRow({
   dragOverSlot: string | null;
   setDragOverSlot: (id: string | null) => void;
   onDropClip: (slotUtc: string, clipKey: string) => void;
+  onUploadVideo: (slotUtc: string, file: File) => void;
+  /** Opens the board's file picker targeting this slot. */
+  onRequestUpload: (slotUtc: string) => void;
   onPublishNow: (item: QueueItem) => void;
   onRemove: (item: QueueItem) => void;
   busy: string | null;
@@ -245,11 +285,26 @@ function BoardRow({
             </div>
           );
         }
+        const uploading = busy === `upload:${platform}:${slot.utc}`;
+        if (uploading) {
+          return (
+            <div
+              key={slot.id}
+              className="flex min-h-16 flex-col items-center justify-center gap-1 rounded-lg border border-dashed border-[var(--accent)]/50 bg-[var(--accent)]/5 text-[11px] text-[var(--muted-foreground)]"
+            >
+              <Loader2 className="h-4 w-4 animate-spin text-[var(--accent)]" />
+              Uploading…
+            </div>
+          );
+        }
         return (
           <div
             key={slot.id}
             onDragOver={(event) => {
-              if (!event.dataTransfer.types.includes(CLIP_DRAG_TYPE)) return;
+              // Accept a clip card from the queue or a video file dragged in
+              // from the computer (file drags expose only the "Files" type).
+              const types = event.dataTransfer.types;
+              if (!types.includes(CLIP_DRAG_TYPE) && !types.includes("Files")) return;
               event.preventDefault();
               event.dataTransfer.dropEffect = "copy";
               setDragOverSlot(slot.id);
@@ -259,16 +314,29 @@ function BoardRow({
               event.preventDefault();
               setDragOverSlot(null);
               const clipKey = event.dataTransfer.getData(CLIP_DRAG_TYPE);
-              if (clipKey) onDropClip(slot.utc, clipKey);
+              if (clipKey) {
+                onDropClip(slot.utc, clipKey);
+                return;
+              }
+              const file = Array.from(event.dataTransfer.files).find(isVideoFile);
+              if (file) onUploadVideo(slot.utc, file);
+              else if (event.dataTransfer.files.length > 0) toast.error("Drop a video file (MP4, MOV, WebM…).");
             }}
             className={cn(
-              "flex min-h-16 flex-col items-center justify-center gap-0.5 rounded-lg border border-dashed border-[var(--border)] text-[11px] text-[var(--muted-foreground)] transition",
+              "group flex min-h-16 flex-col items-center justify-center gap-0.5 rounded-lg border border-dashed border-[var(--border)] text-[11px] text-[var(--muted-foreground)] transition",
               isToday && "border-[var(--accent)]/50 bg-[var(--accent)]/5",
               dragOverSlot === slot.id && "border-[var(--accent)] bg-[var(--accent)]/10 text-white"
             )}
           >
             <span className={cn("text-[10px]", isToday && "font-medium text-[var(--accent)]")}>{slot.time}</span>
-            Drop a clip
+            Drop a clip or video
+            <button
+              type="button"
+              onClick={() => onRequestUpload(slot.utc)}
+              className="mt-0.5 inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[10px] font-medium text-[var(--accent)] opacity-70 transition hover:bg-[var(--accent)]/10 hover:opacity-100"
+            >
+              <Upload className="h-3 w-3" /> Upload clip
+            </button>
           </div>
         );
       })}

@@ -321,6 +321,36 @@ export function useUploadingCenter() {
     return map;
   }, [channelVideos]);
 
+  /**
+   * Surfaces the result of a successful enqueue response (from /api/publish
+   * or /api/publish/upload — both return the same shape). The backend uploads
+   * YouTube posts right away (private + publishAt, so the video shows as
+   * Scheduled in YouTube Studio) and reports how that went; TikTok/Instagram
+   * just queue.
+   */
+  const announceScheduleOutcome = useCallback(async (response: Response, platform: PlatformId) => {
+    const { item, report } = (await response.json()) as {
+      item?: QueueItem;
+      report?: { outcomes: Array<{ platform: string; outcome: string; detail: string }> };
+    };
+    const outcome = report?.outcomes.find((entry) => entry.platform === platform);
+    const postId = platform === "youtube" ? item?.platforms.youtube?.postId : undefined;
+    const videoUrl = remoteUrlFor(platform, postId);
+    if ((outcome?.outcome === "scheduled" || outcome?.outcome === "published") && item && videoUrl) {
+      // The confirmation dialog (video link + YouTube Studio button)
+      // replaces the plain toast for a completed YouTube upload.
+      setUploadSuccess({ title: item.title, videoUrl, status: outcome.outcome, publishAt: item.publishAt });
+    } else if (outcome?.outcome === "scheduled") {
+      toast.success("Uploaded to YouTube — it now shows as Scheduled on your channel.");
+    } else if (outcome?.outcome === "published") {
+      toast.success(`Published to ${PLATFORM_LABELS[platform]}.`);
+    } else if (outcome?.outcome === "failed" || outcome?.outcome === "retrying") {
+      toast.warning(`Scheduled, but the upload hit a snag: ${outcome.detail || outcome.outcome}. It will retry.`);
+    } else {
+      toast.success(`Scheduled for ${PLATFORM_LABELS[platform]}.`);
+    }
+  }, []);
+
   const schedule = useCallback(
     async (clip: ReadyClip, draft: ClipDraft) => {
       if (!draft.slotUtc) {
@@ -348,36 +378,51 @@ export function useUploadingCenter() {
           toast.error(await readError(response));
           return false;
         }
-        // The backend uploads YouTube posts right away (private + publishAt,
-        // so the video shows as Scheduled in YouTube Studio) and reports how
-        // that went; TikTok/Instagram just queue.
-        const { item, report } = (await response.json()) as {
-          item?: QueueItem;
-          report?: { outcomes: Array<{ platform: string; outcome: string; detail: string }> };
-        };
-        const outcome = report?.outcomes.find((entry) => entry.platform === draft.platform);
-        const postId = draft.platform === "youtube" ? item?.platforms.youtube?.postId : undefined;
-        const videoUrl = remoteUrlFor(draft.platform, postId);
-        if ((outcome?.outcome === "scheduled" || outcome?.outcome === "published") && item && videoUrl) {
-          // The confirmation dialog (video link + YouTube Studio button)
-          // replaces the plain toast for a completed YouTube upload.
-          setUploadSuccess({ title: item.title, videoUrl, status: outcome.outcome, publishAt: item.publishAt });
-        } else if (outcome?.outcome === "scheduled") {
-          toast.success("Uploaded to YouTube — it now shows as Scheduled on your channel.");
-        } else if (outcome?.outcome === "published") {
-          toast.success(`Published to ${PLATFORM_LABELS[draft.platform]}.`);
-        } else if (outcome?.outcome === "failed" || outcome?.outcome === "retrying") {
-          toast.warning(`Scheduled, but the upload hit a snag: ${outcome.detail || outcome.outcome}. It will retry.`);
-        } else {
-          toast.success(`Scheduled for ${PLATFORM_LABELS[draft.platform]}.`);
-        }
+        await announceScheduleOutcome(response, draft.platform);
         await refresh({ channelRefresh: draft.platform === "youtube" });
         return true;
       } finally {
         setBusy(null);
       }
     },
-    [refresh]
+    [announceScheduleOutcome, refresh]
+  );
+
+  /**
+   * Schedules a video that never went through the clip generator: streams the
+   * file the user dropped (or picked) on a slot to the backend, which stores
+   * it and enqueues it exactly like a clip — vertical re-render, generated
+   * title/caption, and the immediate YouTube upload all included.
+   */
+  const uploadToSlot = useCallback(
+    async (file: File, draft: { platform: PlatformId; slotUtc: string }) => {
+      setBusy(`upload:${draft.platform}:${draft.slotUtc}`);
+      try {
+        const params = new URLSearchParams({
+          name: file.name,
+          publishAt: draft.slotUtc,
+          platform: draft.platform
+        });
+        const response = await fetch(`/api/publish/upload?${params.toString()}`, {
+          method: "POST",
+          headers: { "Content-Type": file.type || "video/mp4" },
+          body: file
+        });
+        if (!response.ok) {
+          toast.error(await readError(response));
+          return false;
+        }
+        await announceScheduleOutcome(response, draft.platform);
+        await refresh({ channelRefresh: draft.platform === "youtube" });
+        return true;
+      } catch {
+        toast.error("Network error while uploading the video.");
+        return false;
+      } finally {
+        setBusy(null);
+      }
+    },
+    [announceScheduleOutcome, refresh]
   );
 
   /**
@@ -493,6 +538,7 @@ export function useUploadingCenter() {
     dismissUploadSuccess: () => setUploadSuccess(null),
     renameClip,
     schedule,
+    uploadToSlot,
     autoAssign,
     publishNow,
     remove,
