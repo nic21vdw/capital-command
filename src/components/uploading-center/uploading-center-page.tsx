@@ -160,7 +160,19 @@ export function UploadingCenterPage() {
           <div className="flex w-full max-w-sm flex-col gap-2">
             {overview?.platforms.youtube.configured ? (
               <Badge className="self-start border-emerald-400/30 bg-emerald-400/10 text-emerald-300">
-                <CheckCircle2 className="mr-1.5 h-3.5 w-3.5" /> YouTube connected
+                {overview.platforms.youtube.account?.thumbnail ? (
+                  // eslint-disable-next-line @next/next/no-img-element -- remote avatar host isn't in next.config images
+                  <img
+                    src={overview.platforms.youtube.account.thumbnail}
+                    alt=""
+                    className="mr-1.5 h-4 w-4 rounded-full"
+                  />
+                ) : (
+                  <CheckCircle2 className="mr-1.5 h-3.5 w-3.5" />
+                )}
+                {overview.platforms.youtube.account
+                  ? `Connected as ${overview.platforms.youtube.account.title}`
+                  : "YouTube connected"}
               </Badge>
             ) : (
               <Button onClick={() => (window.location.href = "/api/auth/google")} className="self-start">

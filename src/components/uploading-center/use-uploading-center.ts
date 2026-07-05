@@ -15,10 +15,12 @@ import type { PlatformId, QueueItem } from "@/lib/publisher/types";
  * needs no tick at all); it is a no-op when nothing is due.
  */
 
+export type YoutubeAccount = { title: string; thumbnail: string | null };
+
 export type Overview = {
   enabled: boolean;
   timezone: string;
-  platforms: Record<PlatformId, { configured: boolean }>;
+  platforms: Record<PlatformId, { configured: boolean; account?: YoutubeAccount | null }>;
   quota: YoutubeQuota;
   slots: ScheduleSlot[];
 };
