@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowDownToLine,
   ArrowUpToLine,
+  Bold,
   ChevronsDown,
   ChevronsUp,
   Copy,
@@ -12,6 +13,7 @@ import {
   Eraser,
   FolderOpen,
   ImagePlus,
+  Italic,
   Layers,
   Link2,
   Link2Off,
@@ -19,10 +21,13 @@ import {
   MousePointer2,
   Pencil,
   Plus,
+  Redo2,
   RotateCcw,
   Save,
   Sparkles,
   Trash2,
+  Underline,
+  Undo2,
   Unlock,
   X
 } from "lucide-react";
@@ -302,6 +307,9 @@ export function ThumbnailGeneratorPage() {
   const [position, setPosition] = useState<TextPosition>("left");
   const [size, setSize] = useState<TextSize>("medium");
   const [uppercase, setUppercase] = useState(true);
+  const [bold, setBold] = useState(false);
+  const [italic, setItalic] = useState(false);
+  const [underline, setUnderline] = useState(false);
 
   // Text styling
   const [fontId, setFontId] = useState(DEFAULT_FONT_ID);
@@ -355,12 +363,15 @@ export function ThumbnailGeneratorPage() {
       position,
       size,
       uppercase,
+      bold,
+      italic,
+      underline,
       fontId,
       textColor,
       highlightColor,
       stickers
     }),
-    [images, overlayText, textTransform, manualLayout, styleId, paletteIndex, intensity, emphasis, position, size, uppercase, fontId, textColor, highlightColor, stickers]
+    [images, overlayText, textTransform, manualLayout, styleId, paletteIndex, intensity, emphasis, position, size, uppercase, bold, italic, underline, fontId, textColor, highlightColor, stickers]
   );
 
   // Keep the latest options/images available to handlers without re-binding.
@@ -739,6 +750,176 @@ export function ThumbnailGeneratorPage() {
   const updateSticker = (id: string, patch: Partial<Sticker>) => setStickers((prev) => prev.map((s) => (s.id === id ? { ...s, ...patch } : s)));
   const removeSticker = (id: string) => setStickers((prev) => prev.filter((s) => s.id !== id));
 
+  // ----- Undo / redo history -----
+  // A snapshot of every editable field. Image/sticker objects are held by
+  // reference (the decoded HTMLImageElements are immutable once loaded), so a
+  // snapshot is cheap and restoring is a plain set of setState calls.
+  type HistorySnapshot = {
+    images: ImageLayer[];
+    title: string;
+    overlayText: string;
+    styleId: BackgroundStyleId;
+    paletteIndex: number;
+    intensity: Intensity;
+    emphasis: TextEmphasis;
+    position: TextPosition;
+    size: TextSize;
+    uppercase: boolean;
+    bold: boolean;
+    italic: boolean;
+    underline: boolean;
+    fontId: string;
+    textColor: string;
+    highlightColor: string;
+    textTransform: Transform;
+    manualLayout: boolean;
+    stickers: Sticker[];
+  };
+
+  const historySnapshot = useMemo<HistorySnapshot>(
+    () => ({
+      images,
+      title,
+      overlayText,
+      styleId,
+      paletteIndex,
+      intensity,
+      emphasis,
+      position,
+      size,
+      uppercase,
+      bold,
+      italic,
+      underline,
+      fontId,
+      textColor,
+      highlightColor,
+      textTransform,
+      manualLayout,
+      stickers
+    }),
+    [images, title, overlayText, styleId, paletteIndex, intensity, emphasis, position, size, uppercase, bold, italic, underline, fontId, textColor, highlightColor, textTransform, manualLayout, stickers]
+  );
+
+  const undoStack = useRef<HistorySnapshot[]>([]);
+  const redoStack = useRef<HistorySnapshot[]>([]);
+  const [historyDepth, setHistoryDepth] = useState({ undo: 0, redo: 0 });
+  // The last snapshot we've accounted for; the effect diffs against it.
+  const lastSnapshotRef = useRef(historySnapshot);
+  // Set while a snapshot is being applied, so the effect skips that change.
+  const applyingHistoryRef = useRef(false);
+  // Timestamp of the last recorded step, so a burst of rapid edits (e.g. a drag)
+  // collapses into a single undo entry instead of one per frame.
+  const lastStepAtRef = useRef(0);
+  const HISTORY_LIMIT = 100;
+  const COALESCE_MS = 450;
+
+  useEffect(() => {
+    if (applyingHistoryRef.current) {
+      applyingHistoryRef.current = false;
+      lastSnapshotRef.current = historySnapshot;
+      return;
+    }
+    if (historySnapshot === lastSnapshotRef.current) return; // initial mount
+    const now = typeof performance !== "undefined" ? performance.now() : 0;
+    // Only open a new undo step when this edit follows a quiet gap; otherwise the
+    // pre-burst snapshot already on the stack remains the single undo target.
+    if (now - lastStepAtRef.current > COALESCE_MS) {
+      undoStack.current.push(lastSnapshotRef.current);
+      if (undoStack.current.length > HISTORY_LIMIT) undoStack.current.shift();
+      redoStack.current = [];
+      setHistoryDepth({ undo: undoStack.current.length, redo: 0 });
+    }
+    lastStepAtRef.current = now;
+    lastSnapshotRef.current = historySnapshot;
+  }, [historySnapshot]);
+
+  const applySnapshot = useCallback((snap: HistorySnapshot) => {
+    applyingHistoryRef.current = true;
+    lastSnapshotRef.current = snap;
+    // Force the next real edit to open a fresh step (push + clear redo) rather
+    // than coalescing into the just-restored state.
+    lastStepAtRef.current = 0;
+    setImages(snap.images);
+    setTitle(snap.title);
+    setOverlayText(snap.overlayText);
+    setStyleId(snap.styleId);
+    setPaletteIndex(snap.paletteIndex);
+    setIntensity(snap.intensity);
+    setEmphasis(snap.emphasis);
+    setPosition(snap.position);
+    setSize(snap.size);
+    setUppercase(snap.uppercase);
+    setBold(snap.bold);
+    setItalic(snap.italic);
+    setUnderline(snap.underline);
+    setFontId(snap.fontId);
+    setTextColor(snap.textColor);
+    setHighlightColor(snap.highlightColor);
+    setTextTransform(snap.textTransform);
+    setManualLayout(snap.manualLayout);
+    setStickers(snap.stickers);
+    // Keep the selection valid against the restored layers.
+    setSelectedId((current) =>
+      current && current !== "text" && !isStickerId(current) && !snap.images.some((l) => l.id === current) ? null : current
+    );
+  }, []);
+
+  const undo = useCallback(() => {
+    if (undoStack.current.length === 0) return;
+    const prev = undoStack.current.pop()!;
+    redoStack.current.push(lastSnapshotRef.current);
+    setHistoryDepth({ undo: undoStack.current.length, redo: redoStack.current.length });
+    applySnapshot(prev);
+  }, [applySnapshot]);
+
+  const redo = useCallback(() => {
+    if (redoStack.current.length === 0) return;
+    const next = redoStack.current.pop()!;
+    undoStack.current.push(lastSnapshotRef.current);
+    setHistoryDepth({ undo: undoStack.current.length, redo: redoStack.current.length });
+    applySnapshot(next);
+  }, [applySnapshot]);
+
+  // ----- Keyboard: undo/redo + text styling shortcuts (Ctrl/Cmd based) -----
+  useEffect(() => {
+    const handler = (event: KeyboardEvent) => {
+      if (!(event.ctrlKey || event.metaKey) || event.altKey) return;
+      const target = event.target as HTMLElement | null;
+      const inField = Boolean(target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable));
+      const key = event.key.toLowerCase();
+
+      // Undo / redo. Skip inside text fields so the browser's native text undo
+      // still works while typing.
+      if (key === "z" && !inField) {
+        event.preventDefault();
+        if (event.shiftKey) redo();
+        else undo();
+        return;
+      }
+      if (key === "y" && !inField) {
+        event.preventDefault();
+        redo();
+        return;
+      }
+
+      // Bold / italic / underline toggle the whole thumbnail text. These have no
+      // native meaning in a plain input, so they work even while typing the text.
+      if (key === "b") {
+        event.preventDefault();
+        setBold((v) => !v);
+      } else if (key === "i") {
+        event.preventDefault();
+        setItalic((v) => !v);
+      } else if (key === "u") {
+        event.preventDefault();
+        setUnderline((v) => !v);
+      }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [undo, redo]);
+
   // ----- Keyboard: nudge with arrows, big nudge with Shift, delete to remove -----
   useEffect(() => {
     if (!editing || !selectedId) return;
@@ -818,6 +999,9 @@ export function ThumbnailGeneratorPage() {
         position,
         size,
         uppercase,
+        bold,
+        italic,
+        underline,
         fontId,
         textColor,
         highlightColor,
@@ -829,7 +1013,7 @@ export function ThumbnailGeneratorPage() {
         stickers,
         images: images.map((l) => ({ id: l.id, name: l.name, t: l.transform, tm: l.treatment, locked: l.locked, la: l.lockAspect }))
       }),
-    [projectName, title, overlayText, styleId, paletteIndex, intensity, emphasis, position, size, uppercase, fontId, textColor, highlightColor, textTransform, manualLayout, exportScale, exportWidth, exportHeight, stickers, images]
+    [projectName, title, overlayText, styleId, paletteIndex, intensity, emphasis, position, size, uppercase, bold, italic, underline, fontId, textColor, highlightColor, textTransform, manualLayout, exportScale, exportWidth, exportHeight, stickers, images]
   );
 
   // The signature last written to storage; current !== this means "unsaved".
@@ -854,6 +1038,9 @@ export function ThumbnailGeneratorPage() {
       position,
       size,
       uppercase,
+      bold,
+      italic,
+      underline,
       fontId,
       textColor,
       highlightColor,
@@ -875,7 +1062,7 @@ export function ThumbnailGeneratorPage() {
       createdAt,
       updatedAt: new Date().toISOString()
     }),
-    [title, overlayText, styleId, paletteIndex, intensity, emphasis, position, size, uppercase, fontId, textColor, highlightColor, textTransform, manualLayout, exportScale, exportWidth, exportHeight, stickers]
+    [title, overlayText, styleId, paletteIndex, intensity, emphasis, position, size, uppercase, bold, italic, underline, fontId, textColor, highlightColor, textTransform, manualLayout, exportScale, exportWidth, exportHeight, stickers]
   );
 
   /**
@@ -961,6 +1148,9 @@ export function ThumbnailGeneratorPage() {
       setPosition(saved.position);
       setSize(saved.size);
       setUppercase(saved.uppercase);
+      setBold(saved.bold ?? false);
+      setItalic(saved.italic ?? false);
+      setUnderline(saved.underline ?? false);
       setFontId(saved.fontId);
       setTextColor(saved.textColor);
       setHighlightColor(saved.highlightColor);
@@ -1687,15 +1877,28 @@ export function ThumbnailGeneratorPage() {
               </div>
             </div>
 
-            <label className="mt-3 flex items-center gap-2 text-sm text-[var(--muted-foreground)]">
-              <input
-                type="checkbox"
-                checked={uppercase}
-                onChange={(event) => setUppercase(event.target.checked)}
-                className="h-4 w-4 rounded border-white/20 bg-black/20"
-              />
-              Uppercase text
-            </label>
+            <div className="mt-3 flex flex-wrap items-center gap-3">
+              <label className="flex items-center gap-2 text-sm text-[var(--muted-foreground)]">
+                <input
+                  type="checkbox"
+                  checked={uppercase}
+                  onChange={(event) => setUppercase(event.target.checked)}
+                  className="h-4 w-4 rounded border-white/20 bg-black/20"
+                />
+                Uppercase text
+              </label>
+              <div className="flex items-center gap-1.5">
+                <ToolButton title="Bold (Ctrl+B)" active={bold} onClick={() => setBold((v) => !v)}>
+                  <Bold className="h-4 w-4" />
+                </ToolButton>
+                <ToolButton title="Italic (Ctrl+I)" active={italic} onClick={() => setItalic((v) => !v)}>
+                  <Italic className="h-4 w-4" />
+                </ToolButton>
+                <ToolButton title="Underline (Ctrl+U)" active={underline} onClick={() => setUnderline((v) => !v)}>
+                  <Underline className="h-4 w-4" />
+                </ToolButton>
+              </div>
+            </div>
 
             <div className="mt-4">
               <span className="mb-2 block text-xs uppercase tracking-wide text-[var(--muted-foreground)]">
@@ -1859,6 +2062,12 @@ export function ThumbnailGeneratorPage() {
             <div className="flex items-center justify-between">
               <h2 className="text-lg font-semibold text-white">Preview</h2>
               <div className="flex items-center gap-2">
+                <ToolButton title="Undo (Ctrl+Z)" disabled={historyDepth.undo === 0} onClick={undo}>
+                  <Undo2 className="h-4 w-4" />
+                </ToolButton>
+                <ToolButton title="Redo (Ctrl+Shift+Z)" disabled={historyDepth.redo === 0} onClick={redo}>
+                  <Redo2 className="h-4 w-4" />
+                </ToolButton>
                 {editing && <Badge>Editing</Badge>}
                 <Badge>1280 × 720</Badge>
               </div>
