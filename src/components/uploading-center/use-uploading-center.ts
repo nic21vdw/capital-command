@@ -110,6 +110,11 @@ export function studioContentUrl(channelId: string | null | undefined): string {
   return channelId ? `https://studio.youtube.com/channel/${channelId}/videos` : "https://studio.youtube.com";
 }
 
+/** One video's edit page in YouTube Studio (title, description, thumbnail…). */
+export function studioVideoUrl(videoId: string): string {
+  return `https://studio.youtube.com/video/${videoId}/edit`;
+}
+
 /** What the post-upload confirmation dialog shows after a YouTube upload. */
 export type UploadSuccess = {
   title: string;
@@ -117,6 +122,8 @@ export type UploadSuccess = {
   status: "scheduled" | "published";
   /** Go-live instant, UTC ISO-8601. */
   publishAt: string;
+  /** YouTube video id, for the Studio edit-page button. */
+  postId?: string;
 };
 
 async function readError(response: Response): Promise<string> {
@@ -316,6 +323,39 @@ export function useUploadingCenter() {
   );
 
   /**
+   * Renames a scheduled post right on the calendar. The backend saves the new
+   * title on the queue item and — when the video is already up on YouTube —
+   * renames it there too via the Data API, so the calendar and the channel
+   * never disagree.
+   */
+  const renameQueueItem = useCallback(
+    async (item: QueueItem, title: string) => {
+      const trimmed = title.trim().slice(0, 100);
+      if (!trimmed || trimmed === item.title) return;
+      // Optimistic: show the new title immediately; revert via refresh on error.
+      setQueueItems((prev) => prev.map((candidate) => (candidate.id === item.id ? { ...candidate, title: trimmed } : candidate)));
+      try {
+        const response = await fetch(`/api/publish/${item.id}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ title: trimmed })
+        });
+        if (!response.ok) throw new Error(await readError(response));
+        const { youtube, youtubeError } = (await response.json()) as { youtube?: string; youtubeError?: string };
+        if (youtube === "updated") {
+          toast.success("Title updated on YouTube.");
+        } else if (youtube === "error") {
+          toast.warning(`Title saved here, but YouTube didn't take it: ${youtubeError ?? "unknown error"}`);
+        }
+      } catch (error) {
+        toast.error(error instanceof Error ? error.message : "Could not rename the post.");
+        await refresh();
+      }
+    },
+    [refresh]
+  );
+
+  /**
    * Videos that live on the YouTube channel itself, minus the ones this queue
    * created — those already render as queue items (matched by video id).
    */
@@ -352,7 +392,7 @@ export function useUploadingCenter() {
     if ((outcome?.outcome === "scheduled" || outcome?.outcome === "published") && item && videoUrl) {
       // The confirmation dialog (video link + YouTube Studio button)
       // replaces the plain toast for a completed YouTube upload.
-      setUploadSuccess({ title: item.title, videoUrl, status: outcome.outcome, publishAt: item.publishAt });
+      setUploadSuccess({ title: item.title, videoUrl, status: outcome.outcome, publishAt: item.publishAt, postId });
     } else if (outcome?.outcome === "scheduled") {
       toast.success("Uploaded to YouTube — it now shows as Scheduled on your channel.");
     } else if (outcome?.outcome === "published") {
@@ -554,6 +594,7 @@ export function useUploadingCenter() {
     uploadSuccess,
     dismissUploadSuccess: () => setUploadSuccess(null),
     renameClip,
+    renameQueueItem,
     schedule,
     uploadToSlot,
     autoAssign,

@@ -1,11 +1,11 @@
 "use client";
 
 import { useMemo, useRef, useState } from "react";
-import { ExternalLink, Loader2, Send, Trash2, Upload } from "lucide-react";
+import { Clapperboard, ExternalLink, Loader2, Pencil, Send, Trash2, Upload } from "lucide-react";
 import { toast } from "sonner";
 import { StatusChip } from "@/components/uploading-center/status-chip";
 import { CLIP_DRAG_TYPE } from "@/components/uploading-center/clip-card";
-import { remoteUrlFor } from "@/components/uploading-center/use-uploading-center";
+import { remoteUrlFor, studioVideoUrl } from "@/components/uploading-center/use-uploading-center";
 import { cn } from "@/lib/utils";
 import type { ChannelVideo } from "@/lib/publisher/channelVideos";
 import type { ScheduleSlot } from "@/lib/publisher/slots";
@@ -38,6 +38,7 @@ export function ScheduleBoard({
   onSelectSlot,
   onPublishNow,
   onRemove,
+  onRename,
   busy
 }: {
   platform: PlatformId;
@@ -53,6 +54,7 @@ export function ScheduleBoard({
   onSelectSlot?: (slotUtc: string) => void;
   onPublishNow: (item: QueueItem) => void;
   onRemove: (item: QueueItem) => void;
+  onRename: (item: QueueItem, title: string) => void;
   busy: string | null;
 }) {
   const [dragOverSlot, setDragOverSlot] = useState<string | null>(null);
@@ -132,6 +134,7 @@ export function ScheduleBoard({
               onSelectSlot={onSelectSlot}
               onPublishNow={onPublishNow}
               onRemove={onRemove}
+              onRename={onRename}
               busy={busy}
             />
           ))}
@@ -155,6 +158,7 @@ function BoardRow({
   onSelectSlot,
   onPublishNow,
   onRemove,
+  onRename,
   busy
 }: {
   platform: PlatformId;
@@ -171,6 +175,7 @@ function BoardRow({
   onSelectSlot?: (slotUtc: string) => void;
   onPublishNow: (item: QueueItem) => void;
   onRemove: (item: QueueItem) => void;
+  onRename: (item: QueueItem, title: string) => void;
   busy: string | null;
 }) {
   const isToday = daySlots[0].today;
@@ -211,14 +216,33 @@ function BoardRow({
               ) : null}
               <div className="min-w-0 flex-1">
                 <div className="flex items-baseline gap-1.5">
-                  <p className="min-w-0 truncate text-xs font-medium text-white">{item.title}</p>
+                  <EditableTitle title={item.title} onRename={(title) => onRename(item, title)} />
                   <span className="ml-auto shrink-0 text-[10px] text-[var(--muted-foreground)]">{slot.time}</span>
                 </div>
                 <div className="mt-1.5 flex items-center gap-1.5">
                   <StatusChip status={state.status} />
                   {url ? (
-                    <a href={url} target="_blank" rel="noreferrer" aria-label="Open on YouTube" className="text-[var(--accent)]">
+                    <a
+                      href={url}
+                      target="_blank"
+                      rel="noreferrer"
+                      aria-label="View the video"
+                      title="View the video"
+                      className="text-[var(--accent)]"
+                    >
                       <ExternalLink className="h-3.5 w-3.5" />
+                    </a>
+                  ) : null}
+                  {platform === "youtube" && state.postId ? (
+                    <a
+                      href={studioVideoUrl(state.postId)}
+                      target="_blank"
+                      rel="noreferrer"
+                      aria-label="Edit in YouTube Studio"
+                      title="Edit in YouTube Studio (title, description…)"
+                      className="text-[var(--accent)]"
+                    >
+                      <Clapperboard className="h-3.5 w-3.5" />
                     </a>
                   ) : null}
                   <span className="flex-1" />
@@ -270,10 +294,21 @@ function BoardRow({
                   href={video.url}
                   target="_blank"
                   rel="noreferrer"
-                  aria-label="Open on YouTube"
+                  aria-label="View the video"
+                  title="View the video"
                   className="text-[var(--accent)]"
                 >
                   <ExternalLink className="h-3.5 w-3.5" />
+                </a>
+                <a
+                  href={studioVideoUrl(video.videoId)}
+                  target="_blank"
+                  rel="noreferrer"
+                  aria-label="Edit in YouTube Studio"
+                  title="Edit in YouTube Studio (title, description…)"
+                  className="text-[var(--accent)]"
+                >
+                  <Clapperboard className="h-3.5 w-3.5" />
                 </a>
                 <span className="flex-1" />
                 <span className="text-[10px] font-medium uppercase tracking-wider text-[var(--muted-foreground)]">
@@ -370,5 +405,60 @@ function BoardRow({
         );
       })}
     </>
+  );
+}
+
+/**
+ * The clip's title on a filled slot, editable in place: click to edit, Enter
+ * or blur commits (which renames the video on YouTube too when it's already
+ * up), Escape cancels. Capped at YouTube's 100-character title limit.
+ */
+function EditableTitle({ title, onRename }: { title: string; onRename: (title: string) => void }) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(title);
+
+  if (!editing) {
+    return (
+      <button
+        type="button"
+        onClick={() => {
+          setDraft(title);
+          setEditing(true);
+        }}
+        aria-label="Rename video"
+        title="Rename video"
+        className="group flex min-w-0 flex-1 items-center gap-1 text-left"
+      >
+        <span className="min-w-0 truncate text-xs font-medium text-white">{title}</span>
+        <Pencil className="h-3 w-3 shrink-0 text-[var(--muted-foreground)] opacity-0 transition group-hover:opacity-100" />
+      </button>
+    );
+  }
+
+  const commit = () => {
+    setEditing(false);
+    const trimmed = draft.trim();
+    if (trimmed && trimmed !== title) onRename(trimmed);
+  };
+  return (
+    <input
+      autoFocus
+      value={draft}
+      maxLength={100}
+      onChange={(event) => setDraft(event.target.value)}
+      onFocus={(event) => event.target.select()}
+      onBlur={commit}
+      onKeyDown={(event) => {
+        if (event.key === "Enter") {
+          event.preventDefault();
+          commit();
+        } else if (event.key === "Escape") {
+          setDraft(title);
+          setEditing(false);
+        }
+      }}
+      aria-label="Video title"
+      className="w-full min-w-0 flex-1 rounded border border-[var(--accent)]/50 bg-black/40 px-1 py-0.5 text-xs font-medium text-white outline-none"
+    />
   );
 }

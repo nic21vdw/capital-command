@@ -77,6 +77,31 @@ function buildBody(input: PublishInput): { body: YoutubeBody; scheduled: boolean
   return { body, scheduled };
 }
 
+/**
+ * Renames a video that is already on the channel (scheduled or published).
+ * videos.update with part=snippet replaces the whole snippet, so the current
+ * one is read first and resent with only the title changed — categoryId is
+ * required on snippet updates and must be preserved. Works under the existing
+ * youtube.upload scope for videos this app uploaded.
+ */
+export async function updateYoutubeVideoTitle(videoId: string, title: string): Promise<void> {
+  const token = await youtubeAccessToken();
+  const current = await fetchJson<{ items?: Array<{ snippet?: Record<string, unknown> }> }>(
+    `${VIDEOS_URL}?part=snippet&id=${encodeURIComponent(videoId)}`,
+    { label: "YouTube video snippet read", method: "GET", headers: { Authorization: `Bearer ${token}` } }
+  );
+  const snippet = current.items?.[0]?.snippet;
+  if (!snippet) {
+    throw new PermanentError(`YouTube video ${videoId} was not found — it may have been deleted from the channel.`);
+  }
+  await fetchJson(`${VIDEOS_URL}?part=snippet`, {
+    label: "YouTube title update",
+    method: "PUT",
+    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json; charset=UTF-8" },
+    body: JSON.stringify({ id: videoId, snippet: { ...snippet, title: title.slice(0, 100) } })
+  });
+}
+
 export const youtubeAdapter: PlatformAdapter = {
   id: "youtube",
 
