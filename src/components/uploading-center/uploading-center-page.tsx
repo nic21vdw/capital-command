@@ -5,7 +5,10 @@ import { useSearchParams } from "next/navigation";
 import {
   AlertTriangle,
   CalendarClock,
+  CalendarDays,
   CheckCircle2,
+  ChevronLeft,
+  ChevronRight,
   ExternalLink,
   Facebook,
   Instagram,
@@ -27,6 +30,7 @@ import { ScheduleBoard } from "@/components/uploading-center/schedule-board";
 import { StatusChip } from "@/components/uploading-center/status-chip";
 import {
   PLATFORM_LABELS,
+  SLOT_WINDOW_DAYS,
   remoteUrlFor,
   studioContentUrl,
   useUploadingCenter,
@@ -35,6 +39,7 @@ import {
   type UploadSuccess
 } from "@/components/uploading-center/use-uploading-center";
 import type { ChannelVideo } from "@/lib/publisher/channelVideos";
+import type { ScheduleSlot } from "@/lib/publisher/slots";
 import type { PlatformId, PlatformState, QueueItem } from "@/lib/publisher/types";
 
 const PLATFORM_TABS: Array<{ id: PlatformId; icon: typeof Youtube }> = [
@@ -48,6 +53,9 @@ export function UploadingCenterPage() {
   const {
     loaded,
     overview,
+    slotOffsetDays,
+    setSlotOffsetDays,
+    slotWindowLoading,
     channel,
     channelVideos,
     channelVideosBySlot,
@@ -231,6 +239,12 @@ export function UploadingCenterPage() {
               Automatic posting arrives with the unified posting API.
             </p>
           ) : null}
+          <SchedulePeriodNav
+            offsetDays={slotOffsetDays}
+            slots={slots}
+            loading={slotWindowLoading}
+            onChange={setSlotOffsetDays}
+          />
           <ScheduleBoard
             platform={id}
             slots={slots}
@@ -411,6 +425,67 @@ function UploadSuccessDialog({
         ) : null}
       </div>
     </Modal>
+  );
+}
+
+/**
+ * Calendar-style paging for the schedule grid: step forward through future
+ * two-week periods (as far ahead as you like), step back toward today, and
+ * jump straight back to the current period. Going before today is pointless,
+ * so the back arrow stops at the current window. While a new window is being
+ * fetched the buttons disable and the label shows a spinner — the previous
+ * window's slots stay on screen until the new ones arrive.
+ */
+function SchedulePeriodNav({
+  offsetDays,
+  slots,
+  loading,
+  onChange
+}: {
+  offsetDays: number;
+  slots: ScheduleSlot[];
+  loading: boolean;
+  onChange: (offsetDays: number) => void;
+}) {
+  const first = slots[0];
+  const last = slots[slots.length - 1];
+  const atCurrentPeriod = offsetDays === 0;
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      <Button
+        variant="secondary"
+        className="h-8 px-2.5"
+        aria-label={`Previous ${SLOT_WINDOW_DAYS} days`}
+        title={atCurrentPeriod ? "Already on the current period" : `Previous ${SLOT_WINDOW_DAYS} days`}
+        disabled={atCurrentPeriod || loading}
+        onClick={() => onChange(Math.max(0, offsetDays - SLOT_WINDOW_DAYS))}
+      >
+        <ChevronLeft className="h-4 w-4" />
+      </Button>
+      <Button
+        variant="secondary"
+        className="h-8 px-2.5"
+        aria-label={`Next ${SLOT_WINDOW_DAYS} days`}
+        title={`Next ${SLOT_WINDOW_DAYS} days`}
+        disabled={loading}
+        onClick={() => onChange(offsetDays + SLOT_WINDOW_DAYS)}
+      >
+        <ChevronRight className="h-4 w-4" />
+      </Button>
+      <span className="ml-1 flex items-center gap-2 text-sm font-medium text-white">
+        {loading ? <Loader2 className="h-4 w-4 animate-spin text-[var(--muted-foreground)]" /> : null}
+        {first && last ? `${first.dateLabel} – ${last.dateLabel}` : ""}
+      </span>
+      {atCurrentPeriod && !loading ? (
+        <Badge className="border-[var(--border)] bg-white/5 text-[var(--muted-foreground)]">Current period</Badge>
+      ) : null}
+      <span className="flex-1" />
+      {!atCurrentPeriod ? (
+        <Button variant="ghost" className="h-8 px-3 text-xs" disabled={loading} onClick={() => onChange(0)}>
+          <CalendarDays className="mr-1.5 h-3.5 w-3.5" /> Back to current period
+        </Button>
+      ) : null}
+    </div>
   );
 }
 
