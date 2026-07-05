@@ -22,6 +22,7 @@ import {
 import { CAPTION_PRESETS } from "@/lib/clipping/captions";
 import { ASPECT_LABELS, EXPORT_PRESETS, applyCaptionPreset, aspectDimensions, formatClock } from "@/lib/clipping/editor";
 import { CLIP_LAYOUTS, DEFAULT_FACE_SOURCE, LAYOUT_MODE_PRESETS } from "@/lib/clipping/layouts";
+import { useAppData } from "@/components/providers/app-provider";
 import { Button } from "@/components/ui/button";
 import { ColorField, Field, NumberField, RangeField, SelectField, Toggle } from "@/components/editor/controls";
 import { cn } from "@/lib/utils";
@@ -463,33 +464,84 @@ export const LayoutPanel = memo(function LayoutPanel({ api }: { api: EditorApi }
 
 export const OverlaysPanel = memo(function OverlaysPanel({ api }: { api: EditorApi }) {
   const { project } = api;
+  const { data, mutate } = useAppData();
   const fileRef = useRef<HTMLInputElement>(null);
   const [pendingKind, setPendingKind] = useState<OverlayKind>("image");
   const selected = project.overlays.find((o) => o.id === api.selectedOverlayId) ?? null;
+
+  const brand = data.brandAssets ?? {};
+
+  // A brand asset is "on" when an overlay of its kind carries the saved image.
+  const brandOverlays = (kind: "logo" | "watermark", src: string) => project.overlays.filter((o) => o.kind === kind && o.src === src);
+  const toggleBrand = (kind: "logo" | "watermark", src: string, on: boolean) => {
+    if (on) api.addOverlay(kind, src);
+    else brandOverlays(kind, src).forEach((o) => api.deleteOverlay(o.id));
+  };
 
   const onPickImage = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
     const reader = new FileReader();
-    reader.onload = () => api.addOverlay(pendingKind, String(reader.result));
+    reader.onload = () => {
+      const src = String(reader.result);
+      // Logos and watermarks become the saved default, reusable in every clip;
+      // replacing one also swaps out any copy of the old image on this clip.
+      if (pendingKind === "logo" || pendingKind === "watermark") {
+        const prev = pendingKind === "logo" ? brand.logoSrc : brand.watermarkSrc;
+        if (prev) brandOverlays(pendingKind, prev).forEach((o) => api.deleteOverlay(o.id));
+        void mutate("updateBrandAssets", { ...brand, [pendingKind === "logo" ? "logoSrc" : "watermarkSrc"]: src });
+      }
+      api.addOverlay(pendingKind, src);
+    };
     reader.readAsDataURL(file);
     e.target.value = "";
   };
 
   return (
     <div className="space-y-3">
-      <div className="grid grid-cols-3 gap-1.5">
+      <div className="grid grid-cols-4 gap-1.5">
         <AddBtn icon={<Type className="h-4 w-4" />} label="Text" onClick={() => api.addOverlay("text")} />
-        <AddBtn icon={<Type className="h-4 w-4" />} label="Title card" onClick={() => api.addOverlay("title")} />
         <AddBtn icon={<ImageIcon className="h-4 w-4" />} label="Image" onClick={() => { setPendingKind("image"); fileRef.current?.click(); }} />
         <AddBtn icon={<ImageIcon className="h-4 w-4" />} label="Logo" onClick={() => { setPendingKind("logo"); fileRef.current?.click(); }} />
         <AddBtn icon={<ImageIcon className="h-4 w-4" />} label="Watermark" onClick={() => { setPendingKind("watermark"); fileRef.current?.click(); }} />
       </div>
       <input ref={fileRef} type="file" accept="image/*" hidden onChange={onPickImage} />
 
+      <Group label="Brand kit">
+        {!brand.logoSrc && !brand.watermarkSrc ? (
+          <p className="text-xs text-[var(--muted-foreground)]">
+            Upload a logo or watermark once — it&apos;s saved as your default and can be toggled on in any clip.
+          </p>
+        ) : (
+          <div className="space-y-1.5">
+            {([
+              { kind: "logo" as const, label: "Default logo", src: brand.logoSrc },
+              { kind: "watermark" as const, label: "Default watermark", src: brand.watermarkSrc }
+            ]).map(({ kind, label, src }) =>
+              src ? (
+                <div key={kind} className="flex items-center gap-2.5 rounded-lg border border-[var(--border)] px-2.5 py-1.5">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={src} alt="" className="h-7 w-7 shrink-0 rounded bg-black/40 object-contain" />
+                  <Toggle label={label} checked={brandOverlays(kind, src).length > 0} onChange={(v) => toggleBrand(kind, src, v)} />
+                  <button
+                    type="button"
+                    onClick={() => { setPendingKind(kind); fileRef.current?.click(); }}
+                    className="ml-auto text-xs text-[var(--muted-foreground)] transition hover:text-white"
+                  >
+                    Replace
+                  </button>
+                </div>
+              ) : null
+            )}
+          </div>
+        )}
+      </Group>
+
       <div className="max-h-[22vh] space-y-1.5 overflow-y-auto pr-1">
         {project.overlays.length === 0 ? (
-          <p className="text-sm text-[var(--muted-foreground)]">No overlays. Add text, a title card, image, logo, or watermark.</p>
+          <p className="text-sm text-[var(--muted-foreground)]">
+            No overlays. Add text (double-click it on the preview to edit), an image, logo, or watermark.
+          </p>
         ) : (
           [...project.overlays].sort((a, b) => b.z - a.z).map((o) => (
             <div

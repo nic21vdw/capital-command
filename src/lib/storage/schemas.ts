@@ -76,6 +76,15 @@ export const userProfileSchema = z.object({
   avatar: z.string().max(2_000_000).optional()
 });
 
+/** Reusable brand images (data URLs) shared by every clip project: upload a
+ *  logo/watermark once, then toggle it on in any clip editor. */
+export const brandAssetsSchema = z.object({
+  logoSrc: z.string().max(8_000_000).optional(),
+  watermarkSrc: z.string().max(8_000_000).optional()
+});
+
+export const defaultBrandAssets = brandAssetsSchema.parse({});
+
 export const settingsSchema = z.object({
   currency: z.enum(["CAD", "USD"]),
   // Unknown/legacy values (e.g. old accent ids) gracefully fall back to undefined,
@@ -598,7 +607,8 @@ export const appDataSchema = z.object({
   executionSeededAt: z.string().optional(),
   savedThumbnails: z.array(savedThumbnailSchema).default([]),
   clipProjects: z.array(clipProjectSchema).default([]),
-  videoProjects: z.array(videoProjectSchema).default([])
+  videoProjects: z.array(videoProjectSchema).default([]),
+  brandAssets: brandAssetsSchema.default(defaultBrandAssets)
 });
 
 export const importHoldingSchema = z.object({

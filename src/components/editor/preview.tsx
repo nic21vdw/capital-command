@@ -195,8 +195,28 @@ function OverlayItem({
   onSelect: () => void;
   onChange: (partial: Partial<Overlay>) => void;
 }) {
+  // Double-click puts a text overlay into inline edit mode right on the
+  // preview. `initial` snapshots the text at edit start so Escape can revert.
+  const [editing, setEditing] = useState<{ initial: string } | null>(null);
+  const editRef = useRef<HTMLSpanElement>(null);
+
+  // The contentEditable span is deliberately uncontrolled — React re-rendering
+  // its children on every keystroke would reset the caret — so seed its text
+  // (and focus + select-all) once when editing starts.
+  useEffect(() => {
+    const el = editRef.current;
+    if (!editing || !el) return;
+    el.textContent = editing.initial;
+    el.focus();
+    const range = document.createRange();
+    range.selectNodeContents(el);
+    const sel = window.getSelection();
+    sel?.removeAllRanges();
+    sel?.addRange(range);
+  }, [editing]);
+
   const onPointerDown = (mode: "move" | "scale" | "rotate") => (e: React.PointerEvent) => {
-    if (overlay.locked) return;
+    if (overlay.locked || editing) return;
     e.stopPropagation();
     onSelect();
     const sx = e.clientX;
@@ -230,32 +250,71 @@ function OverlayItem({
         top: `${overlay.y * 100}%`,
         transform: `translate(-50%, -50%) rotate(${overlay.rotation}deg) scale(${overlay.scale})`,
         opacity: overlay.opacity,
-        cursor: overlay.locked ? "default" : "move",
+        cursor: overlay.locked ? "default" : editing ? "text" : "move",
         touchAction: "none"
       }}
       onPointerDown={onPointerDown("move")}
+      onDoubleClick={(e) => {
+        // Keep the frame's double-click (re-center pan) out of it either way.
+        e.stopPropagation();
+        if (!isText || overlay.locked || editing) return;
+        onSelect();
+        setEditing({ initial: overlay.text ?? "" });
+      }}
+      title={isText && !overlay.locked && !editing ? "Double-click to edit text" : undefined}
     >
       <div className={cn("relative", selected && "outline outline-2 outline-[var(--accent)]")}>
         {isText ? (
-          <span
-            className="block whitespace-pre px-1"
-            style={{
-              fontFamily: overlay.fontFamily ?? "Inter, system-ui, sans-serif",
-              fontWeight: overlay.fontWeight ?? (overlay.kind === "title" ? 800 : 600),
-              fontSize: (overlay.kind === "title" ? 0.09 : 0.05) * frame.h,
-              color: overlay.color ?? "#ffffff",
-              background: overlay.background ?? "transparent",
-              textShadow: "0 2px 6px rgba(0,0,0,0.6)"
-            }}
-          >
-            {overlay.text || "Text"}
-          </span>
+          editing ? (
+            <span
+              ref={editRef}
+              contentEditable
+              suppressContentEditableWarning
+              className="block min-w-[1ch] cursor-text whitespace-pre px-1 outline-none"
+              style={{
+                fontFamily: overlay.fontFamily ?? "Inter, system-ui, sans-serif",
+                fontWeight: overlay.fontWeight ?? (overlay.kind === "title" ? 800 : 600),
+                fontSize: (overlay.kind === "title" ? 0.09 : 0.05) * frame.h,
+                color: overlay.color ?? "#ffffff",
+                background: overlay.background ?? "transparent",
+                textShadow: "0 2px 6px rgba(0,0,0,0.6)",
+                caretColor: overlay.color ?? "#ffffff"
+              }}
+              onPointerDown={(e) => e.stopPropagation()}
+              onInput={(e) => onChange({ text: e.currentTarget.textContent ?? "" })}
+              onBlur={() => setEditing(null)}
+              onKeyDown={(e) => {
+                e.stopPropagation();
+                if (e.key === "Enter" && !e.shiftKey) {
+                  e.preventDefault();
+                  e.currentTarget.blur();
+                } else if (e.key === "Escape") {
+                  onChange({ text: editing.initial });
+                  e.currentTarget.blur();
+                }
+              }}
+            />
+          ) : (
+            <span
+              className="block whitespace-pre px-1"
+              style={{
+                fontFamily: overlay.fontFamily ?? "Inter, system-ui, sans-serif",
+                fontWeight: overlay.fontWeight ?? (overlay.kind === "title" ? 800 : 600),
+                fontSize: (overlay.kind === "title" ? 0.09 : 0.05) * frame.h,
+                color: overlay.color ?? "#ffffff",
+                background: overlay.background ?? "transparent",
+                textShadow: "0 2px 6px rgba(0,0,0,0.6)"
+              }}
+            >
+              {overlay.text || "Text"}
+            </span>
+          )
         ) : overlay.src ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img src={overlay.src} alt="" style={{ width: frame.w * 0.4, maxWidth: "none" }} draggable={false} />
         ) : null}
 
-        {selected && !overlay.locked && (
+        {selected && !overlay.locked && !editing && (
           <>
             <span
               onPointerDown={onPointerDown("scale")}

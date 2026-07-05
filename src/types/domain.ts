@@ -636,6 +636,15 @@ export interface AppData {
   savedThumbnails: SavedThumbnail[];
   clipProjects: ClipProject[];
   videoProjects: VideoProject[];
+  /** Reusable brand images (logo/watermark) shared across all clip projects. */
+  brandAssets?: BrandAssets;
+}
+
+export interface BrandAssets {
+  /** Data URL of the default logo image. */
+  logoSrc?: string;
+  /** Data URL of the default watermark image. */
+  watermarkSrc?: string;
 }
 
 export interface TrendPoint {
