@@ -8,6 +8,7 @@ import {
   Copy,
   Crop,
   Download,
+  FolderDown,
   Image as ImageIcon,
   Loader2,
   Lock,
@@ -700,11 +701,57 @@ export const ExportPanel = memo(function ExportPanel({ api }: { api: EditorApi }
   const e = api.project.exportSettings;
   const set = (partial: Partial<typeof e>) => api.patch({ exportSettings: { ...e, ...partial } });
   const state = api.exportState;
+  const [savingToFolder, setSavingToFolder] = useState(false);
 
   const applyPreset = (preset: ExportPresetId) => {
     const p = EXPORT_PRESETS[preset];
     set({ preset, width: p.w, height: p.h });
     if (p.aspect !== "custom") api.patch({ aspectRatio: p.aspect });
+  };
+
+  // "Take clip to folder": use the File System Access API so the user picks the
+  // destination folder instead of the file landing in the browser's downloads.
+  const saveToFolder = async () => {
+    if (state.status !== "done" || !state.exportId) return;
+    const suggestedName = `${e.filename || "clip"}.${e.format}`;
+    const url = `/api/clips/${api.project.jobId}/export/${state.exportId}?file=1&download=1`;
+
+    const picker = (window as unknown as { showSaveFilePicker?: (opts: {
+      suggestedName?: string;
+      types?: Array<{ description?: string; accept: Record<string, string[]> }>;
+    }) => Promise<{ createWritable: () => Promise<{ write: (data: Blob) => Promise<void>; close: () => Promise<void> }> }> }).showSaveFilePicker;
+
+    // Browsers without the File System Access API (e.g. Firefox/Safari) fall
+    // back to a normal download.
+    if (!picker) {
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = suggestedName;
+      a.click();
+      return;
+    }
+
+    setSavingToFolder(true);
+    try {
+      const mime = e.format === "webm" ? "video/webm" : "video/mp4";
+      const handle = await picker({
+        suggestedName,
+        types: [{ description: "Video", accept: { [mime]: [`.${e.format}`] } }]
+      });
+      const res = await fetch(url, { cache: "no-store" });
+      if (!res.ok) throw new Error("Could not fetch the exported file.");
+      const blob = await res.blob();
+      const writable = await handle.createWritable();
+      await writable.write(blob);
+      await writable.close();
+    } catch (err) {
+      // AbortError = the user closed the folder picker; not worth surfacing.
+      if (!(err instanceof DOMException && err.name === "AbortError")) {
+        console.error("Save to folder failed", err);
+      }
+    } finally {
+      setSavingToFolder(false);
+    }
   };
 
   return (
@@ -807,6 +854,14 @@ export const ExportPanel = memo(function ExportPanel({ api }: { api: EditorApi }
                 <Download className="mr-2 h-4 w-4" /> Download {e.filename}.{e.format}
               </Button>
             </a>
+            <Button variant="secondary" className="w-full" onClick={saveToFolder} disabled={savingToFolder}>
+              {savingToFolder ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : (
+                <FolderDown className="mr-2 h-4 w-4" />
+              )}
+              Take clip to folder
+            </Button>
           </div>
         )}
       </div>
