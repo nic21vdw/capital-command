@@ -627,7 +627,7 @@ function ClipCard({
               // (and show black boxes) while the page loads. Prefer the
               // eagerly-generated poster frame, falling back to the on-demand
               // thumbnail route for clips rendered before it existed.
-              poster={clip.posterFile ? fileUrl(jobId, clip.posterFile) : thumbnailUrl(jobId, clip.file)}
+              poster={clip.posterFile ? fileUrl(jobId, clip.posterFile) : clip.file ? thumbnailUrl(jobId, clip.file) : undefined}
               preload="none"
               muted
               loop
