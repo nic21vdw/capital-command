@@ -17,8 +17,10 @@ const WINDOW_SEC = 0.5;
 // samples is exactly WINDOW_SEC long.
 const WINDOW_SAMPLES = Math.round(WINDOW_SEC * 16000);
 const MIN_CLIP_SEC = 15;
-const MAX_CLIP_SEC = 60;
-const TARGET_CLIP_SEC = 38;
+// Energy analysis can't judge whether a moment truly needs extra runtime, so it
+// stays inside the preferred 15-30s band outright.
+const MAX_CLIP_SEC = 30;
+const TARGET_CLIP_SEC = 24;
 export const TARGET_CLIP_COUNT = 10;
 const MAX_CANDIDATES = TARGET_CLIP_COUNT;
 
