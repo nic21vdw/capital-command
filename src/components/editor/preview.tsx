@@ -313,7 +313,10 @@ function OverlayItem({
       const dxFrac = (ev.clientX - sx) / frame.w;
       const dyFrac = (ev.clientY - sy) / frame.h;
       if (mode === "move") onChange({ x: clamp(ox + dxFrac, 0, 1), y: clamp(oy + dyFrac, 0, 1) });
-      else if (mode === "scale") onChange({ scale: clamp(os + (dxFrac + dyFrac) * 2, 0.1, 8) });
+      // Scale by dragging the corner handle. The gain and ceiling are tuned so
+      // the practical text sizes spread across the whole drag instead of being
+      // squeezed into the first sliver before an unusably large maximum.
+      else if (mode === "scale") onChange({ scale: clamp(os + (dxFrac + dyFrac) * 1.2, 0.1, 3) });
       else onChange({ rotation: orot + dxFrac * 180 });
     };
     const up = () => {
@@ -369,9 +372,13 @@ function OverlayItem({
               onBlur={() => setEditing(null)}
               onKeyDown={(e) => {
                 e.stopPropagation();
-                if (e.key === "Enter" && !e.shiftKey) {
+                if (e.key === "Enter") {
+                  // Enter starts a new line inside the text box. Insert a raw
+                  // "\n" (rather than the browser's default block/`<br>`) so the
+                  // uncontrolled span's textContent stays clean and `whitespace-pre`
+                  // renders the break. Blur (click away) still commits the edit.
                   e.preventDefault();
-                  e.currentTarget.blur();
+                  document.execCommand("insertText", false, "\n");
                 } else if (e.key === "Escape") {
                   onChange({ text: editing.initial });
                   e.currentTarget.blur();
