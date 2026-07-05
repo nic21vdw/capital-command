@@ -76,7 +76,7 @@ export class PublishQueue {
   duePlatforms(item: QueueItem, now: Date): PlatformId[] {
     const due: PlatformId[] = [];
     for (const [platform, state] of Object.entries(item.platforms) as [PlatformId, PlatformState][]) {
-      if (state.status === "published" || state.status === "failed" || state.status === "scheduled") continue;
+      if (isTerminalStatus(state.status)) continue;
       const timeDue = platform === "youtube" || new Date(item.publishAt).getTime() <= now.getTime();
       if (!timeDue) continue;
       if (state.nextAttemptAt && new Date(state.nextAttemptAt).getTime() > now.getTime()) continue;
@@ -114,6 +114,9 @@ export class PublishQueue {
     if (result.postId) state.postId = result.postId;
     if (result.containerId) state.containerId = result.containerId;
     if (result.status === "published") state.publishedAt = now.toISOString();
+    // Any success means the platform accepted the bytes; the first stamp wins
+    // so the quota meter counts each upload once.
+    state.uploadedAt ??= now.toISOString();
     state.error = undefined;
     state.claimedAt = undefined;
     state.nextAttemptAt = undefined;
@@ -148,6 +151,11 @@ export class PublishQueue {
     }
     await this.save();
   }
+}
+
+/** States the runner never touches again (manual posts are reminders, not jobs). */
+export function isTerminalStatus(status: PlatformState["status"]): boolean {
+  return status === "published" || status === "failed" || status === "scheduled" || status === "manual";
 }
 
 export function newPlatformState(): PlatformState {

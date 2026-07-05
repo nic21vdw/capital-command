@@ -102,9 +102,10 @@ Everything lives in `src/lib/publisher/` and is **off by default**: with
 - **Queue** — `data/publish-queue.json` (or the same JSON in your R2 bucket
   when `PUBLISH_QUEUE_BACKEND=r2`). Each item tracks the clip file, title,
   caption, hashtags, publish time, and per-platform status
-  (`pending | uploaded | scheduled | published | failed`) plus post ids and
-  errors. Terminal states are never reprocessed, so re-running never
-  double-posts.
+  (`pending | uploaded | scheduled | published | failed | manual`) plus post
+  ids and errors. Terminal states are never reprocessed, so re-running never
+  double-posts. Assigning a clip to a platform that has no credentials yet
+  saves it as `manual` — an amber reminder to post by hand, never an error.
 - **YouTube** schedules natively: the runner uploads the video as `private`
   with `status.publishAt`, and YouTube publishes it at the target time even if
   nothing else ever runs again. Each upload costs ~1600 of your 10,000 daily
@@ -118,6 +119,21 @@ Everything lives in `src/lib/publisher/` and is **off by default**: with
   fallback; anything you pass explicitly wins.
 - All times you type are interpreted in `PUBLISH_TIMEZONE`
   (default `America/Toronto`).
+
+### Uploading Center (in-app)
+
+The **Uploading Center** in the sidebar is the point-and-click way to drive
+the queue. It lists the clips from the latest generator run with thumbnails,
+lets you edit title/caption, pick a platform (YouTube · TikTok · Instagram)
+and a schedule slot — weekdays at 07:30 / 12:30 / 19:30 `PUBLISH_TIMEZONE`,
+stored as UTC — or drag a clip straight onto the 14-day board. It also shows
+a YouTube quota meter (uploads today vs the `YOUTUBE_DAILY_UPLOAD_BUDGET`,
+default 6) and a **Connect YouTube** button: set `YOUTUBE_CLIENT_ID` /
+`YOUTUBE_CLIENT_SECRET` in `.env` (OAuth client type **Web application** with
+redirect URI `http://localhost:3000/api/auth/google/callback`), click
+Connect, approve, done — the refresh token is stored server-side in
+`data/publisher-tokens.json`, never in the browser. TikTok/Instagram
+assignments save as `manual` reminders until those APIs are connected.
 
 ### Ways to run it
 
@@ -151,9 +167,13 @@ local scheduler and the Actions cron against the same queue at the same time.
 1. [Google Cloud Console](https://console.cloud.google.com) → new project →
    enable **YouTube Data API v3**.
 2. OAuth consent screen → External → add yourself as a test user.
-3. Credentials → Create credentials → OAuth client ID → **Desktop app** →
-   copy `YOUTUBE_CLIENT_ID` / `YOUTUBE_CLIENT_SECRET` into `.env`.
-4. Mint a refresh token with the `https://www.googleapis.com/auth/youtube.upload`
+3. Credentials → Create credentials → OAuth client ID → **Web application**
+   with authorized redirect URI
+   `http://localhost:3000/api/auth/google/callback` → copy
+   `YOUTUBE_CLIENT_ID` / `YOUTUBE_CLIENT_SECRET` into `.env`.
+4. Easiest: click **Connect YouTube** in the Uploading Center — the refresh
+   token is minted and stored server-side automatically. Alternatively mint
+   one yourself with the `https://www.googleapis.com/auth/youtube.upload`
    scope (e.g. the [OAuth playground](https://developers.google.com/oauthplayground)
    with "Use your own OAuth credentials" checked) → `YOUTUBE_REFRESH_TOKEN`.
 

@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import path from "node:path";
 import { ALL_PLATFORMS, type PlatformId, type Visibility } from "@/lib/publisher/types";
 
 /**
@@ -49,6 +51,8 @@ export type PublisherConfig = {
     refreshToken: string | null;
     /** Optional YouTube category id for uploads (e.g. "22" People & Blogs, "20" Gaming). */
     categoryId: string | null;
+    /** Self-imposed uploads/day cap for the quota meter (~1600 units each of 10,000). */
+    dailyUploadBudget: number;
   };
   instagram: {
     /** The Instagram professional account's user id (not the username). */
@@ -81,6 +85,23 @@ export type PublisherConfig = {
   };
 };
 
+/**
+ * Refresh token minted by the in-app "Connect YouTube" flow
+ * (/api/auth/google), persisted by tokens.ts in data/publisher-tokens.json.
+ * The .env value wins when set; this read must be synchronous because
+ * publisherConfig() is, so the r2 token backend is not consulted here — set
+ * YOUTUBE_REFRESH_TOKEN explicitly for GitHub Actions runs.
+ */
+function cachedYoutubeRefreshToken(): string | null {
+  try {
+    const raw = readFileSync(path.join(process.cwd(), "data", "publisher-tokens.json"), "utf8");
+    const value = (JSON.parse(raw) as Record<string, unknown>)["youtube.refreshToken"];
+    return typeof value === "string" && value ? value : null;
+  } catch {
+    return null;
+  }
+}
+
 export function publisherConfig(): PublisherConfig {
   const platformsRaw = str("PUBLISH_PLATFORMS");
   const platforms = platformsRaw
@@ -108,8 +129,9 @@ export function publisherConfig(): PublisherConfig {
     youtube: {
       clientId: str("YOUTUBE_CLIENT_ID"),
       clientSecret: str("YOUTUBE_CLIENT_SECRET"),
-      refreshToken: str("YOUTUBE_REFRESH_TOKEN"),
-      categoryId: str("YOUTUBE_CATEGORY_ID")
+      refreshToken: str("YOUTUBE_REFRESH_TOKEN") ?? cachedYoutubeRefreshToken(),
+      categoryId: str("YOUTUBE_CATEGORY_ID"),
+      dailyUploadBudget: num("YOUTUBE_DAILY_UPLOAD_BUDGET", 6)
     },
     instagram: {
       userId: str("IG_USER_ID"),

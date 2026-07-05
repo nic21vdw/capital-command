@@ -7,9 +7,9 @@ import { youtubeAdapter } from "@/lib/publisher/adapters/youtube";
 import { publisherConfig, type PublisherConfig } from "@/lib/publisher/config";
 import { mediaHost } from "@/lib/publisher/hosting";
 import { PermanentError, StillProcessingError, isTransient } from "@/lib/publisher/http";
-import { PublishQueue, publishQueue } from "@/lib/publisher/queue";
+import { PublishQueue, isTerminalStatus, publishQueue } from "@/lib/publisher/queue";
 import { formatInTimezone } from "@/lib/publisher/time";
-import type { PlatformAdapter, PlatformId, PublishInput, PublishPlan, QueueItem } from "@/lib/publisher/types";
+import type { PlatformAdapter, PlatformId, PlatformState, PublishInput, PublishPlan, QueueItem } from "@/lib/publisher/types";
 
 /**
  * The scheduler/runner. run_due(now) processes every queue item that is due
@@ -55,6 +55,14 @@ export type RunDueOptions = {
   queue?: PublishQueue;
   config?: PublisherConfig;
   log?: (line: string) => void;
+  /** Restrict the run to one queue item (the UI's per-post "publish now"). */
+  itemId?: string;
+  /**
+   * With itemId: process every non-terminal platform immediately, ignoring
+   * publishAt and retry backoff. Instagram/TikTok then post right away
+   * instead of waiting for their scheduled time.
+   */
+  force?: boolean;
 };
 
 export const defaultAdapters: Record<PlatformId, PlatformAdapter> = {
@@ -131,7 +139,7 @@ export async function runDue(now: Date = new Date(), options: RunDueOptions = {}
     for (const item of await queue.list()) {
       const due = new Set(queue.duePlatforms(item, now));
       for (const [platform, state] of Object.entries(item.platforms)) {
-        if (state.status === "published" || state.status === "failed" || state.status === "scheduled") continue;
+        if (isTerminalStatus(state.status)) continue;
         const adapter = adapters[platform as PlatformId];
         const plan = adapter.buildPlan({ item, localPath: item.clipPath, publicUrl: undefined });
         report.plans.push({ itemId: item.id, clip: item.clipPath, due: due.has(platform as PlatformId), plan });
@@ -150,7 +158,19 @@ export async function runDue(now: Date = new Date(), options: RunDueOptions = {}
     return report;
   }
 
-  const due = await queue.dueItems(now);
+  let due = await queue.dueItems(now);
+  if (options.itemId) {
+    due = due.filter((entry) => entry.item.id === options.itemId);
+    if (options.force) {
+      const item = await queue.get(options.itemId);
+      const platforms = item
+        ? (Object.entries(item.platforms) as [PlatformId, PlatformState][])
+            .filter(([, state]) => !isTerminalStatus(state.status))
+            .map(([platform]) => platform)
+        : [];
+      due = item && platforms.length > 0 ? [{ item, platforms }] : [];
+    }
+  }
   if (due.length === 0) {
     log("[publisher] no due items.");
     return report;

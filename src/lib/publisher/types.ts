@@ -23,8 +23,11 @@ export type Visibility = "public" | "private" | "unlisted";
  *               publishes at the target time, no runner needed
  *   published → live (or live as private/SELF_ONLY when that was requested)
  *   failed    → permanently failed; the error field says why
+ *   manual    → the platform had no credentials when the post was created, so
+ *               it is tracked as a reminder to post by hand. Terminal for the
+ *               runner; connecting the platform later does not retro-fire it.
  */
-export type PlatformStatus = "pending" | "uploaded" | "scheduled" | "published" | "failed";
+export type PlatformStatus = "pending" | "uploaded" | "scheduled" | "published" | "failed" | "manual";
 
 export type PlatformState = {
   status: PlatformStatus;
@@ -39,6 +42,10 @@ export type PlatformState = {
   /** Soft lease so overlapping runners don't double-process one item. */
   claimedAt?: string;
   publishedAt?: string;
+  /** When the platform accepted the bytes — feeds the YouTube quota meter. */
+  uploadedAt?: string;
+  /** Human note for the UI (e.g. why a post is "manual"). Not an error. */
+  note?: string;
 };
 
 export type QueueItem = {

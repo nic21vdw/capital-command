@@ -8,6 +8,7 @@ import {
   ChevronRight,
   Settings,
   SquarePlay,
+  UploadCloud,
   Wand2,
   type LucideIcon
 } from "lucide-react";
@@ -23,7 +24,8 @@ const navGroups: NavGroup[] = [
     label: "YouTube tools",
     items: [
       { href: "/clips", label: "Clip Generator", icon: Wand2 },
-      { href: "/editor", label: "Clip Editor", icon: SquarePlay }
+      { href: "/editor", label: "Clip Editor", icon: SquarePlay },
+      { href: "/uploading-center", label: "Uploading Center", icon: UploadCloud }
     ]
   }
 ];
