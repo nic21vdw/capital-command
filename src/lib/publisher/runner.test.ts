@@ -22,7 +22,8 @@ beforeAll(async () => {
 /** Adapter double that records calls and plays a scripted response. */
 function fakeAdapter(
   id: PlatformId,
-  behave: (input: PublishInput) => Promise<PostResult>
+  behave: (input: PublishInput) => Promise<PostResult>,
+  finalize?: PlatformAdapter["finalize"]
 ): PlatformAdapter & { calls: PublishInput[] } {
   const calls: PublishInput[] = [];
   return {
@@ -41,7 +42,8 @@ function fakeAdapter(
     publish: async (input) => {
       calls.push(input);
       return behave(input);
-    }
+    },
+    finalize
   };
 }
 
@@ -92,6 +94,39 @@ describe("runDue", () => {
     expect(youtube.calls).toHaveLength(1);
     expect(tiktok.calls).toHaveLength(1);
     expect(second.outcomes).toEqual([]);
+  });
+
+  it("finalizes a scheduled YouTube post once its slot time passes (no re-upload)", async () => {
+    const { config, queue, log } = setup();
+    const item = testItem({ clipPath, publishAt: "2026-07-10T22:30:00.000Z", platformIds: ["youtube"] });
+    await queue.add(item);
+
+    const finalizeCalls: string[] = [];
+    const youtube = fakeAdapter(
+      "youtube",
+      async () => ({ status: "scheduled", postId: "vid1" }),
+      async (_item, state) => {
+        finalizeCalls.push(state.postId!);
+        return { status: "published", postId: state.postId, detail: "set public" };
+      }
+    );
+
+    // Before the slot: upload happens once and records "scheduled".
+    const first = await runDue(new Date("2026-07-10T22:00:00.000Z"), { config, queue, log, adapters: { youtube } });
+    expect(first.outcomes.map((o) => o.outcome)).toEqual(["scheduled"]);
+    expect(finalizeCalls).toEqual([]);
+
+    // After the slot: finalize verifies/forces the public flip, no re-upload.
+    const second = await runDue(DUE, { config, queue, log, adapters: { youtube } });
+    expect(youtube.calls).toHaveLength(1);
+    expect(finalizeCalls).toEqual(["vid1"]);
+    expect(second.outcomes.map((o) => o.outcome)).toEqual(["published"]);
+    expect(item.platforms.youtube?.status).toBe("published");
+
+    // Terminal now — a third run does nothing.
+    const third = await runDue(new Date(DUE.getTime() + 60_000), { config, queue, log, adapters: { youtube } });
+    expect(third.outcomes).toEqual([]);
+    expect(finalizeCalls).toHaveLength(1);
   });
 
   it("records still-processing uploads and resumes them with the container id", async () => {

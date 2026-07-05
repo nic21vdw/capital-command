@@ -3,7 +3,7 @@ import { publisherConfig } from "@/lib/publisher/config";
 import { PermanentError, fetchJson, fetchRaw } from "@/lib/publisher/http";
 import { bareTags, composeDescription } from "@/lib/publisher/metadata";
 import { formatInTimezone, toRfc3339Utc } from "@/lib/publisher/time";
-import type { PlatformAdapter, PostResult, PublishInput, PublishPlan } from "@/lib/publisher/types";
+import type { PlatformAdapter, PlatformState, PostResult, PublishInput, PublishPlan, QueueItem } from "@/lib/publisher/types";
 
 /**
  * YouTube Data API v3 — the one platform with native scheduling.
@@ -11,7 +11,10 @@ import type { PlatformAdapter, PostResult, PublishInput, PublishPlan } from "@/l
  * The video is uploaded as privacyStatus "private" with status.publishAt set
  * to the target RFC3339 time; YouTube flips it public at that moment on its
  * own, so the schedule holds even if our runner never wakes again. Uploads
- * use the resumable protocol (videos.insert, uploadType=resumable).
+ * use the resumable protocol (videos.insert, uploadType=resumable). As a
+ * safety net, finalize() runs after the slot time and forces the video
+ * public if YouTube did not flip it (some API projects have publishAt
+ * silently ignored until they pass Google's audit).
  *
  * Quota: each upload costs ~1600 units of the default 10,000/day, so roughly
  * six uploads/day before requesting a quota increase.
@@ -19,6 +22,7 @@ import type { PlatformAdapter, PostResult, PublishInput, PublishPlan } from "@/l
 
 const TOKEN_URL = "https://oauth2.googleapis.com/token";
 const UPLOAD_URL = "https://www.googleapis.com/upload/youtube/v3/videos?uploadType=resumable&part=snippet,status";
+const VIDEOS_URL = "https://www.googleapis.com/youtube/v3/videos";
 
 let cachedToken: { accessToken: string; expiresAt: number } | null = null;
 
@@ -143,6 +147,46 @@ export const youtubeAdapter: PlatformAdapter = {
       detail: scheduled
         ? `scheduled via status.publishAt=${toRfc3339Utc(new Date(input.item.publishAt))}`
         : `uploaded as ${body.status.privacyStatus}`
+    };
+  },
+
+  /**
+   * Called by the runner once a scheduled post's slot time has passed.
+   * YouTube normally flips the video public itself via status.publishAt, but
+   * that is not guaranteed (notably, API projects that haven't completed
+   * Google's audit get uploads locked private and publishAt is ignored) — so
+   * verify, and force privacyStatus "public" with videos.update if needed.
+   */
+  async finalize(item: QueueItem, state: PlatformState): Promise<PostResult> {
+    if (!state.postId) {
+      throw new PermanentError(`YouTube post for ${item.clipPath} has no video id recorded — cannot verify it went public.`);
+    }
+    const token = await youtubeAccessToken();
+    const current = await fetchJson<{ items?: Array<{ status?: Record<string, unknown> }> }>(
+      `${VIDEOS_URL}?part=status&id=${encodeURIComponent(state.postId)}`,
+      { label: "YouTube video status check", method: "GET", headers: { Authorization: `Bearer ${token}` } }
+    );
+    const status = current.items?.[0]?.status;
+    if (!status) {
+      throw new PermanentError(`YouTube video ${state.postId} was not found — it may have been deleted from the channel.`);
+    }
+    if (status.privacyStatus === "public") {
+      return { status: "published", postId: state.postId, detail: "went public on schedule (YouTube honored status.publishAt)" };
+    }
+    // Keep the rest of the status part intact; drop publishAt (it has passed
+    // and must not be resent with a non-private video) and set it public.
+    const nextStatus: Record<string, unknown> = { ...status, privacyStatus: "public" };
+    delete nextStatus.publishAt;
+    await fetchJson(`${VIDEOS_URL}?part=status`, {
+      label: "YouTube privacy update",
+      method: "PUT",
+      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json; charset=UTF-8" },
+      body: JSON.stringify({ id: state.postId, status: nextStatus })
+    });
+    return {
+      status: "published",
+      postId: state.postId,
+      detail: "YouTube left the video private past its slot time — set it public via videos.update"
     };
   }
 };

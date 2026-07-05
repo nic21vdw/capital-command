@@ -26,7 +26,7 @@ describe("publish queue state machine", () => {
     const item = testItem({ publishAt: PUBLISH_AT });
     await queue.add(item);
 
-    await queue.recordSuccess(item, "youtube", { status: "scheduled", postId: "vid123" }, DUE);
+    await queue.recordSuccess(item, "youtube", { status: "published", postId: "vid123" }, DUE);
     await queue.recordSuccess(item, "instagram", { status: "published", postId: "media456" }, DUE);
     await queue.recordFailure(item, "tiktok", { message: "bad request", transient: false }, DUE);
 
@@ -35,6 +35,22 @@ describe("publish queue state machine", () => {
     expect(item.platforms.instagram?.publishedAt).toBe(DUE.toISOString());
     expect(item.platforms.tiktok?.status).toBe("failed");
     expect(item.platforms.tiktok?.error).toBe("bad request");
+  });
+
+  it("scheduled posts come due again once publishAt passes, to verify the public flip", async () => {
+    const { queue } = makeQueue();
+    const item = testItem({ publishAt: PUBLISH_AT, platformIds: ["youtube"] });
+    await queue.add(item);
+
+    await queue.recordSuccess(item, "youtube", { status: "scheduled", postId: "vid123" }, BEFORE);
+    // Uploaded and natively scheduled — nothing to do until the slot time.
+    expect(queue.duePlatforms(item, BEFORE)).toEqual([]);
+    // Slot time passed — due once more so the runner can finalize (verify or
+    // force the video public).
+    expect(queue.duePlatforms(item, DUE)).toEqual(["youtube"]);
+
+    await queue.recordSuccess(item, "youtube", { status: "published", postId: "vid123" }, DUE);
+    expect(queue.duePlatforms(item, new Date(DUE.getTime() + 60_000))).toEqual([]);
   });
 
   it("stamps uploadedAt once on first success, for the quota meter", async () => {
