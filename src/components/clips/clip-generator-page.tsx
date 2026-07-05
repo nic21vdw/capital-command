@@ -79,6 +79,8 @@ export function ClipGeneratorPage() {
   const [submitting, setSubmitting] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [retryingJobId, setRetryingJobId] = useState<string | null>(null);
+  const [dragActive, setDragActive] = useState(false);
+  const dragDepth = useRef(0);
   const uploadInputRef = useRef<HTMLInputElement>(null);
 
   const activeJob = useMemo(
@@ -172,6 +174,24 @@ export function ClipGeneratorPage() {
       }
     },
     [brief, startJob]
+  );
+
+  const onDrop = useCallback(
+    (event: React.DragEvent) => {
+      event.preventDefault();
+      dragDepth.current = 0;
+      setDragActive(false);
+      if (submitting || uploading) return;
+      const file = Array.from(event.dataTransfer.files).find(
+        (item) => item.type.startsWith("video/") || /\.(mp4|mov|mkv|webm|avi|m4v)$/i.test(item.name)
+      );
+      if (!file) {
+        toast.error("Drop a video file (mp4, mov, mkv, webm...).");
+        return;
+      }
+      void uploadFile(file);
+    },
+    [submitting, uploading, uploadFile]
   );
 
   const editClip = useCallback(
@@ -297,15 +317,36 @@ export function ClipGeneratorPage() {
                   event.target.value = "";
                 }}
               />
-              <Button
-                variant="secondary"
-                onClick={() => uploadInputRef.current?.click()}
-                disabled={busy}
-                className="w-full"
+              <div
+                onDragEnter={(event) => {
+                  event.preventDefault();
+                  dragDepth.current += 1;
+                  setDragActive(true);
+                }}
+                onDragOver={(event) => event.preventDefault()}
+                onDragLeave={(event) => {
+                  event.preventDefault();
+                  dragDepth.current = Math.max(0, dragDepth.current - 1);
+                  if (dragDepth.current === 0) setDragActive(false);
+                }}
+                onDrop={onDrop}
+                className={cn(
+                  "rounded-lg border border-dashed p-1 transition",
+                  dragActive
+                    ? "border-[var(--accent)] bg-[var(--accent)]/10"
+                    : "border-transparent"
+                )}
               >
-                {uploading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Upload className="mr-2 h-4 w-4" />}
-                {uploading ? "Uploading..." : "Upload a video file"}
-              </Button>
+                <Button
+                  variant="secondary"
+                  onClick={() => uploadInputRef.current?.click()}
+                  disabled={busy}
+                  className="w-full"
+                >
+                  {uploading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Upload className="mr-2 h-4 w-4" />}
+                  {dragActive ? "Drop to upload" : uploading ? "Uploading..." : "Upload a video file"}
+                </Button>
+              </div>
             </div>
           </Card>
 
