@@ -77,21 +77,49 @@ export function NumberField({
   );
 }
 
+/**
+ * Curated caption/overlay swatches. Kept to a small, opinionated set so the
+ * palette stays readable on video instead of an unbounded colour picker.
+ * Dracula purple leads the accent row by request.
+ */
+export const COLOR_SWATCHES: { value: string; label: string }[] = [
+  { value: "#ffffff", label: "White" },
+  { value: "#000000", label: "Black" },
+  { value: "#9aa0aa", label: "Slate" },
+  { value: "#bd93f9", label: "Dracula purple" },
+  { value: "#7c5cff", label: "Violet" },
+  { value: "#ff79c6", label: "Pink" },
+  { value: "#ff5c8a", label: "Rose" },
+  { value: "#ff9f43", label: "Orange" },
+  { value: "#ffd34d", label: "Yellow" },
+  { value: "#39e08b", label: "Green" },
+  { value: "#8be9fd", label: "Cyan" },
+  { value: "#5cc8ff", label: "Blue" }
+];
+
 export function ColorField({ label, value, onChange }: { label: string; value: string; onChange: (value: string) => void }) {
+  const current = value.toLowerCase();
   return (
     <Field label={label}>
-      <div className="flex items-center gap-2">
-        <input
-          type="color"
-          value={value}
-          onChange={(e) => onChange(e.target.value)}
-          className="h-9 w-10 shrink-0 cursor-pointer rounded-lg border border-[var(--border)] bg-transparent p-0.5"
-        />
-        <input
-          value={value}
-          onChange={(e) => onChange(e.target.value)}
-          className="h-9 w-full rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-2.5 text-xs text-white outline-none focus:border-[var(--accent)]"
-        />
+      <div className="flex flex-wrap gap-1.5">
+        {COLOR_SWATCHES.map((swatch) => {
+          const selected = swatch.value.toLowerCase() === current;
+          return (
+            <button
+              key={swatch.value}
+              type="button"
+              title={swatch.label}
+              aria-label={swatch.label}
+              aria-pressed={selected}
+              onClick={() => onChange(swatch.value)}
+              style={{ backgroundColor: swatch.value }}
+              className={cn(
+                "h-7 w-7 rounded-md border transition-transform duration-150 hover:scale-110",
+                selected ? "border-white ring-2 ring-[var(--accent)]" : "border-white/15"
+              )}
+            />
+          );
+        })}
       </div>
     </Field>
   );

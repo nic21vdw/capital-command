@@ -198,6 +198,24 @@ describe("buildAss", () => {
     );
     expect(ass).toContain("one two\\Nthree four");
   });
+
+  it("anchors every event at the drag-placed center when offsets are set", () => {
+    const ass = buildAss(
+      [seg("a", 0, 2, "hello world")],
+      { ...defaultCaptionStyle, offsetX: 0.5, offsetY: 0.25 },
+      1080,
+      1920,
+      true
+    );
+    const dialogues = ass.split("\n").filter((line) => line.startsWith("Dialogue: 0,"));
+    expect(dialogues.length).toBeGreaterThan(0);
+    for (const line of dialogues) expect(line).toContain("{\\an5\\pos(540,480)}");
+  });
+
+  it("leaves events unpositioned when no offsets are set", () => {
+    const ass = buildAss([seg("a", 0, 2, "hello world")], defaultCaptionStyle, 1080, 1920, false);
+    expect(ass).not.toContain("\\pos(");
+  });
 });
 
 describe("buildWatermarkDialogue", () => {
