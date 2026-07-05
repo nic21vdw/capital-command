@@ -57,8 +57,7 @@ export function Tabs({ tabs, paramKey = "tab" }: { tabs: TabItem[]; paramKey?: s
           );
         })}
       </div>
-      {/* Keyed so switching tabs animates the incoming panel in. */}
-      <div key={current?.id} className="panel-in">
+      <div key={current?.id} className="panel-enter">
         {current?.content}
       </div>
     </div>

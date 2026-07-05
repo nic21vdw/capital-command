@@ -1,6 +1,20 @@
 @import "tailwindcss";
 
 /*
+  Motion system
+  -------------
+  iOS-style motion everywhere: every Tailwind `transition*` utility picks up the
+  UIKit ease-out curve and a slightly longer duration, so hovers, presses, and
+  state changes all decelerate the way native iOS controls do.
+*/
+@theme {
+  --ease-ios: cubic-bezier(0.32, 0.72, 0, 1);
+  --ease-ios-spring: cubic-bezier(0.175, 0.885, 0.32, 1.1);
+  --default-transition-timing-function: cubic-bezier(0.32, 0.72, 0, 1);
+  --default-transition-duration: 200ms;
+}
+
+/*
   Theme system
   ------------
   The app is driven by a single `data-theme` attribute on <html>. Each theme is a
@@ -177,11 +191,133 @@ body {
   background: var(--background);
   color: var(--foreground);
   font-family: ui-sans-serif, system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  /* Enter animations slide content in from the right; clip the brief overhang
+     instead of flashing a horizontal scrollbar. */
+  overflow-x: clip;
 }
 
 a {
   color: inherit;
   text-decoration: none;
+}
+
+/*
+  iOS-style press feedback
+  ------------------------
+  Buttons and block-level links compress slightly while pressed, like native
+  UIKit controls. `scale` (the individual transform property) is used instead of
+  `transform` so Tailwind translate/rotate utilities keep working, and inline
+  text links are unaffected because inline boxes are not transformable.
+  Lives in @layer base so any utility class can still override it, and
+  `[data-no-press]` opts an element out entirely.
+*/
+@layer base {
+  button,
+  [role="button"],
+  a,
+  input,
+  select,
+  textarea,
+  label,
+  summary {
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  button,
+  [role="button"],
+  a,
+  summary {
+    touch-action: manipulation;
+  }
+
+  :where(button, [role="button"], a):not([data-no-press]) {
+    transition: scale 180ms var(--ease-ios);
+  }
+
+  :where(button, [role="button"], a):not([data-no-press]):not(:disabled):active {
+    scale: 0.97;
+  }
+}
+
+/*
+  Enter animations
+  ----------------
+  Page navigations push in from the right like a UINavigationController;
+  modals rise and spring like a sheet; tab panels cross-fade with a small lift.
+  `backwards` fill keeps the first frame stable, and once an animation finishes
+  the element reverts to its untransformed base state (so position: fixed
+  descendants are unaffected afterwards).
+*/
+@keyframes ios-page-enter {
+  from {
+    opacity: 0;
+    transform: translate3d(16px, 0, 0);
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+  }
+}
+
+@keyframes ios-fade-enter {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes ios-sheet-enter {
+  from {
+    opacity: 0;
+    transform: translate3d(0, 18px, 0) scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+}
+
+@keyframes ios-panel-enter {
+  from {
+    opacity: 0;
+    transform: translate3d(0, 6px, 0);
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+  }
+}
+
+.page-enter {
+  animation: ios-page-enter 320ms var(--ease-ios) backwards;
+}
+
+.modal-backdrop-enter {
+  animation: ios-fade-enter 220ms ease-out backwards;
+}
+
+.modal-panel-enter {
+  animation: ios-sheet-enter 300ms var(--ease-ios-spring) backwards;
+}
+
+.panel-enter {
+  animation: ios-panel-enter 240ms var(--ease-ios) backwards;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .page-enter,
+  .modal-backdrop-enter,
+  .modal-panel-enter,
+  .panel-enter {
+    animation: none;
+  }
+
+  :where(button, [role="button"], a):active {
+    scale: none;
+  }
 }
 
 table {
@@ -223,15 +359,6 @@ td {
   }
 }
 
-@keyframes overlay-in {
-  from {
-    opacity: 0;
-  }
-  to {
-    opacity: 1;
-  }
-}
-
 /* Short-form caption entrances (mirrored by the export's ASS \t/\fad tags). */
 @keyframes caption-pop {
   from {
@@ -264,18 +391,6 @@ td {
 
 .animate-in {
   animation: fade-up 0.35s cubic-bezier(0.16, 1, 0.3, 1) both;
-}
-
-.panel-in {
-  animation: fade-up 0.25s cubic-bezier(0.16, 1, 0.3, 1) both;
-}
-
-.overlay-in {
-  animation: overlay-in 0.2s ease-out both;
-}
-
-.modal-in {
-  animation: scale-in 0.22s cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
 @media (prefers-reduced-motion: reduce) {

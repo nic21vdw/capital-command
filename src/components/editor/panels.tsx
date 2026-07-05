@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { memo, useRef, useState } from "react";
 import {
   ArrowDown,
   ArrowUp,
@@ -102,7 +102,10 @@ function LayoutThumb({ id }: { id: ClipCompositionMode }) {
 
 // --- Captions panel --------------------------------------------------------
 
-export function CaptionsPanel({ api }: { api: EditorApi }) {
+// All panels are memoized: the editor re-renders ~11 times a second while the
+// preview plays (the playhead ticks), and the panels — which never show the
+// playhead — would otherwise re-render their whole form tree each tick.
+export const CaptionsPanel = memo(function CaptionsPanel({ api }: { api: EditorApi }) {
   const { project } = api;
   return (
     <div className="space-y-3">
@@ -179,11 +182,11 @@ export function CaptionsPanel({ api }: { api: EditorApi }) {
       )}
     </div>
   );
-}
+});
 
 // --- Style panel -----------------------------------------------------------
 
-export function StylePanel({ api }: { api: EditorApi }) {
+export const StylePanel = memo(function StylePanel({ api }: { api: EditorApi }) {
   const s = api.project.captionStyle;
   const set = (partial: Partial<typeof s>) => api.patch({ captionStyle: { ...s, ...partial } });
 
@@ -289,11 +292,11 @@ export function StylePanel({ api }: { api: EditorApi }) {
       </div>
     </div>
   );
-}
+});
 
 // --- Layout panel ------------------------------------------------------------
 
-export function LayoutPanel({ api }: { api: EditorApi }) {
+export const LayoutPanel = memo(function LayoutPanel({ api }: { api: EditorApi }) {
   const { project } = api;
   const r = project.reframe;
   const dims = aspectDimensions(project.aspectRatio);
@@ -454,11 +457,11 @@ export function LayoutPanel({ api }: { api: EditorApi }) {
       )}
     </div>
   );
-}
+});
 
 // --- Overlays panel --------------------------------------------------------
 
-export function OverlaysPanel({ api }: { api: EditorApi }) {
+export const OverlaysPanel = memo(function OverlaysPanel({ api }: { api: EditorApi }) {
   const { project } = api;
   const fileRef = useRef<HTMLInputElement>(null);
   const [pendingKind, setPendingKind] = useState<OverlayKind>("image");
@@ -538,11 +541,11 @@ export function OverlaysPanel({ api }: { api: EditorApi }) {
       )}
     </div>
   );
-}
+});
 
 // --- Audio panel -----------------------------------------------------------
 
-export function AudioPanel({ api }: { api: EditorApi }) {
+export const AudioPanel = memo(function AudioPanel({ api }: { api: EditorApi }) {
   const a = api.project.audio;
   const set = (partial: Partial<typeof a>) => api.patch({ audio: { ...a, ...partial } });
   const musicRef = useRef<HTMLInputElement>(null);
@@ -587,11 +590,11 @@ export function AudioPanel({ api }: { api: EditorApi }) {
       </div>
     </div>
   );
-}
+});
 
 // --- Export panel ----------------------------------------------------------
 
-export function ExportPanel({ api }: { api: EditorApi }) {
+export const ExportPanel = memo(function ExportPanel({ api }: { api: EditorApi }) {
   const e = api.project.exportSettings;
   const set = (partial: Partial<typeof e>) => api.patch({ exportSettings: { ...e, ...partial } });
   const state = api.exportState;
@@ -707,7 +710,7 @@ export function ExportPanel({ api }: { api: EditorApi }) {
       </div>
     </div>
   );
-}
+});
 
 // --- small shared bits -----------------------------------------------------
 

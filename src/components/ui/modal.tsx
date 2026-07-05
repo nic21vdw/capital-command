@@ -25,7 +25,7 @@ export function Modal({
 
   return (
     <div
-      className="overlay-in fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm"
+      className="modal-backdrop-enter fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm"
       onPointerDown={(e) => {
         if (e.target === e.currentTarget) onClose();
       }}
@@ -34,7 +34,7 @@ export function Modal({
         role="dialog"
         aria-modal="true"
         aria-label={title}
-        className="modal-in w-full max-w-3xl rounded-2xl border border-[var(--border)] bg-[var(--panel)] p-6 shadow-[0_24px_64px_rgba(0,0,0,0.4)]"
+        className="modal-panel-enter w-full max-w-3xl rounded-2xl border border-[var(--border)] bg-[var(--panel)] p-6 shadow-[0_24px_64px_rgba(0,0,0,0.4)]"
       >
         <div className="mb-4 flex items-start justify-between gap-4">
           <div>
