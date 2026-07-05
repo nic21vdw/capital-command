@@ -107,7 +107,16 @@ export function ClipEditor({
         const res = await fetch(`/api/clips/${project.jobId}`, { cache: "no-store" });
         if (!res.ok || cancelled) return;
         const { job } = (await res.json()) as { job: ClipJob };
-        if (!cancelled) setSourceJob(job);
+        if (cancelled) return;
+        setSourceJob(job);
+        // The backend clip title is the shared source of truth across the
+        // Generator, Editor and Uploading Center — adopt it if it was renamed
+        // elsewhere since this project was last opened.
+        setProject((prev) => {
+          const clip = job.clips.find((candidate) => candidate.file === prev.sourceFile);
+          if (!clip?.title || clip.title === prev.title) return prev;
+          return { ...prev, title: clip.title, name: clip.title };
+        });
       } catch {
         // The bin is optional — the editor works without it.
       }
@@ -178,6 +187,31 @@ export function ClipEditor({
   const patch = useCallback((partial: Partial<ClipProject>) => {
     setProject((prev) => ({ ...prev, ...partial }));
   }, []);
+
+  // Write title edits (typed or generated) through to the backend clip, so
+  // the Clip Generator and the Uploading Center show the same name. Debounced
+  // like the autosave; comparing against the loaded job prevents loops, and
+  // updating sourceJob from the response keeps the comparison current.
+  useEffect(() => {
+    const clip = sourceJob?.clips.find((candidate) => candidate.file === project.sourceFile);
+    const title = project.title.trim();
+    if (!clip || !title || title === (clip.title ?? "")) return;
+    const timer = setTimeout(() => {
+      void (async () => {
+        try {
+          const res = await fetch(`/api/clips/${project.jobId}`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ clipId: clip.id, clipTitle: title })
+          });
+          if (res.ok) setSourceJob(((await res.json()) as { job: ClipJob }).job);
+        } catch {
+          // Non-fatal — the next title edit retries.
+        }
+      })();
+    }, 700);
+    return () => clearTimeout(timer);
+  }, [project.title, project.jobId, project.sourceFile, sourceJob]);
 
   // Reads muted/volume through refs so the callback stays stable — otherwise
   // every step of a volume drag would re-run the preview's video-ready effect.
@@ -629,7 +663,7 @@ export function ClipEditor({
                         </span>
                         <span className="min-w-0 flex-1">
                           <span className="block truncate text-xs font-medium text-white">
-                            {clip.hookQuote || `Clip ${index + 1}`}
+                            {clip.title || clip.hookQuote || `Clip ${index + 1}`}
                           </span>
                           <span className="block text-[11px] text-[var(--muted-foreground)]">
                             {Math.round(clip.end - clip.start)}s{clip.score > 0 ? ` · score ${clip.score}` : ""}

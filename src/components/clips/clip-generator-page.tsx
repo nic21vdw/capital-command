@@ -202,6 +202,32 @@ export function ClipGeneratorPage() {
     [submitting, uploading, uploadFile]
   );
 
+  const renameClip = useCallback(
+    async (job: ClipJob, clip: ClipCandidate, title: string) => {
+      const trimmed = title.trim();
+      if (trimmed === (clip.title ?? "")) return;
+      setJobs((prev) =>
+        prev.map((j) =>
+          j.id === job.id
+            ? { ...j, clips: j.clips.map((c) => (c.id === clip.id ? { ...c, title: trimmed || undefined } : c)) }
+            : j
+        )
+      );
+      try {
+        const response = await fetch(`/api/clips/${job.id}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ clipId: clip.id, clipTitle: trimmed })
+        });
+        if (!response.ok) throw new Error();
+      } catch {
+        toast.error("Could not rename the clip.");
+        void refresh();
+      }
+    },
+    [refresh]
+  );
+
   const editClip = useCallback(
     async (job: ClipJob, clip: ClipCandidate, index: number, sourceFile = clip.file) => {
       if (!sourceFile) return;
@@ -234,6 +260,9 @@ export function ClipGeneratorPage() {
       project.captions = words.length ? chunkWords(words, project.captionStyle.maxWordsPerCaption) : windowed;
       project.title = generateClipTitle(project.captions, `Clip ${index + 1}`);
       if (project.title) project.name = project.title;
+      // Share the auto-generated title with the backend clip so the Generator
+      // and the Uploading Center headline match the editor from the start.
+      if (project.title && !clip.title) void renameClip(job, clip, project.title);
       writeDraftProject(project);
       const params = new URLSearchParams({
         open: project.id,
@@ -244,7 +273,7 @@ export function ClipGeneratorPage() {
       router.push(`/editor?${params.toString()}`);
       void mutate("upsertClipProject", project);
     },
-    [clipProjects, mutate, router]
+    [clipProjects, mutate, renameClip, router]
   );
 
   const renameProject = useCallback(
@@ -261,32 +290,6 @@ export function ClipGeneratorPage() {
         if (!response.ok) throw new Error();
       } catch {
         toast.error("Could not rename the project.");
-        void refresh();
-      }
-    },
-    [refresh]
-  );
-
-  const renameClip = useCallback(
-    async (job: ClipJob, clip: ClipCandidate, title: string) => {
-      const trimmed = title.trim();
-      if (trimmed === (clip.title ?? "")) return;
-      setJobs((prev) =>
-        prev.map((j) =>
-          j.id === job.id
-            ? { ...j, clips: j.clips.map((c) => (c.id === clip.id ? { ...c, title: trimmed || undefined } : c)) }
-            : j
-        )
-      );
-      try {
-        const response = await fetch(`/api/clips/${job.id}`, {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ clipId: clip.id, clipTitle: trimmed })
-        });
-        if (!response.ok) throw new Error();
-      } catch {
-        toast.error("Could not rename the clip.");
         void refresh();
       }
     },
