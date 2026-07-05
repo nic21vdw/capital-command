@@ -1,6 +1,7 @@
 "use client";
 
-import { Film } from "lucide-react";
+import { Film, Loader2, Wand2 } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Select } from "@/components/ui/select";
 import { ClipCard } from "@/components/uploading-center/clip-card";
@@ -26,7 +27,8 @@ export function ClipQueue({
   isSlotTaken,
   itemsForClip,
   busy,
-  onSchedule
+  onSchedule,
+  onAutoAssign
 }: {
   jobs: ClipJob[];
   activeJob: ClipJob | null;
@@ -40,25 +42,45 @@ export function ClipQueue({
   itemsForClip: (clip: ReadyClip) => QueueItem[];
   busy: string | null;
   onSchedule: (clip: ReadyClip) => void;
+  onAutoAssign: () => void;
 }) {
+  const autoAssigning = busy === "auto-assign";
   return (
     <Card className="space-y-4">
-      <div className="flex items-center justify-between gap-3">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <h2 className="text-sm font-semibold text-white">Clips in this run</h2>
-        {jobs.length > 1 ? (
-          <Select
-            value={activeJob?.id ?? ""}
-            onChange={(event) => onSelectJob(event.target.value)}
-            className="h-9 w-auto max-w-56"
-            aria-label="Clip run"
-          >
-            {jobs.map((job) => (
-              <option key={job.id} value={job.id}>
-                {job.fileName}
-              </option>
-            ))}
-          </Select>
-        ) : null}
+        <div className="flex items-center gap-2">
+          {jobs.length > 1 ? (
+            <Select
+              value={activeJob?.id ?? ""}
+              onChange={(event) => onSelectJob(event.target.value)}
+              className="h-9 w-auto max-w-56"
+              aria-label="Clip run"
+            >
+              {jobs.map((job) => (
+                <option key={job.id} value={job.id}>
+                  {job.fileName}
+                </option>
+              ))}
+            </Select>
+          ) : null}
+          {clips.length > 0 ? (
+            <Button
+              variant="secondary"
+              className="h-9 px-3 text-xs"
+              onClick={onAutoAssign}
+              disabled={autoAssigning}
+              title="Assign every unscheduled clip in this run to the next open slots"
+            >
+              {autoAssigning ? (
+                <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <Wand2 className="mr-1.5 h-3.5 w-3.5" />
+              )}
+              Auto Assign
+            </Button>
+          ) : null}
+        </div>
       </div>
       {clips.length === 0 ? (
         <div className="flex flex-col items-center gap-2 rounded-lg border border-dashed border-[var(--border)] py-10 text-center">

@@ -52,6 +52,7 @@ export function UploadingCenterPage() {
     dismissUploadSuccess,
     renameClip,
     schedule,
+    autoAssign,
     publishNow,
     remove,
     refresh
@@ -139,6 +140,40 @@ export function UploadingCenterPage() {
 
   const slots = useMemo(() => overview?.slots ?? [], [overview]);
   const slotUtcSet = useMemo(() => new Set(slots.map((slot) => slot.utc)), [slots]);
+
+  // Auto Assign: pair every not-yet-scheduled clip in this run with the next
+  // open slot for its card's platform (slots are ordered soonest-first).
+  // Slots consumed within the batch are tracked locally so two clips never
+  // land on the same time.
+  const handleAutoAssign = useCallback(() => {
+    const consumed = new Set<string>();
+    const assignments: Array<{ clip: ReadyClip; draft: ClipDraft }> = [];
+    let unslotted = 0;
+    for (const clip of readyClips) {
+      if (itemsForClip(clip).length > 0) continue;
+      const draft = draftFor(clip);
+      const slot = slots.find(
+        (candidate) =>
+          !candidate.past &&
+          !consumed.has(`${draft.platform}:${candidate.utc}`) &&
+          !isSlotTaken(draft.platform, candidate.utc)
+      );
+      if (!slot) {
+        unslotted += 1;
+        continue;
+      }
+      consumed.add(`${draft.platform}:${slot.utc}`);
+      assignments.push({ clip, draft: { ...draft, slotUtc: slot.utc } });
+    }
+    if (assignments.length === 0) {
+      toast.info(unslotted > 0 ? "No open slots left on the schedule." : "Every clip in this run is already scheduled.");
+      return;
+    }
+    if (unslotted > 0) {
+      toast.info(`${unslotted} clip${unslotted === 1 ? "" : "s"} left unassigned — the schedule ran out of open slots.`);
+    }
+    void autoAssign(assignments);
+  }, [autoAssign, draftFor, isSlotTaken, itemsForClip, readyClips, slots]);
 
   const tabs = PLATFORM_TABS.map(({ id, icon }) => {
     const configured = overview?.platforms[id]?.configured ?? false;
@@ -273,6 +308,7 @@ export function UploadingCenterPage() {
             itemsForClip={itemsForClip}
             busy={busy}
             onSchedule={(clip) => handleSchedule(clip)}
+            onAutoAssign={handleAutoAssign}
           />
           <div className="min-w-0">
             <Tabs tabs={tabs} paramKey="platform" />
