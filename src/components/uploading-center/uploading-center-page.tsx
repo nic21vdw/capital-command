@@ -9,6 +9,7 @@ import {
   CheckCircle2,
   ChevronLeft,
   ChevronRight,
+  Clapperboard,
   ExternalLink,
   Facebook,
   Instagram,
@@ -33,6 +34,7 @@ import {
   SLOT_WINDOW_DAYS,
   remoteUrlFor,
   studioContentUrl,
+  studioVideoUrl,
   useUploadingCenter,
   type ClipDraft,
   type ReadyClip,
@@ -71,6 +73,7 @@ export function UploadingCenterPage() {
     uploadSuccess,
     dismissUploadSuccess,
     renameClip,
+    renameQueueItem,
     schedule,
     uploadToSlot,
     autoAssign,
@@ -300,6 +303,7 @@ export function UploadingCenterPage() {
             onSelectSlot={placingClip ? (slotUtc) => handleSelectSlot(id, slotUtc) : undefined}
             onPublishNow={(item) => void publishNow(item)}
             onRemove={(item) => void remove(item)}
+            onRename={(item, title) => void renameQueueItem(item, title)}
             busy={busy}
           />
           {offGrid.length > 0 ? (
@@ -472,9 +476,16 @@ function UploadSuccessDialog({
           </Button>
           <Button
             className="h-11 flex-1"
-            onClick={() => window.open(studioContentUrl(channelId), "_blank", "noopener")}
+            onClick={() =>
+              window.open(
+                success.postId ? studioVideoUrl(success.postId) : studioContentUrl(channelId),
+                "_blank",
+                "noopener"
+              )
+            }
           >
-            <ExternalLink className="mr-2 h-4 w-4" /> Open YouTube Studio Content
+            <ExternalLink className="mr-2 h-4 w-4" />{" "}
+            {success.postId ? "Edit in YouTube Studio" : "Open YouTube Studio Content"}
           </Button>
         </div>
         {scheduled ? (
@@ -612,8 +623,25 @@ function ChannelVideoList({ videos, timezone }: { videos: ChannelVideo[]; timezo
               : `Uploaded ${formatTime(video.publishAtUtc)}`}
           </span>
           <span className="flex-1" />
-          <a href={video.url} target="_blank" rel="noreferrer" aria-label="Open on YouTube" className="text-[var(--accent)]">
+          <a
+            href={video.url}
+            target="_blank"
+            rel="noreferrer"
+            aria-label="View the video"
+            title="View the video"
+            className="text-[var(--accent)]"
+          >
             <ExternalLink className="h-3.5 w-3.5" />
+          </a>
+          <a
+            href={studioVideoUrl(video.videoId)}
+            target="_blank"
+            rel="noreferrer"
+            aria-label="Edit in YouTube Studio"
+            title="Edit in YouTube Studio (title, description…)"
+            className="text-[var(--accent)]"
+          >
+            <Clapperboard className="h-3.5 w-3.5" />
           </a>
         </div>
       ))}
@@ -654,8 +682,27 @@ function OffGridList({
             <span className="truncate font-medium text-white">{item.title}</span>
             <span className="text-[var(--muted-foreground)]">{new Date(item.publishAt).toLocaleString()}</span>
             {url ? (
-              <a href={url} target="_blank" rel="noreferrer" className="text-[var(--accent)]">
+              <a
+                href={url}
+                target="_blank"
+                rel="noreferrer"
+                aria-label="View the video"
+                title="View the video"
+                className="text-[var(--accent)]"
+              >
                 <ExternalLink className="h-3.5 w-3.5" />
+              </a>
+            ) : null}
+            {platform === "youtube" && state.postId ? (
+              <a
+                href={studioVideoUrl(state.postId)}
+                target="_blank"
+                rel="noreferrer"
+                aria-label="Edit in YouTube Studio"
+                title="Edit in YouTube Studio (title, description…)"
+                className="text-[var(--accent)]"
+              >
+                <Clapperboard className="h-3.5 w-3.5" />
               </a>
             ) : null}
             <span className="flex-1" />
