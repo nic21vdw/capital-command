@@ -22,7 +22,8 @@ const UPLOAD_URL = "https://www.googleapis.com/upload/youtube/v3/videos?uploadTy
 
 let cachedToken: { accessToken: string; expiresAt: number } | null = null;
 
-async function accessToken(): Promise<string> {
+/** Shared by the upload adapter and the channel-schedule reader. */
+export async function youtubeAccessToken(): Promise<string> {
   const { youtube } = publisherConfig();
   if (!youtube.clientId || !youtube.clientSecret || !youtube.refreshToken) {
     throw new PermanentError(
@@ -81,7 +82,7 @@ export const youtubeAdapter: PlatformAdapter = {
   },
 
   async validateAuth(): Promise<void> {
-    await accessToken();
+    await youtubeAccessToken();
   },
 
   buildPlan(input: PublishInput): PublishPlan {
@@ -104,7 +105,7 @@ export const youtubeAdapter: PlatformAdapter = {
   },
 
   async publish(input: PublishInput): Promise<PostResult> {
-    const token = await accessToken();
+    const token = await youtubeAccessToken();
     const { body, scheduled } = buildBody(input);
     const media = await readFile(input.localPath);
     const size = (await stat(input.localPath)).size;
