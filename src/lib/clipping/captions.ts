@@ -409,18 +409,26 @@ export function buildTextOverlayDialogue(
 const COLATERAL_PURPLE = "#a855f7";
 
 /**
- * A bottom-left CoLateral watermark lockup — a purple rounded badge next to the
+ * A left-aligned CoLateral watermark lockup — a purple rounded badge next to the
  * "CoLateral AI" wordmark — burned for the whole clip. Emitted as two
  * separately positioned ASS lines (badge \an1, wordmark \an4 vertically centered
- * on the badge) so layout stays exact regardless of font metrics.
+ * on the badge) so layout stays exact regardless of font metrics. `position`
+ * pins the lockup to the top-left or bottom-left corner (default bottom).
  */
-export function buildWatermarkDialogue(height: number, start: number, end: number): string {
+export function buildWatermarkDialogue(
+  height: number,
+  start: number,
+  end: number,
+  position: "top" | "bottom" = "bottom"
+): string {
   const pad = Math.round(height * 0.035);
   const fs = Math.max(10, Math.round(height * 0.03));
   const b = Math.round(fs * 1.15); // badge side
   const gap = Math.round(fs * 0.4);
   const r = Math.max(2, Math.round(b * 0.28)); // corner radius
-  const baseY = height - pad; // bottom of the badge
+  // \an1 anchors the badge's bottom-left at `baseY`; the path rises b px above
+  // it. Top placement sits the badge b px below the pad; bottom hugs the floor.
+  const baseY = position === "top" ? pad + b : height - pad; // bottom of the badge
   const midY = baseY - Math.round(b / 2); // vertical center of the badge
   // Rounded square spanning x:[0,b], y:[-b,0]; with \an1 its bottom-left sits at pos.
   const path =

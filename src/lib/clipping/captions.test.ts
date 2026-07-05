@@ -229,4 +229,21 @@ describe("buildWatermarkDialogue", () => {
     expect(lines[0]).toContain("\\p1"); // drawn purple badge
     expect(lines[1]).toContain("CoLateral AI");
   });
+
+  it("pins the lockup to the top-left when position is top", () => {
+    const height = 1920;
+    const pad = Math.round(height * 0.035);
+    const fs = Math.max(10, Math.round(height * 0.03));
+    const badge = Math.round(fs * 1.15);
+    const top = buildWatermarkDialogue(height, 0, 12.5, "top");
+    const bottom = buildWatermarkDialogue(height, 0, 12.5);
+    const [topBadge, topWordmark] = top.split("\n");
+    // Badge sits just below the top pad: its bottom edge (\an1 anchor) is pad+badge.
+    expect(topBadge).toContain(`\\pos(${pad},${pad + badge})`);
+    // Wordmark is vertically centered on the badge.
+    expect(topWordmark).toContain(`\\pos(${pad + badge + Math.round(fs * 0.4)},${pad + badge - Math.round(badge / 2)})`);
+    expect(topWordmark).toContain("CoLateral AI");
+    // Top placement is genuinely higher than the default bottom placement.
+    expect(top).not.toEqual(bottom);
+  });
 });
