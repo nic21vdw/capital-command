@@ -50,6 +50,10 @@ function fileUrl(jobId: string, fileName: string, download = false) {
   return `/api/clips/${jobId}/files/${encodeURIComponent(fileName)}${download ? "?download=1" : ""}`;
 }
 
+function thumbnailUrl(jobId: string, fileName: string) {
+  return `/api/clips/${jobId}/thumbnail/${encodeURIComponent(fileName)}`;
+}
+
 function statusLabel(job: ClipJob) {
   if (job.status === "queued" || job.status === "processing") return STAGE_LABELS[job.stage];
   if (job.status === "done") return "Ready";
@@ -506,21 +510,60 @@ function ClipCard({
 }) {
   const duration = Math.round(clip.end - clip.start);
   const videoRef = useRef<HTMLVideoElement>(null);
+  const stopTimerRef = useRef<number | null>(null);
+
+  // Once a hover preview starts, let it run at least this long even if the
+  // pointer leaves — a quick flick across the grid shouldn't cut the preview
+  // off after half a second.
+  const MIN_PREVIEW_SECONDS = 5;
+
+  const cancelPendingStop = () => {
+    if (stopTimerRef.current !== null) {
+      window.clearInterval(stopTimerRef.current);
+      stopTimerRef.current = null;
+    }
+  };
 
   // Hover (or focus) scrubs the clip silently — lets you scan moments without
   // opening the editor.
   const startPreview = () => {
     const v = videoRef.current;
     if (!v) return;
+    cancelPendingStop();
     v.muted = true;
+    // The card mounts with preload="none" so the grid renders instantly off
+    // the poster; only start buffering the mp4 once someone shows interest.
+    v.preload = "auto";
     void v.play().catch(() => undefined);
   };
   const stopPreview = () => {
     const v = videoRef.current;
     if (!v) return;
-    v.pause();
-    v.currentTime = 0;
+    const finish = () => {
+      cancelPendingStop();
+      v.pause();
+      v.currentTime = 0;
+    };
+    // Compare against played time (currentTime, since previews start at 0)
+    // rather than wall-clock time, so buffering stalls don't eat the minimum.
+    const minimum = Number.isFinite(v.duration)
+      ? Math.min(MIN_PREVIEW_SECONDS, Math.max(0, v.duration - 0.25))
+      : MIN_PREVIEW_SECONDS;
+    if (v.paused || v.currentTime >= minimum) {
+      finish();
+      return;
+    }
+    cancelPendingStop();
+    stopTimerRef.current = window.setInterval(() => {
+      if (v.currentTime >= minimum || v.paused) finish();
+    }, 200);
   };
+  useEffect(
+    () => () => {
+      if (stopTimerRef.current !== null) window.clearInterval(stopTimerRef.current);
+    },
+    []
+  );
 
   return (
     <Card className="animate-in overflow-hidden p-0 transition-all duration-200 hover:border-[var(--border-strong)] hover:shadow-lg">
@@ -530,7 +573,11 @@ function ClipCard({
             <video
               ref={videoRef}
               src={fileUrl(jobId, clip.file)}
-              preload="metadata"
+              // The poster paints the card instantly; the mp4 itself is not
+              // touched until hover, so ten cards don't fight over bandwidth
+              // (and show black boxes) while the page loads.
+              poster={thumbnailUrl(jobId, clip.file)}
+              preload="none"
               muted
               loop
               playsInline

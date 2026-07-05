@@ -6,6 +6,7 @@ import { downloadAudio, downloadSection, fetchVideoMeta } from "@/lib/clipping/d
 import { hasAudioStream, probeDuration, runFfmpeg } from "@/lib/clipping/ffmpeg";
 import { renderSourceClip } from "@/lib/clipping/render";
 import { readSourceMeta, sourceFilePath, type SourceMeta } from "@/lib/clipping/sources";
+import { ensureClipThumbnail } from "@/lib/clipping/thumbnails";
 import { fetchAutoCaptions } from "@/lib/clipping/transcription";
 import { selectByTranscript } from "@/lib/clipping/transcript-select";
 import { transcribeMedia } from "@/lib/clipping/whisper";
@@ -444,6 +445,10 @@ async function renderClipIndexes(job: ClipJob, indexes: number[]) {
       const primaryName = `${baseName}.mp4`;
       await renderSourceClip(produced, path.join(outputDir(job.id), primaryName), true);
       clip.file = primaryName;
+      // Poster frame for the clip card; fire-and-forget so a thumbnail
+      // hiccup never fails the render (the card falls back to lazy
+      // generation via the thumbnail route).
+      void ensureClipThumbnail(outputDir(job.id), primaryName);
       clip.layoutPreset = undefined;
       clip.variants = undefined;
       await unlink(produced).catch(() => undefined);
