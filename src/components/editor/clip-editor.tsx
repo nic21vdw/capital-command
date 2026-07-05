@@ -3,9 +3,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowLeft,
+  Check,
   Layers,
   LayoutTemplate,
   ListMusic,
+  Loader2,
   Pause,
   Play,
   Save,
@@ -32,10 +34,11 @@ import {
   StylePanel
 } from "@/components/editor/panels";
 import { writeDraftProject } from "@/components/editor/drafts";
+import { useEditorExports } from "@/components/editor/exports-provider";
 import { cn, safeFilename } from "@/lib/utils";
 import type { CaptionSegment, ClipProject, CropTarget, Overlay, OverlayKind } from "@/types/domain";
 import type { ClipCandidate, ClipJob } from "@/lib/clipping/types";
-import type { EditorApi, ExportUiState } from "@/components/editor/types";
+import type { EditorApi } from "@/components/editor/types";
 
 const TABS = [
   { id: "layout", label: "Layout", icon: LayoutTemplate },
@@ -59,7 +62,8 @@ export function ClipEditor({
   onClose: () => void;
   onOpenClip?: (job: ClipJob, clip: ClipCandidate, index: number) => void;
 }) {
-  const { mutate } = useAppData();
+  const { data, mutate } = useAppData();
+  const { exportStateFor, startExport } = useEditorExports();
   const [project, setProject] = useState<ClipProject>(initialProject);
   const [time, setTime] = useState(0);
   const [playing, setPlaying] = useState(false);
@@ -70,7 +74,6 @@ export function ClipEditor({
   const [selectedOverlayId, setSelectedOverlayId] = useState<string | null>(null);
   const [cropEditing, setCropEditing] = useState<CropTarget>(null);
   const [fetchingCaptions, setFetchingCaptions] = useState(false);
-  const [exportState, setExportState] = useState<ExportUiState>({ status: "idle", progress: 0 });
   const [saved, setSaved] = useState(true);
   const [saving, setSaving] = useState(false);
   const [sourceJob, setSourceJob] = useState<ClipJob | null>(null);
@@ -462,53 +465,15 @@ export function ClipEditor({
     URL.revokeObjectURL(url);
   }, [project.captions, project.name, project.exportSettings.filename]);
 
-  const runExport = useCallback(async () => {
-    setExportState({ status: "starting", progress: 0 });
-    try {
-      // Persist first so the server export reads the latest edit instructions.
-      const next = { ...project, updatedAt: new Date().toISOString() };
-      writeDraftProject(next);
-      await mutate("upsertClipProject", next);
-      const res = await fetch(`/api/clips/${project.jobId}/export`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(project)
-      });
-      const data = (await res.json()) as { export?: { id: string }; error?: string };
-      if (!res.ok || !data.export) {
-        setExportState({ status: "error", progress: 0, error: data.error ?? "Export could not start." });
-        return;
-      }
-      setExportState({ status: "processing", progress: 1, exportId: data.export.id });
-    } catch {
-      setExportState({ status: "error", progress: 0, error: "Export request failed." });
-    }
-  }, [project, mutate]);
+  // Kick off the render through the shared provider, which keeps polling it in
+  // the background even after this editor unmounts (e.g. you switch clips).
+  const runExport = useCallback(() => {
+    void startExport(project);
+  }, [project, startExport]);
 
-  // Poll the export until it finishes.
-  useEffect(() => {
-    if (exportState.status !== "processing" || !exportState.exportId) return;
-    const id = exportState.exportId;
-    const timer = setInterval(async () => {
-      try {
-        const res = await fetch(`/api/clips/${project.jobId}/export/${id}`, { cache: "no-store" });
-        const data = (await res.json()) as { export?: { status: string; progress: number; file?: string; error?: string } };
-        const rec = data.export;
-        if (!rec) return;
-        if (rec.status === "done") {
-          setExportState({ status: "done", progress: 100, exportId: id, file: rec.file });
-          toast.success("Export complete.");
-        } else if (rec.status === "error") {
-          setExportState({ status: "error", progress: 0, error: rec.error });
-        } else {
-          setExportState((s) => ({ ...s, progress: rec.progress }));
-        }
-      } catch {
-        /* keep polling */
-      }
-    }, 1200);
-    return () => clearInterval(timer);
-  }, [exportState.status, exportState.exportId, project.jobId]);
+  // Live progress for this clip, sourced from the background tracker so a render
+  // started here still shows its progress when you leave and come back.
+  const exportState = exportStateFor(project.id);
 
   // Memoized (and deliberately without the live playhead time) so the panels,
   // which are React.memo components, don't re-render on every playback frame.
@@ -637,6 +602,12 @@ export function ClipEditor({
                   binClips.map((clip) => {
                     const index = sourceJob.clips.indexOf(clip);
                     const active = clip.file === project.sourceFile;
+                    // Surface a background render happening on this other clip so
+                    // you can see it's still working while you edit somewhere else.
+                    const clipProject = data.clipProjects.find(
+                      (p) => p.jobId === project.jobId && p.sourceFile === clip.file
+                    );
+                    const clipExport = clipProject ? exportStateFor(clipProject.id) : null;
                     return (
                       <button
                         key={clip.id}
@@ -653,7 +624,7 @@ export function ClipEditor({
                         <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-black/40 font-mono text-xs text-white">
                           {index + 1}
                         </span>
-                        <span className="min-w-0">
+                        <span className="min-w-0 flex-1">
                           <span className="block truncate text-xs font-medium text-white">
                             {clip.hookQuote || `Clip ${index + 1}`}
                           </span>
@@ -661,6 +632,15 @@ export function ClipEditor({
                             {Math.round(clip.end - clip.start)}s{clip.score > 0 ? ` · score ${clip.score}` : ""}
                           </span>
                         </span>
+                        {clipExport && (clipExport.status === "processing" || clipExport.status === "starting") && (
+                          <span className="flex shrink-0 items-center gap-1 text-[10px] font-medium text-[var(--accent)]">
+                            <Loader2 className="h-3 w-3 animate-spin" />
+                            {clipExport.progress}%
+                          </span>
+                        )}
+                        {clipExport?.status === "done" && (
+                          <Check className="h-3.5 w-3.5 shrink-0 text-emerald-400" />
+                        )}
                       </button>
                     );
                   })}
