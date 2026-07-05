@@ -1,6 +1,5 @@
 "use client";
 
-import type { PointerEvent as ReactPointerEvent } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowDownToLine,
@@ -77,7 +76,6 @@ import type { SavedThumbnail } from "@/types/domain";
 const MAX_IMAGE_BYTES = 15 * 1024 * 1024;
 
 type Variant = { label: string; png: string; jpeg: string };
-type MoveTarget = "image" | "text";
 
 function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
