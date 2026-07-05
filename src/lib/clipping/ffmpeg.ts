@@ -98,3 +98,37 @@ export async function hasAudioStream(inputPath: string): Promise<boolean> {
   const { stderr } = await runFfmpeg(["-hide_banner", "-i", inputPath], { allowFailure: true });
   return /Stream #\d+:\d+.*Audio/.test(stderr);
 }
+
+export type VideoStreamInfo = {
+  /** Display dimensions — rotation metadata already applied. */
+  width: number;
+  height: number;
+  durationSec: number | null;
+};
+
+/** Parses `ffmpeg -i` stderr into display dimensions and duration. */
+export function parseVideoStreamInfo(stderr: string): VideoStreamInfo | null {
+  // Dimensions always follow a ", " on the Video stream line (codec fourcc
+  // hex like "0x31637661" follows "/ ", so it can never match).
+  const video = stderr.match(/Stream #\d+:\d+[^\n]*?: Video:[^\n]*?,\s*(\d{2,5})x(\d{2,5})/);
+  if (!video) return null;
+  let width = Number(video[1]);
+  let height = Number(video[2]);
+  // Phone footage is often stored landscape with a rotation side channel that
+  // players apply on display — honor it so 1920x1080 rot90 reads as vertical.
+  const rotation = stderr.match(/rotation of (-?\d+(?:\.\d+)?) degrees/);
+  if (rotation && Math.abs((Math.abs(Number(rotation[1])) % 180) - 90) < 1) [width, height] = [height, width];
+  const duration = stderr.match(/Duration:\s*(\d+):(\d+):(\d+(?:\.\d+)?)/);
+  const durationSec = duration ? Number(duration[1]) * 3600 + Number(duration[2]) * 60 + Number(duration[3]) : null;
+  return { width, height, durationSec };
+}
+
+/** Reads the video's display dimensions and duration by parsing `ffmpeg -i`. */
+export async function probeVideoStream(inputPath: string): Promise<VideoStreamInfo> {
+  const { stderr } = await runFfmpeg(["-hide_banner", "-i", inputPath], { allowFailure: true });
+  const info = parseVideoStreamInfo(stderr);
+  if (!info) {
+    throw new Error("Could not read the video dimensions — the file may be corrupt or not a video.");
+  }
+  return info;
+}

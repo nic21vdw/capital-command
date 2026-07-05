@@ -52,6 +52,8 @@ export type QueueItem = {
   id: string;
   /** Repo-relative path to the clip file (e.g. data/clips/outputs/<job>/export-x.mp4). */
   clipPath: string;
+  /** Original source render when clipPath is a derived vertical version of it. */
+  sourceClipPath?: string;
   /** Object key in the media host bucket once uploaded (needed for Instagram). */
   mediaKey?: string;
   /** Short title (YouTube title, TikTok title). */

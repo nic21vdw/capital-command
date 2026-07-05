@@ -32,7 +32,7 @@ function happyRoutes() {
     { match: "oauth2.googleapis.com/token", respond: () => jsonResponse({ access_token: "at-1", expires_in: 3600 }) },
     {
       match: "youtube/v3/channels",
-      respond: () => jsonResponse({ items: [{ contentDetails: { relatedPlaylists: { uploads: "UUabc" } } }] })
+      respond: () => jsonResponse({ items: [{ id: "UCabc", contentDetails: { relatedPlaylists: { uploads: "UUabc" } } }] })
     },
     {
       match: "youtube/v3/playlistItems",
@@ -85,7 +85,7 @@ describe("youtubeChannelSchedule", () => {
     const schedule = await youtubeChannelSchedule({ now: NOW });
 
     // The three reads, all authorized GETs.
-    expect(requests[1].url).toContain("youtube/v3/channels?part=contentDetails&mine=true");
+    expect(requests[1].url).toContain("youtube/v3/channels?part=id,contentDetails&mine=true");
     expect(requests[2].url).toContain("playlistId=UUabc");
     expect(requests[3].url).toContain("id=sched-1,pub-1,old-pub,draft-1");
     for (const request of requests.slice(1)) {
@@ -97,6 +97,7 @@ describe("youtubeChannelSchedule", () => {
     expect(schedule.needsReconnect).toBe(false);
     expect(schedule.error).toBeNull();
     expect(schedule.fetchedAt).toBe(NOW.toISOString());
+    expect(schedule.channelId).toBe("UCabc");
     // Old published videos and plain private drafts are excluded; the rest is
     // sorted by time (published yesterday before tomorrow's scheduled one).
     expect(schedule.videos).toEqual([
