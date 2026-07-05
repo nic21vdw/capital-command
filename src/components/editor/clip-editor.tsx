@@ -82,6 +82,11 @@ export function ClipEditor({
   // every playback frame.
   const timeRef = useRef(0);
   const videoSrc = `/api/clips/${project.jobId}/files/${encodeURIComponent(project.sourceFile)}?project=${encodeURIComponent(project.id)}`;
+  // Poster paints a real frame the instant the editor opens, instead of a
+  // black frame while the video data streams in.
+  const posterSrc = project.posterFile
+    ? `/api/clips/${project.jobId}/files/${encodeURIComponent(project.posterFile)}`
+    : undefined;
   const duration = project.baseDurationSec;
   const trimStart = Math.max(0, Math.min(project.trimStart ?? 0, duration));
   const trimEnd = Math.max(trimStart + 0.1, Math.min(project.trimEnd || duration, duration));
@@ -661,6 +666,7 @@ export function ClipEditor({
             project={project}
             time={time}
             videoSrc={videoSrc}
+            posterSrc={posterSrc}
             onVideoReady={handleVideoReady}
             onTogglePlay={togglePlay}
             selectedOverlayId={selectedOverlayId}

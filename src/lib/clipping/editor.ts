@@ -118,6 +118,7 @@ export function makeClipProject(input: {
   jobId: string;
   name: string;
   sourceFile: string;
+  posterFile?: string;
   sourceUrl: string;
   clipStart: number;
   clipEnd: number;
@@ -129,6 +130,7 @@ export function makeClipProject(input: {
     name: input.name,
     jobId: input.jobId,
     sourceFile: input.sourceFile,
+    posterFile: input.posterFile,
     sourceUrl: input.sourceUrl,
     baseDurationSec: duration,
     baseWidth: 1920,

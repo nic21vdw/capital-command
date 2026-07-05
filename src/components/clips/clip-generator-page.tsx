@@ -86,11 +86,14 @@ export function ClipGeneratorPage() {
     [activeJobId, jobs]
   );
   const processing = activeJob?.status === "processing" || activeJob?.status === "queued";
-  const renderedClips = useMemo(
-    () => (activeJob?.status === "done" ? activeJob.clips.filter((clip) => clip.file) : []),
+  // A clip is viewable as soon as it has an instant preview OR its final HD
+  // render — clips stream into the workspace while the job is still running.
+  const previewableClips = useMemo(
+    () => (activeJob ? activeJob.clips.filter((clip) => clip.file || clip.previewFile) : []),
     [activeJob]
   );
-  const failedClipCount = activeJob?.status === "done" ? activeJob.clips.length - renderedClips.length : 0;
+  const failedClipCount =
+    activeJob?.status === "done" ? activeJob.clips.filter((clip) => !clip.file).length : 0;
 
   const refresh = useCallback(async () => {
     try {
@@ -181,6 +184,7 @@ export function ClipGeneratorPage() {
         jobId: job.id,
         name: `${job.fileName} - clip ${index + 1}`,
         sourceFile,
+        posterFile: clip.posterFile,
         sourceUrl: job.sourceUrl,
         clipStart: clip.start,
         clipEnd: clip.end
@@ -428,14 +432,15 @@ export function ClipGeneratorPage() {
                 )}
               </Card>
 
-              {activeJob.status === "done" && (
+              {(activeJob.status === "done" || previewableClips.length > 0) && (
                 <>
                   <div className="flex flex-wrap items-center justify-between gap-3">
                     <div>
                       <h2 className="text-xl font-semibold text-white">Clips</h2>
                       <p className="text-sm text-[var(--muted-foreground)]">
-                        {renderedClips.length} clip{renderedClips.length === 1 ? "" : "s"}, best first. Open one to
-                        trim, pick a layout, and export.
+                        {processing
+                          ? `${previewableClips.length} clip${previewableClips.length === 1 ? "" : "s"} so far — previews appear the moment each one is cut, HD renders finish in the background.`
+                          : `${previewableClips.length} clip${previewableClips.length === 1 ? "" : "s"}, best first. Open one to trim, pick a layout, and export.`}
                       </p>
                     </div>
                     {failedClipCount > 0 && (
@@ -444,7 +449,7 @@ export function ClipGeneratorPage() {
                       </Badge>
                     )}
                   </div>
-                  {renderedClips.length === 0 ? (
+                  {previewableClips.length === 0 ? (
                     <Card className="flex flex-col items-center gap-2 py-10 text-center">
                       <AlertTriangle className="h-6 w-6 text-amber-300" />
                       <p className="text-sm font-semibold text-white">No clips could be rendered</p>
@@ -455,7 +460,7 @@ export function ClipGeneratorPage() {
                   ) : (
                     <div className="grid gap-3 2xl:grid-cols-2">
                       {activeJob.clips.map((clip, index) =>
-                        clip.file ? (
+                        clip.file || clip.previewFile ? (
                           <ClipCard
                             key={clip.id}
                             clip={clip}
@@ -506,6 +511,9 @@ function ClipCard({
 }) {
   const duration = Math.round(clip.end - clip.start);
   const videoRef = useRef<HTMLVideoElement>(null);
+  // The instant preview holds the same content as the HD master (the master is
+  // a re-encode of the same section), so cards always play the lighter file.
+  const playbackFile = clip.previewFile ?? clip.file;
 
   // Hover (or focus) scrubs the clip silently — lets you scan moments without
   // opening the editor.
@@ -526,10 +534,11 @@ function ClipCard({
     <Card className="animate-in overflow-hidden p-0 transition-all duration-200 hover:border-[var(--border-strong)] hover:shadow-lg">
       <div className="grid min-h-full md:grid-cols-[200px_minmax(0,1fr)]">
         <div className="relative bg-black" onPointerEnter={startPreview} onPointerLeave={stopPreview}>
-          {clip.file && (
+          {playbackFile && (
             <video
               ref={videoRef}
-              src={fileUrl(jobId, clip.file)}
+              src={fileUrl(jobId, playbackFile)}
+              poster={clip.posterFile ? fileUrl(jobId, clip.posterFile) : undefined}
               preload="metadata"
               muted
               loop
@@ -561,6 +570,13 @@ function ClipCard({
           </div>
 
           <p className="line-clamp-2 text-xs leading-5 text-[var(--muted-foreground)]">{clip.rationale}</p>
+
+          {!clip.file && (
+            <div className="mt-auto flex items-center gap-2 pt-1 text-xs text-[var(--muted-foreground)]">
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              Finalizing the HD render — hover to preview it now
+            </div>
+          )}
 
           {clip.file && (
             <div className="mt-auto flex flex-wrap gap-2 pt-1">

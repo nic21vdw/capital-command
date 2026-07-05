@@ -80,6 +80,37 @@ export function reframeChain(
 }
 
 /**
+ * Publishes instant preview assets for a freshly cut section, before the slow
+ * HD master render runs:
+ * - a stream-copy remux with `+faststart` (no re-encode, sub-second) that the
+ *   browser can start playing immediately, and
+ * - a poster frame so players paint a real image instantly instead of black.
+ *
+ * The preview holds the exact same content the master will contain — the
+ * master is a re-encode of this same section — so what the user previews is
+ * what they get.
+ */
+export async function renderPreviewAssets(inputPath: string, previewPath: string, posterPath: string) {
+  // `+faststart` is an MP4-muxer option; WebM sections are copied as-is.
+  const isMp4 = previewPath.toLowerCase().endsWith(".mp4");
+  await runFfmpeg(["-y", "-i", inputPath, "-c", "copy", ...(isMp4 ? ["-movflags", "+faststart"] : []), previewPath]);
+  await runFfmpeg([
+    "-y",
+    "-ss",
+    "0.4",
+    "-i",
+    inputPath,
+    "-frames:v",
+    "1",
+    "-vf",
+    "scale=640:-2",
+    "-q:v",
+    "4",
+    posterPath
+  ]);
+}
+
+/**
  * Renders the selected source range as a neutral 16:9 master clip. The full
  * source frame is preserved with contain scaling so any later vertical,
  * square, or portrait crop can be made non-destructively from this file.

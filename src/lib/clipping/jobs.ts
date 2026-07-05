@@ -4,7 +4,7 @@ import { TARGET_CLIP_COUNT, detectSilences, extractEnergy, fallbackCandidates, s
 import { copyClipsToDrive, driveDir } from "@/lib/clipping/drive";
 import { downloadAudio, downloadSection, fetchVideoMeta } from "@/lib/clipping/download";
 import { hasAudioStream, probeDuration, runFfmpeg } from "@/lib/clipping/ffmpeg";
-import { renderSourceClip } from "@/lib/clipping/render";
+import { renderPreviewAssets, renderSourceClip } from "@/lib/clipping/render";
 import { readSourceMeta, sourceFilePath, type SourceMeta } from "@/lib/clipping/sources";
 import { fetchAutoCaptions } from "@/lib/clipping/transcription";
 import { selectByTranscript } from "@/lib/clipping/transcript-select";
@@ -442,6 +442,27 @@ async function renderClipIndexes(job: ClipJob, indexes: number[]) {
         : await downloadSection(job.sourceUrl, clip.start, clip.end, segPath);
       const baseName = `clip-${String(i + 1).padStart(2, "0")}`;
       const primaryName = `${baseName}.mp4`;
+      // Publish an instant preview (faststart stream copy + poster frame)
+      // BEFORE the slow HD render, so the clip is viewable in the UI the
+      // moment its section exists. Best-effort: the HD render below is what
+      // actually completes the clip.
+      try {
+        // Sections are almost always MP4; keep WebM sections in their own
+        // container instead of forcing codecs into an MP4 remux.
+        const previewExt = path.extname(produced).toLowerCase() === ".webm" ? ".webm" : ".mp4";
+        const previewName = `${baseName}-preview${previewExt}`;
+        const posterName = `${baseName}-poster.jpg`;
+        await renderPreviewAssets(
+          produced,
+          path.join(outputDir(job.id), previewName),
+          path.join(outputDir(job.id), posterName)
+        );
+        clip.previewFile = previewName;
+        clip.posterFile = posterName;
+        await persistJobs();
+      } catch {
+        // A failed preview never blocks the real render.
+      }
       await renderSourceClip(produced, path.join(outputDir(job.id), primaryName), true);
       clip.file = primaryName;
       clip.layoutPreset = undefined;

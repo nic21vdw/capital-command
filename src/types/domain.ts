@@ -501,6 +501,8 @@ export interface ClipProject {
   jobId: string;
   /** Rendered base clip filename inside the job's output dir. */
   sourceFile: string;
+  /** Poster frame filename in the job's output dir, painted while the video loads. */
+  posterFile?: string;
   sourceUrl: string;
   baseDurationSec: number;
   baseWidth: number;

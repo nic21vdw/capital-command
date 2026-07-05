@@ -436,6 +436,7 @@ export const clipProjectSchema = z.object({
   name: z.string().trim().min(1).default("Untitled clip"),
   jobId: z.string(),
   sourceFile: z.string(),
+  posterFile: z.string().optional(),
   sourceUrl: z.string().default(""),
   baseDurationSec: z.coerce.number().min(0).default(0),
   baseWidth: z.coerce.number().int().min(1).default(1920),

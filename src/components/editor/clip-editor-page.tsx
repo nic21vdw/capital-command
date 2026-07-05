@@ -54,6 +54,7 @@ function projectFromClip(job: ClipJob, clip: ClipCandidate, index: number, sourc
     jobId: job.id,
     name: `${job.fileName} — clip ${index + 1}`,
     sourceFile,
+    posterFile: clip.posterFile,
     sourceUrl: job.sourceUrl,
     clipStart: clip.start,
     clipEnd: clip.end
@@ -254,6 +255,11 @@ export function ClipEditorPage() {
               </div>
               <video
                 src={`/api/clips/${project.jobId}/files/${encodeURIComponent(project.sourceFile)}`}
+                poster={
+                  project.posterFile
+                    ? `/api/clips/${project.jobId}/files/${encodeURIComponent(project.posterFile)}`
+                    : undefined
+                }
                 preload="metadata"
                 muted
                 className="aspect-video w-full rounded-lg bg-black object-contain ring-1 ring-white/10"
@@ -301,7 +307,12 @@ export function ClipEditorPage() {
                         className="rounded-lg border border-[var(--border)] p-1.5 text-left transition hover:border-[var(--accent)]"
                       >
                         <video
-                          src={`/api/clips/${job.id}/files/${encodeURIComponent(clip.file as string)}`}
+                          src={`/api/clips/${job.id}/files/${encodeURIComponent((clip.previewFile ?? clip.file) as string)}`}
+                          poster={
+                            clip.posterFile
+                              ? `/api/clips/${job.id}/files/${encodeURIComponent(clip.posterFile)}`
+                              : undefined
+                          }
                           preload="metadata"
                           muted
                           playsInline

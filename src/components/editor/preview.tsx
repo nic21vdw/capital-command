@@ -481,6 +481,7 @@ export function EditorPreview({
   project,
   time,
   videoSrc,
+  posterSrc,
   onVideoReady,
   onTogglePlay,
   selectedOverlayId,
@@ -494,6 +495,8 @@ export function EditorPreview({
   project: ClipProject;
   time: number;
   videoSrc: string;
+  /** Poster frame shown instantly while the video data streams in. */
+  posterSrc?: string;
   onVideoReady: (el: HTMLVideoElement | null) => void;
   onTogglePlay?: () => void;
   selectedOverlayId: string | null;
@@ -647,6 +650,7 @@ export function EditorPreview({
 
   const sharedVideoProps = {
     src: videoSrc,
+    poster: posterSrc,
     playsInline: true,
     preload: "auto" as const
   };
@@ -668,10 +672,13 @@ export function EditorPreview({
         onDoubleClick={() => canPan && onReframeChange({ offsetX: 0, offsetY: 0 })}
         title={canPan ? "Drag to pan - double-click to center" : undefined}
       >
-        {/* Blurred fill behind everything (mirrors the export's blur base). */}
+        {/* Blurred fill behind everything (mirrors the export's blur base).
+            Followers only preload metadata: the driver video gets the bandwidth
+            for its first paint, and followers buffer once playback starts. */}
         <video
           ref={bgRef}
           {...sharedVideoProps}
+          preload="metadata"
           muted
           aria-hidden
           className={cn(
@@ -707,7 +714,7 @@ export function EditorPreview({
           )}
           style={geometry.face ? boxStyle(geometry.face.mask) : { left: 0, top: 0, width: 0, height: 0 }}
         >
-          <video ref={faceRef} {...sharedVideoProps} muted aria-hidden className="absolute max-w-none" style={geometry.face ? boxStyle(geometry.face.video) : undefined} />
+          <video ref={faceRef} {...sharedVideoProps} preload="metadata" muted aria-hidden className="absolute max-w-none" style={geometry.face ? boxStyle(geometry.face.video) : undefined} />
         </div>
 
         {/* Clear, actionable state when the clip's video can't be loaded. */}

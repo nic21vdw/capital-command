@@ -44,6 +44,14 @@ export type ClipCandidate = {
   hookQuote?: string;
   /** Neutral full-frame 16:9 source master filename, set once rendered. */
   file?: string;
+  /**
+   * Instant preview filename: a faststart stream-copy of the cut section,
+   * published the moment the section exists so the UI can play the clip
+   * while the HD master render is still running.
+   */
+  previewFile?: string;
+  /** Poster frame filename, so players paint a frame instantly instead of black. */
+  posterFile?: string;
   /** Legacy layout used by older rendered files. New files are neutral source masters. */
   layoutPreset?: ClipLayoutPreset;
   /** Legacy alternate compositions rendered from the same moment. */
