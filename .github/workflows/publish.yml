@@ -39,11 +39,13 @@
 name: Publish scheduled clips
 
 on:
-  schedule:
-    # Every 15 minutes. GitHub cron can drift a few minutes under load — posts
-    # fire at the first run at/after their publish time.
-    - cron: "*/15 * * * *"
-  # Manual trigger for testing (Actions tab → Publish scheduled clips → Run).
+  # Automatic schedule disabled for now — this workflow currently only runs
+  # when triggered manually (Actions tab → Publish scheduled clips → Run).
+  # To re-enable automation, uncomment the schedule block below.
+  # schedule:
+  #   # Every 15 minutes. GitHub cron can drift a few minutes under load —
+  #   # posts fire at the first run at/after their publish time.
+  #   - cron: "*/15 * * * *"
   workflow_dispatch:
     inputs:
       dry_run:
