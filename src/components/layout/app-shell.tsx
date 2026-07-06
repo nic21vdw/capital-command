@@ -6,6 +6,7 @@ import { useEffect, useState } from "react";
 import {
   ChevronLeft,
   ChevronRight,
+  Clapperboard,
   Settings,
   UploadCloud,
   Wand2,
@@ -22,6 +23,9 @@ const navGroups: NavGroup[] = [
   {
     label: "YouTube tools",
     items: [
+      // The pipeline reads top to bottom: edit the long-form upload, cut it
+      // into shorts, then schedule everything.
+      { href: "/longform", label: "Long-Form Editor", icon: Clapperboard },
       { href: "/clips", label: "Clip Generator", icon: Wand2 },
       // The Clip Editor has no nav tab of its own: every clip is edited from
       // its card in the Clip Generator, which deep-links into /editor.

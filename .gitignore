@@ -12,6 +12,7 @@ server.pid
 tsconfig.tsbuildinfo
 data/capital-command.json
 data/clips/
+data/longform/
 data/publish-queue.json
 data/publisher-tokens.json
 backups/

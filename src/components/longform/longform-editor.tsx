@@ -1,0 +1,1030 @@
+"use client";
+
+import Link from "next/link";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  ArrowLeft,
+  Crosshair,
+  Download,
+  ListMusic,
+  Loader2,
+  Music4,
+  Pause,
+  Play,
+  Scissors,
+  Send,
+  Trash2,
+  Upload,
+  Volume2,
+  VolumeX,
+  Zap
+} from "lucide-react";
+import { toast } from "sonner";
+import { Button } from "@/components/ui/button";
+import { Progress } from "@/components/ui/progress";
+import { ColorField, Field, RangeField, SelectField, Toggle } from "@/components/editor/controls";
+import { LongformPreview } from "@/components/longform/longform-preview";
+import { LongformTimeline } from "@/components/longform/longform-timeline";
+import { formatClock } from "@/lib/clipping/editor";
+import { PACE_PRESETS, editedDurationSec, hookCaptions, type PacePresetId } from "@/lib/longform/plan";
+import type { LongformExportRecord, LongformProject, MusicTrack } from "@/lib/longform/types";
+import type { CaptionAnimation, CaptionPosition, CaptionSegment } from "@/types/domain";
+import { cn } from "@/lib/utils";
+
+// The Long-Form Editor working view: preview + timeline on the left, the
+// Hook / Cuts / Music / Export panels on the right. Every change autosaves to
+// the server after a short debounce, mirroring the Clip Editor's behavior.
+
+const TABS = [
+  { id: "hook", label: "Hook", icon: Zap },
+  { id: "cuts", label: "Cuts", icon: Scissors },
+  { id: "music", label: "Music", icon: Music4 },
+  { id: "export", label: "Export", icon: Upload }
+] as const;
+
+type TabId = (typeof TABS)[number]["id"];
+
+/** Hook caption looks tuned for thumb-stopping openings. */
+const HOOK_STYLE_PRESETS: Array<{ id: string; label: string; patch: Partial<LongformProject["hook"]["captionStyle"]> }> = [
+  { id: "viral-yellow", label: "Viral yellow", patch: { highlightColor: "#ffd34d", fontWeight: 900, uppercase: true, fontScale: 0.075, animation: "pop", position: "middle" } },
+  { id: "purple-pop", label: "Purple pop", patch: { highlightColor: "#bd93f9", fontWeight: 900, uppercase: true, fontScale: 0.075, animation: "pop", position: "middle" } },
+  { id: "green-flash", label: "Green flash", patch: { highlightColor: "#39e08b", fontWeight: 900, uppercase: true, fontScale: 0.07, animation: "karaoke", position: "middle" } },
+  { id: "clean-white", label: "Clean white", patch: { highlightColor: "#ffffff", fontWeight: 800, uppercase: false, fontScale: 0.06, animation: "fade", position: "lower-third" } }
+];
+
+type CutRange = { start: number; end: number };
+
+function cutRangesOf(project: LongformProject): CutRange[] {
+  const ranges: CutRange[] = [];
+  for (const segment of [...project.segments].sort((a, b) => a.start - b.start)) {
+    if (segment.enabled) continue;
+    const last = ranges[ranges.length - 1];
+    if (last && segment.start - last.end < 0.002) last.end = segment.end;
+    else ranges.push({ start: segment.start, end: segment.end });
+  }
+  return ranges;
+}
+
+function endOfEdit(project: LongformProject): number {
+  let end = project.hook.enabled ? project.hook.end : 0;
+  for (const segment of project.segments) {
+    if (segment.enabled) end = Math.max(end, segment.end);
+  }
+  return end || project.durationSec;
+}
+
+export function LongformEditor({
+  initialProject,
+  onClose,
+  onDeleted
+}: {
+  initialProject: LongformProject;
+  onClose: () => void;
+  onDeleted: () => void;
+}) {
+  const [project, setProject] = useState(initialProject);
+  const [tab, setTab] = useState<TabId>("hook");
+  const [time, setTime] = useState(0);
+  const [playing, setPlaying] = useState(false);
+  const [muted, setMuted] = useState(false);
+  const [editedMode, setEditedMode] = useState(true);
+  const [focusEditing, setFocusEditing] = useState(false);
+  const [saved, setSaved] = useState(true);
+  const [peaks, setPeaks] = useState<number[]>([]);
+
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+  const projectRef = useRef(project);
+  const editedModeRef = useRef(editedMode);
+  const cutRangesRef = useRef<CutRange[]>(cutRangesOf(initialProject));
+  const endRef = useRef(endOfEdit(initialProject));
+  const skipDirtyRef = useRef(true);
+
+  useEffect(() => {
+    projectRef.current = project;
+    cutRangesRef.current = cutRangesOf(project);
+    endRef.current = endOfEdit(project);
+  }, [project]);
+  useEffect(() => {
+    editedModeRef.current = editedMode;
+  }, [editedMode]);
+
+  // Waveform peaks for the timeline (cached server-side).
+  useEffect(() => {
+    let cancelled = false;
+    void fetch(`/api/clips/sources/${initialProject.sourceId}/waveform`, { cache: "no-store" })
+      .then((response) => response.json())
+      .then((data: { peaks?: number[] }) => {
+        if (!cancelled && Array.isArray(data.peaks)) setPeaks(data.peaks);
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [initialProject.sourceId]);
+
+  // Debounced autosave of the editable fields.
+  useEffect(() => {
+    if (skipDirtyRef.current) {
+      skipDirtyRef.current = false;
+      return;
+    }
+    setSaved(false);
+    const timer = setTimeout(() => {
+      const current = projectRef.current;
+      void fetch(`/api/longform/projects/${current.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: current.name,
+          segments: current.segments,
+          hook: current.hook,
+          music: current.music,
+          pace: current.pace
+        })
+      })
+        .then((response) => {
+          if (response.ok) setSaved(true);
+          else toast.error("Could not save your changes.");
+        })
+        .catch(() => toast.error("Could not save. Is the dev server still running?"));
+    }, 700);
+    return () => clearTimeout(timer);
+  }, [project]);
+
+  // Playback loop: throttled time updates plus the jump-cut skip — while the
+  // edited preview plays, the playhead leaps over every cut segment exactly
+  // like the export will. The hook window always plays verbatim.
+  useEffect(() => {
+    let raf = 0;
+    let lastUpdate = 0;
+    const tick = (now: number) => {
+      const video = videoRef.current;
+      if (video) {
+        if (!video.paused && editedModeRef.current) {
+          const t = video.currentTime;
+          const current = projectRef.current;
+          const inHook = current.hook.enabled && t < current.hook.end;
+          if (!inHook) {
+            const cut = cutRangesRef.current.find((range) => t >= range.start - 0.02 && t < range.end - 0.03);
+            if (cut) video.currentTime = Math.min(current.durationSec, cut.end + 0.01);
+          }
+          if (t >= endRef.current - 0.05) {
+            video.pause();
+            setPlaying(false);
+          }
+        }
+        if (now - lastUpdate > 90 || video.paused) {
+          lastUpdate = now;
+          setTime(video.currentTime);
+          setPlaying(!video.paused);
+        }
+      }
+      raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, []);
+
+  const patch = useCallback((partial: Partial<LongformProject>) => {
+    setProject((current) => ({ ...current, ...partial }));
+  }, []);
+
+  const seek = useCallback((t: number) => {
+    const video = videoRef.current;
+    const clamped = Math.min(projectRef.current.durationSec, Math.max(0, t));
+    if (video) video.currentTime = clamped;
+    setTime(clamped);
+  }, []);
+
+  const togglePlay = useCallback(() => {
+    const video = videoRef.current;
+    if (!video) return;
+    if (video.paused) {
+      if (video.currentTime >= endRef.current - 0.05) video.currentTime = 0;
+      void video.play().catch(() => {
+        video.muted = true;
+        setMuted(true);
+        void video.play().catch(() => undefined);
+      });
+      setPlaying(true);
+    } else {
+      video.pause();
+      setPlaying(false);
+    }
+  }, []);
+
+  const toggleSegment = useCallback((id: string) => {
+    setProject((current) => ({
+      ...current,
+      segments: current.segments.map((segment) =>
+        segment.id === id ? { ...segment, enabled: !segment.enabled } : segment
+      )
+    }));
+  }, []);
+
+  const setHookEnd = useCallback((end: number) => {
+    setProject((current) => ({
+      ...current,
+      hook: { ...current.hook, end, captions: hookCaptions(current.transcript, end) }
+    }));
+  }, []);
+
+  const inCut = useMemo(
+    () => cutRangesOf(project).some((range) => time >= range.start && time < range.end),
+    [project, time]
+  );
+
+  const editedSec = editedDurationSec(project.segments, project.hook);
+  const cutSec = Math.max(0, project.durationSec - editedSec);
+
+  return (
+    <div className="space-y-4">
+      {/* Toolbar */}
+      <div className="flex flex-wrap items-center gap-3 rounded-xl border border-[var(--border)] bg-[var(--surface)] px-4 py-3">
+        <Button variant="ghost" onClick={onClose} className="gap-2 px-2">
+          <ArrowLeft className="h-4 w-4" /> Projects
+        </Button>
+        <input
+          value={project.name}
+          onChange={(event) => patch({ name: event.target.value })}
+          className="h-9 min-w-0 flex-1 rounded-lg border border-transparent bg-transparent px-2 text-sm font-semibold text-white outline-none transition focus:border-[var(--border-strong)]"
+          aria-label="Project name"
+        />
+        <span
+          className={cn("h-2 w-2 shrink-0 rounded-full", saved ? "bg-emerald-400" : "bg-amber-400 animate-pulse")}
+          title={saved ? "All changes saved" : "Saving…"}
+        />
+        <span className="text-xs text-[var(--muted-foreground)]">
+          {formatClock(project.durationSec)} → <span className="font-semibold text-white">{formatClock(editedSec)}</span>
+          <span className="ml-1 text-emerald-400">(−{formatClock(cutSec)})</span>
+        </span>
+      </div>
+
+      <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_340px]">
+        {/* Preview + transport + timeline */}
+        <div className="min-w-0 space-y-3">
+          <LongformPreview
+            project={project}
+            time={time}
+            playing={playing}
+            inCut={inCut}
+            videoRef={videoRef}
+            onTogglePlay={togglePlay}
+            focusEditing={focusEditing && tab === "hook"}
+            onFocusChange={(x, y) => patch({ hook: { ...project.hook, focusX: x, focusY: y } })}
+          />
+
+          <div className="flex flex-wrap items-center gap-3 rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 py-2">
+            <button
+              type="button"
+              onClick={togglePlay}
+              className="flex h-9 w-9 items-center justify-center rounded-lg bg-[var(--accent)] text-[var(--accent-contrast)] transition hover:bg-[var(--accent-strong)]"
+              aria-label={playing ? "Pause" : "Play"}
+            >
+              {playing ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4 translate-x-px" />}
+            </button>
+            <span className="w-28 text-xs tabular-nums text-[var(--muted-foreground)]">
+              {formatClock(time)} / {formatClock(project.durationSec)}
+            </span>
+            <input
+              type="range"
+              min={0}
+              max={project.durationSec}
+              step={0.05}
+              value={Math.min(time, project.durationSec)}
+              onChange={(event) => seek(Number(event.target.value))}
+              className="h-1.5 min-w-24 flex-1 cursor-pointer appearance-none rounded-full bg-white/15 accent-[var(--accent)]"
+              aria-label="Seek"
+            />
+            <button
+              type="button"
+              onClick={() => {
+                const video = videoRef.current;
+                if (video) video.muted = !muted;
+                setMuted(!muted);
+              }}
+              className="flex h-8 w-8 items-center justify-center rounded-lg border border-[var(--border)] text-[var(--muted-foreground)] transition hover:text-white"
+              aria-label={muted ? "Unmute" : "Mute"}
+            >
+              {muted ? <VolumeX className="h-4 w-4" /> : <Volume2 className="h-4 w-4" />}
+            </button>
+            <button
+              type="button"
+              onClick={() => setEditedMode(!editedMode)}
+              className={cn(
+                "rounded-lg border px-3 py-1.5 text-xs font-medium transition",
+                editedMode
+                  ? "border-[var(--accent)]/60 bg-[var(--accent)]/10 text-white"
+                  : "border-[var(--border)] text-[var(--muted-foreground)] hover:text-white"
+              )}
+              title="When on, playback skips the cuts exactly like the export will"
+            >
+              {editedMode ? "Previewing edit" : "Previewing original"}
+            </button>
+          </div>
+
+          <LongformTimeline
+            project={project}
+            time={time}
+            peaks={peaks}
+            onSeek={seek}
+            onToggleSegment={toggleSegment}
+            onHookEndChange={setHookEnd}
+          />
+        </div>
+
+        {/* Panels */}
+        <div className="min-w-0">
+          <div className="mb-3 grid grid-cols-4 gap-1 rounded-xl border border-[var(--border)] bg-[var(--surface)] p-1">
+            {TABS.map((item) => {
+              const Icon = item.icon;
+              const active = tab === item.id;
+              return (
+                <button
+                  key={item.id}
+                  type="button"
+                  onClick={() => setTab(item.id)}
+                  className={cn(
+                    "flex flex-col items-center gap-1 rounded-lg px-2 py-2 text-[11px] font-medium transition",
+                    active ? "bg-[var(--accent)]/15 text-white" : "text-[var(--muted-foreground)] hover:text-white"
+                  )}
+                >
+                  <Icon className={cn("h-4 w-4", active && "text-[var(--accent)]")} />
+                  {item.label}
+                </button>
+              );
+            })}
+          </div>
+          <div key={tab} className="panel-enter space-y-4 rounded-xl border border-[var(--border)] bg-[var(--surface)] p-4">
+            {tab === "hook" && (
+              <HookPanel
+                project={project}
+                patch={patch}
+                setHookEnd={setHookEnd}
+                focusEditing={focusEditing}
+                setFocusEditing={setFocusEditing}
+                seek={seek}
+              />
+            )}
+            {tab === "cuts" && <CutsPanel project={project} patch={patch} setProject={setProject} seek={seek} skipDirtyRef={skipDirtyRef} />}
+            {tab === "music" && <MusicPanel project={project} patch={patch} />}
+            {tab === "export" && <ExportPanel project={project} setProject={setProject} skipDirtyRef={skipDirtyRef} onDeleted={onDeleted} editedSec={editedSec} />}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function HookPanel({
+  project,
+  patch,
+  setHookEnd,
+  focusEditing,
+  setFocusEditing,
+  seek
+}: {
+  project: LongformProject;
+  patch: (partial: Partial<LongformProject>) => void;
+  setHookEnd: (end: number) => void;
+  focusEditing: boolean;
+  setFocusEditing: (v: boolean) => void;
+  seek: (t: number) => void;
+}) {
+  const hook = project.hook;
+  const patchHook = (partial: Partial<LongformProject["hook"]>) => patch({ hook: { ...hook, ...partial } });
+  const patchStyle = (partial: Partial<LongformProject["hook"]["captionStyle"]>) =>
+    patchHook({ captionStyle: { ...hook.captionStyle, ...partial } });
+  const updateCaption = (id: string, partial: Partial<CaptionSegment>) =>
+    patchHook({ captions: hook.captions.map((seg) => (seg.id === id ? { ...seg, ...partial } : seg)) });
+
+  return (
+    <div className="space-y-4">
+      <div>
+        <h3 className="text-sm font-semibold text-white">Viral hook</h3>
+        <p className="mt-1 text-xs text-[var(--muted-foreground)]">
+          The first seconds decide whether viewers stay. Punch in on your face and burn in big word-synced captions.
+        </p>
+      </div>
+      <Toggle label="Hook enabled" checked={hook.enabled} onChange={(v) => patchHook({ enabled: v })} />
+      {hook.enabled && (
+        <>
+          <RangeField
+            label="Hook length"
+            value={hook.end}
+            min={3}
+            max={Math.min(15, Math.max(4, project.durationSec))}
+            step={0.1}
+            onChange={setHookEnd}
+            format={(v) => `${v.toFixed(1)}s`}
+          />
+          <RangeField
+            label="Punch-in zoom"
+            value={hook.zoom}
+            min={1}
+            max={1.8}
+            step={0.01}
+            onChange={(v) => patchHook({ zoom: v })}
+            format={(v) => `${v.toFixed(2)}x`}
+          />
+          <button
+            type="button"
+            onClick={() => {
+              setFocusEditing(!focusEditing);
+              if (!focusEditing) seek(Math.min(1, hook.end / 2));
+            }}
+            className={cn(
+              "flex w-full items-center justify-center gap-2 rounded-lg border px-3 py-2 text-sm transition",
+              focusEditing
+                ? "border-[var(--accent)] bg-[var(--accent)]/10 text-white"
+                : "border-[var(--border)] text-[var(--muted-foreground)] hover:text-white"
+            )}
+          >
+            <Crosshair className="h-4 w-4" />
+            {focusEditing ? "Click your face on the preview, then click here" : "Set zoom focus on the preview"}
+          </button>
+
+          <div className="border-t border-[var(--border)] pt-4">
+            <Toggle label="Hook captions" checked={hook.captionsEnabled} onChange={(v) => patchHook({ captionsEnabled: v })} />
+          </div>
+          {hook.captionsEnabled && (
+            <>
+              <Field label="Caption look">
+                <div className="flex flex-wrap gap-1.5">
+                  {HOOK_STYLE_PRESETS.map((preset) => (
+                    <button
+                      key={preset.id}
+                      type="button"
+                      onClick={() => patchStyle(preset.patch)}
+                      className={cn(
+                        "rounded-lg border px-2.5 py-1.5 text-xs transition",
+                        hook.captionStyle.highlightColor.toLowerCase() === (preset.patch.highlightColor ?? "").toLowerCase()
+                          ? "border-[var(--accent)] bg-[var(--accent)]/10 text-white"
+                          : "border-[var(--border)] text-[var(--muted-foreground)] hover:text-white"
+                      )}
+                    >
+                      {preset.label}
+                    </button>
+                  ))}
+                </div>
+              </Field>
+              <Toggle
+                label="Highlight the spoken word"
+                checked={hook.highlightCurrentWord}
+                onChange={(v) => patchHook({ highlightCurrentWord: v })}
+              />
+              <RangeField
+                label="Caption size"
+                value={hook.captionStyle.fontScale}
+                min={0.04}
+                max={0.12}
+                step={0.002}
+                onChange={(v) => patchStyle({ fontScale: v })}
+                format={(v) => `${Math.round(v * 1000) / 10}%`}
+              />
+              <ColorField label="Highlight color" value={hook.captionStyle.highlightColor} onChange={(v) => patchStyle({ highlightColor: v })} />
+              <SelectField<CaptionPosition>
+                label="Position"
+                value={hook.captionStyle.position}
+                options={[
+                  { value: "middle", label: "Center (viral)" },
+                  { value: "lower-third", label: "Lower third" },
+                  { value: "bottom", label: "Bottom" },
+                  { value: "top", label: "Top" }
+                ]}
+                onChange={(v) => patchStyle({ position: v })}
+              />
+              <SelectField<CaptionAnimation>
+                label="Animation"
+                value={hook.captionStyle.animation}
+                options={[
+                  { value: "pop", label: "Pop" },
+                  { value: "karaoke", label: "Karaoke" },
+                  { value: "fade", label: "Fade" },
+                  { value: "none", label: "None" }
+                ]}
+                onChange={(v) => patchStyle({ animation: v })}
+              />
+              <Toggle label="UPPERCASE" checked={hook.captionStyle.uppercase} onChange={(v) => patchStyle({ uppercase: v })} />
+
+              <Field label="Hook caption text" hint="synced to your words">
+                <div className="space-y-2">
+                  {hook.captions.length === 0 && (
+                    <p className="rounded-lg border border-dashed border-[var(--border)] px-3 py-3 text-xs text-[var(--muted-foreground)]">
+                      {project.transcript.length === 0
+                        ? "No transcript was generated for this video, so hook captions are unavailable."
+                        : "No speech was detected inside the hook window."}
+                    </p>
+                  )}
+                  {hook.captions.map((seg) => (
+                    <div key={seg.id} className="flex items-start gap-2">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          updateCaption(seg.id, { enabled: !seg.enabled });
+                        }}
+                        className={cn(
+                          "mt-1 h-4 w-4 shrink-0 rounded border transition",
+                          seg.enabled ? "border-[var(--accent)] bg-[var(--accent)]" : "border-[var(--border)]"
+                        )}
+                        aria-label={seg.enabled ? "Hide caption" : "Show caption"}
+                      />
+                      <textarea
+                        value={seg.text}
+                        onChange={(event) => updateCaption(seg.id, { text: event.target.value })}
+                        onFocus={() => seek(seg.start + 0.01)}
+                        rows={1}
+                        className="min-h-9 w-full resize-y rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-2.5 py-1.5 text-sm text-white outline-none focus:border-[var(--accent)]"
+                      />
+                    </div>
+                  ))}
+                </div>
+              </Field>
+            </>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
+function CutsPanel({
+  project,
+  patch,
+  setProject,
+  seek,
+  skipDirtyRef
+}: {
+  project: LongformProject;
+  patch: (partial: Partial<LongformProject>) => void;
+  setProject: React.Dispatch<React.SetStateAction<LongformProject>>;
+  seek: (t: number) => void;
+  skipDirtyRef: React.MutableRefObject<boolean>;
+}) {
+  const [replanning, setReplanning] = useState<PacePresetId | null>(null);
+  const silenceSegments = project.segments.filter((segment) => segment.kind === "silence");
+  const biggest = [...silenceSegments].sort((a, b) => b.end - b.start - (a.end - a.start)).slice(0, 12);
+  const activePace = PACE_PRESETS.find(
+    (preset) =>
+      Math.abs(preset.pace.minSilenceSec - project.pace.minSilenceSec) < 0.001 &&
+      Math.abs(preset.pace.paddingSec - project.pace.paddingSec) < 0.001
+  );
+
+  const applyPace = async (presetId: PacePresetId) => {
+    const preset = PACE_PRESETS.find((item) => item.id === presetId);
+    if (!preset) return;
+    setReplanning(presetId);
+    try {
+      const response = await fetch(`/api/longform/projects/${project.id}/replan`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(preset.pace)
+      });
+      const data = (await response.json()) as { project?: LongformProject; error?: string };
+      if (!response.ok || !data.project) {
+        toast.error(data.error ?? "Could not re-plan the cuts.");
+        return;
+      }
+      // The server already saved this state; don't re-trigger autosave.
+      skipDirtyRef.current = true;
+      setProject(data.project);
+      toast.success(`Cuts re-planned at ${preset.label} pace.`);
+    } catch {
+      toast.error("Could not re-plan the cuts.");
+    } finally {
+      setReplanning(null);
+    }
+  };
+
+  const setAll = (enabled: boolean) =>
+    patch({
+      segments: project.segments.map((segment) => (segment.kind === "silence" ? { ...segment, enabled } : segment))
+    });
+
+  return (
+    <div className="space-y-4">
+      <div>
+        <h3 className="text-sm font-semibold text-white">Auto cuts</h3>
+        <p className="mt-1 text-xs text-[var(--muted-foreground)]">
+          Every pause with no talking is trimmed so the video stays fast-paced. Tune how aggressive it is, then fix
+          anything by clicking blocks on the timeline.
+        </p>
+      </div>
+
+      <Field label="Pace" hint="re-plans from the detected silences">
+        <div className="space-y-1.5">
+          {PACE_PRESETS.map((preset) => (
+            <button
+              key={preset.id}
+              type="button"
+              disabled={replanning !== null}
+              onClick={() => void applyPace(preset.id)}
+              className={cn(
+                "flex w-full items-center justify-between gap-2 rounded-lg border px-3 py-2 text-left text-sm transition disabled:opacity-60",
+                activePace?.id === preset.id
+                  ? "border-[var(--accent)] bg-[var(--accent)]/10 text-white"
+                  : "border-[var(--border)] text-[var(--muted-foreground)] hover:text-white"
+              )}
+            >
+              <span>
+                <span className="block font-medium">{preset.label}</span>
+                <span className="block text-xs opacity-80">{preset.description}</span>
+              </span>
+              {replanning === preset.id && <Loader2 className="h-4 w-4 shrink-0 animate-spin" />}
+            </button>
+          ))}
+        </div>
+      </Field>
+
+      <div className="flex gap-2">
+        <Button variant="secondary" className="flex-1 px-2 text-xs" onClick={() => setAll(false)}>
+          Cut all dead space
+        </Button>
+        <Button variant="secondary" className="flex-1 px-2 text-xs" onClick={() => setAll(true)}>
+          Restore everything
+        </Button>
+      </div>
+
+      <Field label="Biggest pauses" hint={`${silenceSegments.length} detected`}>
+        <div className="space-y-1.5">
+          {biggest.length === 0 && (
+            <p className="rounded-lg border border-dashed border-[var(--border)] px-3 py-3 text-xs text-[var(--muted-foreground)]">
+              No dead space found — this recording is already tight.
+            </p>
+          )}
+          {biggest.map((segment) => (
+            <div
+              key={segment.id}
+              className="flex items-center gap-2 rounded-lg border border-[var(--border)] px-2.5 py-1.5 text-xs"
+            >
+              <button
+                type="button"
+                onClick={() => seek(Math.max(0, segment.start - 1))}
+                className="flex-1 text-left text-[var(--muted-foreground)] transition hover:text-white"
+                title="Jump to this pause"
+              >
+                {formatClock(segment.start)} · {(segment.end - segment.start).toFixed(1)}s pause
+              </button>
+              <button
+                type="button"
+                onClick={() =>
+                  patch({
+                    segments: project.segments.map((item) =>
+                      item.id === segment.id ? { ...item, enabled: !item.enabled } : item
+                    )
+                  })
+                }
+                className={cn(
+                  "rounded-md border px-2 py-1 font-medium transition",
+                  segment.enabled
+                    ? "border-emerald-400/50 text-emerald-400"
+                    : "border-red-400/50 text-red-400"
+                )}
+              >
+                {segment.enabled ? "Kept" : "Cut"}
+              </button>
+            </div>
+          ))}
+        </div>
+      </Field>
+    </div>
+  );
+}
+
+function MusicPanel({
+  project,
+  patch
+}: {
+  project: LongformProject;
+  patch: (partial: Partial<LongformProject>) => void;
+}) {
+  const [tracks, setTracks] = useState<MusicTrack[]>([]);
+  const [uploading, setUploading] = useState(false);
+  const fileRef = useRef<HTMLInputElement>(null);
+  const music = project.music;
+  const patchMusic = (partial: Partial<LongformProject["music"]>) => patch({ music: { ...music, ...partial } });
+
+  const refresh = useCallback(async () => {
+    const response = await fetch("/api/longform/music", { cache: "no-store" });
+    if (!response.ok) return;
+    const { tracks: list } = (await response.json()) as { tracks?: MusicTrack[] };
+    if (Array.isArray(list)) setTracks(list);
+  }, []);
+
+  // Initial library load; failures stay silent — the panel just shows empty.
+  useEffect(() => {
+    let cancelled = false;
+    void fetch("/api/longform/music", { cache: "no-store" })
+      .then((response) => (response.ok ? response.json() : null))
+      .then((data: { tracks?: MusicTrack[] } | null) => {
+        if (!cancelled && data && Array.isArray(data.tracks)) setTracks(data.tracks);
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const uploadTrack = async (file: File) => {
+    setUploading(true);
+    try {
+      const response = await fetch(`/api/longform/music?name=${encodeURIComponent(file.name)}`, {
+        method: "POST",
+        headers: { "Content-Type": file.type || "audio/mpeg" },
+        body: file
+      });
+      const data = (await response.json()) as { track?: MusicTrack; error?: string };
+      if (!response.ok || !data.track) {
+        toast.error(data.error ?? "Upload failed.");
+        return;
+      }
+      toast.success(`Added “${data.track.fileName}” to your music library.`);
+      patchMusic({ trackId: data.track.id, enabled: true });
+      await refresh();
+    } catch {
+      toast.error("Upload failed. Is the dev server still running?");
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const removeTrack = async (track: MusicTrack) => {
+    try {
+      await fetch(`/api/longform/music/${track.id}`, { method: "DELETE" });
+      if (music.trackId === track.id) patchMusic({ trackId: undefined, enabled: false });
+      await refresh();
+    } catch {
+      toast.error("Could not delete that song.");
+    }
+  };
+
+  return (
+    <div className="space-y-4">
+      <div>
+        <h3 className="text-sm font-semibold text-white">Background music</h3>
+        <p className="mt-1 text-xs text-[var(--muted-foreground)]">
+          Upload songs once and reuse them across videos. The track loops under your voice and fades out at the end.
+        </p>
+      </div>
+
+      <input
+        ref={fileRef}
+        type="file"
+        accept="audio/*"
+        className="hidden"
+        onChange={(event) => {
+          const file = event.target.files?.[0];
+          if (file) void uploadTrack(file);
+          event.target.value = "";
+        }}
+      />
+      <Button variant="secondary" className="w-full gap-2" disabled={uploading} onClick={() => fileRef.current?.click()}>
+        {uploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <ListMusic className="h-4 w-4" />}
+        {uploading ? "Uploading…" : "Upload a song"}
+      </Button>
+
+      <Field label="Your library" hint={`${tracks.length} song${tracks.length === 1 ? "" : "s"}`}>
+        <div className="space-y-1.5">
+          {tracks.length === 0 && (
+            <p className="rounded-lg border border-dashed border-[var(--border)] px-3 py-3 text-xs text-[var(--muted-foreground)]">
+              No songs yet — upload an MP3/WAV to get started.
+            </p>
+          )}
+          {tracks.map((track) => {
+            const selected = music.trackId === track.id;
+            return (
+              <div
+                key={track.id}
+                className={cn(
+                  "rounded-lg border px-2.5 py-2 transition",
+                  selected ? "border-[var(--accent)] bg-[var(--accent)]/10" : "border-[var(--border)]"
+                )}
+              >
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => patchMusic({ trackId: selected ? undefined : track.id, enabled: !selected })}
+                    className="min-w-0 flex-1 text-left"
+                  >
+                    <span className="block truncate text-sm text-white">{track.fileName}</span>
+                    <span className="block text-xs text-[var(--muted-foreground)]">
+                      {track.durationSec > 0 ? formatClock(track.durationSec) : "audio"} ·{" "}
+                      {(track.sizeBytes / 1_000_000).toFixed(1)} MB {selected ? "· in this video" : ""}
+                    </span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void removeTrack(track)}
+                    className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-[var(--border)] text-[var(--muted-foreground)] transition hover:border-red-400/60 hover:text-red-400"
+                    aria-label="Delete song"
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+                {selected && (
+                  <audio controls preload="none" src={`/api/longform/music/${track.id}`} className="mt-2 h-8 w-full" />
+                )}
+              </div>
+            );
+          })}
+        </div>
+      </Field>
+
+      {music.trackId && (
+        <>
+          <Toggle label="Mix music into the export" checked={music.enabled} onChange={(v) => patchMusic({ enabled: v })} />
+          <RangeField
+            label="Music volume"
+            value={music.volume}
+            min={0}
+            max={0.5}
+            step={0.01}
+            onChange={(v) => patchMusic({ volume: v })}
+            format={(v) => `${Math.round(v * 100)}%`}
+          />
+          <RangeField
+            label="Fade out"
+            value={music.fadeOut}
+            min={0}
+            max={10}
+            step={0.5}
+            onChange={(v) => patchMusic({ fadeOut: v })}
+            format={(v) => `${v.toFixed(1)}s`}
+          />
+        </>
+      )}
+    </div>
+  );
+}
+
+function ExportPanel({
+  project,
+  setProject,
+  skipDirtyRef,
+  onDeleted,
+  editedSec
+}: {
+  project: LongformProject;
+  setProject: React.Dispatch<React.SetStateAction<LongformProject>>;
+  skipDirtyRef: React.MutableRefObject<boolean>;
+  onDeleted: () => void;
+  editedSec: number;
+}) {
+  const [starting, setStarting] = useState(false);
+  const [sending, setSending] = useState<string | null>(null);
+  const active = project.exports.find((record) => record.status === "processing");
+  const latestDone = project.exports.find((record) => record.status === "done" && record.file);
+
+  // Poll while an export renders. State comes back through the project so a
+  // restarted panel picks the render right back up.
+  useEffect(() => {
+    if (!active) return;
+    const timer = setInterval(() => {
+      void fetch(`/api/longform/projects/${project.id}/export/${active.id}`, { cache: "no-store" })
+        .then((response) => response.json())
+        .then((data: { export?: LongformExportRecord; error?: string }) => {
+          if (!data.export) return;
+          const record = data.export;
+          skipDirtyRef.current = true;
+          setProject((current) => ({
+            ...current,
+            exports: current.exports.map((item) => (item.id === record.id ? record : item))
+          }));
+          if (record.status === "done") toast.success("Your edited video is ready.");
+          if (record.status === "error") toast.error(record.error ?? "Export failed.");
+        })
+        .catch(() => undefined);
+    }, 1200);
+    return () => clearInterval(timer);
+  }, [active, project.id, setProject, skipDirtyRef]);
+
+  const startExport = async () => {
+    setStarting(true);
+    try {
+      const response = await fetch(`/api/longform/projects/${project.id}/export`, { method: "POST" });
+      const data = (await response.json()) as { export?: LongformExportRecord; error?: string };
+      if (!response.ok || !data.export) {
+        toast.error(data.error ?? "Could not start the export.");
+        return;
+      }
+      skipDirtyRef.current = true;
+      setProject((current) => ({ ...current, exports: [data.export!, ...current.exports.filter((e) => e.id !== data.export!.id)] }));
+    } catch {
+      toast.error("Could not start the export.");
+    } finally {
+      setStarting(false);
+    }
+  };
+
+  const sendToClips = async (record: LongformExportRecord) => {
+    setSending(record.id);
+    try {
+      const response = await fetch(`/api/longform/projects/${project.id}/send-to-clips`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ exportId: record.id })
+      });
+      const data = (await response.json()) as { job?: { id: string }; error?: string };
+      if (!response.ok || !data.job) {
+        toast.error(data.error ?? "Could not send this export to the Clip Generator.");
+        return;
+      }
+      toast.success("Sent to the Clip Generator — shorts are being cut now.");
+    } catch {
+      toast.error("Could not send this export to the Clip Generator.");
+    } finally {
+      setSending(null);
+    }
+  };
+
+  const fileUrl = (record: LongformExportRecord, download = false) =>
+    `/api/longform/projects/${project.id}/export/${record.id}?file=1${download ? "&download=1" : ""}`;
+
+  return (
+    <div className="space-y-4">
+      <div>
+        <h3 className="text-sm font-semibold text-white">Export</h3>
+        <p className="mt-1 text-xs text-[var(--muted-foreground)]">
+          Bakes the hook, the cuts and the music into one 1080p file — then send it straight to the Clip Generator for
+          shorts.
+        </p>
+      </div>
+
+      <div className="space-y-1 rounded-lg border border-[var(--border)] px-3 py-2.5 text-xs text-[var(--muted-foreground)]">
+        <p>
+          Runtime <span className="float-right text-white">{formatClock(editedSec)}</span>
+        </p>
+        <p>
+          Hook{" "}
+          <span className="float-right text-white">
+            {project.hook.enabled ? `${project.hook.end.toFixed(1)}s · ${project.hook.zoom.toFixed(2)}x zoom` : "off"}
+          </span>
+        </p>
+        <p>
+          Cuts <span className="float-right text-white">{project.segments.filter((s) => !s.enabled).length} removed</span>
+        </p>
+        <p>
+          Music <span className="float-right text-white">{project.music.enabled && project.music.trackId ? "on" : "off"}</span>
+        </p>
+      </div>
+
+      {active ? (
+        <div className="space-y-2">
+          <Progress value={active.progress} />
+          <p className="text-center text-xs text-[var(--muted-foreground)]">Rendering… {active.progress}%</p>
+        </div>
+      ) : (
+        <Button className="w-full gap-2" disabled={starting} onClick={() => void startExport()}>
+          {starting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
+          Export edited video
+        </Button>
+      )}
+
+      {latestDone && !active && (
+        <div className="space-y-2 border-t border-[var(--border)] pt-4">
+          <video controls preload="metadata" src={fileUrl(latestDone)} className="w-full rounded-lg border border-[var(--border)] bg-black" />
+          <div className="flex gap-2">
+            <a
+              href={fileUrl(latestDone, true)}
+              className="flex flex-1 items-center justify-center gap-2 rounded-lg border border-[var(--border)] px-3 py-2 text-sm text-white transition hover:border-[var(--border-strong)]"
+            >
+              <Download className="h-4 w-4" /> Download
+            </a>
+            <Button className="flex-1 gap-2" disabled={sending === latestDone.id} onClick={() => void sendToClips(latestDone)}>
+              {sending === latestDone.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+              Make shorts
+            </Button>
+          </div>
+          <p className="text-center text-xs text-[var(--muted-foreground)]">
+            “Make shorts” drops this edit into the{" "}
+            <Link href="/clips" className="text-[var(--accent)] underline-offset-2 hover:underline">
+              Clip Generator
+            </Link>
+            .
+          </p>
+        </div>
+      )}
+
+      {project.exports.some((record) => record.status === "error") && (
+        <p className="rounded-lg border border-red-400/40 bg-red-500/10 px-3 py-2 text-xs text-red-300">
+          {project.exports.find((record) => record.status === "error")?.error}
+        </p>
+      )}
+
+      <div className="border-t border-[var(--border)] pt-3">
+        <Button
+          variant="danger"
+          className="w-full gap-2"
+          onClick={async () => {
+            if (!window.confirm("Delete this project? Exports are removed too — the original upload stays.")) return;
+            const response = await fetch(`/api/longform/projects/${project.id}`, { method: "DELETE" });
+            if (response.ok) onDeleted();
+            else toast.error("Could not delete this project.");
+          }}
+        >
+          <Trash2 className="h-4 w-4" /> Delete project
+        </Button>
+      </div>
+    </div>
+  );
+}
