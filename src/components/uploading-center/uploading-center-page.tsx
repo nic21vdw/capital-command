@@ -59,8 +59,9 @@ export function UploadingCenterPage() {
     setSlotOffsetDays,
     slotWindowLoading,
     channel,
-    channelVideos,
     channelVideosBySlot,
+    channelDayMarkers,
+    channelVideosOutsideWindow,
     queueItems,
     jobsWithClips,
     activeJob,
@@ -137,7 +138,8 @@ export function UploadingCenterPage() {
     [itemsByPlatformSlot]
   );
   // A slot is taken by a queue item or — on YouTube — by a video already
-  // scheduled/published on the channel itself at that exact time.
+  // scheduled/published on the channel itself at (or within a few minutes
+  // of) that time, whether it was uploaded here or by hand in Studio.
   const channelVideoAtSlot = useCallback(
     (slotUtc: string) => channelVideosBySlot.get(slotUtc),
     [channelVideosBySlot]
@@ -247,15 +249,10 @@ export function UploadingCenterPage() {
     const offGrid = queueItems.filter(
       (item) => item.platforms[id] && !slotUtcSet.has(new Date(item.publishAt).toISOString())
     );
-    // Channel videos whose time doesn't land on a free grid slot are listed
-    // beside the board with their exact upload/go-live time instead.
-    const offSlotVideos =
-      id === "youtube"
-        ? channelVideos.filter((video) => {
-            const utc = new Date(video.publishAtUtc).toISOString();
-            return !slotUtcSet.has(utc) || Boolean(itemAtSlot("youtube", utc));
-          })
-        : [];
+    // Channel videos on a day the grid shows render on the grid itself (in a
+    // slot cell or as a day marker); the rest are listed below the board with
+    // their exact upload/go-live time.
+    const offSlotVideos = id === "youtube" ? channelVideosOutsideWindow : [];
     return {
       id,
       label: PLATFORM_LABELS[id],
@@ -298,6 +295,7 @@ export function UploadingCenterPage() {
             itemAtSlot={itemAtSlot}
             thumbnailForItem={thumbnailForItem}
             channelVideoAtSlot={id === "youtube" ? channelVideoAtSlot : undefined}
+            channelDayMarkers={id === "youtube" ? channelDayMarkers : undefined}
             onDropClip={(slotUtc, clipKey) => handleDrop(id, slotUtc, clipKey)}
             onUploadVideo={(slotUtc, file) => void uploadToSlot(file, { platform: id, slotUtc })}
             onSelectSlot={placingClip ? (slotUtc) => handleSelectSlot(id, slotUtc) : undefined}
@@ -590,9 +588,10 @@ function ConnectYoutubeNotice() {
 }
 
 /**
- * Videos already on the YouTube channel whose time doesn't land on a free
- * grid slot: "Scheduled to go live …" for upcoming uploads, "Uploaded …" for
- * recently published ones. Read-only — they're managed in YouTube Studio.
+ * Videos already on the YouTube channel that fall outside the visible grid
+ * window (in-window videos render on the grid itself, in a slot cell or as a
+ * day marker): "Scheduled to go live …" for upcoming uploads, "Uploaded …"
+ * for recently published ones. Read-only — they're managed in YouTube Studio.
  */
 function ChannelVideoList({ videos, timezone }: { videos: ChannelVideo[]; timezone?: string }) {
   const formatTime = (utc: string) =>

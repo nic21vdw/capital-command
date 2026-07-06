@@ -1,12 +1,13 @@
 "use client";
 
 import { useMemo, useRef, useState } from "react";
-import { Clapperboard, ExternalLink, Loader2, Pencil, Send, Trash2, Upload } from "lucide-react";
+import { Clapperboard, Clock, ExternalLink, Loader2, Pencil, Send, Trash2, Upload } from "lucide-react";
 import { toast } from "sonner";
 import { StatusChip } from "@/components/uploading-center/status-chip";
 import { CLIP_DRAG_TYPE } from "@/components/uploading-center/clip-card";
 import { remoteUrlFor, studioVideoUrl } from "@/components/uploading-center/use-uploading-center";
 import { cn } from "@/lib/utils";
+import type { ChannelDayMarker } from "@/lib/publisher/channelPlacement";
 import type { ChannelVideo } from "@/lib/publisher/channelVideos";
 import type { ScheduleSlot } from "@/lib/publisher/slots";
 import type { PlatformId, PlatformState, QueueItem } from "@/lib/publisher/types";
@@ -19,7 +20,9 @@ import type { PlatformId, PlatformState, QueueItem } from "@/lib/publisher/types
  * future slots accept a dragged clip, a video file dropped straight from the
  * computer, or an Upload-button pick. On the YouTube board, slots whose time
  * matches a video already on the channel (scheduled in Studio, or published)
- * render that video read-only.
+ * render that video read-only, and a video scheduled at any other time that
+ * day puts a time chip on the day's row — so what's already on YouTube is
+ * never double-booked from here.
  */
 
 /** A dropped/picked file counts as video by MIME type or a known extension. */
@@ -33,6 +36,7 @@ export function ScheduleBoard({
   itemAtSlot,
   thumbnailForItem,
   channelVideoAtSlot,
+  channelDayMarkers,
   onDropClip,
   onUploadVideo,
   onSelectSlot,
@@ -45,8 +49,10 @@ export function ScheduleBoard({
   slots: ScheduleSlot[];
   itemAtSlot: (platform: PlatformId, slotUtc: string) => QueueItem | undefined;
   thumbnailForItem: (item: QueueItem) => string | null;
-  /** YouTube only: a video already on the channel occupying this exact slot. */
+  /** YouTube only: a video already on the channel occupying this slot's time. */
   channelVideoAtSlot?: (slotUtc: string) => ChannelVideo | undefined;
+  /** YouTube only: off-slot channel videos per day (keyed by dateKey). */
+  channelDayMarkers?: Map<string, ChannelDayMarker[]>;
   onDropClip: (slotUtc: string, clipKey: string) => void;
   /** A video file from the user's computer dropped on (or picked for) a slot. */
   onUploadVideo: (slotUtc: string, file: File) => void;
@@ -126,6 +132,7 @@ export function ScheduleBoard({
               itemAtSlot={itemAtSlot}
               thumbnailForItem={thumbnailForItem}
               channelVideoAtSlot={channelVideoAtSlot}
+              dayMarkers={channelDayMarkers?.get(daySlots[0].dateKey)}
               dragOverSlot={dragOverSlot}
               setDragOverSlot={setDragOverSlot}
               onDropClip={onDropClip}
@@ -150,6 +157,7 @@ function BoardRow({
   itemAtSlot,
   thumbnailForItem,
   channelVideoAtSlot,
+  dayMarkers,
   dragOverSlot,
   setDragOverSlot,
   onDropClip,
@@ -166,6 +174,8 @@ function BoardRow({
   itemAtSlot: (platform: PlatformId, slotUtc: string) => QueueItem | undefined;
   thumbnailForItem: (item: QueueItem) => string | null;
   channelVideoAtSlot?: (slotUtc: string) => ChannelVideo | undefined;
+  /** Channel videos going live this day at a non-slot time. */
+  dayMarkers?: ChannelDayMarker[];
   dragOverSlot: string | null;
   setDragOverSlot: (id: string | null) => void;
   onDropClip: (slotUtc: string, clipKey: string) => void;
@@ -181,12 +191,35 @@ function BoardRow({
   const isToday = daySlots[0].today;
   return (
     <>
-      <div className={cn("flex items-center gap-1.5 px-1 text-xs font-medium text-white", isToday && "text-[var(--accent)]")}>
-        {daySlots[0].dateLabel}
-        {isToday ? (
-          <span className="rounded-full bg-[var(--accent)]/15 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-[var(--accent)]">
-            Today
-          </span>
+      <div className="flex flex-col justify-center gap-1 px-1">
+        <div className={cn("flex items-center gap-1.5 text-xs font-medium text-white", isToday && "text-[var(--accent)]")}>
+          {daySlots[0].dateLabel}
+          {isToday ? (
+            <span className="rounded-full bg-[var(--accent)]/15 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-[var(--accent)]">
+              Today
+            </span>
+          ) : null}
+        </div>
+        {dayMarkers && dayMarkers.length > 0 ? (
+          // A video already goes live this day at a non-slot time — show that
+          // time right on the row so a second clip isn't scheduled on top of it.
+          <div className="flex flex-wrap gap-1">
+            {dayMarkers.map((marker) => (
+              <a
+                key={marker.video.videoId}
+                href={studioVideoUrl(marker.video.videoId)}
+                target="_blank"
+                rel="noreferrer"
+                title={`“${marker.video.title}” is already ${
+                  marker.video.status === "scheduled" ? "scheduled on" : "published to"
+                } YouTube at ${marker.time} this day — open it in YouTube Studio.`}
+                className="inline-flex items-center gap-1 rounded-full border border-amber-400/30 bg-amber-400/10 px-1.5 py-0.5 text-[10px] font-medium text-amber-200 transition hover:bg-amber-400/20"
+              >
+                <Clock className="h-2.5 w-2.5 shrink-0" />
+                {marker.time}
+              </a>
+            ))}
+          </div>
         ) : null}
       </div>
       {daySlots.map((slot) => {
