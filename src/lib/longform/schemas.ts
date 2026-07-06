@@ -1,0 +1,54 @@
+import { z } from "zod";
+import { captionSegmentSchema, captionStyleSchema } from "@/lib/storage/schemas";
+
+// Zod validation for the Long-Form Editor's API payloads. Only the fields the
+// editor is allowed to change are accepted — pipeline state (status, stage,
+// transcript, silences, exports) is server-owned.
+
+export const longformSegmentSchema = z.object({
+  id: z.string(),
+  start: z.coerce.number().min(0),
+  end: z.coerce.number().min(0),
+  kind: z.enum(["speech", "silence"]),
+  enabled: z.coerce.boolean()
+});
+
+export const longformHookSchema = z.object({
+  enabled: z.coerce.boolean(),
+  end: z.coerce.number().min(0).max(60),
+  zoom: z.coerce.number().min(1).max(2.5),
+  focusX: z.coerce.number().min(0).max(1),
+  focusY: z.coerce.number().min(0).max(1),
+  captionsEnabled: z.coerce.boolean(),
+  highlightCurrentWord: z.coerce.boolean(),
+  captions: z.array(captionSegmentSchema),
+  captionStyle: captionStyleSchema
+});
+
+export const longformMusicSchema = z.object({
+  trackId: z.string().optional(),
+  volume: z.coerce.number().min(0).max(1),
+  fadeOut: z.coerce.number().min(0).max(15),
+  enabled: z.coerce.boolean()
+});
+
+export const longformPaceSchema = z.object({
+  minSilenceSec: z.coerce.number().min(0.2).max(5),
+  paddingSec: z.coerce.number().min(0).max(1)
+});
+
+/** PATCH body for a project: any subset of the editable fields. */
+export const longformProjectPatchSchema = z
+  .object({
+    name: z.string().trim().min(1).max(200),
+    segments: z.array(longformSegmentSchema).max(5000),
+    hook: longformHookSchema,
+    music: longformMusicSchema,
+    pace: longformPaceSchema
+  })
+  .partial();
+
+export const longformCreateSchema = z.object({
+  sourceId: z.string().min(1),
+  name: z.string().trim().max(200).optional()
+});

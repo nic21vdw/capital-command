@@ -348,7 +348,7 @@ const captionWordSchema = z.object({
   end: z.coerce.number().min(0)
 });
 
-const captionSegmentSchema = z.object({
+export const captionSegmentSchema = z.object({
   id: z.string(),
   start: z.coerce.number().min(0),
   end: z.coerce.number().min(0),
