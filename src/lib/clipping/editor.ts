@@ -100,8 +100,10 @@ function smartTitleCase(words: string[]): string {
 }
 
 /** Turns a raw spoken sentence into a tidy, YouTube-ready title, or "" if the
- *  fragment is too thin to make a real title. */
-function titleFromSentence(sentence: string, maxWords = 10, maxChars = 70): string {
+ *  fragment is too thin — or too long to fit whole — to make a real title.
+ *  Never truncates mid-sentence: a title is either the complete thought or
+ *  it is rejected, so clips never end up with a broken-off fragment. */
+function titleFromSentence(sentence: string, maxWords = 12, maxChars = 90): string {
   let tokens = sentence
     // Drop caption noise markers like [Music] or (laughs).
     .replace(/[\[(][^\])]*[\])]/g, " ")
@@ -115,19 +117,15 @@ function titleFromSentence(sentence: string, maxWords = 10, maxChars = 70): stri
   // Trim weak opener/closer words so titles don't start on "Is The…" or end
   // on a dangling "…We Want To".
   while (tokens.length && WEAK_EDGE_WORDS.has(tokens[0].toLowerCase())) tokens.shift();
-  tokens = tokens.slice(0, maxWords);
   while (tokens.length && WEAK_EDGE_WORDS.has(tokens[tokens.length - 1].toLowerCase())) tokens.pop();
 
   if (tokens.length < 3) return "";
+  // Reject rather than truncate: a partial sentence reads as a broken
+  // thought, so it's better to fall back to a different candidate.
+  if (tokens.length > maxWords) return "";
 
-  let title = smartTitleCase(tokens);
-  if (title.length > maxChars) {
-    // Truncate at the last word boundary that fits, then re-trim weak endings.
-    const cut = title.slice(0, maxChars);
-    const trimmed = cut.slice(0, cut.lastIndexOf(" ")).split(" ");
-    while (trimmed.length && WEAK_EDGE_WORDS.has(trimmed[trimmed.length - 1].toLowerCase())) trimmed.pop();
-    title = trimmed.join(" ");
-  }
+  const title = smartTitleCase(tokens);
+  if (title.length > maxChars) return "";
   return title.trim();
 }
 
@@ -237,42 +235,28 @@ export function generateClipHashtags(captions: CaptionSegment[], max = 4): strin
     .map(([word]) => `#${word.charAt(0).toUpperCase()}${word.slice(1)}`);
 }
 
-/** A short, publish-ready description drawn from the transcript, capped off
- *  with topical hashtags. */
-export function generateClipDescription(captions: CaptionSegment[]): string {
-  const text = transcriptText(captions);
-  if (!text) return "";
+/** Standing description applied to every generated clip/short, regardless of
+ *  transcript content — the CoLateral "build in public" boilerplate. */
+export const CLIP_DESCRIPTION_TEMPLATE = `I’m building CoLateral, the all-in-one engineering workspace for structural engineers, designers, and technical professionals who want better tools for calculations, drafting, project workflows, and AI-powered engineering work.
 
-  const sentences = text
-    .split(/(?<=[.!?])\s+/)
-    .map((sentence) =>
-      sentence
-        .split(/\s+/)
-        .filter((word) => !TITLE_FILLERS.has(word.toLowerCase()))
-        .join(" ")
-        .trim()
-    )
-    .filter((sentence) => sentence.split(/\s+/).length >= 4);
+Follow along as I build CoLateral in public.
 
-  const lead: string[] = [];
-  let length = 0;
-  for (const sentence of sentences.length ? sentences : [text]) {
-    if (length + sentence.length > 300 && lead.length) break;
-    lead.push(sentence);
-    length += sentence.length;
-    if (lead.length >= 2) break;
-  }
+Try / follow CoLateral:
+https://colateral.ai
 
-  let summary = lead.join(" ").slice(0, 320).trim();
-  if (summary) {
-    summary = summary.charAt(0).toUpperCase() + summary.slice(1);
-    if (!/[.!?]$/.test(summary)) summary += ".";
-  }
+Connect with me:
+YouTube: @NicVandewetering
+TikTok: @nicvandewetering
+Instagram: @nicvandewetering
+X: @nicvandeweter
+Threads: @nicvandewetering
 
-  const hashtags = generateClipHashtags(captions);
-  return [summary, "👉 Like & subscribe for more clips like this.", hashtags.join(" ")]
-    .filter(Boolean)
-    .join("\n\n");
+#BuildInPublic #ContentCreation #YouTubeCreator #JustPostIt #AI #Engineering #StructuralEngineering #CoLateral #Startup #CreatorEconomy #AITools #Productivity #Tech #Entrepreneurship`;
+
+/** Publish-ready description for a clip. Every generated clip uses the same
+ *  standing CoLateral description. */
+export function generateClipDescription(_captions: CaptionSegment[]): string {
+  return CLIP_DESCRIPTION_TEMPLATE;
 }
 
 /**

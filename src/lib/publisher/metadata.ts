@@ -1,5 +1,6 @@
 import Anthropic from "@anthropic-ai/sdk";
 import type { QueueItem } from "@/lib/publisher/types";
+import { CLIP_DESCRIPTION_TEMPLATE } from "@/lib/clipping/editor";
 
 /**
  * Post metadata (title / description / hashtags) for a finished clip.
@@ -34,7 +35,8 @@ function normalizeHashtags(tags: string[]): string[] {
   return out;
 }
 
-/** Offline fallback: derive something serviceable from existing clip metadata. */
+/** Offline fallback: derive a title from existing clip metadata; every clip
+ *  carries the same standing CoLateral description. */
 export function fallbackMetadata(source: {
   streamTitle?: string;
   topic?: string;
@@ -42,16 +44,10 @@ export function fallbackMetadata(source: {
 }): ClipMetadata {
   const base = source.streamTitle?.trim() || source.topic?.trim() || "New clip";
   const title = base.length > MAX_TITLE_CHARS ? `${base.slice(0, MAX_TITLE_CHARS - 1)}…` : base;
-  const hook = source.spokenText?.trim().split(/\s+/).slice(0, 30).join(" ");
-  const description = hook ? `${hook}…` : title;
-  const topicTags = (source.topic ?? "")
-    .split(/[,\s]+/)
-    .filter((word) => word.length > 2)
-    .slice(0, 3);
   return {
     title,
-    description,
-    hashtags: normalizeHashtags([...topicTags, "shorts", "clips"])
+    description: CLIP_DESCRIPTION_TEMPLATE,
+    hashtags: []
   };
 }
 
@@ -72,7 +68,8 @@ function parseMetadata(text: string): Partial<ClipMetadata> | null {
 }
 
 /**
- * Generates a punchy title, a short description, and hashtags for the clip.
+ * Generates a punchy, complete-sentence title for the clip. The description
+ * is always the standing CoLateral boilerplate — never model-generated.
  * Never throws — falls back to the heuristic on any error.
  */
 export async function generateClipMetadata(source: {
@@ -86,17 +83,17 @@ export async function generateClipMetadata(source: {
     const client = new Anthropic();
     const response = await client.messages.create({
       model: "claude-opus-4-8",
-      max_tokens: 500,
+      max_tokens: 300,
       messages: [
         {
           role: "user",
           content: [
-            "You write metadata for a short-form vertical clip posted to YouTube Shorts, Instagram Reels and TikTok.",
+            "You write the title for a short-form vertical clip posted to YouTube Shorts, Instagram Reels and TikTok.",
             source.streamTitle ? `Stream title: ${source.streamTitle}` : "",
             source.topic ? `Topic: ${source.topic}` : "",
             source.spokenText ? `What is said in the clip:\n${source.spokenText.slice(0, 2000)}` : "",
             "",
-            `Reply with ONLY a JSON object: {"title": string (max ${MAX_TITLE_CHARS} chars, punchy, no clickbait lies, no emojis), "description": string (1-2 sentences), "hashtags": string[] (${MAX_HASHTAGS} max, no # prefix, lowercase, relevant)}`
+            `Reply with ONLY a JSON object: {"title": string} — a complete thought or sentence, never cut off mid-phrase, max ${MAX_TITLE_CHARS} chars, punchy, no clickbait lies, no emojis.`
           ]
             .filter(Boolean)
             .join("\n")
@@ -108,11 +105,11 @@ export async function generateClipMetadata(source: {
       .map((block) => block.text)
       .join("\n");
     const parsed = parseMetadata(text);
-    if (!parsed) return fallback;
+    if (!parsed?.title) return fallback;
     return {
-      title: (parsed.title ?? fallback.title).slice(0, MAX_TITLE_CHARS + 10),
-      description: parsed.description ?? fallback.description,
-      hashtags: parsed.hashtags ? normalizeHashtags(parsed.hashtags) : fallback.hashtags
+      title: parsed.title.slice(0, MAX_TITLE_CHARS + 10),
+      description: CLIP_DESCRIPTION_TEMPLATE,
+      hashtags: []
     };
   } catch {
     return fallback;
