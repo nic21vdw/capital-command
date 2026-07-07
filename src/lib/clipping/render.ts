@@ -89,6 +89,14 @@ export function reframeChain(
  * The zoom is driven by ffmpeg's per-frame `t` (seconds from the clip start),
  * so the whole thing bakes in a single pass. Once `t >= rampSec` the crop holds
  * steady at `targetScale` for the rest of the clip.
+ *
+ * The zoom lives in a per-frame `scale` (which supports `eval=frame`, so its
+ * dimensions may depend on `t`) rather than in the crop's size: a crop's output
+ * width/height are evaluated ONCE at init, where `t` is undefined, so a
+ * `t`-dependent crop size fails to configure the filter ("Error when evaluating
+ * the expression … Failed to configure input pad"). We instead scale the cover
+ * frame up by z(t) each frame and crop a fixed-size viewport back out at the
+ * focus point (crop's x/y DO support `eval=frame`).
  */
 export function animatedReframeChain(
   inLabel: string,
@@ -111,21 +119,28 @@ export function animatedReframeChain(
   }
 
   // z(t): 1 -> target over `ramp` seconds on an ease-out cubic (1-(1-p)^3),
-  // then held. Commas inside function calls are safe because each crop option
-  // value is single-quoted below. `iw`/`ih` here are the WxH cover frame.
+  // then held. Commas inside function calls are safe because each option value
+  // is single-quoted below.
   const progress = `min(1,t/${ramp.toFixed(3)})`;
   const z = `(1+${(target - 1).toFixed(4)}*(1-pow(1-${progress},3)))`;
-  // Crop a 1/z-sized window (shrinking as z grows = zooming in) around the
-  // focus point, then scale it back up to fill the frame.
-  const cropW = `iw/${z}`;
-  const cropH = `ih/${z}`;
+  // Scale the cover frame up by z(t) each frame (scale's eval=frame lets the
+  // size track `t`; dimensions are forced even so libx264 / yuv420p stay
+  // happy), then crop a fixed WxH viewport back out around the focus point.
+  // crop re-evaluates its x/y per frame by default — as the scaled-up `iw`/`ih`
+  // grow, the viewport re-centers on the focus — while its output size stays
+  // constant, which is the whole point (a `t`-dependent crop size fails to
+  // configure). We deliberately don't pass crop's `eval` option: it only exists
+  // to opt OUT of per-frame x/y, and older builds lack it entirely.
+  const scaledW = `ceil(${w}*${z}/2)*2`;
+  const scaledH = `ceil(${h}*${z}/2)*2`;
   const cropX = `(iw-ow)/2*(1+${sx.toFixed(4)})`;
   const cropY = `(ih-oh)/2*(1+${sy.toFixed(4)})`;
   return (
     `[${inLabel}]split=2[__bg][__fg];` +
     `[__bg]scale=${w}:${h}:force_original_aspect_ratio=increase,crop=${w}:${h},boxblur=24:4,eq=brightness=-0.08[__bgb];` +
     `[__fg]scale=${w}:${h}:force_original_aspect_ratio=increase,crop=${w}:${h},` +
-      `crop=w='${cropW}':h='${cropH}':x='${cropX}':y='${cropY}',scale=${w}:${h}[__fgs];` +
+      `scale=w='${scaledW}':h='${scaledH}':eval=frame,` +
+      `crop=${w}:${h}:x='${cropX}':y='${cropY}'[__fgs];` +
     `[__bgb][__fgs]overlay=0:0[${outLabel}]`
   );
 }

@@ -20,15 +20,21 @@ describe("reframeChain", () => {
   it("ramps the punch-in zoom from 1x with a time-based ease-out instead of a static crop", () => {
     const chain = animatedReframeChain("0:v", "vout", 1920, 1080, 1.3, 0.0, -0.3, 0.5);
 
-    // The crop window is driven per-frame by t (seconds), not a constant scale.
+    // The zoom is driven per-frame by t (seconds), not a constant scale.
     expect(chain).toContain("t/0.500");
     // Ease-out cubic ramp toward the (1.3 - 1) = 0.3 delta above 1x.
     expect(chain).toContain("(1+0.3000*(1-pow(1-min(1,t/0.500),3)))");
-    // Zoom shrinks the crop window (iw/z) then scales it back up to fill.
-    expect(chain).toContain("crop=w='iw/(1+0.3000");
-    expect(chain).toContain("scale=1920:1080[__fgs]");
+    // The zoom lives in a per-frame scale (eval=frame), which — unlike a crop's
+    // output size — is allowed to depend on t. Dimensions are forced even.
+    expect(chain).toContain("scale=w='ceil(1920*(1+0.3000");
+    expect(chain).toContain("eval=frame");
+    // A fixed 1920x1080 viewport is cropped back out at the focus point.
+    expect(chain).toContain("crop=1920:1080:x=");
     // Vertical focus offset is carried into the crop position.
     expect(chain).toContain("*(1+-0.3000)");
+    // The crop size is NEVER a function of t — that fails ffmpeg's init-time
+    // eval ("Failed to configure input pad"), which was the export bug.
+    expect(chain).not.toContain("crop=w='iw/");
     // No constant zoom crop like the static reframeChain uses.
     expect(chain).not.toContain("scale=iw*1.3");
   });
