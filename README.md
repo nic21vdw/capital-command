@@ -247,6 +247,23 @@ local scheduler and the Actions cron against the same queue at the same time.
    enqueue, then trigger the workflow manually from the Actions tab with
    "dry run" first.
 
+## Animated video segments (Remotion)
+
+Make **dynamic animated clips** to record commentary over — title cards,
+animated bullet points, counting stats — instead of static slideshows, for $0
+in API fees. The animations live in `remotion/` and render locally.
+
+- **Everyday flow:** have an idea → in Claude Code run the `/animate-video`
+  skill → it renders MP4 segments into `remotion/out/` → drop them into the
+  Long-Form (`/longform`) or Clips (`/editor`) timeline → record your voice-over
+  → publish through the Uploading Center.
+- **Preview/export by hand:** double-click **`launch-remotion-studio.bat`** to
+  open Remotion Studio in your browser.
+- Full plain-English walkthrough: [`docs/ANIMATED_VIDEOS.md`](docs/ANIMATED_VIDEOS.md).
+
+Remotion is free for solo creators (and teams of 3 or fewer) —
+[license](https://www.remotion.dev/docs/license).
+
 ## Disclaimer
 
 This app is for personal tracking and educational organization only. It does not provide financial, tax, legal, or investment advice.
