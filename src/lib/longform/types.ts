@@ -44,6 +44,29 @@ export type LongformHook = {
   captionStyle: CaptionStyle;
 };
 
+/**
+ * An image dropped onto the timeline and shown as an overlay. Timing is in
+ * source-timeline seconds (the same coordinate the segments and hook use), so
+ * the preview can show it directly; the export maps it onto the edited runtime.
+ */
+export type LongformOverlay = {
+  id: string;
+  fileName: string;
+  /** File on disk inside the project's image dir. */
+  storedName: string;
+  mime: string;
+  /** Visible over [start, end] seconds of the source timeline. */
+  start: number;
+  end: number;
+  /** Normalized center position within the frame (0..1). */
+  x: number;
+  y: number;
+  /** Width as a fraction of the frame width (0..1); height keeps the aspect. */
+  width: number;
+  /** 0..1 opacity of the overlay. */
+  opacity: number;
+};
+
 export type LongformMusic = {
   /** References a track in the shared music library. */
   trackId?: string;
@@ -98,6 +121,8 @@ export type LongformProject = {
   silences: SilenceRange[];
   segments: LongformSegment[];
   hook: LongformHook;
+  /** Images dropped onto the timeline, rendered over the edited video. */
+  overlays: LongformOverlay[];
   music: LongformMusic;
   pace: LongformPace;
   exports: LongformExportRecord[];

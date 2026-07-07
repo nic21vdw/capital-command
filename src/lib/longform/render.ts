@@ -1,11 +1,12 @@
-import { writeFile } from "node:fs/promises";
+import { stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { buildAss } from "@/lib/clipping/captions";
 import { runFfmpeg } from "@/lib/clipping/ffmpeg";
 import { reframeChain } from "@/lib/clipping/render";
 import { readSourceMeta, sourceFilePath } from "@/lib/clipping/sources";
 import { getTrack, trackFilePath } from "@/lib/longform/music";
-import { editedDurationSec, exportRanges, type KeptRange } from "@/lib/longform/plan";
+import { overlayFilePath } from "@/lib/longform/overlays";
+import { editedDurationSec, exportRanges, sourceToOutputIntervals, type KeptRange } from "@/lib/longform/plan";
 import { getProject, projectOutputDir, projectWorkDir, updateProject } from "@/lib/longform/store";
 import type { LongformExportRecord, LongformProject } from "@/lib/longform/types";
 
@@ -196,6 +197,12 @@ async function runExport(projectId: string, recordId: string) {
   }
   await patchRecord(projectId, recordId, { progress: 91 });
 
+  // 3b. Timeline overlays: burn each dropped-in image over the edited runtime.
+  // Images are authored in source seconds, so their visible window is mapped
+  // onto the concatenated hook + body timeline before it is drawn.
+  const videoPath = await applyOverlays(project, mergedPath, workDir, recordId, hasAudio);
+  await patchRecord(projectId, recordId, { progress: 94 });
+
   // 4. Background music: loop the library track under the edit, faded out at
   // the end. Video is stream-copied — only the audio re-encodes.
   const fileName = `edited-${recordId}.mp4`;
@@ -215,7 +222,7 @@ async function runExport(projectId: string, recordId: string) {
     await runFfmpeg([
       "-y",
       "-i",
-      mergedPath,
+      videoPath,
       "-stream_loop",
       "-1",
       "-i",
@@ -236,10 +243,93 @@ async function runExport(projectId: string, recordId: string) {
     ]);
   } else {
     // No music: remux with +faststart so the file streams instantly.
-    await runFfmpeg(["-y", "-i", mergedPath, "-c", "copy", "-movflags", "+faststart", finalPath]);
+    await runFfmpeg(["-y", "-i", videoPath, "-c", "copy", "-movflags", "+faststart", finalPath]);
   }
 
   await patchRecord(projectId, recordId, { status: "done", progress: 100, file: fileName });
+}
+
+async function fileExists(p: string): Promise<boolean> {
+  try {
+    await stat(p);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Draws the project's timeline overlay images onto the merged video and
+ * returns the path to draw from next. When there is nothing to draw (no
+ * overlays, missing files, or every overlay lands only inside cut footage)
+ * the merged path is returned untouched so the video is never re-encoded for
+ * no reason.
+ */
+async function applyOverlays(
+  project: LongformProject,
+  mergedPath: string,
+  workDir: string,
+  recordId: string,
+  hasAudio: boolean
+): Promise<string> {
+  const overlays = project.overlays ?? [];
+  if (overlays.length === 0) return mergedPath;
+
+  const drawable: Array<{ path: string; intervals: KeptRange[]; x: number; y: number; width: number; opacity: number }> = [];
+  for (const overlay of overlays) {
+    const intervals = sourceToOutputIntervals(overlay.start, overlay.end, project.segments, project.hook);
+    if (intervals.length === 0) continue;
+    const imagePath = overlayFilePath(project.id, overlay.storedName);
+    if (!(await fileExists(imagePath))) continue;
+    drawable.push({
+      path: imagePath,
+      intervals,
+      x: Math.min(1, Math.max(0, overlay.x)),
+      y: Math.min(1, Math.max(0, overlay.y)),
+      width: Math.min(1, Math.max(0.02, overlay.width)),
+      opacity: Math.min(1, Math.max(0, overlay.opacity))
+    });
+  }
+  if (drawable.length === 0) return mergedPath;
+
+  const inputs = drawable.flatMap((item) => ["-i", item.path]);
+  const filters: string[] = [];
+  drawable.forEach((item, index) => {
+    const scaledW = Math.max(2, Math.round(item.width * FRAME_W));
+    // Scale to the requested width (keeping aspect), then apply opacity.
+    filters.push(
+      `[${index + 1}:v]scale=${scaledW}:-1,format=rgba,colorchannelmixer=aa=${item.opacity.toFixed(3)}[ov${index}]`
+    );
+  });
+  let prev = "0:v";
+  drawable.forEach((item, index) => {
+    const enable = item.intervals
+      .map((iv) => `between(t,${iv.start.toFixed(3)},${iv.end.toFixed(3)})`)
+      .join("+");
+    const label = index === drawable.length - 1 ? "vout" : `b${index}`;
+    filters.push(
+      `[${prev}][ov${index}]overlay=x='(main_w*${item.x})-(overlay_w/2)':` +
+        `y='(main_h*${item.y})-(overlay_h/2)':enable='${enable}'[${label}]`
+    );
+    prev = label;
+  });
+
+  const overlaidPath = path.join(workDir, `export-${recordId}-overlaid.mp4`);
+  await runFfmpeg([
+    "-y",
+    "-i",
+    mergedPath,
+    ...inputs,
+    "-filter_complex",
+    filters.join(";"),
+    "-map",
+    "[vout]",
+    ...(hasAudio ? ["-map", "0:a?"] : []),
+    ...VIDEO_ENC,
+    ...(hasAudio ? ["-c:a", "copy"] : ["-an"]),
+    overlaidPath
+  ]);
+  return overlaidPath;
 }
 
 /** Builds the ffmpeg select expression keeping only the given time ranges. */

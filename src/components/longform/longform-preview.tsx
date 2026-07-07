@@ -18,7 +18,8 @@ export function LongformPreview({
   videoRef,
   onTogglePlay,
   focusEditing,
-  onFocusChange
+  onFocusChange,
+  imageUrl
 }: {
   project: LongformProject;
   time: number;
@@ -30,6 +31,8 @@ export function LongformPreview({
   /** When true, clicking the frame moves the hook zoom focus point. */
   focusEditing: boolean;
   onFocusChange: (x: number, y: number) => void;
+  /** Resolves an overlay to a displayable image URL. */
+  imageUrl: (overlay: LongformProject["overlays"][number]) => string;
 }) {
   const frameRef = useRef<HTMLDivElement>(null);
   const [frameHeight, setFrameHeight] = useState(0);
@@ -54,6 +57,12 @@ export function LongformPreview({
 
   const style = hook.captionStyle;
   const fontSize = Math.max(10, style.fontScale * frameHeight);
+
+  // Timeline images visible at the current source time.
+  const activeOverlays = useMemo(
+    () => project.overlays.filter((overlay) => time >= overlay.start && time < overlay.end),
+    [project.overlays, time]
+  );
 
   const handleFrameClick = (event: React.MouseEvent<HTMLDivElement>) => {
     if (!focusEditing) return;
@@ -89,6 +98,24 @@ export function LongformPreview({
           className="h-full w-full object-contain"
         />
       </div>
+
+      {/* Timeline image overlays */}
+      {activeOverlays.map((overlay) => (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          key={overlay.id}
+          src={imageUrl(overlay)}
+          alt=""
+          draggable={false}
+          className="pointer-events-none absolute -translate-x-1/2 -translate-y-1/2 select-none"
+          style={{
+            left: `${overlay.x * 100}%`,
+            top: `${overlay.y * 100}%`,
+            width: `${overlay.width * 100}%`,
+            opacity: overlay.opacity
+          }}
+        />
+      ))}
 
       {/* Hook badge + captions overlay */}
       {hookActive && (

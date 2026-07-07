@@ -6,6 +6,8 @@ import {
   ArrowLeft,
   Crosshair,
   Download,
+  Image as ImageIcon,
+  ImagePlus,
   ListMusic,
   Loader2,
   Music4,
@@ -27,7 +29,7 @@ import { LongformPreview } from "@/components/longform/longform-preview";
 import { LongformTimeline } from "@/components/longform/longform-timeline";
 import { formatClock } from "@/lib/clipping/editor";
 import { PACE_PRESETS, editedDurationSec, hookCaptions, type PacePresetId } from "@/lib/longform/plan";
-import type { LongformExportRecord, LongformProject, MusicTrack } from "@/lib/longform/types";
+import type { LongformExportRecord, LongformOverlay, LongformProject, MusicTrack } from "@/lib/longform/types";
 import type { CaptionAnimation, CaptionPosition, CaptionSegment } from "@/types/domain";
 import { cn } from "@/lib/utils";
 
@@ -38,9 +40,13 @@ import { cn } from "@/lib/utils";
 const TABS = [
   { id: "hook", label: "Hook", icon: Zap },
   { id: "cuts", label: "Cuts", icon: Scissors },
+  { id: "images", label: "Images", icon: ImageIcon },
   { id: "music", label: "Music", icon: Music4 },
   { id: "export", label: "Export", icon: Upload }
 ] as const;
+
+/** Default seconds a freshly dropped image stays on screen. */
+const OVERLAY_DEFAULT_SEC = 5;
 
 type TabId = (typeof TABS)[number]["id"];
 
@@ -91,6 +97,11 @@ export function LongformEditor({
   const [focusEditing, setFocusEditing] = useState(false);
   const [saved, setSaved] = useState(true);
   const [peaks, setPeaks] = useState<number[]>([]);
+  const [selectedOverlayId, setSelectedOverlayId] = useState<string | null>(null);
+  // Blob URLs for images uploaded this session, so the preview and timeline
+  // show them instantly without a round-trip to the serving route.
+  const [overlayUrls, setOverlayUrls] = useState<Record<string, string>>({});
+  const overlayUrlsRef = useRef(overlayUrls);
 
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const projectRef = useRef(project);
@@ -107,6 +118,9 @@ export function LongformEditor({
   useEffect(() => {
     editedModeRef.current = editedMode;
   }, [editedMode]);
+  useEffect(() => {
+    overlayUrlsRef.current = overlayUrls;
+  }, [overlayUrls]);
 
   // Waveform peaks for the timeline (cached server-side).
   useEffect(() => {
@@ -138,6 +152,7 @@ export function LongformEditor({
           name: current.name,
           segments: current.segments,
           hook: current.hook,
+          overlays: current.overlays,
           music: current.music,
           pace: current.pace
         })
@@ -229,6 +244,88 @@ export function LongformEditor({
     }));
   }, []);
 
+  // Revoke any session blob URLs when the editor unmounts.
+  useEffect(
+    () => () => {
+      for (const url of Object.values(overlayUrlsRef.current)) URL.revokeObjectURL(url);
+    },
+    []
+  );
+
+  const overlayImageUrl = useCallback(
+    (overlay: LongformOverlay) =>
+      overlayUrls[overlay.id] ?? `/api/longform/projects/${project.id}/images/${overlay.id}`,
+    [overlayUrls, project.id]
+  );
+
+  const uploadImage = useCallback(async (file: File, startSec: number) => {
+    if (!file.type.startsWith("image/")) {
+      toast.error("Only image files can be added to the timeline.");
+      return;
+    }
+    const blobUrl = URL.createObjectURL(file);
+    try {
+      const current = projectRef.current;
+      const response = await fetch(
+        `/api/longform/projects/${current.id}/images?name=${encodeURIComponent(file.name)}`,
+        { method: "POST", headers: { "Content-Type": file.type }, body: file }
+      );
+      const data = (await response.json()) as {
+        image?: { id: string; fileName: string; storedName: string; mime: string };
+        error?: string;
+      };
+      if (!response.ok || !data.image) {
+        URL.revokeObjectURL(blobUrl);
+        toast.error(data.error ?? "Could not add that image.");
+        return;
+      }
+      const image = data.image;
+      const duration = projectRef.current.durationSec;
+      const start = Math.max(0, Math.min(startSec, Math.max(0, duration - 0.5)));
+      const end = Math.min(duration, start + OVERLAY_DEFAULT_SEC);
+      const overlay: LongformOverlay = {
+        id: image.id,
+        fileName: image.fileName,
+        storedName: image.storedName,
+        mime: image.mime,
+        start: Math.round(start * 1000) / 1000,
+        end: Math.round(end * 1000) / 1000,
+        x: 0.5,
+        y: 0.5,
+        width: 0.4,
+        opacity: 1
+      };
+      setOverlayUrls((prev) => ({ ...prev, [image.id]: blobUrl }));
+      setProject((prev) => ({ ...prev, overlays: [...prev.overlays, overlay] }));
+      setSelectedOverlayId(image.id);
+      toast.success(`Added “${image.fileName}”.`);
+    } catch {
+      URL.revokeObjectURL(blobUrl);
+      toast.error("Could not add that image. Is the dev server still running?");
+    }
+  }, []);
+
+  const updateOverlay = useCallback((id: string, partial: Partial<LongformOverlay>) => {
+    setProject((prev) => ({
+      ...prev,
+      overlays: prev.overlays.map((overlay) => (overlay.id === id ? { ...overlay, ...partial } : overlay))
+    }));
+  }, []);
+
+  const removeOverlay = useCallback((id: string) => {
+    setProject((prev) => ({ ...prev, overlays: prev.overlays.filter((overlay) => overlay.id !== id) }));
+    setSelectedOverlayId((current) => (current === id ? null : current));
+    setOverlayUrls((prev) => {
+      if (prev[id]) URL.revokeObjectURL(prev[id]);
+      const next = { ...prev };
+      delete next[id];
+      return next;
+    });
+    void fetch(`/api/longform/projects/${projectRef.current.id}/images/${id}`, { method: "DELETE" }).catch(
+      () => undefined
+    );
+  }, []);
+
   const inCut = useMemo(
     () => cutRangesOf(project).some((range) => time >= range.start && time < range.end),
     [project, time]
@@ -272,6 +369,7 @@ export function LongformEditor({
             onTogglePlay={togglePlay}
             focusEditing={focusEditing && tab === "hook"}
             onFocusChange={(x, y) => patch({ hook: { ...project.hook, focusX: x, focusY: y } })}
+            imageUrl={overlayImageUrl}
           />
 
           <div className="flex flex-wrap items-center gap-3 rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 py-2">
@@ -330,12 +428,23 @@ export function LongformEditor({
             onSeek={seek}
             onToggleSegment={toggleSegment}
             onHookEndChange={setHookEnd}
+            imageUrl={overlayImageUrl}
+            selectedOverlayId={selectedOverlayId}
+            onSelectOverlay={(id) => {
+              setSelectedOverlayId(id);
+              if (id) setTab("images");
+            }}
+            onOverlayChange={updateOverlay}
+            onDropImage={(file, timeSec) => {
+              setTab("images");
+              void uploadImage(file, timeSec);
+            }}
           />
         </div>
 
         {/* Panels */}
         <div className="min-w-0">
-          <div className="mb-3 grid grid-cols-4 gap-1 rounded-xl border border-[var(--border)] bg-[var(--surface)] p-1">
+          <div className="mb-3 grid grid-cols-5 gap-1 rounded-xl border border-[var(--border)] bg-[var(--surface)] p-1">
             {TABS.map((item) => {
               const Icon = item.icon;
               const active = tab === item.id;
@@ -367,6 +476,19 @@ export function LongformEditor({
               />
             )}
             {tab === "cuts" && <CutsPanel project={project} patch={patch} setProject={setProject} seek={seek} skipDirtyRef={skipDirtyRef} />}
+            {tab === "images" && (
+              <ImagesPanel
+                project={project}
+                time={time}
+                imageUrl={overlayImageUrl}
+                selectedOverlayId={selectedOverlayId}
+                setSelectedOverlayId={setSelectedOverlayId}
+                uploadImage={uploadImage}
+                updateOverlay={updateOverlay}
+                removeOverlay={removeOverlay}
+                seek={seek}
+              />
+            )}
             {tab === "music" && <MusicPanel project={project} patch={patch} />}
             {tab === "export" && <ExportPanel project={project} setProject={setProject} skipDirtyRef={skipDirtyRef} onDeleted={onDeleted} editedSec={editedSec} />}
           </div>
@@ -685,6 +807,180 @@ function CutsPanel({
               </button>
             </div>
           ))}
+        </div>
+      </Field>
+    </div>
+  );
+}
+
+function ImagesPanel({
+  project,
+  time,
+  imageUrl,
+  selectedOverlayId,
+  setSelectedOverlayId,
+  uploadImage,
+  updateOverlay,
+  removeOverlay,
+  seek
+}: {
+  project: LongformProject;
+  time: number;
+  imageUrl: (overlay: LongformOverlay) => string;
+  selectedOverlayId: string | null;
+  setSelectedOverlayId: (id: string | null) => void;
+  uploadImage: (file: File, startSec: number) => void;
+  updateOverlay: (id: string, partial: Partial<LongformOverlay>) => void;
+  removeOverlay: (id: string) => void;
+  seek: (t: number) => void;
+}) {
+  const fileRef = useRef<HTMLInputElement>(null);
+  const overlays = [...project.overlays].sort((a, b) => a.start - b.start);
+  const duration = project.durationSec;
+
+  return (
+    <div className="space-y-4">
+      <div>
+        <h3 className="text-sm font-semibold text-white">Images</h3>
+        <p className="mt-1 text-xs text-[var(--muted-foreground)]">
+          Drop an image straight onto the timeline, or add one here. Drag it along the image track to time it, and drag
+          the edges to change how long it stays. Position and size it below.
+        </p>
+      </div>
+
+      <input
+        ref={fileRef}
+        type="file"
+        accept="image/*"
+        multiple
+        className="hidden"
+        onChange={(event) => {
+          const files = Array.from(event.target.files ?? []);
+          for (const file of files) uploadImage(file, time);
+          event.target.value = "";
+        }}
+      />
+      <Button variant="secondary" className="w-full gap-2" onClick={() => fileRef.current?.click()}>
+        <ImagePlus className="h-4 w-4" /> Add image at playhead
+      </Button>
+
+      <Field label="On the timeline" hint={`${overlays.length} image${overlays.length === 1 ? "" : "s"}`}>
+        <div className="space-y-1.5">
+          {overlays.length === 0 && (
+            <p className="rounded-lg border border-dashed border-[var(--border)] px-3 py-3 text-xs text-[var(--muted-foreground)]">
+              No images yet — drop a PNG/JPG onto the timeline or use the button above.
+            </p>
+          )}
+          {overlays.map((overlay) => {
+            const selected = overlay.id === selectedOverlayId;
+            const span = Math.max(0.2, overlay.end - overlay.start);
+            return (
+              <div
+                key={overlay.id}
+                className={cn(
+                  "rounded-lg border transition",
+                  selected ? "border-[var(--accent)] bg-[var(--accent)]/10" : "border-[var(--border)]"
+                )}
+              >
+                <div className="flex items-center gap-2 p-2">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={imageUrl(overlay)}
+                    alt=""
+                    className="h-9 w-9 shrink-0 rounded-md border border-[var(--border)] object-cover"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSelectedOverlayId(selected ? null : overlay.id);
+                      seek(overlay.start + 0.01);
+                    }}
+                    className="min-w-0 flex-1 text-left"
+                  >
+                    <span className="block truncate text-sm text-white">{overlay.fileName}</span>
+                    <span className="block text-xs text-[var(--muted-foreground)]">
+                      {formatClock(overlay.start)}–{formatClock(overlay.end)} · {span.toFixed(1)}s
+                    </span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => removeOverlay(overlay.id)}
+                    className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-[var(--border)] text-[var(--muted-foreground)] transition hover:border-red-400/60 hover:text-red-400"
+                    aria-label="Remove image"
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+                {selected && (
+                  <div className="space-y-3 border-t border-[var(--border)] p-3">
+                    <RangeField
+                      label="Start"
+                      value={overlay.start}
+                      min={0}
+                      max={Math.max(0, duration - 0.2)}
+                      step={0.1}
+                      onChange={(v) =>
+                        updateOverlay(overlay.id, {
+                          start: Math.round(v * 1000) / 1000,
+                          end: Math.round(Math.min(duration, v + span) * 1000) / 1000
+                        })
+                      }
+                      format={(v) => formatClock(v)}
+                    />
+                    <RangeField
+                      label="Duration"
+                      value={span}
+                      min={0.2}
+                      max={Math.max(0.5, duration - overlay.start)}
+                      step={0.1}
+                      onChange={(v) =>
+                        updateOverlay(overlay.id, {
+                          end: Math.round(Math.min(duration, overlay.start + v) * 1000) / 1000
+                        })
+                      }
+                      format={(v) => `${v.toFixed(1)}s`}
+                    />
+                    <RangeField
+                      label="Horizontal"
+                      value={overlay.x}
+                      min={0}
+                      max={1}
+                      step={0.01}
+                      onChange={(v) => updateOverlay(overlay.id, { x: v })}
+                      format={(v) => `${Math.round(v * 100)}%`}
+                    />
+                    <RangeField
+                      label="Vertical"
+                      value={overlay.y}
+                      min={0}
+                      max={1}
+                      step={0.01}
+                      onChange={(v) => updateOverlay(overlay.id, { y: v })}
+                      format={(v) => `${Math.round(v * 100)}%`}
+                    />
+                    <RangeField
+                      label="Size"
+                      value={overlay.width}
+                      min={0.05}
+                      max={1}
+                      step={0.01}
+                      onChange={(v) => updateOverlay(overlay.id, { width: v })}
+                      format={(v) => `${Math.round(v * 100)}%`}
+                    />
+                    <RangeField
+                      label="Opacity"
+                      value={overlay.opacity}
+                      min={0.1}
+                      max={1}
+                      step={0.01}
+                      onChange={(v) => updateOverlay(overlay.id, { opacity: v })}
+                      format={(v) => `${Math.round(v * 100)}%`}
+                    />
+                  </div>
+                )}
+              </div>
+            );
+          })}
         </div>
       </Field>
     </div>
