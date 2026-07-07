@@ -109,6 +109,42 @@ describe("youtube adapter", () => {
     expect(result.postId).toBe("vid-456");
   });
 
+  it("parses a full-size video resource response (larger than the error-truncation limit)", async () => {
+    // The real videos.insert response is a whole video resource — snippet with
+    // thumbnails at five resolutions, tags, localizations — which runs well past
+    // 2000 chars. The body must be parsed in full, not the truncated slice used
+    // for error messages, or a successful upload reads back as unparseable JSON.
+    const fullResource = {
+      kind: "youtube#video",
+      etag: "yVzc__mo7l64H3My5Exu93W9nbQ",
+      id: "b6qz13I6kck",
+      snippet: {
+        publishedAt: "2026-07-07T18:16:38Z",
+        channelId: "UCNF5WYdRhnWXtWnX6TlI-Xg",
+        title: "My clip",
+        description: "x".repeat(3000),
+        tags: Array.from({ length: 20 }, (_, i) => `tag-${i}`),
+        categoryId: "22"
+      }
+    };
+    const requests = mockFetchRoutes([
+      { match: "oauth2.googleapis.com/token", respond: () => jsonResponse({ access_token: "at-1", expires_in: 3600 }) },
+      {
+        match: "uploadType=resumable",
+        respond: () => jsonResponse({}, { headers: { location: "https://upload.example/session-3" } })
+      },
+      { match: "upload.example/session-3", respond: () => jsonResponse(fullResource) }
+    ]);
+    const adapter = await loadAdapter();
+
+    const result = await adapter.publish(input({ visibility: "private" }));
+
+    expect(JSON.stringify(fullResource).length).toBeGreaterThan(2000);
+    expect(result.status).toBe("published");
+    expect(result.postId).toBe("b6qz13I6kck");
+    expect(requests).toHaveLength(3);
+  });
+
   describe("finalize (verify the public flip after the slot time)", () => {
     it("marks published without touching the video when YouTube already flipped it", async () => {
       const requests = mockFetchRoutes([
