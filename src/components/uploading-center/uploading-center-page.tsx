@@ -16,7 +16,7 @@ import {
   Loader2,
   Music2,
   Play,
-  Youtube
+  Youtube,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
@@ -38,17 +38,21 @@ import {
   useUploadingCenter,
   type ClipDraft,
   type ReadyClip,
-  type UploadSuccess
+  type UploadSuccess,
 } from "@/components/uploading-center/use-uploading-center";
 import type { ChannelVideo } from "@/lib/publisher/channelVideos";
 import type { ScheduleSlot } from "@/lib/publisher/slots";
-import type { PlatformId, PlatformState, QueueItem } from "@/lib/publisher/types";
+import type {
+  PlatformId,
+  PlatformStatus,
+  QueueItem,
+} from "@/lib/publisher/types";
 
 const PLATFORM_TABS: Array<{ id: PlatformId; icon: typeof Youtube }> = [
   { id: "youtube", icon: Youtube },
   { id: "tiktok", icon: Music2 },
   { id: "instagram", icon: Instagram },
-  { id: "facebook", icon: Facebook }
+  { id: "facebook", icon: Facebook },
 ];
 
 export function UploadingCenterPage() {
@@ -80,7 +84,7 @@ export function UploadingCenterPage() {
     autoAssign,
     publishNow,
     remove,
-    refresh
+    refresh,
   } = useUploadingCenter();
 
   useEffect(() => {
@@ -101,8 +105,13 @@ export function UploadingCenterPage() {
   const [drafts, setDrafts] = useState<Record<string, ClipDraft>>({});
   const draftFor = useCallback(
     (clip: ReadyClip): ClipDraft =>
-      drafts[clip.key] ?? { title: clip.headline.slice(0, 100), caption: "", platform: "youtube", slotUtc: "" },
-    [drafts]
+      drafts[clip.key] ?? {
+        title: clip.headline.slice(0, 100),
+        caption: "",
+        platform: "youtube",
+        slotUtc: "",
+      },
+    [drafts],
   );
   const onDraftChange = useCallback((clip: ReadyClip, draft: ClipDraft) => {
     setDrafts((current) => ({ ...current, [clip.key]: draft }));
@@ -113,7 +122,7 @@ export function UploadingCenterPage() {
       if (!draft || draft.title.trim() === clip.headline) return;
       void renameClip(clip, draft.title);
     },
-    [drafts, renameClip]
+    [drafts, renameClip],
   );
 
   // Surface the OAuth redirect result exactly once.
@@ -126,7 +135,9 @@ export function UploadingCenterPage() {
     const connectError = searchParams.get("connect_error");
     if (connected === "youtube") {
       oauthToastShown.current = true;
-      toast.success("YouTube connected — scheduled posts will upload automatically.");
+      toast.success(
+        "YouTube connected — scheduled posts will upload automatically.",
+      );
     } else if (connectError) {
       oauthToastShown.current = true;
       toast.error(`YouTube connect failed: ${connectError}`);
@@ -134,20 +145,22 @@ export function UploadingCenterPage() {
   }, [searchParams]);
 
   const itemAtSlot = useCallback(
-    (platform: PlatformId, slotUtc: string) => itemsByPlatformSlot.get(platform)?.get(slotUtc),
-    [itemsByPlatformSlot]
+    (platform: PlatformId, slotUtc: string) =>
+      itemsByPlatformSlot.get(platform)?.get(slotUtc),
+    [itemsByPlatformSlot],
   );
   // A slot is taken by a queue item or — on YouTube — by a video already
   // scheduled/published on the channel itself at (or within a few minutes
   // of) that time, whether it was uploaded here or by hand in Studio.
   const channelVideoAtSlot = useCallback(
     (slotUtc: string) => channelVideosBySlot.get(slotUtc),
-    [channelVideosBySlot]
+    [channelVideosBySlot],
   );
   const isSlotTaken = useCallback(
     (platform: PlatformId, slotUtc: string) =>
-      Boolean(itemAtSlot(platform, slotUtc)) || (platform === "youtube" && channelVideosBySlot.has(slotUtc)),
-    [itemAtSlot, channelVideosBySlot]
+      Boolean(itemAtSlot(platform, slotUtc)) ||
+      (platform === "youtube" && channelVideosBySlot.has(slotUtc)),
+    [itemAtSlot, channelVideosBySlot],
   );
 
   // Placement mode: the editor's Schedule Short button lands here with
@@ -158,7 +171,13 @@ export function UploadingCenterPage() {
   const scheduleJobParam = searchParams.get("scheduleJob");
   const scheduleClipParam = searchParams.get("scheduleClip");
   useEffect(() => {
-    if (placementConsumed.current || !loaded || !scheduleJobParam || !scheduleClipParam) return;
+    if (
+      placementConsumed.current ||
+      !loaded ||
+      !scheduleJobParam ||
+      !scheduleClipParam
+    )
+      return;
     let cancelled = false;
     // Deferred so the state updates land after the render pass, not inside it.
     queueMicrotask(() => {
@@ -167,7 +186,9 @@ export function UploadingCenterPage() {
       // The clip is matched by any file it was ever postable as, so the param
       // can be the editor's source file while the card shows the edited render.
       const clip = readyClips.find(
-        (candidate) => candidate.jobId === scheduleJobParam && candidate.allFiles.includes(scheduleClipParam)
+        (candidate) =>
+          candidate.jobId === scheduleJobParam &&
+          candidate.allFiles.includes(scheduleClipParam),
       );
       if (!clip) return; // readyClips still switching to that job — retry on the next render
       placementConsumed.current = true;
@@ -177,15 +198,26 @@ export function UploadingCenterPage() {
     return () => {
       cancelled = true;
     };
-  }, [loaded, readyClips, router, scheduleClipParam, scheduleJobParam, setActiveJobId]);
+  }, [
+    loaded,
+    readyClips,
+    router,
+    scheduleClipParam,
+    scheduleJobParam,
+    setActiveJobId,
+  ]);
   const placingClip = useMemo(
-    () => (placingKey ? (readyClips.find((clip) => clip.key === placingKey) ?? null) : null),
-    [placingKey, readyClips]
+    () =>
+      placingKey
+        ? (readyClips.find((clip) => clip.key === placingKey) ?? null)
+        : null,
+    [placingKey, readyClips],
   );
 
   const handleSchedule = useCallback(
-    (clip: ReadyClip, override?: Partial<ClipDraft>) => schedule(clip, { ...draftFor(clip), ...override }),
-    [draftFor, schedule]
+    (clip: ReadyClip, override?: Partial<ClipDraft>) =>
+      schedule(clip, { ...draftFor(clip), ...override }),
+    [draftFor, schedule],
   );
   const handleDrop = useCallback(
     (platform: PlatformId, slotUtc: string, clipKey: string) => {
@@ -195,7 +227,7 @@ export function UploadingCenterPage() {
         if (ok && clipKey === placingKey) setPlacingKey(null);
       });
     },
-    [handleSchedule, placingKey, readyClips]
+    [handleSchedule, placingKey, readyClips],
   );
   const handleSelectSlot = useCallback(
     (platform: PlatformId, slotUtc: string) => {
@@ -204,11 +236,14 @@ export function UploadingCenterPage() {
         if (ok) setPlacingKey(null);
       });
     },
-    [busy, handleSchedule, placingClip]
+    [busy, handleSchedule, placingClip],
   );
 
   const slots = useMemo(() => overview?.slots ?? [], [overview]);
-  const slotUtcSet = useMemo(() => new Set(slots.map((slot) => slot.utc)), [slots]);
+  const slotUtcSet = useMemo(
+    () => new Set(slots.map((slot) => slot.utc)),
+    [slots],
+  );
 
   // Auto Assign: pair every not-yet-scheduled clip in this run with the next
   // open slot for its card's platform (slots are ordered soonest-first).
@@ -225,7 +260,7 @@ export function UploadingCenterPage() {
         (candidate) =>
           !candidate.past &&
           !consumed.has(`${draft.platform}:${candidate.utc}`) &&
-          !isSlotTaken(draft.platform, candidate.utc)
+          !isSlotTaken(draft.platform, candidate.utc),
       );
       if (!slot) {
         unslotted += 1;
@@ -235,20 +270,34 @@ export function UploadingCenterPage() {
       assignments.push({ clip, draft: { ...draft, slotUtc: slot.utc } });
     }
     if (assignments.length === 0) {
-      toast.info(unslotted > 0 ? "No open slots left on the schedule." : "Every clip in this run is already scheduled.");
+      toast.info(
+        unslotted > 0
+          ? "No open slots left on the schedule."
+          : "Every clip in this run is already scheduled.",
+      );
       return;
     }
     if (unslotted > 0) {
-      toast.info(`${unslotted} clip${unslotted === 1 ? "" : "s"} left unassigned — the schedule ran out of open slots.`);
+      toast.info(
+        `${unslotted} clip${unslotted === 1 ? "" : "s"} left unassigned — the schedule ran out of open slots.`,
+      );
     }
     void autoAssign(assignments);
   }, [autoAssign, draftFor, isSlotTaken, itemsForClip, readyClips, slots]);
 
+  // Every scheduled post that isn't on the visible board window, across all
+  // platforms — rendered once as the consolidated "Other scheduled posts"
+  // list below the grid (Instagram + Facebook collapse into one Meta row).
+  const offGridItems = useMemo(
+    () =>
+      queueItems.filter(
+        (item) => !slotUtcSet.has(new Date(item.publishAt).toISOString()),
+      ),
+    [queueItems, slotUtcSet],
+  );
+
   const tabs = PLATFORM_TABS.map(({ id, icon }) => {
     const configured = overview?.platforms[id]?.configured ?? false;
-    const offGrid = queueItems.filter(
-      (item) => item.platforms[id] && !slotUtcSet.has(new Date(item.publishAt).toISOString())
-    );
     // Channel videos on a day the grid shows render on the grid itself (in a
     // slot cell or as a day marker); the rest are listed below the board with
     // their exact upload/go-live time.
@@ -264,23 +313,29 @@ export function UploadingCenterPage() {
               <Button
                 variant="secondary"
                 className="h-8 px-3 text-xs"
-                onClick={() => window.open(studioContentUrl(channel?.channelId), "_blank", "noopener")}
+                onClick={() =>
+                  window.open(
+                    studioContentUrl(channel?.channelId),
+                    "_blank",
+                    "noopener",
+                  )
+                }
               >
-                <ExternalLink className="mr-1.5 h-3.5 w-3.5" /> Open YouTube Studio Content
+                <ExternalLink className="mr-1.5 h-3.5 w-3.5" /> Open YouTube
+                Studio Content
               </Button>
             </div>
           ) : null}
-          {id === "youtube" && !configured ? (
-            <ConnectYoutubeNotice />
-          ) : null}
+          {id === "youtube" && !configured ? <ConnectYoutubeNotice /> : null}
           {id === "youtube" && configured && channel?.needsReconnect ? (
             <ReconnectYoutubeNotice />
           ) : null}
           {id !== "youtube" && !configured ? (
             <p className="flex items-center gap-2 rounded-lg border border-amber-400/25 bg-amber-400/8 px-3 py-2 text-xs text-amber-200">
               <AlertTriangle className="h-4 w-4 shrink-0" />
-              {PLATFORM_LABELS[id]} isn&apos;t connected yet — assignments save as <StatusChip status="manual" /> reminders.
-              Automatic posting arrives with the unified posting API.
+              {PLATFORM_LABELS[id]} isn&apos;t connected yet — assignments save
+              as <StatusChip status="manual" /> reminders. Automatic posting
+              arrives with the unified posting API.
             </p>
           ) : null}
           <SchedulePeriodNav
@@ -294,27 +349,41 @@ export function UploadingCenterPage() {
             slots={slots}
             itemAtSlot={itemAtSlot}
             thumbnailForItem={thumbnailForItem}
-            channelVideoAtSlot={id === "youtube" ? channelVideoAtSlot : undefined}
+            channelVideoAtSlot={
+              id === "youtube" ? channelVideoAtSlot : undefined
+            }
             channelDayMarkers={id === "youtube" ? channelDayMarkers : undefined}
             onDropClip={(slotUtc, clipKey) => handleDrop(id, slotUtc, clipKey)}
-            onUploadVideo={(slotUtc, file) => void uploadToSlot(file, { platform: id, slotUtc })}
-            onSelectSlot={placingClip ? (slotUtc) => handleSelectSlot(id, slotUtc) : undefined}
+            onUploadVideo={(slotUtc, file) =>
+              void uploadToSlot(file, { platform: id, slotUtc })
+            }
+            onSelectSlot={
+              placingClip
+                ? (slotUtc) => handleSelectSlot(id, slotUtc)
+                : undefined
+            }
             onPublishNow={(item) => void publishNow(item)}
             onRemove={(item) => void remove(item)}
             onRename={(item, title) => void renameQueueItem(item, title)}
             busy={busy}
           />
-          {offGrid.length > 0 ? (
-            <OffGridList platform={id} items={offGrid} onPublishNow={publishNow} onRemove={remove} busy={busy} />
+          {offSlotVideos.length > 0 ? (
+            <ChannelVideoList
+              videos={offSlotVideos}
+              timezone={overview?.timezone}
+            />
           ) : null}
-          {offSlotVideos.length > 0 ? <ChannelVideoList videos={offSlotVideos} timezone={overview?.timezone} /> : null}
           {id === "youtube" && channel?.error ? (
-            <p className="truncate text-[11px] text-[var(--muted-foreground)]" title={channel.error}>
-              Couldn&apos;t refresh the YouTube schedule — showing the last known state.
+            <p
+              className="truncate text-[11px] text-[var(--muted-foreground)]"
+              title={channel.error}
+            >
+              Couldn&apos;t refresh the YouTube schedule — showing the last
+              known state.
             </p>
           ) : null}
         </div>
-      )
+      ),
     };
   });
 
@@ -343,7 +412,10 @@ export function UploadingCenterPage() {
                   : "YouTube connected"}
               </Badge>
             ) : (
-              <Button onClick={() => (window.location.href = "/api/auth/google")} className="self-start">
+              <Button
+                onClick={() => (window.location.href = "/api/auth/google")}
+                className="self-start"
+              >
                 <Youtube className="mr-2 h-4 w-4" /> Connect YouTube
               </Button>
             )}
@@ -356,10 +428,16 @@ export function UploadingCenterPage() {
         <div className="mb-4 flex flex-wrap items-center gap-3 rounded-lg border border-[var(--accent)]/40 bg-[var(--accent)]/10 px-3 py-2.5">
           <CalendarClock className="h-4 w-4 shrink-0 text-[var(--accent)]" />
           <p className="min-w-0 flex-1 text-sm text-white">
-            Scheduling <span className="font-semibold">“{placingClip.headline}”</span> — click any open slot on the
-            calendar (or drag the card) and the upload is scheduled for that time.
+            Scheduling{" "}
+            <span className="font-semibold">“{placingClip.headline}”</span> —
+            click any open slot on the calendar (or drag the card) and the
+            upload is scheduled for that time.
           </p>
-          <Button variant="ghost" className="h-8 px-3 text-xs" onClick={() => setPlacingKey(null)}>
+          <Button
+            variant="ghost"
+            className="h-8 px-3 text-xs"
+            onClick={() => setPlacingKey(null)}
+          >
             Cancel
           </Button>
         </div>
@@ -375,39 +453,57 @@ export function UploadingCenterPage() {
             <AlertTriangle className="h-4 w-4" /> Publishing is switched off
           </p>
           <p className="text-sm text-[var(--muted-foreground)]">
-            Add <code className="rounded bg-white/10 px-1.5 py-0.5 text-xs">PUBLISH_ENABLED=true</code> to your{" "}
-            <code className="rounded bg-white/10 px-1.5 py-0.5 text-xs">.env</code> and restart the app to use the
-            Uploading Center.
+            Add{" "}
+            <code className="rounded bg-white/10 px-1.5 py-0.5 text-xs">
+              PUBLISH_ENABLED=true
+            </code>{" "}
+            to your{" "}
+            <code className="rounded bg-white/10 px-1.5 py-0.5 text-xs">
+              .env
+            </code>{" "}
+            and restart the app to use the Uploading Center.
           </p>
         </Card>
       ) : (
-        <div className="grid gap-6 xl:grid-cols-[minmax(26rem,2fr)_minmax(0,3fr)]">
-          <ClipQueue
-            jobs={jobsWithClips}
-            activeJob={activeJob}
-            onSelectJob={setActiveJobId}
-            clips={readyClips}
-            slots={slots}
-            draftFor={draftFor}
-            onDraftChange={onDraftChange}
-            onTitleCommit={onTitleCommit}
-            isSlotTaken={isSlotTaken}
-            itemsForClip={itemsForClip}
-            busy={busy}
-            highlightedKey={placingKey}
-            onSchedule={(clip) => void handleSchedule(clip)}
-            onAutoAssign={handleAutoAssign}
-          />
-          <div className="min-w-0">
-            <Tabs tabs={tabs} paramKey="platform" />
-            {overview ? (
-              <p className="mt-3 text-xs text-[var(--muted-foreground)]">
-                Weekday slots at 07:30, 12:30 and 19:30; weekend slots at 10:00, 13:00 and 19:00 ({overview.timezone});
-                stored in UTC.
-              </p>
-            ) : null}
+        <>
+          <div className="grid gap-6 xl:grid-cols-[minmax(26rem,2fr)_minmax(0,3fr)]">
+            <ClipQueue
+              jobs={jobsWithClips}
+              activeJob={activeJob}
+              onSelectJob={setActiveJobId}
+              clips={readyClips}
+              slots={slots}
+              draftFor={draftFor}
+              onDraftChange={onDraftChange}
+              onTitleCommit={onTitleCommit}
+              isSlotTaken={isSlotTaken}
+              itemsForClip={itemsForClip}
+              busy={busy}
+              highlightedKey={placingKey}
+              onSchedule={(clip) => void handleSchedule(clip)}
+              onAutoAssign={handleAutoAssign}
+            />
+            <div className="min-w-0">
+              <Tabs tabs={tabs} paramKey="platform" />
+              {overview ? (
+                <p className="mt-3 text-xs text-[var(--muted-foreground)]">
+                  Weekday slots at 07:30, 12:30 and 19:30; weekend slots at
+                  10:00, 13:00 and 19:00 ({overview.timezone}); stored in UTC.
+                </p>
+              ) : null}
+            </div>
           </div>
-        </div>
+          {offGridItems.length > 0 ? (
+            <div className="mt-6">
+              <ScheduledPostsList
+                items={offGridItems}
+                onPublishNow={publishNow}
+                onRemove={remove}
+                busy={busy}
+              />
+            </div>
+          ) : null}
+        </>
       )}
 
       <UploadSuccessDialog
@@ -429,7 +525,7 @@ function UploadSuccessDialog({
   success,
   channelId,
   timezone,
-  onClose
+  onClose,
 }: {
   success: UploadSuccess | null;
   channelId: string | null;
@@ -444,12 +540,14 @@ function UploadSuccessDialog({
     month: "short",
     day: "numeric",
     hour: "numeric",
-    minute: "2-digit"
+    minute: "2-digit",
   }).format(new Date(success.publishAt));
   return (
     <Modal
       open
-      title={scheduled ? "Uploaded — scheduled on YouTube" : "Published to YouTube"}
+      title={
+        scheduled ? "Uploaded — scheduled on YouTube" : "Published to YouTube"
+      }
       description={
         scheduled
           ? `“${success.title}” is on your channel as a Short and goes live ${goLive}.`
@@ -476,20 +574,25 @@ function UploadSuccessDialog({
             className="h-11 flex-1"
             onClick={() =>
               window.open(
-                success.postId ? studioVideoUrl(success.postId) : studioContentUrl(channelId),
+                success.postId
+                  ? studioVideoUrl(success.postId)
+                  : studioContentUrl(channelId),
                 "_blank",
-                "noopener"
+                "noopener",
               )
             }
           >
             <ExternalLink className="mr-2 h-4 w-4" />{" "}
-            {success.postId ? "Edit in YouTube Studio" : "Open YouTube Studio Content"}
+            {success.postId
+              ? "Edit in YouTube Studio"
+              : "Open YouTube Studio Content"}
           </Button>
         </div>
         {scheduled ? (
           <p className="flex items-center gap-1.5 text-xs text-[var(--muted-foreground)]">
             <CalendarClock className="h-3.5 w-3.5 shrink-0" />
-            Scheduled videos show under Content → Scheduled in YouTube Studio until they go live.
+            Scheduled videos show under Content → Scheduled in YouTube Studio
+            until they go live.
           </p>
         ) : null}
       </div>
@@ -509,7 +612,7 @@ function SchedulePeriodNav({
   offsetDays,
   slots,
   loading,
-  onChange
+  onChange,
 }: {
   offsetDays: number;
   slots: ScheduleSlot[];
@@ -525,7 +628,11 @@ function SchedulePeriodNav({
         variant="secondary"
         className="h-8 px-2.5"
         aria-label={`Previous ${SLOT_WINDOW_DAYS} days`}
-        title={atCurrentPeriod ? "Already on the current period" : `Previous ${SLOT_WINDOW_DAYS} days`}
+        title={
+          atCurrentPeriod
+            ? "Already on the current period"
+            : `Previous ${SLOT_WINDOW_DAYS} days`
+        }
         disabled={atCurrentPeriod || loading}
         onClick={() => onChange(Math.max(0, offsetDays - SLOT_WINDOW_DAYS))}
       >
@@ -542,15 +649,24 @@ function SchedulePeriodNav({
         <ChevronRight className="h-4 w-4" />
       </Button>
       <span className="ml-1 flex items-center gap-2 text-sm font-medium text-white">
-        {loading ? <Loader2 className="h-4 w-4 animate-spin text-[var(--muted-foreground)]" /> : null}
+        {loading ? (
+          <Loader2 className="h-4 w-4 animate-spin text-[var(--muted-foreground)]" />
+        ) : null}
         {first && last ? `${first.dateLabel} – ${last.dateLabel}` : ""}
       </span>
       {atCurrentPeriod && !loading ? (
-        <Badge className="border-[var(--border)] bg-white/5 text-[var(--muted-foreground)]">Current period</Badge>
+        <Badge className="border-[var(--border)] bg-white/5 text-[var(--muted-foreground)]">
+          Current period
+        </Badge>
       ) : null}
       <span className="flex-1" />
       {!atCurrentPeriod ? (
-        <Button variant="ghost" className="h-8 px-3 text-xs" disabled={loading} onClick={() => onChange(0)}>
+        <Button
+          variant="ghost"
+          className="h-8 px-3 text-xs"
+          disabled={loading}
+          onClick={() => onChange(0)}
+        >
           <CalendarDays className="mr-1.5 h-3.5 w-3.5" /> Back to current period
         </Button>
       ) : null}
@@ -563,10 +679,14 @@ function ReconnectYoutubeNotice() {
     <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-amber-400/25 bg-amber-400/8 px-3 py-2">
       <p className="flex items-center gap-2 text-xs text-amber-200">
         <AlertTriangle className="h-4 w-4 shrink-0" />
-        Uploads still work, but the current connection can&apos;t read your channel — reconnect to see the videos
-        already scheduled on YouTube here.
+        Uploads still work, but the current connection can&apos;t read your
+        channel — reconnect to see the videos already scheduled on YouTube here.
       </p>
-      <Button variant="secondary" className="h-8 px-3 text-xs" onClick={() => (window.location.href = "/api/auth/google")}>
+      <Button
+        variant="secondary"
+        className="h-8 px-3 text-xs"
+        onClick={() => (window.location.href = "/api/auth/google")}
+      >
         Reconnect YouTube
       </Button>
     </div>
@@ -578,9 +698,14 @@ function ConnectYoutubeNotice() {
     <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-amber-400/25 bg-amber-400/8 px-3 py-2">
       <p className="flex items-center gap-2 text-xs text-amber-200">
         <AlertTriangle className="h-4 w-4 shrink-0" />
-        YouTube isn&apos;t connected — new assignments save as manual reminders instead of uploading.
+        YouTube isn&apos;t connected — new assignments save as manual reminders
+        instead of uploading.
       </p>
-      <Button variant="secondary" className="h-8 px-3 text-xs" onClick={() => (window.location.href = "/api/auth/google")}>
+      <Button
+        variant="secondary"
+        className="h-8 px-3 text-xs"
+        onClick={() => (window.location.href = "/api/auth/google")}
+      >
         Connect YouTube
       </Button>
     </div>
@@ -593,7 +718,13 @@ function ConnectYoutubeNotice() {
  * day marker): "Scheduled to go live …" for upcoming uploads, "Uploaded …"
  * for recently published ones. Read-only — they're managed in YouTube Studio.
  */
-function ChannelVideoList({ videos, timezone }: { videos: ChannelVideo[]; timezone?: string }) {
+function ChannelVideoList({
+  videos,
+  timezone,
+}: {
+  videos: ChannelVideo[];
+  timezone?: string;
+}) {
   const formatTime = (utc: string) =>
     new Intl.DateTimeFormat("en-US", {
       ...(timezone ? { timeZone: timezone } : {}),
@@ -601,7 +732,7 @@ function ChannelVideoList({ videos, timezone }: { videos: ChannelVideo[]; timezo
       month: "short",
       day: "numeric",
       hour: "numeric",
-      minute: "2-digit"
+      minute: "2-digit",
     }).format(new Date(utc));
   return (
     <div className="space-y-2">
@@ -648,80 +779,253 @@ function ChannelVideoList({ videos, timezone }: { videos: ChannelVideo[]; timezo
   );
 }
 
-/** Posts for this platform whose time doesn't line up with a grid slot. */
-function OffGridList({
-  platform,
+// Instagram and Facebook publish together through Meta, so a clip queued to
+// both shows as a single "Meta" row; YouTube and TikTok get their own rows.
+type PlatformGroup = "youtube" | "tiktok" | "meta";
+
+const PLATFORM_GROUP: Record<PlatformId, PlatformGroup> = {
+  youtube: "youtube",
+  tiktok: "tiktok",
+  instagram: "meta",
+  facebook: "meta",
+};
+
+const PLATFORM_GROUP_LABELS: Record<PlatformGroup, string> = {
+  youtube: "YouTube",
+  tiktok: "TikTok",
+  meta: "Meta",
+};
+
+/** One rendered line: a platform group for a clip at a single publish time. */
+type ScheduledRow = {
+  key: string;
+  group: PlatformGroup;
+  title: string;
+  publishAt: string;
+  /** Backing queue items (1 for YouTube/TikTok, 1–2 for a merged Meta row). */
+  items: QueueItem[];
+  platforms: PlatformId[];
+  status: PlatformStatus;
+  note?: string;
+  /** YouTube video id, for the view/Studio links on a YouTube row. */
+  youtubePostId?: string;
+};
+
+// When platforms disagree, surface the least-finished status so the chip
+// reflects what still needs attention.
+const STATUS_PRIORITY: PlatformStatus[] = [
+  "failed",
+  "pending",
+  "uploaded",
+  "manual",
+  "scheduled",
+  "published",
+];
+
+function buildScheduledRows(items: QueueItem[]): ScheduledRow[] {
+  const rows = new Map<string, ScheduledRow>();
+  for (const item of items) {
+    for (const platform of Object.keys(item.platforms) as PlatformId[]) {
+      const state = item.platforms[platform];
+      if (!state) continue;
+      const group = PLATFORM_GROUP[platform];
+      // Meta rows merge across items (a clip scheduled to IG and FB as separate
+      // queue entries collapses to one line); other groups stay one-per-item.
+      const key =
+        group === "meta"
+          ? `meta|${item.clipPath}|${item.publishAt}`
+          : `${group}|${item.id}`;
+      let row = rows.get(key);
+      if (!row) {
+        row = {
+          key,
+          group,
+          title: item.title,
+          publishAt: item.publishAt,
+          items: [],
+          platforms: [],
+          status: state.status,
+        };
+        rows.set(key, row);
+      }
+      if (!row.items.some((existing) => existing.id === item.id))
+        row.items.push(item);
+      if (!row.platforms.includes(platform)) row.platforms.push(platform);
+      if (platform === "youtube" && state.postId)
+        row.youtubePostId = state.postId;
+      if (!row.note) row.note = state.note ?? state.error ?? undefined;
+    }
+  }
+  const result = Array.from(rows.values());
+  for (const row of result) {
+    const statuses = row.items.flatMap((item) =>
+      row.platforms
+        .map((platform) => item.platforms[platform]?.status)
+        .filter((s): s is PlatformStatus => Boolean(s)),
+    );
+    row.status =
+      STATUS_PRIORITY.find((candidate) => statuses.includes(candidate)) ??
+      row.status;
+  }
+  result.sort(
+    (a, b) => new Date(a.publishAt).getTime() - new Date(b.publishAt).getTime(),
+  );
+  return result;
+}
+
+/**
+ * The consolidated schedule below the board: every queued post that isn't on
+ * the visible board window, across all platforms, on aligned columns —
+ * status · title · platform · date · actions.
+ */
+function ScheduledPostsList({
   items,
   onPublishNow,
   onRemove,
-  busy
+  busy,
 }: {
-  platform: PlatformId;
   items: QueueItem[];
   onPublishNow: (item: QueueItem) => Promise<void>;
   onRemove: (item: QueueItem) => Promise<void>;
   busy: string | null;
 }) {
+  const rows = useMemo(() => buildScheduledRows(items), [items]);
+  if (rows.length === 0) return null;
   return (
     <div className="space-y-2">
       <p className="text-[11px] font-medium uppercase tracking-wider text-[var(--muted-foreground)]">
         Other scheduled posts
       </p>
-      {items.map((item) => {
-        const state = item.platforms[platform] as PlatformState;
-        const url = remoteUrlFor(platform, state.postId);
-        const working = busy === `publish:${item.id}` || busy === `remove:${item.id}`;
-        return (
-          <div
-            key={item.id}
-            className="flex items-center gap-3 rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-3 py-2 text-xs"
-            title={state.note ?? state.error ?? undefined}
-          >
-            <StatusChip status={state.status} />
-            <span className="truncate font-medium text-white">{item.title}</span>
-            <span className="text-[var(--muted-foreground)]">{new Date(item.publishAt).toLocaleString()}</span>
-            {url ? (
-              <a
-                href={url}
-                target="_blank"
-                rel="noreferrer"
-                aria-label="View the video"
-                title="View the video"
-                className="text-[var(--accent)]"
-              >
-                <ExternalLink className="h-3.5 w-3.5" />
-              </a>
-            ) : null}
-            {platform === "youtube" && state.postId ? (
-              <a
-                href={studioVideoUrl(state.postId)}
-                target="_blank"
-                rel="noreferrer"
-                aria-label="Edit in YouTube Studio"
-                title="Edit in YouTube Studio (title, description…)"
-                className="text-[var(--accent)]"
-              >
-                <Clapperboard className="h-3.5 w-3.5" />
-              </a>
-            ) : null}
-            <span className="flex-1" />
-            {working ? (
-              <Loader2 className="h-3.5 w-3.5 animate-spin text-[var(--muted-foreground)]" />
-            ) : (
-              <>
-                {state.status === "pending" || state.status === "uploaded" || state.status === "failed" ? (
-                  <Button variant="ghost" className="h-7 px-2 text-xs" onClick={() => void onPublishNow(item)}>
-                    Publish now
-                  </Button>
-                ) : null}
-                <Button variant="ghost" className="h-7 px-2 text-xs" onClick={() => void onRemove(item)}>
-                  Remove
-                </Button>
-              </>
-            )}
-          </div>
-        );
-      })}
+      <div className="overflow-x-auto">
+        <div className="min-w-[46rem] space-y-2">
+          {rows.map((row) => (
+            <ScheduledPostRow
+              key={row.key}
+              row={row}
+              onPublishNow={onPublishNow}
+              onRemove={onRemove}
+              busy={busy}
+            />
+          ))}
+        </div>
+      </div>
     </div>
+  );
+}
+
+/** Fixed column tracks so dates line up across every row regardless of title. */
+const ROW_GRID =
+  "grid grid-cols-[6rem_minmax(0,1fr)_7rem_12rem_auto] items-center gap-3";
+
+function ScheduledPostRow({
+  row,
+  onPublishNow,
+  onRemove,
+  busy,
+}: {
+  row: ScheduledRow;
+  onPublishNow: (item: QueueItem) => Promise<void>;
+  onRemove: (item: QueueItem) => Promise<void>;
+  busy: string | null;
+}) {
+  const working = row.items.some(
+    (item) => busy === `publish:${item.id}` || busy === `remove:${item.id}`,
+  );
+  const viewUrl = row.youtubePostId
+    ? remoteUrlFor("youtube", row.youtubePostId)
+    : null;
+  const canPublish = row.items.some((item) =>
+    row.platforms.some((platform) => {
+      const status = item.platforms[platform]?.status;
+      return (
+        status === "pending" || status === "uploaded" || status === "failed"
+      );
+    }),
+  );
+  const publishRow = async () => {
+    for (const item of row.items) await onPublishNow(item);
+  };
+  const removeRow = async () => {
+    for (const item of row.items) await onRemove(item);
+  };
+  return (
+    <div
+      className={`${ROW_GRID} rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-3 py-2 text-xs`}
+      title={row.note}
+    >
+      <StatusChip status={row.status} className="justify-self-start" />
+      <span className="truncate font-medium text-white" title={row.title}>
+        {row.title}
+      </span>
+      <PlatformGroupBadge group={row.group} />
+      <span className="whitespace-nowrap text-[var(--muted-foreground)]">
+        {new Date(row.publishAt).toLocaleString()}
+      </span>
+      <div className="flex items-center justify-end gap-2">
+        {viewUrl ? (
+          <a
+            href={viewUrl}
+            target="_blank"
+            rel="noreferrer"
+            aria-label="View the video"
+            title="View the video"
+            className="text-[var(--accent)]"
+          >
+            <ExternalLink className="h-3.5 w-3.5" />
+          </a>
+        ) : null}
+        {row.youtubePostId ? (
+          <a
+            href={studioVideoUrl(row.youtubePostId)}
+            target="_blank"
+            rel="noreferrer"
+            aria-label="Edit in YouTube Studio"
+            title="Edit in YouTube Studio (title, description…)"
+            className="text-[var(--accent)]"
+          >
+            <Clapperboard className="h-3.5 w-3.5" />
+          </a>
+        ) : null}
+        {working ? (
+          <Loader2 className="h-3.5 w-3.5 animate-spin text-[var(--muted-foreground)]" />
+        ) : (
+          <>
+            {canPublish ? (
+              <Button
+                variant="ghost"
+                className="h-7 px-2 text-xs"
+                onClick={() => void publishRow()}
+              >
+                Publish now
+              </Button>
+            ) : null}
+            <Button
+              variant="ghost"
+              className="h-7 px-2 text-xs"
+              onClick={() => void removeRow()}
+            >
+              Remove
+            </Button>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/** The platform column: an icon (both, for Meta) plus the group label. */
+function PlatformGroupBadge({ group }: { group: PlatformGroup }) {
+  return (
+    <span className="flex items-center gap-1 whitespace-nowrap text-[var(--muted-foreground)]">
+      {group === "youtube" ? <Youtube className="h-3.5 w-3.5" /> : null}
+      {group === "tiktok" ? <Music2 className="h-3.5 w-3.5" /> : null}
+      {group === "meta" ? (
+        <>
+          <Instagram className="h-3.5 w-3.5" />
+          <Facebook className="h-3.5 w-3.5" />
+        </>
+      ) : null}
+      <span className="font-medium">{PLATFORM_GROUP_LABELS[group]}</span>
+    </span>
   );
 }

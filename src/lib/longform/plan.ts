@@ -158,6 +158,41 @@ export function planHook(transcript: CaptionSegment[], durationSec: number): Lon
   };
 }
 
+/**
+ * Non-destructively applies a manual keep/cut across an arbitrary [start, end]
+ * span, splitting any segments that straddle the boundaries so exactly that
+ * span flips to `enabled`. This powers manual trimming: the editor can remove
+ * (or restore) any sub-range of the video, not just whole detected segments.
+ * Segment kinds are preserved and ids are re-sequenced so they stay unique.
+ */
+export function applyManualRange(
+  segments: LongformSegment[],
+  rangeStart: number,
+  rangeEnd: number,
+  enabled: boolean
+): LongformSegment[] {
+  const lo = Math.min(rangeStart, rangeEnd);
+  const hi = Math.max(rangeStart, rangeEnd);
+  if (hi - lo < MIN_SEGMENT_SEC) return segments;
+  const sorted = [...segments].sort((a, b) => a.start - b.start);
+  const out: LongformSegment[] = [];
+  const add = (seg: LongformSegment, start: number, end: number, en: boolean) => {
+    if (end - start < MIN_SEGMENT_SEC) return;
+    out.push({ ...seg, start: round3(start), end: round3(end), enabled: en });
+  };
+  for (const seg of sorted) {
+    if (seg.end <= lo || seg.start >= hi) {
+      out.push(seg);
+      continue;
+    }
+    // Left slice keeps its state, the overlapping middle flips, the right keeps.
+    add(seg, seg.start, Math.min(seg.end, lo), seg.enabled);
+    add(seg, Math.max(seg.start, lo), Math.min(seg.end, hi), enabled);
+    add(seg, Math.max(seg.start, hi), seg.end, seg.enabled);
+  }
+  return out.map((seg, index) => ({ ...seg, id: `seg-${index + 1}` }));
+}
+
 export type KeptRange = { start: number; end: number };
 
 /**
@@ -193,6 +228,45 @@ export function exportRanges(
     .filter((range) => range.end > hook.end + MIN_SEGMENT_SEC)
     .map((range) => ({ start: Math.max(range.start, hook.end), end: range.end }));
   return { hookRange, bodyRanges };
+}
+
+/**
+ * Maps a span of the source timeline onto the edited runtime. Because the
+ * export plays the hook verbatim then concatenates the kept body ranges, a
+ * single source span can land on several disjoint output intervals (or none,
+ * if it sits entirely inside cut footage). Used to time timeline overlays in
+ * the exported video exactly as they appear scrubbing the source.
+ */
+export function sourceToOutputIntervals(
+  sourceStart: number,
+  sourceEnd: number,
+  segments: LongformSegment[],
+  hook: LongformHook
+): KeptRange[] {
+  const { hookRange, bodyRanges } = exportRanges(segments, hook);
+  const pieces: Array<{ srcStart: number; srcEnd: number; outStart: number }> = [];
+  let outCursor = 0;
+  if (hookRange) {
+    pieces.push({ srcStart: hookRange.start, srcEnd: hookRange.end, outStart: outCursor });
+    outCursor += hookRange.end - hookRange.start;
+  }
+  for (const range of bodyRanges) {
+    pieces.push({ srcStart: range.start, srcEnd: range.end, outStart: outCursor });
+    outCursor += range.end - range.start;
+  }
+
+  const intervals: KeptRange[] = [];
+  for (const piece of pieces) {
+    const s = Math.max(sourceStart, piece.srcStart);
+    const e = Math.min(sourceEnd, piece.srcEnd);
+    if (e - s <= 0.001) continue;
+    const start = round3(piece.outStart + (s - piece.srcStart));
+    const end = round3(piece.outStart + (e - piece.srcStart));
+    const last = intervals[intervals.length - 1];
+    if (last && start - last.end < 0.01) last.end = Math.max(last.end, end);
+    else intervals.push({ start, end });
+  }
+  return intervals;
 }
 
 /** Total runtime of the edited video (hook + kept body). */

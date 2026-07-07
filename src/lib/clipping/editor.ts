@@ -260,6 +260,31 @@ export function generateClipDescription(_captions: CaptionSegment[]): string {
 }
 
 /**
+ * Seconds of dead air at the very start of a clip — the clip-local start time
+ * of the first spoken word. Previews seek past this so a clip that opens on a
+ * pause doesn't spend the viewer's first seconds on silence.
+ *
+ * `captions` must already be windowed to clip-local time (t=0 is the clip's
+ * first frame), e.g. via `windowSegments(sourceCaptions, clip.start, clip.end)`.
+ * Returns 0 when there's no transcript or the opening pause is too short to be
+ * worth skipping; keeps a small pre-roll so the first word is never clipped.
+ */
+export function leadingSilenceSec(
+  captions: CaptionSegment[],
+  options?: { minSkipSec?: number; preRollSec?: number }
+): number {
+  const minSkip = options?.minSkipSec ?? 0.5;
+  const preRoll = options?.preRollSec ?? 0.12;
+  let firstWordStart = Infinity;
+  for (const seg of captions) {
+    if (seg.words.length > 0) firstWordStart = Math.min(firstWordStart, seg.words[0].start);
+    else if (seg.text.trim()) firstWordStart = Math.min(firstWordStart, seg.start);
+  }
+  if (!Number.isFinite(firstWordStart) || firstWordStart < minSkip) return 0;
+  return Math.max(0, firstWordStart - preRoll);
+}
+
+/**
  * Builds a fresh clip project from a rendered 16:9 source master. Projects
  * open Shorts/Reels-ready: 9:16 vertical, blur-filled framing, and word-synced
  * captions on — the goal is export-and-upload with zero extra setup.

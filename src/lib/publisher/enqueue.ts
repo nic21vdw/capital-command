@@ -5,6 +5,7 @@ import { configuredPlatforms, hostingConfigured, publisherConfig } from "@/lib/p
 import { hostMedia } from "@/lib/publisher/hosting";
 import { generateClipMetadata } from "@/lib/publisher/metadata";
 import { newPlatformState, publishQueue } from "@/lib/publisher/queue";
+import { finalizeTitle } from "@/lib/title/finalize";
 import { resolvePublishAt } from "@/lib/publisher/time";
 import { prepareVerticalMedia } from "@/lib/publisher/vertical";
 import type { PlatformId, PlatformState, QueueItem, Visibility } from "@/lib/publisher/types";
@@ -103,6 +104,18 @@ export async function enqueue(options: EnqueueOptions): Promise<QueueItem> {
   }
 
   const id = crypto.randomUUID().slice(0, 8);
+
+  // Shared post-processing: optionally inject one category-aware emoji and log
+  // the title for later CTR analysis. Both the short-form (here) and long-form
+  // pipelines run the same finalizeTitle step, so emoji behaviour stays
+  // consistent. With emoji disabled this returns the title unchanged.
+  const finalized = await finalizeTitle({
+    baseTitle: title,
+    category: options.metadataSource?.topic,
+    pipelineType: "short",
+    videoId: id
+  });
+  title = finalized.title;
   const item: QueueItem = {
     id,
     clipPath: path.relative(process.cwd(), prepared.path),

@@ -1,10 +1,12 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Minus, Plus } from "lucide-react";
+import { ImagePlus, Minus, Plus } from "lucide-react";
 import { formatClock } from "@/lib/clipping/editor";
-import type { LongformProject } from "@/lib/longform/types";
+import type { LongformOverlay, LongformProject } from "@/lib/longform/types";
 import { cn } from "@/lib/utils";
+
+const round3 = (value: number) => Math.round(value * 1000) / 1000;
 
 // The Long-Form Editor timeline: the full recording with its waveform, the
 // hook region, and every planned cut. Kept footage plays; dimmed red blocks
@@ -20,20 +22,36 @@ function pickTickStep(secondsPerPixel: number) {
   return TICK_STEPS.find((step) => step >= target) ?? TICK_STEPS[TICK_STEPS.length - 1];
 }
 
+export type TimelineSelection = { start: number; end: number };
+
 export function LongformTimeline({
   project,
   time,
   peaks,
+  selection,
   onSeek,
   onToggleSegment,
-  onHookEndChange
+  onHookEndChange,
+  onSelectionChange,
+  imageUrl,
+  selectedOverlayId,
+  onSelectOverlay,
+  onOverlayChange,
+  onDropImage
 }: {
   project: LongformProject;
   time: number;
   peaks: number[];
+  selection: TimelineSelection | null;
   onSeek: (t: number) => void;
   onToggleSegment: (id: string) => void;
   onHookEndChange: (end: number) => void;
+  onSelectionChange: (selection: TimelineSelection | null) => void;
+  imageUrl: (overlay: LongformOverlay) => string;
+  selectedOverlayId: string | null;
+  onSelectOverlay: (id: string | null) => void;
+  onOverlayChange: (id: string, patch: Partial<Pick<LongformOverlay, "start" | "end">>) => void;
+  onDropImage: (file: File, timeSec: number) => void;
 }) {
   const duration = Math.max(0.1, project.durationSec);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -41,7 +59,9 @@ export function LongformTimeline({
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [zoom, setZoom] = useState(1);
   const [trackWidth, setTrackWidth] = useState(0);
-  const draggingRef = useRef<"scrub" | "hook" | null>(null);
+  const [dragOver, setDragOver] = useState(false);
+  const draggingRef = useRef<"scrub" | "hook" | "sel-start" | "sel-end" | "overlay" | null>(null);
+  const overlays = project.overlays;
 
   useEffect(() => {
     const el = scrollRef.current;
@@ -131,6 +151,78 @@ export function LongformTimeline({
     [onHookEndChange, timeFromPointer]
   );
 
+  const beginSelectionDrag = useCallback(
+    (edge: "sel-start" | "sel-end") => (event: React.PointerEvent) => {
+      if (!selection) return;
+      event.preventDefault();
+      event.stopPropagation();
+      draggingRef.current = edge;
+      const fixed = edge === "sel-start" ? selection.end : selection.start;
+      const move = (e: PointerEvent) => {
+        if (draggingRef.current !== edge) return;
+        const t = timeFromPointer(e.clientX);
+        const start = edge === "sel-start" ? Math.min(t, fixed - 0.05) : fixed;
+        const end = edge === "sel-start" ? fixed : Math.max(t, fixed + 0.05);
+        onSelectionChange({ start: Math.max(0, start), end: Math.min(duration, end) });
+      };
+      const up = () => {
+        draggingRef.current = null;
+        window.removeEventListener("pointermove", move);
+        window.removeEventListener("pointerup", up);
+      };
+      window.addEventListener("pointermove", move);
+      window.addEventListener("pointerup", up);
+    },
+    [selection, duration, onSelectionChange, timeFromPointer]
+  );
+
+  // Drag an overlay along the timeline: the body moves it, the edges resize it.
+  const beginOverlayDrag = useCallback(
+    (event: React.PointerEvent, overlay: LongformOverlay, mode: "move" | "left" | "right") => {
+      event.preventDefault();
+      event.stopPropagation();
+      onSelectOverlay(overlay.id);
+      draggingRef.current = "overlay";
+      const anchor = timeFromPointer(event.clientX);
+      const orig = { start: overlay.start, end: overlay.end };
+      const span = orig.end - orig.start;
+      const move = (e: PointerEvent) => {
+        if (draggingRef.current !== "overlay") return;
+        const delta = timeFromPointer(e.clientX) - anchor;
+        if (mode === "move") {
+          const start = Math.max(0, Math.min(orig.start + delta, duration - span));
+          onOverlayChange(overlay.id, { start: round3(start), end: round3(start + span) });
+        } else if (mode === "left") {
+          const start = Math.max(0, Math.min(orig.start + delta, orig.end - 0.2));
+          onOverlayChange(overlay.id, { start: round3(start) });
+        } else {
+          const end = Math.min(duration, Math.max(orig.end + delta, orig.start + 0.2));
+          onOverlayChange(overlay.id, { end: round3(end) });
+        }
+      };
+      const up = () => {
+        draggingRef.current = null;
+        window.removeEventListener("pointermove", move);
+        window.removeEventListener("pointerup", up);
+      };
+      window.addEventListener("pointermove", move);
+      window.addEventListener("pointerup", up);
+    },
+    [duration, onOverlayChange, onSelectOverlay, timeFromPointer]
+  );
+
+  const handleDrop = useCallback(
+    (event: React.DragEvent) => {
+      event.preventDefault();
+      setDragOver(false);
+      const files = Array.from(event.dataTransfer?.files ?? []).filter((file) => file.type.startsWith("image/"));
+      if (files.length === 0) return;
+      const dropTime = timeFromPointer(event.clientX);
+      for (const file of files) onDropImage(file, dropTime);
+    },
+    [onDropImage, timeFromPointer]
+  );
+
   const ticks = useMemo(() => {
     const secondsPerPixel = duration / Math.max(1, contentWidth);
     const step = pickTickStep(secondsPerPixel);
@@ -145,7 +237,9 @@ export function LongformTimeline({
     <div className="rounded-xl border border-[var(--border)] bg-[var(--surface)] p-3">
       <div className="mb-2 flex items-center justify-between gap-3">
         <p className="text-xs text-[var(--muted-foreground)]">
-          Timeline — click a red block to keep it, click kept footage to cut it. Drag the purple handle to resize the hook.
+          {selection
+            ? "Drag the blue handles to fine-tune your selection, then use Remove or Keep in the Trim panel."
+            : "Click a red block to keep it, or kept footage to cut it. Drag the purple handle to resize the hook. Drop images here and drag them along the image track."}
         </p>
         <div className="flex shrink-0 items-center gap-1">
           <span className="mr-1 text-xs text-[var(--muted-foreground)]">{cutCount} cuts</span>
@@ -170,7 +264,23 @@ export function LongformTimeline({
         </div>
       </div>
 
-      <div ref={scrollRef} className="overflow-x-auto pb-1">
+      <div
+        ref={scrollRef}
+        className={cn(
+          "relative overflow-x-auto pb-1",
+          dragOver && "rounded-lg outline-dashed outline-2 outline-[var(--accent)]"
+        )}
+        onDragOver={(event) => {
+          if (Array.from(event.dataTransfer?.types ?? []).includes("Files")) {
+            event.preventDefault();
+            setDragOver(true);
+          }
+        }}
+        onDragLeave={(event) => {
+          if (event.currentTarget === event.target) setDragOver(false);
+        }}
+        onDrop={handleDrop}
+      >
         <div style={{ width: contentWidth }} className="relative select-none">
           {/* Ruler */}
           <div className="relative h-5 border-b border-[var(--border)] text-[10px] text-[var(--muted-foreground)]">
@@ -251,10 +361,115 @@ export function LongformTimeline({
               />
             )}
 
+            {/* Manual trim selection */}
+            {selection && (
+              <>
+                <div
+                  className="pointer-events-none absolute top-0 z-10 h-full border-x-2 border-sky-400 bg-sky-400/20"
+                  style={{ left: pct(selection.start), width: `${((selection.end - selection.start) / duration) * 100}%` }}
+                >
+                  <span className="absolute left-1/2 top-1 -translate-x-1/2 whitespace-nowrap rounded bg-sky-400 px-1 py-0.5 text-[9px] font-bold uppercase tracking-wide text-black">
+                    Selection
+                  </span>
+                </div>
+                <div
+                  role="slider"
+                  aria-label="Selection start"
+                  aria-valuemin={0}
+                  aria-valuemax={Math.round(duration * 10) / 10}
+                  aria-valuenow={Math.round(selection.start * 10) / 10}
+                  tabIndex={0}
+                  onPointerDown={beginSelectionDrag("sel-start")}
+                  onKeyDown={(event) => {
+                    if (event.key === "ArrowLeft") onSelectionChange({ ...selection, start: Math.max(0, selection.start - 0.25) });
+                    if (event.key === "ArrowRight") onSelectionChange({ ...selection, start: Math.min(selection.end - 0.05, selection.start + 0.25) });
+                  }}
+                  className="absolute top-0 z-20 h-full w-2 -translate-x-1/2 cursor-ew-resize rounded bg-sky-400 opacity-90 hover:opacity-100"
+                  style={{ left: pct(selection.start) }}
+                  data-no-press
+                />
+                <div
+                  role="slider"
+                  aria-label="Selection end"
+                  aria-valuemin={0}
+                  aria-valuemax={Math.round(duration * 10) / 10}
+                  aria-valuenow={Math.round(selection.end * 10) / 10}
+                  tabIndex={0}
+                  onPointerDown={beginSelectionDrag("sel-end")}
+                  onKeyDown={(event) => {
+                    if (event.key === "ArrowLeft") onSelectionChange({ ...selection, end: Math.max(selection.start + 0.05, selection.end - 0.25) });
+                    if (event.key === "ArrowRight") onSelectionChange({ ...selection, end: Math.min(duration, selection.end + 0.25) });
+                  }}
+                  className="absolute top-0 z-20 h-full w-2 -translate-x-1/2 cursor-ew-resize rounded bg-sky-400 opacity-90 hover:opacity-100"
+                  style={{ left: pct(selection.end) }}
+                  data-no-press
+                />
+              </>
+            )}
+
             {/* Playhead */}
-            <div className="pointer-events-none absolute top-0 z-20 h-full w-px bg-white" style={{ left: pct(time) }}>
+            <div className="pointer-events-none absolute top-0 z-30 h-full w-px bg-white" style={{ left: pct(time) }}>
               <span className="absolute -top-0.5 left-1/2 h-2 w-2 -translate-x-1/2 rounded-full bg-white shadow" />
             </div>
+          </div>
+
+          {/* Image overlay track */}
+          <div className="relative mt-2 h-12 rounded-lg bg-[var(--surface-2)]">
+            {overlays.length === 0 ? (
+              <div className="pointer-events-none flex h-full items-center justify-center gap-2 text-[10px] text-[var(--muted-foreground)]">
+                <ImagePlus className="h-3.5 w-3.5" /> Drop an image here to overlay it
+              </div>
+            ) : (
+              overlays.map((overlay) => {
+                const width = `${(Math.max(0.2, overlay.end - overlay.start) / duration) * 100}%`;
+                const selected = overlay.id === selectedOverlayId;
+                return (
+                  <div
+                    key={overlay.id}
+                    role="button"
+                    tabIndex={0}
+                    title={`${overlay.fileName} — ${formatClock(overlay.start)}–${formatClock(overlay.end)} · drag to move`}
+                    onPointerDown={(event) => beginOverlayDrag(event, overlay, "move")}
+                    onKeyDown={(event) => {
+                      const span = overlay.end - overlay.start;
+                      if (event.key === "ArrowLeft") {
+                        const start = Math.max(0, overlay.start - 0.5);
+                        onOverlayChange(overlay.id, { start: round3(start), end: round3(start + span) });
+                      }
+                      if (event.key === "ArrowRight") {
+                        const start = Math.min(duration - span, overlay.start + 0.5);
+                        onOverlayChange(overlay.id, { start: round3(start), end: round3(start + span) });
+                      }
+                    }}
+                    className={cn(
+                      "group absolute top-1 bottom-1 flex cursor-grab items-center gap-1 overflow-hidden rounded-md border pl-1 pr-1 text-[10px] transition active:cursor-grabbing",
+                      selected
+                        ? "border-[var(--accent)] bg-[var(--accent)]/25 text-white ring-1 ring-[var(--accent)]"
+                        : "border-[var(--border-strong)] bg-black/40 text-[var(--muted-foreground)] hover:text-white"
+                    )}
+                    style={{ left: pct(overlay.start), width }}
+                    data-no-press
+                  >
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src={imageUrl(overlay)}
+                      alt=""
+                      draggable={false}
+                      className="pointer-events-none h-full w-6 shrink-0 rounded-sm object-cover"
+                    />
+                    <span className="truncate">{overlay.fileName}</span>
+                    <span
+                      onPointerDown={(event) => beginOverlayDrag(event, overlay, "left")}
+                      className="absolute inset-y-0 left-0 w-1.5 cursor-ew-resize bg-transparent group-hover:bg-[var(--accent)]/60"
+                    />
+                    <span
+                      onPointerDown={(event) => beginOverlayDrag(event, overlay, "right")}
+                      className="absolute inset-y-0 right-0 w-1.5 cursor-ew-resize bg-transparent group-hover:bg-[var(--accent)]/60"
+                    />
+                  </div>
+                );
+              })
+            )}
           </div>
         </div>
       </div>
