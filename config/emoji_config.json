@@ -1,0 +1,26 @@
+{
+  "enabled": true,
+  "mode": "contextual",
+  "position": "prefix",
+  "maxEmoji": 1,
+  "category_map": {
+    "structural": ["🏗️", "📐", "👀"],
+    "ai": ["🤖", "⚡", "🔥"],
+    "build_in_public": ["🚀", "🔨", "🔥", "😎"],
+    "engineering": ["🏗️", "📐", "⚡"],
+    "finance": ["📈", "💰", "🔥"],
+    "hype": ["🔥", "😎", "👀", "🙏", "❤️", "😂"],
+    "fail": ["💩", "😭", "😢"],
+    "default": []
+  },
+  "fallback": ["🔥", "👀", "🙏"],
+  "categoryKeywords": {
+    "structural": ["structural", "beam", "column", "load", "concrete", "steel", "foundation", "rebar", "truss"],
+    "ai": ["ai", "llm", "claude", "gpt", "model", "agent", "prompt", "machine learning", "neural"],
+    "build_in_public": ["build in public", "buildinpublic", "startup", "founder", "indie", "launch", "ship", "shipping"],
+    "engineering": ["engineering", "engineer", "cad", "drafting", "design", "calculation", "workflow"],
+    "finance": ["finance", "money", "invest", "market", "stock", "crypto", "revenue", "profit"],
+    "hype": ["insane", "crazy", "wild", "unbelievable", "amazing", "huge", "best", "secret"],
+    "fail": ["fail", "mistake", "wrong", "broke", "broken", "disaster", "struggle", "bug", "crash"]
+  }
+}

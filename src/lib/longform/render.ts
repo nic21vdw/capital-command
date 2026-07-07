@@ -8,6 +8,7 @@ import { getTrack, trackFilePath } from "@/lib/longform/music";
 import { editedDurationSec, exportRanges, type KeptRange } from "@/lib/longform/plan";
 import { getProject, projectOutputDir, projectWorkDir, updateProject } from "@/lib/longform/store";
 import type { LongformExportRecord, LongformProject } from "@/lib/longform/types";
+import { finalizeTitle } from "@/lib/title/finalize";
 
 // The Long-Form Editor's export engine. The edited video is baked in stages:
 //   1. Hook — the opening seconds re-rendered with the punch-in zoom and the
@@ -62,11 +63,27 @@ export async function startLongformExport(project: LongformProject): Promise<Lon
     throw new Error("Nothing to export — every segment is cut. Re-enable at least one segment.");
   }
 
+  const recordId = crypto.randomUUID().slice(0, 8);
+
+  // Shared post-processing step (same one the short-form pipeline uses): run
+  // the project name through the emoji decorator and log the title for CTR
+  // analysis. The project name is the best available content signal, so the
+  // decorator keyword-matches it onto a category; with emoji disabled the
+  // title is returned unchanged.
+  const finalized = await finalizeTitle({
+    baseTitle: project.name,
+    category: project.name,
+    pipelineType: "long",
+    videoId: recordId
+  });
+
   const record: LongformExportRecord = {
-    id: crypto.randomUUID().slice(0, 8),
+    id: recordId,
     status: "processing",
     progress: 1,
     durationSec: editedDurationSec(project.segments, project.hook),
+    title: finalized.title,
+    emojiUsed: finalized.emojiUsed,
     createdAt: new Date().toISOString()
   };
   // Keep the record list short; old files stay on disk until project delete.
