@@ -7,6 +7,7 @@
     "studio": "remotion studio",
     "preview": "remotion studio",
     "render:all": "node scripts/render-all.mjs",
+    "pptx": "node scripts/render-slides-for-ppt.mjs && python3 scripts/build-pptx.py",
     "render:full": "remotion render FullVideo out/full-video.mp4",
     "render:slide1": "remotion render Slide01Hook out/slide-01-hook.mp4",
     "render:slide2": "remotion render Slide02Split out/slide-02-split.mp4",

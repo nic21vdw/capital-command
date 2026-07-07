@@ -25,24 +25,33 @@ In the studio's left sidebar you'll see every slide as its own composition
 
 ## Rendering
 
-### Slide-by-slide (recommended for a narrated PowerPoint)
+### One-command PowerPoint (recommended)
+
+```bash
+npm run pptx
+```
+
+This renders all 14 slide clips into `./ppt` and assembles
+**`ppt/Capital-Command-Manifesto.pptx`** — a 16:9 deck where each slide holds a
+full-screen clip **set to auto-play the moment the slide appears**, with a fade
+transition between slides. Present it, talk over each slide, and click to
+advance; the next slide's clip starts itself. No manual video insertion.
+
+> Needs Python 3 with `python-pptx` for the assembly step:
+> `pip install python-pptx`. The render step needs the usual Remotion Chromium
+> (auto-downloaded on first run). On a locked-down box you can point Remotion at
+> an existing browser with `REMOTION_BROWSER=/path/to/chrome npm run pptx`.
+
+### Slide-by-slide MP4s (if you'd rather build the deck yourself)
 
 ```bash
 npm run render:all
 ```
 
-This writes one MP4 per slide into `./out`, named so they sort correctly:
-
-```
-out/slide-01-hook.mp4
-out/slide-02-split.mp4
-...
-out/slide-14-close.mp4
-out/full-video.mp4
-```
-
-Drop each MP4 onto its own PowerPoint slide (Insert → Video → This Device),
-set it to **Play: Automatically**, and advance manually as you commentate.
+Writes one MP4 per slide into `./out`, named so they sort correctly
+(`slide-01-hook.mp4` … `slide-14-close.mp4`, plus `full-video.mp4`). Drop each
+onto its own slide (Insert → Video → This Device), set **Play: Automatically**,
+and advance manually as you commentate.
 
 ### Single slides / full video
 
