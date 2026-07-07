@@ -20,20 +20,26 @@ function pickTickStep(secondsPerPixel: number) {
   return TICK_STEPS.find((step) => step >= target) ?? TICK_STEPS[TICK_STEPS.length - 1];
 }
 
+export type TimelineSelection = { start: number; end: number };
+
 export function LongformTimeline({
   project,
   time,
   peaks,
+  selection,
   onSeek,
   onToggleSegment,
-  onHookEndChange
+  onHookEndChange,
+  onSelectionChange
 }: {
   project: LongformProject;
   time: number;
   peaks: number[];
+  selection: TimelineSelection | null;
   onSeek: (t: number) => void;
   onToggleSegment: (id: string) => void;
   onHookEndChange: (end: number) => void;
+  onSelectionChange: (selection: TimelineSelection | null) => void;
 }) {
   const duration = Math.max(0.1, project.durationSec);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -41,7 +47,7 @@ export function LongformTimeline({
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [zoom, setZoom] = useState(1);
   const [trackWidth, setTrackWidth] = useState(0);
-  const draggingRef = useRef<"scrub" | "hook" | null>(null);
+  const draggingRef = useRef<"scrub" | "hook" | "sel-start" | "sel-end" | null>(null);
 
   useEffect(() => {
     const el = scrollRef.current;
@@ -131,6 +137,31 @@ export function LongformTimeline({
     [onHookEndChange, timeFromPointer]
   );
 
+  const beginSelectionDrag = useCallback(
+    (edge: "sel-start" | "sel-end") => (event: React.PointerEvent) => {
+      if (!selection) return;
+      event.preventDefault();
+      event.stopPropagation();
+      draggingRef.current = edge;
+      const fixed = edge === "sel-start" ? selection.end : selection.start;
+      const move = (e: PointerEvent) => {
+        if (draggingRef.current !== edge) return;
+        const t = timeFromPointer(e.clientX);
+        const start = edge === "sel-start" ? Math.min(t, fixed - 0.05) : fixed;
+        const end = edge === "sel-start" ? fixed : Math.max(t, fixed + 0.05);
+        onSelectionChange({ start: Math.max(0, start), end: Math.min(duration, end) });
+      };
+      const up = () => {
+        draggingRef.current = null;
+        window.removeEventListener("pointermove", move);
+        window.removeEventListener("pointerup", up);
+      };
+      window.addEventListener("pointermove", move);
+      window.addEventListener("pointerup", up);
+    },
+    [selection, duration, onSelectionChange, timeFromPointer]
+  );
+
   const ticks = useMemo(() => {
     const secondsPerPixel = duration / Math.max(1, contentWidth);
     const step = pickTickStep(secondsPerPixel);
@@ -145,7 +176,9 @@ export function LongformTimeline({
     <div className="rounded-xl border border-[var(--border)] bg-[var(--surface)] p-3">
       <div className="mb-2 flex items-center justify-between gap-3">
         <p className="text-xs text-[var(--muted-foreground)]">
-          Timeline — click a red block to keep it, click kept footage to cut it. Drag the purple handle to resize the hook.
+          {selection
+            ? "Drag the blue handles to fine-tune your selection, then use Remove or Keep in the Trim panel."
+            : "Click a red block to keep it, or kept footage to cut it. Drag the purple handle to resize the hook."}
         </p>
         <div className="flex shrink-0 items-center gap-1">
           <span className="mr-1 text-xs text-[var(--muted-foreground)]">{cutCount} cuts</span>
@@ -251,8 +284,54 @@ export function LongformTimeline({
               />
             )}
 
+            {/* Manual trim selection */}
+            {selection && (
+              <>
+                <div
+                  className="pointer-events-none absolute top-0 z-10 h-full border-x-2 border-sky-400 bg-sky-400/20"
+                  style={{ left: pct(selection.start), width: `${((selection.end - selection.start) / duration) * 100}%` }}
+                >
+                  <span className="absolute left-1/2 top-1 -translate-x-1/2 whitespace-nowrap rounded bg-sky-400 px-1 py-0.5 text-[9px] font-bold uppercase tracking-wide text-black">
+                    Selection
+                  </span>
+                </div>
+                <div
+                  role="slider"
+                  aria-label="Selection start"
+                  aria-valuemin={0}
+                  aria-valuemax={Math.round(duration * 10) / 10}
+                  aria-valuenow={Math.round(selection.start * 10) / 10}
+                  tabIndex={0}
+                  onPointerDown={beginSelectionDrag("sel-start")}
+                  onKeyDown={(event) => {
+                    if (event.key === "ArrowLeft") onSelectionChange({ ...selection, start: Math.max(0, selection.start - 0.25) });
+                    if (event.key === "ArrowRight") onSelectionChange({ ...selection, start: Math.min(selection.end - 0.05, selection.start + 0.25) });
+                  }}
+                  className="absolute top-0 z-20 h-full w-2 -translate-x-1/2 cursor-ew-resize rounded bg-sky-400 opacity-90 hover:opacity-100"
+                  style={{ left: pct(selection.start) }}
+                  data-no-press
+                />
+                <div
+                  role="slider"
+                  aria-label="Selection end"
+                  aria-valuemin={0}
+                  aria-valuemax={Math.round(duration * 10) / 10}
+                  aria-valuenow={Math.round(selection.end * 10) / 10}
+                  tabIndex={0}
+                  onPointerDown={beginSelectionDrag("sel-end")}
+                  onKeyDown={(event) => {
+                    if (event.key === "ArrowLeft") onSelectionChange({ ...selection, end: Math.max(selection.start + 0.05, selection.end - 0.25) });
+                    if (event.key === "ArrowRight") onSelectionChange({ ...selection, end: Math.min(duration, selection.end + 0.25) });
+                  }}
+                  className="absolute top-0 z-20 h-full w-2 -translate-x-1/2 cursor-ew-resize rounded bg-sky-400 opacity-90 hover:opacity-100"
+                  style={{ left: pct(selection.end) }}
+                  data-no-press
+                />
+              </>
+            )}
+
             {/* Playhead */}
-            <div className="pointer-events-none absolute top-0 z-20 h-full w-px bg-white" style={{ left: pct(time) }}>
+            <div className="pointer-events-none absolute top-0 z-30 h-full w-px bg-white" style={{ left: pct(time) }}>
               <span className="absolute -top-0.5 left-1/2 h-2 w-2 -translate-x-1/2 rounded-full bg-white shadow" />
             </div>
           </div>

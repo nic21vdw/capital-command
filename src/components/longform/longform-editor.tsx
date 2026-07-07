@@ -13,6 +13,7 @@ import {
   Play,
   Scissors,
   Send,
+  Slice,
   Trash2,
   Upload,
   Volume2,
@@ -24,9 +25,9 @@ import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { ColorField, Field, RangeField, SelectField, Toggle } from "@/components/editor/controls";
 import { LongformPreview } from "@/components/longform/longform-preview";
-import { LongformTimeline } from "@/components/longform/longform-timeline";
+import { LongformTimeline, type TimelineSelection } from "@/components/longform/longform-timeline";
 import { formatClock } from "@/lib/clipping/editor";
-import { PACE_PRESETS, editedDurationSec, hookCaptions, type PacePresetId } from "@/lib/longform/plan";
+import { PACE_PRESETS, applyManualRange, editedDurationSec, hookCaptions, type PacePresetId } from "@/lib/longform/plan";
 import type { LongformExportRecord, LongformProject, MusicTrack } from "@/lib/longform/types";
 import type { CaptionAnimation, CaptionPosition, CaptionSegment } from "@/types/domain";
 import { cn } from "@/lib/utils";
@@ -38,6 +39,7 @@ import { cn } from "@/lib/utils";
 const TABS = [
   { id: "hook", label: "Hook", icon: Zap },
   { id: "cuts", label: "Cuts", icon: Scissors },
+  { id: "trim", label: "Trim", icon: Slice },
   { id: "music", label: "Music", icon: Music4 },
   { id: "export", label: "Export", icon: Upload }
 ] as const;
@@ -91,6 +93,7 @@ export function LongformEditor({
   const [focusEditing, setFocusEditing] = useState(false);
   const [saved, setSaved] = useState(true);
   const [peaks, setPeaks] = useState<number[]>([]);
+  const [selection, setSelection] = useState<TimelineSelection | null>(null);
 
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const projectRef = useRef(project);
@@ -222,6 +225,14 @@ export function LongformEditor({
     }));
   }, []);
 
+  // Manual trimming: split segments so an arbitrary span flips to kept/cut.
+  const applyRange = useCallback((start: number, end: number, enabled: boolean) => {
+    setProject((current) => ({
+      ...current,
+      segments: applyManualRange(current.segments, start, end, enabled)
+    }));
+  }, []);
+
   const setHookEnd = useCallback((end: number) => {
     setProject((current) => ({
       ...current,
@@ -327,15 +338,17 @@ export function LongformEditor({
             project={project}
             time={time}
             peaks={peaks}
+            selection={tab === "trim" ? selection : null}
             onSeek={seek}
             onToggleSegment={toggleSegment}
             onHookEndChange={setHookEnd}
+            onSelectionChange={setSelection}
           />
         </div>
 
         {/* Panels */}
         <div className="min-w-0">
-          <div className="mb-3 grid grid-cols-4 gap-1 rounded-xl border border-[var(--border)] bg-[var(--surface)] p-1">
+          <div className="mb-3 grid grid-cols-5 gap-1 rounded-xl border border-[var(--border)] bg-[var(--surface)] p-1">
             {TABS.map((item) => {
               const Icon = item.icon;
               const active = tab === item.id;
@@ -367,6 +380,16 @@ export function LongformEditor({
               />
             )}
             {tab === "cuts" && <CutsPanel project={project} patch={patch} setProject={setProject} seek={seek} skipDirtyRef={skipDirtyRef} />}
+            {tab === "trim" && (
+              <TrimPanel
+                project={project}
+                time={time}
+                selection={selection}
+                setSelection={setSelection}
+                applyRange={applyRange}
+                seek={seek}
+              />
+            )}
             {tab === "music" && <MusicPanel project={project} patch={patch} />}
             {tab === "export" && <ExportPanel project={project} setProject={setProject} skipDirtyRef={skipDirtyRef} onDeleted={onDeleted} editedSec={editedSec} />}
           </div>
@@ -665,24 +688,208 @@ function CutsPanel({
               >
                 {formatClock(segment.start)} · {(segment.end - segment.start).toFixed(1)}s pause
               </button>
-              <button
-                type="button"
-                onClick={() =>
+              <KeepToggle
+                kept={segment.enabled}
+                onChange={(keep) =>
                   patch({
                     segments: project.segments.map((item) =>
-                      item.id === segment.id ? { ...item, enabled: !item.enabled } : item
+                      item.id === segment.id ? { ...item, enabled: keep } : item
                     )
                   })
                 }
-                className={cn(
-                  "rounded-md border px-2 py-1 font-medium transition",
-                  segment.enabled
-                    ? "border-emerald-400/50 text-emerald-400"
-                    : "border-red-400/50 text-red-400"
-                )}
+              />
+            </div>
+          ))}
+        </div>
+      </Field>
+    </div>
+  );
+}
+
+/**
+ * A plain keep/cut switch. The colour and label always read the current state
+ * (green "Keep" vs red "Cut"), so there's no guessing what the control does —
+ * flipping it keeps or removes that stretch of footage.
+ */
+function KeepToggle({ kept, onChange }: { kept: boolean; onChange: (keep: boolean) => void }) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={kept}
+      onClick={() => onChange(!kept)}
+      title={kept ? "Kept in the video — flip to cut it out" : "Cut from the video — flip to keep it"}
+      className={cn(
+        "flex shrink-0 items-center gap-1.5 rounded-md border px-2 py-1 text-xs font-medium transition-colors duration-200",
+        kept ? "border-emerald-400/50 bg-emerald-400/10 text-emerald-300" : "border-red-400/50 bg-red-400/10 text-red-300"
+      )}
+    >
+      <span
+        className={cn(
+          "relative h-4 w-7 shrink-0 rounded-full transition-colors duration-200",
+          kept ? "bg-emerald-400" : "bg-red-400/70"
+        )}
+      >
+        <span
+          className={cn(
+            "absolute left-0.5 top-0.5 h-3 w-3 rounded-full bg-white shadow-sm transition-transform duration-200 ease-out",
+            kept && "translate-x-3"
+          )}
+        />
+      </span>
+      {kept ? "Keep" : "Cut"}
+    </button>
+  );
+}
+
+function TrimPanel({
+  project,
+  time,
+  selection,
+  setSelection,
+  applyRange,
+  seek
+}: {
+  project: LongformProject;
+  time: number;
+  selection: TimelineSelection | null;
+  setSelection: React.Dispatch<React.SetStateAction<TimelineSelection | null>>;
+  applyRange: (start: number, end: number, enabled: boolean) => void;
+  seek: (t: number) => void;
+}) {
+  const hasSelection = !!selection && selection.end - selection.start >= 0.05;
+  const manualCuts = project.segments
+    .filter((segment) => segment.kind === "speech" && !segment.enabled)
+    .sort((a, b) => a.start - b.start);
+  const inHook = project.hook.enabled && !!selection && selection.start < project.hook.end;
+
+  const setStartHere = () =>
+    setSelection((prev) => {
+      const start = Math.min(time, project.durationSec - 0.05);
+      const end = prev && prev.end > start + 0.05 ? prev.end : Math.min(project.durationSec, start + 2);
+      return { start: Math.max(0, start), end };
+    });
+
+  const setEndHere = () =>
+    setSelection((prev) => {
+      const end = Math.max(time, 0.05);
+      const start = prev && prev.start < end - 0.05 ? prev.start : Math.max(0, end - 2);
+      return { start, end: Math.min(project.durationSec, end) };
+    });
+
+  const removeSelection = () => {
+    if (!selection || !hasSelection) return;
+    applyRange(selection.start, selection.end, false);
+    toast.success(`Trimmed ${formatClock(selection.start)}–${formatClock(selection.end)} out of the video.`);
+    setSelection(null);
+  };
+
+  const keepSelection = () => {
+    if (!selection || !hasSelection) return;
+    applyRange(selection.start, selection.end, true);
+    toast.success("Kept that section in the video.");
+    setSelection(null);
+  };
+
+  return (
+    <div className="space-y-4">
+      <div>
+        <h3 className="text-sm font-semibold text-white">Manual trim</h3>
+        <p className="mt-1 text-xs text-[var(--muted-foreground)]">
+          Cut any stretch out of the video yourself — not just whole blocks. Move the playhead to where the part starts,
+          hit <span className="text-white">Set start</span>, move to where it ends, hit <span className="text-white">Set end</span>,
+          then remove it.
+        </p>
+      </div>
+
+      <div className="rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-3 py-2.5 text-xs">
+        <div className="flex items-center justify-between">
+          <span className="text-[var(--muted-foreground)]">Playhead</span>
+          <span className="tabular-nums text-white">{formatClock(time)}</span>
+        </div>
+        <div className="mt-1.5 flex items-center justify-between">
+          <span className="text-[var(--muted-foreground)]">Selection</span>
+          <span className="tabular-nums text-white">
+            {hasSelection && selection ? (
+              <>
+                {formatClock(selection.start)} → {formatClock(selection.end)}{" "}
+                <span className="text-sky-300">({(selection.end - selection.start).toFixed(1)}s)</span>
+              </>
+            ) : (
+              <span className="text-[var(--muted-foreground)]">nothing selected yet</span>
+            )}
+          </span>
+        </div>
+      </div>
+
+      <div className="flex gap-2">
+        <Button variant="secondary" className="flex-1 px-2 text-xs" onClick={setStartHere}>
+          Set start
+        </Button>
+        <Button variant="secondary" className="flex-1 px-2 text-xs" onClick={setEndHere}>
+          Set end
+        </Button>
+      </div>
+
+      {hasSelection && selection && (
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            onClick={() => seek(selection.start)}
+            className="rounded-md border border-[var(--border)] px-2 py-1 text-xs text-[var(--muted-foreground)] transition hover:text-white"
+          >
+            Jump to selection
+          </button>
+          <button
+            type="button"
+            onClick={() => setSelection(null)}
+            className="rounded-md border border-[var(--border)] px-2 py-1 text-xs text-[var(--muted-foreground)] transition hover:text-white"
+          >
+            Clear
+          </button>
+        </div>
+      )}
+
+      {inHook && (
+        <p className="rounded-lg border border-amber-400/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-200">
+          Heads up: the hook always plays in full, so any part of this selection inside the first{" "}
+          {project.hook.end.toFixed(1)}s won&apos;t be trimmed.
+        </p>
+      )}
+
+      <div className="flex gap-2">
+        <Button variant="danger" className="flex-1 gap-2" disabled={!hasSelection} onClick={removeSelection}>
+          <Slice className="h-4 w-4" /> Remove section
+        </Button>
+        <Button variant="secondary" className="flex-1" disabled={!hasSelection} onClick={keepSelection}>
+          Keep section
+        </Button>
+      </div>
+
+      <Field label="Your manual trims" hint={`${manualCuts.length} removed`}>
+        <div className="space-y-1.5">
+          {manualCuts.length === 0 && (
+            <p className="rounded-lg border border-dashed border-[var(--border)] px-3 py-3 text-xs text-[var(--muted-foreground)]">
+              No manual trims yet. Anything you remove here shows up in this list so you can put it back.
+            </p>
+          )}
+          {manualCuts.map((segment) => (
+            <div
+              key={segment.id}
+              className="flex items-center gap-2 rounded-lg border border-[var(--border)] px-2.5 py-1.5 text-xs"
+            >
+              <button
+                type="button"
+                onClick={() => seek(Math.max(0, segment.start))}
+                className="flex-1 text-left text-[var(--muted-foreground)] transition hover:text-white"
+                title="Jump to this trim"
               >
-                {segment.enabled ? "Kept" : "Cut"}
+                {formatClock(segment.start)}–{formatClock(segment.end)} · {(segment.end - segment.start).toFixed(1)}s removed
               </button>
+              <KeepToggle
+                kept={false}
+                onChange={() => applyRange(segment.start, segment.end, true)}
+              />
             </div>
           ))}
         </div>

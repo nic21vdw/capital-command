@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   DEFAULT_PACE,
+  applyManualRange,
   buildSegments,
   editedDurationSec,
   exportRanges,
@@ -130,6 +131,61 @@ describe("hookCaptions", () => {
     for (const chunk of chunks) {
       expect(chunk.end).toBeLessThanOrEqual(5.01);
     }
+  });
+});
+
+describe("applyManualRange", () => {
+  const base: LongformSegment[] = [{ id: "seg-1", start: 0, end: 30, kind: "speech", enabled: true }];
+
+  it("carves a cut out of the middle of a kept segment", () => {
+    const result = applyManualRange(base, 10, 15, false);
+    expect(result).toEqual([
+      { id: "seg-1", start: 0, end: 10, kind: "speech", enabled: true },
+      { id: "seg-2", start: 10, end: 15, kind: "speech", enabled: false },
+      { id: "seg-3", start: 15, end: 30, kind: "speech", enabled: true }
+    ]);
+    // The trimmed span drops out of the kept ranges.
+    expect(keptRanges(result)).toEqual([
+      { start: 0, end: 10 },
+      { start: 15, end: 30 }
+    ]);
+  });
+
+  it("keeps ids unique after repeated trims", () => {
+    let segments = applyManualRange(base, 5, 8, false);
+    segments = applyManualRange(segments, 20, 24, false);
+    const ids = segments.map((s) => s.id);
+    expect(new Set(ids).size).toBe(ids.length);
+    expect(keptRanges(segments)).toEqual([
+      { start: 0, end: 5 },
+      { start: 8, end: 20 },
+      { start: 24, end: 30 }
+    ]);
+  });
+
+  it("splits across segment boundaries and flips only the overlap", () => {
+    const segments: LongformSegment[] = [
+      { id: "a", start: 0, end: 10, kind: "speech", enabled: true },
+      { id: "b", start: 10, end: 14, kind: "silence", enabled: false },
+      { id: "c", start: 14, end: 30, kind: "speech", enabled: true }
+    ];
+    const result = applyManualRange(segments, 8, 20, false);
+    // Everything in [8, 20] is now cut; the kinds are preserved.
+    expect(keptRanges(result)).toEqual([
+      { start: 0, end: 8 },
+      { start: 20, end: 30 }
+    ]);
+    expect(result.every((s) => (s.start >= 8 && s.end <= 20 ? !s.enabled : true))).toBe(true);
+  });
+
+  it("restores a previously trimmed span when enabled is true", () => {
+    const cut = applyManualRange(base, 10, 15, false);
+    const restored = applyManualRange(cut, 10, 15, true);
+    expect(keptRanges(restored)).toEqual([{ start: 0, end: 30 }]);
+  });
+
+  it("ignores selections that are too small to matter", () => {
+    expect(applyManualRange(base, 10, 10.02, false)).toBe(base);
   });
 });
 
