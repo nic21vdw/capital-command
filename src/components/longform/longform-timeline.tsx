@@ -285,13 +285,27 @@ export function LongformTimeline({
         onDrop={handleDrop}
       >
         <div style={{ width: contentWidth }} className="relative select-none">
-          {/* Ruler */}
-          <div className="relative h-5 border-b border-[var(--border)] text-[10px] text-[var(--muted-foreground)]">
+          {/* Ruler — click or drag anywhere along it to move the playhead */}
+          <div
+            role="presentation"
+            onPointerDown={beginScrub}
+            className="relative h-5 cursor-pointer border-b border-[var(--border)] text-[10px] text-[var(--muted-foreground)]"
+            data-no-press
+          >
             {ticks.map((t) => (
-              <span key={t} className="absolute top-0 -translate-x-1/2 whitespace-nowrap" style={{ left: pct(t) }}>
+              <span
+                key={t}
+                className="pointer-events-none absolute top-0 -translate-x-1/2 whitespace-nowrap"
+                style={{ left: pct(t) }}
+              >
                 {formatClock(t)}
               </span>
             ))}
+            {/* Playhead marker mirrored on the ruler */}
+            <div
+              className="pointer-events-none absolute -bottom-px top-0 z-10 w-px bg-white"
+              style={{ left: pct(time) }}
+            />
           </div>
 
           {/* Main track */}
