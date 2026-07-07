@@ -61,6 +61,15 @@ Two ways to deliver:
   narrate. Edit the `fable5Ocean` example in `Root.tsx` or pass `--props` with
   your own `segments` array, then `render Presentation`.
 
+## Click-to-advance PowerPoint deck
+
+For presenting live at his own pace (talk, click, next video plays), build a
+`.pptx` with one embedded video per slide via `remotion/build-pptx.py`
+(uses `python-pptx`; `pip install python-pptx` once). Edit its `SEGMENTS` list
+(video file, poster PNG, speaker-note cue) and run `python3 build-pptx.py`.
+Render a poster still per clip first (`remotion still ... --frame=<n>`) so
+slides aren't black. Videos are embedded, so the deck is self-contained.
+
 ## Composition prop shapes
 
 All three also take `durationInFrames` (seconds × 30) — always include it.
