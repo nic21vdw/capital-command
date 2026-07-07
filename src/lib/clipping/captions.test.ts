@@ -90,6 +90,26 @@ describe("chunkWords / parseSubtitles", () => {
     expect(segs.length).toBeGreaterThan(1);
   });
 
+  it("never lets one segment overlap the next (no stale, frozen captions)", () => {
+    // Word 3's end runs long, past where the next phrase begins. The chunker must
+    // trim the first segment so only one caption is ever active at a given time.
+    const words = [
+      { text: "one", start: 0, end: 0.5 },
+      { text: "two.", start: 0.5, end: 1 },
+      { text: "three", start: 1.1, end: 4 }, // inflated end that overruns the next phrase
+      { text: "four", start: 1.6, end: 2 },
+      { text: "five.", start: 2, end: 2.5 }
+    ];
+    const segs = chunkWords(words, 3);
+    expect(segs.length).toBeGreaterThan(1);
+    for (let i = 0; i < segs.length - 1; i++) {
+      expect(segs[i].end).toBeLessThanOrEqual(segs[i + 1].start + 1e-9);
+    }
+    // At any time exactly one segment is active.
+    const activeAt = (t: number) => segs.filter((s) => t >= s.start && t < s.end).length;
+    expect(activeAt(1.8)).toBeLessThanOrEqual(1);
+  });
+
   it("produces segments with monotonic timing", () => {
     const vtt = [
       "WEBVTT",

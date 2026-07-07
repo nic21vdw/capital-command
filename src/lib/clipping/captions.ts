@@ -156,6 +156,18 @@ export function chunkWords(words: CaptionWord[], maxWords = 7): CaptionSegment[]
     if (bucket.length >= maxWords || SENTENCE_END.test(word.text) || nextStart - word.end > 1.2) flush();
   }
   flush();
+
+  // A segment must never linger past the next one's start: overlapping phrases
+  // make the live caption stick on a stale line while the following phrase has
+  // nothing on screen. Shrink (never extend) each end down to the next start so
+  // exactly one segment is ever active at a time. Real pauses are preserved —
+  // this only trims genuine overlaps.
+  for (let i = 0; i < segments.length - 1; i++) {
+    const next = segments[i + 1];
+    if (segments[i].end > next.start) {
+      segments[i].end = Math.max(segments[i].start + 0.05, next.start);
+    }
+  }
   return segments;
 }
 

@@ -23,7 +23,7 @@ function modelId(): string {
   return process.env.CLIPS_WHISPER_MODEL?.trim() || DEFAULT_MODEL;
 }
 
-type WordChunk = { text: string; timestamp: [number, number | null] };
+export type WordChunk = { text: string; timestamp: [number, number | null] };
 type Transcriber = (
   audio: Float32Array,
   options: Record<string, unknown>
@@ -84,16 +84,36 @@ async function decodePcm(mediaPath: string, workDir: string): Promise<Float32Arr
   }
 }
 
-function wordsFromChunks(chunks: WordChunk[]): CaptionWord[] {
+// A word without a model-provided end is held on screen for this long (or until
+// the next word starts, whichever comes first).
+const DEFAULT_WORD_SEC = 0.24;
+
+export function wordsFromChunks(chunks: WordChunk[]): CaptionWord[] {
   const words: CaptionWord[] = [];
   for (const chunk of chunks) {
     const text = chunk.text.trim();
     if (!text) continue;
-    const start = Math.max(0, chunk.timestamp?.[0] ?? (words[words.length - 1]?.end ?? 0));
-    const end = chunk.timestamp?.[1] ?? start + 0.4;
-    words.push({ text, start, end: Math.max(end, start + 0.02) });
+    const prev = words[words.length - 1];
+    // Timestamps must stay monotonic in spoken order. Whisper occasionally emits
+    // a word whose raw start sits *before* the previous word at a 30s chunk
+    // boundary; trust the transcript order and clamp forward rather than sorting
+    // by start (which would silently reorder the words and scramble the text).
+    let start = chunk.timestamp?.[0];
+    if (start == null || !Number.isFinite(start)) start = prev?.end ?? 0;
+    start = Math.max(0, start, prev?.start ?? 0);
+
+    let end = chunk.timestamp?.[1];
+    if (end == null || !Number.isFinite(end)) end = start + DEFAULT_WORD_SEC;
+    end = Math.max(end, start + 0.02);
+
+    // Close the previous word against this one. Without this, an inflated model
+    // end (or the fallback duration) can run past the next word, which later
+    // makes a whole phrase overlap the following one — the caption then looks
+    // "frozen" on the old line while the new words show nothing.
+    if (prev && prev.end > start) prev.end = start;
+
+    words.push({ text, start, end });
   }
-  words.sort((a, b) => a.start - b.start);
   return words;
 }
 
