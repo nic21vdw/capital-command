@@ -1,9 +1,9 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ImagePlus, Minus, Plus } from "lucide-react";
+import { ImagePlus, Minus, Music4, Plus } from "lucide-react";
 import { formatClock } from "@/lib/clipping/editor";
-import type { LongformOverlay, LongformProject } from "@/lib/longform/types";
+import type { LongformAudioClip, LongformOverlay, LongformProject } from "@/lib/longform/types";
 import { cn } from "@/lib/utils";
 
 const round3 = (value: number) => Math.round(value * 1000) / 1000;
@@ -40,7 +40,11 @@ export function LongformTimeline({
   selectedOverlayId,
   onSelectOverlay,
   onOverlayChange,
-  onDropImage
+  onDropImage,
+  selectedAudioId,
+  onSelectAudio,
+  onAudioChange,
+  onDropAudio
 }: {
   project: LongformProject;
   time: number;
@@ -55,6 +59,10 @@ export function LongformTimeline({
   onSelectOverlay: (id: string | null) => void;
   onOverlayChange: (id: string, patch: Partial<Pick<LongformOverlay, "start" | "end">>) => void;
   onDropImage: (file: File, timeSec: number) => void;
+  selectedAudioId: string | null;
+  onSelectAudio: (id: string | null) => void;
+  onAudioChange: (id: string, patch: Partial<Pick<LongformAudioClip, "start" | "duration">>) => void;
+  onDropAudio: (file: File, timeSec: number) => void;
 }) {
   const duration = Math.max(0.1, project.durationSec);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -63,8 +71,9 @@ export function LongformTimeline({
   const [zoom, setZoom] = useState(1);
   const [trackWidth, setTrackWidth] = useState(0);
   const [dragOver, setDragOver] = useState(false);
-  const draggingRef = useRef<"scrub" | "hook" | "sel-start" | "sel-end" | "overlay" | null>(null);
+  const draggingRef = useRef<"scrub" | "hook" | "sel-start" | "sel-end" | "overlay" | "audio" | null>(null);
   const overlays = project.overlays;
+  const audioClips = project.music.clips ?? [];
 
   useEffect(() => {
     const el = scrollRef.current;
@@ -214,16 +223,53 @@ export function LongformTimeline({
     [duration, onOverlayChange, onSelectOverlay, timeFromPointer]
   );
 
+  // Drag an audio clip along the timeline: the body moves it, the edges change
+  // how long it plays (the underlying track loops to fill the new length).
+  const beginAudioDrag = useCallback(
+    (event: React.PointerEvent, clip: LongformAudioClip, mode: "move" | "left" | "right") => {
+      event.preventDefault();
+      event.stopPropagation();
+      onSelectAudio(clip.id);
+      draggingRef.current = "audio";
+      const anchor = timeFromPointer(event.clientX);
+      const orig = { start: clip.start, duration: clip.duration };
+      const move = (e: PointerEvent) => {
+        if (draggingRef.current !== "audio") return;
+        const delta = timeFromPointer(e.clientX) - anchor;
+        if (mode === "move") {
+          const start = Math.max(0, Math.min(orig.start + delta, duration - Math.min(orig.duration, duration)));
+          onAudioChange(clip.id, { start: round3(start) });
+        } else if (mode === "left") {
+          const start = Math.max(0, Math.min(orig.start + delta, orig.start + orig.duration - 0.2));
+          const newDuration = orig.start + orig.duration - start;
+          onAudioChange(clip.id, { start: round3(start), duration: round3(newDuration) });
+        } else {
+          const newDuration = Math.max(0.2, Math.min(orig.duration + delta, duration - orig.start));
+          onAudioChange(clip.id, { duration: round3(newDuration) });
+        }
+      };
+      const up = () => {
+        draggingRef.current = null;
+        window.removeEventListener("pointermove", move);
+        window.removeEventListener("pointerup", up);
+      };
+      window.addEventListener("pointermove", move);
+      window.addEventListener("pointerup", up);
+    },
+    [duration, onAudioChange, onSelectAudio, timeFromPointer]
+  );
+
   const handleDrop = useCallback(
     (event: React.DragEvent) => {
       event.preventDefault();
       setDragOver(false);
-      const files = Array.from(event.dataTransfer?.files ?? []).filter((file) => file.type.startsWith("image/"));
-      if (files.length === 0) return;
+      const all = Array.from(event.dataTransfer?.files ?? []);
       const dropTime = timeFromPointer(event.clientX);
-      for (const file of files) onDropImage(file, dropTime);
+      for (const file of all.filter((file) => file.type.startsWith("image/"))) onDropImage(file, dropTime);
+      for (const file of all.filter((file) => file.type.startsWith("audio/") || file.type.startsWith("video/")))
+        onDropAudio(file, dropTime);
     },
-    [onDropImage, timeFromPointer]
+    [onDropAudio, onDropImage, timeFromPointer]
   );
 
   const ticks = useMemo(() => {
@@ -242,7 +288,7 @@ export function LongformTimeline({
         <p className="text-xs text-[var(--muted-foreground)]">
           {selection
             ? "Drag the blue handles to fine-tune your selection, then use Remove or Keep in the Trim panel."
-            : "Click a red block to keep it, or kept footage to cut it. Drag the purple handle to resize the hook. Drop images here and drag them along the image track."}
+            : "Click a red block to keep it, or kept footage to cut it. Drag the purple handle to resize the hook. Drop images or audio here and drag them along their track."}
         </p>
         <div className="flex shrink-0 items-center gap-1">
           <span className="mr-1 text-xs text-[var(--muted-foreground)]">{cutCount} cuts</span>
@@ -483,6 +529,56 @@ export function LongformTimeline({
                     <span
                       onPointerDown={(event) => beginOverlayDrag(event, overlay, "right")}
                       className="absolute inset-y-0 right-0 w-1.5 cursor-ew-resize bg-transparent group-hover:bg-[var(--accent)]/60"
+                    />
+                  </div>
+                );
+              })
+            )}
+          </div>
+
+          {/* Audio clip track */}
+          <div className="relative mt-2 h-10 rounded-lg bg-[var(--surface-2)]">
+            {audioClips.length === 0 ? (
+              <div className="pointer-events-none flex h-full items-center justify-center gap-2 text-[10px] text-[var(--muted-foreground)]">
+                <Music4 className="h-3.5 w-3.5" /> Drop a song here, or add one from the Music panel
+              </div>
+            ) : (
+              audioClips.map((clip) => {
+                const width = `${(Math.max(0.2, clip.duration) / duration) * 100}%`;
+                const selected = clip.id === selectedAudioId;
+                return (
+                  <div
+                    key={clip.id}
+                    role="button"
+                    tabIndex={0}
+                    title={`${clip.fileName} — ${formatClock(clip.start)} · ${clip.duration.toFixed(1)}s · drag to move`}
+                    onPointerDown={(event) => beginAudioDrag(event, clip, "move")}
+                    onKeyDown={(event) => {
+                      if (event.key === "ArrowLeft") {
+                        onAudioChange(clip.id, { start: round3(Math.max(0, clip.start - 0.5)) });
+                      }
+                      if (event.key === "ArrowRight") {
+                        onAudioChange(clip.id, { start: round3(Math.min(duration - clip.duration, clip.start + 0.5)) });
+                      }
+                    }}
+                    className={cn(
+                      "group absolute top-1 bottom-1 flex cursor-grab items-center gap-1 overflow-hidden rounded-md border pl-1.5 pr-1.5 text-[10px] transition active:cursor-grabbing",
+                      selected
+                        ? "border-emerald-400 bg-emerald-400/25 text-white ring-1 ring-emerald-400"
+                        : "border-emerald-400/40 bg-emerald-400/10 text-emerald-100 hover:text-white"
+                    )}
+                    style={{ left: pct(clip.start), width }}
+                    data-no-press
+                  >
+                    <Music4 className="pointer-events-none h-3 w-3 shrink-0" />
+                    <span className="truncate">{clip.fileName}</span>
+                    <span
+                      onPointerDown={(event) => beginAudioDrag(event, clip, "left")}
+                      className="absolute inset-y-0 left-0 w-1.5 cursor-ew-resize bg-transparent group-hover:bg-emerald-400/60"
+                    />
+                    <span
+                      onPointerDown={(event) => beginAudioDrag(event, clip, "right")}
+                      className="absolute inset-y-0 right-0 w-1.5 cursor-ew-resize bg-transparent group-hover:bg-emerald-400/60"
                     />
                   </div>
                 );

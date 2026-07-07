@@ -4,15 +4,16 @@ import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowLeft,
+  Copy,
   Crosshair,
   Download,
   Image as ImageIcon,
   ImagePlus,
-  ListMusic,
   Loader2,
   Music4,
   Pause,
   Play,
+  Plus,
   Scissors,
   Send,
   Slice,
@@ -31,7 +32,7 @@ import { LongformPreview } from "@/components/longform/longform-preview";
 import { LongformTimeline, type TimelineSelection } from "@/components/longform/longform-timeline";
 import { formatClock } from "@/lib/clipping/editor";
 import { PACE_PRESETS, applyManualRange, editedDurationSec, hookCaptions, type PacePresetId } from "@/lib/longform/plan";
-import type { LongformExportRecord, LongformOverlay, LongformProject, MusicTrack } from "@/lib/longform/types";
+import type { LongformAudioClip, LongformExportRecord, LongformOverlay, LongformProject, MusicTrack } from "@/lib/longform/types";
 import type { CaptionAnimation, CaptionPosition, CaptionSegment } from "@/types/domain";
 import { cn } from "@/lib/utils";
 
@@ -102,6 +103,7 @@ export function LongformEditor({
   const [peaks, setPeaks] = useState<number[]>([]);
   const [selection, setSelection] = useState<TimelineSelection | null>(null);
   const [selectedOverlayId, setSelectedOverlayId] = useState<string | null>(null);
+  const [selectedAudioId, setSelectedAudioId] = useState<string | null>(null);
   // Blob URLs for images uploaded this session, so the preview and timeline
   // show them instantly without a round-trip to the serving route.
   const [overlayUrls, setOverlayUrls] = useState<Record<string, string>>({});
@@ -348,6 +350,90 @@ export function LongformEditor({
     );
   }, []);
 
+  // --- Timeline audio clips -------------------------------------------------
+  const patchMusic = useCallback((partial: Partial<LongformProject["music"]>) => {
+    setProject((prev) => ({ ...prev, music: { ...prev.music, ...partial } }));
+  }, []);
+
+  // Place a library track onto the audio track as a clip starting at `startSec`.
+  const addAudioClip = useCallback((track: MusicTrack, startSec: number) => {
+    const id = crypto.randomUUID().slice(0, 8);
+    const trackDuration = track.durationSec > 0.2 ? Math.round(track.durationSec * 1000) / 1000 : 15;
+    setProject((prev) => {
+      const maxStart = Math.max(0, prev.durationSec - 0.5);
+      const start = Math.max(0, Math.min(startSec, maxStart));
+      const duration = Math.min(trackDuration, Math.max(0.5, prev.durationSec - start));
+      const clip: LongformAudioClip = {
+        id,
+        trackId: track.id,
+        fileName: track.fileName,
+        start: Math.round(start * 1000) / 1000,
+        duration: Math.round(duration * 1000) / 1000,
+        volume: 0.5
+      };
+      return { ...prev, music: { ...prev.music, enabled: true, clips: [...(prev.music.clips ?? []), clip] } };
+    });
+    setSelectedAudioId(id);
+  }, []);
+
+  const updateAudioClip = useCallback((id: string, partial: Partial<LongformAudioClip>) => {
+    setProject((prev) => ({
+      ...prev,
+      music: { ...prev.music, clips: (prev.music.clips ?? []).map((clip) => (clip.id === id ? { ...clip, ...partial } : clip)) }
+    }));
+  }, []);
+
+  const removeAudioClip = useCallback((id: string) => {
+    setProject((prev) => ({
+      ...prev,
+      music: { ...prev.music, clips: (prev.music.clips ?? []).filter((clip) => clip.id !== id) }
+    }));
+    setSelectedAudioId((current) => (current === id ? null : current));
+  }, []);
+
+  // Copy a clip, dropping the duplicate right after the original so repeats
+  // chain end-to-end (handy for looping a short sting across a section).
+  const duplicateAudioClip = useCallback((id: string) => {
+    const newId = crypto.randomUUID().slice(0, 8);
+    setProject((prev) => {
+      const clips = prev.music.clips ?? [];
+      const clip = clips.find((item) => item.id === id);
+      if (!clip) return prev;
+      const start = Math.max(0, Math.min(prev.durationSec - 0.2, clip.start + clip.duration));
+      const copy: LongformAudioClip = { ...clip, id: newId, start: Math.round(start * 1000) / 1000 };
+      return { ...prev, music: { ...prev.music, clips: [...clips, copy] } };
+    });
+    setSelectedAudioId(newId);
+  }, []);
+
+  // Uploading dropped audio/video, then placing it as a clip at the drop point.
+  const uploadAndPlaceAudio = useCallback(
+    async (file: File, startSec: number) => {
+      if (!file.type.startsWith("audio/") && !file.type.startsWith("video/")) {
+        toast.error("Drop an audio or video file onto the audio track.");
+        return;
+      }
+      const toastId = toast.loading(file.type.startsWith("video/") ? "Extracting audio…" : "Adding audio…");
+      try {
+        const response = await fetch(`/api/longform/music?name=${encodeURIComponent(file.name)}`, {
+          method: "POST",
+          headers: { "Content-Type": file.type || "audio/mpeg" },
+          body: file
+        });
+        const data = (await response.json()) as { track?: MusicTrack; error?: string };
+        if (!response.ok || !data.track) {
+          toast.error(data.error ?? "Could not add that audio.", { id: toastId });
+          return;
+        }
+        addAudioClip(data.track, startSec);
+        toast.success(`Placed “${data.track.fileName}” on the audio track.`, { id: toastId });
+      } catch {
+        toast.error("Could not add that audio. Is the dev server still running?", { id: toastId });
+      }
+    },
+    [addAudioClip]
+  );
+
   const inCut = useMemo(
     () => cutRangesOf(project).some((range) => time >= range.start && time < range.end),
     [project, time]
@@ -466,6 +552,16 @@ export function LongformEditor({
               setTab("images");
               void uploadImage(file, timeSec);
             }}
+            selectedAudioId={selectedAudioId}
+            onSelectAudio={(id) => {
+              setSelectedAudioId(id);
+              if (id) setTab("music");
+            }}
+            onAudioChange={updateAudioClip}
+            onDropAudio={(file, timeSec) => {
+              setTab("music");
+              void uploadAndPlaceAudio(file, timeSec);
+            }}
           />
         </div>
 
@@ -526,7 +622,20 @@ export function LongformEditor({
                 seek={seek}
               />
             )}
-            {tab === "music" && <MusicPanel project={project} patch={patch} />}
+            {tab === "music" && (
+              <MusicPanel
+                project={project}
+                time={time}
+                selectedAudioId={selectedAudioId}
+                setSelectedAudioId={setSelectedAudioId}
+                patchMusic={patchMusic}
+                addAudioClip={addAudioClip}
+                updateAudioClip={updateAudioClip}
+                removeAudioClip={removeAudioClip}
+                duplicateAudioClip={duplicateAudioClip}
+                seek={seek}
+              />
+            )}
             {tab === "export" && <ExportPanel project={project} setProject={setProject} skipDirtyRef={skipDirtyRef} onDeleted={onDeleted} editedSec={editedSec} />}
           </div>
         </div>
@@ -1210,19 +1319,38 @@ function ImagesPanel({
 
 function MusicPanel({
   project,
-  patch
+  time,
+  selectedAudioId,
+  setSelectedAudioId,
+  patchMusic,
+  addAudioClip,
+  updateAudioClip,
+  removeAudioClip,
+  duplicateAudioClip,
+  seek
 }: {
   project: LongformProject;
-  patch: (partial: Partial<LongformProject>) => void;
+  time: number;
+  selectedAudioId: string | null;
+  setSelectedAudioId: (id: string | null) => void;
+  patchMusic: (partial: Partial<LongformProject["music"]>) => void;
+  addAudioClip: (track: MusicTrack, startSec: number) => void;
+  updateAudioClip: (id: string, partial: Partial<LongformAudioClip>) => void;
+  removeAudioClip: (id: string) => void;
+  duplicateAudioClip: (id: string) => void;
+  seek: (t: number) => void;
 }) {
   const [tracks, setTracks] = useState<MusicTrack[]>([]);
   const [uploading, setUploading] = useState(false);
   const [extracting, setExtracting] = useState(false);
   const [dragging, setDragging] = useState(false);
+  const [auditionId, setAuditionId] = useState<string | null>(null);
   const dragDepth = useRef(0);
   const fileRef = useRef<HTMLInputElement>(null);
+  const auditionRef = useRef<HTMLAudioElement | null>(null);
   const music = project.music;
-  const patchMusic = (partial: Partial<LongformProject["music"]>) => patch({ music: { ...music, ...partial } });
+  const clips = [...(music.clips ?? [])].sort((a, b) => a.start - b.start);
+  const trackName = (id: string) => tracks.find((t) => t.id === id)?.fileName;
 
   const refresh = useCallback(async () => {
     const response = await fetch("/api/longform/music", { cache: "no-store" });
@@ -1245,6 +1373,21 @@ function MusicPanel({
     };
   }, []);
 
+  // Stop the audition player when the panel unmounts.
+  useEffect(() => () => auditionRef.current?.pause(), []);
+
+  const toggleAudition = (track: MusicTrack) => {
+    const el = auditionRef.current;
+    if (!el) return;
+    if (auditionId === track.id) {
+      el.pause();
+      setAuditionId(null);
+      return;
+    }
+    el.src = `/api/longform/music/${track.id}`;
+    void el.play().then(() => setAuditionId(track.id)).catch(() => setAuditionId(null));
+  };
+
   const uploadTrack = async (file: File): Promise<MusicTrack | null> => {
     const isVideo = file.type.startsWith("video/");
     setUploading(true);
@@ -1261,7 +1404,7 @@ function MusicPanel({
         return null;
       }
       const how = isVideo ? "Extracted audio from" : "Added";
-      toast.success(`${how} “${data.track.fileName}” to your music library.`);
+      toast.success(`${how} “${data.track.fileName}” to your library.`);
       return data.track;
     } catch {
       toast.error("Upload failed. Is the dev server still running?");
@@ -1272,8 +1415,9 @@ function MusicPanel({
     }
   };
 
-  // Accept one or more dropped/picked files. Audio uploads as-is; a video has
-  // its audio extracted server-side. The last successful track is selected.
+  // Accept one or more dropped/picked files into the library. Audio uploads
+  // as-is; a video has its audio extracted server-side. The last successful
+  // track is placed on the timeline at the playhead so it's ready to move.
   const acceptFiles = async (list: FileList | null) => {
     const files = Array.from(list ?? []).filter(
       (file) => file.type.startsWith("audio/") || file.type.startsWith("video/")
@@ -1282,19 +1426,26 @@ function MusicPanel({
       if (list && list.length > 0) toast.error("Drop an audio or video file.");
       return;
     }
-    let lastId: string | null = null;
+    let last: MusicTrack | null = null;
     for (const file of files) {
       const track = await uploadTrack(file);
-      if (track) lastId = track.id;
+      if (track) last = track;
     }
-    if (lastId) patchMusic({ trackId: lastId, enabled: true });
+    if (last) addAudioClip(last, time);
     await refresh();
   };
 
   const removeTrack = async (track: MusicTrack) => {
     try {
+      if (auditionId === track.id) {
+        auditionRef.current?.pause();
+        setAuditionId(null);
+      }
       await fetch(`/api/longform/music/${track.id}`, { method: "DELETE" });
-      if (music.trackId === track.id) patchMusic({ trackId: undefined, enabled: false });
+      // Drop any placed clips that referenced the deleted track.
+      for (const clip of music.clips ?? []) {
+        if (clip.trackId === track.id) removeAudioClip(clip.id);
+      }
       await refresh();
     } catch {
       toast.error("Could not delete that song.");
@@ -1306,8 +1457,8 @@ function MusicPanel({
       <div>
         <h3 className="text-sm font-semibold text-white">Audio</h3>
         <p className="mt-1 text-xs text-[var(--muted-foreground)]">
-          Balance the mix that gets baked into the export — the whole track, your video&apos;s own sound and any
-          background music each get their own level.
+          Balance the mix that gets baked into the export, then drop songs onto the audio track at the bottom. Drag a clip
+          anywhere, drag its edges to change its length, duplicate it to repeat it, and give each clip its own volume dial.
         </p>
       </div>
 
@@ -1330,27 +1481,15 @@ function MusicPanel({
           onChange={(v) => patchMusic({ videoVolume: v })}
           format={(v) => `${Math.round(v * 100)}%`}
         />
-        {music.trackId ? (
-          <RangeField
-            label="Music volume"
-            value={music.volume}
-            min={0}
-            max={1}
-            step={0.01}
-            onChange={(v) => patchMusic({ volume: v })}
-            format={(v) => `${Math.round(v * 100)}%`}
-          />
-        ) : (
-          <p className="text-[10px] text-[var(--muted-foreground)]">
-            Add a song below to unlock the music level.
-          </p>
-        )}
         {!project.hasAudio && (
           <p className="text-[10px] text-amber-300/80">
             This upload has no audio of its own, so the video level has no effect.
           </p>
         )}
       </div>
+
+      {/* Hidden audition player for previewing library tracks. */}
+      <audio ref={auditionRef} hidden onEnded={() => setAuditionId(null)} />
 
       <input
         ref={fileRef}
@@ -1409,6 +1548,80 @@ function MusicPanel({
         </div>
       </div>
 
+      {/* Placed audio clips on the timeline. */}
+      <Field label="On the timeline" hint={`${clips.length} clip${clips.length === 1 ? "" : "s"}`}>
+        <div className="space-y-1.5">
+          {clips.length === 0 && (
+            <p className="rounded-lg border border-dashed border-[var(--border)] px-3 py-3 text-xs text-[var(--muted-foreground)]">
+              Nothing placed yet — add a song from your library below, or drop one onto the audio track.
+            </p>
+          )}
+          {clips.map((clip) => {
+            const selected = clip.id === selectedAudioId;
+            return (
+              <div
+                key={clip.id}
+                className={cn(
+                  "rounded-lg border transition",
+                  selected ? "border-emerald-400 bg-emerald-400/10" : "border-[var(--border)]"
+                )}
+              >
+                <div className="flex items-center gap-2 p-2">
+                  <Music4 className="h-4 w-4 shrink-0 text-emerald-300" />
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSelectedAudioId(selected ? null : clip.id);
+                      seek(clip.start + 0.01);
+                    }}
+                    className="min-w-0 flex-1 text-left"
+                  >
+                    <span className="block truncate text-sm text-white">{trackName(clip.trackId) ?? clip.fileName}</span>
+                    <span className="block text-xs text-[var(--muted-foreground)]">
+                      {formatClock(clip.start)} · {clip.duration.toFixed(1)}s · {Math.round(clip.volume * 100)}%
+                    </span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => duplicateAudioClip(clip.id)}
+                    className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-[var(--border)] text-[var(--muted-foreground)] transition hover:text-white"
+                    aria-label="Duplicate clip"
+                    title="Duplicate this clip"
+                  >
+                    <Copy className="h-3.5 w-3.5" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => removeAudioClip(clip.id)}
+                    className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-[var(--border)] text-[var(--muted-foreground)] transition hover:border-red-400/60 hover:text-red-400"
+                    aria-label="Remove clip"
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+                {selected && (
+                  <div className="border-t border-[var(--border)] p-3">
+                    <RangeField
+                      label="Volume"
+                      value={clip.volume}
+                      min={0}
+                      max={1}
+                      step={0.01}
+                      onChange={(v) => updateAudioClip(clip.id, { volume: v })}
+                      format={(v) => `${Math.round(v * 100)}%`}
+                    />
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      </Field>
+
+      {clips.length > 0 && (
+        <Toggle label="Mix audio into the export" checked={music.enabled} onChange={(v) => patchMusic({ enabled: v })} />
+      )}
+
       <Field label="Your library" hint={`${tracks.length} song${tracks.length === 1 ? "" : "s"}`}>
         <div className="space-y-1.5">
           {tracks.length === 0 && (
@@ -1417,26 +1630,32 @@ function MusicPanel({
             </p>
           )}
           {tracks.map((track) => {
-            const selected = music.trackId === track.id;
+            const auditioning = auditionId === track.id;
             return (
-              <div
-                key={track.id}
-                className={cn(
-                  "rounded-lg border px-2.5 py-2 transition",
-                  selected ? "border-[var(--accent)] bg-[var(--accent)]/10" : "border-[var(--border)]"
-                )}
-              >
+              <div key={track.id} className="rounded-lg border border-[var(--border)] px-2.5 py-2">
                 <div className="flex items-center gap-2">
                   <button
                     type="button"
-                    onClick={() => patchMusic({ trackId: selected ? undefined : track.id, enabled: !selected })}
-                    className="min-w-0 flex-1 text-left"
+                    onClick={() => toggleAudition(track)}
+                    className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-[var(--border)] text-[var(--muted-foreground)] transition hover:text-white"
+                    aria-label={auditioning ? "Stop preview" : "Preview song"}
                   >
+                    {auditioning ? <Pause className="h-3.5 w-3.5" /> : <Play className="h-3.5 w-3.5 translate-x-px" />}
+                  </button>
+                  <div className="min-w-0 flex-1">
                     <span className="block truncate text-sm text-white">{track.fileName}</span>
                     <span className="block text-xs text-[var(--muted-foreground)]">
                       {track.durationSec > 0 ? formatClock(track.durationSec) : "audio"} ·{" "}
-                      {(track.sizeBytes / 1_000_000).toFixed(1)} MB {selected ? "· in this video" : ""}
+                      {(track.sizeBytes / 1_000_000).toFixed(1)} MB
                     </span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => addAudioClip(track, time)}
+                    className="flex shrink-0 items-center gap-1 rounded-md border border-[var(--accent)]/60 bg-[var(--accent)]/10 px-2 py-1 text-xs font-medium text-white transition hover:bg-[var(--accent)]/20"
+                    title="Place this song on the timeline at the playhead"
+                  >
+                    <Plus className="h-3.5 w-3.5" /> Add
                   </button>
                   <button
                     type="button"
@@ -1447,29 +1666,11 @@ function MusicPanel({
                     <Trash2 className="h-3.5 w-3.5" />
                   </button>
                 </div>
-                {selected && (
-                  <audio controls preload="none" src={`/api/longform/music/${track.id}`} className="mt-2 h-8 w-full" />
-                )}
               </div>
             );
           })}
         </div>
       </Field>
-
-      {music.trackId && (
-        <>
-          <Toggle label="Mix music into the export" checked={music.enabled} onChange={(v) => patchMusic({ enabled: v })} />
-          <RangeField
-            label="Fade out"
-            value={music.fadeOut}
-            min={0}
-            max={10}
-            step={0.5}
-            onChange={(v) => patchMusic({ fadeOut: v })}
-            format={(v) => `${v.toFixed(1)}s`}
-          />
-        </>
-      )}
     </div>
   );
 }
@@ -1581,7 +1782,12 @@ function ExportPanel({
           Cuts <span className="float-right text-white">{project.segments.filter((s) => !s.enabled).length} removed</span>
         </p>
         <p>
-          Music <span className="float-right text-white">{project.music.enabled && project.music.trackId ? "on" : "off"}</span>
+          Audio{" "}
+          <span className="float-right text-white">
+            {project.music.enabled && (project.music.clips?.length ?? 0) > 0
+              ? `${project.music.clips.length} clip${project.music.clips.length === 1 ? "" : "s"}`
+              : "off"}
+          </span>
         </p>
       </div>
 

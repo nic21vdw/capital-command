@@ -6,7 +6,7 @@ import { animatedReframeChain } from "@/lib/clipping/render";
 import { readSourceMeta, sourceFilePath } from "@/lib/clipping/sources";
 import { getTrack, trackFilePath } from "@/lib/longform/music";
 import { overlayFilePath } from "@/lib/longform/overlays";
-import { editedDurationSec, exportRanges, sourceToOutputIntervals, type KeptRange } from "@/lib/longform/plan";
+import { editedDurationSec, exportRanges, sourceTimeToOutput, sourceToOutputIntervals, type KeptRange } from "@/lib/longform/plan";
 import { getProject, projectOutputDir, projectWorkDir, updateProject } from "@/lib/longform/store";
 import type { LongformExportRecord, LongformProject } from "@/lib/longform/types";
 import { finalizeTitle } from "@/lib/title/finalize";
@@ -17,7 +17,7 @@ import { finalizeTitle } from "@/lib/title/finalize";
 //   2. Body — one single-pass select render that keeps only the enabled
 //      segments, cutting every stretch of dead space in one ffmpeg run.
 //   3. Concat — hook + body joined losslessly (identical encode settings).
-//   4. Music — the chosen library track looped under the whole edit.
+//   4. Audio — every placed timeline audio clip mixed under the edit.
 // Export records persist on the project, so status survives a dev restart.
 
 const FRAME_W = 1920;
@@ -227,82 +227,126 @@ async function runExport(projectId: string, recordId: string) {
   const videoPath = await applyOverlays(project, mergedPath, workDir, recordId, hasAudio);
   await patchRecord(projectId, recordId, { progress: 94 });
 
-  // 4. Audio mix: apply the per-source volumes and, when chosen, loop the
-  // library track under the edit faded out at the end. The music, the video's
-  // own audio and the whole mix each get their own gain slider; video is
+  // 4. Audio mix: every placed timeline audio clip is mixed under the edit
+  // (each clip's source-timeline start mapped onto the edited runtime, its
+  // library track looping to fill the clip length), the video's own audio
+  // gets its own gain, and the whole mix gets a master gain. Video is
   // stream-copied so only the audio re-encodes.
   const fileName = `edited-${recordId}.mp4`;
   const finalPath = path.join(outDir, fileName);
+  const editedSec = Math.max(0.1, hookSec + bodySec);
   const videoVol = project.music.videoVolume ?? 1;
   const masterVol = project.music.masterVolume ?? 1;
   const videoVolChanged = Math.abs(videoVol - 1) > 0.001;
   const masterVolChanged = Math.abs(masterVol - 1) > 0.001;
-  const track = project.music.enabled && project.music.trackId ? await getTrack(project.music.trackId) : null;
-  if (track) {
-    const musicPath = trackFilePath(track);
-    const editedSec = Math.max(0.1, hookSec + bodySec);
-    const fade = Math.min(project.music.fadeOut, editedSec / 2);
-    const musicChain =
-      `[1:a]volume=${project.music.volume.toFixed(3)}` +
-      (fade > 0.01 ? `,afade=t=out:st=${Math.max(0, editedSec - fade).toFixed(2)}:d=${fade.toFixed(2)}` : "") +
-      `,atrim=0:${editedSec.toFixed(2)}[m]`;
-    // Mix the (gained) video audio with the music, then apply the master gain.
-    const stages = [musicChain];
-    if (hasAudio) {
-      stages.push(`[0:a]volume=${videoVol.toFixed(3)}[v0]`);
-      stages.push(`[v0][m]amix=inputs=2:duration=first:dropout_transition=0:normalize=0[mix]`);
+  const mixed = await mixAudioClips(project, videoPath, finalPath, editedSec, hasAudio, videoVol, masterVol);
+  if (!mixed) {
+    if (hasAudio && (videoVolChanged || masterVolChanged)) {
+      // No audio clips, but the video/master gain differs from unity —
+      // re-encode just the audio with the combined gain applied. Video is
+      // stream-copied.
+      await runFfmpeg([
+        "-y",
+        "-i",
+        videoPath,
+        "-filter_complex",
+        `[0:a]volume=${videoVol.toFixed(3)},volume=${masterVol.toFixed(3)}[aout]`,
+        "-map",
+        "0:v",
+        "-map",
+        "[aout]",
+        "-c:v",
+        "copy",
+        ...AUDIO_ENC,
+        "-movflags",
+        "+faststart",
+        finalPath
+      ]);
     } else {
-      stages.push(`[m]anull[mix]`);
+      // Nothing to mix: remux with +faststart so the file streams instantly.
+      await runFfmpeg(["-y", "-i", videoPath, "-c", "copy", "-movflags", "+faststart", finalPath]);
     }
-    stages.push(`[mix]volume=${masterVol.toFixed(3)}[aout]`);
-    await runFfmpeg([
-      "-y",
-      "-i",
-      videoPath,
-      "-stream_loop",
-      "-1",
-      "-i",
-      musicPath,
-      "-filter_complex",
-      stages.join(";"),
-      "-map",
-      "0:v",
-      "-map",
-      "[aout]",
-      "-c:v",
-      "copy",
-      ...AUDIO_ENC,
-      "-shortest",
-      "-movflags",
-      "+faststart",
-      finalPath
-    ]);
-  } else if (hasAudio && (videoVolChanged || masterVolChanged)) {
-    // No music, but the video/master gain differs from unity — re-encode just
-    // the audio with the combined gain applied. Video is stream-copied.
-    await runFfmpeg([
-      "-y",
-      "-i",
-      videoPath,
-      "-filter_complex",
-      `[0:a]volume=${videoVol.toFixed(3)},volume=${masterVol.toFixed(3)}[aout]`,
-      "-map",
-      "0:v",
-      "-map",
-      "[aout]",
-      "-c:v",
-      "copy",
-      ...AUDIO_ENC,
-      "-movflags",
-      "+faststart",
-      finalPath
-    ]);
-  } else {
-    // Nothing to mix: remux with +faststart so the file streams instantly.
-    await runFfmpeg(["-y", "-i", videoPath, "-c", "copy", "-movflags", "+faststart", finalPath]);
   }
 
   await patchRecord(projectId, recordId, { status: "done", progress: 100, file: fileName });
+}
+
+/**
+ * Mixes the project's placed audio clips under the edited video and writes the
+ * final file. Each clip's source-timeline start is mapped onto the edited
+ * runtime, its library track loops to fill the clip length, and everything is
+ * mixed with the original voice track (when present). Returns false when there
+ * is nothing to mix, so the caller can fall back to a plain remux.
+ */
+async function mixAudioClips(
+  project: LongformProject,
+  videoPath: string,
+  finalPath: string,
+  editedSec: number,
+  hasAudio: boolean,
+  videoVol: number,
+  masterVol: number
+): Promise<boolean> {
+  const clips = project.music.enabled ? project.music.clips ?? [] : [];
+  const resolved: Array<{ path: string; offsetSec: number; duration: number; volume: number }> = [];
+  for (const clip of clips) {
+    if (!clip.trackId) continue;
+    const track = await getTrack(clip.trackId);
+    if (!track) continue;
+    const trackPath = trackFilePath(track);
+    if (!(await fileExists(trackPath))) continue;
+    const outStart = sourceTimeToOutput(clip.start, project.segments, project.hook);
+    if (outStart === null || outStart >= editedSec - 0.05) continue;
+    const duration = Math.min(Math.max(0.1, clip.duration), editedSec - outStart);
+    resolved.push({
+      path: trackPath,
+      offsetSec: Math.max(0, outStart),
+      duration,
+      volume: Math.min(1, Math.max(0, clip.volume))
+    });
+  }
+  if (resolved.length === 0) return false;
+
+  const inputs = resolved.flatMap((clip) => ["-stream_loop", "-1", "-i", clip.path]);
+  const filters: string[] = [];
+  const labels: string[] = [];
+  resolved.forEach((clip, index) => {
+    const inputIndex = index + 1; // input 0 is the video
+    const offMs = Math.round(clip.offsetSec * 1000);
+    // A short tail fade keeps the loop's hard cut from clicking.
+    const fade = clip.duration > 0.3 ? `,afade=t=out:st=${(clip.duration - 0.1).toFixed(2)}:d=0.1` : "";
+    filters.push(
+      `[${inputIndex}:a]atrim=0:${clip.duration.toFixed(3)},asetpts=PTS-STARTPTS,volume=${clip.volume.toFixed(3)}${fade}` +
+        (offMs > 0 ? `,adelay=${offMs}|${offMs}` : "") +
+        `[c${index}]`
+    );
+    labels.push(`[c${index}]`);
+  });
+
+  const filter = hasAudio
+    ? `${filters.join(";")};[0:a]volume=${videoVol.toFixed(3)}[v0];[v0]${labels.join("")}amix=inputs=${resolved.length + 1}:duration=first:dropout_transition=0:normalize=0[mix];[mix]volume=${masterVol.toFixed(3)}[aout]`
+    : `${filters.join(";")};${labels.join("")}amix=inputs=${resolved.length}:duration=longest:dropout_transition=0:normalize=0,apad,atrim=0:${editedSec.toFixed(3)}[mix];[mix]volume=${masterVol.toFixed(3)}[aout]`;
+
+  await runFfmpeg([
+    "-y",
+    "-i",
+    videoPath,
+    ...inputs,
+    "-filter_complex",
+    filter,
+    "-map",
+    "0:v",
+    "-map",
+    "[aout]",
+    "-c:v",
+    "copy",
+    ...AUDIO_ENC,
+    ...(hasAudio ? ["-shortest"] : []),
+    "-movflags",
+    "+faststart",
+    finalPath
+  ]);
+  return true;
 }
 
 async function fileExists(p: string): Promise<boolean> {
