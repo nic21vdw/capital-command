@@ -178,6 +178,11 @@ export function EditorTimeline({
           <span className="ml-2 rounded-full bg-[var(--accent)]/15 px-2 py-0.5 text-xs font-medium text-[var(--accent)]">
             {selectedSec.toFixed(1)}s selected
           </span>
+          {(selectedCaptionId || selectedOverlayId) && (
+            <span className="ml-2 text-xs text-[var(--muted-foreground)]">
+              Press <kbd className="rounded border border-[var(--border)] px-1 font-mono text-[10px] text-white">Delete</kbd> to remove
+            </span>
+          )}
         </span>
         <div className="ml-auto flex items-center gap-1">
           <button
