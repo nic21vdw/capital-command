@@ -24,7 +24,14 @@ const FPS = 30;
 
 // Both parts encode with identical codec/size/fps/audio settings so the
 // concat demuxer can join them with a pure stream copy.
-const VIDEO_ENC = ["-c:v", "libx264", "-preset", "veryfast", "-crf", "20"];
+//
+// `superfast` (vs `veryfast`) roughly halves the encode time. In CRF mode the
+// preset trades encoder effort for file size at (near) constant visual quality
+// — so the exported clip looks the same, it just gets a little larger. That's a
+// good deal for the body pass, which re-encodes the whole kept timeline and
+// dominates export time. (The real cure for slow exports is not re-encoding the
+// body at all — see the module header — but this keeps cuts frame-accurate.)
+const VIDEO_ENC = ["-c:v", "libx264", "-preset", "superfast", "-crf", "20"];
 const AUDIO_ENC = ["-c:a", "aac", "-b:a", "160k", "-ar", "48000", "-ac", "2"];
 
 /** Escapes a filesystem path for use inside an ffmpeg filtergraph argument. */
