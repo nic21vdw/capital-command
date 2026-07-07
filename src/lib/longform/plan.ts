@@ -158,6 +158,41 @@ export function planHook(transcript: CaptionSegment[], durationSec: number): Lon
   };
 }
 
+/**
+ * Non-destructively applies a manual keep/cut across an arbitrary [start, end]
+ * span, splitting any segments that straddle the boundaries so exactly that
+ * span flips to `enabled`. This powers manual trimming: the editor can remove
+ * (or restore) any sub-range of the video, not just whole detected segments.
+ * Segment kinds are preserved and ids are re-sequenced so they stay unique.
+ */
+export function applyManualRange(
+  segments: LongformSegment[],
+  rangeStart: number,
+  rangeEnd: number,
+  enabled: boolean
+): LongformSegment[] {
+  const lo = Math.min(rangeStart, rangeEnd);
+  const hi = Math.max(rangeStart, rangeEnd);
+  if (hi - lo < MIN_SEGMENT_SEC) return segments;
+  const sorted = [...segments].sort((a, b) => a.start - b.start);
+  const out: LongformSegment[] = [];
+  const add = (seg: LongformSegment, start: number, end: number, en: boolean) => {
+    if (end - start < MIN_SEGMENT_SEC) return;
+    out.push({ ...seg, start: round3(start), end: round3(end), enabled: en });
+  };
+  for (const seg of sorted) {
+    if (seg.end <= lo || seg.start >= hi) {
+      out.push(seg);
+      continue;
+    }
+    // Left slice keeps its state, the overlapping middle flips, the right keeps.
+    add(seg, seg.start, Math.min(seg.end, lo), seg.enabled);
+    add(seg, Math.max(seg.start, lo), Math.min(seg.end, hi), enabled);
+    add(seg, Math.max(seg.start, hi), seg.end, seg.enabled);
+  }
+  return out.map((seg, index) => ({ ...seg, id: `seg-${index + 1}` }));
+}
+
 export type KeptRange = { start: number; end: number };
 
 /**
