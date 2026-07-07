@@ -39,6 +39,8 @@ export function LongformStudioPage() {
   const fileRef = useRef<HTMLInputElement>(null);
   const dragDepth = useRef(0);
   const [dragging, setDragging] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [draftName, setDraftName] = useState("");
 
   const refresh = useCallback(async () => {
     try {
@@ -140,6 +142,43 @@ export function LongformStudioPage() {
       uploadFile(file);
     },
     [uploadFile]
+  );
+
+  const startRename = useCallback((project: LongformProject) => {
+    setEditingId(project.id);
+    setDraftName(project.name);
+  }, []);
+
+  const cancelRename = useCallback(() => {
+    setEditingId(null);
+    setDraftName("");
+  }, []);
+
+  const commitRename = useCallback(
+    async (project: LongformProject) => {
+      const name = draftName.trim();
+      setEditingId(null);
+      setDraftName("");
+      if (!name || name === project.name) return;
+      // Optimistically show the new title while the save lands.
+      setProjects((prev) => prev.map((item) => (item.id === project.id ? { ...item, name } : item)));
+      try {
+        const response = await fetch(`/api/longform/projects/${project.id}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ name })
+        });
+        if (!response.ok) {
+          const data = (await response.json().catch(() => ({}))) as { error?: string };
+          toast.error(data.error ?? "Could not rename this project.");
+          await refresh();
+        }
+      } catch {
+        toast.error("Could not rename this project.");
+        await refresh();
+      }
+    },
+    [draftName, refresh]
   );
 
   const deleteProject = useCallback(
@@ -342,7 +381,34 @@ export function LongformStudioPage() {
                 <Card key={project.id} className="animate-in flex flex-col gap-3 p-4">
                   <div className="flex items-start justify-between gap-2">
                     <div className="min-w-0">
-                      <h3 className="truncate text-sm font-semibold text-white">{project.name}</h3>
+                      {editingId === project.id ? (
+                        <input
+                          autoFocus
+                          value={draftName}
+                          onChange={(event) => setDraftName(event.target.value)}
+                          onBlur={() => void commitRename(project)}
+                          onKeyDown={(event) => {
+                            if (event.key === "Enter") {
+                              event.preventDefault();
+                              void commitRename(project);
+                            } else if (event.key === "Escape") {
+                              event.preventDefault();
+                              cancelRename();
+                            }
+                          }}
+                          maxLength={200}
+                          className="w-full rounded border border-[var(--accent)] bg-transparent px-1 py-0.5 text-sm font-semibold text-white outline-none"
+                          aria-label="Video title"
+                        />
+                      ) : (
+                        <h3
+                          className="cursor-text truncate text-sm font-semibold text-white"
+                          onDoubleClick={() => startRename(project)}
+                          title="Double-click to rename"
+                        >
+                          {project.name}
+                        </h3>
+                      )}
                       <p className="mt-0.5 text-xs text-[var(--muted-foreground)]">
                         {formatClock(project.durationSec)}
                         {editedSec !== null && (
