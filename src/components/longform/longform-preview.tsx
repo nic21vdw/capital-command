@@ -3,7 +3,12 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Crosshair, Pause, Play } from "lucide-react";
 import type { LongformProject } from "@/lib/longform/types";
+import type { CaptionStyle } from "@/types/domain";
 import { cn } from "@/lib/utils";
+
+function clamp(value: number, min: number, max: number) {
+  return Math.min(max, Math.max(min, value));
+}
 
 // Live preview of the edited long-form video. The hook punch-in is emulated
 // with a CSS transform (the export bakes the identical crop via ffmpeg) and
@@ -18,7 +23,8 @@ export function LongformPreview({
   videoRef,
   onTogglePlay,
   focusEditing,
-  onFocusChange
+  onFocusChange,
+  onCaptionStyleChange
 }: {
   project: LongformProject;
   time: number;
@@ -30,9 +36,13 @@ export function LongformPreview({
   /** When true, clicking the frame moves the hook zoom focus point. */
   focusEditing: boolean;
   onFocusChange: (x: number, y: number) => void;
+  /** Persist drag-to-move / drag-to-scale edits to the hook caption. */
+  onCaptionStyleChange?: (partial: Partial<CaptionStyle>) => void;
 }) {
   const frameRef = useRef<HTMLDivElement>(null);
+  const captionRef = useRef<HTMLParagraphElement>(null);
   const [frameHeight, setFrameHeight] = useState(0);
+  const [captionSelected, setCaptionSelected] = useState(false);
 
   useEffect(() => {
     const el = frameRef.current;
@@ -54,14 +64,62 @@ export function LongformPreview({
 
   const style = hook.captionStyle;
   const fontSize = Math.max(10, style.fontScale * frameHeight);
+  const captionInteractive = Boolean(onCaptionStyleChange);
+  const captionCustomPos = style.offsetX !== undefined && style.offsetY !== undefined;
 
   const handleFrameClick = (event: React.MouseEvent<HTMLDivElement>) => {
+    setCaptionSelected(false);
     if (!focusEditing) return;
     const rect = event.currentTarget.getBoundingClientRect();
     onFocusChange(
       Math.min(1, Math.max(0, (event.clientX - rect.left) / rect.width)),
       Math.min(1, Math.max(0, (event.clientY - rect.top) / rect.height))
     );
+  };
+
+  // Drag the caption to reposition it (writes normalized offsetX/offsetY) or
+  // drag the corner handle to scale the font. On the first move of a
+  // preset-positioned caption we convert its measured center into offsets so
+  // the block keeps its exact spot and then follows the pointer. Mirrors the
+  // Shorts editor's CaptionLayer, and the export bakes the same offsets.
+  const beginCaptionDrag = (mode: "move" | "scale") => (event: React.PointerEvent) => {
+    if (!captionInteractive || event.button !== 0) return;
+    event.stopPropagation();
+    event.preventDefault();
+    setCaptionSelected(true);
+    const frameEl = frameRef.current;
+    const block = captionRef.current;
+    if (!frameEl || !block) return;
+    const frameRect = frameEl.getBoundingClientRect();
+    const blockRect = block.getBoundingClientRect();
+    const startX = captionCustomPos
+      ? (style.offsetX as number)
+      : (blockRect.left + blockRect.width / 2 - frameRect.left) / Math.max(1, frameRect.width);
+    const startY = captionCustomPos
+      ? (style.offsetY as number)
+      : (blockRect.top + blockRect.height / 2 - frameRect.top) / Math.max(1, frameRect.height);
+    const startScale = style.fontScale;
+    const sx = event.clientX;
+    const sy = event.clientY;
+    const onMove = (ev: PointerEvent) => {
+      const dx = ev.clientX - sx;
+      const dy = ev.clientY - sy;
+      if (mode === "move") {
+        onCaptionStyleChange?.({
+          offsetX: clamp(startX + dx / Math.max(1, frameRect.width), 0.02, 0.98),
+          offsetY: clamp(startY + dy / Math.max(1, frameRect.height), 0.02, 0.98)
+        });
+      } else {
+        const px = startScale * frameRect.height + (dx + dy) / 2;
+        onCaptionStyleChange?.({ fontScale: clamp(px / Math.max(1, frameRect.height), 0.04, 0.12) });
+      }
+    };
+    const onUp = () => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+    };
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
   };
 
   return (
@@ -104,19 +162,37 @@ export function LongformPreview({
 
       {activeCaption && (
         <div
-          className="pointer-events-none absolute inset-x-0 flex justify-center px-6"
+          className={cn(
+            "pointer-events-none absolute z-20 flex",
+            captionCustomPos ? "" : "inset-x-0 justify-center px-6"
+          )}
           style={
-            style.position === "top"
-              ? { top: "8%" }
-              : style.position === "middle"
-                ? { top: "50%", transform: "translateY(-50%)" }
-                : style.position === "lower-third"
-                  ? { bottom: "18%" }
-                  : { bottom: "6%" }
+            captionCustomPos
+              ? {
+                  left: `${(style.offsetX as number) * 100}%`,
+                  top: `${(style.offsetY as number) * 100}%`,
+                  transform: "translate(-50%, -50%)",
+                  maxWidth: "88%"
+                }
+              : style.position === "top"
+                ? { top: "8%" }
+                : style.position === "middle"
+                  ? { top: "50%", transform: "translateY(-50%)" }
+                  : style.position === "lower-third"
+                    ? { bottom: "18%" }
+                    : { bottom: "6%" }
           }
         >
           <p
-            className="text-center leading-tight"
+            ref={captionRef}
+            onPointerDown={beginCaptionDrag("move")}
+            onClick={(event) => event.stopPropagation()}
+            className={cn(
+              "relative text-center leading-tight",
+              captionInteractive && "pointer-events-auto cursor-move touch-none rounded-lg px-2 py-0.5",
+              captionInteractive && captionSelected && "outline outline-2 outline-[var(--accent)]",
+              captionInteractive && !captionSelected && "hover:outline hover:outline-1 hover:outline-white/50"
+            )}
             style={{
               fontFamily: style.fontFamily,
               fontWeight: style.fontWeight,
@@ -143,6 +219,12 @@ export function LongformPreview({
                   );
                 })
               : activeCaption.text}
+            {captionInteractive && captionSelected && (
+              <span
+                onPointerDown={beginCaptionDrag("scale")}
+                className="absolute -bottom-2 -right-2 h-4 w-4 cursor-nwse-resize touch-none rounded-full border-2 border-white bg-[var(--accent)]"
+              />
+            )}
           </p>
         </div>
       )}
