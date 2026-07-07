@@ -1,6 +1,6 @@
 "use client";
 
-import { CalendarClock, ExternalLink, GripVertical, Loader2 } from "lucide-react";
+import { CalendarClock, ExternalLink, GripVertical, Loader2, Scissors } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
@@ -34,7 +34,8 @@ export function ClipCard({
   highlighted = false,
   onDraftChange,
   onTitleCommit,
-  onSchedule
+  onSchedule,
+  onEditClip
 }: {
   clip: ReadyClip;
   draft: ClipDraft;
@@ -48,6 +49,8 @@ export function ClipCard({
   /** Persist the typed title (fires on blur/Enter, not on every keystroke). */
   onTitleCommit: () => void;
   onSchedule: () => void;
+  /** Open this clip in the Clip Editor to trim/caption before scheduling. */
+  onEditClip: () => void;
 }) {
   const openSlots = slots.filter((slot) => !slot.past && !isSlotTaken(draft.platform, slot.utc));
 
@@ -128,11 +131,12 @@ export function ClipCard({
               Schedule
             </Button>
           </div>
-          {scheduledItems.length === 0 ? (
-            <StatusChip status="draft" />
-          ) : (
-            <div className="space-y-1">
-              {scheduledItems.map((item) =>
+          <div className="flex items-start justify-between gap-2">
+            {scheduledItems.length === 0 ? (
+              <StatusChip status="draft" />
+            ) : (
+              <div className="min-w-0 flex-1 space-y-1">
+                {scheduledItems.map((item) =>
                 (Object.entries(item.platforms) as [PlatformId, NonNullable<QueueItem["platforms"][PlatformId]>][]).map(
                   ([platform, state]) => {
                     const url = remoteUrlFor(platform, state.postId);
@@ -156,9 +160,19 @@ export function ClipCard({
                     );
                   }
                 )
-              )}
-            </div>
-          )}
+                )}
+              </div>
+            )}
+            <Button
+              variant="secondary"
+              onClick={onEditClip}
+              className="h-8 shrink-0 px-2.5 text-xs"
+              title="Open this clip in the Clip Editor to trim, caption, and lay it out"
+            >
+              <Scissors className="mr-1.5 h-3.5 w-3.5" />
+              Edit clip
+            </Button>
+          </div>
         </div>
       </div>
     </div>

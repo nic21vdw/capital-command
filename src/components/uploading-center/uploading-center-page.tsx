@@ -19,6 +19,10 @@ import {
   Youtube,
 } from "lucide-react";
 import { toast } from "sonner";
+import { chunkWords, windowSegments } from "@/lib/clipping/captions";
+import { generateClipTitle, makeClipProject } from "@/lib/clipping/editor";
+import { writeDraftProject } from "@/components/editor/drafts";
+import { useAppData } from "@/components/providers/app-provider";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -86,6 +90,11 @@ export function UploadingCenterPage() {
     remove,
     refresh,
   } = useUploadingCenter();
+
+  // Clip Editor projects live in the shared app store; "Edit clip" reuses an
+  // existing project for a clip if one exists, and creates one otherwise.
+  const { data: appData, mutate } = useAppData();
+  const clipProjects = appData.clipProjects;
 
   useEffect(() => {
     void refresh();
@@ -218,6 +227,65 @@ export function UploadingCenterPage() {
     (clip: ReadyClip, override?: Partial<ClipDraft>) =>
       schedule(clip, { ...draftFor(clip), ...override }),
     [draftFor, schedule],
+  );
+
+  // "Edit clip" → open this clip in the Clip Editor (the mirror of the editor's
+  // "Schedule Short" that lands back here). Resume the clip's most recently
+  // edited project if it has one; otherwise build a fresh project from the
+  // clip's trim and captions, exactly as the Clip Generator does.
+  const editClip = useCallback(
+    (clip: ReadyClip) => {
+      if (!activeJob) return;
+      const index = activeJob.clips.findIndex(
+        (candidate) => candidate.id === clip.clipId,
+      );
+      const candidate = index >= 0 ? activeJob.clips[index] : null;
+      const sourceFile = candidate?.file;
+      if (!candidate || !sourceFile) return;
+      const existing = clipProjects
+        .filter((p) => p.jobId === activeJob.id && p.sourceFile === sourceFile)
+        .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))[0];
+      if (existing) {
+        const params = new URLSearchParams({
+          open: existing.id,
+          job: activeJob.id,
+          file: sourceFile,
+          clip: String(index),
+        });
+        router.push(`/editor?${params.toString()}`);
+        return;
+      }
+      const project = makeClipProject({
+        jobId: activeJob.id,
+        name: `${activeJob.fileName} - clip ${index + 1}`,
+        sourceFile,
+        posterFile: candidate.posterFile,
+        sourceUrl: activeJob.sourceUrl,
+        clipStart: candidate.start,
+        clipEnd: candidate.end,
+      });
+      const windowed = windowSegments(
+        activeJob.sourceCaptions ?? [],
+        candidate.start,
+        candidate.end,
+      );
+      const words = windowed.flatMap((segment) => segment.words);
+      project.captions = words.length
+        ? chunkWords(words, project.captionStyle.maxWordsPerCaption)
+        : windowed;
+      project.title = generateClipTitle(project.captions, `Clip ${index + 1}`);
+      if (project.title) project.name = project.title;
+      writeDraftProject(project);
+      const params = new URLSearchParams({
+        open: project.id,
+        job: activeJob.id,
+        file: sourceFile,
+        clip: String(index),
+      });
+      router.push(`/editor?${params.toString()}`);
+      void mutate("upsertClipProject", project);
+    },
+    [activeJob, clipProjects, mutate, router],
   );
   const handleDrop = useCallback(
     (platform: PlatformId, slotUtc: string, clipKey: string) => {
@@ -481,6 +549,7 @@ export function UploadingCenterPage() {
               busy={busy}
               highlightedKey={placingKey}
               onSchedule={(clip) => void handleSchedule(clip)}
+              onEditClip={editClip}
               onAutoAssign={handleAutoAssign}
             />
             <div className="min-w-0">
