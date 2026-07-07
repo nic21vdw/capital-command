@@ -2,6 +2,8 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
+import { windowSegments } from "@/lib/clipping/captions";
+import { leadingSilenceSec } from "@/lib/clipping/editor";
 import type { ClipCandidate, ClipJob } from "@/lib/clipping/types";
 import { placeChannelVideos, type ChannelPlacement } from "@/lib/publisher/channelPlacement";
 import type { ChannelSchedule, ChannelVideo } from "@/lib/publisher/channelVideos";
@@ -46,6 +48,8 @@ export type ReadyClip = {
   durationSec: number;
   thumbnailUrl: string;
   previewUrl: string;
+  /** Dead air the clip opens on, in seconds; previews seek past it. */
+  startSec: number;
 };
 
 export type ClipDraft = {
@@ -222,6 +226,13 @@ export function useUploadingCenter() {
       const file = clip.editedFile ?? clip.downloadFile ?? clip.file;
       if (!file) return [];
       const thumbSource = clip.file ?? file;
+      // The auto renders (downloadFile / master) share the clip's source
+      // timeline, so the clip-local transcript tells us how much dead air it
+      // opens on. An edited export has its own trim, so we never second-guess
+      // where the user set its start.
+      const startSec = clip.editedFile
+        ? 0
+        : leadingSilenceSec(windowSegments(activeJob.sourceCaptions ?? [], clip.start, clip.end));
       return [
         {
           key: `${activeJob.id}/${file}`,
@@ -234,7 +245,8 @@ export function useUploadingCenter() {
           thumbnailUrl: clip.posterFile
             ? `/api/clips/${activeJob.id}/files/${encodeURIComponent(clip.posterFile)}`
             : `/api/clips/${activeJob.id}/thumbnail/${encodeURIComponent(thumbSource)}`,
-          previewUrl: `/api/clips/${activeJob.id}/files/${encodeURIComponent(file)}`
+          previewUrl: `/api/clips/${activeJob.id}/files/${encodeURIComponent(file)}`,
+          startSec
         }
       ];
     });

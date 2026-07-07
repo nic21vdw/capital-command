@@ -6,6 +6,7 @@ import {
   generateClipHashtags,
   generateClipTitle,
   generateClipTitleCandidates,
+  leadingSilenceSec,
   makeClipProject
 } from "./editor";
 import { appDataSchema, clipProjectSchema, defaultCaptionStyle } from "@/lib/storage/schemas";
@@ -120,6 +121,44 @@ describe("generateClipDescription", () => {
 
   it("returns the same standing description with no captions", () => {
     expect(generateClipDescription([])).toBe(generateClipDescription([caption("c1", "hi")]));
+  });
+});
+
+describe("leadingSilenceSec", () => {
+  const seg = (start: number, end: number, words: Array<[string, number, number]>): CaptionSegment => ({
+    id: `s-${start}`,
+    start,
+    end,
+    text: words.map(([t]) => t).join(" "),
+    words: words.map(([text, ws, we]) => ({ text, start: ws, end: we })),
+    enabled: true
+  });
+
+  it("returns the clip-local start of the first spoken word, minus a small pre-roll", () => {
+    // First word lands 2s in — the clip opens on 2s of silence.
+    const captions = [seg(2, 3, [["hello", 2, 2.4], ["there", 2.5, 3]])];
+    expect(leadingSilenceSec(captions)).toBeCloseTo(2 - 0.12);
+  });
+
+  it("skips nothing when the clip opens right on speech", () => {
+    const captions = [seg(0.1, 1, [["go", 0.1, 0.5]])];
+    expect(leadingSilenceSec(captions)).toBe(0);
+  });
+
+  it("ignores segment order and keys off the earliest word", () => {
+    const captions = [seg(5, 6, [["later", 5, 5.5]]), seg(1.5, 2, [["first", 1.5, 2]])];
+    expect(leadingSilenceSec(captions)).toBeCloseTo(1.5 - 0.12);
+  });
+
+  it("returns 0 when there is no transcript", () => {
+    expect(leadingSilenceSec([])).toBe(0);
+  });
+
+  it("falls back to the segment start when a segment has no word timings", () => {
+    const captions: CaptionSegment[] = [
+      { id: "s1", start: 3, end: 4, text: "hi there", words: [], enabled: true }
+    ];
+    expect(leadingSilenceSec(captions)).toBeCloseTo(3 - 0.12);
   });
 });
 
