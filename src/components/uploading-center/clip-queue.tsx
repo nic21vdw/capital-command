@@ -29,6 +29,7 @@ export function ClipQueue({
   busy,
   highlightedKey,
   onSchedule,
+  onEditClip,
   onAutoAssign
 }: {
   jobs: ClipJob[];
@@ -45,6 +46,8 @@ export function ClipQueue({
   /** Clip currently being placed onto the board (arrived via Schedule Short). */
   highlightedKey?: string | null;
   onSchedule: (clip: ReadyClip) => void;
+  /** Open the given clip in the Clip Editor. */
+  onEditClip: (clip: ReadyClip) => void;
   onAutoAssign: () => void;
 }) {
   const autoAssigning = busy === "auto-assign";
@@ -106,6 +109,7 @@ export function ClipQueue({
               onDraftChange={(draft) => onDraftChange(clip, draft)}
               onTitleCommit={() => onTitleCommit(clip)}
               onSchedule={() => onSchedule(clip)}
+              onEditClip={() => onEditClip(clip)}
             />
           ))}
         </div>
