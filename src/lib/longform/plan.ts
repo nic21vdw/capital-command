@@ -230,6 +230,45 @@ export function exportRanges(
   return { hookRange, bodyRanges };
 }
 
+/**
+ * Maps a span of the source timeline onto the edited runtime. Because the
+ * export plays the hook verbatim then concatenates the kept body ranges, a
+ * single source span can land on several disjoint output intervals (or none,
+ * if it sits entirely inside cut footage). Used to time timeline overlays in
+ * the exported video exactly as they appear scrubbing the source.
+ */
+export function sourceToOutputIntervals(
+  sourceStart: number,
+  sourceEnd: number,
+  segments: LongformSegment[],
+  hook: LongformHook
+): KeptRange[] {
+  const { hookRange, bodyRanges } = exportRanges(segments, hook);
+  const pieces: Array<{ srcStart: number; srcEnd: number; outStart: number }> = [];
+  let outCursor = 0;
+  if (hookRange) {
+    pieces.push({ srcStart: hookRange.start, srcEnd: hookRange.end, outStart: outCursor });
+    outCursor += hookRange.end - hookRange.start;
+  }
+  for (const range of bodyRanges) {
+    pieces.push({ srcStart: range.start, srcEnd: range.end, outStart: outCursor });
+    outCursor += range.end - range.start;
+  }
+
+  const intervals: KeptRange[] = [];
+  for (const piece of pieces) {
+    const s = Math.max(sourceStart, piece.srcStart);
+    const e = Math.min(sourceEnd, piece.srcEnd);
+    if (e - s <= 0.001) continue;
+    const start = round3(piece.outStart + (s - piece.srcStart));
+    const end = round3(piece.outStart + (e - piece.srcStart));
+    const last = intervals[intervals.length - 1];
+    if (last && start - last.end < 0.01) last.end = Math.max(last.end, end);
+    else intervals.push({ start, end });
+  }
+  return intervals;
+}
+
 /** Total runtime of the edited video (hook + kept body). */
 export function editedDurationSec(segments: LongformSegment[], hook: LongformHook): number {
   const { hookRange, bodyRanges } = exportRanges(segments, hook);

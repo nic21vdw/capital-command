@@ -8,7 +8,8 @@ import {
   hookCaptions,
   keptRanges,
   planHook,
-  planHookEnd
+  planHookEnd,
+  sourceToOutputIntervals
 } from "@/lib/longform/plan";
 import type { LongformHook, LongformSegment } from "@/lib/longform/types";
 import type { CaptionSegment } from "@/types/domain";
@@ -252,5 +253,33 @@ describe("editedDurationSec", () => {
     expect(editedDurationSec(segments, hookWith({ enabled: true, end: 7 }))).toBeCloseTo(30, 3);
     // Without the hook it's just the kept segments: 10 + 20.
     expect(editedDurationSec(segments, hookWith({ enabled: false }))).toBeCloseTo(30, 3);
+  });
+});
+
+describe("sourceToOutputIntervals", () => {
+  const segments: LongformSegment[] = [
+    { id: "1", start: 0, end: 20, kind: "speech", enabled: true },
+    { id: "2", start: 20, end: 25, kind: "silence", enabled: false },
+    { id: "3", start: 25, end: 40, kind: "speech", enabled: true }
+  ];
+  const hook = hookWith({ enabled: true, end: 5 });
+
+  it("maps a span across the hook/body seam to one contiguous output interval", () => {
+    // Hook 0-5 plays verbatim then body starts at output 5, so 3-7 stays whole.
+    expect(sourceToOutputIntervals(3, 7, segments, hook)).toEqual([{ start: 3, end: 7 }]);
+  });
+
+  it("drops the part of a span that falls inside cut footage", () => {
+    // 22-27 straddles the cut 20-25; only 25-27 survives, landing at output 20-22.
+    expect(sourceToOutputIntervals(22, 27, segments, hook)).toEqual([{ start: 20, end: 22 }]);
+  });
+
+  it("returns nothing for a span entirely inside a cut", () => {
+    expect(sourceToOutputIntervals(21, 24, segments, hook)).toEqual([]);
+  });
+
+  it("shifts body-only spans back by the removed dead space", () => {
+    // 30-35 is well past the cut: body offset is 5 (hook) + kept 5-20 => output 20 at src 25.
+    expect(sourceToOutputIntervals(30, 35, segments, hook)).toEqual([{ start: 25, end: 30 }]);
   });
 });

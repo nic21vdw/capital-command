@@ -25,6 +25,19 @@ export const longformHookSchema = z.object({
   captionStyle: captionStyleSchema
 });
 
+export const longformOverlaySchema = z.object({
+  id: z.string(),
+  fileName: z.string(),
+  storedName: z.string(),
+  mime: z.string(),
+  start: z.coerce.number().min(0),
+  end: z.coerce.number().min(0),
+  x: z.coerce.number().min(0).max(1),
+  y: z.coerce.number().min(0).max(1),
+  width: z.coerce.number().min(0.02).max(1),
+  opacity: z.coerce.number().min(0).max(1)
+});
+
 export const longformMusicSchema = z.object({
   trackId: z.string().optional(),
   volume: z.coerce.number().min(0).max(1),
@@ -43,6 +56,7 @@ export const longformProjectPatchSchema = z
     name: z.string().trim().min(1).max(200),
     segments: z.array(longformSegmentSchema).max(5000),
     hook: longformHookSchema,
+    overlays: z.array(longformOverlaySchema).max(100),
     music: longformMusicSchema,
     pace: longformPaceSchema
   })

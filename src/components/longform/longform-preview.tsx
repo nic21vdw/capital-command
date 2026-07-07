@@ -24,7 +24,8 @@ export function LongformPreview({
   onTogglePlay,
   focusEditing,
   onFocusChange,
-  onCaptionStyleChange
+  onCaptionStyleChange,
+  imageUrl
 }: {
   project: LongformProject;
   time: number;
@@ -38,6 +39,8 @@ export function LongformPreview({
   onFocusChange: (x: number, y: number) => void;
   /** Persist drag-to-move / drag-to-scale edits to the hook caption. */
   onCaptionStyleChange?: (partial: Partial<CaptionStyle>) => void;
+  /** Resolves an overlay to a displayable image URL. */
+  imageUrl: (overlay: LongformProject["overlays"][number]) => string;
 }) {
   const frameRef = useRef<HTMLDivElement>(null);
   const captionRef = useRef<HTMLParagraphElement>(null);
@@ -66,6 +69,12 @@ export function LongformPreview({
   const fontSize = Math.max(10, style.fontScale * frameHeight);
   const captionInteractive = Boolean(onCaptionStyleChange);
   const captionCustomPos = style.offsetX !== undefined && style.offsetY !== undefined;
+
+  // Timeline images visible at the current source time.
+  const activeOverlays = useMemo(
+    () => project.overlays.filter((overlay) => time >= overlay.start && time < overlay.end),
+    [project.overlays, time]
+  );
 
   const handleFrameClick = (event: React.MouseEvent<HTMLDivElement>) => {
     setCaptionSelected(false);
@@ -147,6 +156,24 @@ export function LongformPreview({
           className="h-full w-full object-contain"
         />
       </div>
+
+      {/* Timeline image overlays */}
+      {activeOverlays.map((overlay) => (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          key={overlay.id}
+          src={imageUrl(overlay)}
+          alt=""
+          draggable={false}
+          className="pointer-events-none absolute -translate-x-1/2 -translate-y-1/2 select-none"
+          style={{
+            left: `${overlay.x * 100}%`,
+            top: `${overlay.y * 100}%`,
+            width: `${overlay.width * 100}%`,
+            opacity: overlay.opacity
+          }}
+        />
+      ))}
 
       {/* Hook badge + captions overlay */}
       {hookActive && (

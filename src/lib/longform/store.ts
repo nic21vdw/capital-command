@@ -45,6 +45,8 @@ async function loadProjects() {
       }
     }
     for (const project of JSON.parse(raw) as LongformProject[]) {
+      // Projects saved before timeline images existed have no overlays field.
+      project.overlays ??= [];
       // Anything mid-flight when the server stopped can't resume.
       if (project.status === "processing") {
         project.status = "error";
@@ -165,6 +167,7 @@ export async function createProject(sourceId: string, name?: string): Promise<Lo
     silences: [],
     segments: [],
     hook: planHook([], meta.durationSec || 0),
+    overlays: [],
     music: { volume: 0.12, fadeOut: 2, enabled: false },
     pace: { ...DEFAULT_PACE },
     exports: [],
