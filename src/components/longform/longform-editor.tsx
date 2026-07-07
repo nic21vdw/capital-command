@@ -272,6 +272,9 @@ export function LongformEditor({
             onTogglePlay={togglePlay}
             focusEditing={focusEditing && tab === "hook"}
             onFocusChange={(x, y) => patch({ hook: { ...project.hook, focusX: x, focusY: y } })}
+            onCaptionStyleChange={(partial) =>
+              patch({ hook: { ...project.hook, captionStyle: { ...project.hook.captionStyle, ...partial } } })
+            }
           />
 
           <div className="flex flex-wrap items-center gap-3 rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 py-2">
@@ -492,7 +495,7 @@ function HookPanel({
                   { value: "bottom", label: "Bottom" },
                   { value: "top", label: "Top" }
                 ]}
-                onChange={(v) => patchStyle({ position: v })}
+                onChange={(v) => patchStyle({ position: v, offsetX: undefined, offsetY: undefined })}
               />
               <SelectField<CaptionAnimation>
                 label="Animation"
