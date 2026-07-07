@@ -7,6 +7,12 @@ click to advance to the next slide when you're done talking.
 import os
 from pptx import Presentation
 from pptx.util import Inches
+from pptx.oxml.ns import qn
+
+# True  -> each video auto-plays the instant you land on its slide; you only
+#          click to advance to the next slide.
+# False -> click the video to start it (manual play).
+AUTOPLAY = True
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 OUT = os.path.join(HERE, "out")
@@ -47,10 +53,19 @@ for video, poster, note in SEGMENTS:
         poster_frame_image=ppath if os.path.exists(ppath) else None,
         mime_type="video/mp4",
     )
+    if AUTOPLAY:
+        # python-pptx sets the media trigger to delay="indefinite" (wait for a
+        # click). Flipping every timing condition to delay="0" makes the video
+        # start automatically when the slide appears.
+        timing = slide._element.find(qn("p:timing"))
+        if timing is not None:
+            for cond in timing.iter(qn("p:cond")):
+                cond.set("delay", "0")
     # Speaker note = your voice-over cue for that beat.
     slide.notes_slide.notes_text_frame.text = note
 
-dest = os.path.join(OUT, "Fable5-presentation-ocean.pptx")
+suffix = "-autoplay" if AUTOPLAY else ""
+dest = os.path.join(OUT, f"Fable5-presentation-ocean{suffix}.pptx")
 prs.save(dest)
 print("saved:", dest)
 print("slides:", len(prs.slides._sldIdLst))
