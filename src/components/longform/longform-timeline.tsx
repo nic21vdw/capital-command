@@ -14,6 +14,9 @@ const round3 = (value: number) => Math.round(value * 1000) / 1000;
 
 const MIN_ZOOM = 1;
 const MAX_ZOOM = 16;
+// Height of the main track / waveform in px. Big enough that the sound
+// decibels show up as a readable bar chart rather than a thin line.
+const TRACK_HEIGHT = 112;
 const TICK_STEPS = [1, 2, 5, 10, 15, 30, 60, 120, 300, 600, 1200];
 
 function pickTickStep(secondsPerPixel: number) {
@@ -78,7 +81,7 @@ export function LongformTimeline({
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas || contentWidth < 2) return;
-    const height = 56;
+    const height = TRACK_HEIGHT;
     const dpr = Math.min(2, window.devicePixelRatio || 1);
     canvas.width = Math.round(contentWidth * dpr);
     canvas.height = Math.round(height * dpr);
@@ -88,14 +91,14 @@ export function LongformTimeline({
     ctx.clearRect(0, 0, contentWidth, height);
     const accent = getComputedStyle(canvas).getPropertyValue("--accent").trim() || "#a855f7";
     ctx.fillStyle = accent;
-    ctx.globalAlpha = 0.55;
+    ctx.globalAlpha = 0.6;
     const mid = height / 2;
-    const bars = Math.max(1, Math.floor(contentWidth / 2));
+    const bars = Math.max(1, Math.floor(contentWidth / 3));
     for (let i = 0; i < bars; i++) {
       const peakIndex = Math.min(peaks.length - 1, Math.floor((i / bars) * peaks.length));
       const peak = peaks.length > 0 ? peaks[peakIndex] : 0;
-      const h = Math.max(1, peak * (height - 8));
-      ctx.fillRect(i * 2, mid - h / 2, 1.4, h);
+      const h = Math.max(1, peak * (height - 12));
+      ctx.fillRect(i * 3, mid - h / 2, 2, h);
     }
     ctx.globalAlpha = 1;
   }, [peaks, contentWidth]);
@@ -296,10 +299,11 @@ export function LongformTimeline({
             ref={trackRef}
             role="presentation"
             onPointerDown={beginScrub}
-            className="relative mt-2 h-14 cursor-crosshair overflow-hidden rounded-lg bg-[var(--surface-2)]"
+            className="relative mt-2 cursor-crosshair overflow-hidden rounded-lg bg-[var(--surface-2)]"
+            style={{ height: TRACK_HEIGHT }}
             data-no-press
           >
-            <canvas ref={canvasRef} className="absolute inset-0 h-full w-full" style={{ width: contentWidth, height: 56 }} />
+            <canvas ref={canvasRef} className="absolute inset-0 h-full w-full" style={{ width: contentWidth, height: TRACK_HEIGHT }} />
 
             {/* Segment blocks */}
             {project.segments.map((segment) => {
