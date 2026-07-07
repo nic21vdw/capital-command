@@ -47,6 +47,10 @@ async function loadProjects() {
     for (const project of JSON.parse(raw) as LongformProject[]) {
       // Projects saved before timeline images existed have no overlays field.
       project.overlays ??= [];
+      // Projects saved before the audio track existed have no clips array, and
+      // may carry a legacy single background track — migrate it into one clip
+      // spanning the whole edit so it keeps playing and stays editable.
+      migrateMusic(project);
       // Anything mid-flight when the server stopped can't resume.
       if (project.status === "processing") {
         project.status = "error";
@@ -92,6 +96,28 @@ async function persistProjects() {
   };
   persistQueue = persistQueue.then(write, write);
   await persistQueue;
+}
+
+/**
+ * Brings a project's `music` up to the current clip-based shape. Older saves
+ * had a single looped background track (`trackId` + `volume`); it becomes one
+ * full-length audio clip so the timeline audio track can edit it like any
+ * other placed clip.
+ */
+function migrateMusic(project: LongformProject) {
+  const music = (project.music ??= { enabled: false, clips: [] });
+  music.clips ??= [];
+  if (music.trackId && music.clips.length === 0) {
+    music.clips.push({
+      id: crypto.randomUUID().slice(0, 8),
+      trackId: music.trackId,
+      fileName: "Background music",
+      start: 0,
+      duration: Math.max(1, project.durationSec || 60),
+      volume: music.volume ?? 0.12
+    });
+  }
+  music.trackId = undefined;
 }
 
 export function projectWorkDir(projectId: string) {
@@ -168,7 +194,7 @@ export async function createProject(sourceId: string, name?: string): Promise<Lo
     segments: [],
     hook: planHook([], meta.durationSec || 0),
     overlays: [],
-    music: { volume: 0.12, fadeOut: 2, enabled: false },
+    music: { enabled: false, clips: [] },
     pace: { ...DEFAULT_PACE },
     exports: [],
     createdAt: now,

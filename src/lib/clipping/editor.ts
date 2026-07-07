@@ -104,7 +104,7 @@ function smartTitleCase(words: string[]): string {
  *  Never truncates mid-sentence: a title is either the complete thought or
  *  it is rejected, so clips never end up with a broken-off fragment. */
 function titleFromSentence(sentence: string, maxWords = 12, maxChars = 90): string {
-  let tokens = sentence
+  const tokens = sentence
     // Drop caption noise markers like [Music] or (laughs).
     .replace(/[\[(][^\])]*[\])]/g, " ")
     .replace(/[^\w\s'-]/g, " ")

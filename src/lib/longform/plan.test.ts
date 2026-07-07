@@ -9,6 +9,7 @@ import {
   keptRanges,
   planHook,
   planHookEnd,
+  sourceTimeToOutput,
   sourceToOutputIntervals
 } from "@/lib/longform/plan";
 import type { LongformHook, LongformSegment } from "@/lib/longform/types";
@@ -281,5 +282,38 @@ describe("sourceToOutputIntervals", () => {
   it("shifts body-only spans back by the removed dead space", () => {
     // 30-35 is well past the cut: body offset is 5 (hook) + kept 5-20 => output 20 at src 25.
     expect(sourceToOutputIntervals(30, 35, segments, hook)).toEqual([{ start: 25, end: 30 }]);
+  });
+});
+
+describe("sourceTimeToOutput", () => {
+  const segments: LongformSegment[] = [
+    { id: "1", start: 0, end: 20, kind: "speech", enabled: true },
+    { id: "2", start: 20, end: 25, kind: "silence", enabled: false },
+    { id: "3", start: 25, end: 40, kind: "speech", enabled: true }
+  ];
+  const hook = hookWith({ enabled: true, end: 5 });
+
+  it("maps a kept instant straight through", () => {
+    // Hook plays verbatim then the body continues, so 10s stays at output 10.
+    expect(sourceTimeToOutput(10, segments, hook)).toBe(10);
+  });
+
+  it("shifts a point after a cut back by the removed dead space", () => {
+    // src 30 sits 5s into the second speech block, which starts at output 20.
+    expect(sourceTimeToOutput(30, segments, hook)).toBe(25);
+  });
+
+  it("snaps a point inside a cut forward to the next kept footage", () => {
+    // 22 is inside the cut 20-25; the next kept footage begins at output 20.
+    expect(sourceTimeToOutput(22, segments, hook)).toBe(20);
+  });
+
+  it("clamps a point past the end to the edit's runtime", () => {
+    expect(sourceTimeToOutput(100, segments, hook)).toBe(editedDurationSec(segments, hook));
+  });
+
+  it("returns null when the whole edit is empty", () => {
+    const allCut = segments.map((seg) => ({ ...seg, enabled: false }));
+    expect(sourceTimeToOutput(10, allCut, hookWith({ enabled: false, end: 0 }))).toBeNull();
   });
 });

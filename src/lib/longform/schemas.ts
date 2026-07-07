@@ -38,11 +38,22 @@ export const longformOverlaySchema = z.object({
   opacity: z.coerce.number().min(0).max(1)
 });
 
+export const longformAudioClipSchema = z.object({
+  id: z.string(),
+  trackId: z.string(),
+  fileName: z.string(),
+  start: z.coerce.number().min(0),
+  duration: z.coerce.number().min(0.1),
+  volume: z.coerce.number().min(0).max(1)
+});
+
 export const longformMusicSchema = z.object({
+  enabled: z.coerce.boolean(),
+  clips: z.array(longformAudioClipSchema).max(200).default([]),
+  // Legacy fields kept optional so older saved projects still validate.
   trackId: z.string().optional(),
-  volume: z.coerce.number().min(0).max(1),
-  fadeOut: z.coerce.number().min(0).max(15),
-  enabled: z.coerce.boolean()
+  volume: z.coerce.number().min(0).max(1).optional(),
+  fadeOut: z.coerce.number().min(0).max(15).optional()
 });
 
 export const longformPaceSchema = z.object({

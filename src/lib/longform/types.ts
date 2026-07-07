@@ -67,14 +67,37 @@ export type LongformOverlay = {
   opacity: number;
 };
 
-export type LongformMusic = {
+/**
+ * One audio clip placed on the timeline's audio track. Like an image overlay,
+ * its timing lives in source-timeline seconds; the export maps that onto the
+ * edited runtime. The referenced library track loops to fill `duration`, so a
+ * short sound can be stretched to run under a whole section.
+ */
+export type LongformAudioClip = {
+  id: string;
   /** References a track in the shared music library. */
-  trackId?: string;
-  /** 0..1 mix level under the voice track. */
+  trackId: string;
+  /** Display name copied from the library track. */
+  fileName: string;
+  /** Seconds into the source timeline where the clip starts playing. */
+  start: number;
+  /** How many seconds of audio play; the track loops to fill this length. */
+  duration: number;
+  /** 0..1 mix level under the voice track — the single audio volume control. */
   volume: number;
-  /** Seconds of fade-out applied to the music at the end of the video. */
-  fadeOut: number;
+};
+
+export type LongformMusic = {
+  /** Master switch: mix the placed audio clips into the export. */
   enabled: boolean;
+  /** Audio clips placed on the timeline audio track. */
+  clips: LongformAudioClip[];
+  /** @deprecated Legacy single background track; migrated to a clip on load. */
+  trackId?: string;
+  /** @deprecated Legacy background volume; migrated onto the clip. */
+  volume?: number;
+  /** @deprecated Legacy background fade-out. */
+  fadeOut?: number;
 };
 
 /** Tunables for how aggressively dead space is cut. */

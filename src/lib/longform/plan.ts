@@ -269,6 +269,33 @@ export function sourceToOutputIntervals(
   return intervals;
 }
 
+/**
+ * Maps a single source-timeline instant onto the edited runtime. If the point
+ * lands inside kept footage it returns the exact output time; if it falls in a
+ * cut stretch it snaps forward to where the next kept footage begins. Returns
+ * `null` only when the whole edit is empty. Used to time placed audio clips.
+ */
+export function sourceTimeToOutput(
+  sourceT: number,
+  segments: LongformSegment[],
+  hook: LongformHook
+): number | null {
+  const { hookRange, bodyRanges } = exportRanges(segments, hook);
+  const pieces: KeptRange[] = [];
+  if (hookRange) pieces.push(hookRange);
+  for (const range of bodyRanges) pieces.push(range);
+  if (pieces.length === 0) return null;
+
+  let outCursor = 0;
+  for (const piece of pieces) {
+    const span = piece.end - piece.start;
+    if (sourceT < piece.start) return round3(outCursor); // inside a cut → next piece
+    if (sourceT <= piece.end) return round3(outCursor + (sourceT - piece.start));
+    outCursor += span;
+  }
+  return round3(outCursor); // past the end → clamp to the edit's end
+}
+
 /** Total runtime of the edited video (hook + kept body). */
 export function editedDurationSec(segments: LongformSegment[], hook: LongformHook): number {
   const { hookRange, bodyRanges } = exportRanges(segments, hook);
