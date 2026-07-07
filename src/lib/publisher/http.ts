@@ -41,10 +41,15 @@ function classifyStatus(status: number, message: string): TransientError | Perma
 
 async function readBody(response: Response): Promise<string> {
   try {
-    return (await response.text()).slice(0, 2000);
+    return await response.text();
   } catch {
     return "";
   }
+}
+
+/** Trims a body to a readable length for inclusion in an error message. */
+function forMessage(text: string): string {
+  return text.slice(0, 2000);
 }
 
 export type JsonRequest = {
@@ -60,7 +65,7 @@ export async function fetchJson<T = Record<string, unknown>>(url: string, reques
   const response = await doFetch(url, request);
   const text = await readBody(response);
   if (!response.ok) {
-    throw classifyStatus(response.status, `${request.label} failed (HTTP ${response.status}): ${text}`);
+    throw classifyStatus(response.status, `${request.label} failed (HTTP ${response.status}): ${forMessage(text)}`);
   }
   try {
     return (text ? JSON.parse(text) : {}) as T;
@@ -74,7 +79,7 @@ export async function fetchRaw(url: string, request: JsonRequest): Promise<Respo
   const response = await doFetch(url, request);
   if (!response.ok) {
     const text = await readBody(response);
-    throw classifyStatus(response.status, `${request.label} failed (HTTP ${response.status}): ${text}`);
+    throw classifyStatus(response.status, `${request.label} failed (HTTP ${response.status}): ${forMessage(text)}`);
   }
   return response;
 }
