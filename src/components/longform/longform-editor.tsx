@@ -338,6 +338,29 @@ export function LongformEditor({
     );
   }, []);
 
+  // Hit Delete/Backspace to remove what's selected on the timeline: an active
+  // trim selection is cut out of the video, otherwise the selected image
+  // overlay is removed. Ignored while typing in a field.
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Delete" && event.key !== "Backspace") return;
+      const target = event.target as HTMLElement | null;
+      if (target && (target.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName))) return;
+      if (selection && selection.end - selection.start >= 0.05) {
+        event.preventDefault();
+        applyRange(selection.start, selection.end, false);
+        toast.success(`Trimmed ${formatClock(selection.start)}–${formatClock(selection.end)} out of the video.`);
+        setSelection(null);
+      } else if (selectedOverlayId) {
+        event.preventDefault();
+        removeOverlay(selectedOverlayId);
+        toast.success("Image removed.");
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [selection, selectedOverlayId, applyRange, removeOverlay]);
+
   const inCut = useMemo(
     () => cutRangesOf(project).some((range) => time >= range.start && time < range.end),
     [project, time]
@@ -546,6 +569,7 @@ function HookPanel({
     patchHook({ captionStyle: { ...hook.captionStyle, ...partial } });
   const updateCaption = (id: string, partial: Partial<CaptionSegment>) =>
     patchHook({ captions: hook.captions.map((seg) => (seg.id === id ? { ...seg, ...partial } : seg)) });
+  const deleteCaption = (id: string) => patchHook({ captions: hook.captions.filter((seg) => seg.id !== id) });
 
   return (
     <div className="space-y-4">
@@ -685,6 +709,15 @@ function HookPanel({
                         rows={1}
                         className="min-h-9 w-full resize-y rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-2.5 py-1.5 text-sm text-white outline-none focus:border-[var(--accent)]"
                       />
+                      <button
+                        type="button"
+                        onClick={() => deleteCaption(seg.id)}
+                        className="mt-1 flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-[var(--border)] text-[var(--muted-foreground)] transition hover:border-red-400/60 hover:text-red-400"
+                        aria-label="Delete caption"
+                        title="Delete this hook caption"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </button>
                     </div>
                   ))}
                 </div>

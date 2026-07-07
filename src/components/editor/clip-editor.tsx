@@ -495,6 +495,29 @@ export function ClipEditor({
     }));
   }, []);
 
+  // Hit Delete/Backspace to remove whatever is selected on the timeline — a
+  // caption block or a text/image overlay. Ignored while typing in a field so
+  // it never eats a keystroke mid-edit.
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Delete" && event.key !== "Backspace") return;
+      const target = event.target as HTMLElement | null;
+      if (target && (target.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName))) return;
+      if (selectedCaptionId) {
+        event.preventDefault();
+        deleteCaption(selectedCaptionId);
+        setSelectedCaptionId(null);
+        toast.success("Caption deleted.");
+      } else if (selectedOverlayId) {
+        event.preventDefault();
+        deleteOverlay(selectedOverlayId);
+        toast.success("Overlay deleted.");
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [selectedCaptionId, selectedOverlayId, deleteCaption, deleteOverlay]);
+
   // --- Export ---
   const downloadSubtitles = useCallback((format: "srt" | "vtt") => {
     const text = format === "srt" ? serializeSrt(project.captions) : serializeVtt(project.captions);

@@ -238,8 +238,8 @@ export function LongformTimeline({
       <div className="mb-2 flex items-center justify-between gap-3">
         <p className="text-xs text-[var(--muted-foreground)]">
           {selection
-            ? "Drag the blue handles to fine-tune your selection, then use Remove or Keep in the Trim panel."
-            : "Click a red block to keep it, or kept footage to cut it. Drag the purple handle to resize the hook. Drop images here and drag them along the image track."}
+            ? "Drag the blue handles to fine-tune your selection, then press Delete (or use Remove/Keep in the Trim panel)."
+            : "Click a red block to keep it, or kept footage to cut it. Drag the purple handle to resize the hook. Drop images here and drag them along the image track — press Delete to remove a selected image."}
         </p>
         <div className="flex shrink-0 items-center gap-1">
           <span className="mr-1 text-xs text-[var(--muted-foreground)]">{cutCount} cuts</span>
