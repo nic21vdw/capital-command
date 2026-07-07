@@ -47,7 +47,7 @@ export const BulletReveal: React.FC<BulletRevealProps> = ({
         padding: "0 160px",
       }}
     >
-      <BrandDecor />
+      <BrandDecor accent={t.accent} />
       <div
         style={{
           opacity: headingIn,

@@ -12,13 +12,13 @@ import {
 // A full video is just an ordered list of segments. Edit this array (or pass
 // --props) to change the whole thing; each segment's `durationInFrames` sets
 // how long it holds so you can talk over it.
-const fable5Ocean = {
+const fable5Dracula = {
   segments: [
     {
       type: "title" as const,
       title: "Fable 5 is back",
       subtitle: "What Anthropic's relaunch means for coders",
-      theme: "ocean" as const,
+      theme: "dracula" as const,
       durationInFrames: 150,
     },
     {
@@ -30,7 +30,7 @@ const fable5Ocean = {
         "Jul 1 — controls lifted, worldwide GA",
       ],
       stagger: 60,
-      theme: "ocean" as const,
+      theme: "dracula" as const,
       durationInFrames: 540,
     },
     {
@@ -40,7 +40,7 @@ const fable5Ocean = {
       prefix: "",
       suffix: "%",
       decimals: 1,
-      theme: "ocean" as const,
+      theme: "dracula" as const,
       durationInFrames: 300,
     },
     {
@@ -52,7 +52,7 @@ const fable5Ocean = {
         "Access beats benchmarks if you can't log in",
       ],
       stagger: 60,
-      theme: "ocean" as const,
+      theme: "dracula" as const,
       durationInFrames: 540,
     },
     {
@@ -64,7 +64,7 @@ const fable5Ocean = {
         "After that: pay-per-token usage credits",
       ],
       stagger: 60,
-      theme: "ocean" as const,
+      theme: "dracula" as const,
       durationInFrames: 540,
     },
     {
@@ -74,7 +74,7 @@ const fable5Ocean = {
       prefix: "$",
       suffix: " / 1M",
       decimals: 0,
-      theme: "ocean" as const,
+      theme: "dracula" as const,
       durationInFrames: 300,
     },
   ],
@@ -99,7 +99,7 @@ export const RemotionRoot: React.FC = () => {
         defaultProps={{
           title: "How I automate my content",
           subtitle: "Built with CoLateral Command",
-          theme: "lime" as const,
+          theme: "dracula" as const,
           durationInFrames: 120,
         }}
       />
@@ -121,7 +121,7 @@ export const RemotionRoot: React.FC = () => {
             "Compounding beats intensity",
           ],
           stagger: 45,
-          theme: "violet" as const,
+          theme: "dracula" as const,
           durationInFrames: 240,
         }}
       />
@@ -141,7 +141,7 @@ export const RemotionRoot: React.FC = () => {
           prefix: "$",
           suffix: "",
           decimals: 0,
-          theme: "ocean" as const,
+          theme: "dracula" as const,
           durationInFrames: 90,
         }}
       />
@@ -155,7 +155,7 @@ export const RemotionRoot: React.FC = () => {
         calculateMetadata={({ props }) => ({
           durationInFrames: presentationDuration(props),
         })}
-        defaultProps={fable5Ocean}
+        defaultProps={fable5Dracula}
       />
     </>
   );

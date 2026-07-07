@@ -20,8 +20,15 @@ props before writing new ones.
    one `TitleCard` opener, 2–4 `BulletReveal` sections (one per topic), and a
    `StatCounter` for any number worth landing. Map each beat to a composition.
 
-2. **Pick a theme** matching the app accent: `lime`, `violet`, `ocean`,
-   `sunset`, `rose`, or `mono`. Keep one theme per video for consistency.
+2. **Theme — default to `dracula`.** This is Nic's signature look, matching
+   Capital Command's Dracula preset (bg #282a36, purple accent #bd93f9, pink
+   sparks). Use it for every video unless Nic asks otherwise. Other themes
+   (`lime`, `violet`, `ocean`, `sunset`, `rose`, `mono`) exist for one-offs.
+   Every segment already carries Nic's brand layer automatically: a dynamic
+   accent glow, pink Dracula sparks, and a "Nic Vandewetering" signature
+   bottom-right (`BrandDecor` in `src/brand.tsx`). For a Claude/Anthropic-topic
+   video you may switch the spark color to `CLAUDE_CORAL` — otherwise leave the
+   Dracula defaults.
 
 3. **Estimate duration.** Nic talks over these, so they need to be long enough.
    Rule of thumb at 30fps: ~2.5s per bullet + 2s intro. Set `durationInFrames`

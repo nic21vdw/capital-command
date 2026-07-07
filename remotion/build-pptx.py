@@ -65,7 +65,7 @@ for video, poster, note in SEGMENTS:
     slide.notes_slide.notes_text_frame.text = note
 
 suffix = "-autoplay" if AUTOPLAY else ""
-dest = os.path.join(OUT, f"Fable5-presentation-ocean{suffix}.pptx")
+dest = os.path.join(OUT, f"Fable5-presentation-dracula{suffix}.pptx")
 prs.save(dest)
 print("saved:", dest)
 print("slides:", len(prs.slides._sldIdLst))

@@ -58,7 +58,7 @@ export const StatCounter: React.FC<StatCounterProps> = ({
         alignItems: "center",
       }}
     >
-      <BrandDecor />
+      <BrandDecor accent={t.accent} />
       <div
         style={{
           fontSize: 220,
