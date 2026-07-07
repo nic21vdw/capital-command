@@ -220,10 +220,16 @@ async function runExport(projectId: string, recordId: string) {
   const videoPath = await applyOverlays(project, mergedPath, workDir, recordId, hasAudio);
   await patchRecord(projectId, recordId, { progress: 94 });
 
-  // 4. Background music: loop the library track under the edit, faded out at
-  // the end. Video is stream-copied — only the audio re-encodes.
+  // 4. Audio mix: apply the per-source volumes and, when chosen, loop the
+  // library track under the edit faded out at the end. The music, the video's
+  // own audio and the whole mix each get their own gain slider; video is
+  // stream-copied so only the audio re-encodes.
   const fileName = `edited-${recordId}.mp4`;
   const finalPath = path.join(outDir, fileName);
+  const videoVol = project.music.videoVolume ?? 1;
+  const masterVol = project.music.masterVolume ?? 1;
+  const videoVolChanged = Math.abs(videoVol - 1) > 0.001;
+  const masterVolChanged = Math.abs(masterVol - 1) > 0.001;
   const track = project.music.enabled && project.music.trackId ? await getTrack(project.music.trackId) : null;
   if (track) {
     const musicPath = trackFilePath(track);
@@ -233,9 +239,15 @@ async function runExport(projectId: string, recordId: string) {
       `[1:a]volume=${project.music.volume.toFixed(3)}` +
       (fade > 0.01 ? `,afade=t=out:st=${Math.max(0, editedSec - fade).toFixed(2)}:d=${fade.toFixed(2)}` : "") +
       `,atrim=0:${editedSec.toFixed(2)}[m]`;
-    const filter = hasAudio
-      ? `${musicChain};[0:a][m]amix=inputs=2:duration=first:dropout_transition=0:normalize=0[aout]`
-      : `${musicChain};[m]anull[aout]`;
+    // Mix the (gained) video audio with the music, then apply the master gain.
+    const stages = [musicChain];
+    if (hasAudio) {
+      stages.push(`[0:a]volume=${videoVol.toFixed(3)}[v0]`);
+      stages.push(`[v0][m]amix=inputs=2:duration=first:dropout_transition=0:normalize=0[mix]`);
+    } else {
+      stages.push(`[m]anull[mix]`);
+    }
+    stages.push(`[mix]volume=${masterVol.toFixed(3)}[aout]`);
     await runFfmpeg([
       "-y",
       "-i",
@@ -245,7 +257,7 @@ async function runExport(projectId: string, recordId: string) {
       "-i",
       musicPath,
       "-filter_complex",
-      filter,
+      stages.join(";"),
       "-map",
       "0:v",
       "-map",
@@ -258,8 +270,28 @@ async function runExport(projectId: string, recordId: string) {
       "+faststart",
       finalPath
     ]);
+  } else if (hasAudio && (videoVolChanged || masterVolChanged)) {
+    // No music, but the video/master gain differs from unity — re-encode just
+    // the audio with the combined gain applied. Video is stream-copied.
+    await runFfmpeg([
+      "-y",
+      "-i",
+      videoPath,
+      "-filter_complex",
+      `[0:a]volume=${videoVol.toFixed(3)},volume=${masterVol.toFixed(3)}[aout]`,
+      "-map",
+      "0:v",
+      "-map",
+      "[aout]",
+      "-c:v",
+      "copy",
+      ...AUDIO_ENC,
+      "-movflags",
+      "+faststart",
+      finalPath
+    ]);
   } else {
-    // No music: remux with +faststart so the file streams instantly.
+    // Nothing to mix: remux with +faststart so the file streams instantly.
     await runFfmpeg(["-y", "-i", videoPath, "-c", "copy", "-movflags", "+faststart", finalPath]);
   }
 

@@ -41,6 +41,8 @@ export const longformOverlaySchema = z.object({
 export const longformMusicSchema = z.object({
   trackId: z.string().optional(),
   volume: z.coerce.number().min(0).max(1),
+  videoVolume: z.coerce.number().min(0).max(2).default(1),
+  masterVolume: z.coerce.number().min(0).max(2).default(1),
   fadeOut: z.coerce.number().min(0).max(15),
   enabled: z.coerce.boolean()
 });

@@ -44,7 +44,7 @@ const TABS = [
   { id: "cuts", label: "Cuts", icon: Scissors },
   { id: "trim", label: "Trim", icon: Slice },
   { id: "images", label: "Images", icon: ImageIcon },
-  { id: "music", label: "Music", icon: Music4 },
+  { id: "music", label: "Audio", icon: Music4 },
   { id: "export", label: "Export", icon: Upload }
 ] as const;
 
@@ -125,6 +125,16 @@ export function LongformEditor({
   useEffect(() => {
     overlayUrlsRef.current = overlayUrls;
   }, [overlayUrls]);
+
+  // Live-preview the video/master gain on the source's own audio. The music
+  // and any boost above 100% only exist in the export, so the element volume
+  // is clamped to the previewable 0..1 range.
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video) return;
+    const gain = (project.music.videoVolume ?? 1) * (project.music.masterVolume ?? 1);
+    video.volume = Math.min(1, Math.max(0, gain));
+  }, [project.music.videoVolume, project.music.masterVolume]);
 
   // Waveform peaks for the timeline (cached server-side).
   useEffect(() => {
@@ -1294,10 +1304,52 @@ function MusicPanel({
   return (
     <div className="space-y-4">
       <div>
-        <h3 className="text-sm font-semibold text-white">Background music</h3>
+        <h3 className="text-sm font-semibold text-white">Audio</h3>
         <p className="mt-1 text-xs text-[var(--muted-foreground)]">
-          Upload songs once and reuse them across videos. The track loops under your voice and fades out at the end.
+          Balance the mix that gets baked into the export — the whole track, your video&apos;s own sound and any
+          background music each get their own level.
         </p>
+      </div>
+
+      <div className="space-y-3 rounded-lg border border-[var(--border)] p-3">
+        <RangeField
+          label="Master volume"
+          value={music.masterVolume ?? 1}
+          min={0}
+          max={2}
+          step={0.01}
+          onChange={(v) => patchMusic({ masterVolume: v })}
+          format={(v) => `${Math.round(v * 100)}%`}
+        />
+        <RangeField
+          label="Video volume"
+          value={music.videoVolume ?? 1}
+          min={0}
+          max={2}
+          step={0.01}
+          onChange={(v) => patchMusic({ videoVolume: v })}
+          format={(v) => `${Math.round(v * 100)}%`}
+        />
+        {music.trackId ? (
+          <RangeField
+            label="Music volume"
+            value={music.volume}
+            min={0}
+            max={1}
+            step={0.01}
+            onChange={(v) => patchMusic({ volume: v })}
+            format={(v) => `${Math.round(v * 100)}%`}
+          />
+        ) : (
+          <p className="text-[10px] text-[var(--muted-foreground)]">
+            Add a song below to unlock the music level.
+          </p>
+        )}
+        {!project.hasAudio && (
+          <p className="text-[10px] text-amber-300/80">
+            This upload has no audio of its own, so the video level has no effect.
+          </p>
+        )}
       </div>
 
       <input
@@ -1407,15 +1459,6 @@ function MusicPanel({
       {music.trackId && (
         <>
           <Toggle label="Mix music into the export" checked={music.enabled} onChange={(v) => patchMusic({ enabled: v })} />
-          <RangeField
-            label="Music volume"
-            value={music.volume}
-            min={0}
-            max={0.5}
-            step={0.01}
-            onChange={(v) => patchMusic({ volume: v })}
-            format={(v) => `${Math.round(v * 100)}%`}
-          />
           <RangeField
             label="Fade out"
             value={music.fadeOut}
