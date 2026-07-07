@@ -168,7 +168,7 @@ export async function createProject(sourceId: string, name?: string): Promise<Lo
     segments: [],
     hook: planHook([], meta.durationSec || 0),
     overlays: [],
-    music: { volume: 0.12, fadeOut: 2, enabled: false },
+    music: { volume: 0.12, videoVolume: 1, masterVolume: 1, fadeOut: 2, enabled: false },
     pace: { ...DEFAULT_PACE },
     exports: [],
     createdAt: now,

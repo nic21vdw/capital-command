@@ -70,8 +70,12 @@ export type LongformOverlay = {
 export type LongformMusic = {
   /** References a track in the shared music library. */
   trackId?: string;
-  /** 0..1 mix level under the voice track. */
+  /** 0..1 mix level of the background track under the voice. */
   volume: number;
+  /** Gain applied to the original video's own audio (1 = unchanged). */
+  videoVolume: number;
+  /** Master gain applied to the whole mixed audio (1 = unchanged). */
+  masterVolume: number;
   /** Seconds of fade-out applied to the music at the end of the video. */
   fadeOut: number;
   enabled: boolean;
