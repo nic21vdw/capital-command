@@ -46,6 +46,21 @@ props before writing new ones.
 5. **Report back** the list of rendered files and a one-line suggested
    voice-over cue for each, e.g. `out/01-intro.mp4 — "Today I want to show you…"`.
 
+## One continuous video vs separate clips
+
+Two ways to deliver:
+
+- **Separate clips** (render each composition on its own) — best when Nic will
+  drop them onto the editor timeline and position each under the right part of
+  his talk. Default for the record-then-edit pipeline.
+- **One stitched video** — the `Presentation` composition takes an ordered
+  `segments` array (each tagged `type: "title" | "bullets" | "stat"`) and plays
+  them back-to-back into a single MP4. Use for a "just hit play and talk over
+  it" screen recording. Make each segment's `durationInFrames` generous
+  (title ~150, bullets ~540, stat ~300 at 30fps) so a beat holds long enough to
+  narrate. Edit the `fable5Ocean` example in `Root.tsx` or pass `--props` with
+  your own `segments` array, then `render Presentation`.
+
 ## Composition prop shapes
 
 All three also take `durationInFrames` (seconds × 30) — always include it.
