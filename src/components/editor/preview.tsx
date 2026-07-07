@@ -103,7 +103,15 @@ function CaptionLayer({
   const time = useCaptionClock(video, fallbackTime);
   const blockRef = useRef<HTMLSpanElement>(null);
   if (!project.captionsVisible) return null;
-  const seg = project.captions.find((s) => s.enabled && time >= s.start && time < s.end);
+  // Pick the segment active at `time`. When two segments overlap (jittery
+  // word timing can produce this), prefer the one that started most recently so
+  // playback never gets stuck showing an old caption while new speech scrolls by
+  // with nothing on screen — always advance to the current line.
+  let seg: (typeof project.captions)[number] | undefined;
+  for (const s of project.captions) {
+    if (!s.enabled || time < s.start || time >= s.end) continue;
+    if (!seg || s.start > seg.start) seg = s;
+  }
   if (!seg) return null;
   const style = project.captionStyle;
   const fontSize = Math.max(8, style.fontScale * frameH);
