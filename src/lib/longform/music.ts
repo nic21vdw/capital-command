@@ -3,7 +3,7 @@ import { mkdir, readFile, rename, rm, stat, unlink, writeFile } from "node:fs/pr
 import path from "node:path";
 import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
-import { probeDuration } from "@/lib/clipping/ffmpeg";
+import { hasAudioStream, hasVideoStream, probeDuration, runFfmpeg } from "@/lib/clipping/ffmpeg";
 import type { MusicTrack } from "@/lib/longform/types";
 
 // The shared background-music library: songs uploaded once and reusable
@@ -67,26 +67,60 @@ export function trackFilePath(track: MusicTrack) {
   return path.join(trackDir(track.id), track.storedName);
 }
 
-/** Streams an uploaded song straight to disk and registers it in the library. */
+/**
+ * Streams an uploaded song straight to disk and registers it in the library.
+ * If the upload is actually a video (someone dropped an MP4/MOV), we strip the
+ * picture and keep just the audio as an MP3 — the video is never played.
+ */
 export async function saveTrackFromStream(
   body: ReadableStream<Uint8Array>,
   fileName: string,
   mime: string
 ): Promise<MusicTrack> {
   const id = crypto.randomUUID().slice(0, 12);
-  const storedName = `track${extFromName(fileName, mime)}`;
   const dir = trackDir(id);
   await mkdir(dir, { recursive: true });
-  const dest = path.join(dir, storedName);
-  await pipeline(Readable.fromWeb(body as import("node:stream/web").ReadableStream<Uint8Array>), createWriteStream(dest));
 
-  const { size } = await stat(dest);
-  const durationSec = await probeDuration(dest).catch(() => 0);
+  // Land the raw upload first, keeping its original extension so ffmpeg can
+  // read whatever container arrived (mp4/mov/mkv audio, or a plain song).
+  const uploadExt = path.extname(fileName).toLowerCase() || extFromName(fileName, mime);
+  const uploadPath = path.join(dir, `upload${uploadExt}`);
+  await pipeline(
+    Readable.fromWeb(body as import("node:stream/web").ReadableStream<Uint8Array>),
+    createWriteStream(uploadPath)
+  );
+
+  let sourcePath: string;
+  let storedName: string;
+  let outName = fileName;
+  let outMime = mime || "audio/mpeg";
+
+  if (await hasVideoStream(uploadPath)) {
+    if (!(await hasAudioStream(uploadPath))) {
+      await rm(dir, { recursive: true, force: true });
+      throw new Error("That video has no audio to extract.");
+    }
+    // Drop the video stream and re-encode the audio to MP3.
+    storedName = "track.mp3";
+    sourcePath = path.join(dir, storedName);
+    await runFfmpeg(["-hide_banner", "-y", "-i", uploadPath, "-vn", "-c:a", "libmp3lame", "-q:a", "2", sourcePath]);
+    await rm(uploadPath, { force: true });
+    outMime = "audio/mpeg";
+    outName = `${fileName.replace(/\.[^./\\]+$/, "")}.mp3`;
+  } else {
+    // Plain audio — normalize the stored name to the library convention.
+    storedName = `track${extFromName(fileName, mime)}`;
+    sourcePath = path.join(dir, storedName);
+    if (sourcePath !== uploadPath) await rename(uploadPath, sourcePath);
+  }
+
+  const { size } = await stat(sourcePath);
+  const durationSec = await probeDuration(sourcePath).catch(() => 0);
   const track: MusicTrack = {
     id,
-    fileName,
+    fileName: outName,
     storedName,
-    mime: mime || "audio/mpeg",
+    mime: outMime,
     sizeBytes: size,
     durationSec,
     createdAt: new Date().toISOString()

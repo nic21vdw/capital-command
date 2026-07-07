@@ -6,7 +6,6 @@ import {
   ArrowLeft,
   Crosshair,
   Download,
-  ListMusic,
   Loader2,
   Music4,
   Pause,
@@ -16,6 +15,7 @@ import {
   Slice,
   Trash2,
   Upload,
+  UploadCloud,
   Volume2,
   VolumeX,
   Zap
@@ -907,6 +907,9 @@ function MusicPanel({
 }) {
   const [tracks, setTracks] = useState<MusicTrack[]>([]);
   const [uploading, setUploading] = useState(false);
+  const [extracting, setExtracting] = useState(false);
+  const [dragging, setDragging] = useState(false);
+  const dragDepth = useRef(0);
   const fileRef = useRef<HTMLInputElement>(null);
   const music = project.music;
   const patchMusic = (partial: Partial<LongformProject["music"]>) => patch({ music: { ...music, ...partial } });
@@ -932,8 +935,10 @@ function MusicPanel({
     };
   }, []);
 
-  const uploadTrack = async (file: File) => {
+  const uploadTrack = async (file: File): Promise<MusicTrack | null> => {
+    const isVideo = file.type.startsWith("video/");
     setUploading(true);
+    setExtracting(isVideo);
     try {
       const response = await fetch(`/api/longform/music?name=${encodeURIComponent(file.name)}`, {
         method: "POST",
@@ -943,16 +948,37 @@ function MusicPanel({
       const data = (await response.json()) as { track?: MusicTrack; error?: string };
       if (!response.ok || !data.track) {
         toast.error(data.error ?? "Upload failed.");
-        return;
+        return null;
       }
-      toast.success(`Added “${data.track.fileName}” to your music library.`);
-      patchMusic({ trackId: data.track.id, enabled: true });
-      await refresh();
+      const how = isVideo ? "Extracted audio from" : "Added";
+      toast.success(`${how} “${data.track.fileName}” to your music library.`);
+      return data.track;
     } catch {
       toast.error("Upload failed. Is the dev server still running?");
+      return null;
     } finally {
       setUploading(false);
+      setExtracting(false);
     }
+  };
+
+  // Accept one or more dropped/picked files. Audio uploads as-is; a video has
+  // its audio extracted server-side. The last successful track is selected.
+  const acceptFiles = async (list: FileList | null) => {
+    const files = Array.from(list ?? []).filter(
+      (file) => file.type.startsWith("audio/") || file.type.startsWith("video/")
+    );
+    if (files.length === 0) {
+      if (list && list.length > 0) toast.error("Drop an audio or video file.");
+      return;
+    }
+    let lastId: string | null = null;
+    for (const file of files) {
+      const track = await uploadTrack(file);
+      if (track) lastId = track.id;
+    }
+    if (lastId) patchMusic({ trackId: lastId, enabled: true });
+    await refresh();
   };
 
   const removeTrack = async (track: MusicTrack) => {
@@ -977,18 +1003,59 @@ function MusicPanel({
       <input
         ref={fileRef}
         type="file"
-        accept="audio/*"
+        accept="audio/*,video/*"
+        multiple
         className="hidden"
         onChange={(event) => {
-          const file = event.target.files?.[0];
-          if (file) void uploadTrack(file);
+          void acceptFiles(event.target.files);
           event.target.value = "";
         }}
       />
-      <Button variant="secondary" className="w-full gap-2" disabled={uploading} onClick={() => fileRef.current?.click()}>
-        {uploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <ListMusic className="h-4 w-4" />}
-        {uploading ? "Uploading…" : "Upload a song"}
-      </Button>
+      <div
+        role="button"
+        tabIndex={0}
+        onClick={() => !uploading && fileRef.current?.click()}
+        onKeyDown={(event) => {
+          if ((event.key === "Enter" || event.key === " ") && !uploading) fileRef.current?.click();
+        }}
+        onDragEnter={(event) => {
+          event.preventDefault();
+          dragDepth.current += 1;
+          setDragging(true);
+        }}
+        onDragOver={(event) => event.preventDefault()}
+        onDragLeave={() => {
+          dragDepth.current = Math.max(0, dragDepth.current - 1);
+          if (dragDepth.current === 0) setDragging(false);
+        }}
+        onDrop={(event) => {
+          event.preventDefault();
+          dragDepth.current = 0;
+          setDragging(false);
+          if (!uploading) void acceptFiles(event.dataTransfer.files);
+        }}
+        className={cn(
+          "flex cursor-pointer flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed px-4 py-6 text-center transition",
+          dragging
+            ? "border-[var(--accent)] bg-[var(--accent)]/10"
+            : "border-[var(--border)] hover:border-[var(--border-strong)]",
+          uploading && "pointer-events-none opacity-70"
+        )}
+      >
+        {uploading ? (
+          <Loader2 className="h-6 w-6 animate-spin text-[var(--accent)]" />
+        ) : (
+          <UploadCloud className="h-6 w-6 text-[var(--accent)]" />
+        )}
+        <div>
+          <p className="text-sm font-medium text-white">
+            {extracting ? "Extracting audio…" : uploading ? "Uploading…" : "Drop a song here or click to browse"}
+          </p>
+          <p className="mt-0.5 text-xs text-[var(--muted-foreground)]">
+            MP3, WAV, or a video — we keep just the audio
+          </p>
+        </div>
+      </div>
 
       <Field label="Your library" hint={`${tracks.length} song${tracks.length === 1 ? "" : "s"}`}>
         <div className="space-y-1.5">

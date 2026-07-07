@@ -109,6 +109,14 @@ export async function hasAudioStream(inputPath: string): Promise<boolean> {
   return /Stream #\d+:\d+.*Audio/.test(stderr);
 }
 
+/** Whether the file carries a video/picture stream (i.e. it's a video, not audio-only). */
+export async function hasVideoStream(inputPath: string): Promise<boolean> {
+  const { stderr } = await runFfmpeg(["-hide_banner", "-i", inputPath], { allowFailure: true });
+  // Cover art in audio files shows up as an attached_pic video stream — ignore
+  // those so an MP3 with embedded artwork isn't mistaken for a real video.
+  return /Stream #\d+:\d+[^\n]*: Video:/.test(stderr) && !/attached pic/i.test(stderr);
+}
+
 export type VideoStreamInfo = {
   /** Display dimensions — rotation metadata already applied. */
   width: number;
