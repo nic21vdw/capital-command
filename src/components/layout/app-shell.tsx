@@ -7,6 +7,7 @@ import {
   ChevronLeft,
   ChevronRight,
   Clapperboard,
+  Ruler,
   Settings,
   UploadCloud,
   Wand2,
@@ -31,6 +32,10 @@ const navGroups: NavGroup[] = [
       // its card in the Clip Generator, which deep-links into /editor.
       { href: "/uploading-center", label: "Uploading Center", icon: UploadCloud }
     ]
+  },
+  {
+    label: "Engineering",
+    items: [{ href: "/slab", label: "Slab Designer", icon: Ruler }]
   }
 ];
 
