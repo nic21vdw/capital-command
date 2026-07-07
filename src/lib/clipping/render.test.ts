@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { CLIP_LAYOUTS } from "./layouts";
-import { reframeChain, renderCaptionedVertical, stackedLayoutChain } from "./render";
+import { animatedReframeChain, reframeChain, renderCaptionedVertical, stackedLayoutChain } from "./render";
 
 const runFfmpeg = vi.fn((..._args: unknown[]): Promise<void> => Promise.resolve());
 vi.mock("./ffmpeg", () => ({ runFfmpeg: (...args: unknown[]) => runFfmpeg(...args) }));
@@ -15,6 +15,29 @@ describe("reframeChain", () => {
     expect(chain).toContain("0.4000*(iw-1080)/2");
     expect(chain).toContain("-0.2500*(ih-1920)/2");
     expect(chain).not.toContain("force_original_aspect_ratio=decrease");
+  });
+
+  it("ramps the punch-in zoom from 1x with a time-based ease-out instead of a static crop", () => {
+    const chain = animatedReframeChain("0:v", "vout", 1920, 1080, 1.3, 0.0, -0.3, 0.5);
+
+    // The crop window is driven per-frame by t (seconds), not a constant scale.
+    expect(chain).toContain("t/0.500");
+    // Ease-out cubic ramp toward the (1.3 - 1) = 0.3 delta above 1x.
+    expect(chain).toContain("(1+0.3000*(1-pow(1-min(1,t/0.500),3)))");
+    // Zoom shrinks the crop window (iw/z) then scales it back up to fill.
+    expect(chain).toContain("crop=w='iw/(1+0.3000");
+    expect(chain).toContain("scale=1920:1080[__fgs]");
+    // Vertical focus offset is carried into the crop position.
+    expect(chain).toContain("*(1+-0.3000)");
+    // No constant zoom crop like the static reframeChain uses.
+    expect(chain).not.toContain("scale=iw*1.3");
+  });
+
+  it("falls back to a plain cover crop when no zoom is requested", () => {
+    const animated = animatedReframeChain("0:v", "vout", 1920, 1080, 1, 0, 0, 0.5);
+    const plain = reframeChain("0:v", "vout", 1920, 1080, 1, 0, 0);
+    expect(animated).toBe(plain);
+    expect(animated).not.toContain("pow(");
   });
 
   it("keeps the whole screen visible in the stacked layouts (contain) while faces fill their slot (cover)", () => {
