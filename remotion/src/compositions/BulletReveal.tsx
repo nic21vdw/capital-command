@@ -8,6 +8,7 @@ import {
 } from "remotion";
 import { z } from "zod";
 import { FONT_STACK, THEMES, themeSchema } from "../theme";
+import { BrandDecor } from "../brand";
 
 export const bulletRevealSchema = z.object({
   heading: z.string(),
@@ -46,6 +47,7 @@ export const BulletReveal: React.FC<BulletRevealProps> = ({
         padding: "0 160px",
       }}
     >
+      <BrandDecor />
       <div
         style={{
           opacity: headingIn,

@@ -8,6 +8,7 @@ import {
 } from "remotion";
 import { z } from "zod";
 import { FONT_STACK, THEMES, themeSchema } from "../theme";
+import { BrandDecor } from "../brand";
 
 export const statCounterSchema = z.object({
   label: z.string(),
@@ -57,6 +58,7 @@ export const StatCounter: React.FC<StatCounterProps> = ({
         alignItems: "center",
       }}
     >
+      <BrandDecor />
       <div
         style={{
           fontSize: 220,

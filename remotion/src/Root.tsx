@@ -57,11 +57,11 @@ const fable5Ocean = {
     },
     {
       type: "bullets" as const,
-      heading: "The catch for coders (Jul 7)",
+      heading: "The catch for coders (now Jul 12)",
       bullets: [
-        "Weekly limits were reset — twice",
-        "But Fable 5 now leaves subscription limits",
-        "Heavy coding = pay-per-token usage credits",
+        "Included window extended: Jul 7 → Jul 12",
+        "Pro/Max: up to 50% of weekly limits",
+        "After that: pay-per-token usage credits",
       ],
       stagger: 60,
       theme: "ocean" as const,

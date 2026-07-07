@@ -8,6 +8,7 @@ import {
 } from "remotion";
 import { z } from "zod";
 import { FONT_STACK, THEMES, themeSchema } from "../theme";
+import { BrandDecor, ClaudeSpark, CLAUDE_CORAL } from "../brand";
 
 export const titleCardSchema = z.object({
   title: z.string(),
@@ -47,15 +48,25 @@ export const TitleCard: React.FC<TitleCardProps> = ({ title, subtitle, theme }) 
         paddingRight: 160,
       }}
     >
+      <BrandDecor />
       <div
         style={{
-          height: 10,
-          width: barWidth,
-          borderRadius: 8,
-          backgroundColor: t.accent,
+          display: "flex",
+          alignItems: "center",
+          gap: 20,
           marginBottom: 48,
         }}
-      />
+      >
+        <div
+          style={{
+            height: 10,
+            width: barWidth,
+            borderRadius: 8,
+            backgroundColor: t.accent,
+          }}
+        />
+        <ClaudeSpark size={38} color={CLAUDE_CORAL} opacity={titleRise} />
+      </div>
       <div
         style={{
           transform: `translateY(${titleY}px)`,
