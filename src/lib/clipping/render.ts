@@ -80,6 +80,57 @@ export function reframeChain(
 }
 
 /**
+ * Like {@link reframeChain}, but the punch-in *animates* from no zoom (1x) up to
+ * `targetScale` over the first `rampSec` seconds instead of starting already
+ * fully zoomed. The ramp uses an ease-out cubic curve — fast then settling —
+ * so the opening of the clip glides into the zoom the way the editor preview's
+ * CSS transition does, rather than snapping at the very first frame.
+ *
+ * The zoom is driven by ffmpeg's per-frame `t` (seconds from the clip start),
+ * so the whole thing bakes in a single pass. Once `t >= rampSec` the crop holds
+ * steady at `targetScale` for the rest of the clip.
+ */
+export function animatedReframeChain(
+  inLabel: string,
+  outLabel: string,
+  w: number,
+  h: number,
+  targetScale = 1,
+  offsetX = 0,
+  offsetY = 0,
+  rampSec = 0.5
+): string {
+  const target = Math.max(1, targetScale);
+  const sx = Math.max(-1, Math.min(1, offsetX));
+  const sy = Math.max(-1, Math.min(1, offsetY));
+  const ramp = Math.max(0.05, rampSec);
+
+  // No zoom requested: nothing to animate, fall back to the plain cover crop.
+  if (target <= 1.001) {
+    return reframeChain(inLabel, outLabel, w, h, 1, offsetX, offsetY);
+  }
+
+  // z(t): 1 -> target over `ramp` seconds on an ease-out cubic (1-(1-p)^3),
+  // then held. Commas inside function calls are safe because each crop option
+  // value is single-quoted below. `iw`/`ih` here are the WxH cover frame.
+  const progress = `min(1,t/${ramp.toFixed(3)})`;
+  const z = `(1+${(target - 1).toFixed(4)}*(1-pow(1-${progress},3)))`;
+  // Crop a 1/z-sized window (shrinking as z grows = zooming in) around the
+  // focus point, then scale it back up to fill the frame.
+  const cropW = `iw/${z}`;
+  const cropH = `ih/${z}`;
+  const cropX = `(iw-ow)/2*(1+${sx.toFixed(4)})`;
+  const cropY = `(ih-oh)/2*(1+${sy.toFixed(4)})`;
+  return (
+    `[${inLabel}]split=2[__bg][__fg];` +
+    `[__bg]scale=${w}:${h}:force_original_aspect_ratio=increase,crop=${w}:${h},boxblur=24:4,eq=brightness=-0.08[__bgb];` +
+    `[__fg]scale=${w}:${h}:force_original_aspect_ratio=increase,crop=${w}:${h},` +
+      `crop=w='${cropW}':h='${cropH}':x='${cropX}':y='${cropY}',scale=${w}:${h}[__fgs];` +
+    `[__bgb][__fgs]overlay=0:0[${outLabel}]`
+  );
+}
+
+/**
  * Publishes instant preview assets for a freshly cut section, before the slow
  * HD master render runs:
  * - a stream-copy remux with `+faststart` (no re-encode, sub-second) that the

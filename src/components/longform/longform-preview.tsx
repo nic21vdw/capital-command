@@ -10,6 +10,10 @@ function clamp(value: number, min: number, max: number) {
   return Math.min(max, Math.max(min, value));
 }
 
+// How long the hook's punch-in zoom takes to ramp from 1x to the target zoom.
+// Kept in sync with HOOK_ZOOM_RAMP_SEC in src/lib/longform/render.ts.
+const HOOK_ZOOM_RAMP_SEC = 0.5;
+
 // Live preview of the edited long-form video. The hook punch-in is emulated
 // with a CSS transform (the export bakes the identical crop via ffmpeg) and
 // the hook captions render word-synced on top, so what plays here is what
@@ -57,7 +61,14 @@ export function LongformPreview({
 
   const hook = project.hook;
   const hookActive = hook.enabled && time < hook.end;
-  const zoom = hookActive ? hook.zoom : 1;
+  // Match the export's animated punch-in: ease the zoom from 1x up to hook.zoom
+  // over the first HOOK_ZOOM_RAMP_SEC seconds (ease-out cubic), then hold. This
+  // makes the preview glide into the zoom at the absolute start instead of
+  // snapping to full zoom on the first frame — mirroring animatedReframeChain.
+  const rampSec = Math.min(HOOK_ZOOM_RAMP_SEC, Math.max(0.05, hook.end / 2));
+  const rampProgress = clamp(time / rampSec, 0, 1);
+  const eased = 1 - Math.pow(1 - rampProgress, 3);
+  const zoom = hookActive ? 1 + (hook.zoom - 1) * eased : 1;
 
   // The current hook caption + spoken word for the overlay.
   const activeCaption = useMemo(() => {
@@ -142,7 +153,7 @@ export function LongformPreview({
       )}
     >
       <div
-        className="h-full w-full transition-transform duration-300 ease-out"
+        className="h-full w-full transition-transform duration-150 ease-out"
         style={{
           transform: `scale(${zoom})`,
           transformOrigin: `${hook.focusX * 100}% ${hook.focusY * 100}%`
@@ -178,7 +189,7 @@ export function LongformPreview({
       {/* Hook badge + captions overlay */}
       {hookActive && (
         <span className="absolute left-3 top-3 rounded-full bg-[var(--accent)] px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-[var(--accent-contrast)] shadow">
-          Hook · {zoom.toFixed(2)}x
+          Hook · {hook.zoom.toFixed(2)}x
         </span>
       )}
       {inCut && !hookActive && (

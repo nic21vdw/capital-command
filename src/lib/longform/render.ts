@@ -2,7 +2,7 @@ import { stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { buildAss } from "@/lib/clipping/captions";
 import { runFfmpeg } from "@/lib/clipping/ffmpeg";
-import { reframeChain } from "@/lib/clipping/render";
+import { animatedReframeChain } from "@/lib/clipping/render";
 import { readSourceMeta, sourceFilePath } from "@/lib/clipping/sources";
 import { getTrack, trackFilePath } from "@/lib/longform/music";
 import { overlayFilePath } from "@/lib/longform/overlays";
@@ -23,6 +23,8 @@ import { finalizeTitle } from "@/lib/title/finalize";
 const FRAME_W = 1920;
 const FRAME_H = 1080;
 const FPS = 30;
+// How long the hook's punch-in zoom takes to ramp from 1x to the target zoom.
+const HOOK_ZOOM_RAMP_SEC = 0.5;
 
 // Both parts encode with identical codec/size/fps/audio settings so the
 // concat demuxer can join them with a pure stream copy.
@@ -132,12 +134,17 @@ async function runExport(projectId: string, recordId: string) {
       await writeFile(assPath, `${assDoc}\n`, "utf8");
       assArg = `ass='${escapeFilterPath(assPath)}',`;
     }
-    // reframeChain crops a zoomed cover of the frame around the focus point,
-    // with a blurred fill behind so the punch-in never shows black edges.
+    // animatedReframeChain crops a zoomed cover of the frame around the focus
+    // point, with a blurred fill behind so the punch-in never shows black
+    // edges. The zoom ramps in from 1x over the first HOOK_ZOOM_RAMP_SEC
+    // seconds (ease-out) so the opening glides into the punch-in instead of
+    // snapping to full zoom on the very first frame. The ramp is capped at
+    // half the hook so short hooks still finish the move before they end.
     const sx = project.hook.focusX * 2 - 1;
     const sy = project.hook.focusY * 2 - 1;
+    const rampSec = Math.min(HOOK_ZOOM_RAMP_SEC, Math.max(0.05, hookRange.end / 2));
     const filter =
-      reframeChain("0:v", "vz", FRAME_W, FRAME_H, project.hook.zoom, sx, sy) +
+      animatedReframeChain("0:v", "vz", FRAME_W, FRAME_H, project.hook.zoom, sx, sy, rampSec) +
       `;[vz]${assArg}fps=${FPS},setsar=1,format=yuv420p[vout]`;
     await runFfmpeg(
       [
