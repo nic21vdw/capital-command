@@ -73,6 +73,10 @@ export type LongformExportRecord = {
   error?: string;
   /** Duration of the rendered edit, for the summary line. */
   durationSec?: number;
+  /** Publish-ready title after the shared emoji-decoration step. */
+  title?: string;
+  /** Whether the decorated title carries an injected emoji. */
+  emojiUsed?: boolean;
   createdAt: string;
 };
 
