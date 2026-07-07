@@ -70,6 +70,7 @@ export function ClipCard({
             previewUrl={clip.previewUrl}
             headline={clip.headline}
             durationSec={clip.durationSec}
+            startSec={clip.startSec}
           />
         </div>
         <div className="min-w-0 flex-1 space-y-2">
