@@ -984,7 +984,15 @@ function ScheduledPostsList({
 
 /** Fixed column tracks so dates line up across every row regardless of title. */
 const ROW_GRID =
-  "grid grid-cols-[6rem_minmax(0,1fr)_7rem_12rem_auto] items-center gap-3";
+  "grid grid-cols-[6rem_minmax(0,1fr)_7rem_12rem_14rem] items-center gap-3";
+
+/**
+ * Fixed action slots (links · publish · remove) so each control lands in the
+ * same column on every row — icons and buttons align even when a row only has
+ * some of them.
+ */
+const ACTIONS_GRID =
+  "grid grid-cols-[2.75rem_5.5rem_4.5rem] items-center gap-2";
 
 function ScheduledPostRow({
   row,
@@ -1030,51 +1038,59 @@ function ScheduledPostRow({
       <span className="whitespace-nowrap text-[var(--muted-foreground)]">
         {new Date(row.publishAt).toLocaleString()}
       </span>
-      <div className="flex items-center justify-end gap-2">
-        {viewUrl ? (
-          <a
-            href={viewUrl}
-            target="_blank"
-            rel="noreferrer"
-            aria-label="View the video"
-            title="View the video"
-            className="text-[var(--accent)]"
-          >
-            <ExternalLink className="h-3.5 w-3.5" />
-          </a>
-        ) : null}
-        {row.youtubePostId ? (
-          <a
-            href={studioVideoUrl(row.youtubePostId)}
-            target="_blank"
-            rel="noreferrer"
-            aria-label="Edit in YouTube Studio"
-            title="Edit in YouTube Studio (title, description…)"
-            className="text-[var(--accent)]"
-          >
-            <Clapperboard className="h-3.5 w-3.5" />
-          </a>
-        ) : null}
+      <div className={ACTIONS_GRID}>
+        <div className="flex items-center justify-end gap-2">
+          {viewUrl ? (
+            <a
+              href={viewUrl}
+              target="_blank"
+              rel="noreferrer"
+              aria-label="View the video"
+              title="View the video"
+              className="text-[var(--accent)]"
+            >
+              <ExternalLink className="h-3.5 w-3.5" />
+            </a>
+          ) : null}
+          {row.youtubePostId ? (
+            <a
+              href={studioVideoUrl(row.youtubePostId)}
+              target="_blank"
+              rel="noreferrer"
+              aria-label="Edit in YouTube Studio"
+              title="Edit in YouTube Studio (title, description…)"
+              className="text-[var(--accent)]"
+            >
+              <Clapperboard className="h-3.5 w-3.5" />
+            </a>
+          ) : null}
+        </div>
         {working ? (
-          <Loader2 className="h-3.5 w-3.5 animate-spin text-[var(--muted-foreground)]" />
+          <div className="col-span-2 flex items-center justify-end">
+            <Loader2 className="h-3.5 w-3.5 animate-spin text-[var(--muted-foreground)]" />
+          </div>
         ) : (
           <>
-            {canPublish ? (
+            <div className="justify-self-end">
+              {canPublish ? (
+                <Button
+                  variant="ghost"
+                  className="h-7 px-2 text-xs"
+                  onClick={() => void publishRow()}
+                >
+                  Publish now
+                </Button>
+              ) : null}
+            </div>
+            <div className="justify-self-end">
               <Button
                 variant="ghost"
                 className="h-7 px-2 text-xs"
-                onClick={() => void publishRow()}
+                onClick={() => void removeRow()}
               >
-                Publish now
+                Remove
               </Button>
-            ) : null}
-            <Button
-              variant="ghost"
-              className="h-7 px-2 text-xs"
-              onClick={() => void removeRow()}
-            >
-              Remove
-            </Button>
+            </div>
           </>
         )}
       </div>
