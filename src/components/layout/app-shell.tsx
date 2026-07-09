@@ -7,6 +7,7 @@ import {
   ChevronLeft,
   ChevronRight,
   Clapperboard,
+  Presentation,
   Settings,
   UploadCloud,
   Wand2,
@@ -29,7 +30,9 @@ const navGroups: NavGroup[] = [
       { href: "/clips", label: "Clip Generator", icon: Wand2 },
       // The Clip Editor has no nav tab of its own: every clip is edited from
       // its card in the Clip Generator, which deep-links into /editor.
-      { href: "/uploading-center", label: "Uploading Center", icon: UploadCloud }
+      { href: "/uploading-center", label: "Uploading Center", icon: UploadCloud },
+      // Auto-playing deck of the Remotion diagram/title segments.
+      { href: "/presentation", label: "Segment Deck", icon: Presentation }
     ]
   }
 ];

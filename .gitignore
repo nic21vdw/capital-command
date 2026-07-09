@@ -17,3 +17,7 @@ data/publish-queue.json
 data/publisher-tokens.json
 data/title-log.jsonl
 backups/
+
+# Remotion render output + bundle cache
+out/
+.remotion/
