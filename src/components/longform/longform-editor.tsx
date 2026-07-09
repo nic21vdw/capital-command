@@ -28,6 +28,7 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { ColorField, Field, RangeField, SelectField, Toggle } from "@/components/editor/controls";
+import { LongformAudioMixer } from "@/components/longform/longform-audio-mixer";
 import { LongformPreview } from "@/components/longform/longform-preview";
 import { LongformTimeline, type TimelineSelection } from "@/components/longform/longform-timeline";
 import { formatClock } from "@/lib/clipping/editor";
@@ -504,6 +505,16 @@ export function LongformEditor({
               patch({ hook: { ...project.hook, captionStyle: { ...project.hook.captionStyle, ...partial } } })
             }
             imageUrl={overlayImageUrl}
+          />
+
+          {/* Play the placed timeline audio clips live under the preview,
+              mirroring what the export mixes in. Silent unless the master
+              "Mix audio into the export" switch is on. */}
+          <LongformAudioMixer
+            clips={project.music.enabled ? project.music.clips ?? [] : []}
+            masterVolume={project.music.masterVolume ?? 1}
+            muted={muted}
+            videoRef={videoRef}
           />
 
           <div className="flex flex-wrap items-center gap-3 rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 py-2">
