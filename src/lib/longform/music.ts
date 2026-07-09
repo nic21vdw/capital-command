@@ -4,14 +4,15 @@ import path from "node:path";
 import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { hasAudioStream, hasVideoStream, probeDuration, runFfmpeg } from "@/lib/clipping/ffmpeg";
+import { getDataRoot } from "@/lib/storage/data-root";
 import type { MusicTrack } from "@/lib/longform/types";
 
 // The shared background-music library: songs uploaded once and reusable
 // across every long-form project. Files live on disk next to a small JSON
 // index — the same storage shape as the clips sources.
 
-const musicRoot = path.join(process.cwd(), "data", "longform", "music");
-const libraryFile = path.join(musicRoot, "library.json");
+const musicRoot = () => path.join(getDataRoot(), "longform", "music");
+const libraryFile = () => path.join(musicRoot(), "library.json");
 let libraryQueue = Promise.resolve();
 
 function extFromName(fileName: string, mime: string): string {
@@ -27,7 +28,7 @@ function extFromName(fileName: string, mime: string): string {
 
 async function readLibrary(): Promise<MusicTrack[]> {
   try {
-    return JSON.parse(await readFile(libraryFile, "utf8")) as MusicTrack[];
+    return JSON.parse(await readFile(libraryFile(), "utf8")) as MusicTrack[];
   } catch {
     return [];
   }
@@ -35,13 +36,14 @@ async function readLibrary(): Promise<MusicTrack[]> {
 
 async function writeLibrary(tracks: MusicTrack[]) {
   const write = async () => {
-    await mkdir(musicRoot, { recursive: true });
-    const tmpPath = `${libraryFile}.${process.pid}.${Date.now()}.tmp`;
+    const target = libraryFile();
+    await mkdir(musicRoot(), { recursive: true });
+    const tmpPath = `${target}.${process.pid}.${Date.now()}.tmp`;
     await writeFile(tmpPath, JSON.stringify(tracks, null, 2), "utf8");
     try {
-      await rename(tmpPath, libraryFile);
+      await rename(tmpPath, target);
     } catch {
-      await writeFile(libraryFile, JSON.stringify(tracks, null, 2), "utf8");
+      await writeFile(target, JSON.stringify(tracks, null, 2), "utf8");
       await unlink(tmpPath).catch(() => undefined);
     }
   };
@@ -60,7 +62,7 @@ export async function getTrack(id: string): Promise<MusicTrack | null> {
 }
 
 export function trackDir(id: string) {
-  return path.join(musicRoot, id);
+  return path.join(musicRoot(), id);
 }
 
 export function trackFilePath(track: MusicTrack) {

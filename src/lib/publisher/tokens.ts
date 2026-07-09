@@ -2,6 +2,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { publisherConfig } from "@/lib/publisher/config";
 import { mediaHost } from "@/lib/publisher/hosting";
+import { getDataRoot } from "@/lib/storage/data-root";
 
 /**
  * Tiny persisted key/value cache for OAuth tokens that rotate server-side
@@ -13,7 +14,7 @@ import { mediaHost } from "@/lib/publisher/hosting";
  * .env values act as the initial seed; a cached value always wins after that.
  */
 
-const FILE_PATH = path.join(process.cwd(), "data", "publisher-tokens.json");
+const tokensFilePath = () => path.join(getDataRoot(), "publisher-tokens.json");
 const R2_KEY = "publisher/tokens.json";
 
 async function readAll(): Promise<Record<string, string>> {
@@ -24,7 +25,7 @@ async function readAll(): Promise<Record<string, string>> {
       const text = host ? await host.getObjectText(R2_KEY) : null;
       return text ? (JSON.parse(text) as Record<string, string>) : {};
     }
-    return JSON.parse(await readFile(FILE_PATH, "utf8")) as Record<string, string>;
+    return JSON.parse(await readFile(tokensFilePath(), "utf8")) as Record<string, string>;
   } catch {
     return {};
   }
@@ -40,8 +41,9 @@ async function writeAll(values: Record<string, string>): Promise<void> {
       return;
     }
   }
-  await mkdir(path.dirname(FILE_PATH), { recursive: true });
-  await writeFile(FILE_PATH, text, "utf8");
+  const filePath = tokensFilePath();
+  await mkdir(path.dirname(filePath), { recursive: true });
+  await writeFile(filePath, text, "utf8");
 }
 
 export async function getCachedToken(key: string): Promise<string | null> {

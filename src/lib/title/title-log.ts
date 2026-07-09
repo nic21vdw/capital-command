@@ -1,5 +1,6 @@
 import { appendFile, mkdir, readFile } from "node:fs/promises";
 import path from "node:path";
+import { getDataRoot } from "@/lib/storage/data-root";
 
 // Append-only title log. Every generated title — long-form or short-form —
 // gets one line here so emoji usage can be correlated with CTR later. The log
@@ -24,11 +25,9 @@ export type TitleLogEntry = {
   timestamp: string;
 };
 
-const DEFAULT_LOG_PATH = path.join(process.cwd(), "data", "title-log.jsonl");
-
 /** Resolves the log path, honouring TITLE_LOG_PATH for tests / overrides. */
 export function titleLogPath(override?: string): string {
-  return override ?? process.env.TITLE_LOG_PATH ?? DEFAULT_LOG_PATH;
+  return override ?? process.env.TITLE_LOG_PATH ?? path.join(getDataRoot(), "title-log.jsonl");
 }
 
 /**

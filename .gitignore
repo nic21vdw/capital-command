@@ -10,6 +10,8 @@ dist
 *.log
 server.pid
 tsconfig.tsbuildinfo
+# Machine-specific pointer to the workspace folder (Settings > Storage)
+config/storage.json
 data/capital-command.json
 data/clips/
 data/longform/

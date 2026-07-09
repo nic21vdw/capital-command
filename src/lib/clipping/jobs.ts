@@ -12,10 +12,13 @@ import { ensureClipThumbnail } from "@/lib/clipping/thumbnails";
 import { fetchSourceCaptions } from "@/lib/clipping/transcription";
 import { selectByTranscript } from "@/lib/clipping/transcript-select";
 import { transcribeMedia } from "@/lib/clipping/whisper";
+import { getDataRoot } from "@/lib/storage/data-root";
 import type { ClipCandidate, ClipJob } from "@/lib/clipping/types";
 
-const clipsRoot = path.join(process.cwd(), "data", "clips");
-const jobsFile = path.join(clipsRoot, "jobs.json");
+// Resolved per call so a workspace move (Settings > Storage) is picked up
+// without restarting the server.
+const clipsRoot = () => path.join(getDataRoot(), "clips");
+const jobsFile = () => path.join(clipsRoot(), "jobs.json");
 let persistQueue = Promise.resolve();
 
 const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -30,19 +33,22 @@ function isTransientReplaceError(error: unknown) {
 // route and the status routes.
 type JobsGlobal = typeof globalThis & {
   __clipJobs?: Map<string, ClipJob>;
-  __clipJobsLoaded?: boolean;
+  __clipJobsLoadedRoot?: string;
 };
 const g = globalThis as JobsGlobal;
 const jobs = (g.__clipJobs ??= new Map<string, ClipJob>());
 
 async function loadJobs() {
-  if (g.__clipJobsLoaded) return;
-  g.__clipJobsLoaded = true;
+  // Keyed on the workspace root: a workspace move drops the in-memory state
+  // and reloads from the new location.
+  if (g.__clipJobsLoadedRoot === getDataRoot()) return;
+  g.__clipJobsLoadedRoot = getDataRoot();
+  jobs.clear();
   try {
     let raw = "";
     for (let attempt = 0; attempt < 3; attempt += 1) {
       try {
-        raw = await readFile(jobsFile, "utf8");
+        raw = await readFile(jobsFile(), "utf8");
         JSON.parse(raw);
         break;
       } catch (error) {
@@ -66,19 +72,20 @@ async function loadJobs() {
 
 async function persistJobs() {
   const write = async () => {
-    await mkdir(clipsRoot, { recursive: true });
+    const target = jobsFile();
+    await mkdir(clipsRoot(), { recursive: true });
     const list = [...jobs.values()].sort((a, b) => b.createdAt.localeCompare(a.createdAt)).slice(0, 50);
     const payload = JSON.stringify(list, null, 2);
-    const tmpPath = `${jobsFile}.${process.pid}.${Date.now()}.tmp`;
+    const tmpPath = `${target}.${process.pid}.${Date.now()}.tmp`;
     await writeFile(tmpPath, payload, "utf8");
     for (let attempt = 0; attempt < 5; attempt += 1) {
       try {
-        await rename(tmpPath, jobsFile);
+        await rename(tmpPath, target);
         return;
       } catch (error) {
         if (!isTransientReplaceError(error) || attempt === 4) {
           if (isTransientReplaceError(error)) {
-            await writeFile(jobsFile, payload, "utf8");
+            await writeFile(target, payload, "utf8");
             await unlink(tmpPath).catch(() => undefined);
             return;
           }
@@ -104,11 +111,11 @@ export async function getJob(id: string): Promise<ClipJob | undefined> {
 }
 
 export function workDir(jobId: string) {
-  return path.join(clipsRoot, "uploads", jobId);
+  return path.join(clipsRoot(), "uploads", jobId);
 }
 
 export function outputDir(jobId: string) {
-  return path.join(clipsRoot, "outputs", jobId);
+  return path.join(clipsRoot(), "outputs", jobId);
 }
 
 export async function deleteJob(id: string) {

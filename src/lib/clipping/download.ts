@@ -5,10 +5,13 @@ import { chmod, mkdir, readdir, rename, rm, stat } from "node:fs/promises";
 import path from "node:path";
 import { Readable } from "node:stream";
 import { resolveFfmpeg } from "@/lib/clipping/ffmpeg";
+import { getLocalCacheRoot } from "@/lib/storage/data-root";
 
 // yt-dlp ships a single self-contained binary per platform, so we can fetch and
-// cache it on first use instead of asking the user to install anything.
-const binDir = path.join(process.cwd(), "data", "clips", "bin");
+// cache it on first use instead of asking the user to install anything. The
+// binary is a machine-local cache: it stays under ./data even when the user
+// moves the workspace to a cloud-synced folder.
+const binDir = path.join(getLocalCacheRoot(), "clips", "bin");
 const pyInstallerTempDir = path.join(binDir, "pyi-temp");
 
 function binaryName() {

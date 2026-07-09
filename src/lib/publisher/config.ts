@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { ALL_PLATFORMS, type PlatformId, type Visibility } from "@/lib/publisher/types";
+import { getDataRoot } from "@/lib/storage/data-root";
 
 /**
  * All publisher configuration comes from environment variables (.env locally,
@@ -101,7 +102,7 @@ export type PublisherConfig = {
  */
 function cachedYoutubeRefreshToken(): string | null {
   try {
-    const raw = readFileSync(path.join(process.cwd(), "data", "publisher-tokens.json"), "utf8");
+    const raw = readFileSync(path.join(getDataRoot(), "publisher-tokens.json"), "utf8");
     const value = (JSON.parse(raw) as Record<string, unknown>)["youtube.refreshToken"];
     return typeof value === "string" && value ? value : null;
   } catch {

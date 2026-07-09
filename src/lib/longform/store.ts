@@ -5,10 +5,13 @@ import { probeDuration, runFfmpeg } from "@/lib/clipping/ffmpeg";
 import { readSourceMeta, sourceFilePath } from "@/lib/clipping/sources";
 import { transcribeMedia } from "@/lib/clipping/whisper";
 import { DEFAULT_PACE, buildSegments, hookCaptions, planHook } from "@/lib/longform/plan";
+import { getDataRoot } from "@/lib/storage/data-root";
 import type { LongformPace, LongformProject } from "@/lib/longform/types";
 
-const longformRoot = path.join(process.cwd(), "data", "longform");
-const projectsFile = path.join(longformRoot, "projects.json");
+// Resolved per call so a workspace move (Settings > Storage) is picked up
+// without restarting the server.
+const longformRoot = () => path.join(getDataRoot(), "longform");
+const projectsFile = () => path.join(longformRoot(), "projects.json");
 let persistQueue = Promise.resolve();
 
 const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -23,19 +26,22 @@ function isTransientReplaceError(error: unknown) {
 // create route and the status routes.
 type LongformGlobal = typeof globalThis & {
   __longformProjects?: Map<string, LongformProject>;
-  __longformProjectsLoaded?: boolean;
+  __longformProjectsLoadedRoot?: string;
 };
 const g = globalThis as LongformGlobal;
 const projects = (g.__longformProjects ??= new Map<string, LongformProject>());
 
 async function loadProjects() {
-  if (g.__longformProjectsLoaded) return;
-  g.__longformProjectsLoaded = true;
+  // Keyed on the workspace root: a workspace move drops the in-memory state
+  // and reloads from the new location.
+  if (g.__longformProjectsLoadedRoot === getDataRoot()) return;
+  g.__longformProjectsLoadedRoot = getDataRoot();
+  projects.clear();
   try {
     let raw = "";
     for (let attempt = 0; attempt < 3; attempt += 1) {
       try {
-        raw = await readFile(projectsFile, "utf8");
+        raw = await readFile(projectsFile(), "utf8");
         JSON.parse(raw);
         break;
       } catch (error) {
@@ -71,19 +77,20 @@ async function loadProjects() {
 
 async function persistProjects() {
   const write = async () => {
-    await mkdir(longformRoot, { recursive: true });
+    const target = projectsFile();
+    await mkdir(longformRoot(), { recursive: true });
     const list = [...projects.values()].sort((a, b) => b.createdAt.localeCompare(a.createdAt)).slice(0, 30);
     const payload = JSON.stringify(list, null, 2);
-    const tmpPath = `${projectsFile}.${process.pid}.${Date.now()}.tmp`;
+    const tmpPath = `${target}.${process.pid}.${Date.now()}.tmp`;
     await writeFile(tmpPath, payload, "utf8");
     for (let attempt = 0; attempt < 5; attempt += 1) {
       try {
-        await rename(tmpPath, projectsFile);
+        await rename(tmpPath, target);
         return;
       } catch (error) {
         if (!isTransientReplaceError(error) || attempt === 4) {
           if (isTransientReplaceError(error)) {
-            await writeFile(projectsFile, payload, "utf8");
+            await writeFile(target, payload, "utf8");
             await unlink(tmpPath).catch(() => undefined);
             return;
           }
@@ -123,11 +130,11 @@ function migrateMusic(project: LongformProject) {
 }
 
 export function projectWorkDir(projectId: string) {
-  return path.join(longformRoot, "work", projectId);
+  return path.join(longformRoot(), "work", projectId);
 }
 
 export function projectOutputDir(projectId: string) {
-  return path.join(longformRoot, "outputs", projectId);
+  return path.join(longformRoot(), "outputs", projectId);
 }
 
 export async function listProjects(): Promise<LongformProject[]> {

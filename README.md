@@ -10,6 +10,22 @@ The `/finance` route adds a Stripe-style billing dashboard plus a spend tracker:
 - **AI & setup spending** — track one-time hardware (PC build, GPU, peripherals) and recurring AI/cloud subscriptions. Recurring costs are normalized to a monthly run rate (with simple USD↔CAD conversion) so you can see total invested, monthly burn, and annualized cost at a glance.
 - **Themes** — six accent themes (Lime, Violet, Ocean, Sunset, Rose, Mono) plus light/dark mode, switchable from the Finance toolbar or Settings. Your choice persists locally and to app settings.
 
+## Storage & sync (bring your own storage)
+
+All app data lives in one self-contained workspace folder (`./data` by default). From **Settings > Storage & sync** you can move that workspace into a folder your own Dropbox, OneDrive, or Google Drive client already syncs — the cloud client does the syncing, the app never talks to any cloud API, and nothing is stored on a server:
+
+- **Auto-detection** — Dropbox/OneDrive/Google Drive folders found on the machine are offered as one-click destinations; any custom path works too.
+- **Move** copies the workspace to the new folder, verifies the copy, and switches over. The old copy is never deleted automatically.
+- **Open existing** points the app at a workspace folder synced from another computer (identified by its `.capital-command-workspace.json` marker).
+- **Conflict copies** created by cloud clients ("conflicted copy", "file (1).json") are detected and surfaced as a warning in Settings.
+- Machine-specific caches (yt-dlp binary, Whisper models under `data/clips/bin`) always stay local and never travel with the workspace.
+
+The pointer to the workspace lives in `config/storage.json` (gitignored, machine-local).
+
+## CoLateral pricing
+
+The `/pricing` route shows CoLateral's one-time, perpetual-license pricing. Tiers step up as cumulative licenses sell (first 10 at $199, licenses 11–25 at $299, then $399) and are driven entirely by constants in `src/lib/pricing/config.ts` — bump `CURRENT_SOLD_COUNT` there as batches sell, and set `CHECKOUT_URL` to the payment link. No backend, no live counter.
+
 ## Why this persistence choice
 
 For Phase 1, the app uses a server-side JSON store instead of SQLite/Supabase/Convex. This keeps local setup to one command, avoids native database friction, and still gives us a clean repository abstraction that can be swapped for SQLite or a hosted backend later.

@@ -1,5 +1,6 @@
 import { mkdir, readFile, rename, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { getDataRoot } from "@/lib/storage/data-root";
 
 /**
  * Queue persistence. The queue itself is a single JSON document (matching the
@@ -21,7 +22,13 @@ export interface QueueStore {
 }
 
 export class FileQueueStore implements QueueStore {
-  constructor(private readonly filePath = path.join(process.cwd(), "data", "publish-queue.json")) {}
+  // Resolved lazily so a workspace move (Settings > Storage) is picked up by
+  // long-lived store instances without a restart.
+  constructor(private readonly filePathOverride?: string) {}
+
+  private get filePath(): string {
+    return this.filePathOverride ?? path.join(getDataRoot(), "publish-queue.json");
+  }
 
   describe(): string {
     return this.filePath;
@@ -37,16 +44,17 @@ export class FileQueueStore implements QueueStore {
   }
 
   async save(text: string): Promise<void> {
-    await mkdir(path.dirname(this.filePath), { recursive: true });
-    const tmpPath = `${this.filePath}.${process.pid}.${Date.now()}.tmp`;
+    const filePath = this.filePath;
+    await mkdir(path.dirname(filePath), { recursive: true });
+    const tmpPath = `${filePath}.${process.pid}.${Date.now()}.tmp`;
     await writeFile(tmpPath, text, "utf8");
     try {
-      await rename(tmpPath, this.filePath);
+      await rename(tmpPath, filePath);
     } catch (error) {
       // Windows can refuse the swap while another process reads the file.
       const code = (error as NodeJS.ErrnoException).code;
       if (code === "EPERM" || code === "EACCES" || code === "EBUSY") {
-        await writeFile(this.filePath, text, "utf8");
+        await writeFile(filePath, text, "utf8");
         await unlink(tmpPath).catch(() => undefined);
         return;
       }

@@ -1,6 +1,7 @@
 "use client";
 
 import { ProfileSettings } from "@/components/layout/profile-settings";
+import { StorageSettings } from "@/components/layout/storage-settings";
 import { ThemePicker } from "@/components/finance/theme-picker";
 import { useAppData } from "@/components/providers/app-provider";
 import { Badge } from "@/components/ui/badge";
@@ -20,6 +21,7 @@ export function SettingsPage() {
         description="Control theme, currency, refresh behavior, and data exports."
       />
       <ProfileSettings />
+      <StorageSettings />
       <ThemePicker />
       <div className="grid gap-4 xl:grid-cols-2">
         <Card>

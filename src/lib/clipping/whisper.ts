@@ -2,6 +2,7 @@ import { mkdir, readFile, rm } from "node:fs/promises";
 import path from "node:path";
 import { chunkWords } from "@/lib/clipping/captions";
 import { runFfmpeg } from "@/lib/clipping/ffmpeg";
+import { getLocalCacheRoot } from "@/lib/storage/data-root";
 import type { CaptionSegment, CaptionWord } from "@/types/domain";
 
 /**
@@ -17,7 +18,8 @@ import type { CaptionSegment, CaptionWord } from "@/types/domain";
  */
 
 const DEFAULT_MODEL = "Xenova/whisper-base.en";
-const MODEL_CACHE_DIR = path.join(process.cwd(), "data", "clips", "bin", "whisper-models");
+// Machine-local cache: model weights never travel with a cloud-synced workspace.
+const MODEL_CACHE_DIR = path.join(getLocalCacheRoot(), "clips", "bin", "whisper-models");
 
 function modelId(): string {
   return process.env.CLIPS_WHISPER_MODEL?.trim() || DEFAULT_MODEL;

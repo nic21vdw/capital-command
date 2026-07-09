@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import {
+  BadgeDollarSign,
   ChevronLeft,
   ChevronRight,
   Clapperboard,
@@ -34,6 +35,10 @@ const navGroups: NavGroup[] = [
       // Auto-playing deck of the Remotion diagram/title segments.
       { href: "/presentation", label: "Segment Deck", icon: Presentation }
     ]
+  },
+  {
+    label: "CoLateral",
+    items: [{ href: "/pricing", label: "Pricing", icon: BadgeDollarSign }]
   }
 ];
 

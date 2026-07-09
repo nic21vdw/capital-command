@@ -5,10 +5,12 @@ import path from "node:path";
 import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { hasAudioStream, probeDuration, resolveFfmpeg, runFfmpeg } from "@/lib/clipping/ffmpeg";
+import { getDataRoot } from "@/lib/storage/data-root";
 
-// Sources live under data/clips/sources/<id>/ — the source file is stored once
-// and referenced by any number of projects, so large videos are never copied.
-const sourcesRoot = path.join(process.cwd(), "data", "clips", "sources");
+// Sources live under <workspace>/clips/sources/<id>/ — the source file is
+// stored once and referenced by any number of projects, so large videos are
+// never copied.
+const sourcesRoot = () => path.join(getDataRoot(), "clips", "sources");
 
 export type SourceMeta = {
   id: string;
@@ -24,7 +26,7 @@ export type SourceMeta = {
 };
 
 export function sourceDir(id: string) {
-  return path.join(sourcesRoot, id);
+  return path.join(sourcesRoot(), id);
 }
 
 function metaPath(id: string) {
