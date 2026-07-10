@@ -25,6 +25,13 @@ export const longformHookSchema = z.object({
   captionStyle: captionStyleSchema
 });
 
+export const longformCaptionsSchema = z.object({
+  enabled: z.coerce.boolean(),
+  highlightCurrentWord: z.coerce.boolean(),
+  segments: z.array(captionSegmentSchema).max(5000),
+  style: captionStyleSchema
+});
+
 export const longformOverlaySchema = z.object({
   id: z.string(),
   fileName: z.string(),
@@ -69,6 +76,7 @@ export const longformProjectPatchSchema = z
     name: z.string().trim().min(1).max(200),
     segments: z.array(longformSegmentSchema).max(5000),
     hook: longformHookSchema,
+    captions: longformCaptionsSchema,
     overlays: z.array(longformOverlaySchema).max(100),
     music: longformMusicSchema,
     pace: longformPaceSchema

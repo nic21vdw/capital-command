@@ -1,8 +1,8 @@
 import type { SilenceRange } from "@/lib/clipping/analysis";
 import { chunkWords, windowSegments } from "@/lib/clipping/captions";
 import { resolveThoughtEnd } from "@/lib/clipping/thought-end";
-import type { CaptionSegment, CaptionStyle } from "@/types/domain";
-import type { LongformHook, LongformPace, LongformSegment } from "@/lib/longform/types";
+import type { CaptionSegment, CaptionStyle, CaptionWord } from "@/types/domain";
+import type { LongformCaptions, LongformHook, LongformPace, LongformSegment } from "@/lib/longform/types";
 
 // Pure planning logic for the Long-Form Editor: turn detected silences into a
 // cut plan and the opening seconds into a viral-style hook. Everything here is
@@ -159,6 +159,56 @@ export function planHook(transcript: CaptionSegment[], durationSec: number): Lon
 }
 
 /**
+ * The default whole-video caption look: readable bottom-of-frame phrases for a
+ * 16:9 long-form upload — smaller and calmer than the viral hook style, closer
+ * to classic subtitles but still word-highlighted.
+ */
+export const LONGFORM_CAPTION_STYLE: CaptionStyle = {
+  fontFamily: "Inter, system-ui, sans-serif",
+  fontScale: 0.045,
+  // One of the Weight control's options (400/600/800/900) so the select
+  // always reflects the actual value.
+  fontWeight: 800,
+  textColor: "#ffffff",
+  highlightColor: "#fde047",
+  backgroundColor: "#000000",
+  backgroundOpacity: 0,
+  outlineWidth: 2.5,
+  shadow: 2,
+  position: "bottom",
+  alignment: "center",
+  maxWordsPerCaption: 5,
+  wordsPerLine: 5,
+  animation: "fade",
+  uppercase: false
+};
+
+/**
+ * Re-chunks the full transcript into readable caption segments — the same
+ * word-stream chunking the short-form clips use, over the whole source.
+ */
+export function transcriptCaptions(transcript: CaptionSegment[], maxWords = 5): CaptionSegment[] {
+  const words = transcript.flatMap((segment) => segment.words);
+  if (words.length > 0) return chunkWords(words, maxWords);
+  // Transcripts without word timing keep their phrase segments as-is.
+  return transcript.map((segment, index) => ({ ...segment, id: `cap-${index + 1}`, words: [] }));
+}
+
+/**
+ * Builds the default whole-video caption plan. Captions start switched off —
+ * they are a toggle-on feature, so existing exports keep rendering unchanged
+ * until the editor enables them.
+ */
+export function planCaptions(transcript: CaptionSegment[]): LongformCaptions {
+  return {
+    enabled: false,
+    highlightCurrentWord: true,
+    segments: transcriptCaptions(transcript),
+    style: { ...LONGFORM_CAPTION_STYLE }
+  };
+}
+
+/**
  * Non-destructively applies a manual keep/cut across an arbitrary [start, end]
  * span, splitting any segments that straddle the boundaries so exactly that
  * span flips to `enabled`. This powers manual trimming: the editor can remove
@@ -294,6 +344,44 @@ export function sourceTimeToOutput(
     outCursor += span;
   }
   return round3(outCursor); // past the end → clamp to the edit's end
+}
+
+/**
+ * Maps source-time caption segments onto the edited runtime for burn-in.
+ * Segments authored in source seconds shift back by every cut before them; a
+ * segment straddling a cut is shortened (its words inside the cut snap to the
+ * jump point) and one that sits entirely inside cut footage is dropped.
+ * `skipBeforeSec` clips captions to after that source time — used to hand the
+ * hook window over to the hook's own burned-in captions.
+ */
+export function remapCaptionsToOutput(
+  captions: CaptionSegment[],
+  segments: LongformSegment[],
+  hook: LongformHook,
+  skipBeforeSec = 0
+): CaptionSegment[] {
+  const out: CaptionSegment[] = [];
+  for (const seg of captions) {
+    if (!seg.enabled || !seg.text.trim()) continue;
+    const srcStart = Math.max(seg.start, skipBeforeSec);
+    if (seg.end - srcStart < 0.05) continue;
+    const intervals = sourceToOutputIntervals(srcStart, seg.end, segments, hook);
+    if (intervals.length === 0) continue;
+    const start = intervals[0].start;
+    const end = intervals[intervals.length - 1].end;
+    if (end - start < 0.05) continue;
+    const words: CaptionWord[] = [];
+    for (const word of seg.words) {
+      if (word.end <= srcStart) continue;
+      const wordStart = sourceTimeToOutput(Math.max(word.start, srcStart), segments, hook);
+      const wordEnd = sourceTimeToOutput(word.end, segments, hook);
+      if (wordStart === null || wordEnd === null) continue;
+      const clampedStart = Math.min(Math.max(wordStart, start), end);
+      words.push({ text: word.text, start: clampedStart, end: Math.min(Math.max(wordEnd, clampedStart), end) });
+    }
+    out.push({ ...seg, id: `cap-${out.length + 1}`, start, end, words });
+  }
+  return out;
 }
 
 /** Total runtime of the edited video (hook + kept body). */

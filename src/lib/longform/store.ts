@@ -4,7 +4,7 @@ import { detectSilences } from "@/lib/clipping/analysis";
 import { probeDuration, runFfmpeg } from "@/lib/clipping/ffmpeg";
 import { readSourceMeta, sourceFilePath } from "@/lib/clipping/sources";
 import { transcribeMedia } from "@/lib/clipping/whisper";
-import { DEFAULT_PACE, buildSegments, hookCaptions, planHook } from "@/lib/longform/plan";
+import { DEFAULT_PACE, buildSegments, hookCaptions, planCaptions, planHook } from "@/lib/longform/plan";
 import type { LongformPace, LongformProject } from "@/lib/longform/types";
 
 const longformRoot = path.join(process.cwd(), "data", "longform");
@@ -47,6 +47,9 @@ async function loadProjects() {
     for (const project of JSON.parse(raw) as LongformProject[]) {
       // Projects saved before timeline images existed have no overlays field.
       project.overlays ??= [];
+      // Projects saved before whole-video captions existed get them seeded
+      // from the stored transcript, switched off so exports don't change.
+      project.captions ??= planCaptions(project.transcript ?? []);
       // Projects saved before the audio track existed have no clips array, and
       // may carry a legacy single background track — migrate it into one clip
       // spanning the whole edit so it keeps playing and stays editable.
@@ -195,6 +198,7 @@ export async function createProject(sourceId: string, name?: string): Promise<Lo
     silences: [],
     segments: [],
     hook: planHook([], meta.durationSec || 0),
+    captions: planCaptions([]),
     overlays: [],
     music: { enabled: false, clips: [], videoVolume: 1, masterVolume: 1 },
     pace: { ...DEFAULT_PACE },
@@ -292,10 +296,23 @@ async function runAnalysis(project: LongformProject) {
   await update(project, { stage: "planning", progress: 90 });
   const segments = buildSegments(durationSec, silences, project.pace);
   const hook = planHook(transcript, durationSec);
+  // Reseed the whole-video captions from the fresh transcript, keeping the
+  // user's toggle and styling if this is a re-analysis.
+  const captions = {
+    ...planCaptions(transcript),
+    ...(project.captions
+      ? {
+          enabled: project.captions.enabled,
+          highlightCurrentWord: project.captions.highlightCurrentWord,
+          style: project.captions.style
+        }
+      : {})
+  };
   await update(project, {
     silences,
     segments,
     hook,
+    captions,
     transcript,
     status: "ready",
     stage: "ready",
