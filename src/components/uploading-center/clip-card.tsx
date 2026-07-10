@@ -1,5 +1,6 @@
 "use client";
 
+import { useRef } from "react";
 import { CalendarClock, ExternalLink, GripVertical, Loader2, Scissors } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Select } from "@/components/ui/select";
@@ -17,6 +18,33 @@ import type { ScheduleSlot } from "@/lib/publisher/slots";
 import type { PlatformId, QueueItem } from "@/lib/publisher/types";
 
 export const CLIP_DRAG_TYPE = "application/x-capital-command-clip";
+
+export const TITLE_MAX_LENGTH = 100;
+
+/** Hashtags offered as one-click suggestions under the title field. */
+export const SUGGESTED_HASHTAGS = [
+  "#AI",
+  "#vibecoding",
+  "#coding",
+  "#business",
+  "#buildinpublic",
+  "#startup",
+  "#tech",
+  "#programming",
+  "#automation",
+  "#entrepreneur"
+];
+
+/** Append a hashtag to the title, keeping within the max title length. */
+export function appendHashtag(title: string, hashtag: string): string {
+  const trimmed = title.trimEnd();
+  const next = trimmed.length > 0 ? `${trimmed} ${hashtag}` : hashtag;
+  return next.length <= TITLE_MAX_LENGTH ? next : title;
+}
+
+function hasHashtag(title: string, hashtag: string): boolean {
+  return title.toLowerCase().includes(hashtag.toLowerCase());
+}
 
 /**
  * One clip from the current run: thumbnail, editable title/caption, platform
@@ -52,6 +80,7 @@ export function ClipCard({
   /** Open this clip in the Clip Editor to trim/caption before scheduling. */
   onEditClip: () => void;
 }) {
+  const titleRef = useRef<HTMLTextAreaElement>(null);
   const openSlots = slots.filter((slot) => !slot.past && !isSlotTaken(draft.platform, slot.utc));
 
   return (
@@ -82,8 +111,9 @@ export function ClipCard({
             {/* Wrapping textarea (not a single-line input) so long titles stay
                 fully visible; field-sizing grows it to fit the content. */}
             <Textarea
+              ref={titleRef}
               value={draft.title}
-              maxLength={100}
+              maxLength={TITLE_MAX_LENGTH}
               rows={1}
               onChange={(event) => onDraftChange({ ...draft, title: event.target.value.replace(/\n/g, " ") })}
               onBlur={onTitleCommit}
@@ -93,6 +123,27 @@ export function ClipCard({
               placeholder="Title"
               className="field-sizing-content min-h-9 resize-none py-2"
             />
+          </div>
+          {/* One-click hashtag suggestions, appended to the title like YouTube's
+              tag chips. Chips already present in the title (or that would push
+              it past the length limit) are hidden. */}
+          <div className="flex flex-wrap gap-1.5 pl-6">
+            {SUGGESTED_HASHTAGS.filter(
+              (hashtag) =>
+                !hasHashtag(draft.title, hashtag) && appendHashtag(draft.title, hashtag) !== draft.title
+            ).map((hashtag) => (
+              <button
+                key={hashtag}
+                type="button"
+                onClick={() => {
+                  onDraftChange({ ...draft, title: appendHashtag(draft.title, hashtag) });
+                  titleRef.current?.focus();
+                }}
+                className="inline-flex items-center rounded-full border border-[var(--border)] bg-[var(--surface-1)] px-2 py-0.5 text-[11px] text-[var(--muted-foreground)] transition hover:border-[var(--accent)] hover:text-[var(--accent)]"
+              >
+                {hashtag}
+              </button>
+            ))}
           </div>
           <Textarea
             value={draft.caption}
