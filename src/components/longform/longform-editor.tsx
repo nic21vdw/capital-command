@@ -435,14 +435,23 @@ export function LongformEditor({
     [addAudioClip]
   );
 
-  // Hit Delete/Backspace to remove what's selected on the timeline: an active
-  // trim selection is cut out of the video, otherwise the selected image
-  // overlay is removed. Ignored while typing in a field.
+  // Keyboard shortcuts: Space toggles play/pause; Delete/Backspace removes
+  // what's selected on the timeline: an active trim selection is cut out of
+  // the video, otherwise the selected image overlay is removed. Ignored while
+  // typing in a field.
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== "Delete" && event.key !== "Backspace") return;
+      if (event.key !== "Delete" && event.key !== "Backspace" && event.key !== " ") return;
       const target = event.target as HTMLElement | null;
       if (target && (target.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName))) return;
+      if (event.key === " ") {
+        // Skip when a button has focus — Space should activate it, and a
+        // toggle here would fight the click it triggers.
+        if (target && target.tagName === "BUTTON") return;
+        event.preventDefault(); // keep the page from scrolling
+        togglePlay();
+        return;
+      }
       if (selection && selection.end - selection.start >= 0.05) {
         event.preventDefault();
         applyRange(selection.start, selection.end, false);
@@ -456,7 +465,7 @@ export function LongformEditor({
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [selection, selectedOverlayId, applyRange, removeOverlay]);
+  }, [selection, selectedOverlayId, applyRange, removeOverlay, togglePlay]);
 
   const inCut = useMemo(
     () => cutRangesOf(project).some((range) => time >= range.start && time < range.end),
