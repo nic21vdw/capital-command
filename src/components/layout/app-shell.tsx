@@ -8,6 +8,7 @@ import {
   ChevronRight,
   Clapperboard,
   Presentation,
+  Radar,
   Settings,
   UploadCloud,
   Wand2,
@@ -32,7 +33,9 @@ const navGroups: NavGroup[] = [
       // its card in the Clip Generator, which deep-links into /editor.
       { href: "/uploading-center", label: "Uploading Center", icon: UploadCloud },
       // Auto-playing deck of the Remotion diagram/title segments.
-      { href: "/presentation", label: "Segment Deck", icon: Presentation }
+      { href: "/presentation", label: "Segment Deck", icon: Presentation },
+      // Watchlist of other channels with baseline stats and outlier flagging.
+      { href: "/outliers", label: "Outlier Radar", icon: Radar }
     ]
   }
 ];

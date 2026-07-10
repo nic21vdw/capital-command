@@ -1,0 +1,508 @@
+"use client";
+
+import { useEffect, useMemo, useState } from "react";
+import {
+  AlertTriangle,
+  ArrowDown,
+  ArrowUp,
+  ExternalLink,
+  Flame,
+  Loader2,
+  Plus,
+  RefreshCw,
+  Trash2
+} from "lucide-react";
+import { toast } from "sonner";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { PageHeader } from "@/components/ui/page-header";
+import { readJson, useOutlierRadar, type RadarState } from "@/components/outliers/use-outlier-radar";
+import { cn } from "@/lib/utils";
+import type { OutlierConfig, ScanRun, WatchlistChannel } from "@/lib/youtube/outliers";
+
+/**
+ * Outlier Radar: manage a watchlist of channels to monitor, trigger stats
+ * pulls, and browse the flagged outliers with inline free-text tagging.
+ * All state lives server-side in data/youtube-outliers.json; this component
+ * just talks to /api/youtube/watchlist and /api/youtube/outliers.
+ */
+
+type SortKey = "multiplier" | "detectedAt" | "views" | "publishedAt";
+
+function formatCount(value: number): string {
+  return Intl.NumberFormat("en", { notation: value >= 10_000 ? "compact" : "standard", maximumFractionDigits: 1 }).format(value);
+}
+
+function formatDate(iso: string | null | undefined): string {
+  if (!iso) return "—";
+  return new Date(iso).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+}
+
+function formatDay(iso: string): string {
+  return new Date(iso).toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
+}
+
+export function OutliersPage() {
+  const { state, setState, loadError, load } = useOutlierRadar();
+  const [channelInput, setChannelInput] = useState("");
+  const [adding, setAdding] = useState(false);
+  const [scanning, setScanning] = useState(false);
+  const [sortKey, setSortKey] = useState<SortKey>("multiplier");
+  const [sortDesc, setSortDesc] = useState(true);
+  const [configDraft, setConfigDraft] = useState<OutlierConfig | null>(null);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  const addChannel = async () => {
+    const input = channelInput.trim();
+    if (!input || adding) return;
+    setAdding(true);
+    try {
+      const data = await readJson<{ channels: WatchlistChannel[]; added: WatchlistChannel }>(
+        await fetch("/api/youtube/watchlist", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ input })
+        })
+      );
+      setState((current) => (current ? { ...current, channels: data.channels } : current));
+      setChannelInput("");
+      toast.success(`Added ${data.added.title} to the watchlist.`);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : String(error));
+    } finally {
+      setAdding(false);
+    }
+  };
+
+  const removeChannel = async (channel: WatchlistChannel) => {
+    try {
+      const data = await readJson<{ channels: WatchlistChannel[] }>(
+        await fetch(`/api/youtube/watchlist?id=${encodeURIComponent(channel.id)}`, { method: "DELETE" })
+      );
+      setState((current) => (current ? { ...current, channels: data.channels } : current));
+      toast.success(`Removed ${channel.title}. Its flagged outliers are kept.`);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : String(error));
+    }
+  };
+
+  const runScan = async (force: boolean) => {
+    if (scanning) return;
+    setScanning(true);
+    try {
+      const data = await readJson<RadarState & { run: ScanRun }>(
+        await fetch(`/api/youtube/outliers/run${force ? "?force=1" : ""}`, { method: "POST" })
+      );
+      setState((current) => ({ ...data, configured: current?.configured ?? true }));
+      const { run } = data;
+      const summary = `Checked ${run.channelsChecked}, skipped ${run.channelsSkipped} (cached), failed ${run.channelsFailed} · ${run.unitsUsed} quota units · ${Math.max(0, run.newOutliers)} new outlier${run.newOutliers === 1 ? "" : "s"}`;
+      if (run.notes.length > 0) toast.warning(run.notes.join(" "));
+      else if (run.channelsFailed > 0) toast.warning(`${summary}. Check the watchlist for per-channel errors.`);
+      else toast.success(summary);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : String(error));
+    } finally {
+      setScanning(false);
+    }
+  };
+
+  const saveTag = async (videoId: string, tag: string, previous: string) => {
+    if (tag === previous) return;
+    try {
+      await readJson(
+        await fetch("/api/youtube/outliers", {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ videoId, tag })
+        })
+      );
+      setState((current) =>
+        current
+          ? { ...current, outliers: current.outliers.map((o) => (o.videoId === videoId ? { ...o, tag } : o)) }
+          : current
+      );
+      toast.success("Tag saved.");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : String(error));
+    }
+  };
+
+  const saveConfig = async () => {
+    if (!configDraft) return;
+    try {
+      const data = await readJson<{ config: OutlierConfig }>(
+        await fetch("/api/youtube/outliers", {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ config: configDraft })
+        })
+      );
+      setState((current) => (current ? { ...current, config: data.config } : current));
+      setConfigDraft(null);
+      toast.success("Detection settings saved. They apply on the next stats pull.");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : String(error));
+    }
+  };
+
+  const sortedOutliers = useMemo(() => {
+    if (!state) return [];
+    const direction = sortDesc ? -1 : 1;
+    return [...state.outliers].sort((a, b) => {
+      const value =
+        sortKey === "multiplier"
+          ? a.multiplier - b.multiplier
+          : sortKey === "views"
+            ? a.views - b.views
+            : sortKey === "publishedAt"
+              ? a.publishedAt.localeCompare(b.publishedAt)
+              : a.detectedAt.localeCompare(b.detectedAt);
+      return value * direction;
+    });
+  }, [state, sortKey, sortDesc]);
+
+  const toggleSort = (key: SortKey) => {
+    if (key === sortKey) setSortDesc((d) => !d);
+    else {
+      setSortKey(key);
+      setSortDesc(true);
+    }
+  };
+
+  const lastRun = state?.runs[0] ?? null;
+  const config = configDraft ?? state?.config ?? null;
+
+  return (
+    <div>
+      <PageHeader
+        eyebrow="YouTube tools"
+        title="Outlier Radar"
+        description="Watch other channels, baseline them on the median views of their recent uploads, and flag videos breaking out above the baseline — with free-text tags for hook style, topic, and format."
+        actions={
+          <div className="flex items-center gap-2">
+            <Button variant="secondary" onClick={() => void runScan(true)} disabled={scanning || !state?.configured}>
+              Force refresh
+            </Button>
+            <Button onClick={() => void runScan(false)} disabled={scanning || !state?.configured}>
+              {scanning ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-2 h-4 w-4" />}
+              {scanning ? "Pulling stats…" : "Pull stats"}
+            </Button>
+          </div>
+        }
+      />
+
+      {loadError ? (
+        <Card className="mb-4 border-red-500/30 bg-red-500/10 text-sm text-red-200">
+          <p className="flex items-center gap-2">
+            <AlertTriangle className="h-4 w-4 shrink-0" /> {loadError}
+          </p>
+          <Button variant="secondary" className="mt-3" onClick={() => void load()}>
+            Retry
+          </Button>
+        </Card>
+      ) : null}
+
+      {state && !state.configured ? (
+        <Card className="mb-4 border-amber-500/30 bg-amber-500/10 text-sm text-amber-200">
+          <p className="flex items-center gap-2">
+            <AlertTriangle className="h-4 w-4 shrink-0" />
+            YouTube is not connected. Set YOUTUBE_CLIENT_ID / YOUTUBE_CLIENT_SECRET and use Connect YouTube in the
+            Uploading Center — the Radar reuses that connection read-only.
+          </p>
+        </Card>
+      ) : null}
+
+      <div className="grid gap-4 lg:grid-cols-3">
+        {/* Watchlist */}
+        <Card className="lg:col-span-2">
+          <div className="mb-4 flex items-center justify-between gap-3">
+            <h2 className="text-sm font-semibold text-white">Channel watchlist</h2>
+            <Badge>{state ? `${state.channels.length} channel${state.channels.length === 1 ? "" : "s"}` : "…"}</Badge>
+          </div>
+          <form
+            className="flex gap-2"
+            onSubmit={(event) => {
+              event.preventDefault();
+              void addChannel();
+            }}
+          >
+            <Input
+              value={channelInput}
+              onChange={(event) => setChannelInput(event.target.value)}
+              placeholder="Channel URL, @handle, or UC… channel id"
+              disabled={adding}
+            />
+            <Button type="submit" disabled={adding || !channelInput.trim()} className="shrink-0">
+              {adding ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Plus className="mr-2 h-4 w-4" />}
+              Add
+            </Button>
+          </form>
+          <div className="mt-4 space-y-2">
+            {state && state.channels.length === 0 ? (
+              <p className="rounded-lg border border-dashed border-[var(--border)] px-4 py-6 text-center text-sm text-[var(--muted-foreground)]">
+                No channels yet — paste a channel URL or @handle above to start monitoring.
+              </p>
+            ) : null}
+            {state?.channels.map((channel) => (
+              <div
+                key={channel.id}
+                className="flex items-center gap-3 rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-3 py-2.5"
+              >
+                {channel.thumbnailUrl ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={channel.thumbnailUrl} alt="" className="h-9 w-9 shrink-0 rounded-full object-cover" />
+                ) : (
+                  <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-white/10 text-xs font-semibold text-white">
+                    {channel.title.slice(0, 2).toUpperCase()}
+                  </span>
+                )}
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2">
+                    <a
+                      href={`https://www.youtube.com/channel/${channel.id}`}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="truncate text-sm font-medium text-white hover:underline"
+                    >
+                      {channel.title}
+                    </a>
+                    {channel.handle ? (
+                      <span className="truncate text-xs text-[var(--muted-foreground)]">{channel.handle}</span>
+                    ) : null}
+                  </div>
+                  <p className="truncate text-xs text-[var(--muted-foreground)]">
+                    {channel.baseline && channel.baseline.sampleSize > 0
+                      ? `Baseline ${formatCount(channel.baseline.medianViews)} median views · last ${channel.baseline.sampleSize} videos`
+                      : "No baseline yet — run a stats pull"}
+                    {channel.lastFetchedAt ? ` · fetched ${formatDate(channel.lastFetchedAt)}` : ""}
+                  </p>
+                  {channel.lastError ? (
+                    <p className="mt-0.5 flex items-center gap-1 text-xs text-amber-300">
+                      <AlertTriangle className="h-3 w-3 shrink-0" />
+                      <span className="truncate" title={channel.lastError}>
+                        {channel.lastError}
+                      </span>
+                    </p>
+                  ) : null}
+                </div>
+                <Button
+                  variant="ghost"
+                  className="shrink-0 px-2"
+                  aria-label={`Remove ${channel.title}`}
+                  title="Remove from watchlist"
+                  onClick={() => void removeChannel(channel)}
+                >
+                  <Trash2 className="h-4 w-4" />
+                </Button>
+              </div>
+            ))}
+          </div>
+        </Card>
+
+        {/* Run log + detection settings */}
+        <div className="space-y-4">
+          <Card>
+            <h2 className="mb-3 text-sm font-semibold text-white">Run log</h2>
+            {lastRun ? (
+              <div className="space-y-3">
+                <div className="rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-3 py-2 text-xs">
+                  <p className="font-medium text-white">Last pull · {formatDate(lastRun.at)}</p>
+                  <p className="mt-1 text-[var(--muted-foreground)]">
+                    {lastRun.unitsUsed} quota units of 10,000/day · {lastRun.channelsChecked} checked ·{" "}
+                    {lastRun.channelsSkipped} cached · {lastRun.channelsFailed} failed
+                  </p>
+                  {lastRun.notes.map((note) => (
+                    <p key={note} className="mt-1 flex items-center gap-1 text-amber-300">
+                      <AlertTriangle className="h-3 w-3 shrink-0" /> {note}
+                    </p>
+                  ))}
+                </div>
+                <div className="max-h-40 space-y-1 overflow-y-auto text-xs text-[var(--muted-foreground)]">
+                  {state?.runs.slice(1).map((run) => (
+                    <p key={run.id} className="tabular-nums">
+                      {formatDate(run.at)} · {run.unitsUsed}u · {run.channelsChecked} checked
+                      {run.channelsFailed ? ` · ${run.channelsFailed} failed` : ""}
+                    </p>
+                  ))}
+                </div>
+              </div>
+            ) : (
+              <p className="text-sm text-[var(--muted-foreground)]">No pulls yet.</p>
+            )}
+          </Card>
+
+          <Card>
+            <h2 className="mb-3 text-sm font-semibold text-white">Detection settings</h2>
+            {config ? (
+              <div className="space-y-3 text-sm">
+                <label className="flex items-center justify-between gap-3 text-[var(--muted-foreground)]">
+                  Outlier multiplier
+                  <Input
+                    type="number"
+                    min={1}
+                    step={0.5}
+                    className="h-9 w-24 text-right"
+                    value={config.multiplier}
+                    onChange={(e) => setConfigDraft({ ...config, multiplier: Number(e.target.value) })}
+                  />
+                </label>
+                <label className="flex items-center justify-between gap-3 text-[var(--muted-foreground)]">
+                  Baseline window (videos)
+                  <Input
+                    type="number"
+                    min={3}
+                    max={50}
+                    className="h-9 w-24 text-right"
+                    value={config.baselineWindow}
+                    onChange={(e) => setConfigDraft({ ...config, baselineWindow: Number(e.target.value) })}
+                  />
+                </label>
+                <label className="flex items-center justify-between gap-3 text-[var(--muted-foreground)]">
+                  Cache cooldown (minutes)
+                  <Input
+                    type="number"
+                    min={0}
+                    className="h-9 w-24 text-right"
+                    value={config.cooldownMinutes}
+                    onChange={(e) => setConfigDraft({ ...config, cooldownMinutes: Number(e.target.value) })}
+                  />
+                </label>
+                {configDraft ? (
+                  <div className="flex gap-2">
+                    <Button className="flex-1" onClick={() => void saveConfig()}>
+                      Save settings
+                    </Button>
+                    <Button variant="ghost" onClick={() => setConfigDraft(null)}>
+                      Cancel
+                    </Button>
+                  </div>
+                ) : (
+                  <p className="text-xs text-[var(--muted-foreground)]">
+                    A video is flagged at ≥ {config.multiplier}× the channel&apos;s median views over its last{" "}
+                    {config.baselineWindow} uploads.
+                  </p>
+                )}
+              </div>
+            ) : (
+              <p className="text-sm text-[var(--muted-foreground)]">Loading…</p>
+            )}
+          </Card>
+        </div>
+      </div>
+
+      {/* Outliers table */}
+      <Card className="mt-4">
+        <div className="mb-4 flex items-center justify-between gap-3">
+          <h2 className="flex items-center gap-2 text-sm font-semibold text-white">
+            <Flame className="h-4 w-4 text-[var(--accent)]" /> Flagged outliers
+          </h2>
+          <Badge>{sortedOutliers.length}</Badge>
+        </div>
+        {sortedOutliers.length === 0 ? (
+          <p className="rounded-lg border border-dashed border-[var(--border)] px-4 py-8 text-center text-sm text-[var(--muted-foreground)]">
+            Nothing flagged yet. Add channels to the watchlist and run a stats pull — videos at{" "}
+            {state ? `${state.config.multiplier}×` : "3×"} their channel&apos;s baseline will land here.
+          </p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[760px] text-left text-sm">
+              <thead>
+                <tr className="border-b border-[var(--border)] text-xs uppercase tracking-wider text-[var(--muted-foreground)]">
+                  <th className="pb-2 pr-3 font-medium">Video</th>
+                  <th className="pb-2 pr-3 font-medium">Channel</th>
+                  {(
+                    [
+                      ["views", "Views"],
+                      ["multiplier", "Multiplier"],
+                      ["publishedAt", "Published"],
+                      ["detectedAt", "Detected"]
+                    ] as Array<[SortKey, string]>
+                  ).map(([key, label]) => (
+                    <th key={key} className="pb-2 pr-3 font-medium">
+                      <button
+                        type="button"
+                        onClick={() => toggleSort(key)}
+                        className={cn(
+                          "inline-flex items-center gap-1 uppercase tracking-wider transition hover:text-white",
+                          sortKey === key && "text-white"
+                        )}
+                      >
+                        {label}
+                        {sortKey === key ? (
+                          sortDesc ? (
+                            <ArrowDown className="h-3 w-3" />
+                          ) : (
+                            <ArrowUp className="h-3 w-3" />
+                          )
+                        ) : null}
+                      </button>
+                    </th>
+                  ))}
+                  <th className="pb-2 font-medium">Tag / notes</th>
+                </tr>
+              </thead>
+              <tbody>
+                {sortedOutliers.map((outlier) => (
+                  <tr key={outlier.videoId} className="border-b border-[var(--border)] last:border-b-0">
+                    <td className="max-w-[280px] py-2.5 pr-3">
+                      <a
+                        href={outlier.url}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="flex items-center gap-1.5 text-white hover:underline"
+                        title={outlier.title}
+                      >
+                        <span className="truncate">{outlier.title}</span>
+                        <ExternalLink className="h-3.5 w-3.5 shrink-0 text-[var(--muted-foreground)]" />
+                      </a>
+                    </td>
+                    <td className="max-w-[160px] truncate py-2.5 pr-3 text-[var(--muted-foreground)]" title={outlier.channelTitle}>
+                      {outlier.channelTitle}
+                    </td>
+                    <td className="py-2.5 pr-3 tabular-nums text-white" title={`baseline ${formatCount(outlier.baselineViews)}`}>
+                      {formatCount(outlier.views)}
+                    </td>
+                    <td className="py-2.5 pr-3">
+                      <Badge
+                        className={cn(
+                          "tabular-nums",
+                          outlier.multiplier >= 10
+                            ? "border-red-400/30 bg-red-500/15 text-red-200"
+                            : outlier.multiplier >= 5
+                              ? "border-amber-400/30 bg-amber-500/15 text-amber-200"
+                              : "border-emerald-400/30 bg-emerald-500/15 text-emerald-200"
+                        )}
+                      >
+                        {outlier.multiplier.toFixed(1)}×
+                      </Badge>
+                    </td>
+                    <td className="py-2.5 pr-3 text-[var(--muted-foreground)]">{formatDay(outlier.publishedAt)}</td>
+                    <td className="py-2.5 pr-3 text-[var(--muted-foreground)]">{formatDay(outlier.detectedAt)}</td>
+                    <td className="py-2.5">
+                      <Input
+                        defaultValue={outlier.tag}
+                        // Uncontrolled + key so external refreshes (e.g. a scan) update the value.
+                        key={`${outlier.videoId}:${outlier.tag}`}
+                        placeholder="hook style, topic, format…"
+                        className="h-9 min-w-[180px]"
+                        onBlur={(event) => void saveTag(outlier.videoId, event.target.value.trim(), outlier.tag)}
+                        onKeyDown={(event) => {
+                          if (event.key === "Enter") (event.target as HTMLInputElement).blur();
+                        }}
+                      />
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </Card>
+    </div>
+  );
+}
