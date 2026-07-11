@@ -151,7 +151,7 @@ async function runExport(projectId: string, recordId: string) {
     const sy = project.hook.focusY * 2 - 1;
     const rampSec = Math.min(HOOK_ZOOM_RAMP_SEC, Math.max(0.05, hookRange.end / 2));
     const filter =
-      animatedReframeChain("0:v", "vz", FRAME_W, FRAME_H, project.hook.zoom, sx, sy, rampSec) +
+      animatedReframeChain("0:v", "vz", FRAME_W, FRAME_H, project.hook.zoom, sx, sy, rampSec, FPS) +
       `;[vz]${assArg}fps=${FPS},setsar=1,format=yuv420p[vout]`;
     await runFfmpeg(
       [
