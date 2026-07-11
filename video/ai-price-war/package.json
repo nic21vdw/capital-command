@@ -1,0 +1,23 @@
+{
+  "name": "ai-price-war",
+  "version": "1.0.0",
+  "description": "Remotion B-roll graphics for the 'AI Price War' news video (Signal theme, 1920x1080).",
+  "private": true,
+  "scripts": {
+    "preview": "remotion studio",
+    "render": "remotion render AIPriceWar out/ai-price-war.mp4",
+    "typecheck": "tsc --noEmit",
+    "upgrade": "remotion upgrade"
+  },
+  "dependencies": {
+    "@remotion/cli": "^4.0.486",
+    "@remotion/google-fonts": "^4.0.486",
+    "remotion": "^4.0.486",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0"
+  },
+  "devDependencies": {
+    "@types/react": "^19.1.2",
+    "typescript": "^5.8.3"
+  }
+}

@@ -565,9 +565,10 @@ export function ClipEditor({
     }));
   }, []);
 
-  // Hit Delete/Backspace to remove whatever is selected on the timeline — a
-  // caption block or a text/image overlay. Ignored while typing in a field so
-  // it never eats a keystroke mid-edit.
+  // Keyboard shortcuts: Space toggles play/pause; Delete/Backspace removes
+  // whatever is selected on the timeline — a caption block or a text/image
+  // overlay. Ignored while typing in a field so it never eats a keystroke
+  // mid-edit.
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       const target = event.target as HTMLElement | null;
@@ -591,8 +592,16 @@ export function ClipEditor({
         }
       }
 
-      if (event.key !== "Delete" && event.key !== "Backspace") return;
+      if (event.key !== "Delete" && event.key !== "Backspace" && event.key !== " ") return;
       if (typing) return;
+      if (event.key === " ") {
+        // Skip when a button has focus — Space should activate it, and a
+        // toggle here would fight the click it triggers.
+        if (target && target.tagName === "BUTTON") return;
+        event.preventDefault(); // keep the page from scrolling
+        togglePlay();
+        return;
+      }
       if (selectedCaptionId) {
         event.preventDefault();
         deleteCaption(selectedCaptionId);
@@ -606,7 +615,7 @@ export function ClipEditor({
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [selectedCaptionId, selectedOverlayId, deleteCaption, deleteOverlay, undo, redo]);
+  }, [selectedCaptionId, selectedOverlayId, deleteCaption, deleteOverlay, undo, redo, togglePlay]);
 
   // --- Export ---
   const downloadSubtitles = useCallback((format: "srt" | "vtt") => {
