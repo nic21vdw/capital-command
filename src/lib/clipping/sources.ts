@@ -65,7 +65,8 @@ function parseDimensions(stderr: string): { width: number; height: number } {
 
 /**
  * Streams an incoming request body straight to disk (never buffering the whole
- * file in memory), then probes metadata. Safe for ~90-minute uploads.
+ * file in memory), then probes metadata. Safe for multi-hour stream VODs —
+ * nothing here scales with file size.
  */
 export async function saveSourceFromStream(
   body: ReadableStream<Uint8Array>,

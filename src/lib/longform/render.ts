@@ -57,6 +57,11 @@ async function patchRecord(projectId: string, recordId: string, patch: Partial<L
   if (!project) return;
   const record = project.exports.find((item) => item.id === recordId);
   if (!record) return;
+  // ffmpeg reports progress on every stderr line but the rounded percentage
+  // rarely moves — skip no-op patches so a multi-hour render doesn't rewrite
+  // the (large) projects file twice a second for its whole duration.
+  const changed = (Object.keys(patch) as Array<keyof LongformExportRecord>).some((key) => record[key] !== patch[key]);
+  if (!changed) return;
   Object.assign(record, patch);
   await updateProject(projectId, { exports: project.exports });
 }
@@ -192,6 +197,12 @@ async function runExport(projectId: string, recordId: string) {
         `pad=${FRAME_W}:${FRAME_H}:(ow-iw)/2:(oh-ih)/2:color=0x050914,setsar=1,fps=${FPS},format=yuv420p[vout]`
     ];
     if (hasAudio) filters.push(`[0:a]aselect='${expr}',asetpts=N/SR/TB[aout]`);
+    // The select expression carries one between() term per kept range, and a
+    // long stream can have thousands of cuts — passed as an argv argument the
+    // filtergraph would blow past the OS argument size limit (128 KB per arg
+    // on Linux), so it goes through a filter script file instead.
+    const filterPath = path.join(workDir, `export-${recordId}-body-filter.txt`);
+    await writeFile(filterPath, `${filters.join(";\n")}\n`, "utf8");
     await runFfmpeg(
       [
         "-y",
@@ -199,8 +210,8 @@ async function runExport(projectId: string, recordId: string) {
         (lastEnd + 1).toFixed(3),
         "-i",
         srcPath,
-        "-filter_complex",
-        filters.join(";"),
+        "-filter_complex_script",
+        filterPath,
         "-map",
         "[vout]",
         ...(hasAudio ? ["-map", "[aout]"] : []),

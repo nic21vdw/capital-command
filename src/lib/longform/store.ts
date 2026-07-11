@@ -241,6 +241,14 @@ export async function replanProject(id: string, pace: LongformPace): Promise<Lon
   return project;
 }
 
+// Sources longer than this (stream VODs, multi-hour recordings) only get the
+// opening minutes transcribed: the transcript exists to caption the hook,
+// which covers at most the first 60 seconds, and whisper on a full multi-hour
+// stream would take hours. Silence detection always runs on the full audio,
+// so the cut plan covers the whole recording either way.
+const FULL_TRANSCRIBE_MAX_SEC = 45 * 60;
+const LONG_SOURCE_TRANSCRIBE_SEC = 5 * 60;
+
 /**
  * The analysis pipeline: probe the source, transcribe it locally with Whisper
  * (word-level timing drives the hook captions), detect the silences, then
@@ -276,7 +284,17 @@ async function runAnalysis(project: LongformProject) {
   let transcript: LongformProject["transcript"] = [];
   if (audioPath) {
     try {
-      transcript = await transcribeMedia(audioPath, projectWorkDir(project.id));
+      const isLongSource = durationSec > FULL_TRANSCRIBE_MAX_SEC;
+      transcript = await transcribeMedia(
+        audioPath,
+        projectWorkDir(project.id),
+        isLongSource ? { maxSeconds: LONG_SOURCE_TRANSCRIBE_SEC } : {}
+      );
+      if (isLongSource) {
+        project.notices.push(
+          "This is a long recording, so only the opening minutes were transcribed for the hook captions. Dead-space cuts still cover the entire video."
+        );
+      }
       await update(project, { transcript, transcriptError: undefined });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
