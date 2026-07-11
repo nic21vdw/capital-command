@@ -1,7 +1,7 @@
 import { mkdir, readFile, rm } from "node:fs/promises";
 import path from "node:path";
 import { chunkWords } from "@/lib/clipping/captions";
-import { runFfmpeg } from "@/lib/clipping/ffmpeg";
+import { probeDuration, runFfmpeg } from "@/lib/clipping/ffmpeg";
 import type { CaptionSegment, CaptionWord } from "@/types/domain";
 
 /**
@@ -57,26 +57,27 @@ async function getTranscriber(): Promise<Transcriber> {
   return g.__whisperPipeline;
 }
 
-/** Decodes any audio/video file into the 16 kHz mono float PCM Whisper expects. */
-async function decodePcm(mediaPath: string, workDir: string): Promise<Float32Array> {
+const PCM_RATE = 16000;
+
+/**
+ * Decodes a window of any audio/video file into the 16 kHz mono float PCM
+ * Whisper expects. `startSec`/`durationSec` bound the decode so long
+ * recordings never have to fit in memory as one array.
+ */
+async function decodePcm(
+  mediaPath: string,
+  workDir: string,
+  window: { startSec?: number; durationSec?: number } = {}
+): Promise<Float32Array> {
   await mkdir(workDir, { recursive: true });
   const pcmPath = path.join(workDir, `whisper-${Date.now()}.pcm`);
   try {
-    await runFfmpeg([
-      "-y",
-      "-i",
-      mediaPath,
-      "-vn",
-      "-ac",
-      "1",
-      "-ar",
-      "16000",
-      "-f",
-      "f32le",
-      "-acodec",
-      "pcm_f32le",
-      pcmPath
-    ]);
+    const args = ["-y"];
+    if (window.startSec) args.push("-ss", window.startSec.toFixed(3));
+    args.push("-i", mediaPath, "-vn", "-ac", "1", "-ar", String(PCM_RATE));
+    if (window.durationSec) args.push("-t", window.durationSec.toFixed(3));
+    args.push("-f", "f32le", "-acodec", "pcm_f32le", pcmPath);
+    await runFfmpeg(args);
     const buffer = await readFile(pcmPath);
     return new Float32Array(buffer.buffer, buffer.byteOffset, Math.floor(buffer.byteLength / 4));
   } finally {
@@ -117,12 +118,42 @@ export function wordsFromChunks(chunks: WordChunk[]): CaptionWord[] {
   return words;
 }
 
+// Long recordings are decoded and transcribed in windows this long. 10 minutes
+// of 16 kHz f32 PCM is ~38 MB — bounded no matter how long the source is; a
+// single-array decode of a multi-hour stream (~230 MB/hour) would OOM.
+const DECODE_WINDOW_SEC = 600;
+
+/** Shifts model word timestamps from window-relative to source-relative time. */
+export function offsetWordChunks(chunks: WordChunk[], offsetSec: number): WordChunk[] {
+  if (offsetSec === 0) return chunks;
+  return chunks.map((chunk) => ({
+    text: chunk.text,
+    timestamp: [
+      (chunk.timestamp?.[0] ?? 0) + offsetSec,
+      chunk.timestamp?.[1] == null ? null : chunk.timestamp[1] + offsetSec
+    ]
+  }));
+}
+
+export type TranscribeOptions = {
+  /**
+   * Transcribe only the opening this-many seconds. Used by callers that only
+   * need the start of a long recording (the Long-Form hook covers at most the
+   * first 60s) so a multi-hour stream doesn't spend hours in Whisper.
+   */
+  maxSeconds?: number;
+};
+
 /**
  * Transcribes a media file (video or audio) into caption segments with
  * word-level timing. Throws with an actionable message when transcription
  * is unavailable so callers can surface it as a job notice.
  */
-export async function transcribeMedia(mediaPath: string, workDir: string): Promise<CaptionSegment[]> {
+export async function transcribeMedia(
+  mediaPath: string,
+  workDir: string,
+  options: TranscribeOptions = {}
+): Promise<CaptionSegment[]> {
   let transcriber: Transcriber;
   try {
     transcriber = await getTranscriber();
@@ -133,18 +164,52 @@ export async function transcribeMedia(mediaPath: string, workDir: string): Promi
     );
   }
 
-  const audio = await decodePcm(mediaPath, workDir);
-  if (audio.length < 16000 * 0.5) {
-    throw new Error("The audio track is too short to transcribe.");
+  const transcribe = (audio: Float32Array) =>
+    transcriber(audio, {
+      chunk_length_s: 30,
+      stride_length_s: 5,
+      return_timestamps: "word"
+    });
+
+  // The window plan needs the media duration; when the probe fails, fall back
+  // to a single whole-file decode (short/odd files, exactly the old behavior).
+  let totalSec: number | null = null;
+  try {
+    totalSec = await probeDuration(mediaPath);
+  } catch {
+    totalSec = null;
+  }
+  const capSec = options.maxSeconds && options.maxSeconds > 0 ? options.maxSeconds : null;
+  const targetSec = totalSec === null ? capSec : capSec === null ? totalSec : Math.min(totalSec, capSec);
+
+  const allChunks: WordChunk[] = [];
+  let decodedSamples = 0;
+  if (targetSec !== null && targetSec > DECODE_WINDOW_SEC) {
+    for (let offset = 0; offset < targetSec; offset += DECODE_WINDOW_SEC) {
+      const windowSec = Math.min(DECODE_WINDOW_SEC, targetSec - offset);
+      const audio = await decodePcm(mediaPath, workDir, { startSec: offset, durationSec: windowSec });
+      decodedSamples += audio.length;
+      if (audio.length >= PCM_RATE * 0.25) {
+        const result = await transcribe(audio);
+        allChunks.push(...offsetWordChunks(result.chunks ?? [], offset));
+      }
+      // The probed duration can overshoot the real audio (VBR headers); a
+      // short decode means the stream actually ended inside this window.
+      if (audio.length < (windowSec - 1) * PCM_RATE) break;
+    }
+  } else {
+    const audio = await decodePcm(mediaPath, workDir, targetSec !== null ? { durationSec: targetSec } : {});
+    decodedSamples = audio.length;
+    if (audio.length >= PCM_RATE * 0.25) {
+      const result = await transcribe(audio);
+      allChunks.push(...(result.chunks ?? []));
+    }
   }
 
-  const result = await transcriber(audio, {
-    chunk_length_s: 30,
-    stride_length_s: 5,
-    return_timestamps: "word"
-  });
-
-  const words = wordsFromChunks(result.chunks ?? []);
+  if (decodedSamples < PCM_RATE * 0.5) {
+    throw new Error("The audio track is too short to transcribe.");
+  }
+  const words = wordsFromChunks(allChunks);
   if (words.length === 0) {
     throw new Error("No speech was detected in this video. You can still add caption segments manually in the editor.");
   }

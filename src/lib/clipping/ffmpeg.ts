@@ -56,7 +56,9 @@ export function runFfmpeg(
     child.stderr.on("data", (chunk) => {
       const text = String(chunk);
       stderr += text;
-      // Keep memory bounded on long renders; we only ever parse the tail.
+      // Keep memory bounded on long renders. Anything that must see every
+      // line (e.g. silencedetect output on a multi-hour stream) has to parse
+      // via onLine — the captured stderr only reliably holds the tail.
       if (stderr.length > 400_000) stderr = stderr.slice(-200_000);
       if (onLine) {
         // ffmpeg redraws progress with \r; split on both so we see live time=.

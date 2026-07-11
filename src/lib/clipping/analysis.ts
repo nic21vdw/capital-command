@@ -69,28 +69,41 @@ export async function extractEnergy(inputPath: string): Promise<EnergyWindow[]> 
   return windows;
 }
 
-/** Detects silence ranges used to snap clip boundaries to natural pauses. */
-export async function detectSilences(inputPath: string): Promise<SilenceRange[]> {
-  const { stderr } = await runFfmpeg(
-    ["-hide_banner", "-i", inputPath, "-map", "a:0", "-af", "silencedetect=noise=-35dB:d=0.35", "-f", "null", "-"],
-    { allowFailure: true }
-  );
-
+/**
+ * Incremental parser for silencedetect log lines. Feed every stderr line
+ * through `onLine`; `ranges` accumulates the completed silences in order.
+ */
+export function createSilenceCollector(): { ranges: SilenceRange[]; onLine: (line: string) => void } {
   const ranges: SilenceRange[] = [];
   let pendingStart: number | null = null;
-  for (const line of stderr.split("\n")) {
+  const onLine = (line: string) => {
     const start = line.match(/silence_start:\s*([\d.]+)/);
     if (start) {
       pendingStart = Number(start[1]);
-      continue;
+      return;
     }
     const end = line.match(/silence_end:\s*([\d.]+)/);
     if (end && pendingStart !== null) {
       ranges.push({ start: pendingStart, end: Number(end[1]) });
       pendingStart = null;
     }
-  }
-  return ranges;
+  };
+  return { ranges, onLine };
+}
+
+/** Detects silence ranges used to snap clip boundaries to natural pauses. */
+export async function detectSilences(inputPath: string): Promise<SilenceRange[]> {
+  // Silences are parsed line-by-line as ffmpeg emits them, NOT from the
+  // accumulated stderr afterwards: runFfmpeg caps captured stderr at 400 KB,
+  // and a multi-hour stream logs thousands of silencedetect lines — parsing
+  // the capped buffer would silently drop every silence before the cap and
+  // leave the first hours of the recording uncut.
+  const collector = createSilenceCollector();
+  await runFfmpeg(
+    ["-hide_banner", "-i", inputPath, "-map", "a:0", "-af", "silencedetect=noise=-35dB:d=0.35", "-f", "null", "-"],
+    { allowFailure: true, onLine: collector.onLine }
+  );
+  return collector.ranges;
 }
 
 function percentile(sorted: number[], p: number) {

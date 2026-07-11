@@ -55,6 +55,24 @@ describe("buildSegments", () => {
     expect(segments[0]).toMatchObject({ start: 0, kind: "speech", enabled: true });
   });
 
+  it("plans a full cut list for a stream-length recording", () => {
+    // An 8-hour stream VOD with a pause every ~4 seconds: every qualifying
+    // silence must become a cut — nothing caps or truncates the plan.
+    const durationSec = 8 * 3600;
+    const silences = Array.from({ length: 7200 }, (_, i) => ({ start: i * 4 + 3, end: i * 4 + 4 }));
+    const segments = buildSegments(durationSec, silences, DEFAULT_PACE);
+    const cuts = segments.filter((s) => s.kind === "silence" && !s.enabled);
+    expect(cuts).toHaveLength(7200);
+    // The tiling covers the whole recording with no gaps or overlaps.
+    expect(segments[0].start).toBe(0);
+    expect(segments[segments.length - 1].end).toBeCloseTo(durationSec, 3);
+    for (let i = 1; i < segments.length; i++) {
+      expect(segments[i].start).toBeCloseTo(segments[i - 1].end, 3);
+    }
+    // The last hour of the stream is still being cut, not just the start.
+    expect(cuts[cuts.length - 1].start).toBeGreaterThan(7 * 3600);
+  });
+
   it("covers the full duration with no gaps or overlaps", () => {
     const segments = buildSegments(
       120,
