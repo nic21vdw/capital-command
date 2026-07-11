@@ -349,6 +349,12 @@ function OverlayItem({
 
   const isText = overlay.kind === "text";
 
+  // The whole overlay is CSS-scaled, so anything rendered inside shrinks and
+  // grows with it — a small text box would get near-invisible, unclickable
+  // handles. Counter-scale the handles (and the click slop around the box) so
+  // they keep a constant on-screen size no matter the overlay's scale.
+  const handleScale = 1 / Math.max(0.2, overlay.scale);
+
   // Once the user drags the side handle, `width` pins both the box width and the
   // wrapping boundary; until then the box stays content-sized and only wraps
   // near the frame edge, matching the pre-resize behavior.
@@ -376,7 +382,17 @@ function OverlayItem({
       }}
       title={isText && !overlay.locked && !editing ? "Double-click to edit text" : undefined}
     >
-      <div className={cn("relative", selected && "outline outline-2 outline-[var(--accent)]")}>
+      <div
+        className={cn(
+          "relative",
+          selected && "outline outline-2 outline-[var(--accent)]",
+          !selected && !overlay.locked && !editing && "hover:outline hover:outline-1 hover:outline-white/50"
+        )}
+      >
+        {/* Invisible click slop so selecting the box doesn't require hitting
+            the glyphs exactly — a near-miss still selects instead of
+            deselecting and toggling playback. */}
+        {!editing && <span className="absolute" style={{ inset: -12 * handleScale }} />}
         {isText ? (
           editing ? (
             <span
@@ -439,21 +455,27 @@ function OverlayItem({
               <span
                 onPointerDown={onPointerDown("width")}
                 title="Drag to widen or narrow the text box"
-                className="absolute -right-2 top-1/2 h-4 w-4 -translate-y-1/2 cursor-ew-resize rounded-full border-2 border-white bg-[var(--accent)]"
-                style={{ touchAction: "none" }}
-              />
+                className="absolute right-0 top-1/2 flex h-8 w-8 cursor-ew-resize items-center justify-center"
+                style={{ touchAction: "none", transform: `translate(50%, -50%) scale(${handleScale})` }}
+              >
+                <span className="h-4 w-4 rounded-full border-2 border-white bg-[var(--accent)]" />
+              </span>
             )}
             <span
               onPointerDown={onPointerDown("scale")}
-              className="absolute -bottom-2 -right-2 h-4 w-4 cursor-nwse-resize rounded-full border-2 border-white bg-[var(--accent)]"
-              style={{ touchAction: "none" }}
-            />
+              className="absolute bottom-0 right-0 flex h-8 w-8 cursor-nwse-resize items-center justify-center"
+              style={{ touchAction: "none", transform: `translate(50%, 50%) scale(${handleScale})` }}
+            >
+              <span className="h-4 w-4 rounded-full border-2 border-white bg-[var(--accent)]" />
+            </span>
             <span
               onPointerDown={onPointerDown("rotate")}
-              className="absolute -top-7 left-1/2 flex h-5 w-5 -translate-x-1/2 cursor-grab items-center justify-center rounded-full border-2 border-white bg-[var(--accent)]"
-              style={{ touchAction: "none" }}
+              className="absolute left-1/2 top-0 flex h-8 w-8 cursor-grab items-center justify-center"
+              style={{ touchAction: "none", transform: `translate(-50%, -100%) scale(${handleScale})`, transformOrigin: "50% 100%" }}
             >
-              <RotateCw className="h-3 w-3 text-white" />
+              <span className="flex h-5 w-5 items-center justify-center rounded-full border-2 border-white bg-[var(--accent)]">
+                <RotateCw className="h-3 w-3 text-white" />
+              </span>
             </span>
           </>
         )}

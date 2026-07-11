@@ -25,6 +25,13 @@ export const longformHookSchema = z.object({
   captionStyle: captionStyleSchema
 });
 
+export const longformCaptionsSchema = z.object({
+  enabled: z.coerce.boolean(),
+  highlightCurrentWord: z.coerce.boolean(),
+  segments: z.array(captionSegmentSchema).max(5000),
+  style: captionStyleSchema
+});
+
 export const longformOverlaySchema = z.object({
   id: z.string(),
   fileName: z.string(),
@@ -67,8 +74,11 @@ export const longformPaceSchema = z.object({
 export const longformProjectPatchSchema = z
   .object({
     name: z.string().trim().min(1).max(200),
-    segments: z.array(longformSegmentSchema).max(5000),
+    // Sized for stream VODs: an 8-hour recording on the Ultra pace produces
+    // well over 10k segments, and the editor PATCHes the full list back.
+    segments: z.array(longformSegmentSchema).max(50000),
     hook: longformHookSchema,
+    captions: longformCaptionsSchema,
     overlays: z.array(longformOverlaySchema).max(100),
     music: longformMusicSchema,
     sfx: sfxSettingsSchema,

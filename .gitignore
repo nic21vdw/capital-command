@@ -16,6 +16,7 @@ data/longform/
 data/publish-queue.json
 data/publisher-tokens.json
 data/title-log.jsonl
+data/youtube-outliers.json
 backups/
 
 # Remotion render output + bundle cache

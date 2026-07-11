@@ -45,6 +45,21 @@ export type LongformHook = {
 };
 
 /**
+ * Whole-video captions — the same functionality the short-form Clip Editor
+ * has, applied to the entire long-form video. Segments live in source-timeline
+ * seconds (the same coordinate the segments and hook use), so the preview can
+ * show them directly; the export maps them onto the edited runtime. When the
+ * hook burns its own captions, these take over from `hook.end` onward.
+ */
+export type LongformCaptions = {
+  enabled: boolean;
+  highlightCurrentWord: boolean;
+  /** Caption segments in source-timeline seconds, chunked from the transcript. */
+  segments: CaptionSegment[];
+  style: CaptionStyle;
+};
+
+/**
  * An image dropped onto the timeline and shown as an overlay. Timing is in
  * source-timeline seconds (the same coordinate the segments and hook use), so
  * the preview can show it directly; the export maps it onto the edited runtime.
@@ -152,6 +167,8 @@ export type LongformProject = {
   silences: SilenceRange[];
   segments: LongformSegment[];
   hook: LongformHook;
+  /** Whole-video captions burned over the edited runtime. */
+  captions: LongformCaptions;
   /** Images dropped onto the timeline, rendered over the edited video. */
   overlays: LongformOverlay[];
   music: LongformMusic;

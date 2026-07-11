@@ -16,8 +16,9 @@ const HOOK_ZOOM_RAMP_SEC = 0.5;
 
 // Live preview of the edited long-form video. The hook punch-in is emulated
 // with a CSS transform (the export bakes the identical crop via ffmpeg) and
-// the hook captions render word-synced on top, so what plays here is what
-// exports. Cut segments are skipped by the parent's playback loop.
+// the captions render word-synced on top — the hook's own captions inside the
+// hook window, the whole-video captions everywhere else — so what plays here
+// is what exports. Cut segments are skipped by the parent's playback loop.
 
 export function LongformPreview({
   project,
@@ -29,6 +30,7 @@ export function LongformPreview({
   focusEditing,
   onFocusChange,
   onCaptionStyleChange,
+  onBodyCaptionStyleChange,
   imageUrl
 }: {
   project: LongformProject;
@@ -43,6 +45,8 @@ export function LongformPreview({
   onFocusChange: (x: number, y: number) => void;
   /** Persist drag-to-move / drag-to-scale edits to the hook caption. */
   onCaptionStyleChange?: (partial: Partial<CaptionStyle>) => void;
+  /** Persist drag-to-move / drag-to-scale edits to the whole-video captions. */
+  onBodyCaptionStyleChange?: (partial: Partial<CaptionStyle>) => void;
   /** Resolves an overlay to a displayable image URL. */
   imageUrl: (overlay: LongformProject["overlays"][number]) => string;
 }) {
@@ -70,15 +74,40 @@ export function LongformPreview({
   const eased = 1 - Math.pow(1 - rampProgress, 3);
   const zoom = hookActive ? 1 + (hook.zoom - 1) * eased : 1;
 
-  // The current hook caption + spoken word for the overlay.
-  const activeCaption = useMemo(() => {
-    if (!hookActive || !hook.captionsEnabled) return null;
-    return hook.captions.find((seg) => seg.enabled && seg.text.trim() && time >= seg.start && time < seg.end) ?? null;
-  }, [hookActive, hook.captionsEnabled, hook.captions, time]);
+  // The caption to overlay right now: the hook's own captions win inside the
+  // hook window; the whole-video captions cover everything else — mirroring
+  // exactly which layer the export burns at this instant.
+  const bodyCaptions = project.captions;
+  const hookCaptionsBurned =
+    hook.enabled && hook.captionsEnabled && hook.captions.some((seg) => seg.enabled && seg.text.trim());
+  const activeLayer = useMemo(() => {
+    const at = (seg: (typeof hook.captions)[number]) =>
+      seg.enabled && seg.text.trim() && time >= seg.start && time < seg.end;
+    if (hookActive && hookCaptionsBurned) {
+      const seg = hook.captions.find(at);
+      return seg
+        ? { seg, style: hook.captionStyle, highlight: hook.highlightCurrentWord, onStyleChange: onCaptionStyleChange }
+        : null;
+    }
+    if (bodyCaptions?.enabled && !(hookCaptionsBurned && time < hook.end)) {
+      const seg = bodyCaptions.segments.find(at);
+      return seg
+        ? {
+            seg,
+            style: bodyCaptions.style,
+            highlight: bodyCaptions.highlightCurrentWord,
+            onStyleChange: onBodyCaptionStyleChange
+          }
+        : null;
+    }
+    return null;
+  }, [hookActive, hookCaptionsBurned, hook, bodyCaptions, time, onCaptionStyleChange, onBodyCaptionStyleChange]);
 
-  const style = hook.captionStyle;
+  const activeCaption = activeLayer?.seg ?? null;
+  const style = activeLayer?.style ?? hook.captionStyle;
+  const activeStyleChange = activeLayer?.onStyleChange;
   const fontSize = Math.max(10, style.fontScale * frameHeight);
-  const captionInteractive = Boolean(onCaptionStyleChange);
+  const captionInteractive = Boolean(activeStyleChange);
   const captionCustomPos = style.offsetX !== undefined && style.offsetY !== undefined;
 
   // Timeline images visible at the current source time.
@@ -125,13 +154,13 @@ export function LongformPreview({
       const dx = ev.clientX - sx;
       const dy = ev.clientY - sy;
       if (mode === "move") {
-        onCaptionStyleChange?.({
+        activeStyleChange?.({
           offsetX: clamp(startX + dx / Math.max(1, frameRect.width), 0.02, 0.98),
           offsetY: clamp(startY + dy / Math.max(1, frameRect.height), 0.02, 0.98)
         });
       } else {
         const px = startScale * frameRect.height + (dx + dy) / 2;
-        onCaptionStyleChange?.({ fontScale: clamp(px / Math.max(1, frameRect.height), 0.04, 0.12) });
+        activeStyleChange?.({ fontScale: clamp(px / Math.max(1, frameRect.height), 0.04, 0.12) });
       }
     };
     const onUp = () => {
@@ -243,7 +272,7 @@ export function LongformPreview({
             {activeCaption.words.length > 0
               ? activeCaption.words.map((word, index) => {
                   const isCurrent =
-                    hook.highlightCurrentWord &&
+                    (activeLayer?.highlight ?? false) &&
                     time >= word.start &&
                     (index === activeCaption.words.length - 1 || time < activeCaption.words[index + 1].start);
                   return (

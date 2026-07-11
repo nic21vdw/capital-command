@@ -4,7 +4,7 @@ import { detectSilences } from "@/lib/clipping/analysis";
 import { probeDuration, runFfmpeg } from "@/lib/clipping/ffmpeg";
 import { readSourceMeta, sourceFilePath } from "@/lib/clipping/sources";
 import { transcribeMedia } from "@/lib/clipping/whisper";
-import { DEFAULT_PACE, buildSegments, hookCaptions, planHook } from "@/lib/longform/plan";
+import { DEFAULT_PACE, buildSegments, hookCaptions, planCaptions, planHook } from "@/lib/longform/plan";
 import type { LongformPace, LongformProject } from "@/lib/longform/types";
 import { defaultSfxSettings } from "@/lib/sfx/types";
 
@@ -48,6 +48,9 @@ async function loadProjects() {
     for (const project of JSON.parse(raw) as LongformProject[]) {
       // Projects saved before timeline images existed have no overlays field.
       project.overlays ??= [];
+      // Projects saved before whole-video captions existed get them seeded
+      // from the stored transcript, switched off so exports don't change.
+      project.captions ??= planCaptions(project.transcript ?? []);
       // Projects saved before the audio track existed have no clips array, and
       // may carry a legacy single background track — migrate it into one clip
       // spanning the whole edit so it keeps playing and stays editable.
@@ -198,6 +201,7 @@ export async function createProject(sourceId: string, name?: string): Promise<Lo
     silences: [],
     segments: [],
     hook: planHook([], meta.durationSec || 0),
+    captions: planCaptions([]),
     overlays: [],
     music: { enabled: false, clips: [], videoVolume: 1, masterVolume: 1 },
     sfx: defaultSfxSettings(),
@@ -241,6 +245,14 @@ export async function replanProject(id: string, pace: LongformPace): Promise<Lon
   return project;
 }
 
+// Sources longer than this (stream VODs, multi-hour recordings) only get the
+// opening minutes transcribed: the transcript exists to caption the hook,
+// which covers at most the first 60 seconds, and whisper on a full multi-hour
+// stream would take hours. Silence detection always runs on the full audio,
+// so the cut plan covers the whole recording either way.
+const FULL_TRANSCRIBE_MAX_SEC = 45 * 60;
+const LONG_SOURCE_TRANSCRIBE_SEC = 5 * 60;
+
 /**
  * The analysis pipeline: probe the source, transcribe it locally with Whisper
  * (word-level timing drives the hook captions), detect the silences, then
@@ -276,7 +288,17 @@ async function runAnalysis(project: LongformProject) {
   let transcript: LongformProject["transcript"] = [];
   if (audioPath) {
     try {
-      transcript = await transcribeMedia(audioPath, projectWorkDir(project.id));
+      const isLongSource = durationSec > FULL_TRANSCRIBE_MAX_SEC;
+      transcript = await transcribeMedia(
+        audioPath,
+        projectWorkDir(project.id),
+        isLongSource ? { maxSeconds: LONG_SOURCE_TRANSCRIBE_SEC } : {}
+      );
+      if (isLongSource) {
+        project.notices.push(
+          "This is a long recording, so only the opening minutes were transcribed for the hook captions. Dead-space cuts still cover the entire video."
+        );
+      }
       await update(project, { transcript, transcriptError: undefined });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -296,10 +318,23 @@ async function runAnalysis(project: LongformProject) {
   await update(project, { stage: "planning", progress: 90 });
   const segments = buildSegments(durationSec, silences, project.pace);
   const hook = planHook(transcript, durationSec);
+  // Reseed the whole-video captions from the fresh transcript, keeping the
+  // user's toggle and styling if this is a re-analysis.
+  const captions = {
+    ...planCaptions(transcript),
+    ...(project.captions
+      ? {
+          enabled: project.captions.enabled,
+          highlightCurrentWord: project.captions.highlightCurrentWord,
+          style: project.captions.style
+        }
+      : {})
+  };
   await update(project, {
     silences,
     segments,
     hook,
+    captions,
     transcript,
     status: "ready",
     stage: "ready",
