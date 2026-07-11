@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowLeft,
+  Captions,
   Copy,
   Crosshair,
   Download,
@@ -27,22 +28,24 @@ import {
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
-import { ColorField, Field, RangeField, SelectField, Toggle } from "@/components/editor/controls";
+import { ColorField, Field, NumberField, RangeField, SelectField, Toggle } from "@/components/editor/controls";
 import { LongformAudioMixer } from "@/components/longform/longform-audio-mixer";
 import { LongformPreview } from "@/components/longform/longform-preview";
 import { LongformTimeline, type TimelineSelection } from "@/components/longform/longform-timeline";
-import { formatClock } from "@/lib/clipping/editor";
-import { PACE_PRESETS, applyManualRange, editedDurationSec, hookCaptions, type PacePresetId } from "@/lib/longform/plan";
+import { CAPTION_PRESETS } from "@/lib/clipping/captions";
+import { applyCaptionPreset, formatClock } from "@/lib/clipping/editor";
+import { PACE_PRESETS, applyManualRange, editedDurationSec, hookCaptions, transcriptCaptions, type PacePresetId } from "@/lib/longform/plan";
 import type { LongformAudioClip, LongformExportRecord, LongformOverlay, LongformProject, MusicTrack } from "@/lib/longform/types";
-import type { CaptionAnimation, CaptionPosition, CaptionSegment } from "@/types/domain";
+import type { CaptionAlignment, CaptionAnimation, CaptionPosition, CaptionPresetId, CaptionSegment } from "@/types/domain";
 import { cn } from "@/lib/utils";
 
 // The Long-Form Editor working view: preview + timeline on the left, the
-// Hook / Cuts / Music / Export panels on the right. Every change autosaves to
-// the server after a short debounce, mirroring the Clip Editor's behavior.
+// Hook / Captions / Cuts / Music / Export panels on the right. Every change
+// autosaves to the server after a short debounce, mirroring the Clip Editor.
 
 const TABS = [
   { id: "hook", label: "Hook", icon: Zap },
+  { id: "captions", label: "Captions", icon: Captions },
   { id: "cuts", label: "Cuts", icon: Scissors },
   { id: "trim", label: "Trim", icon: Slice },
   { id: "images", label: "Images", icon: ImageIcon },
@@ -169,6 +172,7 @@ export function LongformEditor({
           name: current.name,
           segments: current.segments,
           hook: current.hook,
+          captions: current.captions,
           overlays: current.overlays,
           music: current.music,
           pace: current.pace
@@ -513,6 +517,9 @@ export function LongformEditor({
             onCaptionStyleChange={(partial) =>
               patch({ hook: { ...project.hook, captionStyle: { ...project.hook.captionStyle, ...partial } } })
             }
+            onBodyCaptionStyleChange={(partial) =>
+              patch({ captions: { ...project.captions, style: { ...project.captions.style, ...partial } } })
+            }
             imageUrl={overlayImageUrl}
           />
 
@@ -610,7 +617,7 @@ export function LongformEditor({
 
         {/* Panels */}
         <div className="min-w-0">
-          <div className="mb-3 grid grid-cols-6 gap-1 rounded-xl border border-[var(--border)] bg-[var(--surface)] p-1">
+          <div className="mb-3 grid grid-cols-7 gap-1 rounded-xl border border-[var(--border)] bg-[var(--surface)] p-1">
             {TABS.map((item) => {
               const Icon = item.icon;
               const active = tab === item.id;
@@ -641,6 +648,7 @@ export function LongformEditor({
                 seek={seek}
               />
             )}
+            {tab === "captions" && <CaptionsPanel project={project} patch={patch} time={time} seek={seek} />}
             {tab === "cuts" && <CutsPanel project={project} patch={patch} setProject={setProject} seek={seek} skipDirtyRef={skipDirtyRef} />}
             {tab === "trim" && (
               <TrimPanel
@@ -863,6 +871,275 @@ function HookPanel({
               </Field>
             </>
           )}
+        </>
+      )}
+    </div>
+  );
+}
+
+// The editable caption list is windowed around the playhead so a long
+// transcript (hundreds of segments) never renders hundreds of textareas.
+const CAPTION_LIST_BEHIND_SEC = 20;
+const CAPTION_LIST_AHEAD_SEC = 90;
+
+function CaptionsPanel({
+  project,
+  patch,
+  time,
+  seek
+}: {
+  project: LongformProject;
+  patch: (partial: Partial<LongformProject>) => void;
+  time: number;
+  seek: (t: number) => void;
+}) {
+  const captions = project.captions;
+  const s = captions.style;
+  const patchCaptions = (partial: Partial<LongformProject["captions"]>) =>
+    patch({ captions: { ...captions, ...partial } });
+  const patchStyle = (partial: Partial<LongformProject["captions"]["style"]>) =>
+    patchCaptions({ style: { ...s, ...partial } });
+  const updateSegment = (id: string, partial: Partial<CaptionSegment>) =>
+    patchCaptions({ segments: captions.segments.map((seg) => (seg.id === id ? { ...seg, ...partial } : seg)) });
+  const deleteSegment = (id: string) => patchCaptions({ segments: captions.segments.filter((seg) => seg.id !== id) });
+
+  // Rebuild the segments from the transcript with the current phrase length.
+  // Like changing the hook length, this discards manual text edits.
+  const resplit = () => {
+    patchCaptions({ segments: transcriptCaptions(project.transcript, s.maxWordsPerCaption) });
+    toast.success("Captions re-split from the transcript.");
+  };
+
+  const hookCovers = project.hook.enabled && project.hook.captionsEnabled;
+  const visible = captions.segments.filter(
+    (seg) => seg.end >= time - CAPTION_LIST_BEHIND_SEC && seg.start <= time + CAPTION_LIST_AHEAD_SEC
+  );
+
+  return (
+    <div className="space-y-4">
+      <div>
+        <h3 className="text-sm font-semibold text-white">Captions</h3>
+        <p className="mt-1 text-xs text-[var(--muted-foreground)]">
+          Burn word-synced captions over the whole video — the same captions the short clips get. They follow your cuts,
+          so nothing shows over trimmed footage.
+        </p>
+      </div>
+
+      <Toggle label="Captions on the whole video" checked={captions.enabled} onChange={(v) => patchCaptions({ enabled: v })} />
+
+      {captions.enabled && captions.segments.length === 0 && (
+        <p className="rounded-lg border border-dashed border-[var(--border)] px-3 py-3 text-xs text-[var(--muted-foreground)]">
+          {project.transcript.length === 0
+            ? "No transcript was generated for this video, so captions are unavailable."
+            : "No speech was detected in this video."}
+        </p>
+      )}
+
+      {captions.enabled && captions.segments.length > 0 && (
+        <>
+          {hookCovers && (
+            <p className="rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-3 py-2 text-xs text-[var(--muted-foreground)]">
+              The hook burns its own captions over the first {project.hook.end.toFixed(1)}s — these take over right
+              after it.
+            </p>
+          )}
+
+          <Field label="Presets">
+            <div className="flex flex-wrap gap-1.5">
+              {(Object.keys(CAPTION_PRESETS) as CaptionPresetId[]).map((id) => (
+                <button
+                  key={id}
+                  type="button"
+                  onClick={() => patchCaptions({ style: applyCaptionPreset(s, id) })}
+                  className="rounded-full border border-[var(--border)] px-2.5 py-1 text-xs text-[var(--muted-foreground)] transition hover:border-[var(--accent)] hover:text-white"
+                >
+                  {CAPTION_PRESETS[id].label}
+                </button>
+              ))}
+            </div>
+          </Field>
+
+          <Toggle
+            label="Highlight the spoken word"
+            checked={captions.highlightCurrentWord}
+            onChange={(v) => patchCaptions({ highlightCurrentWord: v })}
+          />
+
+          <div className="grid grid-cols-2 gap-3">
+            <SelectField
+              label="Font"
+              value={s.fontFamily}
+              onChange={(v) => patchStyle({ fontFamily: v })}
+              options={[
+                { value: "Inter, system-ui, sans-serif", label: "Inter" },
+                { value: "Arial, sans-serif", label: "Arial" },
+                { value: "Georgia, serif", label: "Georgia" },
+                { value: "'Courier New', monospace", label: "Mono" },
+                { value: "Impact, sans-serif", label: "Impact" }
+              ]}
+            />
+            <SelectField
+              label="Weight"
+              value={String(s.fontWeight)}
+              onChange={(v) => patchStyle({ fontWeight: Number(v) })}
+              options={[
+                { value: "400", label: "Regular" },
+                { value: "600", label: "Semibold" },
+                { value: "800", label: "Bold" },
+                { value: "900", label: "Black" }
+              ]}
+            />
+          </div>
+
+          <RangeField
+            label="Caption size"
+            value={s.fontScale}
+            min={0.03}
+            max={0.12}
+            step={0.002}
+            onChange={(v) => patchStyle({ fontScale: v })}
+            format={(v) => `${Math.round(v * 1000) / 10}%`}
+          />
+
+          <div className="grid grid-cols-2 gap-3">
+            <ColorField label="Text colour" value={s.textColor} onChange={(v) => patchStyle({ textColor: v })} />
+            <ColorField label="Highlight colour" value={s.highlightColor} onChange={(v) => patchStyle({ highlightColor: v })} />
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <ColorField label="Background" value={s.backgroundColor} onChange={(v) => patchStyle({ backgroundColor: v })} />
+            <RangeField
+              label="Background opacity"
+              value={s.backgroundOpacity}
+              min={0}
+              max={1}
+              step={0.05}
+              onChange={(v) => patchStyle({ backgroundOpacity: v })}
+              format={(v) => `${Math.round(v * 100)}%`}
+            />
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <RangeField label="Outline" value={s.outlineWidth} min={0} max={8} step={0.5} onChange={(v) => patchStyle({ outlineWidth: v })} />
+            <RangeField label="Shadow" value={s.shadow} min={0} max={8} step={0.5} onChange={(v) => patchStyle({ shadow: v })} />
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <SelectField<CaptionPosition>
+              label="Position"
+              value={s.position}
+              // Picking a preset slot discards any drag-placed position.
+              onChange={(v) => patchStyle({ position: v, offsetX: undefined, offsetY: undefined })}
+              options={[
+                { value: "bottom", label: "Bottom" },
+                { value: "lower-third", label: "Lower third" },
+                { value: "middle", label: "Middle" },
+                { value: "top", label: "Top" }
+              ]}
+            />
+            <SelectField<CaptionAlignment>
+              label="Alignment"
+              value={s.alignment}
+              onChange={(v) => patchStyle({ alignment: v })}
+              options={[
+                { value: "left", label: "Left" },
+                { value: "center", label: "Center" },
+                { value: "right", label: "Right" }
+              ]}
+            />
+          </div>
+          {s.offsetX !== undefined && s.offsetY !== undefined && (
+            <div className="flex items-center justify-between rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-3 py-2 text-xs">
+              <span className="text-[var(--muted-foreground)]">
+                Custom placement ({Math.round(s.offsetX * 100)}%, {Math.round(s.offsetY * 100)}%) — drag the caption on
+                the preview to adjust.
+              </span>
+              <button
+                type="button"
+                className="shrink-0 rounded-md border border-[var(--border)] px-2 py-1 font-medium hover:bg-white/5"
+                onClick={() => patchStyle({ offsetX: undefined, offsetY: undefined })}
+              >
+                Reset
+              </button>
+            </div>
+          )}
+          <div className="grid grid-cols-2 gap-3">
+            <SelectField<CaptionAnimation>
+              label="Animation"
+              value={s.animation}
+              onChange={(v) => patchStyle({ animation: v })}
+              options={[
+                { value: "none", label: "None" },
+                { value: "fade", label: "Fade" },
+                { value: "pop", label: "Pop" },
+                { value: "karaoke", label: "Karaoke" }
+              ]}
+            />
+            <div className="flex items-end">
+              <Toggle label="UPPERCASE" checked={s.uppercase} onChange={(v) => patchStyle({ uppercase: v })} />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <NumberField
+              label="Max words / caption"
+              value={s.maxWordsPerCaption}
+              min={1}
+              max={20}
+              onChange={(v) => patchStyle({ maxWordsPerCaption: v })}
+            />
+            <NumberField label="Words / line" value={s.wordsPerLine} min={1} max={12} onChange={(v) => patchStyle({ wordsPerLine: v })} />
+          </div>
+          <Button variant="secondary" className="w-full px-2 text-xs" onClick={resplit}>
+            Re-split captions from the transcript
+          </Button>
+
+          <Field
+            label="Caption text"
+            hint={`${visible.length} of ${captions.segments.length} around the playhead`}
+          >
+            <div className="max-h-[38vh] space-y-2 overflow-y-auto pr-1">
+              {visible.length === 0 && (
+                <p className="rounded-lg border border-dashed border-[var(--border)] px-3 py-3 text-xs text-[var(--muted-foreground)]">
+                  No captions near the playhead — seek the video to edit other parts.
+                </p>
+              )}
+              {visible.map((seg) => (
+                <div key={seg.id} className="rounded-lg border border-[var(--border)] p-2">
+                  <div className="mb-1.5 flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => updateSegment(seg.id, { enabled: !seg.enabled })}
+                      className={cn(
+                        "h-4 w-4 shrink-0 rounded border transition",
+                        seg.enabled ? "border-[var(--accent)] bg-[var(--accent)]" : "border-[var(--border)]"
+                      )}
+                      aria-label={seg.enabled ? "Hide caption" : "Show caption"}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => seek(seg.start + 0.01)}
+                      className="font-mono text-[11px] text-[var(--accent)] hover:underline"
+                    >
+                      {formatClock(seg.start)} → {formatClock(seg.end)}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => deleteSegment(seg.id)}
+                      className="ml-auto flex h-6 w-6 shrink-0 items-center justify-center rounded-md border border-[var(--border)] text-[var(--muted-foreground)] transition hover:border-red-400/60 hover:text-red-400"
+                      aria-label="Delete caption"
+                      title="Delete this caption"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                  <textarea
+                    value={seg.text}
+                    onChange={(event) => updateSegment(seg.id, { text: event.target.value })}
+                    rows={1}
+                    className="min-h-9 w-full resize-y rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-2.5 py-1.5 text-sm text-white outline-none focus:border-[var(--accent)]"
+                  />
+                </div>
+              ))}
+            </div>
+          </Field>
         </>
       )}
     </div>
@@ -1829,6 +2106,12 @@ function ExportPanel({
           Hook{" "}
           <span className="float-right text-white">
             {project.hook.enabled ? `${project.hook.end.toFixed(1)}s · ${project.hook.zoom.toFixed(2)}x zoom` : "off"}
+          </span>
+        </p>
+        <p>
+          Captions{" "}
+          <span className="float-right text-white">
+            {project.captions.enabled ? `${project.captions.segments.filter((s) => s.enabled).length} segments` : "off"}
           </span>
         </p>
         <p>

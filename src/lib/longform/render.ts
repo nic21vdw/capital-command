@@ -6,7 +6,7 @@ import { animatedReframeChain } from "@/lib/clipping/render";
 import { readSourceMeta, sourceFilePath } from "@/lib/clipping/sources";
 import { getTrack, trackFilePath } from "@/lib/longform/music";
 import { overlayFilePath } from "@/lib/longform/overlays";
-import { editedDurationSec, exportRanges, sourceTimeToOutput, sourceToOutputIntervals, type KeptRange } from "@/lib/longform/plan";
+import { editedDurationSec, exportRanges, remapCaptionsToOutput, sourceTimeToOutput, sourceToOutputIntervals, type KeptRange } from "@/lib/longform/plan";
 import { getProject, projectOutputDir, projectWorkDir, updateProject } from "@/lib/longform/store";
 import type { LongformExportRecord, LongformProject } from "@/lib/longform/types";
 import { finalizeTitle } from "@/lib/title/finalize";
@@ -17,6 +17,8 @@ import { finalizeTitle } from "@/lib/title/finalize";
 //   2. Body — one single-pass select render that keeps only the enabled
 //      segments, cutting every stretch of dead space in one ffmpeg run.
 //   3. Concat — hook + body joined losslessly (identical encode settings).
+//      Timeline image overlays and the whole-video captions are then burned
+//      over the joined edit (captions remapped through the cuts).
 //   4. Audio — every placed timeline audio clip mixed under the edit.
 // Export records persist on the project, so status survives a dev restart.
 
@@ -231,8 +233,15 @@ async function runExport(projectId: string, recordId: string) {
   // 3b. Timeline overlays: burn each dropped-in image over the edited runtime.
   // Images are authored in source seconds, so their visible window is mapped
   // onto the concatenated hook + body timeline before it is drawn.
-  const videoPath = await applyOverlays(project, mergedPath, workDir, recordId, hasAudio);
+  const overlaidPath = await applyOverlays(project, mergedPath, workDir, recordId, hasAudio);
   await patchRecord(projectId, recordId, { progress: 94 });
+
+  // 3c. Whole-video captions: burn the transcript captions over the edited
+  // runtime, on top of any image overlays. Segments are authored in source
+  // seconds, so each one shifts back by the cuts before it; when the hook
+  // burns its own captions these take over from hook.end onward.
+  const videoPath = await applyBodyCaptions(project, overlaidPath, workDir, recordId, hasAudio);
+  await patchRecord(projectId, recordId, { progress: 96 });
 
   // 4. Audio mix: every placed timeline audio clip is mixed under the edit
   // (each clip's source-timeline start mapped onto the edited runtime, its
@@ -437,6 +446,50 @@ async function applyOverlays(
     overlaidPath
   ]);
   return overlaidPath;
+}
+
+/**
+ * Burns the whole-video captions onto the merged edit and returns the path to
+ * draw from next. Caption segments live in source seconds, so they are first
+ * remapped onto the edited runtime (dropping anything inside cut footage).
+ * When the hook renders its own captions, the source window it covers is
+ * skipped so the two never stack. Returns the input path untouched when
+ * captions are off or nothing survives the remap.
+ */
+async function applyBodyCaptions(
+  project: LongformProject,
+  mergedPath: string,
+  workDir: string,
+  recordId: string,
+  hasAudio: boolean
+): Promise<string> {
+  const captions = project.captions;
+  if (!captions?.enabled || captions.segments.length === 0) return mergedPath;
+  const hookCaptionsBurned =
+    project.hook.enabled && project.hook.captionsEnabled && project.hook.captions.some((c) => c.enabled && c.text.trim());
+  const skipBefore = hookCaptionsBurned ? project.hook.end : 0;
+  const remapped = remapCaptionsToOutput(captions.segments, project.segments, project.hook, skipBefore);
+  if (remapped.length === 0) return mergedPath;
+
+  const assDoc = buildAss(remapped, captions.style, FRAME_W, FRAME_H, captions.highlightCurrentWord);
+  const assPath = path.join(workDir, `export-${recordId}-captions.ass`);
+  await writeFile(assPath, `${assDoc}\n`, "utf8");
+
+  const captionedPath = path.join(workDir, `export-${recordId}-captioned.mp4`);
+  await runFfmpeg([
+    "-y",
+    "-i",
+    mergedPath,
+    "-filter_complex",
+    `[0:v]ass='${escapeFilterPath(assPath)}'[vout]`,
+    "-map",
+    "[vout]",
+    ...(hasAudio ? ["-map", "0:a?"] : []),
+    ...VIDEO_ENC,
+    ...(hasAudio ? ["-c:a", "copy"] : ["-an"]),
+    captionedPath
+  ]);
+  return captionedPath;
 }
 
 /** Builds the ffmpeg select expression keeping only the given time ranges. */

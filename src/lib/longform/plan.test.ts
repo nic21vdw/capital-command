@@ -7,10 +7,13 @@ import {
   exportRanges,
   hookCaptions,
   keptRanges,
+  planCaptions,
   planHook,
   planHookEnd,
+  remapCaptionsToOutput,
   sourceTimeToOutput,
-  sourceToOutputIntervals
+  sourceToOutputIntervals,
+  transcriptCaptions
 } from "@/lib/longform/plan";
 import type { LongformHook, LongformSegment } from "@/lib/longform/types";
 import type { CaptionSegment } from "@/types/domain";
@@ -133,6 +136,102 @@ describe("hookCaptions", () => {
     for (const chunk of chunks) {
       expect(chunk.end).toBeLessThanOrEqual(5.01);
     }
+  });
+});
+
+describe("transcriptCaptions", () => {
+  it("re-chunks the whole transcript into readable segments", () => {
+    const transcript = [
+      caption("c1", 0, 6, "one two three four five six seven eight"),
+      caption("c2", 7, 12, "nine ten eleven twelve")
+    ];
+    const chunks = transcriptCaptions(transcript, 5);
+    expect(chunks.length).toBeGreaterThan(1);
+    for (const chunk of chunks) {
+      expect(chunk.words.length).toBeLessThanOrEqual(5);
+      expect(chunk.enabled).toBe(true);
+    }
+    // Every word of the source survives the re-chunk.
+    const words = chunks.flatMap((chunk) => chunk.words.map((w) => w.text));
+    expect(words).toHaveLength(12);
+  });
+
+  it("keeps phrase segments as-is when the transcript has no word timing", () => {
+    const transcript: CaptionSegment[] = [
+      { id: "c1", start: 0, end: 4, text: "hello there", words: [], enabled: true }
+    ];
+    const chunks = transcriptCaptions(transcript, 5);
+    expect(chunks).toHaveLength(1);
+    expect(chunks[0]).toMatchObject({ start: 0, end: 4, text: "hello there" });
+  });
+});
+
+describe("planCaptions", () => {
+  it("starts switched off so existing exports keep rendering unchanged", () => {
+    const plan = planCaptions([caption("c1", 0, 5, "one two three")]);
+    expect(plan.enabled).toBe(false);
+    expect(plan.highlightCurrentWord).toBe(true);
+    expect(plan.segments.length).toBeGreaterThan(0);
+  });
+});
+
+describe("remapCaptionsToOutput", () => {
+  const segments: LongformSegment[] = [
+    { id: "1", start: 0, end: 20, kind: "speech", enabled: true },
+    { id: "2", start: 20, end: 25, kind: "silence", enabled: false },
+    { id: "3", start: 25, end: 40, kind: "speech", enabled: true }
+  ];
+  const hook = hookWith({ enabled: true, end: 5 });
+
+  it("passes kept captions straight through", () => {
+    const [seg] = remapCaptionsToOutput([caption("c1", 10, 13, "a b c")], segments, hook);
+    expect(seg.start).toBeCloseTo(10, 3);
+    expect(seg.end).toBeCloseTo(13, 3);
+    expect(seg.words.map((w) => w.text)).toEqual(["a", "b", "c"]);
+  });
+
+  it("shifts captions after a cut back by the removed dead space", () => {
+    const [seg] = remapCaptionsToOutput([caption("c1", 30, 33, "a b c")], segments, hook);
+    // The 5s cut at 20-25 pulls everything after it 5s earlier.
+    expect(seg.start).toBeCloseTo(25, 3);
+    expect(seg.end).toBeCloseTo(28, 3);
+    expect(seg.words[0].start).toBeCloseTo(25, 3);
+  });
+
+  it("drops captions entirely inside cut footage", () => {
+    expect(remapCaptionsToOutput([caption("c1", 21, 24, "gone")], segments, hook)).toEqual([]);
+  });
+
+  it("shortens a caption straddling a cut and snaps its words to the jump", () => {
+    const [seg] = remapCaptionsToOutput([caption("c1", 18, 28, "a b c d e")], segments, hook);
+    // 18-20 plays, 20-25 is cut, 25-28 plays at output 20-23.
+    expect(seg.start).toBeCloseTo(18, 3);
+    expect(seg.end).toBeCloseTo(23, 3);
+    for (const word of seg.words) {
+      expect(word.start).toBeGreaterThanOrEqual(seg.start);
+      expect(word.end).toBeLessThanOrEqual(seg.end);
+    }
+  });
+
+  it("skips disabled and empty segments", () => {
+    const off = { ...caption("c1", 10, 12, "quiet"), enabled: false };
+    const blank = { ...caption("c2", 13, 15, "x"), text: "  " };
+    expect(remapCaptionsToOutput([off, blank], segments, hook)).toEqual([]);
+  });
+
+  it("clips captions to after the hook window when the hook burns its own", () => {
+    const remapped = remapCaptionsToOutput(
+      [caption("c1", 2, 4, "inside hook"), caption("c2", 3, 8, "straddles"), caption("c3", 10, 12, "after")],
+      segments,
+      hook,
+      hook.end
+    );
+    expect(remapped).toHaveLength(2);
+    // The straddling caption starts where the hook's captions stop.
+    expect(remapped[0].start).toBeCloseTo(5, 3);
+    expect(remapped[0].end).toBeCloseTo(8, 3);
+    expect(remapped[0].words.every((w) => w.start >= 5)).toBe(true);
+    expect(remapped[1]).toMatchObject({ start: 10, end: 12 });
   });
 });
 
