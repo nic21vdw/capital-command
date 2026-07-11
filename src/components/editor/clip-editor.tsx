@@ -55,6 +55,13 @@ function uid(prefix: string) {
   return `${prefix}-${crypto.randomUUID().slice(0, 8)}`;
 }
 
+// Structural equality for the undo history. A serialized compare is plenty fast
+// for a single clip project and spares us a hand-written deep-equal that would
+// drift as the project shape grows.
+function sameProject(a: ClipProject, b: ClipProject): boolean {
+  return a === b || JSON.stringify(a) === JSON.stringify(b);
+}
+
 export function ClipEditor({
   initialProject,
   onClose,
@@ -234,6 +241,69 @@ export function ClipEditor({
     setProject((prev) => ({ ...prev, reframe: { ...prev.reframe, ...partial } }));
   }, []);
 
+  // --- Undo / redo ---
+  // A single history stack over the whole project so Ctrl+Z reverts the last
+  // edit — including a slight pan of the video you didn't mean to make. Edits
+  // land as a stream of setProject calls (a pan drag fires dozens), so we don't
+  // record every intermediate value: a debounce lets the project settle, then
+  // commits one checkpoint. That collapses an entire drag into a single undo.
+  const projectRef = useRef(project);
+  const lastCommittedRef = useRef<ClipProject>(initialProject);
+  const pastRef = useRef<ClipProject[]>([]);
+  const futureRef = useRef<ClipProject[]>([]);
+  // Set while an undo/redo is applying so the commit effect doesn't re-record
+  // the restored state as a brand-new edit.
+  const restoringRef = useRef(false);
+
+  useEffect(() => {
+    projectRef.current = project;
+    if (restoringRef.current) {
+      restoringRef.current = false;
+      return;
+    }
+    const timer = setTimeout(() => {
+      if (sameProject(project, lastCommittedRef.current)) return;
+      pastRef.current.push(lastCommittedRef.current);
+      // Cap the depth so a long editing session can't grow the stack unbounded.
+      if (pastRef.current.length > 100) pastRef.current.shift();
+      lastCommittedRef.current = project;
+      // A fresh edit invalidates any redo path.
+      futureRef.current = [];
+    }, 350);
+    return () => clearTimeout(timer);
+  }, [project]);
+
+  const applyRestore = useCallback((next: ClipProject) => {
+    restoringRef.current = true;
+    setProject(next);
+  }, []);
+
+  const undo = useCallback(() => {
+    const current = projectRef.current;
+    if (!sameProject(current, lastCommittedRef.current)) {
+      // An edit is still settling (e.g. you just nudged the video): jump back to
+      // the last committed state without waiting for the debounce to fire.
+      futureRef.current.push(current);
+      applyRestore(lastCommittedRef.current);
+      return;
+    }
+    const prev = pastRef.current.pop();
+    if (!prev) {
+      toast("Nothing to undo.");
+      return;
+    }
+    futureRef.current.push(current);
+    lastCommittedRef.current = prev;
+    applyRestore(prev);
+  }, [applyRestore]);
+
+  const redo = useCallback(() => {
+    const next = futureRef.current.pop();
+    if (!next) return;
+    pastRef.current.push(lastCommittedRef.current);
+    lastCommittedRef.current = next;
+    applyRestore(next);
+  }, [applyRestore]);
 
   // Explicit save so you can lock in progress on demand instead of waiting for autosave.
   const saveNow = useCallback(async () => {
@@ -501,9 +571,29 @@ export function ClipEditor({
   // mid-edit.
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== "Delete" && event.key !== "Backspace" && event.key !== " ") return;
       const target = event.target as HTMLElement | null;
-      if (target && (target.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName))) return;
+      const typing = !!target && (target.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName));
+
+      // Ctrl/Cmd+Z undoes the last edit (a misplaced video nudge, a caption
+      // tweak, anything). Shift adds redo, as does Ctrl+Y on Windows. Skipped
+      // while typing so it defers to the field's own text undo.
+      if (!typing && (event.ctrlKey || event.metaKey)) {
+        const key = event.key.toLowerCase();
+        if (key === "z") {
+          event.preventDefault();
+          if (event.shiftKey) redo();
+          else undo();
+          return;
+        }
+        if (key === "y") {
+          event.preventDefault();
+          redo();
+          return;
+        }
+      }
+
+      if (event.key !== "Delete" && event.key !== "Backspace" && event.key !== " ") return;
+      if (typing) return;
       if (event.key === " ") {
         // Skip when a button has focus — Space should activate it, and a
         // toggle here would fight the click it triggers.
@@ -525,7 +615,7 @@ export function ClipEditor({
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [selectedCaptionId, selectedOverlayId, deleteCaption, deleteOverlay, togglePlay]);
+  }, [selectedCaptionId, selectedOverlayId, deleteCaption, deleteOverlay, undo, redo, togglePlay]);
 
   // --- Export ---
   const downloadSubtitles = useCallback((format: "srt" | "vtt") => {
