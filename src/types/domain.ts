@@ -463,6 +463,28 @@ export interface ClipAudio {
   musicVolume: number;
 }
 
+// ----- Viral sound effects -----
+// Auto-placed meme sounds (vine boom, FA, Among Us) dropped in right after
+// important lines. Shared by the Long-Form Editor and the Clip Editor: the
+// cue planner reads the word-synced captions, and the export bakes each hit
+// into the audio mix. Each slot ships with a synthesized stand-in sound that
+// an uploaded MP3 replaces.
+
+export type SfxSoundId = "vineBoom" | "fa" | "amongUs";
+
+/** How eagerly moments qualify for a sound (score threshold + spacing). */
+export type SfxSensitivity = "subtle" | "balanced" | "aggressive";
+
+export interface SfxSettings {
+  /** Master switch: auto-place sound effects into the export. */
+  enabled: boolean;
+  sensitivity: SfxSensitivity;
+  /** 0..2 mix level of the effects under the voice track. */
+  volume: number;
+  /** Per-sound switches so any of the sounds can be turned off alone. */
+  sounds: Record<SfxSoundId, boolean>;
+}
+
 export type AspectRatioId = "9:16" | "16:9" | "1:1" | "4:5" | "custom";
 
 export interface ReframeTransform {
@@ -554,6 +576,8 @@ export interface ClipProject {
   highlightCurrentWord: boolean;
   overlays: Overlay[];
   audio: ClipAudio;
+  /** Auto-placed viral sound effects; absent on projects saved before the feature. */
+  sfx?: SfxSettings;
   exportSettings: ClipExportSettings;
   suggestions: AISuggestion[];
   createdAt: string;

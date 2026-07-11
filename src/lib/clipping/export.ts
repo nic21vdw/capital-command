@@ -6,6 +6,8 @@ import { attachEditedClipRender, outputDir, workDir } from "@/lib/clipping/jobs"
 import { LAYOUT_MODE_PRESETS } from "@/lib/clipping/layouts";
 import { reframeChain, stackedLayoutChain } from "@/lib/clipping/render";
 import { maybeAutoEnqueueExport } from "@/lib/publisher/enqueue";
+import { planSfxCues } from "@/lib/sfx/cues";
+import { resolveSoundPath } from "@/lib/sfx/sounds";
 import type {
   CaptionSegment,
   CaptionStyle,
@@ -13,7 +15,9 @@ import type {
   ClipCompositionMode,
   ClipExportSettings,
   Overlay,
-  RegionRect
+  RegionRect,
+  SfxSettings,
+  SfxSoundId
 } from "@/types/domain";
 
 export type ExportSpec = {
@@ -32,6 +36,8 @@ export type ExportSpec = {
   highlightCurrentWord: boolean;
   overlays: Overlay[];
   audio: ClipAudio;
+  /** Auto-placed viral sound effects, planned from the trimmed captions. */
+  sfx?: SfxSettings;
   settings: ClipExportSettings;
 };
 
@@ -245,6 +251,30 @@ async function buildArgs(spec: ExportSpec, dir: string): Promise<{ args: string[
     }
   }
 
+  // Auto sound effects: cues are planned over the trimmed captions (already
+  // clip-relative), grouped per sound so each file is opened once, then split
+  // into one delayed copy per hit inside the audio filtergraph below.
+  const sfxShots: Array<{ index: number; offsetsSec: number[] }> = [];
+  let sfxVolume = 1;
+  if (spec.sfx?.enabled) {
+    sfxVolume = Math.min(2, Math.max(0, spec.sfx.volume));
+    const cues = planSfxCues(shiftedCaptions(spec), spec.sfx).filter((cue) => cue.time < dur - 0.05);
+    const bySound = new Map<SfxSoundId, number[]>();
+    for (const cue of cues) {
+      const offsets = bySound.get(cue.soundId) ?? [];
+      offsets.push(Math.max(0, cue.time));
+      bySound.set(cue.soundId, offsets);
+    }
+    let nextInputIndex = 1 + images.length + (musicIndex >= 0 ? 1 : 0);
+    for (const [soundId, offsetsSec] of bySound) {
+      const soundPath = await resolveSoundPath(soundId);
+      if (!soundPath) continue;
+      sfxShots.push({ index: nextInputIndex, offsetsSec });
+      inputs.push("-i", soundPath);
+      nextInputIndex += 1;
+    }
+  }
+
   // --- Video filtergraph ---
   const parts: string[] = [];
   parts.push(sourceCompositionChain(spec, w, h));
@@ -268,26 +298,51 @@ async function buildArgs(spec: ExportSpec, dir: string): Promise<{ args: string[
   parts.push(`[${last}]ass='${escapeFilterPath(assPath)}'[vout]`);
 
   // --- Audio filtergraph ---
+  // Every audio source lands in `audioLabels` (clip audio, background music,
+  // one delayed copy of a sound effect per hit), then a single amix folds
+  // them together. A lone source skips the mix entirely.
   let audioMapped = false;
   const fadeOutStart = Math.max(0, dur - spec.audio.fadeOut);
+  const audioLabels: string[] = [];
   if (hasAudio) {
     const af: string[] = [`volume=${spec.audio.clipVolume.toFixed(3)}`];
     if (spec.audio.fadeIn > 0) af.push(`afade=t=in:st=0:d=${spec.audio.fadeIn}`);
     if (spec.audio.fadeOut > 0) af.push(`afade=t=out:st=${fadeOutStart.toFixed(2)}:d=${spec.audio.fadeOut}`);
     parts.push(`[0:a]${af.join(",")}[a0]`);
+    audioLabels.push("[a0]");
   }
   if (musicIndex >= 0) {
     parts.push(
       `[${musicIndex}:a]volume=${spec.audio.musicVolume.toFixed(3)},atrim=0:${dur.toFixed(2)},asetpts=N/SR/TB[am]`
     );
-    if (hasAudio) {
-      parts.push(`[a0][am]amix=inputs=2:duration=first:dropout_transition=0[aout]`);
+    audioLabels.push("[am]");
+  }
+  sfxShots.forEach((shot, shotIndex) => {
+    const base = `[${shot.index}:a]atrim=0:4,asetpts=PTS-STARTPTS,volume=${sfxVolume.toFixed(3)}`;
+    if (shot.offsetsSec.length === 1) {
+      const offMs = Math.round(shot.offsetsSec[0] * 1000);
+      parts.push(`${base}${offMs > 0 ? `,adelay=${offMs}|${offMs}` : ""}[s${shotIndex}_0]`);
+      audioLabels.push(`[s${shotIndex}_0]`);
     } else {
-      parts.push(`[am]anull[aout]`);
+      const splits = shot.offsetsSec.map((_, hit) => `[u${shotIndex}_${hit}]`).join("");
+      parts.push(`${base},asplit=${shot.offsetsSec.length}${splits}`);
+      shot.offsetsSec.forEach((offsetSec, hit) => {
+        const offMs = Math.round(offsetSec * 1000);
+        parts.push(`[u${shotIndex}_${hit}]${offMs > 0 ? `adelay=${offMs}|${offMs}` : "anull"}[s${shotIndex}_${hit}]`);
+        audioLabels.push(`[s${shotIndex}_${hit}]`);
+      });
     }
+  });
+  if (audioLabels.length === 1) {
+    parts.push(`${audioLabels[0]}anull[aout]`);
     audioMapped = true;
-  } else if (hasAudio) {
-    parts.push(`[a0]anull[aout]`);
+  } else if (audioLabels.length > 1) {
+    // duration=first keeps the clip's own audio in charge of length; without
+    // clip audio the mix is padded then cut to the trimmed duration instead.
+    const tail = hasAudio
+      ? `amix=inputs=${audioLabels.length}:duration=first:dropout_transition=0:normalize=0[aout]`
+      : `amix=inputs=${audioLabels.length}:duration=longest:dropout_transition=0:normalize=0,apad,atrim=0:${dur.toFixed(2)}[aout]`;
+    parts.push(`${audioLabels.join("")}${tail}`);
     audioMapped = true;
   }
 

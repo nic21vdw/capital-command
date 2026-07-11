@@ -6,6 +6,7 @@ import { readSourceMeta, sourceFilePath } from "@/lib/clipping/sources";
 import { transcribeMedia } from "@/lib/clipping/whisper";
 import { DEFAULT_PACE, buildSegments, hookCaptions, planCaptions, planHook } from "@/lib/longform/plan";
 import type { LongformPace, LongformProject } from "@/lib/longform/types";
+import { defaultSfxSettings } from "@/lib/sfx/types";
 
 const longformRoot = path.join(process.cwd(), "data", "longform");
 const projectsFile = path.join(longformRoot, "projects.json");
@@ -54,6 +55,8 @@ async function loadProjects() {
       // may carry a legacy single background track — migrate it into one clip
       // spanning the whole edit so it keeps playing and stays editable.
       migrateMusic(project);
+      // Projects saved before viral sound effects existed default to off.
+      project.sfx ??= defaultSfxSettings();
       // Anything mid-flight when the server stopped can't resume.
       if (project.status === "processing") {
         project.status = "error";
@@ -201,6 +204,7 @@ export async function createProject(sourceId: string, name?: string): Promise<Lo
     captions: planCaptions([]),
     overlays: [],
     music: { enabled: false, clips: [], videoVolume: 1, masterVolume: 1 },
+    sfx: defaultSfxSettings(),
     pace: { ...DEFAULT_PACE },
     exports: [],
     createdAt: now,

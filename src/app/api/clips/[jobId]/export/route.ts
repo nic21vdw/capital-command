@@ -51,6 +51,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     highlightCurrentWord: project.highlightCurrentWord,
     overlays: project.overlays,
     audio: project.audio,
+    sfx: project.sfx,
     settings: project.exportSettings
   });
   return NextResponse.json({ export: record }, { status: 201 });
