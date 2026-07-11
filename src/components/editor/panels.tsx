@@ -36,6 +36,7 @@ import { CLIP_LAYOUTS, DEFAULT_FACE_SOURCE, DEFAULT_SCREEN_SOURCE, LAYOUT_MODE_P
 import { useAppData } from "@/components/providers/app-provider";
 import { Button } from "@/components/ui/button";
 import { ColorField, Field, NumberField, RangeField, SelectField, Toggle } from "@/components/editor/controls";
+import { SfxSection } from "@/components/editor/sfx-section";
 import { cn, safeFilename } from "@/lib/utils";
 import type { AspectRatioId, CaptionPresetId, ClipCompositionMode, ExportPresetId, OverlayKind } from "@/types/domain";
 import type { EditorApi } from "@/components/editor/types";
@@ -701,6 +702,7 @@ export const AudioPanel = memo(function AudioPanel({ api }: { api: EditorApi }) 
           <p className="text-xs text-[var(--muted-foreground)]">No music added. The clip’s own audio plays at the volume above.</p>
         )}
       </div>
+      <SfxSection value={api.project.sfx} onChange={(sfx) => api.patch({ sfx })} />
     </div>
   );
 });

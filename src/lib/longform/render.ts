@@ -9,6 +9,9 @@ import { overlayFilePath } from "@/lib/longform/overlays";
 import { editedDurationSec, exportRanges, sourceTimeToOutput, sourceToOutputIntervals, type KeptRange } from "@/lib/longform/plan";
 import { getProject, projectOutputDir, projectWorkDir, updateProject } from "@/lib/longform/store";
 import type { LongformExportRecord, LongformProject } from "@/lib/longform/types";
+import { planSfxCues } from "@/lib/sfx/cues";
+import { resolveSoundPath } from "@/lib/sfx/sounds";
+import type { SfxSoundId } from "@/types/domain";
 import { finalizeTitle } from "@/lib/title/finalize";
 
 // The Long-Form Editor's export engine. The edited video is baked in stages:
@@ -278,12 +281,49 @@ async function runExport(projectId: string, recordId: string) {
   await patchRecord(projectId, recordId, { status: "done", progress: 100, file: fileName });
 }
 
+/** How much of a sound-effect file plays per hit — keeps stray long uploads in check. */
+const SFX_MAX_SEC = 4;
+
 /**
- * Mixes the project's placed audio clips under the edited video and writes the
- * final file. Each clip's source-timeline start is mapped onto the edited
- * runtime, its library track loops to fill the clip length, and everything is
- * mixed with the original voice track (when present). Returns false when there
- * is nothing to mix, so the caller can fall back to a plain remux.
+ * Resolves the project's auto sound-effect plan into concrete files and
+ * edited-runtime offsets. Cues are planned over the full source transcript,
+ * then each hit is mapped onto the edited runtime the same way placed audio
+ * clips are (a hit inside cut footage snaps forward to the next jump cut).
+ * Hits are grouped per sound so the mix opens each file once.
+ */
+async function resolveSfxOneShots(
+  project: LongformProject,
+  editedSec: number
+): Promise<Array<{ path: string; offsetsSec: number[]; volume: number }>> {
+  const sfx = project.sfx;
+  if (!sfx?.enabled) return [];
+  const cues = planSfxCues(project.transcript ?? [], sfx);
+  if (cues.length === 0) return [];
+  const volume = Math.min(2, Math.max(0, sfx.volume));
+  const bySound = new Map<SfxSoundId, number[]>();
+  for (const cue of cues) {
+    const outStart = sourceTimeToOutput(cue.time, project.segments, project.hook);
+    if (outStart === null || outStart >= editedSec - 0.05) continue;
+    const offsets = bySound.get(cue.soundId) ?? [];
+    offsets.push(Math.max(0, outStart));
+    bySound.set(cue.soundId, offsets);
+  }
+  const oneShots: Array<{ path: string; offsetsSec: number[]; volume: number }> = [];
+  for (const [soundId, offsetsSec] of bySound) {
+    const soundPath = await resolveSoundPath(soundId);
+    if (!soundPath) continue;
+    oneShots.push({ path: soundPath, offsetsSec, volume });
+  }
+  return oneShots;
+}
+
+/**
+ * Mixes the project's placed audio clips and auto sound effects under the
+ * edited video and writes the final file. Each music clip's source-timeline
+ * start is mapped onto the edited runtime and its library track loops to fill
+ * the clip length; each sound effect plays once at its planned moment. When
+ * the video has its own audio everything is mixed under it. Returns false
+ * when there is nothing to mix, so the caller can fall back to a plain remux.
  */
 async function mixAudioClips(
   project: LongformProject,
@@ -312,13 +352,15 @@ async function mixAudioClips(
       volume: Math.min(1, Math.max(0, clip.volume))
     });
   }
-  if (resolved.length === 0) return false;
+  const oneShots = await resolveSfxOneShots(project, editedSec);
+  if (resolved.length === 0 && oneShots.length === 0) return false;
 
-  const inputs = resolved.flatMap((clip) => ["-stream_loop", "-1", "-i", clip.path]);
+  const inputs: string[] = [];
   const filters: string[] = [];
   const labels: string[] = [];
   resolved.forEach((clip, index) => {
     const inputIndex = index + 1; // input 0 is the video
+    inputs.push("-stream_loop", "-1", "-i", clip.path);
     const offMs = Math.round(clip.offsetSec * 1000);
     // A short tail fade keeps the loop's hard cut from clicking.
     const fade = clip.duration > 0.3 ? `,afade=t=out:st=${(clip.duration - 0.1).toFixed(2)}:d=0.1` : "";
@@ -330,9 +372,31 @@ async function mixAudioClips(
     labels.push(`[c${index}]`);
   });
 
+  // Sound effects: one input per distinct sound, split into one delayed copy
+  // per hit so a sound that fires many times is only decoded once.
+  let sfxInputIndex = resolved.length + 1;
+  oneShots.forEach((shot, shotIndex) => {
+    inputs.push("-i", shot.path);
+    const base = `[${sfxInputIndex}:a]atrim=0:${SFX_MAX_SEC},asetpts=PTS-STARTPTS,volume=${shot.volume.toFixed(3)}`;
+    if (shot.offsetsSec.length === 1) {
+      const offMs = Math.round(shot.offsetsSec[0] * 1000);
+      filters.push(`${base}${offMs > 0 ? `,adelay=${offMs}|${offMs}` : ""}[s${shotIndex}_0]`);
+      labels.push(`[s${shotIndex}_0]`);
+    } else {
+      const splits = shot.offsetsSec.map((_, hit) => `[u${shotIndex}_${hit}]`).join("");
+      filters.push(`${base},asplit=${shot.offsetsSec.length}${splits}`);
+      shot.offsetsSec.forEach((offsetSec, hit) => {
+        const offMs = Math.round(offsetSec * 1000);
+        filters.push(`[u${shotIndex}_${hit}]${offMs > 0 ? `adelay=${offMs}|${offMs}` : "anull"}[s${shotIndex}_${hit}]`);
+        labels.push(`[s${shotIndex}_${hit}]`);
+      });
+    }
+    sfxInputIndex += 1;
+  });
+
   const filter = hasAudio
-    ? `${filters.join(";")};[0:a]volume=${videoVol.toFixed(3)}[v0];[v0]${labels.join("")}amix=inputs=${resolved.length + 1}:duration=first:dropout_transition=0:normalize=0[mix];[mix]volume=${masterVol.toFixed(3)}[aout]`
-    : `${filters.join(";")};${labels.join("")}amix=inputs=${resolved.length}:duration=longest:dropout_transition=0:normalize=0,apad,atrim=0:${editedSec.toFixed(3)}[mix];[mix]volume=${masterVol.toFixed(3)}[aout]`;
+    ? `${filters.join(";")};[0:a]volume=${videoVol.toFixed(3)}[v0];[v0]${labels.join("")}amix=inputs=${labels.length + 1}:duration=first:dropout_transition=0:normalize=0[mix];[mix]volume=${masterVol.toFixed(3)}[aout]`
+    : `${filters.join(";")};${labels.join("")}${labels.length > 1 ? `amix=inputs=${labels.length}:duration=longest:dropout_transition=0:normalize=0,` : ""}apad,atrim=0:${editedSec.toFixed(3)}[mix];[mix]volume=${masterVol.toFixed(3)}[aout]`;
 
   await runFfmpeg([
     "-y",

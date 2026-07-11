@@ -1,4 +1,5 @@
 import { CAPTION_PRESETS } from "@/lib/clipping/captions";
+import { defaultSfxSettings } from "@/lib/sfx/types";
 import {
   defaultCaptionStyle,
   defaultClipAudio,
@@ -324,6 +325,7 @@ export function makeClipProject(input: {
     highlightCurrentWord: true,
     overlays: [],
     audio: { ...defaultClipAudio },
+    sfx: defaultSfxSettings(),
     exportSettings: { ...defaultClipExportSettings },
     suggestions: [],
     createdAt: now,

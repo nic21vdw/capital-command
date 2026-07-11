@@ -420,6 +420,22 @@ const clipAudioSchema = z.object({
 
 export const defaultClipAudio = clipAudioSchema.parse({});
 
+// Auto-placed viral sound effects; shared by the clip and long-form editors.
+export const sfxSettingsSchema = z.object({
+  enabled: z.coerce.boolean().default(false),
+  sensitivity: z.enum(["subtle", "balanced", "aggressive"]).default("balanced"),
+  volume: z.coerce.number().min(0).max(2).default(0.9),
+  sounds: z
+    .object({
+      vineBoom: z.coerce.boolean().default(true),
+      fa: z.coerce.boolean().default(true),
+      amongUs: z.coerce.boolean().default(true)
+    })
+    .default({ vineBoom: true, fa: true, amongUs: true })
+});
+
+export const defaultSfxSettings = sfxSettingsSchema.parse({});
+
 // Shorts/Reels-first: clips default to a 1080x1920 vertical export so a fresh
 // project is publishable straight from the editor with no extra setup.
 const clipExportSettingsSchema = z.object({
@@ -495,6 +511,7 @@ export const clipProjectSchema = z.object({
   highlightCurrentWord: z.coerce.boolean().default(true),
   overlays: z.array(overlaySchema).default([]),
   audio: clipAudioSchema.default(defaultClipAudio),
+  sfx: sfxSettingsSchema.default(defaultSfxSettings),
   exportSettings: clipExportSettingsSchema.default(defaultClipExportSettings),
   suggestions: z.array(aiSuggestionSchema).default([]),
   createdAt: z.string(),

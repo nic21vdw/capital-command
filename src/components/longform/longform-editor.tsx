@@ -28,6 +28,7 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { ColorField, Field, RangeField, SelectField, Toggle } from "@/components/editor/controls";
+import { SfxSection } from "@/components/editor/sfx-section";
 import { LongformAudioMixer } from "@/components/longform/longform-audio-mixer";
 import { LongformPreview } from "@/components/longform/longform-preview";
 import { LongformTimeline, type TimelineSelection } from "@/components/longform/longform-timeline";
@@ -171,6 +172,7 @@ export function LongformEditor({
           hook: current.hook,
           overlays: current.overlays,
           music: current.music,
+          sfx: current.sfx,
           pace: current.pace
         })
       })
@@ -352,6 +354,10 @@ export function LongformEditor({
   }, []);
 
   // --- Timeline audio clips -------------------------------------------------
+  const patchSfx = useCallback((sfx: NonNullable<LongformProject["sfx"]>) => {
+    setProject((prev) => ({ ...prev, sfx }));
+  }, []);
+
   const patchMusic = useCallback((partial: Partial<LongformProject["music"]>) => {
     setProject((prev) => ({ ...prev, music: { ...prev.music, ...partial } }));
   }, []);
@@ -663,6 +669,7 @@ export function LongformEditor({
                 selectedAudioId={selectedAudioId}
                 setSelectedAudioId={setSelectedAudioId}
                 patchMusic={patchMusic}
+                patchSfx={patchSfx}
                 addAudioClip={addAudioClip}
                 updateAudioClip={updateAudioClip}
                 removeAudioClip={removeAudioClip}
@@ -1367,6 +1374,7 @@ function MusicPanel({
   selectedAudioId,
   setSelectedAudioId,
   patchMusic,
+  patchSfx,
   addAudioClip,
   updateAudioClip,
   removeAudioClip,
@@ -1378,6 +1386,7 @@ function MusicPanel({
   selectedAudioId: string | null;
   setSelectedAudioId: (id: string | null) => void;
   patchMusic: (partial: Partial<LongformProject["music"]>) => void;
+  patchSfx: (sfx: NonNullable<LongformProject["sfx"]>) => void;
   addAudioClip: (track: MusicTrack, startSec: number) => void;
   updateAudioClip: (id: string, partial: Partial<LongformAudioClip>) => void;
   removeAudioClip: (id: string) => void;
@@ -1531,6 +1540,8 @@ function MusicPanel({
           </p>
         )}
       </div>
+
+      <SfxSection value={project.sfx} onChange={patchSfx} />
 
       {/* Hidden audition player for previewing library tracks. */}
       <audio ref={auditionRef} hidden onEnded={() => setAuditionId(null)} />

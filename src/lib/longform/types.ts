@@ -1,5 +1,5 @@
 import type { SilenceRange } from "@/lib/clipping/analysis";
-import type { CaptionSegment, CaptionStyle } from "@/types/domain";
+import type { CaptionSegment, CaptionStyle, SfxSettings } from "@/types/domain";
 
 // ----- Long-Form Editor -----
 // A long-form project takes one long unedited recording and turns it into a
@@ -155,6 +155,8 @@ export type LongformProject = {
   /** Images dropped onto the timeline, rendered over the edited video. */
   overlays: LongformOverlay[];
   music: LongformMusic;
+  /** Auto-placed viral sound effects; absent on projects saved before the feature. */
+  sfx?: SfxSettings;
   pace: LongformPace;
   exports: LongformExportRecord[];
   createdAt: string;

@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { captionSegmentSchema, captionStyleSchema } from "@/lib/storage/schemas";
+import { captionSegmentSchema, captionStyleSchema, sfxSettingsSchema } from "@/lib/storage/schemas";
 
 // Zod validation for the Long-Form Editor's API payloads. Only the fields the
 // editor is allowed to change are accepted — pipeline state (status, stage,
@@ -71,6 +71,7 @@ export const longformProjectPatchSchema = z
     hook: longformHookSchema,
     overlays: z.array(longformOverlaySchema).max(100),
     music: longformMusicSchema,
+    sfx: sfxSettingsSchema,
     pace: longformPaceSchema
   })
   .partial();
