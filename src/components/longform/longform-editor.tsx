@@ -18,6 +18,7 @@ import {
   Scissors,
   Send,
   Slice,
+  Square,
   Trash2,
   Upload,
   UploadCloud,
@@ -2030,6 +2031,7 @@ function ExportPanel({
   editedSec: number;
 }) {
   const [starting, setStarting] = useState(false);
+  const [stopping, setStopping] = useState(false);
   const [sending, setSending] = useState<string | null>(null);
   const active = project.exports.find((record) => record.status === "processing");
   const latestDone = project.exports.find((record) => record.status === "done" && record.file);
@@ -2072,6 +2074,29 @@ function ExportPanel({
       toast.error("Could not start the export.");
     } finally {
       setStarting(false);
+    }
+  };
+
+  const stopExport = async () => {
+    if (!active) return;
+    setStopping(true);
+    try {
+      const response = await fetch(`/api/longform/projects/${project.id}/export/${active.id}`, { method: "DELETE" });
+      const data = (await response.json()) as { export?: LongformExportRecord; error?: string };
+      if (!response.ok || !data.export) {
+        toast.error(data.error ?? "Could not stop the export.");
+        return;
+      }
+      skipDirtyRef.current = true;
+      setProject((current) => ({
+        ...current,
+        exports: current.exports.map((item) => (item.id === data.export!.id ? data.export! : item))
+      }));
+      toast("Render stopped.");
+    } catch {
+      toast.error("Could not stop the export.");
+    } finally {
+      setStopping(false);
     }
   };
 
@@ -2142,6 +2167,10 @@ function ExportPanel({
         <div className="space-y-2">
           <Progress value={active.progress} />
           <p className="text-center text-xs text-[var(--muted-foreground)]">Rendering… {active.progress}%</p>
+          <Button variant="danger" className="w-full gap-2" disabled={stopping} onClick={() => void stopExport()}>
+            {stopping ? <Loader2 className="h-4 w-4 animate-spin" /> : <Square className="h-4 w-4" />}
+            Stop render
+          </Button>
         </div>
       ) : (
         <Button className="w-full gap-2" disabled={starting} onClick={() => void startExport()}>

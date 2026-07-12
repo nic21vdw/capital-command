@@ -127,7 +127,7 @@ export type LongformPace = {
   paddingSec: number;
 };
 
-export type LongformExportStatus = "processing" | "done" | "error";
+export type LongformExportStatus = "processing" | "done" | "error" | "canceled";
 
 export type LongformExportRecord = {
   id: string;

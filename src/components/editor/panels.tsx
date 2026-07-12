@@ -17,6 +17,7 @@ import {
   RefreshCw,
   Scissors,
   Sparkles,
+  Square,
   Trash2,
   Type,
   Unlock
@@ -818,20 +819,29 @@ export const ExportPanel = memo(function ExportPanel({ api }: { api: EditorApi }
       <PublishMetaSection api={api} />
 
       <div className="rounded-lg border border-[var(--border)] p-3">
-        <Button onClick={api.runExport} disabled={state.status === "starting" || state.status === "processing"} className="w-full">
-          {state.status === "starting" || state.status === "processing" ? (
-            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-          ) : (
-            <Download className="mr-2 h-4 w-4" />
-          )}
-          {state.status === "processing" ? `Rendering ${state.progress}%` : "Export video"}
-        </Button>
+        {state.status === "processing" || state.status === "starting" ? (
+          <div className="flex gap-2">
+            <Button disabled className="flex-1">
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              {state.status === "processing" ? `Rendering ${state.progress}%` : "Starting…"}
+            </Button>
+            <Button variant="danger" onClick={api.stopExport} title="Stop this render">
+              <Square className="mr-2 h-4 w-4" /> Stop
+            </Button>
+          </div>
+        ) : (
+          <Button onClick={api.runExport} className="w-full">
+            <Download className="mr-2 h-4 w-4" /> Export video
+          </Button>
+        )}
 
         {(state.status === "processing" || state.status === "starting") && (
           <div className="mt-3 h-1.5 w-full overflow-hidden rounded-full bg-white/10">
             <div className="h-full bg-[var(--accent)] transition-all" style={{ width: `${state.progress}%` }} />
           </div>
         )}
+
+        {state.status === "canceled" && <p className="mt-2 text-sm text-[var(--muted-foreground)]">Render stopped. Press Export video to try again.</p>}
 
         {state.status === "error" && <p className="mt-2 text-sm text-red-300">{state.error}</p>}
 
