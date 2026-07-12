@@ -1,7 +1,7 @@
 import { stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { buildAss } from "@/lib/clipping/captions";
-import { runFfmpeg } from "@/lib/clipping/ffmpeg";
+import { isRenderCanceled, runFfmpeg } from "@/lib/clipping/ffmpeg";
 import { animatedReframeChain } from "@/lib/clipping/render";
 import { readSourceMeta, sourceFilePath } from "@/lib/clipping/sources";
 import { getTrack, trackFilePath } from "@/lib/longform/music";
@@ -81,6 +81,14 @@ function parseProgressSeconds(line: string): number | null {
   return Number(match[1]) * 3600 + Number(match[2]) * 60 + Number(match[3]);
 }
 
+// Abort controllers for in-flight renders, so a long-form export can be
+// stopped safely (each ffmpeg stage is killed and no later stage starts).
+// Keyed by export record id; kept on globalThis so a dev hot-reload doesn't
+// orphan a running render.
+type RenderGlobal = typeof globalThis & { __longformExportControllers?: Map<string, AbortController> };
+const rg = globalThis as RenderGlobal;
+const controllers = (rg.__longformExportControllers ??= new Map<string, AbortController>());
+
 async function patchRecord(projectId: string, recordId: string, patch: Partial<LongformExportRecord>) {
   const project = await getProject(projectId);
   if (!project) return;
@@ -136,16 +144,46 @@ export async function startLongformExport(project: LongformProject): Promise<Lon
   const exports = [record, ...project.exports].slice(0, 6);
   await updateProject(project.id, { exports });
 
-  void runExport(project.id, record.id).catch(async (error) => {
-    await patchRecord(project.id, record.id, {
-      status: "error",
-      error: error instanceof Error ? error.message : String(error)
-    });
-  });
+  const controller = new AbortController();
+  controllers.set(record.id, controller);
+  void runExport(project.id, record.id, controller.signal)
+    .catch(async (error) => {
+      // A deliberate stop is not a failure — cancelLongformExport already
+      // flipped the record to "canceled".
+      if (isRenderCanceled(error) || controller.signal.aborted) {
+        await patchRecord(project.id, record.id, { status: "canceled", progress: 0, error: undefined });
+        return;
+      }
+      await patchRecord(project.id, record.id, {
+        status: "error",
+        error: error instanceof Error ? error.message : String(error)
+      });
+    })
+    .finally(() => controllers.delete(record.id));
   return record;
 }
 
-async function runExport(projectId: string, recordId: string) {
+/**
+ * Stops an in-flight long-form render safely: aborts the ffmpeg stage, prevents
+ * later stages from starting, and marks the record "canceled". A no-op once the
+ * export has already finished, errored, or been stopped.
+ */
+export async function cancelLongformExport(
+  projectId: string,
+  recordId: string
+): Promise<LongformExportRecord | null> {
+  const project = await getProject(projectId);
+  const record = project?.exports.find((item) => item.id === recordId);
+  if (!record) return null;
+  if (record.status !== "processing") return record;
+  controllers.get(recordId)?.abort();
+  controllers.delete(recordId);
+  await patchRecord(projectId, recordId, { status: "canceled", progress: 0, error: undefined });
+  const updated = await getProject(projectId);
+  return updated?.exports.find((item) => item.id === recordId) ?? record;
+}
+
+async function runExport(projectId: string, recordId: string, signal: AbortSignal) {
   const project = await getProject(projectId);
   if (!project) throw new Error("Project is gone.");
   const meta = await readSourceMeta(project.sourceId);
@@ -189,7 +227,7 @@ async function runExport(projectId: string, recordId: string) {
     // vertical frame afterwards.
     const sx = project.hook.focusX * 2 - 1;
     const sy = project.hook.focusY * 2 - 1;
-    const rampSec = Math.min(HOOK_ZOOM_RAMP_SEC, Math.max(0.05, hookRange.end / 2));
+    const rampSec = Math.min(HOOK_ZOOM_RAMP_SEC, Math.max(0.05, hookSec / 2));
     const reframe = animatedReframeChain("0:v", "vz", FRAME_W, FRAME_H, project.hook.zoom, sx, sy, rampSec, FPS);
     const filter = vertical
       ? `${reframe};${verticalWrapChain("vz", "vv")};[vv]${assArg}fps=${FPS},setsar=1,format=yuv420p[vout]`
@@ -197,10 +235,14 @@ async function runExport(projectId: string, recordId: string) {
     await runFfmpeg(
       [
         "-y",
+        // Seek to the hook's source start (0 for a normal opening hook), then
+        // take hookSec of footage — the hook window pulled to the front.
+        "-ss",
+        hookRange.start.toFixed(3),
         "-i",
         srcPath,
         "-t",
-        hookRange.end.toFixed(3),
+        hookSec.toFixed(3),
         "-filter_complex",
         filter,
         "-map",
@@ -210,7 +252,7 @@ async function runExport(projectId: string, recordId: string) {
         ...(hasAudio ? AUDIO_ENC : ["-an"]),
         hookPath
       ],
-      { onLine: (line) => {
+      { signal, onLine: (line) => {
           const seconds = parseProgressSeconds(line);
           if (seconds !== null) report(2, 8, seconds, hookSec);
         } }
@@ -261,7 +303,7 @@ async function runExport(projectId: string, recordId: string) {
         ...(hasAudio ? AUDIO_ENC : ["-an"]),
         bodyPath
       ],
-      { onLine: (line) => {
+      { signal, onLine: (line) => {
           const seconds = parseProgressSeconds(line);
           if (seconds !== null) report(10, 76, seconds, bodySec);
         } }
@@ -279,21 +321,21 @@ async function runExport(projectId: string, recordId: string) {
     const listPath = path.join(workDir, `export-${recordId}-concat.txt`);
     const listDoc = parts.map((part) => `file '${part.replace(/'/g, "'\\''")}'`).join("\n");
     await writeFile(listPath, `${listDoc}\n`, "utf8");
-    await runFfmpeg(["-y", "-f", "concat", "-safe", "0", "-i", listPath, "-c", "copy", mergedPath]);
+    await runFfmpeg(["-y", "-f", "concat", "-safe", "0", "-i", listPath, "-c", "copy", mergedPath], { signal });
   }
   await patchRecord(projectId, recordId, { progress: 91 });
 
   // 3b. Timeline overlays: burn each dropped-in image over the edited runtime.
   // Images are authored in source seconds, so their visible window is mapped
   // onto the concatenated hook + body timeline before it is drawn.
-  const overlaidPath = await applyOverlays(project, mergedPath, workDir, recordId, hasAudio);
+  const overlaidPath = await applyOverlays(project, mergedPath, workDir, recordId, hasAudio, signal);
   await patchRecord(projectId, recordId, { progress: 94 });
 
   // 3c. Whole-video captions: burn the transcript captions over the edited
   // runtime, on top of any image overlays. Segments are authored in source
   // seconds, so each one shifts back by the cuts before it; when the hook
   // burns its own captions these take over from hook.end onward.
-  const videoPath = await applyBodyCaptions(project, overlaidPath, workDir, recordId, hasAudio);
+  const videoPath = await applyBodyCaptions(project, overlaidPath, workDir, recordId, hasAudio, signal);
   await patchRecord(projectId, recordId, { progress: 96 });
 
   // 4. Audio mix: every placed timeline audio clip is mixed under the edit
@@ -308,7 +350,7 @@ async function runExport(projectId: string, recordId: string) {
   const masterVol = project.music.masterVolume ?? 1;
   const videoVolChanged = Math.abs(videoVol - 1) > 0.001;
   const masterVolChanged = Math.abs(masterVol - 1) > 0.001;
-  const mixed = await mixAudioClips(project, videoPath, finalPath, editedSec, hasAudio, videoVol, masterVol);
+  const mixed = await mixAudioClips(project, videoPath, finalPath, editedSec, hasAudio, videoVol, masterVol, signal);
   if (!mixed) {
     if (hasAudio && (videoVolChanged || masterVolChanged)) {
       // No audio clips, but the video/master gain differs from unity —
@@ -330,10 +372,10 @@ async function runExport(projectId: string, recordId: string) {
         "-movflags",
         "+faststart",
         finalPath
-      ]);
+      ], { signal });
     } else {
       // Nothing to mix: remux with +faststart so the file streams instantly.
-      await runFfmpeg(["-y", "-i", videoPath, "-c", "copy", "-movflags", "+faststart", finalPath]);
+      await runFfmpeg(["-y", "-i", videoPath, "-c", "copy", "-movflags", "+faststart", finalPath], { signal });
     }
   }
 
@@ -391,7 +433,8 @@ async function mixAudioClips(
   editedSec: number,
   hasAudio: boolean,
   videoVol: number,
-  masterVol: number
+  masterVol: number,
+  signal: AbortSignal
 ): Promise<boolean> {
   const clips = project.music.enabled ? project.music.clips ?? [] : [];
   const resolved: Array<{ path: string; offsetSec: number; duration: number; volume: number }> = [];
@@ -475,7 +518,7 @@ async function mixAudioClips(
     "-movflags",
     "+faststart",
     finalPath
-  ]);
+  ], { signal });
   return true;
 }
 
@@ -500,7 +543,8 @@ async function applyOverlays(
   mergedPath: string,
   workDir: string,
   recordId: string,
-  hasAudio: boolean
+  hasAudio: boolean,
+  signal: AbortSignal
 ): Promise<string> {
   const overlays = project.overlays ?? [];
   if (overlays.length === 0) return mergedPath;
@@ -559,7 +603,7 @@ async function applyOverlays(
     ...VIDEO_ENC,
     ...(hasAudio ? ["-c:a", "copy"] : ["-an"]),
     overlaidPath
-  ]);
+  ], { signal });
   return overlaidPath;
 }
 
@@ -576,14 +620,17 @@ async function applyBodyCaptions(
   mergedPath: string,
   workDir: string,
   recordId: string,
-  hasAudio: boolean
+  hasAudio: boolean,
+  signal: AbortSignal
 ): Promise<string> {
   const captions = project.captions;
   if (!captions?.enabled || captions.segments.length === 0) return mergedPath;
   const hookCaptionsBurned =
     project.hook.enabled && project.hook.captionsEnabled && project.hook.captions.some((c) => c.enabled && c.text.trim());
-  const skipBefore = hookCaptionsBurned ? project.hook.end : 0;
-  const remapped = remapCaptionsToOutput(captions.segments, project.segments, project.hook, skipBefore);
+  const skipWindow = hookCaptionsBurned
+    ? { start: Math.max(0, project.hook.start ?? 0), end: project.hook.end }
+    : null;
+  const remapped = remapCaptionsToOutput(captions.segments, project.segments, project.hook, skipWindow);
   if (remapped.length === 0) return mergedPath;
 
   const { frameW, frameH } = frameSize(project);
@@ -604,7 +651,7 @@ async function applyBodyCaptions(
     ...VIDEO_ENC,
     ...(hasAudio ? ["-c:a", "copy"] : ["-an"]),
     captionedPath
-  ]);
+  ], { signal });
   return captionedPath;
 }
 

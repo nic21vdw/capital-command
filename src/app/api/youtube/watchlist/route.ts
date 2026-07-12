@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { normalizeGroupLabel } from "@/lib/youtube/competitor-trends";
 import { OutlierApiError, resolveChannel, youtubeConfigured } from "@/lib/youtube/outlier-service";
 import { readOutlierStore, updateOutlierStore } from "@/lib/youtube/outlier-store";
 
@@ -52,6 +53,31 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     return errorResponse(error);
   }
+}
+
+/** PATCH { id, group } — label a channel (e.g. "Competition") for the competition analysis. "" clears it. */
+export async function PATCH(request: NextRequest) {
+  let body: { id?: unknown; group?: unknown };
+  try {
+    body = (await request.json()) as typeof body;
+  } catch {
+    return NextResponse.json({ error: "Invalid JSON body." }, { status: 400 });
+  }
+  if (typeof body.id !== "string" || !body.id || typeof body.group !== "string") {
+    return NextResponse.json({ error: "Provide { id, group } — group may be empty to clear the label." }, { status: 400 });
+  }
+  const group = normalizeGroupLabel(body.group);
+  let found = false;
+  const store = await updateOutlierStore((current) => ({
+    ...current,
+    channels: current.channels.map((channel) => {
+      if (channel.id !== body.id) return channel;
+      found = true;
+      return { ...channel, group };
+    })
+  }));
+  if (!found) return NextResponse.json({ error: "No watchlist channel with that id." }, { status: 404 });
+  return NextResponse.json({ channels: store.channels });
 }
 
 /** DELETE ?id=UC… — remove a channel. Its flagged outliers (and your tags) are kept. */

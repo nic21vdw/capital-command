@@ -95,46 +95,57 @@ export function LongformPreview({
   }, [vertical, videoRef]);
 
   const hook = project.hook;
-  const hookActive = hook.enabled && time < hook.end;
+  const hookStart = hook.start ?? 0;
+  const hookActive = hook.enabled && time >= hookStart && time < hook.end;
   // Match the export's animated punch-in: ease the zoom from 1x up to hook.zoom
   // over the first HOOK_ZOOM_RAMP_SEC seconds (ease-out cubic), then hold. This
-  // makes the preview glide into the zoom at the absolute start instead of
-  // snapping to full zoom on the first frame — mirroring animatedReframeChain.
-  const rampSec = Math.min(HOOK_ZOOM_RAMP_SEC, Math.max(0.05, hook.end / 2));
-  const rampProgress = clamp(time / rampSec, 0, 1);
+  // makes the preview glide into the zoom at the hook's first frame instead of
+  // snapping to full zoom — mirroring animatedReframeChain on the trimmed clip.
+  const hookLen = Math.max(0.05, hook.end - hookStart);
+  const rampSec = Math.min(HOOK_ZOOM_RAMP_SEC, hookLen / 2);
+  const rampProgress = clamp((time - hookStart) / rampSec, 0, 1);
   const eased = 1 - Math.pow(1 - rampProgress, 3);
   const zoom = hookActive ? 1 + (hook.zoom - 1) * eased : 1;
 
   // The caption to overlay right now: the hook's own captions win inside the
   // hook window; the whole-video captions cover everything else — mirroring
-  // exactly which layer the export burns at this instant.
+  // exactly which layer the export burns at this instant. Hook captions are
+  // stored hook-local (0 = the hook's first frame), so they're looked up
+  // against the window-relative time; body captions stay in source seconds.
   const bodyCaptions = project.captions;
   const hookCaptionsBurned =
     hook.enabled && hook.captionsEnabled && hook.captions.some((seg) => seg.enabled && seg.text.trim());
   const activeLayer = useMemo(() => {
-    const at = (seg: (typeof hook.captions)[number]) =>
-      seg.enabled && seg.text.trim() && time >= seg.start && time < seg.end;
     if (hookActive && hookCaptionsBurned) {
-      const seg = hook.captions.find(at);
+      const local = time - hookStart;
+      const seg = hook.captions.find((s) => s.enabled && s.text.trim() && local >= s.start && local < s.end);
       return seg
-        ? { seg, style: hook.captionStyle, highlight: hook.highlightCurrentWord, onStyleChange: onCaptionStyleChange }
+        ? {
+            seg,
+            style: hook.captionStyle,
+            highlight: hook.highlightCurrentWord,
+            onStyleChange: onCaptionStyleChange,
+            captionTime: local
+          }
         : null;
     }
-    if (bodyCaptions?.enabled && !(hookCaptionsBurned && time < hook.end)) {
-      const seg = bodyCaptions.segments.find(at);
+    if (bodyCaptions?.enabled && !(hookCaptionsBurned && hookActive)) {
+      const seg = bodyCaptions.segments.find((s) => s.enabled && s.text.trim() && time >= s.start && time < s.end);
       return seg
         ? {
             seg,
             style: bodyCaptions.style,
             highlight: bodyCaptions.highlightCurrentWord,
-            onStyleChange: onBodyCaptionStyleChange
+            onStyleChange: onBodyCaptionStyleChange,
+            captionTime: time
           }
         : null;
     }
     return null;
-  }, [hookActive, hookCaptionsBurned, hook, bodyCaptions, time, onCaptionStyleChange, onBodyCaptionStyleChange]);
+  }, [hookActive, hookCaptionsBurned, hook, hookStart, bodyCaptions, time, onCaptionStyleChange, onBodyCaptionStyleChange]);
 
   const activeCaption = activeLayer?.seg ?? null;
+  const captionTime = activeLayer?.captionTime ?? time;
   const style = activeLayer?.style ?? hook.captionStyle;
   const activeStyleChange = activeLayer?.onStyleChange;
   const fontSize = Math.max(10, style.fontScale * frameHeight);
@@ -329,8 +340,8 @@ export function LongformPreview({
               ? activeCaption.words.map((word, index) => {
                   const isCurrent =
                     (activeLayer?.highlight ?? false) &&
-                    time >= word.start &&
-                    (index === activeCaption.words.length - 1 || time < activeCaption.words[index + 1].start);
+                    captionTime >= word.start &&
+                    (index === activeCaption.words.length - 1 || captionTime < activeCaption.words[index + 1].start);
                   return (
                     <span
                       key={`${activeCaption.id}-${index}`}
