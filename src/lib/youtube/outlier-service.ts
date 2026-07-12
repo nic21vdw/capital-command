@@ -89,7 +89,8 @@ function toWatchlistChannel(resource: ChannelResource, nowIso: string): Watchlis
     lastFetchedAt: null,
     lastError: null,
     baseline: null,
-    recentVideos: []
+    recentVideos: [],
+    group: ""
   };
 }
 
