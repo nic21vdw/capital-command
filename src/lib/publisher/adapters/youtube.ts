@@ -1,5 +1,7 @@
 import { readFile, stat } from "node:fs/promises";
+import { primaryAccountId } from "@/lib/publisher/accounts";
 import { publisherConfig } from "@/lib/publisher/config";
+import { youtubeRefreshTokenFor } from "@/lib/publisher/googleAuth";
 import { PermanentError, fetchJson, fetchRaw } from "@/lib/publisher/http";
 import { bareTags, composeDescription } from "@/lib/publisher/metadata";
 import { formatInTimezone, toRfc3339Utc } from "@/lib/publisher/time";
@@ -24,29 +26,36 @@ const TOKEN_URL = "https://oauth2.googleapis.com/token";
 const UPLOAD_URL = "https://www.googleapis.com/upload/youtube/v3/videos?uploadType=resumable&part=snippet,status";
 const VIDEOS_URL = "https://www.googleapis.com/youtube/v3/videos";
 
-let cachedToken: { accessToken: string; expiresAt: number } | null = null;
+const cachedTokens = new Map<string, { accessToken: string; expiresAt: number }>();
 
-/** Shared by the upload adapter and the channel-schedule reader. */
-export async function youtubeAccessToken(): Promise<string> {
+/**
+ * Shared by the upload adapter and the channel-schedule reader. Each account
+ * refreshes with its own stored refresh token (the primary account's comes
+ * from .env or the original Connect YouTube flow) and caches its own access
+ * token.
+ */
+export async function youtubeAccessToken(accountId: string = primaryAccountId("youtube")): Promise<string> {
   const { youtube } = publisherConfig();
-  if (!youtube.clientId || !youtube.clientSecret || !youtube.refreshToken) {
+  const refreshToken = await youtubeRefreshTokenFor(accountId);
+  if (!youtube.clientId || !youtube.clientSecret || !refreshToken) {
     throw new PermanentError(
-      "YouTube is not configured. Set YOUTUBE_CLIENT_ID and YOUTUBE_CLIENT_SECRET, then use Connect YouTube in the Uploading Center (or set YOUTUBE_REFRESH_TOKEN)."
+      "This YouTube account is not connected. Set YOUTUBE_CLIENT_ID and YOUTUBE_CLIENT_SECRET, then use Connect YouTube in the Uploading Center (or set YOUTUBE_REFRESH_TOKEN for the primary account)."
     );
   }
-  if (cachedToken && cachedToken.expiresAt > Date.now() + 60_000) return cachedToken.accessToken;
+  const cached = cachedTokens.get(accountId);
+  if (cached && cached.expiresAt > Date.now() + 60_000) return cached.accessToken;
   const data = await fetchJson<{ access_token: string; expires_in: number }>(TOKEN_URL, {
     label: "YouTube token refresh",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body: new URLSearchParams({
       client_id: youtube.clientId,
       client_secret: youtube.clientSecret,
-      refresh_token: youtube.refreshToken,
+      refresh_token: refreshToken,
       grant_type: "refresh_token"
     })
   });
-  cachedToken = { accessToken: data.access_token, expiresAt: Date.now() + data.expires_in * 1000 };
-  return cachedToken.accessToken;
+  cachedTokens.set(accountId, { accessToken: data.access_token, expiresAt: Date.now() + data.expires_in * 1000 });
+  return data.access_token;
 }
 
 type YoutubeBody = {
@@ -84,8 +93,8 @@ function buildBody(input: PublishInput): { body: YoutubeBody; scheduled: boolean
  * required on snippet updates and must be preserved. Works under the existing
  * youtube.upload scope for videos this app uploaded.
  */
-export async function updateYoutubeVideoTitle(videoId: string, title: string): Promise<void> {
-  const token = await youtubeAccessToken();
+export async function updateYoutubeVideoTitle(videoId: string, title: string, accountId?: string): Promise<void> {
+  const token = await youtubeAccessToken(accountId);
   const current = await fetchJson<{ items?: Array<{ snippet?: Record<string, unknown> }> }>(
     `${VIDEOS_URL}?part=snippet&id=${encodeURIComponent(videoId)}`,
     { label: "YouTube video snippet read", method: "GET", headers: { Authorization: `Bearer ${token}` } }
@@ -134,7 +143,7 @@ export const youtubeAdapter: PlatformAdapter = {
   },
 
   async publish(input: PublishInput): Promise<PostResult> {
-    const token = await youtubeAccessToken();
+    const token = await youtubeAccessToken(input.item.accountId);
     const { body, scheduled } = buildBody(input);
     const media = await readFile(input.localPath);
     const size = (await stat(input.localPath)).size;
@@ -186,7 +195,7 @@ export const youtubeAdapter: PlatformAdapter = {
     if (!state.postId) {
       throw new PermanentError(`YouTube post for ${item.clipPath} has no video id recorded — cannot verify it went public.`);
     }
-    const token = await youtubeAccessToken();
+    const token = await youtubeAccessToken(item.accountId);
     const current = await fetchJson<{ items?: Array<{ status?: Record<string, unknown> }> }>(
       `${VIDEOS_URL}?part=status&id=${encodeURIComponent(state.postId)}`,
       { label: "YouTube video status check", method: "GET", headers: { Authorization: `Bearer ${token}` } }

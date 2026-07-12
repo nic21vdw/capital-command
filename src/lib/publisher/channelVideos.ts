@@ -1,5 +1,7 @@
+import { primaryAccountId } from "@/lib/publisher/accounts";
 import { youtubeAccessToken } from "@/lib/publisher/adapters/youtube";
 import { publisherConfig } from "@/lib/publisher/config";
+import { youtubeRefreshTokenFor } from "@/lib/publisher/googleAuth";
 import { fetchJson } from "@/lib/publisher/http";
 
 /**
@@ -54,19 +56,26 @@ type VideoResource = {
   status?: { privacyStatus?: string; publishAt?: string };
 };
 
-let cache: { at: number; schedule: ChannelSchedule } | null = null;
+// One cached schedule per account, so switching accounts in the Uploading
+// Center never shows one channel's videos on another channel's calendar.
+const cache = new Map<string, { at: number; schedule: ChannelSchedule }>();
 
-export async function youtubeChannelSchedule(options: { force?: boolean; now?: Date } = {}): Promise<ChannelSchedule> {
+export async function youtubeChannelSchedule(
+  options: { force?: boolean; now?: Date; accountId?: string } = {}
+): Promise<ChannelSchedule> {
   const now = options.now ?? new Date();
+  const accountId = options.accountId ?? primaryAccountId("youtube");
   const { youtube } = publisherConfig();
-  if (!youtube.clientId || !youtube.clientSecret || !youtube.refreshToken) {
+  const refreshToken = await youtubeRefreshTokenFor(accountId);
+  if (!youtube.clientId || !youtube.clientSecret || !refreshToken) {
     return { configured: false, needsReconnect: false, fetchedAt: null, channelId: null, videos: [], error: null };
   }
-  if (!options.force && cache && now.getTime() - cache.at < CACHE_TTL_MS) return cache.schedule;
+  const cached = cache.get(accountId);
+  if (!options.force && cached && now.getTime() - cached.at < CACHE_TTL_MS) return cached.schedule;
 
   let schedule: ChannelSchedule;
   try {
-    const { channelId, videos } = await fetchChannelVideos(now);
+    const { channelId, videos } = await fetchChannelVideos(now, accountId);
     schedule = { configured: true, needsReconnect: false, fetchedAt: now.toISOString(), channelId, videos, error: null };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
@@ -77,7 +86,7 @@ export async function youtubeChannelSchedule(options: { force?: boolean; now?: D
         configured: true,
         needsReconnect: true,
         fetchedAt: now.toISOString(),
-        channelId: cache?.schedule.channelId ?? null,
+        channelId: cached?.schedule.channelId ?? null,
         videos: [],
         error: null
       };
@@ -87,19 +96,19 @@ export async function youtubeChannelSchedule(options: { force?: boolean; now?: D
       return {
         configured: true,
         needsReconnect: false,
-        fetchedAt: cache?.schedule.fetchedAt ?? null,
-        channelId: cache?.schedule.channelId ?? null,
-        videos: cache?.schedule.videos ?? [],
+        fetchedAt: cached?.schedule.fetchedAt ?? null,
+        channelId: cached?.schedule.channelId ?? null,
+        videos: cached?.schedule.videos ?? [],
         error: message
       };
     }
   }
-  cache = { at: now.getTime(), schedule };
+  cache.set(accountId, { at: now.getTime(), schedule });
   return schedule;
 }
 
-async function fetchChannelVideos(now: Date): Promise<{ channelId: string | null; videos: ChannelVideo[] }> {
-  const token = await youtubeAccessToken();
+async function fetchChannelVideos(now: Date, accountId: string): Promise<{ channelId: string | null; videos: ChannelVideo[] }> {
+  const token = await youtubeAccessToken(accountId);
   const auth = { Authorization: `Bearer ${token}` };
 
   const channels = await fetchJson<{

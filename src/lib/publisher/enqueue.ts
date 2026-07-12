@@ -1,6 +1,7 @@
 import { stat } from "node:fs/promises";
 import path from "node:path";
 import { getJob } from "@/lib/clipping/jobs";
+import { accountIdConfigured, getAccount, isPrimaryAccountId, primaryAccountId } from "@/lib/publisher/accounts";
 import { configuredPlatforms, hostingConfigured, publisherConfig } from "@/lib/publisher/config";
 import { hostMedia } from "@/lib/publisher/hosting";
 import { generateClipMetadata } from "@/lib/publisher/metadata";
@@ -21,7 +22,7 @@ function manualPlatformState(platform: PlatformId): PlatformState {
   return {
     status: "manual",
     attempts: 0,
-    note: `${PLATFORM_LABELS[platform]} isn't connected yet — post this clip by hand at the scheduled time, or add credentials in .env so future posts publish automatically.`
+    note: `${PLATFORM_LABELS[platform]} isn't connected for this account yet — post this clip by hand at the scheduled time, or connect the account so future posts publish automatically.`
   };
 }
 
@@ -45,6 +46,12 @@ export type EnqueueOptions = {
   platforms?: PlatformId[];
   visibility?: Visibility;
   jobId?: string;
+  /**
+   * The social account (accounts.ts) the post belongs to. Omitted or a
+   * platform's primary id → the platform's primary account (today's .env
+   * credentials), same as before accounts existed.
+   */
+  accountId?: string;
   /** Extra context for metadata generation (stream title, topic, spoken text). */
   metadataSource?: { streamTitle?: string; topic?: string; spokenText?: string };
 };
@@ -65,11 +72,27 @@ export async function enqueue(options: EnqueueOptions): Promise<QueueItem> {
   );
   if (platforms.length === 0) throw new Error("No platforms selected (check PUBLISH_PLATFORMS).");
 
+  // Resolve the target account. A primary id normalizes back to "no account"
+  // so items keep the legacy shape; a non-primary account must exist and can
+  // only take posts for its own platform.
+  let accountId = options.accountId;
+  if (accountId && isPrimaryAccountId(accountId)) accountId = undefined;
+  if (accountId) {
+    const account = await getAccount(accountId);
+    if (!account) throw new Error("That account no longer exists — pick another one in the Uploading Center.");
+    if (platforms.some((p) => p !== account.platform)) {
+      throw new Error(`Account "${account.label}" is a ${account.platform} account — it cannot take ${platforms.join("/")} posts.`);
+    }
+  }
+
   // Platforms without credentials still save — as "manual" reminders — so
   // assigning a clip to TikTok/Instagram before those APIs are connected
   // never errors. When a unified posting API lands, configuring credentials
   // is all it takes for the same platforms to publish automatically.
-  const configured = new Set(configuredPlatforms(config));
+  const configured = new Set<PlatformId>();
+  for (const platform of platforms) {
+    if (await accountIdConfigured(platform, accountId ?? primaryAccountId(platform), config)) configured.add(platform);
+  }
   const igAutomated = platforms.includes("instagram") && configured.has("instagram");
 
   const needsHosting =
@@ -127,6 +150,7 @@ export async function enqueue(options: EnqueueOptions): Promise<QueueItem> {
     visibility: options.visibility ?? config.defaultVisibility,
     createdAt: new Date().toISOString(),
     jobId: options.jobId,
+    ...(accountId ? { accountId } : {}),
     platforms: Object.fromEntries(
       platforms.map((p) => [p, configured.has(p) ? newPlatformState() : manualPlatformState(p)])
     )

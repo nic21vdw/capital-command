@@ -29,6 +29,7 @@ import { Card } from "@/components/ui/card";
 import { Modal } from "@/components/ui/modal";
 import { PageHeader } from "@/components/ui/page-header";
 import { Tabs } from "@/components/ui/tabs";
+import { AccountSwitcher } from "@/components/uploading-center/account-switcher";
 import { ClipQueue } from "@/components/uploading-center/clip-queue";
 import { QuotaMeter } from "@/components/uploading-center/quota-meter";
 import { ScheduleBoard } from "@/components/uploading-center/schedule-board";
@@ -70,7 +71,12 @@ export function UploadingCenterPage() {
     channelVideosBySlot,
     channelDayMarkers,
     channelVideosOutsideWindow,
-    queueItems,
+    visibleQueueItems,
+    accountsFor,
+    activeAccountFor,
+    setActiveAccount,
+    addAccount,
+    removeAccount,
     jobsWithClips,
     activeJob,
     setActiveJobId,
@@ -144,6 +150,10 @@ export function UploadingCenterPage() {
     const connectError = searchParams.get("connect_error");
     if (connected === "youtube") {
       oauthToastShown.current = true;
+      // A non-primary connection carries its account id — switch the YouTube
+      // tab to that account so the fresh connection is what's on screen.
+      const accountParam = searchParams.get("account");
+      if (accountParam) setActiveAccount("youtube", accountParam);
       toast.success(
         "YouTube connected — scheduled posts will upload automatically.",
       );
@@ -151,7 +161,7 @@ export function UploadingCenterPage() {
       oauthToastShown.current = true;
       toast.error(`YouTube connect failed: ${connectError}`);
     }
-  }, [searchParams]);
+  }, [searchParams, setActiveAccount]);
 
   const itemAtSlot = useCallback(
     (platform: PlatformId, slotUtc: string) =>
@@ -308,6 +318,8 @@ export function UploadingCenterPage() {
     [busy, handleSchedule, placingClip],
   );
 
+  const activeYoutubeAccount = activeAccountFor("youtube");
+
   const slots = useMemo(() => overview?.slots ?? [], [overview]);
   const slotUtcSet = useMemo(
     () => new Set(slots.map((slot) => slot.utc)),
@@ -359,14 +371,17 @@ export function UploadingCenterPage() {
   // list below the grid (Instagram + Facebook collapse into one Meta row).
   const offGridItems = useMemo(
     () =>
-      queueItems.filter(
+      visibleQueueItems.filter(
         (item) => !slotUtcSet.has(new Date(item.publishAt).toISOString()),
       ),
-    [queueItems, slotUtcSet],
+    [visibleQueueItems, slotUtcSet],
   );
 
   const tabs = PLATFORM_TABS.map(({ id, icon }) => {
-    const configured = overview?.platforms[id]?.configured ?? false;
+    const activeAccount = activeAccountFor(id);
+    // Connection status follows the account the tab is showing, not the
+    // platform as a whole — each account connects on its own.
+    const configured = activeAccount?.connected ?? false;
     // Channel videos on a day the grid shows render on the grid itself (in a
     // slot cell or as a day marker); the rest are listed below the board with
     // their exact upload/go-live time.
@@ -377,6 +392,15 @@ export function UploadingCenterPage() {
       icon,
       content: (
         <div className="space-y-4">
+          <AccountSwitcher
+            platform={id}
+            accounts={accountsFor(id)}
+            activeAccount={activeAccount}
+            onSelect={(accountId) => setActiveAccount(id, accountId)}
+            onAdd={(label) => addAccount(id, label)}
+            onRemove={removeAccount}
+            busy={busy}
+          />
           {id === "youtube" && configured ? (
             <div className="flex justify-end">
               <Button
@@ -395,9 +419,11 @@ export function UploadingCenterPage() {
               </Button>
             </div>
           ) : null}
-          {id === "youtube" && !configured ? <ConnectYoutubeNotice /> : null}
+          {id === "youtube" && !configured ? (
+            <ConnectYoutubeNotice accountId={activeAccount?.id} />
+          ) : null}
           {id === "youtube" && configured && channel?.needsReconnect ? (
-            <ReconnectYoutubeNotice />
+            <ReconnectYoutubeNotice accountId={activeAccount?.id} />
           ) : null}
           {id !== "youtube" && !configured ? (
             <p className="flex items-center gap-2 rounded-lg border border-amber-400/25 bg-amber-400/8 px-3 py-2 text-xs text-amber-200">
@@ -464,25 +490,27 @@ export function UploadingCenterPage() {
         description="Assign finished clips to a platform and a slot. Dropping a clip — or a video file straight from your computer — on a slot uploads it to YouTube immediately as a scheduled Short (landscape clips are re-rendered vertical automatically) — it appears under Scheduled in YouTube Studio and goes live at the slot time on its own; TikTok and Instagram queue as manual reminders until a unified posting API is connected."
         actions={
           <div className="flex w-full max-w-sm flex-col gap-2">
-            {overview?.platforms.youtube.configured ? (
+            {activeYoutubeAccount?.connected ? (
               <Badge className="self-start border-emerald-400/30 bg-emerald-400/10 text-emerald-300">
-                {overview.platforms.youtube.account?.thumbnail ? (
+                {activeYoutubeAccount.youtube?.thumbnail ? (
                   // eslint-disable-next-line @next/next/no-img-element -- remote avatar host isn't in next.config images
                   <img
-                    src={overview.platforms.youtube.account.thumbnail}
+                    src={activeYoutubeAccount.youtube.thumbnail}
                     alt=""
                     className="mr-1.5 h-4 w-4 rounded-full"
                   />
                 ) : (
                   <CheckCircle2 className="mr-1.5 h-3.5 w-3.5" />
                 )}
-                {overview.platforms.youtube.account
-                  ? `Connected as ${overview.platforms.youtube.account.title}`
+                {activeYoutubeAccount.youtube
+                  ? `Connected as ${activeYoutubeAccount.youtube.title}`
                   : "YouTube connected"}
               </Badge>
             ) : (
               <Button
-                onClick={() => (window.location.href = "/api/auth/google")}
+                onClick={() =>
+                  (window.location.href = connectUrl(activeYoutubeAccount?.id))
+                }
                 className="self-start"
               >
                 <Youtube className="mr-2 h-4 w-4" /> Connect YouTube
@@ -744,7 +772,13 @@ function SchedulePeriodNav({
   );
 }
 
-function ReconnectYoutubeNotice() {
+function connectUrl(accountId?: string) {
+  return accountId
+    ? `/api/auth/google?account=${encodeURIComponent(accountId)}`
+    : "/api/auth/google";
+}
+
+function ReconnectYoutubeNotice({ accountId }: { accountId?: string }) {
   return (
     <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-amber-400/25 bg-amber-400/8 px-3 py-2">
       <p className="flex items-center gap-2 text-xs text-amber-200">
@@ -755,7 +789,7 @@ function ReconnectYoutubeNotice() {
       <Button
         variant="secondary"
         className="h-8 px-3 text-xs"
-        onClick={() => (window.location.href = "/api/auth/google")}
+        onClick={() => (window.location.href = connectUrl(accountId))}
       >
         Reconnect YouTube
       </Button>
@@ -763,18 +797,18 @@ function ReconnectYoutubeNotice() {
   );
 }
 
-function ConnectYoutubeNotice() {
+function ConnectYoutubeNotice({ accountId }: { accountId?: string }) {
   return (
     <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-amber-400/25 bg-amber-400/8 px-3 py-2">
       <p className="flex items-center gap-2 text-xs text-amber-200">
         <AlertTriangle className="h-4 w-4 shrink-0" />
-        YouTube isn&apos;t connected — new assignments save as manual reminders
-        instead of uploading.
+        This YouTube account isn&apos;t connected — new assignments save as
+        manual reminders instead of uploading.
       </p>
       <Button
         variant="secondary"
         className="h-8 px-3 text-xs"
-        onClick={() => (window.location.href = "/api/auth/google")}
+        onClick={() => (window.location.href = connectUrl(accountId))}
       >
         Connect YouTube
       </Button>

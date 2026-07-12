@@ -1,3 +1,4 @@
+import { primaryAccountId, youtubeChannelKey, youtubeRefreshTokenKey } from "@/lib/publisher/accounts";
 import { publisherConfig } from "@/lib/publisher/config";
 import { fetchJson } from "@/lib/publisher/http";
 import { getCachedToken, setCachedToken } from "@/lib/publisher/tokens";
@@ -10,6 +11,12 @@ import { getCachedToken, setCachedToken } from "@/lib/publisher/tokens";
  * (data/publisher-tokens.json) — nothing sensitive reaches the front end,
  * localStorage, or a URL. This tool runs on localhost only, which is why the
  * redirect URI is derived from the local request origin.
+ *
+ * Multi-account: every YouTube account in accounts.ts connects through this
+ * same flow. The target account id rides along in the OAuth state parameter
+ * and picks the token-cache keys — the primary account keeps the original
+ * un-suffixed keys, extra accounts get per-account entries — so each
+ * connected channel refreshes and uploads with its own credentials.
  */
 
 const AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth";
@@ -22,12 +29,12 @@ const TOKEN_URL = "https://oauth2.googleapis.com/token";
 const SCOPE = "https://www.googleapis.com/auth/youtube.upload https://www.googleapis.com/auth/youtube.readonly";
 const CHANNELS_URL = "https://www.googleapis.com/youtube/v3/channels?part=snippet&mine=true";
 
-export const YOUTUBE_REFRESH_TOKEN_CACHE_KEY = "youtube.refreshToken";
-export const YOUTUBE_CHANNEL_CACHE_KEY = "youtube.channel";
+export const YOUTUBE_REFRESH_TOKEN_CACHE_KEY = youtubeRefreshTokenKey();
+export const YOUTUBE_CHANNEL_CACHE_KEY = youtubeChannelKey();
 
 export type YoutubeChannelInfo = { title: string; thumbnail: string | null };
 
-export function googleAuthUrl(redirectUri: string): string {
+export function googleAuthUrl(redirectUri: string, accountId: string = primaryAccountId("youtube")): string {
   const { youtube } = publisherConfig();
   if (!youtube.clientId || !youtube.clientSecret) {
     throw new Error(
@@ -43,13 +50,20 @@ export function googleAuthUrl(redirectUri: string): string {
     access_type: "offline",
     // Force the consent screen so Google always returns a refresh token,
     // even when the account approved this client before.
-    prompt: "consent"
+    prompt: "consent",
+    // Which of our accounts this connection is for — echoed back on the
+    // callback so the tokens land under that account's cache keys.
+    state: accountId
   });
   return `${AUTH_URL}?${params.toString()}`;
 }
 
 /** Exchanges the callback code and persists the refresh token backend-side. */
-export async function exchangeGoogleCode(code: string, redirectUri: string): Promise<void> {
+export async function exchangeGoogleCode(
+  code: string,
+  redirectUri: string,
+  accountId: string = primaryAccountId("youtube")
+): Promise<void> {
   const { youtube } = publisherConfig();
   if (!youtube.clientId || !youtube.clientSecret) {
     throw new Error("YOUTUBE_CLIENT_ID / YOUTUBE_CLIENT_SECRET are not configured.");
@@ -70,11 +84,12 @@ export async function exchangeGoogleCode(code: string, redirectUri: string): Pro
       "Google returned no refresh token. Remove the app's access at https://myaccount.google.com/permissions and connect again."
     );
   }
-  await setCachedToken(YOUTUBE_REFRESH_TOKEN_CACHE_KEY, data.refresh_token);
+  await setCachedToken(youtubeRefreshTokenKey(accountId), data.refresh_token);
+  channelLookupFailed.delete(accountId);
   if (data.access_token) {
     try {
       const info = await fetchChannelInfo(data.access_token);
-      if (info) await setCachedToken(YOUTUBE_CHANNEL_CACHE_KEY, JSON.stringify(info));
+      if (info) await setCachedToken(youtubeChannelKey(accountId), JSON.stringify(info));
     } catch {
       // The badge falls back to plain "YouTube connected"; the connection itself succeeded.
     }
@@ -95,18 +110,29 @@ async function fetchChannelInfo(accessToken: string): Promise<YoutubeChannelInfo
   return { title: snippet.title, thumbnail };
 }
 
+/** The account's stored refresh token: .env wins for the primary account. */
+export async function youtubeRefreshTokenFor(accountId: string = primaryAccountId("youtube")): Promise<string | null> {
+  if (accountId === primaryAccountId("youtube")) {
+    const { youtube } = publisherConfig();
+    if (youtube.refreshToken) return youtube.refreshToken;
+  }
+  return getCachedToken(youtubeRefreshTokenKey(accountId));
+}
+
 // Connections made before the badge showed the channel lack the readonly
 // scope, so the lazy lookup below would 403 on every overview poll — remember
-// the failure for this process instead of hammering Google.
-let channelLookupFailed = false;
+// the failure per account for this process instead of hammering Google.
+const channelLookupFailed = new Set<string>();
 
 /**
- * The connected channel's name and avatar for the UI. Served from the token
- * cache; when absent (connection predates this feature) it is fetched once
- * with the stored refresh token and cached.
+ * A connected account's channel name and avatar for the UI. Served from the
+ * token cache; when absent (connection predates this feature) it is fetched
+ * once with the account's stored refresh token and cached.
  */
-export async function youtubeChannelInfo(): Promise<YoutubeChannelInfo | null> {
-  const cached = await getCachedToken(YOUTUBE_CHANNEL_CACHE_KEY);
+export async function youtubeChannelInfo(
+  accountId: string = primaryAccountId("youtube")
+): Promise<YoutubeChannelInfo | null> {
+  const cached = await getCachedToken(youtubeChannelKey(accountId));
   if (cached) {
     try {
       return JSON.parse(cached) as YoutubeChannelInfo;
@@ -114,9 +140,10 @@ export async function youtubeChannelInfo(): Promise<YoutubeChannelInfo | null> {
       // Corrupt cache entry — refetch below.
     }
   }
-  if (channelLookupFailed) return null;
+  if (channelLookupFailed.has(accountId)) return null;
   const { youtube } = publisherConfig();
-  if (!youtube.clientId || !youtube.clientSecret || !youtube.refreshToken) return null;
+  const refreshToken = await youtubeRefreshTokenFor(accountId);
+  if (!youtube.clientId || !youtube.clientSecret || !refreshToken) return null;
   try {
     const token = await fetchJson<{ access_token: string }>(TOKEN_URL, {
       label: "YouTube token refresh",
@@ -124,19 +151,19 @@ export async function youtubeChannelInfo(): Promise<YoutubeChannelInfo | null> {
       body: new URLSearchParams({
         client_id: youtube.clientId,
         client_secret: youtube.clientSecret,
-        refresh_token: youtube.refreshToken,
+        refresh_token: refreshToken,
         grant_type: "refresh_token"
       })
     });
     const info = await fetchChannelInfo(token.access_token);
     if (info) {
-      await setCachedToken(YOUTUBE_CHANNEL_CACHE_KEY, JSON.stringify(info));
+      await setCachedToken(youtubeChannelKey(accountId), JSON.stringify(info));
       return info;
     }
-    channelLookupFailed = true;
+    channelLookupFailed.add(accountId);
     return null;
   } catch {
-    channelLookupFailed = true;
+    channelLookupFailed.add(accountId);
     return null;
   }
 }
