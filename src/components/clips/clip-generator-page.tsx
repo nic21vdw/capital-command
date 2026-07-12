@@ -24,7 +24,7 @@ import { PageHeader } from "@/components/ui/page-header";
 import { Progress } from "@/components/ui/progress";
 import { Textarea } from "@/components/ui/textarea";
 import { chunkWords, windowSegments } from "@/lib/clipping/captions";
-import { generateClipTitle, makeClipProject } from "@/lib/clipping/editor";
+import { generateClipTitle, makeClipProject, makeTitleOverlay } from "@/lib/clipping/editor";
 import { writeDraftProject } from "@/components/editor/drafts";
 import { cn, safeFilename } from "@/lib/utils";
 import type { ClipCandidate, ClipJob, ClipJobStage, ClipJobStatus } from "@/lib/clipping/types";
@@ -260,6 +260,7 @@ export function ClipGeneratorPage() {
       project.captions = words.length ? chunkWords(words, project.captionStyle.maxWordsPerCaption) : windowed;
       project.title = generateClipTitle(project.captions, `Clip ${index + 1}`);
       if (project.title) project.name = project.title;
+      project.overlays = [...project.overlays, makeTitleOverlay(project)];
       // Share the auto-generated title with the backend clip so the Generator
       // and the Uploading Center headline match the editor from the start.
       if (project.title && !clip.title) void renameClip(job, clip, project.title);
