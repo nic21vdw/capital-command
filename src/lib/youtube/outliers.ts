@@ -20,6 +20,8 @@ export const videoStatsSchema = z.object({
   views: z.coerce.number().min(0),
   likes: z.coerce.number().min(0).nullable().default(null),
   comments: z.coerce.number().min(0).nullable().default(null),
+  /** Video length in seconds; null for stats stored before durations were pulled. */
+  durationSeconds: z.coerce.number().min(0).nullable().default(null),
   thumbnailUrl: z.string().nullable().default(null)
 });
 
@@ -57,6 +59,10 @@ export const outlierSchema = z.object({
   baselineViews: z.coerce.number().min(0),
   /** views / channel baseline at the most recent scan that saw this video. */
   multiplier: z.coerce.number().min(0),
+  /** Engagement + length from the last scan; null for pre-existing detections. */
+  likes: z.coerce.number().min(0).nullable().default(null),
+  comments: z.coerce.number().min(0).nullable().default(null),
+  durationSeconds: z.coerce.number().min(0).nullable().default(null),
   publishedAt: z.string(),
   detectedAt: z.string(),
   lastSeenAt: z.string(),
@@ -203,11 +209,41 @@ export function detectOutliers(
       views: video.views,
       baselineViews: baseline.medianViews,
       multiplier: baseline.medianViews > 0 ? Number((video.views / baseline.medianViews).toFixed(2)) : 0,
+      likes: video.likes,
+      comments: video.comments,
+      durationSeconds: video.durationSeconds,
       publishedAt: video.publishedAt,
       detectedAt: nowIso,
       lastSeenAt: nowIso,
       tag: ""
     }));
+}
+
+// ----- Durations -----
+
+/**
+ * Parses the ISO 8601 durations videos.list returns ("PT1M30S", "P1DT2H").
+ * Returns whole seconds, or null for unparseable/zero durations (live
+ * streams report "P0D" while they have no fixed length).
+ */
+export function parseIsoDuration(iso: string | null | undefined): number | null {
+  if (!iso) return null;
+  const match = /^P(?:(\d+)D)?(?:T(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?)?$/.exec(iso);
+  if (!match) return null;
+  const [, days, hours, minutes, seconds] = match;
+  const total =
+    Number(days ?? 0) * 86_400 + Number(hours ?? 0) * 3_600 + Number(minutes ?? 0) * 60 + Number(seconds ?? 0);
+  return total > 0 ? total : null;
+}
+
+/** "0:45", "12:34", "1:02:03" — the familiar YouTube length format. */
+export function formatDurationSeconds(total: number): string {
+  const hours = Math.floor(total / 3600);
+  const minutes = Math.floor((total % 3600) / 60);
+  const seconds = Math.floor(total % 60);
+  const mm = hours > 0 ? String(minutes).padStart(2, "0") : String(minutes);
+  const ss = String(seconds).padStart(2, "0");
+  return hours > 0 ? `${hours}:${mm}:${ss}` : `${mm}:${ss}`;
 }
 
 /**
@@ -226,4 +262,155 @@ export function mergeOutliers(existing: Outlier[], fresh: Outlier[]): Outlier[] 
     );
   }
   return [...byId.values()];
+}
+
+// ----- Per-video insight breakdown -----
+
+/** Shorts can run up to 3 minutes; anything at or under this reads as a Short. */
+export const SHORT_MAX_SECONDS = 180;
+
+export type OutlierInsights = {
+  /** "short" (≤3 min) vs long-form; null when the duration is unknown. */
+  format: "short" | "long" | null;
+  durationSeconds: number | null;
+  channelMedianDurationSeconds: number | null;
+  /** Average views per day between publish and the last stats pull. */
+  viewsPerDay: number | null;
+  /** likes / views (0-1). */
+  likeRate: number | null;
+  channelMedianLikeRate: number | null;
+  /** CPR — comments per 1,000 views. */
+  cpr: number | null;
+  channelMedianCpr: number | null;
+  whatWorked: string[];
+  watchouts: string[];
+  missingData: string[];
+};
+
+function median(values: number[]): number | null {
+  if (values.length === 0) return null;
+  const sorted = [...values].sort((a, b) => a - b);
+  const mid = Math.floor(sorted.length / 2);
+  return sorted.length % 2 === 1 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
+}
+
+const compact = (value: number) =>
+  Intl.NumberFormat("en", { notation: value >= 10_000 ? "compact" : "standard", maximumFractionDigits: 1 }).format(value);
+const percent = (rate: number) => `${(rate * 100).toFixed(1)}%`;
+
+/**
+ * Turns one flagged outlier plus its channel's cached recent uploads into a
+ * readable breakdown: length vs the channel norm, velocity, like rate, and
+ * CPR (comments per 1,000 views), with generated "what worked / what to
+ * check" notes. Heuristics over public stats only — CTR and retention are
+ * private to the channel owner and deliberately never guessed at as numbers.
+ */
+export function buildOutlierInsights(outlier: Outlier, channel: WatchlistChannel | null | undefined): OutlierInsights {
+  // Peers = the channel's other recent uploads; the outlier itself would skew its own norm.
+  const peers = (channel?.recentVideos ?? []).filter((v) => v.videoId !== outlier.videoId);
+  const channelMedianDurationSeconds = median(
+    peers.map((v) => v.durationSeconds).filter((d): d is number => d !== null && d > 0)
+  );
+  const channelMedianLikeRate = median(
+    peers.filter((v) => v.likes !== null && v.views > 0).map((v) => (v.likes as number) / v.views)
+  );
+  const channelMedianCpr = median(
+    peers.filter((v) => v.comments !== null && v.views > 0).map((v) => ((v.comments as number) / v.views) * 1000)
+  );
+
+  const durationSeconds = outlier.durationSeconds;
+  const format = durationSeconds === null ? null : durationSeconds <= SHORT_MAX_SECONDS ? "short" : "long";
+
+  const elapsedMs = new Date(outlier.lastSeenAt).getTime() - new Date(outlier.publishedAt).getTime();
+  const viewsPerDay = Number.isFinite(elapsedMs)
+    ? Math.round(outlier.views / Math.max(1, elapsedMs / 86_400_000))
+    : null;
+
+  const likeRate = outlier.likes !== null && outlier.views > 0 ? outlier.likes / outlier.views : null;
+  const cpr = outlier.comments !== null && outlier.views > 0 ? (outlier.comments / outlier.views) * 1000 : null;
+
+  const whatWorked: string[] = [];
+  const watchouts: string[] = [];
+  const missingData: string[] = [];
+
+  whatWorked.push(
+    `${compact(outlier.views)} views against a ${compact(outlier.baselineViews)}-view baseline — ${outlier.multiplier.toFixed(1)}× the channel's typical recent upload.`
+  );
+  if (viewsPerDay !== null) {
+    whatWorked.push(`Averaging ~${compact(viewsPerDay)} views/day since publish (as of the last stats pull).`);
+  }
+
+  if (durationSeconds !== null) {
+    const fmt = formatDurationSeconds(durationSeconds);
+    if (format === "short" && channelMedianDurationSeconds !== null && channelMedianDurationSeconds > SHORT_MAX_SECONDS) {
+      whatWorked.push(
+        `It's a Short (${fmt}) on a channel that usually posts ~${formatDurationSeconds(channelMedianDurationSeconds)} videos — the Shorts feed likely drove the extra reach.`
+      );
+    } else if (channelMedianDurationSeconds !== null && durationSeconds <= channelMedianDurationSeconds * 0.6) {
+      whatWorked.push(
+        `Noticeably shorter than the channel's typical upload (${fmt} vs ~${formatDurationSeconds(channelMedianDurationSeconds)}) — a tighter edit tends to hold retention.`
+      );
+    } else if (channelMedianDurationSeconds !== null && durationSeconds >= channelMedianDurationSeconds * 1.6) {
+      whatWorked.push(
+        `Much longer than the channel's typical upload (${fmt} vs ~${formatDurationSeconds(channelMedianDurationSeconds)}) — the topic earned extra watch time, which feeds recommendations.`
+      );
+    }
+  } else {
+    missingData.push("Duration is missing for this video — run Force refresh to re-pull stats with video lengths.");
+  }
+
+  if (likeRate !== null && channelMedianLikeRate !== null && channelMedianLikeRate > 0) {
+    if (likeRate >= channelMedianLikeRate * 1.15) {
+      whatWorked.push(
+        `Like rate ${percent(likeRate)} beats the channel's typical ${percent(channelMedianLikeRate)} — the content delivered on the click, not just the packaging.`
+      );
+    } else if (likeRate <= channelMedianLikeRate * 0.75) {
+      watchouts.push(
+        `Like rate ${percent(likeRate)} is below the channel's typical ${percent(channelMedianLikeRate)} — the title/thumbnail pulled clicks the content didn't fully pay off.`
+      );
+    }
+  } else if (likeRate === null) {
+    missingData.push("Likes are hidden or missing for this video, so like rate can't be compared.");
+  }
+
+  if (cpr !== null && channelMedianCpr !== null && channelMedianCpr > 0) {
+    if (cpr >= channelMedianCpr * 1.5) {
+      whatWorked.push(
+        `CPR ${cpr.toFixed(1)} comments/1k views vs the channel's typical ${channelMedianCpr.toFixed(1)} — it sparked real conversation; read the comments for the angle that hit.`
+      );
+    } else if (cpr <= channelMedianCpr * 0.5) {
+      watchouts.push(
+        `CPR ${cpr.toFixed(1)} comments/1k views vs the channel's typical ${channelMedianCpr.toFixed(1)} — big reach but little discussion; the audience it reached may be broader than the channel's core.`
+      );
+    }
+  } else if (cpr === null) {
+    missingData.push("Comments are disabled or missing for this video, so CPR can't be compared.");
+  }
+
+  const titleSignals: string[] = [];
+  if (outlier.title.includes("?")) titleSignals.push("a question hook");
+  if (/\bhow\b/i.test(outlier.title)) titleSignals.push("a how-to promise");
+  if (/\d/.test(outlier.title)) titleSignals.push("a concrete number");
+  if (/#\w/.test(outlier.title)) titleSignals.push("hashtags riding topic feeds");
+  if (titleSignals.length > 0) {
+    whatWorked.push(`The title leans on ${titleSignals.join(", ")} — packaging patterns worth testing on your own uploads.`);
+  }
+
+  if (watchouts.length === 0 && (likeRate !== null || cpr !== null)) {
+    watchouts.push("Nothing negative stands out in the public stats — engagement is in line with the reach.");
+  }
+
+  return {
+    format,
+    durationSeconds,
+    channelMedianDurationSeconds,
+    viewsPerDay,
+    likeRate,
+    channelMedianLikeRate,
+    cpr,
+    channelMedianCpr,
+    whatWorked,
+    watchouts,
+    missingData
+  };
 }

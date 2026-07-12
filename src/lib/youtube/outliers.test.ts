@@ -1,12 +1,16 @@
 import { describe, expect, it } from "vitest";
 import {
+  buildOutlierInsights,
   computeBaseline,
   detectOutliers,
+  formatDurationSeconds,
   mergeOutliers,
   outlierStoreSchema,
   parseChannelInput,
+  parseIsoDuration,
   type Outlier,
-  type VideoStats
+  type VideoStats,
+  type WatchlistChannel
 } from "@/lib/youtube/outliers";
 
 const NOW = new Date("2026-07-10T12:00:00Z");
@@ -20,6 +24,7 @@ function video(input: Partial<VideoStats> & { videoId: string; views: number }):
     views: input.views,
     likes: input.likes ?? null,
     comments: input.comments ?? null,
+    durationSeconds: input.durationSeconds ?? null,
     thumbnailUrl: input.thumbnailUrl ?? null
   };
 }
@@ -126,6 +131,9 @@ describe("mergeOutliers", () => {
     views: 3000,
     baselineViews: 1000,
     multiplier: 3,
+    likes: null,
+    comments: null,
+    durationSeconds: null,
     publishedAt: "2026-07-05T00:00:00.000Z",
     detectedAt: "2026-07-01T00:00:00.000Z",
     lastSeenAt: "2026-07-01T00:00:00.000Z",
@@ -150,6 +158,114 @@ describe("mergeOutliers", () => {
     const brandNew = { ...existing, videoId: "new", tag: "" };
     const merged = mergeOutliers([existing], [brandNew]);
     expect(merged.map((o) => o.videoId).sort()).toEqual(["hot", "new"]);
+  });
+});
+
+describe("parseIsoDuration", () => {
+  it("parses common video durations", () => {
+    expect(parseIsoDuration("PT45S")).toBe(45);
+    expect(parseIsoDuration("PT1M30S")).toBe(90);
+    expect(parseIsoDuration("PT2H3M4S")).toBe(7384);
+    expect(parseIsoDuration("P1DT2H")).toBe(93_600);
+  });
+
+  it("returns null for missing, malformed, or zero durations", () => {
+    expect(parseIsoDuration(null)).toBeNull();
+    expect(parseIsoDuration(undefined)).toBeNull();
+    expect(parseIsoDuration("not a duration")).toBeNull();
+    // Live streams report P0D while they have no fixed length.
+    expect(parseIsoDuration("P0D")).toBeNull();
+  });
+});
+
+describe("formatDurationSeconds", () => {
+  it("formats like YouTube", () => {
+    expect(formatDurationSeconds(45)).toBe("0:45");
+    expect(formatDurationSeconds(754)).toBe("12:34");
+    expect(formatDurationSeconds(3723)).toBe("1:02:03");
+  });
+});
+
+describe("buildOutlierInsights", () => {
+  const channel: WatchlistChannel = {
+    id: CHANNEL.id,
+    title: CHANNEL.title,
+    handle: null,
+    thumbnailUrl: null,
+    uploadsPlaylistId: null,
+    addedAt: "2026-07-01T00:00:00.000Z",
+    lastFetchedAt: NOW.toISOString(),
+    lastError: null,
+    baseline: { medianViews: 1000, sampleSize: 5, computedAt: NOW.toISOString() },
+    recentVideos: [
+      video({ videoId: "p1", views: 1000, likes: 50, comments: 10, durationSeconds: 600 }),
+      video({ videoId: "p2", views: 900, likes: 45, comments: 9, durationSeconds: 660 }),
+      video({ videoId: "p3", views: 1100, likes: 55, comments: 11, durationSeconds: 540 }),
+      video({ videoId: "hot", views: 10_000, likes: 900, comments: 300, durationSeconds: 60 })
+    ]
+  };
+
+  const outlier: Outlier = {
+    videoId: "hot",
+    channelId: CHANNEL.id,
+    channelTitle: CHANNEL.title,
+    title: "How I Shipped 3 Apps in a Week #ai",
+    url: "https://www.youtube.com/watch?v=hot",
+    thumbnailUrl: null,
+    views: 10_000,
+    baselineViews: 1000,
+    multiplier: 10,
+    likes: 900,
+    comments: 300,
+    durationSeconds: 60,
+    publishedAt: "2026-07-08T12:00:00.000Z",
+    detectedAt: NOW.toISOString(),
+    lastSeenAt: NOW.toISOString(),
+    tag: ""
+  };
+
+  it("computes rates, format, and channel comparisons, excluding the video from its own norm", () => {
+    const insights = buildOutlierInsights(outlier, channel);
+    expect(insights.format).toBe("short");
+    expect(insights.durationSeconds).toBe(60);
+    expect(insights.channelMedianDurationSeconds).toBe(600); // peers only, not the 60s outlier
+    expect(insights.likeRate).toBeCloseTo(0.09);
+    expect(insights.channelMedianLikeRate).toBeCloseTo(0.05);
+    expect(insights.cpr).toBeCloseTo(30);
+    expect(insights.channelMedianCpr).toBeCloseTo(10);
+    expect(insights.viewsPerDay).toBe(5000); // 10k views over 2 days
+  });
+
+  it("credits the short format, engagement, and title patterns in whatWorked", () => {
+    const insights = buildOutlierInsights(outlier, channel);
+    const all = insights.whatWorked.join(" ");
+    expect(all).toContain("10.0×");
+    expect(all).toContain("Short");
+    expect(all).toContain("Like rate");
+    expect(all).toContain("CPR");
+    expect(all).toContain("how-to promise");
+    expect(all).toContain("concrete number");
+    expect(all).toContain("hashtags");
+    expect(insights.watchouts).toEqual(["Nothing negative stands out in the public stats — engagement is in line with the reach."]);
+    expect(insights.missingData).toEqual([]);
+  });
+
+  it("flags weak engagement as a watchout", () => {
+    const clickbaity = { ...outlier, likes: 100, comments: 10 }; // 1% like rate vs 5% norm, 1 CPR vs 10
+    const insights = buildOutlierInsights(clickbaity, channel);
+    expect(insights.watchouts.some((note) => note.includes("Like rate"))).toBe(true);
+    expect(insights.watchouts.some((note) => note.includes("CPR"))).toBe(true);
+  });
+
+  it("reports missing data instead of guessing when stats are absent", () => {
+    const bare = { ...outlier, likes: null, comments: null, durationSeconds: null };
+    const insights = buildOutlierInsights(bare, undefined);
+    expect(insights.format).toBeNull();
+    expect(insights.likeRate).toBeNull();
+    expect(insights.cpr).toBeNull();
+    expect(insights.missingData).toHaveLength(3);
+    // The headline multiplier line is always available.
+    expect(insights.whatWorked[0]).toContain("10.0×");
   });
 });
 

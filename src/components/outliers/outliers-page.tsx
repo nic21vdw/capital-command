@@ -5,6 +5,8 @@ import {
   AlertTriangle,
   ArrowDown,
   ArrowUp,
+  ChevronDown,
+  ChevronRight,
   ExternalLink,
   Flame,
   Loader2,
@@ -20,7 +22,14 @@ import { Input } from "@/components/ui/input";
 import { PageHeader } from "@/components/ui/page-header";
 import { readJson, useOutlierRadar, type RadarState } from "@/components/outliers/use-outlier-radar";
 import { cn } from "@/lib/utils";
-import type { OutlierConfig, ScanRun, WatchlistChannel } from "@/lib/youtube/outliers";
+import {
+  buildOutlierInsights,
+  formatDurationSeconds,
+  type Outlier,
+  type OutlierConfig,
+  type ScanRun,
+  type WatchlistChannel
+} from "@/lib/youtube/outliers";
 
 /**
  * Outlier Radar: manage a watchlist of channels to monitor, trigger stats
@@ -52,6 +61,7 @@ export function OutliersPage() {
   const [sortKey, setSortKey] = useState<SortKey>("multiplier");
   const [sortDesc, setSortDesc] = useState(true);
   const [configDraft, setConfigDraft] = useState<OutlierConfig | null>(null);
+  const [expandedVideoIds, setExpandedVideoIds] = useState<Record<string, boolean>>({});
 
   useEffect(() => {
     void load();
@@ -174,6 +184,11 @@ export function OutliersPage() {
     }
   };
 
+  const channelsById = useMemo(() => new Map((state?.channels ?? []).map((c) => [c.id, c])), [state]);
+
+  const toggleExpanded = (videoId: string) =>
+    setExpandedVideoIds((current) => ({ ...current, [videoId]: !current[videoId] }));
+
   const lastRun = state?.runs[0] ?? null;
   const config = configDraft ?? state?.config ?? null;
 
@@ -183,17 +198,6 @@ export function OutliersPage() {
         eyebrow="YouTube tools"
         title="Outlier Radar"
         description="Watch other channels, baseline them on the median views of their recent uploads, and flag videos breaking out above the baseline — with free-text tags for hook style, topic, and format."
-        actions={
-          <div className="flex items-center gap-2">
-            <Button variant="secondary" onClick={() => void runScan(true)} disabled={scanning || !state?.configured}>
-              Force refresh
-            </Button>
-            <Button onClick={() => void runScan(false)} disabled={scanning || !state?.configured}>
-              {scanning ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-2 h-4 w-4" />}
-              {scanning ? "Pulling stats…" : "Pull stats"}
-            </Button>
-          </div>
-        }
       />
 
       {loadError ? (
@@ -397,11 +401,20 @@ export function OutliersPage() {
 
       {/* Outliers table */}
       <Card className="mt-4">
-        <div className="mb-4 flex items-center justify-between gap-3">
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
           <h2 className="flex items-center gap-2 text-sm font-semibold text-white">
             <Flame className="h-4 w-4 text-[var(--accent)]" /> Flagged outliers
+            <Badge>{sortedOutliers.length}</Badge>
           </h2>
-          <Badge>{sortedOutliers.length}</Badge>
+          <div className="flex items-center gap-2">
+            <Button variant="secondary" onClick={() => void runScan(true)} disabled={scanning || !state?.configured}>
+              Force refresh
+            </Button>
+            <Button onClick={() => void runScan(false)} disabled={scanning || !state?.configured}>
+              {scanning ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-2 h-4 w-4" />}
+              {scanning ? "Pulling stats…" : "Pull stats"}
+            </Button>
+          </div>
         </div>
         {sortedOutliers.length === 0 ? (
           <p className="rounded-lg border border-dashed border-[var(--border)] px-4 py-8 text-center text-sm text-[var(--muted-foreground)]">
@@ -410,7 +423,7 @@ export function OutliersPage() {
           </p>
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[760px] text-left text-sm">
+            <table className="w-full min-w-[860px] text-left text-sm">
               <thead>
                 <tr className="border-b border-[var(--border)] text-xs uppercase tracking-wider text-[var(--muted-foreground)]">
                   <th className="pb-2 pr-3 font-medium">Video</th>
@@ -418,7 +431,32 @@ export function OutliersPage() {
                   {(
                     [
                       ["views", "Views"],
-                      ["multiplier", "Multiplier"],
+                      ["multiplier", "Multiplier"]
+                    ] as Array<[SortKey, string]>
+                  ).map(([key, label]) => (
+                    <th key={key} className="pb-2 pr-3 font-medium">
+                      <button
+                        type="button"
+                        onClick={() => toggleSort(key)}
+                        className={cn(
+                          "inline-flex items-center gap-1 uppercase tracking-wider transition hover:text-white",
+                          sortKey === key && "text-white"
+                        )}
+                      >
+                        {label}
+                        {sortKey === key ? (
+                          sortDesc ? (
+                            <ArrowDown className="h-3 w-3" />
+                          ) : (
+                            <ArrowUp className="h-3 w-3" />
+                          )
+                        ) : null}
+                      </button>
+                    </th>
+                  ))}
+                  <th className="pb-2 pr-3 font-medium">Length</th>
+                  {(
+                    [
                       ["publishedAt", "Published"],
                       ["detectedAt", "Detected"]
                     ] as Array<[SortKey, string]>
@@ -447,62 +485,214 @@ export function OutliersPage() {
                 </tr>
               </thead>
               <tbody>
-                {sortedOutliers.map((outlier) => (
-                  <tr key={outlier.videoId} className="border-b border-[var(--border)] last:border-b-0">
-                    <td className="max-w-[280px] py-2.5 pr-3">
-                      <a
-                        href={outlier.url}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="flex items-center gap-1.5 text-white hover:underline"
-                        title={outlier.title}
-                      >
-                        <span className="truncate">{outlier.title}</span>
-                        <ExternalLink className="h-3.5 w-3.5 shrink-0 text-[var(--muted-foreground)]" />
-                      </a>
-                    </td>
-                    <td className="max-w-[160px] truncate py-2.5 pr-3 text-[var(--muted-foreground)]" title={outlier.channelTitle}>
-                      {outlier.channelTitle}
-                    </td>
-                    <td className="py-2.5 pr-3 tabular-nums text-white" title={`baseline ${formatCount(outlier.baselineViews)}`}>
-                      {formatCount(outlier.views)}
-                    </td>
-                    <td className="py-2.5 pr-3">
-                      <Badge
-                        className={cn(
-                          "tabular-nums",
-                          outlier.multiplier >= 10
-                            ? "border-red-400/30 bg-red-500/15 text-red-200"
-                            : outlier.multiplier >= 5
-                              ? "border-amber-400/30 bg-amber-500/15 text-amber-200"
-                              : "border-emerald-400/30 bg-emerald-500/15 text-emerald-200"
-                        )}
-                      >
-                        {outlier.multiplier.toFixed(1)}×
-                      </Badge>
-                    </td>
-                    <td className="py-2.5 pr-3 text-[var(--muted-foreground)]">{formatDay(outlier.publishedAt)}</td>
-                    <td className="py-2.5 pr-3 text-[var(--muted-foreground)]">{formatDay(outlier.detectedAt)}</td>
-                    <td className="py-2.5">
-                      <Input
-                        defaultValue={outlier.tag}
-                        // Uncontrolled + key so external refreshes (e.g. a scan) update the value.
-                        key={`${outlier.videoId}:${outlier.tag}`}
-                        placeholder="hook style, topic, format…"
-                        className="h-9 min-w-[180px]"
-                        onBlur={(event) => void saveTag(outlier.videoId, event.target.value.trim(), outlier.tag)}
-                        onKeyDown={(event) => {
-                          if (event.key === "Enter") (event.target as HTMLInputElement).blur();
-                        }}
-                      />
-                    </td>
-                  </tr>
-                ))}
+                {sortedOutliers.map((outlier) => {
+                  const expanded = Boolean(expandedVideoIds[outlier.videoId]);
+                  return (
+                    <OutlierRow
+                      key={outlier.videoId}
+                      outlier={outlier}
+                      channel={channelsById.get(outlier.channelId)}
+                      expanded={expanded}
+                      onToggle={() => toggleExpanded(outlier.videoId)}
+                      onSaveTag={saveTag}
+                    />
+                  );
+                })}
               </tbody>
             </table>
           </div>
         )}
       </Card>
+    </div>
+  );
+}
+
+const OUTLIER_TABLE_COLUMNS = 8;
+
+function OutlierRow({
+  outlier,
+  channel,
+  expanded,
+  onToggle,
+  onSaveTag
+}: {
+  outlier: Outlier;
+  channel: WatchlistChannel | undefined;
+  expanded: boolean;
+  onToggle: () => void;
+  onSaveTag: (videoId: string, tag: string, previous: string) => Promise<void>;
+}) {
+  return (
+    <>
+      <tr className={cn("border-b border-[var(--border)] last:border-b-0", expanded && "border-b-0")}>
+        <td className="max-w-[300px] py-2.5 pr-3">
+          <div className="flex items-center gap-1">
+            <button
+              type="button"
+              onClick={onToggle}
+              aria-expanded={expanded}
+              aria-label={expanded ? "Hide video breakdown" : "Show video breakdown"}
+              title={expanded ? "Hide breakdown" : "Why did this break out?"}
+              className="shrink-0 rounded p-0.5 text-[var(--muted-foreground)] transition hover:bg-white/10 hover:text-white"
+            >
+              {expanded ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+            </button>
+            <a
+              href={outlier.url}
+              target="_blank"
+              rel="noreferrer"
+              className="flex min-w-0 items-center gap-1.5 text-white hover:underline"
+              title={outlier.title}
+            >
+              <span className="truncate">{outlier.title}</span>
+              <ExternalLink className="h-3.5 w-3.5 shrink-0 text-[var(--muted-foreground)]" />
+            </a>
+          </div>
+        </td>
+        <td className="max-w-[160px] truncate py-2.5 pr-3 text-[var(--muted-foreground)]" title={outlier.channelTitle}>
+          {outlier.channelTitle}
+        </td>
+        <td className="py-2.5 pr-3 tabular-nums text-white" title={`baseline ${formatCount(outlier.baselineViews)}`}>
+          {formatCount(outlier.views)}
+        </td>
+        <td className="py-2.5 pr-3">
+          <Badge
+            className={cn(
+              "tabular-nums",
+              outlier.multiplier >= 10
+                ? "border-red-400/30 bg-red-500/15 text-red-200"
+                : outlier.multiplier >= 5
+                  ? "border-amber-400/30 bg-amber-500/15 text-amber-200"
+                  : "border-emerald-400/30 bg-emerald-500/15 text-emerald-200"
+            )}
+          >
+            {outlier.multiplier.toFixed(1)}×
+          </Badge>
+        </td>
+        <td className="py-2.5 pr-3 tabular-nums text-[var(--muted-foreground)]">
+          {outlier.durationSeconds !== null ? formatDurationSeconds(outlier.durationSeconds) : "—"}
+        </td>
+        <td className="py-2.5 pr-3 text-[var(--muted-foreground)]">{formatDay(outlier.publishedAt)}</td>
+        <td className="py-2.5 pr-3 text-[var(--muted-foreground)]">{formatDay(outlier.detectedAt)}</td>
+        <td className="py-2.5">
+          <Input
+            defaultValue={outlier.tag}
+            // Uncontrolled + key so external refreshes (e.g. a scan) update the value.
+            key={`${outlier.videoId}:${outlier.tag}`}
+            placeholder="hook style, topic, format…"
+            className="h-9 min-w-[180px]"
+            onBlur={(event) => void onSaveTag(outlier.videoId, event.target.value.trim(), outlier.tag)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") (event.target as HTMLInputElement).blur();
+            }}
+          />
+        </td>
+      </tr>
+      {expanded ? (
+        <tr className="border-b border-[var(--border)] last:border-b-0">
+          <td colSpan={OUTLIER_TABLE_COLUMNS} className="pb-4 pl-6 pr-2 pt-1">
+            <OutlierInsightsPanel outlier={outlier} channel={channel} />
+          </td>
+        </tr>
+      ) : null}
+    </>
+  );
+}
+
+function formatRate(rate: number): string {
+  return `${(rate * 100).toFixed(1)}%`;
+}
+
+/**
+ * The per-video breakdown behind the row chevron: duration vs the channel
+ * norm, views/day, like rate, and CPR (comments per 1,000 views), plus the
+ * generated what-worked / what-to-check notes from buildOutlierInsights.
+ */
+function OutlierInsightsPanel({ outlier, channel }: { outlier: Outlier; channel: WatchlistChannel | undefined }) {
+  const insights = useMemo(() => buildOutlierInsights(outlier, channel), [outlier, channel]);
+
+  const stats: Array<{ label: string; value: string; comparison: string | null }> = [
+    {
+      label: "Duration",
+      value:
+        insights.durationSeconds !== null
+          ? `${formatDurationSeconds(insights.durationSeconds)}${insights.format === "short" ? " · Short" : ""}`
+          : "—",
+      comparison:
+        insights.channelMedianDurationSeconds !== null
+          ? `channel ~${formatDurationSeconds(insights.channelMedianDurationSeconds)}`
+          : null
+    },
+    {
+      label: "Views / day",
+      value: insights.viewsPerDay !== null ? formatCount(insights.viewsPerDay) : "—",
+      comparison: "since publish"
+    },
+    {
+      label: "Like rate",
+      value: insights.likeRate !== null ? formatRate(insights.likeRate) : "—",
+      comparison: insights.channelMedianLikeRate !== null ? `channel ~${formatRate(insights.channelMedianLikeRate)}` : null
+    },
+    {
+      label: "CPR (comments / 1k views)",
+      value: insights.cpr !== null ? insights.cpr.toFixed(1) : "—",
+      comparison: insights.channelMedianCpr !== null ? `channel ~${insights.channelMedianCpr.toFixed(1)}` : null
+    }
+  ];
+
+  return (
+    <div className="rounded-lg border border-[var(--border)] bg-[var(--surface-2)] p-4">
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        {stats.map((stat) => (
+          <div key={stat.label} className="rounded-lg border border-[var(--border)] bg-black/20 px-3 py-2">
+            <p className="text-[11px] uppercase tracking-wider text-[var(--muted-foreground)]">{stat.label}</p>
+            <p className="mt-0.5 text-sm font-semibold tabular-nums text-white">{stat.value}</p>
+            {stat.comparison ? <p className="text-xs text-[var(--muted-foreground)]">{stat.comparison}</p> : null}
+          </div>
+        ))}
+      </div>
+      <div className="mt-4 grid gap-4 lg:grid-cols-2">
+        <div>
+          <h3 className="text-xs font-semibold uppercase tracking-wider text-emerald-300">What worked</h3>
+          <ul className="mt-2 space-y-1.5 text-sm text-[var(--muted-foreground)]">
+            {insights.whatWorked.map((note) => (
+              <li key={note} className="flex gap-2">
+                <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-emerald-400/70" />
+                {note}
+              </li>
+            ))}
+          </ul>
+        </div>
+        <div>
+          <h3 className="text-xs font-semibold uppercase tracking-wider text-amber-300">What to check</h3>
+          {insights.watchouts.length > 0 ? (
+            <ul className="mt-2 space-y-1.5 text-sm text-[var(--muted-foreground)]">
+              {insights.watchouts.map((note) => (
+                <li key={note} className="flex gap-2">
+                  <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-amber-400/70" />
+                  {note}
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="mt-2 text-sm text-[var(--muted-foreground)]">
+              Not enough engagement data to compare against the channel yet.
+            </p>
+          )}
+          <p className="mt-3 text-xs text-[var(--muted-foreground)]">
+            Built from public stats only — CTR and retention are private to the channel owner.
+          </p>
+        </div>
+      </div>
+      {insights.missingData.length > 0 ? (
+        <div className="mt-3 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-200">
+          {insights.missingData.map((note) => (
+            <p key={note} className="flex items-center gap-1.5">
+              <AlertTriangle className="h-3 w-3 shrink-0" /> {note}
+            </p>
+          ))}
+        </div>
+      ) : null}
     </div>
   );
 }

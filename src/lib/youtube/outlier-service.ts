@@ -6,6 +6,7 @@ import {
   detectOutliers,
   mergeOutliers,
   parseChannelInput,
+  parseIsoDuration,
   type ChannelRef,
   type OutlierStore,
   type ScanRun,
@@ -148,6 +149,7 @@ type VideoResource = {
   id?: string;
   snippet?: { title?: string; publishedAt?: string; thumbnails?: Record<string, { url?: string } | undefined> };
   statistics?: { viewCount?: string; likeCount?: string; commentCount?: string };
+  contentDetails?: { duration?: string };
 };
 
 /** Recent uploads with stats: playlistItems.list + videos.list = 2 units. */
@@ -168,7 +170,7 @@ async function fetchRecentVideos(
 
   unitsUsed += 1;
   const details = await fetchJson<{ items?: VideoResource[] }>(
-    `${API}/videos?part=snippet,statistics&id=${ids.join(",")}&maxResults=50`,
+    `${API}/videos?part=snippet,statistics,contentDetails&id=${ids.join(",")}&maxResults=50`,
     { label: "YouTube video stats", method: "GET", headers }
   );
   const videos: VideoStats[] = [];
@@ -183,6 +185,7 @@ async function fetchRecentVideos(
       views: Number(resource.statistics.viewCount) || 0,
       likes: resource.statistics.likeCount !== undefined ? Number(resource.statistics.likeCount) || 0 : null,
       comments: resource.statistics.commentCount !== undefined ? Number(resource.statistics.commentCount) || 0 : null,
+      durationSeconds: parseIsoDuration(resource.contentDetails?.duration),
       thumbnailUrl: thumbnails.medium?.url ?? thumbnails.default?.url ?? null
     });
   }
