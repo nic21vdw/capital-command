@@ -6,6 +6,8 @@ import {
   ArrowLeft,
   CalendarClock,
   Check,
+  ChevronDown,
+  Clock,
   Layers,
   LayoutTemplate,
   ListMusic,
@@ -41,6 +43,12 @@ import { cn, safeFilename } from "@/lib/utils";
 import type { CaptionSegment, ClipProject, CropTarget, Overlay, OverlayKind } from "@/types/domain";
 import type { ClipCandidate, ClipJob } from "@/lib/clipping/types";
 import type { EditorApi } from "@/components/editor/types";
+import type { ScheduleSlot } from "@/lib/publisher/slots";
+
+// One open slot offered in the Schedule Short dropdown for one-click scheduling.
+type QuickSlot = { utc: string; label: string; today: boolean };
+// The schedule grid always shows a two-week window (mirrors the Uploading Center).
+const SLOT_WINDOW_DAYS = 14;
 
 const TABS = [
   { id: "layout", label: "Layout", icon: LayoutTemplate },
@@ -644,49 +652,160 @@ export function ClipEditor({
   // started here still shows its progress when you leave and come back.
   const exportState = exportStateFor(project.id);
 
-  // --- Schedule Short: render the edits, then jump to the Uploading Center
-  // with this clip pre-selected so it can be dropped straight onto a slot.
-  const [schedulePending, setSchedulePending] = useState(false);
+  // --- Schedule Short ---
+  // Two ways to place this clip on the calendar, both from one button:
+  //  • pick a time from the dropdown → render (if needed) and schedule the
+  //    Short to YouTube at that slot right here, no trip to the Uploading Center;
+  //  • "Pick a slot in the Uploading Center" → render, then jump there with the
+  //    clip pre-selected for manual placement (the original flow).
+  // `pending` holds whichever action is waiting on the render to finish.
+  const [pending, setPending] = useState<
+    | null
+    | { type: "navigate" }
+    | { type: "slot"; slotUtc: string; label: string }
+  >(null);
+  const [slotOptions, setSlotOptions] = useState<QuickSlot[] | null>(null);
+  const [slotsLoading, setSlotsLoading] = useState(false);
+  const [publishEnabled, setPublishEnabled] = useState(true);
+
   const goToUploadingCenter = useCallback(() => {
     const params = new URLSearchParams({ scheduleJob: project.jobId, scheduleClip: project.sourceFile });
     router.push(`/uploading-center?${params.toString()}`);
   }, [project.jobId, project.sourceFile, router]);
 
-  const scheduleShort = useCallback(() => {
-    const snapshot = JSON.stringify(project);
-    // Only skip the render when the last export finished AND nothing changed
-    // since — what gets posted must be exactly what's on screen.
-    if (exportState.status === "done" && lastExportedRef.current === snapshot) {
-      flushThen(goToUploadingCenter);
-      return;
+  // Load the next open slots for the dropdown: the schedule grid's future slots
+  // minus any already booked in the queue, soonest first. Fetched each time the
+  // menu opens so it reflects whatever was scheduled since the editor loaded.
+  const loadSlots = useCallback(async () => {
+    setSlotsLoading(true);
+    try {
+      const [overviewRes, queueRes] = await Promise.all([
+        fetch(`/api/publish/overview?days=${SLOT_WINDOW_DAYS}&offsetDays=0`, { cache: "no-store" }),
+        fetch("/api/publish", { cache: "no-store" })
+      ]);
+      const overview = overviewRes.ok
+        ? ((await overviewRes.json()) as { enabled: boolean; slots: ScheduleSlot[] })
+        : null;
+      if (!overview?.enabled) {
+        setPublishEnabled(false);
+        setSlotOptions([]);
+        return;
+      }
+      setPublishEnabled(true);
+      const queue = queueRes.ok ? ((await queueRes.json()) as { items?: Array<{ publishAt: string }> }) : {};
+      const taken = new Set((queue.items ?? []).map((item) => new Date(item.publishAt).toISOString()));
+      const open = overview.slots
+        .filter((slot) => !slot.past && !taken.has(slot.utc))
+        .slice(0, 8)
+        .map((slot) => ({ utc: slot.utc, label: `${slot.dateLabel} · ${slot.time}`, today: slot.today }));
+      setSlotOptions(open);
+    } catch {
+      setSlotOptions([]);
+    } finally {
+      setSlotsLoading(false);
     }
-    setSchedulePending(true);
-    const rendering = exportState.status === "processing" || exportState.status === "starting";
-    if (!rendering) {
-      lastExportedRef.current = snapshot;
-      void startExport(project); // persists the project before rendering
-    }
-    toast.info("Rendering your Short — you'll land in the Uploading Center when it's ready.");
-  }, [exportState.status, flushThen, goToUploadingCenter, project, startExport]);
+  }, []);
+
+  // Schedule the freshly rendered export straight to YouTube at `slotUtc`. The
+  // publish API uploads it private with a go-live time, so it shows as Scheduled
+  // in YouTube Studio and flips live on its own — exactly like the drag-onto-a-
+  // slot flow in the Uploading Center.
+  const scheduleToSlot = useCallback(
+    async (slotUtc: string, file: string, label: string) => {
+      try {
+        const res = await fetch("/api/publish", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            jobId: project.jobId,
+            file,
+            publishAt: slotUtc,
+            title: project.title.trim() || project.name.trim() || undefined,
+            platforms: ["youtube"],
+            // "public" is what makes YouTube honor publishAt: uploaded private,
+            // flipped live at the slot time.
+            visibility: "public"
+          })
+        });
+        const data = (await res.json().catch(() => ({}))) as {
+          error?: string;
+          report?: { outcomes: Array<{ platform: string; outcome: string; detail: string }> };
+        };
+        if (!res.ok) {
+          toast.error(data.error ?? "Could not schedule the Short.");
+          return;
+        }
+        const outcome = data.report?.outcomes.find((entry) => entry.platform === "youtube");
+        if (outcome?.outcome === "scheduled") {
+          toast.success(`Scheduled for ${label} — it now shows as Scheduled on YouTube.`);
+        } else if (outcome?.outcome === "published") {
+          toast.success("Published to YouTube.");
+        } else if (outcome?.outcome === "failed" || outcome?.outcome === "retrying") {
+          toast.warning(`Scheduled for ${label}, but the upload hit a snag: ${outcome.detail || outcome.outcome}. It will retry.`);
+        } else {
+          toast.success(`Scheduled for ${label}.`);
+        }
+      } catch {
+        toast.error("Network error while scheduling the Short.");
+      }
+    },
+    [project.jobId, project.name, project.title]
+  );
+
+  // Ensure the on-screen edits are rendered, then run `target`. When the last
+  // render already matches what's on screen we act immediately; otherwise we
+  // kick a render and stash the action in `pending` for the effect below.
+  const runSchedule = useCallback(
+    (target: { type: "navigate" } | { type: "slot"; slotUtc: string; label: string }) => {
+      const snapshot = JSON.stringify(project);
+      if (exportState.status === "done" && lastExportedRef.current === snapshot && exportState.file) {
+        const file = exportState.file;
+        flushThen(() => {
+          if (target.type === "navigate") goToUploadingCenter();
+          else void scheduleToSlot(target.slotUtc, file, target.label);
+        });
+        return;
+      }
+      setPending(target);
+      const rendering = exportState.status === "processing" || exportState.status === "starting";
+      if (!rendering) {
+        lastExportedRef.current = snapshot;
+        void startExport(project); // persists the project before rendering
+      }
+      toast.info(
+        target.type === "navigate"
+          ? "Rendering your Short — you'll land in the Uploading Center when it's ready."
+          : "Rendering your Short — it'll be scheduled automatically when it's ready."
+      );
+    },
+    [exportState.status, exportState.file, flushThen, goToUploadingCenter, project, scheduleToSlot, startExport]
+  );
 
   useEffect(() => {
-    if (!schedulePending) return;
+    if (!pending) return;
     if (exportState.status !== "done" && exportState.status !== "error") return;
     let cancelled = false;
     // Deferred so the state updates land after the render pass, not inside it.
     queueMicrotask(() => {
       if (cancelled) return;
-      setSchedulePending(false);
-      if (exportState.status === "done") {
-        goToUploadingCenter();
-      } else {
+      const target = pending;
+      setPending(null);
+      if (exportState.status === "error") {
         toast.error(exportState.error ?? "The render failed — check the Export tab and try again.");
+        return;
+      }
+      if (target.type === "navigate") {
+        goToUploadingCenter();
+      } else if (exportState.file) {
+        void scheduleToSlot(target.slotUtc, exportState.file, target.label);
+      } else {
+        toast.error("The render finished but produced no file. Try again from the Export tab.");
       }
     });
     return () => {
       cancelled = true;
     };
-  }, [schedulePending, exportState.status, exportState.error, goToUploadingCenter]);
+  }, [pending, exportState.status, exportState.error, exportState.file, goToUploadingCenter, scheduleToSlot]);
 
   // Memoized (and deliberately without the live playhead time) so the panels,
   // which are React.memo components, don't re-render on every playback frame.
@@ -795,17 +914,16 @@ export function ClipEditor({
         <Button onClick={() => void saveNow()} disabled={saving || saved}>
           <Save className="mr-2 h-4 w-4" /> {saving ? "Saving…" : saved ? "Saved" : "Save"}
         </Button>
-        <Button onClick={scheduleShort} disabled={schedulePending} title="Render this Short and pick its slot in the Uploading Center">
-          {schedulePending ? (
-            <>
-              <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Rendering… {exportState.progress}%
-            </>
-          ) : (
-            <>
-              <CalendarClock className="mr-2 h-4 w-4" /> Schedule Short
-            </>
-          )}
-        </Button>
+        <ScheduleShortMenu
+          pending={pending !== null}
+          progress={exportState.progress}
+          slots={slotOptions}
+          slotsLoading={slotsLoading}
+          publishEnabled={publishEnabled}
+          onOpen={loadSlots}
+          onPickSlot={(slot) => runSchedule({ type: "slot", slotUtc: slot.utc, label: slot.label })}
+          onOpenUploadingCenter={() => runSchedule({ type: "navigate" })}
+        />
       </div>
 
       <div
@@ -983,6 +1101,144 @@ export function ClipEditor({
           </div>
         </div>
       </div>
+    </div>
+  );
+}
+
+/**
+ * The Schedule Short split button. Clicking it opens a dropdown of the next
+ * open slots — pick one to render and schedule the Short to YouTube in one shot
+ * — plus an escape hatch into the Uploading Center for manual placement. While
+ * a render is in flight the whole control shows live progress and is disabled.
+ */
+function ScheduleShortMenu({
+  pending,
+  progress,
+  slots,
+  slotsLoading,
+  publishEnabled,
+  onOpen,
+  onPickSlot,
+  onOpenUploadingCenter
+}: {
+  pending: boolean;
+  progress: number;
+  slots: QuickSlot[] | null;
+  slotsLoading: boolean;
+  publishEnabled: boolean;
+  onOpen: () => void;
+  onPickSlot: (slot: QuickSlot) => void;
+  onOpenUploadingCenter: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement | null>(null);
+
+  // Close on an outside click or Escape while the menu is open.
+  useEffect(() => {
+    if (!open) return;
+    const onPointerDown = (event: MouseEvent) => {
+      if (ref.current && !ref.current.contains(event.target as Node)) setOpen(false);
+    };
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setOpen(false);
+    };
+    window.addEventListener("mousedown", onPointerDown);
+    window.addEventListener("keydown", onKeyDown);
+    return () => {
+      window.removeEventListener("mousedown", onPointerDown);
+      window.removeEventListener("keydown", onKeyDown);
+    };
+  }, [open]);
+
+  const toggle = () => {
+    const next = !open;
+    setOpen(next);
+    if (next) onOpen();
+  };
+
+  return (
+    <div ref={ref} className="relative">
+      <Button
+        onClick={toggle}
+        disabled={pending}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        title="Render this Short and schedule it — or pick a slot in the Uploading Center"
+      >
+        {pending ? (
+          <>
+            <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Rendering… {progress}%
+          </>
+        ) : (
+          <>
+            <CalendarClock className="mr-2 h-4 w-4" /> Schedule Short
+            <ChevronDown className={cn("ml-2 h-4 w-4 transition-transform", open && "rotate-180")} />
+          </>
+        )}
+      </Button>
+      {open && !pending ? (
+        <div
+          role="menu"
+          className="absolute right-0 z-30 mt-2 w-72 rounded-xl border border-[var(--border)] bg-[var(--surface)] p-2 shadow-xl"
+        >
+          {!publishEnabled ? (
+            <p className="px-2 py-3 text-xs text-[var(--muted-foreground)]">
+              Publishing is switched off. Set <code className="rounded bg-white/10 px-1 py-0.5">PUBLISH_ENABLED=true</code> to
+              schedule Shorts directly.
+            </p>
+          ) : (
+            <>
+              <p className="px-2 pb-1.5 pt-1 text-[11px] font-medium uppercase tracking-wider text-[var(--muted-foreground)]">
+                Schedule to YouTube
+              </p>
+              {slotsLoading ? (
+                <div className="flex items-center gap-2 px-2 py-3 text-xs text-[var(--muted-foreground)]">
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" /> Finding open slots…
+                </div>
+              ) : slots && slots.length > 0 ? (
+                <div className="max-h-64 space-y-0.5 overflow-y-auto">
+                  {slots.map((slot) => (
+                    <button
+                      key={slot.utc}
+                      type="button"
+                      role="menuitem"
+                      onClick={() => {
+                        setOpen(false);
+                        onPickSlot(slot);
+                      }}
+                      className="flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left text-sm text-white transition hover:bg-white/5"
+                    >
+                      <Clock className="h-3.5 w-3.5 shrink-0 text-[var(--muted-foreground)]" />
+                      <span className="min-w-0 flex-1 truncate">{slot.label}</span>
+                      {slot.today ? (
+                        <span className="shrink-0 rounded-full bg-[var(--accent)]/15 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-[var(--accent)]">
+                          Today
+                        </span>
+                      ) : null}
+                    </button>
+                  ))}
+                </div>
+              ) : (
+                <p className="px-2 py-3 text-xs text-[var(--muted-foreground)]">
+                  No open slots in the next two weeks — pick a time in the Uploading Center.
+                </p>
+              )}
+            </>
+          )}
+          <div className="my-1 border-t border-[var(--border)]" />
+          <button
+            type="button"
+            role="menuitem"
+            onClick={() => {
+              setOpen(false);
+              onOpenUploadingCenter();
+            }}
+            className="flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left text-xs font-medium text-[var(--accent)] transition hover:bg-[var(--accent)]/10"
+          >
+            <Upload className="h-3.5 w-3.5" /> Pick a slot in the Uploading Center
+          </button>
+        </div>
+      ) : null}
     </div>
   );
 }
