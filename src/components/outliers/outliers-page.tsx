@@ -19,6 +19,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { Modal } from "@/components/ui/modal";
 import { PageHeader } from "@/components/ui/page-header";
 import { readJson, useOutlierRadar, type RadarState } from "@/components/outliers/use-outlier-radar";
 import { cn } from "@/lib/utils";
@@ -62,6 +63,7 @@ export function OutliersPage() {
   const [sortDesc, setSortDesc] = useState(true);
   const [configDraft, setConfigDraft] = useState<OutlierConfig | null>(null);
   const [expandedVideoIds, setExpandedVideoIds] = useState<Record<string, boolean>>({});
+  const [confirmRemoveChannel, setConfirmRemoveChannel] = useState<WatchlistChannel | null>(null);
 
   useEffect(() => {
     void load();
@@ -299,7 +301,7 @@ export function OutliersPage() {
                   className="shrink-0 px-2"
                   aria-label={`Remove ${channel.title}`}
                   title="Remove from watchlist"
-                  onClick={() => void removeChannel(channel)}
+                  onClick={() => setConfirmRemoveChannel(channel)}
                 >
                   <Trash2 className="h-4 w-4" />
                 </Button>
@@ -503,6 +505,32 @@ export function OutliersPage() {
           </div>
         )}
       </Card>
+
+      <Modal
+        open={Boolean(confirmRemoveChannel)}
+        title="Remove channel?"
+        description={
+          confirmRemoveChannel
+            ? `This removes ${confirmRemoveChannel.title} from the watchlist. Its flagged outliers are kept.`
+            : undefined
+        }
+        onClose={() => setConfirmRemoveChannel(null)}
+      >
+        <div className="flex justify-end gap-2">
+          <Button variant="ghost" onClick={() => setConfirmRemoveChannel(null)}>
+            Cancel
+          </Button>
+          <Button
+            variant="danger"
+            onClick={() => {
+              if (confirmRemoveChannel) void removeChannel(confirmRemoveChannel);
+              setConfirmRemoveChannel(null);
+            }}
+          >
+            Delete
+          </Button>
+        </div>
+      </Modal>
     </div>
   );
 }
