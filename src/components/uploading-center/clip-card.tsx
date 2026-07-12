@@ -82,11 +82,19 @@ export function ClipCard({
 }) {
   const titleRef = useRef<HTMLTextAreaElement>(null);
   const openSlots = slots.filter((slot) => !slot.past && !isSlotTaken(draft.platform, slot.utc));
+  // A clip whose trim/edits haven't been rendered can't be scheduled — posting
+  // it now would upload the wrong cut — so drag and Schedule are locked until
+  // it's re-rendered from the editor.
+  const needsRerender = clip.needsRerender;
 
   return (
     <div
-      draggable
+      draggable={!needsRerender}
       onDragStart={(event) => {
+        if (needsRerender) {
+          event.preventDefault();
+          return;
+        }
         event.dataTransfer.setData(CLIP_DRAG_TYPE, clip.key);
         event.dataTransfer.effectAllowed = "copy";
       }}
@@ -177,11 +185,29 @@ export function ClipCard({
                 </option>
               ))}
             </Select>
-            <Button onClick={onSchedule} disabled={scheduling || !draft.slotUtc} className="h-9 px-3">
+            <Button
+              onClick={onSchedule}
+              disabled={scheduling || !draft.slotUtc || needsRerender}
+              className="h-9 px-3"
+              title={needsRerender ? "Re-render this clip in the editor before scheduling" : undefined}
+            >
               {scheduling ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <CalendarClock className="mr-1.5 h-4 w-4" />}
               Schedule
             </Button>
           </div>
+          {needsRerender ? (
+            <button
+              type="button"
+              onClick={onEditClip}
+              className="flex w-full items-start gap-2 rounded-lg border border-amber-400/25 bg-amber-400/8 px-3 py-2 text-left text-xs text-amber-200 transition hover:border-amber-400/50"
+            >
+              <Scissors className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+              <span>
+                Your trim isn&apos;t baked in yet — open the editor and hit
+                <span className="font-semibold"> Schedule Short</span> to render the trimmed clip before uploading.
+              </span>
+            </button>
+          ) : null}
           <div className="flex items-start justify-between gap-2">
             {scheduledItems.length === 0 ? (
               <StatusChip status="draft" />

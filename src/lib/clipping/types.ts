@@ -61,6 +61,15 @@ export type ClipCandidate = {
    */
   editedFile?: string;
   /**
+   * Fingerprint of the project edits (trim, layout, captions, overlays, audio,
+   * export settings) `editedFile` was rendered from. Lets the Uploading Center
+   * tell when a saved project has been trimmed/edited since its last render, so
+   * a stale cut is never uploaded. Absent on renders made before this existed.
+   */
+  editedSignature?: string;
+  /** ISO-8601 timestamp of the last `editedFile` render, for staleness display. */
+  editedAt?: string;
+  /**
    * Instant preview filename: a faststart stream-copy of the cut section,
    * published the moment the section exists so the UI can play the clip
    * while the HD master render is still running.
