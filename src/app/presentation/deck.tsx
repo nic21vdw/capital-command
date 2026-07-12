@@ -17,6 +17,11 @@ import { CommentCTA } from "../../../signal-free-ai-builds/src/scenes/CommentCTA
 import { EndCard } from "../../../signal-free-ai-builds/src/scenes/EndCard";
 import { SeriesLogo } from "../../../signal-free-ai-builds/src/components/SeriesLogo";
 import { LowerThird } from "../../../signal-free-ai-builds/src/components/LowerThird";
+import { ColdOpenTitle as VibeColdOpenTitle } from "../../../video/vibe-coding-first-steps/src/scenes/ColdOpenTitle";
+import { TierList as VibeTierList } from "../../../video/vibe-coding-first-steps/src/scenes/TierList";
+import { TheMove as VibeTheMove } from "../../../video/vibe-coding-first-steps/src/scenes/TheMove";
+import { ByTheWay as VibeByTheWay } from "../../../video/vibe-coding-first-steps/src/scenes/ByTheWay";
+import { EndCard as VibeEndCard } from "../../../video/vibe-coding-first-steps/src/scenes/EndCard";
 
 type Slide = {
   id: string;
@@ -76,6 +81,19 @@ const PROJECTS: Project[] = [
       },
       { id: "CommentCTA", title: "Comment CTA", note: "4s comment call-to-action", component: onSignalStage(CommentCTA), durationInFrames: 120 },
       { id: "EndCard", title: "End Card", note: "3s series end card", component: onSignalStage(EndCard), durationInFrames: 90 }
+    ]
+  },
+  {
+    id: "vibe-coding-first-steps",
+    name: "Vibe Coding: First Steps",
+    description: "Vibe Coding series, episode 1 · 1080×1920 vertical",
+    format: { width: 1080, height: 1920, fps: 30 },
+    slides: [
+      { id: "ColdOpenTitle", title: "Cold Open Title", note: "“How to start vibe coding — in the simplest terms”", component: VibeColdOpenTitle, durationInFrames: 90 },
+      { id: "TierList", title: "Tier List", note: "Gemini BAD · ChatGPT OKAY · Claude GOOD", component: VibeTierList, durationInFrames: 210 },
+      { id: "TheMove", title: "The Move", note: "“Buy the $20 account” → GOOD", component: VibeTheMove, durationInFrames: 120 },
+      { id: "ByTheWay", title: "By The Way", note: "“You don’t need to know how to code” → GOOD", component: VibeByTheWay, durationInFrames: 120 },
+      { id: "EndCard", title: "End Card", note: "“That’s step 1” → next: your first prompt", component: VibeEndCard, durationInFrames: 120 }
     ]
   }
 ];
