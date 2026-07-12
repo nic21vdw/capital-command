@@ -11,6 +11,7 @@ import {
   Image as ImageIcon,
   ImagePlus,
   Loader2,
+  Monitor,
   Music4,
   Pause,
   Play,
@@ -18,6 +19,7 @@ import {
   Scissors,
   Send,
   Slice,
+  Smartphone,
   Square,
   Trash2,
   Upload,
@@ -181,6 +183,7 @@ export function LongformEditor({
           overlays: current.overlays,
           music: current.music,
           sfx: current.sfx,
+          layout: current.layout ?? "wide",
           pace: current.pace
         })
       })
@@ -520,6 +523,39 @@ export function LongformEditor({
           className="h-9 min-w-0 flex-1 rounded-lg border border-transparent bg-transparent px-2 text-sm font-semibold text-white outline-none transition focus:border-[var(--border-strong)]"
           aria-label="Project name"
         />
+        {/* Layout: the export's output frame. The 9:16 option centers the edit
+            over a blurred fill of itself, ready to post as a short. */}
+        <div
+          className="flex shrink-0 overflow-hidden rounded-lg border border-[var(--border)]"
+          role="group"
+          aria-label="Frame layout"
+        >
+          {(
+            [
+              { id: "wide", label: "16:9", icon: Monitor, title: "Wide 16:9 — the classic long-form frame" },
+              { id: "vertical", label: "9:16", icon: Smartphone, title: "Vertical 9:16 — centered over a blurred fill, ready for shorts" }
+            ] as const
+          ).map((option) => {
+            const Icon = option.icon;
+            const active = (project.layout ?? "wide") === option.id;
+            return (
+              <button
+                key={option.id}
+                type="button"
+                onClick={() => patch({ layout: option.id })}
+                title={option.title}
+                aria-pressed={active}
+                className={cn(
+                  "flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium transition",
+                  active ? "bg-[var(--accent)]/15 text-white" : "text-[var(--muted-foreground)] hover:text-white"
+                )}
+              >
+                <Icon className={cn("h-3.5 w-3.5", active && "text-[var(--accent)]")} />
+                {option.label}
+              </button>
+            );
+          })}
+        </div>
         <span
           className={cn("h-2 w-2 shrink-0 rounded-full", saved ? "bg-emerald-400" : "bg-amber-400 animate-pulse")}
           title={saved ? "All changes saved" : "Saving…"}
@@ -2172,14 +2208,21 @@ function ExportPanel({
       <div>
         <h3 className="text-sm font-semibold text-white">Export</h3>
         <p className="mt-1 text-xs text-[var(--muted-foreground)]">
-          Bakes the hook, the cuts and the music into one 1080p file — then send it straight to the Clip Generator for
-          shorts.
+          Bakes the hook, the cuts and the music into one{" "}
+          {(project.layout ?? "wide") === "vertical" ? "9:16 vertical" : "1080p"} file — then send it straight to the
+          Clip Generator for shorts.
         </p>
       </div>
 
       <div className="space-y-1 rounded-lg border border-[var(--border)] px-3 py-2.5 text-xs text-[var(--muted-foreground)]">
         <p>
           Runtime <span className="float-right text-white">{formatClock(editedSec)}</span>
+        </p>
+        <p>
+          Layout{" "}
+          <span className="float-right text-white">
+            {(project.layout ?? "wide") === "vertical" ? "9:16 · centered + blur" : "16:9 · 1080p"}
+          </span>
         </p>
         <p>
           Hook{" "}
