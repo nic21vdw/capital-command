@@ -2,101 +2,10 @@
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Player, type PlayerRef } from "@remotion/player";
-import { AbsoluteFill } from "remotion";
-import { ChevronLeft, ChevronRight, Clapperboard, Play } from "lucide-react";
+import { ChevronLeft, ChevronRight, Clapperboard, Download, Loader2, Play } from "lucide-react";
+import { toast } from "sonner";
 import { cn } from "@/lib/utils";
-import { VIDEO as BUCKLING_VIDEO } from "@/remotion/theme";
-import { TitleComp } from "@/remotion/compositions/TitleComp";
-import { HeadlineComp } from "@/remotion/compositions/HeadlineComp";
-import { ColumnVsBeamComp } from "@/remotion/compositions/ColumnVsBeamComp";
-import { BucklingComp } from "@/remotion/compositions/BucklingComp";
-import { CausesComp } from "@/remotion/compositions/CausesComp";
-import { COLOR_BG as SIGNAL_BG, VIDEO as SIGNAL_VIDEO } from "../../../signal-free-ai-builds/src/theme";
-import { ColdOpenTitle } from "../../../signal-free-ai-builds/src/scenes/ColdOpenTitle";
-import { CommentCTA } from "../../../signal-free-ai-builds/src/scenes/CommentCTA";
-import { EndCard } from "../../../signal-free-ai-builds/src/scenes/EndCard";
-import { SeriesLogo } from "../../../signal-free-ai-builds/src/components/SeriesLogo";
-import { LowerThird } from "../../../signal-free-ai-builds/src/components/LowerThird";
-import { ColdOpenTitle as VibeColdOpenTitle } from "../../../video/vibe-coding-first-steps/src/scenes/ColdOpenTitle";
-import { TierList as VibeTierList } from "../../../video/vibe-coding-first-steps/src/scenes/TierList";
-import { TheMove as VibeTheMove } from "../../../video/vibe-coding-first-steps/src/scenes/TheMove";
-import { ByTheWay as VibeByTheWay } from "../../../video/vibe-coding-first-steps/src/scenes/ByTheWay";
-import { EndCard as VibeEndCard } from "../../../video/vibe-coding-first-steps/src/scenes/EndCard";
-
-type Slide = {
-  id: string;
-  title: string;
-  note: string;
-  component: React.FC;
-  durationInFrames: number;
-};
-
-type Project = {
-  id: string;
-  name: string;
-  description: string;
-  format: { width: number; height: number; fps: number };
-  slides: Slide[];
-};
-
-// Overlay scenes (logo, lower third, CTA, end card) render transparent on
-// their own — stage them on the series background like the Remotion Root does.
-const onSignalStage = (Scene: React.FC): React.FC =>
-  function Staged() {
-    return (
-      <AbsoluteFill style={{ backgroundColor: SIGNAL_BG }}>
-        <Scene />
-      </AbsoluteFill>
-    );
-  };
-
-const PROJECTS: Project[] = [
-  {
-    id: "column-buckling",
-    name: "Manhattan Column Buckling",
-    description: "Explainer diagram segments · 1920×1080",
-    format: BUCKLING_VIDEO,
-    slides: [
-      { id: "TitleComp", title: "Title", note: "Animated title reveal + lower third", component: TitleComp, durationInFrames: 4 * BUCKLING_VIDEO.fps },
-      { id: "HeadlineComp", title: "Headlines", note: "“beam” struck through, “COLUMN” stamp", component: HeadlineComp, durationInFrames: 6 * BUCKLING_VIDEO.fps },
-      { id: "ColumnVsBeamComp", title: "Column vs Beam", note: "Buckle vs sag, side by side", component: ColumnVsBeamComp, durationInFrames: 8 * BUCKLING_VIDEO.fps },
-      { id: "BucklingComp", title: "Euler Buckling", note: "Straight, then S-curve past P_cr", component: BucklingComp, durationInFrames: 6 * BUCKLING_VIDEO.fps },
-      { id: "CausesComp", title: "Four Causes", note: "Sequenced cause cards, 3s each", component: CausesComp, durationInFrames: 12 * BUCKLING_VIDEO.fps }
-    ]
-  },
-  {
-    id: "free-ai-builds",
-    name: "Free AI Builds",
-    description: "Signal series inserts · 1080×1920 vertical",
-    format: SIGNAL_VIDEO,
-    slides: [
-      { id: "ColdOpenTitle", title: "Cold Open Title", note: "3s wordmark reveal over glow pulse", component: ColdOpenTitle, durationInFrames: 90 },
-      { id: "SeriesLogo", title: "Series Logo", note: "2s spark mark + wordmark card", component: onSignalStage(() => <SeriesLogo />), durationInFrames: 60 },
-      {
-        id: "LowerThird",
-        title: "Lower Third",
-        note: "Reusable name/title slide-in card",
-        component: onSignalStage(() => <LowerThird name="Nic Vandewetering" subtitle="Structural Engineer, Building CoLateral" />),
-        durationInFrames: 100
-      },
-      { id: "CommentCTA", title: "Comment CTA", note: "4s comment call-to-action", component: onSignalStage(CommentCTA), durationInFrames: 120 },
-      { id: "EndCard", title: "End Card", note: "3s series end card", component: onSignalStage(EndCard), durationInFrames: 90 }
-    ]
-  },
-  {
-    id: "vibe-coding-first-steps",
-    name: "Vibe Coding: First Steps",
-    description: "Vibe Coding series, episode 1 · 1080×1920 vertical",
-    format: { width: 1080, height: 1920, fps: 30 },
-    slides: [
-      { id: "ColdOpenTitle", title: "Cold Open Title", note: "“How to start vibe coding — in the simplest terms”", component: VibeColdOpenTitle, durationInFrames: 90 },
-      { id: "TierList", title: "Tier List", note: "Gemini BAD · ChatGPT OKAY · Claude GOOD", component: VibeTierList, durationInFrames: 210 },
-      { id: "TheMove", title: "The Move", note: "“Buy the $20 account” → GOOD", component: VibeTheMove, durationInFrames: 120 },
-      { id: "ByTheWay", title: "By The Way", note: "“You don’t need to know how to code” → GOOD", component: VibeByTheWay, durationInFrames: 120 },
-      { id: "EndCard", title: "End Card", note: "“That’s step 1” → next: your first prompt", component: VibeEndCard, durationInFrames: 120 }
-    ]
-  }
-];
+import { PROJECTS } from "./projects";
 
 function isTypingTarget(target: EventTarget | null) {
   if (!(target instanceof HTMLElement)) return false;
@@ -142,6 +51,38 @@ export const PresentationDeck: React.FC = () => {
 
   const vertical = project.format.height > project.format.width;
 
+  const [downloading, setDownloading] = useState(false);
+
+  // Renders the active slide server-side (Remotion) and downloads the MP4.
+  // The render takes a few seconds, so drive it off a toast with progress.
+  const downloadSlide = useCallback(async () => {
+    if (downloading) return;
+    setDownloading(true);
+    const toastId = toast.loading(`Rendering “${slide.title}” — this can take a few seconds…`);
+    try {
+      const url = `/api/presentation/render?project=${encodeURIComponent(project.id)}&slide=${encodeURIComponent(slide.id)}`;
+      const res = await fetch(url);
+      if (!res.ok) {
+        const detail = await res.json().catch(() => null);
+        throw new Error(detail?.error ?? `Render failed (${res.status})`);
+      }
+      const blob = await res.blob();
+      const objectUrl = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = objectUrl;
+      a.download = `${project.id}-${slide.id}.mp4`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(objectUrl);
+      toast.success(`Downloaded “${slide.title}”`, { id: toastId });
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Render failed", { id: toastId });
+    } finally {
+      setDownloading(false);
+    }
+  }, [downloading, project.id, slide.id, slide.title]);
+
   return (
     <div className="space-y-4">
       <header className="flex flex-wrap items-end justify-between gap-3">
@@ -150,9 +91,25 @@ export const PresentationDeck: React.FC = () => {
           <h1 className="mt-1 text-2xl font-semibold text-white">{project.name}</h1>
           <p className="mt-1 text-sm text-[var(--muted-foreground)]">{project.description}</p>
         </div>
-        <p className="text-xs text-[var(--muted-foreground)]">
-          Slide {index + 1} / {slides.length} · ← → navigate · Space or click video to play/pause
-        </p>
+        <div className="flex flex-col items-end gap-2">
+          <button
+            type="button"
+            onClick={downloadSlide}
+            disabled={downloading}
+            title="Render this segment as an MP4 and download it"
+            className={cn(
+              "flex items-center gap-2 rounded-lg border px-3 py-2 text-sm font-medium transition",
+              "border-[var(--accent)] text-white hover:bg-white/8",
+              "disabled:cursor-not-allowed disabled:opacity-60"
+            )}
+          >
+            {downloading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4 text-[var(--accent)]" />}
+            {downloading ? "Rendering…" : "Download MP4"}
+          </button>
+          <p className="text-xs text-[var(--muted-foreground)]">
+            Slide {index + 1} / {slides.length} · ← → navigate · Space or click video to play/pause
+          </p>
+        </div>
       </header>
 
       {/* Project tabs — every video is tied to a project; switch here. */}
