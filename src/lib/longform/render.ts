@@ -27,6 +27,9 @@ import { finalizeTitle } from "@/lib/title/finalize";
 
 const FRAME_W = 1920;
 const FRAME_H = 1080;
+// The 9:16 vertical layout's output frame.
+const VERT_W = 1080;
+const VERT_H = 1920;
 const FPS = 30;
 // How long the hook's punch-in zoom takes to ramp from 1x to the target zoom.
 const HOOK_ZOOM_RAMP_SEC = 0.5;
@@ -46,6 +49,29 @@ const AUDIO_ENC = ["-c:a", "aac", "-b:a", "160k", "-ar", "48000", "-ac", "2"];
 /** Escapes a filesystem path for use inside an ffmpeg filtergraph argument. */
 function escapeFilterPath(p: string): string {
   return p.replace(/\\/g, "/").replace(/:/g, "\\:").replace(/'/g, "\\'");
+}
+
+/** The export's output frame, decided by the project's layout. */
+function frameSize(project: LongformProject): { frameW: number; frameH: number; vertical: boolean } {
+  const vertical = (project.layout ?? "wide") === "vertical";
+  return vertical ? { frameW: VERT_W, frameH: VERT_H, vertical } : { frameW: FRAME_W, frameH: FRAME_H, vertical };
+}
+
+/**
+ * Wraps a stage's output into the 9:16 vertical frame: the picture scaled to
+ * full width and centered over a blurred, dimmed cover fill of itself, so
+ * nothing is cropped away — the same composition the Clip Generator's
+ * vertical renders use. The background is blurred at quarter size (cheaper,
+ * visually equivalent) and scaled back up.
+ */
+function verticalWrapChain(inLabel: string, outLabel: string): string {
+  return (
+    `[${inLabel}]split=2[__vwbg][__vwfg];` +
+    `[__vwbg]scale=${VERT_W / 2}:${VERT_H / 2}:force_original_aspect_ratio=increase,crop=${VERT_W / 2}:${VERT_H / 2},` +
+    `boxblur=12:2,eq=brightness=-0.08,scale=${VERT_W}:${VERT_H}[__vwbgb];` +
+    `[__vwfg]scale=${VERT_W}:-2[__vwfgs];` +
+    `[__vwbgb][__vwfgs]overlay=(W-w)/2:(H-h)/2[${outLabel}]`
+  );
 }
 
 /** Parses the `time=HH:MM:SS.cc` readout from an ffmpeg progress line. */
@@ -129,6 +155,7 @@ async function runExport(projectId: string, recordId: string) {
   const outDir = projectOutputDir(projectId);
   const { hookRange, bodyRanges } = exportRanges(project.segments, project.hook);
   const hasAudio = project.hasAudio;
+  const { frameW, frameH, vertical } = frameSize(project);
 
   const hookSec = hookRange ? hookRange.end - hookRange.start : 0;
   const bodySec = bodyRanges.reduce((sum, range) => sum + (range.end - range.start), 0);
@@ -146,7 +173,7 @@ async function runExport(projectId: string, recordId: string) {
     let assArg = "";
     const captions = project.hook.captionsEnabled ? project.hook.captions.filter((c) => c.enabled && c.text.trim()) : [];
     if (captions.length > 0) {
-      const assDoc = buildAss(captions, project.hook.captionStyle, FRAME_W, FRAME_H, project.hook.highlightCurrentWord);
+      const assDoc = buildAss(captions, project.hook.captionStyle, frameW, frameH, project.hook.highlightCurrentWord);
       const assPath = path.join(workDir, `export-${recordId}-hook.ass`);
       await writeFile(assPath, `${assDoc}\n`, "utf8");
       assArg = `ass='${escapeFilterPath(assPath)}',`;
@@ -157,12 +184,16 @@ async function runExport(projectId: string, recordId: string) {
     // seconds (ease-out) so the opening glides into the punch-in instead of
     // snapping to full zoom on the very first frame. The ramp is capped at
     // half the hook so short hooks still finish the move before they end.
+    // On the vertical layout the punch-in still runs on the 16:9 frame, which
+    // is then wrapped into the 9:16 frame; the captions burn over the full
+    // vertical frame afterwards.
     const sx = project.hook.focusX * 2 - 1;
     const sy = project.hook.focusY * 2 - 1;
     const rampSec = Math.min(HOOK_ZOOM_RAMP_SEC, Math.max(0.05, hookRange.end / 2));
-    const filter =
-      animatedReframeChain("0:v", "vz", FRAME_W, FRAME_H, project.hook.zoom, sx, sy, rampSec, FPS) +
-      `;[vz]${assArg}fps=${FPS},setsar=1,format=yuv420p[vout]`;
+    const reframe = animatedReframeChain("0:v", "vz", FRAME_W, FRAME_H, project.hook.zoom, sx, sy, rampSec, FPS);
+    const filter = vertical
+      ? `${reframe};${verticalWrapChain("vz", "vv")};[vv]${assArg}fps=${FPS},setsar=1,format=yuv420p[vout]`
+      : `${reframe};[vz]${assArg}fps=${FPS},setsar=1,format=yuv420p[vout]`;
     await runFfmpeg(
       [
         "-y",
@@ -194,11 +225,19 @@ async function runExport(projectId: string, recordId: string) {
     const bodyPath = path.join(workDir, `export-${recordId}-body.mp4`);
     const expr = selectExpression(bodyRanges);
     const lastEnd = bodyRanges[bodyRanges.length - 1].end;
-    const filters = [
-      `[0:v]select='${expr}',setpts=N/FRAME_RATE/TB,` +
-        `scale=${FRAME_W}:${FRAME_H}:force_original_aspect_ratio=decrease,` +
-        `pad=${FRAME_W}:${FRAME_H}:(ow-iw)/2:(oh-ih)/2:color=0x050914,setsar=1,fps=${FPS},format=yuv420p[vout]`
-    ];
+    // Wide fits the kept frames into 16:9 with letterbox padding; vertical
+    // centers them at full width over a blurred fill of themselves.
+    const filters = vertical
+      ? [
+          `[0:v]select='${expr}',setpts=N/FRAME_RATE/TB[vsel]`,
+          verticalWrapChain("vsel", "vwrap"),
+          `[vwrap]setsar=1,fps=${FPS},format=yuv420p[vout]`
+        ]
+      : [
+          `[0:v]select='${expr}',setpts=N/FRAME_RATE/TB,` +
+            `scale=${FRAME_W}:${FRAME_H}:force_original_aspect_ratio=decrease,` +
+            `pad=${FRAME_W}:${FRAME_H}:(ow-iw)/2:(oh-ih)/2:color=0x050914,setsar=1,fps=${FPS},format=yuv420p[vout]`
+        ];
     if (hasAudio) filters.push(`[0:a]aselect='${expr}',asetpts=N/SR/TB[aout]`);
     // The select expression carries one between() term per kept range, and a
     // long stream can have thousands of cuts — passed as an argv argument the
@@ -485,8 +524,9 @@ async function applyOverlays(
 
   const inputs = drawable.flatMap((item) => ["-i", item.path]);
   const filters: string[] = [];
+  const { frameW } = frameSize(project);
   drawable.forEach((item, index) => {
-    const scaledW = Math.max(2, Math.round(item.width * FRAME_W));
+    const scaledW = Math.max(2, Math.round(item.width * frameW));
     // Scale to the requested width (keeping aspect), then apply opacity.
     filters.push(
       `[${index + 1}:v]scale=${scaledW}:-1,format=rgba,colorchannelmixer=aa=${item.opacity.toFixed(3)}[ov${index}]`
@@ -546,7 +586,8 @@ async function applyBodyCaptions(
   const remapped = remapCaptionsToOutput(captions.segments, project.segments, project.hook, skipBefore);
   if (remapped.length === 0) return mergedPath;
 
-  const assDoc = buildAss(remapped, captions.style, FRAME_W, FRAME_H, captions.highlightCurrentWord);
+  const { frameW, frameH } = frameSize(project);
+  const assDoc = buildAss(remapped, captions.style, frameW, frameH, captions.highlightCurrentWord);
   const assPath = path.join(workDir, `export-${recordId}-captions.ass`);
   await writeFile(assPath, `${assDoc}\n`, "utf8");
 

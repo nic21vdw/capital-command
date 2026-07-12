@@ -10,6 +10,15 @@ import type { CaptionSegment, CaptionStyle, SfxSettings } from "@/types/domain";
 
 export type LongformStatus = "processing" | "ready" | "error";
 
+/**
+ * Output frame of the export (and the preview that mirrors it).
+ * - `wide`: the classic 16:9 1920x1080 long-form frame.
+ * - `vertical`: a 9:16 1080x1920 short-form frame — the edit is centered at
+ *   full width over a blurred, dimmed fill of itself (nothing cropped away),
+ *   the same composition the Clip Generator's vertical renders use.
+ */
+export type LongformLayout = "wide" | "vertical";
+
 export type LongformStage = "probing" | "transcribing" | "analyzing" | "planning" | "ready";
 
 /**
@@ -174,6 +183,8 @@ export type LongformProject = {
   music: LongformMusic;
   /** Auto-placed viral sound effects; absent on projects saved before the feature. */
   sfx?: SfxSettings;
+  /** Output frame of the export; absent on older projects (treated as `wide`). */
+  layout?: LongformLayout;
   pace: LongformPace;
   exports: LongformExportRecord[];
   createdAt: string;

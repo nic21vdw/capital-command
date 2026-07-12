@@ -205,6 +205,7 @@ export async function createProject(sourceId: string, name?: string): Promise<Lo
     overlays: [],
     music: { enabled: false, clips: [], videoVolume: 1, masterVolume: 1 },
     sfx: defaultSfxSettings(),
+    layout: "wide",
     pace: { ...DEFAULT_PACE },
     exports: [],
     createdAt: now,

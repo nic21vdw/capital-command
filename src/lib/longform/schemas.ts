@@ -82,6 +82,7 @@ export const longformProjectPatchSchema = z
     overlays: z.array(longformOverlaySchema).max(100),
     music: longformMusicSchema,
     sfx: sfxSettingsSchema,
+    layout: z.enum(["wide", "vertical"]),
     pace: longformPaceSchema
   })
   .partial();
