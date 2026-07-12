@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { competitorInsightsConfigured } from "@/lib/youtube/competitor-insights";
 import { outlierConfigSchema } from "@/lib/youtube/outliers";
 import { youtubeConfigured } from "@/lib/youtube/outlier-service";
 import { readOutlierStore, updateOutlierStore } from "@/lib/youtube/outlier-store";
@@ -14,7 +15,7 @@ export const dynamic = "force-dynamic";
 
 export async function GET() {
   const store = await readOutlierStore();
-  return NextResponse.json({ ...store, configured: youtubeConfigured() });
+  return NextResponse.json({ ...store, configured: youtubeConfigured(), insightsConfigured: competitorInsightsConfigured() });
 }
 
 export async function PATCH(request: NextRequest) {
