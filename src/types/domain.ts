@@ -280,6 +280,43 @@ export interface XStrategy {
   activities: XActivity[];
 }
 
+// ----- X / Threads daily post planner -----
+// Suggestion-only: the planner generates a fresh pack of drafts each day and
+// deliberately tracks nothing about what actually gets posted.
+
+export type XPostFormat = "insight" | "contrarian" | "story" | "question" | "framework" | "observation";
+
+export interface XSuggestedPost {
+  id: string;
+  slot: number; // 1-based posting order through the day
+  time: string; // HH:MM local suggested posting time (~2h cadence with jitter)
+  format: XPostFormat;
+  topic: string;
+  text: string; // X version
+  threadsVariant: string; // rephrased for Threads so the two feeds aren't identical
+}
+
+export interface XSuggestedReply {
+  id: string;
+  scenario: string; // the kind of post this reply fits under
+  text: string;
+}
+
+export interface XDailyPack {
+  id: string;
+  date: string; // YYYY-MM-DD (local)
+  focus?: string;
+  source: "ai" | "library"; // Claude-written vs built-in idea library fallback
+  posts: XSuggestedPost[];
+  replies: XSuggestedReply[];
+  createdAt: string;
+}
+
+export interface XPlanner {
+  /** Most recent first; pruned so only the last two weeks are kept (used to avoid repeating angles, not to track usage). */
+  packs: XDailyPack[];
+}
+
 export interface SavedThumbnailTransform {
   x: number;
   y: number;
@@ -679,6 +716,8 @@ export interface AppData {
   contentItems: ContentItem[];
   creatorProfile: CreatorProfile;
   xStrategy: XStrategy;
+  /** Daily X/Threads post suggestions. Optional in the type so pre-existing data files stay valid; the schema defaults it. */
+  xPlanner?: XPlanner;
   settings: Settings;
   executionGoals: ExecutionGoal[];
   executionCompletions: ExecutionCompletion[];
