@@ -52,6 +52,8 @@ type ExportsContextValue = {
   exportStateFor: (projectId: string) => ExportUiState;
   /** Kick off a render and track it in the background from here on. */
   startExport: (project: ClipProject) => Promise<void>;
+  /** Stop an in-flight render safely (kills the server-side ffmpeg job). */
+  stopExport: (projectId: string) => Promise<void>;
 };
 
 const ExportsContext = createContext<ExportsContextValue | null>(null);
@@ -108,6 +110,8 @@ export function EditorExportsProvider({ children }: { children: React.ReactNode 
             toast.success("Export complete.");
           } else if (rec.status === "error") {
             update(projectId, { ...e, status: "error", progress: 0, error: rec.error });
+          } else if (rec.status === "canceled") {
+            update(projectId, { ...e, status: "canceled", progress: 0 });
           } else {
             update(projectId, { ...e, progress: rec.progress });
           }
@@ -135,12 +139,39 @@ export function EditorExportsProvider({ children }: { children: React.ReactNode 
           update(project.id, { status: "error", progress: 0, jobId: project.jobId, error: data.error ?? "Export could not start." });
           return;
         }
+        // If Stop was pressed while the POST was in flight there was no export
+        // id to cancel yet — the render just started server-side, so cancel it
+        // now instead of tracking it as running.
+        if (mapRef.current[project.id]?.status === "canceled") {
+          void fetch(`/api/clips/${project.jobId}/export/${data.export.id}`, { method: "DELETE" }).catch(() => undefined);
+          return;
+        }
         update(project.id, { status: "processing", progress: 1, exportId: data.export.id, jobId: project.jobId });
       } catch {
         update(project.id, { status: "error", progress: 0, jobId: project.jobId, error: "Export request failed." });
       }
     },
     [mutate, update]
+  );
+
+  const stopExport = useCallback(
+    async (projectId: string) => {
+      const e = mapRef.current[projectId];
+      if (!e || (e.status !== "processing" && e.status !== "starting")) return;
+      // Flip the UI immediately, then tell the server to kill the ffmpeg job.
+      // When we're still "starting" there's no export id yet — startExport sees
+      // this "canceled" flag once its POST returns and cancels the new render.
+      update(projectId, { ...e, status: "canceled", progress: 0 });
+      if (e.exportId) {
+        try {
+          await fetch(`/api/clips/${e.jobId}/export/${e.exportId}`, { method: "DELETE" });
+        } catch {
+          /* the poll loop is stopped now; nothing else to do */
+        }
+      }
+      toast("Render stopped.");
+    },
+    [update]
   );
 
   const exportStateFor = useCallback(
@@ -153,7 +184,10 @@ export function EditorExportsProvider({ children }: { children: React.ReactNode 
     [exportsMap]
   );
 
-  const value = useMemo(() => ({ exportStateFor, startExport }), [exportStateFor, startExport]);
+  const value = useMemo(
+    () => ({ exportStateFor, startExport, stopExport }),
+    [exportStateFor, startExport, stopExport]
+  );
   return <ExportsContext.Provider value={value}>{children}</ExportsContext.Provider>;
 }
 

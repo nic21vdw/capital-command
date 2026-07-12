@@ -1,7 +1,7 @@
-import { mkdir, stat, writeFile } from "node:fs/promises";
+import { mkdir, rm, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { buildAss, buildTextOverlayDialogue, buildWatermarkDialogue } from "@/lib/clipping/captions";
-import { hasAudioStream, probeDuration, runFfmpeg } from "@/lib/clipping/ffmpeg";
+import { hasAudioStream, isRenderCanceled, probeDuration, runFfmpeg } from "@/lib/clipping/ffmpeg";
 import { attachEditedClipRender, outputDir, workDir } from "@/lib/clipping/jobs";
 import { renderSignature } from "@/lib/clipping/export-signature";
 import { LAYOUT_MODE_PRESETS } from "@/lib/clipping/layouts";
@@ -42,7 +42,7 @@ export type ExportSpec = {
   settings: ClipExportSettings;
 };
 
-export type ExportStatus = "processing" | "done" | "error";
+export type ExportStatus = "processing" | "done" | "error" | "canceled";
 
 export type ExportRecord = {
   id: string;
@@ -57,12 +57,36 @@ export type ExportRecord = {
   createdAt: string;
 };
 
-type ExportsGlobal = typeof globalThis & { __clipExports?: Map<string, ExportRecord> };
+type ExportsGlobal = typeof globalThis & {
+  __clipExports?: Map<string, ExportRecord>;
+  __clipExportControllers?: Map<string, AbortController>;
+};
 const g = globalThis as ExportsGlobal;
 const exports = (g.__clipExports ??= new Map<string, ExportRecord>());
+// Abort controllers for in-flight renders, so a render can be stopped safely
+// (the ffmpeg process is killed) from the export route. Keyed by export id.
+const controllers = (g.__clipExportControllers ??= new Map<string, AbortController>());
 
 export function getExport(id: string): ExportRecord | undefined {
   return exports.get(id);
+}
+
+/**
+ * Stops an in-flight render safely: aborts the ffmpeg process and marks the
+ * record "canceled". A no-op (returns the record as-is) once the export has
+ * already finished, errored, or been stopped.
+ */
+export function cancelExport(id: string): ExportRecord | undefined {
+  const record = exports.get(id);
+  if (!record) return undefined;
+  if (record.status === "processing") {
+    controllers.get(id)?.abort();
+    controllers.delete(id);
+    record.status = "canceled";
+    record.progress = 0;
+    record.error = undefined;
+  }
+  return record;
 }
 
 function crf(format: string, quality: ExportSpec["settings"]["quality"]): number {
@@ -378,28 +402,50 @@ export function startExport(spec: ExportSpec): ExportRecord {
     createdAt: new Date().toISOString()
   };
   exports.set(id, record);
-  void runExport(record, spec).catch((error) => {
-    record.status = "error";
-    record.error = error instanceof Error ? error.message : String(error);
-  });
+  const controller = new AbortController();
+  controllers.set(id, controller);
+  void runExport(record, spec, controller.signal)
+    .catch((error) => {
+      // A deliberate stop lands here as a RenderCanceledError — don't dress it
+      // up as a failure. cancelExport already flipped the record to "canceled".
+      if (isRenderCanceled(error) || controller.signal.aborted) {
+        record.status = "canceled";
+        record.error = undefined;
+        return;
+      }
+      record.status = "error";
+      record.error = error instanceof Error ? error.message : String(error);
+    })
+    .finally(() => controllers.delete(id));
   return record;
 }
 
-async function runExport(record: ExportRecord, spec: ExportSpec) {
+async function runExport(record: ExportRecord, spec: ExportSpec, signal: AbortSignal) {
   const dir = path.join(workDir(spec.jobId), `export-${record.id}`);
   await mkdir(dir, { recursive: true });
   const { args, outFile } = await buildArgs(spec, dir);
   const total = Math.max(0.1, trimDuration(spec));
 
-  await runFfmpeg(args, {
-    onLine: (line) => {
-      const m = line.match(/time=(\d+):(\d+):(\d+(?:\.\d+)?)/);
-      if (m) {
-        const t = Number(m[1]) * 3600 + Number(m[2]) * 60 + Number(m[3]);
-        record.progress = Math.min(99, Math.max(1, Math.round((t / total) * 100)));
+  try {
+    await runFfmpeg(args, {
+      signal,
+      onLine: (line) => {
+        if (signal.aborted) return;
+        const m = line.match(/time=(\d+):(\d+):(\d+(?:\.\d+)?)/);
+        if (m) {
+          const t = Number(m[1]) * 3600 + Number(m[2]) * 60 + Number(m[3]);
+          record.progress = Math.min(99, Math.max(1, Math.round((t / total) * 100)));
+        }
       }
+    });
+  } catch (error) {
+    // On a stop, remove the half-written output so nothing downstream ever
+    // picks up a truncated, unplayable file.
+    if (isRenderCanceled(error) || signal.aborted) {
+      await rm(outFile, { force: true }).catch(() => undefined);
     }
-  });
+    throw error;
+  }
 
   // Never mark complete unless a real, probeable, non-empty file exists.
   const info = await stat(outFile).catch(() => null);

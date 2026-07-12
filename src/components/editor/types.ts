@@ -1,7 +1,7 @@
 import type { CaptionSegment, ClipProject, CropTarget, Overlay, OverlayKind } from "@/types/domain";
 
 export type ExportUiState = {
-  status: "idle" | "starting" | "processing" | "done" | "error";
+  status: "idle" | "starting" | "processing" | "done" | "error" | "canceled";
   progress: number;
   exportId?: string;
   file?: string;
@@ -49,5 +49,7 @@ export interface EditorApi {
   // Export
   exportState: ExportUiState;
   runExport: () => void;
+  /** Stops the in-flight render for this clip safely (kills the ffmpeg job). */
+  stopExport: () => void;
   downloadSubtitles: (format: "srt" | "vtt") => void;
 }

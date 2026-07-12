@@ -3,10 +3,21 @@ import { stat } from "node:fs/promises";
 import path from "node:path";
 import { Readable } from "node:stream";
 import { NextRequest, NextResponse } from "next/server";
+import { cancelLongformExport } from "@/lib/longform/render";
 import { getProject, projectOutputDir } from "@/lib/longform/store";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+
+/** Stops an in-flight render safely (kills ffmpeg) and marks it canceled. */
+export async function DELETE(_request: NextRequest, { params }: { params: Promise<{ projectId: string; exportId: string }> }) {
+  const { projectId, exportId } = await params;
+  const record = await cancelLongformExport(projectId, exportId);
+  if (!record) {
+    return NextResponse.json({ error: "Export not found — it may have expired after a server restart." }, { status: 404 });
+  }
+  return NextResponse.json({ export: record });
+}
 
 function safeFilename(name: string) {
   return name.replace(/[^a-z0-9 ._()-]+/gi, "_").slice(0, 120) || "edited-video.mp4";
