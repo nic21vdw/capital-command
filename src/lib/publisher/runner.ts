@@ -1,6 +1,7 @@
 import { mkdtemp, stat } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { accountIdConfigured } from "@/lib/publisher/accounts";
 import { facebookAdapter } from "@/lib/publisher/adapters/facebook";
 import { instagramAdapter } from "@/lib/publisher/adapters/instagram";
 import { tiktokAdapter } from "@/lib/publisher/adapters/tiktok";
@@ -192,8 +193,10 @@ export async function runDue(now: Date = new Date(), options: RunDueOptions = {}
         log(`[publisher]   ${item.id} → ${platform}: ${outcome} — ${detail}`);
       };
       try {
-        if (!adapter.configured()) {
-          throw new PermanentError(`${platform} credentials are not configured in .env.`);
+        // Account-aware: an item on an extra account publishes with that
+        // account's own credentials, not the platform's .env defaults.
+        if (!(await accountIdConfigured(platform, item.accountId, config))) {
+          throw new PermanentError(`${platform} credentials are not configured for this account.`);
         }
         const state = item.platforms[platform];
         let result: PostResult;

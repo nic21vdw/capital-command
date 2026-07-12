@@ -21,6 +21,24 @@ import type { PlatformId, QueueItem } from "@/lib/publisher/types";
 
 export type YoutubeAccount = { title: string; thumbnail: string | null };
 
+/** One connectable social account (see /api/publish/accounts). */
+export type SocialAccountView = {
+  id: string;
+  platform: PlatformId;
+  label: string;
+  createdAt: string;
+  /** The platform's built-in account backed by today's .env credentials. */
+  primary: boolean;
+  /** True when posts for this account publish automatically. */
+  connected: boolean;
+  /** Connected YouTube channel's name/avatar, when known. */
+  youtube: YoutubeAccount | null;
+};
+
+export function primaryAccountIdFor(platform: PlatformId): string {
+  return `${platform}-primary`;
+}
+
 export type Overview = {
   enabled: boolean;
   timezone: string;
@@ -57,6 +75,13 @@ export type ClipDraft = {
   caption: string;
   platform: PlatformId;
   slotUtc: string;
+};
+
+const DEFAULT_ACTIVE_ACCOUNTS: Record<PlatformId, string> = {
+  youtube: primaryAccountIdFor("youtube"),
+  tiktok: primaryAccountIdFor("tiktok"),
+  instagram: primaryAccountIdFor("instagram"),
+  facebook: primaryAccountIdFor("facebook")
 };
 
 export const PLATFORM_LABELS: Record<PlatformId, string> = {
@@ -146,6 +171,13 @@ export function useUploadingCenter() {
   const [queueItems, setQueueItems] = useState<QueueItem[]>([]);
   const [overview, setOverview] = useState<Overview | null>(null);
   const [channel, setChannel] = useState<ChannelSchedule | null>(null);
+  const [accounts, setAccounts] = useState<SocialAccountView[]>([]);
+  /**
+   * Which account each platform's tab (and calendar) is showing. Defaults to
+   * every platform's primary account — the pre-multi-account behavior — so
+   * everything already scheduled or uploaded stays right where it was.
+   */
+  const [activeAccountIds, setActiveAccountIds] = useState<Record<PlatformId, string>>(DEFAULT_ACTIVE_ACCOUNTS);
   const [loaded, setLoaded] = useState(false);
   const [activeJobId, setActiveJobId] = useState<string | null>(null);
   /** Key of the action in flight ("schedule:<clipKey>", "publish:<id>", …). */
@@ -160,6 +192,7 @@ export function useUploadingCenter() {
    */
   const [slotOffsetDays, setSlotOffsetDays] = useState(0);
 
+  const activeYoutubeAccountId = activeAccountIds.youtube;
   const refresh = useCallback(async (options?: { channelRefresh?: boolean }) => {
     // Sequential local fetches; a failure keeps the last good data and the
     // 60s tick tries again.
@@ -172,9 +205,14 @@ export function useUploadingCenter() {
         cache: "no-store"
       });
       if (overviewRes.ok) setOverview((await overviewRes.json()) as Overview);
-      // The channel schedule is cached 5 minutes server-side; channelRefresh
-      // bypasses that right after a publish so the new video appears at once.
-      const channelRes = await fetch(`/api/publish/youtube-channel${options?.channelRefresh ? "?refresh=1" : ""}`, {
+      const accountsRes = await fetch("/api/publish/accounts", { cache: "no-store" });
+      if (accountsRes.ok) setAccounts(((await accountsRes.json()) as { accounts?: SocialAccountView[] }).accounts ?? []);
+      // The channel schedule is cached 5 minutes server-side per account;
+      // channelRefresh bypasses that right after a publish so the new video
+      // appears at once. Reads the YouTube account selected on the tab.
+      const channelParams = new URLSearchParams({ account: activeYoutubeAccountId });
+      if (options?.channelRefresh) channelParams.set("refresh", "1");
+      const channelRes = await fetch(`/api/publish/youtube-channel?${channelParams.toString()}`, {
         cache: "no-store"
       });
       if (channelRes.ok) setChannel((await channelRes.json()) as ChannelSchedule);
@@ -183,7 +221,7 @@ export function useUploadingCenter() {
     } finally {
       setLoaded(true);
     }
-  }, [slotOffsetDays]);
+  }, [activeYoutubeAccountId, slotOffsetDays]);
 
   // NOTE: the initial fetch + 60s poll effect lives in UploadingCenterPage —
   // react-hooks/set-state-in-effect flags `void refresh()` inside a custom
@@ -286,18 +324,44 @@ export function useUploadingCenter() {
   }, [jobs, queueItems]);
   const thumbnailForItem = useCallback((item: QueueItem) => thumbnailByItemId.get(item.id) ?? null, [thumbnailByItemId]);
 
-  /** Occupied slots per platform, keyed by the slot's UTC instant. */
+  /** The account a queue item belongs to on a platform (legacy items → primary). */
+  const itemAccountIdFor = useCallback(
+    (item: QueueItem, platform: PlatformId) => item.accountId ?? primaryAccountIdFor(platform),
+    []
+  );
+
+  /**
+   * Occupied slots per platform, keyed by the slot's UTC instant — only for
+   * the account each platform's tab is showing, so every account gets its own
+   * calendar and two accounts can post at the same slot time.
+   */
   const itemsByPlatformSlot = useMemo(() => {
     const map = new Map<PlatformId, Map<string, QueueItem>>();
     for (const item of queueItems) {
       const utc = new Date(item.publishAt).toISOString();
       for (const platform of Object.keys(item.platforms) as PlatformId[]) {
+        if (itemAccountIdFor(item, platform) !== activeAccountIds[platform]) continue;
         if (!map.has(platform)) map.set(platform, new Map());
         map.get(platform)!.set(utc, item);
       }
     }
     return map;
-  }, [queueItems]);
+  }, [activeAccountIds, itemAccountIdFor, queueItems]);
+
+  /**
+   * Queue items visible under the current account selection: at least one of
+   * the item's platforms is showing the account the item belongs to. Drives
+   * the off-grid "Other scheduled posts" list.
+   */
+  const visibleQueueItems = useMemo(
+    () =>
+      queueItems.filter((item) =>
+        (Object.keys(item.platforms) as PlatformId[]).some(
+          (platform) => itemAccountIdFor(item, platform) === activeAccountIds[platform]
+        )
+      ),
+    [activeAccountIds, itemAccountIdFor, queueItems]
+  );
 
   /**
    * Persists a title edit on the backend clip so it survives navigation and
@@ -447,7 +511,9 @@ export function useUploadingCenter() {
             platforms: [draft.platform],
             // "public" is what makes YouTube honor publishAt: the video is
             // uploaded private and YouTube flips it live at the slot time.
-            visibility: "public"
+            visibility: "public",
+            // The post lands on the account the platform's tab is showing.
+            accountId: activeAccountIds[draft.platform]
           })
         });
         if (!response.ok) {
@@ -461,7 +527,7 @@ export function useUploadingCenter() {
         setBusy(null);
       }
     },
-    [announceScheduleOutcome, refresh]
+    [activeAccountIds, announceScheduleOutcome, refresh]
   );
 
   /**
@@ -477,7 +543,8 @@ export function useUploadingCenter() {
         const params = new URLSearchParams({
           name: file.name,
           publishAt: draft.slotUtc,
-          platform: draft.platform
+          platform: draft.platform,
+          accountId: activeAccountIds[draft.platform]
         });
         const response = await fetch(`/api/publish/upload?${params.toString()}`, {
           method: "POST",
@@ -498,7 +565,7 @@ export function useUploadingCenter() {
         setBusy(null);
       }
     },
-    [announceScheduleOutcome, refresh]
+    [activeAccountIds, announceScheduleOutcome, refresh]
   );
 
   /**
@@ -525,7 +592,8 @@ export function useUploadingCenter() {
                 title: draft.title.trim() || undefined,
                 caption: draft.caption.trim() || undefined,
                 platforms: [draft.platform],
-                visibility: "public"
+                visibility: "public",
+                accountId: activeAccountIds[draft.platform]
               })
             });
             if (!response.ok) {
@@ -551,7 +619,7 @@ export function useUploadingCenter() {
         setBusy(null);
       }
     },
-    [refresh]
+    [activeAccountIds, refresh]
   );
 
   const publishNow = useCallback(
@@ -595,6 +663,70 @@ export function useUploadingCenter() {
     [refresh]
   );
 
+  /** A platform's accounts, primary first (the API returns them ordered). */
+  const accountsFor = useCallback(
+    (platform: PlatformId) => accounts.filter((account) => account.platform === platform),
+    [accounts]
+  );
+
+  /** The account a platform's tab is currently showing. */
+  const activeAccountFor = useCallback(
+    (platform: PlatformId) =>
+      accounts.find((account) => account.id === activeAccountIds[platform]) ?? null,
+    [accounts, activeAccountIds]
+  );
+
+  const setActiveAccount = useCallback((platform: PlatformId, accountId: string) => {
+    setActiveAccountIds((current) => ({ ...current, [platform]: accountId }));
+  }, []);
+
+  /** Adds an account and switches the platform's tab straight to it. */
+  const addAccount = useCallback(
+    async (platform: PlatformId, label: string) => {
+      setBusy(`add-account:${platform}`);
+      try {
+        const response = await fetch("/api/publish/accounts", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ platform, label })
+        });
+        if (!response.ok) {
+          toast.error(await readError(response));
+          return false;
+        }
+        const { account } = (await response.json()) as { account: SocialAccountView };
+        setAccounts((current) => [...current, account]);
+        setActiveAccount(platform, account.id);
+        toast.success(`Added ${PLATFORM_LABELS[platform]} account "${account.label}".`);
+        await refresh();
+        return true;
+      } finally {
+        setBusy(null);
+      }
+    },
+    [refresh, setActiveAccount]
+  );
+
+  const removeAccount = useCallback(
+    async (account: SocialAccountView) => {
+      setBusy(`remove-account:${account.id}`);
+      try {
+        const response = await fetch(`/api/publish/accounts/${account.id}`, { method: "DELETE" });
+        if (!response.ok) {
+          toast.error(await readError(response));
+          return false;
+        }
+        setActiveAccount(account.platform, primaryAccountIdFor(account.platform));
+        toast.success(`Removed account "${account.label}".`);
+        await refresh();
+        return true;
+      } finally {
+        setBusy(null);
+      }
+    },
+    [refresh, setActiveAccount]
+  );
+
   return {
     loaded,
     overview,
@@ -608,6 +740,14 @@ export function useUploadingCenter() {
     channelDayMarkers: channelPlacement.dayMarkers,
     channelVideosOutsideWindow: channelPlacement.outsideWindow,
     queueItems,
+    visibleQueueItems,
+    accounts,
+    activeAccountIds,
+    accountsFor,
+    activeAccountFor,
+    setActiveAccount,
+    addAccount,
+    removeAccount,
     jobsWithClips,
     activeJob,
     setActiveJobId,

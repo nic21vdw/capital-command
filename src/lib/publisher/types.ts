@@ -71,6 +71,12 @@ export type QueueItem = {
   platforms: Partial<Record<PlatformId, PlatformState>>;
   /** Optional provenance for the UI/logs. */
   jobId?: string;
+  /**
+   * The social account this post belongs to (see accounts.ts). Absent on
+   * posts scheduled before multi-account support — those belong to the
+   * platform's primary account.
+   */
+  accountId?: string;
 };
 
 export type PostResult = {

@@ -38,7 +38,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
   const postId = item.platforms.youtube?.postId;
   if (!postId) return NextResponse.json({ item, youtube: "local" });
   try {
-    await updateYoutubeVideoTitle(postId, title);
+    await updateYoutubeVideoTitle(postId, title, item.accountId);
     return NextResponse.json({ item, youtube: "updated" });
   } catch (error) {
     return NextResponse.json({
