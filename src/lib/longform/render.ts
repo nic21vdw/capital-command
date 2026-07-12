@@ -197,17 +197,21 @@ async function runExport(projectId: string, recordId: string, signal: AbortSigna
     // half the hook so short hooks still finish the move before they end.
     const sx = project.hook.focusX * 2 - 1;
     const sy = project.hook.focusY * 2 - 1;
-    const rampSec = Math.min(HOOK_ZOOM_RAMP_SEC, Math.max(0.05, hookRange.end / 2));
+    const rampSec = Math.min(HOOK_ZOOM_RAMP_SEC, Math.max(0.05, hookSec / 2));
     const filter =
       animatedReframeChain("0:v", "vz", FRAME_W, FRAME_H, project.hook.zoom, sx, sy, rampSec, FPS) +
       `;[vz]${assArg}fps=${FPS},setsar=1,format=yuv420p[vout]`;
     await runFfmpeg(
       [
         "-y",
+        // Seek to the hook's source start (0 for a normal opening hook), then
+        // take hookSec of footage — the hook window pulled to the front.
+        "-ss",
+        hookRange.start.toFixed(3),
         "-i",
         srcPath,
         "-t",
-        hookRange.end.toFixed(3),
+        hookSec.toFixed(3),
         "-filter_complex",
         filter,
         "-map",
@@ -583,8 +587,10 @@ async function applyBodyCaptions(
   if (!captions?.enabled || captions.segments.length === 0) return mergedPath;
   const hookCaptionsBurned =
     project.hook.enabled && project.hook.captionsEnabled && project.hook.captions.some((c) => c.enabled && c.text.trim());
-  const skipBefore = hookCaptionsBurned ? project.hook.end : 0;
-  const remapped = remapCaptionsToOutput(captions.segments, project.segments, project.hook, skipBefore);
+  const skipWindow = hookCaptionsBurned
+    ? { start: Math.max(0, project.hook.start ?? 0), end: project.hook.end }
+    : null;
+  const remapped = remapCaptionsToOutput(captions.segments, project.segments, project.hook, skipWindow);
   if (remapped.length === 0) return mergedPath;
 
   const assDoc = buildAss(remapped, captions.style, FRAME_W, FRAME_H, captions.highlightCurrentWord);

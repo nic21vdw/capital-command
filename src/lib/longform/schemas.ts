@@ -15,6 +15,7 @@ export const longformSegmentSchema = z.object({
 
 export const longformHookSchema = z.object({
   enabled: z.coerce.boolean(),
+  start: z.coerce.number().min(0).max(60).default(0),
   end: z.coerce.number().min(0).max(60),
   zoom: z.coerce.number().min(1).max(2.5),
   focusX: z.coerce.number().min(0).max(1),

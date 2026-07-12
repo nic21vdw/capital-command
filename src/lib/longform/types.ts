@@ -30,7 +30,14 @@ export type LongformSegment = {
 /** The viral-style opening: punch-in zoom on the speaker plus big word-synced captions. */
 export type LongformHook = {
   enabled: boolean;
-  /** Hook covers [0, end] seconds of the source (typically 5-10s). */
+  /**
+   * First source second the hook is pulled from. Usually 0 (the recording's
+   * opening), but can be moved later so a fumbled start isn't forced to be the
+   * hook. The hook window [start, end] is always played to the front of the
+   * export; everything else kept plays after it as the body.
+   */
+  start: number;
+  /** Last source second of the hook window. Hook covers [start, end] (typically 5-10s long). */
   end: number;
   /** Punch-in zoom factor applied during the hook (1 = none). */
   zoom: number;
@@ -39,7 +46,7 @@ export type LongformHook = {
   focusY: number;
   captionsEnabled: boolean;
   highlightCurrentWord: boolean;
-  /** Hook captions in hook-local seconds (hook starts at 0, so also source seconds). */
+  /** Hook captions in hook-local seconds (relative to `start`, i.e. the hook plays from 0). */
   captions: CaptionSegment[];
   captionStyle: CaptionStyle;
 };

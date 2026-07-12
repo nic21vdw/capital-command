@@ -113,8 +113,16 @@ export function planHookEnd(transcript: CaptionSegment[], durationSec: number): 
  * Re-chunks the transcript inside the hook window into short punchy caption
  * segments (3 words at a time) — the burned-in style viral hooks use.
  */
-export function hookCaptions(transcript: CaptionSegment[], hookEnd: number, maxWords = 3): CaptionSegment[] {
-  const windowed = windowSegments(transcript, 0, hookEnd);
+export function hookCaptions(
+  transcript: CaptionSegment[],
+  hookStart: number,
+  hookEnd: number,
+  maxWords = 3
+): CaptionSegment[] {
+  // windowSegments rebases the caption times to the window start, so the
+  // returned captions are hook-local (0 = the hook's first frame) — exactly
+  // what the export burns onto the extracted hook clip.
+  const windowed = windowSegments(transcript, hookStart, hookEnd);
   const words = windowed.flatMap((segment) => segment.words);
   return words.length > 0 ? chunkWords(words, maxWords) : windowed;
 }
@@ -147,13 +155,14 @@ export function planHook(transcript: CaptionSegment[], durationSec: number): Lon
   const end = planHookEnd(transcript, durationSec);
   return {
     enabled: true,
+    start: 0,
     end,
     zoom: 1.3,
     focusX: 0.5,
     focusY: 0.35,
     captionsEnabled: true,
     highlightCurrentWord: true,
-    captions: hookCaptions(transcript, end),
+    captions: hookCaptions(transcript, 0, end),
     captionStyle: { ...VIRAL_HOOK_CAPTION_STYLE }
   };
 }
@@ -264,19 +273,30 @@ export function keptRanges(segments: LongformSegment[]): KeptRange[] {
 
 /**
  * Splits the play ranges into the hook part (played verbatim, rendered with
- * the punch-in + captions) and the body ranges after it. The hook always
- * plays [0, hook.end] uncut — its pauses are part of the delivery.
+ * the punch-in + captions) and the body ranges around it. The hook window
+ * [hook.start, hook.end] always plays uncut and is placed at the front of the
+ * export — its pauses are part of the delivery. The body is every other kept
+ * range, so footage before the hook window plays after it (the common case is
+ * to have disabled that footage anyway). With the default start of 0 this
+ * reduces to "hook first, then everything after it".
  */
 export function exportRanges(
   segments: LongformSegment[],
   hook: LongformHook
 ): { hookRange: KeptRange | null; bodyRanges: KeptRange[] } {
   const kept = keptRanges(segments);
-  if (!hook.enabled || hook.end <= 0) return { hookRange: null, bodyRanges: kept };
-  const hookRange = { start: 0, end: hook.end };
-  const bodyRanges = kept
-    .filter((range) => range.end > hook.end + MIN_SEGMENT_SEC)
-    .map((range) => ({ start: Math.max(range.start, hook.end), end: range.end }));
+  const hookStart = Math.max(0, hook.start ?? 0);
+  if (!hook.enabled || hook.end <= hookStart) return { hookRange: null, bodyRanges: kept };
+  const hookRange = { start: hookStart, end: hook.end };
+  const bodyRanges: KeptRange[] = [];
+  for (const range of kept) {
+    // The slice of this kept range before the hook window.
+    const beforeEnd = Math.min(range.end, hookStart);
+    if (beforeEnd - range.start > MIN_SEGMENT_SEC) bodyRanges.push({ start: range.start, end: beforeEnd });
+    // The slice after the hook window.
+    const afterStart = Math.max(range.start, hook.end);
+    if (range.end - afterStart > MIN_SEGMENT_SEC) bodyRanges.push({ start: afterStart, end: range.end });
+  }
   return { hookRange, bodyRanges };
 }
 
@@ -324,6 +344,11 @@ export function sourceToOutputIntervals(
  * lands inside kept footage it returns the exact output time; if it falls in a
  * cut stretch it snaps forward to where the next kept footage begins. Returns
  * `null` only when the whole edit is empty. Used to time placed audio clips.
+ *
+ * The output pieces are the hook window (pulled to the front) followed by the
+ * body ranges, so they are NOT necessarily in source order once the hook is
+ * moved off the opening — every lookup is resolved by source containment, not
+ * by walking pieces in order.
  */
 export function sourceTimeToOutput(
   sourceT: number,
@@ -336,13 +361,22 @@ export function sourceTimeToOutput(
   for (const range of bodyRanges) pieces.push(range);
   if (pieces.length === 0) return null;
 
+  // Give every piece its output start (cumulative in output/concat order).
   let outCursor = 0;
-  for (const piece of pieces) {
-    const span = piece.end - piece.start;
-    if (sourceT < piece.start) return round3(outCursor); // inside a cut → next piece
-    if (sourceT <= piece.end) return round3(outCursor + (sourceT - piece.start));
-    outCursor += span;
+  const placed = pieces.map((piece) => {
+    const outStart = outCursor;
+    outCursor += piece.end - piece.start;
+    return { ...piece, outStart };
+  });
+
+  // Inside a kept piece → exact output time.
+  for (const piece of placed) {
+    if (sourceT >= piece.start && sourceT <= piece.end) return round3(piece.outStart + (sourceT - piece.start));
   }
+  // In a cut (or before the first kept footage) → snap forward to the next kept
+  // footage in source order, wherever that lands in the output.
+  const next = placed.filter((piece) => piece.start > sourceT).sort((a, b) => a.start - b.start)[0];
+  if (next) return round3(next.outStart);
   return round3(outCursor); // past the end → clamp to the edit's end
 }
 
@@ -351,28 +385,37 @@ export function sourceTimeToOutput(
  * Segments authored in source seconds shift back by every cut before them; a
  * segment straddling a cut is shortened (its words inside the cut snap to the
  * jump point) and one that sits entirely inside cut footage is dropped.
- * `skipBeforeSec` clips captions to after that source time — used to hand the
- * hook window over to the hook's own burned-in captions.
+ * `skipWindow` clips captions out of that source window — used to hand the hook
+ * window over to the hook's own burned-in captions. A caption straddling a
+ * window edge keeps its larger outside piece; one entirely inside is dropped.
  */
 export function remapCaptionsToOutput(
   captions: CaptionSegment[],
   segments: LongformSegment[],
   hook: LongformHook,
-  skipBeforeSec = 0
+  skipWindow: KeptRange | null = null
 ): CaptionSegment[] {
   const out: CaptionSegment[] = [];
   for (const seg of captions) {
     if (!seg.enabled || !seg.text.trim()) continue;
-    const srcStart = Math.max(seg.start, skipBeforeSec);
-    if (seg.end - srcStart < 0.05) continue;
-    const intervals = sourceToOutputIntervals(srcStart, seg.end, segments, hook);
+    let srcStart = seg.start;
+    let srcEnd = seg.end;
+    if (skipWindow && srcStart < skipWindow.end && srcEnd > skipWindow.start) {
+      const beforeLen = Math.max(0, skipWindow.start - srcStart);
+      const afterLen = Math.max(0, srcEnd - skipWindow.end);
+      if (beforeLen <= 0 && afterLen <= 0) continue; // fully inside the window → hook owns it
+      if (afterLen >= beforeLen) srcStart = Math.max(srcStart, skipWindow.end);
+      else srcEnd = Math.min(srcEnd, skipWindow.start);
+    }
+    if (srcEnd - srcStart < 0.05) continue;
+    const intervals = sourceToOutputIntervals(srcStart, srcEnd, segments, hook);
     if (intervals.length === 0) continue;
     const start = intervals[0].start;
     const end = intervals[intervals.length - 1].end;
     if (end - start < 0.05) continue;
     const words: CaptionWord[] = [];
     for (const word of seg.words) {
-      if (word.end <= srcStart) continue;
+      if (word.end <= srcStart || word.start >= srcEnd) continue;
       const wordStart = sourceTimeToOutput(Math.max(word.start, srcStart), segments, hook);
       const wordEnd = sourceTimeToOutput(word.end, segments, hook);
       if (wordStart === null || wordEnd === null) continue;

@@ -58,6 +58,9 @@ const TABS = [
 /** Default seconds a freshly dropped image stays on screen. */
 const OVERLAY_DEFAULT_SEC = 5;
 
+/** Shortest the hook window is ever allowed to be, in seconds. */
+const MIN_HOOK_SEC = 1;
+
 type TabId = (typeof TABS)[number]["id"];
 
 /** Hook caption looks tuned for thumb-stopping openings. */
@@ -202,7 +205,7 @@ export function LongformEditor({
         if (!video.paused && editedModeRef.current) {
           const t = video.currentTime;
           const current = projectRef.current;
-          const inHook = current.hook.enabled && t < current.hook.end;
+          const inHook = current.hook.enabled && t >= (current.hook.start ?? 0) && t < current.hook.end;
           if (!inHook) {
             const cut = cutRangesRef.current.find((range) => t >= range.start - 0.02 && t < range.end - 0.03);
             if (cut) video.currentTime = Math.min(current.durationSec, cut.end + 0.01);
@@ -270,10 +273,28 @@ export function LongformEditor({
   }, []);
 
   const setHookEnd = useCallback((end: number) => {
-    setProject((current) => ({
-      ...current,
-      hook: { ...current.hook, end, captions: hookCaptions(current.transcript, end) }
-    }));
+    setProject((current) => {
+      const start = current.hook.start ?? 0;
+      const clamped = Math.max(start + MIN_HOOK_SEC, Math.min(current.durationSec, end));
+      return {
+        ...current,
+        hook: { ...current.hook, end: clamped, captions: hookCaptions(current.transcript, start, clamped) }
+      };
+    });
+  }, []);
+
+  // Slide where the hook is pulled from: a fumbled opening no longer forces the
+  // hook to start at 0. Moving the start rebuilds the captions for the new
+  // window and nudges the end out if the window would collapse.
+  const setHookStart = useCallback((start: number) => {
+    setProject((current) => {
+      const clampedStart = Math.max(0, Math.min(start, current.durationSec - MIN_HOOK_SEC));
+      const end = Math.max(clampedStart + MIN_HOOK_SEC, current.hook.end);
+      return {
+        ...current,
+        hook: { ...current.hook, start: clampedStart, end, captions: hookCaptions(current.transcript, clampedStart, end) }
+      };
+    });
   }, []);
 
   // Revoke any session blob URLs when the editor unmounts.
@@ -596,6 +617,7 @@ export function LongformEditor({
             selection={tab === "trim" ? selection : null}
             onSeek={seek}
             onToggleSegment={toggleSegment}
+            onHookStartChange={setHookStart}
             onHookEndChange={setHookEnd}
             onSelectionChange={setSelection}
             imageUrl={overlayImageUrl}
@@ -649,6 +671,7 @@ export function LongformEditor({
               <HookPanel
                 project={project}
                 patch={patch}
+                setHookStart={setHookStart}
                 setHookEnd={setHookEnd}
                 focusEditing={focusEditing}
                 setFocusEditing={setFocusEditing}
@@ -706,6 +729,7 @@ export function LongformEditor({
 function HookPanel({
   project,
   patch,
+  setHookStart,
   setHookEnd,
   focusEditing,
   setFocusEditing,
@@ -713,12 +737,14 @@ function HookPanel({
 }: {
   project: LongformProject;
   patch: (partial: Partial<LongformProject>) => void;
+  setHookStart: (start: number) => void;
   setHookEnd: (end: number) => void;
   focusEditing: boolean;
   setFocusEditing: (v: boolean) => void;
   seek: (t: number) => void;
 }) {
   const hook = project.hook;
+  const hookStart = hook.start ?? 0;
   const patchHook = (partial: Partial<LongformProject["hook"]>) => patch({ hook: { ...hook, ...partial } });
   const patchStyle = (partial: Partial<LongformProject["hook"]["captionStyle"]>) =>
     patchHook({ captionStyle: { ...hook.captionStyle, ...partial } });
@@ -732,18 +758,31 @@ function HookPanel({
         <h3 className="text-sm font-semibold text-white">Viral hook</h3>
         <p className="mt-1 text-xs text-[var(--muted-foreground)]">
           The first seconds decide whether viewers stay. Punch in on your face and burn in big word-synced captions.
+          Fumbled the opening? Move &ldquo;Hook starts at&rdquo; to pull the hook from a stronger moment later in the take.
         </p>
       </div>
       <Toggle label="Hook enabled" checked={hook.enabled} onChange={(v) => patchHook({ enabled: v })} />
       {hook.enabled && (
         <>
           <RangeField
-            label="Hook length"
-            value={hook.end}
-            min={3}
-            max={Math.min(15, Math.max(4, project.durationSec))}
+            label="Hook starts at"
+            value={hookStart}
+            min={0}
+            max={Math.max(0, project.durationSec - MIN_HOOK_SEC)}
             step={0.1}
-            onChange={setHookEnd}
+            onChange={(v) => {
+              setHookStart(v);
+              seek(v);
+            }}
+            format={(v) => `${v.toFixed(1)}s`}
+          />
+          <RangeField
+            label="Hook length"
+            value={Math.max(MIN_HOOK_SEC, hook.end - hookStart)}
+            min={3}
+            max={Math.min(15, Math.max(4, project.durationSec - hookStart))}
+            step={0.1}
+            onChange={(len) => setHookEnd(hookStart + len)}
             format={(v) => `${v.toFixed(1)}s`}
           />
           <RangeField
@@ -759,7 +798,7 @@ function HookPanel({
             type="button"
             onClick={() => {
               setFocusEditing(!focusEditing);
-              if (!focusEditing) seek(Math.min(1, hook.end / 2));
+              if (!focusEditing) seek(hookStart + Math.min(1, (hook.end - hookStart) / 2));
             }}
             className={cn(
               "flex w-full items-center justify-center gap-2 rounded-lg border px-3 py-2 text-sm transition",
@@ -860,7 +899,7 @@ function HookPanel({
                       <textarea
                         value={seg.text}
                         onChange={(event) => updateCaption(seg.id, { text: event.target.value })}
-                        onFocus={() => seek(seg.start + 0.01)}
+                        onFocus={() => seek(hookStart + seg.start + 0.01)}
                         rows={1}
                         className="min-h-9 w-full resize-y rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-2.5 py-1.5 text-sm text-white outline-none focus:border-[var(--accent)]"
                       />
@@ -947,8 +986,8 @@ function CaptionsPanel({
         <>
           {hookCovers && (
             <p className="rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-3 py-2 text-xs text-[var(--muted-foreground)]">
-              The hook burns its own captions over the first {project.hook.end.toFixed(1)}s — these take over right
-              after it.
+              The hook burns its own captions over its {(project.hook.end - (project.hook.start ?? 0)).toFixed(1)}s window —
+              these take over for the rest of the video.
             </p>
           )}
 
@@ -1344,7 +1383,11 @@ function TrimPanel({
   const manualCuts = project.segments
     .filter((segment) => segment.kind === "speech" && !segment.enabled)
     .sort((a, b) => a.start - b.start);
-  const inHook = project.hook.enabled && !!selection && selection.start < project.hook.end;
+  const inHook =
+    project.hook.enabled &&
+    !!selection &&
+    selection.end > (project.hook.start ?? 0) &&
+    selection.start < project.hook.end;
 
   const setStartHere = () =>
     setSelection((prev) => {
@@ -1435,8 +1478,8 @@ function TrimPanel({
 
       {inHook && (
         <p className="rounded-lg border border-amber-400/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-200">
-          Heads up: the hook always plays in full, so any part of this selection inside the first{" "}
-          {project.hook.end.toFixed(1)}s won&apos;t be trimmed.
+          Heads up: the hook always plays in full, so any part of this selection inside the hook window (
+          {(project.hook.start ?? 0).toFixed(1)}s–{project.hook.end.toFixed(1)}s) won&apos;t be trimmed.
         </p>
       )}
 
@@ -2141,7 +2184,9 @@ function ExportPanel({
         <p>
           Hook{" "}
           <span className="float-right text-white">
-            {project.hook.enabled ? `${project.hook.end.toFixed(1)}s · ${project.hook.zoom.toFixed(2)}x zoom` : "off"}
+            {project.hook.enabled
+              ? `${(project.hook.end - (project.hook.start ?? 0)).toFixed(1)}s · ${project.hook.zoom.toFixed(2)}x zoom`
+              : "off"}
           </span>
         </p>
         <p>
