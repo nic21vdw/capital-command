@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { FFMPEG_MISSING_MESSAGE, resolveFfmpeg, runFfmpeg } from "@/lib/clipping/ffmpeg";
 import { longformCreateSchema } from "@/lib/longform/schemas";
-import { createProject, listProjects } from "@/lib/longform/store";
+import { createProject, createProjectFromUrl, listProjects } from "@/lib/longform/store";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -29,15 +29,20 @@ export async function POST(request: NextRequest) {
   }
   const parsed = longformCreateSchema.safeParse(body);
   if (!parsed.success) {
-    return NextResponse.json({ error: "Expected a JSON body with a `sourceId` field." }, { status: 400 });
+    return NextResponse.json(
+      { error: "Expected a JSON body with a `sourceId` or a video `url`." },
+      { status: 400 }
+    );
   }
 
   try {
-    const project = await createProject(parsed.data.sourceId, parsed.data.name);
+    const project = parsed.data.url
+      ? await createProjectFromUrl(parsed.data.url, parsed.data.name)
+      : await createProject(parsed.data.sourceId!, parsed.data.name);
     return NextResponse.json({ project }, { status: 201 });
   } catch (error) {
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : "Could not start a project from that upload." },
+      { error: error instanceof Error ? error.message : "Could not start a project from that source." },
       { status: 400 }
     );
   }

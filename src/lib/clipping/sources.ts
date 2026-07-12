@@ -4,6 +4,7 @@ import { mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
+import { downloadFullVideo, fetchVideoMeta } from "@/lib/clipping/download";
 import { hasAudioStream, probeDuration, resolveFfmpeg, runFfmpeg } from "@/lib/clipping/ffmpeg";
 
 // Sources live under data/clips/sources/<id>/ — the source file is stored once
@@ -80,26 +81,69 @@ export async function saveSourceFromStream(
 
   await pipeline(Readable.fromWeb(body as Parameters<typeof Readable.fromWeb>[0]), createWriteStream(dest));
 
-  const sizeBytes = (await stat(dest)).size;
+  return finalizeSource(id, storedName, dest, fileName, mime);
+}
 
-  // Probe is best-effort: if ffmpeg can't read it, the client still fills in
-  // duration/dimensions from the <video> element on load.
+/**
+ * Downloads a full YouTube (or other yt-dlp-supported) video to a new source,
+ * so the Long-Form Editor can analyze and export it exactly like an uploaded
+ * file. The video's own title becomes the source file name.
+ */
+export async function saveSourceFromUrl(
+  url: string,
+  onProgress?: (pct: number) => void
+): Promise<SourceMeta> {
+  const id = crypto.randomUUID().slice(0, 12);
+  await mkdir(sourceDir(id), { recursive: true });
+
+  // The title gives the project a sensible name; duration/dimensions come from
+  // the probe below so we don't trust the metadata blindly.
+  let title = "YouTube video";
+  try {
+    title = (await fetchVideoMeta(url)).title;
+  } catch {
+    // Non-fatal: fall back to a generic name and let the download report the
+    // real failure if the URL is unusable.
+  }
+
+  const dest = path.join(sourceDir(id), "source.mp4");
+  const produced = await downloadFullVideo(url, dest, onProgress);
+  const storedName = path.basename(produced);
+
+  return finalizeSource(id, storedName, produced, `${title}.mp4`, "video/mp4");
+}
+
+/**
+ * Probes a source file already written to disk and persists its metadata.
+ * Shared by the upload-stream and URL-download paths. The probe is best-effort:
+ * if ffmpeg can't read it, the client still fills in duration/dimensions from
+ * the <video> element on load.
+ */
+async function finalizeSource(
+  id: string,
+  storedName: string,
+  filePath: string,
+  fileName: string,
+  mime: string
+): Promise<SourceMeta> {
+  const sizeBytes = (await stat(filePath)).size;
+
   let durationSec = 0;
   let width = 0;
   let height = 0;
   let hasAudio = true;
   if (resolveFfmpeg()) {
     try {
-      const { stderr } = await runFfmpeg(["-hide_banner", "-i", dest], { allowFailure: true });
+      const { stderr } = await runFfmpeg(["-hide_banner", "-i", filePath], { allowFailure: true });
       const dims = parseDimensions(stderr);
       width = dims.width;
       height = dims.height;
       try {
-        durationSec = await probeDuration(dest);
+        durationSec = await probeDuration(filePath);
       } catch {
         durationSec = 0;
       }
-      hasAudio = await hasAudioStream(dest);
+      hasAudio = await hasAudioStream(filePath);
     } catch {
       // leave defaults
     }
