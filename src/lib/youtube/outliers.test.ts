@@ -197,6 +197,7 @@ describe("buildOutlierInsights", () => {
     lastFetchedAt: NOW.toISOString(),
     lastError: null,
     baseline: { medianViews: 1000, sampleSize: 5, computedAt: NOW.toISOString() },
+    group: "",
     recentVideos: [
       video({ videoId: "p1", views: 1000, likes: 50, comments: 10, durationSeconds: 600 }),
       video({ videoId: "p2", views: 900, likes: 45, comments: 9, durationSeconds: 660 }),
@@ -276,5 +277,32 @@ describe("outlierStoreSchema", () => {
     expect(store.outliers).toEqual([]);
     expect(store.runs).toEqual([]);
     expect(store.config).toEqual({ multiplier: 3, baselineWindow: 10, cooldownMinutes: 60 });
+    expect(store.competitorInsights).toEqual([]);
+  });
+
+  it("parses a pre-competition store file, defaulting the new fields", () => {
+    // Shape of data/youtube-outliers.json before channel groups / AI insights existed.
+    const legacy = {
+      channels: [
+        {
+          id: "UCabcdefghijklmnopqrstuv",
+          title: "Old Channel",
+          handle: null,
+          thumbnailUrl: null,
+          uploadsPlaylistId: "UUabcdefghijklmnopqrstuv",
+          addedAt: "2026-01-01T00:00:00.000Z",
+          lastFetchedAt: null,
+          lastError: null,
+          baseline: null,
+          recentVideos: []
+        }
+      ],
+      outliers: [],
+      runs: [],
+      config: { multiplier: 3, baselineWindow: 10, cooldownMinutes: 60 }
+    };
+    const store = outlierStoreSchema.parse(legacy);
+    expect(store.channels[0].group).toBe("");
+    expect(store.competitorInsights).toEqual([]);
   });
 });

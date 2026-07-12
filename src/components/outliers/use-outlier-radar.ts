@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useState } from "react";
-import type { Outlier, OutlierConfig, ScanRun, WatchlistChannel } from "@/lib/youtube/outliers";
+import type { CompetitorInsight, Outlier, OutlierConfig, ScanRun, WatchlistChannel } from "@/lib/youtube/outliers";
 
 /** Everything the Outlier Radar page renders, straight from /api/youtube/outliers. */
 export type RadarState = {
@@ -9,7 +9,10 @@ export type RadarState = {
   outliers: Outlier[];
   runs: ScanRun[];
   config: OutlierConfig;
+  competitorInsights: CompetitorInsight[];
   configured: boolean;
+  /** ANTHROPIC_API_KEY present — AI competition insights available. */
+  insightsConfigured: boolean;
 };
 
 /** Parses a JSON response, surfacing the API's { error } message on failure. */

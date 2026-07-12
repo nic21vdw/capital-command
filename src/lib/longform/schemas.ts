@@ -15,6 +15,7 @@ export const longformSegmentSchema = z.object({
 
 export const longformHookSchema = z.object({
   enabled: z.coerce.boolean(),
+  start: z.coerce.number().min(0).max(60).default(0),
   end: z.coerce.number().min(0).max(60),
   zoom: z.coerce.number().min(1).max(2.5),
   focusX: z.coerce.number().min(0).max(1),
@@ -82,11 +83,19 @@ export const longformProjectPatchSchema = z
     overlays: z.array(longformOverlaySchema).max(100),
     music: longformMusicSchema,
     sfx: sfxSettingsSchema,
+    layout: z.enum(["wide", "vertical"]),
     pace: longformPaceSchema
   })
   .partial();
 
-export const longformCreateSchema = z.object({
-  sourceId: z.string().min(1),
-  name: z.string().trim().max(200).optional()
-});
+// A project starts from either a previously uploaded `sourceId` or a video
+// `url` (YouTube/VOD link) the server downloads itself. Exactly one is required.
+export const longformCreateSchema = z
+  .object({
+    sourceId: z.string().min(1).optional(),
+    url: z.string().trim().url().optional(),
+    name: z.string().trim().max(200).optional()
+  })
+  .refine((data) => Boolean(data.sourceId) !== Boolean(data.url), {
+    message: "Provide either a `sourceId` or a `url`, not both."
+  });

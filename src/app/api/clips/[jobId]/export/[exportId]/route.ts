@@ -3,12 +3,25 @@ import { stat } from "node:fs/promises";
 import path from "node:path";
 import { Readable } from "node:stream";
 import { NextRequest, NextResponse } from "next/server";
-import { getExport } from "@/lib/clipping/export";
+import { cancelExport, getExport } from "@/lib/clipping/export";
 import { outputDir } from "@/lib/clipping/jobs";
 import { safeFilename } from "@/lib/utils";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+
+/** Stops an in-flight render safely (kills ffmpeg) and marks it canceled. */
+export async function DELETE(
+  _request: NextRequest,
+  { params }: { params: Promise<{ jobId: string; exportId: string }> }
+) {
+  const { jobId, exportId } = await params;
+  const record = getExport(exportId);
+  if (!record || record.jobId !== jobId) {
+    return NextResponse.json({ error: "Export not found. It may have expired after a server restart." }, { status: 404 });
+  }
+  return NextResponse.json({ export: cancelExport(exportId) });
+}
 
 /** Export status, or the produced file when `?file=1`. */
 export async function GET(

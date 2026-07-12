@@ -34,6 +34,59 @@ describe("wordsFromChunks", () => {
     expect(words[0].end - words[0].start).toBeLessThanOrEqual(0.5);
   });
 
+  it("drops a forward-spiked hallucination stamp instead of ratcheting later words past it", () => {
+    // Whisper hallucinates a word during silence and stamps it at the far edge
+    // of its 30s chunk, way ahead of the surrounding speech. The words after it
+    // must keep their own (correct) timing instead of being clamped forward.
+    const chunks: WordChunk[] = [
+      { text: " a", timestamp: [10.0, 10.4] },
+      { text: " b", timestamp: [10.5, 10.9] },
+      { text: " uh", timestamp: [45.0, 45.2] }, // hallucinated, stamped at chunk end
+      { text: " c", timestamp: [11.0, 11.4] },
+      { text: " d", timestamp: [11.5, 11.9] },
+      { text: " e", timestamp: [12.0, 12.4] }
+    ];
+    const words = wordsFromChunks(chunks);
+    expect(words.map((w) => w.text)).toEqual(["a", "b", "uh", "c", "d", "e"]);
+    // The spiked word snaps back next to its neighbours...
+    expect(words[2].start).toBeCloseTo(10.9);
+    // ...and the real words after it keep their own starts.
+    expect(words[3].start).toBeCloseTo(11.0);
+    expect(words[5].start).toBeCloseTo(12.0);
+  });
+
+  it("does not let repeated silence hallucinations accumulate into a growing desync", () => {
+    // Two spikes minutes apart — the second must not stack on top of the first.
+    const chunks: WordChunk[] = [
+      { text: " one", timestamp: [5.0, 5.3] },
+      { text: " oops", timestamp: [30.0, 30.2] },
+      { text: " two", timestamp: [5.6, 5.9] },
+      { text: " three", timestamp: [6.1, 6.4] },
+      { text: " four", timestamp: [6.6, 6.9] },
+      { text: " again", timestamp: [60.0, 60.2] },
+      { text: " five", timestamp: [7.1, 7.4] },
+      { text: " six", timestamp: [7.6, 7.9] },
+      { text: " seven", timestamp: [8.1, 8.4] }
+    ];
+    const words = wordsFromChunks(chunks);
+    expect(words[words.length - 1].start).toBeCloseTo(8.1);
+    expect(words.map((w) => w.start).every((s) => s < 10)).toBe(true);
+  });
+
+  it("keeps real timestamps across a genuine long pause", () => {
+    // A minute of legitimate silence: the word before the pause is not a spike,
+    // because the words after it start later, not earlier.
+    const chunks: WordChunk[] = [
+      { text: " before", timestamp: [100.0, 100.3] },
+      { text: " after", timestamp: [160.0, 160.3] },
+      { text: " the", timestamp: [160.5, 160.7] },
+      { text: " pause", timestamp: [160.9, 161.2] }
+    ];
+    const words = wordsFromChunks(chunks);
+    expect(words[0].start).toBeCloseTo(100.0);
+    expect(words[1].start).toBeCloseTo(160.0);
+  });
+
   it("skips empty tokens and never emits a zero-or-negative duration", () => {
     const chunks: WordChunk[] = [
       { text: "  ", timestamp: [0, 0.5] },

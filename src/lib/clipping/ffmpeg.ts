@@ -29,6 +29,23 @@ export function resolveFfmpeg(): string | null {
 export const FFMPEG_MISSING_MESSAGE =
   "FFmpeg is not available. Run `npm install` (which bundles a static FFmpeg build) or install FFmpeg manually (Windows: `winget install ffmpeg`) and restart the app.";
 
+/**
+ * Thrown when a render is stopped on purpose (the user cancelled the export).
+ * Callers use this to tell a deliberate stop apart from a real failure so the
+ * export is marked "canceled" rather than "error".
+ */
+export class RenderCanceledError extends Error {
+  constructor(message = "Render was stopped.") {
+    super(message);
+    this.name = "RenderCanceledError";
+  }
+}
+
+/** Whether an error (or an aborted signal) represents a deliberate stop. */
+export function isRenderCanceled(error: unknown): boolean {
+  return error instanceof RenderCanceledError;
+}
+
 export type FfmpegResult = {
   stdout: string;
   stderr: string;
@@ -38,7 +55,11 @@ export type FfmpegResult = {
 /** Runs ffmpeg with the given args, capturing stdout/stderr. */
 export function runFfmpeg(
   args: string[],
-  { allowFailure = false, onLine }: { allowFailure?: boolean; onLine?: (line: string) => void } = {}
+  {
+    allowFailure = false,
+    onLine,
+    signal
+  }: { allowFailure?: boolean; onLine?: (line: string) => void; signal?: AbortSignal } = {}
 ): Promise<FfmpegResult> {
   const bin = resolveFfmpeg();
   return new Promise((resolve, reject) => {
@@ -46,7 +67,22 @@ export function runFfmpeg(
       reject(new Error(FFMPEG_MISSING_MESSAGE));
       return;
     }
+    // Already stopped before we even spawned — don't start a doomed process.
+    if (signal?.aborted) {
+      reject(new RenderCanceledError());
+      return;
+    }
     const child = spawn(bin, args, { windowsHide: true });
+    // Stopping the export kills the ffmpeg process so it releases the CPU/GPU
+    // and stops writing immediately, then the promise rejects as canceled.
+    const onAbort = () => {
+      try {
+        child.kill("SIGKILL");
+      } catch {
+        /* process may have already exited */
+      }
+    };
+    if (signal) signal.addEventListener("abort", onAbort, { once: true });
     let stdout = "";
     let stderr = "";
     let lineBuffer = "";
@@ -69,6 +105,7 @@ export function runFfmpeg(
       }
     });
     child.on("error", (error) => {
+      if (signal) signal.removeEventListener("abort", onAbort);
       if ((error as NodeJS.ErrnoException).code === "ENOENT") {
         reject(new Error(FFMPEG_MISSING_MESSAGE));
       } else {
@@ -76,7 +113,11 @@ export function runFfmpeg(
       }
     });
     child.on("close", (code) => {
-      if (code !== 0 && !allowFailure) {
+      if (signal) signal.removeEventListener("abort", onAbort);
+      // A non-zero exit caused by our own SIGKILL is a stop, not a failure.
+      if (signal?.aborted) {
+        reject(new RenderCanceledError());
+      } else if (code !== 0 && !allowFailure) {
         reject(new Error(`ffmpeg exited with code ${code}: ${stderr.slice(-800)}`));
       } else {
         resolve({ stdout, stderr, code: code ?? -1 });

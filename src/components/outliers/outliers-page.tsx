@@ -19,8 +19,11 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { Modal } from "@/components/ui/modal";
 import { PageHeader } from "@/components/ui/page-header";
+import { CompetitionPanel } from "@/components/outliers/competition-panel";
 import { readJson, useOutlierRadar, type RadarState } from "@/components/outliers/use-outlier-radar";
+import { channelGroupOptions, DEFAULT_COMPETITION_GROUP, normalizeGroupLabel } from "@/lib/youtube/competitor-trends";
 import { cn } from "@/lib/utils";
 import {
   buildOutlierInsights,
@@ -62,6 +65,7 @@ export function OutliersPage() {
   const [sortDesc, setSortDesc] = useState(true);
   const [configDraft, setConfigDraft] = useState<OutlierConfig | null>(null);
   const [expandedVideoIds, setExpandedVideoIds] = useState<Record<string, boolean>>({});
+  const [confirmRemoveChannel, setConfirmRemoveChannel] = useState<WatchlistChannel | null>(null);
 
   useEffect(() => {
     void load();
@@ -101,23 +105,47 @@ export function OutliersPage() {
     }
   };
 
-  const runScan = async (force: boolean) => {
-    if (scanning) return;
+  const runScan = async (force: boolean): Promise<boolean> => {
+    if (scanning) return false;
     setScanning(true);
     try {
       const data = await readJson<RadarState & { run: ScanRun }>(
         await fetch(`/api/youtube/outliers/run${force ? "?force=1" : ""}`, { method: "POST" })
       );
-      setState((current) => ({ ...data, configured: current?.configured ?? true }));
+      setState((current) => ({
+        ...data,
+        configured: current?.configured ?? true,
+        insightsConfigured: current?.insightsConfigured ?? false
+      }));
       const { run } = data;
       const summary = `Checked ${run.channelsChecked}, skipped ${run.channelsSkipped} (cached), failed ${run.channelsFailed} · ${run.unitsUsed} quota units · ${Math.max(0, run.newOutliers)} new outlier${run.newOutliers === 1 ? "" : "s"}`;
       if (run.notes.length > 0) toast.warning(run.notes.join(" "));
       else if (run.channelsFailed > 0) toast.warning(`${summary}. Check the watchlist for per-channel errors.`);
       else toast.success(summary);
+      return true;
     } catch (error) {
       toast.error(error instanceof Error ? error.message : String(error));
+      return false;
     } finally {
       setScanning(false);
+    }
+  };
+
+  const saveGroup = async (channel: WatchlistChannel, rawGroup: string) => {
+    const group = normalizeGroupLabel(rawGroup);
+    if (group === normalizeGroupLabel(channel.group)) return;
+    try {
+      const data = await readJson<{ channels: WatchlistChannel[] }>(
+        await fetch("/api/youtube/watchlist", {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ id: channel.id, group })
+        })
+      );
+      setState((current) => (current ? { ...current, channels: data.channels } : current));
+      toast.success(group ? `${channel.title} labeled “${group}”.` : `Label removed from ${channel.title}.`);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : String(error));
     }
   };
 
@@ -197,7 +225,7 @@ export function OutliersPage() {
       <PageHeader
         eyebrow="YouTube tools"
         title="Outlier Radar"
-        description="Watch other channels, baseline them on the median views of their recent uploads, and flag videos breaking out above the baseline — with free-text tags for hook style, topic, and format."
+        description="Watch other channels, baseline them on the median views of their recent uploads, and flag videos breaking out above the baseline. One click analyzes your competition as a group — shared breakout topics, packaging patterns, and an AI brief on what to make next."
       />
 
       {loadError ? (
@@ -294,18 +322,39 @@ export function OutliersPage() {
                     </p>
                   ) : null}
                 </div>
+                <Input
+                  defaultValue={channel.group}
+                  // Uncontrolled + key so external refreshes update the value.
+                  key={`${channel.id}:${channel.group}`}
+                  list="channel-group-suggestions"
+                  placeholder="Group (optional)"
+                  aria-label={`Group label for ${channel.title}`}
+                  title={`Optional: label channels (e.g. ${DEFAULT_COMPETITION_GROUP}) to filter the Competition analysis to a subset — by default it covers every channel here`}
+                  className="h-9 w-40 shrink-0"
+                  onBlur={(event) => void saveGroup(channel, event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter") (event.target as HTMLInputElement).blur();
+                  }}
+                />
                 <Button
                   variant="ghost"
                   className="shrink-0 px-2"
                   aria-label={`Remove ${channel.title}`}
                   title="Remove from watchlist"
-                  onClick={() => void removeChannel(channel)}
+                  onClick={() => setConfirmRemoveChannel(channel)}
                 >
                   <Trash2 className="h-4 w-4" />
                 </Button>
               </div>
             ))}
           </div>
+          <datalist id="channel-group-suggestions">
+            {[DEFAULT_COMPETITION_GROUP, ...(state ? channelGroupOptions(state.channels) : [])]
+              .filter((label, index, all) => all.indexOf(label) === index)
+              .map((label) => (
+                <option key={label} value={label} />
+              ))}
+          </datalist>
         </Card>
 
         {/* Run log + detection settings */}
@@ -398,6 +447,9 @@ export function OutliersPage() {
           </Card>
         </div>
       </div>
+
+      {/* Competition analysis across labeled channels */}
+      {state ? <CompetitionPanel state={state} setState={setState} scanning={scanning} runScan={runScan} /> : null}
 
       {/* Outliers table */}
       <Card className="mt-4">
@@ -503,6 +555,32 @@ export function OutliersPage() {
           </div>
         )}
       </Card>
+
+      <Modal
+        open={Boolean(confirmRemoveChannel)}
+        title="Remove channel?"
+        description={
+          confirmRemoveChannel
+            ? `This removes ${confirmRemoveChannel.title} from the watchlist. Its flagged outliers are kept.`
+            : undefined
+        }
+        onClose={() => setConfirmRemoveChannel(null)}
+      >
+        <div className="flex justify-end gap-2">
+          <Button variant="ghost" onClick={() => setConfirmRemoveChannel(null)}>
+            Cancel
+          </Button>
+          <Button
+            variant="danger"
+            onClick={() => {
+              if (confirmRemoveChannel) void removeChannel(confirmRemoveChannel);
+              setConfirmRemoveChannel(null);
+            }}
+          >
+            Delete
+          </Button>
+        </div>
+      </Modal>
     </div>
   );
 }
