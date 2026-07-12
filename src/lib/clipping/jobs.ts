@@ -507,7 +507,12 @@ async function writeClipDownloadAss(job: ClipJob, clip: ClipCandidate, index: nu
  * instead of the auto-generated render. No-op when the export's source master
  * doesn't belong to a known clip.
  */
-export async function attachEditedClipRender(jobId: string, sourceFile: string, exportFile: string) {
+export async function attachEditedClipRender(
+  jobId: string,
+  sourceFile: string,
+  exportFile: string,
+  signature?: string
+) {
   await loadJobs();
   const job = jobs.get(jobId);
   const clip = job?.clips.find(
@@ -515,6 +520,8 @@ export async function attachEditedClipRender(jobId: string, sourceFile: string, 
   );
   if (!job || !clip) return;
   clip.editedFile = exportFile;
+  clip.editedSignature = signature;
+  clip.editedAt = new Date().toISOString();
   await persistJobs();
 }
 

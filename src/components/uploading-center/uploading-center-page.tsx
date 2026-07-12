@@ -60,6 +60,11 @@ const PLATFORM_TABS: Array<{ id: PlatformId; icon: typeof Youtube }> = [
 ];
 
 export function UploadingCenterPage() {
+  // Clip Editor projects live in the shared app store; the Uploading Center
+  // needs them to tell when a clip's trim/edits are newer than its render.
+  const { data: appData, mutate } = useAppData();
+  const clipProjects = appData.clipProjects;
+
   const {
     loaded,
     overview,
@@ -89,12 +94,7 @@ export function UploadingCenterPage() {
     publishNow,
     remove,
     refresh,
-  } = useUploadingCenter();
-
-  // Clip Editor projects live in the shared app store; "Edit clip" reuses an
-  // existing project for a clip if one exists, and creates one otherwise.
-  const { data: appData, mutate } = useAppData();
-  const clipProjects = appData.clipProjects;
+  } = useUploadingCenter(clipProjects);
 
   useEffect(() => {
     void refresh();

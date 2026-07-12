@@ -4,7 +4,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { windowSegments } from "@/lib/clipping/captions";
 import { leadingSilenceSec } from "@/lib/clipping/editor";
+import { hasEditsBeyondAutoRender, renderSignature } from "@/lib/clipping/export-signature";
 import type { ClipCandidate, ClipJob } from "@/lib/clipping/types";
+import type { ClipProject } from "@/types/domain";
 import { placeChannelVideos, type ChannelPlacement } from "@/lib/publisher/channelPlacement";
 import type { ChannelSchedule, ChannelVideo } from "@/lib/publisher/channelVideos";
 import type { ScheduleSlot } from "@/lib/publisher/slots";
@@ -50,7 +52,36 @@ export type ReadyClip = {
   previewUrl: string;
   /** Dead air the clip opens on, in seconds; previews seek past it. */
   startSec: number;
+  /**
+   * True when a saved Clip Editor project for this clip has a trim (or other
+   * edits) that its current render doesn't reflect — because it was never
+   * rendered, or was trimmed again after its last render. Scheduling is blocked
+   * until it's re-rendered so the uploaded file is always the edited cut.
+   */
+  needsRerender: boolean;
 };
+
+/**
+ * Whether a clip's ready-to-post file is out of date with its saved editor
+ * project — i.e. the current trim/edits haven't been baked into a render yet,
+ * so uploading now would post the wrong cut.
+ */
+function computeNeedsRerender(clip: ClipCandidate, projects: ClipProject[]): boolean {
+  if (!clip.file) return false;
+  const project = projects
+    .filter((candidate) => candidate.sourceFile === clip.file)
+    .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))[0];
+  if (!project) return false;
+  if (clip.editedFile) {
+    // A render exists — stale only if the project changed since it was made.
+    // Legacy renders carry no signature; leave those alone to avoid false alarms.
+    if (!clip.editedSignature) return false;
+    return renderSignature({ ...project, settings: project.exportSettings }) !== clip.editedSignature;
+  }
+  // No render at all: flag only edits the auto render can't already contain
+  // (a real trim, added overlays, a watermark).
+  return hasEditsBeyondAutoRender({ ...project, settings: project.exportSettings });
+}
 
 export type ClipDraft = {
   title: string;
@@ -141,7 +172,7 @@ async function readError(response: Response): Promise<string> {
   return `Request failed (${response.status}).`;
 }
 
-export function useUploadingCenter() {
+export function useUploadingCenter(clipProjects: ClipProject[] = []) {
   const [jobs, setJobs] = useState<ClipJob[]>([]);
   const [queueItems, setQueueItems] = useState<QueueItem[]>([]);
   const [overview, setOverview] = useState<Overview | null>(null);
@@ -219,6 +250,7 @@ export function useUploadingCenter() {
 
   const readyClips = useMemo<ReadyClip[]>(() => {
     if (!activeJob) return [];
+    const projectsForJob = clipProjects.filter((project) => project.jobId === activeJob.id);
     return activeJob.clips.flatMap((clip, index) => {
       // Prefer the Clip Editor's export (the edited clip IS the clip), then
       // the ready-to-post vertical render; the master is a last resort and
@@ -246,11 +278,12 @@ export function useUploadingCenter() {
             ? `/api/clips/${activeJob.id}/files/${encodeURIComponent(clip.posterFile)}`
             : `/api/clips/${activeJob.id}/thumbnail/${encodeURIComponent(thumbSource)}`,
           previewUrl: `/api/clips/${activeJob.id}/files/${encodeURIComponent(file)}`,
-          startSec
+          startSec,
+          needsRerender: computeNeedsRerender(clip, projectsForJob)
         }
       ];
     });
-  }, [activeJob]);
+  }, [activeJob, clipProjects]);
 
   /** Queue items that came from a given clip card. */
   const itemsForClip = useCallback(
@@ -433,6 +466,10 @@ export function useUploadingCenter() {
         toast.error("Pick a schedule slot first.");
         return false;
       }
+      if (clip.needsRerender) {
+        toast.error("This clip has a trim that hasn't been rendered yet. Open it in the editor and hit Schedule Short to bake in your edits before uploading.");
+        return false;
+      }
       setBusy(`schedule:${clip.key}`);
       try {
         const response = await fetch("/api/publish", {
@@ -514,6 +551,10 @@ export function useUploadingCenter() {
       let firstError: string | null = null;
       try {
         for (const { clip, draft } of assignments) {
+          if (clip.needsRerender) {
+            firstError ??= "Some clips have un-rendered trims — open them in the editor and Schedule Short first.";
+            continue;
+          }
           try {
             const response = await fetch("/api/publish", {
               method: "POST",

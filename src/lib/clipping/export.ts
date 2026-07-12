@@ -3,6 +3,7 @@ import path from "node:path";
 import { buildAss, buildTextOverlayDialogue, buildWatermarkDialogue } from "@/lib/clipping/captions";
 import { hasAudioStream, probeDuration, runFfmpeg } from "@/lib/clipping/ffmpeg";
 import { attachEditedClipRender, outputDir, workDir } from "@/lib/clipping/jobs";
+import { renderSignature } from "@/lib/clipping/export-signature";
 import { LAYOUT_MODE_PRESETS } from "@/lib/clipping/layouts";
 import { reframeChain, stackedLayoutChain } from "@/lib/clipping/render";
 import { maybeAutoEnqueueExport } from "@/lib/publisher/enqueue";
@@ -407,12 +408,39 @@ async function runExport(record: ExportRecord, spec: ExportSpec) {
   }
   await probeDuration(outFile); // throws if the output is not a valid video
   record.file = path.basename(outFile);
+
+  // Record the export on the clip it was cut from — with the signature of the
+  // edits it was rendered from — so the Clip Generator and the Uploading Center
+  // pick up the edited clip instead of the auto render, and can tell when a
+  // later trim/edit has made this render stale. This must land BEFORE the
+  // record flips to "done": the editor navigates to the Uploading Center the
+  // instant it sees "done", and that page reads the clip's edited file — so if
+  // the attach ran afterward it could schedule the un-trimmed render.
+  await attachEditedClipRender(
+    spec.jobId,
+    spec.sourceFile,
+    record.file,
+    renderSignature({
+      baseDurationSec: spec.baseDurationSec,
+      trimStart: spec.trimStart,
+      trimEnd: spec.trimEnd,
+      compositionMode: spec.compositionMode,
+      reframe: spec.reframe,
+      faceSource: spec.faceSource,
+      screenSource: spec.screenSource,
+      captions: spec.captions,
+      captionStyle: spec.captionStyle,
+      captionsVisible: spec.captionsVisible,
+      highlightCurrentWord: spec.highlightCurrentWord,
+      overlays: spec.overlays,
+      audio: spec.audio,
+      sfx: spec.sfx,
+      settings: spec.settings
+    })
+  ).catch(() => undefined);
+
   record.progress = 100;
   record.status = "done";
-
-  // Record the export on the clip it was cut from so the Clip Generator and
-  // the Uploading Center pick up the edited clip instead of the auto render.
-  await attachEditedClipRender(spec.jobId, spec.sourceFile, record.file).catch(() => undefined);
 
   // Opt-in scheduled publishing: when PUBLISH_ENABLED and PUBLISH_AUTO_ENQUEUE
   // are set, the finished export joins the publish queue (YouTube Shorts /
