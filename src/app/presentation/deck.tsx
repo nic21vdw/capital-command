@@ -22,6 +22,12 @@ import { TierList as VibeTierList } from "../../../video/vibe-coding-first-steps
 import { TheMove as VibeTheMove } from "../../../video/vibe-coding-first-steps/src/scenes/TheMove";
 import { ByTheWay as VibeByTheWay } from "../../../video/vibe-coding-first-steps/src/scenes/ByTheWay";
 import { EndCard as VibeEndCard } from "../../../video/vibe-coding-first-steps/src/scenes/EndCard";
+import { VIDEO as CLAUDE_TRAILER_VIDEO } from "../../../video/claude-trailer/src/theme";
+import { LogoReveal as ClaudeLogoReveal } from "../../../video/claude-trailer/src/scenes/LogoReveal";
+import { HardestProblems as ClaudeHardestProblems } from "../../../video/claude-trailer/src/scenes/HardestProblems";
+import { Capabilities as ClaudeCapabilities } from "../../../video/claude-trailer/src/scenes/Capabilities";
+import { Momentum as ClaudeMomentum } from "../../../video/claude-trailer/src/scenes/Momentum";
+import { EndCard as ClaudeEndCard } from "../../../video/claude-trailer/src/scenes/EndCard";
 
 type Slide = {
   id: string;
@@ -94,6 +100,19 @@ const PROJECTS: Project[] = [
       { id: "TheMove", title: "The Move", note: "“Buy the $20 account” → GOOD", component: VibeTheMove, durationInFrames: 120 },
       { id: "ByTheWay", title: "By The Way", note: "“You don’t need to know how to code” → GOOD", component: VibeByTheWay, durationInFrames: 120 },
       { id: "EndCard", title: "End Card", note: "“That’s step 1” → next: your first prompt", component: VibeEndCard, durationInFrames: 120 }
+    ]
+  },
+  {
+    id: "claude-trailer",
+    name: "Claude Trailer",
+    description: "20s voiceover bed · 1920×1080 · Anthropic palette + starburst mark",
+    format: CLAUDE_TRAILER_VIDEO,
+    slides: [
+      { id: "LogoReveal", title: "Logo Reveal", note: "Starburst spins up with pulse rings → Claude wordmark", component: ClaudeLogoReveal, durationInFrames: 120 },
+      { id: "HardestProblems", title: "Hardest Problems", note: "“BUILT FOR THE HARDEST PROBLEMS”, word by word", component: ClaudeHardestProblems, durationInFrames: 140 },
+      { id: "Capabilities", title: "Capabilities", note: "1M context · frontier reasoning · agentic cards", component: ClaudeCapabilities, durationInFrames: 160 },
+      { id: "Momentum", title: "Momentum", note: "“Think deeper. Ship faster.” + spark comet sweep", component: ClaudeMomentum, durationInFrames: 90 },
+      { id: "EndCard", title: "End Card", note: "Pulsing spark + wordmark → claude.ai", component: ClaudeEndCard, durationInFrames: 90 }
     ]
   }
 ];
