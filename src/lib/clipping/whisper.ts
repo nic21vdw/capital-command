@@ -89,22 +89,66 @@ async function decodePcm(
 // the next word starts, whichever comes first).
 const DEFAULT_WORD_SEC = 0.24;
 
+// Forward-spike repair (see wordsFromChunks): a start is treated as a bogus
+// hallucination stamp when at least half of the next few words start more than
+// the tolerance *before* it — words arrive in spoken order, so real timestamps
+// can never run ahead of the words that follow.
+const SPIKE_LOOKAHEAD = 5;
+const SPIKE_TOLERANCE_SEC = 1;
+
 export function wordsFromChunks(chunks: WordChunk[]): CaptionWord[] {
-  const words: CaptionWord[] = [];
+  type Entry = { text: string; start: number | null; end: number | null };
+  const entries: Entry[] = [];
   for (const chunk of chunks) {
     const text = chunk.text.trim();
     if (!text) continue;
+    const rawStart = chunk.timestamp?.[0];
+    const rawEnd = chunk.timestamp?.[1];
+    entries.push({
+      text,
+      start: rawStart != null && Number.isFinite(rawStart) ? rawStart : null,
+      end: rawEnd != null && Number.isFinite(rawEnd) ? rawEnd : null
+    });
+  }
+
+  // Whisper stamps hallucinated words (typically emitted during silence) at
+  // the far edge of their 30s decode chunk — tens of seconds ahead of the
+  // surrounding speech. The monotonic clamp below trusts spoken order, so a
+  // single spiked start would ratchet every later word forward past it and
+  // captions would run late from that word on; silence-heavy long recordings
+  // spike repeatedly, so the desync keeps growing as the video plays. A start
+  // that sits clearly ahead of the words spoken after it cannot be real —
+  // drop the stamp so the word inherits the previous word's end instead.
+  const rawStarts = entries.map((entry) => entry.start);
+  for (let i = 0; i < entries.length; i++) {
+    const start = rawStarts[i];
+    if (start === null) continue;
+    const ahead: number[] = [];
+    for (let j = i + 1; j < entries.length && ahead.length < SPIKE_LOOKAHEAD; j++) {
+      const next = rawStarts[j];
+      if (next !== null) ahead.push(next);
+    }
+    // With fewer than two later stamps there is no reliable majority to vote
+    // with — leave the tail untouched rather than guess.
+    if (ahead.length < 2) continue;
+    const earlier = ahead.filter((next) => next < start - SPIKE_TOLERANCE_SEC).length;
+    if (earlier * 2 >= ahead.length) {
+      entries[i].start = null;
+      entries[i].end = null; // both halves of the stamp came from the same bogus alignment
+    }
+  }
+
+  const words: CaptionWord[] = [];
+  for (const entry of entries) {
     const prev = words[words.length - 1];
     // Timestamps must stay monotonic in spoken order. Whisper occasionally emits
     // a word whose raw start sits *before* the previous word at a 30s chunk
     // boundary; trust the transcript order and clamp forward rather than sorting
     // by start (which would silently reorder the words and scramble the text).
-    let start = chunk.timestamp?.[0];
-    if (start == null || !Number.isFinite(start)) start = prev?.end ?? 0;
+    let start = entry.start ?? prev?.end ?? 0;
     start = Math.max(0, start, prev?.start ?? 0);
 
-    let end = chunk.timestamp?.[1];
-    if (end == null || !Number.isFinite(end)) end = start + DEFAULT_WORD_SEC;
+    let end = entry.end ?? start + DEFAULT_WORD_SEC;
     end = Math.max(end, start + 0.02);
 
     // Close the previous word against this one. Without this, an inflated model
@@ -113,7 +157,7 @@ export function wordsFromChunks(chunks: WordChunk[]): CaptionWord[] {
     // "frozen" on the old line while the new words show nothing.
     if (prev && prev.end > start) prev.end = start;
 
-    words.push({ text, start, end });
+    words.push({ text: entry.text, start, end });
   }
   return words;
 }
