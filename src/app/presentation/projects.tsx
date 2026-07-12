@@ -17,6 +17,17 @@ import { TierList as VibeTierList } from "../../../video/vibe-coding-first-steps
 import { TheMove as VibeTheMove } from "../../../video/vibe-coding-first-steps/src/scenes/TheMove";
 import { ByTheWay as VibeByTheWay } from "../../../video/vibe-coding-first-steps/src/scenes/ByTheWay";
 import { EndCard as VibeEndCard } from "../../../video/vibe-coding-first-steps/src/scenes/EndCard";
+import { ColdOpenHook as AirColdOpenHook } from "../../../video/ai-industrial-revolution/src/scenes/ColdOpenHook";
+import { ThenVsNow as AirThenVsNow } from "../../../video/ai-industrial-revolution/src/scenes/ThenVsNow";
+import { StepOne as AirStepOne } from "../../../video/ai-industrial-revolution/src/scenes/StepOne";
+import { ModelPicker as AirModelPicker } from "../../../video/ai-industrial-revolution/src/scenes/ModelPicker";
+import { EndCard as AirEndCard } from "../../../video/ai-industrial-revolution/src/scenes/EndCard";
+import { VIDEO as CLAUDE_TRAILER_VIDEO } from "../../../video/claude-trailer/src/theme";
+import { LogoReveal as ClaudeLogoReveal } from "../../../video/claude-trailer/src/scenes/LogoReveal";
+import { HardestProblems as ClaudeHardestProblems } from "../../../video/claude-trailer/src/scenes/HardestProblems";
+import { Capabilities as ClaudeCapabilities } from "../../../video/claude-trailer/src/scenes/Capabilities";
+import { Momentum as ClaudeMomentum } from "../../../video/claude-trailer/src/scenes/Momentum";
+import { EndCard as ClaudeEndCard } from "../../../video/claude-trailer/src/scenes/EndCard";
 
 export type Slide = {
   id: string;
@@ -95,6 +106,32 @@ export const PROJECTS: Project[] = [
       { id: "TheMove", title: "The Move", note: "“Buy the $20 account” → GOOD", component: VibeTheMove, durationInFrames: 120 },
       { id: "ByTheWay", title: "By The Way", note: "“You don’t need to know how to code” → GOOD", component: VibeByTheWay, durationInFrames: 120 },
       { id: "EndCard", title: "End Card", note: "“That’s step 1” → next: your first prompt", component: VibeEndCard, durationInFrames: 120 }
+    ]
+  },
+  {
+    id: "ai-industrial-revolution",
+    name: "AI: The New Industrial Revolution",
+    description: "Series hook/intro · 1080×1920 vertical",
+    format: { width: 1080, height: 1920, fps: 30 },
+    slides: [
+      { id: "ColdOpenHook", title: "Cold Open Hook", note: "“AI is the new industrial revolution — of modern times”", component: AirColdOpenHook, durationInFrames: 90 },
+      { id: "ThenVsNow", title: "Then vs Now", note: "1800s steam vs today’s AI — same shift, new century", component: AirThenVsNow, durationInFrames: 180 },
+      { id: "StepOne", title: "Step 1", note: "“Choose the right model” — the one instruction", component: AirStepOne, durationInFrames: 150 },
+      { id: "ModelPicker", title: "Model Picker", note: "Match the model to the job: fast · balanced · big brain", component: AirModelPicker, durationInFrames: 210 },
+      { id: "EndCard", title: "End Card", note: "“That’s step 1” → next: put it to work", component: AirEndCard, durationInFrames: 120 }
+    ]
+  },
+  {
+    id: "claude-trailer",
+    name: "Claude Trailer",
+    description: "20s voiceover bed · 1920×1080 · Anthropic palette + starburst mark",
+    format: CLAUDE_TRAILER_VIDEO,
+    slides: [
+      { id: "LogoReveal", title: "Logo Reveal", note: "Starburst spins up with pulse rings → Claude wordmark", component: ClaudeLogoReveal, durationInFrames: 120 },
+      { id: "HardestProblems", title: "Hardest Problems", note: "“BUILT FOR THE HARDEST PROBLEMS”, word by word", component: ClaudeHardestProblems, durationInFrames: 140 },
+      { id: "Capabilities", title: "Capabilities", note: "1M context · frontier reasoning · agentic cards", component: ClaudeCapabilities, durationInFrames: 160 },
+      { id: "Momentum", title: "Momentum", note: "“Think deeper. Ship faster.” + spark comet sweep", component: ClaudeMomentum, durationInFrames: 90 },
+      { id: "EndCard", title: "End Card", note: "Pulsing spark + wordmark → claude.ai", component: ClaudeEndCard, durationInFrames: 90 }
     ]
   }
 ];

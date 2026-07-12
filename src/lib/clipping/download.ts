@@ -322,6 +322,47 @@ export async function downloadSection(
   });
 }
 
+/**
+ * Downloads the whole video as a single MP4, capped at 1080p so a long
+ * recording stays a manageable size while keeping enough resolution for the
+ * long-form master (the section downloads above cap lower because those clips
+ * are re-framed to 9:16). Returns the produced file path.
+ */
+export async function downloadFullVideo(
+  url: string,
+  destPath: string,
+  onProgress?: (pct: number) => void
+): Promise<string> {
+  const bin = await ensureYtDlp();
+  const dir = path.dirname(destPath);
+  const base = path.basename(destPath, path.extname(destPath));
+  const template = path.join(dir, `${base}.%(ext)s`);
+  const baseArgs = [
+    "-f",
+    "bv*[height<=1080]+ba/b[height<=1080]/b",
+    "--no-playlist",
+    "--no-part",
+    "--merge-output-format",
+    "mp4",
+    "-o",
+    template,
+    ...jsRuntimeArgs(),
+    ...ffmpegArgs()
+  ];
+  return downloadWithFallbacks(async (clientArgs) => {
+    await rmProduced(dir, `${base}.`);
+    await runYtDlp([...clientArgs, ...baseArgs, url], bin, {
+      onLine: (line) => {
+        const m = line.match(/\[download\]\s+([\d.]+)%/);
+        if (m && onProgress) onProgress(Number(m[1]));
+      }
+    });
+    const produced = await findProduced(dir, `${base}.`);
+    if (!produced) throw new Error("Video download finished but no file was produced.");
+    return produced;
+  });
+}
+
 /** Finds the file yt-dlp actually wrote (its extension can differ from the template). */
 async function findProduced(dir: string, prefix: string): Promise<string | null> {
   const entries = await readdir(dir);

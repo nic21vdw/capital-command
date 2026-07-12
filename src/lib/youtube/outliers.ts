@@ -45,7 +45,13 @@ export const watchlistChannelSchema = z.object({
   lastError: z.string().nullable().default(null),
   baseline: channelBaselineSchema.nullable().default(null),
   /** Cached stats from the last pull so reloads don't cost quota. */
-  recentVideos: z.array(videoStatsSchema).default([])
+  recentVideos: z.array(videoStatsSchema).default([]),
+  /**
+   * Free-text group label ("" = unlabeled). Labeling channels — e.g.
+   * "Competition" — lets the competition panel analyze them together without
+   * changing anything about how unlabeled channels are scanned.
+   */
+  group: z.string().default("")
 });
 
 export const outlierSchema = z.object({
@@ -91,13 +97,27 @@ export const outlierConfigSchema = z.object({
   cooldownMinutes: z.coerce.number().int().min(0).default(60)
 });
 
+/** A saved AI competition analysis — the text is the expensive part, so it persists. */
+export const competitorInsightSchema = z.object({
+  id: z.string(),
+  /** The group label the analysis covered; null = every labeled channel. */
+  group: z.string().nullable().default(null),
+  generatedAt: z.string(),
+  model: z.string().default(""),
+  insights: z.string(),
+  outlierCount: z.coerce.number().int().min(0).default(0),
+  channelCount: z.coerce.number().int().min(0).default(0)
+});
+
 export const outlierStoreSchema = z.object({
   channels: z.array(watchlistChannelSchema).default([]),
   outliers: z.array(outlierSchema).default([]),
   runs: z.array(scanRunSchema).default([]),
-  config: outlierConfigSchema.default({ multiplier: 3, baselineWindow: 10, cooldownMinutes: 60 })
+  config: outlierConfigSchema.default({ multiplier: 3, baselineWindow: 10, cooldownMinutes: 60 }),
+  competitorInsights: z.array(competitorInsightSchema).default([])
 });
 
+export type CompetitorInsight = z.infer<typeof competitorInsightSchema>;
 export type VideoStats = z.infer<typeof videoStatsSchema>;
 export type WatchlistChannel = z.infer<typeof watchlistChannelSchema>;
 export type Outlier = z.infer<typeof outlierSchema>;

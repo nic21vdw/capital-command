@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import {
+  AtSign,
   ChevronLeft,
   ChevronRight,
   Clapperboard,
@@ -36,6 +37,13 @@ const navGroups: NavGroup[] = [
       { href: "/presentation", label: "Segment Deck", icon: Presentation },
       // Watchlist of other channels with baseline stats and outlier flagging.
       { href: "/outliers", label: "Outlier Radar", icon: Radar }
+    ]
+  },
+  {
+    label: "Audience",
+    items: [
+      // Daily pack of suggested X/Threads posts + replies (suggestion-only).
+      { href: "/x-posts", label: "X / Threads Posts", icon: AtSign }
     ]
   }
 ];

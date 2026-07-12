@@ -80,7 +80,7 @@ export function ClipEditor({
   onOpenClip?: (job: ClipJob, clip: ClipCandidate, index: number) => void;
 }) {
   const { data, mutate } = useAppData();
-  const { exportStateFor, startExport } = useEditorExports();
+  const { exportStateFor, startExport, stopExport } = useEditorExports();
   const router = useRouter();
   const [project, setProject] = useState<ClipProject>(initialProject);
   const [time, setTime] = useState(0);
@@ -648,6 +648,10 @@ export function ClipEditor({
     void startExport(project);
   }, [project, startExport]);
 
+  const stopExportForClip = useCallback(() => {
+    void stopExport(project.id);
+  }, [project.id, stopExport]);
+
   // Live progress for this clip, sourced from the background tracker so a render
   // started here still shows its progress when you leave and come back.
   const exportState = exportStateFor(project.id);
@@ -837,6 +841,7 @@ export function ClipEditor({
       setSelectedOverlayId,
       exportState,
       runExport,
+      stopExport: stopExportForClip,
       downloadSubtitles
     }),
     [
@@ -864,6 +869,7 @@ export function ClipEditor({
       selectedOverlayId,
       exportState,
       runExport,
+      stopExportForClip,
       downloadSubtitles
     ]
   );

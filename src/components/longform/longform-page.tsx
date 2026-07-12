@@ -20,6 +20,7 @@ import { cn } from "@/lib/utils";
 // then exports straight into the Clip Generator.
 
 const STAGE_LABELS: Record<LongformProject["stage"], string> = {
+  downloading: "Downloading the video",
   probing: "Reading the video",
   transcribing: "Transcribing your words",
   analyzing: "Finding dead space",
@@ -41,6 +42,8 @@ export function LongformStudioPage() {
   const [dragging, setDragging] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [draftName, setDraftName] = useState("");
+  const [url, setUrl] = useState("");
+  const [importing, setImporting] = useState(false);
 
   const refresh = useCallback(async () => {
     try {
@@ -144,6 +147,37 @@ export function LongformStudioPage() {
     [uploadFile]
   );
 
+  // Import straight from a YouTube (or other VOD) link: the server downloads
+  // the full video, then runs the same analysis an upload gets.
+  const importUrl = useCallback(async () => {
+    const trimmed = url.trim();
+    if (!/^https?:\/\/\S+$/i.test(trimmed)) {
+      toast.error("Paste a full YouTube or VOD link starting with http:// or https://.");
+      return;
+    }
+    setImporting(true);
+    try {
+      const response = await fetch("/api/longform/projects", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url: trimmed })
+      });
+      const data = (await response.json()) as { project?: LongformProject; error?: string };
+      if (!response.ok || !data.project) {
+        toast.error(data.error ?? "Could not start downloading that video.");
+        return;
+      }
+      setUrl("");
+      toast.success("Downloading your video — analysis starts automatically.");
+      await refresh();
+      setOpen(data.project.id);
+    } catch {
+      toast.error("Could not start downloading that video.");
+    } finally {
+      setImporting(false);
+    }
+  }, [url, refresh, setOpen]);
+
   const startRename = useCallback((project: LongformProject) => {
     setEditingId(project.id);
     setDraftName(project.name);
@@ -214,7 +248,7 @@ export function LongformStudioPage() {
     );
   }
 
-  const busy = uploadPct !== null || creating;
+  const busy = uploadPct !== null || creating || importing;
 
   return (
     <div className="space-y-6">
@@ -326,6 +360,33 @@ export function LongformStudioPage() {
               </div>
               {uploadPct !== null && <Progress value={uploadPct} className="w-full" />}
             </div>
+
+            <div className="mt-4 flex items-center gap-3">
+              <span className="h-px flex-1 bg-[var(--border)]" />
+              <span className="text-xs text-[var(--muted-foreground)]">or paste a link</span>
+              <span className="h-px flex-1 bg-[var(--border)]" />
+            </div>
+            <div className="mt-3 flex gap-2">
+              <input
+                type="url"
+                inputMode="url"
+                value={url}
+                onChange={(event) => setUrl(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" && !busy) void importUrl();
+                }}
+                placeholder="https://youtube.com/watch?v=..."
+                disabled={busy}
+                className="h-10 min-w-0 flex-1 rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-3 text-sm text-white outline-none transition placeholder:text-[var(--muted-foreground)] focus:border-[var(--accent)] disabled:opacity-60"
+                aria-label="YouTube or VOD link"
+              />
+              <Button onClick={() => void importUrl()} disabled={busy || !url.trim()} className="shrink-0">
+                {importing ? <Loader2 className="h-4 w-4 animate-spin" /> : "Import"}
+              </Button>
+            </div>
+            <p className="mt-2 text-xs text-[var(--muted-foreground)]">
+              Paste a YouTube video link and we’ll pull down the full recording for you.
+            </p>
           </Card>
 
           <Card>

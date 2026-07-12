@@ -2,7 +2,7 @@ import { mkdir, readFile, rename, rm, unlink, writeFile } from "node:fs/promises
 import path from "node:path";
 import { detectSilences } from "@/lib/clipping/analysis";
 import { probeDuration, runFfmpeg } from "@/lib/clipping/ffmpeg";
-import { readSourceMeta, sourceFilePath } from "@/lib/clipping/sources";
+import { readSourceMeta, saveSourceFromUrl, sourceFilePath } from "@/lib/clipping/sources";
 import { transcribeMedia } from "@/lib/clipping/whisper";
 import { DEFAULT_PACE, buildSegments, hookCaptions, planCaptions, planHook } from "@/lib/longform/plan";
 import type { LongformPace, LongformProject } from "@/lib/longform/types";
@@ -51,6 +51,9 @@ async function loadProjects() {
       // Projects saved before whole-video captions existed get them seeded
       // from the stored transcript, switched off so exports don't change.
       project.captions ??= planCaptions(project.transcript ?? []);
+      // Projects saved before the hook could be moved off the opening default
+      // to starting at 0 (the recording's start), matching their old behavior.
+      if (project.hook) project.hook.start ??= 0;
       // Projects saved before the audio track existed have no clips array, and
       // may carry a legacy single background track — migrate it into one clip
       // spanning the whole edit so it keeps playing and stays editable.
@@ -182,29 +185,82 @@ export async function createProject(sourceId: string, name?: string): Promise<Lo
   await loadProjects();
   const meta = await readSourceMeta(sourceId);
   if (!meta) throw new Error("That uploaded video could not be found. Upload it again.");
+  const project = await newProjectRecord({
+    name: (name ?? meta.fileName).replace(/\.[a-z0-9]+$/i, "") || meta.fileName,
+    sourceId,
+    fileName: meta.fileName,
+    stage: "probing",
+    progress: 2,
+    durationSec: meta.durationSec,
+    width: meta.width,
+    height: meta.height,
+    hasAudio: meta.hasAudio
+  });
+
+  void runAnalysis(project).catch((error) => failProject(project, error));
+  return project;
+}
+
+/**
+ * Creates a long-form project straight from a YouTube (or other yt-dlp) link:
+ * the full video is downloaded to a source in the background, then the same
+ * analysis pipeline runs on it. Returns immediately with a project stuck in the
+ * `downloading` stage so the client can poll for progress.
+ */
+export async function createProjectFromUrl(url: string, name?: string): Promise<LongformProject> {
+  await loadProjects();
+  const project = await newProjectRecord({
+    name: (name ?? "").trim() || "YouTube video",
+    sourceId: "",
+    fileName: url,
+    stage: "downloading",
+    progress: 2,
+    durationSec: 0,
+    width: 0,
+    height: 0,
+    hasAudio: true
+  });
+
+  void downloadAndAnalyze(project, url, name).catch((error) => failProject(project, error));
+  return project;
+}
+
+/** Builds a fresh project record, registers it, and creates its work dirs. */
+async function newProjectRecord(fields: {
+  name: string;
+  sourceId: string;
+  fileName: string;
+  stage: LongformProject["stage"];
+  progress: number;
+  durationSec: number;
+  width: number;
+  height: number;
+  hasAudio: boolean;
+}): Promise<LongformProject> {
   const id = crypto.randomUUID().slice(0, 8);
   const now = new Date().toISOString();
   const project: LongformProject = {
     id,
-    name: (name ?? meta.fileName).replace(/\.[a-z0-9]+$/i, "") || meta.fileName,
-    sourceId,
-    fileName: meta.fileName,
+    name: fields.name,
+    sourceId: fields.sourceId,
+    fileName: fields.fileName,
     status: "processing",
-    stage: "probing",
-    progress: 2,
+    stage: fields.stage,
+    progress: fields.progress,
     notices: [],
-    durationSec: meta.durationSec,
-    width: meta.width,
-    height: meta.height,
-    hasAudio: meta.hasAudio,
+    durationSec: fields.durationSec,
+    width: fields.width,
+    height: fields.height,
+    hasAudio: fields.hasAudio,
     transcript: [],
     silences: [],
     segments: [],
-    hook: planHook([], meta.durationSec || 0),
+    hook: planHook([], fields.durationSec || 0),
     captions: planCaptions([]),
     overlays: [],
     music: { enabled: false, clips: [], videoVolume: 1, masterVolume: 1 },
     sfx: defaultSfxSettings(),
+    layout: "wide",
     pace: { ...DEFAULT_PACE },
     exports: [],
     createdAt: now,
@@ -214,9 +270,32 @@ export async function createProject(sourceId: string, name?: string): Promise<Lo
   await mkdir(projectWorkDir(id), { recursive: true });
   await mkdir(projectOutputDir(id), { recursive: true });
   await persistProjects();
-
-  void runAnalysis(project).catch((error) => failProject(project, error));
   return project;
+}
+
+/**
+ * Downloads the full source video for a URL-based project, wires up the source,
+ * then hands off to the normal analysis pipeline. Download progress drives the
+ * project's progress bar while the `downloading` stage is showing.
+ */
+async function downloadAndAnalyze(project: LongformProject, url: string, name?: string) {
+  const meta = await saveSourceFromUrl(url, (pct) => {
+    // Throttle persistence to whole-percent steps so a chatty progress stream
+    // doesn't hammer the projects file.
+    const next = Math.max(2, Math.min(99, Math.round(pct)));
+    if (next !== project.progress) void update(project, { progress: next });
+  });
+  await update(project, {
+    sourceId: meta.id,
+    fileName: meta.fileName,
+    // Keep an explicit name the user typed; otherwise adopt the video's title.
+    name: (name ?? "").trim() || meta.fileName.replace(/\.[a-z0-9]+$/i, "") || project.name,
+    durationSec: meta.durationSec,
+    width: meta.width,
+    height: meta.height,
+    hasAudio: meta.hasAudio
+  });
+  await runAnalysis(project);
 }
 
 /** Re-runs the analysis pipeline on an existing project (e.g. after an error). */
@@ -342,7 +421,7 @@ async function runAnalysis(project: LongformProject) {
   });
 }
 
-/** Recomputes the hook captions from the stored transcript for a new hook end. */
-export function rebuildHookCaptions(project: LongformProject, hookEnd: number) {
-  return hookCaptions(project.transcript, hookEnd);
+/** Recomputes the hook captions from the stored transcript for a new hook window. */
+export function rebuildHookCaptions(project: LongformProject, hookStart: number, hookEnd: number) {
+  return hookCaptions(project.transcript, hookStart, hookEnd);
 }
