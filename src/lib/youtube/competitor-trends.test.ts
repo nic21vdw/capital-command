@@ -66,16 +66,15 @@ describe("normalizeGroupLabel / channelGroupOptions / selectCompetitorChannels",
     expect(channelGroupOptions(channels)).toEqual(["Aspirational", "Competition"]);
   });
 
-  it("selects by group case-insensitively, and all labeled channels for null", () => {
+  it("selects by group case-insensitively, and the whole watchlist for null", () => {
     const channels = [
       channel({ id: CH_A, title: "A", group: "Competition" }),
       channel({ id: CH_B, title: "B", group: "competition" }),
       channel({ id: CH_C, title: "C", group: "" })
     ];
     expect(selectCompetitorChannels(channels, "COMPETITION").map((c) => c.id)).toEqual([CH_A, CH_B]);
-    expect(selectCompetitorChannels(channels, null).map((c) => c.id)).toEqual([CH_A, CH_B]);
-    // Unlabeled channels are never pulled into the analysis.
-    expect(selectCompetitorChannels(channels, null).some((c) => c.id === CH_C)).toBe(false);
+    // No labeling required: null analyzes every channel, labeled or not.
+    expect(selectCompetitorChannels(channels, null).map((c) => c.id)).toEqual([CH_A, CH_B, CH_C]);
   });
 });
 
@@ -129,6 +128,14 @@ describe("buildCompetitorTrendReport", () => {
     expect(report.topOutliers.some((v) => v.videoId === "c1")).toBe(false);
     expect(report.medianMultiplier).toBe(8);
     expect(report.formatSplit).toEqual({ shorts: 1, long: 2, unknown: 0 });
+  });
+
+  it("analyzes the whole watchlist — no labeling required — when no group is chosen", () => {
+    const report = buildCompetitorTrendReport(channels, outliers, { group: null, now: NOW });
+    expect(report.group).toBeNull();
+    expect(report.channelCount).toBe(3);
+    expect(report.outlierCount).toBe(4);
+    expect(report.topOutliers[0].videoId).toBe("c1");
   });
 
   it("surfaces cross-channel themes as bigrams and suppresses their component words", () => {

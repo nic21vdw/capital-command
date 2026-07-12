@@ -28,7 +28,12 @@ export async function POST(request: NextRequest) {
   const channels = selectCompetitorChannels(store.channels, group);
   if (channels.length === 0) {
     return NextResponse.json(
-      { error: "No labeled channels to analyze — set a group label (e.g. Competition) on watchlist channels first." },
+      {
+        error:
+          group === null
+            ? "The watchlist is empty — add competitor channels first."
+            : `No channels labeled “${group}” — clear the group filter or label channels in the watchlist.`
+      },
       { status: 400 }
     );
   }

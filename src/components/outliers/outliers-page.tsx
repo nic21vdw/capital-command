@@ -223,7 +223,7 @@ export function OutliersPage() {
       <PageHeader
         eyebrow="YouTube tools"
         title="Outlier Radar"
-        description="Watch other channels, baseline them on the median views of their recent uploads, and flag videos breaking out above the baseline. Label channels as competition to analyze their breakouts as a group — shared topics, packaging patterns, and an AI brief on what to make next."
+        description="Watch other channels, baseline them on the median views of their recent uploads, and flag videos breaking out above the baseline. One click analyzes your competition as a group — shared breakout topics, packaging patterns, and an AI brief on what to make next."
       />
 
       {loadError ? (
@@ -325,9 +325,9 @@ export function OutliersPage() {
                   // Uncontrolled + key so external refreshes update the value.
                   key={`${channel.id}:${channel.group}`}
                   list="channel-group-suggestions"
-                  placeholder={`Group · e.g. ${DEFAULT_COMPETITION_GROUP}`}
+                  placeholder="Group (optional)"
                   aria-label={`Group label for ${channel.title}`}
-                  title="Label channels to analyze them together in Competition analysis"
+                  title={`Optional: label channels (e.g. ${DEFAULT_COMPETITION_GROUP}) to filter the Competition analysis to a subset — by default it covers every channel here`}
                   className="h-9 w-40 shrink-0"
                   onBlur={(event) => void saveGroup(channel, event.target.value)}
                   onKeyDown={(event) => {

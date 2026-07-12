@@ -11,19 +11,17 @@ import { Card } from "@/components/ui/card";
 import { Select } from "@/components/ui/select";
 import { readJson, type RadarState } from "@/components/outliers/use-outlier-radar";
 import { cn } from "@/lib/utils";
-import {
-  buildCompetitorTrendReport,
-  channelGroupOptions,
-  DEFAULT_COMPETITION_GROUP
-} from "@/lib/youtube/competitor-trends";
+import { buildCompetitorTrendReport, channelGroupOptions } from "@/lib/youtube/competitor-trends";
 import { formatDurationSeconds, type CompetitorInsight } from "@/lib/youtube/outliers";
 
 /**
- * Competition analysis: one button that refreshes stats for the labeled
- * channels, shows the cross-channel trend breakdown (recomputed live from the
- * store — same pure function the server uses), and generates an AI brief on
- * what to make next. Sits alongside the Radar without touching how the
- * watchlist or the outlier table work.
+ * Competition analysis: one button that refreshes stats, shows the
+ * cross-channel trend breakdown (recomputed live from the store — same pure
+ * function the server uses), and generates an AI brief on what to make next.
+ * Works on the whole watchlist out of the box; group labels are only an
+ * optional filter (e.g. to keep your own channel out of the competition set).
+ * Sits alongside the Radar without touching how the watchlist or the outlier
+ * table work.
  */
 
 const ALL_GROUPS = "__all__";
@@ -95,7 +93,7 @@ export function CompetitionPanel({
     }
   };
 
-  const hasLabeledChannels = report.channelCount > 0;
+  const hasChannels = report.channelCount > 0;
   const busy = analyzing || scanning;
 
   return (
@@ -108,14 +106,14 @@ export function CompetitionPanel({
           </Badge>
         </h2>
         <div className="flex items-center gap-2">
-          {groups.length > 1 ? (
+          {groups.length > 0 ? (
             <Select
               value={selectedGroup}
               onChange={(event) => setSelectedGroup(event.target.value)}
               className="h-10 w-44"
               aria-label="Channel group to analyze"
             >
-              <option value={ALL_GROUPS}>All labeled channels</option>
+              <option value={ALL_GROUPS}>All channels</option>
               {groups.map((label) => (
                 <option key={label} value={label}>
                   {label}
@@ -123,17 +121,17 @@ export function CompetitionPanel({
               ))}
             </Select>
           ) : null}
-          <Button onClick={() => void analyze()} disabled={busy || !hasLabeledChannels}>
+          <Button onClick={() => void analyze()} disabled={busy || !hasChannels}>
             {busy ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Sparkles className="mr-2 h-4 w-4" />}
             {analyzing ? "Analyzing…" : "Analyze competition"}
           </Button>
         </div>
       </div>
 
-      {!hasLabeledChannels ? (
+      {!hasChannels ? (
         <p className="rounded-lg border border-dashed border-[var(--border)] px-4 py-8 text-center text-sm text-[var(--muted-foreground)]">
-          No channels are labeled yet. Type a label — e.g. <span className="text-white">{DEFAULT_COMPETITION_GROUP}</span> — in
-          the group field on a watchlist channel above, then analyze the group here with one click.
+          Add competitor channels to the watchlist above, then hit Analyze competition — one click pulls their stats,
+          flags their breakout videos, and shows what&apos;s working across all of them.
         </p>
       ) : (
         <div className="space-y-4">

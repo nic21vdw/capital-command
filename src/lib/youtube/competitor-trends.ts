@@ -1,10 +1,10 @@
 import { SHORT_MAX_SECONDS, type Outlier, type WatchlistChannel } from "@/lib/youtube/outliers";
 
 /**
- * Competition analysis: pure aggregation across a *group* of watchlist
- * channels (labeled e.g. "Competition") answering "what is working for these
- * channels as a group?" — shared breakout topics, packaging patterns, and
- * format trends across their flagged outliers.
+ * Competition analysis: pure aggregation across watchlist channels — by
+ * default the whole watchlist, optionally narrowed to a labeled group —
+ * answering "what is working for these channels as a group?": shared breakout
+ * topics, packaging patterns, and format trends across their flagged outliers.
  *
  * Like buildOutlierInsights this module is pure (no I/O) so it runs the same
  * on the client (live panel) and the server (feeding the AI insights prompt),
@@ -31,14 +31,16 @@ export function channelGroupOptions(channels: WatchlistChannel[]): string[] {
   return [...seen.values()].sort((a, b) => a.localeCompare(b));
 }
 
-/** Channels in a group; group null = every labeled channel (any group). */
+/**
+ * Channels to analyze: group null = the whole watchlist (labeling is never
+ * required — one click works on everything); a group narrows the analysis to
+ * channels carrying that label, e.g. to keep your own channel out of the
+ * competition set.
+ */
 export function selectCompetitorChannels(channels: WatchlistChannel[], group: string | null): WatchlistChannel[] {
-  const wanted = group === null ? null : normalizeGroupLabel(group).toLowerCase();
-  return channels.filter((channel) => {
-    const label = normalizeGroupLabel(channel.group);
-    if (!label) return false;
-    return wanted === null || label.toLowerCase() === wanted;
-  });
+  if (group === null) return [...channels];
+  const wanted = normalizeGroupLabel(group).toLowerCase();
+  return channels.filter((channel) => normalizeGroupLabel(channel.group).toLowerCase() === wanted);
 }
 
 // ----- Report shapes -----
@@ -394,7 +396,7 @@ export function buildCompetitorTrendReport(
 export function describeReportForPrompt(report: CompetitorTrendReport): string {
   const lines: string[] = [];
   lines.push(
-    `Group: ${report.group ?? "all labeled channels"} — ${report.channelCount} channels, ${report.outlierCount} breakout videos (${report.recentOutlierCount} published in the last ${RECENT_WINDOW_DAYS} days).`
+    `Group: ${report.group ?? "entire watchlist"} — ${report.channelCount} channels, ${report.outlierCount} breakout videos (${report.recentOutlierCount} published in the last ${RECENT_WINDOW_DAYS} days).`
   );
   if (report.medianMultiplier !== null) lines.push(`Median breakout multiplier: ${report.medianMultiplier.toFixed(1)}× channel baseline.`);
   lines.push(`Format split: ${report.formatSplit.shorts} Shorts / ${report.formatSplit.long} long-form / ${report.formatSplit.unknown} unknown length.`);
