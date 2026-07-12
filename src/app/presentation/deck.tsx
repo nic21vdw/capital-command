@@ -3,7 +3,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Player, type PlayerRef } from "@remotion/player";
 import { AbsoluteFill } from "remotion";
-import { ChevronLeft, ChevronRight, Clapperboard, Play } from "lucide-react";
+import { ChevronDown, ChevronLeft, ChevronRight, Clapperboard, Play } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { VIDEO as BUCKLING_VIDEO } from "@/remotion/theme";
 import { TitleComp } from "@/remotion/compositions/TitleComp";
@@ -112,7 +112,9 @@ function isTypingTarget(target: EventTarget | null) {
 export const PresentationDeck: React.FC = () => {
   const [projectId, setProjectId] = useState(PROJECTS[0].id);
   const [index, setIndex] = useState(0);
+  const [menuOpen, setMenuOpen] = useState(false);
   const playerRef = useRef<PlayerRef>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
 
   const project = useMemo(() => PROJECTS.find((p) => p.id === projectId) ?? PROJECTS[0], [projectId]);
   const slides = project.slides;
@@ -122,7 +124,25 @@ export const PresentationDeck: React.FC = () => {
   const selectProject = (id: string) => {
     setProjectId(id);
     setIndex(0);
+    setMenuOpen(false);
   };
+
+  // Close the project dropdown on an outside click or Escape.
+  useEffect(() => {
+    if (!menuOpen) return;
+    const onPointerDown = (e: PointerEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) setMenuOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setMenuOpen(false);
+    };
+    window.addEventListener("pointerdown", onPointerDown);
+    window.addEventListener("keydown", onKey);
+    return () => {
+      window.removeEventListener("pointerdown", onPointerDown);
+      window.removeEventListener("keydown", onKey);
+    };
+  }, [menuOpen]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -155,28 +175,50 @@ export const PresentationDeck: React.FC = () => {
         </p>
       </header>
 
-      {/* Project tabs — every video is tied to a project; switch here. */}
-      <div className="flex flex-wrap gap-2">
-        {PROJECTS.map((p) => {
-          const active = p.id === project.id;
-          return (
-            <button
-              key={p.id}
-              type="button"
-              onClick={() => selectProject(p.id)}
-              className={cn(
-                "flex items-center gap-2 rounded-lg border px-3 py-2 text-sm transition",
-                active
-                  ? "border-[var(--accent)] bg-white/8 font-medium text-white"
-                  : "border-[var(--border)] text-[var(--muted-foreground)] hover:border-[var(--border-strong)] hover:text-white"
-              )}
-            >
-              <Clapperboard className={cn("h-4 w-4", active && "text-[var(--accent)]")} />
-              {p.name}
-              <span className="rounded-full bg-white/8 px-2 py-0.5 text-[11px]">{p.slides.length}</span>
-            </button>
-          );
-        })}
+      {/* Project selector — every video is tied to a project; switch via
+          this collapsible dropdown. */}
+      <div ref={menuRef} className="relative w-full max-w-md">
+        <button
+          type="button"
+          onClick={() => setMenuOpen((o) => !o)}
+          aria-haspopup="listbox"
+          aria-expanded={menuOpen}
+          className="flex w-full items-center gap-2 rounded-lg border border-[var(--accent)] bg-white/8 px-3 py-2 text-sm font-medium text-white transition hover:border-[var(--border-strong)]"
+        >
+          <Clapperboard className="h-4 w-4 text-[var(--accent)]" />
+          {project.name}
+          <span className="rounded-full bg-white/8 px-2 py-0.5 text-[11px]">{project.slides.length}</span>
+          <ChevronDown className={cn("ml-auto h-4 w-4 transition-transform", menuOpen && "rotate-180")} />
+        </button>
+
+        {menuOpen && (
+          <ul
+            role="listbox"
+            className="absolute z-20 mt-1 w-full overflow-hidden rounded-lg border border-[var(--border)] bg-[var(--panel)] shadow-xl"
+          >
+            {PROJECTS.map((p) => {
+              const active = p.id === project.id;
+              return (
+                <li key={p.id} role="option" aria-selected={active}>
+                  <button
+                    type="button"
+                    onClick={() => selectProject(p.id)}
+                    className={cn(
+                      "flex w-full items-center gap-2 px-3 py-2 text-left text-sm transition",
+                      active
+                        ? "bg-white/8 font-medium text-white"
+                        : "text-[var(--muted-foreground)] hover:bg-white/5 hover:text-white"
+                    )}
+                  >
+                    <Clapperboard className={cn("h-4 w-4", active && "text-[var(--accent)]")} />
+                    {p.name}
+                    <span className="ml-auto rounded-full bg-white/8 px-2 py-0.5 text-[11px]">{p.slides.length}</span>
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+        )}
       </div>
 
       <div className="flex flex-col gap-4 xl:flex-row">
