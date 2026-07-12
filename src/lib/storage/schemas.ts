@@ -258,6 +258,39 @@ export const xStrategySchema = z.object({
 
 export const defaultXStrategy = xStrategySchema.parse({});
 
+// ----- X / Threads daily post planner -----
+export const xSuggestedPostSchema = z.object({
+  id: z.string(),
+  slot: z.coerce.number().int().min(1),
+  time: z.string().regex(/^\d{2}:\d{2}$/, "Expected HH:MM"),
+  format: z.enum(["insight", "contrarian", "story", "question", "framework", "observation"]),
+  topic: z.string().trim().min(1),
+  text: z.string().trim().min(1),
+  threadsVariant: z.string().trim().min(1)
+});
+
+export const xSuggestedReplySchema = z.object({
+  id: z.string(),
+  scenario: z.string().trim().min(1),
+  text: z.string().trim().min(1)
+});
+
+export const xDailyPackSchema = z.object({
+  id: z.string(),
+  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  focus: z.string().optional(),
+  source: z.enum(["ai", "library"]),
+  posts: z.array(xSuggestedPostSchema),
+  replies: z.array(xSuggestedReplySchema),
+  createdAt: z.string()
+});
+
+export const xPlannerSchema = z.object({
+  packs: z.array(xDailyPackSchema).default([])
+});
+
+export const defaultXPlanner = xPlannerSchema.parse({});
+
 // ----- Saved thumbnails (Thumbnail Generator) -----
 // A persisted thumbnail project: all of the generator's settings plus the
 // uploaded images serialized as PNG data URLs so a project can be reopened
@@ -632,6 +665,7 @@ export const appDataSchema = z.object({
   contentItems: z.array(contentItemSchema).default([]),
   creatorProfile: creatorProfileSchema.default(defaultCreatorProfile),
   xStrategy: xStrategySchema.default(defaultXStrategy),
+  xPlanner: xPlannerSchema.default(defaultXPlanner),
   settings: settingsSchema,
   executionGoals: z.array(executionGoalSchema).default([]),
   executionCompletions: z.array(executionCompletionSchema).default([]),
