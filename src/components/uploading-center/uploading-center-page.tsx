@@ -20,7 +20,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { chunkWords, windowSegments } from "@/lib/clipping/captions";
-import { generateClipTitle, makeClipProject } from "@/lib/clipping/editor";
+import { generateClipTitle, makeClipProject, makeTitleOverlay } from "@/lib/clipping/editor";
 import { writeDraftProject } from "@/components/editor/drafts";
 import { useAppData } from "@/components/providers/app-provider";
 import { Badge } from "@/components/ui/badge";
@@ -275,6 +275,7 @@ export function UploadingCenterPage() {
         : windowed;
       project.title = generateClipTitle(project.captions, `Clip ${index + 1}`);
       if (project.title) project.name = project.title;
+      project.overlays = [...project.overlays, makeTitleOverlay(project)];
       writeDraftProject(project);
       const params = new URLSearchParams({
         open: project.id,

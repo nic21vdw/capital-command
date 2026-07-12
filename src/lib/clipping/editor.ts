@@ -11,7 +11,8 @@ import type {
   CaptionPresetId,
   CaptionStyle,
   ClipProject,
-  ExportPresetId
+  ExportPresetId,
+  Overlay
 } from "@/types/domain";
 
 /** Output pixel dimensions for each aspect ratio. */
@@ -283,6 +284,45 @@ export function leadingSilenceSec(
   }
   if (!Number.isFinite(firstWordStart) || firstWordStart < minSkip) return 0;
   return Math.max(0, firstWordStart - preRoll);
+}
+
+/**
+ * Default title overlay for a fresh short: the clip's generated title as an
+ * editable text overlay, centered just above the top edge of the video band
+ * so it sits in the blurred fill rather than over the footage. Uses the same
+ * contain-fit math as the preview/export geometry to find that edge.
+ */
+export function makeTitleOverlay(project: ClipProject): Overlay {
+  const frame = aspectDimensions(project.aspectRatio);
+  const frameAspect = frame.w / frame.h;
+  const videoAspect = project.baseWidth / Math.max(1, project.baseHeight);
+  // Fraction of the frame height the contain-fitted video occupies in the
+  // center-blur layout; a source wider than the frame letterboxes vertically.
+  const videoHeightFrac = videoAspect >= frameAspect ? frameAspect / videoAspect : 1;
+  const videoTop = (1 - videoHeightFrac) / 2;
+  // Park the block's center a step above the video edge so even a two-line
+  // title clears it, but never leave the 5% safe area when the video is tall.
+  const y = Math.min(0.9, Math.max(0.08, videoTop - 0.07));
+  return {
+    id: `ov-title-${crypto.randomUUID()}`,
+    kind: "text",
+    text: project.title || project.name,
+    x: 0.5,
+    y,
+    scale: 1,
+    rotation: 0,
+    opacity: 1,
+    z: project.overlays.length,
+    locked: false,
+    start: 0,
+    end: Math.max(0.1, project.trimEnd - project.trimStart),
+    // Dracula purple in the caption's Inter-bold style, matching the editor's
+    // default text-overlay look.
+    color: "#bd93f9",
+    fontFamily: "Inter, system-ui, sans-serif",
+    fontWeight: 800,
+    align: "center"
+  };
 }
 
 /**
