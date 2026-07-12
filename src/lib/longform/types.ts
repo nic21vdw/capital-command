@@ -10,7 +10,7 @@ import type { CaptionSegment, CaptionStyle, SfxSettings } from "@/types/domain";
 
 export type LongformStatus = "processing" | "ready" | "error";
 
-export type LongformStage = "probing" | "transcribing" | "analyzing" | "planning" | "ready";
+export type LongformStage = "downloading" | "probing" | "transcribing" | "analyzing" | "planning" | "ready";
 
 /**
  * One span of the source timeline. Segments tile the full duration in order:

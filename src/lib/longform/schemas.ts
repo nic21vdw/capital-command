@@ -86,7 +86,14 @@ export const longformProjectPatchSchema = z
   })
   .partial();
 
-export const longformCreateSchema = z.object({
-  sourceId: z.string().min(1),
-  name: z.string().trim().max(200).optional()
-});
+// A project starts from either a previously uploaded `sourceId` or a video
+// `url` (YouTube/VOD link) the server downloads itself. Exactly one is required.
+export const longformCreateSchema = z
+  .object({
+    sourceId: z.string().min(1).optional(),
+    url: z.string().trim().url().optional(),
+    name: z.string().trim().max(200).optional()
+  })
+  .refine((data) => Boolean(data.sourceId) !== Boolean(data.url), {
+    message: "Provide either a `sourceId` or a `url`, not both."
+  });
