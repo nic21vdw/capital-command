@@ -51,6 +51,9 @@ async function loadProjects() {
       // Projects saved before whole-video captions existed get them seeded
       // from the stored transcript, switched off so exports don't change.
       project.captions ??= planCaptions(project.transcript ?? []);
+      // Projects saved before the hook could be moved off the opening default
+      // to starting at 0 (the recording's start), matching their old behavior.
+      if (project.hook) project.hook.start ??= 0;
       // Projects saved before the audio track existed have no clips array, and
       // may carry a legacy single background track — migrate it into one clip
       // spanning the whole edit so it keeps playing and stays editable.
@@ -342,7 +345,7 @@ async function runAnalysis(project: LongformProject) {
   });
 }
 
-/** Recomputes the hook captions from the stored transcript for a new hook end. */
-export function rebuildHookCaptions(project: LongformProject, hookEnd: number) {
-  return hookCaptions(project.transcript, hookEnd);
+/** Recomputes the hook captions from the stored transcript for a new hook window. */
+export function rebuildHookCaptions(project: LongformProject, hookStart: number, hookEnd: number) {
+  return hookCaptions(project.transcript, hookStart, hookEnd);
 }
