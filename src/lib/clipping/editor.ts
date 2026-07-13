@@ -316,9 +316,9 @@ export function makeTitleOverlay(project: ClipProject): Overlay {
     locked: false,
     start: 0,
     end: Math.max(0.1, project.trimEnd - project.trimStart),
-    // Dracula purple in the caption's Inter-bold style, matching the editor's
-    // default text-overlay look.
-    color: "#bd93f9",
+    // White in the caption's Inter-bold style, matching the editor's default
+    // text-overlay look.
+    color: "#ffffff",
     fontFamily: "Inter, system-ui, sans-serif",
     fontWeight: 800,
     align: "center"
