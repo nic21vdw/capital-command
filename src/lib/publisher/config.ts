@@ -59,6 +59,10 @@ export type PublisherConfig = {
     userId: string | null;
     accessToken: string | null;
     graphApiVersion: string;
+    /** Arbitrary string you also enter in the Meta App Dashboard webhook config. */
+    webhookVerifyToken: string | null;
+    /** Meta app secret, used to verify the X-Hub-Signature-256 header on incoming webhook events. */
+    appSecret: string | null;
   };
   facebook: {
     /** The Facebook Page id to post to (not the user id). */
@@ -145,7 +149,9 @@ export function publisherConfig(): PublisherConfig {
       accessToken: str("IG_ACCESS_TOKEN"),
       // VERIFY: bump as Meta retires Graph API versions — see the changelog at
       // https://developers.facebook.com/docs/graph-api/changelog
-      graphApiVersion: str("IG_GRAPH_API_VERSION") ?? "v23.0"
+      graphApiVersion: str("IG_GRAPH_API_VERSION") ?? "v23.0",
+      webhookVerifyToken: str("IG_WEBHOOK_VERIFY_TOKEN"),
+      appSecret: str("IG_APP_SECRET")
     },
     facebook: {
       pageId: str("FB_PAGE_ID"),
