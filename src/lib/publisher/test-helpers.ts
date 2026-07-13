@@ -37,7 +37,13 @@ export function testConfig(overrides: Partial<PublisherConfig> = {}): PublisherC
     backoffCapMinutes: 120,
     claimTimeoutMinutes: 15,
     youtube: { clientId: "yt-id", clientSecret: "yt-secret", refreshToken: "yt-refresh", categoryId: null, dailyUploadBudget: 6 },
-    instagram: { userId: "17840000000000000", accessToken: "ig-token", graphApiVersion: "v23.0" },
+    instagram: {
+      userId: "17840000000000000",
+      accessToken: "ig-token",
+      graphApiVersion: "v23.0",
+      webhookVerifyToken: "ig-verify-token",
+      appSecret: "ig-app-secret"
+    },
     facebook: { pageId: "10000000000000000", pageAccessToken: "fb-token", graphApiVersion: "v23.0" },
     tiktok: { clientKey: "tt-key", clientSecret: "tt-secret", refreshToken: "tt-refresh", audited: false },
     s3: { endpoint: null, bucket: null, accessKeyId: null, secretAccessKey: null, region: "auto", publicBaseUrl: null },
