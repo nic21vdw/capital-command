@@ -207,58 +207,94 @@ const HASHTAG_STOPWORDS = new Set([
   "always", "another", "around", "because", "become", "before", "being",
   "below", "between", "both", "cannot", "could", "doing", "done", "down",
   "during", "each", "either", "enough", "even", "ever", "every", "from",
-  "gonna", "gotta", "have", "here", "hers", "himself", "into", "itself",
-  "just", "keep", "kind", "like", "little", "make", "many", "maybe", "mean",
-  "might", "more", "most", "much", "must", "myself", "never", "next", "night",
-  "nothing", "only", "other", "over", "really", "right", "said", "same",
-  "should", "since", "some", "something", "still", "such", "sure", "take",
-  "than", "that", "their", "them", "then", "there", "these", "they", "thing",
-  "things", "think", "this", "those", "through", "time", "today", "together",
-  "under", "until", "very", "want", "well", "were", "what", "when", "where",
-  "which", "while", "with", "without", "would", "your", "yourself", "yeah",
-  "okay", "going", "know", "just", "were", "been", "will", "your", "look",
-  "looking", "come", "coming", "goes", "getting", "guys", "guy", "stuff"
+  "gonna", "gotta", "have", "here", "into", "itself", "just", "keep", "kind",
+  "like", "little", "make", "many", "maybe", "mean", "might", "more", "most",
+  "much", "must", "never", "next", "nothing", "only", "other", "over", "really",
+  "right", "said", "same", "should", "since", "some", "something", "still",
+  "such", "sure", "take", "than", "that", "their", "them", "then", "there",
+  "these", "they", "thing", "things", "think", "this", "those", "through",
+  "time", "today", "together", "under", "until", "very", "want", "well", "were",
+  "what", "when", "where", "which", "while", "with", "without", "would", "your",
+  "yourself", "yeah", "okay", "going", "know", "been", "will", "look", "looking",
+  "come", "coming", "goes", "getting", "guys", "stuff"
 ]);
 
-/** Topical hashtags pulled from the most-repeated meaningful words. */
-export function generateClipHashtags(captions: CaptionSegment[], max = 4): string[] {
-  const text = transcriptText(captions).toLowerCase();
-  if (!text) return [];
-  const counts = new Map<string, number>();
-  for (const raw of text.split(/[^a-z0-9]+/)) {
-    const word = raw.trim();
-    if (word.length < 4 || HASHTAG_STOPWORDS.has(word) || /^\d+$/.test(word)) continue;
-    counts.set(word, (counts.get(word) ?? 0) + 1);
-  }
-  return [...counts.entries()]
-    .filter(([, count]) => count >= 2)
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, max)
-    .map(([word]) => `#${word.charAt(0).toUpperCase()}${word.slice(1)}`);
+const DEFAULT_CLIP_HASHTAGS = ["#AI", "#buildinpublic", "#business", "#vibecoding", "#tech"];
+
+const TOPIC_HASHTAGS: Array<{ tag: string; pattern: RegExp }> = [
+  { tag: "#AI", pattern: /\b(ai|artificial intelligence|chatgpt|claude|grok|gemini|llm)\b/i },
+  { tag: "#vibecoding", pattern: /\b(vibe cod|coding|codebase|software|developer|app|website)\b/i },
+  { tag: "#buildinpublic", pattern: /\b(building|built|build in public|launch|shipping|product|colateral)\b/i },
+  { tag: "#business", pattern: /\b(business|company|customer|sales|marketing|revenue|entrepreneur)\b/i },
+  { tag: "#engineering", pattern: /\b(engineer|engineering|structural|revit|calculation|design)\b/i },
+  { tag: "#automation", pattern: /\b(automation|automate|agent|workflow|pipeline)\b/i },
+  { tag: "#productivity", pattern: /\b(productivity|efficient|faster|workflow|organize)\b/i },
+  { tag: "#startup", pattern: /\b(startup|founder|saas|mvp|product market)\b/i },
+  { tag: "#contentcreation", pattern: /\b(content|youtube|tiktok|instagram|creator|video|clip)\b/i }
+];
+
+function normalizeTag(tag: string): string {
+  return `#${tag.replace(/^#+/, "").replace(/[^a-z0-9_]/gi, "")}`;
 }
 
-/** Standing description applied to every generated clip/short, regardless of
- *  transcript content — the CoLateral "build in public" boilerplate. */
-export const CLIP_DESCRIPTION_TEMPLATE = `I’m building CoLateral, the all-in-one engineering workspace for structural engineers, designers, and technical professionals who want better tools for calculations, drafting, project workflows, and AI-powered engineering work.
+/**
+ * Five platform-safe tags selected from the clip's actual subject. Broad brand
+ * tags fill any remaining spots, so a finished clip is never left tagless.
+ */
+export function generateClipHashtagsFromText(text: string, max = 5): string[] {
+  const limit = Math.max(0, Math.min(5, max));
+  if (limit === 0) return [];
+  const tags: string[] = [];
+  const seen = new Set<string>();
+  const add = (raw: string) => {
+    const tag = normalizeTag(raw);
+    const key = tag.toLowerCase();
+    if (tag.length < 2 || seen.has(key) || tags.length >= limit) return;
+    seen.add(key);
+    tags.push(tag);
+  };
 
-Follow along as I build CoLateral in public.
+  for (const category of TOPIC_HASHTAGS) {
+    if (category.pattern.test(text)) add(category.tag);
+  }
 
-Try / follow CoLateral:
-https://colateral.ai
+  const counts = new Map<string, number>();
+  for (const raw of text.toLowerCase().split(/[^a-z0-9]+/)) {
+    if (raw.length < 4 || HASHTAG_STOPWORDS.has(raw) || /^\d+$/.test(raw)) continue;
+    counts.set(raw, (counts.get(raw) ?? 0) + 1);
+  }
+  for (const [word] of [...counts.entries()].filter(([, count]) => count >= 2).sort((a, b) => b[1] - a[1])) {
+    add(`#${word.charAt(0).toUpperCase()}${word.slice(1)}`);
+  }
+  for (const tag of DEFAULT_CLIP_HASHTAGS) add(tag);
+  return tags;
+}
 
-Connect with me:
-YouTube: @NicVandewetering
-TikTok: @nicvandewetering
-Instagram: @nicvandewetering
-X: @nicvandeweter
-Threads: @nicvandewetering
+export function generateClipHashtags(captions: CaptionSegment[], max = 5): string[] {
+  return generateClipHashtagsFromText(transcriptText(captions), max);
+}
 
-#BuildInPublic #ContentCreation #YouTubeCreator #JustPostIt #AI #Engineering #StructuralEngineering #CoLateral #Startup #CreatorEconomy #AITools #Productivity #Tech #Entrepreneurship`;
+function descriptionSummary(text: string): string {
+  const clean = text.replace(/\s+/g, " ").trim();
+  if (!clean) return "A quick look at the ideas, tools, and lessons behind what I am building.";
+  const sentences = clean
+    .split(/(?<=[.!?])\s+/)
+    .map((sentence) => sentence.trim())
+    .filter((sentence) => sentence.split(/\s+/).length >= 4);
+  const selected = (sentences.length ? sentences : [clean]).slice(0, 2).join(" ");
+  if (selected.length <= 320) return /[.!?]$/.test(selected) ? selected : `${selected}.`;
+  const first = sentences.find((sentence) => sentence.length <= 320);
+  if (first) return /[.!?]$/.test(first) ? first : `${first}.`;
+  return "A quick look at the main idea from this clip and how it applies in practice.";
+}
 
-/** Publish-ready description for a clip. Every generated clip uses the same
- *  standing CoLateral description. */
-export function generateClipDescription(_captions: CaptionSegment[]): string {
-  return CLIP_DESCRIPTION_TEMPLATE;
+/** A clip-aware description with a consistent CoLateral follow-through. */
+export function generateClipDescriptionFromText(text: string): string {
+  return `${descriptionSummary(text)}\n\nFollow along as I build CoLateral in public: https://colateral.ai`;
+}
+
+export function generateClipDescription(captions: CaptionSegment[]): string {
+  return generateClipDescriptionFromText(transcriptText(captions));
 }
 
 /**
