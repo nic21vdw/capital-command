@@ -3,7 +3,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { windowSegments } from "@/lib/clipping/captions";
-import { leadingSilenceSec } from "@/lib/clipping/editor";
+import {
+  generateClipDescription,
+  generateClipHashtags,
+  leadingSilenceSec
+} from "@/lib/clipping/editor";
 import { hasEditsBeyondAutoRender, renderSignature } from "@/lib/clipping/export-signature";
 import type { ClipCandidate, ClipJob } from "@/lib/clipping/types";
 import type { ClipProject } from "@/types/domain";
@@ -65,6 +69,10 @@ export type ReadyClip = {
   /** Every file this clip has ever been postable as, for queue matching. */
   allFiles: string[];
   headline: string;
+  /** Prefilled, clip-aware scheduling description. */
+  description: string;
+  /** Exactly five relevant tags when transcript context is available. */
+  hashtags: string[];
   durationSec: number;
   thumbnailUrl: string;
   previewUrl: string;
@@ -104,6 +112,7 @@ function computeNeedsRerender(clip: ClipCandidate, projects: ClipProject[]): boo
 export type ClipDraft = {
   title: string;
   caption: string;
+  hashtags: string[];
   platform: PlatformId;
   slotUtc: string;
 };
@@ -300,9 +309,9 @@ export function useUploadingCenter(clipProjects: ClipProject[] = []) {
       // timeline, so the clip-local transcript tells us how much dead air it
       // opens on. An edited export has its own trim, so we never second-guess
       // where the user set its start.
-      const startSec = clip.editedFile
-        ? 0
-        : leadingSilenceSec(windowSegments(activeJob.sourceCaptions ?? [], clip.start, clip.end));
+      const clipCaptions = windowSegments(activeJob.sourceCaptions ?? [], clip.start, clip.end);
+      const startSec = clip.editedFile ? 0 : leadingSilenceSec(clipCaptions);
+      const hashtags = (clip.hashtags?.length ? clip.hashtags : generateClipHashtags(clipCaptions, 5)).slice(0, 5);
       return [
         {
           key: `${activeJob.id}/${file}`,
@@ -311,6 +320,8 @@ export function useUploadingCenter(clipProjects: ClipProject[] = []) {
           file,
           allFiles: clipFiles(clip),
           headline: clipHeadline(clip, index),
+          description: clip.description ?? generateClipDescription(clipCaptions),
+          hashtags,
           durationSec: Math.max(0, Math.round(clip.end - clip.start)),
           thumbnailUrl: clip.posterFile
             ? `/api/clips/${activeJob.id}/files/${encodeURIComponent(clip.posterFile)}`
@@ -545,6 +556,7 @@ export function useUploadingCenter(clipProjects: ClipProject[] = []) {
             publishAt: draft.slotUtc,
             title: draft.title.trim() || undefined,
             caption: draft.caption.trim() || undefined,
+            hashtags: draft.hashtags.slice(0, 5),
             platforms: [draft.platform],
             // "public" is what makes YouTube honor publishAt: the video is
             // uploaded private and YouTube flips it live at the slot time.
@@ -632,6 +644,7 @@ export function useUploadingCenter(clipProjects: ClipProject[] = []) {
                 publishAt: draft.slotUtc,
                 title: draft.title.trim() || undefined,
                 caption: draft.caption.trim() || undefined,
+                hashtags: draft.hashtags.slice(0, 5),
                 platforms: [draft.platform],
                 visibility: "public",
                 accountId: activeAccountIds[draft.platform]
