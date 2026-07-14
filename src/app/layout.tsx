@@ -2,6 +2,8 @@ import type { Metadata } from "next";
 import { Toaster } from "sonner";
 import { AppProvider } from "@/components/providers/app-provider";
 import { ThemePresetProvider, ThemePresetScript } from "@/components/providers/theme-preset-provider";
+import { EditorExportsProvider } from "@/components/editor/exports-provider";
+import { ClipJobsProvider } from "@/components/clips/clip-jobs-provider";
 import "@/app/globals.css";
 
 export const metadata: Metadata = {
@@ -18,8 +20,12 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
       <body>
         <ThemePresetProvider>
           <AppProvider>
-            {children}
-            <Toaster richColors position="top-right" />
+            <EditorExportsProvider>
+              <ClipJobsProvider>
+                {children}
+                <Toaster richColors position="top-right" />
+              </ClipJobsProvider>
+            </EditorExportsProvider>
           </AppProvider>
         </ThemePresetProvider>
       </body>
