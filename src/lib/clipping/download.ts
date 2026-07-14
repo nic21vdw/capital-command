@@ -4,7 +4,7 @@ import { mkdirSync } from "node:fs";
 import { chmod, mkdir, readdir, rename, rm, stat } from "node:fs/promises";
 import path from "node:path";
 import { Readable } from "node:stream";
-import { resolveFfmpeg } from "@/lib/clipping/ffmpeg";
+import { isRenderCanceled, RenderCanceledError, resolveFfmpeg } from "@/lib/clipping/ffmpeg";
 
 // yt-dlp ships a single self-contained binary per platform, so we can fetch and
 // cache it on first use instead of asking the user to install anything.
@@ -99,9 +99,17 @@ export type YtDlpResult = { stdout: string; stderr: string; code: number };
 export function runYtDlp(
   args: string[],
   bin: string,
-  { onLine, allowFailure = false }: { onLine?: (line: string) => void; allowFailure?: boolean } = {}
+  {
+    onLine,
+    allowFailure = false,
+    signal
+  }: { onLine?: (line: string) => void; allowFailure?: boolean; signal?: AbortSignal } = {}
 ): Promise<YtDlpResult> {
   return new Promise((resolve, reject) => {
+    if (signal?.aborted) {
+      reject(new RenderCanceledError("Clip generation was stopped."));
+      return;
+    }
     mkdirSync(pyInstallerTempDir, { recursive: true });
     const child = spawn(bin, args, {
       env: {
@@ -112,6 +120,14 @@ export function runYtDlp(
       },
       windowsHide: true
     });
+    const onAbort = () => {
+      try {
+        child.kill("SIGKILL");
+      } catch {
+        // The process may already have exited.
+      }
+    };
+    signal?.addEventListener("abort", onAbort, { once: true });
     let stdout = "";
     let stderr = "";
     let lineBuffer = "";
@@ -131,9 +147,15 @@ export function runYtDlp(
         for (const part of parts) if (part.trim()) onLine(part.trim());
       }
     });
-    child.on("error", reject);
+    child.on("error", (error) => {
+      signal?.removeEventListener("abort", onAbort);
+      reject(signal?.aborted ? new RenderCanceledError("Clip generation was stopped.") : error);
+    });
     child.on("close", (code) => {
-      if (code !== 0 && !allowFailure) {
+      signal?.removeEventListener("abort", onAbort);
+      if (signal?.aborted) {
+        reject(new RenderCanceledError("Clip generation was stopped."));
+      } else if (code !== 0 && !allowFailure) {
         reject(new Error(`yt-dlp exited with code ${code}: ${stderr.slice(-600)}`));
       } else {
         resolve({ stdout, stderr, code: code ?? -1 });
@@ -180,12 +202,17 @@ export function clientAttemptArgs(): string[][] {
  * "non-transient" errors would skip the very client rotation that fixes it.
  * Throws a cleaned-up version of the last error if every client fails.
  */
-export async function downloadWithFallbacks<T>(attempt: (clientArgs: string[]) => Promise<T>): Promise<T> {
+export async function downloadWithFallbacks<T>(
+  attempt: (clientArgs: string[]) => Promise<T>,
+  signal?: AbortSignal
+): Promise<T> {
   let lastError: unknown;
   for (const clientArgs of clientAttemptArgs()) {
+    if (signal?.aborted) throw new RenderCanceledError("Clip generation was stopped.");
     try {
       return await attempt(clientArgs);
     } catch (error) {
+      if (isRenderCanceled(error) || signal?.aborted) throw error;
       lastError = error;
     }
   }
@@ -214,11 +241,12 @@ export function cleanYtDlpError(error: unknown) {
 export type VideoMeta = { title: string; durationSec: number; id: string };
 
 /** Reads VOD metadata (title, duration) without downloading the media. */
-export async function fetchVideoMeta(url: string): Promise<VideoMeta> {
+export async function fetchVideoMeta(url: string, signal?: AbortSignal): Promise<VideoMeta> {
   const bin = await ensureYtDlp();
   const { stdout } = await runYtDlp(
     ["--dump-single-json", "--no-playlist", "--no-warnings", ...jsRuntimeArgs(), url],
-    bin
+    bin,
+    { signal }
   );
   let data: { title?: string; duration?: number; id?: string };
   try {
@@ -240,7 +268,8 @@ export async function fetchVideoMeta(url: string): Promise<VideoMeta> {
 export async function downloadAudio(
   url: string,
   destDir: string,
-  onProgress?: (pct: number) => void
+  onProgress?: (pct: number) => void,
+  signal?: AbortSignal
 ): Promise<string> {
   const bin = await ensureYtDlp();
   const template = path.join(destDir, "source-audio.%(ext)s");
@@ -262,6 +291,7 @@ export async function downloadAudio(
   return downloadWithFallbacks(async (clientArgs) => {
     await rmProduced(destDir, "source-audio.");
     await runYtDlp([...clientArgs, ...baseArgs, url], bin, {
+      signal,
       onLine: (line) => {
         const m = line.match(/\[download\]\s+([\d.]+)%/);
         if (m && onProgress) onProgress(Number(m[1]));
@@ -270,7 +300,7 @@ export async function downloadAudio(
     const produced = await findProduced(destDir, "source-audio.");
     if (!produced) throw new Error("Audio download finished but no audio file was produced.");
     return produced;
-  });
+  }, signal);
 }
 
 /**
@@ -288,7 +318,8 @@ export async function downloadSection(
   startSec: number,
   endSec: number,
   destPath: string,
-  onProgress?: (pct: number) => void
+  onProgress?: (pct: number) => void,
+  signal?: AbortSignal
 ): Promise<string> {
   const bin = await ensureYtDlp();
   const dir = path.dirname(destPath);
@@ -311,6 +342,7 @@ export async function downloadSection(
   return downloadWithFallbacks(async (clientArgs) => {
     await rmProduced(dir, `${base}.`);
     await runYtDlp([...clientArgs, ...baseArgs, url], bin, {
+      signal,
       onLine: (line) => {
         const m = line.match(/\[download\]\s+([\d.]+)%/);
         if (m && onProgress) onProgress(Number(m[1]));
@@ -319,7 +351,7 @@ export async function downloadSection(
     const produced = await findProduced(dir, `${base}.`);
     if (!produced) throw new Error(`Section ${startSec}-${endSec}s download produced no file.`);
     return produced;
-  });
+  }, signal);
 }
 
 /**
