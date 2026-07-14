@@ -10,6 +10,7 @@ import {
   Clapperboard,
   Presentation,
   Radar,
+  Scissors,
   Settings,
   UploadCloud,
   Wand2,
@@ -30,8 +31,10 @@ const navGroups: NavGroup[] = [
       // into shorts, then schedule everything.
       { href: "/longform", label: "Long-Form Editor", icon: Clapperboard },
       { href: "/clips", label: "Clip Generator", icon: Wand2 },
-      // The Clip Editor has no nav tab of its own: every clip is edited from
-      // its card in the Clip Generator, which deep-links into /editor.
+      // Library of saved clip projects. Clips are also edited straight from
+      // their card in the Clip Generator (which deep-links into /editor), but
+      // this tab is the way back into every project you've already started.
+      { href: "/editor", label: "Clip Editor", icon: Scissors },
       { href: "/uploading-center", label: "Uploading Center", icon: UploadCloud },
       // Auto-playing deck of the Remotion diagram/title segments.
       { href: "/presentation", label: "Segment Deck", icon: Presentation },
