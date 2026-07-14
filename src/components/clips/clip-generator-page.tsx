@@ -10,6 +10,7 @@ import {
   Loader2,
   RotateCw,
   Scissors,
+  Square,
   SquarePlay,
   Trash2,
   Upload
@@ -56,12 +57,14 @@ function thumbnailUrl(jobId: string, fileName: string) {
 function statusLabel(job: ClipJob) {
   if (job.status === "queued" || job.status === "processing") return STAGE_LABELS[job.stage];
   if (job.status === "done") return "Ready";
+  if (job.status === "canceled") return "Stopped";
   return "Needs attention";
 }
 
 function statusClass(status: ClipJobStatus) {
   if (status === "done") return "border-emerald-400/30 bg-emerald-400/10 text-emerald-300";
   if (status === "error") return "border-red-400/30 bg-red-400/10 text-red-300";
+  if (status === "canceled") return "border-amber-400/30 bg-amber-400/10 text-amber-300";
   return "border-sky-400/30 bg-sky-400/10 text-sky-300";
 }
 
@@ -84,6 +87,7 @@ export function ClipGeneratorPage() {
   const [submitting, setSubmitting] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [retryingJobId, setRetryingJobId] = useState<string | null>(null);
+  const [cancelingJobId, setCancelingJobId] = useState<string | null>(null);
   const [dragActive, setDragActive] = useState(false);
   const dragDepth = useRef(0);
   const uploadInputRef = useRef<HTMLInputElement>(null);
@@ -309,6 +313,30 @@ export function ClipGeneratorPage() {
     }
   };
 
+  const cancelJob = async (job: ClipJob) => {
+    if (job.status !== "processing" && job.status !== "queued") return;
+    setCancelingJobId(job.id);
+    try {
+      const response = await fetch(`/api/clips/${job.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "cancel" })
+      });
+      const data = (await response.json()) as { job?: ClipJob; error?: string };
+      if (!response.ok || !data.job) {
+        toast.error(data.error ?? "Could not stop clip generation.");
+        return;
+      }
+      setJobs((current) => current.map((item) => (item.id === job.id ? data.job! : item)));
+      toast("Clip generation stopped.");
+    } catch {
+      toast.error("Could not stop clip generation.");
+    } finally {
+      setCancelingJobId(null);
+      void refresh();
+    }
+  };
+
   const retryFailedRenders = async (job: ClipJob) => {
     setRetryingJobId(job.id);
     try {
@@ -457,6 +485,26 @@ export function ClipGeneratorPage() {
                       </div>
                       <div className="flex shrink-0 items-center gap-1.5">
                         <Badge className={statusClass(job.status)}>{statusLabel(job)}</Badge>
+                        {(job.status === "processing" || job.status === "queued") && (
+                          <button
+                            type="button"
+                            aria-label={`Abort ${job.fileName}`}
+                            title="Abort clip generation"
+                            disabled={cancelingJobId === job.id}
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              void cancelJob(job);
+                            }}
+                            className="flex h-6 items-center gap-1 rounded-md px-1.5 text-[11px] font-medium text-red-300 transition hover:bg-red-500/10 hover:text-red-200 disabled:opacity-50"
+                          >
+                            {cancelingJobId === job.id ? (
+                              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                            ) : (
+                              <Square className="h-3.5 w-3.5" />
+                            )}
+                            Abort
+                          </button>
+                        )}
                         {job.status !== "processing" && job.status !== "queued" && (
                           <button
                             type="button"
@@ -544,12 +592,33 @@ export function ClipGeneratorPage() {
                       <span className="text-white">{STAGE_LABELS[activeJob.stage]}...</span>
                       <span className="text-[var(--muted-foreground)]">{activeJob.progress}%</span>
                     </div>
-                    <Progress value={activeJob.progress} />
+                    <div className="flex items-center gap-2">
+                      <Progress value={activeJob.progress} className="flex-1" />
+                      <Button
+                        variant="danger"
+                        className="shrink-0 gap-2"
+                        disabled={cancelingJobId === activeJob.id}
+                        onClick={() => void cancelJob(activeJob)}
+                      >
+                        {cancelingJobId === activeJob.id ? (
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                        ) : (
+                          <Square className="h-4 w-4" />
+                        )}
+                        Abort
+                      </Button>
+                    </div>
                   </div>
                 )}
 
                 {activeJob.status === "error" && (
                   <Notice tone="danger" text={activeJob.error ?? "This job could not finish."} />
+                )}
+
+                {activeJob.status === "canceled" && (
+                  <p className="mt-4 text-sm text-[var(--muted-foreground)]">
+                    Clip generation was stopped. Any clips completed before the abort are still available below.
+                  </p>
                 )}
 
                 {activeJob.notices.length > 0 && (
