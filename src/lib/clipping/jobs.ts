@@ -4,7 +4,7 @@ import { TARGET_CLIP_COUNT, detectSilences, extractEnergy, fallbackCandidates, s
 import { buildAss, chunkWords, windowSegments } from "@/lib/clipping/captions";
 import { copyClipsToDrive, driveDir } from "@/lib/clipping/drive";
 import { downloadAudio, downloadSection, fetchVideoMeta } from "@/lib/clipping/download";
-import { hasAudioStream, probeDimensions, probeDuration, runFfmpeg } from "@/lib/clipping/ffmpeg";
+import { hasAudioStream, isRenderCanceled, probeDimensions, probeDuration, RenderCanceledError, runFfmpeg } from "@/lib/clipping/ffmpeg";
 import { renderCaptionedVertical, renderPreviewAssets, renderSourceClip } from "@/lib/clipping/render";
 import { readSourceMeta, sourceFilePath, type SourceMeta } from "@/lib/clipping/sources";
 import { defaultCaptionStyle } from "@/lib/storage/schemas";
@@ -31,9 +31,15 @@ function isTransientReplaceError(error: unknown) {
 type JobsGlobal = typeof globalThis & {
   __clipJobs?: Map<string, ClipJob>;
   __clipJobsLoaded?: boolean;
+  __clipJobControllers?: Map<string, AbortController>;
 };
 const g = globalThis as JobsGlobal;
 const jobs = (g.__clipJobs ??= new Map<string, ClipJob>());
+const controllers = (g.__clipJobControllers ??= new Map<string, AbortController>());
+
+function throwIfCanceled(signal: AbortSignal) {
+  if (signal.aborted) throw new RenderCanceledError("Clip generation was stopped.");
+}
 
 async function loadJobs() {
   if (g.__clipJobsLoaded) return;
@@ -111,6 +117,17 @@ export function outputDir(jobId: string) {
   return path.join(clipsRoot, "outputs", jobId);
 }
 
+export async function cancelJob(id: string): Promise<ClipJob | undefined> {
+  await loadJobs();
+  const job = jobs.get(id);
+  if (!job) return undefined;
+  if (job.status !== "processing" && job.status !== "queued") return job;
+  controllers.get(id)?.abort();
+  controllers.delete(id);
+  await update(job, { status: "canceled", progress: 0, error: undefined });
+  return job;
+}
+
 export async function deleteJob(id: string) {
   await loadJobs();
   jobs.delete(id);
@@ -131,7 +148,13 @@ export async function retryMissingRenders(id: string): Promise<ClipJob | undefin
 
   job.notices = job.notices.filter((notice) => !/^Clip \d+ \(/.test(notice));
   await update(job, { status: "processing", stage: "rendering", progress: 50, notices: job.notices });
-  void renderClipIndexes(job, missingIndexes).catch((error) => failJob(job, error));
+  const controller = new AbortController();
+  controllers.set(job.id, controller);
+  void renderClipIndexes(job, missingIndexes, controller.signal)
+    .catch((error) => {
+      if (!isRenderCanceled(error) && !controller.signal.aborted) return failJob(job, error);
+    })
+    .finally(() => controllers.delete(job.id));
   return job;
 }
 
@@ -205,6 +228,7 @@ export async function fetchJobCaptions(id: string, force = false): Promise<ClipJ
 }
 
 async function failJob(job: ClipJob, error: unknown) {
+  if (isRenderCanceled(error) || job.status === "canceled") return;
   await update(job, { status: "error", error: error instanceof Error ? error.message : String(error) });
 }
 
@@ -253,7 +277,11 @@ export async function createJobFromUrl(
   await persistJobs();
 
   // Run the pipeline without blocking the response; the client polls.
-  void runPipeline(job, url).catch((error) => failJob(job, error));
+  const controller = new AbortController();
+  controllers.set(id, controller);
+  void runPipeline(job, url, controller.signal)
+    .catch((error) => failJob(job, error))
+    .finally(() => controllers.delete(id));
   return job;
 }
 
@@ -281,7 +309,11 @@ export async function createJobFromUpload(sourceId: string, topic: string | unde
   await mkdir(outputDir(id), { recursive: true });
   await persistJobs();
 
-  void runLocalPipeline(job, meta).catch((error) => failJob(job, error));
+  const controller = new AbortController();
+  controllers.set(id, controller);
+  void runLocalPipeline(job, meta, controller.signal)
+    .catch((error) => failJob(job, error))
+    .finally(() => controllers.delete(id));
   return job;
 }
 
@@ -292,7 +324,8 @@ export async function createJobFromUpload(sourceId: string, topic: string | unde
  * moments from the transcript — falling back to whole-stream audio energy —
  * then cut and render each range from the local file.
  */
-async function runLocalPipeline(job: ClipJob, meta: SourceMeta) {
+async function runLocalPipeline(job: ClipJob, meta: SourceMeta, signal: AbortSignal) {
+  throwIfCanceled(signal);
   await update(job, { status: "processing", stage: "downloading", progress: 5 });
   const srcPath = sourceFilePath(meta);
   const durationSec = meta.durationSec || (await probeDuration(srcPath));
@@ -305,11 +338,12 @@ async function runLocalPipeline(job: ClipJob, meta: SourceMeta) {
   let audioPath: string | null = null;
   if (audioPresent) {
     audioPath = path.join(workDir(job.id), "source-audio.mp3");
-    await runFfmpeg(["-y", "-i", srcPath, "-vn", "-ac", "1", "-ar", "16000", "-b:a", "64k", audioPath]);
+    await runFfmpeg(["-y", "-i", srcPath, "-vn", "-ac", "1", "-ar", "16000", "-b:a", "64k", audioPath], { signal });
   }
 
   // Transcribe the upload locally so captions, titles, and moment selection
   // all work exactly like they do for platform VODs.
+  throwIfCanceled(signal);
   await update(job, { stage: "analyzing", progress: 20 });
   let transcript: ClipJob["sourceCaptions"] = [];
   if (audioPath) {
@@ -329,6 +363,8 @@ async function runLocalPipeline(job: ClipJob, meta: SourceMeta) {
     }
   }
 
+  throwIfCanceled(signal);
+  throwIfCanceled(signal);
   await update(job, { stage: "selecting", progress: 42 });
   let candidates: ClipCandidate[] | null = null;
   if (transcript && transcript.length > 0) {
@@ -352,13 +388,21 @@ async function runLocalPipeline(job: ClipJob, meta: SourceMeta) {
 
   await renderClipIndexes(
     job,
-    job.clips.map((_, index) => index)
+    job.clips.map((_, index) => index),
+    signal
   );
+  throwIfCanceled(signal);
   await update(job, { status: "done", stage: "finished", progress: 100 });
 }
 
 /** Cuts [start, end] out of a local file with a fast keyframe seek + stream copy. */
-async function cutLocalSection(srcPath: string, start: number, end: number, destPath: string): Promise<string> {
+async function cutLocalSection(
+  srcPath: string,
+  start: number,
+  end: number,
+  destPath: string,
+  signal: AbortSignal
+): Promise<string> {
   await runFfmpeg([
     "-y",
     "-ss",
@@ -370,7 +414,7 @@ async function cutLocalSection(srcPath: string, start: number, end: number, dest
     "-c",
     "copy",
     destPath
-  ]);
+  ], { signal });
   return destPath;
 }
 
@@ -381,23 +425,28 @@ async function cutLocalSection(srcPath: string, start: number, end: number, dest
  *      stream (Claude), falling back to whole-stream energy analysis offline.
  *   3. Fetch each chosen range and render it as a neutral 16:9 source clip in parallel.
  */
-async function runPipeline(job: ClipJob, url: string) {
+async function runPipeline(job: ClipJob, url: string, signal: AbortSignal) {
+  throwIfCanceled(signal);
   // 1. Read metadata, then grab the audio track for analysis.
   await update(job, { status: "processing", stage: "downloading", progress: 5 });
-  const meta = await fetchVideoMeta(url);
+  const meta = await fetchVideoMeta(url, signal);
   if (meta.title) await update(job, { fileName: meta.title });
   if (meta.durationSec && meta.durationSec < 20) {
     throw new Error("That VOD is shorter than 20 seconds — pick a longer stream to clip from.");
   }
 
-  const audioPath = await downloadAudio(url, workDir(job.id), (pct) =>
-    void update(job, { progress: 5 + Math.round((pct / 100) * 20) })
+  const audioPath = await downloadAudio(
+    url,
+    workDir(job.id),
+    (pct) => void update(job, { progress: 5 + Math.round((pct / 100) * 20) }),
+    signal
   );
   const durationSec = meta.durationSec || (await probeDuration(audioPath));
   await update(job, { durationSec: Math.round(durationSec) });
 
   // 2. Read the whole transcript and pick the best moments from across the
   //    entire stream. Captions double as the editor's source captions.
+  throwIfCanceled(signal);
   await update(job, { stage: "analyzing", progress: 30 });
   let transcript: ClipJob["sourceCaptions"] = [];
   try {
@@ -445,12 +494,14 @@ async function runPipeline(job: ClipJob, url: string) {
 
   await renderClipIndexes(
     job,
-    job.clips.map((_, index) => index)
+    job.clips.map((_, index) => index),
+    signal
   );
 
   // Optionally mirror the finished clips into a Google Drive-synced folder.
   // No API or sign-in: this just copies files into a local folder that Google
   // Drive for Desktop syncs (see CLIPS_DRIVE_DIR in .env). Off unless set.
+  throwIfCanceled(signal);
   if (driveDir()) {
     const rendered = job.clips
       .filter((clip) => clip.downloadFile || clip.file)
@@ -473,6 +524,7 @@ async function runPipeline(job: ClipJob, url: string) {
     }
   }
 
+  throwIfCanceled(signal);
   await update(job, { status: "done", stage: "finished", progress: 100 });
 }
 
@@ -572,7 +624,8 @@ export async function ensureVerticalClipFile(jobId: string, fileName: string): P
   return verticalName;
 }
 
-async function renderClipIndexes(job: ClipJob, indexes: number[]) {
+async function renderClipIndexes(job: ClipJob, indexes: number[], signal: AbortSignal) {
+  throwIfCanceled(signal);
   // Fetch each chosen range from the source and render a neutral 16:9 source clip. These are
   // network- and CPU-bound, so keep concurrency modest to avoid source throttles.
   let completed = 0;
@@ -582,12 +635,13 @@ async function renderClipIndexes(job: ClipJob, indexes: number[]) {
     throw new Error("The uploaded source file for this job is gone. Upload the video again.");
   }
   const renderOne = async (i: number) => {
+    throwIfCanceled(signal);
     const clip = job.clips[i];
     const segPath = path.join(workDir(job.id), `seg-${String(i + 1).padStart(2, "0")}.mp4`);
     try {
       const produced = uploadMeta
-        ? await cutLocalSection(sourceFilePath(uploadMeta), clip.start, clip.end, segPath)
-        : await downloadSection(job.sourceUrl, clip.start, clip.end, segPath);
+        ? await cutLocalSection(sourceFilePath(uploadMeta), clip.start, clip.end, segPath, signal)
+        : await downloadSection(job.sourceUrl, clip.start, clip.end, segPath, undefined, signal);
       const baseName = `clip-${String(i + 1).padStart(2, "0")}`;
       const primaryName = `${baseName}.mp4`;
       // Publish an instant preview (faststart stream copy + poster frame)
@@ -603,7 +657,8 @@ async function renderClipIndexes(job: ClipJob, indexes: number[]) {
         await renderPreviewAssets(
           produced,
           path.join(outputDir(job.id), previewName),
-          path.join(outputDir(job.id), posterName)
+          path.join(outputDir(job.id), posterName),
+          signal
         );
         clip.previewFile = previewName;
         clip.posterFile = posterName;
@@ -611,7 +666,7 @@ async function renderClipIndexes(job: ClipJob, indexes: number[]) {
       } catch {
         // A failed preview never blocks the real render.
       }
-      await renderSourceClip(produced, path.join(outputDir(job.id), primaryName), true);
+      await renderSourceClip(produced, path.join(outputDir(job.id), primaryName), true, signal);
       clip.file = primaryName;
       // Poster frame for the clip card; fire-and-forget so a thumbnail
       // hiccup never fails the render (the card falls back to lazy
@@ -631,9 +686,10 @@ async function renderClipIndexes(job: ClipJob, indexes: number[]) {
         const downloadPath = path.join(outputDir(job.id), downloadName);
         try {
           const assPath = await writeClipDownloadAss(job, clip, i);
-          await renderCaptionedVertical(produced, downloadPath, assPath, true);
-        } catch {
-          await renderCaptionedVertical(produced, downloadPath, null, true);
+          await renderCaptionedVertical(produced, downloadPath, assPath, true, signal);
+        } catch (error) {
+          if (isRenderCanceled(error) || signal.aborted) throw error;
+          await renderCaptionedVertical(produced, downloadPath, null, true, signal);
         }
         clip.downloadFile = downloadName;
         await persistJobs();
@@ -644,6 +700,7 @@ async function renderClipIndexes(job: ClipJob, indexes: number[]) {
       }
       await unlink(produced).catch(() => undefined);
     } catch (error) {
+      if (isRenderCanceled(error) || signal.aborted) throw error;
       job.notices.push(
         `Clip ${i + 1} (${Math.round(clip.start)}s) could not be rendered: ${error instanceof Error ? error.message : String(error)}.`
       );
@@ -657,11 +714,13 @@ async function renderClipIndexes(job: ClipJob, indexes: number[]) {
   let nextIndex = 0;
   const worker = async () => {
     while (true) {
+      throwIfCanceled(signal);
       const listIndex = nextIndex++;
       if (listIndex >= total) break;
       await renderOne(indexes[listIndex]);
     }
   };
   await Promise.all(Array.from({ length: Math.max(1, concurrency) }, worker));
+  throwIfCanceled(signal);
   await update(job, { status: "done", stage: "finished", progress: 100 });
 }
