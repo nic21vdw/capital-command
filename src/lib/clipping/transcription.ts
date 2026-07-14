@@ -18,7 +18,11 @@ import type { CaptionSegment } from "@/types/domain";
  * parsed) — callers fall back to local Whisper transcription via
  * fetchSourceCaptions rather than giving up.
  */
-export async function fetchAutoCaptions(url: string, destDir: string): Promise<CaptionSegment[]> {
+export async function fetchAutoCaptions(
+  url: string,
+  destDir: string,
+  signal?: AbortSignal
+): Promise<CaptionSegment[]> {
   const bin = await ensureYtDlp();
   const template = path.join(destDir, "subs.%(ext)s");
 
@@ -39,7 +43,7 @@ export async function fetchAutoCaptions(url: string, destDir: string): Promise<C
       url
     ],
     bin,
-    { allowFailure: true }
+    { allowFailure: true, signal }
   );
 
   const entries = await readdir(destDir).catch(() => [] as string[]);
@@ -88,11 +92,12 @@ export type SourceCaptionsResult = {
 export async function fetchSourceCaptions(
   url: string,
   destDir: string,
-  audioPath?: string
+  audioPath?: string,
+  signal?: AbortSignal
 ): Promise<SourceCaptionsResult> {
   let platformError: unknown;
   try {
-    const platform = await fetchAutoCaptions(url, destDir);
+    const platform = await fetchAutoCaptions(url, destDir, signal);
     if (platform.length > 0) return { segments: platform, source: "platform" };
   } catch (error) {
     platformError = error;
@@ -103,9 +108,9 @@ export async function fetchSourceCaptions(
   try {
     let audio = audioPath;
     if (!audio || !(await fileExists(audio))) {
-      audio = await downloadAudio(url, destDir);
+      audio = await downloadAudio(url, destDir, undefined, signal);
     }
-    const segments = await transcribeMedia(audio, destDir);
+    const segments = await transcribeMedia(audio, destDir, { signal });
     return { segments, source: "local" };
   } catch (error) {
     const local = error instanceof Error ? error.message : String(error);
