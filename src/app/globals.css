@@ -29,41 +29,41 @@
 */
 
 :root {
-  /* Fallback = Slate (also applied by the pre-paint script before hydration). */
-  --background: #0b0d12;
-  --foreground: #e7eaf0;
+  /* Fallback = Mono (also applied by the pre-paint script before hydration). */
+  --background: #070807;
+  --foreground: #f4f5f4;
   --color-white: #ffffff;
-  --panel: #12151c;
-  --surface: #14181f;
-  --surface-2: #181d26;
-  --border: rgba(255, 255, 255, 0.08);
-  --border-strong: rgba(255, 255, 255, 0.14);
-  --muted-foreground: #9aa3b2;
-  --accent: #5b8def;
-  --accent-strong: #7aa2f7;
-  --accent-contrast: #07101f;
-  --card-from: #14181f;
-  --card-to: #14181f;
-  --shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --panel: #0c0e0d;
+  --surface: #101211;
+  --surface-2: #151816;
+  --border: rgba(255, 255, 255, 0.075);
+  --border-strong: rgba(255, 255, 255, 0.15);
+  --muted-foreground: #909691;
+  --accent: #b8f3d2;
+  --accent-strong: #d2fae4;
+  --accent-contrast: #07100b;
+  --card-from: #101211;
+  --card-to: #101211;
+  --shadow: 0 1px 2px rgba(0, 0, 0, 0.55), 0 12px 40px rgba(0, 0, 0, 0.14);
   color-scheme: dark;
 }
 
 [data-theme="slate"] {
-  --background: #0b0d12;
-  --foreground: #e7eaf0;
+  --background: #070807;
+  --foreground: #f4f5f4;
   --color-white: #ffffff;
-  --panel: #12151c;
-  --surface: #14181f;
-  --surface-2: #181d26;
-  --border: rgba(255, 255, 255, 0.08);
-  --border-strong: rgba(255, 255, 255, 0.14);
-  --muted-foreground: #9aa3b2;
-  --accent: #5b8def;
-  --accent-strong: #7aa2f7;
-  --accent-contrast: #07101f;
-  --card-from: #14181f;
-  --card-to: #14181f;
-  --shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --panel: #0c0e0d;
+  --surface: #101211;
+  --surface-2: #151816;
+  --border: rgba(255, 255, 255, 0.075);
+  --border-strong: rgba(255, 255, 255, 0.15);
+  --muted-foreground: #909691;
+  --accent: #b8f3d2;
+  --accent-strong: #d2fae4;
+  --accent-contrast: #07100b;
+  --card-from: #101211;
+  --card-to: #101211;
+  --shadow: 0 1px 2px rgba(0, 0, 0, 0.55), 0 12px 40px rgba(0, 0, 0, 0.14);
   color-scheme: dark;
 }
 
@@ -386,6 +386,21 @@ td {
   }
   to {
     background-position: 32px 0;
+  }
+}
+
+@keyframes progress-orbit {
+  0% {
+    transform: translateX(-140%);
+    opacity: 0;
+  }
+  25%,
+  75% {
+    opacity: 0.9;
+  }
+  100% {
+    transform: translateX(220%);
+    opacity: 0;
   }
 }
 
