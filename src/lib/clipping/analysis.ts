@@ -33,7 +33,7 @@ export const TARGET_CLIP_COUNT = 10;
 const MAX_CANDIDATES = TARGET_CLIP_COUNT;
 
 /** Extracts per-window RMS loudness for the first audio stream. */
-export async function extractEnergy(inputPath: string): Promise<EnergyWindow[]> {
+export async function extractEnergy(inputPath: string, signal?: AbortSignal): Promise<EnergyWindow[]> {
   const { stdout } = await runFfmpeg([
     "-hide_banner",
     "-i",
@@ -49,7 +49,7 @@ export async function extractEnergy(inputPath: string): Promise<EnergyWindow[]> 
     "-f",
     "null",
     "-"
-  ]);
+  ], { signal });
 
   const windows: EnergyWindow[] = [];
   let currentTime: number | null = null;
@@ -92,7 +92,7 @@ export function createSilenceCollector(): { ranges: SilenceRange[]; onLine: (lin
 }
 
 /** Detects silence ranges used to snap clip boundaries to natural pauses. */
-export async function detectSilences(inputPath: string): Promise<SilenceRange[]> {
+export async function detectSilences(inputPath: string, signal?: AbortSignal): Promise<SilenceRange[]> {
   // Silences are parsed line-by-line as ffmpeg emits them, NOT from the
   // accumulated stderr afterwards: runFfmpeg caps captured stderr at 400 KB,
   // and a multi-hour stream logs thousands of silencedetect lines — parsing
@@ -101,7 +101,7 @@ export async function detectSilences(inputPath: string): Promise<SilenceRange[]>
   const collector = createSilenceCollector();
   await runFfmpeg(
     ["-hide_banner", "-i", inputPath, "-map", "a:0", "-af", "silencedetect=noise=-35dB:d=0.35", "-f", "null", "-"],
-    { allowFailure: true, onLine: collector.onLine }
+    { allowFailure: true, onLine: collector.onLine, signal }
   );
   return collector.ranges;
 }
