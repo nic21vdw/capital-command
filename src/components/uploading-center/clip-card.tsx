@@ -20,31 +20,6 @@ export const CLIP_DRAG_TYPE = "application/x-capital-command-clip";
 
 export const TITLE_MAX_LENGTH = 100;
 
-/** Hashtags offered as one-click suggestions under the title field. */
-export const SUGGESTED_HASHTAGS = [
-  "#AI",
-  "#vibecoding",
-  "#coding",
-  "#business",
-  "#buildinpublic",
-  "#startup",
-  "#tech",
-  "#programming",
-  "#automation",
-  "#entrepreneur"
-];
-
-/** Append a hashtag to the title, keeping within the max title length. */
-export function appendHashtag(title: string, hashtag: string): string {
-  const trimmed = title.trimEnd();
-  const next = trimmed.length > 0 ? `${trimmed} ${hashtag}` : hashtag;
-  return next.length <= TITLE_MAX_LENGTH ? next : title;
-}
-
-function hasHashtag(title: string, hashtag: string): boolean {
-  return title.toLowerCase().includes(hashtag.toLowerCase());
-}
-
 /**
  * One clip from the current run: thumbnail, editable title/caption, platform
  * target, slot picker, and the status of every post already created from it.
