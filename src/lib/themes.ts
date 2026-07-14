@@ -14,12 +14,12 @@ export interface ThemePresetDef {
 export const themePresets: ThemePresetDef[] = [
   {
     id: "slate",
-    label: "Slate",
-    description: "Neutral dark, cool blue accent",
+    label: "Mono",
+    description: "Near-black with a pastel mint signal",
     mode: "dark",
-    background: "#0b0d12",
-    surface: "#14181f",
-    accent: "#5b8def"
+    background: "#070807",
+    surface: "#101211",
+    accent: "#b8f3d2"
   },
   {
     id: "midnight",
