@@ -886,7 +886,10 @@ export function EditorPreview({
         ref={frameRef}
         data-preview-frame
         className={cn(
-          "relative select-none overflow-hidden rounded-2xl bg-black shadow-[0_18px_48px_-12px_rgba(0,0,0,0.55)] ring-1 ring-white/10",
+          // overflow-visible (not hidden) so a text box's edit handles stay on
+          // screen even when the box is dragged/scaled past the frame edge. The
+          // video/blur layers are clipped by their own inner wrapper below.
+          "relative select-none overflow-visible rounded-2xl bg-black shadow-[0_18px_48px_-12px_rgba(0,0,0,0.55)] ring-1 ring-white/10",
           canPan && "cursor-grab active:cursor-grabbing"
         )}
         style={{
@@ -905,6 +908,10 @@ export function EditorPreview({
         onDoubleClick={() => canPan && onReframeChange({ offsetX: 0, offsetY: 0 })}
         title={canPan ? "Drag to pan - double-click to center" : undefined}
       >
+        {/* Everything that must be clipped to the frame (video, blur, captions,
+            crop UI) lives inside this wrapper. Overlays are rendered *outside*
+            it, below, so their edit handles stay visible past the frame edge. */}
+        <div className="absolute inset-0 overflow-hidden rounded-2xl">
         {/* Blurred fill behind everything (mirrors the export's blur base).
             Followers only preload metadata: the driver video gets the bandwidth
             for its first paint, and followers buffer once playback starts. */}
@@ -965,18 +972,6 @@ export function EditorPreview({
 
         {/* Safe-area guide. */}
         {!cropping && <div className="pointer-events-none absolute inset-[5%] z-10 rounded-md border border-dashed border-white/15" />}
-
-        {!cropping &&
-          visibleOverlays.map((overlay) => (
-            <OverlayItem
-              key={overlay.id}
-              overlay={overlay}
-              selected={overlay.id === selectedOverlayId}
-              frame={{ w: frameW, h: frameH }}
-              onSelect={() => onSelectOverlay(overlay.id)}
-              onChange={(partial) => onOverlayChange(overlay.id, partial)}
-            />
-          ))}
 
         {!cropping && (
           <CaptionLayer
@@ -1041,6 +1036,22 @@ export function EditorPreview({
             ))}
           </div>
         )}
+        </div>
+
+        {/* Overlays live outside the clipping wrapper so their move/scale/width/
+            rotate handles remain on screen even when the text box is positioned
+            at or beyond the frame edge. */}
+        {!cropping &&
+          visibleOverlays.map((overlay) => (
+            <OverlayItem
+              key={overlay.id}
+              overlay={overlay}
+              selected={overlay.id === selectedOverlayId}
+              frame={{ w: frameW, h: frameH }}
+              onSelect={() => onSelectOverlay(overlay.id)}
+              onChange={(partial) => onOverlayChange(overlay.id, partial)}
+            />
+          ))}
       </div>
     </div>
   );
