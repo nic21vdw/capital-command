@@ -19,7 +19,7 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
         <ThemePresetProvider>
           <AppProvider>
             {children}
-            <Toaster richColors position="top-right" />
+            <Toaster closeButton richColors position="top-right" />
           </AppProvider>
         </ThemePresetProvider>
       </body>
