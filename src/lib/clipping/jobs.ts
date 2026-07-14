@@ -348,7 +348,7 @@ async function runLocalPipeline(job: ClipJob, meta: SourceMeta, signal: AbortSig
   let transcript: ClipJob["sourceCaptions"] = [];
   if (audioPath) {
     try {
-      transcript = await transcribeMedia(audioPath, workDir(job.id));
+      transcript = await transcribeMedia(audioPath, workDir(job.id), { signal });
       if (transcript.length > 0) {
         await update(job, {
           sourceCaptions: transcript,
@@ -364,15 +364,17 @@ async function runLocalPipeline(job: ClipJob, meta: SourceMeta, signal: AbortSig
   }
 
   throwIfCanceled(signal);
-  throwIfCanceled(signal);
   await update(job, { stage: "selecting", progress: 42 });
   let candidates: ClipCandidate[] | null = null;
   if (transcript && transcript.length > 0) {
-    candidates = await selectByTranscript(transcript, durationSec, job.topic);
+    candidates = await selectByTranscript(transcript, durationSec, job.topic, signal);
   }
   if (!candidates || candidates.length < TARGET_CLIP_COUNT) {
     if (audioPath) {
-      const [windows, silences] = await Promise.all([extractEnergy(audioPath), detectSilences(audioPath)]);
+      const [windows, silences] = await Promise.all([
+        extractEnergy(audioPath, signal),
+        detectSilences(audioPath, signal)
+      ]);
       const energyCandidates = selectCandidates(windows, silences, durationSec, transcript ?? []);
       candidates =
         candidates && candidates.length > 0 ? mergeClipCandidates(candidates, energyCandidates) : energyCandidates;
@@ -453,7 +455,7 @@ async function runPipeline(job: ClipJob, url: string, signal: AbortSignal) {
     // Platform captions first, local Whisper transcription of the audio we
     // just downloaded as a fallback — a source without platform captions
     // still gets automatic captions.
-    const result = await fetchSourceCaptions(url, workDir(job.id), audioPath);
+    const result = await fetchSourceCaptions(url, workDir(job.id), audioPath, signal);
     transcript = result.segments;
     if (result.source === "local") {
       job.notices.push(
@@ -474,13 +476,16 @@ async function runPipeline(job: ClipJob, url: string, signal: AbortSignal) {
   await update(job, { stage: "selecting", progress: 42 });
   let candidates: ClipCandidate[] | null = null;
   if (transcript && transcript.length > 0) {
-    candidates = await selectByTranscript(transcript, durationSec, job.topic);
+    candidates = await selectByTranscript(transcript, durationSec, job.topic, signal);
   }
 
   if (!candidates || candidates.length < TARGET_CLIP_COUNT) {
     // Score moments from audio energy across the whole stream. We still pass the transcript (if any) so scoring
     // can read what is said, not just how loud it is.
-    const [windows, silences] = await Promise.all([extractEnergy(audioPath), detectSilences(audioPath)]);
+    const [windows, silences] = await Promise.all([
+      extractEnergy(audioPath, signal),
+      detectSilences(audioPath, signal)
+    ]);
     const energyCandidates = selectCandidates(windows, silences, durationSec, transcript ?? []);
     candidates = candidates && candidates.length > 0 ? mergeClipCandidates(candidates, energyCandidates) : energyCandidates;
     if (!transcript || transcript.length === 0) {
@@ -693,7 +698,8 @@ async function renderClipIndexes(job: ClipJob, indexes: number[], signal: AbortS
         }
         clip.downloadFile = downloadName;
         await persistJobs();
-      } catch {
+      } catch (error) {
+        if (isRenderCanceled(error) || signal.aborted) throw error;
         // Even the plain vertical render failed (ffmpeg trouble); the UI
         // falls back to the master and publishing re-renders on demand.
         job.notices.push(`Clip ${i + 1}: the 9:16 vertical render failed — it will be re-rendered when scheduled.`);
