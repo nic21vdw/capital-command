@@ -185,9 +185,11 @@ describe("buildAss", () => {
     expect(dialogues).toHaveLength(2);
     expect(dialogues[0]).toContain("hello");
     expect(dialogues[0]).toContain("world");
-    // The active word is re-colored with the highlight colour and popped.
+    // The active word is re-colored without changing size, so the phrase
+    // remains locked to one visual position while the highlight advances.
     expect(dialogues[0]).toContain("\\1c");
-    expect(dialogues[0]).toContain("\\fscx112");
+    expect(dialogues[0]).not.toContain("\\fscx112");
+    expect(dialogues[0]).not.toContain("\\fscy112");
     // The first event starts at the segment start, the second at word 2.
     expect(dialogues[0]).toMatch(/^Dialogue: 0,0:00:00\.00,0:00:01\.00/);
     expect(dialogues[1]).toMatch(/^Dialogue: 0,0:00:01\.00,0:00:02\.00/);
