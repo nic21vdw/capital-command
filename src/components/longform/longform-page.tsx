@@ -2,7 +2,7 @@
 
 import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Clapperboard, Film, Loader2, Music4, Scissors, Trash2, UploadCloud, Zap } from "lucide-react";
+import { Clapperboard, Film, Loader2, Music4, Play, Scissors, Trash2, UploadCloud, Zap } from "lucide-react";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -27,6 +27,122 @@ const STAGE_LABELS: Record<LongformProject["stage"], string> = {
   planning: "Planning the hook & cuts",
   ready: "Ready"
 };
+
+const MIN_HOVER_PREVIEW_SECONDS = 5;
+
+function LongformHoverPreview({
+  project,
+  onOpen
+}: {
+  project: LongformProject;
+  onOpen: () => void;
+}) {
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const stopTimerRef = useRef<number | null>(null);
+  const previewActiveRef = useRef(false);
+  const [previewing, setPreviewing] = useState(false);
+  const previewStartSec = Math.max(0, project.hook.enabled ? project.hook.start : 0);
+
+  const cancelPendingStop = () => {
+    if (stopTimerRef.current !== null) {
+      window.clearInterval(stopTimerRef.current);
+      stopTimerRef.current = null;
+    }
+  };
+
+  const startPreview = () => {
+    const video = videoRef.current;
+    if (!video) return;
+    cancelPendingStop();
+    previewActiveRef.current = true;
+    video.muted = true;
+    video.preload = "auto";
+    if (video.paused && Math.abs(video.currentTime - previewStartSec) > 0.25) {
+      video.currentTime = previewStartSec;
+    }
+    setPreviewing(true);
+    void video.play().catch(() => setPreviewing(false));
+  };
+
+  const stopPreview = () => {
+    const video = videoRef.current;
+    if (!video) return;
+    previewActiveRef.current = false;
+
+    const finish = () => {
+      cancelPendingStop();
+      video.pause();
+      video.currentTime = previewStartSec;
+      setPreviewing(false);
+    };
+
+    const elapsed = Math.max(0, video.currentTime - previewStartSec);
+    const available = Number.isFinite(video.duration)
+      ? Math.max(0, video.duration - previewStartSec - 0.25)
+      : MIN_HOVER_PREVIEW_SECONDS;
+    const minimum = Math.min(MIN_HOVER_PREVIEW_SECONDS, available);
+    if (video.paused || elapsed >= minimum) {
+      finish();
+      return;
+    }
+
+    cancelPendingStop();
+    stopTimerRef.current = window.setInterval(() => {
+      const played = Math.max(0, video.currentTime - previewStartSec);
+      if (played >= minimum || video.paused) finish();
+    }, 200);
+  };
+
+  useEffect(
+    () => () => {
+      if (stopTimerRef.current !== null) window.clearInterval(stopTimerRef.current);
+      videoRef.current?.pause();
+    },
+    []
+  );
+
+  return (
+    <button
+      type="button"
+      onPointerEnter={startPreview}
+      onPointerLeave={stopPreview}
+      onFocus={startPreview}
+      onBlur={stopPreview}
+      onClick={onOpen}
+      className="group relative aspect-video w-full overflow-hidden rounded-lg border border-[var(--border)] bg-black text-left outline-none transition hover:border-[var(--border-strong)] focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
+      aria-label={`Preview ${project.name}. Open editor.`}
+    >
+      <video
+        ref={videoRef}
+        src={`/api/clips/sources/${project.sourceId}/stream`}
+        preload="metadata"
+        playsInline
+        muted
+        onEnded={() => {
+          const video = videoRef.current;
+          if (!video || !previewActiveRef.current) return;
+          video.currentTime = previewStartSec;
+          void video.play().catch(() => setPreviewing(false));
+        }}
+        className="h-full w-full object-contain"
+      />
+      <span
+        className={cn(
+          "pointer-events-none absolute inset-0 flex items-center justify-center bg-gradient-to-t from-black/55 via-transparent to-black/10 transition-opacity",
+          previewing ? "opacity-0" : "opacity-100 group-hover:opacity-60 group-focus-visible:opacity-60"
+        )}
+      >
+        <span className="flex items-center gap-2 rounded-full bg-black/65 px-3 py-1.5 text-xs font-medium text-white shadow-lg backdrop-blur">
+          <Play className="h-3.5 w-3.5 fill-current" />
+          Hover to preview
+        </span>
+      </span>
+      <span className="pointer-events-none absolute bottom-2 right-2 rounded bg-black/70 px-1.5 py-0.5 text-[10px] font-medium text-white/90">
+        {formatClock(project.durationSec)}
+      </span>
+    </button>
+  );
+}
 
 export function LongformStudioPage() {
   const router = useRouter();
@@ -493,6 +609,9 @@ export function LongformStudioPage() {
                           : "Error"}
                     </Badge>
                   </div>
+                  {project.status === "ready" && (
+                    <LongformHoverPreview project={project} onOpen={() => setOpen(project.id)} />
+                  )}
                   {project.status === "processing" && (
                     <div className="space-y-1">
                       <Progress value={project.progress} />
