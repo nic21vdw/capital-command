@@ -36,6 +36,14 @@ function captionPositionClasses(style: CaptionStyle): string {
   return "bottom-[6%] items-end";
 }
 
+/** Keep phrase entrance animations pinned to the caption's chosen anchor. */
+function captionTransformOrigin(style: CaptionStyle, hasCustomPos: boolean): string {
+  if (hasCustomPos) return "center center";
+  const horizontal = style.alignment === "left" ? "left" : style.alignment === "right" ? "right" : "center";
+  const vertical = style.position === "top" ? "top" : style.position === "middle" ? "center" : "bottom";
+  return `${horizontal} ${vertical}`;
+}
+
 /**
  * A caption clock that reads the driver video directly at display rate, so
  * word-level highlights stay locked to the voice instead of the coarser
@@ -69,11 +77,10 @@ function CaptionWordSpan({
   const highlighted = state === "active" || (animation === "karaoke" && state === "spoken");
   return (
     <span
-      className="inline-block whitespace-pre transition-[transform,color,opacity] duration-100 ease-out"
+      className="inline-block whitespace-pre transition-[color,opacity] duration-100 ease-out"
       style={{
         color: highlighted ? style.highlightColor : undefined,
-        opacity: animation === "karaoke" && state === "upcoming" ? 0.6 : 1,
-        transform: state === "active" && animation !== "none" ? "scale(1.1)" : "scale(1)"
+        opacity: animation === "karaoke" && state === "upcoming" ? 0.6 : 1
       }}
     >
       {text}
@@ -223,7 +230,8 @@ function CaptionLayer({
             background: bg,
             textShadow: `0 ${Math.max(1, style.shadow)}px ${Math.max(2, style.shadow * 2)}px rgba(0,0,0,0.65)`,
             WebkitTextStroke: style.outlineWidth > 0 ? `${style.outlineWidth * 0.45}px #000` : undefined,
-            paintOrder: "stroke fill"
+            paintOrder: "stroke fill",
+            transformOrigin: captionTransformOrigin(style, hasCustomPos)
           }}
         >
           {lines.length > 0
