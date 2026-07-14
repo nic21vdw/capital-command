@@ -177,8 +177,10 @@ function toCandidate(
 export async function selectByTranscript(
   segments: CaptionSegment[],
   durationSec: number,
-  topic?: string
+  topic?: string,
+  signal?: AbortSignal
 ): Promise<ClipCandidate[] | null> {
+  if (signal?.aborted) return null;
   if (!transcriptSelectionConfigured()) return null;
   if (!segments || segments.length === 0) return null;
 
@@ -224,9 +226,9 @@ ${timeline}`;
       system:
         "You are an expert short-form video editor who finds the most viral, self-contained moments inside long livestream transcripts. You always return strict JSON.",
       messages: [{ role: "user", content: userPrompt }]
-    });
+    }, { signal });
 
-    if (response.stop_reason === "refusal") return null;
+    if (signal?.aborted || response.stop_reason === "refusal") return null;
     const text = response.content
       .filter((block) => block.type === "text")
       .map((block) => (block as { text: string }).text)
