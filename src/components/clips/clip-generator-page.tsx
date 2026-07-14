@@ -22,6 +22,7 @@ import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { PageHeader } from "@/components/ui/page-header";
 import { Progress } from "@/components/ui/progress";
+import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { chunkWords, windowSegments } from "@/lib/clipping/captions";
 import { generateClipTitle, makeClipProject, makeTitleOverlay } from "@/lib/clipping/editor";
@@ -55,14 +56,14 @@ function thumbnailUrl(jobId: string, fileName: string) {
 
 function statusLabel(job: ClipJob) {
   if (job.status === "queued" || job.status === "processing") return STAGE_LABELS[job.stage];
-  if (job.status === "done") return "Ready";
+  if (job.status === "done") return "Ready to edit";
   return "Needs attention";
 }
 
 function statusClass(status: ClipJobStatus) {
-  if (status === "done") return "border-emerald-400/30 bg-emerald-400/10 text-emerald-300";
-  if (status === "error") return "border-red-400/30 bg-red-400/10 text-red-300";
-  return "border-sky-400/30 bg-sky-400/10 text-sky-300";
+  if (status === "done") return "border-[var(--accent)]/25 bg-[var(--accent)]/8 text-[var(--accent)]";
+  if (status === "error") return "border-red-300/25 bg-red-300/8 text-red-200";
+  return "border-white/12 bg-white/5 text-white/75";
 }
 
 function clipHeadline(clip: ClipCandidate, index: number) {
@@ -420,66 +421,81 @@ export function ClipGeneratorPage() {
             </div>
           </Card>
 
-          <Card className="p-4">
-            <div className="mb-3 flex items-center justify-between gap-3">
-              <h2 className="text-base font-semibold text-white">Your streams</h2>
-              <Button variant="ghost" className="px-2 py-1 text-xs" onClick={() => void refresh()}>
-                <RotateCw className="mr-1 h-3.5 w-3.5" />
+          <Card className="overflow-hidden p-0">
+            <div className="flex items-center justify-between gap-3 border-b border-[var(--border)] px-4 py-3">
+              <div>
+                <h2 className="text-sm font-semibold text-white">Stream library</h2>
+                <p className="mt-0.5 text-[11px] text-[var(--muted-foreground)]">
+                  {jobs.length} saved source{jobs.length === 1 ? "" : "s"}
+                </p>
+              </div>
+              <Button
+                variant="ghost"
+                className="h-8 px-2.5 text-xs"
+                onClick={() => void refresh()}
+                aria-label="Refresh stream library"
+              >
+                <RotateCw className="mr-1.5 h-3.5 w-3.5" />
                 Refresh
               </Button>
             </div>
-            {!loaded ? (
-              <p className="text-sm text-[var(--muted-foreground)]">Loading...</p>
-            ) : jobs.length === 0 ? (
-              <p className="text-sm text-[var(--muted-foreground)]">
-                No streams yet. Paste a link or upload a recording above.
-              </p>
-            ) : (
-              <div className="space-y-2">
-                {jobs.map((job) => (
-                  <div
-                    key={job.id}
-                    onClick={() => setActiveJobId(job.id)}
-                    className={cn(
-                      "w-full cursor-pointer rounded-lg border p-3 text-left transition",
-                      activeJob?.id === job.id
-                        ? "border-[var(--accent)]/70 bg-[var(--accent)]/10"
-                        : "border-white/10 bg-black/20 hover:border-white/25"
-                    )}
+            <div className="p-4">
+              {!loaded ? (
+                <p className="text-sm text-[var(--muted-foreground)]">Loading streams...</p>
+              ) : jobs.length === 0 ? (
+                <p className="text-sm leading-relaxed text-[var(--muted-foreground)]">
+                  No streams yet. Paste a link or upload a recording above.
+                </p>
+              ) : (
+                <div className="space-y-3">
+                  <Select
+                    aria-label="Choose a stream"
+                    value={activeJob?.id ?? ""}
+                    onChange={(event) => setActiveJobId(event.target.value)}
+                    className="border-white/10 bg-black/35 pr-10 font-medium"
                   >
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="min-w-0">
-                        <p className="truncate text-sm font-medium text-white">{job.fileName}</p>
-                        <p className="mt-1 text-xs text-[var(--muted-foreground)]">
-                          {new Date(job.createdAt).toLocaleDateString()}
-                          {job.clips.length > 0 && ` · ${job.clips.length} clips`}
-                        </p>
-                      </div>
-                      <div className="flex shrink-0 items-center gap-1.5">
-                        <Badge className={statusClass(job.status)}>{statusLabel(job)}</Badge>
-                        {job.status !== "processing" && job.status !== "queued" && (
+                    {jobs.map((job) => (
+                      <option key={job.id} value={job.id}>
+                        {job.fileName} · {new Date(job.createdAt).toLocaleDateString()}
+                      </option>
+                    ))}
+                  </Select>
+
+                  {activeJob && (
+                    <div className="rounded-lg border border-white/8 bg-black/25 p-3">
+                      <div className="flex items-center justify-between gap-3">
+                        <div className="min-w-0">
+                          <Badge className={statusClass(activeJob.status)}>{statusLabel(activeJob)}</Badge>
+                          <p className="mt-2 truncate text-xs text-[var(--muted-foreground)]">
+                            {new Date(activeJob.createdAt).toLocaleDateString()}
+                            {activeJob.clips.length > 0 && ` · ${activeJob.clips.length} clips`}
+                          </p>
+                        </div>
+                        {activeJob.status !== "processing" && activeJob.status !== "queued" && (
                           <button
                             type="button"
-                            aria-label="Delete stream"
-                            title="Delete stream"
-                            onClick={(event) => {
-                              event.stopPropagation();
-                              void removeJob(job);
-                            }}
-                            className="flex h-6 w-6 items-center justify-center rounded-md text-[var(--muted-foreground)] transition hover:bg-red-500/10 hover:text-red-400"
+                            aria-label="Delete selected stream"
+                            title="Delete selected stream"
+                            onClick={() => void removeJob(activeJob)}
+                            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-transparent text-[var(--muted-foreground)] transition hover:border-red-300/15 hover:bg-red-300/8 hover:text-red-200"
                           >
                             <Trash2 className="h-3.5 w-3.5" />
                           </button>
                         )}
                       </div>
+                      {(activeJob.status === "processing" || activeJob.status === "queued") && (
+                        <div className="mt-3">
+                          <Progress value={activeJob.progress} className="h-1.5" />
+                          <p className="mt-2 text-[11px] text-[var(--muted-foreground)]">
+                            {STAGE_LABELS[activeJob.stage]} · {activeJob.progress}%
+                          </p>
+                        </div>
+                      )}
                     </div>
-                    {(job.status === "processing" || job.status === "queued") && (
-                      <Progress value={job.progress} className="mt-3 h-1.5" />
-                    )}
-                  </div>
-                ))}
-              </div>
-            )}
+                  )}
+                </div>
+              )}
+            </div>
           </Card>
         </div>
 
@@ -539,12 +555,17 @@ export function ClipGeneratorPage() {
                 </div>
 
                 {processing && (
-                  <div className="mt-5 space-y-2">
-                    <div className="flex items-center justify-between text-sm">
-                      <span className="text-white">{STAGE_LABELS[activeJob.stage]}...</span>
-                      <span className="text-[var(--muted-foreground)]">{activeJob.progress}%</span>
+                  <div className="mt-5 rounded-xl border border-white/8 bg-black/25 p-4">
+                    <div className="mb-3 flex items-end justify-between gap-4">
+                      <div>
+                        <p className="text-[11px] font-medium uppercase tracking-[0.16em] text-[var(--accent)]">
+                          Processing
+                        </p>
+                        <p className="mt-1 text-sm font-medium text-white">{STAGE_LABELS[activeJob.stage]}</p>
+                      </div>
+                      <span className="font-mono text-sm text-white/60">{activeJob.progress}%</span>
                     </div>
-                    <Progress value={activeJob.progress} />
+                    <Progress value={activeJob.progress} className="h-2.5" />
                   </div>
                 )}
 
