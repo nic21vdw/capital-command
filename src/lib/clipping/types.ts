@@ -1,4 +1,4 @@
-export type ClipJobStatus = "queued" | "processing" | "done" | "error";
+export type ClipJobStatus = "queued" | "processing" | "done" | "error" | "canceled";
 
 export type ClipJobStage = "downloading" | "analyzing" | "selecting" | "rendering" | "finished";
 
