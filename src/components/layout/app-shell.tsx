@@ -16,6 +16,7 @@ import {
   type LucideIcon
 } from "lucide-react";
 import { AppFooter } from "@/components/layout/app-footer";
+import { ClipJobProgressIndicator } from "@/components/clips/clip-jobs-provider";
 import { useAppData } from "@/components/providers/app-provider";
 import { cn } from "@/lib/utils";
 
@@ -195,6 +196,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         </div>
       </aside>
       <main className="min-w-0 flex-1">
+        <ClipJobProgressIndicator />
         {/* Mobile top bar + nav */}
         <div className="mb-4 lg:hidden">
           <div className="mb-3 flex items-center justify-between rounded-xl border border-[var(--border)] bg-[var(--panel)] px-4 py-3">
