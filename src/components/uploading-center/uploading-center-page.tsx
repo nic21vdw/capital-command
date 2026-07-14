@@ -122,7 +122,8 @@ export function UploadingCenterPage() {
     (clip: ReadyClip): ClipDraft =>
       drafts[clip.key] ?? {
         title: clip.headline.slice(0, 100),
-        caption: "",
+        caption: clip.description,
+        hashtags: clip.hashtags.slice(0, 5),
         platform: "youtube",
         slotUtc: "",
       },
