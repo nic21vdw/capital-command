@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { deleteJob, getJob, renameJob, retryMissingRenders } from "@/lib/clipping/jobs";
+import { cancelJob, deleteJob, getJob, renameJob, retryMissingRenders } from "@/lib/clipping/jobs";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -28,13 +28,18 @@ export async function DELETE(_request: NextRequest, { params }: { params: Promis
 
 export async function PATCH(request: NextRequest, { params }: { params: Promise<{ jobId: string }> }) {
   const { jobId } = await params;
-  let body: { fileName?: string; clipId?: string; clipTitle?: string };
+  let body: { action?: "cancel"; fileName?: string; clipId?: string; clipTitle?: string };
   try {
     body = (await request.json()) as typeof body;
   } catch {
     return NextResponse.json({ error: "Invalid request body." }, { status: 400 });
   }
   try {
+    if (body.action === "cancel") {
+      const job = await cancelJob(jobId);
+      if (!job) return NextResponse.json({ error: "Job not found." }, { status: 404 });
+      return NextResponse.json({ job });
+    }
     const job = await renameJob(jobId, body);
     if (!job) {
       return NextResponse.json({ error: "Job not found." }, { status: 404 });
