@@ -886,7 +886,7 @@ export function EditorPreview({
         ref={frameRef}
         data-preview-frame
         className={cn(
-          "relative select-none overflow-hidden rounded-2xl bg-black shadow-[0_18px_48px_-12px_rgba(0,0,0,0.55)] ring-1 ring-white/10",
+          "relative select-none overflow-visible rounded-2xl bg-black shadow-[0_18px_48px_-12px_rgba(0,0,0,0.55)] ring-1 ring-white/10",
           canPan && "cursor-grab active:cursor-grabbing"
         )}
         style={{
@@ -895,16 +895,13 @@ export function EditorPreview({
           height: dims.w >= dims.h ? "auto" : "min(62vh, 780px)"
         }}
         onPointerDown={beginPointer}
-        onScroll={(e) => {
-          // overflow-hidden still scrolls programmatically (e.g. the text-edit
-          // caret being scrolled into view), which pans the whole preview with
-          // no way back. Pin it in place.
-          e.currentTarget.scrollLeft = 0;
-          e.currentTarget.scrollTop = 0;
-        }}
         onDoubleClick={() => canPan && onReframeChange({ offsetX: 0, offsetY: 0 })}
         title={canPan ? "Drag to pan - double-click to center" : undefined}
       >
+        {/* Keep only the rendered video surface clipped. Editable overlays are
+            siblings of this layer, so selection outlines and resize handles
+            remain visible and interactive beyond the preview edge. */}
+        <div className="pointer-events-none absolute inset-0 overflow-hidden rounded-2xl">
         {/* Blurred fill behind everything (mirrors the export's blur base).
             Followers only preload metadata: the driver video gets the bandwidth
             for its first paint, and followers buffer once playback starts. */}
@@ -962,6 +959,7 @@ export function EditorPreview({
             </p>
           </div>
         )}
+        </div>
 
         {/* Safe-area guide. */}
         {!cropping && <div className="pointer-events-none absolute inset-[5%] z-10 rounded-md border border-dashed border-white/15" />}
