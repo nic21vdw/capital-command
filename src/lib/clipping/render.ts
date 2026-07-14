@@ -147,10 +147,15 @@ export function animatedReframeChain(
  * master is a re-encode of this same section — so what the user previews is
  * what they get.
  */
-export async function renderPreviewAssets(inputPath: string, previewPath: string, posterPath: string) {
+export async function renderPreviewAssets(
+  inputPath: string,
+  previewPath: string,
+  posterPath: string,
+  signal?: AbortSignal
+) {
   // `+faststart` is an MP4-muxer option; WebM sections are copied as-is.
   const isMp4 = previewPath.toLowerCase().endsWith(".mp4");
-  await runFfmpeg(["-y", "-i", inputPath, "-c", "copy", ...(isMp4 ? ["-movflags", "+faststart"] : []), previewPath]);
+  await runFfmpeg(["-y", "-i", inputPath, "-c", "copy", ...(isMp4 ? ["-movflags", "+faststart"] : []), previewPath], { signal });
   await runFfmpeg([
     "-y",
     "-ss",
@@ -164,7 +169,7 @@ export async function renderPreviewAssets(inputPath: string, previewPath: string
     "-q:v",
     "4",
     posterPath
-  ]);
+  ], { signal });
 }
 
 /**
@@ -172,7 +177,12 @@ export async function renderPreviewAssets(inputPath: string, previewPath: string
  * source frame is preserved with contain scaling so any later vertical,
  * square, or portrait crop can be made non-destructively from this file.
  */
-export async function renderSourceClip(inputPath: string, outputPath: string, audioPresent: boolean) {
+export async function renderSourceClip(
+  inputPath: string,
+  outputPath: string,
+  audioPresent: boolean,
+  signal?: AbortSignal
+) {
   await runFfmpeg([
     "-y",
     "-i",
@@ -192,7 +202,7 @@ export async function renderSourceClip(inputPath: string, outputPath: string, au
     "-movflags",
     "+faststart",
     outputPath
-  ]);
+  ], { signal });
 }
 
 /**
@@ -241,7 +251,8 @@ export async function renderCaptionedVertical(
   inputPath: string,
   outputPath: string,
   assPath: string | null,
-  audioPresent: boolean
+  audioPresent: boolean,
+  signal?: AbortSignal
 ) {
   const composition =
     "[0:v]split=2[bg][fg];" +
@@ -270,7 +281,7 @@ export async function renderCaptionedVertical(
     "-movflags",
     "+faststart",
     outputPath
-  ]);
+  ], { signal });
 }
 
 export function stackedLayoutChain(
