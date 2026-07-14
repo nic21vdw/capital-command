@@ -39,11 +39,13 @@ import {
 } from "@/components/editor/panels";
 import { writeDraftProject } from "@/components/editor/drafts";
 import { useEditorExports } from "@/components/editor/exports-provider";
+import { placeChannelVideos } from "@/lib/publisher/channelPlacement";
 import { cn, safeFilename } from "@/lib/utils";
 import type { CaptionSegment, ClipProject, CropTarget, Overlay, OverlayKind } from "@/types/domain";
 import type { ClipCandidate, ClipJob } from "@/lib/clipping/types";
 import type { EditorApi } from "@/components/editor/types";
 import type { ScheduleSlot } from "@/lib/publisher/slots";
+import type { ChannelSchedule } from "@/lib/publisher/channelVideos";
 
 // One open slot offered in the Schedule Short dropdown for one-click scheduling.
 type QuickSlot = { utc: string; label: string; today: boolean };
@@ -681,17 +683,23 @@ export function ClipEditor({
   }, [project.jobId, project.sourceFile, router]);
 
   // Load the next open slots for the dropdown: the schedule grid's future slots
-  // minus any already booked in the queue, soonest first. Fetched each time the
-  // menu opens so it reflects whatever was scheduled since the editor loaded.
+  // minus any already booked, soonest first. Fetched each time the menu opens so
+  // it reflects whatever was scheduled since the editor loaded. "Booked" mirrors
+  // the Uploading Center exactly — a slot is taken when this app's queue holds it
+  // OR a video is already scheduled/published on the YouTube channel itself at
+  // that time (e.g. scheduled by hand in YouTube Studio). Without the channel
+  // check the dropdown would offer a slot the Uploading Center already shows as
+  // occupied, so quick-scheduling there would double-book it.
   const loadSlots = useCallback(async () => {
     setSlotsLoading(true);
     try {
-      const [overviewRes, queueRes] = await Promise.all([
+      const [overviewRes, queueRes, channelRes] = await Promise.all([
         fetch(`/api/publish/overview?days=${SLOT_WINDOW_DAYS}&offsetDays=0`, { cache: "no-store" }),
-        fetch("/api/publish", { cache: "no-store" })
+        fetch("/api/publish", { cache: "no-store" }),
+        fetch("/api/publish/youtube-channel", { cache: "no-store" })
       ]);
       const overview = overviewRes.ok
-        ? ((await overviewRes.json()) as { enabled: boolean; slots: ScheduleSlot[] })
+        ? ((await overviewRes.json()) as { enabled: boolean; timezone: string; slots: ScheduleSlot[] })
         : null;
       if (!overview?.enabled) {
         setPublishEnabled(false);
@@ -701,8 +709,17 @@ export function ClipEditor({
       setPublishEnabled(true);
       const queue = queueRes.ok ? ((await queueRes.json()) as { items?: Array<{ publishAt: string }> }) : {};
       const taken = new Set((queue.items ?? []).map((item) => new Date(item.publishAt).toISOString()));
+      // Place the channel's real schedule onto the grid with the same helper the
+      // Uploading Center uses, so occupancy is computed identically on both sides.
+      const channel = channelRes.ok ? ((await channelRes.json()) as ChannelSchedule) : null;
+      const channelBySlot = placeChannelVideos({
+        videos: channel?.videos ?? [],
+        slots: overview.slots,
+        isSlotOccupied: (slotUtc) => taken.has(slotUtc),
+        timeZone: overview.timezone ?? "UTC"
+      }).bySlotUtc;
       const open = overview.slots
-        .filter((slot) => !slot.past && !taken.has(slot.utc))
+        .filter((slot) => !slot.past && !taken.has(slot.utc) && !channelBySlot.has(slot.utc))
         .slice(0, 8)
         .map((slot) => ({ utc: slot.utc, label: `${slot.dateLabel} · ${slot.time}`, today: slot.today }));
       setSlotOptions(open);
