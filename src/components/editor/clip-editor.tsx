@@ -671,6 +671,9 @@ export function ClipEditor({
   const [slotOptions, setSlotOptions] = useState<QuickSlot[] | null>(null);
   const [slotsLoading, setSlotsLoading] = useState(false);
   const [publishEnabled, setPublishEnabled] = useState(true);
+  // Keep the control locked until the publish API has accepted the slot. Without
+  // this, the menu can reopen during the upload and briefly offer the same time.
+  const [scheduleSubmitting, setScheduleSubmitting] = useState(false);
 
   const goToUploadingCenter = useCallback(() => {
     const params = new URLSearchParams({ scheduleJob: project.jobId, scheduleClip: project.sourceFile });
@@ -716,6 +719,7 @@ export function ClipEditor({
   // slot flow in the Uploading Center.
   const scheduleToSlot = useCallback(
     async (slotUtc: string, file: string, label: string) => {
+      setScheduleSubmitting(true);
       try {
         const res = await fetch("/api/publish", {
           method: "POST",
@@ -739,6 +743,13 @@ export function ClipEditor({
           toast.error(data.error ?? "Could not schedule the Short.");
           return;
         }
+
+        // The POST has persisted the queue item. Remove the selected time now so
+        // it cannot be offered again, then reconcile against the full queue to
+        // pull in anything scheduled from another tab while this upload ran.
+        setSlotOptions((current) => current?.filter((slot) => slot.utc !== slotUtc) ?? current);
+        void loadSlots();
+
         const outcome = data.report?.outcomes.find((entry) => entry.platform === "youtube");
         if (outcome?.outcome === "scheduled") {
           toast.success(`Scheduled for ${label} — it now shows as Scheduled on YouTube.`);
@@ -751,9 +762,11 @@ export function ClipEditor({
         }
       } catch {
         toast.error("Network error while scheduling the Short.");
+      } finally {
+        setScheduleSubmitting(false);
       }
     },
-    [project.jobId, project.name, project.title]
+    [loadSlots, project.jobId, project.name, project.title]
   );
 
   // Ensure the on-screen edits are rendered, then run `target`. When the last
@@ -921,7 +934,7 @@ export function ClipEditor({
           <Save className="mr-2 h-4 w-4" /> {saving ? "Saving…" : saved ? "Saved" : "Save"}
         </Button>
         <ScheduleShortMenu
-          pending={pending !== null}
+          pending={pending !== null || scheduleSubmitting}
           progress={exportState.progress}
           slots={slotOptions}
           slotsLoading={slotsLoading}
