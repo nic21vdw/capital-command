@@ -934,7 +934,8 @@ export function ClipEditor({
           <Save className="mr-2 h-4 w-4" /> {saving ? "Saving…" : saved ? "Saved" : "Save"}
         </Button>
         <ScheduleShortMenu
-          pending={pending !== null || scheduleSubmitting}
+          pending={pending !== null}
+          submitting={scheduleSubmitting}
           progress={exportState.progress}
           slots={slotOptions}
           slotsLoading={slotsLoading}
@@ -1132,6 +1133,7 @@ export function ClipEditor({
  */
 function ScheduleShortMenu({
   pending,
+  submitting,
   progress,
   slots,
   slotsLoading,
@@ -1141,6 +1143,7 @@ function ScheduleShortMenu({
   onOpenUploadingCenter
 }: {
   pending: boolean;
+  submitting: boolean;
   progress: number;
   slots: QuickSlot[] | null;
   slotsLoading: boolean;
@@ -1179,14 +1182,15 @@ function ScheduleShortMenu({
     <div ref={ref} className="relative">
       <Button
         onClick={toggle}
-        disabled={pending}
+        disabled={pending || submitting}
         aria-haspopup="menu"
         aria-expanded={open}
         title="Render this Short and schedule it — or pick a slot in the Uploading Center"
       >
-        {pending ? (
+        {pending || submitting ? (
           <>
-            <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Rendering… {progress}%
+            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+            {submitting ? "Scheduling…" : `Rendering… ${progress}%`}
           </>
         ) : (
           <>
@@ -1195,7 +1199,7 @@ function ScheduleShortMenu({
           </>
         )}
       </Button>
-      {open && !pending ? (
+      {open && !pending && !submitting ? (
         <div
           role="menu"
           className="absolute right-0 z-30 mt-2 w-72 rounded-xl border border-[var(--border)] bg-[var(--surface)] p-2 shadow-xl"
