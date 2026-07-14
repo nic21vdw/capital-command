@@ -345,8 +345,8 @@ export function buildAss(
     if (highlightCurrentWord && seg.words.length > 0) {
       // Word-synced captions the way clip apps burn them: one dialogue event
       // per spoken word showing the WHOLE phrase, with the current word
-      // re-colored (and popped slightly larger). "karaoke" keeps already
-      // spoken words lit and dims upcoming ones for a progressive fill.
+      // re-colored at a fixed size. "karaoke" keeps already spoken words lit
+      // and dims upcoming ones for a progressive fill.
       const words = [...seg.words].sort((a, b) => a.start - b.start);
       const karaoke = style.animation === "karaoke";
       for (let i = 0; i < words.length; i++) {
