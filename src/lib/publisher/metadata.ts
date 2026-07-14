@@ -1,14 +1,16 @@
 import Anthropic from "@anthropic-ai/sdk";
 import type { QueueItem } from "@/lib/publisher/types";
-import { CLIP_DESCRIPTION_TEMPLATE } from "@/lib/clipping/editor";
+import {
+  generateClipDescriptionFromText,
+  generateClipHashtagsFromText
+} from "@/lib/clipping/editor";
 
 /**
  * Post metadata (title / description / hashtags) for a finished clip.
  *
- * Mirrors the transcript-select pattern: ask Claude when ANTHROPIC_API_KEY is
- * set, degrade gracefully to a heuristic built from what the clipper already
- * knows (stream title, topic, spoken text) when it is not. Callers can always
- * pass explicit values to skip generation entirely.
+ * Claude uses the clip transcript when available. The offline path uses the
+ * same transcript-aware description and tag rules as the clip generator, so
+ * every ready clip still has useful metadata without an API key.
  */
 
 export type ClipMetadata = {
@@ -17,13 +19,13 @@ export type ClipMetadata = {
   hashtags: string[];
 };
 
-const MAX_TITLE_CHARS = 90; // fits YouTube's 100-char limit with room to spare
-const MAX_HASHTAGS = 6;
+const MAX_TITLE_CHARS = 90;
+const MAX_HASHTAGS = 5;
 
-function normalizeHashtags(tags: string[]): string[] {
+function normalizeHashtags(tags: string[], fallback: string[] = []): string[] {
   const seen = new Set<string>();
   const out: string[] = [];
-  for (const raw of tags) {
+  for (const raw of [...tags, ...fallback]) {
     const tag = `#${raw.replace(/^#+/, "").replace(/[^\p{L}\p{N}_]/gu, "")}`;
     if (tag.length < 2) continue;
     const key = tag.toLowerCase();
@@ -35,19 +37,28 @@ function normalizeHashtags(tags: string[]): string[] {
   return out;
 }
 
-/** Offline fallback: derive a title from existing clip metadata; every clip
- *  carries the same standing CoLateral description. */
+function fallbackTitle(source: { streamTitle?: string; topic?: string; spokenText?: string }): string {
+  const speech = source.spokenText?.replace(/\s+/g, " ").trim() ?? "";
+  const sentence = speech
+    .split(/(?<=[.!?])\s+/)
+    .find((part) => {
+      const words = part.trim().split(/\s+/);
+      return words.length >= 4 && words.length <= 12 && part.trim().length <= MAX_TITLE_CHARS;
+    });
+  const base = sentence?.replace(/[.!?]+$/, "").trim() || source.topic?.trim() || source.streamTitle?.trim() || "New clip";
+  return base.length > MAX_TITLE_CHARS ? `${base.slice(0, MAX_TITLE_CHARS - 1)}…` : base;
+}
+
 export function fallbackMetadata(source: {
   streamTitle?: string;
   topic?: string;
   spokenText?: string;
 }): ClipMetadata {
-  const base = source.streamTitle?.trim() || source.topic?.trim() || "New clip";
-  const title = base.length > MAX_TITLE_CHARS ? `${base.slice(0, MAX_TITLE_CHARS - 1)}…` : base;
+  const text = [source.topic, source.spokenText].filter(Boolean).join(" ");
   return {
-    title,
-    description: CLIP_DESCRIPTION_TEMPLATE,
-    hashtags: []
+    title: fallbackTitle(source),
+    description: generateClipDescriptionFromText(source.spokenText ?? source.topic ?? source.streamTitle ?? ""),
+    hashtags: generateClipHashtagsFromText(text, MAX_HASHTAGS)
   };
 }
 
@@ -67,10 +78,17 @@ function parseMetadata(text: string): Partial<ClipMetadata> | null {
   }
 }
 
+function addBrandFooter(description: string): string {
+  const summary = description.trim();
+  const footer = "Follow along as I build CoLateral in public: https://colateral.ai";
+  if (!summary) return footer;
+  if (summary.includes("colateral.ai")) return summary;
+  return `${summary}\n\n${footer}`;
+}
+
 /**
- * Generates a punchy, complete-sentence title for the clip. The description
- * is always the standing CoLateral boilerplate — never model-generated.
- * Never throws — falls back to the heuristic on any error.
+ * Generates a complete title, clip-aware description, and exactly five
+ * relevant hashtags. Never throws and never returns an empty metadata field.
  */
 export async function generateClipMetadata(source: {
   streamTitle?: string;
@@ -83,17 +101,17 @@ export async function generateClipMetadata(source: {
     const client = new Anthropic();
     const response = await client.messages.create({
       model: "claude-opus-4-8",
-      max_tokens: 300,
+      max_tokens: 500,
       messages: [
         {
           role: "user",
           content: [
-            "You write the title for a short-form vertical clip posted to YouTube Shorts, Instagram Reels and TikTok.",
+            "Write metadata for a short vertical clip posted to YouTube Shorts, Instagram Reels, and TikTok.",
             source.streamTitle ? `Stream title: ${source.streamTitle}` : "",
             source.topic ? `Topic: ${source.topic}` : "",
-            source.spokenText ? `What is said in the clip:\n${source.spokenText.slice(0, 2000)}` : "",
+            source.spokenText ? `What is said in the clip:\n${source.spokenText.slice(0, 3000)}` : "",
             "",
-            `Reply with ONLY a JSON object: {"title": string} — a complete thought or sentence, never cut off mid-phrase, max ${MAX_TITLE_CHARS} chars, punchy, no clickbait lies, no emojis.`
+            `Reply with ONLY JSON: {"title": string, "description": string, "hashtags": string[]}. The title must be a complete thought, punchy but truthful, no emojis, and at most ${MAX_TITLE_CHARS} characters. The description must be 1-2 concise sentences explaining this specific clip, with no hashtags or generic filler. Return exactly ${MAX_HASHTAGS} relevant hashtags without the # prefix. Prefer focused tags such as AI, buildinpublic, business, vibecoding, engineering, automation, productivity, startup, or contentcreation only when the clip supports them.`
           ]
             .filter(Boolean)
             .join("\n")
@@ -105,11 +123,11 @@ export async function generateClipMetadata(source: {
       .map((block) => block.text)
       .join("\n");
     const parsed = parseMetadata(text);
-    if (!parsed?.title) return fallback;
+    if (!parsed?.title || !parsed.description) return fallback;
     return {
-      title: parsed.title.slice(0, MAX_TITLE_CHARS + 10),
-      description: CLIP_DESCRIPTION_TEMPLATE,
-      hashtags: []
+      title: parsed.title.trim().slice(0, MAX_TITLE_CHARS),
+      description: addBrandFooter(parsed.description),
+      hashtags: normalizeHashtags(parsed.hashtags ?? [], fallback.hashtags)
     };
   } catch {
     return fallback;
