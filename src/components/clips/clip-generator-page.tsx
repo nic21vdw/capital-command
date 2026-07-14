@@ -25,6 +25,7 @@ import { Progress } from "@/components/ui/progress";
 import { Textarea } from "@/components/ui/textarea";
 import { chunkWords, windowSegments } from "@/lib/clipping/captions";
 import { generateClipTitle, makeClipProject, makeTitleOverlay } from "@/lib/clipping/editor";
+import { buildClipSegments, buildClipSegmentsFromSilences } from "@/lib/clipping/segments";
 import { writeDraftProject } from "@/components/editor/drafts";
 import { cn, safeFilename } from "@/lib/utils";
 import type { ClipCandidate, ClipJob, ClipJobStage, ClipJobStatus } from "@/lib/clipping/types";
@@ -258,6 +259,15 @@ export function ClipGeneratorPage() {
       const windowed = windowSegments(job.sourceCaptions ?? [], clip.start, clip.end);
       const words = windowed.flatMap((segment) => segment.words);
       project.captions = words.length ? chunkWords(words, project.captionStyle.maxWordsPerCaption) : windowed;
+      const localSilences = (job.silences ?? [])
+        .filter((silence) => silence.end > clip.start && silence.start < clip.end)
+        .map((silence) => ({
+          start: Math.max(0, silence.start - clip.start),
+          end: Math.min(project.baseDurationSec, silence.end - clip.start)
+        }));
+      project.segments = localSilences.length
+        ? buildClipSegmentsFromSilences(project.baseDurationSec, localSilences)
+        : buildClipSegments(project.baseDurationSec, project.captions);
       project.title = generateClipTitle(project.captions, `Clip ${index + 1}`);
       if (project.title) project.name = project.title;
       project.overlays = [...project.overlays, makeTitleOverlay(project)];
