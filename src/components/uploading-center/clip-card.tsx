@@ -156,9 +156,22 @@ export function ClipCard({
           <Textarea
             value={draft.caption}
             onChange={(event) => onDraftChange({ ...draft, caption: event.target.value })}
-            placeholder="Caption — leave empty to auto-generate on schedule"
-            className="min-h-16 py-2"
+            placeholder="Clip description"
+            className="min-h-24 py-2"
           />
+          <div className="flex flex-wrap items-center gap-1.5 pl-6" aria-label="Automatic clip hashtags">
+            <span className="mr-1 text-[10px] font-medium uppercase tracking-wide text-[var(--muted-foreground)]">
+              Auto tags
+            </span>
+            {draft.hashtags.slice(0, 5).map((hashtag) => (
+              <span
+                key={hashtag}
+                className="rounded-full border border-[var(--accent)]/30 bg-[var(--accent)]/8 px-2 py-0.5 text-[11px] text-[var(--accent)]"
+              >
+                {hashtag}
+              </span>
+            ))}
+          </div>
           <div className="flex flex-wrap items-center gap-2">
             <Select
               value={draft.platform}
