@@ -5,6 +5,7 @@ import { buildAss, chunkWords, windowSegments } from "@/lib/clipping/captions";
 import { copyClipsToDrive, driveDir } from "@/lib/clipping/drive";
 import { downloadAudio, downloadSection, fetchVideoMeta } from "@/lib/clipping/download";
 import { hasAudioStream, probeDimensions, probeDuration, runFfmpeg } from "@/lib/clipping/ffmpeg";
+import { generateClipMetadata } from "@/lib/publisher/metadata";
 import { renderCaptionedVertical, renderPreviewAssets, renderSourceClip } from "@/lib/clipping/render";
 import { readSourceMeta, sourceFilePath, type SourceMeta } from "@/lib/clipping/sources";
 import { defaultCaptionStyle } from "@/lib/storage/schemas";
@@ -229,6 +230,37 @@ function mergeClipCandidates(primary: ClipCandidate[], supplemental: ClipCandida
   return merged.slice(0, TARGET_CLIP_COUNT).map((candidate, index) => ({ ...candidate, id: `clip-${index + 1}` }));
 }
 
+/**
+ * Generates publish-ready metadata before rendering begins. Work is kept in
+ * small batches so a long stream does not fan out into a burst of model calls.
+ * The offline metadata path is used automatically when Claude is unavailable.
+ */
+async function attachGeneratedMetadata(
+  job: ClipJob,
+  candidates: ClipCandidate[],
+  transcript: NonNullable<ClipJob["sourceCaptions"]>
+) {
+  for (let offset = 0; offset < candidates.length; offset += 3) {
+    await Promise.all(
+      candidates.slice(offset, offset + 3).map(async (candidate) => {
+        const spokenText = windowSegments(transcript, candidate.start, candidate.end)
+          .map((segment) => segment.text)
+          .join(" ")
+          .replace(/\s+/g, " ")
+          .trim();
+        const metadata = await generateClipMetadata({
+          streamTitle: job.fileName,
+          topic: job.topic,
+          spokenText: spokenText || candidate.hookQuote || candidate.rationale
+        });
+        candidate.title ??= metadata.title;
+        candidate.description = metadata.description;
+        candidate.hashtags = metadata.hashtags.slice(0, 5);
+      })
+    );
+  }
+}
+
 export async function createJobFromUrl(
   url: string,
   topic: string | undefined
@@ -347,6 +379,7 @@ async function runLocalPipeline(job: ClipJob, meta: SourceMeta) {
       candidates = fallbackCandidates(durationSec, "This video has no audio track");
     }
   }
+  await attachGeneratedMetadata(job, candidates, transcript ?? []);
   job.clips = candidates;
   await persistJobs();
 
@@ -440,6 +473,7 @@ async function runPipeline(job: ClipJob, url: string) {
       );
     }
   }
+  await attachGeneratedMetadata(job, candidates, transcript ?? []);
   job.clips = candidates;
   await persistJobs();
 
