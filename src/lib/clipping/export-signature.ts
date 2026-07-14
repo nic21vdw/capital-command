@@ -3,6 +3,7 @@ import type {
   CaptionStyle,
   ClipAudio,
   ClipCompositionMode,
+  ClipEditSegment,
   ClipExportSettings,
   Overlay,
   RegionRect,
@@ -21,6 +22,7 @@ export type RenderSignatureInput = {
   baseDurationSec: number;
   trimStart: number;
   trimEnd: number;
+  segments?: ClipEditSegment[];
   compositionMode: ClipCompositionMode;
   reframe: { scale: number; offsetX: number; offsetY: number };
   faceSource?: RegionRect;
@@ -72,6 +74,7 @@ export function renderSignature(input: RenderSignatureInput): string {
   const shape = {
     trimStart: Number(trim.start.toFixed(3)),
     trimEnd: Number(trim.end.toFixed(3)),
+    segments: input.segments ?? [],
     compositionMode: input.compositionMode,
     reframe: input.reframe,
     faceSource: input.faceSource ?? null,
@@ -99,10 +102,12 @@ export function hasEditsBeyondAutoRender(input: {
   baseDurationSec: number;
   trimStart: number;
   trimEnd: number;
+  segments?: ClipEditSegment[];
   overlays: Overlay[];
   settings: ClipExportSettings;
 }): boolean {
   const trim = effectiveTrim(input);
   const trimmed = trim.start > 0.05 || trim.end < input.baseDurationSec - 0.05;
-  return trimmed || input.overlays.length > 0 || input.settings.watermark === true;
+  const hasInternalCuts = (input.segments ?? []).some((segment) => !segment.enabled);
+  return trimmed || hasInternalCuts || input.overlays.length > 0 || input.settings.watermark === true;
 }
