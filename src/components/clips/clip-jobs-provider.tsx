@@ -32,7 +32,7 @@ export function ClipJobsProvider({ children }: { children: React.ReactNode }) {
     let timer: number | null = null;
     const controller = new AbortController();
 
-    const poll = async () => {
+    const poll = async (): Promise<void> => {
       try {
         const response = await fetch("/api/clips", {
           cache: "no-store",
