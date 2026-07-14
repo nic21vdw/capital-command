@@ -496,6 +496,14 @@ const aiSuggestionSchema = z.object({
   addedToTimeline: z.coerce.boolean().default(false)
 });
 
+const clipEditSegmentSchema = z.object({
+  id: z.string(),
+  start: z.coerce.number().min(0),
+  end: z.coerce.number().min(0),
+  kind: z.enum(["speech", "silence"]),
+  enabled: z.coerce.boolean().default(true)
+});
+
 export const clipProjectSchema = z.object({
   id: z.string(),
   name: z.string().trim().min(1).default("Untitled clip"),
@@ -510,6 +518,7 @@ export const clipProjectSchema = z.object({
   clipEnd: z.coerce.number().min(0).default(0),
   trimStart: z.coerce.number().min(0).default(0),
   trimEnd: z.coerce.number().min(0).default(0),
+  segments: z.array(clipEditSegmentSchema).max(1000).default([]),
   title: z.string().default(""),
   aspectRatio: z.enum(["9:16", "16:9", "1:1", "4:5", "custom"]).default("9:16"),
   compositionMode: z
