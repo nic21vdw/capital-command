@@ -1,7 +1,7 @@
 import { mkdir, readFile, rm } from "node:fs/promises";
 import path from "node:path";
 import { chunkWords } from "@/lib/clipping/captions";
-import { probeDuration, runFfmpeg } from "@/lib/clipping/ffmpeg";
+import { probeDuration, RenderCanceledError, runFfmpeg } from "@/lib/clipping/ffmpeg";
 import type { CaptionSegment, CaptionWord } from "@/types/domain";
 
 /**
@@ -67,7 +67,8 @@ const PCM_RATE = 16000;
 async function decodePcm(
   mediaPath: string,
   workDir: string,
-  window: { startSec?: number; durationSec?: number } = {}
+  window: { startSec?: number; durationSec?: number } = {},
+  signal?: AbortSignal
 ): Promise<Float32Array> {
   await mkdir(workDir, { recursive: true });
   const pcmPath = path.join(workDir, `whisper-${Date.now()}.pcm`);
@@ -77,7 +78,7 @@ async function decodePcm(
     args.push("-i", mediaPath, "-vn", "-ac", "1", "-ar", String(PCM_RATE));
     if (window.durationSec) args.push("-t", window.durationSec.toFixed(3));
     args.push("-f", "f32le", "-acodec", "pcm_f32le", pcmPath);
-    await runFfmpeg(args);
+    await runFfmpeg(args, { signal });
     const buffer = await readFile(pcmPath);
     return new Float32Array(buffer.buffer, buffer.byteOffset, Math.floor(buffer.byteLength / 4));
   } finally {
@@ -186,6 +187,8 @@ export type TranscribeOptions = {
    * first 60s) so a multi-hour stream doesn't spend hours in Whisper.
    */
   maxSeconds?: number;
+  /** Stops FFmpeg decoding immediately and prevents later Whisper windows from starting. */
+  signal?: AbortSignal;
 };
 
 /**
@@ -198,6 +201,7 @@ export async function transcribeMedia(
   workDir: string,
   options: TranscribeOptions = {}
 ): Promise<CaptionSegment[]> {
+  if (options.signal?.aborted) throw new RenderCanceledError("Clip generation was stopped.");
   let transcriber: Transcriber;
   try {
     transcriber = await getTranscriber();
@@ -231,10 +235,12 @@ export async function transcribeMedia(
   if (targetSec !== null && targetSec > DECODE_WINDOW_SEC) {
     for (let offset = 0; offset < targetSec; offset += DECODE_WINDOW_SEC) {
       const windowSec = Math.min(DECODE_WINDOW_SEC, targetSec - offset);
-      const audio = await decodePcm(mediaPath, workDir, { startSec: offset, durationSec: windowSec });
+      if (options.signal?.aborted) throw new RenderCanceledError("Clip generation was stopped.");
+      const audio = await decodePcm(mediaPath, workDir, { startSec: offset, durationSec: windowSec }, options.signal);
       decodedSamples += audio.length;
       if (audio.length >= PCM_RATE * 0.25) {
         const result = await transcribe(audio);
+        if (options.signal?.aborted) throw new RenderCanceledError("Clip generation was stopped.");
         allChunks.push(...offsetWordChunks(result.chunks ?? [], offset));
       }
       // The probed duration can overshoot the real audio (VBR headers); a
@@ -242,10 +248,16 @@ export async function transcribeMedia(
       if (audio.length < (windowSec - 1) * PCM_RATE) break;
     }
   } else {
-    const audio = await decodePcm(mediaPath, workDir, targetSec !== null ? { durationSec: targetSec } : {});
+    const audio = await decodePcm(
+      mediaPath,
+      workDir,
+      targetSec !== null ? { durationSec: targetSec } : {},
+      options.signal
+    );
     decodedSamples = audio.length;
     if (audio.length >= PCM_RATE * 0.25) {
       const result = await transcribe(audio);
+      if (options.signal?.aborted) throw new RenderCanceledError("Clip generation was stopped.");
       allChunks.push(...(result.chunks ?? []));
     }
   }
