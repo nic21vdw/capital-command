@@ -358,8 +358,10 @@ export function buildAss(
             const breakTag = j > 0 && j % wordsPerLine === 0 ? "\\N" : j > 0 ? " " : "";
             let styled: string;
             if (j === i) {
-              const popTag = style.animation === "pop" || karaoke ? "\\fscx112\\fscy112" : "";
-              styled = `{\\1c${highlight}${popTag}}${transform(w.text)}{\\r}`;
+              // Highlight without scaling the active word. Per-word scaling
+              // changes the phrase's visual bounds and makes captions appear to
+              // jump even though their anchor has not moved.
+              styled = `{\\1c${highlight}}${transform(w.text)}{\\r}`;
             } else if (karaoke && j < i) {
               styled = `{\\1c${highlight}}${transform(w.text)}{\\r}`;
             } else if (karaoke && j > i) {
