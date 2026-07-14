@@ -14,7 +14,6 @@ import { PageHeader } from "@/components/ui/page-header";
 import { Select } from "@/components/ui/select";
 import { ClipEditor } from "@/components/editor/clip-editor";
 import { clearDraftProject, readDraftProject, writeDraftProject } from "@/components/editor/drafts";
-import { EditorExportsProvider } from "@/components/editor/exports-provider";
 import type { ClipProject } from "@/types/domain";
 import type { ClipCandidate, ClipJob } from "@/lib/clipping/types";
 
@@ -371,20 +370,14 @@ export function ClipEditorPage() {
     </div>
   );
 
-  // A single provider wraps both views so background renders keep reporting
-  // progress across clip switches and while the project list is showing.
-  return (
-    <EditorExportsProvider>
-      {openProject ? (
-        <ClipEditor
-          key={openProject.id}
-          initialProject={openProject}
-          onClose={() => setOpenId(null)}
-          onOpenClip={switchToClip}
-        />
-      ) : (
-        projectList
-      )}
-    </EditorExportsProvider>
+  return openProject ? (
+    <ClipEditor
+      key={openProject.id}
+      initialProject={openProject}
+      onClose={() => setOpenId(null)}
+      onOpenClip={switchToClip}
+    />
+  ) : (
+    projectList
   );
 }
