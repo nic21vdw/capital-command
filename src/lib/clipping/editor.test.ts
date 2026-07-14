@@ -153,24 +153,28 @@ describe("generateClipHashtags", () => {
     ];
     const tags = generateClipHashtags(captions);
     expect(tags).toContain("#Bitcoin");
+    expect(tags).toHaveLength(5);
     expect(tags.every((tag) => tag.startsWith("#"))).toBe(true);
   });
 });
 
 describe("generateClipDescription", () => {
-  it("always returns the standing CoLateral description, regardless of transcript", () => {
+  it("describes the specific clip and includes the standing CoLateral follow-through", () => {
     const captions = [
       caption("c1", "Bitcoin is the future of money. Bitcoin keeps growing every year."),
       caption("c2", "Everyone should learn about bitcoin and money management today.")
     ];
     const description = generateClipDescription(captions);
+    expect(description).toContain("Bitcoin is the future of money.");
     expect(description).toContain("CoLateral");
     expect(description).toContain("https://colateral.ai");
-    expect(description).toContain("#BuildInPublic");
+    expect(description).not.toContain("#");
   });
 
-  it("returns the same standing description with no captions", () => {
-    expect(generateClipDescription([])).toBe(generateClipDescription([caption("c1", "hi")]));
+  it("still returns a useful description when no transcript is available", () => {
+    const description = generateClipDescription([]);
+    expect(description.length).toBeGreaterThan(20);
+    expect(description).toContain("colateral.ai");
   });
 });
 
