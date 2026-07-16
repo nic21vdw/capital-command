@@ -1,9 +1,19 @@
 import { NextRequest, NextResponse } from "next/server";
-import { isPrimaryAccountId, primaryAccountId } from "@/lib/publisher/accounts";
-import { exchangeGoogleCode } from "@/lib/publisher/googleAuth";
+import {
+  isPrimaryAccountId,
+  itemBelongsToAccount,
+  primaryAccountId
+} from "@/lib/publisher/accounts";
+import {
+  exchangeGoogleCode,
+  YOUTUBE_RECONNECT_REQUIRED
+} from "@/lib/publisher/googleAuth";
+import { publishQueue } from "@/lib/publisher/queue";
+import { runDue } from "@/lib/publisher/runner";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+export const maxDuration = 300;
 
 /**
  * GET /api/auth/google/callback — finish the OAuth flow. The code is
@@ -22,6 +32,38 @@ export async function GET(request: NextRequest) {
   }
   try {
     await exchangeGoogleCode(code, `${request.nextUrl.origin}/api/auth/google/callback`, accountId);
+
+    // A revoked refresh token is permanent until the user reconnects. Once a
+    // fresh token is stored, revive only the uploads that failed for that exact
+    // reason/account, then retry them immediately. Other permanent failures
+    // remain untouched.
+    const queue = publishQueue();
+    const retryIds: string[] = [];
+    for (const item of await queue.list()) {
+      const state = item.platforms.youtube;
+      if (
+        state?.status === "failed" &&
+        state.error === YOUTUBE_RECONNECT_REQUIRED &&
+        itemBelongsToAccount(item, "youtube", accountId)
+      ) {
+        state.status = "pending";
+        state.attempts = 0;
+        state.error = undefined;
+        state.nextAttemptAt = undefined;
+        state.claimedAt = undefined;
+        retryIds.push(item.id);
+      }
+    }
+    if (retryIds.length > 0) {
+      await queue.save();
+      for (const itemId of retryIds) {
+        // Keep OAuth success independent from a later media/API failure. The
+        // runner records any new failure on the queue with its proper status.
+        await runDue(new Date(), { itemId }).catch(() => undefined);
+      }
+      target.searchParams.set("recovered", String(retryIds.length));
+    }
+
     target.searchParams.set("connected", "youtube");
     if (!isPrimaryAccountId(accountId)) target.searchParams.set("account", accountId);
   } catch (error) {
