@@ -38,7 +38,7 @@ export const YOUTUBE_RECONNECT_REQUIRED =
 
 export function isYoutubeReconnectRequired(error: unknown): boolean {
   const message = error instanceof Error ? error.message : String(error);
-  return /invalid_grant|token has been expired or revoked/i.test(message);
+  return message === YOUTUBE_RECONNECT_REQUIRED || /invalid_grant|token has been expired or revoked/i.test(message);
 }
 
 export type YoutubeChannelInfo = { title: string; thumbnail: string | null };
