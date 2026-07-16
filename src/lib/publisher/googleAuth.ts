@@ -32,6 +32,15 @@ const CHANNELS_URL = "https://www.googleapis.com/youtube/v3/channels?part=snippe
 export const YOUTUBE_REFRESH_TOKEN_CACHE_KEY = youtubeRefreshTokenKey();
 export const YOUTUBE_CHANNEL_CACHE_KEY = youtubeChannelKey();
 
+/** Stable, user-safe reason recorded when Google revokes an OAuth grant. */
+export const YOUTUBE_RECONNECT_REQUIRED =
+  "YouTube connection expired or was revoked. Reconnect YouTube to resume the upload automatically.";
+
+export function isYoutubeReconnectRequired(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  return /invalid_grant|token has been expired or revoked/i.test(message);
+}
+
 export type YoutubeChannelInfo = { title: string; thumbnail: string | null };
 
 export function googleAuthUrl(redirectUri: string, accountId: string = primaryAccountId("youtube")): string {
@@ -110,13 +119,20 @@ async function fetchChannelInfo(accessToken: string): Promise<YoutubeChannelInfo
   return { title: snippet.title, thumbnail };
 }
 
-/** The account's stored refresh token: .env wins for the primary account. */
+/**
+ * The account's stored refresh token. A token minted by Connect YouTube wins
+ * over .env so reconnecting can actually replace an expired/revoked primary
+ * credential; .env remains the fallback for setups that have never connected
+ * through the app.
+ */
 export async function youtubeRefreshTokenFor(accountId: string = primaryAccountId("youtube")): Promise<string | null> {
+  const cached = await getCachedToken(youtubeRefreshTokenKey(accountId));
+  if (cached) return cached;
   if (accountId === primaryAccountId("youtube")) {
     const { youtube } = publisherConfig();
     if (youtube.refreshToken) return youtube.refreshToken;
   }
-  return getCachedToken(youtubeRefreshTokenKey(accountId));
+  return null;
 }
 
 // Connections made before the badge showed the channel lack the readonly
