@@ -6,7 +6,7 @@ import {
 } from "@/lib/publisher/accounts";
 import {
   exchangeGoogleCode,
-  YOUTUBE_RECONNECT_REQUIRED
+  isYoutubeReconnectRequired
 } from "@/lib/publisher/googleAuth";
 import { publishQueue } from "@/lib/publisher/queue";
 import { runDue } from "@/lib/publisher/runner";
@@ -43,7 +43,7 @@ export async function GET(request: NextRequest) {
       const state = item.platforms.youtube;
       if (
         state?.status === "failed" &&
-        state.error === YOUTUBE_RECONNECT_REQUIRED &&
+        isYoutubeReconnectRequired(state.error) &&
         itemBelongsToAccount(item, "youtube", accountId)
       ) {
         state.status = "pending";
