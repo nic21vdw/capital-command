@@ -154,8 +154,11 @@ export function UploadingCenterPage() {
       // tab to that account so the fresh connection is what's on screen.
       const accountParam = searchParams.get("account");
       if (accountParam) setActiveAccount("youtube", accountParam);
+      const recovered = Number(searchParams.get("recovered") ?? 0);
       toast.success(
-        "YouTube connected — scheduled posts will upload automatically.",
+        recovered > 0
+          ? `YouTube reconnected — ${recovered} blocked upload${recovered === 1 ? "" : "s"} retried automatically.`
+          : "YouTube connected — scheduled posts will upload automatically.",
       );
     } else if (connectError) {
       oauthToastShown.current = true;
