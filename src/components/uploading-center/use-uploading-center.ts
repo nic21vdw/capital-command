@@ -73,11 +73,60 @@ export type ReadyClip = {
   /**
    * True when a saved Clip Editor project for this clip has a trim (or other
    * edits) that its current render doesn't reflect — because it was never
-   * rendered, or was trimmed again after its last render. Scheduling is blocked
-   * until it's re-rendered so the uploaded file is always the edited cut.
+   * rendered, or was trimmed again after its last render. Scheduling doesn't
+   * block on this: it bakes the edits into a fresh render first (see
+   * `schedule`), so the uploaded file is always the edited cut.
    */
   needsRerender: boolean;
+  /**
+   * The backend clip's source (master) file — the key its Clip Editor project
+   * is saved against. Used to find the project to bake when `needsRerender`.
+   */
+  masterFile?: string;
 };
+
+/** Resolve a milliseconds delay without pulling in a timer library. */
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * Renders a clip project to completion and returns the output file name, so a
+ * clip whose trim isn't baked in yet can be rendered right before it's posted —
+ * guaranteeing the uploaded file is the edited cut without a trip to the editor.
+ * Throws with a human-readable message on any render failure.
+ */
+async function bakeProject(project: ClipProject): Promise<string> {
+  const startRes = await fetch(`/api/clips/${project.jobId}/export`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(project)
+  });
+  if (!startRes.ok) throw new Error(await readError(startRes));
+  const { export: rec } = (await startRes.json()) as { export?: { id: string } };
+  if (!rec?.id) throw new Error("The render could not start.");
+  // Poll the shared export record until it finishes. Bounded so a wedged render
+  // can never hang the schedule action forever (10 min at a 1.2s cadence).
+  for (let i = 0; i < 500; i += 1) {
+    await delay(1200);
+    const res = await fetch(`/api/clips/${project.jobId}/export/${rec.id}`, { cache: "no-store" });
+    if (!res.ok) {
+      if (res.status === 404) throw new Error("The render was lost after a server restart — try again.");
+      continue; // transient blip — keep polling
+    }
+    const { export: state } = (await res.json()) as {
+      export?: { status: string; file?: string; error?: string };
+    };
+    if (!state) continue;
+    if (state.status === "done") {
+      if (!state.file) throw new Error("The render finished but produced no file.");
+      return state.file;
+    }
+    if (state.status === "error") throw new Error(state.error ?? "The render failed.");
+    if (state.status === "canceled") throw new Error("The render was canceled.");
+  }
+  throw new Error("The render is taking too long — check the Clip Editor and try again.");
+}
 
 /**
  * Whether a clip's ready-to-post file is out of date with its saved editor
@@ -317,7 +366,8 @@ export function useUploadingCenter(clipProjects: ClipProject[] = []) {
             : `/api/clips/${activeJob.id}/thumbnail/${encodeURIComponent(thumbSource)}`,
           previewUrl: `/api/clips/${activeJob.id}/files/${encodeURIComponent(file)}`,
           startSec,
-          needsRerender: computeNeedsRerender(clip, projectsForJob)
+          needsRerender: computeNeedsRerender(clip, projectsForJob),
+          masterFile: clip.file
         }
       ];
     });
@@ -524,24 +574,58 @@ export function useUploadingCenter(clipProjects: ClipProject[] = []) {
     }
   }, []);
 
+  /**
+   * The clip's most recently edited Clip Editor project, used to bake its trim
+   * into a render right before scheduling. Matched on the clip's master file,
+   * the key projects are saved against (see computeNeedsRerender).
+   */
+  const projectForClip = useCallback(
+    (clip: ReadyClip): ClipProject | null => {
+      if (!clip.masterFile) return null;
+      return (
+        clipProjects
+          .filter((project) => project.jobId === clip.jobId && project.sourceFile === clip.masterFile)
+          .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))[0] ?? null
+      );
+    },
+    [clipProjects]
+  );
+
   const schedule = useCallback(
     async (clip: ReadyClip, draft: ClipDraft) => {
       if (!draft.slotUtc) {
         toast.error("Pick a schedule slot first.");
         return false;
       }
-      if (clip.needsRerender) {
-        toast.error("This clip has a trim that hasn't been rendered yet. Open it in the editor and hit Schedule Short to bake in your edits before uploading.");
-        return false;
-      }
       setBusy(`schedule:${clip.key}`);
       try {
+        // If the trim/edits aren't baked into the current render, render them
+        // now and post the fresh cut — so the upload is always the edited clip,
+        // no round-trip through the editor required.
+        let file = clip.file;
+        if (clip.needsRerender) {
+          const project = projectForClip(clip);
+          if (!project) {
+            toast.error("Open this clip in the editor and hit Schedule Short to bake in your edits first.");
+            return false;
+          }
+          const bakeToast = toast.loading("Baking your trim before scheduling…");
+          try {
+            file = await bakeProject(project);
+          } catch (error) {
+            toast.error(`Couldn't render the trimmed clip: ${error instanceof Error ? error.message : "render failed"}.`, {
+              id: bakeToast
+            });
+            return false;
+          }
+          toast.dismiss(bakeToast);
+        }
         const response = await fetch("/api/publish", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             jobId: clip.jobId,
-            file: clip.file,
+            file,
             publishAt: draft.slotUtc,
             title: draft.title.trim() || undefined,
             caption: draft.caption.trim() || undefined,
@@ -564,7 +648,7 @@ export function useUploadingCenter(clipProjects: ClipProject[] = []) {
         setBusy(null);
       }
     },
-    [activeAccountIds, announceScheduleOutcome, refresh]
+    [activeAccountIds, announceScheduleOutcome, projectForClip, refresh]
   );
 
   /**
@@ -618,9 +702,19 @@ export function useUploadingCenter(clipProjects: ClipProject[] = []) {
       let firstError: string | null = null;
       try {
         for (const { clip, draft } of assignments) {
+          let file = clip.file;
           if (clip.needsRerender) {
-            firstError ??= "Some clips have un-rendered trims — open them in the editor and Schedule Short first.";
-            continue;
+            const project = projectForClip(clip);
+            if (!project) {
+              firstError ??= "Some clips need editing in the Clip Editor before they can be scheduled.";
+              continue;
+            }
+            try {
+              file = await bakeProject(project);
+            } catch (error) {
+              firstError ??= `Couldn't render a trimmed clip: ${error instanceof Error ? error.message : "render failed"}.`;
+              continue;
+            }
           }
           try {
             const response = await fetch("/api/publish", {
@@ -628,7 +722,7 @@ export function useUploadingCenter(clipProjects: ClipProject[] = []) {
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({
                 jobId: clip.jobId,
-                file: clip.file,
+                file,
                 publishAt: draft.slotUtc,
                 title: draft.title.trim() || undefined,
                 caption: draft.caption.trim() || undefined,
@@ -660,7 +754,7 @@ export function useUploadingCenter(clipProjects: ClipProject[] = []) {
         setBusy(null);
       }
     },
-    [activeAccountIds, refresh]
+    [activeAccountIds, projectForClip, refresh]
   );
 
   const publishNow = useCallback(
