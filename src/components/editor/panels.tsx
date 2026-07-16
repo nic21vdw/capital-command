@@ -642,7 +642,7 @@ export const OverlaysPanel = memo(function OverlaysPanel({ api }: { api: EditorA
                   className="w-full resize-none rounded-md border border-[var(--border)] bg-[var(--surface-2)] p-2 text-sm text-white outline-none focus:border-[var(--accent)]"
                 />
               </Field>
-              <ColorField label="Colour" value={selected.color ?? "#bd93f9"} onChange={(v) => api.updateOverlay(selected.id, { color: v })} />
+              <ColorField label="Colour" value={selected.color ?? "#ffffff"} onChange={(v) => api.updateOverlay(selected.id, { color: v })} />
             </>
           )}
           <RangeField label="Scale" value={selected.scale} min={0.1} max={5} step={0.05} onChange={(v) => api.updateOverlay(selected.id, { scale: v })} format={(v) => `${v.toFixed(2)}×`} />
