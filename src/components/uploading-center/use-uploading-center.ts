@@ -567,8 +567,25 @@ export function useUploadingCenter(clipProjects: ClipProject[] = []) {
       toast.success("Uploaded to YouTube — it now shows as Scheduled on your channel.");
     } else if (outcome?.outcome === "published") {
       toast.success(`Published to ${PLATFORM_LABELS[platform]}.`);
-    } else if (outcome?.outcome === "failed" || outcome?.outcome === "retrying") {
-      toast.warning(`Scheduled, but the upload hit a snag: ${outcome.detail || outcome.outcome}. It will retry.`);
+    } else if (
+      platform === "youtube" &&
+      outcome?.outcome === "failed" &&
+      outcome.detail.includes("YouTube connection expired")
+    ) {
+      const accountId = item?.accountId ?? primaryAccountIdFor("youtube");
+      toast.error("Your YouTube connection expired. Reconnect once and Command will resume this upload automatically.", {
+        duration: Infinity,
+        action: {
+          label: "Reconnect YouTube",
+          onClick: () => {
+            window.location.href = `/api/auth/google?account=${encodeURIComponent(accountId)}`;
+          }
+        }
+      });
+    } else if (outcome?.outcome === "retrying") {
+      toast.warning(`Upload interrupted — Command will retry automatically. ${outcome.detail || ""}`.trim());
+    } else if (outcome?.outcome === "failed") {
+      toast.error(`Upload failed: ${outcome.detail || "The platform rejected the upload."}`);
     } else {
       toast.success(`Scheduled for ${PLATFORM_LABELS[platform]}.`);
     }
