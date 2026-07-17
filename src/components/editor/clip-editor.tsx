@@ -537,7 +537,7 @@ export function ClipEditor({
       start: 0,
       end: duration,
       // New text overlays use the same neutral white default as generated titles.
-      color: "#ffffff"
+      color: "#ffffff",
       fontFamily: "Inter, system-ui, sans-serif",
       fontWeight: 800,
       align: "center"
