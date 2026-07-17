@@ -316,9 +316,9 @@ export function makeTitleOverlay(project: ClipProject): Overlay {
     locked: false,
     start: 0,
     end: Math.max(0.1, project.trimEnd - project.trimStart),
-    // Generated titles use neutral white by default so they stay readable and
-    // do not inherit the application accent colour.
-    color: "#ffffff"
+    // White Inter-bold, matching the title burned into the ready-to-post
+    // render so the editor preview and the downloaded clip look the same.
+    color: "#ffffff",
     fontFamily: "Inter, system-ui, sans-serif",
     fontWeight: 800,
     align: "center"

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   buildAss,
+  buildClipTitleDialogue,
   buildWatermarkDialogue,
   chunkWords,
   formatSrtTime,
@@ -265,5 +266,49 @@ describe("buildWatermarkDialogue", () => {
     expect(topWordmark).toContain("CoLateral AI");
     // Top placement is genuinely higher than the default bottom placement.
     expect(top).not.toEqual(bottom);
+  });
+});
+
+describe("buildClipTitleDialogue", () => {
+  it("anchors the title bottom-center just above the video band, on the Title style", () => {
+    // 16:9 source in a 9:16 frame: video top edge at (1 - (1080*9/16)/1920)/2 ≈ 0.342.
+    const videoTop = (1 - (1080 * (9 / 16)) / 1920) / 2;
+    const line = buildClipTitleDialogue("Vibe Coding a SaaS With Claude", 1080, 1920, 0, 27.5, videoTop);
+    expect(line).toMatch(/^Dialogue: 3,0:00:00.00,0:00:27.50,Title,/);
+    expect(line).toContain("\\an2"); // bottom-center anchor: wrapped lines grow upward
+    const pos = line.match(/\\pos\((\d+),(\d+)\)/);
+    expect(pos).toBeTruthy();
+    expect(Number(pos![1])).toBe(540); // horizontally centered
+    // Sits above the video's top edge (in the blurred fill).
+    expect(Number(pos![2])).toBeLessThanOrEqual(Math.round(videoTop * 1920));
+    // The text survives intact (long titles may wrap with \N).
+    expect(line.replace(/\\N/g, " ")).toContain("Vibe Coding a SaaS With Claude");
+  });
+
+  it("wraps long titles instead of running off-frame", () => {
+    const line = buildClipTitleDialogue(
+      "How Vibe Coding Changed My Entire Engineering Business Forever",
+      1080,
+      1920,
+      0,
+      20,
+      0.34
+    );
+    expect(line).toContain("\\N");
+  });
+
+  it("clamps into a safe top band when the source already fills the frame", () => {
+    const line = buildClipTitleDialogue("Full Frame Source Title", 1080, 1920, 0, 20, 0);
+    const pos = line.match(/\\pos\(\d+,(\d+)\)/);
+    expect(Number(pos![1])).toBe(Math.round(1920 * 0.1));
+  });
+
+  it("is backed by a white bold Title style in the ASS header", () => {
+    const ass = buildAss([seg("a", 0, 2, "hello world")], defaultCaptionStyle, 1080, 1920, false);
+    const titleStyle = ass.split("\n").find((l) => l.startsWith("Style: Title,"));
+    expect(titleStyle).toBeTruthy();
+    expect(titleStyle).toContain("&H00FFFFFF"); // white primary
+    const bold = titleStyle!.split(",")[7];
+    expect(bold).toBe("-1");
   });
 });

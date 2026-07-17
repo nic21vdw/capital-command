@@ -258,7 +258,7 @@ export function ClipGeneratorPage() {
       const windowed = windowSegments(job.sourceCaptions ?? [], clip.start, clip.end);
       const words = windowed.flatMap((segment) => segment.words);
       project.captions = words.length ? chunkWords(words, project.captionStyle.maxWordsPerCaption) : windowed;
-      project.title = generateClipTitle(project.captions, `Clip ${index + 1}`);
+      project.title = clip.title || generateClipTitle(project.captions, `Clip ${index + 1}`);
       if (project.title) project.name = project.title;
       project.overlays = [...project.overlays, makeTitleOverlay(project)];
       // Share the auto-generated title with the backend clip so the Generator
