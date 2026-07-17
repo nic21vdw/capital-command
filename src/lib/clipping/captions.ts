@@ -320,6 +320,10 @@ export function buildAss(
     // Dedicated watermark style: drop-shadow outline (BorderStyle 1), never an
     // opaque caption box, so the CoLateral lockup stays legible on any frame.
     `Style: Watermark,${style.fontFamily.split(",")[0].trim()},${Math.max(10, Math.round(height * 0.03))},&H00FFFFFF,&H00FFFFFF,&H00000000,&H80000000,-1,0,0,0,100,100,0,0,1,2,2,1,40,40,40,1`,
+    // Dedicated clip-title style: bold white with a clean drop-shadow outline
+    // (never a caption box), used by buildClipTitleDialogue for the headline
+    // burned above the video band on every rendered clip.
+    `Style: Title,${style.fontFamily.split(",")[0].trim()},${Math.max(12, Math.round(height * 0.034))},&H00FFFFFF,&H00FFFFFF,&H00000000,&H80000000,-1,0,0,0,100,100,0,0,1,3,2,2,60,60,60,1`,
     "",
     "[Events]",
     "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text"
@@ -422,6 +426,37 @@ export function buildTextOverlayDialogue(
     .flatMap((line) => wrapLine(line, maxChars))
     .join("\n");
   return `Dialogue: 1,${formatAssTime(opts.start)},${formatAssTime(opts.end)},Default,,0,0,0,,${tag}${escapeAss(wrapped)}`;
+}
+
+/**
+ * The clip's title as a single ASS dialogue line: bold white text centered
+ * horizontally, sitting just above the top edge of the contain-fitted video so
+ * it lands on the blurred fill rather than over the footage. `videoTopFrac` is
+ * the video band's top edge as a fraction of the frame height ((1 - videoH/frameH)/2);
+ * pass 0 for a source that fills the frame — the title then clamps to a safe
+ * band near the top instead of disappearing. Shown for the whole clip.
+ */
+export function buildClipTitleDialogue(
+  title: string,
+  width: number,
+  height: number,
+  start: number,
+  end: number,
+  videoTopFrac: number
+): string {
+  const fs = Math.max(12, Math.round(height * 0.034));
+  const gap = Math.round(height * 0.018);
+  // \an2 anchors the text block's bottom-center at pos, so a wrapped title
+  // grows upward into the blur instead of down over the video.
+  const y = Math.max(Math.round(height * 0.1), Math.round(clamp01(videoTopFrac) * height) - gap);
+  const maxChars = Math.max(1, Math.floor((width * 0.88) / (fs * 0.52)));
+  const wrapped = wrapLine(title, maxChars).join("\n");
+  const tag = `{\\an2\\pos(${Math.round(width / 2)},${y})}`;
+  return `Dialogue: 3,${formatAssTime(start)},${formatAssTime(end)},Title,,0,0,0,,${tag}${escapeAss(wrapped)}`;
+}
+
+function clamp01(value: number) {
+  return Math.min(1, Math.max(0, value));
 }
 
 /** Greedy word-wrap; words longer than maxChars are hard-broken. */

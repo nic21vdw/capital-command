@@ -283,7 +283,7 @@ export function UploadingCenterPage() {
       project.captions = words.length
         ? chunkWords(words, project.captionStyle.maxWordsPerCaption)
         : windowed;
-      project.title = generateClipTitle(project.captions, `Clip ${index + 1}`);
+      project.title = candidate.title || generateClipTitle(project.captions, `Clip ${index + 1}`);
       if (project.title) project.name = project.title;
       project.overlays = [...project.overlays, makeTitleOverlay(project)];
       writeDraftProject(project);
