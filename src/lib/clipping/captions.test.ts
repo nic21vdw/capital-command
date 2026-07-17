@@ -73,6 +73,36 @@ describe("parseSubtitleWords", () => {
     expect(words.map((w) => w.text)).toEqual(["hello", "there"]);
   });
 
+  it("decodes HTML entities instead of leaking them into caption text", () => {
+    const vtt = [
+      "WEBVTT",
+      "",
+      "00:00:00.000 --> 00:00:02.000",
+      "<00:00:00.300><c> Tom</c><00:00:00.900><c> &amp;</c><00:00:01.200><c> Jerry&#39;s</c><00:00:01.500><c> &quot;show&quot;</c>",
+      ""
+    ].join("\n");
+    const words = parseSubtitleWords(vtt);
+    expect(words.map((w) => w.text)).toEqual(["Tom", "&", "Jerry's", '"show"']);
+  });
+
+  it("drops speaker-change chevrons (>> arrives as &gt;&gt;) and sound tags", () => {
+    const vtt = [
+      "WEBVTT",
+      "",
+      "00:00:00.000 --> 00:00:02.000",
+      "&gt;&gt; Hello there",
+      "",
+      "00:00:02.000 --> 00:00:04.000",
+      "[Music]",
+      "",
+      "00:00:04.000 --> 00:00:06.000",
+      "&gt;&gt;Bob: it's [ __ ] great [Applause]",
+      ""
+    ].join("\n");
+    const words = parseSubtitleWords(vtt);
+    expect(words.map((w) => w.text)).toEqual(["Hello", "there", "Bob:", "it's", "great"]);
+  });
+
   it("spreads plain cues without inline timing across their duration", () => {
     const srt = ["1", "00:00:00,000 --> 00:00:04,000", "one two three four", ""].join("\n");
     const words = parseSubtitleWords(srt);

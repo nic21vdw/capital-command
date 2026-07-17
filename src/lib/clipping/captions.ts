@@ -42,6 +42,43 @@ export function formatAssTime(seconds: number): string {
 const TS_INLINE = /<(\d{1,2}:\d{2}:\d{2}[.,]\d{3})>/g;
 const TAG = /<[^>]+>/g;
 
+// Subtitle text arrives HTML-escaped (VTT inherits HTML escaping; YouTube in
+// particular encodes the ">>" speaker-change marker as "&gt;&gt;"). Decoding
+// must happen AFTER tag stripping so a decoded "<"/">" can't be eaten as a tag.
+const NAMED_ENTITIES: Record<string, string> = {
+  amp: "&",
+  lt: "<",
+  gt: ">",
+  quot: '"',
+  apos: "'",
+  nbsp: " "
+};
+
+export function decodeHtmlEntities(text: string): string {
+  return text.replace(/&(#x?[0-9a-fA-F]+|[a-zA-Z]+);/g, (match, entity: string) => {
+    if (entity.startsWith("#")) {
+      const hex = entity[1] === "x" || entity[1] === "X";
+      const code = parseInt(entity.slice(hex ? 2 : 1), hex ? 16 : 10);
+      return Number.isFinite(code) && code > 0 && code <= 0x10ffff ? String.fromCodePoint(code) : match;
+    }
+    return NAMED_ENTITIES[entity.toLowerCase()] ?? match;
+  });
+}
+
+// Non-speech caption furniture: bracketed sound tags like [Music], [Applause],
+// [ __ ] (YouTube's profanity mask) and ">>"/">>>" speaker-change chevrons.
+// None of it is spoken audio, so it never belongs in burned captions.
+const SOUND_TAG = /\[[^\]]*\]/g;
+
+/** Cue text -> clean spoken tokens: strip tags, decode entities, drop noise. */
+function cleanTokens(text: string): string[] {
+  return decodeHtmlEntities(text.replace(TAG, ""))
+    .replace(SOUND_TAG, " ")
+    .split(/\s+/)
+    .map((token) => token.replace(/^>+/, ""))
+    .filter(Boolean);
+}
+
 type RawCue = { start: number; end: number; raw: string };
 
 function readCues(content: string): RawCue[] {
@@ -72,10 +109,8 @@ function wordsFromCue(cue: RawCue): CaptionWord[] {
       currentStart = parseTimestamp(segments[i]);
       continue;
     }
-    const clean = segments[i].replace(TAG, "").trim();
-    if (!clean) continue;
-    for (const token of clean.split(/\s+/)) {
-      if (token) words.push({ text: token, start: currentStart, end: currentStart });
+    for (const token of cleanTokens(segments[i])) {
+      words.push({ text: token, start: currentStart, end: currentStart });
     }
   }
   return words;
@@ -105,11 +140,7 @@ export function parseSubtitleWords(content: string): CaptionWord[] {
   } else {
     // No per-word timing: spread each cue's words evenly across its duration.
     for (const cue of cues) {
-      const tokens = cue.raw
-        .replace(TAG, "")
-        .split(/\s+/)
-        .map((t) => t.trim())
-        .filter(Boolean);
+      const tokens = cleanTokens(cue.raw);
       if (tokens.length === 0) continue;
       const step = (cue.end - cue.start) / tokens.length;
       tokens.forEach((text, idx) => {
