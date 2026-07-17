@@ -536,9 +536,8 @@ export function ClipEditor({
       locked: false,
       start: 0,
       end: duration,
-      // Text overlays default to Dracula purple in the caption's Inter-bold
-      // style so a fresh overlay matches the burned-in captions out of the box.
-      color: "#bd93f9",
+      // New text overlays use the same neutral white default as generated titles.
+      color: "#ffffff"
       fontFamily: "Inter, system-ui, sans-serif",
       fontWeight: 800,
       align: "center"
