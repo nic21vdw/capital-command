@@ -1,9 +1,12 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Download, Images, Loader2, Sparkles, Trash2 } from "lucide-react";
+import { CalendarClock, ChevronDown, Download, Eye, Images, Loader2, Pencil, Sparkles, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { useAppData } from "@/components/providers/app-provider";
+import { ScheduleCalendar } from "@/components/carousels/schedule-calendar";
+import { ScheduleModal } from "@/components/carousels/schedule-modal";
+import { SlideEditor } from "@/components/carousels/slide-editor";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -11,112 +14,24 @@ import { Input } from "@/components/ui/input";
 import { PageHeader } from "@/components/ui/page-header";
 import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
-import type { Carousel, CarouselSlide } from "@/types/domain";
+import {
+  ASPECT_RATIO_LIST,
+  aspectSpec,
+  carouselBaseName,
+  DEFAULT_ASPECT_RATIO,
+  downloadSlide,
+  renderSlideCanvas
+} from "@/lib/carousels/render";
+import type { Carousel, CarouselAspectRatio, CarouselSchedule, CarouselSlide } from "@/types/domain";
 
 /**
  * Carousels: turn a script or a long-form video's transcript into a swipeable
- * Instagram carousel. The copy is generated server-side; the 1080x1350 PNGs
- * are drawn right here on a canvas and downloaded — no image tooling needed.
+ * Instagram carousel. Copy is generated server-side; the slides are drawn on a
+ * canvas here (any aspect ratio), double-click to preview or open the editor,
+ * download in any format, or schedule the upload across networks.
  */
 
-const SLIDE_W = 1080;
-const SLIDE_H = 1350;
-
 type LongformListItem = { id: string; name: string; status: string; transcript?: unknown[] };
-
-/** Draws one slide in the channel look and returns the canvas. */
-function drawSlide(slide: CarouselSlide, index: number, total: number): HTMLCanvasElement {
-  const canvas = document.createElement("canvas");
-  canvas.width = SLIDE_W;
-  canvas.height = SLIDE_H;
-  const ctx = canvas.getContext("2d")!;
-
-  // Background: deep navy-black gradient with a violet glow — matches the app brand.
-  const bg = ctx.createLinearGradient(0, 0, SLIDE_W, SLIDE_H);
-  bg.addColorStop(0, "#0b0b14");
-  bg.addColorStop(1, "#151329");
-  ctx.fillStyle = bg;
-  ctx.fillRect(0, 0, SLIDE_W, SLIDE_H);
-  const glow = ctx.createRadialGradient(SLIDE_W * 0.85, SLIDE_H * 0.1, 50, SLIDE_W * 0.85, SLIDE_H * 0.1, 700);
-  glow.addColorStop(0, "rgba(124,58,237,0.35)");
-  glow.addColorStop(1, "rgba(124,58,237,0)");
-  ctx.fillStyle = glow;
-  ctx.fillRect(0, 0, SLIDE_W, SLIDE_H);
-
-  // Slide counter.
-  ctx.fillStyle = "rgba(255,255,255,0.55)";
-  ctx.font = "600 34px system-ui, -apple-system, sans-serif";
-  ctx.textAlign = "right";
-  ctx.fillText(`${index + 1}/${total}`, SLIDE_W - 70, 100);
-
-  const wrap = (text: string, font: string, maxWidth: number): string[] => {
-    ctx.font = font;
-    const words = text.split(/\s+/).filter(Boolean);
-    const lines: string[] = [];
-    let line = "";
-    for (const word of words) {
-      const candidate = line ? `${line} ${word}` : word;
-      if (ctx.measureText(candidate).width > maxWidth && line) {
-        lines.push(line);
-        line = word;
-      } else {
-        line = candidate;
-      }
-    }
-    if (line) lines.push(line);
-    return lines;
-  };
-
-  const isHook = index === 0;
-  const headingFont = `800 ${isHook ? 92 : 72}px system-ui, -apple-system, sans-serif`;
-  const bodyFont = "400 44px system-ui, -apple-system, sans-serif";
-  const maxWidth = SLIDE_W - 160;
-
-  const headingLines = slide.heading ? wrap(slide.heading, headingFont, maxWidth) : [];
-  const bodyLines = slide.body ? wrap(slide.body, bodyFont, maxWidth) : [];
-  const headingLineH = isHook ? 108 : 86;
-  const bodyLineH = 62;
-  const blockH = headingLines.length * headingLineH + (bodyLines.length ? 40 + bodyLines.length * bodyLineH : 0);
-  let y = (SLIDE_H - blockH) / 2 + (isHook ? 70 : 50);
-
-  ctx.textAlign = "left";
-  ctx.font = headingFont;
-  ctx.fillStyle = "#ffffff";
-  for (const line of headingLines) {
-    ctx.fillText(line, 80, y);
-    y += headingLineH;
-  }
-  if (bodyLines.length) {
-    y += 40;
-    ctx.font = bodyFont;
-    ctx.fillStyle = "rgba(255,255,255,0.82)";
-    for (const line of bodyLines) {
-      ctx.fillText(line, 80, y);
-      y += bodyLineH;
-    }
-  }
-
-  // Accent bar + handle footer.
-  ctx.fillStyle = "#7c3aed";
-  ctx.fillRect(80, SLIDE_H - 150, 90, 8);
-  ctx.font = "600 36px system-ui, -apple-system, sans-serif";
-  ctx.fillStyle = "rgba(255,255,255,0.6)";
-  ctx.fillText("@nic21vdw", 80, SLIDE_H - 84);
-
-  return canvas;
-}
-
-async function downloadSlide(slide: CarouselSlide, index: number, total: number, baseName: string) {
-  const canvas = drawSlide(slide, index, total);
-  const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, "image/png"));
-  if (!blob) throw new Error("canvas export failed");
-  const url = URL.createObjectURL(blob);
-  const anchor = document.createElement("a");
-  anchor.href = url;
-  anchor.download = `${baseName}-slide-${String(index + 1).padStart(2, "0")}.png`;
-  anchor.click();
-  URL.revokeObjectURL(url);
-}
 
 export function CarouselsPage() {
   const { data, loading, refresh } = useAppData();
@@ -138,6 +53,26 @@ export function CarouselsPage() {
       .then((json: { projects?: LongformListItem[] }) => setProjects((json.projects ?? []).filter((p) => p.status === "ready")))
       .catch(() => undefined);
   }, []);
+
+  const unschedule = useCallback(
+    async (carouselId: string, scheduleId: string) => {
+      const carousel = carousels.find((entry) => entry.id === carouselId);
+      if (!carousel) return;
+      const next = (carousel.schedules ?? []).filter((entry) => entry.id !== scheduleId);
+      const response = await fetch(`/api/studio/carousels/${carouselId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ schedules: next })
+      });
+      if (response.ok) {
+        toast.success("Schedule removed.");
+        void refresh();
+      } else {
+        toast.error("Could not update the schedule.");
+      }
+    },
+    [carousels, refresh]
+  );
 
   const generate = async () => {
     const body: Record<string, unknown> = { slideCount };
@@ -179,7 +114,7 @@ export function CarouselsPage() {
       <PageHeader
         eyebrow="Carousels"
         title="Instagram Carousels"
-        description="Turn a script or a finished video's transcript into a swipeable carousel — hook slide, value slides, CTA slide — rendered as 1080×1350 images ready to post."
+        description="Turn a script or a finished video's transcript into a swipeable carousel — hook slide, value slides, CTA slide. Double-click a slide to preview or edit it, pick an aspect ratio, download, or schedule the upload."
       />
 
       <Card className="mb-6 space-y-3">
@@ -255,6 +190,7 @@ export function CarouselsPage() {
         </Card>
       ) : (
         <div className="space-y-6">
+          <ScheduleCalendar carousels={carousels} onUnschedule={unschedule} />
           {carousels.map((carousel) => (
             <CarouselCard key={carousel.id} carousel={carousel} refresh={refresh} />
           ))}
@@ -265,38 +201,100 @@ export function CarouselsPage() {
 }
 
 function CarouselCard({ carousel, refresh }: { carousel: Carousel; refresh: () => Promise<void> | void }) {
+  const [ratio, setRatio] = useState<CarouselAspectRatio>(carousel.aspectRatio ?? DEFAULT_ASPECT_RATIO);
   const [downloading, setDownloading] = useState(false);
+  const [downloadMenu, setDownloadMenu] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [editor, setEditor] = useState<{ index: number; mode: "preview" | "edit" } | null>(null);
+  const [scheduleOpen, setScheduleOpen] = useState(false);
   const previewRefs = useRef<Array<HTMLCanvasElement | null>>([]);
 
-  // Draw the small previews once the card mounts.
-  useEffect(() => {
-    carousel.slides.forEach((slide, index) => {
-      const target = previewRefs.current[index];
-      if (!target) return;
-      const full = drawSlide(slide, index, carousel.slides.length);
-      const ctx = target.getContext("2d");
-      if (!ctx) return;
-      ctx.clearRect(0, 0, target.width, target.height);
-      ctx.drawImage(full, 0, 0, target.width, target.height);
-    });
-  }, [carousel]);
+  const spec = aspectSpec(ratio);
+  const slides = carousel.slides;
 
-  const downloadAll = useCallback(async () => {
-    setDownloading(true);
+  // Draw the small previews (at the selected ratio) once the card mounts and
+  // whenever the slides or ratio change.
+  useEffect(() => {
+    let cancelled = false;
+    slides.forEach((slide, index) => {
+      void renderSlideCanvas(slide, index, slides.length, ratio).then((full) => {
+        if (cancelled) return;
+        const target = previewRefs.current[index];
+        if (!target) return;
+        const ctx = target.getContext("2d");
+        if (!ctx) return;
+        ctx.clearRect(0, 0, target.width, target.height);
+        ctx.drawImage(full, 0, 0, target.width, target.height);
+      });
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [slides, ratio]);
+
+  const patchCarousel = useCallback(
+    async (patch: Partial<Pick<Carousel, "slides" | "aspectRatio" | "schedules">>) => {
+      const response = await fetch(`/api/studio/carousels/${carousel.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(patch)
+      });
+      if (!response.ok) throw new Error("patch failed");
+      await refresh();
+    },
+    [carousel.id, refresh]
+  );
+
+  const changeRatio = (next: CarouselAspectRatio) => {
+    setRatio(next);
+    void patchCarousel({ aspectRatio: next }).catch(() => toast.error("Could not save the aspect ratio."));
+  };
+
+  const saveSlides = async (nextSlides: CarouselSlide[]) => {
+    setSaving(true);
     try {
-      const base = carousel.title.replace(/[^a-z0-9-]+/gi, "-").replace(/-+/g, "-").toLowerCase().slice(0, 40) || "carousel";
-      for (let index = 0; index < carousel.slides.length; index += 1) {
-        await downloadSlide(carousel.slides[index], index, carousel.slides.length, base);
-        // Small gap so the browser doesn't swallow rapid consecutive downloads.
-        await new Promise((resolve) => setTimeout(resolve, 350));
-      }
-      toast.success("All slides downloaded — post them in order.");
+      await patchCarousel({ slides: nextSlides });
+      toast.success("Carousel saved.");
     } catch {
-      toast.error("Could not render the slides.");
+      toast.error("Could not save the carousel.");
     } finally {
-      setDownloading(false);
+      setSaving(false);
     }
-  }, [carousel]);
+  };
+
+  const createSchedule = async (schedule: CarouselSchedule) => {
+    setSaving(true);
+    try {
+      await patchCarousel({ schedules: [...(carousel.schedules ?? []), schedule] });
+      toast.success("Upload scheduled.");
+      setScheduleOpen(false);
+    } catch {
+      toast.error("Could not schedule the upload.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const downloadAll = useCallback(
+    async (downloadRatio: CarouselAspectRatio) => {
+      setDownloading(true);
+      setDownloadMenu(false);
+      try {
+        const base = carouselBaseName(carousel.title);
+        for (let index = 0; index < slides.length; index += 1) {
+          await downloadSlide(slides[index], index, slides.length, downloadRatio, base);
+          // Small gap so the browser doesn't swallow rapid consecutive downloads.
+          await new Promise((resolve) => setTimeout(resolve, 350));
+        }
+        toast.success("All slides downloaded — post them in order.");
+      } catch {
+        toast.error("Could not render the slides.");
+      } finally {
+        setDownloading(false);
+      }
+    },
+    [carousel.title, slides]
+  );
 
   const remove = async () => {
     if (!window.confirm("Delete this carousel?")) return;
@@ -305,39 +303,154 @@ function CarouselCard({ carousel, refresh }: { carousel: Carousel; refresh: () =
     else toast.error("Could not delete the carousel.");
   };
 
+  // Preview cards: fixed height, width follows the aspect ratio.
+  const previewHeight = 260;
+  const previewWidth = Math.round((previewHeight * spec.width) / spec.height);
+
   return (
     <Card className="space-y-3">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h3 className="font-semibold text-white">{carousel.title}</h3>
           <p className="text-xs text-[var(--muted-foreground)]">
-            {carousel.slides.length} slides · from {carousel.sourceType} · {new Date(carousel.createdAt).toLocaleDateString()}
+            {slides.length} slides · from {carousel.sourceType} · {new Date(carousel.createdAt).toLocaleDateString()}
+            {carousel.schedules && carousel.schedules.length > 0
+              ? ` · ${carousel.schedules.length} schedule${carousel.schedules.length > 1 ? "s" : ""}`
+              : ""}
           </p>
         </div>
-        <div className="flex gap-2">
-          <Badge>1080×1350</Badge>
-          <Button className="gap-1.5 px-3 py-1.5 text-xs" disabled={downloading} onClick={() => void downloadAll()}>
-            {downloading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Download className="h-3.5 w-3.5" />} Download all
+        <div className="flex flex-wrap items-center gap-2">
+          <Select
+            value={ratio}
+            onChange={(event) => changeRatio(event.target.value as CarouselAspectRatio)}
+            className="h-8 w-auto px-2 py-0 text-xs"
+            aria-label="Aspect ratio"
+          >
+            {ASPECT_RATIO_LIST.map((entry) => (
+              <option key={entry.id} value={entry.id}>
+                {entry.label} · {entry.ratio}
+              </option>
+            ))}
+          </Select>
+          <Badge>{spec.badge}</Badge>
+
+          {/* Download with an aspect-ratio dropdown. */}
+          <div className="relative">
+            <div className="flex">
+              <Button
+                className="gap-1.5 rounded-r-none px-3 py-1.5 text-xs"
+                disabled={downloading}
+                onClick={() => void downloadAll(ratio)}
+              >
+                {downloading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Download className="h-3.5 w-3.5" />} Download
+              </Button>
+              <Button
+                className="rounded-l-none border-l border-black/20 px-1.5 py-1.5 text-xs"
+                disabled={downloading}
+                onClick={() => setDownloadMenu((open) => !open)}
+                aria-label="Download in another aspect ratio"
+              >
+                <ChevronDown className="h-3.5 w-3.5" />
+              </Button>
+            </div>
+            {downloadMenu ? (
+              <>
+                <div className="fixed inset-0 z-10" onClick={() => setDownloadMenu(false)} />
+                <div className="panel-enter absolute right-0 z-20 mt-1 w-52 rounded-lg border border-[var(--border)] bg-[var(--panel)] p-1 shadow-[0_16px_40px_rgba(0,0,0,0.4)]">
+                  <p className="px-2 py-1 text-[10px] font-semibold uppercase tracking-wider text-[var(--muted-foreground)]">
+                    Download all as…
+                  </p>
+                  {ASPECT_RATIO_LIST.map((entry) => (
+                    <button
+                      key={entry.id}
+                      type="button"
+                      onClick={() => void downloadAll(entry.id)}
+                      className="flex w-full items-center justify-between rounded-md px-2 py-1.5 text-left text-xs text-white transition hover:bg-white/8"
+                    >
+                      <span>
+                        {entry.label} <span className="text-[var(--muted-foreground)]">· {entry.ratio}</span>
+                      </span>
+                      <span className="text-[10px] text-[var(--muted-foreground)]">{entry.badge}</span>
+                    </button>
+                  ))}
+                </div>
+              </>
+            ) : null}
+          </div>
+
+          <Button variant="secondary" className="gap-1.5 px-3 py-1.5 text-xs" onClick={() => setScheduleOpen(true)}>
+            <CalendarClock className="h-3.5 w-3.5" /> Schedule
           </Button>
-          <Button variant="danger" className="px-3 py-1.5 text-xs" onClick={() => void remove()}>
+          <Button variant="danger" className="px-3 py-1.5 text-xs" onClick={() => void remove()} aria-label="Delete carousel">
             <Trash2 className="h-3.5 w-3.5" />
           </Button>
         </div>
       </div>
+
       <div className="flex gap-3 overflow-x-auto pb-1">
-        {carousel.slides.map((slide, index) => (
-          <canvas
+        {slides.map((slide, index) => (
+          <div
             key={slide.id}
-            ref={(element) => {
-              previewRefs.current[index] = element;
-            }}
-            width={216}
-            height={270}
-            className="h-[270px] w-[216px] shrink-0 rounded-lg border border-[var(--border)]"
-            title={slide.heading}
-          />
+            className="group relative shrink-0"
+            style={{ width: previewWidth }}
+            onDoubleClick={() => setEditor({ index, mode: "preview" })}
+          >
+            <canvas
+              ref={(element) => {
+                previewRefs.current[index] = element;
+              }}
+              width={previewWidth}
+              height={previewHeight}
+              style={{ width: previewWidth, height: previewHeight }}
+              className="cursor-zoom-in rounded-lg border border-[var(--border)] transition group-hover:border-[var(--accent)]/60"
+              title={slide.heading || `Slide ${index + 1}`}
+            />
+            {/* Hover actions: Preview / Edit */}
+            <div className="pointer-events-none absolute inset-x-0 bottom-0 flex justify-center gap-1.5 rounded-b-lg bg-gradient-to-t from-black/70 to-transparent p-2 opacity-0 transition group-hover:opacity-100">
+              <button
+                type="button"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  setEditor({ index, mode: "preview" });
+                }}
+                className="pointer-events-auto inline-flex items-center gap-1 rounded-md bg-black/60 px-2 py-1 text-[10px] font-medium text-white backdrop-blur transition hover:bg-black/80"
+              >
+                <Eye className="h-3 w-3" /> Preview
+              </button>
+              <button
+                type="button"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  setEditor({ index, mode: "edit" });
+                }}
+                className="pointer-events-auto inline-flex items-center gap-1 rounded-md bg-[var(--accent)]/90 px-2 py-1 text-[10px] font-medium text-[var(--accent-contrast)] backdrop-blur transition hover:bg-[var(--accent)]"
+              >
+                <Pencil className="h-3 w-3" /> Edit
+              </button>
+            </div>
+          </div>
         ))}
       </div>
+
+      {editor ? (
+        <SlideEditor
+          slides={slides}
+          ratio={ratio}
+          index={editor.index}
+          mode={editor.mode}
+          saving={saving}
+          onSave={saveSlides}
+          onClose={() => setEditor(null)}
+        />
+      ) : null}
+
+      <ScheduleModal
+        open={scheduleOpen}
+        carouselTitle={carousel.title}
+        saving={saving}
+        onClose={() => setScheduleOpen(false)}
+        onCreate={createSchedule}
+      />
     </Card>
   );
 }

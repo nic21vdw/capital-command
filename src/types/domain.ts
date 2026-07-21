@@ -832,10 +832,78 @@ export interface VideoScript {
   updatedAt: string;
 }
 
+/**
+ * A free-floating element the editor layers on top of a slide's base copy.
+ * Positions/sizes are stored as fractions of the slide (0..1) so a layout
+ * survives switching aspect ratios or rendering at any resolution.
+ */
+export type SlideLayer =
+  | {
+      id: string;
+      type: "text";
+      text: string;
+      /** Top-left as a fraction of slide width/height. */
+      x: number;
+      y: number;
+      /** Text box width as a fraction of slide width. */
+      width: number;
+      /** Font size as a fraction of slide height. */
+      fontSize: number;
+      color: string;
+      weight: number;
+      align: "left" | "center" | "right";
+      rotation?: number;
+    }
+  | {
+      id: string;
+      type: "image";
+      /** Data URL of the dropped image. */
+      src: string;
+      x: number;
+      y: number;
+      width: number;
+      height: number;
+      radius?: number;
+      rotation?: number;
+    };
+
 export interface CarouselSlide {
   id: string;
   heading: string;
   body: string;
+  /** CSS color/gradient override for the slide background (editor). */
+  background?: string;
+  headingColor?: string;
+  bodyColor?: string;
+  /** Whether the base heading/body/counter/handle chrome is drawn. */
+  hideBaseText?: boolean;
+  /** Draggable text/image elements composited over the base slide. */
+  layers?: SlideLayer[];
+}
+
+/** The render frame a carousel exports/previews at. */
+export type CarouselAspectRatio = "portrait" | "square" | "story" | "landscape";
+
+/** How often a scheduled carousel upload repeats. */
+export type ScheduleRecurrence = "once" | "daily" | "weekly";
+
+/**
+ * A planned upload of a carousel to one or more networks. Stored on the
+ * carousel and expanded into concrete calendar occurrences client-side.
+ */
+export interface CarouselSchedule {
+  id: string;
+  /** Target networks, using the publisher's PlatformId vocabulary. */
+  platforms: ("youtube" | "instagram" | "tiktok" | "facebook")[];
+  /** Local wall-clock time, "HH:mm" (e.g. "12:00"). */
+  time: string;
+  recurrence: ScheduleRecurrence;
+  /** Anchor date, "YYYY-MM-DD" — the day a "once" fires, or the start of a repeat. */
+  date: string;
+  /** 0=Sun..6=Sat, only meaningful for weekly recurrence. */
+  weekday?: number;
+  caption?: string;
+  createdAt: string;
 }
 
 export interface Carousel {
@@ -844,6 +912,8 @@ export interface Carousel {
   sourceType: "script" | "longform" | "custom";
   sourceId?: string;
   slides: CarouselSlide[];
+  aspectRatio?: CarouselAspectRatio;
+  schedules?: CarouselSchedule[];
   createdAt: string;
 }
 
