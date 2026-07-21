@@ -3,15 +3,47 @@ import { useCurrentFrame, useVideoConfig, interpolate } from "remotion";
 import { theme } from "../theme";
 
 /**
- * Beam Buddy — CoLateral's mascot. A friendly structural I-beam (top flange,
- * web, bottom flange — the steel cross-section) with a face on the web, little
- * arms and feet. Rendered in the brand purple gradient so it reads on white.
+ * Beam Buddy — CoLateral's mascot, now in 8-bit pixel art. A friendly
+ * structural I-beam (top flange, web, bottom flange — the steel cross-section)
+ * wearing a white construction hard hat, rendered as chunky square pixels in
+ * the brand blue. Face lives on the web; little arms sway and one waves.
  *
  * The character is self-animating: a gentle idle bob, a periodic blink and a
  * soft arm sway, all driven off the composition frame. Position, scale and any
  * entrance transform are the PARENT's job — wrap this in a positioned/animated
  * <div>. An optional `waveFrom` frame triggers a one-off friendly wave.
  */
+
+// --- pixel silhouette (body + hard hat), 16 cols × 14 rows -----------------
+// . transparent · W hat white · S hat shade · L body blue · D body shade · F feet
+const MAP = [
+  "......WWWW......", // 0  hard-hat dome
+  ".....WWWWWW.....", // 1
+  ".....WSSSSW.....", // 2  hat band
+  "...SSSSSSSSSS...", // 3  hat brim
+  ".LLLLLLLLLLLLLL.", // 4  top flange
+  ".LLLLLLLLLLLLDD.", // 5
+  "....LLLLLLLL....", // 6  web
+  "....LLLLLLLL....", // 7
+  "....LLLLLLLL....", // 8
+  "....LLLLLLLL....", // 9
+  "....LLLLLLDD....", // 10
+  ".LLLLLLLLLLLLLL.", // 11 bottom flange
+  ".LLLLLLLLLLLLDD.", // 12
+  "...FF......FF...", // 13 feet
+] as const;
+
+const COLS = 16;
+const ROWS = MAP.length;
+
+const PIXEL: Record<string, string> = {
+  W: theme.hat,
+  S: theme.hatShade,
+  L: theme.brand,
+  D: theme.brandDark,
+  F: theme.brandDark,
+};
+
 export const BeamBuddy: React.FC<{
   /** Rendered height in px (aspect ratio is preserved). */
   size?: number;
@@ -23,21 +55,24 @@ export const BeamBuddy: React.FC<{
   const frame = useCurrentFrame() + phase;
   const { fps } = useVideoConfig();
 
-  // --- idle bob: a slow ~2s vertical float ---
-  const bob = Math.sin((frame / fps) * Math.PI * 1.1) * 6;
+  const px = size / ROWS; // one pixel-cell, in screen px
+  const w = COLS * px;
+  const h = ROWS * px;
 
-  // --- blink: eyes squash shut for ~4 frames every ~2.6s ---
-  const blinkPhase = frame % 78;
-  const blink = blinkPhase < 4 ? interpolate(blinkPhase, [0, 2, 4], [1, 0.1, 1]) : 1;
+  // --- idle bob: a slow ~2s vertical float ---
+  const bob = Math.sin((frame / fps) * Math.PI * 1.1) * (px * 0.28);
+
+  // --- blink: eyes shut for ~4 frames every ~2.6s ---
+  const blink = frame % 78 < 4;
 
   // --- arm sway (idle) + optional one-off wave gesture ---
-  const idleSway = Math.sin((frame / fps) * Math.PI * 1.6) * 4;
+  const idleSway = Math.sin((frame / fps) * Math.PI * 1.6) * 6;
   let waveAngle = idleSway;
   if (waveFrom != null && frame >= waveFrom) {
-    const w = frame - waveFrom;
-    // three quick waggles that damp out over ~24 frames
-    const waggle = Math.sin(w * 0.9) * 26 * Math.max(0, 1 - w / 24);
-    const raise = interpolate(w, [0, 6, 22, 30], [0, -34, -34, 0], {
+    const t = frame - waveFrom;
+    // three quick waggles that damp out over ~24 frames, on a raised arm
+    const waggle = Math.sin(t * 0.9) * 34 * Math.max(0, 1 - t / 24);
+    const raise = interpolate(t, [0, 6, 22, 30], [0, -52, -52, 0], {
       extrapolateLeft: "clamp",
       extrapolateRight: "clamp",
     });
@@ -46,73 +81,67 @@ export const BeamBuddy: React.FC<{
 
   return (
     <svg
-      width={size}
-      height={size * (250 / 220)}
-      viewBox="0 0 220 250"
+      width={w}
+      height={h}
+      viewBox={`0 0 ${COLS} ${ROWS}`}
+      shapeRendering="crispEdges"
       role="img"
       aria-label="Beam Buddy — CoLateral mascot"
-      style={{ overflow: "visible", transform: `translateY(${bob}px)` }}
+      style={{
+        overflow: "visible",
+        transform: `translateY(${bob}px)`,
+        filter: `drop-shadow(0 ${px * 0.5}px 0 rgba(11,58,134,0.18))`,
+      }}
     >
-      <defs>
-        <linearGradient id="bb-body" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0" stopColor={theme.brandLight} />
-          <stop offset="1" stopColor={theme.brandDark} />
-        </linearGradient>
-        <filter id="bb-shadow" x="-40%" y="-40%" width="180%" height="180%">
-          <feDropShadow dx="0" dy="12" stdDeviation="14" floodColor={theme.brandDark} floodOpacity="0.28" />
-        </filter>
-      </defs>
+      {/* soft ground shadow (kept subtle so it never fights the pixels) */}
+      <ellipse cx={COLS / 2} cy={ROWS - 0.1} rx={4.4} ry={0.7} fill={theme.deep} opacity={0.1} />
 
-      {/* little feet peeking below the base flange */}
-      <ellipse cx={78} cy={232} rx={21} ry={11} fill={theme.brandDark} />
-      <ellipse cx={142} cy={232} rx={21} ry={11} fill={theme.brandDark} />
+      {/* body + hat silhouette, pixel by pixel */}
+      {MAP.flatMap((row, y) =>
+        row.split("").map((c, x) =>
+          c === "." ? null : (
+            <rect key={`${x}-${y}`} x={x} y={y} width={1.02} height={1.02} fill={PIXEL[c]} />
+          ),
+        ),
+      )}
 
-      <g filter="url(#bb-shadow)">
-        {/* left arm (idle) */}
-        <g transform={`rotate(${-idleSway} 74 132)`}>
-          <rect x={34} y={125} width={42} height={15} rx={7.5} fill="url(#bb-body)" />
-        </g>
-        {/* right arm (waves) — rotates about its shoulder joint */}
-        <g transform={`rotate(${waveAngle} 146 132)`}>
-          <rect x={144} y={125} width={42} height={15} rx={7.5} fill="url(#bb-body)" />
-        </g>
-
-        {/* ===== the I-beam body ===== */}
-        {/* top flange */}
-        <rect x={20} y={24} width={180} height={34} rx={15} fill="url(#bb-body)" />
-        {/* web (vertical) */}
-        <rect x={72} y={50} width={76} height={150} rx={14} fill="url(#bb-body)" />
-        {/* bottom flange */}
-        <rect x={20} y={192} width={180} height={34} rx={15} fill="url(#bb-body)" />
-
-        {/* glossy highlight on the top flange */}
-        <ellipse cx={66} cy={35} rx={40} ry={7} fill="#ffffff" opacity={0.22} />
+      {/* left arm — idle sway about its shoulder */}
+      <g transform={`rotate(${-idleSway} 4 8)`}>
+        <rect x={1} y={7} width={3} height={2} fill={theme.brand} />
+        <rect x={1} y={9} width={3} height={0.9} fill={theme.brandDark} />
+      </g>
+      {/* right arm — waves; rotates about its shoulder joint */}
+      <g transform={`rotate(${waveAngle} 12 8)`}>
+        <rect x={12} y={7} width={3} height={2} fill={theme.brand} />
+        <rect x={12} y={9} width={3} height={0.9} fill={theme.brandDark} />
       </g>
 
-      {/* ===== face (on the web) ===== */}
-      {/* cheeks */}
-      <circle cx={80} cy={128} r={7} fill={theme.blush} opacity={0.6} />
-      <circle cx={140} cy={128} r={7} fill={theme.blush} opacity={0.6} />
+      {/* ===== face on the web ===== */}
+      {blink ? (
+        <>
+          {/* closed eyes — a happy squint line */}
+          <rect x={5} y={8} width={2} height={0.9} fill={theme.deep} />
+          <rect x={9} y={8} width={2} height={0.9} fill={theme.deep} />
+        </>
+      ) : (
+        <>
+          {/* eye whites */}
+          <rect x={5} y={7} width={2} height={2} fill="#ffffff" />
+          <rect x={9} y={7} width={2} height={2} fill="#ffffff" />
+          {/* pupils (looking gently forward/inward) */}
+          <rect x={6} y={8} width={1} height={1} fill={theme.deep} />
+          <rect x={9} y={8} width={1} height={1} fill={theme.deep} />
+        </>
+      )}
 
-      {/* eyes — scaleY drives the blink, pivoting on eye centre (y=108) */}
-      <g transform={`translate(0 108) scale(1 ${blink}) translate(0 -108)`}>
-        <circle cx={92} cy={108} r={15} fill="#ffffff" />
-        <circle cx={128} cy={108} r={15} fill="#ffffff" />
-        <circle cx={94} cy={110} r={7} fill={theme.deep} />
-        <circle cx={130} cy={110} r={7} fill={theme.deep} />
-        {/* catchlights */}
-        <circle cx={90} cy={106} r={2.6} fill="#ffffff" />
-        <circle cx={126} cy={106} r={2.6} fill="#ffffff" />
-      </g>
+      {/* blush cheeks */}
+      <rect x={4} y={9} width={1} height={1} fill={theme.blush} opacity={0.7} />
+      <rect x={11} y={9} width={1} height={1} fill={theme.blush} opacity={0.7} />
 
-      {/* smile */}
-      <path
-        d="M 96 130 Q 110 147 124 130"
-        stroke={theme.deep}
-        strokeWidth={5}
-        strokeLinecap="round"
-        fill="none"
-      />
+      {/* pixel smile */}
+      <rect x={6} y={9} width={1} height={1} fill={theme.deep} />
+      <rect x={7} y={10} width={2} height={1} fill={theme.deep} />
+      <rect x={9} y={9} width={1} height={1} fill={theme.deep} />
     </svg>
   );
 };
