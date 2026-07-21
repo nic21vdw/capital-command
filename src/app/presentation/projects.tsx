@@ -28,6 +28,9 @@ import { HardestProblems as ClaudeHardestProblems } from "../../../video/claude-
 import { Capabilities as ClaudeCapabilities } from "../../../video/claude-trailer/src/scenes/Capabilities";
 import { Momentum as ClaudeMomentum } from "../../../video/claude-trailer/src/scenes/Momentum";
 import { EndCard as ClaudeEndCard } from "../../../video/claude-trailer/src/scenes/EndCard";
+import { VIDEO as COLATERAL_INTRO_VIDEO } from "../../../video/colateral-intro/src/theme";
+import { IntroAssemble as ColateralIntroAssemble } from "../../../video/colateral-intro/src/scenes/IntroAssemble";
+import { IntroBeamSweep as ColateralIntroBeamSweep } from "../../../video/colateral-intro/src/scenes/IntroBeamSweep";
 
 export type Slide = {
   id: string;
@@ -132,6 +135,16 @@ export const PROJECTS: Project[] = [
       { id: "Capabilities", title: "Capabilities", note: "1M context · frontier reasoning · agentic cards", component: ClaudeCapabilities, durationInFrames: 160 },
       { id: "Momentum", title: "Momentum", note: "“Think deeper. Ship faster.” + spark comet sweep", component: ClaudeMomentum, durationInFrames: 90 },
       { id: "EndCard", title: "End Card", note: "Pulsing spark + wordmark → claude.ai", component: ClaudeEndCard, durationInFrames: 90 }
+    ]
+  },
+  {
+    id: "colateral-intro",
+    name: "CoLateral Intro",
+    description: "Title-reveal B-roll with Beam Buddy on white · 1920×1080",
+    format: COLATERAL_INTRO_VIDEO,
+    slides: [
+      { id: "IntroAssemble", title: "Assemble", note: "Beam Buddy drops in, beam draws, wordmark settles on — calm/premium", component: ColateralIntroAssemble, durationInFrames: 150 },
+      { id: "IntroBeamSweep", title: "Beam Sweep", note: "Buddy pops in, fires a light beam that wipes “CoLateral” in — playful", component: ColateralIntroBeamSweep, durationInFrames: 150 }
     ]
   }
 ];
