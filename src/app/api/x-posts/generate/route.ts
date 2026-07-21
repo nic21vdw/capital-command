@@ -32,13 +32,13 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ pack: existing, cached: true, reason: null, configured: plannerConfigured() });
   }
 
-  // Feed the last two weeks of topics back into the generator so today's pack
-  // doesn't recycle recent angles (repetitive content is both weak brand-building
-  // and a spam signal on X/Threads).
+  // Feed the last two weeks of topics back into the generator — including any
+  // pack already written today, so hitting Generate again yields 24 genuinely
+  // fresh angles instead of recycling this morning's (repetitive content is
+  // both weak brand-building and a spam signal on X/Threads).
   const recentTopics = packs
-    .filter((pack) => pack.date !== today)
     .flatMap((pack) => pack.posts.map((post) => post.topic))
-    .slice(0, 60);
+    .slice(0, 120);
 
   const { pack, reason } = await generateDailyPack({
     brief: data.xStrategy.brief,
