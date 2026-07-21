@@ -150,7 +150,9 @@ export const CaptionsPanel = memo(function CaptionsPanel({ api }: { api: EditorA
           segment manually.
         </p>
       ) : (
-        <div className="max-h-[46vh] space-y-2 overflow-y-auto pr-1">
+        <>
+          <CombinedCaptionsBox api={api} />
+          <div className="max-h-[46vh] space-y-2 overflow-y-auto pr-1">
           {project.captions.map((c) => {
             const selected = api.selectedCaptionId === c.id;
             return (
@@ -198,13 +200,59 @@ export const CaptionsPanel = memo(function CaptionsPanel({ api }: { api: EditorA
                   </div>
                 )}
               </div>
-            );
-          })}
-        </div>
+              );
+            })}
+          </div>
+        </>
       )}
     </div>
   );
 });
+
+/**
+ * The whole transcript in one editable box — one line per caption segment — for
+ * quick read-through and bulk wording fixes without hopping between the small
+ * per-segment boxes. Each line maps to the segment at the same position; editing
+ * a line updates that segment's text (and its word-level highlight timing). Kept
+ * in local state while focused so typing never fights the caret, then re-synced
+ * from the segments on blur.
+ */
+function CombinedCaptionsBox({ api }: { api: EditorApi }) {
+  const { captions } = api.project;
+  const joined = useMemo(() => captions.map((c) => c.text).join("\n"), [captions]);
+  const [draft, setDraft] = useState(joined);
+  const [focused, setFocused] = useState(false);
+  // Pull in external caption changes (regenerate, split, per-box edits) whenever
+  // the user isn't actively typing here. Adjusting state during render is the
+  // pattern React recommends over a sync effect.
+  if (!focused && draft !== joined) setDraft(joined);
+
+  const commit = (value: string) => {
+    setDraft(value);
+    value.split("\n").forEach((line, i) => {
+      const c = captions[i];
+      if (c && c.text !== line) api.updateCaption(c.id, { text: line });
+    });
+  };
+
+  return (
+    <div className="space-y-1.5 rounded-lg border border-[var(--border)] bg-black/20 p-2.5">
+      <div className="flex items-center gap-2">
+        <p className="text-xs font-medium text-white">Full transcript</p>
+        <span className="text-[11px] text-[var(--muted-foreground)]">One line per caption — edits sync to the segments below.</span>
+      </div>
+      <textarea
+        value={draft}
+        onChange={(e) => commit(e.target.value)}
+        onFocus={() => setFocused(true)}
+        onBlur={() => setFocused(false)}
+        rows={6}
+        spellCheck
+        className="w-full resize-y rounded-md border border-[var(--border)] bg-[var(--surface-2)] p-2 text-sm leading-relaxed text-white outline-none focus:border-[var(--accent)]"
+      />
+    </div>
+  );
+}
 
 // --- Style panel -----------------------------------------------------------
 

@@ -24,7 +24,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { useAppData } from "@/components/providers/app-provider";
-import { chunkWords, serializeSrt, serializeVtt, splitSegment, mergeSegments, windowSegments } from "@/lib/clipping/captions";
+import { chunkWords, retimeWords, serializeSrt, serializeVtt, splitSegment, mergeSegments, windowSegments } from "@/lib/clipping/captions";
 import { formatClock, generateClipTitle } from "@/lib/clipping/editor";
 import { Button } from "@/components/ui/button";
 import { EditorPreview } from "@/components/editor/preview";
@@ -455,7 +455,19 @@ export function ClipEditor({
 
   // --- Caption operations ---
   const updateCaption = useCallback((id: string, partial: Partial<CaptionSegment>) => {
-    setProject((p) => ({ ...p, captions: p.captions.map((c) => (c.id === id ? { ...c, ...partial } : c)) }));
+    setProject((p) => ({
+      ...p,
+      captions: p.captions.map((c) => {
+        if (c.id !== id) return c;
+        const next = { ...c, ...partial };
+        // Editing the text by hand rebuilds even-timed words so word-level
+        // highlighting follows the new wording instead of the stale transcript.
+        if (partial.text !== undefined && partial.words === undefined) {
+          next.words = retimeWords(next, next.text);
+        }
+        return next;
+      })
+    }));
   }, []);
 
   const regenerateCaptions = useCallback(async () => {
