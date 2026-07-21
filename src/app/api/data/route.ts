@@ -5,7 +5,7 @@ import { ensureExecution } from "@/lib/execution/server";
 import { todayLocal } from "@/lib/execution/dates";
 import { getMarketDataProvider } from "@/lib/marketData";
 import { seedData } from "@/lib/mockData/seed";
-import { appDataSchema, brandAssetsSchema, clipProjectSchema, contentItemSchema, creatorProfileSchema, defaultCreatorProfile, executionCompletionSchema, executionGoalSchema, expenseSchema, goalSchema, holdingSchema, importHoldingSchema, researchNoteSchema, savedThumbnailSchema, settingsSchema, videoProjectSchema, watchlistSchema, xActivitySchema, xStrategySchema } from "@/lib/storage/schemas";
+import { appDataSchema, brandAssetsSchema, clipProjectSchema, contentItemSchema, creatorProfileSchema, defaultCreatorProfile, defaultFbStrategy, executionCompletionSchema, executionGoalSchema, expenseSchema, fbPostSchema, fbStrategySchema, goalSchema, holdingSchema, importHoldingSchema, researchNoteSchema, savedThumbnailSchema, settingsSchema, videoProjectSchema, watchlistSchema, xActivitySchema, xStrategySchema } from "@/lib/storage/schemas";
 import { readAppData, resetAppData, writeAppData } from "@/lib/storage/store";
 import type { AppData, ExecutionGoal, Holding } from "@/types/domain";
 
@@ -311,6 +311,30 @@ export async function POST(request: NextRequest) {
       const dailyReplyTarget = xStrategySchema.shape.dailyReplyTarget.parse(input.dailyReplyTarget);
       const dailyPostTarget = xStrategySchema.shape.dailyPostTarget.parse(input.dailyPostTarget);
       data = { ...data, xStrategy: { ...data.xStrategy, dailyReplyTarget, dailyPostTarget } };
+      break;
+    }
+    case "upsertFbPost": {
+      const parsed = fbPostSchema.parse(payload);
+      const strategy = data.fbStrategy ?? defaultFbStrategy;
+      const exists = strategy.posts.some((post) => post.id === parsed.id);
+      data = {
+        ...data,
+        fbStrategy: {
+          ...strategy,
+          posts: exists ? strategy.posts.map((post) => (post.id === parsed.id ? parsed : post)) : [parsed, ...strategy.posts]
+        }
+      };
+      break;
+    }
+    case "deleteFbPost": {
+      const id = String(payload);
+      const strategy = data.fbStrategy ?? defaultFbStrategy;
+      data = { ...data, fbStrategy: { ...strategy, posts: strategy.posts.filter((post) => post.id !== id) } };
+      break;
+    }
+    case "updateFbBrief": {
+      const brief = fbStrategySchema.shape.brief.parse((payload as { brief?: unknown })?.brief);
+      data = { ...data, fbStrategy: { ...(data.fbStrategy ?? defaultFbStrategy), brief } };
       break;
     }
     case "importHoldings": {

@@ -317,6 +317,49 @@ export interface XPlanner {
   packs: XDailyPack[];
 }
 
+// ----- Facebook / Instagram content strategy -----
+// Built around the "Professional Mode" playbook: three formats (text-only,
+// image + text, reels) with the continuation of every text post living in the
+// comment section as a numbered thread, capped by a call to action.
+
+export type FbPlatform = "facebook" | "instagram";
+export type FbPostFormat = "text" | "imageText" | "reel";
+export type FbPostStatus = "draft" | "posted";
+
+export interface FbThreadComment {
+  id: string;
+  /** Comment body without the "1/" prefix — numbering is applied on display/copy. */
+  text: string;
+}
+
+export interface FbPost {
+  id: string;
+  platform: FbPlatform;
+  format: FbPostFormat;
+  status: FbPostStatus;
+  date: string; // YYYY-MM-DD target/posted day
+  /** The clickbait headline shown in the main post (black background, white text, ends with 👇). */
+  hook: string;
+  /** Format-dependent extra: image text/caption for imageText, script for reel, optional add-on for text. */
+  body: string;
+  /** The continuation posted as numbered comments under the main post. */
+  threadComments: FbThreadComment[];
+  /** Back-end call to action — rendered/copied as the final numbered comment. */
+  cta: string;
+  views?: number;
+  reactions?: number;
+  comments?: number;
+  shares?: number;
+  notes: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface FbStrategy {
+  brief: string; // positioning / voice / strategy (markdown)
+  posts: FbPost[];
+}
+
 export interface SavedThumbnailTransform {
   x: number;
   y: number;
@@ -718,6 +761,8 @@ export interface AppData {
   xStrategy: XStrategy;
   /** Daily X/Threads post suggestions. Optional in the type so pre-existing data files stay valid; the schema defaults it. */
   xPlanner?: XPlanner;
+  /** Facebook/Instagram thread-format content. Optional in the type so pre-existing data files stay valid; the schema defaults it. */
+  fbStrategy?: FbStrategy;
   settings: Settings;
   executionGoals: ExecutionGoal[];
   executionCompletions: ExecutionCompletion[];

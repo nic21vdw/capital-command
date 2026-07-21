@@ -291,6 +291,62 @@ export const xPlannerSchema = z.object({
 
 export const defaultXPlanner = xPlannerSchema.parse({});
 
+// ----- Facebook / Instagram content strategy -----
+// Default playbook brief shown (and editable) in the Facebook tool the first
+// time it loads; persisted in the app data store like the X brief.
+export const DEFAULT_FB_BRIEF = `# Facebook / Instagram Content Brief
+
+## Setup
+Personal profile switched to Professional Mode — unlocks analytics and reach without needing a separate page. Instagram runs the same playbook: hook post or reel, thread continued in the caption + pinned comments.
+
+## Format mix (benchmark: 1.4B organic views)
+- Text-only posts drove 78.2% of views — black background, white text, clickbait headline, down-pointing emoji (👇)
+- Image with text — same hook discipline, the image carries the headline
+- Reels — short-form video, cross-posted to Instagram
+
+## Thread format
+The main post is only the hook. The content continues in the comment section as a numbered thread (1/, 2/, 3/ …). Facebook orders comments by relevance, not chronology, so engagement on the thread comments keeps the whole post surfacing.
+
+## Back-end rule
+Every post must have a back-end system for business — subscribers, affiliate sales, or product traffic. The call to action always goes in the comment section as the final numbered comment, never in the main post.
+
+## Voice
+- Specific, confident, practical — written like a sharp engineer who understands business
+- Hooks promise a concrete outcome ("grew my client's channel by 100,000 subscribers in 30 days")
+- Each thread comment is one self-contained step or insight
+- No hashtags in main posts; keep links out of the hook and in the CTA comment`;
+
+export const fbThreadCommentSchema = z.object({
+  id: z.string(),
+  text: z.string().trim().min(1)
+});
+
+export const fbPostSchema = z.object({
+  id: z.string(),
+  platform: z.enum(["facebook", "instagram"]),
+  format: z.enum(["text", "imageText", "reel"]),
+  status: z.enum(["draft", "posted"]).default("draft"),
+  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  hook: z.string().trim().min(1),
+  body: z.string().default(""),
+  threadComments: z.array(fbThreadCommentSchema).default([]),
+  cta: z.string().default(""),
+  views: z.coerce.number().min(0).optional(),
+  reactions: z.coerce.number().min(0).optional(),
+  comments: z.coerce.number().min(0).optional(),
+  shares: z.coerce.number().min(0).optional(),
+  notes: z.string().default(""),
+  createdAt: z.string().default(() => new Date().toISOString()),
+  updatedAt: z.string().default(() => new Date().toISOString())
+});
+
+export const fbStrategySchema = z.object({
+  brief: z.string().default(DEFAULT_FB_BRIEF),
+  posts: z.array(fbPostSchema).default([])
+});
+
+export const defaultFbStrategy = fbStrategySchema.parse({});
+
 // ----- Saved thumbnails (Thumbnail Generator) -----
 // A persisted thumbnail project: all of the generator's settings plus the
 // uploaded images serialized as PNG data URLs so a project can be reopened
@@ -666,6 +722,7 @@ export const appDataSchema = z.object({
   creatorProfile: creatorProfileSchema.default(defaultCreatorProfile),
   xStrategy: xStrategySchema.default(defaultXStrategy),
   xPlanner: xPlannerSchema.default(defaultXPlanner),
+  fbStrategy: fbStrategySchema.default(defaultFbStrategy),
   settings: settingsSchema,
   executionGoals: z.array(executionGoalSchema).default([]),
   executionCompletions: z.array(executionCompletionSchema).default([]),
