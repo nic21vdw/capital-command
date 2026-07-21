@@ -291,6 +291,113 @@ export const xPlannerSchema = z.object({
 
 export const defaultXPlanner = xPlannerSchema.parse({});
 
+// ----- Video Studio: idea discovery, scripts, carousels -----
+export const videoIdeaSchema = z.object({
+  id: z.string(),
+  seedKeyword: z.string().trim().default(""),
+  title: z.string().trim().min(1),
+  angle: z.string().trim().default(""),
+  format: z.enum(["longform", "short", "both"]).default("longform"),
+  primaryKeyword: z.string().trim().default(""),
+  keywords: z.array(z.string()).default([]),
+  searchIntent: z.enum(["tutorial", "case-study", "opinion", "story", "comparison", "news"]).default("tutorial"),
+  competition: z.enum(["low", "medium", "high"]).default("medium"),
+  score: z.coerce.number().min(0).max(100).default(50),
+  rationale: z.string().default(""),
+  status: z.enum(["suggested", "saved", "scripted", "archived"]).default("suggested"),
+  source: z.enum(["ai", "library", "manual"]).default("ai"),
+  createdAt: z.string().default(() => new Date().toISOString())
+});
+
+export const scriptGraphicSchema = z.object({
+  id: z.string(),
+  sectionId: z.string().default(""),
+  kind: z.enum(["b-roll", "screen-recording", "diagram", "text-overlay", "meme", "photo"]).default("b-roll"),
+  description: z.string().trim().min(1),
+  status: z.enum(["suggested", "accepted", "dismissed"]).default("suggested")
+});
+
+export const scriptSfxSchema = z.object({
+  id: z.string(),
+  sectionId: z.string().default(""),
+  cue: z.string().trim().min(1),
+  sound: z.string().trim().default(""),
+  status: z.enum(["suggested", "accepted", "dismissed"]).default("suggested")
+});
+
+export const scriptSectionSchema = z.object({
+  id: z.string(),
+  name: z.string().trim().min(1),
+  purpose: z.string().default(""),
+  content: z.string().default("")
+});
+
+export const videoScriptSchema = z.object({
+  id: z.string(),
+  ideaId: z.string().optional(),
+  title: z.string().trim().min(1),
+  targetMinutes: z.coerce.number().min(1).max(180).default(8),
+  sections: z.array(scriptSectionSchema).default([]),
+  graphics: z.array(scriptGraphicSchema).default([]),
+  sfx: z.array(scriptSfxSchema).default([]),
+  status: z.enum(["draft", "ready", "produced"]).default("draft"),
+  source: z.enum(["ai", "manual"]).default("ai"),
+  createdAt: z.string().default(() => new Date().toISOString()),
+  updatedAt: z.string().default(() => new Date().toISOString())
+});
+
+export const carouselSlideSchema = z.object({
+  id: z.string(),
+  heading: z.string().default(""),
+  body: z.string().default("")
+});
+
+export const carouselSchema = z.object({
+  id: z.string(),
+  title: z.string().trim().min(1),
+  sourceType: z.enum(["script", "longform", "custom"]).default("custom"),
+  sourceId: z.string().optional(),
+  slides: z.array(carouselSlideSchema).default([]),
+  createdAt: z.string().default(() => new Date().toISOString())
+});
+
+// The channel's default script framework. Editable on the Scripts page and
+// persisted; every generated script follows whatever the stored version says.
+export const DEFAULT_SCRIPT_FRAMEWORK = `# Script Framework
+
+## 1. Hook (first 15-25 seconds)
+Open on the payoff or the boldest claim of the video — never an intro, never "hey guys". One or two lines that make the promise concrete ("I built X in Y", "This mistake cost me Z"), then one line of stakes: why this matters to the viewer right now.
+
+## 2. Context & Stakes (20-40 seconds)
+The minimum backstory needed to care: what I'm building (CoLateral, AI tools for structural engineers), what the problem was, and what happens if it goes wrong. End with an open loop — name what's coming later so people stay.
+
+## 3. Value Beats (the body — 3 to 5 beats)
+Each beat = one concrete thing: a step, a decision, a mistake, a demo. For every beat:
+- Show, don't narrate — screen recording or b-roll over the talking.
+- One specific detail or number per beat (real, never invented).
+- End the beat with a mini-payoff or a turn ("...and that's when it broke").
+Keep beats 60-120 seconds each. Order them so tension rises: setup → complication → breakthrough.
+
+## 4. Payoff (30-60 seconds)
+Close the loop opened in the hook: the result, the demo of it working, the honest verdict — including what didn't work. This is the part people came for; don't rush it.
+
+## 5. CTA (5-10 seconds)
+One ask only: subscribe for the next build video, or watch the next video in the journey. Say it like a person, not an ad. No "smash that like button".
+
+## Voice rules
+- Sharp engineer who understands business — confident, specific, plain words.
+- Short sentences. Contractions. First person, present tense where possible.
+- No hype adjectives, no invented numbers, no motivational-influencer tone.`;
+
+export const videoStudioSchema = z.object({
+  framework: z.string().default(DEFAULT_SCRIPT_FRAMEWORK),
+  ideas: z.array(videoIdeaSchema).default([]),
+  scripts: z.array(videoScriptSchema).default([]),
+  carousels: z.array(carouselSchema).default([])
+});
+
+export const defaultVideoStudio = videoStudioSchema.parse({});
+
 // ----- Saved thumbnails (Thumbnail Generator) -----
 // A persisted thumbnail project: all of the generator's settings plus the
 // uploaded images serialized as PNG data URLs so a project can be reopened
@@ -675,7 +782,8 @@ export const appDataSchema = z.object({
   savedThumbnails: z.array(savedThumbnailSchema).default([]),
   clipProjects: z.array(clipProjectSchema).default([]),
   videoProjects: z.array(videoProjectSchema).default([]),
-  brandAssets: brandAssetsSchema.default(defaultBrandAssets)
+  brandAssets: brandAssetsSchema.default(defaultBrandAssets),
+  videoStudio: videoStudioSchema.default(defaultVideoStudio)
 });
 
 export const importHoldingSchema = z.object({
