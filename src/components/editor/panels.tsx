@@ -63,6 +63,14 @@ const FACE_CROP_PRESETS: Array<{ id: string; label: string; rect: { x: number; y
   { id: "center", label: "Center", rect: { x: 0.25, y: 0.15, w: 0.5, h: 0.7 } }
 ];
 
+/** One-click snap positions for overlays (title text especially) — normalized
+ *  center points that land just inside the safe-area guide. */
+const OVERLAY_POSITION_PRESETS: Array<{ id: string; label: string; x: number; y: number }> = [
+  { id: "top", label: "Top", x: 0.5, y: 0.16 },
+  { id: "center", label: "Center", x: 0.5, y: 0.5 },
+  { id: "bottom", label: "Bottom", x: 0.5, y: 0.84 }
+];
+
 /** Like Field, but for groups of buttons — a <label> wrapper would forward
  *  clicks on the caption to the first button and break accessible names. */
 function Group({ label, children }: { label: string; children: React.ReactNode }) {
@@ -645,6 +653,28 @@ export const OverlaysPanel = memo(function OverlaysPanel({ api }: { api: EditorA
               <ColorField label="Colour" value={selected.color ?? "#ffffff"} onChange={(v) => api.updateOverlay(selected.id, { color: v })} />
             </>
           )}
+          <Group label="Position">
+            <div className="flex flex-wrap gap-1.5">
+              {OVERLAY_POSITION_PRESETS.map((preset) => {
+                const active = Math.abs(selected.x - preset.x) < 0.01 && Math.abs(selected.y - preset.y) < 0.01;
+                return (
+                  <button
+                    key={preset.id}
+                    type="button"
+                    onClick={() => api.updateOverlay(selected.id, { x: preset.x, y: preset.y })}
+                    className={cn(
+                      "rounded-full border px-2.5 py-1 text-xs transition",
+                      active
+                        ? "border-[var(--accent)] bg-[var(--accent)]/10 text-white"
+                        : "border-[var(--border)] text-[var(--muted-foreground)] hover:border-[var(--accent)] hover:text-white"
+                    )}
+                  >
+                    {preset.label}
+                  </button>
+                );
+              })}
+            </div>
+          </Group>
           <RangeField label="Scale" value={selected.scale} min={0.1} max={5} step={0.05} onChange={(v) => api.updateOverlay(selected.id, { scale: v })} format={(v) => `${v.toFixed(2)}×`} />
           <RangeField label="Rotation" value={selected.rotation} min={-180} max={180} step={1} onChange={(v) => api.updateOverlay(selected.id, { rotation: v })} format={(v) => `${v}°`} />
           <RangeField label="Opacity" value={selected.opacity} min={0} max={1} step={0.05} onChange={(v) => api.updateOverlay(selected.id, { opacity: v })} format={(v) => `${Math.round(v * 100)}%`} />

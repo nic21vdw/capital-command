@@ -8,6 +8,7 @@ import {
   ChevronLeft,
   ChevronRight,
   Clapperboard,
+  Facebook,
   FileText,
   Images,
   Lightbulb,
@@ -60,7 +61,10 @@ const navGroups: NavGroup[] = [
       // Instagram carousel images generated from scripts/videos.
       { href: "/carousels", label: "Carousels", icon: Images },
       // On-demand pack of suggested X/Threads posts + replies (suggestion-only).
-      { href: "/x-posts", label: "X / Threads Posts", icon: AtSign }
+      { href: "/x-posts", label: "X / Threads Posts", icon: AtSign },
+      // Thread-format content engine for Facebook/Instagram (hook post +
+      // numbered comment thread + CTA comment).
+      { href: "/facebook", label: "FB / IG Threads", icon: Facebook }
     ]
   }
 ];
