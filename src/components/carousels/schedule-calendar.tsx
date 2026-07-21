@@ -1,7 +1,7 @@
 "use client";
 
-import { useMemo } from "react";
-import { CalendarDays, Repeat, Trash2 } from "lucide-react";
+import { useMemo, useState } from "react";
+import { CalendarDays, Download, Loader2, Repeat, Trash2 } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { CAROUSEL_PLATFORMS, expandOccurrences } from "@/lib/carousels/schedule";
 import type { Carousel } from "@/types/domain";
@@ -26,11 +26,15 @@ function labelForDate(dateKey: string, todayKey: string): string {
  */
 export function ScheduleCalendar({
   carousels,
-  onUnschedule
+  onUnschedule,
+  onPrepare
 }: {
   carousels: Carousel[];
   onUnschedule: (carouselId: string, scheduleId: string) => void;
+  /** Render + hand off the carousel's slides so it's ready to post. */
+  onPrepare: (carouselId: string) => Promise<void> | void;
 }) {
+  const [preparing, setPreparing] = useState<string | null>(null);
   const now = useMemo(() => new Date(), []);
   const todayKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
 
@@ -84,6 +88,27 @@ export function ScheduleCalendar({
                       );
                     })}
                   </div>
+                  <button
+                    type="button"
+                    disabled={preparing !== null}
+                    onClick={async () => {
+                      setPreparing(occurrence.carouselId);
+                      try {
+                        await onPrepare(occurrence.carouselId);
+                      } finally {
+                        setPreparing(null);
+                      }
+                    }}
+                    aria-label="Prepare for posting"
+                    title="Render the slides now — ready to post"
+                    className="shrink-0 text-[var(--muted-foreground)] transition hover:text-[var(--accent)] disabled:opacity-50"
+                  >
+                    {preparing === occurrence.carouselId ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <Download className="h-3.5 w-3.5" />
+                    )}
+                  </button>
                   <button
                     type="button"
                     onClick={() => onUnschedule(occurrence.carouselId, occurrence.scheduleId)}

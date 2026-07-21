@@ -54,6 +54,25 @@ export function CarouselsPage() {
       .catch(() => undefined);
   }, []);
 
+  const prepare = useCallback(
+    async (carouselId: string) => {
+      const carousel = carousels.find((entry) => entry.id === carouselId);
+      if (!carousel) return;
+      const carouselRatio = carousel.aspectRatio ?? DEFAULT_ASPECT_RATIO;
+      const base = carouselBaseName(carousel.title);
+      try {
+        for (let index = 0; index < carousel.slides.length; index += 1) {
+          await downloadSlide(carousel.slides[index], index, carousel.slides.length, carouselRatio, base);
+          await new Promise((resolve) => setTimeout(resolve, 350));
+        }
+        toast.success(`“${carousel.title}” is ready — ${carousel.slides.length} slides rendered to post.`);
+      } catch {
+        toast.error("Could not render the slides.");
+      }
+    },
+    [carousels]
+  );
+
   const unschedule = useCallback(
     async (carouselId: string, scheduleId: string) => {
       const carousel = carousels.find((entry) => entry.id === carouselId);
@@ -190,7 +209,7 @@ export function CarouselsPage() {
         </Card>
       ) : (
         <div className="space-y-6">
-          <ScheduleCalendar carousels={carousels} onUnschedule={unschedule} />
+          <ScheduleCalendar carousels={carousels} onUnschedule={unschedule} onPrepare={prepare} />
           {carousels.map((carousel) => (
             <CarouselCard key={carousel.id} carousel={carousel} refresh={refresh} />
           ))}
