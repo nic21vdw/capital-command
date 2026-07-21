@@ -9,8 +9,12 @@ import {
   ChevronRight,
   Clapperboard,
   Facebook,
+  FileText,
+  Images,
+  Lightbulb,
   Presentation,
   Radar,
+  Rocket,
   Settings,
   UploadCloud,
   Wand2,
@@ -23,27 +27,40 @@ import { cn } from "@/lib/utils";
 type NavItem = { href: string; label: string; icon: LucideIcon };
 type NavGroup = { label: string; items: NavItem[] };
 
+// The nav reads as the pipeline, top to bottom: plan the video, make it,
+// then get it (and its side outputs) out everywhere.
 const navGroups: NavGroup[] = [
   {
-    label: "YouTube tools",
+    label: "Plan",
     items: [
-      // The pipeline reads top to bottom: edit the long-form upload, cut it
-      // into shorts, then schedule everything.
-      { href: "/longform", label: "Long-Form Editor", icon: Clapperboard },
-      { href: "/clips", label: "Clip Generator", icon: Wand2 },
-      // The Clip Editor has no nav tab of its own: every clip is edited from
-      // its card in the Clip Generator, which deep-links into /editor.
-      { href: "/uploading-center", label: "Uploading Center", icon: UploadCloud },
-      // Auto-playing deck of the Remotion diagram/title segments.
-      { href: "/presentation", label: "Segment Deck", icon: Presentation },
+      // Keyword research → scored video ideas, saved to a board.
+      { href: "/ideas", label: "Idea Lab", icon: Lightbulb },
+      // Full scripts following the channel framework + graphics/SFX kit.
+      { href: "/scripts", label: "Scripts", icon: FileText },
       // Watchlist of other channels with baseline stats and outlier flagging.
       { href: "/outliers", label: "Outlier Radar", icon: Radar }
     ]
   },
   {
-    label: "Audience",
+    label: "Create",
     items: [
-      // Daily pack of suggested X/Threads posts + replies (suggestion-only).
+      { href: "/longform", label: "Long-Form Editor", icon: Clapperboard },
+      { href: "/clips", label: "Clip Generator", icon: Wand2 },
+      // The Clip Editor has no nav tab of its own: every clip is edited from
+      // its card in the Clip Generator, which deep-links into /editor.
+      // Auto-playing deck of the Remotion diagram/title segments.
+      { href: "/presentation", label: "Segment Deck", icon: Presentation }
+    ]
+  },
+  {
+    label: "Distribute",
+    items: [
+      // The start-to-finish pipeline board.
+      { href: "/distribution", label: "Distribution Centre", icon: Rocket },
+      { href: "/uploading-center", label: "Uploading Center", icon: UploadCloud },
+      // Instagram carousel images generated from scripts/videos.
+      { href: "/carousels", label: "Carousels", icon: Images },
+      // On-demand pack of suggested X/Threads posts + replies (suggestion-only).
       { href: "/x-posts", label: "X / Threads Posts", icon: AtSign },
       // Thread-format content engine for Facebook/Instagram (hook post +
       // numbered comment thread + CTA comment).

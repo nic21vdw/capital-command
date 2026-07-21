@@ -748,6 +748,113 @@ export interface VideoProject {
   updatedAt: string;
 }
 
+// ---------------------------------------------------------------------------
+// Video Studio: idea discovery, script generation, carousels
+// The plan-side of the pipeline — ideas become scripts, scripts become
+// recordings (Long-Form Editor), recordings become uploads, clips, carousels
+// and audio. Suggestion records carry a status so Nic manages (accepts /
+// dismisses) what the AI proposes instead of it silently deciding.
+
+export type VideoIdeaFormat = "longform" | "short" | "both";
+export type VideoIdeaIntent = "tutorial" | "case-study" | "opinion" | "story" | "comparison" | "news";
+export type VideoIdeaCompetition = "low" | "medium" | "high";
+export type VideoIdeaStatus = "suggested" | "saved" | "scripted" | "archived";
+
+export interface VideoIdea {
+  id: string;
+  /** The seed keyword the research run started from ("" for manual ideas). */
+  seedKeyword: string;
+  /** Working title, written in the channel title voice. */
+  title: string;
+  /** The angle/promise that makes this searchable AND clickable. */
+  angle: string;
+  format: VideoIdeaFormat;
+  primaryKeyword: string;
+  keywords: string[];
+  searchIntent: VideoIdeaIntent;
+  /** Estimated competition for the primary keyword. */
+  competition: VideoIdeaCompetition;
+  /** 0-100 overall opportunity score, demand vs competition vs channel fit. */
+  score: number;
+  rationale: string;
+  status: VideoIdeaStatus;
+  source: "ai" | "library" | "manual";
+  createdAt: string;
+}
+
+export type KitSuggestionStatus = "suggested" | "accepted" | "dismissed";
+export type ScriptGraphicKind = "b-roll" | "screen-recording" | "diagram" | "text-overlay" | "meme" | "photo";
+
+export interface ScriptGraphic {
+  id: string;
+  /** Section this belongs to ("" = whole video). */
+  sectionId: string;
+  kind: ScriptGraphicKind;
+  description: string;
+  status: KitSuggestionStatus;
+}
+
+export interface ScriptSfx {
+  id: string;
+  sectionId: string;
+  /** The moment/line the sound lands on. */
+  cue: string;
+  /** Sound name — the built-in SFX ids (vineBoom/fa/amongUs) or a free-text sound. */
+  sound: string;
+  status: KitSuggestionStatus;
+}
+
+export interface ScriptSection {
+  id: string;
+  name: string;
+  /** What this section must accomplish per the framework. */
+  purpose: string;
+  /** The words to say — written out, editable. */
+  content: string;
+}
+
+export type VideoScriptStatus = "draft" | "ready" | "produced";
+
+export interface VideoScript {
+  id: string;
+  /** Idea this was written from, when it came through the Idea Lab. */
+  ideaId?: string;
+  title: string;
+  targetMinutes: number;
+  sections: ScriptSection[];
+  /** Auto-suggested visuals, managed (accepted/dismissed) by hand. */
+  graphics: ScriptGraphic[];
+  /** Auto-suggested sound effects, managed by hand. */
+  sfx: ScriptSfx[];
+  status: VideoScriptStatus;
+  source: "ai" | "manual";
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CarouselSlide {
+  id: string;
+  heading: string;
+  body: string;
+}
+
+export interface Carousel {
+  id: string;
+  title: string;
+  sourceType: "script" | "longform" | "custom";
+  sourceId?: string;
+  slides: CarouselSlide[];
+  createdAt: string;
+}
+
+export interface VideoStudio {
+  /** The channel's script framework — editable; every generated script follows it. */
+  framework: string;
+  ideas: VideoIdea[];
+  scripts: VideoScript[];
+  carousels: Carousel[];
+}
+
 export interface AppData {
   holdings: Holding[];
   watchlist: WatchlistItem[];
@@ -775,6 +882,8 @@ export interface AppData {
   videoProjects: VideoProject[];
   /** Reusable brand images (logo/watermark) shared across all clip projects. */
   brandAssets?: BrandAssets;
+  /** Idea Lab + Scripts + Carousels. Optional so pre-existing data files stay valid; the schema defaults it. */
+  videoStudio?: VideoStudio;
 }
 
 export interface BrandAssets {
