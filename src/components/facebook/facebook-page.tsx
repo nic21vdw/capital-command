@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import {
   BookOpen,
   Check,
@@ -20,6 +20,8 @@ import {
   ThumbsUp,
   Trash2,
   Type,
+  UploadCloud,
+  X,
   type LucideIcon
 } from "lucide-react";
 import { toast } from "sonner";
@@ -55,6 +57,20 @@ const PLATFORM_META: Record<FbPlatform, { label: string; icon: LucideIcon; chip:
 
 const FORMATS: FbPostFormat[] = ["text", "imageText", "reel"];
 const PLATFORMS: FbPlatform[] = ["facebook", "instagram"];
+
+// Media is persisted inline as a base64 data URL, so keep the caps modest to
+// avoid bloating the JSON store: 15MB for an image, 50MB for a reel video.
+const MAX_IMAGE_BYTES = 15 * 1024 * 1024;
+const MAX_VIDEO_BYTES = 50 * 1024 * 1024;
+
+function readFileAsDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result as string);
+    reader.onerror = () => reject(reader.error ?? new Error("Could not read file"));
+    reader.readAsDataURL(file);
+  });
+}
 
 /** The numbered comment thread including the CTA as the final comment. */
 function compiledThread(post: Pick<FbPost, "threadComments" | "cta">): string[] {
@@ -325,6 +341,9 @@ function PostForm({
   const [date, setDate] = useState(initial?.date ?? localDateKey());
   const [hook, setHook] = useState(initial?.hook ?? "");
   const [body, setBody] = useState(initial?.body ?? "");
+  const [media, setMedia] = useState<{ url: string; name: string; kind: "image" | "video" } | null>(
+    initial?.mediaUrl ? { url: initial.mediaUrl, name: initial.mediaName ?? "media", kind: initial.format === "reel" ? "video" : "image" } : null
+  );
   const [comments, setComments] = useState<FbThreadComment[]>(
     initial?.threadComments.length ? initial.threadComments : [{ id: `fbc-${crypto.randomUUID()}`, text: "" }]
   );
@@ -333,6 +352,10 @@ function PostForm({
 
   const bodyLabel = format === "reel" ? "Reel script / caption" : format === "imageText" ? "Image text / caption" : "Extra context (optional)";
   const canSave = hook.trim().length > 0 && !saving;
+  const mediaKind: "image" | "video" | null = format === "imageText" ? "image" : format === "reel" ? "video" : null;
+  // Keep uploads keyed to their format — an image loaded for "Image + text"
+  // shouldn't leak into a Reel post if the format is switched.
+  const activeMedia = media && media.kind === mediaKind ? media : null;
 
   const buildPost = (): FbPost =>
     makeFbPost({
@@ -342,6 +365,9 @@ function PostForm({
       date,
       hook: hook.trim(),
       body,
+      // Media only belongs to image/reel posts — drop it for text-only.
+      mediaUrl: activeMedia?.url,
+      mediaName: activeMedia?.name,
       threadComments: comments.filter((comment) => comment.text.trim()),
       cta
     });
@@ -373,6 +399,19 @@ function PostForm({
             </button>
           ) : null}
         </Field>
+
+        {mediaKind ? (
+          <Field
+            label={mediaKind === "image" ? "Image" : "Reel video"}
+            hint={
+              mediaKind === "image"
+                ? "Drag & drop an image or click to browse — PNG, JPEG, GIF, or WebP · up to 15MB."
+                : "Drag & drop a video or click to browse — MP4, MOV, or WebM · up to 50MB."
+            }
+          >
+            <MediaDropzone kind={mediaKind} media={activeMedia} onChange={setMedia} />
+          </Field>
+        ) : null}
 
         {format !== "text" || body ? (
           <Field label={bodyLabel}>
@@ -441,7 +480,14 @@ function PostForm({
         </div>
       </Card>
 
-      <PostPreview platform={platform} format={format} hook={hook} body={body} thread={compiledThread({ threadComments: comments, cta })} />
+      <PostPreview
+        platform={platform}
+        format={format}
+        hook={hook}
+        body={body}
+        media={activeMedia}
+        thread={compiledThread({ threadComments: comments, cta })}
+      />
     </div>
   );
 }
@@ -485,6 +531,128 @@ function SegmentedControl<T extends string>({
   );
 }
 
+function MediaDropzone({
+  kind,
+  media,
+  onChange
+}: {
+  kind: "image" | "video";
+  media: { url: string; name: string; kind: "image" | "video" } | null;
+  onChange: (next: { url: string; name: string; kind: "image" | "video" } | null) => void;
+}) {
+  const inputRef = useRef<HTMLInputElement>(null);
+  const [dragging, setDragging] = useState(false);
+
+  const handleFile = useCallback(
+    async (file: File) => {
+      const expectedPrefix = kind === "image" ? "image/" : "video/";
+      if (!file.type.startsWith(expectedPrefix)) {
+        toast.error(`That file isn't ${kind === "image" ? "an image" : "a video"}. Pick a ${kind} file.`);
+        return;
+      }
+      const maxBytes = kind === "image" ? MAX_IMAGE_BYTES : MAX_VIDEO_BYTES;
+      if (file.size > maxBytes) {
+        toast.error(`${kind === "image" ? "Image" : "Video"} is too large — keep it under ${Math.round(maxBytes / (1024 * 1024))}MB.`);
+        return;
+      }
+      try {
+        const url = await readFileAsDataUrl(file);
+        onChange({ url, name: file.name, kind });
+      } catch {
+        toast.error("Could not read that file — try another one.");
+      }
+    },
+    [kind, onChange]
+  );
+
+  const accept = kind === "image" ? "image/*" : "video/*";
+
+  return (
+    <div>
+      <input
+        ref={inputRef}
+        type="file"
+        accept={accept}
+        className="hidden"
+        onChange={(event) => {
+          const file = event.target.files?.[0];
+          if (file) void handleFile(file);
+          event.target.value = "";
+        }}
+      />
+
+      {media ? (
+        <div className="space-y-2 rounded-2xl border border-[var(--border)] bg-[var(--surface-2)] p-3">
+          {kind === "image" ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={media.url} alt={media.name} className="max-h-56 w-full rounded-xl object-contain" />
+          ) : (
+            <video src={media.url} controls className="max-h-56 w-full rounded-xl bg-black" />
+          )}
+          <div className="flex items-center justify-between gap-2">
+            <p className="min-w-0 flex-1 truncate text-xs text-[var(--muted-foreground)]">{media.name}</p>
+            <div className="flex shrink-0 items-center gap-2">
+              <Button variant="secondary" className="px-2.5 py-1 text-xs" onClick={() => inputRef.current?.click()}>
+                Replace
+              </Button>
+              <button
+                type="button"
+                aria-label="Remove media"
+                onClick={() => onChange(null)}
+                className="flex h-7 w-7 items-center justify-center rounded-lg bg-white/8 text-[var(--muted-foreground)] transition hover:bg-red-500/20 hover:text-red-300"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : (
+        <div
+          role="button"
+          tabIndex={0}
+          onClick={() => inputRef.current?.click()}
+          onKeyDown={(event) => {
+            if (event.key === "Enter" || event.key === " ") {
+              event.preventDefault();
+              inputRef.current?.click();
+            }
+          }}
+          onDragOver={(event) => {
+            event.preventDefault();
+            setDragging(true);
+          }}
+          onDragLeave={() => setDragging(false)}
+          onDrop={(event) => {
+            event.preventDefault();
+            setDragging(false);
+            const file = event.dataTransfer.files?.[0];
+            if (file) void handleFile(file);
+          }}
+          className={cn(
+            "flex cursor-pointer flex-col items-center justify-center gap-2 rounded-2xl border-2 border-dashed py-8 text-center transition",
+            dragging ? "border-[var(--accent)] bg-[var(--accent)]/10" : "border-white/12 bg-white/3 hover:border-[var(--accent)]/50 hover:bg-[var(--accent)]/4"
+          )}
+        >
+          {kind === "image" ? <ImageIcon className="h-6 w-6 text-[var(--accent)]" /> : <Film className="h-6 w-6 text-[var(--accent)]" />}
+          <p className="text-sm font-medium text-white">
+            Drop {kind === "image" ? "an image" : "a video"} here
+          </p>
+          <Button
+            variant="secondary"
+            className="px-3 py-1.5 text-xs"
+            onClick={(event) => {
+              event.stopPropagation();
+              inputRef.current?.click();
+            }}
+          >
+            <UploadCloud className="mr-1.5 h-3.5 w-3.5" /> Upload {kind === "image" ? "image" : "video"}
+          </Button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function Field({ label, hint, children }: { label: string; hint?: string; children: React.ReactNode }) {
   return (
     <div className="space-y-1.5">
@@ -500,12 +668,14 @@ function PostPreview({
   format,
   hook,
   body,
+  media,
   thread
 }: {
   platform: FbPlatform;
   format: FbPostFormat;
   hook: string;
   body: string;
+  media: { url: string; name: string } | null;
   thread: string[];
 }) {
   const { copiedId, copy } = useCopy();
@@ -532,16 +702,30 @@ function PostPreview({
         ) : (
           <div className="space-y-3">
             <p className="whitespace-pre-wrap text-sm leading-relaxed text-white/90">{hook || "Your hook lands here 👇"}</p>
-            <div className="flex min-h-36 items-center justify-center rounded-xl border border-dashed border-white/15 bg-[var(--surface-2)] p-6 text-center">
-              {format === "imageText" ? (
-                <p className="whitespace-pre-wrap text-base font-semibold text-white/80">{body || "Image with the headline text"}</p>
-              ) : (
-                <div className="space-y-1 text-[var(--muted-foreground)]">
-                  <Film className="mx-auto h-6 w-6" />
-                  <p className="whitespace-pre-wrap text-xs">{body || "Reel — script/caption preview"}</p>
+            {media ? (
+              format === "imageText" ? (
+                <div className="relative overflow-hidden rounded-xl bg-black">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={media.url} alt={media.name} className="max-h-72 w-full object-contain" />
+                  {body ? (
+                    <p className="absolute inset-x-0 bottom-0 bg-black/50 p-3 text-center text-base font-semibold text-white">{body}</p>
+                  ) : null}
                 </div>
-              )}
-            </div>
+              ) : (
+                <video src={media.url} controls className="max-h-72 w-full rounded-xl bg-black" />
+              )
+            ) : (
+              <div className="flex min-h-36 items-center justify-center rounded-xl border border-dashed border-white/15 bg-[var(--surface-2)] p-6 text-center">
+                {format === "imageText" ? (
+                  <p className="whitespace-pre-wrap text-base font-semibold text-white/80">{body || "Image with the headline text"}</p>
+                ) : (
+                  <div className="space-y-1 text-[var(--muted-foreground)]">
+                    <Film className="mx-auto h-6 w-6" />
+                    <p className="whitespace-pre-wrap text-xs">{body || "Reel — script/caption preview"}</p>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         )}
 
@@ -725,6 +909,14 @@ function LibraryCard({
 
       {expanded ? (
         <div className="space-y-2 rounded-lg border border-[var(--border)] bg-[var(--surface-2)] p-3">
+          {post.mediaUrl ? (
+            post.format === "reel" ? (
+              <video src={post.mediaUrl} controls className="max-h-64 w-full rounded-lg bg-black" />
+            ) : (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={post.mediaUrl} alt={post.mediaName ?? "post media"} className="max-h-64 w-full rounded-lg object-contain" />
+            )
+          ) : null}
           {post.body.trim() ? <p className="whitespace-pre-wrap text-sm text-white/80">{post.body}</p> : null}
           {thread.map((text, index) => (
             <p key={index} className={cn("whitespace-pre-wrap text-sm leading-relaxed", index === thread.length - 1 && post.cta.trim() ? "text-[var(--accent)]" : "text-white/80")}>

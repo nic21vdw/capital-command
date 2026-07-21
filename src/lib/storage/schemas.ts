@@ -384,6 +384,8 @@ export const fbPostSchema = z.object({
   date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   hook: z.string().trim().min(1),
   body: z.string().default(""),
+  mediaUrl: z.string().optional(),
+  mediaName: z.string().optional(),
   threadComments: z.array(fbThreadCommentSchema).default([]),
   cta: z.string().default(""),
   views: z.coerce.number().min(0).optional(),
