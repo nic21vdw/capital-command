@@ -561,7 +561,7 @@ export const captionStyleSchema = z.object({
   fontScale: z.coerce.number().min(0.02).max(0.2).default(0.052),
   fontWeight: z.coerce.number().int().min(100).max(900).default(800),
   textColor: z.string().default("#ffffff"),
-  highlightColor: z.string().default("#bd93f9"),
+  highlightColor: z.string().default("#ffd34d"),
   backgroundColor: z.string().default("#000000"),
   backgroundOpacity: z.coerce.number().min(0).max(1).default(0),
   outlineWidth: z.coerce.number().min(0).max(10).default(3),
