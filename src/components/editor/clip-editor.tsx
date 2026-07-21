@@ -29,6 +29,7 @@ import { formatClock, generateClipTitle } from "@/lib/clipping/editor";
 import { Button } from "@/components/ui/button";
 import { EditorPreview } from "@/components/editor/preview";
 import { EditorTimeline } from "@/components/editor/timeline";
+import { DescriptionDropdown } from "@/components/editor/description-dropdown";
 import {
   AudioPanel,
   CaptionsPanel,
@@ -944,6 +945,12 @@ export function ClipEditor({
           onOpenUploadingCenter={() => runSchedule({ type: "navigate" })}
         />
       </div>
+
+      <DescriptionDropdown
+        description={project.description}
+        keywords={project.keywords}
+        onChange={patch}
+      />
 
       <div
         className={cn(
