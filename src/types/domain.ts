@@ -847,6 +847,32 @@ export interface Carousel {
   createdAt: string;
 }
 
+export type GenerationStatus = "queued" | "processing" | "completed" | "failed";
+
+export interface AvatarVideo {
+  id: string;
+  title: string;
+  prompt: string;
+  status: GenerationStatus;
+  externalJobId?: string;
+  videoUrl?: string;
+  thumbnailUrl?: string;
+  error?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface Voiceover {
+  id: string;
+  title: string;
+  script: string;
+  status: GenerationStatus;
+  audioUrl?: string;
+  error?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface VideoStudio {
   /** The channel's script framework — editable; every generated script follows it. */
   framework: string;
@@ -884,6 +910,10 @@ export interface AppData {
   brandAssets?: BrandAssets;
   /** Idea Lab + Scripts + Carousels. Optional so pre-existing data files stay valid; the schema defaults it. */
   videoStudio?: VideoStudio;
+  /** Higgsfield-generated avatar videos. Optional so pre-existing data files stay valid; the schema defaults it. */
+  avatarVideos?: AvatarVideo[];
+  /** AI voiceover clips in Nic's cloned voice. Optional so pre-existing data files stay valid; the schema defaults it. */
+  voiceovers?: Voiceover[];
 }
 
 export interface BrandAssets {

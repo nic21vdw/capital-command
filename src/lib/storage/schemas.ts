@@ -410,6 +410,33 @@ export const carouselSchema = z.object({
   createdAt: z.string().default(() => new Date().toISOString())
 });
 
+// Higgsfield avatar videos: real footage of Nic, driven by an AI avatar —
+// no lines to deliver, the "acting" comes from the generated motion/scene.
+export const avatarVideoSchema = z.object({
+  id: z.string(),
+  title: z.string().trim().min(1).default("Avatar video"),
+  prompt: z.string().default(""),
+  status: z.enum(["queued", "processing", "completed", "failed"]).default("queued"),
+  externalJobId: z.string().optional(),
+  videoUrl: z.string().optional(),
+  thumbnailUrl: z.string().optional(),
+  error: z.string().optional(),
+  createdAt: z.string().default(() => new Date().toISOString()),
+  updatedAt: z.string().default(() => new Date().toISOString())
+});
+
+// AI voiceover clips generated in Nic's cloned voice from typed dialogue.
+export const voiceoverSchema = z.object({
+  id: z.string(),
+  title: z.string().trim().min(1).default("Voiceover"),
+  script: z.string().default(""),
+  status: z.enum(["queued", "processing", "completed", "failed"]).default("queued"),
+  audioUrl: z.string().optional(),
+  error: z.string().optional(),
+  createdAt: z.string().default(() => new Date().toISOString()),
+  updatedAt: z.string().default(() => new Date().toISOString())
+});
+
 // The channel's default script framework. Editable on the Scripts page and
 // persisted; every generated script follows whatever the stored version says.
 export const DEFAULT_SCRIPT_FRAMEWORK = `# Script Framework
@@ -840,7 +867,9 @@ export const appDataSchema = z.object({
   clipProjects: z.array(clipProjectSchema).default([]),
   videoProjects: z.array(videoProjectSchema).default([]),
   brandAssets: brandAssetsSchema.default(defaultBrandAssets),
-  videoStudio: videoStudioSchema.default(defaultVideoStudio)
+  videoStudio: videoStudioSchema.default(defaultVideoStudio),
+  avatarVideos: z.array(avatarVideoSchema).default([]),
+  voiceovers: z.array(voiceoverSchema).default([])
 });
 
 export const importHoldingSchema = z.object({
