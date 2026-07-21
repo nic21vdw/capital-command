@@ -68,6 +68,27 @@ export class PublishQueue {
   }
 
   /**
+   * Drops every item whose platforms have all permanently failed. A fully
+   * failed post can never publish — it only holds its schedule slot hostage —
+   * so clearing it out (on the board's next load) frees the slot for a fresh
+   * clip. Items where any platform still succeeded, is pending, or is
+   * scheduled are kept, because removing them would erase a real post. Saves
+   * once when anything changed and returns the removed items.
+   */
+  async purgeFailed(): Promise<QueueItem[]> {
+    await this.load();
+    const removed: QueueItem[] = [];
+    for (const [id, item] of this.items) {
+      if (isItemFullyFailed(item)) {
+        this.items.delete(id);
+        removed.push(item);
+      }
+    }
+    if (removed.length > 0) await this.save();
+    return removed;
+  }
+
+  /**
    * Platforms of an item that the runner should act on at `now`:
    *  - never terminal states (published / failed / scheduled);
    *  - YouTube is due as soon as it is pending — the upload happens right
@@ -168,6 +189,16 @@ export class PublishQueue {
  */
 export function isTerminalStatus(status: PlatformState["status"]): boolean {
   return status === "published" || status === "failed" || status === "scheduled" || status === "manual";
+}
+
+/**
+ * True when the item has platforms and every one of them permanently failed —
+ * i.e. nothing published, and nothing is still pending/scheduled/manual that
+ * could yet succeed. Such an item is safe to drop from the schedule.
+ */
+export function isItemFullyFailed(item: QueueItem): boolean {
+  const states = Object.values(item.platforms);
+  return states.length > 0 && states.every((state) => state?.status === "failed");
 }
 
 export function newPlatformState(): PlatformState {
