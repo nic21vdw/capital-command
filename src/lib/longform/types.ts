@@ -151,6 +151,8 @@ export type LongformExportRecord = {
   progress: number;
   /** File name inside the project's output dir once done. */
   file?: string;
+  /** Audio-only (mp3) companion extracted from `file`, for podcast platforms. */
+  audioFile?: string;
   error?: string;
   /** Duration of the rendered edit, for the summary line. */
   durationSec?: number;
@@ -194,6 +196,8 @@ export type LongformProject = {
   layout?: LongformLayout;
   pace: LongformPace;
   exports: LongformExportRecord[];
+  /** Publish-ready titles/description/tags; absent until first generated. */
+  metadata?: import("@/lib/longform/metadata").LongformVideoMetadata;
   createdAt: string;
   updatedAt: string;
 };
