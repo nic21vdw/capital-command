@@ -8,6 +8,7 @@ import {
   ChevronLeft,
   ChevronRight,
   Clapperboard,
+  Facebook,
   Presentation,
   Radar,
   Settings,
@@ -43,7 +44,10 @@ const navGroups: NavGroup[] = [
     label: "Audience",
     items: [
       // Daily pack of suggested X/Threads posts + replies (suggestion-only).
-      { href: "/x-posts", label: "X / Threads Posts", icon: AtSign }
+      { href: "/x-posts", label: "X / Threads Posts", icon: AtSign },
+      // Thread-format content engine for Facebook/Instagram (hook post +
+      // numbered comment thread + CTA comment).
+      { href: "/facebook", label: "FB / IG Threads", icon: Facebook }
     ]
   }
 ];

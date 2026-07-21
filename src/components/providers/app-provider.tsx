@@ -5,7 +5,7 @@ import { toast } from "sonner";
 import { derivePortfolioSummary } from "@/lib/derive";
 import { localDateKey } from "@/lib/x-strategy/analytics";
 import { defaultXStrategy } from "@/lib/storage/schemas";
-import type { AppData, ContentItem, CreatorProfile, ExecutionCategory, ExecutionGoal, Expense, Goal, Holding, ResearchNote, Settings, WatchlistItem, XActivity, XActivityType } from "@/types/domain";
+import type { AppData, ContentItem, CreatorProfile, ExecutionCategory, ExecutionGoal, Expense, FbPost, Goal, Holding, ResearchNote, Settings, WatchlistItem, XActivity, XActivityType } from "@/types/domain";
 
 interface BootstrapPayload {
   data: AppData;
@@ -302,6 +302,28 @@ export function makeCreatorProfile(input?: Partial<CreatorProfile>): CreatorProf
     subscriberGoal: input?.subscriberGoal ?? 1000,
     monthlyRevenueGoal: input?.monthlyRevenueGoal ?? 0,
     updatedAt: new Date().toISOString()
+  };
+}
+
+export function makeFbPost(input?: Partial<FbPost>): FbPost {
+  const now = new Date().toISOString();
+  return {
+    id: input?.id ?? `fb-${crypto.randomUUID()}`,
+    platform: input?.platform ?? "facebook",
+    format: input?.format ?? "text",
+    status: input?.status ?? "draft",
+    date: input?.date ?? localDateKey(),
+    hook: input?.hook ?? "",
+    body: input?.body ?? "",
+    threadComments: input?.threadComments ?? [],
+    cta: input?.cta ?? "",
+    views: input?.views,
+    reactions: input?.reactions,
+    comments: input?.comments,
+    shares: input?.shares,
+    notes: input?.notes ?? "",
+    createdAt: input?.createdAt ?? now,
+    updatedAt: now
   };
 }
 
