@@ -22,6 +22,7 @@ import {
   Sparkles,
   UploadCloud,
   Wand2,
+  Workflow,
   type LucideIcon
 } from "lucide-react";
 import { AppFooter } from "@/components/layout/app-footer";
@@ -65,7 +66,10 @@ const navGroups: NavGroup[] = [
   {
     label: "Distribute",
     items: [
-      // The start-to-finish pipeline board.
+      // One stream in (link or file) → long-form edit, shorts, MP3, images,
+      // and text posts all fan out automatically, ready for the scheduler.
+      { href: "/pipeline", label: "Stream Pipeline", icon: Workflow },
+      // Source → output matrix of everything each asset can become.
       { href: "/distribution", label: "Distribution Centre", icon: Rocket },
       // Every distribution calendar merged into one day/week/month view.
       { href: "/master-calendar", label: "Master Calendar", icon: CalendarRange },

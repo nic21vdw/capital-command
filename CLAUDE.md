@@ -1,5 +1,22 @@
 # capital-command
 
+## Stream Pipeline (`/pipeline`)
+
+One stream in (VOD link or uploaded file) → every format out, ready to
+schedule. `src/lib/pipeline/runs.ts` is the orchestrator: a run stores a
+shared clips source id plus references into the existing subsystems (the
+long-form project, the clip job, the carousel, the publish queue) — it owns
+no media of its own. `runOverview` both reports and ADVANCES the run
+(auto-export the long-form edit when analysis is ready, extract the MP3 from
+the finished export, write the carousel + text posts from the transcript),
+so polling `GET /api/pipeline` is what drives runs forward and every step is
+idempotent behind an id check.
+
+- When a NEW output format is added to the app, wire it into the pipeline:
+  a stage in `runs.ts` (+ `types.ts`), a row in
+  `src/components/pipeline/pipeline-page.tsx`, and a count in the
+  scheduler-stage summary.
+
 ## Clip metadata conventions (titles, descriptions, tags)
 
 Clip titles are NEVER raw transcript fragments — a slice of what was said
