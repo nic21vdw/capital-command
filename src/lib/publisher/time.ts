@@ -78,6 +78,28 @@ export function resolvePublishAt(input: string, timeZone: string): Date {
   return parsed;
 }
 
+/**
+ * The local calendar date (YYYY-MM-DD) and wall clock (HH:mm) of a UTC instant
+ * as observed in `timeZone`. Used to place a post/video on the day it goes live
+ * — regardless of whether its time lines up with a schedule slot.
+ */
+export function localCalendarParts(instant: string | Date, timeZone: string): { dateKey: string; time: string } {
+  const date = typeof instant === "string" ? new Date(instant) : instant;
+  const parts: Record<string, string> = {};
+  for (const part of new Intl.DateTimeFormat("en-CA", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23"
+  }).formatToParts(date)) {
+    parts[part.type] = part.value;
+  }
+  return { dateKey: `${parts.year}-${parts.month}-${parts.day}`, time: `${parts.hour}:${parts.minute}` };
+}
+
 /** RFC3339 UTC timestamp, the format YouTube's status.publishAt expects. */
 export function toRfc3339Utc(date: Date): string {
   return date.toISOString().replace(/\.\d{3}Z$/, "Z");
