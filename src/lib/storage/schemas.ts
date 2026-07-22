@@ -397,10 +397,54 @@ export const fbPostSchema = z.object({
   updatedAt: z.string().default(() => new Date().toISOString())
 });
 
+const slideTextLayerSchema = z.object({
+  id: z.string(),
+  type: z.literal("text"),
+  text: z.string().default(""),
+  x: z.number(),
+  y: z.number(),
+  width: z.number(),
+  fontSize: z.number(),
+  color: z.string().default("#ffffff"),
+  weight: z.number().default(700),
+  align: z.enum(["left", "center", "right"]).default("left"),
+  rotation: z.number().optional()
+});
+
+const slideImageLayerSchema = z.object({
+  id: z.string(),
+  type: z.literal("image"),
+  src: z.string(),
+  x: z.number(),
+  y: z.number(),
+  width: z.number(),
+  height: z.number(),
+  radius: z.number().optional(),
+  rotation: z.number().optional()
+});
+
+export const slideLayerSchema = z.discriminatedUnion("type", [slideTextLayerSchema, slideImageLayerSchema]);
+
 export const carouselSlideSchema = z.object({
   id: z.string(),
   heading: z.string().default(""),
-  body: z.string().default("")
+  body: z.string().default(""),
+  background: z.string().optional(),
+  headingColor: z.string().optional(),
+  bodyColor: z.string().optional(),
+  hideBaseText: z.boolean().optional(),
+  layers: z.array(slideLayerSchema).optional()
+});
+
+export const carouselScheduleSchema = z.object({
+  id: z.string(),
+  platforms: z.array(z.enum(["youtube", "instagram", "tiktok", "facebook"])).default([]),
+  time: z.string().regex(/^\d{2}:\d{2}$/),
+  recurrence: z.enum(["once", "daily", "weekly"]).default("once"),
+  date: z.string(),
+  weekday: z.number().int().min(0).max(6).optional(),
+  caption: z.string().optional(),
+  createdAt: z.string().default(() => new Date().toISOString())
 });
 
 export const carouselSchema = z.object({
@@ -409,6 +453,8 @@ export const carouselSchema = z.object({
   sourceType: z.enum(["script", "longform", "custom"]).default("custom"),
   sourceId: z.string().optional(),
   slides: z.array(carouselSlideSchema).default([]),
+  aspectRatio: z.enum(["portrait", "square", "story", "landscape"]).optional(),
+  schedules: z.array(carouselScheduleSchema).optional(),
   createdAt: z.string().default(() => new Date().toISOString())
 });
 
