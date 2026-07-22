@@ -38,11 +38,13 @@ export async function GET(request: NextRequest) {
   });
   const items = await Promise.all(
     episodes.map(async (episode) => {
-      const length = await stat(
-        path.join(podcastAudioDir(), path.basename(episode.fileName)),
-      )
-        .then((info) => info.size)
-        .catch(() => 0);
+      const length =
+        episode.sizeBytes ||
+        (await stat(
+          path.join(podcastAudioDir(), path.basename(episode.fileName)),
+        )
+          .then((info) => info.size)
+          .catch(() => 0));
       const published =
         episode.publishedAt || episode.scheduledAt || episode.createdAt;
       const url =
