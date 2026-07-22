@@ -4,6 +4,12 @@ import { buildAss, buildTextOverlayDialogue, buildWatermarkDialogue } from "@/li
 import { hasAudioStream, isRenderCanceled, probeDuration, runFfmpeg } from "@/lib/clipping/ffmpeg";
 import { attachEditedClipRender, outputDir, workDir } from "@/lib/clipping/jobs";
 import { renderSignature } from "@/lib/clipping/export-signature";
+import {
+  clipEditedDurationSec,
+  keptClipRanges,
+  remapClipCaptions,
+  remapClipOverlays
+} from "@/lib/clipping/segments";
 import { LAYOUT_MODE_PRESETS } from "@/lib/clipping/layouts";
 import { reframeChain, stackedLayoutChain } from "@/lib/clipping/render";
 import { maybeAutoEnqueueExport } from "@/lib/publisher/enqueue";
@@ -14,6 +20,7 @@ import type {
   CaptionStyle,
   ClipAudio,
   ClipCompositionMode,
+  ClipEditSegment,
   ClipExportSettings,
   Overlay,
   RegionRect,
@@ -27,6 +34,7 @@ export type ExportSpec = {
   baseDurationSec: number;
   trimStart: number;
   trimEnd: number;
+  segments?: ClipEditSegment[];
   compositionMode: ClipCompositionMode;
   reframe: { scale: number; offsetX: number; offsetY: number };
   faceSource?: RegionRect;
@@ -100,48 +108,36 @@ function dataUrlToBuffer(src: string): Buffer | null {
   return Buffer.from(m[1], "base64");
 }
 
-function trimStartSec(spec: ExportSpec): number {
-  return Math.max(0, Math.min(spec.trimStart || 0, spec.baseDurationSec));
+function editRanges(spec: ExportSpec) {
+  return keptClipRanges(
+    spec.baseDurationSec,
+    spec.trimStart,
+    spec.trimEnd,
+    spec.segments
+  );
 }
 
 function trimDuration(spec: ExportSpec): number {
-  const start = trimStartSec(spec);
-  const end = Math.max(start + 0.1, Math.min(spec.trimEnd || spec.baseDurationSec, spec.baseDurationSec));
-  return end - start;
+  return clipEditedDurationSec(
+    spec.baseDurationSec,
+    spec.trimStart,
+    spec.trimEnd,
+    spec.segments
+  );
 }
 
 function shiftedCaptions(spec: ExportSpec): CaptionSegment[] {
-  const start = trimStartSec(spec);
-  const end = start + trimDuration(spec);
-  return spec.captions
-    .filter((caption) => caption.end > start && caption.start < end)
-    .map((caption) => ({
-      ...caption,
-      start: Math.max(0, caption.start - start),
-      end: Math.min(end, caption.end) - start,
-      words: caption.words
-        .filter((word) => word.end > start && word.start < end)
-        .map((word) => ({
-          ...word,
-          start: Math.max(0, word.start - start),
-          end: Math.min(end, word.end) - start
-        }))
-    }));
+  return remapClipCaptions(spec.captions, editRanges(spec));
 }
 
 function shiftedOverlays(spec: ExportSpec): Overlay[] {
-  const start = trimStartSec(spec);
-  const end = start + trimDuration(spec);
-  return spec.overlays
-    .filter((overlay) => {
-      const overlayEnd = overlay.end > overlay.start ? overlay.end : spec.baseDurationSec;
-      return overlayEnd > start && overlay.start < end;
-    })
-    .map((overlay) => ({
-      ...overlay,
-      start: Math.max(0, overlay.start - start),
-      end: Math.min(end, overlay.end > overlay.start ? overlay.end : spec.baseDurationSec) - start
-    }));
+  return remapClipOverlays(spec.overlays, editRanges(spec), spec.baseDurationSec);
+}
+
+function selectExpression(spec: ExportSpec): string {
+  const ranges = editRanges(spec);
+  if (ranges.length === 0) throw new Error("Nothing to export — every timeline segment is cut.");
+  return ranges.map((range) => `between(t,${range.start.toFixed(3)},${range.end.toFixed(3)})`).join("+");
 }
 
 async function writeOverlayImages(spec: ExportSpec, dir: string) {
@@ -252,8 +248,9 @@ async function buildArgs(spec: ExportSpec, dir: string): Promise<{ args: string[
   const w = settings.width;
   const h = settings.height;
   const basePath = path.join(outputDir(spec.jobId), spec.sourceFile);
-  const start = trimStartSec(spec);
   const dur = trimDuration(spec);
+  if (dur < 0.05) throw new Error("Nothing to export — every timeline segment is cut.");
+  const selectExpr = selectExpression(spec);
   const hasAudio = await hasAudioStream(basePath).catch(() => false);
 
   const images = await writeOverlayImages(spec, dir);
@@ -263,7 +260,7 @@ async function buildArgs(spec: ExportSpec, dir: string): Promise<{ args: string[
   const ext = settings.format === "webm" ? "webm" : "mp4";
   const outFile = path.join(outputDir(spec.jobId), `export-${path.basename(dir)}.${ext}`);
 
-  const inputs: string[] = ["-ss", start.toFixed(2), "-i", basePath];
+  const inputs: string[] = ["-i", basePath];
   for (const img of images) inputs.push("-i", img.file);
   let musicIndex = -1;
   if (spec.audio.musicSrc) {
@@ -303,7 +300,8 @@ async function buildArgs(spec: ExportSpec, dir: string): Promise<{ args: string[
   // --- Video filtergraph ---
   const parts: string[] = [];
   parts.push(sourceCompositionChain(spec, w, h));
-  let last = "v0";
+  parts.push(`[v0]select='${selectExpr}',setpts=N/FRAME_RATE/TB[vcut]`);
+  let last = "vcut";
   images.forEach((img, k) => {
     const inputIdx = 1 + k;
     const o = img.overlay;
@@ -330,7 +328,11 @@ async function buildArgs(spec: ExportSpec, dir: string): Promise<{ args: string[
   const fadeOutStart = Math.max(0, dur - spec.audio.fadeOut);
   const audioLabels: string[] = [];
   if (hasAudio) {
-    const af: string[] = [`volume=${spec.audio.clipVolume.toFixed(3)}`];
+    const af: string[] = [
+      `aselect='${selectExpr}'`,
+      "asetpts=N/SR/TB",
+      `volume=${spec.audio.clipVolume.toFixed(3)}`
+    ];
     if (spec.audio.fadeIn > 0) af.push(`afade=t=in:st=0:d=${spec.audio.fadeIn}`);
     if (spec.audio.fadeOut > 0) af.push(`afade=t=out:st=${fadeOutStart.toFixed(2)}:d=${spec.audio.fadeOut}`);
     parts.push(`[0:a]${af.join(",")}[a0]`);
@@ -470,6 +472,7 @@ async function runExport(record: ExportRecord, spec: ExportSpec, signal: AbortSi
       baseDurationSec: spec.baseDurationSec,
       trimStart: spec.trimStart,
       trimEnd: spec.trimEnd,
+      segments: spec.segments,
       compositionMode: spec.compositionMode,
       reframe: spec.reframe,
       faceSource: spec.faceSource,
