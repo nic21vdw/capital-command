@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import {
   AtSign,
+  CalendarRange,
   ChevronLeft,
   ChevronRight,
   Clapperboard,
@@ -63,6 +64,8 @@ const navGroups: NavGroup[] = [
     items: [
       // The start-to-finish pipeline board.
       { href: "/distribution", label: "Distribution Centre", icon: Rocket },
+      // Every distribution calendar merged into one day/week/month view.
+      { href: "/master-calendar", label: "Master Calendar", icon: CalendarRange },
       { href: "/uploading-center", label: "Uploading Center", icon: UploadCloud },
       // Instagram carousel images generated from scripts/videos.
       { href: "/carousels", label: "Carousels", icon: Images },
