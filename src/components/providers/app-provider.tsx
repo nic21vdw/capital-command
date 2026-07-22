@@ -315,6 +315,8 @@ export function makeFbPost(input?: Partial<FbPost>): FbPost {
     date: input?.date ?? localDateKey(),
     hook: input?.hook ?? "",
     body: input?.body ?? "",
+    mediaUrl: input?.mediaUrl,
+    mediaName: input?.mediaName,
     threadComments: input?.threadComments ?? [],
     cta: input?.cta ?? "",
     views: input?.views,

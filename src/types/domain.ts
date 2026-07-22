@@ -342,6 +342,10 @@ export interface FbPost {
   hook: string;
   /** Format-dependent extra: image text/caption for imageText, script for reel, optional add-on for text. */
   body: string;
+  /** Uploaded media as a data URL — an image for imageText, a video for reel. */
+  mediaUrl?: string;
+  /** Original file name of the uploaded media, shown as a label. */
+  mediaName?: string;
   /** The continuation posted as numbered comments under the main post. */
   threadComments: FbThreadComment[];
   /** Back-end call to action — rendered/copied as the final numbered comment. */
