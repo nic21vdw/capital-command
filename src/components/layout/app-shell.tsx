@@ -12,10 +12,12 @@ import {
   FileText,
   Images,
   Lightbulb,
+  Mic,
   Presentation,
   Radar,
   Rocket,
   Settings,
+  Sparkles,
   UploadCloud,
   Wand2,
   type LucideIcon
@@ -49,7 +51,11 @@ const navGroups: NavGroup[] = [
       // The Clip Editor has no nav tab of its own: every clip is edited from
       // its card in the Clip Generator, which deep-links into /editor.
       // Auto-playing deck of the Remotion diagram/title segments.
-      { href: "/presentation", label: "Segment Deck", icon: Presentation }
+      { href: "/presentation", label: "Segment Deck", icon: Presentation },
+      // Higgsfield-generated avatar videos (real footage, AI avatar, no lines).
+      { href: "/avatar", label: "Higgsfield Avatar", icon: Sparkles },
+      // AI voiceover clips in Nic's cloned voice, from typed dialogue.
+      { href: "/voiceover", label: "Voiceover", icon: Mic }
     ]
   },
   {
