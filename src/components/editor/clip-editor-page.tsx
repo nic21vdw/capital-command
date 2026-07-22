@@ -61,6 +61,8 @@ export function ClipEditorPage() {
   const [loadingJobs, setLoadingJobs] = useState(false);
   const [draftProject, setDraftProject] = useState<ClipProject | null>(null);
   const [filterJobId, setFilterJobId] = useState<string>("all");
+  // Newest-first by default; the user can switch to A→Z by project name.
+  const [sortMode, setSortMode] = useState<"date" | "name">("date");
 
   const storedProject = projects.find((p) => p.id === openId) ?? null;
   const draftForOpen = draftProject?.id === openId ? draftProject : null;
@@ -85,15 +87,15 @@ export function ClipEditorPage() {
   const sortedProjects = useMemo(
     () =>
       [...projects].sort((a, b) => {
-        const jobA = jobsById.get(a.jobId);
-        const jobB = jobsById.get(b.jobId);
-        const sourceOrder = sourceLabel(jobA ?? null, a.jobId).localeCompare(sourceLabel(jobB ?? null, b.jobId));
-        if (sourceOrder !== 0) return sourceOrder;
-        const jobDateOrder = (jobB?.createdAt ?? "").localeCompare(jobA?.createdAt ?? "");
-        if (jobDateOrder !== 0) return jobDateOrder;
+        if (sortMode === "name") {
+          const nameOrder = a.name.localeCompare(b.name, undefined, { sensitivity: "base" });
+          if (nameOrder !== 0) return nameOrder;
+          return b.updatedAt.localeCompare(a.updatedAt);
+        }
+        // "date": most recently edited first.
         return b.updatedAt.localeCompare(a.updatedAt);
       }),
-    [jobsById, projects]
+    [projects, sortMode]
   );
   // One option per source video that actually has projects, in the same
   // source-first order the grid uses.
@@ -246,6 +248,17 @@ export function ClipEditorPage() {
                     {option.label}
                   </option>
                 ))}
+              </Select>
+            ) : null}
+            {projects.length > 1 ? (
+              <Select
+                value={sortMode}
+                onChange={(event) => setSortMode(event.target.value as "date" | "name")}
+                className="h-9 w-auto max-w-44"
+                aria-label="Sort projects"
+              >
+                <option value="date">Sort by date</option>
+                <option value="name">Sort by name</option>
               </Select>
             ) : null}
             <Button onClick={openPicker}>
