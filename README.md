@@ -250,3 +250,39 @@ local scheduler and the Actions cron against the same queue at the same time.
 ## Disclaimer
 
 This app is for personal tracking and educational organization only. It does not provide financial, tax, legal, or investment advice.
+
+## Podcast Studio (Spotify · Apple Podcasts · YouTube Music · Substack)
+
+The **Podcast Studio** in the sidebar turns any finished Clip Generator
+livestream job into podcast-ready audio:
+
+- a full-length MP3;
+- optional 4–15 minute topic episodes split at transcript pauses;
+- normalized `-16 LUFS` audio, editable titles and show notes;
+- draft, scheduled, and published release states;
+- a byte-range-capable RSS 2.0 feed at `/api/podcasts/feed`;
+- releases on the existing Master Calendar.
+
+Spotify, Apple Podcasts, and YouTube Music are RSS destinations. Configure
+`PODCAST_PUBLIC_BASE_URL`, `PODCAST_ARTWORK_URL`, and
+`PODCAST_OWNER_EMAIL`, then submit the feed once in each directory. New
+published or due scheduled episodes appear automatically after that.
+
+Podcast directories require permanent public audio URLs. Configure the existing
+`S3_*` media host and set `S3_PUBLIC_BASE_URL`; generated MP3s are then
+uploaded under `podcasts/audio/`. Without it, local generation, playback,
+downloads, scheduling, and feed preview still work, but the feed is not suitable
+for a public directory.
+
+Substack receives the prepared MP3 and show notes as a manual publishing
+package for now. Command does not claim a direct Substack publishing API that
+isn't available.
+
+### Podcast setup checklist
+
+1. Configure the `S3_*` variables and a permanent `S3_PUBLIC_BASE_URL`.
+2. Host Command and set `PODCAST_PUBLIC_BASE_URL` to its HTTPS origin.
+3. Add square public artwork and an owner email.
+4. Generate an episode, review the title/show notes, and publish it to the feed.
+5. Copy the feed URL from Podcast Studio and complete the one-time submission
+   in Spotify for Creators, Apple Podcasts Connect, and YouTube Studio.
