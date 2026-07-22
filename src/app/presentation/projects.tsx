@@ -31,6 +31,9 @@ import { EndCard as ClaudeEndCard } from "../../../video/claude-trailer/src/scen
 import { VIDEO as COLATERAL_INTRO_VIDEO } from "../../../video/colateral-intro/src/theme";
 import { IntroAssemble as ColateralIntroAssemble } from "../../../video/colateral-intro/src/scenes/IntroAssemble";
 import { IntroBeamSweep as ColateralIntroBeamSweep } from "../../../video/colateral-intro/src/scenes/IntroBeamSweep";
+import { IntroBlueprintBuild as ColateralIntroBlueprintBuild } from "../../../video/colateral-intro/src/scenes/IntroBlueprintBuild";
+import { IntroBeamGreeting as ColateralIntroBeamGreeting } from "../../../video/colateral-intro/src/scenes/IntroBeamGreeting";
+import { IntroPixelType as ColateralIntroPixelType } from "../../../video/colateral-intro/src/scenes/IntroPixelType";
 
 export type Slide = {
   id: string;
@@ -140,11 +143,14 @@ export const PROJECTS: Project[] = [
   {
     id: "colateral-intro",
     name: "CoLateral Intro",
-    description: "Title-reveal B-roll with Beam Buddy on white · 1920×1080",
+    description: "Title-reveal B-roll with the 8-bit Beam Buddy on white · CoLateral blue · 1920×1080",
     format: COLATERAL_INTRO_VIDEO,
     slides: [
       { id: "IntroAssemble", title: "Assemble", note: "Beam Buddy drops in, beam draws, wordmark settles on — calm/premium", component: ColateralIntroAssemble, durationInFrames: 150 },
-      { id: "IntroBeamSweep", title: "Beam Sweep", note: "Buddy pops in, fires a light beam that wipes “CoLateral” in — playful", component: ColateralIntroBeamSweep, durationInFrames: 150 }
+      { id: "IntroBeamSweep", title: "Beam Sweep", note: "Buddy pops in, fires a light beam that wipes “CoLateral” in — playful", component: ColateralIntroBeamSweep, durationInFrames: 150 },
+      { id: "IntroBlueprintBuild", title: "Blueprint Build", note: "Kicker + block-snap wordmark on a blueprint grid, Buddy hops in — layered/premium", component: ColateralIntroBlueprintBuild, durationInFrames: 150 },
+      { id: "IntroBeamGreeting", title: "Beam Greeting", note: "Beam-sweep reveal, then Buddy pipes up with a speech bubble — playful", component: ColateralIntroBeamGreeting, durationInFrames: 150 },
+      { id: "IntroPixelType", title: "Pixel Type", note: "8-bit type-on with a blinking caret over CRT scanlines — retro/techy", component: ColateralIntroPixelType, durationInFrames: 150 }
     ]
   }
 ];

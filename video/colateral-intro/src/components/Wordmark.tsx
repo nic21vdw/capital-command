@@ -3,10 +3,12 @@ import { theme, fontFamily } from "../theme";
 
 export const WORD = "CoLateral";
 
-/** Brand capitalisation: the two capitals (C, L) carry the purple brand
- *  colour; the lowercase letters are near-black ink. */
-const letterColor = (ch: string) =>
-  ch === ch.toUpperCase() && ch !== ch.toLowerCase() ? theme.brand : theme.ink;
+/** Brand capitalisation: "Co" reads near-black navy ink, "Lateral" carries the
+ *  vivid brand blue — matching the CoLateral wordmark. Split is positional
+ *  (first two letters ink), so the lowercase "o" stays dark and only the
+ *  second word turns blue. */
+const BLUE_FROM = 2; // index at which the wordmark switches to brand blue
+const letterColor = (i: number) => (i < BLUE_FROM ? theme.ink : theme.brand);
 
 /**
  * The "CoLateral" wordmark. Reveal animation is delegated to the caller via
@@ -34,7 +36,7 @@ export const Wordmark: React.FC<{
         key={i}
         style={{
           display: "inline-block",
-          color: letterColor(ch),
+          color: letterColor(i),
           ...(styleFor ? styleFor(i, ch) : null),
         }}
       >
