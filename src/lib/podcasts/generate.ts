@@ -1,4 +1,4 @@
-import { access, mkdir } from "node:fs/promises";
+import { access, mkdir, stat } from "node:fs/promises";
 import path from "node:path";
 import { runFfmpeg } from "@/lib/clipping/ffmpeg";
 import { fetchJobCaptions, getJob, workDir } from "@/lib/clipping/jobs";
@@ -117,6 +117,7 @@ export async function generatePodcastEpisodes(
           .upload(output, `podcasts/audio/${fileName}`)
           .then((key) => host.publicUrl(key))
       : undefined;
+    const sizeBytes = (await stat(output)).size;
     episodes.push({
       id,
       jobId: job.id,
@@ -128,6 +129,7 @@ export async function generatePodcastEpisodes(
       endSec: range.endSec,
       durationSec: Math.max(1, range.endSec - range.startSec),
       fileName,
+      sizeBytes,
       audioUrl,
       transcriptExcerpt: range.transcriptExcerpt,
       destinations: ["spotify", "apple", "youtube", "substack"],
