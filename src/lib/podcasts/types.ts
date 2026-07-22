@@ -47,6 +47,7 @@ export type PodcastEpisode = {
   endSec: number;
   durationSec: number;
   fileName: string;
+  sizeBytes: number;
   /** Permanent public object URL when R2/S3_PUBLIC_BASE_URL is configured. */
   audioUrl?: string;
   transcriptExcerpt: string;
