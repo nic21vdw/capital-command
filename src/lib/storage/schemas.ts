@@ -701,6 +701,10 @@ export const clipProjectSchema = z.object({
   trimStart: z.coerce.number().min(0).default(0),
   trimEnd: z.coerce.number().min(0).default(0),
   title: z.string().default(""),
+  // Editable posting copy shown in the editor's Description dropdown; optional
+  // so clip projects saved before the field still load.
+  description: z.string().max(10000).optional(),
+  keywords: z.string().max(2000).optional(),
   aspectRatio: z.enum(["9:16", "16:9", "1:1", "4:5", "custom"]).default("9:16"),
   compositionMode: z
     .enum(["center-blur", "crop-fill", "stacked-split", "stacked-split-flip", "screen-lead", "face-lead", "fit"])

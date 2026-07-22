@@ -635,6 +635,10 @@ export interface ClipProject {
   trimEnd: number;
   /** Short generated/editorial title for this clip. */
   title: string;
+  /** Full posting description shown in the editor's Description dropdown; absent on projects saved before the field. */
+  description?: string;
+  /** Comma-separated keywords/tags for this clip; absent on older projects. */
+  keywords?: string;
   aspectRatio: AspectRatioId;
   /** How the 16:9 source master is composed inside the chosen output frame. */
   compositionMode: ClipCompositionMode;

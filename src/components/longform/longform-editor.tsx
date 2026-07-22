@@ -37,6 +37,7 @@ import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { ColorField, Field, NumberField, RangeField, SelectField, Toggle } from "@/components/editor/controls";
 import { SfxSection } from "@/components/editor/sfx-section";
+import { DescriptionDropdown } from "@/components/editor/description-dropdown";
 import { LongformAudioMixer } from "@/components/longform/longform-audio-mixer";
 import { LongformPreview } from "@/components/longform/longform-preview";
 import { LongformTimeline, type TimelineSelection } from "@/components/longform/longform-timeline";
@@ -183,6 +184,8 @@ export function LongformEditor({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           name: current.name,
+          description: current.description,
+          keywords: current.keywords,
           segments: current.segments,
           hook: current.hook,
           captions: current.captions,
@@ -571,6 +574,12 @@ export function LongformEditor({
           <span className="ml-1 text-emerald-400">(−{formatClock(cutSec)})</span>
         </span>
       </div>
+
+      <DescriptionDropdown
+        description={project.description}
+        keywords={project.keywords}
+        onChange={patch}
+      />
 
       <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_340px]">
         {/* Preview + transport + timeline */}
