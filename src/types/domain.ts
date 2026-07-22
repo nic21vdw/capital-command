@@ -618,6 +618,16 @@ export interface AISuggestion {
   addedToTimeline: boolean;
 }
 
+export interface ClipEditSegment {
+  id: string;
+  /** Seconds relative to the rendered clip source. */
+  start: number;
+  end: number;
+  /** Detected pauses start disabled; speech starts enabled. */
+  kind: "speech" | "silence";
+  enabled: boolean;
+}
+
 export interface ClipProject {
   id: string;
   name: string;
@@ -634,9 +644,14 @@ export interface ClipProject {
   /** Where this clip sits inside the source VOD (for caption offset/suggestions). */
   clipStart: number;
   clipEnd: number;
-  /** Non-destructive trim points inside the rendered clip. */
+  /** Non-destructive outer trim points inside the rendered clip. */
   trimStart: number;
   trimEnd: number;
+  /**
+   * Long-form-style keep/cut plan inside the outer trim. Optional only for
+   * projects saved before silence cutting was added; the editor backfills it.
+   */
+  segments?: ClipEditSegment[];
   /** Short generated/editorial title for this clip. */
   title: string;
   /** Full posting description shown in the editor's Description dropdown; absent on projects saved before the field. */

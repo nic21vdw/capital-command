@@ -108,6 +108,11 @@ export type ClipJob = {
   notices: string[];
   createdAt: string;
   durationSec?: number;
+  /**
+   * Full-source audio silence ranges measured with ffmpeg. New clip projects
+   * window these into clip-local keep/cut blocks; older jobs fall back to word gaps.
+   */
+  silences?: import("@/lib/clipping/analysis").SilenceRange[];
   /** Drive-synced folder the clips were copied into, when CLIPS_DRIVE_DIR is set. */
   driveFolder?: string;
   clips: ClipCandidate[];

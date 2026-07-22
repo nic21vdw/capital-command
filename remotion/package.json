@@ -1,0 +1,23 @@
+{
+  "name": "colateral-remotion",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Animated video segments (title cards, animated bullets, stat counters) that Nic records commentary over. Rendered locally with Remotion — no paid API.",
+  "scripts": {
+    "studio": "remotion studio",
+    "render": "remotion render",
+    "still": "remotion still",
+    "upgrade": "remotion upgrade"
+  },
+  "dependencies": {
+    "@remotion/cli": "^4.0.0",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0",
+    "remotion": "^4.0.0",
+    "zod": "^3.24.4"
+  },
+  "devDependencies": {
+    "@types/react": "^19.1.2",
+    "typescript": "^5.8.3"
+  }
+}

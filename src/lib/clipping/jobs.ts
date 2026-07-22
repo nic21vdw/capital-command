@@ -367,6 +367,12 @@ async function runLocalPipeline(job: ClipJob, meta: SourceMeta) {
     audioPath = path.join(workDir(job.id), "source-audio.mp3");
     await runFfmpeg(["-y", "-i", srcPath, "-vn", "-ac", "1", "-ar", "16000", "-b:a", "64k", audioPath]);
   }
+  // Start the same full-audio silence pass the Long-Form Editor uses while
+  // transcription runs. The result is persisted for every clip, even when
+  // transcript selection already finds all ten candidates.
+  const silencePromise = audioPath
+    ? detectSilences(audioPath).catch(() => [])
+    : Promise.resolve([]);
 
   // Transcribe the upload locally so captions, titles, and moment selection
   // all work exactly like they do for platform VODs.
@@ -389,6 +395,8 @@ async function runLocalPipeline(job: ClipJob, meta: SourceMeta) {
     }
   }
 
+  const silences = await silencePromise;
+  job.silences = silences;
   await update(job, { stage: "selecting", progress: 42 });
   let candidates: ClipCandidate[] | null = null;
   if (transcript && transcript.length > 0) {
@@ -396,7 +404,7 @@ async function runLocalPipeline(job: ClipJob, meta: SourceMeta) {
   }
   if (!candidates || candidates.length < TARGET_CLIP_COUNT) {
     if (audioPath) {
-      const [windows, silences] = await Promise.all([extractEnergy(audioPath), detectSilences(audioPath)]);
+      const windows = await extractEnergy(audioPath);
       const energyCandidates = selectCandidates(windows, silences, durationSec, transcript ?? []);
       candidates =
         candidates && candidates.length > 0 ? mergeClipCandidates(candidates, energyCandidates) : energyCandidates;
@@ -458,6 +466,7 @@ async function runPipeline(job: ClipJob, url: string) {
   const audioPath = await downloadAudio(url, workDir(job.id), (pct) =>
     void update(job, { progress: 5 + Math.round((pct / 100) * 20) })
   );
+  const silencePromise = detectSilences(audioPath).catch(() => []);
   const durationSec = meta.durationSec || (await probeDuration(audioPath));
   await update(job, { durationSec: Math.round(durationSec) });
 
@@ -487,6 +496,8 @@ async function runPipeline(job: ClipJob, url: string) {
     await update(job, { captionsError: error instanceof Error ? error.message : String(error) });
   }
 
+  const silences = await silencePromise;
+  job.silences = silences;
   await update(job, { stage: "selecting", progress: 42 });
   let candidates: ClipCandidate[] | null = null;
   if (transcript && transcript.length > 0) {
@@ -496,7 +507,7 @@ async function runPipeline(job: ClipJob, url: string) {
   if (!candidates || candidates.length < TARGET_CLIP_COUNT) {
     // Score moments from audio energy across the whole stream. We still pass the transcript (if any) so scoring
     // can read what is said, not just how loud it is.
-    const [windows, silences] = await Promise.all([extractEnergy(audioPath), detectSilences(audioPath)]);
+    const windows = await extractEnergy(audioPath);
     const energyCandidates = selectCandidates(windows, silences, durationSec, transcript ?? []);
     candidates = candidates && candidates.length > 0 ? mergeClipCandidates(candidates, energyCandidates) : energyCandidates;
     if (!transcript || transcript.length === 0) {
