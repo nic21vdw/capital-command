@@ -1,7 +1,7 @@
 import { publisherConfig, type PublisherConfig } from "@/lib/publisher/config";
 import { mediaHost } from "@/lib/publisher/hosting";
 import { FileQueueStore, R2QueueStore, type QueueStore } from "@/lib/publisher/store";
-import type { PlatformId, PlatformState, PostResult, QueueItem } from "@/lib/publisher/types";
+import type { BufferState, PlatformId, PlatformState, PostResult, QueueItem } from "@/lib/publisher/types";
 
 /**
  * The publish queue and its per-platform state machine.
@@ -180,6 +180,61 @@ export class PublishQueue {
     }
     await this.save();
   }
+
+  /**
+   * Buffer state transitions, mirroring the per-platform trio above so the
+   * Buffer delivery layer gets the same claim/backoff/idempotency guarantees.
+   * The item's `buffer` field is seeded here when absent.
+   */
+  async claimBuffer(item: QueueItem, now: Date): Promise<void> {
+    item.buffer ??= newBufferState();
+    item.buffer.claimedAt = now.toISOString();
+    await this.save();
+  }
+
+  async recordBufferSuccess(
+    item: QueueItem,
+    result: { status: Extract<BufferState["status"], "scheduled" | "published">; updateIds?: string[]; note?: string },
+    now: Date
+  ): Promise<void> {
+    const state = (item.buffer ??= newBufferState());
+    state.status = result.status;
+    if (result.updateIds?.length) state.updateIds = result.updateIds;
+    if (result.note !== undefined) state.note = result.note;
+    if (result.status === "scheduled") state.scheduledAt ??= now.toISOString();
+    if (result.status === "published") state.publishedAt = now.toISOString();
+    state.error = undefined;
+    state.claimedAt = undefined;
+    state.nextAttemptAt = undefined;
+    await this.save();
+  }
+
+  async recordBufferFailure(item: QueueItem, error: { message: string; transient: boolean }, now: Date): Promise<void> {
+    const state = (item.buffer ??= newBufferState());
+    state.attempts += 1;
+    state.error = error.message;
+    state.claimedAt = undefined;
+    if (!error.transient || state.attempts >= this.config.maxAttempts) {
+      state.status = "failed";
+      state.nextAttemptAt = undefined;
+    } else {
+      const delayMinutes = Math.min(
+        this.config.backoffBaseMinutes * 2 ** (state.attempts - 1),
+        this.config.backoffCapMinutes
+      );
+      state.nextAttemptAt = new Date(now.getTime() + delayMinutes * 60_000).toISOString();
+    }
+    await this.save();
+  }
+
+  /** Marks Buffer as a non-publishing reminder (Buffer not configured). */
+  async recordBufferManual(item: QueueItem, note: string): Promise<void> {
+    const state = (item.buffer ??= newBufferState());
+    state.status = "manual";
+    state.note = note;
+    state.claimedAt = undefined;
+    await this.save();
+  }
 }
 
 /**
@@ -194,14 +249,21 @@ export function isTerminalStatus(status: PlatformState["status"]): boolean {
 /**
  * True when the item has platforms and every one of them permanently failed —
  * i.e. nothing published, and nothing is still pending/scheduled/manual that
- * could yet succeed. Such an item is safe to drop from the schedule.
+ * could yet succeed. A live Buffer route (anything but failed) also keeps the
+ * item, so purging a fully-failed direct post never discards a Buffer post
+ * that is still scheduled or already sent. Such an item is safe to drop.
  */
 export function isItemFullyFailed(item: QueueItem): boolean {
   const states = Object.values(item.platforms);
-  return states.length > 0 && states.every((state) => state?.status === "failed");
+  if (states.length === 0 || !states.every((state) => state?.status === "failed")) return false;
+  return !item.buffer || item.buffer.status === "failed";
 }
 
 export function newPlatformState(): PlatformState {
+  return { status: "pending", attempts: 0 };
+}
+
+export function newBufferState(): BufferState {
   return { status: "pending", attempts: 0 };
 }
 

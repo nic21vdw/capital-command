@@ -148,7 +148,58 @@ async function main() {
           .join(" ");
         console.log(`  ${platform.padEnd(9)} ${state.status}${extras ? `  ${extras}` : ""}`);
       }
+      if (item.buffer) {
+        const extras = [
+          item.buffer.updateIds?.length && `ids=${item.buffer.updateIds.join(",")}`,
+          item.buffer.error && `error=${item.buffer.error}`
+        ]
+          .filter(Boolean)
+          .join(" ");
+        console.log(`  ${"buffer".padEnd(9)} ${item.buffer.status}${extras ? `  ${extras}` : ""}`);
+      }
     }
+    return;
+  }
+
+  if (command === "buffer") {
+    const { syncDueToBuffer, listBufferProfiles, validateBufferAuth } = await import("@/lib/publisher/buffer");
+    const { bufferConfigured } = await import("@/lib/publisher/config");
+    const sub = args.positional[1] ?? "sync";
+
+    if (!config.buffer.enabled) {
+      console.error("[publisher] Buffer is off. Set BUFFER_ENABLED=true (and BUFFER_ACCESS_TOKEN / BUFFER_PROFILE_IDS).");
+      process.exitCode = 1;
+      return;
+    }
+
+    if (sub === "profiles" || sub === "check") {
+      try {
+        const profiles = await listBufferProfiles(config);
+        if (sub === "check") await validateBufferAuth(config);
+        console.log(`[publisher] Buffer token OK — ${profiles.length} connected profile(s):`);
+        for (const p of profiles) {
+          console.log(`  ${p.id ?? "(no id)"}  ${p.service ?? "?"}  ${p.formatted_username ?? ""}`);
+        }
+      } catch (error) {
+        console.error(`[publisher] Buffer check failed: ${error instanceof Error ? error.message : String(error)}`);
+        process.exitCode = 1;
+      }
+      return;
+    }
+
+    // Default: sync — schedule every due queue item into Buffer.
+    if (!bufferConfigured(config)) {
+      console.error("[publisher] Buffer is enabled but not connected — set BUFFER_ACCESS_TOKEN and BUFFER_PROFILE_IDS.");
+      process.exitCode = 1;
+      return;
+    }
+    const outcomes = await syncDueToBuffer(new Date(), { config });
+    if (outcomes.length === 0) {
+      console.log("[publisher] Buffer: nothing due to schedule.");
+      return;
+    }
+    for (const o of outcomes) console.log(`  ${o.itemId}  ${o.outcome.padEnd(9)} ${o.detail}`);
+    process.exitCode = outcomes.some((o) => o.outcome === "failed") ? 1 : 0;
     return;
   }
 
@@ -171,6 +222,7 @@ async function main() {
       "  scheduler [--interval <minutes>]     keep running while your machine is on",
       '  enqueue --clip <path> --at <time>    add a finished clip to the queue',
       "  list                                 show the queue and per-platform status",
+      "  buffer [sync|profiles|check]         schedule due posts into Buffer / inspect the connection",
       "  remove <itemId>                      drop an item from the queue"
     ].join("\n")
   );
