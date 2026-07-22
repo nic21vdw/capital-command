@@ -7,6 +7,8 @@ import {
   CalendarClock,
   Check,
   ChevronDown,
+  ChevronLeft,
+  ChevronRight,
   Clock,
   Layers,
   LayoutTemplate,
@@ -48,8 +50,12 @@ import type { ScheduleSlot } from "@/lib/publisher/slots";
 
 // One open slot offered in the Schedule Short dropdown for one-click scheduling.
 type QuickSlot = { utc: string; label: string; today: boolean };
-// The schedule grid always shows a two-week window (mirrors the Uploading Center).
+// The schedule grid shows one two-week window at a time (mirrors the Uploading
+// Center); the dropdown pages forward/back through consecutive windows.
 const SLOT_WINDOW_DAYS = 14;
+// How far the dropdown can page ahead, matching the server's offsetDays ceiling
+// in src/app/api/publish/overview (ten years of daily slots).
+const MAX_SLOT_OFFSET_DAYS = 3650;
 
 const TABS = [
   { id: "layout", label: "Layout", icon: LayoutTemplate },
@@ -683,6 +689,11 @@ export function ClipEditor({
   const [slotOptions, setSlotOptions] = useState<QuickSlot[] | null>(null);
   const [slotsLoading, setSlotsLoading] = useState(false);
   const [publishEnabled, setPublishEnabled] = useState(true);
+  // Which two-week window the dropdown is showing, as days after today (0 =
+  // the current fortnight). Paging the arrows steps this by SLOT_WINDOW_DAYS.
+  const [slotOffsetDays, setSlotOffsetDays] = useState(0);
+  // Human label for the visible window, e.g. "Jul 22 – Aug 4", from its slots.
+  const [slotWindowLabel, setSlotWindowLabel] = useState<string | null>(null);
   // Keep the control locked until the publish API has accepted the slot. Without
   // this, the menu can reopen during the upload and briefly offer the same time.
   const [scheduleSubmitting, setScheduleSubmitting] = useState(false);
@@ -692,14 +703,17 @@ export function ClipEditor({
     router.push(`/uploading-center?${params.toString()}`);
   }, [project.jobId, project.sourceFile, router]);
 
-  // Load the next open slots for the dropdown: the schedule grid's future slots
-  // minus any already booked in the queue, soonest first. Fetched each time the
-  // menu opens so it reflects whatever was scheduled since the editor loaded.
-  const loadSlots = useCallback(async () => {
+  // Load the open slots for one two-week window: the schedule grid's slots at
+  // `offsetDays` minus any already booked in the queue, soonest first. Called
+  // when the menu opens (offset 0) and whenever the arrows page the window, so
+  // it reflects whatever was scheduled since the editor loaded.
+  const loadSlots = useCallback(async (offsetDays = 0) => {
+    const target = Math.min(MAX_SLOT_OFFSET_DAYS, Math.max(0, offsetDays));
     setSlotsLoading(true);
+    setSlotOffsetDays(target);
     try {
       const [overviewRes, queueRes] = await Promise.all([
-        fetch(`/api/publish/overview?days=${SLOT_WINDOW_DAYS}&offsetDays=0`, { cache: "no-store" }),
+        fetch(`/api/publish/overview?days=${SLOT_WINDOW_DAYS}&offsetDays=${target}`, { cache: "no-store" }),
         fetch("/api/publish", { cache: "no-store" })
       ]);
       const overview = overviewRes.ok
@@ -708,18 +722,26 @@ export function ClipEditor({
       if (!overview?.enabled) {
         setPublishEnabled(false);
         setSlotOptions([]);
+        setSlotWindowLabel(null);
         return;
       }
       setPublishEnabled(true);
+      // Label the window by its first and last calendar day (before filtering)
+      // so the header shows which fortnight these slots cover.
+      const first = overview.slots[0]?.dateLabel;
+      const last = overview.slots[overview.slots.length - 1]?.dateLabel;
+      setSlotWindowLabel(first && last ? (first === last ? first : `${first} – ${last}`) : null);
       const queue = queueRes.ok ? ((await queueRes.json()) as { items?: Array<{ publishAt: string }> }) : {};
       const taken = new Set((queue.items ?? []).map((item) => new Date(item.publishAt).toISOString()));
+      // Show every open time in the window (not just the soonest handful) so the
+      // menu is a full picker you can page through as far ahead as you like.
       const open = overview.slots
         .filter((slot) => !slot.past && !taken.has(slot.utc))
-        .slice(0, 8)
         .map((slot) => ({ utc: slot.utc, label: `${slot.dateLabel} · ${slot.time}`, today: slot.today }));
       setSlotOptions(open);
     } catch {
       setSlotOptions([]);
+      setSlotWindowLabel(null);
     } finally {
       setSlotsLoading(false);
     }
@@ -760,7 +782,7 @@ export function ClipEditor({
         // it cannot be offered again, then reconcile against the full queue to
         // pull in anything scheduled from another tab while this upload ran.
         setSlotOptions((current) => current?.filter((slot) => slot.utc !== slotUtc) ?? current);
-        void loadSlots();
+        void loadSlots(slotOffsetDays);
 
         const outcome = data.report?.outcomes.find((entry) => entry.platform === "youtube");
         if (outcome?.outcome === "scheduled") {
@@ -778,7 +800,7 @@ export function ClipEditor({
         setScheduleSubmitting(false);
       }
     },
-    [loadSlots, project.jobId, project.name, project.title]
+    [loadSlots, slotOffsetDays, project.jobId, project.name, project.title]
   );
 
   // Ensure the on-screen edits are rendered, then run `target`. When the last
@@ -952,7 +974,12 @@ export function ClipEditor({
           slots={slotOptions}
           slotsLoading={slotsLoading}
           publishEnabled={publishEnabled}
-          onOpen={loadSlots}
+          windowLabel={slotWindowLabel}
+          canGoPrev={slotOffsetDays > 0}
+          canGoNext={slotOffsetDays + SLOT_WINDOW_DAYS <= MAX_SLOT_OFFSET_DAYS}
+          onOpen={() => loadSlots(0)}
+          onPrevWindow={() => loadSlots(slotOffsetDays - SLOT_WINDOW_DAYS)}
+          onNextWindow={() => loadSlots(slotOffsetDays + SLOT_WINDOW_DAYS)}
           onPickSlot={(slot) => runSchedule({ type: "slot", slotUtc: slot.utc, label: slot.label })}
           onOpenUploadingCenter={() => runSchedule({ type: "navigate" })}
         />
@@ -1156,7 +1183,12 @@ function ScheduleShortMenu({
   slots,
   slotsLoading,
   publishEnabled,
+  windowLabel,
+  canGoPrev,
+  canGoNext,
   onOpen,
+  onPrevWindow,
+  onNextWindow,
   onPickSlot,
   onOpenUploadingCenter
 }: {
@@ -1166,7 +1198,12 @@ function ScheduleShortMenu({
   slots: QuickSlot[] | null;
   slotsLoading: boolean;
   publishEnabled: boolean;
+  windowLabel: string | null;
+  canGoPrev: boolean;
+  canGoNext: boolean;
   onOpen: () => void;
+  onPrevWindow: () => void;
+  onNextWindow: () => void;
   onPickSlot: (slot: QuickSlot) => void;
   onOpenUploadingCenter: () => void;
 }) {
@@ -1229,9 +1266,38 @@ function ScheduleShortMenu({
             </p>
           ) : (
             <>
-              <p className="px-2 pb-1.5 pt-1 text-[11px] font-medium uppercase tracking-wider text-[var(--muted-foreground)]">
-                Schedule to YouTube
-              </p>
+              <div className="flex items-center justify-between gap-2 px-2 pb-1.5 pt-1">
+                <div className="min-w-0">
+                  <p className="text-[11px] font-medium uppercase tracking-wider text-[var(--muted-foreground)]">
+                    Schedule to YouTube
+                  </p>
+                  {windowLabel ? (
+                    <p className="truncate text-[11px] text-[var(--muted-foreground)]/80">{windowLabel}</p>
+                  ) : null}
+                </div>
+                <div className="flex shrink-0 items-center gap-1">
+                  <button
+                    type="button"
+                    onClick={onPrevWindow}
+                    disabled={!canGoPrev || slotsLoading}
+                    aria-label="Earlier two weeks"
+                    title="Earlier two weeks"
+                    className="rounded-md p-1 text-[var(--muted-foreground)] transition hover:bg-white/5 hover:text-white disabled:pointer-events-none disabled:opacity-30"
+                  >
+                    <ChevronLeft className="h-4 w-4" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={onNextWindow}
+                    disabled={!canGoNext || slotsLoading}
+                    aria-label="Next two weeks"
+                    title="Next two weeks"
+                    className="rounded-md p-1 text-[var(--muted-foreground)] transition hover:bg-white/5 hover:text-white disabled:pointer-events-none disabled:opacity-30"
+                  >
+                    <ChevronRight className="h-4 w-4" />
+                  </button>
+                </div>
+              </div>
               {slotsLoading ? (
                 <div className="flex items-center gap-2 px-2 py-3 text-xs text-[var(--muted-foreground)]">
                   <Loader2 className="h-3.5 w-3.5 animate-spin" /> Finding open slots…
@@ -1261,7 +1327,7 @@ function ScheduleShortMenu({
                 </div>
               ) : (
                 <p className="px-2 py-3 text-xs text-[var(--muted-foreground)]">
-                  No open slots in the next two weeks — pick a time in the Uploading Center.
+                  No open slots in this two-week window — try the next one, or pick a time in the Uploading Center.
                 </p>
               )}
             </>
