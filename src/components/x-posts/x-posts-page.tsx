@@ -468,7 +468,7 @@ function ExportTab({ pack, now }: { pack: XDailyPack; now: number }) {
               </Button>
             </div>
           </div>
-          <pre className="max-h-64 overflow-auto rounded-xl border border-[var(--border)] bg-black/30 p-3 text-[11px] leading-relaxed text-white/80">
+          <pre className="max-h-64 overflow-auto rounded-xl border border-[var(--border)] bg-[var(--well)] p-3 text-[11px] leading-relaxed text-white/80">
             <code>{format.contents}</code>
           </pre>
         </Card>

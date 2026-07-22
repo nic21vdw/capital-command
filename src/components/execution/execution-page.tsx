@@ -285,7 +285,7 @@ function TodaySection({
             <div
               key={task.goal.id}
               className={cn(
-                "flex flex-col gap-3 rounded-2xl border border-white/8 bg-black/15 p-4 sm:flex-row sm:items-center sm:justify-between",
+                "flex flex-col gap-3 rounded-2xl border border-white/8 bg-[var(--well)] p-4 sm:flex-row sm:items-center sm:justify-between",
                 task.met && "border-[var(--accent)]/40"
               )}
             >
@@ -485,7 +485,7 @@ function WeeklyGoalsSection({
                     </summary>
                     <div className="mt-2 max-h-40 space-y-1 overflow-y-auto text-left">
                       {entries.map((entry) => (
-                        <div key={entry.id} className="flex items-center justify-between gap-2 rounded-lg bg-black/20 px-2 py-1 text-xs">
+                        <div key={entry.id} className="flex items-center justify-between gap-2 rounded-lg bg-[var(--well)] px-2 py-1 text-xs">
                           <span className="text-[var(--muted-foreground)]">
                             {weekdayLabel(entry.date)} {new Date(entry.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
                           </span>
@@ -565,7 +565,7 @@ function DebtPanel({ debts }: { debts: DebtView[] }) {
           {debts.map((debt) => {
             const Icon = resolveExecutionIcon(debt.goal.icon);
             return (
-              <div key={debt.goal.id} className="rounded-2xl border border-white/8 bg-black/15 p-4">
+              <div key={debt.goal.id} className="rounded-2xl border border-white/8 bg-[var(--well)] p-4">
                 <div className="flex items-start justify-between gap-3">
                   <div className="flex min-w-0 items-center gap-3">
                     <span className="rounded-xl bg-amber-400/10 p-2 text-amber-300">
@@ -638,7 +638,7 @@ function StreaksPanel({ summary }: { summary: ExecutionView["summary"] }) {
       <SectionTitle title="Streaks" subtitle="Hover a row for its exact definition." />
       <div className="space-y-3">
         {rows.map((row) => (
-          <div key={row.label} className="flex items-center justify-between gap-3 rounded-2xl border border-white/8 bg-black/15 p-4" title={row.definition}>
+          <div key={row.label} className="flex items-center justify-between gap-3 rounded-2xl border border-white/8 bg-[var(--well)] p-4" title={row.definition}>
             <div className="flex items-center gap-3">
               <Flame className="h-5 w-5 text-[var(--accent)]" />
               <div>

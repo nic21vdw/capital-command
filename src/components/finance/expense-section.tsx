@@ -290,7 +290,7 @@ export function ExpenseSection() {
               name="active"
               type="checkbox"
               defaultChecked={editing?.active ?? true}
-              className="h-4 w-4 rounded border-white/20 bg-black/20"
+              className="h-4 w-4 rounded border-white/20 bg-[var(--well)]"
             />
             <label htmlFor="expense-active" className="text-sm text-[var(--muted-foreground)]">
               Active (counts toward recurring totals)
