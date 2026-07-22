@@ -252,6 +252,25 @@ export function splitSegment(seg: CaptionSegment, atSeconds: number): [CaptionSe
   ];
 }
 
+/**
+ * Re-tokenizes a segment's text into evenly-timed words across its span. Used
+ * when the caption text is edited by hand (per-segment box or the combined
+ * transcript box) so word-level highlighting tracks the new wording instead of
+ * the stale transcript timing. Even distribution is the right call here: once
+ * the words change, the original per-word timings no longer map to anything.
+ */
+export function retimeWords(seg: CaptionSegment, text: string): CaptionWord[] {
+  const tokens = text.trim().split(/\s+/).filter(Boolean);
+  if (tokens.length === 0) return [];
+  const span = Math.max(0.05, seg.end - seg.start);
+  const step = span / tokens.length;
+  return tokens.map((token, i) => ({
+    text: token,
+    start: seg.start + step * i,
+    end: seg.start + step * (i + 1)
+  }));
+}
+
 export function mergeSegments(a: CaptionSegment, b: CaptionSegment): CaptionSegment {
   const [first, second] = a.start <= b.start ? [a, b] : [b, a];
   return {

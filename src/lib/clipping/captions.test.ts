@@ -10,6 +10,7 @@ import {
   parseSubtitleWords,
   parseSubtitles,
   parseTimestamp,
+  retimeWords,
   serializeSrt,
   serializeVtt,
   splitSegment,
@@ -179,6 +180,23 @@ describe("split / merge", () => {
     expect(merged.start).toBeCloseTo(0);
     expect(merged.end).toBeCloseTo(5);
     expect(merged.text).toBe("hello world there");
+  });
+});
+
+describe("retimeWords", () => {
+  it("spreads edited text evenly across the segment span", () => {
+    const words = retimeWords(seg("a", 0, 4, "ignored"), "one two three four");
+    expect(words.map((w) => w.text)).toEqual(["one", "two", "three", "four"]);
+    expect(words[0].start).toBeCloseTo(0);
+    expect(words[0].end).toBeCloseTo(1);
+    expect(words[3].end).toBeCloseTo(4);
+    // Contiguous, non-overlapping, in order.
+    for (let i = 1; i < words.length; i++) expect(words[i].start).toBeCloseTo(words[i - 1].end);
+  });
+
+  it("collapses whitespace and returns nothing for empty text", () => {
+    expect(retimeWords(seg("a", 0, 2, "x"), "  hello   world ").map((w) => w.text)).toEqual(["hello", "world"]);
+    expect(retimeWords(seg("a", 0, 2, "x"), "   ")).toEqual([]);
   });
 });
 
