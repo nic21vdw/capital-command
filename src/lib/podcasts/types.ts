@@ -4,29 +4,32 @@ export const PODCAST_DESTINATIONS = [
     label: "Spotify",
     delivery: "rss",
     setupUrl: "https://creators.spotify.com/",
-    description: "Delivered from the Command Center podcast RSS feed."
+    description: "Delivered from the Command Center podcast RSS feed.",
   },
   {
     id: "apple",
     label: "Apple Podcasts",
     delivery: "rss",
     setupUrl: "https://podcastsconnect.apple.com/",
-    description: "Submit the Command Center RSS feed once; new episodes then flow automatically."
+    description:
+      "Submit the Command Center RSS feed once; new episodes then flow automatically.",
   },
   {
     id: "youtube",
     label: "YouTube Music",
     delivery: "rss",
     setupUrl: "https://studio.youtube.com/",
-    description: "Connect the RSS feed to a YouTube podcast for audio-first distribution."
+    description:
+      "Connect the RSS feed to a YouTube podcast for audio-first distribution.",
   },
   {
     id: "substack",
     label: "Substack",
     delivery: "manual",
     setupUrl: "https://substack.com/",
-    description: "Prepared as an audio post with show notes; direct publishing stays manual until an API is available."
-  }
+    description:
+      "Prepared as an audio post with show notes; direct publishing stays manual until an API is available.",
+  },
 ] as const;
 
 export type PodcastDestinationId = (typeof PODCAST_DESTINATIONS)[number]["id"];
