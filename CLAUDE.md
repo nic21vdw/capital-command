@@ -1,5 +1,26 @@
 # capital-command
 
+## Clip metadata conventions (titles, descriptions, tags)
+
+Clip titles are NEVER raw transcript fragments — a slice of what was said
+reads as a broken, mid-sentence thought. Titles are written by Claude in
+`src/lib/clipping/titles.ts`, which carries the channel's title style guide:
+a system prompt with example titles plus the recurring keyword set (AI, vibe
+coding, Claude, ChatGPT, AI agents, coding, SaaS, startup, business,
+building in public, engineering, automation). The heuristic titler in
+`src/lib/clipping/editor.ts` (`generateClipTitle`) is only the offline
+fallback when no API key is configured or the call fails.
+
+- Apply the SAME approach to any future clip/video metadata generation —
+  descriptions, tags, hashtags: reuse `CHANNEL_KEYWORDS` and
+  `TITLE_STYLE_EXAMPLES` from `titles.ts` and write viral, keyword-aware
+  copy with Claude rather than slicing the transcript.
+- Every generated clip shows its title in white text centered just above
+  the video band (over the blurred fill) by default: the ready-to-post
+  render burns it in (`writeClipDownloadAss` + `buildClipTitleDialogue` in
+  `captions.ts`), and fresh editor projects seed the matching white text
+  overlay (`makeTitleOverlay`).
+
 ## Remotion / motion video conventions
 
 When asked to make a "motion video" (a new Remotion short/segment), the

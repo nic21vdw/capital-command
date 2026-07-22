@@ -4,10 +4,13 @@ import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowLeft,
+  AudioLines,
   Captions,
+  Check,
   Copy,
   Crosshair,
   Download,
+  FileText,
   Image as ImageIcon,
   ImagePlus,
   Loader2,
@@ -20,6 +23,7 @@ import {
   Send,
   Slice,
   Smartphone,
+  Sparkles,
   Square,
   Trash2,
   Upload,
@@ -33,12 +37,14 @@ import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { ColorField, Field, NumberField, RangeField, SelectField, Toggle } from "@/components/editor/controls";
 import { SfxSection } from "@/components/editor/sfx-section";
+import { DescriptionDropdown } from "@/components/editor/description-dropdown";
 import { LongformAudioMixer } from "@/components/longform/longform-audio-mixer";
 import { LongformPreview } from "@/components/longform/longform-preview";
 import { LongformTimeline, type TimelineSelection } from "@/components/longform/longform-timeline";
 import { CAPTION_PRESETS } from "@/lib/clipping/captions";
 import { applyCaptionPreset, formatClock } from "@/lib/clipping/editor";
 import { PACE_PRESETS, applyManualRange, editedDurationSec, hookCaptions, transcriptCaptions, type PacePresetId } from "@/lib/longform/plan";
+import type { LongformVideoMetadata } from "@/lib/longform/metadata";
 import type { LongformAudioClip, LongformExportRecord, LongformOverlay, LongformProject, MusicTrack } from "@/lib/longform/types";
 import type { CaptionAlignment, CaptionAnimation, CaptionPosition, CaptionPresetId, CaptionSegment } from "@/types/domain";
 import { cn } from "@/lib/utils";
@@ -54,6 +60,7 @@ const TABS = [
   { id: "trim", label: "Trim", icon: Slice },
   { id: "images", label: "Images", icon: ImageIcon },
   { id: "music", label: "Audio", icon: Music4 },
+  { id: "publish", label: "Publish", icon: FileText },
   { id: "export", label: "Export", icon: Upload }
 ] as const;
 
@@ -177,6 +184,8 @@ export function LongformEditor({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           name: current.name,
+          description: current.description,
+          keywords: current.keywords,
           segments: current.segments,
           hook: current.hook,
           captions: current.captions,
@@ -566,6 +575,12 @@ export function LongformEditor({
         </span>
       </div>
 
+      <DescriptionDropdown
+        description={project.description}
+        keywords={project.keywords}
+        onChange={patch}
+      />
+
       <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_340px]">
         {/* Preview + transport + timeline */}
         <div className="min-w-0 space-y-3">
@@ -754,6 +769,7 @@ export function LongformEditor({
                 seek={seek}
               />
             )}
+            {tab === "publish" && <PublishPanel project={project} setProject={setProject} skipDirtyRef={skipDirtyRef} />}
             {tab === "export" && <ExportPanel project={project} setProject={setProject} skipDirtyRef={skipDirtyRef} onDeleted={onDeleted} editedSec={editedSec} />}
           </div>
         </div>
@@ -2096,6 +2112,136 @@ function MusicPanel({
   );
 }
 
+/**
+ * Publish kit: Claude-written title options, a full YouTube description and
+ * tags for this edit, per the channel metadata conventions. Everything is
+ * copy-to-clipboard so the upload form is a paste away.
+ */
+function PublishPanel({
+  project,
+  setProject,
+  skipDirtyRef
+}: {
+  project: LongformProject;
+  setProject: React.Dispatch<React.SetStateAction<LongformProject>>;
+  skipDirtyRef: React.MutableRefObject<boolean>;
+}) {
+  const [generating, setGenerating] = useState(false);
+  const [copied, setCopied] = useState<string | null>(null);
+  const metadata = project.metadata;
+
+  const copy = async (id: string, text: string) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(id);
+      window.setTimeout(() => setCopied((current) => (current === id ? null : current)), 1500);
+    } catch {
+      toast.error("Clipboard unavailable — select and copy the text manually.");
+    }
+  };
+
+  const generate = async () => {
+    setGenerating(true);
+    try {
+      const response = await fetch(`/api/longform/projects/${project.id}/metadata`, { method: "POST" });
+      const data = (await response.json()) as { metadata?: LongformVideoMetadata; error?: string };
+      if (!response.ok || !data.metadata) {
+        toast.error(data.error ?? "Could not generate the publish kit.");
+        return;
+      }
+      skipDirtyRef.current = true;
+      setProject((current) => ({ ...current, metadata: data.metadata }));
+      toast.success(
+        data.metadata.source === "ai"
+          ? "Publish kit written — titles, description and tags are ready."
+          : "Publish kit built offline (set ANTHROPIC_API_KEY for Claude-written metadata)."
+      );
+    } catch {
+      toast.error("Could not generate the publish kit.");
+    } finally {
+      setGenerating(false);
+    }
+  };
+
+  return (
+    <div className="space-y-4">
+      <div>
+        <h3 className="text-sm font-semibold text-white">Publish kit</h3>
+        <p className="mt-1 text-xs text-[var(--muted-foreground)]">
+          Viral title options, a full YouTube description{metadata?.chapters.length ? " with chapters" : ""} and tags —
+          written in the channel voice from this edit&apos;s transcript, ready to paste into the upload form.
+        </p>
+      </div>
+
+      <Button className="w-full gap-2" disabled={generating} onClick={() => void generate()}>
+        {generating ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
+        {generating ? "Writing…" : metadata ? "Regenerate publish kit" : "Generate titles & description"}
+      </Button>
+
+      {metadata && (
+        <>
+          <div className="space-y-2">
+            <p className="text-xs font-semibold uppercase tracking-wider text-[var(--muted-foreground)]">
+              Titles · pick one
+            </p>
+            {metadata.titles.map((title, index) => (
+              <div
+                key={`${index}-${title}`}
+                className="flex items-start justify-between gap-2 rounded-lg border border-[var(--border)] px-3 py-2"
+              >
+                <p className="text-sm text-white/90">{title}</p>
+                <button
+                  type="button"
+                  className="shrink-0 text-[var(--muted-foreground)] transition hover:text-white"
+                  title="Copy title"
+                  onClick={() => void copy(`title-${index}`, title)}
+                >
+                  {copied === `title-${index}` ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
+                </button>
+              </div>
+            ))}
+          </div>
+
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <p className="text-xs font-semibold uppercase tracking-wider text-[var(--muted-foreground)]">Description</p>
+              <Button variant="secondary" className="gap-1.5 px-2.5 py-1 text-xs" onClick={() => void copy("description", metadata.description)}>
+                {copied === "description" ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />} Copy
+              </Button>
+            </div>
+            <pre className="max-h-64 overflow-y-auto whitespace-pre-wrap rounded-lg border border-[var(--border)] bg-black/20 px-3 py-2 font-sans text-xs leading-relaxed text-white/85">
+              {metadata.description}
+            </pre>
+          </div>
+
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <p className="text-xs font-semibold uppercase tracking-wider text-[var(--muted-foreground)]">
+                Tags · {metadata.tags.length}
+              </p>
+              <Button variant="secondary" className="gap-1.5 px-2.5 py-1 text-xs" onClick={() => void copy("tags", metadata.tags.join(", "))}>
+                {copied === "tags" ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />} Copy all
+              </Button>
+            </div>
+            <div className="flex flex-wrap gap-1.5">
+              {metadata.tags.map((tag) => (
+                <span key={tag} className="rounded-full border border-[var(--border)] px-2 py-0.5 text-[11px] text-white/80">
+                  {tag}
+                </span>
+              ))}
+            </div>
+          </div>
+
+          <p className="text-xs text-[var(--muted-foreground)]">
+            {metadata.source === "ai" ? "Written by Claude in the channel voice" : "Built offline from the channel keywords"} ·{" "}
+            {new Date(metadata.generatedAt).toLocaleString()}
+          </p>
+        </>
+      )}
+    </div>
+  );
+}
+
 function ExportPanel({
   project,
   setProject,
@@ -2112,6 +2258,7 @@ function ExportPanel({
   const [starting, setStarting] = useState(false);
   const [stopping, setStopping] = useState(false);
   const [sending, setSending] = useState<string | null>(null);
+  const [extracting, setExtracting] = useState<string | null>(null);
   const active = project.exports.find((record) => record.status === "processing");
   const latestDone = project.exports.find((record) => record.status === "done" && record.file);
 
@@ -2200,6 +2347,28 @@ function ExportPanel({
     }
   };
 
+  const extractAudio = async (record: LongformExportRecord) => {
+    setExtracting(record.id);
+    try {
+      const response = await fetch(`/api/longform/projects/${project.id}/export/${record.id}/audio`, { method: "POST" });
+      const data = (await response.json()) as { export?: LongformExportRecord; error?: string };
+      if (!response.ok || !data.export) {
+        toast.error(data.error ?? "Could not create the audio version.");
+        return;
+      }
+      skipDirtyRef.current = true;
+      setProject((current) => ({
+        ...current,
+        exports: current.exports.map((item) => (item.id === data.export!.id ? data.export! : item))
+      }));
+      toast.success("Audio version ready — download the mp3 for Spotify / podcast platforms.");
+    } catch {
+      toast.error("Could not create the audio version.");
+    } finally {
+      setExtracting(null);
+    }
+  };
+
   const fileUrl = (record: LongformExportRecord, download = false) =>
     `/api/longform/projects/${project.id}/export/${record.id}?file=1${download ? "&download=1" : ""}`;
 
@@ -2282,12 +2451,30 @@ function ExportPanel({
               Make shorts
             </Button>
           </div>
+          {latestDone.audioFile ? (
+            <a
+              href={`/api/longform/projects/${project.id}/export/${latestDone.id}/audio?download=1`}
+              className="flex items-center justify-center gap-2 rounded-lg border border-[var(--border)] px-3 py-2 text-sm text-white transition hover:border-[var(--border-strong)]"
+            >
+              <AudioLines className="h-4 w-4" /> Download audio (mp3)
+            </a>
+          ) : (
+            <Button
+              variant="secondary"
+              className="w-full gap-2"
+              disabled={extracting === latestDone.id}
+              onClick={() => void extractAudio(latestDone)}
+            >
+              {extracting === latestDone.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <AudioLines className="h-4 w-4" />}
+              Create audio version (mp3)
+            </Button>
+          )}
           <p className="text-center text-xs text-[var(--muted-foreground)]">
             “Make shorts” drops this edit into the{" "}
             <Link href="/clips" className="text-[var(--accent)] underline-offset-2 hover:underline">
               Clip Generator
             </Link>
-            .
+            ; the audio version is the same edit as an mp3 for Spotify / podcasts.
           </p>
         </div>
       )}

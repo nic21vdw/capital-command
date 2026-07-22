@@ -41,7 +41,7 @@ function projectFromClip(job: ClipJob, clip: ClipCandidate, index: number, sourc
   const windowed = windowSegments(job.sourceCaptions ?? [], clip.start, clip.end);
   const words = windowed.flatMap((segment) => segment.words);
   project.captions = words.length ? chunkWords(words, project.captionStyle.maxWordsPerCaption) : windowed;
-  project.title = generateClipTitle(project.captions, `Clip ${index + 1}`);
+  project.title = clip.title || generateClipTitle(project.captions, `Clip ${index + 1}`);
   if (project.title) project.name = project.title;
   project.overlays = [...project.overlays, makeTitleOverlay(project)];
   return project;

@@ -165,7 +165,10 @@ function toCandidate(
     end: round1(end),
     score,
     breakdown,
-    rationale: title ? `"${title}" - ${reason}` : reason
+    rationale: title ? `"${title}" - ${reason}` : reason,
+    // Seed title — the dedicated viral-title pass (titles.ts) overwrites this,
+    // but it keeps a real title on the clip if that pass is unavailable.
+    title: title || undefined
   };
 }
 
@@ -206,7 +209,7 @@ Rules:
 Return ONLY a JSON array (no prose) of objects with these fields:
 - "start": clip start in seconds (number)
 - "end": clip end in seconds (number)
-- "title": a short punchy title for the clip (string)
+- "title": a short, viral, curiosity-driven title for the clip in Title Case — a complete phrase, never a raw transcript fragment (string)
 - "reason": one sentence on why this moment makes a great clip (string)
 - "hook": 0-100, how strong the opening line is as a scroll-stopping hook
 - "pacing": 0-100, word density and how much useful speech is packed into the moment

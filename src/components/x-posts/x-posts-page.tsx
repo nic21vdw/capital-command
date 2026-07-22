@@ -117,8 +117,8 @@ export function XPostsPage() {
     <div>
       <PageHeader
         eyebrow="X / Threads"
-        title="Daily Post Engine"
-        description="Ten original posts spaced roughly every two hours, plus twenty ready replies for engaging as you scroll. Fresh every day, matched to your positioning brief — suggestions only, nothing is tracked."
+        title="Post Engine"
+        description="Hit Generate for 24 fresh original posts — each with a reworded Threads variant — plus twenty ready replies for engaging as you scroll. Every press writes a brand-new set matched to your positioning brief, avoiding angles from your recent packs. Suggestions only, nothing is tracked."
         actions={
           <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
             <Input
@@ -129,7 +129,7 @@ export function XPostsPage() {
             />
             <Button onClick={() => generate(true)} disabled={generating} className="shrink-0">
               <RefreshCw className={cn("mr-2 h-4 w-4", generating && "animate-spin")} />
-              {generating ? "Writing…" : activePack ? "Regenerate" : "Generate today's pack"}
+              {generating ? "Writing…" : activePack ? "Generate 24 fresh" : "Generate 24 posts"}
             </Button>
           </div>
         }
@@ -171,8 +171,8 @@ export function XPostsPage() {
               <Sparkles className="h-8 w-8 text-[var(--accent)]" />
               <p className="text-sm text-[var(--muted-foreground)]">
                 {generating || loading
-                  ? "Writing today's ten posts and twenty replies…"
-                  : "No pack for today yet — generate one to get started."}
+                  ? "Writing 24 fresh posts and twenty replies…"
+                  : "No pack yet — hit Generate for 24 fresh posts."}
               </p>
             </div>
           </Card>
@@ -200,7 +200,7 @@ function PackSummary({ pack }: { pack: XDailyPack }) {
               {formatTime(first.time)} → {formatTime(last.time)}
             </Badge>
           ) : null}
-          <Badge>~every 2 hours</Badge>
+          <Badge>~every 40 min</Badge>
           {pack.focus ? <Badge className="text-[var(--accent)]">Focus: {pack.focus}</Badge> : null}
           <Badge className={pack.source === "ai" ? "text-[var(--accent)]" : undefined}>
             {pack.source === "ai" ? "Claude-written" : "Idea library"}
@@ -347,7 +347,7 @@ const GUARDRAILS: Array<{ title: string; body: string }> = [
   },
   {
     title: "Post from the app, by hand",
-    body: "Copy from here and post manually. Ten originals a day is well within normal heavy-user behaviour when they're genuinely distinct posts published by a human — it's identical, machine-timed content that trips spam systems."
+    body: "Copy from here and post manually. The pack gives you 24 distinct posts to choose from — you don't have to post them all. Genuinely distinct posts published by a human are fine; it's identical, machine-timed content that trips spam systems."
   },
   {
     title: "Never cross-post identical text",
@@ -355,7 +355,7 @@ const GUARDRAILS: Array<{ title: string; body: string }> = [
   },
   {
     title: "Mix broadcasting with conversation",
-    body: "Pure broadcast accounts get throttled. Use the reply bank between posting slots — a healthy ratio is roughly 2 replies for every original post, which is exactly why each pack carries 20 replies to 10 posts."
+    body: "Pure broadcast accounts get throttled. Use the reply bank between posting slots — a healthy ratio is roughly 2 replies for every original post you actually publish, which is what the 20-reply bank is for."
   },
   {
     title: "No hashtags, no bait, few links",
@@ -384,11 +384,11 @@ function PlaybookTab() {
           <h3 className="font-semibold">The daily system</h3>
         </div>
         <ol className="list-decimal space-y-2 pl-5 text-sm text-[var(--muted-foreground)]">
-          <li>Each morning a fresh pack is written against your positioning brief: 10 originals + 20 replies.</li>
-          <li>Post the originals at (or near) their suggested times — one roughly every two hours, ~7am to ~10pm.</li>
-          <li>Between slots, spend a few minutes scrolling and spend 2-3 replies from the bank, adapted to the actual post.</li>
+          <li>Hit Generate whenever you want fresh material: 24 originals + 20 replies, written against your positioning brief.</li>
+          <li>Post at (or near) the suggested times, or cherry-pick your favourites — the pack is a menu, not a quota.</li>
+          <li>Between posts, spend a few minutes scrolling and spend 2-3 replies from the bank, adapted to the actual post.</li>
           <li>Use the X text on X and the Threads variant on Threads, never the same wording on both.</li>
-          <li>Tomorrow it regenerates with new angles. Nothing you do here is logged or tracked.</li>
+          <li>Every regeneration avoids the angles from your recent packs. Nothing you do here is logged or tracked.</li>
         </ol>
         <p className="text-xs text-[var(--muted-foreground)]">
           The voice, angles, and rules come from your positioning brief in Reply Studio settings — edit it there and every

@@ -63,6 +63,14 @@ const FACE_CROP_PRESETS: Array<{ id: string; label: string; rect: { x: number; y
   { id: "center", label: "Center", rect: { x: 0.25, y: 0.15, w: 0.5, h: 0.7 } }
 ];
 
+/** One-click snap positions for overlays (title text especially) — normalized
+ *  center points that land just inside the safe-area guide. */
+const OVERLAY_POSITION_PRESETS: Array<{ id: string; label: string; x: number; y: number }> = [
+  { id: "top", label: "Top", x: 0.5, y: 0.16 },
+  { id: "center", label: "Center", x: 0.5, y: 0.5 },
+  { id: "bottom", label: "Bottom", x: 0.5, y: 0.84 }
+];
+
 /** Like Field, but for groups of buttons — a <label> wrapper would forward
  *  clicks on the caption to the first button and break accessible names. */
 function Group({ label, children }: { label: string; children: React.ReactNode }) {
@@ -142,7 +150,9 @@ export const CaptionsPanel = memo(function CaptionsPanel({ api }: { api: EditorA
           segment manually.
         </p>
       ) : (
-        <div className="max-h-[46vh] space-y-2 overflow-y-auto pr-1">
+        <>
+          <CombinedCaptionsBox api={api} />
+          <div className="max-h-[46vh] space-y-2 overflow-y-auto pr-1">
           {project.captions.map((c) => {
             const selected = api.selectedCaptionId === c.id;
             return (
@@ -190,13 +200,59 @@ export const CaptionsPanel = memo(function CaptionsPanel({ api }: { api: EditorA
                   </div>
                 )}
               </div>
-            );
-          })}
-        </div>
+              );
+            })}
+          </div>
+        </>
       )}
     </div>
   );
 });
+
+/**
+ * The whole transcript in one editable box — one line per caption segment — for
+ * quick read-through and bulk wording fixes without hopping between the small
+ * per-segment boxes. Each line maps to the segment at the same position; editing
+ * a line updates that segment's text (and its word-level highlight timing). Kept
+ * in local state while focused so typing never fights the caret, then re-synced
+ * from the segments on blur.
+ */
+function CombinedCaptionsBox({ api }: { api: EditorApi }) {
+  const { captions } = api.project;
+  const joined = useMemo(() => captions.map((c) => c.text).join("\n"), [captions]);
+  const [draft, setDraft] = useState(joined);
+  const [focused, setFocused] = useState(false);
+  // Pull in external caption changes (regenerate, split, per-box edits) whenever
+  // the user isn't actively typing here. Adjusting state during render is the
+  // pattern React recommends over a sync effect.
+  if (!focused && draft !== joined) setDraft(joined);
+
+  const commit = (value: string) => {
+    setDraft(value);
+    value.split("\n").forEach((line, i) => {
+      const c = captions[i];
+      if (c && c.text !== line) api.updateCaption(c.id, { text: line });
+    });
+  };
+
+  return (
+    <div className="space-y-1.5 rounded-lg border border-[var(--border)] bg-black/20 p-2.5">
+      <div className="flex items-center gap-2">
+        <p className="text-xs font-medium text-white">Full transcript</p>
+        <span className="text-[11px] text-[var(--muted-foreground)]">One line per caption — edits sync to the segments below.</span>
+      </div>
+      <textarea
+        value={draft}
+        onChange={(e) => commit(e.target.value)}
+        onFocus={() => setFocused(true)}
+        onBlur={() => setFocused(false)}
+        rows={6}
+        spellCheck
+        className="w-full resize-y rounded-md border border-[var(--border)] bg-[var(--surface-2)] p-2 text-sm leading-relaxed text-white outline-none focus:border-[var(--accent)]"
+      />
+    </div>
+  );
+}
 
 // --- Style panel -----------------------------------------------------------
 
@@ -642,9 +698,31 @@ export const OverlaysPanel = memo(function OverlaysPanel({ api }: { api: EditorA
                   className="w-full resize-none rounded-md border border-[var(--border)] bg-[var(--surface-2)] p-2 text-sm text-white outline-none focus:border-[var(--accent)]"
                 />
               </Field>
-              <ColorField label="Colour" value={selected.color ?? "#bd93f9"} onChange={(v) => api.updateOverlay(selected.id, { color: v })} />
+              <ColorField label="Colour" value={selected.color ?? "#ffffff"} onChange={(v) => api.updateOverlay(selected.id, { color: v })} />
             </>
           )}
+          <Group label="Position">
+            <div className="flex flex-wrap gap-1.5">
+              {OVERLAY_POSITION_PRESETS.map((preset) => {
+                const active = Math.abs(selected.x - preset.x) < 0.01 && Math.abs(selected.y - preset.y) < 0.01;
+                return (
+                  <button
+                    key={preset.id}
+                    type="button"
+                    onClick={() => api.updateOverlay(selected.id, { x: preset.x, y: preset.y })}
+                    className={cn(
+                      "rounded-full border px-2.5 py-1 text-xs transition",
+                      active
+                        ? "border-[var(--accent)] bg-[var(--accent)]/10 text-white"
+                        : "border-[var(--border)] text-[var(--muted-foreground)] hover:border-[var(--accent)] hover:text-white"
+                    )}
+                  >
+                    {preset.label}
+                  </button>
+                );
+              })}
+            </div>
+          </Group>
           <RangeField label="Scale" value={selected.scale} min={0.1} max={5} step={0.05} onChange={(v) => api.updateOverlay(selected.id, { scale: v })} format={(v) => `${v.toFixed(2)}×`} />
           <RangeField label="Rotation" value={selected.rotation} min={-180} max={180} step={1} onChange={(v) => api.updateOverlay(selected.id, { rotation: v })} format={(v) => `${v}°`} />
           <RangeField label="Opacity" value={selected.opacity} min={0} max={1} step={0.05} onChange={(v) => api.updateOverlay(selected.id, { opacity: v })} format={(v) => `${Math.round(v * 100)}%`} />

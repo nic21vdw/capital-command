@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { Suspense, useCallback, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import type { LucideIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -12,7 +12,15 @@ export type TabItem = {
   content: React.ReactNode;
 };
 
-export function Tabs({ tabs, paramKey = "tab" }: { tabs: TabItem[]; paramKey?: string }) {
+export function Tabs(props: { tabs: TabItem[]; paramKey?: string }) {
+  return (
+    <Suspense fallback={<div className="min-h-[100px]" />}>
+      <TabsInner {...props} />
+    </Suspense>
+  );
+}
+
+function TabsInner({ tabs, paramKey = "tab" }: { tabs: TabItem[]; paramKey?: string }) {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
