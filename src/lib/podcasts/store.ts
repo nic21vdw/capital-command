@@ -14,10 +14,12 @@ export function podcastAudioDir() {
 
 export async function readPodcastLibrary(): Promise<PodcastLibrary> {
   try {
-    const parsed = JSON.parse(await readFile(libraryFile, "utf8")) as Partial<PodcastLibrary>;
+    const parsed = JSON.parse(
+      await readFile(libraryFile, "utf8"),
+    ) as Partial<PodcastLibrary>;
     return {
       version: 1,
-      episodes: Array.isArray(parsed.episodes) ? parsed.episodes : []
+      episodes: Array.isArray(parsed.episodes) ? parsed.episodes : [],
     };
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
@@ -32,7 +34,11 @@ export async function writePodcastLibrary(library: PodcastLibrary) {
   const write = async () => {
     await mkdir(podcastsRoot, { recursive: true });
     const tmp = `${libraryFile}.${process.pid}.${Date.now()}.tmp`;
-    await writeFile(tmp, JSON.stringify({ version: 1, episodes: library.episodes }, null, 2), "utf8");
+    await writeFile(
+      tmp,
+      JSON.stringify({ version: 1, episodes: library.episodes }, null, 2),
+      "utf8",
+    );
     await rename(tmp, libraryFile);
   };
   writeQueue = writeQueue.then(write, write);
@@ -41,12 +47,16 @@ export async function writePodcastLibrary(library: PodcastLibrary) {
 
 export async function listPodcastEpisodes(): Promise<PodcastEpisode[]> {
   const library = await readPodcastLibrary();
-  return [...library.episodes].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+  return [...library.episodes].sort((a, b) =>
+    b.updatedAt.localeCompare(a.updatedAt),
+  );
 }
 
 export async function upsertPodcastEpisodes(episodes: PodcastEpisode[]) {
   const library = await readPodcastLibrary();
-  const byId = new Map(library.episodes.map((episode) => [episode.id, episode]));
+  const byId = new Map(
+    library.episodes.map((episode) => [episode.id, episode]),
+  );
   for (const episode of episodes) byId.set(episode.id, episode);
   library.episodes = [...byId.values()];
   await writePodcastLibrary(library);
@@ -55,7 +65,17 @@ export async function upsertPodcastEpisodes(episodes: PodcastEpisode[]) {
 
 export async function updatePodcastEpisode(
   id: string,
-  patch: Partial<Pick<PodcastEpisode, "title" | "description" | "destinations" | "scheduledAt" | "status" | "publishedAt">>
+  patch: Partial<
+    Pick<
+      PodcastEpisode,
+      | "title"
+      | "description"
+      | "destinations"
+      | "scheduledAt"
+      | "status"
+      | "publishedAt"
+    >
+  >,
 ) {
   const library = await readPodcastLibrary();
   const episode = library.episodes.find((candidate) => candidate.id === id);
@@ -69,4 +89,3 @@ export async function getPodcastEpisode(id: string) {
   const library = await readPodcastLibrary();
   return library.episodes.find((episode) => episode.id === id);
 }
-
