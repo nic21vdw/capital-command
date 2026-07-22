@@ -14,6 +14,7 @@ import {
   Images,
   Lightbulb,
   Mic,
+  Podcast,
   Presentation,
   Radar,
   Rocket,
@@ -48,6 +49,7 @@ const navGroups: NavGroup[] = [
     label: "Create",
     items: [
       { href: "/longform", label: "Long-Form Editor", icon: Clapperboard },
+      { href: "/podcasts", label: "Podcast Studio", icon: Podcast },
       { href: "/clips", label: "Clip Generator", icon: Wand2 },
       // The Clip Editor has no nav tab of its own: every clip is edited from
       // its card in the Clip Generator, which deep-links into /editor.
