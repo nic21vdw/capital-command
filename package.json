@@ -16,6 +16,8 @@
     "publish:scheduler": "tsx src/lib/publisher/cli.ts scheduler",
     "publish:list": "tsx src/lib/publisher/cli.ts list",
     "publish:enqueue": "tsx src/lib/publisher/cli.ts enqueue",
+    "publish:buffer": "tsx src/lib/publisher/cli.ts buffer sync",
+    "publish:buffer:profiles": "tsx src/lib/publisher/cli.ts buffer profiles",
     "remotion:preview": "remotion studio",
     "remotion:render": "remotion render"
   },
