@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   buildAss,
+  buildClipTitleDialogue,
   buildWatermarkDialogue,
   chunkWords,
   formatSrtTime,
@@ -9,6 +10,7 @@ import {
   parseSubtitleWords,
   parseSubtitles,
   parseTimestamp,
+  retimeWords,
   serializeSrt,
   serializeVtt,
   splitSegment,
@@ -71,6 +73,36 @@ describe("parseSubtitleWords", () => {
     ].join("\n");
     const words = parseSubtitleWords(vtt);
     expect(words.map((w) => w.text)).toEqual(["hello", "there"]);
+  });
+
+  it("decodes HTML entities instead of leaking them into caption text", () => {
+    const vtt = [
+      "WEBVTT",
+      "",
+      "00:00:00.000 --> 00:00:02.000",
+      "<00:00:00.300><c> Tom</c><00:00:00.900><c> &amp;</c><00:00:01.200><c> Jerry&#39;s</c><00:00:01.500><c> &quot;show&quot;</c>",
+      ""
+    ].join("\n");
+    const words = parseSubtitleWords(vtt);
+    expect(words.map((w) => w.text)).toEqual(["Tom", "&", "Jerry's", '"show"']);
+  });
+
+  it("drops speaker-change chevrons (>> arrives as &gt;&gt;) and sound tags", () => {
+    const vtt = [
+      "WEBVTT",
+      "",
+      "00:00:00.000 --> 00:00:02.000",
+      "&gt;&gt; Hello there",
+      "",
+      "00:00:02.000 --> 00:00:04.000",
+      "[Music]",
+      "",
+      "00:00:04.000 --> 00:00:06.000",
+      "&gt;&gt;Bob: it's [ __ ] great [Applause]",
+      ""
+    ].join("\n");
+    const words = parseSubtitleWords(vtt);
+    expect(words.map((w) => w.text)).toEqual(["Hello", "there", "Bob:", "it's", "great"]);
   });
 
   it("spreads plain cues without inline timing across their duration", () => {
@@ -148,6 +180,23 @@ describe("split / merge", () => {
     expect(merged.start).toBeCloseTo(0);
     expect(merged.end).toBeCloseTo(5);
     expect(merged.text).toBe("hello world there");
+  });
+});
+
+describe("retimeWords", () => {
+  it("spreads edited text evenly across the segment span", () => {
+    const words = retimeWords(seg("a", 0, 4, "ignored"), "one two three four");
+    expect(words.map((w) => w.text)).toEqual(["one", "two", "three", "four"]);
+    expect(words[0].start).toBeCloseTo(0);
+    expect(words[0].end).toBeCloseTo(1);
+    expect(words[3].end).toBeCloseTo(4);
+    // Contiguous, non-overlapping, in order.
+    for (let i = 1; i < words.length; i++) expect(words[i].start).toBeCloseTo(words[i - 1].end);
+  });
+
+  it("collapses whitespace and returns nothing for empty text", () => {
+    expect(retimeWords(seg("a", 0, 2, "x"), "  hello   world ").map((w) => w.text)).toEqual(["hello", "world"]);
+    expect(retimeWords(seg("a", 0, 2, "x"), "   ")).toEqual([]);
   });
 });
 
@@ -265,5 +314,49 @@ describe("buildWatermarkDialogue", () => {
     expect(topWordmark).toContain("CoLateral AI");
     // Top placement is genuinely higher than the default bottom placement.
     expect(top).not.toEqual(bottom);
+  });
+});
+
+describe("buildClipTitleDialogue", () => {
+  it("anchors the title bottom-center just above the video band, on the Title style", () => {
+    // 16:9 source in a 9:16 frame: video top edge at (1 - (1080*9/16)/1920)/2 ≈ 0.342.
+    const videoTop = (1 - (1080 * (9 / 16)) / 1920) / 2;
+    const line = buildClipTitleDialogue("Vibe Coding a SaaS With Claude", 1080, 1920, 0, 27.5, videoTop);
+    expect(line).toMatch(/^Dialogue: 3,0:00:00.00,0:00:27.50,Title,/);
+    expect(line).toContain("\\an2"); // bottom-center anchor: wrapped lines grow upward
+    const pos = line.match(/\\pos\((\d+),(\d+)\)/);
+    expect(pos).toBeTruthy();
+    expect(Number(pos![1])).toBe(540); // horizontally centered
+    // Sits above the video's top edge (in the blurred fill).
+    expect(Number(pos![2])).toBeLessThanOrEqual(Math.round(videoTop * 1920));
+    // The text survives intact (long titles may wrap with \N).
+    expect(line.replace(/\\N/g, " ")).toContain("Vibe Coding a SaaS With Claude");
+  });
+
+  it("wraps long titles instead of running off-frame", () => {
+    const line = buildClipTitleDialogue(
+      "How Vibe Coding Changed My Entire Engineering Business Forever",
+      1080,
+      1920,
+      0,
+      20,
+      0.34
+    );
+    expect(line).toContain("\\N");
+  });
+
+  it("clamps into a safe top band when the source already fills the frame", () => {
+    const line = buildClipTitleDialogue("Full Frame Source Title", 1080, 1920, 0, 20, 0);
+    const pos = line.match(/\\pos\(\d+,(\d+)\)/);
+    expect(Number(pos![1])).toBe(Math.round(1920 * 0.1));
+  });
+
+  it("is backed by a white bold Title style in the ASS header", () => {
+    const ass = buildAss([seg("a", 0, 2, "hello world")], defaultCaptionStyle, 1080, 1920, false);
+    const titleStyle = ass.split("\n").find((l) => l.startsWith("Style: Title,"));
+    expect(titleStyle).toBeTruthy();
+    expect(titleStyle).toContain("&H00FFFFFF"); // white primary
+    const bold = titleStyle!.split(",")[7];
+    expect(bold).toBe("-1");
   });
 });

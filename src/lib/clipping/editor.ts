@@ -316,9 +316,9 @@ export function makeTitleOverlay(project: ClipProject): Overlay {
     locked: false,
     start: 0,
     end: Math.max(0.1, project.trimEnd - project.trimStart),
-    // Dracula purple in the caption's Inter-bold style, matching the editor's
-    // default text-overlay look.
-    color: "#bd93f9",
+    // White Inter-bold, matching the title burned into the ready-to-post
+    // render so the editor preview and the downloaded clip look the same.
+    color: "#ffffff",
     fontFamily: "Inter, system-ui, sans-serif",
     fontWeight: 800,
     align: "center"
@@ -355,6 +355,7 @@ export function makeClipProject(input: {
     clipEnd: input.clipEnd,
     trimStart: 0,
     trimEnd: duration,
+    segments: [],
     title: "",
     aspectRatio: "9:16",
     compositionMode: "center-blur",

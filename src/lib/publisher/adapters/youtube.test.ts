@@ -41,6 +41,24 @@ function input(overrides: Partial<PublishInput["item"]> = {}): PublishInput {
 }
 
 describe("youtube adapter", () => {
+  it("turns a revoked refresh grant into a clean reconnect instruction", async () => {
+    mockFetchRoutes([
+      {
+        match: "oauth2.googleapis.com/token",
+        respond: () =>
+          jsonResponse(
+            { error: "invalid_grant", error_description: "Token has been expired or revoked." },
+            { status: 400 }
+          )
+      }
+    ]);
+    const adapter = await loadAdapter();
+
+    await expect(adapter.validateAuth()).rejects.toThrow(
+      "YouTube connection expired or was revoked. Reconnect YouTube to resume the upload automatically."
+    );
+  });
+
   it("uploads private with status.publishAt for a future public post", async () => {
     const requests = mockFetchRoutes([
       { match: "oauth2.googleapis.com/token", respond: () => jsonResponse({ access_token: "at-1", expires_in: 3600 }) },

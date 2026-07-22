@@ -1,7 +1,9 @@
 import { mkdir, readFile, rename, rm, stat, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { TARGET_CLIP_COUNT, detectSilences, extractEnergy, fallbackCandidates, selectCandidates } from "@/lib/clipping/analysis";
-import { buildAss, chunkWords, windowSegments } from "@/lib/clipping/captions";
+import { buildAss, buildClipTitleDialogue, chunkWords, windowSegments } from "@/lib/clipping/captions";
+import { generateClipTitle } from "@/lib/clipping/editor";
+import { generateViralTitles } from "@/lib/clipping/titles";
 import { copyClipsToDrive, driveDir } from "@/lib/clipping/drive";
 import { downloadAudio, downloadSection, fetchVideoMeta } from "@/lib/clipping/download";
 import { hasAudioStream, probeDimensions, probeDuration, runFfmpeg } from "@/lib/clipping/ffmpeg";
@@ -229,6 +231,43 @@ function mergeClipCandidates(primary: ClipCandidate[], supplemental: ClipCandida
   return merged.slice(0, TARGET_CLIP_COUNT).map((candidate, index) => ({ ...candidate, id: `clip-${index + 1}` }));
 }
 
+/** A clip's transcript, windowed to clip-local time. */
+function clipCaptions(job: ClipJob, clip: ClipCandidate) {
+  return windowSegments(job.sourceCaptions ?? [], clip.start, clip.end);
+}
+
+/**
+ * Gives every freshly selected clip a publish-ready title. One Claude call
+ * writes viral, keyword-aware titles for the whole batch (see titles.ts for
+ * the style guide); clips the model missed — or every clip when the call is
+ * unavailable — fall back to the local heuristic titler, and failing that keep
+ * any title the moment-selection pass proposed. Raw transcript fragments are
+ * never used as titles.
+ */
+async function assignClipTitles(job: ClipJob) {
+  if (job.clips.length === 0) return;
+  const excerpts = new Map(job.clips.map((clip) => [clip.id, clipCaptions(job, clip)]));
+  const requests = job.clips
+    .map((clip) => ({
+      id: clip.id,
+      transcript: (excerpts.get(clip.id) ?? [])
+        .map((segment) => segment.text)
+        .join(" ")
+        .trim()
+    }))
+    .filter((request) => request.transcript.length > 0);
+  const viral =
+    requests.length > 0
+      ? await generateViralTitles(requests, { streamTitle: job.fileName, topic: job.topic })
+      : null;
+  for (const clip of job.clips) {
+    const generated = viral?.get(clip.id);
+    if (generated) clip.title = generated;
+    else if (!clip.title) clip.title = generateClipTitle(excerpts.get(clip.id) ?? [], "") || undefined;
+  }
+  await persistJobs();
+}
+
 export async function createJobFromUrl(
   url: string,
   topic: string | undefined
@@ -307,6 +346,12 @@ async function runLocalPipeline(job: ClipJob, meta: SourceMeta) {
     audioPath = path.join(workDir(job.id), "source-audio.mp3");
     await runFfmpeg(["-y", "-i", srcPath, "-vn", "-ac", "1", "-ar", "16000", "-b:a", "64k", audioPath]);
   }
+  // Start the same full-audio silence pass the Long-Form Editor uses while
+  // transcription runs. The result is persisted for every clip, even when
+  // transcript selection already finds all ten candidates.
+  const silencePromise = audioPath
+    ? detectSilences(audioPath).catch(() => [])
+    : Promise.resolve([]);
 
   // Transcribe the upload locally so captions, titles, and moment selection
   // all work exactly like they do for platform VODs.
@@ -329,6 +374,8 @@ async function runLocalPipeline(job: ClipJob, meta: SourceMeta) {
     }
   }
 
+  const silences = await silencePromise;
+  job.silences = silences;
   await update(job, { stage: "selecting", progress: 42 });
   let candidates: ClipCandidate[] | null = null;
   if (transcript && transcript.length > 0) {
@@ -336,7 +383,7 @@ async function runLocalPipeline(job: ClipJob, meta: SourceMeta) {
   }
   if (!candidates || candidates.length < TARGET_CLIP_COUNT) {
     if (audioPath) {
-      const [windows, silences] = await Promise.all([extractEnergy(audioPath), detectSilences(audioPath)]);
+      const windows = await extractEnergy(audioPath);
       const energyCandidates = selectCandidates(windows, silences, durationSec, transcript ?? []);
       candidates =
         candidates && candidates.length > 0 ? mergeClipCandidates(candidates, energyCandidates) : energyCandidates;
@@ -349,6 +396,10 @@ async function runLocalPipeline(job: ClipJob, meta: SourceMeta) {
   }
   job.clips = candidates;
   await persistJobs();
+
+  // Title every clip before rendering so the ready-to-post render burns the
+  // real title in, not a placeholder.
+  await assignClipTitles(job);
 
   await renderClipIndexes(
     job,
@@ -393,6 +444,7 @@ async function runPipeline(job: ClipJob, url: string) {
   const audioPath = await downloadAudio(url, workDir(job.id), (pct) =>
     void update(job, { progress: 5 + Math.round((pct / 100) * 20) })
   );
+  const silencePromise = detectSilences(audioPath).catch(() => []);
   const durationSec = meta.durationSec || (await probeDuration(audioPath));
   await update(job, { durationSec: Math.round(durationSec) });
 
@@ -422,6 +474,8 @@ async function runPipeline(job: ClipJob, url: string) {
     await update(job, { captionsError: error instanceof Error ? error.message : String(error) });
   }
 
+  const silences = await silencePromise;
+  job.silences = silences;
   await update(job, { stage: "selecting", progress: 42 });
   let candidates: ClipCandidate[] | null = null;
   if (transcript && transcript.length > 0) {
@@ -431,7 +485,7 @@ async function runPipeline(job: ClipJob, url: string) {
   if (!candidates || candidates.length < TARGET_CLIP_COUNT) {
     // Score moments from audio energy across the whole stream. We still pass the transcript (if any) so scoring
     // can read what is said, not just how loud it is.
-    const [windows, silences] = await Promise.all([extractEnergy(audioPath), detectSilences(audioPath)]);
+    const windows = await extractEnergy(audioPath);
     const energyCandidates = selectCandidates(windows, silences, durationSec, transcript ?? []);
     candidates = candidates && candidates.length > 0 ? mergeClipCandidates(candidates, energyCandidates) : energyCandidates;
     if (!transcript || transcript.length === 0) {
@@ -442,6 +496,10 @@ async function runPipeline(job: ClipJob, url: string) {
   }
   job.clips = candidates;
   await persistJobs();
+
+  // Title every clip before rendering so the ready-to-post render burns the
+  // real title in, not a placeholder.
+  await assignClipTitles(job);
 
   await renderClipIndexes(
     job,
@@ -484,10 +542,18 @@ const DOWNLOAD_FRAME_H = 1920;
 /**
  * Writes the ASS document burned into a clip's ready-to-post download render:
  * the clip's word-synced captions, windowed to the clip range and styled like a
- * fresh editor project, and returns its path. No watermark is burned — the clip
- * ships clean, matching the editor's watermark-off default.
+ * fresh editor project, plus the clip's title in white just above the centered
+ * video (over the blurred fill), and returns its path. No watermark is burned —
+ * the clip ships clean, matching the editor's watermark-off default.
+ * `sourceDims` are the input video's pixel dimensions, used to find the video
+ * band's top edge; a 16:9 source is assumed when not provided.
  */
-async function writeClipDownloadAss(job: ClipJob, clip: ClipCandidate, index: number): Promise<string> {
+async function writeClipDownloadAss(
+  job: ClipJob,
+  clip: ClipCandidate,
+  index: number,
+  sourceDims?: { width: number; height: number }
+): Promise<string> {
   const style = defaultCaptionStyle;
   // Window the source captions into clip-local time, then re-chunk the words the
   // same way the editor does so the burned captions match what opening the clip
@@ -496,8 +562,19 @@ async function writeClipDownloadAss(job: ClipJob, clip: ClipCandidate, index: nu
   const words = windowed.flatMap((segment) => segment.words);
   const captions = words.length ? chunkWords(words, style.maxWordsPerCaption) : windowed;
   const captionDoc = buildAss(captions, style, DOWNLOAD_FRAME_W, DOWNLOAD_FRAME_H, true);
+  // Every clip ships with its title burned in by default. Top edge of the
+  // contain-fitted video: the source is scaled to the frame width, so its
+  // on-frame height is frameW * (srcH/srcW), centered vertically.
+  const srcW = sourceDims?.width || 16;
+  const srcH = sourceDims?.height || 9;
+  const videoHeightFrac = Math.min(1, (DOWNLOAD_FRAME_W * (srcH / Math.max(1, srcW))) / DOWNLOAD_FRAME_H);
+  const videoTopFrac = (1 - videoHeightFrac) / 2;
+  const title = clip.title?.trim() || generateClipTitle(windowed, "");
+  const titleLine = title
+    ? `${buildClipTitleDialogue(title, DOWNLOAD_FRAME_W, DOWNLOAD_FRAME_H, 0, Math.max(0.1, clip.end - clip.start), videoTopFrac)}\n`
+    : "";
   const assPath = path.join(workDir(job.id), `caps-${String(index + 1).padStart(2, "0")}.ass`);
-  await writeFile(assPath, `${captionDoc}\n`, "utf8");
+  await writeFile(assPath, `${captionDoc}${titleLine}`, "utf8");
   return assPath;
 }
 
@@ -561,7 +638,7 @@ export async function ensureVerticalClipFile(jobId: string, fileName: string): P
     // ready renders already carry theirs, and double-burning looks broken.
     let assPath: string | null = null;
     if (job && clip && isMaster) {
-      assPath = await writeClipDownloadAss(job, clip, job.clips.indexOf(clip)).catch(() => null);
+      assPath = await writeClipDownloadAss(job, clip, job.clips.indexOf(clip), dims).catch(() => null);
     }
     await renderCaptionedVertical(filePath, verticalPath, assPath, audio);
   }
@@ -630,7 +707,8 @@ async function renderClipIndexes(job: ClipJob, indexes: number[]) {
         const downloadName = `${baseName}-ready.mp4`;
         const downloadPath = path.join(outputDir(job.id), downloadName);
         try {
-          const assPath = await writeClipDownloadAss(job, clip, i);
+          const dims = await probeDimensions(produced).catch(() => undefined);
+          const assPath = await writeClipDownloadAss(job, clip, i, dims);
           await renderCaptionedVertical(produced, downloadPath, assPath, true);
         } catch {
           await renderCaptionedVertical(produced, downloadPath, null, true);

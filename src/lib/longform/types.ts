@@ -151,6 +151,8 @@ export type LongformExportRecord = {
   progress: number;
   /** File name inside the project's output dir once done. */
   file?: string;
+  /** Audio-only (mp3) companion extracted from `file`, for podcast platforms. */
+  audioFile?: string;
   error?: string;
   /** Duration of the rendered edit, for the summary line. */
   durationSec?: number;
@@ -194,6 +196,12 @@ export type LongformProject = {
   layout?: LongformLayout;
   pace: LongformPace;
   exports: LongformExportRecord[];
+  /** Publish-ready titles/description/tags; absent until first generated. */
+  metadata?: import("@/lib/longform/metadata").LongformVideoMetadata;
+  /** Editable posting description shown in the editor's Description dropdown; absent on projects saved before the field. */
+  description?: string;
+  /** Comma-separated keywords/tags for this video; absent on older projects. */
+  keywords?: string;
   createdAt: string;
   updatedAt: string;
 };

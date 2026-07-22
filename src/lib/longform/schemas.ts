@@ -75,6 +75,10 @@ export const longformPaceSchema = z.object({
 export const longformProjectPatchSchema = z
   .object({
     name: z.string().trim().min(1).max(200),
+    // Editable posting copy shown in the editor's Description dropdown. Generous
+    // caps so a full YouTube description and keyword list both fit.
+    description: z.string().max(10000),
+    keywords: z.string().max(2000),
     // Sized for stream VODs: an 8-hour recording on the Ultra pace produces
     // well over 10k segments, and the editor PATCHes the full list back.
     segments: z.array(longformSegmentSchema).max(50000),

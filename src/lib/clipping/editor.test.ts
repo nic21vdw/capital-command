@@ -52,13 +52,13 @@ describe("makeClipProject", () => {
 });
 
 describe("makeTitleOverlay", () => {
-  it("seeds an editable purple text overlay carrying the clip title", () => {
+  it("seeds an editable white text overlay carrying the clip title", () => {
     const p = baseProject();
     p.title = "My Great Short";
     const overlay = makeTitleOverlay(p);
     expect(overlay.kind).toBe("text");
     expect(overlay.text).toBe("My Great Short");
-    expect(overlay.color).toBe("#bd93f9");
+    expect(overlay.color).toBe("#ffffff");
     expect(overlay.locked).toBe(false);
     // Visible for the whole clip.
     expect(overlay.start).toBe(0);

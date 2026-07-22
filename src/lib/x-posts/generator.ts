@@ -4,15 +4,17 @@ import { xDailyPackSchema } from "@/lib/storage/schemas";
 import type { XDailyPack, XPostFormat, XSuggestedPost, XSuggestedReply } from "@/types/domain";
 
 /**
- * Server-side generation of the daily X/Threads pack: 10 original posts spread
- * across the day (~every 2 hours with human jitter) plus 20 evergreen replies.
- * Prefers Claude (fresh writing against the positioning brief, avoiding topics
- * from recent packs); degrades to the built-in idea library when the API key
- * is missing or the call fails, so the tool never comes up empty.
+ * Server-side generation of the X/Threads pack: 24 fresh original posts (each
+ * with a reworded Threads variant) spread across the waking day with human
+ * jitter, plus 20 evergreen replies. Every press of Generate writes a brand
+ * new pack. Prefers Claude (fresh writing against the positioning brief,
+ * avoiding topics from recent packs); degrades to the built-in idea library
+ * when the API key is missing or the call fails, so the tool never comes up
+ * empty.
  */
 
-export const POSTS_PER_DAY = 10;
-export const REPLIES_PER_DAY = 20;
+export const POSTS_PER_PACK = 24;
+export const REPLIES_PER_PACK = 20;
 
 export function plannerConfigured() {
   return Boolean(process.env.ANTHROPIC_API_KEY);
@@ -29,17 +31,18 @@ function hash32(input: string): number {
 }
 
 /**
- * Ten posting slots from ~7:15 to ~22:15 local — a waking-day cadence of
- * roughly one post every two hours. Each slot gets ±14 minutes of
- * date-seeded jitter so the schedule never looks machine-regular (exactly
- *-on-the-hour posting every day is a classic automation fingerprint).
+ * Posting slots spread evenly from ~7:15 to ~22:15 local across however many
+ * posts the pack carries. Each slot gets ±10 minutes of date-seeded jitter so
+ * the schedule never looks machine-regular (exactly-on-the-hour posting every
+ * day is a classic automation fingerprint).
  */
-export function scheduleTimes(date: string, count = POSTS_PER_DAY): string[] {
+export function scheduleTimes(date: string, count = POSTS_PER_PACK): string[] {
   const startMinutes = 7 * 60 + 15;
-  const gap = 100; // minutes; 10 slots span 15 hours ≈ every 2 hours
+  const spanMinutes = 15 * 60; // ~7:15 → ~22:15
+  const gap = count > 1 ? spanMinutes / (count - 1) : 0;
   return Array.from({ length: count }, (_, index) => {
-    const jitter = (hash32(`${date}:${index}`) % 29) - 14;
-    const total = startMinutes + index * gap + jitter;
+    const jitter = (hash32(`${date}:${index}`) % 21) - 10;
+    const total = Math.round(startMinutes + index * gap + jitter);
     const hours = Math.floor(total / 60) % 24;
     const minutes = total % 60;
     return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}`;
@@ -106,8 +109,8 @@ export function libraryPack(date: string, focus: string): XDailyPack {
   const pick = <T>(bank: T[], count: number, stride: number): T[] =>
     Array.from({ length: count }, (_, i) => bank[(dayIndex * stride + i * Math.max(1, Math.floor(bank.length / count))) % bank.length]);
 
-  const posts = pick(POST_LIBRARY, POSTS_PER_DAY, 7);
-  const replies = pick(REPLY_LIBRARY, REPLIES_PER_DAY, 5);
+  const posts = pick(POST_LIBRARY, POSTS_PER_PACK, 7);
+  const replies = pick(REPLY_LIBRARY, REPLIES_PER_PACK, 5);
   return buildPack({ date, focus, source: "library", posts, replies });
 }
 
@@ -148,9 +151,9 @@ Today's optional focus topic: ${focusLine}
 
 Write today's content pack:
 
-1. Exactly ${POSTS_PER_DAY} ORIGINAL standalone posts. Each must be a specific, insightful, non-generic thought in my voice (see voice rules in the brief). Vary the formats across the set: insight, contrarian, story, question, framework, observation. At most 2 of the 10 may touch CoLateral, and only obliquely — the rest build the personal brand (verification, judgment, agentic engineering, vertical AI, professional workflows). Keep each under 270 characters. For each post also write "threadsVariant": the same idea rephrased for Threads (slightly warmer/more conversational, different wording so the two feeds are not duplicates).
+1. Exactly ${POSTS_PER_PACK} ORIGINAL standalone posts. Each must be a specific, insightful, non-generic thought in my voice (see voice rules in the brief). Every single post must take a DIFFERENT angle — no two posts in the set may circle the same idea. Vary the formats across the set: insight, contrarian, story, question, framework, observation. At most 4 of the ${POSTS_PER_PACK} may touch CoLateral, and only obliquely — the rest build the personal brand (verification, judgment, agentic engineering, vertical AI, professional workflows). Keep each under 270 characters. For each post also write "threadsVariant": the same idea rephrased for Threads (slightly warmer/more conversational, different wording so the two feeds are not duplicates).
 
-2. Exactly ${REPLIES_PER_DAY} evergreen REPLIES I can adapt when engaging with typical conversations in my space. For each, give "scenario" (one line describing the kind of post it answers, e.g. "Someone ships an impressive AI demo") and "text" (the reply, 2-4 sentences, adds a genuine engineering/professional-workflow perspective, never salesy).
+2. Exactly ${REPLIES_PER_PACK} evergreen REPLIES I can adapt when engaging with typical conversations in my space. For each, give "scenario" (one line describing the kind of post it answers, e.g. "Someone ships an impressive AI demo") and "text" (the reply, 2-4 sentences, adds a genuine engineering/professional-workflow perspective, never salesy).
 
 Follow every voice rule: no hashtags, no emojis, no generic openers, no invented facts or numbers, no motivational-influencer tone.
 
@@ -161,7 +164,7 @@ Respond with ONLY valid JSON, no commentary, in exactly this shape:
     const client = new Anthropic();
     const response = await client.messages.create({
       model: "claude-opus-4-8",
-      max_tokens: 8000,
+      max_tokens: 16000,
       system:
         "You are a sharp ghostwriter for a structural engineer who builds AI tooling (CoLateral AI). You write specific, credible, non-generic social posts in his voice. You never fabricate facts, projects, or numbers. You output strict JSON when asked.",
       messages: [{ role: "user", content: userPrompt }]
@@ -180,7 +183,7 @@ Respond with ONLY valid JSON, no commentary, in exactly this shape:
     const parsed = extractJson(text) as { posts?: RawPost[]; replies?: RawReply[] };
     const posts = (parsed.posts ?? [])
       .filter((post) => typeof post.text === "string" && post.text.trim())
-      .slice(0, POSTS_PER_DAY)
+      .slice(0, POSTS_PER_PACK)
       .map((post) => ({
         format: normalizeFormat(post.format),
         topic: typeof post.topic === "string" && post.topic.trim() ? post.topic.trim() : "untitled angle",
@@ -192,7 +195,7 @@ Respond with ONLY valid JSON, no commentary, in exactly this shape:
       }));
     const replies = (parsed.replies ?? [])
       .filter((reply) => typeof reply.text === "string" && reply.text.trim())
-      .slice(0, REPLIES_PER_DAY)
+      .slice(0, REPLIES_PER_PACK)
       .map((reply) => ({
         scenario: typeof reply.scenario === "string" && reply.scenario.trim() ? reply.scenario.trim() : "General conversation",
         text: String(reply.text).trim()
@@ -200,11 +203,11 @@ Respond with ONLY valid JSON, no commentary, in exactly this shape:
 
     // Top up any shortfall from the library so the pack is always complete.
     const fallback = libraryPack(date, focus);
-    while (posts.length < POSTS_PER_DAY) {
+    while (posts.length < POSTS_PER_PACK) {
       const fill = fallback.posts[posts.length];
       posts.push({ format: fill.format, topic: fill.topic, text: fill.text, threadsVariant: fill.threadsVariant });
     }
-    while (replies.length < REPLIES_PER_DAY) {
+    while (replies.length < REPLIES_PER_PACK) {
       const fill = fallback.replies[replies.length];
       replies.push({ scenario: fill.scenario, text: fill.text });
     }
