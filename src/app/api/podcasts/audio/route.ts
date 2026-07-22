@@ -17,6 +17,8 @@ async function audioResponse(request: NextRequest, headOnly: boolean) {
     path.basename(episode.fileName),
   );
   const info = await stat(filePath).catch(() => null);
+  if (!info && episode.audioUrl)
+    return Response.redirect(episode.audioUrl, 307);
   if (!info) return new Response("Audio file not found", { status: 404 });
 
   const range = request.headers.get("range")?.match(/bytes=(\d*)-(\d*)/);
