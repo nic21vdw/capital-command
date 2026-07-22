@@ -96,6 +96,11 @@ export type ClipJob = {
   sourceUrl: string;
   /** Set when the job was created from an uploaded file instead of a URL. */
   sourceId?: string;
+  /**
+   * How many clips the creator asked to generate from this source. Chosen at
+   * upload time (defaults to TARGET_CLIP_COUNT) and drives every selection pass.
+   */
+  clipCount?: number;
   renderLayout?: ClipLayoutPreset;
   renderVariants?: boolean;
   layoutOverrides?: ClipLayoutOverrides;
