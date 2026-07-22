@@ -194,7 +194,7 @@ const OUTPUTS: Record<
     cta: "Write post",
   },
   carousel: {
-    label: "Instagram carousel",
+    label: "Carousel",
     icon: Images,
     href: "/carousels",
     cta: "Generate",
@@ -242,7 +242,7 @@ const MATRIX: Record<SourceKey, Partial<Record<OutputKey, Capability>>> = {
     },
     carousel: {
       status: "ready",
-      note: "Generate an Instagram carousel from the video's ideas.",
+      note: "Generate a carousel (Instagram, Facebook, TikTok) from the video's ideas.",
     },
   },
   audio: {

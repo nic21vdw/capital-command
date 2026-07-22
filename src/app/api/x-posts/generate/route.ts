@@ -15,10 +15,12 @@ const PACKS_TO_KEEP = 14;
 export async function POST(request: NextRequest) {
   let focus = "";
   let force = false;
+  let requestedAt: string | undefined;
   try {
-    const body = (await request.json()) as { focus?: unknown; force?: unknown };
+    const body = (await request.json()) as { focus?: unknown; force?: unknown; requestedAt?: unknown };
     if (typeof body.focus === "string") focus = body.focus;
     force = body.force === true;
+    if (typeof body.requestedAt === "string") requestedAt = body.requestedAt;
   } catch {
     // Empty/invalid body is fine — defaults apply.
   }
@@ -44,7 +46,8 @@ export async function POST(request: NextRequest) {
     brief: data.xStrategy.brief,
     date: today,
     focus,
-    recentTopics
+    recentTopics,
+    requestedAt: requestedAt ?? new Date().toISOString()
   });
 
   const nextPacks = [pack, ...packs.filter((entry) => entry.date !== today)].slice(0, PACKS_TO_KEEP);
