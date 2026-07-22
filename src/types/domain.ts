@@ -317,6 +317,53 @@ export interface XPlanner {
   packs: XDailyPack[];
 }
 
+// ----- Facebook / Instagram content strategy -----
+// Built around the "Professional Mode" playbook: three formats (text-only,
+// image + text, reels) with the continuation of every text post living in the
+// comment section as a numbered thread, capped by a call to action.
+
+export type FbPlatform = "facebook" | "instagram";
+export type FbPostFormat = "text" | "imageText" | "reel";
+export type FbPostStatus = "draft" | "posted";
+
+export interface FbThreadComment {
+  id: string;
+  /** Comment body without the "1/" prefix — numbering is applied on display/copy. */
+  text: string;
+}
+
+export interface FbPost {
+  id: string;
+  platform: FbPlatform;
+  format: FbPostFormat;
+  status: FbPostStatus;
+  date: string; // YYYY-MM-DD target/posted day
+  /** The clickbait headline shown in the main post (black background, white text, ends with 👇). */
+  hook: string;
+  /** Format-dependent extra: image text/caption for imageText, script for reel, optional add-on for text. */
+  body: string;
+  /** Uploaded media as a data URL — an image for imageText, a video for reel. */
+  mediaUrl?: string;
+  /** Original file name of the uploaded media, shown as a label. */
+  mediaName?: string;
+  /** The continuation posted as numbered comments under the main post. */
+  threadComments: FbThreadComment[];
+  /** Back-end call to action — rendered/copied as the final numbered comment. */
+  cta: string;
+  views?: number;
+  reactions?: number;
+  comments?: number;
+  shares?: number;
+  notes: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface FbStrategy {
+  brief: string; // positioning / voice / strategy (markdown)
+  posts: FbPost[];
+}
+
 export interface SavedThumbnailTransform {
   x: number;
   y: number;
@@ -607,6 +654,10 @@ export interface ClipProject {
   segments?: ClipEditSegment[];
   /** Short generated/editorial title for this clip. */
   title: string;
+  /** Full posting description shown in the editor's Description dropdown; absent on projects saved before the field. */
+  description?: string;
+  /** Comma-separated keywords/tags for this clip; absent on older projects. */
+  keywords?: string;
   aspectRatio: AspectRatioId;
   /** How the 16:9 source master is composed inside the chosen output frame. */
   compositionMode: ClipCompositionMode;
@@ -720,6 +771,209 @@ export interface VideoProject {
   updatedAt: string;
 }
 
+// ---------------------------------------------------------------------------
+// Video Studio: idea discovery, script generation, carousels
+// The plan-side of the pipeline — ideas become scripts, scripts become
+// recordings (Long-Form Editor), recordings become uploads, clips, carousels
+// and audio. Suggestion records carry a status so Nic manages (accepts /
+// dismisses) what the AI proposes instead of it silently deciding.
+
+export type VideoIdeaFormat = "longform" | "short" | "both";
+export type VideoIdeaIntent = "tutorial" | "case-study" | "opinion" | "story" | "comparison" | "news";
+export type VideoIdeaCompetition = "low" | "medium" | "high";
+export type VideoIdeaStatus = "suggested" | "saved" | "scripted" | "archived";
+
+export interface VideoIdea {
+  id: string;
+  /** The seed keyword the research run started from ("" for manual ideas). */
+  seedKeyword: string;
+  /** Working title, written in the channel title voice. */
+  title: string;
+  /** The angle/promise that makes this searchable AND clickable. */
+  angle: string;
+  format: VideoIdeaFormat;
+  primaryKeyword: string;
+  keywords: string[];
+  searchIntent: VideoIdeaIntent;
+  /** Estimated competition for the primary keyword. */
+  competition: VideoIdeaCompetition;
+  /** 0-100 overall opportunity score, demand vs competition vs channel fit. */
+  score: number;
+  rationale: string;
+  status: VideoIdeaStatus;
+  source: "ai" | "library" | "manual";
+  createdAt: string;
+}
+
+export type KitSuggestionStatus = "suggested" | "accepted" | "dismissed";
+export type ScriptGraphicKind = "b-roll" | "screen-recording" | "diagram" | "text-overlay" | "meme" | "photo";
+
+export interface ScriptGraphic {
+  id: string;
+  /** Section this belongs to ("" = whole video). */
+  sectionId: string;
+  kind: ScriptGraphicKind;
+  description: string;
+  status: KitSuggestionStatus;
+}
+
+export interface ScriptSfx {
+  id: string;
+  sectionId: string;
+  /** The moment/line the sound lands on. */
+  cue: string;
+  /** Sound name — the built-in SFX ids (vineBoom/fa/amongUs) or a free-text sound. */
+  sound: string;
+  status: KitSuggestionStatus;
+}
+
+export interface ScriptSection {
+  id: string;
+  name: string;
+  /** What this section must accomplish per the framework. */
+  purpose: string;
+  /** The words to say — written out, editable. */
+  content: string;
+}
+
+export type VideoScriptStatus = "draft" | "ready" | "produced";
+
+export interface VideoScript {
+  id: string;
+  /** Idea this was written from, when it came through the Idea Lab. */
+  ideaId?: string;
+  title: string;
+  targetMinutes: number;
+  sections: ScriptSection[];
+  /** Auto-suggested visuals, managed (accepted/dismissed) by hand. */
+  graphics: ScriptGraphic[];
+  /** Auto-suggested sound effects, managed by hand. */
+  sfx: ScriptSfx[];
+  status: VideoScriptStatus;
+  source: "ai" | "manual";
+  createdAt: string;
+  updatedAt: string;
+}
+
+/**
+ * A free-floating element the editor layers on top of a slide's base copy.
+ * Positions/sizes are stored as fractions of the slide (0..1) so a layout
+ * survives switching aspect ratios or rendering at any resolution.
+ */
+export type SlideLayer =
+  | {
+      id: string;
+      type: "text";
+      text: string;
+      /** Top-left as a fraction of slide width/height. */
+      x: number;
+      y: number;
+      /** Text box width as a fraction of slide width. */
+      width: number;
+      /** Font size as a fraction of slide height. */
+      fontSize: number;
+      color: string;
+      weight: number;
+      align: "left" | "center" | "right";
+      rotation?: number;
+    }
+  | {
+      id: string;
+      type: "image";
+      /** Data URL of the dropped image. */
+      src: string;
+      x: number;
+      y: number;
+      width: number;
+      height: number;
+      radius?: number;
+      rotation?: number;
+    };
+
+export interface CarouselSlide {
+  id: string;
+  heading: string;
+  body: string;
+  /** CSS color/gradient override for the slide background (editor). */
+  background?: string;
+  headingColor?: string;
+  bodyColor?: string;
+  /** Whether the base heading/body/counter/handle chrome is drawn. */
+  hideBaseText?: boolean;
+  /** Draggable text/image elements composited over the base slide. */
+  layers?: SlideLayer[];
+}
+
+/** The render frame a carousel exports/previews at. */
+export type CarouselAspectRatio = "portrait" | "square" | "story" | "landscape";
+
+/** How often a scheduled carousel upload repeats. */
+export type ScheduleRecurrence = "once" | "daily" | "weekly";
+
+/**
+ * A planned upload of a carousel to one or more networks. Stored on the
+ * carousel and expanded into concrete calendar occurrences client-side.
+ */
+export interface CarouselSchedule {
+  id: string;
+  /** Target networks, using the publisher's PlatformId vocabulary. */
+  platforms: ("youtube" | "instagram" | "tiktok" | "facebook")[];
+  /** Local wall-clock time, "HH:mm" (e.g. "12:00"). */
+  time: string;
+  recurrence: ScheduleRecurrence;
+  /** Anchor date, "YYYY-MM-DD" — the day a "once" fires, or the start of a repeat. */
+  date: string;
+  /** 0=Sun..6=Sat, only meaningful for weekly recurrence. */
+  weekday?: number;
+  caption?: string;
+  createdAt: string;
+}
+
+export interface Carousel {
+  id: string;
+  title: string;
+  sourceType: "script" | "longform" | "custom";
+  sourceId?: string;
+  slides: CarouselSlide[];
+  aspectRatio?: CarouselAspectRatio;
+  schedules?: CarouselSchedule[];
+  createdAt: string;
+}
+
+export type GenerationStatus = "queued" | "processing" | "completed" | "failed";
+
+export interface AvatarVideo {
+  id: string;
+  title: string;
+  prompt: string;
+  status: GenerationStatus;
+  externalJobId?: string;
+  videoUrl?: string;
+  thumbnailUrl?: string;
+  error?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface Voiceover {
+  id: string;
+  title: string;
+  script: string;
+  status: GenerationStatus;
+  audioUrl?: string;
+  error?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface VideoStudio {
+  /** The channel's script framework — editable; every generated script follows it. */
+  framework: string;
+  ideas: VideoIdea[];
+  scripts: VideoScript[];
+  carousels: Carousel[];
+}
+
 export interface AppData {
   holdings: Holding[];
   watchlist: WatchlistItem[];
@@ -733,6 +987,8 @@ export interface AppData {
   xStrategy: XStrategy;
   /** Daily X/Threads post suggestions. Optional in the type so pre-existing data files stay valid; the schema defaults it. */
   xPlanner?: XPlanner;
+  /** Facebook/Instagram thread-format content. Optional in the type so pre-existing data files stay valid; the schema defaults it. */
+  fbStrategy?: FbStrategy;
   settings: Settings;
   executionGoals: ExecutionGoal[];
   executionCompletions: ExecutionCompletion[];
@@ -745,6 +1001,12 @@ export interface AppData {
   videoProjects: VideoProject[];
   /** Reusable brand images (logo/watermark) shared across all clip projects. */
   brandAssets?: BrandAssets;
+  /** Idea Lab + Scripts + Carousels. Optional so pre-existing data files stay valid; the schema defaults it. */
+  videoStudio?: VideoStudio;
+  /** Higgsfield-generated avatar videos. Optional so pre-existing data files stay valid; the schema defaults it. */
+  avatarVideos?: AvatarVideo[];
+  /** AI voiceover clips in Nic's cloned voice. Optional so pre-existing data files stay valid; the schema defaults it. */
+  voiceovers?: Voiceover[];
 }
 
 export interface BrandAssets {

@@ -62,6 +62,23 @@ function hash(text: string): string {
   return (h >>> 0).toString(36);
 }
 
+// Canonical JSON: object keys are emitted in sorted order at every depth, so the
+// signature depends only on the *values*, never on the order the editor's
+// reducers or a zod parse happened to build an object in. Without this a clip
+// whose nested objects (reframe, captionStyle, an overlay, a caption's words…)
+// were rebuilt in a different key order would hash differently and be flagged as
+// "needs re-render" forever, even though nothing about the cut changed.
+function stableStringify(value: unknown): string {
+  if (value === null || typeof value !== "object") return JSON.stringify(value) ?? "null";
+  if (Array.isArray(value)) return `[${value.map(stableStringify).join(",")}]`;
+  const entries = Object.entries(value as Record<string, unknown>)
+    // Drop undefined so an explicit `{ x: undefined }` matches an omitted key,
+    // exactly as JSON.stringify already does for object properties.
+    .filter(([, v]) => v !== undefined)
+    .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
+  return `{${entries.map(([k, v]) => `${JSON.stringify(k)}:${stableStringify(v)}`).join(",")}}`;
+}
+
 /**
  * A stable fingerprint of everything that changes an export's output. When a
  * clip's rendered `editedFile` carries a signature that no longer matches its
@@ -88,7 +105,7 @@ export function renderSignature(input: RenderSignatureInput): string {
     sfx: input.sfx ?? null,
     settings: input.settings
   };
-  return hash(JSON.stringify(shape));
+  return hash(stableStringify(shape));
 }
 
 /**

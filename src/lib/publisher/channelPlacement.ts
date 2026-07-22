@@ -1,5 +1,6 @@
 import type { ChannelVideo } from "@/lib/publisher/channelVideos";
 import type { ScheduleSlot } from "@/lib/publisher/slots";
+import { localCalendarParts } from "@/lib/publisher/time";
 
 /**
  * Places the channel's real YouTube schedule onto the Uploading Center grid so
@@ -43,26 +44,6 @@ export type ChannelPlacement = {
   outsideWindow: ChannelVideo[];
 };
 
-/** Local calendar date (YYYY-MM-DD) and wall clock (HH:mm) of a UTC instant. */
-function localDateTime(utcIso: string, timeZone: string): { dateKey: string; time: string } {
-  const parts: Record<string, string> = {};
-  for (const part of new Intl.DateTimeFormat("en-CA", {
-    timeZone,
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    hourCycle: "h23"
-  }).formatToParts(new Date(utcIso))) {
-    parts[part.type] = part.value;
-  }
-  return {
-    dateKey: `${parts.year}-${parts.month}-${parts.day}`,
-    time: `${parts.hour}:${parts.minute}`
-  };
-}
-
 export function placeChannelVideos(options: {
   videos: ChannelVideo[];
   slots: ScheduleSlot[];
@@ -94,7 +75,7 @@ export function placeChannelVideos(options: {
       bySlotUtc.set(slot.utc, video);
       continue;
     }
-    const { dateKey, time } = localDateTime(video.publishAtUtc, timeZone);
+    const { dateKey, time } = localCalendarParts(video.publishAtUtc, timeZone);
     if (!gridDays.has(dateKey)) {
       outsideWindow.push(video);
       continue;

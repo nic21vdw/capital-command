@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { Fragment, useEffect, useRef, useState } from "react";
 import { Check, Crop, FileVideo, RotateCw } from "lucide-react";
 import { aspectDimensions } from "@/lib/clipping/editor";
 import {
@@ -124,10 +124,13 @@ function CaptionLayer({
   const lines: { text: string; state: "spoken" | "active" | "upcoming" }[][] = [];
   if (project.highlightCurrentWord && seg.words.length > 0) {
     let line: { text: string; state: "spoken" | "active" | "upcoming" }[] = [];
-    seg.words.forEach((w, i) => {
+    seg.words.forEach((w) => {
       const state: "spoken" | "active" | "upcoming" =
         time >= w.start && time < w.end ? "active" : time >= w.end ? "spoken" : "upcoming";
-      line.push({ text: transform(w.text) + (i < seg.words.length - 1 ? " " : ""), state });
+      // The word carries no trailing space: the inter-word gap is rendered as a
+      // separate, un-highlighted span so the active word's pop-scale can't grow
+      // over it and glue two words together (e.g. "push-upsright").
+      line.push({ text: transform(w.text), state });
       if (line.length >= Math.max(1, style.wordsPerLine)) {
         lines.push(line);
         line = [];
@@ -230,7 +233,10 @@ function CaptionLayer({
             ? lines.map((line, li) => (
                 <span key={li} className="block">
                   {line.map((w, wi) => (
-                    <CaptionWordSpan key={wi} text={w.text} state={w.state} style={style} animation={animate} />
+                    <Fragment key={wi}>
+                      {wi > 0 && <span className="whitespace-pre"> </span>}
+                      <CaptionWordSpan text={w.text} state={w.state} style={style} animation={animate} />
+                    </Fragment>
                   ))}
                 </span>
               ))

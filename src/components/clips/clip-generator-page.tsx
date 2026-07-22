@@ -268,7 +268,7 @@ export function ClipGeneratorPage() {
       project.segments = localSilences.length
         ? buildClipSegmentsFromSilences(project.baseDurationSec, localSilences)
         : buildClipSegments(project.baseDurationSec, project.captions);
-      project.title = generateClipTitle(project.captions, `Clip ${index + 1}`);
+      project.title = clip.title || generateClipTitle(project.captions, `Clip ${index + 1}`);
       if (project.title) project.name = project.title;
       project.overlays = [...project.overlays, makeTitleOverlay(project)];
       // Share the auto-generated title with the backend clip so the Generator
@@ -348,7 +348,7 @@ export function ClipGeneratorPage() {
         description="Turn a raw livestream or recording into short clips: every source is transcribed and captioned automatically, the best moments are picked and titled, and each clip opens in the editor ready to export for Shorts and Reels."
       />
 
-      <div className="grid gap-4 xl:grid-cols-[340px_minmax(0,1fr)]">
+      <div className="grid gap-4 xl:grid-cols-[400px_minmax(0,1fr)]">
         <div className="min-w-0 space-y-4">
           <Card className="p-4">
             <div className="flex items-center gap-2">
@@ -459,7 +459,12 @@ export function ClipGeneratorPage() {
                   >
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0">
-                        <p className="truncate text-sm font-medium text-white">{job.fileName}</p>
+                        <p
+                          title={job.fileName}
+                          className="overflow-x-auto whitespace-nowrap text-sm font-medium text-white [scrollbar-width:thin] [&::-webkit-scrollbar]:h-1"
+                        >
+                          {job.fileName}
+                        </p>
                         <p className="mt-1 text-xs text-[var(--muted-foreground)]">
                           {new Date(job.createdAt).toLocaleDateString()}
                           {job.clips.length > 0 && ` · ${job.clips.length} clips`}

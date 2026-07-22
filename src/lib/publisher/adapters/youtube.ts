@@ -1,7 +1,11 @@
 import { readFile, stat } from "node:fs/promises";
 import { primaryAccountId } from "@/lib/publisher/accounts";
 import { publisherConfig } from "@/lib/publisher/config";
-import { youtubeRefreshTokenFor } from "@/lib/publisher/googleAuth";
+import {
+  isYoutubeReconnectRequired,
+  youtubeRefreshTokenFor,
+  YOUTUBE_RECONNECT_REQUIRED
+} from "@/lib/publisher/googleAuth";
 import { PermanentError, fetchJson, fetchRaw } from "@/lib/publisher/http";
 import { bareTags, composeDescription } from "@/lib/publisher/metadata";
 import { formatInTimezone, toRfc3339Utc } from "@/lib/publisher/time";
@@ -44,18 +48,29 @@ export async function youtubeAccessToken(accountId: string = primaryAccountId("y
   }
   const cached = cachedTokens.get(accountId);
   if (cached && cached.expiresAt > Date.now() + 60_000) return cached.accessToken;
-  const data = await fetchJson<{ access_token: string; expires_in: number }>(TOKEN_URL, {
-    label: "YouTube token refresh",
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body: new URLSearchParams({
-      client_id: youtube.clientId,
-      client_secret: youtube.clientSecret,
-      refresh_token: refreshToken,
-      grant_type: "refresh_token"
-    })
-  });
-  cachedTokens.set(accountId, { accessToken: data.access_token, expiresAt: Date.now() + data.expires_in * 1000 });
-  return data.access_token;
+  try {
+    const data = await fetchJson<{ access_token: string; expires_in: number }>(TOKEN_URL, {
+      label: "YouTube token refresh",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        client_id: youtube.clientId,
+        client_secret: youtube.clientSecret,
+        refresh_token: refreshToken,
+        grant_type: "refresh_token"
+      })
+    });
+    cachedTokens.set(accountId, { accessToken: data.access_token, expiresAt: Date.now() + data.expires_in * 1000 });
+    return data.access_token;
+  } catch (error) {
+    if (isYoutubeReconnectRequired(error)) {
+      cachedTokens.delete(accountId);
+      // A revoked grant cannot recover through backoff. Record a permanent,
+      // user-safe reason so the UI asks for one reconnect instead of exposing
+      // Google's raw invalid_grant JSON or promising a retry that cannot work.
+      throw new PermanentError(YOUTUBE_RECONNECT_REQUIRED);
+    }
+    throw error;
+  }
 }
 
 type YoutubeBody = {

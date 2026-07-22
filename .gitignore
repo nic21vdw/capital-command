@@ -13,6 +13,7 @@ tsconfig.tsbuildinfo
 data/capital-command.json
 data/clips/
 data/longform/
+data/voiceover/
 data/publish-queue.json
 data/publisher-tokens.json
 data/social-accounts.json

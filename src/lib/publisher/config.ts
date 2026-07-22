@@ -99,8 +99,9 @@ export type PublisherConfig = {
 /**
  * Refresh token minted by the in-app "Connect YouTube" flow
  * (/api/auth/google), persisted by tokens.ts in data/publisher-tokens.json.
- * The .env value wins when set; this read must be synchronous because
- * publisherConfig() is, so the r2 token backend is not consulted here — set
+ * A token minted by Connect YouTube wins locally so reconnecting replaces a
+ * stale .env grant. This read must be synchronous because publisherConfig()
+ * is, so the r2 token backend is not consulted here — set
  * YOUTUBE_REFRESH_TOKEN explicitly for GitHub Actions runs.
  */
 function cachedYoutubeRefreshToken(): string | null {
@@ -140,7 +141,7 @@ export function publisherConfig(): PublisherConfig {
     youtube: {
       clientId: str("YOUTUBE_CLIENT_ID"),
       clientSecret: str("YOUTUBE_CLIENT_SECRET"),
-      refreshToken: str("YOUTUBE_REFRESH_TOKEN") ?? cachedYoutubeRefreshToken(),
+      refreshToken: cachedYoutubeRefreshToken() ?? str("YOUTUBE_REFRESH_TOKEN"),
       categoryId: str("YOUTUBE_CATEGORY_ID"),
       dailyUploadBudget: num("YOUTUBE_DAILY_UPLOAD_BUDGET", 6)
     },
