@@ -1,12 +1,25 @@
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { PodcastEpisode, PodcastLibrary } from "@/lib/podcasts/types";
+import { mediaHost } from "@/lib/publisher/hosting";
 
 const podcastsRoot = path.join(process.cwd(), "data", "podcasts");
 const libraryFile = path.join(podcastsRoot, "episodes.json");
+const remoteLibraryKey = "podcasts/episodes.json";
 let writeQueue = Promise.resolve();
 
 const EMPTY_LIBRARY: PodcastLibrary = { version: 1, episodes: [] };
+
+function remoteLibraryHost() {
+  if (process.env.PODCAST_LIBRARY_BACKEND?.trim().toLowerCase() !== "r2")
+    return null;
+  const host = mediaHost();
+  if (!host)
+    throw new Error(
+      "PODCAST_LIBRARY_BACKEND=r2 requires the existing S3_* media-host settings.",
+    );
+  return host;
+}
 
 export function podcastAudioDir() {
   return path.join(podcastsRoot, "audio");
@@ -14,9 +27,12 @@ export function podcastAudioDir() {
 
 export async function readPodcastLibrary(): Promise<PodcastLibrary> {
   try {
-    const parsed = JSON.parse(
-      await readFile(libraryFile, "utf8"),
-    ) as Partial<PodcastLibrary>;
+    const host = remoteLibraryHost();
+    const raw = host
+      ? await host.getObjectText(remoteLibraryKey)
+      : await readFile(libraryFile, "utf8");
+    if (!raw) return EMPTY_LIBRARY;
+    const parsed = JSON.parse(raw) as Partial<PodcastLibrary>;
     return {
       version: 1,
       episodes: Array.isArray(parsed.episodes) ? parsed.episodes : [],
@@ -32,13 +48,19 @@ export async function readPodcastLibrary(): Promise<PodcastLibrary> {
 
 export async function writePodcastLibrary(library: PodcastLibrary) {
   const write = async () => {
+    const payload = JSON.stringify(
+      { version: 1, episodes: library.episodes },
+      null,
+      2,
+    );
+    const host = remoteLibraryHost();
+    if (host) {
+      await host.putObjectText(remoteLibraryKey, payload);
+      return;
+    }
     await mkdir(podcastsRoot, { recursive: true });
     const tmp = `${libraryFile}.${process.pid}.${Date.now()}.tmp`;
-    await writeFile(
-      tmp,
-      JSON.stringify({ version: 1, episodes: library.episodes }, null, 2),
-      "utf8",
-    );
+    await writeFile(tmp, payload, "utf8");
     await rename(tmp, libraryFile);
   };
   writeQueue = writeQueue.then(write, write);
