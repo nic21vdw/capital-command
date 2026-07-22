@@ -1,28 +1,26 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
-import { Clapperboard, Clock, ExternalLink, Loader2, Pencil, Send, Trash2, Upload } from "lucide-react";
+import { useRef, useState } from "react";
+import { Clapperboard, ExternalLink, Loader2, Pencil, Send, Trash2, Upload } from "lucide-react";
 import { toast } from "sonner";
 import { StatusChip } from "@/components/uploading-center/status-chip";
 import { CLIP_DRAG_TYPE } from "@/components/uploading-center/clip-card";
 import { remoteUrlFor, studioVideoUrl } from "@/components/uploading-center/use-uploading-center";
 import { cn } from "@/lib/utils";
-import type { ChannelDayMarker } from "@/lib/publisher/channelPlacement";
-import type { ChannelVideo } from "@/lib/publisher/channelVideos";
+import type { AgendaDay, AgendaEntry } from "@/lib/publisher/agenda";
 import type { ScheduleSlot } from "@/lib/publisher/slots";
 import type { PlatformId, PlatformState, QueueItem } from "@/lib/publisher/types";
 
 /**
- * 14-day schedule grid for one platform, starting today (highlighted): a row
- * per day, a column per slot. Weekday and weekend slot times differ (07:30 /
- * 12:30 / 19:30 vs 10:00 / 13:00 / 19:00), so each cell carries its own time
- * label. Filled slots show the clip's poster frame with its status; empty
- * future slots accept a dragged clip, a video file dropped straight from the
- * computer, or an Upload-button pick. On the YouTube board, slots whose time
- * matches a video already on the channel (scheduled in Studio, or published)
- * render that video read-only, and a video scheduled at any other time that
- * day puts a time chip on the day's row — so what's already on YouTube is
- * never double-booked from here.
+ * Day-by-day schedule calendar for one platform. Every scheduled post and every
+ * video already on the channel shows on the day it goes live, at its real time —
+ * whether it lands on one of the three daily slots (07:30 / 12:30 / 19:30 on
+ * weekdays, 10:00 / 13:00 / 19:00 on weekends) or somewhere in between (a 14:30
+ * upload sits on its day too). The remaining open slots for a future day render
+ * as drop targets: drop a queue clip, drop a video file straight from the
+ * computer, or use the Upload button. Past days keep their history but offer no
+ * new slots. This is the whole picture in one place — nothing floats in a list
+ * below the calendar anymore.
  */
 
 /** A dropped/picked file counts as video by MIME type or a known extension. */
@@ -32,11 +30,8 @@ function isVideoFile(file: File) {
 
 export function ScheduleBoard({
   platform,
-  slots,
-  itemAtSlot,
+  days,
   thumbnailForItem,
-  channelVideoAtSlot,
-  channelDayMarkers,
   onDropClip,
   onUploadVideo,
   onSelectSlot,
@@ -46,13 +41,9 @@ export function ScheduleBoard({
   busy
 }: {
   platform: PlatformId;
-  slots: ScheduleSlot[];
-  itemAtSlot: (platform: PlatformId, slotUtc: string) => QueueItem | undefined;
+  /** The visible window, one entry per day, already placed and sorted. */
+  days: AgendaDay[];
   thumbnailForItem: (item: QueueItem) => string | null;
-  /** YouTube only: a video already on the channel occupying this slot's time. */
-  channelVideoAtSlot?: (slotUtc: string) => ChannelVideo | undefined;
-  /** YouTube only: off-slot channel videos per day (keyed by dateKey). */
-  channelDayMarkers?: Map<string, ChannelDayMarker[]>;
   onDropClip: (slotUtc: string, clipKey: string) => void;
   /** A video file from the user's computer dropped on (or picked for) a slot. */
   onUploadVideo: (slotUtc: string, file: File) => void;
@@ -74,29 +65,10 @@ export function ScheduleBoard({
     fileInputRef.current?.click();
   };
 
-  const days = useMemo(() => {
-    const byDate = new Map<string, ScheduleSlot[]>();
-    for (const slot of slots) {
-      if (!byDate.has(slot.dateKey)) byDate.set(slot.dateKey, []);
-      byDate.get(slot.dateKey)!.push(slot);
-    }
-    return [...byDate.values()];
-  }, [slots]);
-
-  // Weekday and weekend rows share columns by position; a header shows both
-  // times when they differ (e.g. "07:30 / 10:00").
-  const columnCount = Math.max(1, ...days.map((daySlots) => daySlots.length));
-  const headers = Array.from({ length: columnCount }, (_, index) =>
-    [...new Set(days.map((daySlots) => daySlots[index]?.time).filter(Boolean))].join(" / ")
-  );
-
   return (
-    // Bounded, scrollable pane so the slot-time header row can freeze in place
-    // ("frozen pane") while the 14 days scroll under it. A plain window-sticky
-    // header can't work here: this wrapper scrolls horizontally on narrow
-    // screens, and any overflow container makes `overflow-y` a scroll context
-    // that would trap a `top-0` sticky against the wrapper instead of the page.
-    <div className="max-h-[calc(100vh-8rem)] overflow-auto">
+    // Bounded, scrollable pane so the calendar can grow tall without pushing the
+    // rest of the page down; days scroll inside it.
+    <div className="max-h-[calc(100vh-7rem)] space-y-2 overflow-auto pr-1">
       <input
         ref={fileInputRef}
         type="file"
@@ -110,54 +82,33 @@ export function ScheduleBoard({
           if (file && slotUtc) onUploadVideo(slotUtc, file);
         }}
       />
-      <div className="min-w-[560px]">
-        <div
-          className="grid gap-1.5"
-          style={{ gridTemplateColumns: `7rem repeat(${columnCount}, minmax(0, 1fr))` }}
-        >
-          <div className="sticky top-0 z-20 bg-[var(--background)]" />
-          {headers.map((header, index) => (
-            <div
-              key={index}
-              className="sticky top-0 z-20 bg-[var(--background)] px-1 pb-1.5 text-center text-[11px] font-medium uppercase tracking-wider text-[var(--muted-foreground)]"
-            >
-              {header}
-            </div>
-          ))}
-          {days.map((daySlots) => (
-            <BoardRow
-              key={daySlots[0].dateKey}
-              platform={platform}
-              daySlots={daySlots}
-              itemAtSlot={itemAtSlot}
-              thumbnailForItem={thumbnailForItem}
-              channelVideoAtSlot={channelVideoAtSlot}
-              dayMarkers={channelDayMarkers?.get(daySlots[0].dateKey)}
-              dragOverSlot={dragOverSlot}
-              setDragOverSlot={setDragOverSlot}
-              onDropClip={onDropClip}
-              onUploadVideo={onUploadVideo}
-              onRequestUpload={requestUpload}
-              onSelectSlot={onSelectSlot}
-              onPublishNow={onPublishNow}
-              onRemove={onRemove}
-              onRename={onRename}
-              busy={busy}
-            />
-          ))}
-        </div>
-      </div>
+      {days.map((day) => (
+        <DayBand
+          key={day.dateKey}
+          platform={platform}
+          day={day}
+          thumbnailForItem={thumbnailForItem}
+          dragOverSlot={dragOverSlot}
+          setDragOverSlot={setDragOverSlot}
+          onDropClip={onDropClip}
+          onUploadVideo={onUploadVideo}
+          onRequestUpload={requestUpload}
+          onSelectSlot={onSelectSlot}
+          onPublishNow={onPublishNow}
+          onRemove={onRemove}
+          onRename={onRename}
+          busy={busy}
+        />
+      ))}
     </div>
   );
 }
 
-function BoardRow({
+/** One day: its date on the left, everything happening that day on the right. */
+function DayBand({
   platform,
-  daySlots,
-  itemAtSlot,
+  day,
   thumbnailForItem,
-  channelVideoAtSlot,
-  dayMarkers,
   dragOverSlot,
   setDragOverSlot,
   onDropClip,
@@ -170,17 +121,12 @@ function BoardRow({
   busy
 }: {
   platform: PlatformId;
-  daySlots: ScheduleSlot[];
-  itemAtSlot: (platform: PlatformId, slotUtc: string) => QueueItem | undefined;
+  day: AgendaDay;
   thumbnailForItem: (item: QueueItem) => string | null;
-  channelVideoAtSlot?: (slotUtc: string) => ChannelVideo | undefined;
-  /** Channel videos going live this day at a non-slot time. */
-  dayMarkers?: ChannelDayMarker[];
   dragOverSlot: string | null;
   setDragOverSlot: (id: string | null) => void;
   onDropClip: (slotUtc: string, clipKey: string) => void;
   onUploadVideo: (slotUtc: string, file: File) => void;
-  /** Opens the board's file picker targeting this slot. */
   onRequestUpload: (slotUtc: string) => void;
   onSelectSlot?: (slotUtc: string) => void;
   onPublishNow: (item: QueueItem) => void;
@@ -188,256 +134,323 @@ function BoardRow({
   onRename: (item: QueueItem, title: string) => void;
   busy: string | null;
 }) {
-  const isToday = daySlots[0].today;
+  const { today, past, entries, openSlots } = day;
+  const empty = entries.length === 0 && openSlots.length === 0;
   return (
-    <>
-      <div className="flex flex-col justify-center gap-1 px-1">
-        <div className={cn("flex items-center gap-1.5 text-xs font-medium text-white", isToday && "text-[var(--accent)]")}>
-          {daySlots[0].dateLabel}
-          {isToday ? (
-            <span className="rounded-full bg-[var(--accent)]/15 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-[var(--accent)]">
-              Today
-            </span>
-          ) : null}
-        </div>
-        {dayMarkers && dayMarkers.length > 0 ? (
-          // A video already goes live this day at a non-slot time — show that
-          // time right on the row so a second clip isn't scheduled on top of it.
-          <div className="flex flex-wrap gap-1">
-            {dayMarkers.map((marker) => (
-              <a
-                key={marker.video.videoId}
-                href={studioVideoUrl(marker.video.videoId)}
-                target="_blank"
-                rel="noreferrer"
-                title={`“${marker.video.title}” is already ${
-                  marker.video.status === "scheduled" ? "scheduled on" : "published to"
-                } YouTube at ${marker.time} this day — open it in YouTube Studio.`}
-                className="inline-flex items-center gap-1 rounded-full border border-amber-400/30 bg-amber-400/10 px-1.5 py-0.5 text-[10px] font-medium text-amber-200 transition hover:bg-amber-400/20"
-              >
-                <Clock className="h-2.5 w-2.5 shrink-0" />
-                {marker.time}
-              </a>
-            ))}
+    <div
+      className={cn(
+        "grid grid-cols-[6.5rem_minmax(0,1fr)] gap-3 rounded-xl border p-2.5",
+        today ? "border-[var(--accent)]/40 bg-[var(--accent)]/5" : "border-[var(--border)]",
+        past && !today && "opacity-80"
+      )}
+    >
+      <div className="flex flex-col gap-1 pt-1">
+        <span className={cn("text-xs font-semibold text-white", today && "text-[var(--accent)]")}>{day.dateLabel}</span>
+        {today ? (
+          <span className="w-fit rounded-full bg-[var(--accent)]/15 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-[var(--accent)]">
+            Today
+          </span>
+        ) : null}
+        {entries.length > 0 ? (
+          <span className="text-[10px] text-[var(--muted-foreground)]">
+            {entries.length} post{entries.length === 1 ? "" : "s"}
+          </span>
+        ) : null}
+      </div>
+      <div className="grid gap-2 [grid-template-columns:repeat(auto-fill,minmax(13.5rem,1fr))]">
+        {entries.map((entry) =>
+          entry.kind === "queue" ? (
+            <QueueEntryCard
+              key={`q:${entry.item.id}`}
+              platform={platform}
+              time={entry.time}
+              item={entry.item}
+              thumbnailForItem={thumbnailForItem}
+              today={today}
+              onPublishNow={onPublishNow}
+              onRemove={onRemove}
+              onRename={onRename}
+              busy={busy}
+            />
+          ) : (
+            <ChannelEntryCard key={`c:${entry.video.videoId}`} time={entry.time} entry={entry} today={today} />
+          )
+        )}
+        {openSlots.map((slot) => (
+          <OpenSlotCard
+            key={slot.id}
+            platform={platform}
+            slot={slot}
+            today={today}
+            dragOverSlot={dragOverSlot}
+            setDragOverSlot={setDragOverSlot}
+            onDropClip={onDropClip}
+            onUploadVideo={onUploadVideo}
+            onRequestUpload={onRequestUpload}
+            onSelectSlot={onSelectSlot}
+            busy={busy}
+          />
+        ))}
+        {empty ? (
+          <div className="flex min-h-14 items-center rounded-lg border border-dashed border-[var(--border)] px-3 text-[11px] text-[var(--muted-foreground)] opacity-60">
+            {past ? "No posts this day" : "No open slots"}
           </div>
         ) : null}
       </div>
-      {daySlots.map((slot) => {
-        const item = itemAtSlot(platform, slot.utc);
-        if (item) {
-          const state = item.platforms[platform] as PlatformState;
-          const url = remoteUrlFor(platform, state.postId);
-          const thumbnailUrl = thumbnailForItem(item);
-          const actionable = state.status === "pending" || state.status === "uploaded" || state.status === "failed";
-          const working = busy === `publish:${item.id}` || busy === `remove:${item.id}`;
-          return (
-            <div
-              key={slot.id}
-              className={cn(
-                "flex min-h-16 gap-2 rounded-lg border border-[var(--border-strong)] bg-white/6 p-2",
-                isToday && "border-[var(--accent)]/40"
-              )}
-              title={state.note ?? state.error ?? item.title}
+    </div>
+  );
+}
+
+/** A scheduled/queued post of ours — editable, with publish/remove actions. */
+function QueueEntryCard({
+  platform,
+  time,
+  item,
+  thumbnailForItem,
+  today,
+  onPublishNow,
+  onRemove,
+  onRename,
+  busy
+}: {
+  platform: PlatformId;
+  time: string;
+  item: QueueItem;
+  thumbnailForItem: (item: QueueItem) => string | null;
+  today: boolean;
+  onPublishNow: (item: QueueItem) => void;
+  onRemove: (item: QueueItem) => void;
+  onRename: (item: QueueItem, title: string) => void;
+  busy: string | null;
+}) {
+  const state = item.platforms[platform] as PlatformState;
+  const url = remoteUrlFor(platform, state.postId);
+  const thumbnailUrl = thumbnailForItem(item);
+  const actionable = state.status === "pending" || state.status === "uploaded" || state.status === "failed";
+  const working = busy === `publish:${item.id}` || busy === `remove:${item.id}`;
+  return (
+    <div
+      className={cn(
+        "flex min-h-16 gap-2 rounded-lg border border-[var(--border-strong)] bg-white/6 p-2",
+        today && "border-[var(--accent)]/40"
+      )}
+      title={state.note ?? state.error ?? item.title}
+    >
+      {thumbnailUrl ? (
+        // eslint-disable-next-line @next/next/no-img-element -- local clip frame, not a remote asset in next.config images
+        <img
+          src={thumbnailUrl}
+          alt=""
+          loading="lazy"
+          className="h-14 w-8 shrink-0 rounded-md border border-[var(--border)] object-cover"
+        />
+      ) : null}
+      <div className="min-w-0 flex-1">
+        <div className="flex items-baseline gap-1.5">
+          <EditableTitle title={item.title} onRename={(title) => onRename(item, title)} />
+          <span className="ml-auto shrink-0 text-[10px] font-medium text-[var(--muted-foreground)]">{time}</span>
+        </div>
+        <div className="mt-1.5 flex items-center gap-1.5">
+          <StatusChip status={state.status} />
+          {url ? (
+            <a
+              href={url}
+              target="_blank"
+              rel="noreferrer"
+              aria-label="View the video"
+              title="View the video"
+              className="text-[var(--accent)]"
             >
-              {thumbnailUrl ? (
-                <img
-                  src={thumbnailUrl}
-                  alt=""
-                  loading="lazy"
-                  className="h-14 w-8 shrink-0 rounded-md border border-[var(--border)] object-cover"
-                />
+              <ExternalLink className="h-3.5 w-3.5" />
+            </a>
+          ) : null}
+          {platform === "youtube" && state.postId ? (
+            <a
+              href={studioVideoUrl(state.postId)}
+              target="_blank"
+              rel="noreferrer"
+              aria-label="Edit in YouTube Studio"
+              title="Edit in YouTube Studio (title, description…)"
+              className="text-[var(--accent)]"
+            >
+              <Clapperboard className="h-3.5 w-3.5" />
+            </a>
+          ) : null}
+          <span className="flex-1" />
+          {working ? (
+            <Loader2 className="h-3.5 w-3.5 animate-spin text-[var(--muted-foreground)]" />
+          ) : (
+            <>
+              {actionable ? (
+                <button
+                  type="button"
+                  onClick={() => onPublishNow(item)}
+                  aria-label="Publish now"
+                  title="Publish now"
+                  className="text-[var(--muted-foreground)] transition hover:text-white"
+                >
+                  <Send className="h-3.5 w-3.5" />
+                </button>
               ) : null}
-              <div className="min-w-0 flex-1">
-                <div className="flex items-baseline gap-1.5">
-                  <EditableTitle title={item.title} onRename={(title) => onRename(item, title)} />
-                  <span className="ml-auto shrink-0 text-[10px] text-[var(--muted-foreground)]">{slot.time}</span>
-                </div>
-                <div className="mt-1.5 flex items-center gap-1.5">
-                  <StatusChip status={state.status} />
-                  {url ? (
-                    <a
-                      href={url}
-                      target="_blank"
-                      rel="noreferrer"
-                      aria-label="View the video"
-                      title="View the video"
-                      className="text-[var(--accent)]"
-                    >
-                      <ExternalLink className="h-3.5 w-3.5" />
-                    </a>
-                  ) : null}
-                  {platform === "youtube" && state.postId ? (
-                    <a
-                      href={studioVideoUrl(state.postId)}
-                      target="_blank"
-                      rel="noreferrer"
-                      aria-label="Edit in YouTube Studio"
-                      title="Edit in YouTube Studio (title, description…)"
-                      className="text-[var(--accent)]"
-                    >
-                      <Clapperboard className="h-3.5 w-3.5" />
-                    </a>
-                  ) : null}
-                  <span className="flex-1" />
-                  {working ? (
-                    <Loader2 className="h-3.5 w-3.5 animate-spin text-[var(--muted-foreground)]" />
-                  ) : (
-                    <>
-                      {actionable ? (
-                        <button
-                          type="button"
-                          onClick={() => onPublishNow(item)}
-                          aria-label="Publish now"
-                          title="Publish now"
-                          className="text-[var(--muted-foreground)] transition hover:text-white"
-                        >
-                          <Send className="h-3.5 w-3.5" />
-                        </button>
-                      ) : null}
-                      <button
-                        type="button"
-                        onClick={() => onRemove(item)}
-                        aria-label="Remove from schedule"
-                        title="Remove from schedule"
-                        className="text-[var(--muted-foreground)] transition hover:text-red-300"
-                      >
-                        <Trash2 className="h-3.5 w-3.5" />
-                      </button>
-                    </>
-                  )}
-                </div>
-              </div>
-            </div>
-          );
+              <button
+                type="button"
+                onClick={() => onRemove(item)}
+                aria-label="Remove from schedule"
+                title="Remove from schedule"
+                className="text-[var(--muted-foreground)] transition hover:text-red-300"
+              >
+                <Trash2 className="h-3.5 w-3.5" />
+              </button>
+            </>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/** A video already on the channel (scheduled in Studio or published) — read-only. */
+function ChannelEntryCard({
+  time,
+  entry,
+  today
+}: {
+  time: string;
+  entry: Extract<AgendaEntry, { kind: "channel" }>;
+  today: boolean;
+}) {
+  const { video } = entry;
+  return (
+    <div
+      className={cn(
+        "flex min-h-16 flex-col rounded-lg border border-[var(--border-strong)] bg-white/6 p-2",
+        today && "border-[var(--accent)]/40"
+      )}
+      title={video.title}
+    >
+      <div className="flex items-baseline gap-1.5">
+        <span className="min-w-0 flex-1 truncate text-xs font-medium text-white">{video.title}</span>
+        <span className="ml-auto shrink-0 text-[10px] font-medium text-[var(--muted-foreground)]">{time}</span>
+      </div>
+      <div className="mt-1.5 flex items-center gap-1.5">
+        <StatusChip status={video.status} />
+        <a
+          href={video.url}
+          target="_blank"
+          rel="noreferrer"
+          aria-label="View the video"
+          title="View the video"
+          className="text-[var(--accent)]"
+        >
+          <ExternalLink className="h-3.5 w-3.5" />
+        </a>
+        <a
+          href={studioVideoUrl(video.videoId)}
+          target="_blank"
+          rel="noreferrer"
+          aria-label="Edit in YouTube Studio"
+          title="Edit in YouTube Studio (title, description…)"
+          className="text-[var(--accent)]"
+        >
+          <Clapperboard className="h-3.5 w-3.5" />
+        </a>
+        <span className="flex-1" />
+        <span className="text-[10px] font-medium uppercase tracking-wider text-[var(--muted-foreground)]">On YouTube</span>
+      </div>
+    </div>
+  );
+}
+
+/** An open future slot: a drop target / one-click placement / upload picker. */
+function OpenSlotCard({
+  platform,
+  slot,
+  today,
+  dragOverSlot,
+  setDragOverSlot,
+  onDropClip,
+  onUploadVideo,
+  onRequestUpload,
+  onSelectSlot,
+  busy
+}: {
+  platform: PlatformId;
+  slot: ScheduleSlot;
+  today: boolean;
+  dragOverSlot: string | null;
+  setDragOverSlot: (id: string | null) => void;
+  onDropClip: (slotUtc: string, clipKey: string) => void;
+  onUploadVideo: (slotUtc: string, file: File) => void;
+  onRequestUpload: (slotUtc: string) => void;
+  onSelectSlot?: (slotUtc: string) => void;
+  busy: string | null;
+}) {
+  const uploading = busy === `upload:${platform}:${slot.utc}`;
+  if (uploading) {
+    return (
+      <div className="flex min-h-16 flex-col items-center justify-center gap-1 rounded-lg border border-dashed border-[var(--accent)]/50 bg-[var(--accent)]/5 text-[11px] text-[var(--muted-foreground)]">
+        <Loader2 className="h-4 w-4 animate-spin text-[var(--accent)]" />
+        Uploading…
+      </div>
+    );
+  }
+  if (onSelectSlot) {
+    // Placement mode (arriving from the editor's Schedule Short): every open
+    // slot is a one-click target for the pre-selected clip.
+    return (
+      <button
+        type="button"
+        onClick={() => onSelectSlot(slot.utc)}
+        className={cn(
+          "flex min-h-16 cursor-pointer flex-col items-center justify-center gap-0.5 rounded-lg border border-dashed border-[var(--accent)]/50 bg-[var(--accent)]/5 text-[11px] text-[var(--muted-foreground)] transition hover:border-[var(--accent)] hover:bg-[var(--accent)]/15 hover:text-white",
+          today && "border-[var(--accent)]/70"
+        )}
+      >
+        <span className={cn("text-[10px]", today && "font-medium text-[var(--accent)]")}>{slot.time}</span>
+        Schedule here
+      </button>
+    );
+  }
+  return (
+    <div
+      onDragOver={(event) => {
+        // Accept a clip card from the queue or a video file dragged in from the
+        // computer (file drags expose only the "Files" type).
+        const types = event.dataTransfer.types;
+        if (!types.includes(CLIP_DRAG_TYPE) && !types.includes("Files")) return;
+        event.preventDefault();
+        event.dataTransfer.dropEffect = "copy";
+        setDragOverSlot(slot.id);
+      }}
+      onDragLeave={() => setDragOverSlot(null)}
+      onDrop={(event) => {
+        event.preventDefault();
+        setDragOverSlot(null);
+        const clipKey = event.dataTransfer.getData(CLIP_DRAG_TYPE);
+        if (clipKey) {
+          onDropClip(slot.utc, clipKey);
+          return;
         }
-        const video = channelVideoAtSlot?.(slot.utc);
-        if (video) {
-          // Already occupied on YouTube itself — read-only: it wasn't created
-          // by this queue, so it can only be managed from YouTube Studio.
-          return (
-            <div
-              key={slot.id}
-              className="min-h-16 rounded-lg border border-[var(--border-strong)] bg-white/6 p-2"
-              title={video.title}
-            >
-              <p className="truncate text-xs font-medium text-white">{video.title}</p>
-              <div className="mt-1.5 flex items-center gap-1.5">
-                <StatusChip status={video.status} />
-                <a
-                  href={video.url}
-                  target="_blank"
-                  rel="noreferrer"
-                  aria-label="View the video"
-                  title="View the video"
-                  className="text-[var(--accent)]"
-                >
-                  <ExternalLink className="h-3.5 w-3.5" />
-                </a>
-                <a
-                  href={studioVideoUrl(video.videoId)}
-                  target="_blank"
-                  rel="noreferrer"
-                  aria-label="Edit in YouTube Studio"
-                  title="Edit in YouTube Studio (title, description…)"
-                  className="text-[var(--accent)]"
-                >
-                  <Clapperboard className="h-3.5 w-3.5" />
-                </a>
-                <span className="flex-1" />
-                <span className="text-[10px] font-medium uppercase tracking-wider text-[var(--muted-foreground)]">
-                  On YouTube
-                </span>
-              </div>
-            </div>
-          );
-        }
-        if (slot.past) {
-          return (
-            <div
-              key={slot.id}
-              className={cn(
-                "flex min-h-16 items-center justify-center rounded-lg border border-[var(--border)] bg-transparent text-[11px] text-[var(--muted-foreground)] opacity-30",
-                isToday && "border-[var(--accent)]/40 opacity-50"
-              )}
-            >
-              {slot.time}
-            </div>
-          );
-        }
-        const uploading = busy === `upload:${platform}:${slot.utc}`;
-        if (uploading) {
-          return (
-            <div
-              key={slot.id}
-              className="flex min-h-16 flex-col items-center justify-center gap-1 rounded-lg border border-dashed border-[var(--accent)]/50 bg-[var(--accent)]/5 text-[11px] text-[var(--muted-foreground)]"
-            >
-              <Loader2 className="h-4 w-4 animate-spin text-[var(--accent)]" />
-              Uploading…
-            </div>
-          );
-        }
-        if (onSelectSlot) {
-          // Placement mode (arriving from the editor's Schedule Short): every
-          // open slot is a one-click target for the pre-selected clip.
-          return (
-            <button
-              key={slot.id}
-              type="button"
-              onClick={() => onSelectSlot(slot.utc)}
-              className={cn(
-                "flex min-h-16 cursor-pointer flex-col items-center justify-center gap-0.5 rounded-lg border border-dashed border-[var(--accent)]/50 bg-[var(--accent)]/5 text-[11px] text-[var(--muted-foreground)] transition hover:border-[var(--accent)] hover:bg-[var(--accent)]/15 hover:text-white",
-                isToday && "border-[var(--accent)]/70"
-              )}
-            >
-              <span className={cn("text-[10px]", isToday && "font-medium text-[var(--accent)]")}>{slot.time}</span>
-              Schedule here
-            </button>
-          );
-        }
-        return (
-          <div
-            key={slot.id}
-            onDragOver={(event) => {
-              // Accept a clip card from the queue or a video file dragged in
-              // from the computer (file drags expose only the "Files" type).
-              const types = event.dataTransfer.types;
-              if (!types.includes(CLIP_DRAG_TYPE) && !types.includes("Files")) return;
-              event.preventDefault();
-              event.dataTransfer.dropEffect = "copy";
-              setDragOverSlot(slot.id);
-            }}
-            onDragLeave={() => setDragOverSlot(null)}
-            onDrop={(event) => {
-              event.preventDefault();
-              setDragOverSlot(null);
-              const clipKey = event.dataTransfer.getData(CLIP_DRAG_TYPE);
-              if (clipKey) {
-                onDropClip(slot.utc, clipKey);
-                return;
-              }
-              const file = Array.from(event.dataTransfer.files).find(isVideoFile);
-              if (file) onUploadVideo(slot.utc, file);
-              else if (event.dataTransfer.files.length > 0) toast.error("Drop a video file (MP4, MOV, WebM…).");
-            }}
-            className={cn(
-              "group flex min-h-16 flex-col items-center justify-center gap-0.5 rounded-lg border border-dashed border-[var(--border)] text-[11px] text-[var(--muted-foreground)] transition",
-              isToday && "border-[var(--accent)]/50 bg-[var(--accent)]/5",
-              dragOverSlot === slot.id && "border-[var(--accent)] bg-[var(--accent)]/10 text-white"
-            )}
-          >
-            <span className={cn("text-[10px]", isToday && "font-medium text-[var(--accent)]")}>{slot.time}</span>
-            Drop a clip or video
-            <button
-              type="button"
-              onClick={() => onRequestUpload(slot.utc)}
-              className="mt-0.5 inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[10px] font-medium text-[var(--accent)] opacity-70 transition hover:bg-[var(--accent)]/10 hover:opacity-100"
-            >
-              <Upload className="h-3 w-3" /> Upload clip
-            </button>
-          </div>
-        );
-      })}
-    </>
+        const file = Array.from(event.dataTransfer.files).find(isVideoFile);
+        if (file) onUploadVideo(slot.utc, file);
+        else if (event.dataTransfer.files.length > 0) toast.error("Drop a video file (MP4, MOV, WebM…).");
+      }}
+      className={cn(
+        "group flex min-h-16 flex-col items-center justify-center gap-0.5 rounded-lg border border-dashed border-[var(--border)] text-[11px] text-[var(--muted-foreground)] transition",
+        today && "border-[var(--accent)]/50 bg-[var(--accent)]/5",
+        dragOverSlot === slot.id && "border-[var(--accent)] bg-[var(--accent)]/10 text-white"
+      )}
+    >
+      <span className={cn("text-[10px]", today && "font-medium text-[var(--accent)]")}>{slot.time}</span>
+      Drop a clip or video
+      <button
+        type="button"
+        onClick={() => onRequestUpload(slot.utc)}
+        className="mt-0.5 inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[10px] font-medium text-[var(--accent)] opacity-70 transition hover:bg-[var(--accent)]/10 hover:opacity-100"
+      >
+        <Upload className="h-3 w-3" /> Upload clip
+      </button>
+    </div>
   );
 }
 

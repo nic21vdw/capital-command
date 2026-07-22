@@ -54,6 +54,14 @@ export type Overview = {
 /** The schedule grid always shows a two-week window. */
 export const SLOT_WINDOW_DAYS = 14;
 
+/**
+ * Where the default window starts, in days before today, so the calendar opens
+ * on roughly the last week plus the next week — recent uploads and history land
+ * on their days right away instead of hiding in a list, and today sits near the
+ * middle. Paging steps by SLOT_WINDOW_DAYS from here in either direction.
+ */
+export const DEFAULT_SLOT_OFFSET_DAYS = -7;
+
 export type ReadyClip = {
   /** Stable key: jobId + the exact output file that would be posted. */
   key: string;
@@ -270,7 +278,7 @@ export function useUploadingCenter(clipProjects: ClipProject[] = []) {
    * (0 = the current period, 14 = the next one, …). Changing it recreates
    * `refresh`, and the page's fetch effect re-runs with the new window.
    */
-  const [slotOffsetDays, setSlotOffsetDays] = useState(0);
+  const [slotOffsetDays, setSlotOffsetDays] = useState(DEFAULT_SLOT_OFFSET_DAYS);
 
   const activeYoutubeAccountId = activeAccountIds.youtube;
   const refresh = useCallback(async (options?: { channelRefresh?: boolean }) => {
@@ -432,9 +440,29 @@ export function useUploadingCenter(clipProjects: ClipProject[] = []) {
   }, [activeAccountIds, itemAccountIdFor, queueItems]);
 
   /**
+   * Every queue item for the account each platform's tab is showing, keyed by
+   * platform (not by slot) — the calendar places each on the day it goes live,
+   * whether or not its time lines up with a slot.
+   */
+  const itemsByPlatform = useMemo(() => {
+    const map = new Map<PlatformId, QueueItem[]>();
+    for (const item of queueItems) {
+      for (const platform of Object.keys(item.platforms) as PlatformId[]) {
+        if (itemAccountIdFor(item, platform) !== activeAccountIds[platform]) continue;
+        let bucket = map.get(platform);
+        if (!bucket) {
+          bucket = [];
+          map.set(platform, bucket);
+        }
+        bucket.push(item);
+      }
+    }
+    return map;
+  }, [activeAccountIds, itemAccountIdFor, queueItems]);
+
+  /**
    * Queue items visible under the current account selection: at least one of
-   * the item's platforms is showing the account the item belongs to. Drives
-   * the off-grid "Other scheduled posts" list.
+   * the item's platforms is showing the account the item belongs to.
    */
   const visibleQueueItems = useMemo(
     () =>
@@ -906,6 +934,7 @@ export function useUploadingCenter(clipProjects: ClipProject[] = []) {
     readyClips,
     itemsForClip,
     itemsByPlatformSlot,
+    itemsByPlatform,
     thumbnailForItem,
     busy,
     uploadSuccess,
