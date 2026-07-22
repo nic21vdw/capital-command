@@ -26,7 +26,8 @@ Carousel rules:
 - Slide 1 is the HOOK: a bold, specific claim or question — max 12 words in "heading", "body" empty or one short kicker line.
 - Middle slides each carry ONE idea: "heading" max 8 words, "body" 1-3 short sentences (max 220 characters) that deliver — not tease — the idea.
 - The last slide is the CTA: heading invites the follow / the video, body one line. Never salesy, never "link in bio" begging.
-- Plain, confident language. No hashtags on slides, no emoji spam (one emoji max across the whole set), no invented facts or numbers.
+- Plain, confident language. No hashtags on slides, no invented facts or numbers.
+- Use emojis liberally to add energy and scroll-stopping personality — aim for one or two relevant emojis on most slides (in the heading, at the start of a body line, or as a bullet marker). Pick emojis that reinforce the idea (🚀 momentum, 🧠 insight, ⚡ speed, 💡 idea, 🔥 hot take, 📈 growth, 🤖 AI, 🛠️ building). Keep them tasteful — a couple per slide, never a wall of them.
 
 You always return strict JSON.`;
 
@@ -84,9 +85,9 @@ export function fallbackCarousel(input: { title: string; sourceText: string; sli
   return {
     title: input.title,
     slides: [
-      { heading: input.title, body: "" },
-      ...middles.map((body, i) => ({ heading: `Point ${i + 1}`, body: body.slice(0, 220) })),
-      { heading: "Follow for the full build", body: "New AI + engineering videos every week." }
+      { heading: `${input.title} 🚀`, body: "" },
+      ...middles.map((body, i) => ({ heading: `💡 Point ${i + 1}`, body: body.slice(0, 220) })),
+      { heading: "Follow for the full build 🔨", body: "New AI + engineering videos every week ⚡" }
     ]
   };
 }

@@ -126,7 +126,7 @@ describe("carousel generation", () => {
       sourceText: "This is the first long sentence of the video. Here is another meaningful sentence to use. And one more for good measure here.",
       slideCount: 5
     });
-    expect(fallback.slides[0].heading).toBe("My Video");
+    expect(fallback.slides[0].heading).toContain("My Video");
     expect(fallback.slides[fallback.slides.length - 1].heading).toMatch(/follow/i);
   });
 

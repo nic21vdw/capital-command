@@ -889,6 +889,9 @@ export type SlideLayer =
       height: number;
       radius?: number;
       rotation?: number;
+      /** How the source fills its box. "contain" shows the whole image
+       *  (right for logos/transparent PNGs); "cover" crops to fill. */
+      fit?: "cover" | "contain";
     };
 
 export interface CarouselSlide {
