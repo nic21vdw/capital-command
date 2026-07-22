@@ -65,10 +65,11 @@ const navGroups: NavGroup[] = [
   {
     label: "Distribute",
     items: [
+      // Every distribution calendar merged into one day/week/month view — the
+      // first stop for "what goes out where, and when", so it leads the group.
+      { href: "/master-calendar", label: "Master Calendar", icon: CalendarRange },
       // The start-to-finish pipeline board.
       { href: "/distribution", label: "Distribution Centre", icon: Rocket },
-      // Every distribution calendar merged into one day/week/month view.
-      { href: "/master-calendar", label: "Master Calendar", icon: CalendarRange },
       { href: "/uploading-center", label: "Uploading Center", icon: UploadCloud },
       // Instagram carousel images generated from scripts/videos.
       { href: "/carousels", label: "Carousels", icon: Images },
