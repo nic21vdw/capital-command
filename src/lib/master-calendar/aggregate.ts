@@ -1,6 +1,7 @@
 import type { AppData, Carousel, ContentItem, FbPost, XDailyPack } from "@/types/domain";
 import type { PlatformId, QueueItem } from "@/lib/publisher/types";
 import type { MasterCalendarEvent } from "@/lib/master-calendar/types";
+import type { PodcastEpisode } from "@/lib/podcasts/types";
 
 /**
  * Flattens every distribution surface into MasterCalendarEvents for a
@@ -187,6 +188,36 @@ function fbEvents(posts: FbPost[], startKey: string, endKey: string): MasterCale
     }));
 }
 
+function podcastEvents(episodes: PodcastEpisode[], timeZone: string, startKey: string, endKey: string): MasterCalendarEvent[] {
+  const events: MasterCalendarEvent[] = [];
+  for (const episode of episodes) {
+    const instantText = episode.status === "published" ? episode.publishedAt || episode.scheduledAt : episode.scheduledAt;
+    if (!instantText) continue;
+    const instant = new Date(instantText);
+    if (Number.isNaN(instant.getTime())) continue;
+    const { dateKey, time } = localDateTime(instant, timeZone);
+    if (!inRange(dateKey, startKey, endKey)) continue;
+    events.push({
+      id: `podcast:${episode.id}`,
+      source: "podcasts",
+      dateKey,
+      time,
+      title: truncate(episode.title),
+      platforms: episode.destinations.map((destination) =>
+        destination === "spotify"
+          ? "Spotify"
+          : destination === "apple"
+            ? "Apple Podcasts"
+            : destination === "youtube"
+              ? "YouTube Music"
+              : "Substack"
+      ),
+      status: episode.status
+    });
+  }
+  return events;
+}
+
 function contentEvents(items: ContentItem[], startKey: string, endKey: string): MasterCalendarEvent[] {
   const events: MasterCalendarEvent[] = [];
   for (const item of items) {
@@ -212,12 +243,14 @@ export function buildMasterCalendarEvents(options: {
   timeZone: string;
   startKey: string;
   days: number;
+  podcastEpisodes?: PodcastEpisode[];
 }): MasterCalendarEvent[] {
-  const { data, queueItems, timeZone, startKey, days } = options;
+  const { data, queueItems, timeZone, startKey, days, podcastEpisodes = [] } = options;
   const endKey = addDaysToKey(startKey, days);
 
   const events = [
     ...shortsEvents(queueItems, timeZone, startKey, endKey),
+    ...podcastEvents(podcastEpisodes, timeZone, startKey, endKey),
     ...carouselEvents(data.videoStudio?.carousels ?? [], startKey, endKey, days),
     ...xEvents(data.xPlanner?.packs ?? [], startKey, endKey),
     ...fbEvents(data.fbStrategy?.posts ?? [], startKey, endKey),
