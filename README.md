@@ -270,7 +270,8 @@ published or due scheduled episodes appear automatically after that.
 
 Podcast directories require permanent public audio URLs. Configure the existing
 `S3_*` media host and set `S3_PUBLIC_BASE_URL`; generated MP3s are then
-uploaded under `podcasts/audio/`. Without it, local generation, playback,
+uploaded under `podcasts/audio/`. Set `PODCAST_LIBRARY_BACKEND=r2` so the
+hosted feed and local Command app also share `podcasts/episodes.json`. Without it, local generation, playback,
 downloads, scheduling, and feed preview still work, but the feed is not suitable
 for a public directory.
 
@@ -280,7 +281,7 @@ isn't available.
 
 ### Podcast setup checklist
 
-1. Configure the `S3_*` variables and a permanent `S3_PUBLIC_BASE_URL`.
+1. Configure the `S3_*` variables, a permanent `S3_PUBLIC_BASE_URL`, and `PODCAST_LIBRARY_BACKEND=r2`.
 2. Host Command and set `PODCAST_PUBLIC_BASE_URL` to its HTTPS origin.
 3. Add square public artwork and an owner email.
 4. Generate an episode, review the title/show notes, and publish it to the feed.
