@@ -136,7 +136,7 @@ const OUTPUTS: Record<OutputKey, { label: string; icon: LucideIcon; href: string
   x: { label: "X posts", icon: AtSign, href: "/x-posts", cta: "Write posts" },
   threads: { label: "Thread posts", icon: MessageSquare, href: "/facebook", cta: "Write thread" },
   text: { label: "Text-only post", icon: FileText, href: "/x-posts", cta: "Write post" },
-  carousel: { label: "Instagram carousel", icon: Images, href: "/carousels", cta: "Generate" }
+  carousel: { label: "Carousel", icon: Images, href: "/carousels", cta: "Generate" }
 };
 
 // Fixed display order so the grids read the same on every tab.
@@ -162,7 +162,7 @@ const MATRIX: Record<SourceKey, Partial<Record<OutputKey, Capability>>> = {
     x: { status: "ready", note: "Turn the transcript into keyword-aware X posts." },
     threads: { status: "ready", note: "Spin the transcript into FB / IG thread posts." },
     text: { status: "ready", note: "Pull standalone text-only posts from the ideas covered." },
-    carousel: { status: "ready", note: "Generate an Instagram carousel from the video's ideas." }
+    carousel: { status: "ready", note: "Generate a carousel (Instagram, Facebook, TikTok) from the video's ideas." }
   },
   audio: {
     x: { status: "ready", note: "Transcribe, then write X posts from what you said." },

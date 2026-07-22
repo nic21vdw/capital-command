@@ -1,4 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
+import { getJob } from "@/lib/clipping/jobs";
+import { clipCarouselSource } from "@/lib/studio/carousel";
 import { getProject } from "@/lib/longform/store";
 import { readAppData, writeAppData } from "@/lib/storage/store";
 import { defaultVideoStudio } from "@/lib/storage/schemas";
@@ -9,13 +11,15 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 /**
- * Writes carousel copy from a script, a long-form project's transcript, or
- * pasted text, and saves the carousel. The slides are rendered to PNGs
- * client-side on the Carousels page.
+ * Writes carousel copy from a script, a long-form project's transcript, a
+ * short-form video (a clip), or pasted text, and saves the carousel. The
+ * slides are rendered to PNGs client-side on the Carousels page.
  */
 export async function POST(request: NextRequest) {
   let scriptId = "";
   let longformId = "";
+  let clipJobId = "";
+  let clipId = "";
   let text = "";
   let title = "";
   let slideCount = DEFAULT_SLIDE_COUNT;
@@ -23,6 +27,8 @@ export async function POST(request: NextRequest) {
     const body = (await request.json()) as Record<string, unknown>;
     if (typeof body.scriptId === "string") scriptId = body.scriptId;
     if (typeof body.longformId === "string") longformId = body.longformId;
+    if (typeof body.clipJobId === "string") clipJobId = body.clipJobId;
+    if (typeof body.clipId === "string") clipId = body.clipId;
     if (typeof body.text === "string") text = body.text;
     if (typeof body.title === "string") title = body.title.trim();
     const count = Number(body.slideCount);
@@ -36,7 +42,7 @@ export async function POST(request: NextRequest) {
 
   let sourceText = text;
   let sourceTitle = title;
-  let sourceType: "script" | "longform" | "custom" = "custom";
+  let sourceType: "script" | "longform" | "short" | "custom" = "custom";
   let sourceId: string | undefined;
 
   if (scriptId) {
@@ -56,10 +62,26 @@ export async function POST(request: NextRequest) {
     if (!sourceText.trim()) {
       return NextResponse.json({ error: "That project has no transcript to work from." }, { status: 409 });
     }
+  } else if (clipJobId) {
+    const job = await getJob(clipJobId);
+    if (!job) return NextResponse.json({ error: "Short-form video not found." }, { status: 404 });
+    const clip = job.clips.find((entry) => entry.id === clipId);
+    if (!clip) return NextResponse.json({ error: "That clip is no longer in the job." }, { status: 404 });
+    const source = clipCarouselSource(job, clip);
+    sourceText = source.text;
+    sourceTitle = sourceTitle || source.title;
+    sourceType = "short";
+    sourceId = `${job.id}:${clip.id}`;
+    if (!sourceText.trim()) {
+      return NextResponse.json({ error: "That clip has no transcript or title to work from." }, { status: 409 });
+    }
   }
 
   if (!sourceText.trim()) {
-    return NextResponse.json({ error: "Pick a script, a long-form project, or paste some text." }, { status: 400 });
+    return NextResponse.json(
+      { error: "Pick a script, a long-form project, a short-form video, or paste some text." },
+      { status: 400 }
+    );
   }
 
   const { carousel, reason } = await generateCarousel({

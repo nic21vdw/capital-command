@@ -71,7 +71,7 @@ const navGroups: NavGroup[] = [
       // The start-to-finish pipeline board.
       { href: "/distribution", label: "Distribution Centre", icon: Rocket },
       { href: "/uploading-center", label: "Uploading Center", icon: UploadCloud },
-      // Instagram carousel images generated from scripts/videos.
+      // Carousel images generated from scripts/videos, distributable to Instagram, Facebook, and TikTok.
       { href: "/carousels", label: "Carousels", icon: Images },
       // On-demand pack of suggested X/Threads posts + replies (suggestion-only).
       { href: "/x-posts", label: "X / Threads Posts", icon: AtSign },

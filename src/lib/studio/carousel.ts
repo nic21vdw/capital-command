@@ -1,12 +1,14 @@
 import { aiConfigured, runAi } from "@/lib/ai";
 import { CHANNEL_KEYWORDS } from "@/lib/clipping/keywords";
+import type { ClipCandidate, ClipJob } from "@/lib/clipping/types";
 import { carouselSchema } from "@/lib/storage/schemas";
 import type { Carousel, CarouselSlide } from "@/types/domain";
 
 /**
- * Instagram carousel copy. Turns a video's script or transcript into a
- * swipeable set of slides — hook slide, value slides, CTA slide — that the
- * client renders to 1080x1350 PNGs on a canvas (no server-side image deps).
+ * Carousel copy for Instagram, Facebook, and TikTok. Turns a video's script or
+ * transcript into a swipeable set of slides — hook slide, value slides, CTA
+ * slide — that the client renders to 1080x1350 PNGs on a canvas (no
+ * server-side image deps).
  *
  * House AI pattern: *Configured() gate, pure prompt builder, tolerant
  * parser, graceful fallback.
@@ -20,7 +22,7 @@ export function carouselGenerationConfigured() {
   return aiConfigured();
 }
 
-export const CAROUSEL_SYSTEM_PROMPT = `You write Instagram carousel copy for a creator who builds software with AI in public (a structural engineer building CoLateral, an AI workspace for structural engineers). Channel keywords: ${CHANNEL_KEYWORDS.join(", ")}.
+export const CAROUSEL_SYSTEM_PROMPT = `You write carousel copy for a creator who builds software with AI in public (a structural engineer building CoLateral, an AI workspace for structural engineers). The same carousel is posted across Instagram, Facebook, and TikTok, so keep the copy platform-neutral — no "Instagram" / "IG"-only references, and nothing that only makes sense on one network. Channel keywords: ${CHANNEL_KEYWORDS.join(", ")}.
 
 Carousel rules:
 - Slide 1 is the HOOK: a bold, specific claim or question — max 12 words in "heading", "body" empty or one short kicker line.
@@ -31,10 +33,31 @@ Carousel rules:
 
 You always return strict JSON.`;
 
+/**
+ * Turns a short-form video (a clip) into carousel source material: its title
+ * plus the words spoken inside the clip window, pulled from the job's
+ * source-relative captions. Falls back to the clip's hook quote and rationale
+ * when no transcript has been fetched yet, so a clip is never un-carouselable.
+ */
+export function clipCarouselSource(job: ClipJob, clip: ClipCandidate): { title: string; text: string } {
+  const title = clip.title?.trim() || job.topic?.trim() || job.fileName?.trim() || "Short-form video";
+  const spoken = (job.sourceCaptions ?? [])
+    .filter((segment) => segment.enabled !== false && segment.end > clip.start && segment.start < clip.end)
+    .map((segment) => segment.text.trim())
+    .filter(Boolean)
+    .join(" ")
+    .replace(/\s+/g, " ")
+    .trim();
+  // Prefer the spoken transcript; otherwise stitch together whatever the clip
+  // analysis captured so there is still something to write slides from.
+  const parts = [title, spoken || clip.hookQuote?.trim() || "", spoken ? "" : clip.rationale?.trim() || ""];
+  return { title, text: parts.filter(Boolean).join("\n\n") };
+}
+
 /** Builds the carousel prompt. Pure, for tests. */
 export function buildCarouselPrompt(input: { title: string; sourceText: string; slideCount: number }): string {
   return [
-    `Turn this video content into an Instagram carousel of exactly ${input.slideCount} slides.`,
+    `Turn this video content into a carousel of exactly ${input.slideCount} slides (for Instagram, Facebook, and TikTok).`,
     "",
     `Video: ${input.title}`,
     "",

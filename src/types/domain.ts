@@ -936,7 +936,8 @@ export interface CarouselSchedule {
 export interface Carousel {
   id: string;
   title: string;
-  sourceType: "script" | "longform" | "custom";
+  /** `short` = generated from a short-form video (a clip). */
+  sourceType: "script" | "longform" | "short" | "custom";
   sourceId?: string;
   slides: CarouselSlide[];
   aspectRatio?: CarouselAspectRatio;
