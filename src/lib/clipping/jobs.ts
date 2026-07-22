@@ -1,6 +1,13 @@
 import { mkdir, readFile, rename, rm, stat, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { TARGET_CLIP_COUNT, detectSilences, extractEnergy, fallbackCandidates, selectCandidates } from "@/lib/clipping/analysis";
+import {
+  TARGET_CLIP_COUNT,
+  clampClipCount,
+  detectSilences,
+  extractEnergy,
+  fallbackCandidates,
+  selectCandidates
+} from "@/lib/clipping/analysis";
 import { buildAss, buildClipTitleDialogue, chunkWords, windowSegments } from "@/lib/clipping/captions";
 import { generateClipTitle } from "@/lib/clipping/editor";
 import { generateViralTitles } from "@/lib/clipping/titles";
@@ -217,19 +224,24 @@ function overlapRatio(a: { start: number; end: number }, b: { start: number; end
   return union > 0 ? inter / union : 0;
 }
 
-function mergeClipCandidates(primary: ClipCandidate[], supplemental: ClipCandidate[]) {
+function mergeClipCandidates(
+  primary: ClipCandidate[],
+  supplemental: ClipCandidate[],
+  targetCount: number = TARGET_CLIP_COUNT
+) {
+  const limit = clampClipCount(targetCount);
   const merged: ClipCandidate[] = [];
   for (const candidate of [...primary, ...supplemental]) {
-    if (merged.length >= TARGET_CLIP_COUNT) break;
+    if (merged.length >= limit) break;
     if (merged.some((existing) => overlapRatio(existing, candidate) > 0.45)) continue;
     merged.push(candidate);
   }
   for (const candidate of supplemental) {
-    if (merged.length >= TARGET_CLIP_COUNT) break;
+    if (merged.length >= limit) break;
     if (merged.some((existing) => Math.abs(existing.start - candidate.start) < 1)) continue;
     merged.push(candidate);
   }
-  return merged.slice(0, TARGET_CLIP_COUNT).map((candidate, index) => ({ ...candidate, id: `clip-${index + 1}` }));
+  return merged.slice(0, limit).map((candidate, index) => ({ ...candidate, id: `clip-${index + 1}` }));
 }
 
 /** A clip's transcript, windowed to clip-local time. */
@@ -291,7 +303,8 @@ async function assignClipTitles(job: ClipJob) {
 
 export async function createJobFromUrl(
   url: string,
-  topic: string | undefined
+  topic: string | undefined,
+  clipCount?: number
 ): Promise<ClipJob> {
   await loadJobs();
   const id = crypto.randomUUID().slice(0, 8);
@@ -299,6 +312,7 @@ export async function createJobFromUrl(
     id,
     fileName: url,
     topic: topic || undefined,
+    clipCount: clampClipCount(clipCount),
     sourceUrl: url,
     status: "queued",
     stage: "downloading",
@@ -318,7 +332,11 @@ export async function createJobFromUrl(
 }
 
 /** Creates a clip job from a previously uploaded source file. */
-export async function createJobFromUpload(sourceId: string, topic: string | undefined): Promise<ClipJob> {
+export async function createJobFromUpload(
+  sourceId: string,
+  topic: string | undefined,
+  clipCount?: number
+): Promise<ClipJob> {
   await loadJobs();
   const meta = await readSourceMeta(sourceId);
   if (!meta) throw new Error("That uploaded video could not be found. Upload it again.");
@@ -327,6 +345,7 @@ export async function createJobFromUpload(sourceId: string, topic: string | unde
     id,
     fileName: meta.fileName,
     topic: topic || undefined,
+    clipCount: clampClipCount(clipCount),
     sourceUrl: `upload://${sourceId}`,
     sourceId,
     status: "queued",
@@ -397,22 +416,25 @@ async function runLocalPipeline(job: ClipJob, meta: SourceMeta) {
 
   const silences = await silencePromise;
   job.silences = silences;
+  const targetCount = clampClipCount(job.clipCount);
   await update(job, { stage: "selecting", progress: 42 });
   let candidates: ClipCandidate[] | null = null;
   if (transcript && transcript.length > 0) {
-    candidates = await selectByTranscript(transcript, durationSec, job.topic);
+    candidates = await selectByTranscript(transcript, durationSec, job.topic, targetCount);
   }
-  if (!candidates || candidates.length < TARGET_CLIP_COUNT) {
+  if (!candidates || candidates.length < targetCount) {
     if (audioPath) {
       const windows = await extractEnergy(audioPath);
-      const energyCandidates = selectCandidates(windows, silences, durationSec, transcript ?? []);
+      const energyCandidates = selectCandidates(windows, silences, durationSec, transcript ?? [], targetCount);
       candidates =
-        candidates && candidates.length > 0 ? mergeClipCandidates(candidates, energyCandidates) : energyCandidates;
+        candidates && candidates.length > 0
+          ? mergeClipCandidates(candidates, energyCandidates, targetCount)
+          : energyCandidates;
       if (!transcript || transcript.length === 0) {
         job.notices.push("No transcript was available — moments were picked from whole-stream audio energy instead.");
       }
     } else {
-      candidates = fallbackCandidates(durationSec, "This video has no audio track");
+      candidates = fallbackCandidates(durationSec, "This video has no audio track", targetCount);
     }
   }
   candidates = await refineJobVirality(job, candidates);
@@ -498,18 +520,22 @@ async function runPipeline(job: ClipJob, url: string) {
 
   const silences = await silencePromise;
   job.silences = silences;
+  const targetCount = clampClipCount(job.clipCount);
   await update(job, { stage: "selecting", progress: 42 });
   let candidates: ClipCandidate[] | null = null;
   if (transcript && transcript.length > 0) {
-    candidates = await selectByTranscript(transcript, durationSec, job.topic);
+    candidates = await selectByTranscript(transcript, durationSec, job.topic, targetCount);
   }
 
-  if (!candidates || candidates.length < TARGET_CLIP_COUNT) {
+  if (!candidates || candidates.length < targetCount) {
     // Score moments from audio energy across the whole stream. We still pass the transcript (if any) so scoring
     // can read what is said, not just how loud it is.
     const windows = await extractEnergy(audioPath);
-    const energyCandidates = selectCandidates(windows, silences, durationSec, transcript ?? []);
-    candidates = candidates && candidates.length > 0 ? mergeClipCandidates(candidates, energyCandidates) : energyCandidates;
+    const energyCandidates = selectCandidates(windows, silences, durationSec, transcript ?? [], targetCount);
+    candidates =
+      candidates && candidates.length > 0
+        ? mergeClipCandidates(candidates, energyCandidates, targetCount)
+        : energyCandidates;
     if (!transcript || transcript.length === 0) {
       job.notices.push(
         "No transcript was available for this source — picked moments from whole-stream audio energy instead."

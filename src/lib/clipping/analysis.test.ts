@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
+  clampClipCount,
   createSilenceCollector,
   fallbackCandidates,
+  MAX_CLIP_COUNT,
+  MIN_CLIP_COUNT,
   selectCandidates,
   TARGET_CLIP_COUNT,
   type EnergyWindow
@@ -31,6 +34,40 @@ describe("clip candidate selection", () => {
     expect(candidates.map((candidate) => candidate.id)).toEqual(
       Array.from({ length: TARGET_CLIP_COUNT }, (_, index) => `clip-${index + 1}`)
     );
+  });
+
+  it("honours a creator-chosen clip count in both selection paths", () => {
+    // A long stream so there is room for far more than the default ten clips.
+    const duration = 60 * 90;
+    expect(fallbackCandidates(duration, "No signal", 25)).toHaveLength(25);
+
+    const audio = selectCandidates(streamWindows(duration), [], duration, [], 25);
+    expect(audio).toHaveLength(25);
+    expect(audio.map((candidate) => candidate.id)).toEqual(
+      Array.from({ length: 25 }, (_, index) => `clip-${index + 1}`)
+    );
+  });
+
+  it("never returns more clips than requested", () => {
+    const duration = 60 * 90;
+    expect(fallbackCandidates(duration, "No signal", 3)).toHaveLength(3);
+    expect(selectCandidates(streamWindows(duration), [], duration, [], 3)).toHaveLength(3);
+  });
+});
+
+describe("clampClipCount", () => {
+  it("defaults when the value is missing or unparseable", () => {
+    expect(clampClipCount(undefined)).toBe(TARGET_CLIP_COUNT);
+    expect(clampClipCount(null)).toBe(TARGET_CLIP_COUNT);
+    expect(clampClipCount(Number.NaN)).toBe(TARGET_CLIP_COUNT);
+  });
+
+  it("clamps to the supported range and rounds fractional values", () => {
+    expect(clampClipCount(0)).toBe(MIN_CLIP_COUNT);
+    expect(clampClipCount(-4)).toBe(MIN_CLIP_COUNT);
+    expect(clampClipCount(1000)).toBe(MAX_CLIP_COUNT);
+    expect(clampClipCount(12.4)).toBe(12);
+    expect(clampClipCount(12.6)).toBe(13);
   });
 });
 
