@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { ArrowUpRight, CalendarDays, ChevronLeft, ChevronRight, Loader2, Repeat } from "lucide-react";
+import { ArrowUpRight, CalendarDays, ChevronLeft, ChevronRight, Loader2, Repeat, Sparkles } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -14,6 +14,7 @@ import {
   type MasterCalendarEvent,
   type MasterCalendarResponse
 } from "@/lib/master-calendar/types";
+import type { CalendarPlan } from "@/lib/master-calendar/planner";
 import { cn } from "@/lib/utils";
 
 /**
@@ -113,6 +114,10 @@ export function MasterCalendarPage() {
   // The range the latest settled fetch was for; while it trails the visible
   // range the calendar is loading (previous events stay up to avoid flicker).
   const [fetchedRange, setFetchedRange] = useState<string | null>(null);
+  // AI planner: gap-fill suggestions for the visible window, fetched on demand.
+  const [plan, setPlan] = useState<CalendarPlan | null>(null);
+  const [planning, setPlanning] = useState(false);
+  const [planRange, setPlanRange] = useState<string | null>(null);
 
   // The window of days the current view needs. A month renders the standard
   // 6-week grid starting on the Sunday before the 1st.
@@ -181,6 +186,27 @@ export function MasterCalendarPage() {
     });
   };
 
+  // Ask the AI planner to fill gaps in the window currently on screen.
+  const runPlan = async () => {
+    setPlanning(true);
+    try {
+      const res = await fetch(`/api/master-calendar/plan?start=${range.start}&days=${range.days}`, { cache: "no-store" });
+      if (!res.ok) return;
+      const json = (await res.json()) as { plan: CalendarPlan };
+      setPlan(json.plan);
+      setPlanRange(rangeId);
+    } catch {
+      // Leave any prior plan up; the button can be pressed again.
+    } finally {
+      setPlanning(false);
+    }
+  };
+  const planIsStale = plan !== null && planRange !== rangeId;
+
+  /** The calendar source whose colour/link fits a suggestion's kind. */
+  const sourceForKind = (kind: CalendarPlan["suggestions"][number]["kind"]) =>
+    CALENDAR_SOURCE_BY_ID[kind === "post" ? "x" : kind === "longform" ? "content" : "shorts"];
+
   const periodLabel = useMemo(() => {
     if (view === "day") return formatKey(anchor, { weekday: "long", month: "long", day: "numeric", year: "numeric" });
     if (view === "week") {
@@ -243,6 +269,70 @@ export function MasterCalendarPage() {
           );
         })}
       </div>
+
+      {/* AI planner: fill gaps in the visible window from the idea board. */}
+      <Card className="mb-4 p-4">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-center gap-2">
+            <Sparkles className="h-4 w-4 text-[var(--accent)]" />
+            <div>
+              <p className="text-sm font-semibold text-white">Plan this window</p>
+              <p className="text-xs text-[var(--muted-foreground)]">
+                Spot scheduling gaps and fill them from your idea board — free, powered by DeepSeek Flash.
+              </p>
+            </div>
+          </div>
+          <Button className="h-8 px-3 text-xs" onClick={() => void runPlan()} disabled={planning}>
+            {planning ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <Sparkles className="mr-1.5 h-3.5 w-3.5" />}
+            {planning ? "Planning…" : plan ? "Re-plan" : "Plan my week"}
+          </Button>
+        </div>
+
+        {plan ? (
+          <div className="mt-3 space-y-2 border-t border-[var(--border)] pt-3">
+            <p className="text-xs text-[var(--muted-foreground)]">
+              {plan.summary}
+              {plan.source === "heuristic" ? " (rule-based)" : ""}
+              {planIsStale ? " · Showing a plan for a different window — re-plan to refresh." : ""}
+            </p>
+            {plan.suggestions.length === 0 ? (
+              <p className="text-xs text-[var(--muted-foreground)]">Nothing to add — you&apos;re on cadence for this window.</p>
+            ) : (
+              <ul className="space-y-1.5">
+                {plan.suggestions.map((suggestion, index) => {
+                  const source = sourceForKind(suggestion.kind);
+                  return (
+                    <li
+                      key={`${suggestion.dateKey}:${index}`}
+                      className="flex items-start gap-2 rounded-lg border border-[var(--border)] bg-white/5 px-3 py-2 text-xs"
+                    >
+                      <span className="mt-1 h-2 w-2 shrink-0 rounded-full" style={{ background: source.color }} />
+                      <div className="min-w-0 flex-1">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="font-semibold text-white">{suggestion.title}</span>
+                          <Badge className="border-white/10 bg-white/5 text-[10px] uppercase text-[var(--muted-foreground)]">
+                            {suggestion.kind}
+                          </Badge>
+                        </div>
+                        <p className="text-[var(--muted-foreground)]">
+                          {suggestion.weekday}, {formatKey(suggestion.dateKey, { month: "short", day: "numeric" })} · {suggestion.reason}
+                        </p>
+                      </div>
+                      <Link
+                        href={source.href}
+                        title={`Open ${source.hrefLabel}`}
+                        className="mt-0.5 shrink-0 text-[var(--muted-foreground)] transition hover:text-white"
+                      >
+                        <ArrowUpRight className="h-3.5 w-3.5" />
+                      </Link>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+          </div>
+        ) : null}
+      </Card>
 
       <Card className="p-0">
         {/* Toolbar: period navigation + view switch. */}

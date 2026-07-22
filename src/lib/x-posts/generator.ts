@@ -1,4 +1,4 @@
-import Anthropic from "@anthropic-ai/sdk";
+import { aiConfigured, runAi } from "@/lib/ai";
 import { POST_LIBRARY, REPLY_LIBRARY } from "@/lib/x-posts/library";
 import { xDailyPackSchema } from "@/lib/storage/schemas";
 import type { XDailyPack, XPostFormat, XSuggestedPost, XSuggestedReply } from "@/types/domain";
@@ -17,7 +17,7 @@ export const POSTS_PER_PACK = 24;
 export const REPLIES_PER_PACK = 20;
 
 export function plannerConfigured() {
-  return Boolean(process.env.ANTHROPIC_API_KEY);
+  return aiConfigured();
 }
 
 /** Deterministic 32-bit FNV-1a hash — used to jitter times repeatably per day. */
@@ -130,10 +130,10 @@ export async function generateDailyPack(input: {
 }): Promise<{ pack: XDailyPack; reason: string | null }> {
   const { brief, date, focus, recentTopics } = input;
 
-  if (!process.env.ANTHROPIC_API_KEY) {
+  if (!plannerConfigured()) {
     return {
       pack: libraryPack(date, focus),
-      reason: "ANTHROPIC_API_KEY is not set — served today's pack from the built-in idea library instead of fresh AI writing."
+      reason: "AI is not configured — served today's pack from the built-in idea library instead of fresh AI writing."
     };
   }
 
@@ -161,24 +161,18 @@ Respond with ONLY valid JSON, no commentary, in exactly this shape:
 {"posts":[{"format":"insight","topic":"short topic label","text":"...","threadsVariant":"..."}],"replies":[{"scenario":"...","text":"..."}]}`;
 
   try {
-    const client = new Anthropic();
-    const response = await client.messages.create({
-      model: "claude-opus-4-8",
-      max_tokens: 16000,
+    const result = await runAi({
+      maxTokens: 16000,
       system:
         "You are a sharp ghostwriter for a structural engineer who builds AI tooling (CoLateral AI). You write specific, credible, non-generic social posts in his voice. You never fabricate facts, projects, or numbers. You output strict JSON when asked.",
       messages: [{ role: "user", content: userPrompt }]
     });
 
-    if (response.stop_reason === "refusal") {
-      return { pack: libraryPack(date, focus), reason: "The model declined the request — served the built-in idea library instead." };
+    if (!result || result.refused) {
+      return { pack: libraryPack(date, focus), reason: "The model was unavailable or declined — served the built-in idea library instead." };
     }
 
-    const text = response.content
-      .filter((block) => block.type === "text")
-      .map((block) => (block as { text: string }).text)
-      .join("\n")
-      .trim();
+    const text = result.text.trim();
 
     const parsed = extractJson(text) as { posts?: RawPost[]; replies?: RawReply[] };
     const posts = (parsed.posts ?? [])

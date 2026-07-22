@@ -1,4 +1,10 @@
-import Anthropic from "@anthropic-ai/sdk";
+import { aiConfigured, runAi } from "@/lib/ai";
+import { CHANNEL_KEYWORDS, TITLE_STYLE_EXAMPLES } from "@/lib/clipping/keywords";
+
+// Re-exported so existing importers of these constants keep working; the
+// canonical definition lives in the dependency-free keywords.ts so client
+// components can pull the vocabulary without dragging in the AI provider.
+export { CHANNEL_KEYWORDS, TITLE_STYLE_EXAMPLES };
 
 /**
  * Viral clip titles. Instead of slicing a fragment out of the transcript
@@ -13,34 +19,6 @@ import Anthropic from "@anthropic-ai/sdk";
  * Degrades gracefully: returns null when there is no API key or the call
  * fails, so callers can fall back to the local heuristic titler.
  */
-
-/** Recurring channel topics woven into titles/descriptions/tags when the clip supports them. */
-export const CHANNEL_KEYWORDS = [
-  "AI",
-  "vibe coding",
-  "Claude",
-  "ChatGPT",
-  "AI agents",
-  "coding",
-  "SaaS",
-  "startup",
-  "business",
-  "building in public",
-  "engineering",
-  "automation"
-];
-
-/** Example titles that define the channel's title voice. */
-export const TITLE_STYLE_EXAMPLES = [
-  "Vibe Coding a SaaS With Claude in 30 Minutes",
-  "This AI Coding Trick Saves Me Hours Every Week",
-  "Why I Let AI Write All My Code",
-  "ChatGPT vs Claude for Real Business Work",
-  "Building a Startup Live With AI Agents",
-  "The AI Mistake Every New Founder Makes",
-  "I Made AI Build My Entire Landing Page",
-  "How Vibe Coding Changed My Engineering Business"
-];
 
 export const VIRAL_TITLE_SYSTEM_PROMPT = `You are a short-form video growth expert who writes scroll-stopping titles for YouTube Shorts, TikTok, and Reels.
 
@@ -70,7 +48,7 @@ const MAX_TRANSCRIPT_CHARS = 700;
 const MAX_TITLE_CHARS = 75;
 
 export function viralTitlesConfigured() {
-  return Boolean(process.env.ANTHROPIC_API_KEY);
+  return aiConfigured();
 }
 
 /** Builds the user prompt listing every clip's transcript. Pure, for tests. */
@@ -148,19 +126,13 @@ export async function generateViralTitles(
   if (withText.length === 0) return null;
 
   try {
-    const client = new Anthropic();
-    const response = await client.messages.create({
-      model: "claude-opus-4-8",
-      max_tokens: 1500,
+    const result = await runAi({
+      maxTokens: 1500,
       system: VIRAL_TITLE_SYSTEM_PROMPT,
       messages: [{ role: "user", content: buildViralTitleUserPrompt(withText, context) }]
     });
-    if (response.stop_reason === "refusal") return null;
-    const text = response.content
-      .filter((block) => block.type === "text")
-      .map((block) => (block as { text: string }).text)
-      .join("\n");
-    const titles = parseViralTitles(text);
+    if (!result || result.refused) return null;
+    const titles = parseViralTitles(result.text);
     return titles.size > 0 ? titles : null;
   } catch {
     return null;

@@ -1,4 +1,4 @@
-import { CHANNEL_KEYWORDS } from "@/lib/clipping/titles";
+import { CHANNEL_KEYWORDS } from "@/lib/clipping/keywords";
 
 /**
  * The description + keywords a fresh clip/long-form project starts with, shown

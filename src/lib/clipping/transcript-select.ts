@@ -1,4 +1,4 @@
-import Anthropic from "@anthropic-ai/sdk";
+import { aiConfigured, runAi } from "@/lib/ai";
 import { TARGET_CLIP_COUNT } from "@/lib/clipping/analysis";
 import { resolveThoughtEnd } from "@/lib/clipping/thought-end";
 import type { CaptionSegment } from "@/types/domain";
@@ -33,7 +33,7 @@ const TARGET_CLIPS = TARGET_CLIP_COUNT;
 const MAX_TIMELINE_LINES = 1500;
 
 export function transcriptSelectionConfigured() {
-  return Boolean(process.env.ANTHROPIC_API_KEY);
+  return aiConfigured();
 }
 
 function clock(seconds: number) {
@@ -220,20 +220,15 @@ TRANSCRIPT:
 ${timeline}`;
 
   try {
-    const client = new Anthropic();
-    const response = await client.messages.create({
-      model: "claude-opus-4-8",
-      max_tokens: 3200,
+    const result = await runAi({
+      maxTokens: 3200,
       system:
         "You are an expert short-form video editor who finds the most viral, self-contained moments inside long livestream transcripts. You always return strict JSON.",
       messages: [{ role: "user", content: userPrompt }]
     });
 
-    if (response.stop_reason === "refusal") return null;
-    const text = response.content
-      .filter((block) => block.type === "text")
-      .map((block) => (block as { text: string }).text)
-      .join("\n");
+    if (!result || result.refused) return null;
+    const text = result.text;
 
     const starts = segments.map((s) => s.start);
     const candidates = parseClips(text)

@@ -1,5 +1,5 @@
-import Anthropic from "@anthropic-ai/sdk";
-import { CHANNEL_KEYWORDS } from "@/lib/clipping/titles";
+import { aiConfigured, runAi } from "@/lib/ai";
+import { CHANNEL_KEYWORDS } from "@/lib/clipping/keywords";
 import { SFX_SOUNDS } from "@/lib/sfx/types";
 import { videoScriptSchema } from "@/lib/storage/schemas";
 import type { ScriptGraphic, ScriptSection, ScriptSfx, VideoIdea, VideoScript } from "@/types/domain";
@@ -16,7 +16,7 @@ import type { ScriptGraphic, ScriptSection, ScriptSfx, VideoIdea, VideoScript } 
  */
 
 export function scriptGenerationConfigured() {
-  return Boolean(process.env.ANTHROPIC_API_KEY);
+  return aiConfigured();
 }
 
 const GRAPHIC_KINDS = ["b-roll", "screen-recording", "diagram", "text-overlay", "meme", "photo"] as const;
@@ -202,14 +202,12 @@ export async function generateScript(input: {
   if (!scriptGenerationConfigured()) {
     return {
       script: fallback(),
-      reason: "ANTHROPIC_API_KEY is not set — created an empty framework skeleton to write into instead."
+      reason: "AI is not configured — created an empty framework skeleton to write into instead."
     };
   }
   try {
-    const client = new Anthropic();
-    const response = await client.messages.create({
-      model: "claude-opus-4-8",
-      max_tokens: 16000,
+    const result = await runAi({
+      maxTokens: 16000,
       system: SCRIPT_SYSTEM_PROMPT,
       messages: [
         {
@@ -224,14 +222,10 @@ export async function generateScript(input: {
         }
       ]
     });
-    if (response.stop_reason === "refusal") {
-      return { script: fallback(), reason: "The model declined the request — created a framework skeleton instead." };
+    if (!result || result.refused) {
+      return { script: fallback(), reason: "The model was unavailable or declined — created a framework skeleton instead." };
     }
-    const text = response.content
-      .filter((block): block is Anthropic.TextBlock => block.type === "text")
-      .map((block) => block.text)
-      .join("\n");
-    const parsed = parseScript(text);
+    const parsed = parseScript(result.text);
     if (!parsed) {
       return { script: fallback(), reason: "Could not read the script output — created a framework skeleton instead." };
     }

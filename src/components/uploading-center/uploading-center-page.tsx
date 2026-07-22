@@ -88,6 +88,7 @@ export function UploadingCenterPage() {
     dismissUploadSuccess,
     renameClip,
     renameQueueItem,
+    tailorCaption,
     schedule,
     uploadToSlot,
     autoAssign,
@@ -132,6 +133,26 @@ export function UploadingCenterPage() {
       void renameClip(clip, draft.title);
     },
     [drafts, renameClip],
+  );
+
+  // Fill a clip's caption with AI copy tailored to whatever platform its card
+  // targets, then surface the suggested best posting time as a hint.
+  const onTailorCaption = useCallback(
+    async (clip: ReadyClip) => {
+      const draft = draftFor(clip);
+      const result = await tailorCaption(clip, draft.platform, draft.title);
+      if (!result) return;
+      setDrafts((current) => ({
+        ...current,
+        [clip.key]: { ...(current[clip.key] ?? draft), caption: result.caption },
+      }));
+      if (result.bestTime) {
+        toast.success(`Tailored for ${draft.platform}. Best time to post: ~${result.bestTime}.`);
+      } else {
+        toast.success(`Caption tailored for ${draft.platform}.`);
+      }
+    },
+    [draftFor, tailorCaption],
   );
 
   // Surface the OAuth redirect result exactly once.
@@ -551,6 +572,7 @@ export function UploadingCenterPage() {
               highlightedKey={placingKey}
               onSchedule={(clip) => void handleSchedule(clip)}
               onEditClip={editClip}
+              onTailorCaption={(clip) => void onTailorCaption(clip)}
               onAutoAssign={handleAutoAssign}
             />
             <div className="min-w-0">

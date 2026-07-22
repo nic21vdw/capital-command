@@ -1,4 +1,4 @@
-import Anthropic from "@anthropic-ai/sdk";
+import { runAi } from "@/lib/ai";
 import type { QueueItem } from "@/lib/publisher/types";
 import { CLIP_DESCRIPTION_TEMPLATE } from "@/lib/clipping/editor";
 
@@ -78,12 +78,9 @@ export async function generateClipMetadata(source: {
   spokenText?: string;
 }): Promise<ClipMetadata> {
   const fallback = fallbackMetadata(source);
-  if (!process.env.ANTHROPIC_API_KEY) return fallback;
   try {
-    const client = new Anthropic();
-    const response = await client.messages.create({
-      model: "claude-opus-4-8",
-      max_tokens: 300,
+    const result = await runAi({
+      maxTokens: 400,
       messages: [
         {
           role: "user",
@@ -100,11 +97,8 @@ export async function generateClipMetadata(source: {
         }
       ]
     });
-    const text = response.content
-      .filter((block): block is Anthropic.TextBlock => block.type === "text")
-      .map((block) => block.text)
-      .join("\n");
-    const parsed = parseMetadata(text);
+    if (!result || result.refused) return fallback;
+    const parsed = parseMetadata(result.text);
     if (!parsed?.title) return fallback;
     return {
       title: parsed.title.slice(0, MAX_TITLE_CHARS + 10),

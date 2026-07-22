@@ -2154,7 +2154,7 @@ function PublishPanel({
       toast.success(
         data.metadata.source === "ai"
           ? "Publish kit written — titles, description and tags are ready."
-          : "Publish kit built offline (set ANTHROPIC_API_KEY for Claude-written metadata)."
+          : "Publish kit built offline (AI-written metadata was unavailable)."
       );
     } catch {
       toast.error("Could not generate the publish kit.");
