@@ -8,7 +8,17 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 function xml(value: string) {
-  return value.replace(/[<>&'"]/g, (character) => ({ "<": "&lt;", ">": "&gt;", "&": "&amp;", "'": "&apos;", '"': "&quot;" })[character]!);
+  return value.replace(
+    /[<>&'"]/g,
+    (character) =>
+      ({
+        "<": "&lt;",
+        ">": "&gt;",
+        "&": "&amp;",
+        "'": "&apos;",
+        '"': "&quot;",
+      })[character]!,
+  );
 }
 
 function guid(value: string) {
@@ -20,15 +30,24 @@ export async function GET(request: NextRequest) {
   const base = podcastPublicBaseUrl() || request.nextUrl.origin;
   const episodes = (await listPodcastEpisodes()).filter((episode) => {
     if (episode.status === "published") return true;
-    return episode.status === "scheduled" && episode.scheduledAt && new Date(episode.scheduledAt).getTime() <= now;
+    return (
+      episode.status === "scheduled" &&
+      episode.scheduledAt &&
+      new Date(episode.scheduledAt).getTime() <= now
+    );
   });
   const items = await Promise.all(
     episodes.map(async (episode) => {
-      const length = await stat(path.join(podcastAudioDir(), path.basename(episode.fileName)))
+      const length = await stat(
+        path.join(podcastAudioDir(), path.basename(episode.fileName)),
+      )
         .then((info) => info.size)
         .catch(() => 0);
-      const published = episode.publishedAt || episode.scheduledAt || episode.createdAt;
-      const url = episode.audioUrl || `${base}/api/podcasts/audio?id=${encodeURIComponent(episode.id)}`;
+      const published =
+        episode.publishedAt || episode.scheduledAt || episode.createdAt;
+      const url =
+        episode.audioUrl ||
+        `${base}/api/podcasts/audio?id=${encodeURIComponent(episode.id)}`;
       return `
     <item>
       <title>${xml(episode.title)}</title>
@@ -39,9 +58,11 @@ export async function GET(request: NextRequest) {
       <itunes:duration>${Math.round(episode.durationSec)}</itunes:duration>
       <itunes:episodeType>full</itunes:episodeType>
     </item>`;
-    })
+    }),
   );
-  const title = process.env.PODCAST_TITLE?.trim() || "Building CoLateral with Nic Vandewetering";
+  const title =
+    process.env.PODCAST_TITLE?.trim() ||
+    "Building CoLateral with Nic Vandewetering";
   const description =
     process.env.PODCAST_DESCRIPTION?.trim() ||
     "Structural engineering, AI, creator workflows and the process of building CoLateral in public.";
@@ -64,7 +85,7 @@ export async function GET(request: NextRequest) {
   return new Response(feed, {
     headers: {
       "Content-Type": "application/rss+xml; charset=utf-8",
-      "Cache-Control": "public, max-age=300"
-    }
+      "Cache-Control": "public, max-age=300",
+    },
   });
 }
