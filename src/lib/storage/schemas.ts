@@ -420,7 +420,8 @@ const slideImageLayerSchema = z.object({
   width: z.number(),
   height: z.number(),
   radius: z.number().optional(),
-  rotation: z.number().optional()
+  rotation: z.number().optional(),
+  fit: z.enum(["cover", "contain"]).optional()
 });
 
 export const slideLayerSchema = z.discriminatedUnion("type", [slideTextLayerSchema, slideImageLayerSchema]);
