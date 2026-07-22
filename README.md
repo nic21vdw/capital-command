@@ -144,8 +144,33 @@ npm run publish:dry                      # validate auth + print the plan, post 
 npm run publish:run                      # process everything due right now
 npm run publish:scheduler                # keep checking every 5 min while your PC is on
 npm run publish:enqueue -- --clip data/clips/outputs/<job>/export-abc.mp4 --at "2026-07-10T18:30"
-npm run publish:list                     # queue + per-platform status
+npm run publish:list                     # queue + per-platform (and Buffer) status
 ```
+
+### Buffer — your social media manager
+
+[Buffer](https://buffer.com) is an optional **delivery layer** that turns the
+publisher into a hands-off social media manager. Connect your channels once
+inside Buffer, and the runner schedules every due post into Buffer with its
+target time; Buffer then fans it out to all connected channels and publishes at
+that time — the same downtime-proof, "schedule once, publish later" model as
+YouTube's native scheduling. It's the zero-API-setup path: instead of wiring up
+Instagram/TikTok/Facebook tokens above, you let Buffer own those channels.
+
+Turn it on with `BUFFER_ENABLED=true`, then set `BUFFER_ACCESS_TOKEN` and
+`BUFFER_PROFILE_IDS` (see `.env.example`). Buffer runs **alongside** the direct
+platforms — it has its own `buffer` state on each queued post and never touches
+platform publishing — so enabling it can't break existing scheduling. It's off
+by default; with it off nothing Buffer-related runs.
+
+```bash
+npm run publish:buffer:profiles          # list your connected Buffer profiles + ids
+npm run publish:buffer                    # schedule every due queue item into Buffer
+# (npm run publish:run also runs the Buffer pass automatically when it's enabled)
+```
+
+To avoid double-posting, let Buffer manage the channels you *don't* post to
+directly and trim `PUBLISH_PLATFORMS` to only the ones with direct tokens.
 
 Through the app (with `PUBLISH_ENABLED=true`): finished editor exports are
 auto-queued when `PUBLISH_AUTO_ENQUEUE=true`, or enqueue explicitly:

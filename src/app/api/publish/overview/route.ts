@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { configuredPlatforms, publisherConfig } from "@/lib/publisher/config";
+import { bufferConfigured, configuredPlatforms, publisherConfig } from "@/lib/publisher/config";
 import { youtubeChannelInfo } from "@/lib/publisher/googleAuth";
 import { youtubeQuota } from "@/lib/publisher/quota";
 import { publishQueue } from "@/lib/publisher/queue";
@@ -43,6 +43,14 @@ export async function GET(request: NextRequest) {
       },
       instagram: { configured: configured.has("instagram") },
       tiktok: { configured: configured.has("tiktok") }
+    },
+    // Buffer is a delivery layer, not one of the four platforms — surfaced
+    // separately so the UI can show it's managing scheduled posts. `enabled`
+    // without `configured` means the token/profiles still need to be set.
+    buffer: {
+      enabled: config.buffer.enabled,
+      configured: bufferConfigured(config),
+      profileCount: config.buffer.profileIds.length
     },
     quota: youtubeQuota(items, now, config),
     // Echoed back so the client can tell which window the slots belong to

@@ -476,3 +476,63 @@ input[type="range"]::-moz-range-thumb {
   outline-offset: 2px;
   border-radius: 4px;
 }
+
+/*
+  Distribution Centre pipeline tree
+  ---------------------------------
+  A parent node fans out to a row of children via `.pipe-branch`. Each child
+  sits in a `.pipe-col`; the connectors are pure CSS pseudo-elements:
+    ::before — the short vertical stub dropping from the rail down to the card.
+    ::after  — the horizontal rail, trimmed to half-width on the first and last
+               column so it runs from the centre of the first child to the
+               centre of the last (matching a parent centred above).
+  The vertical line from the parent down to the rail is a separate `.PipeDrop`
+  element rendered in the markup, so straight chains stay clean.
+*/
+.pipe-branch {
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+}
+
+.pipe-col {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 28px 12px 0;
+}
+
+.pipe-col::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 50%;
+  width: 2px;
+  height: 28px;
+  margin-left: -1px;
+  background: var(--border-strong);
+}
+
+.pipe-col::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: var(--border-strong);
+}
+
+.pipe-col:first-child::after {
+  left: 50%;
+}
+
+.pipe-col:last-child::after {
+  right: 50%;
+}
+
+/* A lone child needs no horizontal rail — just the vertical stub. */
+.pipe-col:only-child::after {
+  display: none;
+}

@@ -4,9 +4,11 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   AtSign,
   BookOpen,
+  CalendarClock,
   Check,
   Clock,
   Copy,
+  Download,
   MessageSquare,
   MessagesSquare,
   RefreshCw,
@@ -22,6 +24,7 @@ import { Input } from "@/components/ui/input";
 import { PageHeader } from "@/components/ui/page-header";
 import { Tabs } from "@/components/ui/tabs";
 import { localDateKey } from "@/lib/x-strategy/analytics";
+import { exportBaseName, toThreadsCsv, toThreadsJson } from "@/lib/x-posts/export";
 import { cn } from "@/lib/utils";
 import type { XDailyPack, XPostFormat, XSuggestedPost, XSuggestedReply } from "@/types/domain";
 
@@ -46,6 +49,46 @@ function formatTime(time: string): string {
   const meridiem = hours >= 12 ? "PM" : "AM";
   const displayHours = hours % 12 === 0 ? 12 : hours % 12;
   return `${displayHours}:${String(minutes).padStart(2, "0")} ${meridiem}`;
+}
+
+/** Absolute local stamp, e.g. "Jul 22, 2:34 PM", for showing when a pack was written. */
+function formatStamp(iso: string): string {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return "unknown";
+  return date.toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+}
+
+/** Human "how long ago" against a live `now`, so the batch's freshness is obvious at a glance. */
+function relativeFrom(iso: string, now: number): string {
+  const then = new Date(iso).getTime();
+  if (Number.isNaN(then)) return "";
+  const seconds = Math.max(0, Math.round((now - then) / 1000));
+  if (seconds < 45) return "just now";
+  const minutes = Math.round(seconds / 60);
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.round(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  return `${Math.round(hours / 24)}d ago`;
+}
+
+/** Wall-clock seconds between clicking Generate and the pack finishing, when both stamps exist. */
+function durationSeconds(requestedAt: string | undefined, createdAt: string): number | null {
+  if (!requestedAt) return null;
+  const ms = new Date(createdAt).getTime() - new Date(requestedAt).getTime();
+  if (!Number.isFinite(ms) || ms < 0) return null;
+  return Math.round(ms / 100) / 10;
+}
+
+function triggerDownload(filename: string, contents: string, mime: string) {
+  const blob = new Blob([contents], { type: mime });
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = filename;
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  URL.revokeObjectURL(url);
 }
 
 function useCopy() {
@@ -75,9 +118,17 @@ export function XPostsPage() {
   const [reason, setReason] = useState<string | null>(null);
   const [generating, setGenerating] = useState(false);
   const [focus, setFocus] = useState("");
+  const [now, setNow] = useState(() => Date.now());
   const autoRequested = useRef(false);
 
   const activePack = pack ?? storedPack;
+
+  // Keep the "generated Xm ago" freshness read-out live so a stale, cached pack
+  // is visibly old — the whole point is not to copy something from before.
+  useEffect(() => {
+    const id = window.setInterval(() => setNow(Date.now()), 30_000);
+    return () => window.clearInterval(id);
+  }, []);
 
   const generate = useCallback(
     async (force: boolean) => {
@@ -86,7 +137,7 @@ export function XPostsPage() {
         const response = await fetch("/api/x-posts/generate", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ focus, force })
+          body: JSON.stringify({ focus, force, requestedAt: new Date().toISOString() })
         });
         if (!response.ok) throw new Error("request failed");
         const json = (await response.json()) as GenerateResponse;
@@ -139,7 +190,7 @@ export function XPostsPage() {
         <div className="mb-6 rounded-2xl border border-amber-400/30 bg-amber-400/10 p-3 text-xs text-amber-100">{reason}</div>
       ) : null}
 
-      {activePack ? <PackSummary pack={activePack} /> : null}
+      {activePack ? <PackSummary pack={activePack} now={now} /> : null}
 
       <div className="mt-6">
         {activePack ? (
@@ -150,6 +201,12 @@ export function XPostsPage() {
                 label: "Today's posts",
                 icon: Clock,
                 content: <ScheduleTab posts={activePack.posts} />
+              },
+              {
+                id: "export",
+                label: "Schedule / export",
+                icon: CalendarClock,
+                content: <ExportTab pack={activePack} now={now} />
               },
               {
                 id: "replies",
@@ -182,9 +239,15 @@ export function XPostsPage() {
   );
 }
 
-function PackSummary({ pack }: { pack: XDailyPack }) {
+function PackSummary({ pack, now }: { pack: XDailyPack; now: number }) {
   const first = pack.posts[0];
   const last = pack.posts[pack.posts.length - 1];
+  const ageMs = now - new Date(pack.createdAt).getTime();
+  // A pack older than an hour is almost certainly a cached earlier run — flag it
+  // amber so it's obvious you'd be copying yesterday-morning's batch.
+  const stale = Number.isFinite(ageMs) && ageMs > 60 * 60 * 1000;
+  const relative = relativeFrom(pack.createdAt, now);
+  const took = durationSeconds(pack.requestedAt, pack.createdAt);
   return (
     <Card>
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -206,6 +269,26 @@ function PackSummary({ pack }: { pack: XDailyPack }) {
             {pack.source === "ai" ? "Claude-written" : "Idea library"}
           </Badge>
         </div>
+      </div>
+
+      <div
+        className={cn(
+          "mt-4 flex flex-wrap items-center gap-x-4 gap-y-1 rounded-xl border px-3 py-2 text-xs",
+          stale
+            ? "border-amber-400/30 bg-amber-400/10 text-amber-100"
+            : "border-emerald-400/25 bg-emerald-400/10 text-emerald-100"
+        )}
+      >
+        <span className="flex items-center gap-1.5 font-medium">
+          <Clock className="h-3.5 w-3.5" />
+          Generated {relative}
+        </span>
+        <span className="text-[var(--muted-foreground)]">
+          Done {formatStamp(pack.createdAt)}
+          {pack.requestedAt ? ` · clicked ${formatStamp(pack.requestedAt)}` : ""}
+          {took !== null ? ` · took ${took}s` : ""}
+        </span>
+        {stale ? <span className="font-medium">This is an earlier batch — hit Generate for a fresh 24.</span> : null}
       </div>
     </Card>
   );
@@ -303,6 +386,93 @@ function PostCard({ post }: { post: XSuggestedPost }) {
           </div>
         </div>
       </Card>
+    </div>
+  );
+}
+
+function ExportTab({ pack, now }: { pack: XDailyPack; now: number }) {
+  const { copiedId, copy } = useCopy();
+  const csv = useMemo(() => toThreadsCsv(pack), [pack]);
+  const json = useMemo(() => toThreadsJson(pack), [pack]);
+  const base = exportBaseName(pack);
+
+  const formats: Array<{
+    id: string;
+    label: string;
+    hint: string;
+    contents: string;
+    filename: string;
+    mime: string;
+    language: string;
+  }> = [
+    {
+      id: "csv",
+      label: "CSV",
+      hint: "One row per post — scheduled_at, date, time, format, topic, text. Imports into spreadsheets and most schedulers.",
+      contents: csv,
+      filename: `${base}.csv`,
+      mime: "text/csv;charset=utf-8",
+      language: "csv"
+    },
+    {
+      id: "json",
+      label: "JSON",
+      hint: "Array of { slot, scheduledAt, date, time, format, topic, text } — for a Threads API script, webhook, or n8n/Make flow.",
+      contents: json,
+      filename: `${base}.json`,
+      mime: "application/json;charset=utf-8",
+      language: "json"
+    }
+  ];
+
+  return (
+    <div className="space-y-4">
+      <Card className="space-y-2">
+        <div className="flex items-center gap-2 text-white">
+          <CalendarClock className="h-4 w-4 text-[var(--accent)]" />
+          <h3 className="font-semibold">Threads-ready schedule export</h3>
+        </div>
+        <p className="text-sm text-[var(--muted-foreground)]">
+          All {pack.posts.length} posts as their <span className="text-white/90">Threads variants</span> (never the X
+          text), each paired with an absolute datetime built from {pack.date} plus the suggested time — ready to feed a
+          scheduler. Regenerate first if this batch isn&apos;t fresh: it was generated {relativeFrom(pack.createdAt, now)}.
+        </p>
+      </Card>
+
+      {formats.map((format) => (
+        <Card key={format.id} className="space-y-3">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="min-w-0">
+              <h4 className="text-sm font-semibold text-white">{format.label}</h4>
+              <p className="text-xs text-[var(--muted-foreground)]">{format.hint}</p>
+            </div>
+            <div className="flex shrink-0 items-center gap-2">
+              <Button
+                variant="secondary"
+                className="px-3 py-1.5 text-xs"
+                onClick={() => copy(`export:${format.id}`, format.contents)}
+              >
+                {copiedId === `export:${format.id}` ? (
+                  <Check className="mr-1.5 h-3.5 w-3.5" />
+                ) : (
+                  <Copy className="mr-1.5 h-3.5 w-3.5" />
+                )}
+                Copy
+              </Button>
+              <Button
+                className="px-3 py-1.5 text-xs"
+                onClick={() => triggerDownload(format.filename, format.contents, format.mime)}
+              >
+                <Download className="mr-1.5 h-3.5 w-3.5" />
+                Download
+              </Button>
+            </div>
+          </div>
+          <pre className="max-h-64 overflow-auto rounded-xl border border-[var(--border)] bg-black/30 p-3 text-[11px] leading-relaxed text-white/80">
+            <code>{format.contents}</code>
+          </pre>
+        </Card>
+      ))}
     </div>
   );
 }

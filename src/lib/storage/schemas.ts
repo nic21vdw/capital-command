@@ -282,6 +282,7 @@ export const xDailyPackSchema = z.object({
   source: z.enum(["ai", "library"]),
   posts: z.array(xSuggestedPostSchema),
   replies: z.array(xSuggestedReplySchema),
+  requestedAt: z.string().optional(),
   createdAt: z.string()
 });
 
@@ -420,7 +421,8 @@ const slideImageLayerSchema = z.object({
   width: z.number(),
   height: z.number(),
   radius: z.number().optional(),
-  rotation: z.number().optional()
+  rotation: z.number().optional(),
+  fit: z.enum(["cover", "contain"]).optional()
 });
 
 export const slideLayerSchema = z.discriminatedUnion("type", [slideTextLayerSchema, slideImageLayerSchema]);
@@ -450,7 +452,7 @@ export const carouselScheduleSchema = z.object({
 export const carouselSchema = z.object({
   id: z.string(),
   title: z.string().trim().min(1),
-  sourceType: z.enum(["script", "longform", "custom"]).default("custom"),
+  sourceType: z.enum(["script", "longform", "short", "custom"]).default("custom"),
   sourceId: z.string().optional(),
   slides: z.array(carouselSlideSchema).default([]),
   aspectRatio: z.enum(["portrait", "square", "story", "landscape"]).optional(),

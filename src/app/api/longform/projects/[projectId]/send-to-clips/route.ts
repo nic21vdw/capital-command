@@ -22,7 +22,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   const project = await getProject(projectId);
   if (!project) return NextResponse.json({ error: "Project not found." }, { status: 404 });
 
-  let body: { exportId?: unknown; topic?: unknown };
+  let body: { exportId?: unknown; topic?: unknown; clipCount?: unknown };
   try {
     body = (await request.json()) as typeof body;
   } catch {
@@ -30,6 +30,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   }
   const exportId = typeof body.exportId === "string" ? body.exportId : "";
   const topic = typeof body.topic === "string" ? body.topic.trim() : "";
+  const clipCount = typeof body.clipCount === "number" ? body.clipCount : undefined;
   const record = project.exports.find((item) => item.id === exportId);
   if (!record || record.status !== "done" || !record.file) {
     return NextResponse.json({ error: "That export has not finished rendering." }, { status: 409 });
@@ -45,7 +46,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   try {
     const stream = Readable.toWeb(createReadStream(filePath)) as ReadableStream<Uint8Array>;
     const source = await saveSourceFromStream(stream, `${project.name} (edited).mp4`, "video/mp4");
-    const job = await createJobFromUpload(source.id, topic || undefined);
+    const job = await createJobFromUpload(source.id, topic || undefined, clipCount);
     return NextResponse.json({ job, source }, { status: 201 });
   } catch (error) {
     return NextResponse.json(

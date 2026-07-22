@@ -309,7 +309,8 @@ export interface XDailyPack {
   source: "ai" | "library"; // Claude-written vs built-in idea library fallback
   posts: XSuggestedPost[];
   replies: XSuggestedReply[];
-  createdAt: string;
+  requestedAt?: string; // ISO — when Generate was clicked (generation start)
+  createdAt: string; // ISO — when the pack finished writing (generation done)
 }
 
 export interface XPlanner {
@@ -888,6 +889,9 @@ export type SlideLayer =
       height: number;
       radius?: number;
       rotation?: number;
+      /** How the source fills its box. "contain" shows the whole image
+       *  (right for logos/transparent PNGs); "cover" crops to fill. */
+      fit?: "cover" | "contain";
     };
 
 export interface CarouselSlide {
@@ -932,7 +936,8 @@ export interface CarouselSchedule {
 export interface Carousel {
   id: string;
   title: string;
-  sourceType: "script" | "longform" | "custom";
+  /** `short` = generated from a short-form video (a clip). */
+  sourceType: "script" | "longform" | "short" | "custom";
   sourceId?: string;
   slides: CarouselSlide[];
   aspectRatio?: CarouselAspectRatio;

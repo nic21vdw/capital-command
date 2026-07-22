@@ -1,8 +1,20 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ComponentType, type CSSProperties } from "react";
 import Link from "next/link";
-import { ArrowUpRight, CalendarDays, ChevronLeft, ChevronRight, Loader2, Repeat, Sparkles } from "lucide-react";
+import {
+  ArrowUpRight,
+  CalendarDays,
+  ChevronLeft,
+  ChevronRight,
+  Clapperboard,
+  Facebook,
+  Instagram,
+  Loader2,
+  Repeat,
+  Sparkles,
+  Youtube
+} from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -10,12 +22,58 @@ import { PageHeader } from "@/components/ui/page-header";
 import {
   CALENDAR_SOURCES,
   CALENDAR_SOURCE_BY_ID,
+  type CalendarSource,
   type CalendarSourceId,
   type MasterCalendarEvent,
   type MasterCalendarResponse
 } from "@/lib/master-calendar/types";
 import type { CalendarPlan } from "@/lib/master-calendar/planner";
 import { cn } from "@/lib/utils";
+
+/** Icon components accept the same className/style lucide icons do. */
+type IconComponent = ComponentType<{ className?: string; style?: CSSProperties }>;
+
+/** The X (formerly Twitter) wordmark — lucide has no reliable X/Threads logo. */
+function XLogo({ className, style }: { className?: string; style?: CSSProperties }) {
+  return (
+    <svg viewBox="0 0 24 24" className={className} style={style} fill="currentColor" aria-hidden="true">
+      <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24h-6.66l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z" />
+    </svg>
+  );
+}
+
+/**
+ * Each calendar source's platform logo, tinted with its source colour so the
+ * calendar reads by brand (YouTube, Instagram, X, Facebook) instead of by an
+ * anonymous coloured dot. Long-form has no single social logo, so it uses a
+ * clapperboard to stand in for tracked video content.
+ */
+const SOURCE_ICONS: Record<CalendarSourceId, IconComponent> = {
+  shorts: Youtube,
+  carousels: Instagram,
+  x: XLogo,
+  fb: Facebook,
+  content: Clapperboard
+};
+
+/** The logo icon for a source, tinted with its brand colour. */
+function SourceIcon({ source, className }: { source: CalendarSourceId; className?: string }) {
+  const Icon = SOURCE_ICONS[source];
+  return <Icon className={cn("shrink-0", className)} style={{ color: CALENDAR_SOURCE_BY_ID[source].color }} />;
+}
+
+/** Group a day's events by source, in the canonical CALENDAR_SOURCES order. */
+function groupBySource(events: MasterCalendarEvent[]): { source: CalendarSource; events: MasterCalendarEvent[] }[] {
+  const bySource = new Map<CalendarSourceId, MasterCalendarEvent[]>();
+  for (const event of events) {
+    if (!bySource.has(event.source)) bySource.set(event.source, []);
+    bySource.get(event.source)!.push(event);
+  }
+  return CALENDAR_SOURCES.filter((source) => bySource.has(source.id)).map((source) => ({
+    source,
+    events: bySource.get(source.id)!
+  }));
+}
 
 /**
  * Master Calendar: every distribution surface — scheduled shorts, carousel
@@ -73,11 +131,44 @@ function EventChip({ event }: { event: MasterCalendarEvent }) {
       title={`${event.time ? `${event.time} · ` : ""}${event.title} — open ${source.hrefLabel}`}
       className="flex items-center gap-1.5 rounded-md bg-white/5 px-1.5 py-1 text-[11px] leading-tight transition hover:bg-white/10"
     >
-      <span className="h-1.5 w-1.5 shrink-0 rounded-full" style={{ background: source.color }} />
+      <SourceIcon source={event.source} className="h-3 w-3" />
       {event.time ? <span className="shrink-0 font-semibold text-[var(--muted-foreground)]">{event.time}</span> : null}
       <span className="min-w-0 truncate text-white">{event.title}</span>
       {event.recurring ? <Repeat className="h-2.5 w-2.5 shrink-0 text-[var(--muted-foreground)]" /> : null}
     </Link>
+  );
+}
+
+/**
+ * A source's events for one day collapsed to a count (e.g. "24 X / Threads"),
+ * expandable in place. The whole point of batch-scheduling is to see at a
+ * glance whether the day's pack is ready — not to scroll a 24-item list — so
+ * groups of 2+ collapse; a lone event renders inline as its own chip.
+ */
+function SourceGroupChip({ source, events }: { source: CalendarSource; events: MasterCalendarEvent[] }) {
+  const [open, setOpen] = useState(false);
+  if (events.length === 1) return <EventChip event={events[0]} />;
+  return (
+    <div>
+      <button
+        type="button"
+        onClick={() => setOpen((value) => !value)}
+        title={open ? `Collapse ${source.shortLabel}` : `Show ${events.length} ${source.shortLabel}`}
+        className="flex w-full items-center gap-1.5 rounded-md bg-white/5 px-1.5 py-1 text-[11px] leading-tight transition hover:bg-white/10"
+      >
+        <SourceIcon source={source.id} className="h-3 w-3" />
+        <span className="shrink-0 font-semibold text-white">{events.length}</span>
+        <span className="min-w-0 truncate text-[var(--muted-foreground)]">{source.shortLabel}</span>
+        <ChevronRight className={cn("ml-auto h-3 w-3 shrink-0 text-[var(--muted-foreground)] transition", open && "rotate-90")} />
+      </button>
+      {open ? (
+        <div className="mt-1 space-y-1 border-l border-[var(--border)] pl-1.5">
+          {events.map((event) => (
+            <EventChip key={event.id} event={event} />
+          ))}
+        </div>
+      ) : null}
+    </div>
   );
 }
 
@@ -90,7 +181,7 @@ function EventCard({ event }: { event: MasterCalendarEvent }) {
       className="group flex items-center gap-3 rounded-lg border border-[var(--border)] bg-white/5 px-3 py-2.5 transition hover:border-[var(--border-strong)] hover:bg-white/10"
     >
       <span className="w-12 shrink-0 text-sm font-semibold text-[var(--accent)]">{event.time ?? "—"}</span>
-      <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: source.color }} />
+      <SourceIcon source={event.source} className="h-4 w-4" />
       <span className="min-w-0 flex-1">
         <span className="block truncate text-sm font-medium text-white">{event.title}</span>
         <span className="mt-0.5 block text-xs text-[var(--muted-foreground)]">
@@ -102,6 +193,40 @@ function EventCard({ event }: { event: MasterCalendarEvent }) {
       <Badge className={cn("shrink-0 capitalize", statusTone(event.status))}>{event.status}</Badge>
       <ArrowUpRight className="h-3.5 w-3.5 shrink-0 text-[var(--muted-foreground)] opacity-0 transition group-hover:opacity-100" />
     </Link>
+  );
+}
+
+/** Day-view equivalent of SourceGroupChip: a collapsible batch header + rows. */
+function SourceGroupCard({ source, events }: { source: CalendarSource; events: MasterCalendarEvent[] }) {
+  const [open, setOpen] = useState(false);
+  if (events.length === 1) return <EventCard event={events[0]} />;
+  return (
+    <div className="rounded-lg border border-[var(--border)] bg-white/5">
+      <button
+        type="button"
+        onClick={() => setOpen((value) => !value)}
+        title={open ? `Collapse ${source.label}` : `Show all ${events.length}`}
+        className="flex w-full items-center gap-3 px-3 py-2.5 text-left transition hover:bg-white/10"
+      >
+        <SourceIcon source={source.id} className="h-4 w-4" />
+        <span className="min-w-0 flex-1">
+          <span className="block text-sm font-medium text-white">
+            {events.length} {source.label}
+          </span>
+          <span className="mt-0.5 block text-xs text-[var(--muted-foreground)]">
+            Batch of {events.length} — tap to {open ? "hide" : "review"}
+          </span>
+        </span>
+        <ChevronRight className={cn("h-4 w-4 shrink-0 text-[var(--muted-foreground)] transition", open && "rotate-90")} />
+      </button>
+      {open ? (
+        <div className="space-y-1.5 border-t border-[var(--border)] p-1.5">
+          {events.map((event) => (
+            <EventCard key={event.id} event={event} />
+          ))}
+        </div>
+      ) : null}
+    </div>
   );
 }
 
@@ -254,7 +379,7 @@ export function MasterCalendarPage() {
                 title={isHidden ? `Show ${source.label}` : `Hide ${source.label}`}
                 className="flex items-center gap-1.5 py-1.5 pl-2.5 pr-1.5 transition hover:bg-white/10"
               >
-                <span className="h-2 w-2 rounded-full" style={{ background: source.color }} />
+                <SourceIcon source={source.id} className="h-3.5 w-3.5" />
                 <span className={cn("font-medium text-white", isHidden && "line-through")}>{source.shortLabel}</span>
                 <span className="text-[var(--muted-foreground)]">{count}</span>
               </button>
@@ -306,7 +431,7 @@ export function MasterCalendarPage() {
                       key={`${suggestion.dateKey}:${index}`}
                       className="flex items-start gap-2 rounded-lg border border-[var(--border)] bg-white/5 px-3 py-2 text-xs"
                     >
-                      <span className="mt-1 h-2 w-2 shrink-0 rounded-full" style={{ background: source.color }} />
+                      <SourceIcon source={source.id} className="mt-0.5 h-3.5 w-3.5" />
                       <div className="min-w-0 flex-1">
                         <div className="flex flex-wrap items-center gap-2">
                           <span className="font-semibold text-white">{suggestion.title}</span>
@@ -406,18 +531,23 @@ export function MasterCalendarPage() {
                       >
                         {Number(dateKey.slice(8, 10))}
                       </button>
-                      {dayEvents.slice(0, 3).map((event) => (
-                        <EventChip key={event.id} event={event} />
-                      ))}
-                      {dayEvents.length > 3 ? (
-                        <button
-                          type="button"
-                          onClick={() => openDay(dateKey)}
-                          className="block w-full rounded-md px-1.5 py-0.5 text-left text-[11px] text-[var(--muted-foreground)] transition hover:bg-white/10 hover:text-white"
-                        >
-                          +{dayEvents.length - 3} more
-                        </button>
-                      ) : null}
+                      {groupBySource(dayEvents).map(({ source, events: sourceEvents }) =>
+                        sourceEvents.length === 1 ? (
+                          <EventChip key={source.id} event={sourceEvents[0]} />
+                        ) : (
+                          <button
+                            key={source.id}
+                            type="button"
+                            onClick={() => openDay(dateKey)}
+                            title={`${sourceEvents.length} ${source.shortLabel} — open day`}
+                            className="flex w-full items-center gap-1.5 rounded-md bg-white/5 px-1.5 py-1 text-[11px] leading-tight transition hover:bg-white/10"
+                          >
+                            <SourceIcon source={source.id} className="h-3 w-3" />
+                            <span className="shrink-0 font-semibold text-white">{sourceEvents.length}</span>
+                            <span className="min-w-0 truncate text-[var(--muted-foreground)]">{source.shortLabel}</span>
+                          </button>
+                        )
+                      )}
                     </div>
                   );
                 })}
@@ -456,8 +586,8 @@ export function MasterCalendarPage() {
                       </span>
                     </button>
                     <div className="space-y-1 p-1.5">
-                      {dayEvents.map((event) => (
-                        <EventChip key={event.id} event={event} />
+                      {groupBySource(dayEvents).map(({ source, events: sourceEvents }) => (
+                        <SourceGroupChip key={source.id} source={source} events={sourceEvents} />
                       ))}
                     </div>
                   </div>
@@ -469,8 +599,8 @@ export function MasterCalendarPage() {
 
         {view === "day" ? (
           <div className="space-y-1.5 p-4">
-            {(eventsByDay.get(anchor) ?? []).map((event) => (
-              <EventCard key={event.id} event={event} />
+            {groupBySource(eventsByDay.get(anchor) ?? []).map(({ source, events: sourceEvents }) => (
+              <SourceGroupCard key={source.id} source={source} events={sourceEvents} />
             ))}
             {(eventsByDay.get(anchor) ?? []).length === 0 && !loading ? (
               <p className="py-8 text-center text-sm text-[var(--muted-foreground)]">Nothing scheduled on this day.</p>

@@ -94,6 +94,23 @@ export type PublisherConfig = {
      */
     publicBaseUrl: string | null;
   };
+  /**
+   * Buffer (buffer.com) — the social-media-manager delivery layer. When
+   * enabled, the runner also schedules each due post into Buffer, which fans it
+   * out to every channel connected inside Buffer and publishes at the target
+   * time. Off by default; with BUFFER_ENABLED unset the runner never touches
+   * Buffer and behaves exactly as before.
+   */
+  buffer: {
+    enabled: boolean;
+    accessToken: string | null;
+    /** Buffer profile ids to post to (dashboard → each channel's settings). */
+    profileIds: string[];
+    /** Buffer API base; overridable so a proxy/newer host can be pointed at. */
+    apiBase: string;
+    /** Let Buffer auto-shorten links in the post text. */
+    shortenLinks: boolean;
+  };
 };
 
 /**
@@ -174,6 +191,18 @@ export function publisherConfig(): PublisherConfig {
       secretAccessKey: str("S3_SECRET_ACCESS_KEY"),
       region: str("S3_REGION") ?? "auto",
       publicBaseUrl: str("S3_PUBLIC_BASE_URL")
+    },
+    buffer: {
+      enabled: flag("BUFFER_ENABLED"),
+      accessToken: str("BUFFER_ACCESS_TOKEN"),
+      profileIds: (str("BUFFER_PROFILE_IDS") ?? "")
+        .split(",")
+        .map((id) => id.trim())
+        .filter(Boolean),
+      // VERIFY: Buffer's classic REST host. Override BUFFER_API_BASE if Buffer
+      // moves you to a newer host — see https://buffer.com/developers/api
+      apiBase: (str("BUFFER_API_BASE") ?? "https://api.bufferapp.com/1").replace(/\/+$/, ""),
+      shortenLinks: flag("BUFFER_SHORTEN_LINKS", true)
     }
   };
 }
@@ -193,4 +222,13 @@ export function configuredPlatforms(config = publisherConfig()): PlatformId[] {
 export function hostingConfigured(config = publisherConfig()): boolean {
   const { endpoint, bucket, accessKeyId, secretAccessKey } = config.s3;
   return Boolean(endpoint && bucket && accessKeyId && secretAccessKey);
+}
+
+/**
+ * Whether Buffer can actually publish: enabled, with a token and at least one
+ * target profile. When enabled but not fully configured, the runner records
+ * Buffer posts as "manual" reminders instead of failing.
+ */
+export function bufferConfigured(config = publisherConfig()): boolean {
+  return Boolean(config.buffer.enabled && config.buffer.accessToken && config.buffer.profileIds.length > 0);
 }

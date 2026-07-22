@@ -47,6 +47,7 @@ export function testConfig(overrides: Partial<PublisherConfig> = {}): PublisherC
     facebook: { pageId: "10000000000000000", pageAccessToken: "fb-token", graphApiVersion: "v23.0" },
     tiktok: { clientKey: "tt-key", clientSecret: "tt-secret", refreshToken: "tt-refresh", audited: false },
     s3: { endpoint: null, bucket: null, accessKeyId: null, secretAccessKey: null, region: "auto", publicBaseUrl: null },
+    buffer: { enabled: false, accessToken: null, profileIds: [], apiBase: "https://api.bufferapp.com/1", shortenLinks: true },
     ...overrides
   };
 }
