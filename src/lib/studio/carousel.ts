@@ -1,5 +1,5 @@
-import Anthropic from "@anthropic-ai/sdk";
-import { CHANNEL_KEYWORDS } from "@/lib/clipping/titles";
+import { aiConfigured, runAi } from "@/lib/ai";
+import { CHANNEL_KEYWORDS } from "@/lib/clipping/keywords";
 import { carouselSchema } from "@/lib/storage/schemas";
 import type { Carousel, CarouselSlide } from "@/types/domain";
 
@@ -17,7 +17,7 @@ export const MIN_SLIDES = 4;
 export const MAX_SLIDES = 10;
 
 export function carouselGenerationConfigured() {
-  return Boolean(process.env.ANTHROPIC_API_KEY);
+  return aiConfigured();
 }
 
 export const CAROUSEL_SYSTEM_PROMPT = `You write Instagram carousel copy for a creator who builds software with AI in public (a structural engineer building CoLateral, an AI workspace for structural engineers). Channel keywords: ${CHANNEL_KEYWORDS.join(", ")}.
@@ -124,24 +124,18 @@ export async function generateCarousel(input: {
     toCarouselRecord({ ...fallbackCarousel({ ...input, slideCount }), sourceType: input.sourceType, sourceId: input.sourceId });
 
   if (!carouselGenerationConfigured()) {
-    return { carousel: fallback(), reason: "ANTHROPIC_API_KEY is not set — built simple slides from the text instead." };
+    return { carousel: fallback(), reason: "AI is not configured — built simple slides from the text instead." };
   }
   try {
-    const client = new Anthropic();
-    const response = await client.messages.create({
-      model: "claude-opus-4-8",
-      max_tokens: 3000,
+    const result = await runAi({
+      maxTokens: 3000,
       system: CAROUSEL_SYSTEM_PROMPT,
       messages: [{ role: "user", content: buildCarouselPrompt({ title: input.title, sourceText: input.sourceText, slideCount }) }]
     });
-    if (response.stop_reason === "refusal") {
-      return { carousel: fallback(), reason: "The model declined the request — built simple slides instead." };
+    if (!result || result.refused) {
+      return { carousel: fallback(), reason: "The model was unavailable or declined — built simple slides instead." };
     }
-    const text = response.content
-      .filter((block): block is Anthropic.TextBlock => block.type === "text")
-      .map((block) => block.text)
-      .join("\n");
-    const parsed = parseCarousel(text);
+    const parsed = parseCarousel(result.text);
     if (!parsed) {
       return { carousel: fallback(), reason: "Could not read the carousel output — built simple slides instead." };
     }

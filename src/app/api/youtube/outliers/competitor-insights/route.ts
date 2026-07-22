@@ -48,7 +48,7 @@ export async function POST(request: NextRequest) {
 
   if (!competitorInsightsConfigured()) {
     return NextResponse.json(
-      { error: "AI insights need ANTHROPIC_API_KEY set in .env.local. The trend breakdown on the page works without it." },
+      { error: "AI insights need an AI provider configured. The trend breakdown on the page works without it." },
       { status: 400 }
     );
   }

@@ -1,5 +1,5 @@
-import Anthropic from "@anthropic-ai/sdk";
-import { CHANNEL_KEYWORDS, TITLE_STYLE_EXAMPLES } from "@/lib/clipping/titles";
+import { aiConfigured, runAi } from "@/lib/ai";
+import { CHANNEL_KEYWORDS, TITLE_STYLE_EXAMPLES } from "@/lib/clipping/keywords";
 import { videoIdeaSchema } from "@/lib/storage/schemas";
 import type { VideoIdea, VideoIdeaCompetition, VideoIdeaFormat, VideoIdeaIntent } from "@/types/domain";
 
@@ -18,7 +18,7 @@ import type { VideoIdea, VideoIdeaCompetition, VideoIdeaFormat, VideoIdeaIntent 
 export const IDEAS_PER_RUN = 12;
 
 export function ideaResearchConfigured() {
-  return Boolean(process.env.ANTHROPIC_API_KEY);
+  return aiConfigured();
 }
 
 const FORMATS: VideoIdeaFormat[] = ["longform", "short", "both"];
@@ -137,7 +137,7 @@ export function libraryIdeas(seed: string): Array<Omit<VideoIdea, "id" | "seedKe
     searchIntent: template.intent,
     competition: "medium" as VideoIdeaCompetition,
     score: 55 - index * 2,
-    rationale: "Offline template idea — set ANTHROPIC_API_KEY for researched ideas."
+    rationale: "Offline template idea — AI research was unavailable, so a template was used."
   }));
 }
 
@@ -172,28 +172,22 @@ export async function generateIdeas(input: {
   if (!ideaResearchConfigured()) {
     return {
       ideas: toIdeaRecords(libraryIdeas(input.seed), input.seed, "library"),
-      reason: "ANTHROPIC_API_KEY is not set — served template ideas instead of researched ones."
+      reason: "AI is not configured — served template ideas instead of researched ones."
     };
   }
   try {
-    const client = new Anthropic();
-    const response = await client.messages.create({
-      model: "claude-opus-4-8",
-      max_tokens: 6000,
+    const result = await runAi({
+      maxTokens: 6000,
       system: IDEA_RESEARCH_SYSTEM_PROMPT,
       messages: [{ role: "user", content: buildIdeaResearchPrompt(input) }]
     });
-    if (response.stop_reason === "refusal") {
+    if (!result || result.refused) {
       return {
         ideas: toIdeaRecords(libraryIdeas(input.seed), input.seed, "library"),
-        reason: "The model declined the request — served template ideas instead."
+        reason: "The model was unavailable or declined — served template ideas instead."
       };
     }
-    const text = response.content
-      .filter((block): block is Anthropic.TextBlock => block.type === "text")
-      .map((block) => block.text)
-      .join("\n");
-    const bodies = parseIdeaResearch(text);
+    const bodies = parseIdeaResearch(result.text);
     if (bodies.length === 0) {
       return {
         ideas: toIdeaRecords(libraryIdeas(input.seed), input.seed, "library"),

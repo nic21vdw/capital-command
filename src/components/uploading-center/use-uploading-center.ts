@@ -636,6 +636,49 @@ export function useUploadingCenter(clipProjects: ClipProject[] = []) {
     [clipProjects]
   );
 
+  /**
+   * Tailors a clip's caption + hashtags to the platform its draft targets via
+   * the free AI provider (DeepSeek Flash by default). Returns the platform-ready
+   * caption (hashtags appended) plus a best-time hint, or null on failure. The
+   * caller writes the returned caption into the draft — this never mutates it.
+   */
+  const tailorCaption = useCallback(
+    async (
+      clip: ReadyClip,
+      platform: PlatformId,
+      title: string
+    ): Promise<{ caption: string; bestTime?: string; note?: string } | null> => {
+      setBusy(`tailor:${clip.key}`);
+      try {
+        const response = await fetch("/api/publish/ai-copy", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            jobId: clip.jobId,
+            clipId: clip.clipId,
+            platform,
+            title: title.trim() || undefined
+          })
+        });
+        if (!response.ok) {
+          toast.error(await readError(response));
+          return null;
+        }
+        const { copy } = (await response.json()) as {
+          copy: { caption: string; hashtags: string[]; bestTime?: string; note?: string };
+        };
+        const caption = copy.hashtags.length ? `${copy.caption}\n\n${copy.hashtags.join(" ")}` : copy.caption;
+        return { caption, bestTime: copy.bestTime, note: copy.note };
+      } catch {
+        toast.error("Couldn't tailor the caption — try again.");
+        return null;
+      } finally {
+        setBusy(null);
+      }
+    },
+    []
+  );
+
   const schedule = useCallback(
     async (clip: ReadyClip, draft: ClipDraft) => {
       if (!draft.slotUtc) {
@@ -941,6 +984,7 @@ export function useUploadingCenter(clipProjects: ClipProject[] = []) {
     dismissUploadSuccess: () => setUploadSuccess(null),
     renameClip,
     renameQueueItem,
+    tailorCaption,
     schedule,
     uploadToSlot,
     autoAssign,

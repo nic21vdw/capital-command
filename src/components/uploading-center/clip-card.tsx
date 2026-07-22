@@ -1,7 +1,7 @@
 "use client";
 
 import { useRef } from "react";
-import { CalendarClock, CheckCircle2, ExternalLink, GripVertical, Loader2, Scissors } from "lucide-react";
+import { CalendarClock, CheckCircle2, ExternalLink, GripVertical, Loader2, Scissors, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
@@ -133,7 +133,9 @@ export function ClipCard({
   onDraftChange,
   onTitleCommit,
   onSchedule,
-  onEditClip
+  onEditClip,
+  onTailorCaption,
+  tailoring = false
 }: {
   clip: ReadyClip;
   draft: ClipDraft;
@@ -149,6 +151,10 @@ export function ClipCard({
   onSchedule: () => void;
   /** Open this clip in the Clip Editor to trim/caption before scheduling. */
   onEditClip: () => void;
+  /** Tailor the caption to the selected platform with the free AI provider. */
+  onTailorCaption?: () => void;
+  /** True while the AI caption is being generated. */
+  tailoring?: boolean;
 }) {
   const titleRef = useRef<HTMLTextAreaElement>(null);
   const openSlots = slots.filter((slot) => !slot.past && !isSlotTaken(draft.platform, slot.utc));
@@ -218,6 +224,21 @@ export function ClipCard({
                 {hashtag}
               </button>
             ))}
+          </div>
+          <div className="flex items-center justify-between gap-2 pl-6">
+            <span className="text-[11px] text-[var(--muted-foreground)]">Caption</span>
+            {onTailorCaption ? (
+              <button
+                type="button"
+                onClick={onTailorCaption}
+                disabled={tailoring}
+                title={`Write a caption + hashtags tailored to ${PLATFORM_LABELS[draft.platform]} (free AI)`}
+                className="inline-flex items-center gap-1 rounded-full border border-[var(--border)] bg-[var(--surface-1)] px-2 py-0.5 text-[11px] text-[var(--muted-foreground)] transition hover:border-[var(--accent)] hover:text-[var(--accent)] disabled:opacity-60"
+              >
+                {tailoring ? <Loader2 className="h-3 w-3 animate-spin" /> : <Sparkles className="h-3 w-3" />}
+                {tailoring ? "Writing…" : `AI caption for ${PLATFORM_LABELS[draft.platform]}`}
+              </button>
+            ) : null}
           </div>
           <Textarea
             value={draft.caption}

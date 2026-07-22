@@ -30,6 +30,7 @@ export function ClipQueue({
   highlightedKey,
   onSchedule,
   onEditClip,
+  onTailorCaption,
   onAutoAssign
 }: {
   jobs: ClipJob[];
@@ -48,6 +49,8 @@ export function ClipQueue({
   onSchedule: (clip: ReadyClip) => void;
   /** Open the given clip in the Clip Editor. */
   onEditClip: (clip: ReadyClip) => void;
+  /** Tailor the clip's caption to its selected platform with the free AI provider. */
+  onTailorCaption: (clip: ReadyClip) => void;
   onAutoAssign: () => void;
 }) {
   const autoAssigning = busy === "auto-assign";
@@ -110,6 +113,8 @@ export function ClipQueue({
               onTitleCommit={() => onTitleCommit(clip)}
               onSchedule={() => onSchedule(clip)}
               onEditClip={() => onEditClip(clip)}
+              onTailorCaption={() => onTailorCaption(clip)}
+              tailoring={busy === `tailor:${clip.key}`}
             />
           ))}
         </div>

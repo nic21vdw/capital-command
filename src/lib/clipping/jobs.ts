@@ -13,6 +13,7 @@ import { defaultCaptionStyle } from "@/lib/storage/schemas";
 import { ensureClipThumbnail } from "@/lib/clipping/thumbnails";
 import { fetchSourceCaptions } from "@/lib/clipping/transcription";
 import { selectByTranscript } from "@/lib/clipping/transcript-select";
+import { refineClipVirality, viralityRefinementConfigured } from "@/lib/clipping/virality";
 import { transcribeMedia } from "@/lib/clipping/whisper";
 import type { ClipCandidate, ClipJob } from "@/lib/clipping/types";
 
@@ -237,6 +238,26 @@ function clipCaptions(job: ClipJob, clip: ClipCandidate) {
 }
 
 /**
+ * Virality second pass: re-reads each selected clip's own transcript and
+ * re-ranks the set (see virality.ts). Free on DeepSeek Flash, so it runs on
+ * every job that has a transcript. Returns the candidates unchanged when AI is
+ * unavailable or there is no transcript to judge from.
+ */
+async function refineJobVirality(job: ClipJob, candidates: ClipCandidate[]): Promise<ClipCandidate[]> {
+  if (!viralityRefinementConfigured() || candidates.length === 0) return candidates;
+  const transcripts = new Map(
+    candidates.map((clip) => [
+      clip.id,
+      clipCaptions(job, clip)
+        .map((segment) => segment.text)
+        .join(" ")
+        .trim()
+    ])
+  );
+  return refineClipVirality(candidates, transcripts, job.topic);
+}
+
+/**
  * Gives every freshly selected clip a publish-ready title. One Claude call
  * writes viral, keyword-aware titles for the whole batch (see titles.ts for
  * the style guide); clips the model missed — or every clip when the call is
@@ -394,6 +415,7 @@ async function runLocalPipeline(job: ClipJob, meta: SourceMeta) {
       candidates = fallbackCandidates(durationSec, "This video has no audio track");
     }
   }
+  candidates = await refineJobVirality(job, candidates);
   job.clips = candidates;
   await persistJobs();
 
@@ -494,6 +516,7 @@ async function runPipeline(job: ClipJob, url: string) {
       );
     }
   }
+  candidates = await refineJobVirality(job, candidates);
   job.clips = candidates;
   await persistJobs();
 

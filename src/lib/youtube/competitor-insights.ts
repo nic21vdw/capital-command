@@ -1,4 +1,4 @@
-import Anthropic from "@anthropic-ai/sdk";
+import { aiConfigured, runAi } from "@/lib/ai";
 import { describeReportForPrompt, type CompetitorTrendReport } from "@/lib/youtube/competitor-trends";
 
 /**
@@ -11,7 +11,7 @@ import { describeReportForPrompt, type CompetitorTrendReport } from "@/lib/youtu
 export const COMPETITOR_INSIGHTS_MODEL = "claude-opus-4-8";
 
 export function competitorInsightsConfigured(): boolean {
-  return Boolean(process.env.ANTHROPIC_API_KEY);
+  return aiConfigured();
 }
 
 const SYSTEM_PROMPT =
@@ -25,7 +25,7 @@ export async function generateCompetitorInsights(
   report: CompetitorTrendReport
 ): Promise<{ insights: string | null; reason: string | null }> {
   if (!competitorInsightsConfigured()) {
-    return { insights: null, reason: "AI insights skipped: ANTHROPIC_API_KEY is not set." };
+    return { insights: null, reason: "AI insights skipped: no AI provider is configured." };
   }
 
   const userPrompt = `Here is the aggregated competition data (all figures are real, pulled from the YouTube Data API):
@@ -49,23 +49,17 @@ Angles the competitors' breakouts point toward but none of them has fully covere
 Keep it tight and skimmable. No preamble before the first section.`;
 
   try {
-    const client = new Anthropic();
-    const response = await client.messages.create({
-      model: COMPETITOR_INSIGHTS_MODEL,
-      max_tokens: 2000,
+    const result = await runAi({
+      maxTokens: 2000,
       system: SYSTEM_PROMPT,
       messages: [{ role: "user", content: userPrompt }]
     });
 
-    if (response.stop_reason === "refusal") {
-      return { insights: null, reason: "AI insights skipped: the model declined this request." };
+    if (!result || result.refused) {
+      return { insights: null, reason: "AI insights skipped: the model was unavailable or declined this request." };
     }
 
-    const text = response.content
-      .filter((block) => block.type === "text")
-      .map((block) => (block as { text: string }).text)
-      .join("\n")
-      .trim();
+    const text = result.text.trim();
 
     if (!text) return { insights: null, reason: "AI insights failed: the model returned no text." };
     return { insights: text, reason: null };
