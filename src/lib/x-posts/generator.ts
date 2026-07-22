@@ -71,6 +71,7 @@ function buildPack(input: {
   date: string;
   focus: string;
   source: "ai" | "library";
+  requestedAt?: string;
   posts: Array<{ format: XPostFormat; topic: string; text: string; threadsVariant: string }>;
   replies: Array<{ scenario: string; text: string }>;
 }): XDailyPack {
@@ -94,6 +95,7 @@ function buildPack(input: {
       scenario: reply.scenario,
       text: reply.text
     })),
+    requestedAt: input.requestedAt,
     createdAt: new Date().toISOString()
   };
   return xDailyPackSchema.parse(pack);
@@ -104,14 +106,14 @@ function buildPack(input: {
  * consecutive days always surface a different mix, without persisting any
  * usage state.
  */
-export function libraryPack(date: string, focus: string): XDailyPack {
+export function libraryPack(date: string, focus: string, requestedAt?: string): XDailyPack {
   const dayIndex = Math.floor(Date.parse(`${date}T00:00:00Z`) / 86_400_000);
   const pick = <T>(bank: T[], count: number, stride: number): T[] =>
     Array.from({ length: count }, (_, i) => bank[(dayIndex * stride + i * Math.max(1, Math.floor(bank.length / count))) % bank.length]);
 
   const posts = pick(POST_LIBRARY, POSTS_PER_PACK, 7);
   const replies = pick(REPLY_LIBRARY, REPLIES_PER_PACK, 5);
-  return buildPack({ date, focus, source: "library", posts, replies });
+  return buildPack({ date, focus, source: "library", requestedAt, posts, replies });
 }
 
 function extractJson(text: string): unknown {
@@ -127,12 +129,13 @@ export async function generateDailyPack(input: {
   date: string;
   focus: string;
   recentTopics: string[];
+  requestedAt?: string;
 }): Promise<{ pack: XDailyPack; reason: string | null }> {
-  const { brief, date, focus, recentTopics } = input;
+  const { brief, date, focus, recentTopics, requestedAt } = input;
 
   if (!plannerConfigured()) {
     return {
-      pack: libraryPack(date, focus),
+      pack: libraryPack(date, focus, requestedAt),
       reason: "AI is not configured — served today's pack from the built-in idea library instead of fresh AI writing."
     };
   }
@@ -169,7 +172,7 @@ Respond with ONLY valid JSON, no commentary, in exactly this shape:
     });
 
     if (!result || result.refused) {
-      return { pack: libraryPack(date, focus), reason: "The model was unavailable or declined — served the built-in idea library instead." };
+      return { pack: libraryPack(date, focus, requestedAt), reason: "The model was unavailable or declined — served the built-in idea library instead." };
     }
 
     const text = result.text.trim();
@@ -196,7 +199,7 @@ Respond with ONLY valid JSON, no commentary, in exactly this shape:
       }));
 
     // Top up any shortfall from the library so the pack is always complete.
-    const fallback = libraryPack(date, focus);
+    const fallback = libraryPack(date, focus, requestedAt);
     while (posts.length < POSTS_PER_PACK) {
       const fill = fallback.posts[posts.length];
       posts.push({ format: fill.format, topic: fill.topic, text: fill.text, threadsVariant: fill.threadsVariant });
@@ -206,11 +209,11 @@ Respond with ONLY valid JSON, no commentary, in exactly this shape:
       replies.push({ scenario: fill.scenario, text: fill.text });
     }
 
-    return { pack: buildPack({ date, focus, source: "ai", posts, replies }), reason: null };
+    return { pack: buildPack({ date, focus, source: "ai", requestedAt, posts, replies }), reason: null };
   } catch (error) {
     const message = error instanceof Error ? error.message : "unknown error";
     return {
-      pack: libraryPack(date, focus),
+      pack: libraryPack(date, focus, requestedAt),
       reason: `AI generation failed (${message}) — served the built-in idea library instead.`
     };
   }

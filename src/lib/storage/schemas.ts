@@ -282,6 +282,7 @@ export const xDailyPackSchema = z.object({
   source: z.enum(["ai", "library"]),
   posts: z.array(xSuggestedPostSchema),
   replies: z.array(xSuggestedReplySchema),
+  requestedAt: z.string().optional(),
   createdAt: z.string()
 });
 

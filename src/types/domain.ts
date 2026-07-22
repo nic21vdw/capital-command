@@ -309,7 +309,8 @@ export interface XDailyPack {
   source: "ai" | "library"; // Claude-written vs built-in idea library fallback
   posts: XSuggestedPost[];
   replies: XSuggestedReply[];
-  createdAt: string;
+  requestedAt?: string; // ISO — when Generate was clicked (generation start)
+  createdAt: string; // ISO — when the pack finished writing (generation done)
 }
 
 export interface XPlanner {
