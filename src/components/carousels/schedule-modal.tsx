@@ -7,6 +7,8 @@ import { Modal } from "@/components/ui/modal";
 import { Button } from "@/components/ui/button";
 import { Select } from "@/components/ui/select";
 import { CAROUSEL_PLATFORMS, IMAGE_CAPABLE_PLATFORMS, WEEKDAY_LABELS, type CarouselPlatformId } from "@/lib/carousels/schedule";
+// A carousel is one post distributed to every image-capable network, so a new
+// schedule defaults to Instagram + Facebook + TikTok rather than IG alone.
 import { cn } from "@/lib/utils";
 import type { CarouselSchedule, ScheduleRecurrence } from "@/types/domain";
 
@@ -35,7 +37,7 @@ export function ScheduleModal({
   onCreate: (schedule: CarouselSchedule) => void | Promise<void>;
   saving: boolean;
 }) {
-  const [platforms, setPlatforms] = useState<CarouselPlatformId[]>(["instagram"]);
+  const [platforms, setPlatforms] = useState<CarouselPlatformId[]>([...IMAGE_CAPABLE_PLATFORMS]);
   const [time, setTime] = useState("12:00");
   const [recurrence, setRecurrence] = useState<ScheduleRecurrence>("daily");
   const [date, setDate] = useState(todayKey());

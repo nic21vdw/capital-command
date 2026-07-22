@@ -25,13 +25,26 @@ import {
 import type { Carousel, CarouselAspectRatio, CarouselSchedule, CarouselSlide } from "@/types/domain";
 
 /**
- * Carousels: turn a script or a long-form video's transcript into a swipeable
- * Instagram carousel. Copy is generated server-side; the slides are drawn on a
- * canvas here (any aspect ratio), double-click to preview or open the editor,
- * download in any format, or schedule the upload across networks.
+ * Carousels: turn a script, a long-form video's transcript, a short-form video
+ * (a clip), or pasted text into a swipeable carousel distributable to
+ * Instagram, Facebook, and TikTok. Copy is generated server-side; the slides
+ * are drawn on a canvas here (any aspect ratio), double-click to preview or
+ * open the editor, download in any format, or schedule the upload across
+ * networks.
  */
 
 type LongformListItem = { id: string; name: string; status: string; transcript?: unknown[] };
+
+// A single ready clip flattened out of the clip jobs, offered as a carousel source.
+type ShortOption = { jobId: string; clipId: string; label: string };
+
+// Human-readable label for a carousel's source, shown on each card.
+const SOURCE_LABEL: Record<Carousel["sourceType"], string> = {
+  script: "script",
+  longform: "video",
+  short: "short-form video",
+  custom: "text"
+};
 
 export function CarouselsPage() {
   const { data, loading, refresh } = useAppData();
@@ -39,7 +52,8 @@ export function CarouselsPage() {
   const scripts = useMemo(() => data.videoStudio?.scripts ?? [], [data.videoStudio]);
 
   const [projects, setProjects] = useState<LongformListItem[]>([]);
-  const [sourceType, setSourceType] = useState<"script" | "longform" | "custom">("script");
+  const [shorts, setShorts] = useState<ShortOption[]>([]);
+  const [sourceType, setSourceType] = useState<"script" | "longform" | "short" | "custom">("script");
   const [sourceId, setSourceId] = useState("");
   const [customTitle, setCustomTitle] = useState("");
   const [customText, setCustomText] = useState("");
@@ -51,6 +65,28 @@ export function CarouselsPage() {
     void fetch("/api/longform/projects", { cache: "no-store" })
       .then((response) => response.json())
       .then((json: { projects?: LongformListItem[] }) => setProjects((json.projects ?? []).filter((p) => p.status === "ready")))
+      .catch(() => undefined);
+  }, []);
+
+  // Flatten every finished clip job into individual short-form videos to pick from.
+  useEffect(() => {
+    type ClipJobListItem = { id: string; fileName: string; topic?: string; status: string; clips: Array<{ id: string; title?: string }> };
+    void fetch("/api/clips", { cache: "no-store" })
+      .then((response) => response.json())
+      .then((json: { jobs?: ClipJobListItem[] }) => {
+        const options: ShortOption[] = [];
+        for (const job of json.jobs ?? []) {
+          if (job.status !== "done") continue;
+          job.clips.forEach((clip, index) => {
+            options.push({
+              jobId: job.id,
+              clipId: clip.id,
+              label: `${clip.title?.trim() || `Clip ${index + 1}`} · ${job.topic?.trim() || job.fileName}`
+            });
+          });
+        }
+        setShorts(options);
+      })
       .catch(() => undefined);
   }, []);
 
@@ -101,6 +137,11 @@ export function CarouselsPage() {
     } else if (sourceType === "longform") {
       if (!sourceId) return void toast.error("Pick a long-form project first.");
       body.longformId = sourceId;
+    } else if (sourceType === "short") {
+      if (!sourceId) return void toast.error("Pick a short-form video first.");
+      const [clipJobId, clipId] = sourceId.split("::");
+      body.clipJobId = clipJobId;
+      body.clipId = clipId;
     } else {
       if (!customText.trim()) return void toast.error("Paste some text first.");
       body.text = customText;
@@ -132,8 +173,8 @@ export function CarouselsPage() {
     <div>
       <PageHeader
         eyebrow="Carousels"
-        title="Instagram Carousels"
-        description="Turn a script or a finished video's transcript into a swipeable carousel — hook slide, value slides, CTA slide. Double-click a slide to preview or edit it, pick an aspect ratio, download, or schedule the upload."
+        title="Carousels"
+        description="Turn a script, a finished video's transcript, a short-form video, or pasted text into a swipeable carousel — hook slide, value slides, CTA slide — distributable to Instagram, Facebook, and TikTok. Double-click a slide to preview or edit it, pick an aspect ratio, download, or schedule the upload."
       />
 
       <Card className="mb-6 space-y-3">
@@ -147,6 +188,7 @@ export function CarouselsPage() {
           >
             <option value="script">From script</option>
             <option value="longform">From video</option>
+            <option value="short">From short-form video</option>
             <option value="custom">From text</option>
           </Select>
 
@@ -165,6 +207,17 @@ export function CarouselsPage() {
               {projects.map((project) => (
                 <option key={project.id} value={project.id}>
                   {project.name}
+                </option>
+              ))}
+            </Select>
+          ) : sourceType === "short" ? (
+            <Select value={sourceId} onChange={(event) => setSourceId(event.target.value)}>
+              <option value="">
+                {shorts.length === 0 ? "No finished short-form videos yet" : "Pick a short-form video…"}
+              </option>
+              {shorts.map((short) => (
+                <option key={`${short.jobId}::${short.clipId}`} value={`${short.jobId}::${short.clipId}`}>
+                  {short.label}
                 </option>
               ))}
             </Select>
@@ -203,7 +256,9 @@ export function CarouselsPage() {
           <div className="flex flex-col items-center gap-3 py-12 text-center">
             <Images className="h-8 w-8 text-[var(--accent)]" />
             <p className="text-sm text-[var(--muted-foreground)]">
-              {loading ? "Loading…" : "No carousels yet — generate one from a script, a video, or pasted text."}
+              {loading
+                ? "Loading…"
+                : "No carousels yet — generate one from a script, a video, a short-form video, or pasted text."}
             </p>
           </div>
         </Card>
@@ -332,7 +387,8 @@ function CarouselCard({ carousel, refresh }: { carousel: Carousel; refresh: () =
         <div>
           <h3 className="font-semibold text-white">{carousel.title}</h3>
           <p className="text-xs text-[var(--muted-foreground)]">
-            {slides.length} slides · from {carousel.sourceType} · {new Date(carousel.createdAt).toLocaleDateString()}
+            {slides.length} slides · from {SOURCE_LABEL[carousel.sourceType] ?? carousel.sourceType} ·{" "}
+            {new Date(carousel.createdAt).toLocaleDateString()}
             {carousel.schedules && carousel.schedules.length > 0
               ? ` · ${carousel.schedules.length} schedule${carousel.schedules.length > 1 ? "s" : ""}`
               : ""}
