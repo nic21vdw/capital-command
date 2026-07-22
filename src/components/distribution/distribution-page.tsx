@@ -99,8 +99,8 @@ const SOURCES: Array<{
     label: "Audio",
     icon: Mic,
     tagline: "A spoken track or podcast episode.",
-    startHref: "/longform",
-    startCta: "Add it in the editor"
+    startHref: "/podcasts",
+    startCta: "Open Podcast Studio"
   },
   {
     key: "carousel",
@@ -132,7 +132,7 @@ const SOURCES: Array<{
 const OUTPUTS: Record<OutputKey, { label: string; icon: LucideIcon; href: string; cta: string }> = {
   longform: { label: "Long-form video", icon: Clapperboard, href: "/longform", cta: "Open editor" },
   shorts: { label: "Shorts / Reels", icon: Wand2, href: "/clips", cta: "Cut shorts" },
-  audio: { label: "Audio", icon: AudioLines, href: "/longform", cta: "Export audio" },
+  audio: { label: "Podcast audio", icon: AudioLines, href: "/podcasts", cta: "Build episodes" },
   x: { label: "X posts", icon: AtSign, href: "/x-posts", cta: "Write posts" },
   threads: { label: "Thread posts", icon: MessageSquare, href: "/facebook", cta: "Write thread" },
   text: { label: "Text-only post", icon: FileText, href: "/x-posts", cta: "Write post" },
@@ -158,7 +158,7 @@ type Capability = {
 const MATRIX: Record<SourceKey, Partial<Record<OutputKey, Capability>>> = {
   video: {
     shorts: { status: "ready", note: "Auto-cut vertical shorts & reels from the best moments." },
-    audio: { status: "ready", note: "Strip the audio into an mp3 for Spotify / podcast." },
+    audio: { status: "ready", note: "Generate a full MP3, topic episodes and an RSS release for podcast platforms." },
     x: { status: "ready", note: "Turn the transcript into keyword-aware X posts." },
     threads: { status: "ready", note: "Spin the transcript into FB / IG thread posts." },
     text: { status: "ready", note: "Pull standalone text-only posts from the ideas covered." },
