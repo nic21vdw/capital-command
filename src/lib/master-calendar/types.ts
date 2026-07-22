@@ -6,7 +6,7 @@
  * side by side and link back to the calendar that owns each item.
  */
 
-export type CalendarSourceId = "shorts" | "carousels" | "x" | "fb" | "content";
+export type CalendarSourceId = "shorts" | "podcasts" | "carousels" | "x" | "fb" | "content";
 
 export type MasterCalendarEvent = {
   /** Unique across the whole calendar (source-prefixed). */
@@ -50,6 +50,14 @@ export const CALENDAR_SOURCES: CalendarSource[] = [
     color: "#a855f7",
     href: "/uploading-center",
     hrefLabel: "Uploading Center"
+  },
+  {
+    id: "podcasts",
+    label: "Podcast episode releases",
+    shortLabel: "Podcasts",
+    color: "#22c55e",
+    href: "/podcasts",
+    hrefLabel: "Podcast Studio"
   },
   {
     id: "carousels",
