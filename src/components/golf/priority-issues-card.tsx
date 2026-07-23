@@ -57,7 +57,7 @@ function IssueCard({ issue, expanded, onToggle }: {
           )}
             style={{ backgroundColor: 'currentColor' }}
           >
-            <span className="text-white text-[10px] font-black">{issue.priority}</span>
+            <span className="text-[#fff] text-[10px] font-black">{issue.priority}</span>
           </span>
 
           {/* Thumbnail + title */}

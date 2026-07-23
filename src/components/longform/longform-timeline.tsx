@@ -555,7 +555,7 @@ export function LongformTimeline({
                       "group absolute top-1 bottom-1 flex cursor-grab items-center gap-1 overflow-hidden rounded-md border pl-1 pr-1 text-[10px] transition active:cursor-grabbing",
                       selected
                         ? "border-[var(--accent)] bg-[var(--accent)]/25 text-white ring-1 ring-[var(--accent)]"
-                        : "border-[var(--border-strong)] bg-black/40 text-[var(--muted-foreground)] hover:text-white"
+                        : "border-[var(--border-strong)] bg-[var(--well-deep)] text-[var(--muted-foreground)] hover:text-white"
                     )}
                     style={{ left: pct(overlay.start), width }}
                     data-no-press

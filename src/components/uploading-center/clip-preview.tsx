@@ -82,11 +82,11 @@ export function ClipPreview({
         ) : null}
         <span className="absolute inset-0 flex items-center justify-center bg-black/0 transition group-hover:bg-black/20">
           <Play
-            className="h-6 w-6 text-white opacity-0 drop-shadow transition group-hover:opacity-90"
+            className="h-6 w-6 text-[#fff] opacity-0 drop-shadow transition group-hover:opacity-90"
             fill="currentColor"
           />
         </span>
-        <span className="absolute bottom-1 right-1 rounded bg-black/75 px-1 py-0.5 text-[10px] font-medium tabular-nums text-white">
+        <span className="absolute bottom-1 right-1 rounded bg-black/75 px-1 py-0.5 text-[10px] font-medium tabular-nums text-[#fff]">
           {formatDuration(durationSec)}
         </span>
       </button>
