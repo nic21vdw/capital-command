@@ -699,81 +699,109 @@ export async function ensureVerticalClipFile(jobId: string, fileName: string): P
 }
 
 async function renderClipIndexes(job: ClipJob, indexes: number[]) {
-  // Fetch each chosen range from the source and render a neutral 16:9 source clip. These are
-  // network- and CPU-bound, so keep concurrency modest to avoid source throttles.
-  let completed = 0;
+  // Publish every neutral master first, then build the slower ready-to-post
+  // versions. This makes the whole selected batch previewable as quickly as
+  // the source ranges can be cut instead of making clip N wait for clip N-2's
+  // vertical encode to finish.
   const total = indexes.length;
   const uploadMeta = job.sourceId ? await readSourceMeta(job.sourceId) : null;
   if (job.sourceId && !uploadMeta) {
     throw new Error("The uploaded source file for this job is gone. Upload the video again.");
   }
-  const renderOne = async (i: number) => {
+
+  type PreparedClip = { i: number; produced: string; baseName: string };
+  const prepared: PreparedClip[] = [];
+  let previewsReady = 0;
+  let downloadsReady = 0;
+
+  const preparePreview = async (i: number) => {
     const clip = job.clips[i];
     const segPath = path.join(workDir(job.id), `seg-${String(i + 1).padStart(2, "0")}.mp4`);
+    let produced: string | undefined;
     try {
-      const produced = uploadMeta
+      produced = uploadMeta
         ? await cutLocalSection(sourceFilePath(uploadMeta), clip.start, clip.end, segPath)
         : await downloadSection(job.sourceUrl, clip.start, clip.end, segPath);
       const baseName = `clip-${String(i + 1).padStart(2, "0")}`;
       const primaryName = `${baseName}.mp4`;
-      // The editable master is now a fast stream copy for the common MP4
-      // path, so it doubles as the instant preview instead of writing a
-      // second duplicate preview file. Incompatible codecs transparently
-      // fall back to the normalized transcode inside renderSourceClip.
+
+      // The faststart master is a complete, seekable preview. Publish its
+      // filename immediately so polling clients can play it while every
+      // remaining master and ready-to-post render continues in the background.
       await renderSourceClip(produced, path.join(outputDir(job.id), primaryName), true);
       clip.file = primaryName;
       clip.previewFile = primaryName;
-      await persistJobs();
-      // Poster frame for the clip card; fire-and-forget so a thumbnail
-      // hiccup never fails the render (the card falls back to lazy
-      // generation via the thumbnail route).
-      void ensureClipThumbnail(outputDir(job.id), primaryName);
+      clip.downloadFile = undefined;
       clip.layoutPreset = undefined;
       clip.variants = undefined;
-      // The master was re-cut, so any earlier editor export no longer matches it.
       clip.editedFile = undefined;
-      // Compose the ready-to-post download clip: centered 9:16 over a blurred
-      // fill, with word-synced captions burned in (no watermark by default).
-      // Clips must always ship Shorts-ready, so a caption failure falls back
-      // to the same 9:16 composition without burned captions — never to the
-      // widescreen master.
-      try {
-        const downloadName = `${baseName}-ready.mp4`;
-        const downloadPath = path.join(outputDir(job.id), downloadName);
-        try {
-          const dims = await probeDimensions(produced).catch(() => undefined);
-          const assPath = await writeClipDownloadAss(job, clip, i, dims);
-          await renderCaptionedVertical(produced, downloadPath, assPath, true);
-        } catch {
-          await renderCaptionedVertical(produced, downloadPath, null, true);
-        }
-        clip.downloadFile = downloadName;
-        await persistJobs();
-      } catch {
-        // Even the plain vertical render failed (ffmpeg trouble); the UI
-        // falls back to the master and publishing re-renders on demand.
-        job.notices.push(`Clip ${i + 1}: the 9:16 vertical render failed — it will be re-rendered when scheduled.`);
-      }
-      await unlink(produced).catch(() => undefined);
+      clip.editedSignature = undefined;
+      clip.editedAt = undefined;
+      await persistJobs();
+
+      void ensureClipThumbnail(outputDir(job.id), primaryName);
+      prepared.push({ i, produced, baseName });
     } catch (error) {
+      if (produced) await unlink(produced).catch(() => undefined);
       job.notices.push(
         `Clip ${i + 1} (${Math.round(clip.start)}s) could not be rendered: ${error instanceof Error ? error.message : String(error)}.`
       );
+    } finally {
+      previewsReady += 1;
+      await update(job, {
+        stage: "rendering",
+        progress: 50 + Math.round((previewsReady / Math.max(1, total)) * 20)
+      });
     }
-    completed += 1;
-    await update(job, { stage: "rendering", progress: 50 + Math.round((completed / total) * 48) });
+  };
+
+  const renderReadyDownload = async ({ i, produced, baseName }: PreparedClip) => {
+    const clip = job.clips[i];
+    try {
+      const downloadName = `${baseName}-ready.mp4`;
+      const downloadPath = path.join(outputDir(job.id), downloadName);
+      try {
+        const dims = await probeDimensions(produced).catch(() => undefined);
+        const assPath = await writeClipDownloadAss(job, clip, i, dims);
+        await renderCaptionedVertical(produced, downloadPath, assPath, true);
+      } catch {
+        await renderCaptionedVertical(produced, downloadPath, null, true);
+      }
+      clip.downloadFile = downloadName;
+      await persistJobs();
+    } catch {
+      // Even the plain vertical render failed (ffmpeg trouble); the already
+      // published master remains previewable and publishing retries on demand.
+      job.notices.push(
+        `Clip ${i + 1}: the 9:16 vertical render failed — it will be re-rendered when scheduled.`
+      );
+    } finally {
+      await unlink(produced).catch(() => undefined);
+      downloadsReady += 1;
+      await update(job, {
+        stage: "rendering",
+        progress: 70 + Math.round((downloadsReady / Math.max(1, prepared.length)) * 28)
+      });
+    }
+  };
+
+  const runWorkers = async <T,>(items: T[], concurrency: number, task: (item: T) => Promise<void>) => {
+    let nextIndex = 0;
+    const worker = async () => {
+      while (true) {
+        const listIndex = nextIndex++;
+        if (listIndex >= items.length) break;
+        await task(items[listIndex]);
+      }
+    };
+    await Promise.all(Array.from({ length: Math.max(1, Math.min(concurrency, items.length || 1)) }, worker));
   };
 
   await update(job, { stage: "rendering", progress: 50 });
-  const concurrency = Math.min(2, total);
-  let nextIndex = 0;
-  const worker = async () => {
-    while (true) {
-      const listIndex = nextIndex++;
-      if (listIndex >= total) break;
-      await renderOne(indexes[listIndex]);
-    }
-  };
-  await Promise.all(Array.from({ length: Math.max(1, concurrency) }, worker));
+  await runWorkers(indexes, 2, preparePreview);
+
+  // One expensive vertical encode at a time leaves CPU and disk headroom for
+  // playing/editing completed masters while a large batch keeps rendering.
+  await runWorkers(prepared.sort((a, b) => a.i - b.i), 1, renderReadyDownload);
   await update(job, { status: "done", stage: "finished", progress: 100 });
 }
