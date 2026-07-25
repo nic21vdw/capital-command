@@ -11,7 +11,7 @@ export async function GET(_request: Request, { params }: { params: Promise<{ fil
 
   const extension = file.split(".").pop()?.toLowerCase();
   const contentType = extension === "png" ? "image/png" : extension === "webp" ? "image/webp" : "image/jpeg";
-  return new NextResponse(bytes, {
+  return new NextResponse(new Uint8Array(bytes), {
     headers: {
       "Content-Type": contentType,
       "Cache-Control": "public, max-age=31536000, immutable"
