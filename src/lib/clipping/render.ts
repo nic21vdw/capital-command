@@ -168,11 +168,35 @@ export async function renderPreviewAssets(inputPath: string, previewPath: string
 }
 
 /**
- * Renders the selected source range as a neutral 16:9 master clip. The full
- * source frame is preserved with contain scaling so any later vertical,
- * square, or portrait crop can be made non-destructively from this file.
+ * Publishes the selected source range as the neutral, editable master.
+ *
+ * The section cutter has already produced the exact range, so the common
+ * H.264/AAC MP4 path only needs a faststart remux. Re-encoding every master
+ * before separately encoding the 9:16 ready file doubled the expensive work
+ * for every generated clip. Incompatible containers/codecs automatically fall
+ * back to the normalized 1080p transcode used before this optimization.
  */
 export async function renderSourceClip(inputPath: string, outputPath: string, audioPresent: boolean) {
+  try {
+    await runFfmpeg([
+      "-y",
+      "-i",
+      inputPath,
+      "-map",
+      "0:v:0",
+      ...(audioPresent ? ["-map", "0:a:0?"] : []),
+      "-c",
+      "copy",
+      "-movflags",
+      "+faststart",
+      outputPath
+    ]);
+    return;
+  } catch {
+    // VP9/Opus WebM and other streams that MP4 cannot contain still need a
+    // compatibility transcode. This keeps uploads and unusual VODs reliable.
+  }
+
   await runFfmpeg([
     "-y",
     "-i",
