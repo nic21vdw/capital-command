@@ -2,12 +2,16 @@
   "name": "colateral-intro",
   "version": "1.0.0",
   "private": true,
-  "description": "Remotion B-roll: CoLateral title reveal on white with the Beam Buddy mascot. Two iterations — 'Assemble' (structural) and 'Beam Sweep' (light reveal).",
+  "description": "Remotion intro cards: five CoLateral name reveals on the product's dark stage, with Beamy the pixel-art I-beam mascot.",
   "scripts": {
     "preview": "remotion studio",
-    "render:assemble": "remotion render IntroAssemble out/colateral-intro-assemble.mp4",
-    "render:beam": "remotion render IntroBeamSweep out/colateral-intro-beam-sweep.mp4",
-    "still": "remotion still IntroAssemble out/poster.png --frame=140"
+    "render:all": "npm run render:drafting && npm run render:loadpath && npm run render:beamy && npm run render:canvas && npm run render:typeset",
+    "render:drafting": "remotion render RevealDraftingTable out/colateral-drafting-table.mp4",
+    "render:loadpath": "remotion render RevealLoadPath out/colateral-load-path.mp4",
+    "render:beamy": "remotion render RevealBeamyEntrance out/colateral-beamy-entrance.mp4",
+    "render:canvas": "remotion render RevealCanvasSpawn out/colateral-canvas-spawn.mp4",
+    "render:typeset": "remotion render RevealTypeset out/colateral-typeset.mp4",
+    "still": "remotion still RevealTypeset out/poster.png --frame=170"
   },
   "dependencies": {
     "@remotion/cli": "4.0.290",
