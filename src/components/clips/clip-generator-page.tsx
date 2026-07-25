@@ -8,6 +8,8 @@ import {
   Film,
   Link as LinkIcon,
   Loader2,
+  Pause,
+  Play,
   RotateCw,
   Scissors,
   SquarePlay,
@@ -763,8 +765,20 @@ function ClipCard({
   // ready-to-post download clip (centered 9:16, captioned), so the preview
   // matches exactly what Download hands back. Until then fall back to the
   // instant preview or the neutral master.
-  const playbackFile = clip.editedFile ?? clip.downloadFile ?? clip.previewFile ?? clip.file;
+  const preferredPlaybackFile = clip.editedFile ?? clip.downloadFile ?? clip.previewFile ?? clip.file;
+  const [playbackFile, setPlaybackFile] = useState(preferredPlaybackFile);
+  const [lockedPlayback, setLockedPlayback] = useState(false);
+  const [isPlaying, setIsPlaying] = useState(false);
   const stopTimerRef = useRef<number | null>(null);
+
+  // Polling can discover a newer ready/edit render while this card is being
+  // watched. Keep the current file pinned until playback stops so a background
+  // job can never reload the <video> and kick the viewer back to 0.
+  useEffect(() => {
+    if (!isPlaying && !lockedPlayback && preferredPlaybackFile && preferredPlaybackFile !== playbackFile) {
+      setPlaybackFile(preferredPlaybackFile);
+    }
+  }, [isPlaying, lockedPlayback, playbackFile, preferredPlaybackFile]);
 
   // Once a hover preview starts, let it run at least this long even if the
   // pointer leaves — a quick flick across the grid shouldn't cut the preview
@@ -782,7 +796,7 @@ function ClipCard({
   // opening the editor.
   const startPreview = () => {
     const v = videoRef.current;
-    if (!v) return;
+    if (!v || lockedPlayback) return;
     cancelPendingStop();
     v.muted = true;
     // The card mounts with preload="none" so the grid renders instantly off
@@ -792,7 +806,7 @@ function ClipCard({
   };
   const stopPreview = () => {
     const v = videoRef.current;
-    if (!v) return;
+    if (!v || lockedPlayback) return;
     const finish = () => {
       cancelPendingStop();
       v.pause();
@@ -812,6 +826,23 @@ function ClipCard({
       if (v.currentTime >= minimum || v.paused) finish();
     }, 200);
   };
+
+  const togglePreview = () => {
+    const v = videoRef.current;
+    if (!v) return;
+    cancelPendingStop();
+    if (v.paused) {
+      setLockedPlayback(true);
+      v.preload = "auto";
+      v.muted = false;
+      void v.play().catch(() => setLockedPlayback(false));
+    } else {
+      v.pause();
+      v.currentTime = 0;
+      setLockedPlayback(false);
+    }
+  };
+
   useEffect(
     () => () => {
       if (stopTimerRef.current !== null) window.clearInterval(stopTimerRef.current);
@@ -843,6 +874,10 @@ function ClipCard({
               muted
               loop
               playsInline
+              controls
+              onPlay={() => setIsPlaying(true)}
+              onPause={() => setIsPlaying(false)}
+              onPointerDown={() => setLockedPlayback(true)}
               className="aspect-video h-full min-h-32 w-full object-contain md:aspect-auto"
             />
           )}
@@ -885,22 +920,32 @@ function ClipCard({
             </div>
           )}
 
-          {clip.file && (
-            <div className="mt-auto flex flex-wrap gap-2 pt-1">
-              <Button className="px-3 py-1.5 text-xs" onClick={onEdit}>
-                <SquarePlay className="mr-1.5 h-3.5 w-3.5" />
-                Open in editor
-              </Button>
-              <a
-                href={fileUrl(jobId, clip.editedFile ?? clip.downloadFile ?? clip.file, true)}
-                download={`${safeFilename(clipHeadline(clip, index))}.${(clip.editedFile ?? clip.downloadFile ?? clip.file).split(".").pop() || "mp4"}`}
-                className="inline-flex items-center justify-center rounded-lg border border-[var(--border)] px-3 py-1.5 text-xs font-medium text-[var(--muted-foreground)] transition hover:border-[var(--border-strong)] hover:text-white"
-              >
-                <Download className="mr-1.5 h-3.5 w-3.5" />
-                Download
-              </a>
-            </div>
-          )}
+          <div className="mt-auto flex flex-wrap gap-2 pt-1">
+            <Button variant="secondary" className="px-3 py-1.5 text-xs" onClick={togglePreview}>
+              {isPlaying ? (
+                <Pause className="mr-1.5 h-3.5 w-3.5" />
+              ) : (
+                <Play className="mr-1.5 h-3.5 w-3.5" />
+              )}
+              {isPlaying ? "Pause preview" : "Watch preview"}
+            </Button>
+            {clip.file && (
+              <>
+                <Button className="px-3 py-1.5 text-xs" onClick={onEdit}>
+                  <SquarePlay className="mr-1.5 h-3.5 w-3.5" />
+                  Open in editor
+                </Button>
+                <a
+                  href={fileUrl(jobId, clip.editedFile ?? clip.downloadFile ?? clip.file, true)}
+                  download={`${safeFilename(clipHeadline(clip, index))}.${(clip.editedFile ?? clip.downloadFile ?? clip.file).split(".").pop() || "mp4"}`}
+                  className="inline-flex items-center justify-center rounded-lg border border-[var(--border)] px-3 py-1.5 text-xs font-medium text-[var(--muted-foreground)] transition hover:border-[var(--border-strong)] hover:text-white"
+                >
+                  <Download className="mr-1.5 h-3.5 w-3.5" />
+                  Download
+                </a>
+              </>
+            )}
+          </div>
         </div>
       </div>
     </Card>
