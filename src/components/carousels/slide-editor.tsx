@@ -177,7 +177,20 @@ export function SlideEditor({
   );
 
   const removeLayer = (layerId: string) => {
-    patchSlide((entry) => ({ ...entry, layers: (entry.layers ?? []).filter((layer) => layer.id !== layerId) }));
+    patchSlide((entry) => {
+      const removed = (entry.layers ?? []).find((layer) => layer.id === layerId);
+      const layers = (entry.layers ?? []).filter((layer) => layer.id !== layerId);
+      const removedLastFullBleed =
+        removed?.type === "image" &&
+        removed.layout === "full-bleed" &&
+        !layers.some((layer) => layer.type === "image" && layer.layout === "full-bleed");
+      return {
+        ...entry,
+        layers,
+        headingColor: removedLastFullBleed ? undefined : entry.headingColor,
+        bodyColor: removedLastFullBleed ? undefined : entry.bodyColor
+      };
+    });
     setSelectedLayer(null);
   };
 
