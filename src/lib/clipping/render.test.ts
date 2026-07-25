@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { CLIP_LAYOUTS } from "./layouts";
-import { animatedReframeChain, reframeChain, renderCaptionedVertical, stackedLayoutChain } from "./render";
+import { animatedReframeChain, reframeChain, renderCaptionedVertical, renderSourceClip, stackedLayoutChain } from "./render";
 
 const runFfmpeg = vi.fn((..._args: unknown[]): Promise<void> => Promise.resolve());
 vi.mock("./ffmpeg", () => ({ runFfmpeg: (...args: unknown[]) => runFfmpeg(...args) }));
@@ -144,5 +144,52 @@ describe("renderCaptionedVertical", () => {
     const args = runFfmpeg.mock.calls[0][0] as string[];
     expect(args).toContain("-an");
     expect(args).not.toContain("aac");
+  });
+});
+
+describe("renderSourceClip", () => {
+  it("stream-copies the common MP4 master instead of re-encoding it", async () => {
+    runFfmpeg.mockReset();
+    runFfmpeg.mockResolvedValue(undefined);
+
+    await renderSourceClip("section.mp4", "clip.mp4", true);
+
+    expect(runFfmpeg).toHaveBeenCalledTimes(1);
+    expect(runFfmpeg).toHaveBeenCalledWith([
+      "-y",
+      "-i",
+      "section.mp4",
+      "-map",
+      "0:v:0",
+      "-map",
+      "0:a:0?",
+      "-c",
+      "copy",
+      "-movflags",
+      "+faststart",
+      "clip.mp4"
+    ]);
+  });
+
+  it("falls back to the compatibility transcode when MP4 cannot copy the source codecs", async () => {
+    runFfmpeg.mockReset();
+    runFfmpeg.mockRejectedValueOnce(new Error("codec not supported")).mockResolvedValueOnce(undefined);
+
+    await renderSourceClip("section.webm", "clip.mp4", true);
+
+    expect(runFfmpeg).toHaveBeenCalledTimes(2);
+    expect(runFfmpeg.mock.calls[1][0]).toEqual(
+      expect.arrayContaining(["-c:v", "libx264", "-preset", "veryfast"])
+    );
+  });
+
+  it("does not map audio for silent source clips", async () => {
+    runFfmpeg.mockReset();
+    runFfmpeg.mockResolvedValue(undefined);
+
+    await renderSourceClip("silent.mp4", "clip.mp4", false);
+
+    const args = runFfmpeg.mock.calls[0][0] as string[];
+    expect(args).not.toContain("0:a:0?");
   });
 });
