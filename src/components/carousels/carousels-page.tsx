@@ -514,6 +514,8 @@ function CarouselCard({ carousel, refresh }: { carousel: Carousel; refresh: () =
           index={editor.index}
           mode={editor.mode}
           saving={saving}
+          sourceType={carousel.sourceType}
+          sourceId={carousel.sourceId}
           onSave={saveSlides}
           onClose={() => setEditor(null)}
         />
