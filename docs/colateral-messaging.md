@@ -21,7 +21,7 @@ Canvas, and Beamy. Nothing below promises something the app doesn't do.
 > one-off calculators. Then a reviewer asks "where did this number come from?"
 > — and somebody spends an afternoon reconstructing it.
 >
-> CoLateral puts the whole job on one canvas. Fifty-seven design checkers and
+> CoLateral puts the whole job on one canvas. Nearly fifty design checkers and
 > reference-data tools, live calculation cards, sketches and notes — all linked,
 > so every result stays tied to the input it came from. It's built for qualified
 > structural and building engineers, and the engineer stays in control of every
@@ -67,7 +67,7 @@ doesn't serve one, cut it.
 
 | Pillar | The claim | Proof to show on screen |
 |---|---|---|
-| **All-in-one** | One workspace instead of tool sprawl | The tool library — 57 tools, spawned onto the canvas without leaving the page |
+| **All-in-one** | One workspace instead of tool sprawl | The tool library — 49 live tools, spawned onto the canvas without leaving the page |
 | **Source-tied** | Every number traces to its input | Click a result → the card shows what fed it; change an input → the linked card updates |
 | **Under professional control** | The engineer decides, not the software | Review state on a card; the "for qualified engineers" framing; nothing auto-approves |
 
@@ -98,6 +98,13 @@ liability problem in a regulated field:
   the positioning. The product is explicitly gated to qualified engineers.
 - "Simple" / "easy" as the lead benefit — structural engineers don't buy easy,
   they buy defensible.
+
+**On the tool count:** say **49**, or "nearly fifty". `src/data/toolManifest.json`
+holds 57 records, but 8 are `status: "deprecated"` (superseded or merged into
+other tools) — quoting 57 won't survive anyone who opens the manifest. The live
+49 break down as 34 design checkers, 5 visual analyzers, 4 ingestion, 3 suites,
+2 project-admin and 1 reference-data. Re-count before quoting it; the number
+moves as tools ship.
 
 **On the name:** it's **CoLateral** — one word, capital C, capital L. The "Co"
 is near-white, "Lateral" is the brand purple (`#bd93f9`). The pun is
