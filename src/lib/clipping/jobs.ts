@@ -14,7 +14,7 @@ import { generateViralTitles } from "@/lib/clipping/titles";
 import { copyClipsToDrive, driveDir } from "@/lib/clipping/drive";
 import { downloadAudio, downloadSection, fetchVideoMeta } from "@/lib/clipping/download";
 import { hasAudioStream, probeDimensions, probeDuration, runFfmpeg } from "@/lib/clipping/ffmpeg";
-import { renderCaptionedVertical, renderPreviewAssets, renderSourceClip } from "@/lib/clipping/render";
+import { renderCaptionedVertical, renderSourceClip } from "@/lib/clipping/render";
 import { readSourceMeta, sourceFilePath, type SourceMeta } from "@/lib/clipping/sources";
 import { defaultCaptionStyle } from "@/lib/storage/schemas";
 import { ensureClipThumbnail } from "@/lib/clipping/thumbnails";
@@ -716,29 +716,14 @@ async function renderClipIndexes(job: ClipJob, indexes: number[]) {
         : await downloadSection(job.sourceUrl, clip.start, clip.end, segPath);
       const baseName = `clip-${String(i + 1).padStart(2, "0")}`;
       const primaryName = `${baseName}.mp4`;
-      // Publish an instant preview (faststart stream copy + poster frame)
-      // BEFORE the slow HD render, so the clip is viewable in the UI the
-      // moment its section exists. Best-effort: the HD render below is what
-      // actually completes the clip.
-      try {
-        // Sections are almost always MP4; keep WebM sections in their own
-        // container instead of forcing codecs into an MP4 remux.
-        const previewExt = path.extname(produced).toLowerCase() === ".webm" ? ".webm" : ".mp4";
-        const previewName = `${baseName}-preview${previewExt}`;
-        const posterName = `${baseName}-poster.jpg`;
-        await renderPreviewAssets(
-          produced,
-          path.join(outputDir(job.id), previewName),
-          path.join(outputDir(job.id), posterName)
-        );
-        clip.previewFile = previewName;
-        clip.posterFile = posterName;
-        await persistJobs();
-      } catch {
-        // A failed preview never blocks the real render.
-      }
+      // The editable master is now a fast stream copy for the common MP4
+      // path, so it doubles as the instant preview instead of writing a
+      // second duplicate preview file. Incompatible codecs transparently
+      // fall back to the normalized transcode inside renderSourceClip.
       await renderSourceClip(produced, path.join(outputDir(job.id), primaryName), true);
       clip.file = primaryName;
+      clip.previewFile = primaryName;
+      await persistJobs();
       // Poster frame for the clip card; fire-and-forget so a thumbnail
       // hiccup never fails the render (the card falls back to lazy
       // generation via the thumbnail route).
