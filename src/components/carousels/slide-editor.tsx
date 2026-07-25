@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
+  Camera,
   ChevronLeft,
   ChevronRight,
   Eye,
@@ -10,6 +11,7 @@ import {
   Loader2,
   Pencil,
   Save,
+  Sparkles,
   Trash2,
   Type,
   X
@@ -18,7 +20,7 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { aspectSpec, COLATERAL_THEME, loadImage, renderSlideCanvas } from "@/lib/carousels/render";
 import { cn } from "@/lib/utils";
-import type { CarouselAspectRatio, CarouselSlide, SlideLayer } from "@/types/domain";
+import type { Carousel, CarouselAspectRatio, CarouselSlide, SlideLayer } from "@/types/domain";
 
 type Mode = "preview" | "edit";
 
@@ -37,6 +39,8 @@ export function SlideEditor({
   ratio,
   index: initialIndex,
   mode: initialMode,
+  sourceType,
+  sourceId,
   onSave,
   onClose,
   saving
@@ -45,6 +49,8 @@ export function SlideEditor({
   ratio: CarouselAspectRatio;
   index: number;
   mode: Mode;
+  sourceType: Carousel["sourceType"];
+  sourceId?: string;
   onSave: (slides: CarouselSlide[]) => void | Promise<void>;
   onClose: () => void;
   saving: boolean;
@@ -121,11 +127,12 @@ export function SlideEditor({
    * editor) and centers it on `pos` when dropped, else near the top-left.
    */
   const addImageLayer = useCallback(
-    async (src: string, pos?: { x: number; y: number }) => {
+    async (src: string, pos?: { x: number; y: number }, layout: "free" | "full-bleed" = "free") => {
+      const fullBleed = layout === "full-bleed";
       const img = await loadImage(src).catch(() => null);
-      let width = 0.5;
-      let height = 0.35;
-      if (img && img.width > 0 && img.height > 0) {
+      let width = fullBleed ? 1 : 0.5;
+      let height = fullBleed ? 1 : 0.35;
+      if (!fullBleed && img && img.width > 0 && img.height > 0) {
         const boxWpx = width * spec.width;
         const boxHpx = boxWpx * (img.height / img.width);
         height = boxHpx / spec.height;
@@ -134,10 +141,36 @@ export function SlideEditor({
           width = ((height * spec.height) * (img.width / img.height)) / spec.width;
         }
       }
-      const x = clamp01((pos?.x ?? 0.25) - width / 2);
-      const y = clamp01((pos?.y ?? 0.25) - height / 2);
-      const layer: SlideLayer = { id: uid(), type: "image", src, x, y, width, height, radius: 0.02, fit: "contain" };
-      patchSlide((entry) => ({ ...entry, layers: [...(entry.layers ?? []), layer] }));
+      const x = fullBleed ? 0 : clamp01((pos?.x ?? 0.25) - width / 2);
+      const y = fullBleed ? 0 : clamp01((pos?.y ?? 0.25) - height / 2);
+      const layer: SlideLayer = {
+        id: uid(),
+        type: "image",
+        src,
+        x,
+        y,
+        width,
+        height,
+        radius: fullBleed ? 0 : 0.02,
+        fit: fullBleed ? "cover" : "contain",
+        layout,
+        scale: fullBleed ? 1 : undefined,
+        focusX: fullBleed ? 0.5 : undefined,
+        focusY: fullBleed ? 0.5 : undefined,
+        darken: fullBleed ? 0.38 : undefined,
+        opacity: 1
+      };
+      patchSlide((entry) => {
+        const existing = fullBleed
+          ? (entry.layers ?? []).filter((item) => item.type !== "image" || item.layout !== "full-bleed")
+          : (entry.layers ?? []);
+        return {
+          ...entry,
+          headingColor: fullBleed ? "#ffffff" : entry.headingColor,
+          bodyColor: fullBleed ? "rgba(255,255,255,0.86)" : entry.bodyColor,
+          layers: fullBleed ? [layer, ...existing] : [...existing, layer]
+        };
+      });
       setSelectedLayer(layer.id);
     },
     [patchSlide, spec.width, spec.height]
@@ -250,6 +283,9 @@ export function SlideEditor({
             onAddText={addTextLayer}
             onAddImage={addImageLayer}
             onApplyBackgroundToAll={applyBackgroundToAll}
+            ratio={ratio}
+            sourceType={sourceType}
+            sourceId={sourceId}
           />
         ) : null}
       </div>
@@ -582,35 +618,51 @@ function EditStage({
       <canvas ref={bgRef} className="pointer-events-none absolute inset-0 h-full w-full" />
 
       {/* Image layers: interactive, between background and base chrome. */}
-      {imageLayers.map((layer) => (
-        <div
-          key={layer.id}
-          onPointerDown={(event) => startMove(event, layer)}
-          className={cn(
-            "absolute cursor-move touch-none select-none",
-            selectedLayer === layer.id
-              ? "outline outline-2 outline-[var(--accent)]"
-              : "outline-dashed outline-1 outline-white/30 hover:outline-white/60"
-          )}
-          style={{
-            left: `${layer.x * 100}%`,
-            top: `${layer.y * 100}%`,
-            width: `${layer.width * 100}%`,
-            height: `${layer.height * 100}%`,
-            transform: layer.rotation ? `rotate(${layer.rotation}deg)` : undefined
-          }}
-        >
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            src={layer.src}
-            alt=""
-            draggable={false}
-            className="h-full w-full"
-            style={{ objectFit: layer.fit ?? "contain", borderRadius: `${Math.min(50, (layer.radius ?? 0) * 100)}%` }}
-          />
-          {selectedLayer === layer.id ? cornerHandles(layer) : null}
-        </div>
-      ))}
+      {imageLayers.map((layer) => {
+        const fullBleed = layer.layout === "full-bleed";
+        const focusX = layer.focusX ?? 0.5;
+        const focusY = layer.focusY ?? 0.5;
+        return (
+          <div
+            key={layer.id}
+            onPointerDown={(event) => (fullBleed ? (event.stopPropagation(), onSelectLayer(layer.id)) : startMove(event, layer))}
+            className={cn(
+              "absolute touch-none select-none overflow-hidden",
+              fullBleed ? "cursor-default" : "cursor-move",
+              selectedLayer === layer.id
+                ? "outline outline-2 outline-[var(--accent)]"
+                : "outline-dashed outline-1 outline-white/30 hover:outline-white/60"
+            )}
+            style={{
+              left: fullBleed ? 0 : `${layer.x * 100}%`,
+              top: fullBleed ? 0 : `${layer.y * 100}%`,
+              width: fullBleed ? "100%" : `${layer.width * 100}%`,
+              height: fullBleed ? "100%" : `${layer.height * 100}%`,
+              transform: !fullBleed && layer.rotation ? `rotate(${layer.rotation}deg)` : undefined
+            }}
+          >
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={layer.src}
+              alt=""
+              draggable={false}
+              className="h-full w-full"
+              style={{
+                objectFit: fullBleed ? "cover" : (layer.fit ?? "contain"),
+                objectPosition: fullBleed ? `${focusX * 100}% ${focusY * 100}%` : undefined,
+                transform: fullBleed ? `scale(${layer.scale ?? 1})` : undefined,
+                transformOrigin: fullBleed ? `${focusX * 100}% ${focusY * 100}%` : undefined,
+                opacity: layer.opacity ?? 1,
+                borderRadius: fullBleed ? 0 : `${Math.min(50, (layer.radius ?? 0) * 100)}%`
+              }}
+            />
+            {fullBleed && (layer.darken ?? 0) > 0 ? (
+              <div className="pointer-events-none absolute inset-0 bg-black" style={{ opacity: layer.darken ?? 0 }} />
+            ) : null}
+            {selectedLayer === layer.id && !fullBleed ? cornerHandles(layer) : null}
+          </div>
+        );
+      })}
 
       {/* Base chrome sits above images, below text — pointer-transparent. */}
       <canvas ref={chromeRef} className="pointer-events-none absolute inset-0 h-full w-full" />
@@ -660,7 +712,10 @@ function Inspector({
   onRemoveLayer,
   onAddText,
   onAddImage,
-  onApplyBackgroundToAll
+  onApplyBackgroundToAll,
+  ratio,
+  sourceType,
+  sourceId
 }: {
   slide: CarouselSlide;
   selectedLayer: string | null;
@@ -668,22 +723,75 @@ function Inspector({
   onUpdateLayer: (id: string, patch: Partial<SlideLayer>) => void;
   onRemoveLayer: (id: string) => void;
   onAddText: () => void;
-  onAddImage: (src: string) => void;
+  onAddImage: (src: string, pos?: { x: number; y: number }, layout?: "free" | "full-bleed") => void;
   onApplyBackgroundToAll: () => void;
+  ratio: CarouselAspectRatio;
+  sourceType: Carousel["sourceType"];
+  sourceId?: string;
 }) {
   const fileRef = useRef<HTMLInputElement | null>(null);
+  const [mediaPrompt, setMediaPrompt] = useState([slide.heading, slide.body].filter(Boolean).join(". "));
+  const [mediaBusy, setMediaBusy] = useState<"ai" | "frames" | null>(null);
+  const [frames, setFrames] = useState<string[]>([]);
   const layer = (slide.layers ?? []).find((entry) => entry.id === selectedLayer) ?? null;
+  const hasStreamSource = Boolean(sourceId && (sourceType === "longform" || sourceType === "short"));
+
+  useEffect(() => {
+    setMediaPrompt([slide.heading, slide.body].filter(Boolean).join(". "));
+    setFrames([]);
+  }, [slide.id, slide.heading, slide.body]);
+
+  const placeFullBleed = (src: string) => onAddImage(src, undefined, "full-bleed");
 
   const onPickImage = (file: File | undefined) => {
     if (!file) return;
     if (!file.type.startsWith("image/")) return toast.error("Drop an image file (PNG, JPG…).");
     const reader = new FileReader();
-    reader.onload = () => typeof reader.result === "string" && onAddImage(reader.result);
+    reader.onload = () => typeof reader.result === "string" && placeFullBleed(reader.result);
     reader.readAsDataURL(file);
   };
 
+  const generateImage = async () => {
+    if (!mediaPrompt.trim()) return void toast.error("Give the image a short visual direction first.");
+    setMediaBusy("ai");
+    try {
+      const response = await fetch("/api/studio/carousels/generate-image", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ prompt: mediaPrompt, ratio })
+      });
+      const json = (await response.json()) as { src?: string; error?: string };
+      if (!response.ok || !json.src) throw new Error(json.error || "Image generation failed.");
+      placeFullBleed(json.src);
+      toast.success("Image generated and fitted to the slide.");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Could not generate the image.");
+    } finally {
+      setMediaBusy(null);
+    }
+  };
+
+  const loadFrames = async () => {
+    if (!hasStreamSource) return void toast.error("This carousel is not linked to a stream or short-form video.");
+    setMediaBusy("frames");
+    try {
+      const response = await fetch("/api/studio/carousels/frames", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sourceType, sourceId, count: 8 })
+      });
+      const json = (await response.json()) as { frames?: string[]; error?: string };
+      if (!response.ok || !json.frames?.length) throw new Error(json.error || "No stream frames were found.");
+      setFrames(json.frames);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Could not read stream frames.");
+    } finally {
+      setMediaBusy(null);
+    }
+  };
+
   return (
-    <div className="panel-enter flex w-full shrink-0 flex-col gap-4 overflow-y-auto rounded-2xl border border-[var(--border)] bg-[var(--panel)] p-4 sm:w-72">
+    <div className="panel-enter flex w-full shrink-0 flex-col gap-4 overflow-y-auto rounded-2xl border border-[var(--border)] bg-[var(--panel)] p-4 sm:w-80">
       <input
         ref={fileRef}
         type="file"
@@ -695,20 +803,60 @@ function Inspector({
         }}
       />
 
-      <div className="grid grid-cols-2 gap-2">
-        <Button variant="secondary" className="gap-1.5 px-2 py-2 text-xs" onClick={onAddText}>
-          <Type className="h-3.5 w-3.5" /> Add text
+      <div className="space-y-2 rounded-xl border border-[var(--border)] bg-white/5 p-3">
+        <p className="text-[11px] font-semibold uppercase tracking-wider text-[var(--muted-foreground)]">Image source</p>
+        <textarea
+          value={mediaPrompt}
+          onChange={(event) => setMediaPrompt(event.target.value)}
+          rows={3}
+          placeholder="Describe a realistic visual for this slide…"
+          className="w-full resize-none rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-2 py-1.5 text-xs text-white outline-none focus:border-[var(--accent)]"
+        />
+        <Button className="w-full gap-1.5 px-2 py-2 text-xs" disabled={mediaBusy !== null} onClick={() => void generateImage()}>
+          {mediaBusy === "ai" ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
+          Generate with AI
         </Button>
-        <Button variant="secondary" className="gap-1.5 px-2 py-2 text-xs" onClick={() => fileRef.current?.click()}>
-          <ImagePlus className="h-3.5 w-3.5" /> Add image
-        </Button>
+        <div className="grid grid-cols-2 gap-2">
+          <Button
+            variant="secondary"
+            className="gap-1.5 px-2 py-2 text-xs"
+            disabled={!hasStreamSource || mediaBusy !== null}
+            onClick={() => void loadFrames()}
+          >
+            {mediaBusy === "frames" ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Camera className="h-3.5 w-3.5" />}
+            Stream frames
+          </Button>
+          <Button variant="secondary" className="gap-1.5 px-2 py-2 text-xs" onClick={() => fileRef.current?.click()}>
+            <ImagePlus className="h-3.5 w-3.5" /> Upload
+          </Button>
+        </div>
+        {frames.length ? (
+          <div className="grid grid-cols-4 gap-1.5 pt-1">
+            {frames.map((src, frameIndex) => (
+              <button
+                key={src}
+                type="button"
+                onClick={() => placeFullBleed(src)}
+                className="group aspect-video overflow-hidden rounded-md border border-[var(--border)] transition hover:border-[var(--accent)]"
+                aria-label={`Use stream frame ${frameIndex + 1}`}
+              >
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={src} alt="" className="h-full w-full object-cover transition group-hover:scale-105" />
+              </button>
+            ))}
+          </div>
+        ) : null}
       </div>
+
+      <Button variant="secondary" className="w-full gap-1.5 px-2 py-2 text-xs" onClick={onAddText}>
+        <Type className="h-3.5 w-3.5" /> Add text layer
+      </Button>
 
       {layer ? (
         <LayerControls layer={layer} onUpdate={(patch) => onUpdateLayer(layer.id, patch)} onRemove={() => onRemoveLayer(layer.id)} />
       ) : (
         <p className="rounded-lg border border-dashed border-[var(--border)] p-3 text-center text-[11px] text-[var(--muted-foreground)]">
-          Select a layer to edit it. Drag images or text on the stage to move them, drag their corners to scale, or drop an image file straight onto the slide.
+          Generate, choose, or upload an image, then select it on the stage to adjust layout and scale.
         </p>
       )}
 
@@ -849,25 +997,66 @@ function LayerControls({
         </>
       ) : (
         <>
-          <div className="flex items-center gap-1">
-            {(["contain", "cover"] as const).map((fit) => (
+          <div className="grid grid-cols-2 gap-1">
+            {(["free", "full-bleed"] as const).map((layout) => (
               <button
-                key={fit}
+                key={layout}
                 type="button"
-                onClick={() => onUpdate({ fit })}
+                onClick={() =>
+                  layout === "full-bleed"
+                    ? onUpdate({ layout, x: 0, y: 0, width: 1, height: 1, radius: 0, fit: "cover", scale: 1, focusX: 0.5, focusY: 0.5, darken: 0.38 })
+                    : onUpdate({ layout, x: 0.1, y: 0.1, width: 0.8, height: 0.5, fit: "contain", scale: undefined, focusX: undefined, focusY: undefined, darken: undefined })
+                }
                 className={cn(
-                  "flex-1 rounded-md px-1 py-1 text-[10px] capitalize transition",
-                  (layer.fit ?? "contain") === fit ? "bg-[var(--accent)] text-[var(--accent-contrast)]" : "bg-white/5 text-[var(--muted-foreground)] hover:text-white"
+                  "rounded-md px-1 py-1.5 text-[10px] transition",
+                  (layer.layout ?? "free") === layout
+                    ? "bg-[var(--accent)] text-[var(--accent-contrast)]"
+                    : "bg-white/5 text-[var(--muted-foreground)] hover:text-white"
                 )}
               >
-                {fit === "contain" ? "Fit (whole)" : "Fill (crop)"}
+                {layout === "free" ? "Color + image" : "Full bleed"}
               </button>
             ))}
           </div>
-          <Slider label="Width" min={0.1} max={1} step={0.02} value={layer.width} onChange={(value) => onUpdate({ width: value })} />
-          <Slider label="Height" min={0.1} max={1} step={0.02} value={layer.height} onChange={(value) => onUpdate({ height: value })} />
-          <Slider label="Corner" min={0} max={0.5} step={0.02} value={layer.radius ?? 0} onChange={(value) => onUpdate({ radius: value })} />
-          <p className="text-[10px] text-[var(--muted-foreground)]">Drag to move · drag the corner handles to scale.</p>
+          {layer.layout === "full-bleed" ? (
+            <>
+              <Slider label="Scale" min={1} max={2.5} step={0.02} value={layer.scale ?? 1} onChange={(value) => onUpdate({ scale: value })} />
+              <Slider label="Darken" min={0} max={0.8} step={0.02} value={layer.darken ?? 0.38} onChange={(value) => onUpdate({ darken: value })} />
+              <Slider label="Position X" min={0} max={1} step={0.01} value={layer.focusX ?? 0.5} onChange={(value) => onUpdate({ focusX: value })} />
+              <Slider label="Position Y" min={0} max={1} step={0.01} value={layer.focusY ?? 0.5} onChange={(value) => onUpdate({ focusY: value })} />
+              <Slider label="Opacity" min={0.1} max={1} step={0.02} value={layer.opacity ?? 1} onChange={(value) => onUpdate({ opacity: value })} />
+              <button
+                type="button"
+                onClick={() => onUpdate({ scale: 1, focusX: 0.5, focusY: 0.5, darken: 0.38, opacity: 1 })}
+                className="w-full rounded-md border border-[var(--border)] bg-white/5 px-2 py-1.5 text-[10px] text-[var(--muted-foreground)] transition hover:text-white"
+              >
+                Reset image framing
+              </button>
+            </>
+          ) : (
+            <>
+              <div className="flex items-center gap-1">
+                {(["contain", "cover"] as const).map((fit) => (
+                  <button
+                    key={fit}
+                    type="button"
+                    onClick={() => onUpdate({ fit })}
+                    className={cn(
+                      "flex-1 rounded-md px-1 py-1 text-[10px] capitalize transition",
+                      (layer.fit ?? "contain") === fit ? "bg-[var(--accent)] text-[var(--accent-contrast)]" : "bg-white/5 text-[var(--muted-foreground)] hover:text-white"
+                    )}
+                  >
+                    {fit === "contain" ? "Fit (whole)" : "Fill (crop)"}
+                  </button>
+                ))}
+              </div>
+              <Slider label="Width" min={0.1} max={1} step={0.02} value={layer.width} onChange={(value) => onUpdate({ width: value })} />
+              <Slider label="Height" min={0.1} max={1} step={0.02} value={layer.height} onChange={(value) => onUpdate({ height: value })} />
+              <Slider label="Corner" min={0} max={0.5} step={0.02} value={layer.radius ?? 0} onChange={(value) => onUpdate({ radius: value })} />
+              <Slider label="Opacity" min={0.1} max={1} step={0.02} value={layer.opacity ?? 1} onChange={(value) => onUpdate({ opacity: value })} />
+              <p className="text-[10px] text-[var(--muted-foreground)]">Drag to move · drag the corner handles to scale.</p>
+            </>
+          )}
         </>
       )}
     </div>
