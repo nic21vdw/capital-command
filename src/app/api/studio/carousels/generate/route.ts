@@ -1,4 +1,6 @@
+import { randomUUID } from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
+import { extractCarouselFrames } from "@/lib/carousels/frames";
 import { getJob } from "@/lib/clipping/jobs";
 import { clipCarouselSource } from "@/lib/studio/carousel";
 import { getProject } from "@/lib/longform/store";
@@ -12,8 +14,9 @@ export const dynamic = "force-dynamic";
 
 /**
  * Writes carousel copy from a script, a long-form project's transcript, a
- * short-form video (a clip), or pasted text, and saves the carousel. The
- * slides are rendered to PNGs client-side on the Carousels page.
+ * short-form video (a clip), or pasted text, and saves the carousel. Video
+ * sources automatically contribute real stream frames as full-bleed artwork;
+ * the slides are rendered to PNGs client-side on the Carousels page.
  */
 export async function POST(request: NextRequest) {
   let scriptId = "";
@@ -92,6 +95,53 @@ export async function POST(request: NextRequest) {
     sourceId
   });
 
+  let screenshotCount = 0;
+  let screenshotError: string | undefined;
+  if (sourceId && (sourceType === "longform" || sourceType === "short")) {
+    try {
+      const frames = await extractCarouselFrames({
+        sourceType,
+        sourceId,
+        count: carousel.slides.length
+      });
+      if (frames.length === 0) throw new Error("No usable screenshots were found in the stream.");
+      screenshotCount = frames.length;
+      carousel.slides = carousel.slides.map((slide, index) => ({
+        ...slide,
+        headingColor: "#ffffff",
+        bodyColor: "rgba(255,255,255,0.88)",
+        layers: [
+          {
+            id: randomUUID(),
+            type: "image" as const,
+            src: frames[index % frames.length],
+            x: 0,
+            y: 0,
+            width: 1,
+            height: 1,
+            radius: 0,
+            fit: "cover" as const,
+            layout: "full-bleed" as const,
+            scale: 1,
+            focusX: 0.5,
+            focusY: 0.5,
+            opacity: 1,
+            darken: index === 0 ? 0.46 : 0.38
+          },
+          ...(slide.layers ?? []).filter((layer) => layer.type !== "image" || layer.layout !== "full-bleed")
+        ]
+      }));
+    } catch (error) {
+      screenshotError = error instanceof Error ? error.message : "Could not add screenshots from the stream.";
+    }
+  }
+
   await writeAppData({ ...data, videoStudio: { ...studio, carousels: [carousel, ...studio.carousels] } });
-  return NextResponse.json({ carousel, reason, configured: carouselGenerationConfigured() });
+  return NextResponse.json({
+    carousel,
+    reason,
+    configured: carouselGenerationConfigured(),
+    screenshotCount,
+    screenshotError
+  });
 }
