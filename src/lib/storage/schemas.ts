@@ -422,7 +422,13 @@ const slideImageLayerSchema = z.object({
   height: z.number(),
   radius: z.number().optional(),
   rotation: z.number().optional(),
-  fit: z.enum(["cover", "contain"]).optional()
+  fit: z.enum(["cover", "contain"]).optional(),
+  layout: z.enum(["free", "full-bleed"]).optional(),
+  scale: z.coerce.number().min(1).max(3).optional(),
+  focusX: z.coerce.number().min(0).max(1).optional(),
+  focusY: z.coerce.number().min(0).max(1).optional(),
+  opacity: z.coerce.number().min(0).max(1).optional(),
+  darken: z.coerce.number().min(0).max(0.9).optional()
 });
 
 export const slideLayerSchema = z.discriminatedUnion("type", [slideTextLayerSchema, slideImageLayerSchema]);
