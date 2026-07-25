@@ -54,7 +54,7 @@ export function VoiceoverPage() {
   return (
     <div>
       <PageHeader
-        eyebrow="Voice"
+        eyebrow="Studio"
         title="Voiceover"
         description="Type any dialogue and generate it in your own cloned voice — for narration, avatar dubbing, or quick VO drops into an edit."
       />

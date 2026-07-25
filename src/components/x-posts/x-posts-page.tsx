@@ -167,7 +167,7 @@ export function XPostsPage() {
   return (
     <div>
       <PageHeader
-        eyebrow="X / Threads"
+        eyebrow="Step 2 · Formats"
         title="Post Engine"
         description="Hit Generate for 24 fresh original posts — each with a reworded Threads variant — plus twenty ready replies for engaging as you scroll. Every press writes a brand-new set matched to your positioning brief, avoiding angles from your recent packs. Suggestions only, nothing is tracked."
         actions={

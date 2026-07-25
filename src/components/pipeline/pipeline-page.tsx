@@ -293,7 +293,7 @@ export function PipelinePage() {
   return (
     <div>
       <PageHeader
-        eyebrow="Distribute"
+        eyebrow="Step 1 · Import"
         title="Stream Pipeline"
         description="Drop one stream in at the top — the long-form edit, short clips, podcast MP3, carousel images, and text posts all come out below, ready to schedule."
       />

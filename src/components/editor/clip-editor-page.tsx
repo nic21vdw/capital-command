@@ -230,7 +230,7 @@ export function ClipEditorPage() {
   const projectList = (
     <div className="space-y-6">
       <PageHeader
-        eyebrow="Creator Tools"
+        eyebrow="Step 2 · Formats"
         title="Clip Editor"
         description="Open a clip to trim it on the timeline, pick a short-form layout, and export. Edits are non-destructive and saved automatically."
         actions={

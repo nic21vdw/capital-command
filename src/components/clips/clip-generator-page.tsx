@@ -350,7 +350,7 @@ export function ClipGeneratorPage() {
   return (
     <div className="space-y-5">
       <PageHeader
-        eyebrow="YouTube creator tools"
+        eyebrow="Step 2 · Formats"
         title="Clip Generator"
         description="Turn a raw livestream or recording into short clips: every source is transcribed and captioned automatically, the best moments are picked and titled, and each clip opens in the editor ready to export for Shorts and Reels."
       />

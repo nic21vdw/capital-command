@@ -23,6 +23,7 @@ import {
   UploadCloud,
   Wand2,
   Workflow,
+  Youtube,
   type LucideIcon
 } from "lucide-react";
 import { AppFooter } from "@/components/layout/app-footer";
@@ -30,64 +31,74 @@ import { useAppData } from "@/components/providers/app-provider";
 import { cn } from "@/lib/utils";
 
 type NavItem = { href: string; label: string; icon: LucideIcon };
-type NavGroup = { label: string; items: NavItem[] };
 
-// The nav reads as the pipeline, top to bottom: plan the video, make it,
-// then get it (and its side outputs) out everywhere.
-const navGroups: NavGroup[] = [
+/**
+ * The sidebar IS the pipeline. Capital Command's whole point is one flow —
+ * import a stream, fan it out into every format, check each one, mass-schedule
+ * the lot, then manage it all on the calendar — so the nav reads as that flow,
+ * top to bottom, with numbered stages on a connecting rail.
+ */
+type PipelineStage = { step: number; label: string; items: NavItem[] };
+
+const PIPELINE_STAGES: PipelineStage[] = [
   {
-    label: "Plan",
+    step: 1,
+    label: "Import",
     items: [
-      // Keyword research → scored video ideas, saved to a board.
-      { href: "/ideas", label: "Idea Lab", icon: Lightbulb },
-      // Full scripts following the channel framework + graphics/SFX kit.
-      { href: "/scripts", label: "Scripts", icon: FileText },
-      // Watchlist of other channels with baseline stats and outlier flagging.
-      { href: "/outliers", label: "Outlier Radar", icon: Radar }
+      // One stream in (VOD link or file) → every format out, ready to schedule.
+      { href: "/pipeline", label: "Stream Pipeline", icon: Workflow }
     ]
   },
   {
-    label: "Create",
+    step: 2,
+    label: "Formats",
     items: [
-      { href: "/longform", label: "Long-Form Editor", icon: Clapperboard },
-      { href: "/clips", label: "Clip Generator", icon: Wand2 },
-      // Library of saved clip projects. Clips are also edited straight from
-      // their card in the Clip Generator (which deep-links into /editor), but
-      // this tab is the way back into every project you've already started.
+      // Everything the stream trickles down into — manage, edit, and check
+      // each output here before it goes anywhere.
+      { href: "/longform", label: "Long-Form Video", icon: Clapperboard },
+      { href: "/clips", label: "Short Clips", icon: Wand2 },
       { href: "/editor", label: "Clip Editor", icon: Scissors },
-      // Auto-playing deck of the Remotion diagram/title segments.
-      { href: "/presentation", label: "Segment Deck", icon: Presentation },
-      // Higgsfield-generated avatar videos (real footage, AI avatar, no lines).
-      { href: "/avatar", label: "Higgsfield Avatar", icon: Sparkles },
-      // AI voiceover clips in Nic's cloned voice, from typed dialogue.
-      { href: "/voiceover", label: "Voiceover", icon: Mic }
+      { href: "/carousels", label: "Carousels & Images", icon: Images },
+      { href: "/x-posts", label: "X / Threads Posts", icon: AtSign },
+      { href: "/facebook", label: "FB / IG Threads", icon: Facebook }
     ]
   },
   {
-    label: "Distribute",
+    step: 3,
+    label: "Schedule",
     items: [
-      // One stream in (link or file) → long-form edit, shorts, MP3, images,
-      // and text posts all fan out automatically, ready for the scheduler.
-      { href: "/pipeline", label: "Stream Pipeline", icon: Workflow },
-      // Every distribution calendar merged into one day/week/month view — the
-      // first stop for "what goes out where, and when".
-      { href: "/master-calendar", label: "Master Calendar", icon: CalendarRange },
-      // Source → output matrix of everything each asset can become.
-      { href: "/distribution", label: "Distribution Centre", icon: Rocket },
+      // Mass-schedule the finished outputs across accounts and platforms.
       { href: "/uploading-center", label: "Uploading Center", icon: UploadCloud },
-      // Carousel images generated from scripts/videos, distributable to Instagram, Facebook, and TikTok.
-      { href: "/carousels", label: "Carousels", icon: Images },
-      // On-demand pack of suggested X/Threads posts + replies (suggestion-only).
-      { href: "/x-posts", label: "X / Threads Posts", icon: AtSign },
-      // Thread-format content engine for Facebook/Instagram (hook post +
-      // numbered comment thread + CTA comment).
-      { href: "/facebook", label: "FB / IG Threads", icon: Facebook }
+      { href: "/distribution", label: "Distribution Centre", icon: Rocket }
+    ]
+  },
+  {
+    step: 4,
+    label: "Calendar",
+    items: [
+      // The end of the line: everything scheduled, managed in one place.
+      { href: "/master-calendar", label: "Master Calendar", icon: CalendarRange }
     ]
   }
 ];
 
-const allNavItems = navGroups.flatMap((group) => group.items);
+/** Supporting tools that feed the pipeline but sit outside the main flow. */
+const STUDIO_ITEMS: NavItem[] = [
+  { href: "/ideas", label: "Idea Lab", icon: Lightbulb },
+  { href: "/scripts", label: "Scripts", icon: FileText },
+  { href: "/outliers", label: "Outlier Radar", icon: Radar },
+  { href: "/presentation", label: "Segment Deck", icon: Presentation },
+  { href: "/avatar", label: "Higgsfield Avatar", icon: Sparkles },
+  { href: "/voiceover", label: "Voiceover", icon: Mic }
+];
+
+const ALL_NAV_ITEMS = [...PIPELINE_STAGES.flatMap((stage) => stage.items), ...STUDIO_ITEMS];
 const SIDEBAR_COLLAPSED_KEY = "capital-command:sidebar-collapsed";
+
+/** The home route renders the Clip Generator, so "/" lights up Short Clips. */
+function isActivePath(pathname: string, href: string): boolean {
+  return pathname === href || (href === "/clips" && pathname === "/");
+}
 
 function initialsFrom(name: string) {
   const parts = name.trim().split(/\s+/).filter(Boolean);
@@ -100,17 +111,197 @@ function initialsFrom(name: string) {
 
 function Brand({ collapsed = false }: { collapsed?: boolean }) {
   return (
-    <Link href="/" className={cn("flex items-center gap-3", collapsed && "justify-center")} title="Dashboard">
-      <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-gradient-to-br from-[#a855f7] to-[#7c3aed] text-sm font-bold tracking-tight text-white shadow-[0_2px_10px_rgba(124,58,237,0.45)]">
-        NV
+    <Link href="/" className={cn("flex items-center gap-3", collapsed && "justify-center")} title="Capital Command">
+      <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-[#a855f7] to-[#7c3aed] shadow-[0_2px_10px_rgba(124,58,237,0.45)]">
+        <Workflow className="h-4.5 w-4.5 text-white" />
       </span>
       <span className={cn("flex flex-col leading-tight", collapsed && "hidden")}>
-        <span className="text-sm font-semibold text-white">Nic Vandewetering</span>
-        <span className="text-xs text-[var(--muted-foreground)]">YouTube creator tools</span>
+        <span className="text-sm font-semibold tracking-tight text-white">Capital Command</span>
+        <span className="text-xs text-[var(--muted-foreground)]">One stream, every format</span>
       </span>
     </Link>
   );
 }
+
+/* ------------------------------------------------------------------ */
+/* YouTube channel identity                                            */
+/* ------------------------------------------------------------------ */
+
+type ChannelSummary = {
+  /** The connected channel shown on the card (primary account first). */
+  title: string;
+  thumbnail: string | null;
+  /** How many other connected YouTube accounts exist beyond this one. */
+  extraConnected: number;
+};
+
+type ChannelCardState =
+  | { status: "loading" }
+  | { status: "connected"; channel: ChannelSummary }
+  | { status: "disconnected" };
+
+type AccountRow = {
+  id: string;
+  platform: string;
+  primary: boolean;
+  connected: boolean;
+  youtube: { title: string; thumbnail: string | null } | null;
+};
+
+const CHANNEL_CACHE_KEY = "capital-command:youtube-channel";
+const CHANNEL_CACHE_TTL_MS = 60_000;
+
+function summarize(accounts: AccountRow[]): ChannelCardState {
+  const connected = accounts.filter((account) => account.platform === "youtube" && account.connected && account.youtube);
+  if (connected.length === 0) return { status: "disconnected" };
+  // The primary channel is the face of the app; any primary-connected account
+  // wins, otherwise the first connected one does.
+  const lead = connected.find((account) => account.primary) ?? connected[0];
+  return {
+    status: "connected",
+    channel: {
+      title: lead.youtube!.title,
+      thumbnail: lead.youtube!.thumbnail,
+      extraConnected: connected.length - 1
+    }
+  };
+}
+
+/**
+ * The signed-in YouTube channel, resolved through the local backend (tokens
+ * never reach the browser). Cached briefly in sessionStorage so page-to-page
+ * navigation doesn't flash the loading state or refetch every time.
+ */
+function useYoutubeChannel(): ChannelCardState {
+  const [state, setState] = useState<ChannelCardState>({ status: "loading" });
+
+  useEffect(() => {
+    try {
+      const raw = window.sessionStorage.getItem(CHANNEL_CACHE_KEY);
+      if (raw) {
+        const cached = JSON.parse(raw) as { at: number; state: ChannelCardState };
+        if (Date.now() - cached.at < CHANNEL_CACHE_TTL_MS && cached.state.status !== "loading") {
+          // Deferred like the sidebar-collapse read: a synchronous setState
+          // inside an effect body triggers a cascading re-render lint error.
+          queueMicrotask(() => setState(cached.state));
+          return;
+        }
+      }
+    } catch {
+      // Bad cache — fall through to a fresh fetch.
+    }
+    const controller = new AbortController();
+    void fetch("/api/publish/accounts", { cache: "no-store", signal: controller.signal })
+      .then((res) => (res.ok ? res.json() : Promise.reject(new Error(`${res.status}`))))
+      .then((json: { accounts?: AccountRow[] }) => {
+        const next = summarize(json.accounts ?? []);
+        setState(next);
+        try {
+          window.sessionStorage.setItem(CHANNEL_CACHE_KEY, JSON.stringify({ at: Date.now(), state: next }));
+        } catch {
+          // Non-critical cache write.
+        }
+      })
+      .catch((error) => {
+        if (!(error instanceof DOMException && error.name === "AbortError")) setState({ status: "disconnected" });
+      });
+    return () => controller.abort();
+  }, []);
+
+  return state;
+}
+
+/** The channel avatar circle, shared by the sidebar card and the mobile bar. */
+function ChannelAvatar({ channel, className }: { channel: ChannelSummary; className?: string }) {
+  return (
+    <span
+      className={cn(
+        "relative flex shrink-0 items-center justify-center overflow-hidden rounded-full bg-white/10 ring-2 ring-[#ff0000]/60",
+        className
+      )}
+    >
+      {channel.thumbnail ? (
+        // eslint-disable-next-line @next/next/no-img-element -- remote avatar host isn't in next.config images
+        <img src={channel.thumbnail} alt="" className="h-full w-full object-cover" />
+      ) : (
+        <Youtube className="h-1/2 w-1/2 text-[#ff0000]" />
+      )}
+    </span>
+  );
+}
+
+/**
+ * The channel card right under the brand: who this whole pipeline publishes
+ * as. Connected → avatar, channel name, live dot (opens the Uploading Center);
+ * not connected → a sign-in call to action straight into Google OAuth.
+ */
+function ChannelCard({ collapsed = false }: { collapsed?: boolean }) {
+  const state = useYoutubeChannel();
+
+  if (state.status === "loading") {
+    return (
+      <div
+        className={cn(
+          "flex items-center gap-3 rounded-xl border border-[var(--border)] bg-white/[0.03] px-3 py-2.5",
+          collapsed && "justify-center px-2"
+        )}
+      >
+        <span className="h-9 w-9 shrink-0 animate-pulse rounded-full bg-white/10" />
+        <span className={cn("flex min-w-0 flex-1 flex-col gap-1.5", collapsed && "hidden")}>
+          <span className="h-2.5 w-24 animate-pulse rounded bg-white/10" />
+          <span className="h-2 w-16 animate-pulse rounded bg-white/5" />
+        </span>
+      </div>
+    );
+  }
+
+  if (state.status === "connected") {
+    const { channel } = state;
+    return (
+      <Link
+        href="/uploading-center"
+        title={collapsed ? `${channel.title} — YouTube` : "Manage channel accounts in the Uploading Center"}
+        className={cn(
+          "group flex items-center gap-3 rounded-xl border border-[var(--border)] bg-gradient-to-br from-white/[0.06] to-transparent px-3 py-2.5 transition hover:border-[var(--border-strong)] hover:from-white/[0.09]",
+          collapsed && "justify-center px-2"
+        )}
+      >
+        <ChannelAvatar channel={channel} className="h-9 w-9" />
+        <span className={cn("flex min-w-0 flex-1 flex-col leading-tight", collapsed && "hidden")}>
+          <span className="truncate text-sm font-semibold text-white">{channel.title}</span>
+          <span className="flex items-center gap-1.5 text-xs text-[var(--muted-foreground)]">
+            <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
+            YouTube · Signed in
+            {channel.extraConnected > 0 ? ` · +${channel.extraConnected}` : ""}
+          </span>
+        </span>
+      </Link>
+    );
+  }
+
+  return (
+    <a
+      href="/api/auth/google"
+      title={collapsed ? "Sign in with YouTube" : undefined}
+      className={cn(
+        "group flex items-center gap-3 rounded-xl border border-dashed border-[var(--border-strong)] px-3 py-2.5 transition hover:border-[#ff0000]/60 hover:bg-white/[0.04]",
+        collapsed && "justify-center px-2"
+      )}
+    >
+      <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[#ff0000]/15 text-[#ff4d4d] transition group-hover:bg-[#ff0000]/25">
+        <Youtube className="h-4.5 w-4.5" />
+      </span>
+      <span className={cn("flex min-w-0 flex-1 flex-col leading-tight", collapsed && "hidden")}>
+        <span className="text-sm font-semibold text-white">Sign in with YouTube</span>
+        <span className="text-xs text-[var(--muted-foreground)]">Connect your channel to publish</span>
+      </span>
+    </a>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* Navigation                                                          */
+/* ------------------------------------------------------------------ */
 
 function NavLink({ item, active, collapsed = false }: { item: NavItem; active: boolean; collapsed?: boolean }) {
   const Icon = item.icon;
@@ -119,16 +310,88 @@ function NavLink({ item, active, collapsed = false }: { item: NavItem; active: b
       href={item.href}
       title={collapsed ? item.label : undefined}
       className={cn(
-        "flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition",
-        collapsed && "justify-center px-2",
+        "flex items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-sm transition",
+        collapsed && "justify-center px-2 py-2",
         active
           ? "bg-white/8 font-medium text-white"
           : "text-[var(--muted-foreground)] hover:bg-white/5 hover:text-white"
       )}
     >
       <Icon className={cn("h-4 w-4 shrink-0", active && "text-[var(--accent)]")} />
-      {!collapsed && item.label}
+      {!collapsed && <span className="truncate">{item.label}</span>}
     </Link>
+  );
+}
+
+/** The numbered node on the pipeline rail; lights up while its stage is open. */
+function StageNode({ step, active }: { step: number; active: boolean }) {
+  return (
+    <span
+      className={cn(
+        "flex h-6 w-6 shrink-0 items-center justify-center rounded-full border text-[11px] font-semibold transition",
+        active
+          ? "border-[var(--accent)] bg-[var(--accent)] text-[var(--accent-contrast)] shadow-[0_0_12px_color-mix(in_srgb,var(--accent)_55%,transparent)]"
+          : "border-[var(--border-strong)] bg-[var(--panel)] text-[var(--muted-foreground)]"
+      )}
+    >
+      {step}
+    </span>
+  );
+}
+
+/** One pipeline stage: numbered node + connector on the rail, links beside. */
+function StageGroup({
+  stage,
+  pathname,
+  last
+}: {
+  stage: PipelineStage;
+  pathname: string;
+  last: boolean;
+}) {
+  const stageActive = stage.items.some((item) => isActivePath(pathname, item.href));
+  return (
+    <div className="flex gap-2.5">
+      <div className="flex flex-col items-center">
+        <StageNode step={stage.step} active={stageActive} />
+        {!last && (
+          <span className={cn("w-px flex-1", stageActive ? "bg-[var(--accent)]/50" : "bg-[var(--border-strong)]")} />
+        )}
+      </div>
+      <div className={cn("min-w-0 flex-1", !last && "pb-4")}>
+        <p
+          className={cn(
+            "px-2.5 pt-0.5 text-[11px] font-semibold uppercase tracking-wider",
+            stageActive ? "text-white" : "text-[var(--muted-foreground)]"
+          )}
+        >
+          {stage.label}
+        </p>
+        <div className="mt-1 space-y-0.5">
+          {stage.items.map((item) => (
+            <NavLink key={item.href} item={item} active={isActivePath(pathname, item.href)} />
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/** Collapsed rail: step chips between icon runs keep the flow readable. */
+function CollapsedPipeline({ pathname }: { pathname: string }) {
+  return (
+    <div className="space-y-1">
+      {PIPELINE_STAGES.map((stage) => (
+        <div key={stage.step} className="space-y-1">
+          <div className="flex justify-center pt-1" title={`Step ${stage.step} · ${stage.label}`}>
+            <StageNode step={stage.step} active={stage.items.some((item) => isActivePath(pathname, item.href))} />
+          </div>
+          {stage.items.map((item) => (
+            <NavLink key={item.href} item={item} active={isActivePath(pathname, item.href)} collapsed />
+          ))}
+        </div>
+      ))}
+    </div>
   );
 }
 
@@ -198,11 +461,11 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
   return (
     <div className="flex min-h-screen gap-6 px-4 py-4 lg:px-6">
-      <aside className={cn("hidden shrink-0 transition-[width] duration-300 lg:block", sidebarCollapsed ? "w-20" : "w-64")}>
+      <aside className={cn("hidden shrink-0 transition-[width] duration-300 lg:block", sidebarCollapsed ? "w-20" : "w-72")}>
         <div className="sticky top-4 flex h-[calc(100vh-2rem)] flex-col rounded-xl border border-[var(--border)] bg-[var(--panel)] p-4">
           {/* When collapsed the rail is too narrow for the brand and the toggle
               side by side, so stack them instead of letting them overflow. */}
-          <div className={cn("flex pb-4", sidebarCollapsed ? "flex-col items-center gap-2" : "items-center justify-between gap-2 px-1")}>
+          <div className={cn("flex pb-3", sidebarCollapsed ? "flex-col items-center gap-2" : "items-center justify-between gap-2 px-1")}>
             <Brand collapsed={sidebarCollapsed} />
             <button
               type="button"
@@ -214,20 +477,67 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               {sidebarCollapsed ? <ChevronRight className="h-4 w-4" /> : <ChevronLeft className="h-4 w-4" />}
             </button>
           </div>
-          <nav className="flex-1 space-y-6 overflow-y-auto">
-            {navGroups.map((group) => (
-              <div key={group.label} className="space-y-1">
-                <p className={cn("px-3 pb-1 text-[11px] font-medium uppercase tracking-wider text-[var(--muted-foreground)]", sidebarCollapsed && "sr-only")}>
-                  {group.label}
-                </p>
-                {group.items.map((item) => (
-                  <NavLink key={item.href} item={item} active={pathname === item.href} collapsed={sidebarCollapsed} />
+
+          {/* Who this pipeline publishes as — front and centre. */}
+          <div className="pb-4">
+            <ChannelCard collapsed={sidebarCollapsed} />
+          </div>
+
+          <nav className="flex-1 space-y-5 overflow-y-auto pr-0.5">
+            <div>
+              <p
+                className={cn(
+                  "px-1 pb-2 text-[11px] font-medium uppercase tracking-[0.14em] text-[var(--muted-foreground)]",
+                  sidebarCollapsed && "sr-only"
+                )}
+              >
+                Pipeline
+              </p>
+              {sidebarCollapsed ? (
+                <CollapsedPipeline pathname={pathname} />
+              ) : (
+                <div>
+                  {PIPELINE_STAGES.map((stage, index) => (
+                    <StageGroup
+                      key={stage.step}
+                      stage={stage}
+                      pathname={pathname}
+                      last={index === PIPELINE_STAGES.length - 1}
+                    />
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div className={cn(!sidebarCollapsed && "border-t border-[var(--border)] pt-4")}>
+              {sidebarCollapsed ? <div className="mx-3 border-t border-[var(--border)] pb-1" /> : null}
+              <p
+                className={cn(
+                  "px-1 pb-2 text-[11px] font-medium uppercase tracking-[0.14em] text-[var(--muted-foreground)]",
+                  sidebarCollapsed && "sr-only"
+                )}
+              >
+                Studio
+              </p>
+              <div className="space-y-0.5">
+                {STUDIO_ITEMS.map((item) => (
+                  <NavLink
+                    key={item.href}
+                    item={item}
+                    active={isActivePath(pathname, item.href)}
+                    collapsed={sidebarCollapsed}
+                  />
                 ))}
               </div>
-            ))}
+            </div>
           </nav>
+
           <div className="mt-4 space-y-3 border-t border-[var(--border)] pt-4">
-            <NavLink item={{ href: "/settings", label: "Settings", icon: Settings }} active={settingsActive} collapsed={sidebarCollapsed} />
+            <NavLink
+              item={{ href: "/settings", label: "Settings", icon: Settings }}
+              active={settingsActive}
+              collapsed={sidebarCollapsed}
+            />
             <ProfileFooter collapsed={sidebarCollapsed} />
           </div>
         </div>
@@ -235,19 +545,22 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       <main className="min-w-0 flex-1">
         {/* Mobile top bar + nav */}
         <div className="mb-4 lg:hidden">
-          <div className="mb-3 flex items-center justify-between rounded-xl border border-[var(--border)] bg-[var(--panel)] px-4 py-3">
+          <div className="mb-3 flex items-center justify-between gap-3 rounded-xl border border-[var(--border)] bg-[var(--panel)] px-4 py-3">
             <Brand />
-            <Link
-              href="/settings"
-              aria-label="Open settings"
-              className="flex h-9 w-9 items-center justify-center rounded-lg border border-[var(--border)] text-[var(--muted-foreground)] transition hover:text-white"
-            >
-              <Settings className="h-4 w-4" />
-            </Link>
+            <div className="flex items-center gap-2">
+              <MobileChannelChip />
+              <Link
+                href="/settings"
+                aria-label="Open settings"
+                className="flex h-9 w-9 items-center justify-center rounded-lg border border-[var(--border)] text-[var(--muted-foreground)] transition hover:text-white"
+              >
+                <Settings className="h-4 w-4" />
+              </Link>
+            </div>
           </div>
           <div className="flex items-center gap-1 overflow-x-auto rounded-xl border border-[var(--border)] bg-[var(--panel)] p-1">
-            {allNavItems.map((item) => {
-              const active = pathname === item.href;
+            {ALL_NAV_ITEMS.map((item) => {
+              const active = isActivePath(pathname, item.href);
               return (
                 <Link
                   key={item.href}
@@ -275,4 +588,29 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       </main>
     </div>
   );
+}
+
+/** The channel identity, shrunk to an avatar chip for the mobile top bar. */
+function MobileChannelChip() {
+  const state = useYoutubeChannel();
+  if (state.status === "connected") {
+    return (
+      <Link href="/uploading-center" aria-label={`${state.channel.title} — YouTube`} title={state.channel.title}>
+        <ChannelAvatar channel={state.channel} className="h-9 w-9" />
+      </Link>
+    );
+  }
+  if (state.status === "disconnected") {
+    return (
+      <a
+        href="/api/auth/google"
+        aria-label="Sign in with YouTube"
+        title="Sign in with YouTube"
+        className="flex h-9 w-9 items-center justify-center rounded-full bg-[#ff0000]/15 text-[#ff4d4d] transition hover:bg-[#ff0000]/25"
+      >
+        <Youtube className="h-4 w-4" />
+      </a>
+    );
+  }
+  return <span className="h-9 w-9 animate-pulse rounded-full bg-white/10" />;
 }

@@ -172,7 +172,7 @@ export function CarouselsPage() {
   return (
     <div>
       <PageHeader
-        eyebrow="Carousels"
+        eyebrow="Step 2 · Formats"
         title="Carousels"
         description="Turn a script, a finished video's transcript, a short-form video, or pasted text into a swipeable carousel — hook slide, value slides, CTA slide — distributable to Instagram, Facebook, and TikTok. Double-click a slide to preview or edit it, pick an aspect ratio, download, or schedule the upload."
       />

@@ -68,7 +68,7 @@ export function AvatarPage() {
   return (
     <div>
       <PageHeader
-        eyebrow="Higgsfield"
+        eyebrow="Studio"
         title="Avatar Videos"
         description="Generate real-footage-style clips of your Higgsfield avatar in any scene — no lines to deliver. Set up the avatar once with the Higgsfield CLI (higgsfield auth login), then queue scenes here."
       />
