@@ -110,30 +110,41 @@ function roundedRectPath(ctx: CanvasRenderingContext2D, x: number, y: number, w:
 }
 
 function drawImageLayer(ctx: CanvasRenderingContext2D, layer: Extract<SlideLayer, { type: "image" }>, img: HTMLImageElement, w: number, h: number) {
-  const lx = layer.x * w;
-  const ly = layer.y * h;
-  const lw = layer.width * w;
-  const lh = layer.height * h;
+  const fullBleed = layer.layout === "full-bleed";
+  const lx = fullBleed ? 0 : layer.x * w;
+  const ly = fullBleed ? 0 : layer.y * h;
+  const lw = fullBleed ? w : layer.width * w;
+  const lh = fullBleed ? h : layer.height * h;
   ctx.save();
-  if (layer.rotation) {
+  ctx.globalAlpha = layer.opacity ?? 1;
+  if (!fullBleed && layer.rotation) {
     ctx.translate(lx + lw / 2, ly + lh / 2);
     ctx.rotate((layer.rotation * Math.PI) / 180);
     ctx.translate(-(lx + lw / 2), -(ly + lh / 2));
   }
-  if (layer.radius) {
+  if (!fullBleed && layer.radius) {
     roundedRectPath(ctx, lx, ly, lw, lh, layer.radius * Math.min(lw, lh));
     ctx.clip();
   }
-  // "contain" shows the whole image (letterboxed — right for logos + PNGs with
-  // transparency); "cover" fills the box, cropping overflow (right for photos).
-  const fit = layer.fit ?? "cover";
-  const scale = fit === "contain" ? Math.min(lw / img.width, lh / img.height) : Math.max(lw / img.width, lh / img.height);
-  const dw = img.width * scale;
-  const dh = img.height * scale;
-  ctx.drawImage(img, lx + (lw - dw) / 2, ly + (lh - dh) / 2, dw, dh);
+
+  const fit = fullBleed ? "cover" : (layer.fit ?? "cover");
+  const baseScale = fit === "contain" ? Math.min(lw / img.width, lh / img.height) : Math.max(lw / img.width, lh / img.height);
+  const zoom = fullBleed ? Math.max(1, layer.scale ?? 1) : 1;
+  const dw = img.width * baseScale * zoom;
+  const dh = img.height * baseScale * zoom;
+  const focusX = Math.max(0, Math.min(1, layer.focusX ?? 0.5));
+  const focusY = Math.max(0, Math.min(1, layer.focusY ?? 0.5));
+  const dx = fullBleed ? lx - Math.max(0, dw - lw) * focusX : lx + (lw - dw) / 2;
+  const dy = fullBleed ? ly - Math.max(0, dh - lh) * focusY : ly + (lh - dh) / 2;
+  ctx.drawImage(img, dx, dy, dw, dh);
+  ctx.globalAlpha = 1;
+
+  if (fullBleed && (layer.darken ?? 0) > 0) {
+    ctx.fillStyle = `rgba(0,0,0,${Math.max(0, Math.min(0.9, layer.darken ?? 0))})`;
+    ctx.fillRect(0, 0, w, h);
+  }
   ctx.restore();
 }
-
 function drawTextLayer(ctx: CanvasRenderingContext2D, layer: Extract<SlideLayer, { type: "text" }>, w: number, h: number) {
   const fontPx = layer.fontSize * h;
   const font = `${layer.weight} ${fontPx}px system-ui, -apple-system, sans-serif`;
@@ -165,9 +176,10 @@ function drawTextLayer(ctx: CanvasRenderingContext2D, layer: Extract<SlideLayer,
 function drawBaseText(ctx: CanvasRenderingContext2D, slide: CarouselSlide, index: number, total: number, w: number, h: number) {
   const scale = w / 1080;
   const margin = 80 * scale;
+  const hasFullBleed = (slide.layers ?? []).some((layer) => layer.type === "image" && layer.layout === "full-bleed");
 
   // Slide counter.
-  ctx.fillStyle = COLATERAL_THEME.counter;
+  ctx.fillStyle = hasFullBleed ? "rgba(255,255,255,0.72)" : COLATERAL_THEME.counter;
   ctx.font = `600 ${34 * scale}px system-ui, -apple-system, sans-serif`;
   ctx.textAlign = "right";
   ctx.fillText(`${index + 1}/${total}`, w - margin - 0 * scale, 100 * scale);
@@ -186,7 +198,7 @@ function drawBaseText(ctx: CanvasRenderingContext2D, slide: CarouselSlide, index
 
   ctx.textAlign = "left";
   ctx.font = headingFont;
-  ctx.fillStyle = slide.headingColor ?? COLATERAL_THEME.heading;
+  ctx.fillStyle = slide.headingColor ?? (hasFullBleed ? "#ffffff" : COLATERAL_THEME.heading);
   for (const line of headingLines) {
     ctx.fillText(line, margin, y);
     y += headingLineH;
@@ -194,7 +206,7 @@ function drawBaseText(ctx: CanvasRenderingContext2D, slide: CarouselSlide, index
   if (bodyLines.length) {
     y += 40 * scale;
     ctx.font = bodyFont;
-    ctx.fillStyle = slide.bodyColor ?? COLATERAL_THEME.body;
+    ctx.fillStyle = slide.bodyColor ?? (hasFullBleed ? "rgba(255,255,255,0.86)" : COLATERAL_THEME.body);
     for (const line of bodyLines) {
       ctx.fillText(line, margin, y);
       y += bodyLineH;
