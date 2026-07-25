@@ -892,6 +892,16 @@ export type SlideLayer =
       /** How the source fills its box. "contain" shows the whole image
        *  (right for logos/transparent PNGs); "cover" crops to fill. */
       fit?: "cover" | "contain";
+      /** Free layers sit on the colored canvas; full-bleed layers become the slide background. */
+      layout?: "free" | "full-bleed";
+      /** Extra crop zoom for full-bleed photos (1 = cover fit). */
+      scale?: number;
+      /** Source focal point for full-bleed cropping, stored as 0..1 fractions. */
+      focusX?: number;
+      focusY?: number;
+      /** Layer opacity and a black readability wash over full-bleed media. */
+      opacity?: number;
+      darken?: number;
     };
 
 export interface CarouselSlide {
