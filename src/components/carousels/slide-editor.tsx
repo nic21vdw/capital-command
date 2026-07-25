@@ -288,6 +288,7 @@ export function SlideEditor({
 
         {mode === "edit" && slide ? (
           <Inspector
+            key={slide.id}
             slide={slide}
             selectedLayer={selectedLayer}
             onPatchSlide={patchSlide}
@@ -638,7 +639,14 @@ function EditStage({
         return (
           <div
             key={layer.id}
-            onPointerDown={(event) => (fullBleed ? (event.stopPropagation(), onSelectLayer(layer.id)) : startMove(event, layer))}
+            onPointerDown={(event) => {
+              if (fullBleed) {
+                event.stopPropagation();
+                onSelectLayer(layer.id);
+                return;
+              }
+              startMove(event, layer);
+            }}
             className={cn(
               "absolute touch-none select-none overflow-hidden",
               fullBleed ? "cursor-default" : "cursor-move",
@@ -748,11 +756,6 @@ function Inspector({
   const [frames, setFrames] = useState<string[]>([]);
   const layer = (slide.layers ?? []).find((entry) => entry.id === selectedLayer) ?? null;
   const hasStreamSource = Boolean(sourceId && (sourceType === "longform" || sourceType === "short"));
-
-  useEffect(() => {
-    setMediaPrompt([slide.heading, slide.body].filter(Boolean).join(". "));
-    setFrames([]);
-  }, [slide.id, slide.heading, slide.body]);
 
   const placeFullBleed = (src: string) => onAddImage(src, undefined, "full-bleed");
 
