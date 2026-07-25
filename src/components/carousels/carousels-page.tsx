@@ -154,13 +154,27 @@ export function CarouselsPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body)
       });
-      const json = (await response.json()) as { carousel?: Carousel; reason?: string | null; error?: string };
+      const json = (await response.json()) as {
+        carousel?: Carousel;
+        reason?: string | null;
+        error?: string;
+        screenshotCount?: number;
+        screenshotError?: string;
+      };
       if (!response.ok || !json.carousel) {
         toast.error(json.error ?? "Could not generate the carousel.");
         return;
       }
-      setReason(json.reason ?? null);
-      toast.success(`Carousel written — ${json.carousel.slides.length} slides.`);
+      setReason(json.screenshotError ?? json.reason ?? null);
+      if (json.screenshotError) {
+        toast.warning(`Carousel written, but stream screenshots could not be added: ${json.screenshotError}`);
+      } else if ((json.screenshotCount ?? 0) > 0) {
+        toast.success(
+          `Carousel written — ${json.carousel.slides.length} slides with ${json.screenshotCount} real stream screenshots.`
+        );
+      } else {
+        toast.success(`Carousel written — ${json.carousel.slides.length} slides.`);
+      }
       void refresh();
     } catch {
       toast.error("Could not generate the carousel.");
@@ -174,7 +188,7 @@ export function CarouselsPage() {
       <PageHeader
         eyebrow="Carousels"
         title="Carousels"
-        description="Turn a script, a finished video's transcript, a short-form video, or pasted text into a swipeable carousel — hook slide, value slides, CTA slide — distributable to Instagram, Facebook, and TikTok. Double-click a slide to preview or edit it, pick an aspect ratio, download, or schedule the upload."
+        description="Turn a script, a finished video's transcript, a short-form video, or pasted text into a swipeable carousel. Video sources automatically use real screenshots from the stream with the copy layered on top. Double-click a slide to preview or edit it, resize or reposition its image, download, or schedule the upload."
       />
 
       <Card className="mb-6 space-y-3">
