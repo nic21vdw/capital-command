@@ -38,6 +38,33 @@ fallback when no API key is configured or the call fails.
   `captions.ts`), and fresh editor projects seed the matching white text
   overlay (`makeTitleOverlay`).
 
+## Clip previews: center + blur, always the whole frame
+
+Every surface that shows a clip renders through `ClipFrame`
+(`src/components/clips/clip-frame.tsx`), never a bare `<video>`. It reproduces
+the center + blur composition `renderCaptionedVertical` burns into the
+ready-to-post file: the whole frame `object-contain` over a blurred, dimmed
+copy of the same footage.
+
+- NEVER `object-cover` on a clip — it crops footage out of shot, and the point
+  of a preview is to show what you are actually shipping.
+- NEVER let a clip letterbox onto the card background — black bars are the bug
+  this exists to prevent. A tile has to look right whichever file is backing
+  it: the finished 9:16 render (`downloadFile`), the instant 16:9 preview
+  published before the HD render lands (`previewFile`), or the neutral master
+  of an older job whose ready render never happened (`file`).
+- Preview boxes are a full `aspect-[9/16]` — the shape the clip posts in — so
+  nothing is cut off. Use `aspect="16/9"` only when the subject genuinely is a
+  widescreen master (e.g. an editor project's source).
+
+The render side already defaults to center + blur and should stay that way:
+`compositionMode` defaults to `"center-blur"` both at project creation
+(`editor.ts`) and on load (`schemas.ts`), and the Clip Generator's ready render
+goes through `renderCaptionedVertical` unconditionally. `DEFAULT_CLIP_LAYOUT`
+in `layouts.ts` is `"restream-stack"`, but that is only a parameter fallback
+for the opt-in layout-variant helpers — it is NOT a shipped default, so don't
+"fix" it into `center` and change what the variants mean.
+
 ## Remotion / motion video conventions
 
 When asked to make a "motion video" (a new Remotion short/segment), the

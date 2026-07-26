@@ -16,6 +16,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { useAppData } from "@/components/providers/app-provider";
+import { ClipFrame } from "@/components/clips/clip-frame";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -821,31 +822,32 @@ function ClipCard({
 
   return (
     <Card className="animate-in overflow-hidden p-0 transition-all duration-200 hover:border-[var(--border-strong)] hover:shadow-lg">
-      <div className="grid min-h-full md:grid-cols-[200px_minmax(0,1fr)]">
-        <div className="relative bg-black" onPointerEnter={startPreview} onPointerLeave={stopPreview}>
-          {playbackFile && (
-            <video
-              ref={videoRef}
-              src={fileUrl(jobId, playbackFile)}
-              // The poster paints the card instantly; the mp4 itself is not
-              // touched until hover, so ten cards don't fight over bandwidth
-              // (and show black boxes) while the page loads. Prefer the
-              // eagerly-generated poster frame, falling back to the on-demand
-              // thumbnail route for clips rendered before it existed.
-              poster={
-                clip.posterFile
-                  ? fileUrl(jobId, clip.posterFile)
-                  : clip.file
-                    ? thumbnailUrl(jobId, clip.file)
-                    : undefined
-              }
-              preload="none"
-              muted
-              loop
-              playsInline
-              className="aspect-video h-full min-h-32 w-full object-contain md:aspect-auto"
-            />
-          )}
+      <div className="grid min-h-full md:grid-cols-[220px_minmax(0,1fr)]">
+        {/* The preview is a full 9:16 frame — the shape the clip actually posts
+            in — so nothing is cut off, whichever file is backing it. */}
+        <div
+          className="relative mx-auto w-full max-w-[240px] md:max-w-none"
+          onPointerEnter={startPreview}
+          onPointerLeave={stopPreview}
+        >
+          <ClipFrame
+            ref={videoRef}
+            src={playbackFile ? fileUrl(jobId, playbackFile) : undefined}
+            // The poster paints the card instantly; the mp4 itself is not
+            // touched until hover, so ten cards don't fight over bandwidth
+            // (and show black boxes) while the page loads. Prefer the
+            // eagerly-generated poster frame, falling back to the on-demand
+            // thumbnail route for clips rendered before it existed.
+            poster={
+              clip.posterFile
+                ? fileUrl(jobId, clip.posterFile)
+                : clip.file
+                  ? thumbnailUrl(jobId, clip.file)
+                  : undefined
+            }
+            preload="none"
+            loop
+          />
           <Badge className="absolute left-3 top-3 border-[var(--accent)]/30 bg-black/70 text-[var(--accent)]">
             #{index + 1}
           </Badge>

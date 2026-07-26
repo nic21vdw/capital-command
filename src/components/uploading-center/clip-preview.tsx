@@ -1,7 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Play } from "lucide-react";
+import { ClipFrame } from "@/components/clips/clip-frame";
 import { Modal } from "@/components/ui/modal";
 
 function formatDuration(seconds: number) {
@@ -32,8 +33,8 @@ export function ClipPreview({
   durationSec: number;
   startSec?: number;
 }) {
-  const [hovering, setHovering] = useState(false);
   const [open, setOpen] = useState(false);
+  const videoRef = useRef<HTMLVideoElement>(null);
 
   // Skip the opening pause. Guard on currentTime so a manual scrub back to the
   // pause (or the natural loop restart) isn't yanked forward mid-playback.
@@ -48,38 +49,48 @@ export function ClipPreview({
     }
   };
 
+  const startPreview = () => {
+    const video = videoRef.current;
+    if (!video) return;
+    // The tile mounts unloaded behind its poster; only fetch the mp4 once
+    // someone shows interest in it.
+    video.preload = "auto";
+    skipLeadingPause(video);
+    void video.play().catch(() => undefined);
+  };
+  const stopPreview = () => {
+    const video = videoRef.current;
+    if (!video) return;
+    video.pause();
+    video.currentTime = startSec;
+  };
+
   return (
     <>
       <button
         type="button"
         aria-label={`Preview clip: ${headline}`}
         onClick={() => setOpen(true)}
-        onMouseEnter={() => setHovering(true)}
-        onMouseLeave={() => setHovering(false)}
-        onFocus={() => setHovering(true)}
-        onBlur={() => setHovering(false)}
+        onMouseEnter={startPreview}
+        onMouseLeave={stopPreview}
+        onFocus={startPreview}
+        onBlur={stopPreview}
         className="group relative block w-full cursor-pointer overflow-hidden rounded-lg border border-[var(--border)] bg-black focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
       >
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src={thumbnailUrl} alt="" className="aspect-[9/16] w-full object-cover" loading="lazy" />
-        {hovering ? (
-          <video
-            src={previewUrl}
-            muted
-            autoPlay
-            playsInline
-            preload="metadata"
-            onLoadedMetadata={(e) => skipLeadingPause(e.currentTarget)}
-            // Manual loop (instead of the `loop` attribute) so each pass also
-            // starts past the opening pause rather than replaying the silence.
-            onEnded={(e) => {
-              const video = e.currentTarget;
-              video.currentTime = startSec;
-              void video.play().catch(() => undefined);
-            }}
-            className="absolute inset-0 h-full w-full object-cover"
-          />
-        ) : null}
+        <ClipFrame
+          ref={videoRef}
+          src={previewUrl}
+          poster={thumbnailUrl}
+          preload="none"
+          onLoadedMetadata={(e) => skipLeadingPause(e.currentTarget)}
+          // Manual loop (instead of the `loop` attribute) so each pass also
+          // starts past the opening pause rather than replaying the silence.
+          onEnded={(e) => {
+            const video = e.currentTarget;
+            video.currentTime = startSec;
+            void video.play().catch(() => undefined);
+          }}
+        />
         <span className="absolute inset-0 flex items-center justify-center bg-black/0 transition group-hover:bg-black/20">
           <Play
             className="h-6 w-6 text-white opacity-0 drop-shadow transition group-hover:opacity-90"
