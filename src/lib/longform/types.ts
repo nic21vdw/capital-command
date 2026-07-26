@@ -135,6 +135,35 @@ export type LongformMusic = {
   fadeOut?: number;
 };
 
+/**
+ * One subject the recording covers, found by reading the transcript — the
+ * long-form counterpart to a short-form clip. A stream that ran three hours
+ * carries several of these (hackathon progress, a bug hunt, a business
+ * tangent), and each one exports as its own standalone upload of roughly ten
+ * minutes, cut and captioned with the project's own settings.
+ *
+ * Topics do NOT tile the recording: stretches that are mostly dead air or
+ * off-topic chatter are left out on purpose. They are also entirely separate
+ * from short-form clip selection, which scans the whole stream for its own
+ * best 30-second moments.
+ */
+export type LongformTopic = {
+  id: string;
+  /** Publish-ready title for this segment as its own video. */
+  title: string;
+  /** One line on what the segment covers. */
+  summary: string;
+  /** Source-timeline seconds, both landing on a completed thought. */
+  start: number;
+  end: number;
+  /** Distinctive terms that made this stretch its own subject. */
+  keywords: string[];
+  /** Whether Claude wrote the title or the offline keyword titler did. */
+  titleSource: "ai" | "fallback";
+  /** Export record this segment was last rendered as, if any. */
+  exportId?: string;
+};
+
 /** Tunables for how aggressively dead space is cut. */
 export type LongformPace = {
   /** Silences at least this long (seconds) get cut. */
@@ -160,6 +189,8 @@ export type LongformExportRecord = {
   title?: string;
   /** Whether the decorated title carries an injected emoji. */
   emojiUsed?: boolean;
+  /** Set when this export is one topic segment rather than the whole edit. */
+  topicId?: string;
   createdAt: string;
 };
 
@@ -184,6 +215,14 @@ export type LongformProject = {
   /** Raw detected silences the segment plan was built from. */
   silences: SilenceRange[];
   segments: LongformSegment[];
+  /**
+   * Topic segments found in the transcript, each exportable as its own video.
+   * Absent until they have been planned; an empty array means the planner ran
+   * and found nothing to split (see `topicsNote`).
+   */
+  topics?: LongformTopic[];
+  /** Why there are no topic segments, when the planner could not produce any. */
+  topicsNote?: string;
   hook: LongformHook;
   /** Whole-video captions burned over the edited runtime. */
   captions: LongformCaptions;

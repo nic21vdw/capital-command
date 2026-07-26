@@ -10,6 +10,7 @@ import {
   Copy,
   Download,
   Images,
+  Layers,
   Link as LinkIcon,
   Loader2,
   Podcast,
@@ -420,6 +421,16 @@ export function PipelinePage() {
             </div>
           </StageRow>
 
+          <StageRow icon={Layers} title="Topic segments" stage={stages.segments}>
+            <div className="mt-3">
+              <Link href={longformHref}>
+                <Button variant="secondary" className="px-3 py-1.5 text-xs">
+                  Render segments
+                </Button>
+              </Link>
+            </div>
+          </StageRow>
+
           <StageRow icon={Scissors} title="Short-form clips" stage={stages.clips}>
             <div className="mt-3">
               <Link href="/clips">
@@ -488,6 +499,9 @@ export function PipelinePage() {
                 <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-[var(--muted-foreground)]">
                   <span>{schedulable.clipsReady} shorts</span>
                   <span>{schedulable.longformReady ? "1 long-form video" : "long-form pending"}</span>
+                  <span>
+                    {schedulable.segments > 0 ? `${schedulable.segments} topic segments` : "segments pending"}
+                  </span>
                   <span>{schedulable.audioReady ? "1 MP3" : "MP3 pending"}</span>
                   <span>{schedulable.carouselSlides > 0 ? `${schedulable.carouselSlides} slides` : "slides pending"}</span>
                   <span>{schedulable.posts} posts</span>
