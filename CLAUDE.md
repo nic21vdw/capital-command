@@ -1,6 +1,26 @@
 # capital-command
 
-## Stream Pipeline (`/pipeline`)
+## Stream Pipeline (`/`) — the front door
+
+The pipeline IS the app, so it lives at `/` and nothing else does. The whole
+program is meant to read as one idea: a stream goes in at the top, and every
+other page is a format that fell out of it or a place those formats go.
+`/pipeline` still resolves and redirects to `/` for old bookmarks.
+
+The sidebar (`src/components/layout/app-shell.tsx`) says the same thing.
+Stream Pipeline sits ALONE above the groups — never a peer of the pages it
+feeds — and the groups below it are subcategories of a run:
+
+- **Outputs** — one row per format a run fans out into, in stage order.
+- **Schedule** — where finished outputs go: queued, calendared, pushed out.
+- **Studio** — the side workshop; everything NOT downstream of a stream run.
+
+Keep this true as the app grows. A new output format gets a row under
+"Outputs", not a new top-level group, and its row should sit in the same
+order as its stage on the pipeline page. Nav labels stay the app's existing
+product names ("Clip Generator", not "Short-Form Clips") so the rest of the
+UI copy — "Open in Clip Generator", "Sent to the Clip Generator" — still
+names something the nav actually shows.
 
 One stream in (VOD link or uploaded file) → every format out, ready to
 schedule. `src/lib/pipeline/runs.ts` is the orchestrator: a run stores a

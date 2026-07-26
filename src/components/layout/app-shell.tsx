@@ -32,22 +32,27 @@ import { cn } from "@/lib/utils";
 type NavItem = { href: string; label: string; icon: LucideIcon };
 type NavGroup = { label: string; items: NavItem[] };
 
-// The nav reads as the pipeline, top to bottom: plan the video, make it,
-// then get it (and its side outputs) out everywhere.
+/**
+ * Stream Pipeline is the app, so it is the front door (`/`) and it sits alone
+ * above the groups — the one place you start, never a peer of the pages it
+ * feeds. Everything under it is a SUBCATEGORY of a pipeline run: first the
+ * formats one stream fans out into, then where those formats go, then the
+ * side workshop of things a stream run does not produce.
+ *
+ * Keep this true as the app grows: a new output format gets a row under
+ * "Outputs" with the SAME name as its stage on the pipeline page, so the nav
+ * and the run read as one thing.
+ */
+const pipelineItem: NavItem = { href: "/", label: "Stream Pipeline", icon: Workflow };
+
 const navGroups: NavGroup[] = [
   {
-    label: "Plan",
-    items: [
-      // Keyword research → scored video ideas, saved to a board.
-      { href: "/ideas", label: "Idea Lab", icon: Lightbulb },
-      // Full scripts following the channel framework + graphics/SFX kit.
-      { href: "/scripts", label: "Scripts", icon: FileText },
-      // Watchlist of other channels with baseline stats and outlier flagging.
-      { href: "/outliers", label: "Outlier Radar", icon: Radar }
-    ]
-  },
-  {
-    label: "Create",
+    // One row per format the pipeline fans a stream out into, in the order the
+    // stages run. Labels stay the app's existing product names so every other
+    // string in the UI ("Open in Clip Generator", "Sent to the Clip
+    // Generator") still points somewhere the nav actually says. (Podcast MP3
+    // has no page of its own — it is a download on the pipeline's MP3 stage.)
+    label: "Outputs",
     items: [
       { href: "/longform", label: "Long-Form Editor", icon: Clapperboard },
       { href: "/clips", label: "Clip Generator", icon: Wand2 },
@@ -55,26 +60,6 @@ const navGroups: NavGroup[] = [
       // their card in the Clip Generator (which deep-links into /editor), but
       // this tab is the way back into every project you've already started.
       { href: "/editor", label: "Clip Editor", icon: Scissors },
-      // Auto-playing deck of the Remotion diagram/title segments.
-      { href: "/presentation", label: "Segment Deck", icon: Presentation },
-      // Higgsfield-generated avatar videos (real footage, AI avatar, no lines).
-      { href: "/avatar", label: "Higgsfield Avatar", icon: Sparkles },
-      // AI voiceover clips in Nic's cloned voice, from typed dialogue.
-      { href: "/voiceover", label: "Voiceover", icon: Mic }
-    ]
-  },
-  {
-    label: "Distribute",
-    items: [
-      // One stream in (link or file) → long-form edit, shorts, MP3, images,
-      // and text posts all fan out automatically, ready for the scheduler.
-      { href: "/pipeline", label: "Stream Pipeline", icon: Workflow },
-      // Every distribution calendar merged into one day/week/month view — the
-      // first stop for "what goes out where, and when".
-      { href: "/master-calendar", label: "Master Calendar", icon: CalendarRange },
-      // Source → output matrix of everything each asset can become.
-      { href: "/distribution", label: "Distribution Centre", icon: Rocket },
-      { href: "/uploading-center", label: "Uploading Center", icon: UploadCloud },
       // Carousel images generated from scripts/videos, distributable to Instagram, Facebook, and TikTok.
       { href: "/carousels", label: "Carousels", icon: Images },
       // On-demand pack of suggested X/Threads posts + replies (suggestion-only).
@@ -83,10 +68,40 @@ const navGroups: NavGroup[] = [
       // numbered comment thread + CTA comment).
       { href: "/facebook", label: "FB / IG Threads", icon: Facebook }
     ]
+  },
+  {
+    // Where finished outputs go once the run is done: queued, calendared, out.
+    label: "Schedule",
+    items: [
+      { href: "/uploading-center", label: "Uploading Center", icon: UploadCloud },
+      // Every distribution calendar merged into one day/week/month view — the
+      // first stop for "what goes out where, and when".
+      { href: "/master-calendar", label: "Master Calendar", icon: CalendarRange },
+      // Source → output matrix of everything each asset can become.
+      { href: "/distribution", label: "Distribution Centre", icon: Rocket }
+    ]
+  },
+  {
+    // Everything that is NOT downstream of a stream run.
+    label: "Studio",
+    items: [
+      // Keyword research → scored video ideas, saved to a board.
+      { href: "/ideas", label: "Idea Lab", icon: Lightbulb },
+      // Full scripts following the channel framework + graphics/SFX kit.
+      { href: "/scripts", label: "Scripts", icon: FileText },
+      // Watchlist of other channels with baseline stats and outlier flagging.
+      { href: "/outliers", label: "Outlier Radar", icon: Radar },
+      // Auto-playing deck of the Remotion diagram/title segments.
+      { href: "/presentation", label: "Segment Deck", icon: Presentation },
+      // Higgsfield-generated avatar videos (real footage, AI avatar, no lines).
+      { href: "/avatar", label: "Higgsfield Avatar", icon: Sparkles },
+      // AI voiceover clips in Nic's cloned voice, from typed dialogue.
+      { href: "/voiceover", label: "Voiceover", icon: Mic }
+    ]
   }
 ];
 
-const allNavItems = navGroups.flatMap((group) => group.items);
+const allNavItems = [pipelineItem, ...navGroups.flatMap((group) => group.items)];
 const SIDEBAR_COLLAPSED_KEY = "capital-command:sidebar-collapsed";
 
 function initialsFrom(name: string) {
@@ -215,6 +230,19 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             </button>
           </div>
           <nav className="flex-1 space-y-6 overflow-y-auto">
+            {/* The front door, alone above the groups — everything below it is
+                something a run through here produced. */}
+            <div className="space-y-1">
+              <NavLink item={pipelineItem} active={pathname === pipelineItem.href} collapsed={sidebarCollapsed} />
+              <p
+                className={cn(
+                  "px-3 pt-1 text-[11px] leading-snug text-[var(--muted-foreground)]",
+                  sidebarCollapsed && "sr-only"
+                )}
+              >
+                One stream in. Every format out.
+              </p>
+            </div>
             {navGroups.map((group) => (
               <div key={group.label} className="space-y-1">
                 <p className={cn("px-3 pb-1 text-[11px] font-medium uppercase tracking-wider text-[var(--muted-foreground)]", sidebarCollapsed && "sr-only")}>

@@ -293,7 +293,9 @@ export function PipelinePage() {
   return (
     <div>
       <PageHeader
-        eyebrow="Distribute"
+        // Not a section of the app any more — it IS the app's front door, and
+        // every other page is downstream of a run started here.
+        eyebrow="Start here"
         title="Stream Pipeline"
         description="Drop one stream in at the top — the long-form edit, short clips, podcast MP3, carousel images, and text posts all come out below, ready to schedule."
       />
