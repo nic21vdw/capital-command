@@ -16,6 +16,9 @@
     "publish:scheduler": "tsx src/lib/publisher/cli.ts scheduler",
     "publish:list": "tsx src/lib/publisher/cli.ts list",
     "publish:enqueue": "tsx src/lib/publisher/cli.ts enqueue",
+    "ingest:scan": "tsx src/lib/ingest/cli.ts scan",
+    "ingest:dry": "tsx src/lib/ingest/cli.ts scan --dry-run",
+    "ingest:ledger": "tsx src/lib/ingest/cli.ts ledger",
     "remotion:preview": "remotion studio",
     "remotion:render": "remotion render"
   },
