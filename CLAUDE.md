@@ -15,12 +15,21 @@ feeds — and the groups below it are subcategories of a run:
 - **Schedule** — where finished outputs go: queued, calendared, pushed out.
 - **Studio** — the side workshop; everything NOT downstream of a stream run.
 
+The page itself opens the way ChatGPT and Claude do. With no run in view it
+is a centred **hero**: a headline, one big composer, and the list of formats
+a run produces — nothing else. Submitting (or pressing "Start another one")
+switches that same `Composer` to its `docked` size and the flow **reveals**
+below it, stage rows staggering in 70ms apart, above a `RunProgress` band
+that counts stages done and names whatever is working right now. Keep that
+shape: the front page is one input until there is a run to watch.
+
 Keep this true as the app grows. A new output format gets a row under
-"Outputs", not a new top-level group, and its row should sit in the same
-order as its stage on the pipeline page. Nav labels stay the app's existing
-product names ("Clip Generator", not "Short-Form Clips") so the rest of the
-UI copy — "Open in Clip Generator", "Sent to the Clip Generator" — still
-names something the nav actually shows.
+"Outputs", not a new top-level group; its row sits in the same order as its
+stage on the pipeline page, and its key goes in `STAGE_ORDER` in
+`pipeline-page.tsx`, which drives both the reveal stagger and the counter.
+Nav labels stay the app's existing product names ("Clip Generator", not
+"Short-Form Clips") so the rest of the UI copy — "Open in Clip Generator",
+"Sent to the Clip Generator" — still names something the nav actually shows.
 
 One stream in (VOD link or uploaded file) → every format out, ready to
 schedule. `src/lib/pipeline/runs.ts` is the orchestrator: a run stores a
