@@ -30,9 +30,11 @@ duplicates. Each connected account is assigned one of those versions
 (`THREADS_POSTS` / `THREADS_POSTS_2`), and posts it at the slot time plus its
 own offset, so the two accounts don't fire in perfect lockstep.
 
-Connect one account and it posts its version only; `unassignedVersions()`
-reports the half nobody is posting so a stalled setup is visible in the
-dashboard rather than silently dropping content.
+Connect one account and it posts its version only — for a Threads-only setup
+that should be `variant`, the copy written for Threads. `unassignedVersions()`
+reports a version nobody posts ONLY when a second slot was started and left
+unusable; a deliberate single-account setup leaves the other version unused by
+design and shouldn't nag about it on every tick.
 
 A slot is judged past or future by its **own** time, not each account's
 offset — so a slot is always scheduled for every account or for none, and the

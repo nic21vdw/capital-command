@@ -154,11 +154,28 @@ export function threadsBlockedReason(config: ThreadsConfig = threadsConfig()): s
 }
 
 /**
- * Versions the pack writes that no connected account is posting — surfaced so
- * a half-finished two-account setup is visible rather than silently dropping
- * half the day's content.
+ * Account slots that were started and left unusable: some setting filled in
+ * (a label, a user id, a version) but no token, so nothing can post.
+ */
+export function unfinishedAccountSlots(): string[] {
+  return SLOTS.filter((slot) => {
+    if (str(`THREADS_ACCESS_TOKEN${slot.suffix}`)) return false;
+    return Boolean(
+      str(`THREADS_USER_ID${slot.suffix}`) ||
+        str(`THREADS_LABEL${slot.suffix}`) ||
+        str(`THREADS_POSTS${slot.suffix}`)
+    );
+  }).map((slot) => slot.id);
+}
+
+/**
+ * Versions the pack writes that no connected account is posting — but only
+ * when a second account slot was started and abandoned. Running one account on
+ * purpose leaves the other version unused by design (post it to X by hand, or
+ * don't), and nagging about that on every single tick is just noise.
  */
 export function unassignedVersions(config: ThreadsConfig = threadsConfig()): ThreadsVersion[] {
+  if (unfinishedAccountSlots().length === 0) return [];
   const covered = new Set(config.accounts.map((account) => account.posts));
   return (["text", "variant"] as ThreadsVersion[]).filter((entry) => !covered.has(entry));
 }
