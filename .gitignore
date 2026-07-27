@@ -4,6 +4,7 @@ package-lock.json
 pnpm-lock.yaml
 .pnpm-store
 .env
+.env.backup*
 coverage
 dist
 .test-dist
@@ -16,7 +17,9 @@ data/clips/
 data/longform/
 data/pipeline/
 data/voiceover/
+.worktrees/
 data/publish-queue.json
+data/threads-queue.json
 data/publisher-tokens.json
 data/social-accounts.json
 data/title-log.jsonl

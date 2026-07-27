@@ -26,6 +26,7 @@ import { Tabs } from "@/components/ui/tabs";
 import { localDateKey } from "@/lib/x-strategy/analytics";
 import { exportBaseName, toThreadsCsv, toThreadsJson } from "@/lib/x-posts/export";
 import { cn } from "@/lib/utils";
+import type { ThreadsBatchSummary } from "@/lib/threads/types";
 import type { XDailyPack, XPostFormat, XSuggestedPost, XSuggestedReply } from "@/types/domain";
 
 interface GenerateResponse {
@@ -33,6 +34,27 @@ interface GenerateResponse {
   cached: boolean;
   reason: string | null;
   configured: boolean;
+}
+
+interface AutopilotStatus {
+  enabled: boolean;
+  configured: boolean;
+  blockedReason: string | null;
+  settings: {
+    timezone: string;
+    postsPerDay: number;
+    lateGraceMinutes: number;
+    accounts: Array<{ id: string; label: string; posts: "text" | "variant"; offsetMinutes: number }>;
+    unassignedVersions: Array<"text" | "variant">;
+  };
+  today: ThreadsBatchSummary;
+}
+
+interface AutopilotActionResponse {
+  error?: string;
+  checks?: Array<{ accountId: string; label: string; ok: boolean; username?: string | null; error?: string }>;
+  plan?: { created: number; skipped?: string };
+  run?: { published: number; skipped: number; note?: string };
 }
 
 const FORMAT_STYLES: Record<XPostFormat, string> = {
@@ -193,6 +215,10 @@ export function XPostsPage() {
       {activePack ? <PackSummary pack={activePack} now={now} /> : null}
 
       <div className="mt-6">
+        <AutopilotCard />
+      </div>
+
+      <div className="mt-6">
         {activePack ? (
           <Tabs
             tabs={[
@@ -236,6 +262,152 @@ export function XPostsPage() {
         )}
       </div>
     </div>
+  );
+}
+
+/**
+ * The Threads autopilot: what the unattended loop has scheduled and sent
+ * today. The scheduled task drives the same endpoints every few minutes — the
+ * buttons here are for checking the setup or nudging it by hand.
+ */
+function AutopilotCard() {
+  const [status, setStatus] = useState<AutopilotStatus | null>(null);
+  const [busy, setBusy] = useState<string | null>(null);
+
+  const load = useCallback(async () => {
+    try {
+      const response = await fetch("/api/threads");
+      if (!response.ok) throw new Error("request failed");
+      setStatus((await response.json()) as AutopilotStatus);
+    } catch {
+      setStatus(null);
+    }
+  }, []);
+
+  const loadRequested = useRef(false);
+  useEffect(() => {
+    if (loadRequested.current) return;
+    loadRequested.current = true;
+    void load();
+  }, [load]);
+
+  const act = useCallback(
+    async (action: "plan" | "run-due" | "check", label: string) => {
+      setBusy(action);
+      try {
+        const response = await fetch("/api/threads", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action })
+        });
+        const json = (await response.json()) as AutopilotActionResponse;
+        if (!response.ok) throw new Error(json.error ?? "request failed");
+        if (action === "check") {
+          const checks = json.checks ?? [];
+          const bad = checks.filter((check) => !check.ok);
+          if (bad.length > 0) {
+            toast.error(bad.map((check) => `${check.label}: ${check.error}`).join(" · "));
+          } else {
+            toast.success(
+              `Connected: ${checks.map((check) => (check.username ? `@${check.username}` : check.label)).join(", ")}.`
+            );
+          }
+        } else if (action === "plan") {
+          toast.success(json.plan?.skipped ?? `Scheduled ${json.plan?.created ?? 0} posts for today.`);
+        } else {
+          toast.success(json.run?.note ?? `Posted ${json.run?.published ?? 0}, skipped ${json.run?.skipped ?? 0}.`);
+        }
+        await load();
+      } catch (error) {
+        toast.error(error instanceof Error ? error.message : `${label} failed.`);
+      } finally {
+        setBusy(null);
+      }
+    },
+    [load]
+  );
+
+  if (!status) return null;
+
+  const { today, settings, blockedReason } = status;
+  const expected = settings.postsPerDay * Math.max(1, settings.accounts.length);
+  const versionLabel = (version: "text" | "variant") => (version === "text" ? "punchy version" : "warm rewrite");
+
+  return (
+    <Card>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <p className="text-xs uppercase tracking-[0.28em] text-[var(--muted-foreground)]">Threads autopilot</p>
+          <h2 className="mt-1 text-xl font-semibold text-white">
+            {today.published}/{today.total || expected} posted today
+          </h2>
+          <p className="mt-1 text-xs text-[var(--muted-foreground)]">
+            {settings.postsPerDay} slots a day in {settings.timezone} · {settings.accounts.length || "no"} account
+            {settings.accounts.length === 1 ? "" : "s"}
+          </p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <Badge className={blockedReason ? "text-amber-200" : "text-[var(--accent)]"}>
+            {blockedReason ? "Idle" : "Armed"}
+          </Badge>
+          {today.pending ? <Badge>{today.pending} queued</Badge> : null}
+          {today.failed ? <Badge className="text-rose-200">{today.failed} failed</Badge> : null}
+          {today.skipped ? <Badge>{today.skipped} skipped</Badge> : null}
+          {today.nextAt ? <Badge>Next {formatStamp(today.nextAt)}</Badge> : null}
+        </div>
+      </div>
+
+      {settings.accounts.length > 0 ? (
+        <div className="mt-4 space-y-2">
+          {settings.accounts.map((account) => {
+            const tally = today.accounts?.find((entry) => entry.accountId === account.id);
+            return (
+              <div
+                key={account.id}
+                className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-[var(--border)] px-3 py-2 text-xs"
+              >
+                <span className="font-medium text-white">{account.label}</span>
+                <span className="text-[var(--muted-foreground)]">
+                  {versionLabel(account.posts)}
+                  {account.offsetMinutes ? ` · +${account.offsetMinutes} min` : ""}
+                </span>
+                <span className="text-[var(--muted-foreground)]">
+                  {tally ? `${tally.published}/${tally.total} posted` : "nothing scheduled yet"}
+                </span>
+              </div>
+            );
+          })}
+        </div>
+      ) : null}
+
+      {blockedReason ? (
+        <p className="mt-4 rounded-xl border border-amber-400/30 bg-amber-400/10 px-3 py-2 text-xs text-amber-100">
+          {blockedReason}
+        </p>
+      ) : null}
+
+      {settings.unassignedVersions.length > 0 && !blockedReason ? (
+        <p className="mt-4 rounded-xl border border-amber-400/30 bg-amber-400/10 px-3 py-2 text-xs text-amber-100">
+          No account posts the {settings.unassignedVersions.map(versionLabel).join(" or ")} — that half of each day&apos;s
+          pack is being written and never used. Connect the second account, or point an existing one at it.
+        </p>
+      ) : null}
+
+      <div className="mt-4 flex flex-wrap gap-2">
+        <Button onClick={() => act("plan", "Scheduling")} disabled={busy !== null}>
+          <CalendarClock className="mr-2 h-4 w-4" />
+          {busy === "plan" ? "Scheduling…" : "Schedule today"}
+        </Button>
+        <Button onClick={() => act("run-due", "Posting")} disabled={busy !== null}>
+          <AtSign className="mr-2 h-4 w-4" />
+          {busy === "run-due" ? "Posting…" : "Post what's due"}
+        </Button>
+        <Button onClick={() => act("check", "Connection check")} disabled={busy !== null}>
+          <ShieldCheck className="mr-2 h-4 w-4" />
+          {busy === "check" ? "Checking…" : "Check connection"}
+        </Button>
+      </div>
+    </Card>
   );
 }
 
