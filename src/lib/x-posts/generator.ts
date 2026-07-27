@@ -165,7 +165,10 @@ Respond with ONLY valid JSON, no commentary, in exactly this shape:
 
   try {
     const result = await runAi({
-      maxTokens: 16000,
+      // A 24-post, 20-reply pack measured out at ~32k tokens once the model's
+      // reasoning is paid for out of the same budget. Asking for that up front
+      // skips a doomed first attempt that costs a minute and a half.
+      maxTokens: 32000,
       system:
         "You are a sharp ghostwriter for a structural engineer who builds AI tooling (CoLateral AI). You write specific, credible, non-generic social posts in his voice. You never fabricate facts, projects, or numbers. You output strict JSON when asked.",
       messages: [{ role: "user", content: userPrompt }]
