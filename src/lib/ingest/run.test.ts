@@ -342,6 +342,23 @@ describe("running a stream through the pipeline", () => {
     expect(pipeline.startPipelineRun).toHaveBeenCalledTimes(2);
   });
 
+  // A failure after the run started must not lose which run it was, or the
+  // pipeline holds a run nobody can trace back to the video that made it.
+  it("keeps the run id when the wait fails after the run started", async () => {
+    mockScan([aStream]);
+    setup();
+    mockPipeline({
+      wait: async () => {
+        throw new Error("500 Internal Server Error");
+      }
+    });
+
+    const { runDailyScan } = await import("@/lib/ingest/run");
+    const report = await runDailyScan({});
+
+    expect(report.ingested[0]).toMatchObject({ outcome: "error", runId: "run-1" });
+  });
+
   it("stops the whole scan when the app is unreachable", async () => {
     mockScan([aStream, { ...aStream, videoId: "stream-2", url: "https://youtu.be/stream-2" }]);
     setup();
