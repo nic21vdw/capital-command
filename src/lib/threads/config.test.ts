@@ -105,9 +105,17 @@ describe("threadsConfig", () => {
     expect(threadsBlockedReason(threadsConfig())).toContain("switched off");
   });
 
-  it("flags a version no account is posting", () => {
+  it("stays quiet about the unused version when one account is the whole setup", () => {
     connectPrimary();
+    expect(unassignedVersions(threadsConfig())).toEqual([]);
+  });
+
+  it("flags the unused version when a second slot was started and left unusable", () => {
+    connectPrimary();
+    process.env.THREADS_LABEL_2 = "the-other-one";
     expect(unassignedVersions(threadsConfig())).toEqual(["variant"]);
+
+    // Finishing that slot clears it.
     connectSecondary();
     expect(unassignedVersions(threadsConfig())).toEqual([]);
   });
