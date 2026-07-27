@@ -1,17 +1,34 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { threadsBlockedReason, threadsConfig, threadsConfigured } from "@/lib/threads/config";
+import { threadsBlockedReason, threadsConfig, threadsConfigured, unassignedVersions } from "@/lib/threads/config";
 
 const KEYS = [
   "THREADS_ENABLED",
   "THREADS_USER_ID",
   "THREADS_ACCESS_TOKEN",
-  "THREADS_SECOND_POST",
+  "THREADS_POSTS",
+  "THREADS_LABEL",
+  "THREADS_OFFSET_MINUTES",
+  "THREADS_USER_ID_2",
+  "THREADS_ACCESS_TOKEN_2",
+  "THREADS_POSTS_2",
+  "THREADS_LABEL_2",
+  "THREADS_OFFSET_MINUTES_2",
   "THREADS_POSTS_PER_DAY",
   "THREADS_TIMEZONE",
   "PUBLISH_TIMEZONE"
 ];
 
 let saved: Record<string, string | undefined> = {};
+
+function connectPrimary() {
+  process.env.THREADS_USER_ID = "111";
+  process.env.THREADS_ACCESS_TOKEN = "token-1";
+}
+
+function connectSecondary() {
+  process.env.THREADS_USER_ID_2 = "222";
+  process.env.THREADS_ACCESS_TOKEN_2 = "token-2";
+}
 
 beforeEach(() => {
   saved = Object.fromEntries(KEYS.map((key) => [key, process.env[key]]));
@@ -29,29 +46,62 @@ describe("threadsConfig", () => {
   it("defaults to on but unconnected, so nothing posts until a token is pasted in", () => {
     const config = threadsConfig();
     expect(config.enabled).toBe(true);
+    expect(config.accounts).toHaveLength(0);
     expect(threadsConfigured(config)).toBe(false);
-    expect(threadsBlockedReason(config)).toContain("not connected");
+    expect(threadsBlockedReason(config)).toContain("No Threads account is connected");
   });
 
-  it("is ready once both credentials are set", () => {
-    process.env.THREADS_USER_ID = "12345";
-    process.env.THREADS_ACCESS_TOKEN = "token";
-    expect(threadsBlockedReason(threadsConfig())).toBeNull();
+  it("is ready once one account has both credentials", () => {
+    connectPrimary();
+    const config = threadsConfig();
+    expect(config.accounts).toHaveLength(1);
+    expect(threadsBlockedReason(config)).toBeNull();
+  });
+
+  it("ignores a half-configured account rather than failing every post", () => {
+    connectPrimary();
+    process.env.THREADS_USER_ID_2 = "222";
+    expect(threadsConfig().accounts.map((account) => account.id)).toEqual(["primary"]);
+  });
+
+  it("gives the two accounts different versions and a stagger by default", () => {
+    connectPrimary();
+    connectSecondary();
+    const [primary, secondary] = threadsConfig().accounts;
+
+    expect(primary).toMatchObject({ id: "primary", posts: "text", offsetMinutes: 0 });
+    expect(secondary).toMatchObject({ id: "secondary", posts: "variant", offsetMinutes: 3 });
+  });
+
+  it("lets an account be pointed at the other version", () => {
+    connectPrimary();
+    process.env.THREADS_POSTS = "variant";
+    expect(threadsConfig().accounts[0].posts).toBe("variant");
+  });
+
+  it("falls back to the default version when the setting is nonsense", () => {
+    connectPrimary();
+    process.env.THREADS_POSTS = "sideways";
+    expect(threadsConfig().accounts[0].posts).toBe("text");
+  });
+
+  it("uses the label for logs when one is given", () => {
+    connectPrimary();
+    process.env.THREADS_LABEL = "nic_vandewetering";
+    expect(threadsConfig().accounts[0].label).toBe("nic_vandewetering");
   });
 
   it("reports being switched off ahead of missing credentials", () => {
     process.env.THREADS_ENABLED = "false";
-    process.env.THREADS_USER_ID = "12345";
-    process.env.THREADS_ACCESS_TOKEN = "token";
+    connectPrimary();
     expect(threadsBlockedReason(threadsConfig())).toContain("switched off");
   });
 
-  it("posts the second version as a reply unless told otherwise", () => {
-    expect(threadsConfig().secondPost).toBe("reply");
-    process.env.THREADS_SECOND_POST = "standalone";
-    expect(threadsConfig().secondPost).toBe("standalone");
-    process.env.THREADS_SECOND_POST = "nonsense";
-    expect(threadsConfig().secondPost).toBe("reply");
+  it("flags a version no account is posting", () => {
+    connectPrimary();
+    expect(unassignedVersions(threadsConfig())).toEqual(["variant"]);
+    connectSecondary();
+    expect(unassignedVersions(threadsConfig())).toEqual([]);
   });
 
   it("falls back to the publisher's timezone before its own default", () => {

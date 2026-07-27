@@ -14,22 +14,29 @@ it does two things:
 
 1. **Plan** — if today's batch isn't on the queue yet, get today's pack
    (`ensureDailyPack`, which generates it through DeepSeek on the first ask of
-   the day and caches it in the app data store), and turn every slot into two
-   queue items: the pack's `text` as the main post, and its `threadsVariant`
-   as a reply under it three minutes later. Idempotent behind a batch-date
-   check, so calling it every five minutes plans exactly once a day.
+   the day and caches it in the app data store), and turn every slot into one
+   queue item per connected account. Idempotent behind a batch-date check, so
+   calling it every five minutes plans exactly once a day.
 2. **Run** — post everything whose time has come (`runner.ts`).
 
 Both steps are safe to repeat, which is the whole design: the scheduled task
 is dumb and frequent, and the idempotency lives here.
 
-## Why a reply and not two posts
+## Two accounts, one version each
 
-The pack deliberately writes each idea twice — a punchier X line and a warmer
-Threads rewrite. Posting both as separate top-level posts puts two versions of
-the same thought in one feed minutes apart, which reads as spam. Posting the
-rewrite as a reply makes the slot an actual thread. `THREADS_SECOND_POST`
-switches it to `standalone` or `off` if you want the other behaviour.
+The pack deliberately writes each idea twice — a punchier `text` and a warmer
+`threadsVariant` — so that two feeds carrying the same ideas never read as
+duplicates. Each connected account is assigned one of those versions
+(`THREADS_POSTS` / `THREADS_POSTS_2`), and posts it at the slot time plus its
+own offset, so the two accounts don't fire in perfect lockstep.
+
+Connect one account and it posts its version only; `unassignedVersions()`
+reports the half nobody is posting so a stalled setup is visible in the
+dashboard rather than silently dropping content.
+
+A slot is judged past or future by its **own** time, not each account's
+offset — so a slot is always scheduled for every account or for none, and the
+two feeds can't drift apart at the edges of the day.
 
 ## Rules that keep the feed sane
 
@@ -40,8 +47,9 @@ switches it to `standalone` or `off` if you want the other behaviour.
   the next open slot instead of backdating the morning.
 - **`published` and `failed` are terminal**, and a claim lease covers
   overlapping ticks, so no post can go out twice.
-- **A reply waits for its main post** and is skipped if that post never went
-  live — never orphaned into the feed on its own.
+- **Accounts fail independently.** One expired token fails only its own half
+  of the day; the other account keeps posting. An account removed from `.env`
+  has its queued posts skipped rather than left pending forever.
 
 ## Ownership
 
@@ -50,21 +58,23 @@ PowerShell task — drives it over HTTP through `/api/threads`. A second process
 importing `queue.ts` would hold its own copy of the file and clobber the app's
 writes, which is the same trap the Stream Pipeline had to be redesigned around.
 
+Tokens never leave the server: `GET /api/threads` reports each account's id,
+label, assigned version and offset, and nothing else.
+
 ## Setup
 
-1. Add the Threads API use case to your Meta app with three permissions:
-   `threads_basic`, `threads_content_publish`, and `threads_manage_replies` —
-   the third is what `reply_to_id` needs, so without it every main post goes out
-   and every reply fails.
-2. Generate a long-lived token from the use case's Settings tab (User Token
-   Generator → add your account as a Threads Tester, accept the invite in
-   Threads, generate). The account must be public.
-3. Put the numeric user id and token in `.env` as `THREADS_USER_ID` /
-   `THREADS_ACCESS_TOKEN`.
-4. `npm run threads:check` — confirms the token and that it belongs to that id.
-5. `npm run threads:dry` — plans today's batch and reports what it would post,
-   without posting.
-6. `npm run threads:register` — registers the Task Scheduler entry that ticks
+1. Add the Threads API use case to your Meta app with `threads_basic` and
+   `threads_content_publish`.
+2. App roles → Add People → **Threads Tester** for each account, then accept
+   each invite from that account (Threads → Settings → Website permissions →
+   Invites). Being an app Administrator does not cover this, and each account
+   must be public.
+3. Generate a long-lived token per account from the use case's Settings tab
+   (User Token Generator).
+4. Fill in `THREADS_USER_ID` / `THREADS_ACCESS_TOKEN` and the `_2` pair in
+   `.env`.
+5. `npm run threads:check` — confirms each token and that it belongs to its id.
+6. `npm run threads:dry` — plans today's batch and reports what each account
+   would post, without posting.
+7. `npm run threads:register` — registers the Task Scheduler entry that ticks
    every five minutes.
-
-`npm run threads:status` shows what is scheduled and what went out.

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { validateThreadsAuth } from "@/lib/threads/api";
-import { threadsBlockedReason, threadsConfig, threadsConfigured } from "@/lib/threads/config";
+import { checkAllAccounts } from "@/lib/threads/api";
+import { threadsBlockedReason, threadsConfig, threadsConfigured, unassignedVersions } from "@/lib/threads/config";
 import { planTodaysBatch, threadsTick } from "@/lib/threads/daily";
 import { mutateQueue, readQueue, summarizeBatch, summarizeBatches } from "@/lib/threads/queue";
 import { runDue } from "@/lib/threads/runner";
@@ -34,9 +34,15 @@ export async function GET() {
     settings: {
       timezone: config.timezone,
       postsPerDay: config.postsPerDay,
-      secondPost: config.secondPost,
-      secondPostGapMinutes: config.secondPostGapMinutes,
-      lateGraceMinutes: config.lateGraceMinutes
+      lateGraceMinutes: config.lateGraceMinutes,
+      // Credentials never leave the server — only what the dashboard shows.
+      accounts: config.accounts.map((account) => ({
+        id: account.id,
+        label: account.label,
+        posts: account.posts,
+        offsetMinutes: account.offsetMinutes
+      })),
+      unassignedVersions: unassignedVersions(config)
     },
     today: summarizeBatch(items, today),
     batches: summarizeBatches(items),
@@ -82,8 +88,8 @@ export async function POST(request: NextRequest) {
     if (action === "check") {
       const blocked = threadsBlockedReason(config);
       if (blocked) return NextResponse.json({ ok: false, error: blocked }, { status: 400 });
-      const profile = await validateThreadsAuth(config);
-      return NextResponse.json({ ok: true, profile });
+      const checks = await checkAllAccounts(config);
+      return NextResponse.json({ ok: checks.every((check) => check.ok), checks });
     }
 
     if (action === "plan") {

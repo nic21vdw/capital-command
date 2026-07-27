@@ -40,9 +40,11 @@ is retried rather than lost. See `src/lib/ingest/README.md`.
 A scheduled task ticks every few minutes; each tick plans today's batch if it
 isn't on the queue yet (DeepSeek writes the pack via `ensureDailyPack`) and
 posts whatever is due. Both halves are idempotent, which is what makes a dumb,
-frequent scheduler safe. Every slot is TWO posts — the pack's `text` as the
-main post, its `threadsVariant` as a reply under it — because two top-level
-posts of the same idea minutes apart read as spam.
+frequent scheduler safe.
+
+Each connected Threads account posts ONE version of every idea — the pack's
+punchy `text` or its warmer `threadsVariant` — which is why the pack writes
+both. Two accounts posting the same wording would read as mirrored spam.
 
 - The app owns `data/threads-queue.json`. Anything outside the Next server
   (CLI, PowerShell task) must go through `/api/threads`, never import
@@ -51,6 +53,10 @@ posts of the same idea minutes apart read as spam.
 - A missed slot is SKIPPED, never fired late, and past slots are never
   scheduled. Preserve that when touching `runner.ts` / `plan.ts`: the whole
   point is that an offline morning can't dump a backlog into the feed.
+- A slot is past/future by its OWN time, never the per-account offset, so the
+  accounts can never drift out of step at the edges of the day.
+- Never put a token in an API response or a log line — the route exposes only
+  each account's id, label, version and offset.
 - See `src/lib/threads/README.md`.
 
 ## Clip metadata conventions (titles, descriptions, tags)

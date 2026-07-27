@@ -34,9 +34,10 @@ function loadDotEnv() {
 }
 loadDotEnv();
 
-type ThreadsOutcome = { slot: number; role: string; outcome: string; detail: string };
+type ThreadsOutcome = { slot: number; accountId: string; outcome: string; detail: string };
 type RunReport = { published: number; failed: number; skipped: number; outcomes: ThreadsOutcome[]; note?: string };
 type PlanResult = { date: string; created: number; droppedPastSlots: number; skipped?: string };
+type AccountSummary = { accountId: string; total: number; published: number; pending: number; failed: number };
 type BatchSummary = {
   date: string;
   total: number;
@@ -45,7 +46,9 @@ type BatchSummary = {
   failed: number;
   skipped: number;
   nextAt?: string;
+  accounts: AccountSummary[];
 };
+type AccountCheck = { accountId: string; label: string; posts: string; ok: boolean; username?: string | null; error?: string };
 
 function baseUrl(): string {
   return (process.env.APP_BASE_URL || "http://localhost:3000").replace(/\/+$/, "");
@@ -101,7 +104,7 @@ function printRun(run: RunReport | undefined) {
     return;
   }
   for (const outcome of run.outcomes) {
-    console.log(`[threads]   slot ${outcome.slot} ${outcome.role} → ${outcome.outcome} — ${outcome.detail}`);
+    console.log(`[threads]   slot ${outcome.slot} ${outcome.accountId} → ${outcome.outcome} — ${outcome.detail}`);
   }
   console.log(`[threads] posted ${run.published}, failed ${run.failed}, skipped ${run.skipped}`);
 }
@@ -111,6 +114,9 @@ function printBatch(batch: BatchSummary) {
   console.log(
     `  ${batch.date}: ${batch.published}/${batch.total} posted, ${batch.pending} pending, ${batch.failed} failed, ${batch.skipped} skipped${next}`
   );
+  for (const account of batch.accounts ?? []) {
+    console.log(`    ${account.accountId}: ${account.published}/${account.total} posted, ${account.pending} pending`);
+  }
 }
 
 function hasFlag(argv: string[], name: string): boolean {
@@ -153,8 +159,16 @@ async function main() {
 
   if (command === "check") {
     const body = await call("POST", { action: "check" });
-    const profile = body.profile as { id: string; username: string | null } | undefined;
-    console.log(`[threads] connected as ${profile?.username ? `@${profile.username}` : profile?.id}.`);
+    const checks = (body.checks as AccountCheck[] | undefined) ?? [];
+    for (const check of checks) {
+      const who = check.username ? `@${check.username}` : check.label;
+      console.log(
+        check.ok
+          ? `[threads] ${check.accountId}: connected as ${who}, posting the ${check.posts} version.`
+          : `[threads] ${check.accountId}: NOT usable — ${check.error}`
+      );
+    }
+    if (checks.some((check) => !check.ok)) process.exitCode = 1;
     return;
   }
 
@@ -162,11 +176,24 @@ async function main() {
     const body = await call("GET");
     const blocked = body.blockedReason as string | null;
     console.log(blocked ? `[threads] idle — ${blocked}` : "[threads] armed and connected.");
-    const settings = body.settings as { timezone: string; postsPerDay: number; secondPost: string } | undefined;
+    const settings = body.settings as
+      | {
+          timezone: string;
+          postsPerDay: number;
+          accounts: Array<{ id: string; label: string; posts: string; offsetMinutes: number }>;
+          unassignedVersions: string[];
+        }
+      | undefined;
     if (settings) {
-      console.log(
-        `[threads] ${settings.postsPerDay} slots/day in ${settings.timezone}, second version: ${settings.secondPost}`
-      );
+      console.log(`[threads] ${settings.postsPerDay} slots/day in ${settings.timezone}`);
+      for (const account of settings.accounts) {
+        console.log(
+          `[threads]   ${account.id} (${account.label}): posts the ${account.posts} version, +${account.offsetMinutes} min`
+        );
+      }
+      for (const version of settings.unassignedVersions) {
+        console.log(`[threads]   WARNING: no account posts the ${version} version — half the pack goes unused.`);
+      }
     }
     const batches = (body.batches as BatchSummary[] | undefined) ?? [];
     const shown = hasFlag(argv, "all") ? batches : batches.slice(0, 3);

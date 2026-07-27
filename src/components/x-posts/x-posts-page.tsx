@@ -43,16 +43,16 @@ interface AutopilotStatus {
   settings: {
     timezone: string;
     postsPerDay: number;
-    secondPost: "reply" | "standalone" | "off";
-    secondPostGapMinutes: number;
     lateGraceMinutes: number;
+    accounts: Array<{ id: string; label: string; posts: "text" | "variant"; offsetMinutes: number }>;
+    unassignedVersions: Array<"text" | "variant">;
   };
   today: ThreadsBatchSummary;
 }
 
 interface AutopilotActionResponse {
   error?: string;
-  profile?: { id: string; username: string | null };
+  checks?: Array<{ accountId: string; label: string; ok: boolean; username?: string | null; error?: string }>;
   plan?: { created: number; skipped?: string };
   run?: { published: number; skipped: number; note?: string };
 }
@@ -303,9 +303,15 @@ function AutopilotCard() {
         const json = (await response.json()) as AutopilotActionResponse;
         if (!response.ok) throw new Error(json.error ?? "request failed");
         if (action === "check") {
-          toast.success(
-            json.profile?.username ? `Connected as @${json.profile.username}.` : "Threads token is valid."
-          );
+          const checks = json.checks ?? [];
+          const bad = checks.filter((check) => !check.ok);
+          if (bad.length > 0) {
+            toast.error(bad.map((check) => `${check.label}: ${check.error}`).join(" · "));
+          } else {
+            toast.success(
+              `Connected: ${checks.map((check) => (check.username ? `@${check.username}` : check.label)).join(", ")}.`
+            );
+          }
         } else if (action === "plan") {
           toast.success(json.plan?.skipped ?? `Scheduled ${json.plan?.created ?? 0} posts for today.`);
         } else {
@@ -324,12 +330,8 @@ function AutopilotCard() {
   if (!status) return null;
 
   const { today, settings, blockedReason } = status;
-  const secondPost =
-    settings.secondPost === "reply"
-      ? `variant replies ${settings.secondPostGapMinutes} min under each post`
-      : settings.secondPost === "standalone"
-        ? `variant posts ${settings.secondPostGapMinutes} min later`
-        : "main post only";
+  const expected = settings.postsPerDay * Math.max(1, settings.accounts.length);
+  const versionLabel = (version: "text" | "variant") => (version === "text" ? "punchy version" : "warm rewrite");
 
   return (
     <Card>
@@ -337,10 +339,11 @@ function AutopilotCard() {
         <div>
           <p className="text-xs uppercase tracking-[0.28em] text-[var(--muted-foreground)]">Threads autopilot</p>
           <h2 className="mt-1 text-xl font-semibold text-white">
-            {today.published}/{today.total || settings.postsPerDay * 2} posted today
+            {today.published}/{today.total || expected} posted today
           </h2>
           <p className="mt-1 text-xs text-[var(--muted-foreground)]">
-            {settings.postsPerDay} slots a day in {settings.timezone} · {secondPost}
+            {settings.postsPerDay} slots a day in {settings.timezone} · {settings.accounts.length || "no"} account
+            {settings.accounts.length === 1 ? "" : "s"}
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -354,9 +357,39 @@ function AutopilotCard() {
         </div>
       </div>
 
+      {settings.accounts.length > 0 ? (
+        <div className="mt-4 space-y-2">
+          {settings.accounts.map((account) => {
+            const tally = today.accounts?.find((entry) => entry.accountId === account.id);
+            return (
+              <div
+                key={account.id}
+                className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-[var(--border)] px-3 py-2 text-xs"
+              >
+                <span className="font-medium text-white">{account.label}</span>
+                <span className="text-[var(--muted-foreground)]">
+                  {versionLabel(account.posts)}
+                  {account.offsetMinutes ? ` · +${account.offsetMinutes} min` : ""}
+                </span>
+                <span className="text-[var(--muted-foreground)]">
+                  {tally ? `${tally.published}/${tally.total} posted` : "nothing scheduled yet"}
+                </span>
+              </div>
+            );
+          })}
+        </div>
+      ) : null}
+
       {blockedReason ? (
         <p className="mt-4 rounded-xl border border-amber-400/30 bg-amber-400/10 px-3 py-2 text-xs text-amber-100">
           {blockedReason}
+        </p>
+      ) : null}
+
+      {settings.unassignedVersions.length > 0 && !blockedReason ? (
+        <p className="mt-4 rounded-xl border border-amber-400/30 bg-amber-400/10 px-3 py-2 text-xs text-amber-100">
+          No account posts the {settings.unassignedVersions.map(versionLabel).join(" or ")} — that half of each day&apos;s
+          pack is being written and never used. Connect the second account, or point an existing one at it.
         </p>
       ) : null}
 

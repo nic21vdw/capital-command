@@ -275,47 +275,57 @@ local scheduler and the Actions cron against the same queue at the same time.
 ## Threads autopilot (a fresh batch of posts every 24 hours, posted for you)
 
 The X/Threads Post Engine already writes 24 fresh posts a day against your
-positioning brief, each with a reworded Threads variant. The autopilot takes it
-the rest of the way: it schedules both versions of every idea and posts them to
-Threads at their slot times, unattended — no browser agent, no copy-pasting.
+positioning brief, and writes every idea **twice** — a punchier `text` and a
+warmer `threadsVariant` — so two feeds never read as duplicates. The autopilot
+takes it the rest of the way: each connected Threads account posts one of those
+versions at its slot times, unattended. No browser agent, no copy-pasting.
 
-Each slot becomes a **two-post thread**: the main post at its time, and the
-reworded variant as a reply under it three minutes later
-(`THREADS_SECOND_POST=standalone` makes it a separate post instead, `off`
-drops it).
+With both accounts connected you get 24 posts a day on each, covering the same
+ideas in genuinely different words:
+
+```
+slot 1  07:15  account 1  → the punchy version
+slot 1  07:18  account 2  → the warm rewrite
+```
+
+Connect only one account and it simply posts its own version; the dashboard
+tells you the other half of the pack is going unused.
 
 **Setup, once:**
 
 1. In your Meta app, add the **Access the Threads API** use case
-   ([Meta's Threads API docs](https://developers.facebook.com/docs/threads)) and
-   these three permissions under *Permissions and features*:
-   `threads_basic`, `threads_content_publish`, and — because the variant posts
-   as a reply — **`threads_manage_replies`**. Without the third one, every main
-   post goes out and every reply fails.
-2. On that use case's **Settings** tab, under *User Token Generator*, click
-   **Add or Remove Threads Testers**, add your Threads account, accept the
-   invite in Threads (Settings → Website permissions → Invites), then generate
-   the long-lived token. Your account has to be public for this to work.
-3. In `.env`, set `THREADS_USER_ID` (the numeric id, not the @handle) and
-   `THREADS_ACCESS_TOKEN`. Everything else has a working default — see
-   `.env.example` for the full list.
-4. `npm run threads:check` — confirms the token works and belongs to that id.
-5. `npm run threads:dry` — plans today's batch and prints exactly what it would
-   post, without posting anything.
-6. `npm run threads:register` — registers the scheduled task (every 5 minutes,
+   ([Meta's Threads API docs](https://developers.facebook.com/docs/threads))
+   with `threads_basic` and `threads_content_publish` under *Permissions and
+   features*.
+2. **App roles → Add People → Threads Tester**, add each Threads account, then
+   accept each invite *from that account*: Threads → Settings → **Website
+   permissions** → Invites. Being an app Administrator does not cover this —
+   the consent has to come from the account side, and each account must be
+   public.
+3. On the Threads use case's **Settings** tab, under *User Token Generator*,
+   generate a long-lived token for each account.
+4. In `.env`, fill in `THREADS_USER_ID` / `THREADS_ACCESS_TOKEN` for the first
+   account and `THREADS_USER_ID_2` / `THREADS_ACCESS_TOKEN_2` for the second
+   (the numeric id, not the @handle). Everything else has a working default —
+   see `.env.example` for the full list.
+5. `npm run threads:check` — confirms each token works and belongs to its id.
+6. `npm run threads:dry` — plans today's batch and prints exactly what each
+   account would post, without posting anything.
+7. `npm run threads:register` — registers the scheduled task (every 5 minutes,
    all day). It starts the app if it isn't running, plans the day's batch once,
    and posts whatever is due. Log: `threads-autopilot.log`. Remove it again with
    `Unregister-ScheduledTask -TaskName "Capital Command threads autopilot" -Confirm:$false`.
 
 **Day to day:** nothing. The Post Engine page (`/x-posts`) shows an autopilot
-card with today's tally, the next post time, and buttons to schedule, post
-what's due, or re-check the connection by hand. `npm run threads:status` is the
-same thing in a terminal.
+card with each account's tally, the next post time, and buttons to schedule,
+post what's due, or re-check the connections by hand. `npm run threads:status`
+is the same thing in a terminal.
 
 **If your PC was off**, posts that missed their slot by more than
 `THREADS_LATE_GRACE_MINUTES` (45 by default) are skipped rather than fired
 late, and the next day starts fresh — so you never come back to a burst of
-fourteen posts going out in one minute. Design notes:
+fourteen posts going out in one minute. One account's expired token fails only
+its own half of the day. Design notes:
 [`src/lib/threads/README.md`](src/lib/threads/README.md).
 
 ## Animated video segments (Remotion)

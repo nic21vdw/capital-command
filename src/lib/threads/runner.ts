@@ -1,25 +1,26 @@
 import { isTransient } from "@/lib/publisher/http";
 import { formatInTimezone } from "@/lib/publisher/time";
 import { ContainerPendingError, postToThreads } from "@/lib/threads/api";
-import { threadsBlockedReason, threadsConfig, type ThreadsConfig } from "@/lib/threads/config";
+import { findAccount, threadsBlockedReason, threadsConfig, type ThreadsAccount, type ThreadsConfig } from "@/lib/threads/config";
 import { pruneOld, readQueue, writeQueue } from "@/lib/threads/queue";
 import type { ThreadsOutcome, ThreadsQueueItem, ThreadsRunReport } from "@/lib/threads/types";
 
 /**
  * The runner: post everything that is due, leave everything else alone.
  *
- * Three rules make repeated ticks safe. `published` and `failed` are terminal,
- * so a post can never go out twice. A post more than the grace period late is
+ * Two rules make repeated ticks safe. `published` and `failed` are terminal, so
+ * a post can never go out twice. And a post more than the grace period late is
  * skipped rather than fired, so a machine that was asleep all morning wakes up
- * to a quiet feed instead of a burst. And a reply waits for the post it
- * answers — if that one never went live, the reply is skipped, never orphaned
- * into the feed on its own.
+ * to a quiet feed instead of a burst.
+ *
+ * Each item names the account that posts it, so one account's expired token
+ * fails only its own half of the day.
  */
 
 export type ThreadsRunDeps = {
   read: () => Promise<ThreadsQueueItem[]>;
   write: (items: ThreadsQueueItem[]) => Promise<void>;
-  post: (input: { text: string; replyToId?: string; containerId?: string }) => Promise<{
+  post: (input: { account: ThreadsAccount; text: string; containerId?: string }) => Promise<{
     containerId: string;
     postId: string;
   }>;
@@ -37,10 +38,10 @@ function backoffMinutes(attempts: number, config: ThreadsConfig): number {
   return Math.min(config.backoffCapMinutes, config.backoffBaseMinutes * 2 ** Math.max(0, attempts - 1));
 }
 
-/** Ordering the runner walks: earliest first, and a main before its variant. */
+/** Ordering the runner walks: earliest first, then by slot and account. */
 function runOrder(items: ThreadsQueueItem[]): ThreadsQueueItem[] {
   return [...items].sort(
-    (a, b) => a.publishAt.localeCompare(b.publishAt) || a.slot - b.slot || a.role.localeCompare(b.role)
+    (a, b) => a.publishAt.localeCompare(b.publishAt) || a.slot - b.slot || a.accountId.localeCompare(b.accountId)
   );
 }
 
@@ -74,10 +75,9 @@ export async function runDue(
   const items = runOrder(pruneOld(loaded, now, config));
   if (items.length !== loaded.length && !dryRun) await deps.write(items);
 
-  const byId = new Map(items.map((item) => [item.id, item]));
   const record = (item: ThreadsQueueItem, outcome: ThreadsOutcome["outcome"], detail: string) => {
-    outcomes.push({ itemId: item.id, slot: item.slot, role: item.role, outcome, detail });
-    log(`[threads] slot ${item.slot} ${item.role} → ${outcome} — ${detail}`);
+    outcomes.push({ itemId: item.id, slot: item.slot, accountId: item.accountId, outcome, detail });
+    log(`[threads] slot ${item.slot} ${item.accountId} → ${outcome} — ${detail}`);
   };
 
   for (const item of items) {
@@ -103,25 +103,19 @@ export async function runDue(
       continue;
     }
 
-    let replyToId: string | undefined;
-    if (item.replyToItemId) {
-      const parent = byId.get(item.replyToItemId);
-      if (!parent || parent.status === "failed" || parent.status === "skipped") {
-        item.status = "skipped";
-        item.note = "The post this replies to never went live, so the reply was skipped too.";
-        if (!dryRun) await deps.write(items);
-        record(item, "skipped", item.note);
-        continue;
-      }
-      if (parent.status !== "published" || !parent.postId) {
-        record(item, "waiting", "Waiting for the post it replies to.");
-        continue;
-      }
-      replyToId = parent.postId;
+    // An account can disappear from .env between planning and posting; its
+    // queued posts are retired rather than left pending forever.
+    const account = findAccount(config, item.accountId);
+    if (!account) {
+      item.status = "skipped";
+      item.note = `The "${item.accountId}" account is no longer connected, so this post was skipped.`;
+      if (!dryRun) await deps.write(items);
+      record(item, "skipped", item.note);
+      continue;
     }
 
     if (dryRun) {
-      record(item, "published", `Would post "${item.text.slice(0, 60)}…"${replyToId ? " as a reply" : ""}.`);
+      record(item, "published", `Would post as ${account.label}: "${item.text.slice(0, 60)}…"`);
       continue;
     }
 
@@ -129,7 +123,7 @@ export async function runDue(
     await deps.write(items);
 
     try {
-      const result = await deps.post({ text: item.text, replyToId, containerId: item.containerId });
+      const result = await deps.post({ account, text: item.text, containerId: item.containerId });
       item.status = "published";
       item.postId = result.postId;
       item.containerId = result.containerId;
@@ -138,7 +132,7 @@ export async function runDue(
       delete item.nextAttemptAt;
       delete item.claimedAt;
       await deps.write(items);
-      record(item, "published", `Threads post ${result.postId}${replyToId ? " (reply)" : ""}.`);
+      record(item, "published", `${account.label} posted ${result.postId}.`);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       if (error instanceof ContainerPendingError) item.containerId = error.containerId;

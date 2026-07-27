@@ -1,30 +1,24 @@
+import type { ThreadsVersion } from "@/lib/threads/config";
+
 /**
  * Shared types for the Threads autopilot — the unattended loop that turns each
  * day's generated post pack into real, scheduled Threads posts.
  *
- * A batch is one day's worth of items. Every item is a single Threads post
- * with its own target time and its own terminal state, so a failure on one
- * post never blocks the rest of the day and re-running the tick can never
- * double-post.
+ * A batch is one day's worth of items across every connected account. Each item
+ * is a single post on one account with its own target time and its own terminal
+ * state, so a failure on one never blocks the rest of the day and re-running
+ * the tick can never double-post.
  */
-
-/**
- * Which half of a slot an item is. The pack writes two versions of every idea:
- * `text` (the punchier X-flavoured line) and `threadsVariant` (warmer, written
- * for Threads). Both go out per slot — the main as the top-level post, the
- * variant either as a reply under it or as its own post a few minutes later.
- */
-export type ThreadsPostRole = "main" | "variant";
 
 /**
  * Item lifecycle:
  *   pending   → not sent yet (waiting for its time, or retrying)
  *   published → live on Threads; `postId` is the Threads media id
  *   failed    → permanently failed; `error` says why
- *   skipped   → deliberately not posted (its time passed while nothing was
- *               running, or the post it replies to never went live). Terminal:
- *               a missed slot is never fired late, so coming back from a
- *               weekend offline can't dump a backlog into the feed.
+ *   skipped   → deliberately not posted: its time passed while nothing was
+ *               running, or its account went away. Terminal — a missed slot is
+ *               never fired late, so coming back from a weekend offline can't
+ *               dump a backlog into the feed.
  */
 export type ThreadsPostStatus = "pending" | "published" | "failed" | "skipped";
 
@@ -34,7 +28,10 @@ export type ThreadsQueueItem = {
   batchDate: string;
   /** 1-based slot within the day, matching the pack's post slot. */
   slot: number;
-  role: ThreadsPostRole;
+  /** Which connected account posts this (see ThreadsAccount.id). */
+  accountId: string;
+  /** Which version of the idea this is — the punchy one or the warm rewrite. */
+  version: ThreadsVersion;
   /** Short topic label carried from the pack, for the log and the UI. */
   topic: string;
   format: string;
@@ -42,12 +39,6 @@ export type ThreadsQueueItem = {
   text: string;
   /** Target publish instant, stored as UTC ISO-8601. */
   publishAt: string;
-  /**
-   * Set on a variant that posts as a reply: the id of the queue item whose
-   * published post it replies to. The variant waits for that post to be live
-   * and is skipped if it never gets there.
-   */
-  replyToItemId?: string;
   status: ThreadsPostStatus;
   /** Threads media id of the published post. */
   postId?: string;
@@ -65,12 +56,12 @@ export type ThreadsQueueItem = {
   createdAt: string;
 };
 
-export type ThreadsOutcomeKind = "published" | "retrying" | "failed" | "skipped" | "waiting";
+export type ThreadsOutcomeKind = "published" | "retrying" | "failed" | "skipped";
 
 export type ThreadsOutcome = {
   itemId: string;
   slot: number;
-  role: ThreadsPostRole;
+  accountId: string;
   outcome: ThreadsOutcomeKind;
   detail: string;
 };
@@ -82,8 +73,18 @@ export type ThreadsRunReport = {
   skipped: number;
   outcomes: ThreadsOutcome[];
   dryRun: boolean;
-  /** Set when the run did nothing at all (disabled, not connected). */
+  /** Set when the run did nothing at all (disabled, no account connected). */
   note?: string;
+};
+
+/** One account's tally within a day. */
+export type ThreadsAccountSummary = {
+  accountId: string;
+  total: number;
+  published: number;
+  pending: number;
+  failed: number;
+  skipped: number;
 };
 
 /** One day's tally, for the dashboard card and the CLI status output. */
@@ -96,11 +97,12 @@ export type ThreadsBatchSummary = {
   skipped: number;
   /** UTC ISO of the next item still waiting to go out, if any. */
   nextAt?: string;
+  accounts: ThreadsAccountSummary[];
 };
 
 export type ThreadsPlanResult = {
   date: string;
-  /** How many queue items the plan added (2 per slot in the default mode). */
+  /** How many queue items the plan added (one per slot per account). */
   created: number;
   /** Slots dropped because their time had already passed when planning ran. */
   droppedPastSlots: number;

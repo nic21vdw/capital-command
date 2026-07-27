@@ -1,10 +1,27 @@
 import { describe, expect, it } from "vitest";
-import { threadsConfig, type ThreadsConfig } from "@/lib/threads/config";
+import { threadsConfig, type ThreadsAccount, type ThreadsConfig } from "@/lib/threads/config";
 import { fitToThreads, planBatch } from "@/lib/threads/plan";
 import type { XDailyPack } from "@/types/domain";
 
+function account(overrides: Partial<ThreadsAccount> = {}): ThreadsAccount {
+  return {
+    id: "primary",
+    label: "primary",
+    userId: "1",
+    accessToken: "token",
+    posts: "text",
+    offsetMinutes: 0,
+    ...overrides
+  };
+}
+
+const BOTH_ACCOUNTS = [
+  account(),
+  account({ id: "secondary", label: "secondary", userId: "2", posts: "variant", offsetMinutes: 3 })
+];
+
 function config(overrides: Partial<ThreadsConfig> = {}): ThreadsConfig {
-  return { ...threadsConfig(), timezone: "UTC", userId: "1", accessToken: "t", ...overrides };
+  return { ...threadsConfig(), timezone: "UTC", accounts: BOTH_ACCOUNTS, ...overrides };
 }
 
 function pack(overrides: Partial<XDailyPack> = {}): XDailyPack {
@@ -19,8 +36,8 @@ function pack(overrides: Partial<XDailyPack> = {}): XDailyPack {
         time: "07:15",
         format: "insight",
         topic: "verification",
-        text: "The X flavoured line",
-        threadsVariant: "The warmer Threads rewrite"
+        text: "The punchy line",
+        threadsVariant: "The warmer rewrite"
       },
       {
         id: "xpost-2",
@@ -28,8 +45,8 @@ function pack(overrides: Partial<XDailyPack> = {}): XDailyPack {
         time: "09:40",
         format: "contrarian",
         topic: "cost of code",
-        text: "Second X line",
-        threadsVariant: "Second Threads rewrite"
+        text: "Second punchy line",
+        threadsVariant: "Second warmer rewrite"
       }
     ],
     replies: [],
@@ -41,50 +58,54 @@ function pack(overrides: Partial<XDailyPack> = {}): XDailyPack {
 const beforeTheDay = new Date("2026-07-22T06:00:00.000Z");
 
 describe("planBatch", () => {
-  it("schedules both versions of every slot, main first", () => {
+  it("gives each account its own version of every slot", () => {
     const { items } = planBatch({ pack: pack(), config: config(), now: beforeTheDay });
 
     expect(items).toHaveLength(4);
-    expect(items.filter((item) => item.role === "main").map((item) => item.text)).toEqual([
-      "The X flavoured line",
-      "Second X line"
+    expect(items.filter((item) => item.accountId === "primary").map((item) => item.text)).toEqual([
+      "The punchy line",
+      "Second punchy line"
     ]);
-    expect(items.filter((item) => item.role === "variant").map((item) => item.text)).toEqual([
-      "The warmer Threads rewrite",
-      "Second Threads rewrite"
+    expect(items.filter((item) => item.accountId === "secondary").map((item) => item.text)).toEqual([
+      "The warmer rewrite",
+      "Second warmer rewrite"
     ]);
   });
 
-  it("puts the main post at the pack's wall-clock slot time in the configured zone", () => {
+  it("never gives two accounts the same text", () => {
     const { items } = planBatch({ pack: pack(), config: config(), now: beforeTheDay });
-    expect(items[0].publishAt).toBe("2026-07-22T07:15:00.000Z");
+    for (const slot of [1, 2]) {
+      const texts = items.filter((item) => item.slot === slot).map((item) => item.text);
+      expect(new Set(texts).size).toBe(texts.length);
+    }
   });
 
-  it("posts the variant as a reply under its main, a few minutes later", () => {
+  it("puts each account at the slot's wall-clock time plus its own offset", () => {
+    const { items } = planBatch({ pack: pack(), config: config(), now: beforeTheDay });
+    const first = items.filter((item) => item.slot === 1);
+
+    expect(first.find((item) => item.accountId === "primary")?.publishAt).toBe("2026-07-22T07:15:00.000Z");
+    expect(first.find((item) => item.accountId === "secondary")?.publishAt).toBe("2026-07-22T07:18:00.000Z");
+  });
+
+  it("schedules only the connected account when just one is set up", () => {
+    const { items } = planBatch({ pack: pack(), config: config({ accounts: [account()] }), now: beforeTheDay });
+
+    expect(items).toHaveLength(2);
+    expect(items.every((item) => item.accountId === "primary" && item.version === "text")).toBe(true);
+  });
+
+  it("lets an account be pointed at the other version", () => {
     const { items } = planBatch({
       pack: pack(),
-      config: config({ secondPostGapMinutes: 3 }),
+      config: config({ accounts: [account({ posts: "variant" })] }),
       now: beforeTheDay
     });
-    const [main, variant] = items;
 
-    expect(variant.replyToItemId).toBe(main.id);
-    expect(new Date(variant.publishAt).getTime() - new Date(main.publishAt).getTime()).toBe(3 * 60_000);
+    expect(items.map((item) => item.text)).toEqual(["The warmer rewrite", "Second warmer rewrite"]);
   });
 
-  it("leaves the variant unlinked when it should stand on its own", () => {
-    const { items } = planBatch({ pack: pack(), config: config({ secondPost: "standalone" }), now: beforeTheDay });
-    expect(items[1].role).toBe("variant");
-    expect(items[1].replyToItemId).toBeUndefined();
-  });
-
-  it("schedules only the main post when the second version is off", () => {
-    const { items } = planBatch({ pack: pack(), config: config({ secondPost: "off" }), now: beforeTheDay });
-    expect(items).toHaveLength(2);
-    expect(items.every((item) => item.role === "main")).toBe(true);
-  });
-
-  it("drops slots whose time has already passed rather than backdating them", () => {
+  it("drops a past slot for every account at once, rather than backdating it", () => {
     const { items, droppedPastSlots } = planBatch({
       pack: pack(),
       config: config(),
@@ -97,6 +118,18 @@ describe("planBatch", () => {
     expect(items.every((item) => new Date(item.publishAt) > new Date("2026-07-22T08:00:00.000Z"))).toBe(true);
   });
 
+  it("keeps the accounts in step: a slot is scheduled for both or neither", () => {
+    // 07:15 has passed but the secondary's +3 offset would still be in the
+    // future — the slot must not be scheduled for one account only.
+    const { items } = planBatch({
+      pack: pack(),
+      config: config(),
+      now: new Date("2026-07-22T07:16:00.000Z")
+    });
+
+    expect(items.filter((item) => item.slot === 1)).toHaveLength(0);
+  });
+
   it("honours the per-day cap", () => {
     const { items } = planBatch({ pack: pack(), config: config({ postsPerDay: 1 }), now: beforeTheDay });
     expect(items.map((item) => item.slot)).toEqual([1, 1]);
@@ -107,6 +140,8 @@ describe("planBatch", () => {
     expect(items[0]).toMatchObject({
       batchDate: "2026-07-22",
       slot: 1,
+      accountId: "primary",
+      version: "text",
       topic: "verification",
       format: "insight",
       status: "pending",

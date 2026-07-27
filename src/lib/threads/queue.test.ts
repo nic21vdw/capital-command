@@ -8,7 +8,8 @@ function item(overrides: Partial<ThreadsQueueItem> = {}): ThreadsQueueItem {
     id: "item-1",
     batchDate: "2026-07-22",
     slot: 1,
-    role: "main",
+    accountId: "primary",
+    version: "text",
     topic: "verification",
     format: "insight",
     text: "the post",
@@ -70,7 +71,24 @@ describe("summarizeBatch", () => {
   });
 
   it("returns an empty tally for a day with nothing scheduled", () => {
-    expect(summarizeBatch([], "2026-07-22")).toMatchObject({ total: 0, pending: 0, nextAt: undefined });
+    expect(summarizeBatch([], "2026-07-22")).toMatchObject({ total: 0, pending: 0, nextAt: undefined, accounts: [] });
+  });
+
+  it("breaks the day down per account, so one account stalling is visible", () => {
+    const summary = summarizeBatch(
+      [
+        item({ id: "a", accountId: "primary", status: "published" }),
+        item({ id: "b", accountId: "primary", status: "published" }),
+        item({ id: "c", accountId: "secondary", status: "failed" }),
+        item({ id: "d", accountId: "secondary" })
+      ],
+      "2026-07-22"
+    );
+
+    expect(summary.accounts).toEqual([
+      { accountId: "primary", total: 2, published: 2, pending: 0, failed: 0, skipped: 0 },
+      { accountId: "secondary", total: 2, published: 0, pending: 1, failed: 1, skipped: 0 }
+    ]);
   });
 });
 

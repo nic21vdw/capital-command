@@ -1,16 +1,16 @@
 import { zonedToUtc } from "@/lib/publisher/time";
-import { THREADS_TEXT_LIMIT, type ThreadsConfig } from "@/lib/threads/config";
+import { THREADS_TEXT_LIMIT, type ThreadsAccount, type ThreadsConfig } from "@/lib/threads/config";
 import type { ThreadsQueueItem } from "@/lib/threads/types";
-import type { XDailyPack } from "@/types/domain";
+import type { XDailyPack, XSuggestedPost } from "@/types/domain";
 
 /**
  * Turns a generated day pack into queue items — pure, so the whole scheduling
  * decision is testable without a filesystem or a network.
  *
- * Two posts per slot: the pack's `text` as the top-level post, and its
- * `threadsVariant` either as a reply under it (default) or as its own post a
- * few minutes later. Slot times are the pack's wall-clock times read in the
- * configured timezone.
+ * One item per slot per connected account, each carrying the version of the
+ * idea that account posts: the punchy `text` or the warmer `threadsVariant`.
+ * Slot times are the pack's wall-clock times read in the configured timezone,
+ * plus the account's own offset so two feeds don't fire in lockstep.
  *
  * Slots whose time has already passed are dropped, never scheduled into the
  * past. That is what keeps a batch planned at 2pm from firing seven backdated
@@ -24,6 +24,10 @@ export function fitToThreads(text: string, limit = THREADS_TEXT_LIMIT): string {
   const cut = clean.slice(0, limit);
   const lastSpace = cut.lastIndexOf(" ");
   return (lastSpace > limit * 0.6 ? cut.slice(0, lastSpace) : cut).trimEnd();
+}
+
+function textFor(post: XSuggestedPost, account: ThreadsAccount): string {
+  return account.posts === "variant" ? post.threadsVariant : post.text;
 }
 
 export type PlanBatchInput = {
@@ -50,48 +54,32 @@ export function planBatch({ pack, config, now, newId }: PlanBatchInput): PlanBat
 
   for (const post of pack.posts.slice(0, config.postsPerDay)) {
     const [hours, minutes] = post.time.split(":").map(Number);
-    const mainAt = zonedToUtc(config.timezone, year, month, day, hours ?? 0, minutes ?? 0, 0);
-    if (mainAt.getTime() <= now.getTime()) {
+    const slotAt = zonedToUtc(config.timezone, year, month, day, hours ?? 0, minutes ?? 0, 0);
+
+    // The slot is judged by its own time, not each account's offset, so the two
+    // accounts always stay in step: a slot is either scheduled for everyone or
+    // dropped for everyone.
+    if (slotAt.getTime() <= now.getTime()) {
       droppedPastSlots += 1;
       continue;
     }
 
-    const main: ThreadsQueueItem = {
-      id: nextId(),
-      batchDate: pack.date,
-      slot: post.slot,
-      role: "main",
-      topic: post.topic,
-      format: post.format,
-      text: fitToThreads(post.text),
-      publishAt: mainAt.toISOString(),
-      status: "pending",
-      attempts: 0,
-      createdAt
-    };
-    items.push(main);
-
-    if (config.secondPost === "off") continue;
-
-    const variantText = fitToThreads(post.threadsVariant);
-    // A reworded near-duplicate of the same idea is worth posting under the
-    // original, not beside it — the reply keeps the feed clean and turns the
-    // slot into an actual thread.
-    const variantAt = new Date(mainAt.getTime() + config.secondPostGapMinutes * 60_000);
-    items.push({
-      id: nextId(),
-      batchDate: pack.date,
-      slot: post.slot,
-      role: "variant",
-      topic: post.topic,
-      format: post.format,
-      text: variantText,
-      publishAt: variantAt.toISOString(),
-      ...(config.secondPost === "reply" ? { replyToItemId: main.id } : {}),
-      status: "pending",
-      attempts: 0,
-      createdAt
-    });
+    for (const account of config.accounts) {
+      items.push({
+        id: nextId(),
+        batchDate: pack.date,
+        slot: post.slot,
+        accountId: account.id,
+        version: account.posts,
+        topic: post.topic,
+        format: post.format,
+        text: fitToThreads(textFor(post, account)),
+        publishAt: new Date(slotAt.getTime() + account.offsetMinutes * 60_000).toISOString(),
+        status: "pending",
+        attempts: 0,
+        createdAt
+      });
+    }
   }
 
   return { items, droppedPastSlots };

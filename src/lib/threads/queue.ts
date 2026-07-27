@@ -31,7 +31,7 @@ export async function readQueue(): Promise<ThreadsQueueItem[]> {
 
 export async function writeQueue(items: ThreadsQueueItem[]): Promise<void> {
   const sorted = [...items].sort(
-    (a, b) => a.publishAt.localeCompare(b.publishAt) || a.slot - b.slot || a.role.localeCompare(b.role)
+    (a, b) => a.publishAt.localeCompare(b.publishAt) || a.slot - b.slot || a.accountId.localeCompare(b.accountId)
   );
   const write = async () => {
     await mkdir(path.dirname(FILE_PATH), { recursive: true });
@@ -74,21 +74,32 @@ export function itemsForDate(items: ThreadsQueueItem[], date: string): ThreadsQu
   return items.filter((item) => item.batchDate === date);
 }
 
+function tally(items: ThreadsQueueItem[]) {
+  return {
+    total: items.length,
+    published: items.filter((item) => item.status === "published").length,
+    pending: items.filter((item) => item.status === "pending").length,
+    failed: items.filter((item) => item.status === "failed").length,
+    skipped: items.filter((item) => item.status === "skipped").length
+  };
+}
+
 export function summarizeBatch(items: ThreadsQueueItem[], date: string): ThreadsBatchSummary {
   const forDate = itemsForDate(items, date);
-  const pending = forDate.filter((item) => item.status === "pending");
-  const next = pending
+  const next = forDate
+    .filter((item) => item.status === "pending")
     .map((item) => item.publishAt)
     .sort((a, b) => a.localeCompare(b))
     .find(Boolean);
+  const accountIds = [...new Set(forDate.map((item) => item.accountId))].sort();
   return {
     date,
-    total: forDate.length,
-    published: forDate.filter((item) => item.status === "published").length,
-    pending: pending.length,
-    failed: forDate.filter((item) => item.status === "failed").length,
-    skipped: forDate.filter((item) => item.status === "skipped").length,
-    nextAt: next
+    ...tally(forDate),
+    nextAt: next,
+    accounts: accountIds.map((accountId) => ({
+      accountId,
+      ...tally(forDate.filter((item) => item.accountId === accountId))
+    }))
   };
 }
 

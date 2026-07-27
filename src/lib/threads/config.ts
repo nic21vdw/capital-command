@@ -3,45 +3,55 @@
  * (.env locally) so no token is ever committed.
  *
  * The switch is on by default because it is inert without credentials: with no
- * THREADS_USER_ID / THREADS_ACCESS_TOKEN nothing is planned and nothing is
- * posted. Pasting those two values is the whole setup.
+ * account connected nothing is planned and nothing is posted. Pasting a user id
+ * and a token is the whole setup.
+ *
+ * Two accounts, one version of each idea apiece. The daily pack writes every
+ * idea twice — a punchier `text` and a warmer `threadsVariant` — precisely so
+ * two feeds never read as duplicates, so each account is assigned one of them.
+ * Connect only one account and it simply posts its own version.
  */
 
-export type ThreadsSecondPostMode = "reply" | "standalone" | "off";
+export type ThreadsVersion = "text" | "variant";
+
+export type ThreadsAccount = {
+  /** Stable key stored on every queue item. */
+  id: string;
+  /** Handle or nickname, for logs and the dashboard. Falls back to the id. */
+  label: string;
+  /** The Threads profile's numeric user id (not the handle). */
+  userId: string;
+  /** Long-lived token with threads_basic + threads_content_publish. */
+  accessToken: string;
+  /** Which version of each idea this account posts. */
+  posts: ThreadsVersion;
+  /**
+   * Minutes after the slot time this account posts. Staggering keeps two
+   * connected accounts from firing in perfect lockstep every single slot.
+   */
+  offsetMinutes: number;
+};
 
 export type ThreadsConfig = {
   /** Master switch. Inert without credentials, so it defaults to on. */
   enabled: boolean;
-  /** The Threads profile's numeric user id (not the handle). */
-  userId: string | null;
-  /** Long-lived Threads access token with threads_basic + threads_content_publish. */
-  accessToken: string | null;
+  /** Every account with both credentials present, in slot order. */
+  accounts: ThreadsAccount[];
   apiBase: string;
   apiVersion: string;
   /** All slot times are wall-clock times in this zone. */
   timezone: string;
-  /** How many of the pack's posts to schedule per day. */
+  /** How many of the pack's posts to schedule per day, per account. */
   postsPerDay: number;
   /**
-   * What to do with the second version of each idea:
-   *   "reply"      → posted as a reply under the main post, making each slot a
-   *                  real two-post thread (default — a reworded near-duplicate
-   *                  sitting alone in the feed reads as spam);
-   *   "standalone" → its own top-level post, `secondPostGapMinutes` later;
-   *   "off"        → only the main post goes out.
-   */
-  secondPost: ThreadsSecondPostMode;
-  secondPostGapMinutes: number;
-  /**
-   * How late a post may still fire. Past that it is skipped rather than
-   * published, so a machine that was off all morning never dumps a backlog
-   * into the feed the moment it wakes up.
+   * How late a post may still fire. Past that it is skipped, so a machine that
+   * was off all morning never dumps a backlog into the feed on waking.
    */
   lateGraceMinutes: number;
   maxAttempts: number;
   /** First retry delay; doubles per attempt, capped at backoffCapMinutes. */
-  backoffBaseMinutes: number;
   backoffCapMinutes: number;
+  backoffBaseMinutes: number;
   /** An item claimed longer ago than this is treated as abandoned and retried. */
   claimTimeoutMinutes: number;
   /** Batches older than this are dropped from the queue file. */
@@ -64,28 +74,53 @@ function str(name: string): string | null {
 
 function num(name: string, fallback: number): number {
   const raw = Number(process.env[name]);
-  return Number.isFinite(raw) && raw > 0 ? raw : fallback;
+  return Number.isFinite(raw) ? raw : fallback;
 }
 
-function secondPostMode(): ThreadsSecondPostMode {
-  const raw = str("THREADS_SECOND_POST")?.toLowerCase();
-  if (raw === "standalone" || raw === "off") return raw;
-  return "reply";
+function version(name: string, fallback: ThreadsVersion): ThreadsVersion {
+  const raw = str(name)?.toLowerCase();
+  if (raw === "text" || raw === "variant") return raw;
+  return fallback;
+}
+
+/**
+ * Account slots. The first uses the unsuffixed variables so a single-account
+ * setup reads naturally; the second adds `_2`. Each is skipped unless BOTH its
+ * id and token are set — a half-configured account would fail every post.
+ */
+const SLOTS = [
+  { id: "primary", suffix: "", defaultPosts: "text" as ThreadsVersion, defaultOffset: 0 },
+  { id: "secondary", suffix: "_2", defaultPosts: "variant" as ThreadsVersion, defaultOffset: 3 }
+];
+
+function readAccounts(): ThreadsAccount[] {
+  const accounts: ThreadsAccount[] = [];
+  for (const slot of SLOTS) {
+    const userId = str(`THREADS_USER_ID${slot.suffix}`);
+    const accessToken = str(`THREADS_ACCESS_TOKEN${slot.suffix}`);
+    if (!userId || !accessToken) continue;
+    accounts.push({
+      id: slot.id,
+      label: str(`THREADS_LABEL${slot.suffix}`) ?? slot.id,
+      userId,
+      accessToken,
+      posts: version(`THREADS_POSTS${slot.suffix}`, slot.defaultPosts),
+      offsetMinutes: Math.max(0, num(`THREADS_OFFSET_MINUTES${slot.suffix}`, slot.defaultOffset))
+    });
+  }
+  return accounts;
 }
 
 export function threadsConfig(): ThreadsConfig {
   return {
     enabled: flag("THREADS_ENABLED", true),
-    userId: str("THREADS_USER_ID"),
-    accessToken: str("THREADS_ACCESS_TOKEN"),
+    accounts: readAccounts(),
     // VERIFY: Threads keeps its own Graph host and version line, separate from
     // the Facebook/Instagram one — https://developers.facebook.com/docs/threads
     apiBase: (str("THREADS_API_BASE") ?? "https://graph.threads.net").replace(/\/+$/, ""),
     apiVersion: str("THREADS_GRAPH_API_VERSION") ?? "v1.0",
     timezone: str("THREADS_TIMEZONE") ?? str("PUBLISH_TIMEZONE") ?? "America/Toronto",
-    postsPerDay: Math.min(48, num("THREADS_POSTS_PER_DAY", 24)),
-    secondPost: secondPostMode(),
-    secondPostGapMinutes: num("THREADS_SECOND_POST_GAP_MINUTES", 3),
+    postsPerDay: Math.min(48, Math.max(1, num("THREADS_POSTS_PER_DAY", 24))),
     lateGraceMinutes: num("THREADS_LATE_GRACE_MINUTES", 45),
     maxAttempts: num("THREADS_MAX_ATTEMPTS", 4),
     backoffBaseMinutes: num("THREADS_BACKOFF_BASE_MINUTES", 5),
@@ -95,16 +130,30 @@ export function threadsConfig(): ThreadsConfig {
   };
 }
 
-/** True when the autopilot can actually post: switched on and connected. */
+/** True when the autopilot can actually post: switched on with an account. */
 export function threadsConfigured(config: ThreadsConfig = threadsConfig()): boolean {
-  return Boolean(config.enabled && config.userId && config.accessToken);
+  return Boolean(config.enabled && config.accounts.length > 0);
+}
+
+export function findAccount(config: ThreadsConfig, accountId: string): ThreadsAccount | undefined {
+  return config.accounts.find((account) => account.id === accountId);
 }
 
 /** Why the autopilot is idle, or null when it is ready to run. */
 export function threadsBlockedReason(config: ThreadsConfig = threadsConfig()): string | null {
   if (!config.enabled) return "The Threads autopilot is switched off (THREADS_ENABLED=false).";
-  if (!config.userId || !config.accessToken) {
-    return "Threads is not connected — set THREADS_USER_ID and THREADS_ACCESS_TOKEN in .env.";
+  if (config.accounts.length === 0) {
+    return "No Threads account is connected — set THREADS_USER_ID and THREADS_ACCESS_TOKEN in .env.";
   }
   return null;
+}
+
+/**
+ * Versions the pack writes that no connected account is posting — surfaced so
+ * a half-finished two-account setup is visible rather than silently dropping
+ * half the day's content.
+ */
+export function unassignedVersions(config: ThreadsConfig = threadsConfig()): ThreadsVersion[] {
+  const covered = new Set(config.accounts.map((account) => account.posts));
+  return (["text", "variant"] as ThreadsVersion[]).filter((entry) => !covered.has(entry));
 }
