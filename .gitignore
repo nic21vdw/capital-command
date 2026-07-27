@@ -17,6 +17,7 @@ data/longform/
 data/pipeline/
 data/voiceover/
 data/publish-queue.json
+data/threads-queue.json
 data/publisher-tokens.json
 data/social-accounts.json
 data/title-log.jsonl

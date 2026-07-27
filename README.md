@@ -272,6 +272,54 @@ local scheduler and the Actions cron against the same queue at the same time.
    enqueue, then trigger the workflow manually from the Actions tab with
    "dry run" first.
 
+## Threads autopilot (a fresh batch of posts every 24 hours, posted for you)
+
+The X/Threads Post Engine already writes 24 fresh posts a day against your
+positioning brief, each with a reworded Threads variant. The autopilot takes it
+the rest of the way: it schedules both versions of every idea and posts them to
+Threads at their slot times, unattended — no browser agent, no copy-pasting.
+
+Each slot becomes a **two-post thread**: the main post at its time, and the
+reworded variant as a reply under it three minutes later
+(`THREADS_SECOND_POST=standalone` makes it a separate post instead, `off`
+drops it).
+
+**Setup, once:**
+
+1. Create a Meta app with the **Threads API**, add your Threads profile, and
+   mint a long-lived token with `threads_basic` + `threads_content_publish`
+   ([Meta's Threads API docs](https://developers.facebook.com/docs/threads)).
+2. In `.env`, set `THREADS_USER_ID` (the numeric id, not the @handle) and
+   `THREADS_ACCESS_TOKEN`. Everything else has a working default — see
+   `.env.example` for the full list.
+3. `npm run threads:check` — confirms the token works and belongs to that id.
+4. `npm run threads:dry` — plans today's batch and prints exactly what it would
+   post, without posting anything.
+5. Register the scheduled task (PowerShell, from the project folder):
+
+   ```powershell
+   $action = New-ScheduledTaskAction -Execute "powershell.exe" `
+     -Argument "-NoProfile -ExecutionPolicy Bypass -File `"$PWD\scripts\threads-autopilot.ps1`""
+   $trigger = New-ScheduledTaskTrigger -Once -At (Get-Date) `
+     -RepetitionInterval (New-TimeSpan -Minutes 5)
+   Register-ScheduledTask -TaskName "Capital Command threads autopilot" -Action $action -Trigger $trigger `
+     -Description "Generate and post the daily Threads batch"
+   ```
+
+   The task starts the app if it isn't running, plans the day's batch once,
+   and posts whatever is due. Log: `threads-autopilot.log`.
+
+**Day to day:** nothing. The Post Engine page (`/x-posts`) shows an autopilot
+card with today's tally, the next post time, and buttons to schedule, post
+what's due, or re-check the connection by hand. `npm run threads:status` is the
+same thing in a terminal.
+
+**If your PC was off**, posts that missed their slot by more than
+`THREADS_LATE_GRACE_MINUTES` (45 by default) are skipped rather than fired
+late, and the next day starts fresh — so you never come back to a burst of
+fourteen posts going out in one minute. Design notes:
+[`src/lib/threads/README.md`](src/lib/threads/README.md).
+
 ## Animated video segments (Remotion)
 
 Make **dynamic animated clips** to record commentary over — title cards,

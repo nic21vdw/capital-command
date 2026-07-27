@@ -1,0 +1,92 @@
+import { threadsBlockedReason, threadsConfig, type ThreadsConfig } from "@/lib/threads/config";
+import { planBatch } from "@/lib/threads/plan";
+import { hasBatch, mutateQueue, pruneOld } from "@/lib/threads/queue";
+import { runDue } from "@/lib/threads/runner";
+import type { ThreadsPlanResult, ThreadsRunReport } from "@/lib/threads/types";
+import { ensureDailyPack } from "@/lib/x-posts/daily";
+import { localDateKey } from "@/lib/x-strategy/analytics";
+
+/**
+ * The daily half of the autopilot: make sure today's batch exists.
+ *
+ * DeepSeek writes one pack a day (24 fresh angles against the positioning
+ * brief, each with a Threads-flavoured rewrite), and this schedules both
+ * versions of every slot onto the queue. It is idempotent behind a batch-date
+ * check, so the tick can call it every few minutes all day and it does real
+ * work exactly once.
+ */
+
+export async function planTodaysBatch(
+  options: {
+    config?: ThreadsConfig;
+    now?: Date;
+    /** Replace today's batch with a freshly generated pack. */
+    force?: boolean;
+    focus?: string;
+    log?: (line: string) => void;
+  } = {}
+): Promise<ThreadsPlanResult> {
+  const config = options.config ?? threadsConfig();
+  const now = options.now ?? new Date();
+  const log = options.log ?? ((line: string) => console.log(line));
+  const date = localDateKey(now);
+
+  const blocked = threadsBlockedReason(config);
+  if (blocked) return { date, created: 0, droppedPastSlots: 0, skipped: blocked };
+
+  const existing = await mutateQueue((items) => {
+    const kept = pruneOld(items, now, config);
+    if (!options.force) return { items: kept, result: hasBatch(kept, date) };
+    // A forced replan clears only what has not gone out yet — anything already
+    // published stays on the record.
+    return { items: kept.filter((item) => item.batchDate !== date || item.status !== "pending"), result: false };
+  });
+  if (existing) {
+    return { date, created: 0, droppedPastSlots: 0, skipped: "Today's batch is already scheduled." };
+  }
+
+  const { pack, cached, reason } = await ensureDailyPack({ focus: options.focus, force: options.force, date });
+  log(
+    `[threads] ${cached ? "using today's" : "generated a new"} pack (${pack.source}, ${pack.posts.length} posts)${
+      reason ? ` — ${reason}` : ""
+    }`
+  );
+
+  const { items, droppedPastSlots } = planBatch({ pack, config, now });
+  if (items.length === 0) {
+    return {
+      date,
+      created: 0,
+      droppedPastSlots,
+      skipped: "Every slot for today has already passed — the next batch starts tomorrow morning.",
+      packReason: reason,
+      packSource: pack.source
+    };
+  }
+
+  await mutateQueue((current) => ({ items: [...current, ...items], result: null }));
+  log(
+    `[threads] scheduled ${items.length} post(s) for ${date}${
+      droppedPastSlots ? ` (${droppedPastSlots} slot(s) already past — dropped)` : ""
+    }`
+  );
+
+  return { date, created: items.length, droppedPastSlots, packReason: reason, packSource: pack.source };
+}
+
+export type ThreadsTickResult = { plan: ThreadsPlanResult; run: ThreadsRunReport };
+
+/**
+ * One turn of the whole loop, and the only thing the scheduled task needs to
+ * call: make sure today's batch exists, then post whatever is due. Running it
+ * every few minutes is what makes the 24-hour cycle unattended.
+ */
+export async function threadsTick(
+  options: { config?: ThreadsConfig; now?: Date; dryRun?: boolean; log?: (line: string) => void } = {}
+): Promise<ThreadsTickResult> {
+  const config = options.config ?? threadsConfig();
+  const now = options.now ?? new Date();
+  const plan = await planTodaysBatch({ config, now, log: options.log });
+  const run = await runDue(now, { config, dryRun: options.dryRun, log: options.log });
+  return { plan, run };
+}
