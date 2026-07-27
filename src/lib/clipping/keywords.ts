@@ -3,7 +3,7 @@
  * voice. Kept in its own dependency-free module (no AI SDK, no node built-ins)
  * so it is safe to import from client components (e.g. the Clip Editor's
  * description tooling) as well as the server-side generators. titles.ts and the
- * other metadata generators re-use these; see CLAUDE.md for the convention.
+ * other metadata generators re-use these; see AGENTS.md for the convention.
  */
 
 /** Recurring channel topics woven into titles/descriptions/tags when the clip supports them. */
