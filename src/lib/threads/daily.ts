@@ -1,6 +1,6 @@
 import { threadsBlockedReason, threadsConfig, type ThreadsConfig } from "@/lib/threads/config";
 import { planBatch } from "@/lib/threads/plan";
-import { hasBatch, mutateQueue, pruneOld } from "@/lib/threads/queue";
+import { itemsForDate, mutateQueue, pruneOld } from "@/lib/threads/queue";
 import { runDue } from "@/lib/threads/runner";
 import type { ThreadsPlanResult, ThreadsRunReport } from "@/lib/threads/types";
 import { ensureDailyPack } from "@/lib/x-posts/daily";
@@ -34,16 +34,18 @@ export async function planTodaysBatch(
   const blocked = threadsBlockedReason(config);
   if (blocked) return { date, created: 0, droppedPastSlots: 0, skipped: blocked };
 
-  const existing = await mutateQueue((items) => {
+  const before = await mutateQueue((items) => {
     const kept = pruneOld(items, now, config);
-    if (!options.force) return { items: kept, result: hasBatch(kept, date) };
+    if (!options.force) return { items: kept, result: itemsForDate(kept, date) };
     // A forced replan clears only what has not gone out yet — anything already
     // published stays on the record.
-    return { items: kept.filter((item) => item.batchDate !== date || item.status !== "pending"), result: false };
+    const cleared = kept.filter((item) => item.batchDate !== date || item.status !== "pending");
+    return { items: cleared, result: itemsForDate(cleared, date) };
   });
-  if (existing) {
+  if (!options.force && before.length > 0) {
     return { date, created: 0, droppedPastSlots: 0, skipped: "Today's batch is already scheduled." };
   }
+  const alreadySeen = new Set(before.map((item) => item.id));
 
   const { pack, cached, reason } = await ensureDailyPack({ focus: options.focus, force: options.force, date });
   log(
@@ -64,7 +66,22 @@ export async function planTodaysBatch(
     };
   }
 
-  await mutateQueue((current) => ({ items: [...current, ...items], result: null }));
+  // Writing the batch is a SEPARATE read-modify-write from the check above, and
+  // minutes of model time sit between them — long enough for the next scheduled
+  // tick to start, see an empty day and plan it too. That once put two posts on
+  // every slot of the day, at identical times. So the last word goes to whoever
+  // writes first: if today grew an item this call did not start with, the loser
+  // throws its work away rather than doubling the feed.
+  const added = await mutateQueue((current) => {
+    const raced = itemsForDate(current, date).some((item) => !alreadySeen.has(item.id));
+    if (raced) return { items: current, result: false };
+    return { items: [...current, ...items], result: true };
+  });
+  if (!added) {
+    log(`[threads] another tick planned ${date} first — dropping this duplicate batch`);
+    return { date, created: 0, droppedPastSlots, skipped: "Another tick planned today's batch first." };
+  }
+
   log(
     `[threads] scheduled ${items.length} post(s) for ${date}${
       droppedPastSlots ? ` (${droppedPastSlots} slot(s) already past — dropped)` : ""
