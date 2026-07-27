@@ -1,4 +1,4 @@
-# Threads autopilot — the entrypoint for Windows Task Scheduler.
+# Threads autopilot - the entrypoint for Windows Task Scheduler.
 #
 # One tick does the whole loop: if today's batch isn't scheduled yet, DeepSeek
 # writes a fresh pack of posts and both versions of every slot go onto the
@@ -13,7 +13,7 @@
 #
 #   npm run threads:register
 #
-# (which is scripts\register-threads-task.ps1 — read that for the settings and
+# (which is scripts\register-threads-task.ps1 - read that for the settings and
 # for how to remove the task again).
 #
 # A missed run is not a problem: posts more than THREADS_LATE_GRACE_MINUTES

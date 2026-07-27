@@ -1,7 +1,7 @@
 # Registers (or re-registers) the Threads autopilot in Windows Task Scheduler.
 #
 # One task, every five minutes, all day. Each tick plans today's batch if it
-# isn't scheduled yet and posts whatever is due — see scripts/threads-autopilot.ps1.
+# isn't scheduled yet and posts whatever is due - see scripts/threads-autopilot.ps1.
 #
 # Run it from the project folder:
 #   powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\register-threads-task.ps1

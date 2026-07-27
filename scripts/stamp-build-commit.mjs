@@ -18,9 +18,13 @@ import { join } from "node:path";
 
 const nextDir = join(process.cwd(), ".next");
 
-if (!existsSync(nextDir)) {
-  // No build to stamp. Not an error: this also runs after a failed build, and
-  // failing here would mask the real failure.
+// BUILD_ID is the artifact that says a build actually finished. `next build`
+// has exited 0 here without producing one — a concurrent build sharing this
+// .next, or OneDrive taking a file mid-trace — and stamping that would claim a
+// commit is deployed when nothing is. Not an error: postbuild also runs after
+// a failed build, and failing here would mask the real failure.
+if (!existsSync(nextDir) || !existsSync(join(nextDir, "BUILD_ID"))) {
+  console.log("[stamp] no completed build to stamp — leaving .next/BUILD_COMMIT alone.");
   process.exit(0);
 }
 
