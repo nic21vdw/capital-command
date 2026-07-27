@@ -14,7 +14,8 @@ export const maxDuration = 300;
 const paramsSchema = z.object({
   name: z.string().min(1),
   publishAt: z.string().min(1),
-  platform: z.enum(["youtube", "instagram", "tiktok", "facebook"])
+  platform: z.enum(["youtube", "instagram", "tiktok", "facebook"]),
+  accountId: z.string().min(1).optional()
 });
 
 /**
@@ -36,12 +37,13 @@ export async function POST(request: NextRequest) {
   const parsed = paramsSchema.safeParse({
     name: request.nextUrl.searchParams.get("name")?.trim() || "upload.mp4",
     publishAt: request.nextUrl.searchParams.get("publishAt"),
-    platform: request.nextUrl.searchParams.get("platform")
+    platform: request.nextUrl.searchParams.get("platform"),
+    accountId: request.nextUrl.searchParams.get("accountId") || undefined
   });
   if (!parsed.success) {
     return NextResponse.json({ error: "Invalid upload request." }, { status: 400 });
   }
-  const { name, publishAt, platform } = parsed.data;
+  const { name, publishAt, platform, accountId } = parsed.data;
 
   let saved;
   try {
@@ -62,6 +64,7 @@ export async function POST(request: NextRequest) {
       // "public" is what makes YouTube honor publishAt (uploaded private,
       // flipped live at the slot time) — same as scheduling a clip.
       visibility: "public",
+      accountId,
       metadataSource: { streamTitle: name }
     });
   } catch (error) {

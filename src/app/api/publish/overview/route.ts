@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { configuredPlatforms, publisherConfig } from "@/lib/publisher/config";
+import { bufferConfigured, configuredPlatforms, publisherConfig } from "@/lib/publisher/config";
 import { youtubeChannelInfo } from "@/lib/publisher/googleAuth";
 import { youtubeQuota } from "@/lib/publisher/quota";
 import { publishQueue } from "@/lib/publisher/queue";
@@ -9,7 +9,7 @@ import type { PlatformId } from "@/lib/publisher/types";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-/** How far forward the schedule grid can page: ten years of daily slots. */
+/** How far the schedule grid can page from today, in either direction: ten years. */
 const MAX_OFFSET_DAYS = 3650;
 
 /**
@@ -17,15 +17,17 @@ const MAX_OFFSET_DAYS = 3650;
  * Center needs beyond the queue itself: whether publishing is on, which
  * platforms have credentials, the YouTube quota meter, and the schedule grid
  * slots (built server-side so wall-clock labels are in PUBLISH_TIMEZONE and
- * instants are UTC). `offsetDays` moves the slot window forward so the UI can
- * page through future scheduling periods; it never goes backwards.
+ * instants are UTC). `offsetDays` moves the slot window relative to today so the
+ * UI can page through past and future scheduling periods (negative = earlier).
  */
 export async function GET(request: NextRequest) {
   const config = publisherConfig();
   const daysRaw = Number(request.nextUrl.searchParams.get("days"));
   const days = Number.isFinite(daysRaw) && daysRaw > 0 ? Math.min(daysRaw, 60) : 14;
   const offsetRaw = Number(request.nextUrl.searchParams.get("offsetDays"));
-  const offsetDays = Number.isFinite(offsetRaw) && offsetRaw > 0 ? Math.min(Math.floor(offsetRaw), MAX_OFFSET_DAYS) : 0;
+  const offsetDays = Number.isFinite(offsetRaw)
+    ? Math.max(-MAX_OFFSET_DAYS, Math.min(Math.trunc(offsetRaw), MAX_OFFSET_DAYS))
+    : 0;
 
   const now = new Date();
   const configured = new Set<PlatformId>(configuredPlatforms(config));
@@ -41,6 +43,14 @@ export async function GET(request: NextRequest) {
       },
       instagram: { configured: configured.has("instagram") },
       tiktok: { configured: configured.has("tiktok") }
+    },
+    // Buffer is a delivery layer, not one of the four platforms — surfaced
+    // separately so the UI can show it's managing scheduled posts. `enabled`
+    // without `configured` means the token/profiles still need to be set.
+    buffer: {
+      enabled: config.buffer.enabled,
+      configured: bufferConfigured(config),
+      profileCount: config.buffer.profileIds.length
     },
     quota: youtubeQuota(items, now, config),
     // Echoed back so the client can tell which window the slots belong to

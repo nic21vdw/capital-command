@@ -1,4 +1,5 @@
 import { CAPTION_PRESETS } from "@/lib/clipping/captions";
+import { defaultSfxSettings } from "@/lib/sfx/types";
 import {
   defaultCaptionStyle,
   defaultClipAudio,
@@ -10,7 +11,8 @@ import type {
   CaptionPresetId,
   CaptionStyle,
   ClipProject,
-  ExportPresetId
+  ExportPresetId,
+  Overlay
 } from "@/types/domain";
 
 /** Output pixel dimensions for each aspect ratio. */
@@ -285,6 +287,45 @@ export function leadingSilenceSec(
 }
 
 /**
+ * Default title overlay for a fresh short: the clip's generated title as an
+ * editable text overlay, centered just above the top edge of the video band
+ * so it sits in the blurred fill rather than over the footage. Uses the same
+ * contain-fit math as the preview/export geometry to find that edge.
+ */
+export function makeTitleOverlay(project: ClipProject): Overlay {
+  const frame = aspectDimensions(project.aspectRatio);
+  const frameAspect = frame.w / frame.h;
+  const videoAspect = project.baseWidth / Math.max(1, project.baseHeight);
+  // Fraction of the frame height the contain-fitted video occupies in the
+  // center-blur layout; a source wider than the frame letterboxes vertically.
+  const videoHeightFrac = videoAspect >= frameAspect ? frameAspect / videoAspect : 1;
+  const videoTop = (1 - videoHeightFrac) / 2;
+  // Park the block's center a step above the video edge so even a two-line
+  // title clears it, but never leave the 5% safe area when the video is tall.
+  const y = Math.min(0.9, Math.max(0.08, videoTop - 0.07));
+  return {
+    id: `ov-title-${crypto.randomUUID()}`,
+    kind: "text",
+    text: project.title || project.name,
+    x: 0.5,
+    y,
+    scale: 1,
+    rotation: 0,
+    opacity: 1,
+    z: project.overlays.length,
+    locked: false,
+    start: 0,
+    end: Math.max(0.1, project.trimEnd - project.trimStart),
+    // White Inter-bold, matching the title burned into the ready-to-post
+    // render so the editor preview and the downloaded clip look the same.
+    color: "#ffffff",
+    fontFamily: "Inter, system-ui, sans-serif",
+    fontWeight: 800,
+    align: "center"
+  };
+}
+
+/**
  * Builds a fresh clip project from a rendered 16:9 source master. Projects
  * open Shorts/Reels-ready: 9:16 vertical, blur-filled framing, and word-synced
  * captions on — the goal is export-and-upload with zero extra setup.
@@ -314,6 +355,7 @@ export function makeClipProject(input: {
     clipEnd: input.clipEnd,
     trimStart: 0,
     trimEnd: duration,
+    segments: [],
     title: "",
     aspectRatio: "9:16",
     compositionMode: "center-blur",
@@ -324,6 +366,7 @@ export function makeClipProject(input: {
     highlightCurrentWord: true,
     overlays: [],
     audio: { ...defaultClipAudio },
+    sfx: defaultSfxSettings(),
     exportSettings: { ...defaultClipExportSettings },
     suggestions: [],
     createdAt: now,

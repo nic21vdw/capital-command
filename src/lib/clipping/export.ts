@@ -1,19 +1,31 @@
-import { mkdir, stat, writeFile } from "node:fs/promises";
+import { mkdir, rm, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { buildAss, buildTextOverlayDialogue, buildWatermarkDialogue } from "@/lib/clipping/captions";
-import { hasAudioStream, probeDuration, runFfmpeg } from "@/lib/clipping/ffmpeg";
+import { hasAudioStream, isRenderCanceled, probeDuration, runFfmpeg } from "@/lib/clipping/ffmpeg";
 import { attachEditedClipRender, outputDir, workDir } from "@/lib/clipping/jobs";
+import { renderSignature } from "@/lib/clipping/export-signature";
+import {
+  clipEditedDurationSec,
+  keptClipRanges,
+  remapClipCaptions,
+  remapClipOverlays
+} from "@/lib/clipping/segments";
 import { LAYOUT_MODE_PRESETS } from "@/lib/clipping/layouts";
 import { reframeChain, stackedLayoutChain } from "@/lib/clipping/render";
 import { maybeAutoEnqueueExport } from "@/lib/publisher/enqueue";
+import { planSfxCues } from "@/lib/sfx/cues";
+import { resolveSoundPath } from "@/lib/sfx/sounds";
 import type {
   CaptionSegment,
   CaptionStyle,
   ClipAudio,
   ClipCompositionMode,
+  ClipEditSegment,
   ClipExportSettings,
   Overlay,
-  RegionRect
+  RegionRect,
+  SfxSettings,
+  SfxSoundId
 } from "@/types/domain";
 
 export type ExportSpec = {
@@ -22,6 +34,7 @@ export type ExportSpec = {
   baseDurationSec: number;
   trimStart: number;
   trimEnd: number;
+  segments?: ClipEditSegment[];
   compositionMode: ClipCompositionMode;
   reframe: { scale: number; offsetX: number; offsetY: number };
   faceSource?: RegionRect;
@@ -32,10 +45,12 @@ export type ExportSpec = {
   highlightCurrentWord: boolean;
   overlays: Overlay[];
   audio: ClipAudio;
+  /** Auto-placed viral sound effects, planned from the trimmed captions. */
+  sfx?: SfxSettings;
   settings: ClipExportSettings;
 };
 
-export type ExportStatus = "processing" | "done" | "error";
+export type ExportStatus = "processing" | "done" | "error" | "canceled";
 
 export type ExportRecord = {
   id: string;
@@ -50,12 +65,36 @@ export type ExportRecord = {
   createdAt: string;
 };
 
-type ExportsGlobal = typeof globalThis & { __clipExports?: Map<string, ExportRecord> };
+type ExportsGlobal = typeof globalThis & {
+  __clipExports?: Map<string, ExportRecord>;
+  __clipExportControllers?: Map<string, AbortController>;
+};
 const g = globalThis as ExportsGlobal;
 const exports = (g.__clipExports ??= new Map<string, ExportRecord>());
+// Abort controllers for in-flight renders, so a render can be stopped safely
+// (the ffmpeg process is killed) from the export route. Keyed by export id.
+const controllers = (g.__clipExportControllers ??= new Map<string, AbortController>());
 
 export function getExport(id: string): ExportRecord | undefined {
   return exports.get(id);
+}
+
+/**
+ * Stops an in-flight render safely: aborts the ffmpeg process and marks the
+ * record "canceled". A no-op (returns the record as-is) once the export has
+ * already finished, errored, or been stopped.
+ */
+export function cancelExport(id: string): ExportRecord | undefined {
+  const record = exports.get(id);
+  if (!record) return undefined;
+  if (record.status === "processing") {
+    controllers.get(id)?.abort();
+    controllers.delete(id);
+    record.status = "canceled";
+    record.progress = 0;
+    record.error = undefined;
+  }
+  return record;
 }
 
 function crf(format: string, quality: ExportSpec["settings"]["quality"]): number {
@@ -69,48 +108,36 @@ function dataUrlToBuffer(src: string): Buffer | null {
   return Buffer.from(m[1], "base64");
 }
 
-function trimStartSec(spec: ExportSpec): number {
-  return Math.max(0, Math.min(spec.trimStart || 0, spec.baseDurationSec));
+function editRanges(spec: ExportSpec) {
+  return keptClipRanges(
+    spec.baseDurationSec,
+    spec.trimStart,
+    spec.trimEnd,
+    spec.segments
+  );
 }
 
 function trimDuration(spec: ExportSpec): number {
-  const start = trimStartSec(spec);
-  const end = Math.max(start + 0.1, Math.min(spec.trimEnd || spec.baseDurationSec, spec.baseDurationSec));
-  return end - start;
+  return clipEditedDurationSec(
+    spec.baseDurationSec,
+    spec.trimStart,
+    spec.trimEnd,
+    spec.segments
+  );
 }
 
 function shiftedCaptions(spec: ExportSpec): CaptionSegment[] {
-  const start = trimStartSec(spec);
-  const end = start + trimDuration(spec);
-  return spec.captions
-    .filter((caption) => caption.end > start && caption.start < end)
-    .map((caption) => ({
-      ...caption,
-      start: Math.max(0, caption.start - start),
-      end: Math.min(end, caption.end) - start,
-      words: caption.words
-        .filter((word) => word.end > start && word.start < end)
-        .map((word) => ({
-          ...word,
-          start: Math.max(0, word.start - start),
-          end: Math.min(end, word.end) - start
-        }))
-    }));
+  return remapClipCaptions(spec.captions, editRanges(spec));
 }
 
 function shiftedOverlays(spec: ExportSpec): Overlay[] {
-  const start = trimStartSec(spec);
-  const end = start + trimDuration(spec);
-  return spec.overlays
-    .filter((overlay) => {
-      const overlayEnd = overlay.end > overlay.start ? overlay.end : spec.baseDurationSec;
-      return overlayEnd > start && overlay.start < end;
-    })
-    .map((overlay) => ({
-      ...overlay,
-      start: Math.max(0, overlay.start - start),
-      end: Math.min(end, overlay.end > overlay.start ? overlay.end : spec.baseDurationSec) - start
-    }));
+  return remapClipOverlays(spec.overlays, editRanges(spec), spec.baseDurationSec);
+}
+
+function selectExpression(spec: ExportSpec): string {
+  const ranges = editRanges(spec);
+  if (ranges.length === 0) throw new Error("Nothing to export — every timeline segment is cut.");
+  return ranges.map((range) => `between(t,${range.start.toFixed(3)},${range.end.toFixed(3)})`).join("+");
 }
 
 async function writeOverlayImages(spec: ExportSpec, dir: string) {
@@ -221,8 +248,9 @@ async function buildArgs(spec: ExportSpec, dir: string): Promise<{ args: string[
   const w = settings.width;
   const h = settings.height;
   const basePath = path.join(outputDir(spec.jobId), spec.sourceFile);
-  const start = trimStartSec(spec);
   const dur = trimDuration(spec);
+  if (dur < 0.05) throw new Error("Nothing to export — every timeline segment is cut.");
+  const selectExpr = selectExpression(spec);
   const hasAudio = await hasAudioStream(basePath).catch(() => false);
 
   const images = await writeOverlayImages(spec, dir);
@@ -232,7 +260,7 @@ async function buildArgs(spec: ExportSpec, dir: string): Promise<{ args: string[
   const ext = settings.format === "webm" ? "webm" : "mp4";
   const outFile = path.join(outputDir(spec.jobId), `export-${path.basename(dir)}.${ext}`);
 
-  const inputs: string[] = ["-ss", start.toFixed(2), "-i", basePath];
+  const inputs: string[] = ["-i", basePath];
   for (const img of images) inputs.push("-i", img.file);
   let musicIndex = -1;
   if (spec.audio.musicSrc) {
@@ -245,10 +273,35 @@ async function buildArgs(spec: ExportSpec, dir: string): Promise<{ args: string[
     }
   }
 
+  // Auto sound effects: cues are planned over the trimmed captions (already
+  // clip-relative), grouped per sound so each file is opened once, then split
+  // into one delayed copy per hit inside the audio filtergraph below.
+  const sfxShots: Array<{ index: number; offsetsSec: number[] }> = [];
+  let sfxVolume = 1;
+  if (spec.sfx?.enabled) {
+    sfxVolume = Math.min(2, Math.max(0, spec.sfx.volume));
+    const cues = planSfxCues(shiftedCaptions(spec), spec.sfx).filter((cue) => cue.time < dur - 0.05);
+    const bySound = new Map<SfxSoundId, number[]>();
+    for (const cue of cues) {
+      const offsets = bySound.get(cue.soundId) ?? [];
+      offsets.push(Math.max(0, cue.time));
+      bySound.set(cue.soundId, offsets);
+    }
+    let nextInputIndex = 1 + images.length + (musicIndex >= 0 ? 1 : 0);
+    for (const [soundId, offsetsSec] of bySound) {
+      const soundPath = await resolveSoundPath(soundId);
+      if (!soundPath) continue;
+      sfxShots.push({ index: nextInputIndex, offsetsSec });
+      inputs.push("-i", soundPath);
+      nextInputIndex += 1;
+    }
+  }
+
   // --- Video filtergraph ---
   const parts: string[] = [];
   parts.push(sourceCompositionChain(spec, w, h));
-  let last = "v0";
+  parts.push(`[v0]select='${selectExpr}',setpts=N/FRAME_RATE/TB[vcut]`);
+  let last = "vcut";
   images.forEach((img, k) => {
     const inputIdx = 1 + k;
     const o = img.overlay;
@@ -268,26 +321,55 @@ async function buildArgs(spec: ExportSpec, dir: string): Promise<{ args: string[
   parts.push(`[${last}]ass='${escapeFilterPath(assPath)}'[vout]`);
 
   // --- Audio filtergraph ---
+  // Every audio source lands in `audioLabels` (clip audio, background music,
+  // one delayed copy of a sound effect per hit), then a single amix folds
+  // them together. A lone source skips the mix entirely.
   let audioMapped = false;
   const fadeOutStart = Math.max(0, dur - spec.audio.fadeOut);
+  const audioLabels: string[] = [];
   if (hasAudio) {
-    const af: string[] = [`volume=${spec.audio.clipVolume.toFixed(3)}`];
+    const af: string[] = [
+      `aselect='${selectExpr}'`,
+      "asetpts=N/SR/TB",
+      `volume=${spec.audio.clipVolume.toFixed(3)}`
+    ];
     if (spec.audio.fadeIn > 0) af.push(`afade=t=in:st=0:d=${spec.audio.fadeIn}`);
     if (spec.audio.fadeOut > 0) af.push(`afade=t=out:st=${fadeOutStart.toFixed(2)}:d=${spec.audio.fadeOut}`);
     parts.push(`[0:a]${af.join(",")}[a0]`);
+    audioLabels.push("[a0]");
   }
   if (musicIndex >= 0) {
     parts.push(
       `[${musicIndex}:a]volume=${spec.audio.musicVolume.toFixed(3)},atrim=0:${dur.toFixed(2)},asetpts=N/SR/TB[am]`
     );
-    if (hasAudio) {
-      parts.push(`[a0][am]amix=inputs=2:duration=first:dropout_transition=0[aout]`);
+    audioLabels.push("[am]");
+  }
+  sfxShots.forEach((shot, shotIndex) => {
+    const base = `[${shot.index}:a]atrim=0:4,asetpts=PTS-STARTPTS,volume=${sfxVolume.toFixed(3)}`;
+    if (shot.offsetsSec.length === 1) {
+      const offMs = Math.round(shot.offsetsSec[0] * 1000);
+      parts.push(`${base}${offMs > 0 ? `,adelay=${offMs}|${offMs}` : ""}[s${shotIndex}_0]`);
+      audioLabels.push(`[s${shotIndex}_0]`);
     } else {
-      parts.push(`[am]anull[aout]`);
+      const splits = shot.offsetsSec.map((_, hit) => `[u${shotIndex}_${hit}]`).join("");
+      parts.push(`${base},asplit=${shot.offsetsSec.length}${splits}`);
+      shot.offsetsSec.forEach((offsetSec, hit) => {
+        const offMs = Math.round(offsetSec * 1000);
+        parts.push(`[u${shotIndex}_${hit}]${offMs > 0 ? `adelay=${offMs}|${offMs}` : "anull"}[s${shotIndex}_${hit}]`);
+        audioLabels.push(`[s${shotIndex}_${hit}]`);
+      });
     }
+  });
+  if (audioLabels.length === 1) {
+    parts.push(`${audioLabels[0]}anull[aout]`);
     audioMapped = true;
-  } else if (hasAudio) {
-    parts.push(`[a0]anull[aout]`);
+  } else if (audioLabels.length > 1) {
+    // duration=first keeps the clip's own audio in charge of length; without
+    // clip audio the mix is padded then cut to the trimmed duration instead.
+    const tail = hasAudio
+      ? `amix=inputs=${audioLabels.length}:duration=first:dropout_transition=0:normalize=0[aout]`
+      : `amix=inputs=${audioLabels.length}:duration=longest:dropout_transition=0:normalize=0,apad,atrim=0:${dur.toFixed(2)}[aout]`;
+    parts.push(`${audioLabels.join("")}${tail}`);
     audioMapped = true;
   }
 
@@ -322,28 +404,50 @@ export function startExport(spec: ExportSpec): ExportRecord {
     createdAt: new Date().toISOString()
   };
   exports.set(id, record);
-  void runExport(record, spec).catch((error) => {
-    record.status = "error";
-    record.error = error instanceof Error ? error.message : String(error);
-  });
+  const controller = new AbortController();
+  controllers.set(id, controller);
+  void runExport(record, spec, controller.signal)
+    .catch((error) => {
+      // A deliberate stop lands here as a RenderCanceledError — don't dress it
+      // up as a failure. cancelExport already flipped the record to "canceled".
+      if (isRenderCanceled(error) || controller.signal.aborted) {
+        record.status = "canceled";
+        record.error = undefined;
+        return;
+      }
+      record.status = "error";
+      record.error = error instanceof Error ? error.message : String(error);
+    })
+    .finally(() => controllers.delete(id));
   return record;
 }
 
-async function runExport(record: ExportRecord, spec: ExportSpec) {
+async function runExport(record: ExportRecord, spec: ExportSpec, signal: AbortSignal) {
   const dir = path.join(workDir(spec.jobId), `export-${record.id}`);
   await mkdir(dir, { recursive: true });
   const { args, outFile } = await buildArgs(spec, dir);
   const total = Math.max(0.1, trimDuration(spec));
 
-  await runFfmpeg(args, {
-    onLine: (line) => {
-      const m = line.match(/time=(\d+):(\d+):(\d+(?:\.\d+)?)/);
-      if (m) {
-        const t = Number(m[1]) * 3600 + Number(m[2]) * 60 + Number(m[3]);
-        record.progress = Math.min(99, Math.max(1, Math.round((t / total) * 100)));
+  try {
+    await runFfmpeg(args, {
+      signal,
+      onLine: (line) => {
+        if (signal.aborted) return;
+        const m = line.match(/time=(\d+):(\d+):(\d+(?:\.\d+)?)/);
+        if (m) {
+          const t = Number(m[1]) * 3600 + Number(m[2]) * 60 + Number(m[3]);
+          record.progress = Math.min(99, Math.max(1, Math.round((t / total) * 100)));
+        }
       }
+    });
+  } catch (error) {
+    // On a stop, remove the half-written output so nothing downstream ever
+    // picks up a truncated, unplayable file.
+    if (isRenderCanceled(error) || signal.aborted) {
+      await rm(outFile, { force: true }).catch(() => undefined);
     }
-  });
+    throw error;
+  }
 
   // Never mark complete unless a real, probeable, non-empty file exists.
   const info = await stat(outFile).catch(() => null);
@@ -352,12 +456,40 @@ async function runExport(record: ExportRecord, spec: ExportSpec) {
   }
   await probeDuration(outFile); // throws if the output is not a valid video
   record.file = path.basename(outFile);
+
+  // Record the export on the clip it was cut from — with the signature of the
+  // edits it was rendered from — so the Clip Generator and the Uploading Center
+  // pick up the edited clip instead of the auto render, and can tell when a
+  // later trim/edit has made this render stale. This must land BEFORE the
+  // record flips to "done": the editor navigates to the Uploading Center the
+  // instant it sees "done", and that page reads the clip's edited file — so if
+  // the attach ran afterward it could schedule the un-trimmed render.
+  await attachEditedClipRender(
+    spec.jobId,
+    spec.sourceFile,
+    record.file,
+    renderSignature({
+      baseDurationSec: spec.baseDurationSec,
+      trimStart: spec.trimStart,
+      trimEnd: spec.trimEnd,
+      segments: spec.segments,
+      compositionMode: spec.compositionMode,
+      reframe: spec.reframe,
+      faceSource: spec.faceSource,
+      screenSource: spec.screenSource,
+      captions: spec.captions,
+      captionStyle: spec.captionStyle,
+      captionsVisible: spec.captionsVisible,
+      highlightCurrentWord: spec.highlightCurrentWord,
+      overlays: spec.overlays,
+      audio: spec.audio,
+      sfx: spec.sfx,
+      settings: spec.settings
+    })
+  ).catch(() => undefined);
+
   record.progress = 100;
   record.status = "done";
-
-  // Record the export on the clip it was cut from so the Clip Generator and
-  // the Uploading Center pick up the edited clip instead of the auto render.
-  await attachEditedClipRender(spec.jobId, spec.sourceFile, record.file).catch(() => undefined);
 
   // Opt-in scheduled publishing: when PUBLISH_ENABLED and PUBLISH_AUTO_ENQUEUE
   // are set, the finished export joins the publish queue (YouTube Shorts /

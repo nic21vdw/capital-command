@@ -59,6 +59,10 @@ export type PublisherConfig = {
     userId: string | null;
     accessToken: string | null;
     graphApiVersion: string;
+    /** Arbitrary string you also enter in the Meta App Dashboard webhook config. */
+    webhookVerifyToken: string | null;
+    /** Meta app secret, used to verify the X-Hub-Signature-256 header on incoming webhook events. */
+    appSecret: string | null;
   };
   facebook: {
     /** The Facebook Page id to post to (not the user id). */
@@ -90,13 +94,31 @@ export type PublisherConfig = {
      */
     publicBaseUrl: string | null;
   };
+  /**
+   * Buffer (buffer.com) — the social-media-manager delivery layer. When
+   * enabled, the runner also schedules each due post into Buffer, which fans it
+   * out to every channel connected inside Buffer and publishes at the target
+   * time. Off by default; with BUFFER_ENABLED unset the runner never touches
+   * Buffer and behaves exactly as before.
+   */
+  buffer: {
+    enabled: boolean;
+    accessToken: string | null;
+    /** Buffer profile ids to post to (dashboard → each channel's settings). */
+    profileIds: string[];
+    /** Buffer API base; overridable so a proxy/newer host can be pointed at. */
+    apiBase: string;
+    /** Let Buffer auto-shorten links in the post text. */
+    shortenLinks: boolean;
+  };
 };
 
 /**
  * Refresh token minted by the in-app "Connect YouTube" flow
  * (/api/auth/google), persisted by tokens.ts in data/publisher-tokens.json.
- * The .env value wins when set; this read must be synchronous because
- * publisherConfig() is, so the r2 token backend is not consulted here — set
+ * A token minted by Connect YouTube wins locally so reconnecting replaces a
+ * stale .env grant. This read must be synchronous because publisherConfig()
+ * is, so the r2 token backend is not consulted here — set
  * YOUTUBE_REFRESH_TOKEN explicitly for GitHub Actions runs.
  */
 function cachedYoutubeRefreshToken(): string | null {
@@ -136,7 +158,7 @@ export function publisherConfig(): PublisherConfig {
     youtube: {
       clientId: str("YOUTUBE_CLIENT_ID"),
       clientSecret: str("YOUTUBE_CLIENT_SECRET"),
-      refreshToken: str("YOUTUBE_REFRESH_TOKEN") ?? cachedYoutubeRefreshToken(),
+      refreshToken: cachedYoutubeRefreshToken() ?? str("YOUTUBE_REFRESH_TOKEN"),
       categoryId: str("YOUTUBE_CATEGORY_ID"),
       dailyUploadBudget: num("YOUTUBE_DAILY_UPLOAD_BUDGET", 6)
     },
@@ -145,7 +167,9 @@ export function publisherConfig(): PublisherConfig {
       accessToken: str("IG_ACCESS_TOKEN"),
       // VERIFY: bump as Meta retires Graph API versions — see the changelog at
       // https://developers.facebook.com/docs/graph-api/changelog
-      graphApiVersion: str("IG_GRAPH_API_VERSION") ?? "v23.0"
+      graphApiVersion: str("IG_GRAPH_API_VERSION") ?? "v23.0",
+      webhookVerifyToken: str("IG_WEBHOOK_VERIFY_TOKEN"),
+      appSecret: str("IG_APP_SECRET")
     },
     facebook: {
       pageId: str("FB_PAGE_ID"),
@@ -167,6 +191,18 @@ export function publisherConfig(): PublisherConfig {
       secretAccessKey: str("S3_SECRET_ACCESS_KEY"),
       region: str("S3_REGION") ?? "auto",
       publicBaseUrl: str("S3_PUBLIC_BASE_URL")
+    },
+    buffer: {
+      enabled: flag("BUFFER_ENABLED"),
+      accessToken: str("BUFFER_ACCESS_TOKEN"),
+      profileIds: (str("BUFFER_PROFILE_IDS") ?? "")
+        .split(",")
+        .map((id) => id.trim())
+        .filter(Boolean),
+      // VERIFY: Buffer's classic REST host. Override BUFFER_API_BASE if Buffer
+      // moves you to a newer host — see https://buffer.com/developers/api
+      apiBase: (str("BUFFER_API_BASE") ?? "https://api.bufferapp.com/1").replace(/\/+$/, ""),
+      shortenLinks: flag("BUFFER_SHORTEN_LINKS", true)
     }
   };
 }
@@ -186,4 +222,13 @@ export function configuredPlatforms(config = publisherConfig()): PlatformId[] {
 export function hostingConfigured(config = publisherConfig()): boolean {
   const { endpoint, bucket, accessKeyId, secretAccessKey } = config.s3;
   return Boolean(endpoint && bucket && accessKeyId && secretAccessKey);
+}
+
+/**
+ * Whether Buffer can actually publish: enabled, with a token and at least one
+ * target profile. When enabled but not fully configured, the runner records
+ * Buffer posts as "manual" reminders instead of failing.
+ */
+export function bufferConfigured(config = publisherConfig()): boolean {
+  return Boolean(config.buffer.enabled && config.buffer.accessToken && config.buffer.profileIds.length > 0);
 }

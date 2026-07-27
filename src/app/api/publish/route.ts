@@ -18,7 +18,17 @@ export async function GET() {
   if (!config.enabled) {
     return NextResponse.json({ enabled: false, items: [] });
   }
-  const items = await publishQueue(config).list();
+  // Clear out permanently-failed posts on load so their schedule slots free up
+  // for a fresh clip — a failed post can never publish, so it shouldn't keep
+  // occupying the board.
+  const queue = publishQueue(config);
+  const purged = await queue.purgeFailed();
+  if (purged.length > 0) {
+    console.log(
+      `[publisher] purged ${purged.length} failed post(s) from the schedule: ${purged.map((item) => item.id).join(", ")}`
+    );
+  }
+  const items = await queue.list();
   return NextResponse.json({ enabled: true, items });
 }
 
@@ -33,7 +43,8 @@ const enqueueSchema = z.object({
   caption: z.string().min(1).optional(),
   hashtags: z.array(z.string()).optional(),
   platforms: z.array(z.enum(["youtube", "instagram", "tiktok", "facebook"])).optional(),
-  visibility: z.enum(["public", "private", "unlisted"]).optional()
+  visibility: z.enum(["public", "private", "unlisted"]).optional(),
+  accountId: z.string().min(1).optional()
 });
 
 /**
@@ -97,7 +108,8 @@ export async function POST(request: NextRequest) {
       hashtags: body.hashtags,
       platforms: body.platforms,
       visibility: body.visibility,
-      jobId: body.jobId
+      jobId: body.jobId,
+      accountId: body.accountId
     });
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : String(error) }, { status: 400 });

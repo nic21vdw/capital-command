@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { Fragment, useEffect, useRef, useState } from "react";
 import { Check, Crop, FileVideo, RotateCw } from "lucide-react";
 import { aspectDimensions } from "@/lib/clipping/editor";
 import {
@@ -124,10 +124,13 @@ function CaptionLayer({
   const lines: { text: string; state: "spoken" | "active" | "upcoming" }[][] = [];
   if (project.highlightCurrentWord && seg.words.length > 0) {
     let line: { text: string; state: "spoken" | "active" | "upcoming" }[] = [];
-    seg.words.forEach((w, i) => {
+    seg.words.forEach((w) => {
       const state: "spoken" | "active" | "upcoming" =
         time >= w.start && time < w.end ? "active" : time >= w.end ? "spoken" : "upcoming";
-      line.push({ text: transform(w.text) + (i < seg.words.length - 1 ? " " : ""), state });
+      // The word carries no trailing space: the inter-word gap is rendered as a
+      // separate, un-highlighted span so the active word's pop-scale can't grow
+      // over it and glue two words together (e.g. "push-upsright").
+      line.push({ text: transform(w.text), state });
       if (line.length >= Math.max(1, style.wordsPerLine)) {
         lines.push(line);
         line = [];
@@ -230,7 +233,10 @@ function CaptionLayer({
             ? lines.map((line, li) => (
                 <span key={li} className="block">
                   {line.map((w, wi) => (
-                    <CaptionWordSpan key={wi} text={w.text} state={w.state} style={style} animation={animate} />
+                    <Fragment key={wi}>
+                      {wi > 0 && <span className="whitespace-pre"> </span>}
+                      <CaptionWordSpan text={w.text} state={w.state} style={style} animation={animate} />
+                    </Fragment>
                   ))}
                 </span>
               ))
@@ -349,6 +355,12 @@ function OverlayItem({
 
   const isText = overlay.kind === "text";
 
+  // The whole overlay is CSS-scaled, so anything rendered inside shrinks and
+  // grows with it — a small text box would get near-invisible, unclickable
+  // handles. Counter-scale the handles (and the click slop around the box) so
+  // they keep a constant on-screen size no matter the overlay's scale.
+  const handleScale = 1 / Math.max(0.2, overlay.scale);
+
   // Once the user drags the side handle, `width` pins both the box width and the
   // wrapping boundary; until then the box stays content-sized and only wraps
   // near the frame edge, matching the pre-resize behavior.
@@ -376,7 +388,17 @@ function OverlayItem({
       }}
       title={isText && !overlay.locked && !editing ? "Double-click to edit text" : undefined}
     >
-      <div className={cn("relative", selected && "outline outline-2 outline-[var(--accent)]")}>
+      <div
+        className={cn(
+          "relative",
+          selected && "outline outline-2 outline-[var(--accent)]",
+          !selected && !overlay.locked && !editing && "hover:outline hover:outline-1 hover:outline-white/50"
+        )}
+      >
+        {/* Invisible click slop so selecting the box doesn't require hitting
+            the glyphs exactly — a near-miss still selects instead of
+            deselecting and toggling playback. */}
+        {!editing && <span className="absolute" style={{ inset: -12 * handleScale }} />}
         {isText ? (
           editing ? (
             <span
@@ -439,21 +461,27 @@ function OverlayItem({
               <span
                 onPointerDown={onPointerDown("width")}
                 title="Drag to widen or narrow the text box"
-                className="absolute -right-2 top-1/2 h-4 w-4 -translate-y-1/2 cursor-ew-resize rounded-full border-2 border-white bg-[var(--accent)]"
-                style={{ touchAction: "none" }}
-              />
+                className="absolute right-0 top-1/2 flex h-8 w-8 cursor-ew-resize items-center justify-center"
+                style={{ touchAction: "none", transform: `translate(50%, -50%) scale(${handleScale})` }}
+              >
+                <span className="h-4 w-4 rounded-full border-2 border-white bg-[var(--accent)]" />
+              </span>
             )}
             <span
               onPointerDown={onPointerDown("scale")}
-              className="absolute -bottom-2 -right-2 h-4 w-4 cursor-nwse-resize rounded-full border-2 border-white bg-[var(--accent)]"
-              style={{ touchAction: "none" }}
-            />
+              className="absolute bottom-0 right-0 flex h-8 w-8 cursor-nwse-resize items-center justify-center"
+              style={{ touchAction: "none", transform: `translate(50%, 50%) scale(${handleScale})` }}
+            >
+              <span className="h-4 w-4 rounded-full border-2 border-white bg-[var(--accent)]" />
+            </span>
             <span
               onPointerDown={onPointerDown("rotate")}
-              className="absolute -top-7 left-1/2 flex h-5 w-5 -translate-x-1/2 cursor-grab items-center justify-center rounded-full border-2 border-white bg-[var(--accent)]"
-              style={{ touchAction: "none" }}
+              className="absolute left-1/2 top-0 flex h-8 w-8 cursor-grab items-center justify-center"
+              style={{ touchAction: "none", transform: `translate(-50%, -100%) scale(${handleScale})`, transformOrigin: "50% 100%" }}
             >
-              <RotateCw className="h-3 w-3 text-white" />
+              <span className="flex h-5 w-5 items-center justify-center rounded-full border-2 border-white bg-[var(--accent)]">
+                <RotateCw className="h-3 w-3 text-white" />
+              </span>
             </span>
           </>
         )}
@@ -864,7 +892,10 @@ export function EditorPreview({
         ref={frameRef}
         data-preview-frame
         className={cn(
-          "relative select-none overflow-hidden rounded-2xl bg-black shadow-[0_18px_48px_-12px_rgba(0,0,0,0.55)] ring-1 ring-white/10",
+          // overflow-visible (not hidden) so a text box's edit handles stay on
+          // screen even when the box is dragged/scaled past the frame edge. The
+          // video/blur layers are clipped by their own inner wrapper below.
+          "relative select-none overflow-visible rounded-2xl bg-black shadow-[0_18px_48px_-12px_rgba(0,0,0,0.55)] ring-1 ring-white/10",
           canPan && "cursor-grab active:cursor-grabbing"
         )}
         style={{
@@ -883,6 +914,10 @@ export function EditorPreview({
         onDoubleClick={() => canPan && onReframeChange({ offsetX: 0, offsetY: 0 })}
         title={canPan ? "Drag to pan - double-click to center" : undefined}
       >
+        {/* Everything that must be clipped to the frame (video, blur, captions,
+            crop UI) lives inside this wrapper. Overlays are rendered *outside*
+            it, below, so their edit handles stay visible past the frame edge. */}
+        <div className="absolute inset-0 overflow-hidden rounded-2xl">
         {/* Blurred fill behind everything (mirrors the export's blur base).
             Followers only preload metadata: the driver video gets the bandwidth
             for its first paint, and followers buffer once playback starts. */}
@@ -943,18 +978,6 @@ export function EditorPreview({
 
         {/* Safe-area guide. */}
         {!cropping && <div className="pointer-events-none absolute inset-[5%] z-10 rounded-md border border-dashed border-white/15" />}
-
-        {!cropping &&
-          visibleOverlays.map((overlay) => (
-            <OverlayItem
-              key={overlay.id}
-              overlay={overlay}
-              selected={overlay.id === selectedOverlayId}
-              frame={{ w: frameW, h: frameH }}
-              onSelect={() => onSelectOverlay(overlay.id)}
-              onChange={(partial) => onOverlayChange(overlay.id, partial)}
-            />
-          ))}
 
         {!cropping && (
           <CaptionLayer
@@ -1019,6 +1042,22 @@ export function EditorPreview({
             ))}
           </div>
         )}
+        </div>
+
+        {/* Overlays live outside the clipping wrapper so their move/scale/width/
+            rotate handles remain on screen even when the text box is positioned
+            at or beyond the frame edge. */}
+        {!cropping &&
+          visibleOverlays.map((overlay) => (
+            <OverlayItem
+              key={overlay.id}
+              overlay={overlay}
+              selected={overlay.id === selectedOverlayId}
+              frame={{ w: frameW, h: frameH }}
+              onSelect={() => onSelectOverlay(overlay.id)}
+              onChange={(partial) => onOverlayChange(overlay.id, partial)}
+            />
+          ))}
       </div>
     </div>
   );

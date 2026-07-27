@@ -1,0 +1,29 @@
+{
+  "name": "capital-command-manifesto-video",
+  "version": "1.0.0",
+  "description": "Dracula-themed Remotion manifesto video: 'We're Not Building a Business. We're Building an Empire.'",
+  "private": true,
+  "scripts": {
+    "studio": "remotion studio",
+    "preview": "remotion studio",
+    "render:all": "node scripts/render-all.mjs",
+    "pptx": "node scripts/render-slides-for-ppt.mjs && python3 scripts/build-pptx.py",
+    "render:full": "remotion render FullVideo out/full-video.mp4",
+    "render:slide1": "remotion render Slide01Hook out/slide-01-hook.mp4",
+    "render:slide2": "remotion render Slide02Split out/slide-02-split.mp4",
+    "still": "remotion still",
+    "upgrade": "remotion upgrade"
+  },
+  "dependencies": {
+    "@remotion/cli": "^4.0.240",
+    "@remotion/google-fonts": "^4.0.240",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "remotion": "^4.0.240"
+  },
+  "devDependencies": {
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "typescript": "^5.8.3"
+  }
+}

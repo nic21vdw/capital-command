@@ -16,8 +16,9 @@ const HOOK_ZOOM_RAMP_SEC = 0.5;
 
 // Live preview of the edited long-form video. The hook punch-in is emulated
 // with a CSS transform (the export bakes the identical crop via ffmpeg) and
-// the hook captions render word-synced on top, so what plays here is what
-// exports. Cut segments are skipped by the parent's playback loop.
+// the captions render word-synced on top — the hook's own captions inside the
+// hook window, the whole-video captions everywhere else — so what plays here
+// is what exports. Cut segments are skipped by the parent's playback loop.
 
 export function LongformPreview({
   project,
@@ -29,6 +30,7 @@ export function LongformPreview({
   focusEditing,
   onFocusChange,
   onCaptionStyleChange,
+  onBodyCaptionStyleChange,
   imageUrl
 }: {
   project: LongformProject;
@@ -43,13 +45,25 @@ export function LongformPreview({
   onFocusChange: (x: number, y: number) => void;
   /** Persist drag-to-move / drag-to-scale edits to the hook caption. */
   onCaptionStyleChange?: (partial: Partial<CaptionStyle>) => void;
+  /** Persist drag-to-move / drag-to-scale edits to the whole-video captions. */
+  onBodyCaptionStyleChange?: (partial: Partial<CaptionStyle>) => void;
   /** Resolves an overlay to a displayable image URL. */
   imageUrl: (overlay: LongformProject["overlays"][number]) => string;
 }) {
   const frameRef = useRef<HTMLDivElement>(null);
   const captionRef = useRef<HTMLParagraphElement>(null);
+  const bgVideoRef = useRef<HTMLVideoElement | null>(null);
   const [frameHeight, setFrameHeight] = useState(0);
   const [captionSelected, setCaptionSelected] = useState(false);
+
+  // The 9:16 layout centers the video at full width over a blurred fill of
+  // itself — exactly what the export bakes. The band the video occupies is a
+  // fraction of the frame height, so the hook focus point (normalized over the
+  // video image, like the export's reframe) maps through it.
+  const vertical = (project.layout ?? "wide") === "vertical";
+  const srcAspect = project.width > 0 && project.height > 0 ? project.width / project.height : 16 / 9;
+  const bandFrac = vertical ? Math.min(1, 9 / 16 / srcAspect) : 1;
+  const bandTopFrac = (1 - bandFrac) / 2;
 
   useEffect(() => {
     const el = frameRef.current;
@@ -59,26 +73,83 @@ export function LongformPreview({
     return () => observer.disconnect();
   }, []);
 
+  // Keep the blurred background copy locked to the main video. A little drift
+  // is invisible behind the blur, so it only reseeks past a small threshold.
+  useEffect(() => {
+    if (!vertical) return;
+    const main = videoRef.current;
+    const bg = bgVideoRef.current;
+    if (!main || !bg) return;
+    const sync = () => {
+      if (Math.abs(bg.currentTime - main.currentTime) > 0.25) bg.currentTime = main.currentTime;
+      if (main.paused && !bg.paused) bg.pause();
+      else if (!main.paused && bg.paused) void bg.play().catch(() => undefined);
+    };
+    sync();
+    const events = ["play", "pause", "seeked", "timeupdate", "ratechange"] as const;
+    for (const name of events) main.addEventListener(name, sync);
+    return () => {
+      for (const name of events) main.removeEventListener(name, sync);
+      bg.pause();
+    };
+  }, [vertical, videoRef]);
+
   const hook = project.hook;
-  const hookActive = hook.enabled && time < hook.end;
+  const hookStart = hook.start ?? 0;
+  const hookActive = hook.enabled && time >= hookStart && time < hook.end;
   // Match the export's animated punch-in: ease the zoom from 1x up to hook.zoom
   // over the first HOOK_ZOOM_RAMP_SEC seconds (ease-out cubic), then hold. This
-  // makes the preview glide into the zoom at the absolute start instead of
-  // snapping to full zoom on the first frame — mirroring animatedReframeChain.
-  const rampSec = Math.min(HOOK_ZOOM_RAMP_SEC, Math.max(0.05, hook.end / 2));
-  const rampProgress = clamp(time / rampSec, 0, 1);
+  // makes the preview glide into the zoom at the hook's first frame instead of
+  // snapping to full zoom — mirroring animatedReframeChain on the trimmed clip.
+  const hookLen = Math.max(0.05, hook.end - hookStart);
+  const rampSec = Math.min(HOOK_ZOOM_RAMP_SEC, hookLen / 2);
+  const rampProgress = clamp((time - hookStart) / rampSec, 0, 1);
   const eased = 1 - Math.pow(1 - rampProgress, 3);
   const zoom = hookActive ? 1 + (hook.zoom - 1) * eased : 1;
 
-  // The current hook caption + spoken word for the overlay.
-  const activeCaption = useMemo(() => {
-    if (!hookActive || !hook.captionsEnabled) return null;
-    return hook.captions.find((seg) => seg.enabled && seg.text.trim() && time >= seg.start && time < seg.end) ?? null;
-  }, [hookActive, hook.captionsEnabled, hook.captions, time]);
+  // The caption to overlay right now: the hook's own captions win inside the
+  // hook window; the whole-video captions cover everything else — mirroring
+  // exactly which layer the export burns at this instant. Hook captions are
+  // stored hook-local (0 = the hook's first frame), so they're looked up
+  // against the window-relative time; body captions stay in source seconds.
+  const bodyCaptions = project.captions;
+  const hookCaptionsBurned =
+    hook.enabled && hook.captionsEnabled && hook.captions.some((seg) => seg.enabled && seg.text.trim());
+  const activeLayer = useMemo(() => {
+    if (hookActive && hookCaptionsBurned) {
+      const local = time - hookStart;
+      const seg = hook.captions.find((s) => s.enabled && s.text.trim() && local >= s.start && local < s.end);
+      return seg
+        ? {
+            seg,
+            style: hook.captionStyle,
+            highlight: hook.highlightCurrentWord,
+            onStyleChange: onCaptionStyleChange,
+            captionTime: local
+          }
+        : null;
+    }
+    if (bodyCaptions?.enabled && !(hookCaptionsBurned && hookActive)) {
+      const seg = bodyCaptions.segments.find((s) => s.enabled && s.text.trim() && time >= s.start && time < s.end);
+      return seg
+        ? {
+            seg,
+            style: bodyCaptions.style,
+            highlight: bodyCaptions.highlightCurrentWord,
+            onStyleChange: onBodyCaptionStyleChange,
+            captionTime: time
+          }
+        : null;
+    }
+    return null;
+  }, [hookActive, hookCaptionsBurned, hook, hookStart, bodyCaptions, time, onCaptionStyleChange, onBodyCaptionStyleChange]);
 
-  const style = hook.captionStyle;
+  const activeCaption = activeLayer?.seg ?? null;
+  const captionTime = activeLayer?.captionTime ?? time;
+  const style = activeLayer?.style ?? hook.captionStyle;
+  const activeStyleChange = activeLayer?.onStyleChange;
   const fontSize = Math.max(10, style.fontScale * frameHeight);
-  const captionInteractive = Boolean(onCaptionStyleChange);
+  const captionInteractive = Boolean(activeStyleChange);
   const captionCustomPos = style.offsetX !== undefined && style.offsetY !== undefined;
 
   // Timeline images visible at the current source time.
@@ -91,9 +162,12 @@ export function LongformPreview({
     setCaptionSelected(false);
     if (!focusEditing) return;
     const rect = event.currentTarget.getBoundingClientRect();
+    // The focus point is normalized over the video image, so on the vertical
+    // layout a click maps through the centered band the video occupies.
+    const relY = (event.clientY - rect.top) / rect.height;
     onFocusChange(
-      Math.min(1, Math.max(0, (event.clientX - rect.left) / rect.width)),
-      Math.min(1, Math.max(0, (event.clientY - rect.top) / rect.height))
+      clamp((event.clientX - rect.left) / rect.width, 0, 1),
+      clamp((relY - bandTopFrac) / bandFrac, 0, 1)
     );
   };
 
@@ -125,13 +199,13 @@ export function LongformPreview({
       const dx = ev.clientX - sx;
       const dy = ev.clientY - sy;
       if (mode === "move") {
-        onCaptionStyleChange?.({
+        activeStyleChange?.({
           offsetX: clamp(startX + dx / Math.max(1, frameRect.width), 0.02, 0.98),
           offsetY: clamp(startY + dy / Math.max(1, frameRect.height), 0.02, 0.98)
         });
       } else {
         const px = startScale * frameRect.height + (dx + dy) / 2;
-        onCaptionStyleChange?.({ fontScale: clamp(px / Math.max(1, frameRect.height), 0.04, 0.12) });
+        activeStyleChange?.({ fontScale: clamp(px / Math.max(1, frameRect.height), 0.04, 0.12) });
       }
     };
     const onUp = () => {
@@ -148,24 +222,46 @@ export function LongformPreview({
       role="presentation"
       onClick={handleFrameClick}
       className={cn(
-        "relative aspect-video w-full overflow-hidden rounded-xl border border-[var(--border)] bg-black",
+        "relative w-full overflow-hidden rounded-xl border border-[var(--border)] bg-black",
+        vertical ? "mx-auto aspect-[9/16]" : "aspect-video",
         focusEditing && "cursor-crosshair ring-2 ring-[var(--accent)]"
       )}
+      // Keep the tall frame from towering over the panels on wide screens.
+      style={vertical ? { maxWidth: "min(100%, calc(70vh * 9 / 16))" } : undefined}
     >
-      <div
-        className="h-full w-full transition-transform duration-150 ease-out"
-        style={{
-          transform: `scale(${zoom})`,
-          transformOrigin: `${hook.focusX * 100}% ${hook.focusY * 100}%`
-        }}
-      >
+      {/* Blurred, dimmed fill behind the centered video — vertical layout only. */}
+      {vertical && (
         <video
-          ref={videoRef}
+          ref={bgVideoRef}
           src={`/api/clips/sources/${project.sourceId}/stream`}
           preload="metadata"
           playsInline
-          className="h-full w-full object-contain"
+          muted
+          aria-hidden
+          className="absolute inset-0 h-full w-full scale-110 object-cover blur-2xl brightness-75"
         />
+      )}
+      <div
+        className={cn(
+          vertical ? "absolute inset-x-0 top-1/2 -translate-y-1/2 overflow-hidden" : "h-full w-full"
+        )}
+        style={vertical ? { aspectRatio: `${srcAspect}` } : undefined}
+      >
+        <div
+          className="h-full w-full transition-transform duration-150 ease-out"
+          style={{
+            transform: `scale(${zoom})`,
+            transformOrigin: `${hook.focusX * 100}% ${hook.focusY * 100}%`
+          }}
+        >
+          <video
+            ref={videoRef}
+            src={`/api/clips/sources/${project.sourceId}/stream`}
+            preload="metadata"
+            playsInline
+            className="h-full w-full object-contain"
+          />
+        </div>
       </div>
 
       {/* Timeline image overlays */}
@@ -243,9 +339,9 @@ export function LongformPreview({
             {activeCaption.words.length > 0
               ? activeCaption.words.map((word, index) => {
                   const isCurrent =
-                    hook.highlightCurrentWord &&
-                    time >= word.start &&
-                    (index === activeCaption.words.length - 1 || time < activeCaption.words[index + 1].start);
+                    (activeLayer?.highlight ?? false) &&
+                    captionTime >= word.start &&
+                    (index === activeCaption.words.length - 1 || captionTime < activeCaption.words[index + 1].start);
                   return (
                     <span
                       key={`${activeCaption.id}-${index}`}
@@ -271,7 +367,7 @@ export function LongformPreview({
       {focusEditing && (
         <span
           className="pointer-events-none absolute z-10 flex h-9 w-9 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border-2 border-[var(--accent)] bg-black/40 text-[var(--accent)] shadow"
-          style={{ left: `${hook.focusX * 100}%`, top: `${hook.focusY * 100}%` }}
+          style={{ left: `${hook.focusX * 100}%`, top: `${(bandTopFrac + hook.focusY * bandFrac) * 100}%` }}
         >
           <Crosshair className="h-4 w-4" />
         </span>

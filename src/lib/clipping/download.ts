@@ -95,15 +95,6 @@ export async function ensureYtDlp(): Promise<string> {
 
 export type YtDlpResult = { stdout: string; stderr: string; code: number };
 
-const TRANSIENT_MEDIA_PATTERNS = [
-  /403\s+Forbidden/i,
-  /access denied/i,
-  /HTTP Error 403/i,
-  /requested format is not available/i,
-  /fragment.*not found/i,
-  /unable to download/i
-];
-
 /** Runs yt-dlp, streaming stderr lines to an optional progress callback. */
 export function runYtDlp(
   args: string[],
@@ -162,12 +153,46 @@ function jsRuntimeArgs() {
   return process.execPath ? ["--js-runtimes", `node:${process.execPath}`] : [];
 }
 
-function isTransientMediaFailure(error: unknown): boolean {
-  const message = error instanceof Error ? error.message : String(error);
-  return TRANSIENT_MEDIA_PATTERNS.some((pattern) => pattern.test(message));
+/**
+ * Ordered YouTube `player_client` fallbacks. YouTube periodically moves a
+ * client behind SABR (server-side adaptive bitrate) streaming, whose formats
+ * yt-dlp cannot range-download for a clip section — the section download fails
+ * with exit code 1 and a bare, opaque GVS URL. Rotating to a client that still
+ * exposes directly downloadable formats is the sanctioned workaround. `tv` and
+ * `mweb` currently return non-SABR formats most reliably, so they lead. For
+ * non-YouTube sources the extractor arg is simply ignored.
+ */
+export const YT_PLAYER_CLIENTS = ["tv", "web_safari", "mweb", "ios,web", "android,ios,web"];
+
+/**
+ * The per-attempt extra args to try in order: the default client first (no
+ * override), then each YouTube player-client fallback.
+ */
+export function clientAttemptArgs(): string[][] {
+  return [[], ...YT_PLAYER_CLIENTS.map((clients) => youtubeExtractorArgs(clients))];
 }
 
-function cleanYtDlpError(error: unknown) {
+/**
+ * Runs a single yt-dlp download `attempt` once per client fallback until one
+ * succeeds, returning that result. Every fallback is tried on ANY failure — a
+ * YouTube extraction failure (SABR-only formats, signature changes, etc.) does
+ * not announce itself with a recognizable message, so short-circuiting on
+ * "non-transient" errors would skip the very client rotation that fixes it.
+ * Throws a cleaned-up version of the last error if every client fails.
+ */
+export async function downloadWithFallbacks<T>(attempt: (clientArgs: string[]) => Promise<T>): Promise<T> {
+  let lastError: unknown;
+  for (const clientArgs of clientAttemptArgs()) {
+    try {
+      return await attempt(clientArgs);
+    } catch (error) {
+      lastError = error;
+    }
+  }
+  throw new Error(cleanYtDlpError(lastError));
+}
+
+export function cleanYtDlpError(error: unknown) {
   const message = error instanceof Error ? error.message : String(error);
   if (/403\s+Forbidden|access denied|HTTP Error 403/i.test(message)) {
     return "The source blocked one temporary media URL while rendering this clip. The app retried with fresh source URLs, but that exact range is still unavailable right now.";
@@ -175,7 +200,15 @@ function cleanYtDlpError(error: unknown) {
   if (/requested format is not available/i.test(message)) {
     return "The selected video format was not available for this source. Try the job again or choose a different clip range.";
   }
-  return message.replace(/https?:\/\/\S+/g, "[media URL]").slice(0, 280);
+  // A live/DVR YouTube VOD sometimes only exposes SABR-streamed video that
+  // can't be cut into a section; yt-dlp fails with a bare streaming URL that
+  // slice()-ing to the stderr tail leaves as unreadable "key/value/…" soup.
+  if (/playlist_type\/DVR|\/itag\/|googlevideo|\/keepalive\/|\/sparams\//i.test(message)) {
+    return "This source only offered a live/DVR video stream that can't be cut into a clip right now. Retrying with alternate players didn't find a downloadable format — this usually clears up once the stream finishes processing into a regular VOD, so try again later.";
+  }
+  return message
+    .replace(/https?:\/\/\S+/g, "[media URL]")
+    .slice(0, 280);
 }
 
 export type VideoMeta = { title: string; durationSec: number; id: string };
@@ -226,33 +259,18 @@ export async function downloadAudio(
     ...jsRuntimeArgs(),
     ...ffmpegArgs()
   ];
-  const attempts = [
-    baseArgs,
-    [...youtubeExtractorArgs("web"), ...baseArgs],
-    [...youtubeExtractorArgs("ios,web"), ...baseArgs],
-    [...youtubeExtractorArgs("android,ios,web"), ...baseArgs]
-  ];
-  let lastError: unknown;
-
-  for (const args of attempts) {
+  return downloadWithFallbacks(async (clientArgs) => {
     await rmProduced(destDir, "source-audio.");
-    try {
-      await runYtDlp([...args, url], bin, {
-        onLine: (line) => {
-          const m = line.match(/\[download\]\s+([\d.]+)%/);
-          if (m && onProgress) onProgress(Number(m[1]));
-        }
-      });
-      const produced = await findProduced(destDir, "source-audio.");
-      if (produced) return produced;
-      lastError = new Error("Audio download finished but no audio file was produced.");
-    } catch (error) {
-      lastError = error;
-      if (!isTransientMediaFailure(error)) break;
-    }
-  }
-
-  throw new Error(cleanYtDlpError(lastError));
+    await runYtDlp([...clientArgs, ...baseArgs, url], bin, {
+      onLine: (line) => {
+        const m = line.match(/\[download\]\s+([\d.]+)%/);
+        if (m && onProgress) onProgress(Number(m[1]));
+      }
+    });
+    const produced = await findProduced(destDir, "source-audio.");
+    if (!produced) throw new Error("Audio download finished but no audio file was produced.");
+    return produced;
+  });
 }
 
 /**
@@ -290,33 +308,59 @@ export async function downloadSection(
     ...jsRuntimeArgs(),
     ...ffmpegArgs()
   ];
-  const attempts = [
-    baseArgs,
-    [...youtubeExtractorArgs("web"), ...baseArgs],
-    [...youtubeExtractorArgs("ios,web"), ...baseArgs],
-    [...youtubeExtractorArgs("android,ios,web"), ...baseArgs]
-  ];
-  let lastError: unknown;
-
-  for (const args of attempts) {
+  return downloadWithFallbacks(async (clientArgs) => {
     await rmProduced(dir, `${base}.`);
-    try {
-      await runYtDlp([...args, url], bin, {
-        onLine: (line) => {
-          const m = line.match(/\[download\]\s+([\d.]+)%/);
-          if (m && onProgress) onProgress(Number(m[1]));
-        }
-      });
-      const produced = await findProduced(dir, `${base}.`);
-      if (produced) return produced;
-      lastError = new Error(`Section ${startSec}-${endSec}s download produced no file.`);
-    } catch (error) {
-      lastError = error;
-      if (!isTransientMediaFailure(error)) break;
-    }
-  }
+    await runYtDlp([...clientArgs, ...baseArgs, url], bin, {
+      onLine: (line) => {
+        const m = line.match(/\[download\]\s+([\d.]+)%/);
+        if (m && onProgress) onProgress(Number(m[1]));
+      }
+    });
+    const produced = await findProduced(dir, `${base}.`);
+    if (!produced) throw new Error(`Section ${startSec}-${endSec}s download produced no file.`);
+    return produced;
+  });
+}
 
-  throw new Error(cleanYtDlpError(lastError));
+/**
+ * Downloads the whole video as a single MP4, capped at 1080p so a long
+ * recording stays a manageable size while keeping enough resolution for the
+ * long-form master (the section downloads above cap lower because those clips
+ * are re-framed to 9:16). Returns the produced file path.
+ */
+export async function downloadFullVideo(
+  url: string,
+  destPath: string,
+  onProgress?: (pct: number) => void
+): Promise<string> {
+  const bin = await ensureYtDlp();
+  const dir = path.dirname(destPath);
+  const base = path.basename(destPath, path.extname(destPath));
+  const template = path.join(dir, `${base}.%(ext)s`);
+  const baseArgs = [
+    "-f",
+    "bv*[height<=1080]+ba/b[height<=1080]/b",
+    "--no-playlist",
+    "--no-part",
+    "--merge-output-format",
+    "mp4",
+    "-o",
+    template,
+    ...jsRuntimeArgs(),
+    ...ffmpegArgs()
+  ];
+  return downloadWithFallbacks(async (clientArgs) => {
+    await rmProduced(dir, `${base}.`);
+    await runYtDlp([...clientArgs, ...baseArgs, url], bin, {
+      onLine: (line) => {
+        const m = line.match(/\[download\]\s+([\d.]+)%/);
+        if (m && onProgress) onProgress(Number(m[1]));
+      }
+    });
+    const produced = await findProduced(dir, `${base}.`);
+    if (!produced) throw new Error("Video download finished but no file was produced.");
+    return produced;
+  });
 }
 
 /** Finds the file yt-dlp actually wrote (its extension can differ from the template). */

@@ -6,6 +6,10 @@ import {
   ArrowLeft,
   CalendarClock,
   Check,
+  ChevronDown,
+  ChevronLeft,
+  ChevronRight,
+  Clock,
   Layers,
   LayoutTemplate,
   ListMusic,
@@ -22,11 +26,19 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { useAppData } from "@/components/providers/app-provider";
-import { chunkWords, serializeSrt, serializeVtt, splitSegment, mergeSegments, windowSegments } from "@/lib/clipping/captions";
+import { chunkWords, retimeWords, serializeSrt, serializeVtt, splitSegment, mergeSegments, windowSegments } from "@/lib/clipping/captions";
 import { formatClock, generateClipTitle } from "@/lib/clipping/editor";
+import {
+  buildClipSegments,
+  cutClipRanges,
+  ensureClipSegments,
+  resizeClipSegmentBoundary,
+  setClipSilenceEnabled
+} from "@/lib/clipping/segments";
 import { Button } from "@/components/ui/button";
 import { EditorPreview } from "@/components/editor/preview";
 import { EditorTimeline } from "@/components/editor/timeline";
+import { DescriptionDropdown } from "@/components/editor/description-dropdown";
 import {
   AudioPanel,
   CaptionsPanel,
@@ -37,10 +49,22 @@ import {
 } from "@/components/editor/panels";
 import { writeDraftProject } from "@/components/editor/drafts";
 import { useEditorExports } from "@/components/editor/exports-provider";
+import { placeChannelVideos } from "@/lib/publisher/channelPlacement";
 import { cn, safeFilename } from "@/lib/utils";
 import type { CaptionSegment, ClipProject, CropTarget, Overlay, OverlayKind } from "@/types/domain";
 import type { ClipCandidate, ClipJob } from "@/lib/clipping/types";
 import type { EditorApi } from "@/components/editor/types";
+import type { ScheduleSlot } from "@/lib/publisher/slots";
+import type { ChannelSchedule } from "@/lib/publisher/channelVideos";
+
+// One open slot offered in the Schedule Short dropdown for one-click scheduling.
+type QuickSlot = { utc: string; label: string; today: boolean };
+// The schedule grid shows one two-week window at a time (mirrors the Uploading
+// Center); the dropdown pages forward/back through consecutive windows.
+const SLOT_WINDOW_DAYS = 14;
+// How far the dropdown can page ahead, matching the server's offsetDays ceiling
+// in src/app/api/publish/overview (ten years of daily slots).
+const MAX_SLOT_OFFSET_DAYS = 3650;
 
 const TABS = [
   { id: "layout", label: "Layout", icon: LayoutTemplate },
@@ -55,6 +79,13 @@ function uid(prefix: string) {
   return `${prefix}-${crypto.randomUUID().slice(0, 8)}`;
 }
 
+// Structural equality for the undo history. A serialized compare is plenty fast
+// for a single clip project and spares us a hand-written deep-equal that would
+// drift as the project shape grows.
+function sameProject(a: ClipProject, b: ClipProject): boolean {
+  return a === b || JSON.stringify(a) === JSON.stringify(b);
+}
+
 export function ClipEditor({
   initialProject,
   onClose,
@@ -65,9 +96,16 @@ export function ClipEditor({
   onOpenClip?: (job: ClipJob, clip: ClipCandidate, index: number) => void;
 }) {
   const { data, mutate } = useAppData();
-  const { exportStateFor, startExport } = useEditorExports();
+  const { exportStateFor, startExport, stopExport } = useEditorExports();
   const router = useRouter();
-  const [project, setProject] = useState<ClipProject>(initialProject);
+  const [project, setProject] = useState<ClipProject>(() => ({
+    ...initialProject,
+    segments: ensureClipSegments(
+      initialProject.baseDurationSec,
+      initialProject.captions,
+      initialProject.segments
+    )
+  }));
   const [time, setTime] = useState(0);
   const [playing, setPlaying] = useState(false);
   const [tab, setTab] = useState<(typeof TABS)[number]["id"]>("layout");
@@ -83,6 +121,14 @@ export function ClipEditor({
 
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const trimEndRef = useRef(0);
+  const cutRangesRef = useRef(
+    cutClipRanges(
+      initialProject.baseDurationSec,
+      initialProject.trimStart,
+      initialProject.trimEnd || initialProject.baseDurationSec,
+      ensureClipSegments(initialProject.baseDurationSec, initialProject.captions, initialProject.segments)
+    )
+  );
   const lastTimeUpdateRef = useRef(0);
   // Mirrors `time` for callbacks that only need the playhead when invoked, so
   // they don't have to be re-created (and re-render memoized children) on
@@ -100,7 +146,8 @@ export function ClipEditor({
 
   useEffect(() => {
     trimEndRef.current = trimEnd;
-  }, [trimEnd]);
+    cutRangesRef.current = cutClipRanges(duration, trimStart, trimEnd, project.segments);
+  }, [duration, trimEnd, trimStart, project.segments]);
 
   // The clip bin: other detected moments from the same stream, one click away.
   useEffect(() => {
@@ -137,7 +184,14 @@ export function ClipEditor({
       const v = videoRef.current;
       if (v) {
         const end = trimEndRef.current;
-        if (!v.paused && v.currentTime >= end - 0.02) {
+        const cut = !v.paused
+          ? cutRangesRef.current.find((range) => v.currentTime >= range.start - 0.015 && v.currentTime < range.end - 0.02)
+          : undefined;
+        if (cut && cut.end < end - 0.02) {
+          v.currentTime = Math.min(end, cut.end + 0.01);
+          timeRef.current = v.currentTime;
+          setTime(v.currentTime);
+        } else if (!v.paused && (v.currentTime >= end - 0.02 || (cut && cut.end >= end - 0.02))) {
           v.pause();
           v.currentTime = end;
           setPlaying(false);
@@ -234,6 +288,69 @@ export function ClipEditor({
     setProject((prev) => ({ ...prev, reframe: { ...prev.reframe, ...partial } }));
   }, []);
 
+  // --- Undo / redo ---
+  // A single history stack over the whole project so Ctrl+Z reverts the last
+  // edit — including a slight pan of the video you didn't mean to make. Edits
+  // land as a stream of setProject calls (a pan drag fires dozens), so we don't
+  // record every intermediate value: a debounce lets the project settle, then
+  // commits one checkpoint. That collapses an entire drag into a single undo.
+  const projectRef = useRef(project);
+  const lastCommittedRef = useRef<ClipProject>(project);
+  const pastRef = useRef<ClipProject[]>([]);
+  const futureRef = useRef<ClipProject[]>([]);
+  // Set while an undo/redo is applying so the commit effect doesn't re-record
+  // the restored state as a brand-new edit.
+  const restoringRef = useRef(false);
+
+  useEffect(() => {
+    projectRef.current = project;
+    if (restoringRef.current) {
+      restoringRef.current = false;
+      return;
+    }
+    const timer = setTimeout(() => {
+      if (sameProject(project, lastCommittedRef.current)) return;
+      pastRef.current.push(lastCommittedRef.current);
+      // Cap the depth so a long editing session can't grow the stack unbounded.
+      if (pastRef.current.length > 100) pastRef.current.shift();
+      lastCommittedRef.current = project;
+      // A fresh edit invalidates any redo path.
+      futureRef.current = [];
+    }, 350);
+    return () => clearTimeout(timer);
+  }, [project]);
+
+  const applyRestore = useCallback((next: ClipProject) => {
+    restoringRef.current = true;
+    setProject(next);
+  }, []);
+
+  const undo = useCallback(() => {
+    const current = projectRef.current;
+    if (!sameProject(current, lastCommittedRef.current)) {
+      // An edit is still settling (e.g. you just nudged the video): jump back to
+      // the last committed state without waiting for the debounce to fire.
+      futureRef.current.push(current);
+      applyRestore(lastCommittedRef.current);
+      return;
+    }
+    const prev = pastRef.current.pop();
+    if (!prev) {
+      toast("Nothing to undo.");
+      return;
+    }
+    futureRef.current.push(current);
+    lastCommittedRef.current = prev;
+    applyRestore(prev);
+  }, [applyRestore]);
+
+  const redo = useCallback(() => {
+    const next = futureRef.current.pop();
+    if (!next) return;
+    pastRef.current.push(lastCommittedRef.current);
+    lastCommittedRef.current = next;
+    applyRestore(next);
+  }, [applyRestore]);
 
   // Explicit save so you can lock in progress on demand instead of waiting for autosave.
   const saveNow = useCallback(async () => {
@@ -287,6 +404,36 @@ export function ClipEditor({
     patch({ trimStart: 0, trimEnd: duration });
   }, [duration, patch]);
 
+  const toggleTimelineSegment = useCallback((id: string) => {
+    setProject((current) => ({
+      ...current,
+      segments: ensureClipSegments(current.baseDurationSec, current.captions, current.segments).map((segment) =>
+        segment.id === id ? { ...segment, enabled: !segment.enabled } : segment
+      )
+    }));
+  }, []);
+
+  const resizeTimelineBoundary = useCallback((leftId: string, boundary: number) => {
+    setProject((current) => ({
+      ...current,
+      segments: resizeClipSegmentBoundary(
+        ensureClipSegments(current.baseDurationSec, current.captions, current.segments),
+        leftId,
+        boundary
+      )
+    }));
+  }, []);
+
+  const setSilenceIncluded = useCallback((included: boolean) => {
+    setProject((current) => ({
+      ...current,
+      segments: setClipSilenceEnabled(
+        ensureClipSegments(current.baseDurationSec, current.captions, current.segments),
+        included
+      )
+    }));
+  }, []);
+
   // Split the current selection at the playhead: this project keeps the first
   // half; the second half is saved as its own project so both can be exported.
   const splitAtPlayhead = useCallback(() => {
@@ -315,7 +462,17 @@ export function ClipEditor({
     if (!v) return;
     if (v.currentTime < trimStart || v.currentTime >= trimEnd) {
       v.currentTime = trimStart;
+      timeRef.current = trimStart;
       setTime(trimStart);
+    }
+    const currentCut = cutRangesRef.current.find(
+      (range) => v.currentTime >= range.start - 0.015 && v.currentTime < range.end - 0.02
+    );
+    if (currentCut) {
+      const next = currentCut.end < trimEnd - 0.02 ? currentCut.end + 0.01 : trimStart;
+      v.currentTime = next;
+      timeRef.current = next;
+      setTime(next);
     }
     v.muted = muted;
     v.volume = volume;
@@ -371,13 +528,30 @@ export function ClipEditor({
     }
     const trimmedCaptions = captions.filter((caption) => caption.end > trimStart && caption.start < trimEnd);
     const title = generateClipTitle(trimmedCaptions.length ? trimmedCaptions : captions, project.name, project.title);
-    patch({ title, name: title, captions });
+    patch({
+      title,
+      name: title,
+      captions,
+      segments: project.segments?.length ? project.segments : buildClipSegments(duration, captions)
+    });
     toast.success("Generated clip title.");
-  }, [project.captions, project.captionStyle.maxWordsPerCaption, project.clipEnd, project.clipStart, project.jobId, project.name, project.title, trimEnd, trimStart, patch]);
+  }, [project.captions, project.captionStyle.maxWordsPerCaption, project.clipEnd, project.clipStart, project.jobId, project.name, project.title, project.segments, duration, trimEnd, trimStart, patch]);
 
   // --- Caption operations ---
   const updateCaption = useCallback((id: string, partial: Partial<CaptionSegment>) => {
-    setProject((p) => ({ ...p, captions: p.captions.map((c) => (c.id === id ? { ...c, ...partial } : c)) }));
+    setProject((p) => ({
+      ...p,
+      captions: p.captions.map((c) => {
+        if (c.id !== id) return c;
+        const next = { ...c, ...partial };
+        // Editing the text by hand rebuilds even-timed words so word-level
+        // highlighting follows the new wording instead of the stale transcript.
+        if (partial.text !== undefined && partial.words === undefined) {
+          next.words = retimeWords(next, next.text);
+        }
+        return next;
+      })
+    }));
   }, []);
 
   const regenerateCaptions = useCallback(async () => {
@@ -392,14 +566,14 @@ export function ClipEditor({
       const windowed = windowSegments(data.captions ?? [], project.clipStart, project.clipEnd);
       const words = windowed.flatMap((s) => s.words);
       const rechunked = words.length ? chunkWords(words, project.captionStyle.maxWordsPerCaption) : windowed;
-      patch({ captions: rechunked });
+      patch({ captions: rechunked, segments: buildClipSegments(duration, rechunked) });
       toast.success(`Loaded ${rechunked.length} caption segments.`);
     } catch {
       toast.error("Caption request failed.");
     } finally {
       setFetchingCaptions(false);
     }
-  }, [project.jobId, project.clipStart, project.clipEnd, project.captionStyle.maxWordsPerCaption, patch]);
+  }, [project.jobId, project.clipStart, project.clipEnd, project.captionStyle.maxWordsPerCaption, duration, patch]);
 
   const addCaption = useCallback(() => {
     const start = timeRef.current;
@@ -458,9 +632,8 @@ export function ClipEditor({
       locked: false,
       start: 0,
       end: duration,
-      // Text overlays default to Dracula purple in the caption's Inter-bold
-      // style so a fresh overlay matches the burned-in captions out of the box.
-      color: "#bd93f9",
+      // New text overlays use the same neutral white default as generated titles.
+      color: "#ffffff",
       fontFamily: "Inter, system-ui, sans-serif",
       fontWeight: 800,
       align: "center"
@@ -495,14 +668,43 @@ export function ClipEditor({
     }));
   }, []);
 
-  // Hit Delete/Backspace to remove whatever is selected on the timeline — a
-  // caption block or a text/image overlay. Ignored while typing in a field so
-  // it never eats a keystroke mid-edit.
+  // Keyboard shortcuts: Space toggles play/pause; Delete/Backspace removes
+  // whatever is selected on the timeline — a caption block or a text/image
+  // overlay. Ignored while typing in a field so it never eats a keystroke
+  // mid-edit.
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== "Delete" && event.key !== "Backspace") return;
       const target = event.target as HTMLElement | null;
-      if (target && (target.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName))) return;
+      const typing = !!target && (target.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName));
+
+      // Ctrl/Cmd+Z undoes the last edit (a misplaced video nudge, a caption
+      // tweak, anything). Shift adds redo, as does Ctrl+Y on Windows. Skipped
+      // while typing so it defers to the field's own text undo.
+      if (!typing && (event.ctrlKey || event.metaKey)) {
+        const key = event.key.toLowerCase();
+        if (key === "z") {
+          event.preventDefault();
+          if (event.shiftKey) redo();
+          else undo();
+          return;
+        }
+        if (key === "y") {
+          event.preventDefault();
+          redo();
+          return;
+        }
+      }
+
+      if (event.key !== "Delete" && event.key !== "Backspace" && event.key !== " ") return;
+      if (typing) return;
+      if (event.key === " ") {
+        // Skip when a button has focus — Space should activate it, and a
+        // toggle here would fight the click it triggers.
+        if (target && target.tagName === "BUTTON") return;
+        event.preventDefault(); // keep the page from scrolling
+        togglePlay();
+        return;
+      }
       if (selectedCaptionId) {
         event.preventDefault();
         deleteCaption(selectedCaptionId);
@@ -516,7 +718,7 @@ export function ClipEditor({
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [selectedCaptionId, selectedOverlayId, deleteCaption, deleteOverlay]);
+  }, [selectedCaptionId, selectedOverlayId, deleteCaption, deleteOverlay, undo, redo, togglePlay]);
 
   // --- Export ---
   const downloadSubtitles = useCallback((format: "srt" | "vtt") => {
@@ -541,53 +743,212 @@ export function ClipEditor({
     void startExport(project);
   }, [project, startExport]);
 
+  const stopExportForClip = useCallback(() => {
+    void stopExport(project.id);
+  }, [project.id, stopExport]);
+
   // Live progress for this clip, sourced from the background tracker so a render
   // started here still shows its progress when you leave and come back.
   const exportState = exportStateFor(project.id);
 
-  // --- Schedule Short: render the edits, then jump to the Uploading Center
-  // with this clip pre-selected so it can be dropped straight onto a slot.
-  const [schedulePending, setSchedulePending] = useState(false);
+  // --- Schedule Short ---
+  // Two ways to place this clip on the calendar, both from one button:
+  //  • pick a time from the dropdown → render (if needed) and schedule the
+  //    Short to YouTube at that slot right here, no trip to the Uploading Center;
+  //  • "Pick a slot in the Uploading Center" → render, then jump there with the
+  //    clip pre-selected for manual placement (the original flow).
+  // `pending` holds whichever action is waiting on the render to finish.
+  const [pending, setPending] = useState<
+    | null
+    | { type: "navigate" }
+    | { type: "slot"; slotUtc: string; label: string }
+  >(null);
+  const [slotOptions, setSlotOptions] = useState<QuickSlot[] | null>(null);
+  const [slotsLoading, setSlotsLoading] = useState(false);
+  const [publishEnabled, setPublishEnabled] = useState(true);
+  // Which two-week window the dropdown is showing, as days after today (0 =
+  // the current fortnight). Paging the arrows steps this by SLOT_WINDOW_DAYS.
+  const [slotOffsetDays, setSlotOffsetDays] = useState(0);
+  // Human label for the visible window, e.g. "Jul 22 – Aug 4", from its slots.
+  const [slotWindowLabel, setSlotWindowLabel] = useState<string | null>(null);
+  // Keep the control locked until the publish API has accepted the slot. Without
+  // this, the menu can reopen during the upload and briefly offer the same time.
+  const [scheduleSubmitting, setScheduleSubmitting] = useState(false);
+
   const goToUploadingCenter = useCallback(() => {
     const params = new URLSearchParams({ scheduleJob: project.jobId, scheduleClip: project.sourceFile });
     router.push(`/uploading-center?${params.toString()}`);
   }, [project.jobId, project.sourceFile, router]);
 
-  const scheduleShort = useCallback(() => {
-    const snapshot = JSON.stringify(project);
-    // Only skip the render when the last export finished AND nothing changed
-    // since — what gets posted must be exactly what's on screen.
-    if (exportState.status === "done" && lastExportedRef.current === snapshot) {
-      flushThen(goToUploadingCenter);
-      return;
+  // Load the open slots for one two-week window: the schedule grid's slots at
+  // `offsetDays` minus any already booked, soonest first. Called when the menu
+  // opens (offset 0) and whenever the arrows page the window, so it reflects
+  // whatever was scheduled since the editor loaded. "Booked" mirrors the
+  // Uploading Center exactly — a slot is taken when this app's queue holds it
+  // OR a video is already scheduled/published on the YouTube channel itself at
+  // that time (e.g. scheduled by hand in YouTube Studio). Without the channel
+  // check the dropdown would offer a slot the Uploading Center already shows as
+  // occupied, so quick-scheduling there would double-book it.
+  const loadSlots = useCallback(async (offsetDays = 0) => {
+    const target = Math.min(MAX_SLOT_OFFSET_DAYS, Math.max(0, offsetDays));
+    setSlotsLoading(true);
+    setSlotOffsetDays(target);
+    try {
+      const [overviewRes, queueRes, channelRes] = await Promise.all([
+        fetch(`/api/publish/overview?days=${SLOT_WINDOW_DAYS}&offsetDays=${target}`, { cache: "no-store" }),
+        fetch("/api/publish", { cache: "no-store" }),
+        fetch("/api/publish/youtube-channel", { cache: "no-store" })
+      ]);
+      const overview = overviewRes.ok
+        ? ((await overviewRes.json()) as { enabled: boolean; timezone: string; slots: ScheduleSlot[] })
+        : null;
+      if (!overview?.enabled) {
+        setPublishEnabled(false);
+        setSlotOptions([]);
+        setSlotWindowLabel(null);
+        return;
+      }
+      setPublishEnabled(true);
+      // Label the window by its first and last calendar day (before filtering)
+      // so the header shows which fortnight these slots cover.
+      const first = overview.slots[0]?.dateLabel;
+      const last = overview.slots[overview.slots.length - 1]?.dateLabel;
+      setSlotWindowLabel(first && last ? (first === last ? first : `${first} – ${last}`) : null);
+      const queue = queueRes.ok ? ((await queueRes.json()) as { items?: Array<{ publishAt: string }> }) : {};
+      const taken = new Set((queue.items ?? []).map((item) => new Date(item.publishAt).toISOString()));
+      // Place the channel's real schedule onto the grid with the same helper the
+      // Uploading Center uses, so occupancy is computed identically on both sides.
+      const channel = channelRes.ok ? ((await channelRes.json()) as ChannelSchedule) : null;
+      const channelBySlot = placeChannelVideos({
+        videos: channel?.videos ?? [],
+        slots: overview.slots,
+        isSlotOccupied: (slotUtc) => taken.has(slotUtc),
+        timeZone: overview.timezone ?? "UTC"
+      }).bySlotUtc;
+      // Show every open time in the window (not just the soonest handful) so the
+      // menu is a full picker you can page through as far ahead as you like.
+      const open = overview.slots
+        .filter((slot) => !slot.past && !taken.has(slot.utc) && !channelBySlot.has(slot.utc))
+        .map((slot) => ({ utc: slot.utc, label: `${slot.dateLabel} · ${slot.time}`, today: slot.today }));
+      setSlotOptions(open);
+    } catch {
+      setSlotOptions([]);
+      setSlotWindowLabel(null);
+    } finally {
+      setSlotsLoading(false);
     }
-    setSchedulePending(true);
-    const rendering = exportState.status === "processing" || exportState.status === "starting";
-    if (!rendering) {
-      lastExportedRef.current = snapshot;
-      void startExport(project); // persists the project before rendering
-    }
-    toast.info("Rendering your Short — you'll land in the Uploading Center when it's ready.");
-  }, [exportState.status, flushThen, goToUploadingCenter, project, startExport]);
+  }, []);
+
+  // Schedule the freshly rendered export straight to YouTube at `slotUtc`. The
+  // publish API uploads it private with a go-live time, so it shows as Scheduled
+  // in YouTube Studio and flips live on its own — exactly like the drag-onto-a-
+  // slot flow in the Uploading Center.
+  const scheduleToSlot = useCallback(
+    async (slotUtc: string, file: string, label: string) => {
+      setScheduleSubmitting(true);
+      try {
+        const res = await fetch("/api/publish", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            jobId: project.jobId,
+            file,
+            publishAt: slotUtc,
+            title: project.title.trim() || project.name.trim() || undefined,
+            platforms: ["youtube"],
+            // "public" is what makes YouTube honor publishAt: uploaded private,
+            // flipped live at the slot time.
+            visibility: "public"
+          })
+        });
+        const data = (await res.json().catch(() => ({}))) as {
+          error?: string;
+          report?: { outcomes: Array<{ platform: string; outcome: string; detail: string }> };
+        };
+        if (!res.ok) {
+          toast.error(data.error ?? "Could not schedule the Short.");
+          return;
+        }
+
+        // The POST has persisted the queue item. Remove the selected time now so
+        // it cannot be offered again, then reconcile against the full queue to
+        // pull in anything scheduled from another tab while this upload ran.
+        setSlotOptions((current) => current?.filter((slot) => slot.utc !== slotUtc) ?? current);
+        void loadSlots(slotOffsetDays);
+
+        const outcome = data.report?.outcomes.find((entry) => entry.platform === "youtube");
+        if (outcome?.outcome === "scheduled") {
+          toast.success(`Scheduled for ${label} — it now shows as Scheduled on YouTube.`);
+        } else if (outcome?.outcome === "published") {
+          toast.success("Published to YouTube.");
+        } else if (outcome?.outcome === "failed" || outcome?.outcome === "retrying") {
+          toast.warning(`Scheduled for ${label}, but the upload hit a snag: ${outcome.detail || outcome.outcome}. It will retry.`);
+        } else {
+          toast.success(`Scheduled for ${label}.`);
+        }
+      } catch {
+        toast.error("Network error while scheduling the Short.");
+      } finally {
+        setScheduleSubmitting(false);
+      }
+    },
+    [loadSlots, slotOffsetDays, project.jobId, project.name, project.title]
+  );
+
+  // Ensure the on-screen edits are rendered, then run `target`. When the last
+  // render already matches what's on screen we act immediately; otherwise we
+  // kick a render and stash the action in `pending` for the effect below.
+  const runSchedule = useCallback(
+    (target: { type: "navigate" } | { type: "slot"; slotUtc: string; label: string }) => {
+      const snapshot = JSON.stringify(project);
+      if (exportState.status === "done" && lastExportedRef.current === snapshot && exportState.file) {
+        const file = exportState.file;
+        flushThen(() => {
+          if (target.type === "navigate") goToUploadingCenter();
+          else void scheduleToSlot(target.slotUtc, file, target.label);
+        });
+        return;
+      }
+      setPending(target);
+      const rendering = exportState.status === "processing" || exportState.status === "starting";
+      if (!rendering) {
+        lastExportedRef.current = snapshot;
+        void startExport(project); // persists the project before rendering
+      }
+      toast.info(
+        target.type === "navigate"
+          ? "Rendering your Short — you'll land in the Uploading Center when it's ready."
+          : "Rendering your Short — it'll be scheduled automatically when it's ready."
+      );
+    },
+    [exportState.status, exportState.file, flushThen, goToUploadingCenter, project, scheduleToSlot, startExport]
+  );
 
   useEffect(() => {
-    if (!schedulePending) return;
+    if (!pending) return;
     if (exportState.status !== "done" && exportState.status !== "error") return;
     let cancelled = false;
     // Deferred so the state updates land after the render pass, not inside it.
     queueMicrotask(() => {
       if (cancelled) return;
-      setSchedulePending(false);
-      if (exportState.status === "done") {
-        goToUploadingCenter();
-      } else {
+      const target = pending;
+      setPending(null);
+      if (exportState.status === "error") {
         toast.error(exportState.error ?? "The render failed — check the Export tab and try again.");
+        return;
+      }
+      if (target.type === "navigate") {
+        goToUploadingCenter();
+      } else if (exportState.file) {
+        void scheduleToSlot(target.slotUtc, exportState.file, target.label);
+      } else {
+        toast.error("The render finished but produced no file. Try again from the Export tab.");
       }
     });
     return () => {
       cancelled = true;
     };
-  }, [schedulePending, exportState.status, exportState.error, goToUploadingCenter]);
+  }, [pending, exportState.status, exportState.error, exportState.file, goToUploadingCenter, scheduleToSlot]);
 
   // Memoized (and deliberately without the live playhead time) so the panels,
   // which are React.memo components, don't re-render on every playback frame.
@@ -619,6 +980,7 @@ export function ClipEditor({
       setSelectedOverlayId,
       exportState,
       runExport,
+      stopExport: stopExportForClip,
       downloadSubtitles
     }),
     [
@@ -646,6 +1008,7 @@ export function ClipEditor({
       selectedOverlayId,
       exportState,
       runExport,
+      stopExportForClip,
       downloadSubtitles
     ]
   );
@@ -696,18 +1059,29 @@ export function ClipEditor({
         <Button onClick={() => void saveNow()} disabled={saving || saved}>
           <Save className="mr-2 h-4 w-4" /> {saving ? "Saving…" : saved ? "Saved" : "Save"}
         </Button>
-        <Button onClick={scheduleShort} disabled={schedulePending} title="Render this Short and pick its slot in the Uploading Center">
-          {schedulePending ? (
-            <>
-              <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Rendering… {exportState.progress}%
-            </>
-          ) : (
-            <>
-              <CalendarClock className="mr-2 h-4 w-4" /> Schedule Short
-            </>
-          )}
-        </Button>
+        <ScheduleShortMenu
+          pending={pending !== null}
+          submitting={scheduleSubmitting}
+          progress={exportState.progress}
+          slots={slotOptions}
+          slotsLoading={slotsLoading}
+          publishEnabled={publishEnabled}
+          windowLabel={slotWindowLabel}
+          canGoPrev={slotOffsetDays > 0}
+          canGoNext={slotOffsetDays + SLOT_WINDOW_DAYS <= MAX_SLOT_OFFSET_DAYS}
+          onOpen={() => loadSlots(0)}
+          onPrevWindow={() => loadSlots(slotOffsetDays - SLOT_WINDOW_DAYS)}
+          onNextWindow={() => loadSlots(slotOffsetDays + SLOT_WINDOW_DAYS)}
+          onPickSlot={(slot) => runSchedule({ type: "slot", slotUtc: slot.utc, label: slot.label })}
+          onOpenUploadingCenter={() => runSchedule({ type: "navigate" })}
+        />
       </div>
+
+      <DescriptionDropdown
+        description={project.description}
+        keywords={project.keywords}
+        onChange={patch}
+      />
 
       <div
         className={cn(
@@ -849,6 +1223,9 @@ export function ClipEditor({
             onSetTrim={setTrim}
             onResetTrim={resetTrim}
             onSplit={splitAtPlayhead}
+            onToggleSegment={toggleTimelineSegment}
+            onSegmentBoundaryChange={resizeTimelineBoundary}
+            onSetSilenceIncluded={setSilenceIncluded}
             selectedCaptionId={selectedCaptionId}
             onSelectCaption={setSelectedCaptionId}
             onCaptionChange={updateCaption}
@@ -884,6 +1261,186 @@ export function ClipEditor({
           </div>
         </div>
       </div>
+    </div>
+  );
+}
+
+/**
+ * The Schedule Short split button. Clicking it opens a dropdown of the next
+ * open slots — pick one to render and schedule the Short to YouTube in one shot
+ * — plus an escape hatch into the Uploading Center for manual placement. While
+ * a render is in flight the whole control shows live progress and is disabled.
+ */
+function ScheduleShortMenu({
+  pending,
+  submitting,
+  progress,
+  slots,
+  slotsLoading,
+  publishEnabled,
+  windowLabel,
+  canGoPrev,
+  canGoNext,
+  onOpen,
+  onPrevWindow,
+  onNextWindow,
+  onPickSlot,
+  onOpenUploadingCenter
+}: {
+  pending: boolean;
+  submitting: boolean;
+  progress: number;
+  slots: QuickSlot[] | null;
+  slotsLoading: boolean;
+  publishEnabled: boolean;
+  windowLabel: string | null;
+  canGoPrev: boolean;
+  canGoNext: boolean;
+  onOpen: () => void;
+  onPrevWindow: () => void;
+  onNextWindow: () => void;
+  onPickSlot: (slot: QuickSlot) => void;
+  onOpenUploadingCenter: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement | null>(null);
+
+  // Close on an outside click or Escape while the menu is open.
+  useEffect(() => {
+    if (!open) return;
+    const onPointerDown = (event: MouseEvent) => {
+      if (ref.current && !ref.current.contains(event.target as Node)) setOpen(false);
+    };
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setOpen(false);
+    };
+    window.addEventListener("mousedown", onPointerDown);
+    window.addEventListener("keydown", onKeyDown);
+    return () => {
+      window.removeEventListener("mousedown", onPointerDown);
+      window.removeEventListener("keydown", onKeyDown);
+    };
+  }, [open]);
+
+  const toggle = () => {
+    const next = !open;
+    setOpen(next);
+    if (next) onOpen();
+  };
+
+  return (
+    <div ref={ref} className="relative">
+      <Button
+        onClick={toggle}
+        disabled={pending || submitting}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        title="Render this Short and schedule it — or pick a slot in the Uploading Center"
+      >
+        {pending || submitting ? (
+          <>
+            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+            {submitting ? "Scheduling…" : `Rendering… ${progress}%`}
+          </>
+        ) : (
+          <>
+            <CalendarClock className="mr-2 h-4 w-4" /> Schedule Short
+            <ChevronDown className={cn("ml-2 h-4 w-4 transition-transform", open && "rotate-180")} />
+          </>
+        )}
+      </Button>
+      {open && !pending && !submitting ? (
+        <div
+          role="menu"
+          className="absolute right-0 z-30 mt-2 w-72 rounded-xl border border-[var(--border)] bg-[var(--surface)] p-2 shadow-xl"
+        >
+          {!publishEnabled ? (
+            <p className="px-2 py-3 text-xs text-[var(--muted-foreground)]">
+              Publishing is switched off. Set <code className="rounded bg-white/10 px-1 py-0.5">PUBLISH_ENABLED=true</code> to
+              schedule Shorts directly.
+            </p>
+          ) : (
+            <>
+              <div className="flex items-center justify-between gap-2 px-2 pb-1.5 pt-1">
+                <div className="min-w-0">
+                  <p className="text-[11px] font-medium uppercase tracking-wider text-[var(--muted-foreground)]">
+                    Schedule to YouTube
+                  </p>
+                  {windowLabel ? (
+                    <p className="truncate text-[11px] text-[var(--muted-foreground)]/80">{windowLabel}</p>
+                  ) : null}
+                </div>
+                <div className="flex shrink-0 items-center gap-1">
+                  <button
+                    type="button"
+                    onClick={onPrevWindow}
+                    disabled={!canGoPrev || slotsLoading}
+                    aria-label="Earlier two weeks"
+                    title="Earlier two weeks"
+                    className="rounded-md p-1 text-[var(--muted-foreground)] transition hover:bg-white/5 hover:text-white disabled:pointer-events-none disabled:opacity-30"
+                  >
+                    <ChevronLeft className="h-4 w-4" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={onNextWindow}
+                    disabled={!canGoNext || slotsLoading}
+                    aria-label="Next two weeks"
+                    title="Next two weeks"
+                    className="rounded-md p-1 text-[var(--muted-foreground)] transition hover:bg-white/5 hover:text-white disabled:pointer-events-none disabled:opacity-30"
+                  >
+                    <ChevronRight className="h-4 w-4" />
+                  </button>
+                </div>
+              </div>
+              {slotsLoading ? (
+                <div className="flex items-center gap-2 px-2 py-3 text-xs text-[var(--muted-foreground)]">
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" /> Finding open slots…
+                </div>
+              ) : slots && slots.length > 0 ? (
+                <div className="max-h-64 space-y-0.5 overflow-y-auto">
+                  {slots.map((slot) => (
+                    <button
+                      key={slot.utc}
+                      type="button"
+                      role="menuitem"
+                      onClick={() => {
+                        setOpen(false);
+                        onPickSlot(slot);
+                      }}
+                      className="flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left text-sm text-white transition hover:bg-white/5"
+                    >
+                      <Clock className="h-3.5 w-3.5 shrink-0 text-[var(--muted-foreground)]" />
+                      <span className="min-w-0 flex-1 truncate">{slot.label}</span>
+                      {slot.today ? (
+                        <span className="shrink-0 rounded-full bg-[var(--accent)]/15 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-[var(--accent)]">
+                          Today
+                        </span>
+                      ) : null}
+                    </button>
+                  ))}
+                </div>
+              ) : (
+                <p className="px-2 py-3 text-xs text-[var(--muted-foreground)]">
+                  No open slots in this two-week window — try the next one, or pick a time in the Uploading Center.
+                </p>
+              )}
+            </>
+          )}
+          <div className="my-1 border-t border-[var(--border)]" />
+          <button
+            type="button"
+            role="menuitem"
+            onClick={() => {
+              setOpen(false);
+              onOpenUploadingCenter();
+            }}
+            className="flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left text-xs font-medium text-[var(--accent)] transition hover:bg-[var(--accent)]/10"
+          >
+            <Upload className="h-3.5 w-3.5" /> Pick a slot in the Uploading Center
+          </button>
+        </div>
+      ) : null}
     </div>
   );
 }

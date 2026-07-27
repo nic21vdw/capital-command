@@ -29,8 +29,10 @@ const END_EXTENSION_SEC = 10;
 // previous completed thought rather than ending mid-sentence.
 const END_TRIM_SEC = 6;
 const TARGET_CLIP_SEC = 24;
-export const TARGET_CLIP_COUNT = 10;
-const MAX_CANDIDATES = TARGET_CLIP_COUNT;
+// Clip-count bounds and coercion live in a dependency-free module so the client
+// UI can reuse them; re-exported here for existing server-side importers.
+export { MAX_CLIP_COUNT, MIN_CLIP_COUNT, TARGET_CLIP_COUNT, clampClipCount } from "@/lib/clipping/clip-count";
+import { TARGET_CLIP_COUNT, clampClipCount } from "@/lib/clipping/clip-count";
 
 /** Extracts per-window RMS loudness for the first audio stream. */
 export async function extractEnergy(inputPath: string): Promise<EnergyWindow[]> {
@@ -69,28 +71,41 @@ export async function extractEnergy(inputPath: string): Promise<EnergyWindow[]> 
   return windows;
 }
 
-/** Detects silence ranges used to snap clip boundaries to natural pauses. */
-export async function detectSilences(inputPath: string): Promise<SilenceRange[]> {
-  const { stderr } = await runFfmpeg(
-    ["-hide_banner", "-i", inputPath, "-map", "a:0", "-af", "silencedetect=noise=-35dB:d=0.35", "-f", "null", "-"],
-    { allowFailure: true }
-  );
-
+/**
+ * Incremental parser for silencedetect log lines. Feed every stderr line
+ * through `onLine`; `ranges` accumulates the completed silences in order.
+ */
+export function createSilenceCollector(): { ranges: SilenceRange[]; onLine: (line: string) => void } {
   const ranges: SilenceRange[] = [];
   let pendingStart: number | null = null;
-  for (const line of stderr.split("\n")) {
+  const onLine = (line: string) => {
     const start = line.match(/silence_start:\s*([\d.]+)/);
     if (start) {
       pendingStart = Number(start[1]);
-      continue;
+      return;
     }
     const end = line.match(/silence_end:\s*([\d.]+)/);
     if (end && pendingStart !== null) {
       ranges.push({ start: pendingStart, end: Number(end[1]) });
       pendingStart = null;
     }
-  }
-  return ranges;
+  };
+  return { ranges, onLine };
+}
+
+/** Detects silence ranges used to snap clip boundaries to natural pauses. */
+export async function detectSilences(inputPath: string): Promise<SilenceRange[]> {
+  // Silences are parsed line-by-line as ffmpeg emits them, NOT from the
+  // accumulated stderr afterwards: runFfmpeg caps captured stderr at 400 KB,
+  // and a multi-hour stream logs thousands of silencedetect lines — parsing
+  // the capped buffer would silently drop every silence before the cap and
+  // leave the first hours of the recording uncut.
+  const collector = createSilenceCollector();
+  await runFfmpeg(
+    ["-hide_banner", "-i", inputPath, "-map", "a:0", "-af", "silencedetect=noise=-35dB:d=0.35", "-f", "null", "-"],
+    { allowFailure: true, onLine: collector.onLine }
+  );
+  return collector.ranges;
 }
 
 function percentile(sorted: number[], p: number) {
@@ -143,9 +158,11 @@ export function selectCandidates(
   windows: EnergyWindow[],
   silences: SilenceRange[],
   durationSec: number,
-  captions: CaptionSegment[] = []
+  captions: CaptionSegment[] = [],
+  targetCount: number = TARGET_CLIP_COUNT
 ): ClipCandidate[] {
-  if (windows.length === 0) return fallbackCandidates(durationSec, "No audio energy data was available");
+  const maxCandidates = clampClipCount(targetCount);
+  if (windows.length === 0) return fallbackCandidates(durationSec, "No audio energy data was available", maxCandidates);
 
   const sortedRms = windows.map((w) => w.rms).sort((a, b) => a - b);
   const p75 = percentile(sortedRms, 75);
@@ -291,19 +308,23 @@ export function selectCandidates(
   for (const candidate of candidates) {
     if (kept.some((existing) => overlapRatio(existing, candidate) > 0.45)) continue;
     kept.push(candidate);
-    if (kept.length >= MAX_CANDIDATES) break;
+    if (kept.length >= maxCandidates) break;
   }
-  if (kept.length === 0) return fallbackCandidates(durationSec, "Energy analysis found no usable peaks");
+  if (kept.length === 0) return fallbackCandidates(durationSec, "Energy analysis found no usable peaks", maxCandidates);
 
-  if (kept.length < MAX_CANDIDATES) {
-    const fillers = fallbackCandidates(durationSec, "Supplemental timeline coverage added after the strongest peaks");
+  if (kept.length < maxCandidates) {
+    const fillers = fallbackCandidates(
+      durationSec,
+      "Supplemental timeline coverage added after the strongest peaks",
+      maxCandidates
+    );
     for (const filler of fillers) {
-      if (kept.length >= MAX_CANDIDATES) break;
+      if (kept.length >= maxCandidates) break;
       if (kept.some((existing) => overlapRatio(existing, filler) > 0.35)) continue;
       kept.push(filler);
     }
     for (const filler of fillers) {
-      if (kept.length >= MAX_CANDIDATES) break;
+      if (kept.length >= maxCandidates) break;
       if (kept.some((existing) => Math.abs(existing.start - filler.start) < 1)) continue;
       kept.push(filler);
     }
@@ -314,9 +335,13 @@ export function selectCandidates(
 }
 
 /** Evenly spaced segments when there is no audio signal to score against. */
-export function fallbackCandidates(durationSec: number, reason: string): ClipCandidate[] {
+export function fallbackCandidates(
+  durationSec: number,
+  reason: string,
+  targetCount: number = TARGET_CLIP_COUNT
+): ClipCandidate[] {
   const clipLen = Math.min(TARGET_CLIP_SEC, Math.max(10, durationSec));
-  const count = Math.max(1, Math.min(TARGET_CLIP_COUNT, Math.floor(durationSec / (clipLen * 1.15))));
+  const count = Math.max(1, Math.min(clampClipCount(targetCount), Math.floor(durationSec / (clipLen * 1.15))));
   const candidates: ClipCandidate[] = [];
   for (let i = 0; i < count; i++) {
     const start = round1(((i + 0.5) / count) * durationSec - clipLen / 2);

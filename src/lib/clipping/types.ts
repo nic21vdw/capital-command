@@ -61,6 +61,15 @@ export type ClipCandidate = {
    */
   editedFile?: string;
   /**
+   * Fingerprint of the project edits (trim, layout, captions, overlays, audio,
+   * export settings) `editedFile` was rendered from. Lets the Uploading Center
+   * tell when a saved project has been trimmed/edited since its last render, so
+   * a stale cut is never uploaded. Absent on renders made before this existed.
+   */
+  editedSignature?: string;
+  /** ISO-8601 timestamp of the last `editedFile` render, for staleness display. */
+  editedAt?: string;
+  /**
    * Instant preview filename: a faststart stream-copy of the cut section,
    * published the moment the section exists so the UI can play the clip
    * while the HD master render is still running.
@@ -87,6 +96,11 @@ export type ClipJob = {
   sourceUrl: string;
   /** Set when the job was created from an uploaded file instead of a URL. */
   sourceId?: string;
+  /**
+   * How many clips the creator asked to generate from this source. Chosen at
+   * upload time (defaults to TARGET_CLIP_COUNT) and drives every selection pass.
+   */
+  clipCount?: number;
   renderLayout?: ClipLayoutPreset;
   renderVariants?: boolean;
   layoutOverrides?: ClipLayoutOverrides;
@@ -99,6 +113,11 @@ export type ClipJob = {
   notices: string[];
   createdAt: string;
   durationSec?: number;
+  /**
+   * Full-source audio silence ranges measured with ffmpeg. New clip projects
+   * window these into clip-local keep/cut blocks; older jobs fall back to word gaps.
+   */
+  silences?: import("@/lib/clipping/analysis").SilenceRange[];
   /** Drive-synced folder the clips were copied into, when CLIPS_DRIVE_DIR is set. */
   driveFolder?: string;
   clips: ClipCandidate[];

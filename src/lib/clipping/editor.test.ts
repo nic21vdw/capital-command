@@ -7,7 +7,8 @@ import {
   generateClipTitle,
   generateClipTitleCandidates,
   leadingSilenceSec,
-  makeClipProject
+  makeClipProject,
+  makeTitleOverlay
 } from "./editor";
 import { appDataSchema, clipProjectSchema, defaultCaptionStyle } from "@/lib/storage/schemas";
 import { seedData } from "@/lib/mockData/seed";
@@ -47,6 +48,55 @@ describe("makeClipProject", () => {
     expect(p.exportSettings.preset).toBe("shorts");
     expect(p.exportSettings.width).toBe(1080);
     expect(p.exportSettings.height).toBe(1920);
+  });
+});
+
+describe("makeTitleOverlay", () => {
+  it("seeds an editable white text overlay carrying the clip title", () => {
+    const p = baseProject();
+    p.title = "My Great Short";
+    const overlay = makeTitleOverlay(p);
+    expect(overlay.kind).toBe("text");
+    expect(overlay.text).toBe("My Great Short");
+    expect(overlay.color).toBe("#ffffff");
+    expect(overlay.locked).toBe(false);
+    // Visible for the whole clip.
+    expect(overlay.start).toBe(0);
+    expect(overlay.end).toBeCloseTo(p.trimEnd - p.trimStart);
+  });
+
+  it("sits just above the centered video band of the 9:16 blur layout", () => {
+    const p = baseProject(); // 1920x1080 source in a 9:16 frame
+    p.title = "Title";
+    const overlay = makeTitleOverlay(p);
+    // Contain-fit video top edge: (1 - (9/16)/(16/9)) / 2 ≈ 0.342.
+    const videoTop = (1 - 9 / 16 / (16 / 9)) / 2;
+    expect(overlay.x).toBeCloseTo(0.5);
+    expect(overlay.y).toBeLessThan(videoTop);
+    expect(overlay.y).toBeGreaterThan(0.05); // inside the safe area
+  });
+
+  it("clamps into the safe area when the source already fills the frame", () => {
+    const p = baseProject();
+    p.title = "Tall";
+    p.baseWidth = 1080;
+    p.baseHeight = 1920; // vertical source: no letterbox band above the video
+    const overlay = makeTitleOverlay(p);
+    expect(overlay.y).toBeCloseTo(0.08);
+  });
+
+  it("falls back to the project name when no title was generated", () => {
+    const p = baseProject();
+    p.title = "";
+    expect(makeTitleOverlay(p).text).toBe("Test clip");
+  });
+
+  it("round-trips through the storage schema", () => {
+    const p = baseProject();
+    p.title = "Persisted Title";
+    p.overlays = [makeTitleOverlay(p)];
+    const parsed = clipProjectSchema.parse(JSON.parse(JSON.stringify(p)));
+    expect(parsed.overlays[0]).toEqual(p.overlays[0]);
   });
 });
 

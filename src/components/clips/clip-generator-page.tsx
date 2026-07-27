@@ -22,12 +22,19 @@ import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { PageHeader } from "@/components/ui/page-header";
 import { Progress } from "@/components/ui/progress";
+import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
+import { MAX_CLIP_COUNT, TARGET_CLIP_COUNT } from "@/lib/clipping/clip-count";
 import { chunkWords, windowSegments } from "@/lib/clipping/captions";
-import { generateClipTitle, makeClipProject } from "@/lib/clipping/editor";
+import { generateClipTitle, makeClipProject, makeTitleOverlay } from "@/lib/clipping/editor";
+import { buildClipSegments, buildClipSegmentsFromSilences } from "@/lib/clipping/segments";
 import { writeDraftProject } from "@/components/editor/drafts";
 import { cn, safeFilename } from "@/lib/utils";
 import type { ClipCandidate, ClipJob, ClipJobStage, ClipJobStatus } from "@/lib/clipping/types";
+
+// Preset clip counts offered in the generator. Kept within [1, MAX_CLIP_COUNT];
+// bigger streams warrant more clips, so the range runs well past the default.
+const CLIP_COUNT_OPTIONS = [3, 5, 10, 15, 20, 25, 30, 40, MAX_CLIP_COUNT];
 
 const STAGE_LABELS: Record<ClipJobStage, string> = {
   downloading: "Fetching the source",
@@ -81,6 +88,7 @@ export function ClipGeneratorPage() {
   const [activeJobId, setActiveJobId] = useState<string | null>(null);
   const [url, setUrl] = useState("");
   const [brief, setBrief] = useState("");
+  const [clipCount, setClipCount] = useState(TARGET_CLIP_COUNT);
   const [submitting, setSubmitting] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [retryingJobId, setRetryingJobId] = useState<string | null>(null);
@@ -124,7 +132,7 @@ export function ClipGeneratorPage() {
   }, [jobs, refresh]);
 
   const startJob = useCallback(
-    async (body: { url?: string; sourceId?: string; topic?: string }) => {
+    async (body: { url?: string; sourceId?: string; topic?: string; clipCount?: number }) => {
       const response = await fetch("/api/clips", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -152,13 +160,13 @@ export function ClipGeneratorPage() {
     }
     setSubmitting(true);
     try {
-      await startJob({ url: trimmed, topic: brief.trim() || undefined });
+      await startJob({ url: trimmed, topic: brief.trim() || undefined, clipCount });
     } catch {
       toast.error("Request failed. Is the dev server still running?");
     } finally {
       setSubmitting(false);
     }
-  }, [brief, startJob, url]);
+  }, [brief, clipCount, startJob, url]);
 
   const uploadFile = useCallback(
     async (file: File) => {
@@ -174,14 +182,14 @@ export function ClipGeneratorPage() {
           toast.error(data.error ?? "Upload failed.");
           return;
         }
-        await startJob({ sourceId: data.source.id, topic: brief.trim() || undefined });
+        await startJob({ sourceId: data.source.id, topic: brief.trim() || undefined, clipCount });
       } catch {
         toast.error("Upload failed. Is the dev server still running?");
       } finally {
         setUploading(false);
       }
     },
-    [brief, startJob]
+    [brief, clipCount, startJob]
   );
 
   const onDrop = useCallback(
@@ -258,8 +266,18 @@ export function ClipGeneratorPage() {
       const windowed = windowSegments(job.sourceCaptions ?? [], clip.start, clip.end);
       const words = windowed.flatMap((segment) => segment.words);
       project.captions = words.length ? chunkWords(words, project.captionStyle.maxWordsPerCaption) : windowed;
-      project.title = generateClipTitle(project.captions, `Clip ${index + 1}`);
+      const localSilences = (job.silences ?? [])
+        .filter((silence) => silence.end > clip.start && silence.start < clip.end)
+        .map((silence) => ({
+          start: Math.max(0, silence.start - clip.start),
+          end: Math.min(project.baseDurationSec, silence.end - clip.start)
+        }));
+      project.segments = localSilences.length
+        ? buildClipSegmentsFromSilences(project.baseDurationSec, localSilences)
+        : buildClipSegments(project.baseDurationSec, project.captions);
+      project.title = clip.title || generateClipTitle(project.captions, `Clip ${index + 1}`);
       if (project.title) project.name = project.title;
+      project.overlays = [...project.overlays, makeTitleOverlay(project)];
       // Share the auto-generated title with the backend clip so the Generator
       // and the Uploading Center headline match the editor from the start.
       if (project.title && !clip.title) void renameClip(job, clip, project.title);
@@ -337,7 +355,7 @@ export function ClipGeneratorPage() {
         description="Turn a raw livestream or recording into short clips: every source is transcribed and captioned automatically, the best moments are picked and titled, and each clip opens in the editor ready to export for Shorts and Reels."
       />
 
-      <div className="grid gap-4 xl:grid-cols-[340px_minmax(0,1fr)]">
+      <div className="grid gap-4 xl:grid-cols-[400px_minmax(0,1fr)]">
         <div className="min-w-0 space-y-4">
           <Card className="p-4">
             <div className="flex items-center gap-2">
@@ -366,6 +384,31 @@ export function ClipGeneratorPage() {
                 disabled={busy}
                 className="min-h-20"
               />
+              <div className="space-y-1.5">
+                <label
+                  htmlFor="clip-count"
+                  className="block text-xs font-medium text-[var(--muted-foreground)]"
+                >
+                  Clips to generate
+                </label>
+                <Select
+                  id="clip-count"
+                  value={clipCount}
+                  onChange={(event) => setClipCount(Number(event.target.value))}
+                  disabled={busy}
+                  aria-label="Number of clips to generate"
+                >
+                  {CLIP_COUNT_OPTIONS.map((count) => (
+                    <option key={count} value={count}>
+                      {count} clip{count === 1 ? "" : "s"}
+                      {count === TARGET_CLIP_COUNT ? " (default)" : ""}
+                    </option>
+                  ))}
+                </Select>
+                <p className="text-[11px] leading-4 text-[var(--muted-foreground)]">
+                  Longer streams have more clippable moments — pick more for a multi-hour VOD (up to {MAX_CLIP_COUNT}).
+                </p>
+              </div>
               <Button onClick={() => void submitUrl()} disabled={busy || !url.trim()} className="w-full">
                 {submitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <LinkIcon className="mr-2 h-4 w-4" />}
                 Find clips
@@ -448,7 +491,12 @@ export function ClipGeneratorPage() {
                   >
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0">
-                        <p className="truncate text-sm font-medium text-white">{job.fileName}</p>
+                        <p
+                          title={job.fileName}
+                          className="overflow-x-auto whitespace-nowrap text-sm font-medium text-white [scrollbar-width:thin] [&::-webkit-scrollbar]:h-1"
+                        >
+                          {job.fileName}
+                        </p>
                         <p className="mt-1 text-xs text-[var(--muted-foreground)]">
                           {new Date(job.createdAt).toLocaleDateString()}
                           {job.clips.length > 0 && ` · ${job.clips.length} clips`}

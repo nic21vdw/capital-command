@@ -121,6 +121,46 @@ describe("publish queue state machine", () => {
     expect(queue.duePlatforms(item, new Date(DUE.getTime() + 60_000))).toEqual(["tiktok"]);
   });
 
+  it("purgeFailed drops posts whose every platform failed, freeing the slot", async () => {
+    const { queue } = makeQueue();
+    const failed = testItem({ id: "gone", publishAt: PUBLISH_AT, platformIds: ["youtube"] });
+    const scheduled = testItem({ id: "stays", publishAt: PUBLISH_AT, platformIds: ["youtube"] });
+    await queue.add(failed);
+    await queue.add(scheduled);
+
+    await queue.recordFailure(failed, "youtube", { message: "quota exceeded", transient: false }, DUE);
+    await queue.recordSuccess(scheduled, "youtube", { status: "scheduled", postId: "vid999" }, BEFORE);
+
+    const removed = await queue.purgeFailed();
+    expect(removed.map((item) => item.id)).toEqual(["gone"]);
+
+    const items = await queue.list();
+    expect(items.map((item) => item.id)).toEqual(["stays"]);
+  });
+
+  it("purgeFailed keeps multi-platform posts where any platform still succeeded", async () => {
+    const { queue } = makeQueue();
+    const item = testItem({ id: "mixed", publishAt: PUBLISH_AT, platformIds: ["youtube", "tiktok"] });
+    await queue.add(item);
+
+    await queue.recordSuccess(item, "youtube", { status: "published", postId: "vid123" }, DUE);
+    await queue.recordFailure(item, "tiktok", { message: "bad request", transient: false }, DUE);
+
+    const removed = await queue.purgeFailed();
+    expect(removed).toEqual([]);
+    expect((await queue.list()).map((i) => i.id)).toEqual(["mixed"]);
+  });
+
+  it("purgeFailed saves only when something was removed", async () => {
+    const { store, queue } = makeQueue();
+    const item = testItem({ id: "pending", publishAt: PUBLISH_AT, platformIds: ["youtube"] });
+    await queue.add(item);
+    const savesBefore = store.saves;
+
+    expect(await queue.purgeFailed()).toEqual([]);
+    expect(store.saves).toBe(savesBefore);
+  });
+
   it("persists through the store and reloads identically", async () => {
     const { store, queue } = makeQueue();
     const item = testItem({ publishAt: PUBLISH_AT });

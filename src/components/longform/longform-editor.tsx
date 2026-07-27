@@ -4,12 +4,17 @@ import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowLeft,
+  AudioLines,
+  Captions,
+  Check,
   Copy,
   Crosshair,
   Download,
+  FileText,
   Image as ImageIcon,
   ImagePlus,
   Loader2,
+  Monitor,
   Music4,
   Pause,
   Play,
@@ -17,6 +22,9 @@ import {
   Scissors,
   Send,
   Slice,
+  Smartphone,
+  Sparkles,
+  Square,
   Trash2,
   Upload,
   UploadCloud,
@@ -27,30 +35,40 @@ import {
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
-import { ColorField, Field, RangeField, SelectField, Toggle } from "@/components/editor/controls";
+import { ColorField, Field, NumberField, RangeField, SelectField, Toggle } from "@/components/editor/controls";
+import { SfxSection } from "@/components/editor/sfx-section";
+import { DescriptionDropdown } from "@/components/editor/description-dropdown";
+import { LongformAudioMixer } from "@/components/longform/longform-audio-mixer";
 import { LongformPreview } from "@/components/longform/longform-preview";
 import { LongformTimeline, type TimelineSelection } from "@/components/longform/longform-timeline";
-import { formatClock } from "@/lib/clipping/editor";
-import { PACE_PRESETS, applyManualRange, editedDurationSec, hookCaptions, type PacePresetId } from "@/lib/longform/plan";
+import { CAPTION_PRESETS } from "@/lib/clipping/captions";
+import { applyCaptionPreset, formatClock } from "@/lib/clipping/editor";
+import { PACE_PRESETS, applyManualRange, editedDurationSec, hookCaptions, transcriptCaptions, type PacePresetId } from "@/lib/longform/plan";
+import type { LongformVideoMetadata } from "@/lib/longform/metadata";
 import type { LongformAudioClip, LongformExportRecord, LongformOverlay, LongformProject, MusicTrack } from "@/lib/longform/types";
-import type { CaptionAnimation, CaptionPosition, CaptionSegment } from "@/types/domain";
+import type { CaptionAlignment, CaptionAnimation, CaptionPosition, CaptionPresetId, CaptionSegment } from "@/types/domain";
 import { cn } from "@/lib/utils";
 
 // The Long-Form Editor working view: preview + timeline on the left, the
-// Hook / Cuts / Music / Export panels on the right. Every change autosaves to
-// the server after a short debounce, mirroring the Clip Editor's behavior.
+// Hook / Captions / Cuts / Music / Export panels on the right. Every change
+// autosaves to the server after a short debounce, mirroring the Clip Editor.
 
 const TABS = [
   { id: "hook", label: "Hook", icon: Zap },
+  { id: "captions", label: "Captions", icon: Captions },
   { id: "cuts", label: "Cuts", icon: Scissors },
   { id: "trim", label: "Trim", icon: Slice },
   { id: "images", label: "Images", icon: ImageIcon },
   { id: "music", label: "Audio", icon: Music4 },
+  { id: "publish", label: "Publish", icon: FileText },
   { id: "export", label: "Export", icon: Upload }
 ] as const;
 
 /** Default seconds a freshly dropped image stays on screen. */
 const OVERLAY_DEFAULT_SEC = 5;
+
+/** Shortest the hook window is ever allowed to be, in seconds. */
+const MIN_HOOK_SEC = 1;
 
 type TabId = (typeof TABS)[number]["id"];
 
@@ -166,10 +184,15 @@ export function LongformEditor({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           name: current.name,
+          description: current.description,
+          keywords: current.keywords,
           segments: current.segments,
           hook: current.hook,
+          captions: current.captions,
           overlays: current.overlays,
           music: current.music,
+          sfx: current.sfx,
+          layout: current.layout ?? "wide",
           pace: current.pace
         })
       })
@@ -194,7 +217,7 @@ export function LongformEditor({
         if (!video.paused && editedModeRef.current) {
           const t = video.currentTime;
           const current = projectRef.current;
-          const inHook = current.hook.enabled && t < current.hook.end;
+          const inHook = current.hook.enabled && t >= (current.hook.start ?? 0) && t < current.hook.end;
           if (!inHook) {
             const cut = cutRangesRef.current.find((range) => t >= range.start - 0.02 && t < range.end - 0.03);
             if (cut) video.currentTime = Math.min(current.durationSec, cut.end + 0.01);
@@ -262,10 +285,28 @@ export function LongformEditor({
   }, []);
 
   const setHookEnd = useCallback((end: number) => {
-    setProject((current) => ({
-      ...current,
-      hook: { ...current.hook, end, captions: hookCaptions(current.transcript, end) }
-    }));
+    setProject((current) => {
+      const start = current.hook.start ?? 0;
+      const clamped = Math.max(start + MIN_HOOK_SEC, Math.min(current.durationSec, end));
+      return {
+        ...current,
+        hook: { ...current.hook, end: clamped, captions: hookCaptions(current.transcript, start, clamped) }
+      };
+    });
+  }, []);
+
+  // Slide where the hook is pulled from: a fumbled opening no longer forces the
+  // hook to start at 0. Moving the start rebuilds the captions for the new
+  // window and nudges the end out if the window would collapse.
+  const setHookStart = useCallback((start: number) => {
+    setProject((current) => {
+      const clampedStart = Math.max(0, Math.min(start, current.durationSec - MIN_HOOK_SEC));
+      const end = Math.max(clampedStart + MIN_HOOK_SEC, current.hook.end);
+      return {
+        ...current,
+        hook: { ...current.hook, start: clampedStart, end, captions: hookCaptions(current.transcript, clampedStart, end) }
+      };
+    });
   }, []);
 
   // Revoke any session blob URLs when the editor unmounts.
@@ -351,6 +392,10 @@ export function LongformEditor({
   }, []);
 
   // --- Timeline audio clips -------------------------------------------------
+  const patchSfx = useCallback((sfx: NonNullable<LongformProject["sfx"]>) => {
+    setProject((prev) => ({ ...prev, sfx }));
+  }, []);
+
   const patchMusic = useCallback((partial: Partial<LongformProject["music"]>) => {
     setProject((prev) => ({ ...prev, music: { ...prev.music, ...partial } }));
   }, []);
@@ -434,14 +479,23 @@ export function LongformEditor({
     [addAudioClip]
   );
 
-  // Hit Delete/Backspace to remove what's selected on the timeline: an active
-  // trim selection is cut out of the video, otherwise the selected image
-  // overlay is removed. Ignored while typing in a field.
+  // Keyboard shortcuts: Space toggles play/pause; Delete/Backspace removes
+  // what's selected on the timeline: an active trim selection is cut out of
+  // the video, otherwise the selected image overlay is removed. Ignored while
+  // typing in a field.
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== "Delete" && event.key !== "Backspace") return;
+      if (event.key !== "Delete" && event.key !== "Backspace" && event.key !== " ") return;
       const target = event.target as HTMLElement | null;
       if (target && (target.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName))) return;
+      if (event.key === " ") {
+        // Skip when a button has focus — Space should activate it, and a
+        // toggle here would fight the click it triggers.
+        if (target && target.tagName === "BUTTON") return;
+        event.preventDefault(); // keep the page from scrolling
+        togglePlay();
+        return;
+      }
       if (selection && selection.end - selection.start >= 0.05) {
         event.preventDefault();
         applyRange(selection.start, selection.end, false);
@@ -455,7 +509,7 @@ export function LongformEditor({
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [selection, selectedOverlayId, applyRange, removeOverlay]);
+  }, [selection, selectedOverlayId, applyRange, removeOverlay, togglePlay]);
 
   const inCut = useMemo(
     () => cutRangesOf(project).some((range) => time >= range.start && time < range.end),
@@ -478,6 +532,39 @@ export function LongformEditor({
           className="h-9 min-w-0 flex-1 rounded-lg border border-transparent bg-transparent px-2 text-sm font-semibold text-white outline-none transition focus:border-[var(--border-strong)]"
           aria-label="Project name"
         />
+        {/* Layout: the export's output frame. The 9:16 option centers the edit
+            over a blurred fill of itself, ready to post as a short. */}
+        <div
+          className="flex shrink-0 overflow-hidden rounded-lg border border-[var(--border)]"
+          role="group"
+          aria-label="Frame layout"
+        >
+          {(
+            [
+              { id: "wide", label: "16:9", icon: Monitor, title: "Wide 16:9 — the classic long-form frame" },
+              { id: "vertical", label: "9:16", icon: Smartphone, title: "Vertical 9:16 — centered over a blurred fill, ready for shorts" }
+            ] as const
+          ).map((option) => {
+            const Icon = option.icon;
+            const active = (project.layout ?? "wide") === option.id;
+            return (
+              <button
+                key={option.id}
+                type="button"
+                onClick={() => patch({ layout: option.id })}
+                title={option.title}
+                aria-pressed={active}
+                className={cn(
+                  "flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium transition",
+                  active ? "bg-[var(--accent)]/15 text-white" : "text-[var(--muted-foreground)] hover:text-white"
+                )}
+              >
+                <Icon className={cn("h-3.5 w-3.5", active && "text-[var(--accent)]")} />
+                {option.label}
+              </button>
+            );
+          })}
+        </div>
         <span
           className={cn("h-2 w-2 shrink-0 rounded-full", saved ? "bg-emerald-400" : "bg-amber-400 animate-pulse")}
           title={saved ? "All changes saved" : "Saving…"}
@@ -487,6 +574,12 @@ export function LongformEditor({
           <span className="ml-1 text-emerald-400">(−{formatClock(cutSec)})</span>
         </span>
       </div>
+
+      <DescriptionDropdown
+        description={project.description}
+        keywords={project.keywords}
+        onChange={patch}
+      />
 
       <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_340px]">
         {/* Preview + transport + timeline */}
@@ -503,7 +596,20 @@ export function LongformEditor({
             onCaptionStyleChange={(partial) =>
               patch({ hook: { ...project.hook, captionStyle: { ...project.hook.captionStyle, ...partial } } })
             }
+            onBodyCaptionStyleChange={(partial) =>
+              patch({ captions: { ...project.captions, style: { ...project.captions.style, ...partial } } })
+            }
             imageUrl={overlayImageUrl}
+          />
+
+          {/* Play the placed timeline audio clips live under the preview,
+              mirroring what the export mixes in. Silent unless the master
+              "Mix audio into the export" switch is on. */}
+          <LongformAudioMixer
+            clips={project.music.enabled ? project.music.clips ?? [] : []}
+            masterVolume={project.music.masterVolume ?? 1}
+            muted={muted}
+            videoRef={videoRef}
           />
 
           <div className="flex flex-wrap items-center gap-3 rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 py-2">
@@ -562,6 +668,7 @@ export function LongformEditor({
             selection={tab === "trim" ? selection : null}
             onSeek={seek}
             onToggleSegment={toggleSegment}
+            onHookStartChange={setHookStart}
             onHookEndChange={setHookEnd}
             onSelectionChange={setSelection}
             imageUrl={overlayImageUrl}
@@ -590,7 +697,7 @@ export function LongformEditor({
 
         {/* Panels */}
         <div className="min-w-0">
-          <div className="mb-3 grid grid-cols-6 gap-1 rounded-xl border border-[var(--border)] bg-[var(--surface)] p-1">
+          <div className="mb-3 grid grid-cols-7 gap-1 rounded-xl border border-[var(--border)] bg-[var(--surface)] p-1">
             {TABS.map((item) => {
               const Icon = item.icon;
               const active = tab === item.id;
@@ -615,12 +722,14 @@ export function LongformEditor({
               <HookPanel
                 project={project}
                 patch={patch}
+                setHookStart={setHookStart}
                 setHookEnd={setHookEnd}
                 focusEditing={focusEditing}
                 setFocusEditing={setFocusEditing}
                 seek={seek}
               />
             )}
+            {tab === "captions" && <CaptionsPanel project={project} patch={patch} time={time} seek={seek} />}
             {tab === "cuts" && <CutsPanel project={project} patch={patch} setProject={setProject} seek={seek} skipDirtyRef={skipDirtyRef} />}
             {tab === "trim" && (
               <TrimPanel
@@ -652,6 +761,7 @@ export function LongformEditor({
                 selectedAudioId={selectedAudioId}
                 setSelectedAudioId={setSelectedAudioId}
                 patchMusic={patchMusic}
+                patchSfx={patchSfx}
                 addAudioClip={addAudioClip}
                 updateAudioClip={updateAudioClip}
                 removeAudioClip={removeAudioClip}
@@ -659,6 +769,7 @@ export function LongformEditor({
                 seek={seek}
               />
             )}
+            {tab === "publish" && <PublishPanel project={project} setProject={setProject} skipDirtyRef={skipDirtyRef} />}
             {tab === "export" && <ExportPanel project={project} setProject={setProject} skipDirtyRef={skipDirtyRef} onDeleted={onDeleted} editedSec={editedSec} />}
           </div>
         </div>
@@ -670,6 +781,7 @@ export function LongformEditor({
 function HookPanel({
   project,
   patch,
+  setHookStart,
   setHookEnd,
   focusEditing,
   setFocusEditing,
@@ -677,12 +789,14 @@ function HookPanel({
 }: {
   project: LongformProject;
   patch: (partial: Partial<LongformProject>) => void;
+  setHookStart: (start: number) => void;
   setHookEnd: (end: number) => void;
   focusEditing: boolean;
   setFocusEditing: (v: boolean) => void;
   seek: (t: number) => void;
 }) {
   const hook = project.hook;
+  const hookStart = hook.start ?? 0;
   const patchHook = (partial: Partial<LongformProject["hook"]>) => patch({ hook: { ...hook, ...partial } });
   const patchStyle = (partial: Partial<LongformProject["hook"]["captionStyle"]>) =>
     patchHook({ captionStyle: { ...hook.captionStyle, ...partial } });
@@ -696,18 +810,31 @@ function HookPanel({
         <h3 className="text-sm font-semibold text-white">Viral hook</h3>
         <p className="mt-1 text-xs text-[var(--muted-foreground)]">
           The first seconds decide whether viewers stay. Punch in on your face and burn in big word-synced captions.
+          Fumbled the opening? Move &ldquo;Hook starts at&rdquo; to pull the hook from a stronger moment later in the take.
         </p>
       </div>
       <Toggle label="Hook enabled" checked={hook.enabled} onChange={(v) => patchHook({ enabled: v })} />
       {hook.enabled && (
         <>
           <RangeField
-            label="Hook length"
-            value={hook.end}
-            min={3}
-            max={Math.min(15, Math.max(4, project.durationSec))}
+            label="Hook starts at"
+            value={hookStart}
+            min={0}
+            max={Math.max(0, project.durationSec - MIN_HOOK_SEC)}
             step={0.1}
-            onChange={setHookEnd}
+            onChange={(v) => {
+              setHookStart(v);
+              seek(v);
+            }}
+            format={(v) => `${v.toFixed(1)}s`}
+          />
+          <RangeField
+            label="Hook length"
+            value={Math.max(MIN_HOOK_SEC, hook.end - hookStart)}
+            min={3}
+            max={Math.min(15, Math.max(4, project.durationSec - hookStart))}
+            step={0.1}
+            onChange={(len) => setHookEnd(hookStart + len)}
             format={(v) => `${v.toFixed(1)}s`}
           />
           <RangeField
@@ -723,7 +850,7 @@ function HookPanel({
             type="button"
             onClick={() => {
               setFocusEditing(!focusEditing);
-              if (!focusEditing) seek(Math.min(1, hook.end / 2));
+              if (!focusEditing) seek(hookStart + Math.min(1, (hook.end - hookStart) / 2));
             }}
             className={cn(
               "flex w-full items-center justify-center gap-2 rounded-lg border px-3 py-2 text-sm transition",
@@ -824,7 +951,7 @@ function HookPanel({
                       <textarea
                         value={seg.text}
                         onChange={(event) => updateCaption(seg.id, { text: event.target.value })}
-                        onFocus={() => seek(seg.start + 0.01)}
+                        onFocus={() => seek(hookStart + seg.start + 0.01)}
                         rows={1}
                         className="min-h-9 w-full resize-y rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-2.5 py-1.5 text-sm text-white outline-none focus:border-[var(--accent)]"
                       />
@@ -843,6 +970,275 @@ function HookPanel({
               </Field>
             </>
           )}
+        </>
+      )}
+    </div>
+  );
+}
+
+// The editable caption list is windowed around the playhead so a long
+// transcript (hundreds of segments) never renders hundreds of textareas.
+const CAPTION_LIST_BEHIND_SEC = 20;
+const CAPTION_LIST_AHEAD_SEC = 90;
+
+function CaptionsPanel({
+  project,
+  patch,
+  time,
+  seek
+}: {
+  project: LongformProject;
+  patch: (partial: Partial<LongformProject>) => void;
+  time: number;
+  seek: (t: number) => void;
+}) {
+  const captions = project.captions;
+  const s = captions.style;
+  const patchCaptions = (partial: Partial<LongformProject["captions"]>) =>
+    patch({ captions: { ...captions, ...partial } });
+  const patchStyle = (partial: Partial<LongformProject["captions"]["style"]>) =>
+    patchCaptions({ style: { ...s, ...partial } });
+  const updateSegment = (id: string, partial: Partial<CaptionSegment>) =>
+    patchCaptions({ segments: captions.segments.map((seg) => (seg.id === id ? { ...seg, ...partial } : seg)) });
+  const deleteSegment = (id: string) => patchCaptions({ segments: captions.segments.filter((seg) => seg.id !== id) });
+
+  // Rebuild the segments from the transcript with the current phrase length.
+  // Like changing the hook length, this discards manual text edits.
+  const resplit = () => {
+    patchCaptions({ segments: transcriptCaptions(project.transcript, s.maxWordsPerCaption) });
+    toast.success("Captions re-split from the transcript.");
+  };
+
+  const hookCovers = project.hook.enabled && project.hook.captionsEnabled;
+  const visible = captions.segments.filter(
+    (seg) => seg.end >= time - CAPTION_LIST_BEHIND_SEC && seg.start <= time + CAPTION_LIST_AHEAD_SEC
+  );
+
+  return (
+    <div className="space-y-4">
+      <div>
+        <h3 className="text-sm font-semibold text-white">Captions</h3>
+        <p className="mt-1 text-xs text-[var(--muted-foreground)]">
+          Burn word-synced captions over the whole video — the same captions the short clips get. They follow your cuts,
+          so nothing shows over trimmed footage.
+        </p>
+      </div>
+
+      <Toggle label="Captions on the whole video" checked={captions.enabled} onChange={(v) => patchCaptions({ enabled: v })} />
+
+      {captions.enabled && captions.segments.length === 0 && (
+        <p className="rounded-lg border border-dashed border-[var(--border)] px-3 py-3 text-xs text-[var(--muted-foreground)]">
+          {project.transcript.length === 0
+            ? "No transcript was generated for this video, so captions are unavailable."
+            : "No speech was detected in this video."}
+        </p>
+      )}
+
+      {captions.enabled && captions.segments.length > 0 && (
+        <>
+          {hookCovers && (
+            <p className="rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-3 py-2 text-xs text-[var(--muted-foreground)]">
+              The hook burns its own captions over its {(project.hook.end - (project.hook.start ?? 0)).toFixed(1)}s window —
+              these take over for the rest of the video.
+            </p>
+          )}
+
+          <Field label="Presets">
+            <div className="flex flex-wrap gap-1.5">
+              {(Object.keys(CAPTION_PRESETS) as CaptionPresetId[]).map((id) => (
+                <button
+                  key={id}
+                  type="button"
+                  onClick={() => patchCaptions({ style: applyCaptionPreset(s, id) })}
+                  className="rounded-full border border-[var(--border)] px-2.5 py-1 text-xs text-[var(--muted-foreground)] transition hover:border-[var(--accent)] hover:text-white"
+                >
+                  {CAPTION_PRESETS[id].label}
+                </button>
+              ))}
+            </div>
+          </Field>
+
+          <Toggle
+            label="Highlight the spoken word"
+            checked={captions.highlightCurrentWord}
+            onChange={(v) => patchCaptions({ highlightCurrentWord: v })}
+          />
+
+          <div className="grid grid-cols-2 gap-3">
+            <SelectField
+              label="Font"
+              value={s.fontFamily}
+              onChange={(v) => patchStyle({ fontFamily: v })}
+              options={[
+                { value: "Inter, system-ui, sans-serif", label: "Inter" },
+                { value: "Arial, sans-serif", label: "Arial" },
+                { value: "Georgia, serif", label: "Georgia" },
+                { value: "'Courier New', monospace", label: "Mono" },
+                { value: "Impact, sans-serif", label: "Impact" }
+              ]}
+            />
+            <SelectField
+              label="Weight"
+              value={String(s.fontWeight)}
+              onChange={(v) => patchStyle({ fontWeight: Number(v) })}
+              options={[
+                { value: "400", label: "Regular" },
+                { value: "600", label: "Semibold" },
+                { value: "800", label: "Bold" },
+                { value: "900", label: "Black" }
+              ]}
+            />
+          </div>
+
+          <RangeField
+            label="Caption size"
+            value={s.fontScale}
+            min={0.03}
+            max={0.12}
+            step={0.002}
+            onChange={(v) => patchStyle({ fontScale: v })}
+            format={(v) => `${Math.round(v * 1000) / 10}%`}
+          />
+
+          <div className="grid grid-cols-2 gap-3">
+            <ColorField label="Text colour" value={s.textColor} onChange={(v) => patchStyle({ textColor: v })} />
+            <ColorField label="Highlight colour" value={s.highlightColor} onChange={(v) => patchStyle({ highlightColor: v })} />
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <ColorField label="Background" value={s.backgroundColor} onChange={(v) => patchStyle({ backgroundColor: v })} />
+            <RangeField
+              label="Background opacity"
+              value={s.backgroundOpacity}
+              min={0}
+              max={1}
+              step={0.05}
+              onChange={(v) => patchStyle({ backgroundOpacity: v })}
+              format={(v) => `${Math.round(v * 100)}%`}
+            />
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <RangeField label="Outline" value={s.outlineWidth} min={0} max={8} step={0.5} onChange={(v) => patchStyle({ outlineWidth: v })} />
+            <RangeField label="Shadow" value={s.shadow} min={0} max={8} step={0.5} onChange={(v) => patchStyle({ shadow: v })} />
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <SelectField<CaptionPosition>
+              label="Position"
+              value={s.position}
+              // Picking a preset slot discards any drag-placed position.
+              onChange={(v) => patchStyle({ position: v, offsetX: undefined, offsetY: undefined })}
+              options={[
+                { value: "bottom", label: "Bottom" },
+                { value: "lower-third", label: "Lower third" },
+                { value: "middle", label: "Middle" },
+                { value: "top", label: "Top" }
+              ]}
+            />
+            <SelectField<CaptionAlignment>
+              label="Alignment"
+              value={s.alignment}
+              onChange={(v) => patchStyle({ alignment: v })}
+              options={[
+                { value: "left", label: "Left" },
+                { value: "center", label: "Center" },
+                { value: "right", label: "Right" }
+              ]}
+            />
+          </div>
+          {s.offsetX !== undefined && s.offsetY !== undefined && (
+            <div className="flex items-center justify-between rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-3 py-2 text-xs">
+              <span className="text-[var(--muted-foreground)]">
+                Custom placement ({Math.round(s.offsetX * 100)}%, {Math.round(s.offsetY * 100)}%) — drag the caption on
+                the preview to adjust.
+              </span>
+              <button
+                type="button"
+                className="shrink-0 rounded-md border border-[var(--border)] px-2 py-1 font-medium hover:bg-white/5"
+                onClick={() => patchStyle({ offsetX: undefined, offsetY: undefined })}
+              >
+                Reset
+              </button>
+            </div>
+          )}
+          <div className="grid grid-cols-2 gap-3">
+            <SelectField<CaptionAnimation>
+              label="Animation"
+              value={s.animation}
+              onChange={(v) => patchStyle({ animation: v })}
+              options={[
+                { value: "none", label: "None" },
+                { value: "fade", label: "Fade" },
+                { value: "pop", label: "Pop" },
+                { value: "karaoke", label: "Karaoke" }
+              ]}
+            />
+            <div className="flex items-end">
+              <Toggle label="UPPERCASE" checked={s.uppercase} onChange={(v) => patchStyle({ uppercase: v })} />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <NumberField
+              label="Max words / caption"
+              value={s.maxWordsPerCaption}
+              min={1}
+              max={20}
+              onChange={(v) => patchStyle({ maxWordsPerCaption: v })}
+            />
+            <NumberField label="Words / line" value={s.wordsPerLine} min={1} max={12} onChange={(v) => patchStyle({ wordsPerLine: v })} />
+          </div>
+          <Button variant="secondary" className="w-full px-2 text-xs" onClick={resplit}>
+            Re-split captions from the transcript
+          </Button>
+
+          <Field
+            label="Caption text"
+            hint={`${visible.length} of ${captions.segments.length} around the playhead`}
+          >
+            <div className="max-h-[38vh] space-y-2 overflow-y-auto pr-1">
+              {visible.length === 0 && (
+                <p className="rounded-lg border border-dashed border-[var(--border)] px-3 py-3 text-xs text-[var(--muted-foreground)]">
+                  No captions near the playhead — seek the video to edit other parts.
+                </p>
+              )}
+              {visible.map((seg) => (
+                <div key={seg.id} className="rounded-lg border border-[var(--border)] p-2">
+                  <div className="mb-1.5 flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => updateSegment(seg.id, { enabled: !seg.enabled })}
+                      className={cn(
+                        "h-4 w-4 shrink-0 rounded border transition",
+                        seg.enabled ? "border-[var(--accent)] bg-[var(--accent)]" : "border-[var(--border)]"
+                      )}
+                      aria-label={seg.enabled ? "Hide caption" : "Show caption"}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => seek(seg.start + 0.01)}
+                      className="font-mono text-[11px] text-[var(--accent)] hover:underline"
+                    >
+                      {formatClock(seg.start)} → {formatClock(seg.end)}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => deleteSegment(seg.id)}
+                      className="ml-auto flex h-6 w-6 shrink-0 items-center justify-center rounded-md border border-[var(--border)] text-[var(--muted-foreground)] transition hover:border-red-400/60 hover:text-red-400"
+                      aria-label="Delete caption"
+                      title="Delete this caption"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                  <textarea
+                    value={seg.text}
+                    onChange={(event) => updateSegment(seg.id, { text: event.target.value })}
+                    rows={1}
+                    className="min-h-9 w-full resize-y rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-2.5 py-1.5 text-sm text-white outline-none focus:border-[var(--accent)]"
+                  />
+                </div>
+              ))}
+            </div>
+          </Field>
         </>
       )}
     </div>
@@ -1039,7 +1435,11 @@ function TrimPanel({
   const manualCuts = project.segments
     .filter((segment) => segment.kind === "speech" && !segment.enabled)
     .sort((a, b) => a.start - b.start);
-  const inHook = project.hook.enabled && !!selection && selection.start < project.hook.end;
+  const inHook =
+    project.hook.enabled &&
+    !!selection &&
+    selection.end > (project.hook.start ?? 0) &&
+    selection.start < project.hook.end;
 
   const setStartHere = () =>
     setSelection((prev) => {
@@ -1130,8 +1530,8 @@ function TrimPanel({
 
       {inHook && (
         <p className="rounded-lg border border-amber-400/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-200">
-          Heads up: the hook always plays in full, so any part of this selection inside the first{" "}
-          {project.hook.end.toFixed(1)}s won&apos;t be trimmed.
+          Heads up: the hook always plays in full, so any part of this selection inside the hook window (
+          {(project.hook.start ?? 0).toFixed(1)}s–{project.hook.end.toFixed(1)}s) won&apos;t be trimmed.
         </p>
       )}
 
@@ -1356,6 +1756,7 @@ function MusicPanel({
   selectedAudioId,
   setSelectedAudioId,
   patchMusic,
+  patchSfx,
   addAudioClip,
   updateAudioClip,
   removeAudioClip,
@@ -1367,6 +1768,7 @@ function MusicPanel({
   selectedAudioId: string | null;
   setSelectedAudioId: (id: string | null) => void;
   patchMusic: (partial: Partial<LongformProject["music"]>) => void;
+  patchSfx: (sfx: NonNullable<LongformProject["sfx"]>) => void;
   addAudioClip: (track: MusicTrack, startSec: number) => void;
   updateAudioClip: (id: string, partial: Partial<LongformAudioClip>) => void;
   removeAudioClip: (id: string) => void;
@@ -1520,6 +1922,8 @@ function MusicPanel({
           </p>
         )}
       </div>
+
+      <SfxSection value={project.sfx} onChange={patchSfx} />
 
       {/* Hidden audition player for previewing library tracks. */}
       <audio ref={auditionRef} hidden onEnded={() => setAuditionId(null)} />
@@ -1708,6 +2112,136 @@ function MusicPanel({
   );
 }
 
+/**
+ * Publish kit: Claude-written title options, a full YouTube description and
+ * tags for this edit, per the channel metadata conventions. Everything is
+ * copy-to-clipboard so the upload form is a paste away.
+ */
+function PublishPanel({
+  project,
+  setProject,
+  skipDirtyRef
+}: {
+  project: LongformProject;
+  setProject: React.Dispatch<React.SetStateAction<LongformProject>>;
+  skipDirtyRef: React.MutableRefObject<boolean>;
+}) {
+  const [generating, setGenerating] = useState(false);
+  const [copied, setCopied] = useState<string | null>(null);
+  const metadata = project.metadata;
+
+  const copy = async (id: string, text: string) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(id);
+      window.setTimeout(() => setCopied((current) => (current === id ? null : current)), 1500);
+    } catch {
+      toast.error("Clipboard unavailable — select and copy the text manually.");
+    }
+  };
+
+  const generate = async () => {
+    setGenerating(true);
+    try {
+      const response = await fetch(`/api/longform/projects/${project.id}/metadata`, { method: "POST" });
+      const data = (await response.json()) as { metadata?: LongformVideoMetadata; error?: string };
+      if (!response.ok || !data.metadata) {
+        toast.error(data.error ?? "Could not generate the publish kit.");
+        return;
+      }
+      skipDirtyRef.current = true;
+      setProject((current) => ({ ...current, metadata: data.metadata }));
+      toast.success(
+        data.metadata.source === "ai"
+          ? "Publish kit written — titles, description and tags are ready."
+          : "Publish kit built offline (AI-written metadata was unavailable)."
+      );
+    } catch {
+      toast.error("Could not generate the publish kit.");
+    } finally {
+      setGenerating(false);
+    }
+  };
+
+  return (
+    <div className="space-y-4">
+      <div>
+        <h3 className="text-sm font-semibold text-white">Publish kit</h3>
+        <p className="mt-1 text-xs text-[var(--muted-foreground)]">
+          Viral title options, a full YouTube description{metadata?.chapters.length ? " with chapters" : ""} and tags —
+          written in the channel voice from this edit&apos;s transcript, ready to paste into the upload form.
+        </p>
+      </div>
+
+      <Button className="w-full gap-2" disabled={generating} onClick={() => void generate()}>
+        {generating ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
+        {generating ? "Writing…" : metadata ? "Regenerate publish kit" : "Generate titles & description"}
+      </Button>
+
+      {metadata && (
+        <>
+          <div className="space-y-2">
+            <p className="text-xs font-semibold uppercase tracking-wider text-[var(--muted-foreground)]">
+              Titles · pick one
+            </p>
+            {metadata.titles.map((title, index) => (
+              <div
+                key={`${index}-${title}`}
+                className="flex items-start justify-between gap-2 rounded-lg border border-[var(--border)] px-3 py-2"
+              >
+                <p className="text-sm text-white/90">{title}</p>
+                <button
+                  type="button"
+                  className="shrink-0 text-[var(--muted-foreground)] transition hover:text-white"
+                  title="Copy title"
+                  onClick={() => void copy(`title-${index}`, title)}
+                >
+                  {copied === `title-${index}` ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
+                </button>
+              </div>
+            ))}
+          </div>
+
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <p className="text-xs font-semibold uppercase tracking-wider text-[var(--muted-foreground)]">Description</p>
+              <Button variant="secondary" className="gap-1.5 px-2.5 py-1 text-xs" onClick={() => void copy("description", metadata.description)}>
+                {copied === "description" ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />} Copy
+              </Button>
+            </div>
+            <pre className="max-h-64 overflow-y-auto whitespace-pre-wrap rounded-lg border border-[var(--border)] bg-black/20 px-3 py-2 font-sans text-xs leading-relaxed text-white/85">
+              {metadata.description}
+            </pre>
+          </div>
+
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <p className="text-xs font-semibold uppercase tracking-wider text-[var(--muted-foreground)]">
+                Tags · {metadata.tags.length}
+              </p>
+              <Button variant="secondary" className="gap-1.5 px-2.5 py-1 text-xs" onClick={() => void copy("tags", metadata.tags.join(", "))}>
+                {copied === "tags" ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />} Copy all
+              </Button>
+            </div>
+            <div className="flex flex-wrap gap-1.5">
+              {metadata.tags.map((tag) => (
+                <span key={tag} className="rounded-full border border-[var(--border)] px-2 py-0.5 text-[11px] text-white/80">
+                  {tag}
+                </span>
+              ))}
+            </div>
+          </div>
+
+          <p className="text-xs text-[var(--muted-foreground)]">
+            {metadata.source === "ai" ? "Written by Claude in the channel voice" : "Built offline from the channel keywords"} ·{" "}
+            {new Date(metadata.generatedAt).toLocaleString()}
+          </p>
+        </>
+      )}
+    </div>
+  );
+}
+
 function ExportPanel({
   project,
   setProject,
@@ -1722,7 +2256,9 @@ function ExportPanel({
   editedSec: number;
 }) {
   const [starting, setStarting] = useState(false);
+  const [stopping, setStopping] = useState(false);
   const [sending, setSending] = useState<string | null>(null);
+  const [extracting, setExtracting] = useState<string | null>(null);
   const active = project.exports.find((record) => record.status === "processing");
   const latestDone = project.exports.find((record) => record.status === "done" && record.file);
 
@@ -1767,6 +2303,29 @@ function ExportPanel({
     }
   };
 
+  const stopExport = async () => {
+    if (!active) return;
+    setStopping(true);
+    try {
+      const response = await fetch(`/api/longform/projects/${project.id}/export/${active.id}`, { method: "DELETE" });
+      const data = (await response.json()) as { export?: LongformExportRecord; error?: string };
+      if (!response.ok || !data.export) {
+        toast.error(data.error ?? "Could not stop the export.");
+        return;
+      }
+      skipDirtyRef.current = true;
+      setProject((current) => ({
+        ...current,
+        exports: current.exports.map((item) => (item.id === data.export!.id ? data.export! : item))
+      }));
+      toast("Render stopped.");
+    } catch {
+      toast.error("Could not stop the export.");
+    } finally {
+      setStopping(false);
+    }
+  };
+
   const sendToClips = async (record: LongformExportRecord) => {
     setSending(record.id);
     try {
@@ -1788,6 +2347,28 @@ function ExportPanel({
     }
   };
 
+  const extractAudio = async (record: LongformExportRecord) => {
+    setExtracting(record.id);
+    try {
+      const response = await fetch(`/api/longform/projects/${project.id}/export/${record.id}/audio`, { method: "POST" });
+      const data = (await response.json()) as { export?: LongformExportRecord; error?: string };
+      if (!response.ok || !data.export) {
+        toast.error(data.error ?? "Could not create the audio version.");
+        return;
+      }
+      skipDirtyRef.current = true;
+      setProject((current) => ({
+        ...current,
+        exports: current.exports.map((item) => (item.id === data.export!.id ? data.export! : item))
+      }));
+      toast.success("Audio version ready — download the mp3 for Spotify / podcast platforms.");
+    } catch {
+      toast.error("Could not create the audio version.");
+    } finally {
+      setExtracting(null);
+    }
+  };
+
   const fileUrl = (record: LongformExportRecord, download = false) =>
     `/api/longform/projects/${project.id}/export/${record.id}?file=1${download ? "&download=1" : ""}`;
 
@@ -1796,8 +2377,9 @@ function ExportPanel({
       <div>
         <h3 className="text-sm font-semibold text-white">Export</h3>
         <p className="mt-1 text-xs text-[var(--muted-foreground)]">
-          Bakes the hook, the cuts and the music into one 1080p file — then send it straight to the Clip Generator for
-          shorts.
+          Bakes the hook, the cuts and the music into one{" "}
+          {(project.layout ?? "wide") === "vertical" ? "9:16 vertical" : "1080p"} file — then send it straight to the
+          Clip Generator for shorts.
         </p>
       </div>
 
@@ -1806,9 +2388,23 @@ function ExportPanel({
           Runtime <span className="float-right text-white">{formatClock(editedSec)}</span>
         </p>
         <p>
+          Layout{" "}
+          <span className="float-right text-white">
+            {(project.layout ?? "wide") === "vertical" ? "9:16 · centered + blur" : "16:9 · 1080p"}
+          </span>
+        </p>
+        <p>
           Hook{" "}
           <span className="float-right text-white">
-            {project.hook.enabled ? `${project.hook.end.toFixed(1)}s · ${project.hook.zoom.toFixed(2)}x zoom` : "off"}
+            {project.hook.enabled
+              ? `${(project.hook.end - (project.hook.start ?? 0)).toFixed(1)}s · ${project.hook.zoom.toFixed(2)}x zoom`
+              : "off"}
+          </span>
+        </p>
+        <p>
+          Captions{" "}
+          <span className="float-right text-white">
+            {project.captions.enabled ? `${project.captions.segments.filter((s) => s.enabled).length} segments` : "off"}
           </span>
         </p>
         <p>
@@ -1828,6 +2424,10 @@ function ExportPanel({
         <div className="space-y-2">
           <Progress value={active.progress} />
           <p className="text-center text-xs text-[var(--muted-foreground)]">Rendering… {active.progress}%</p>
+          <Button variant="danger" className="w-full gap-2" disabled={stopping} onClick={() => void stopExport()}>
+            {stopping ? <Loader2 className="h-4 w-4 animate-spin" /> : <Square className="h-4 w-4" />}
+            Stop render
+          </Button>
         </div>
       ) : (
         <Button className="w-full gap-2" disabled={starting} onClick={() => void startExport()}>
@@ -1851,12 +2451,30 @@ function ExportPanel({
               Make shorts
             </Button>
           </div>
+          {latestDone.audioFile ? (
+            <a
+              href={`/api/longform/projects/${project.id}/export/${latestDone.id}/audio?download=1`}
+              className="flex items-center justify-center gap-2 rounded-lg border border-[var(--border)] px-3 py-2 text-sm text-white transition hover:border-[var(--border-strong)]"
+            >
+              <AudioLines className="h-4 w-4" /> Download audio (mp3)
+            </a>
+          ) : (
+            <Button
+              variant="secondary"
+              className="w-full gap-2"
+              disabled={extracting === latestDone.id}
+              onClick={() => void extractAudio(latestDone)}
+            >
+              {extracting === latestDone.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <AudioLines className="h-4 w-4" />}
+              Create audio version (mp3)
+            </Button>
+          )}
           <p className="text-center text-xs text-[var(--muted-foreground)]">
             “Make shorts” drops this edit into the{" "}
             <Link href="/clips" className="text-[var(--accent)] underline-offset-2 hover:underline">
               Clip Generator
             </Link>
-            .
+            ; the audio version is the same edit as an mp3 for Spotify / podcasts.
           </p>
         </div>
       )}

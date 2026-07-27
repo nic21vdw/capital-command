@@ -1,5 +1,5 @@
 import type { SilenceRange } from "@/lib/clipping/analysis";
-import type { CaptionSegment, CaptionStyle } from "@/types/domain";
+import type { CaptionSegment, CaptionStyle, SfxSettings } from "@/types/domain";
 
 // ----- Long-Form Editor -----
 // A long-form project takes one long unedited recording and turns it into a
@@ -10,7 +10,16 @@ import type { CaptionSegment, CaptionStyle } from "@/types/domain";
 
 export type LongformStatus = "processing" | "ready" | "error";
 
-export type LongformStage = "probing" | "transcribing" | "analyzing" | "planning" | "ready";
+/**
+ * Output frame of the export (and the preview that mirrors it).
+ * - `wide`: the classic 16:9 1920x1080 long-form frame.
+ * - `vertical`: a 9:16 1080x1920 short-form frame — the edit is centered at
+ *   full width over a blurred, dimmed fill of itself (nothing cropped away),
+ *   the same composition the Clip Generator's vertical renders use.
+ */
+export type LongformLayout = "wide" | "vertical";
+
+export type LongformStage = "downloading" | "probing" | "transcribing" | "analyzing" | "planning" | "ready";
 
 /**
  * One span of the source timeline. Segments tile the full duration in order:
@@ -30,7 +39,14 @@ export type LongformSegment = {
 /** The viral-style opening: punch-in zoom on the speaker plus big word-synced captions. */
 export type LongformHook = {
   enabled: boolean;
-  /** Hook covers [0, end] seconds of the source (typically 5-10s). */
+  /**
+   * First source second the hook is pulled from. Usually 0 (the recording's
+   * opening), but can be moved later so a fumbled start isn't forced to be the
+   * hook. The hook window [start, end] is always played to the front of the
+   * export; everything else kept plays after it as the body.
+   */
+  start: number;
+  /** Last source second of the hook window. Hook covers [start, end] (typically 5-10s long). */
   end: number;
   /** Punch-in zoom factor applied during the hook (1 = none). */
   zoom: number;
@@ -39,9 +55,24 @@ export type LongformHook = {
   focusY: number;
   captionsEnabled: boolean;
   highlightCurrentWord: boolean;
-  /** Hook captions in hook-local seconds (hook starts at 0, so also source seconds). */
+  /** Hook captions in hook-local seconds (relative to `start`, i.e. the hook plays from 0). */
   captions: CaptionSegment[];
   captionStyle: CaptionStyle;
+};
+
+/**
+ * Whole-video captions — the same functionality the short-form Clip Editor
+ * has, applied to the entire long-form video. Segments live in source-timeline
+ * seconds (the same coordinate the segments and hook use), so the preview can
+ * show them directly; the export maps them onto the edited runtime. When the
+ * hook burns its own captions, these take over from `hook.end` onward.
+ */
+export type LongformCaptions = {
+  enabled: boolean;
+  highlightCurrentWord: boolean;
+  /** Caption segments in source-timeline seconds, chunked from the transcript. */
+  segments: CaptionSegment[];
+  style: CaptionStyle;
 };
 
 /**
@@ -112,7 +143,7 @@ export type LongformPace = {
   paddingSec: number;
 };
 
-export type LongformExportStatus = "processing" | "done" | "error";
+export type LongformExportStatus = "processing" | "done" | "error" | "canceled";
 
 export type LongformExportRecord = {
   id: string;
@@ -120,6 +151,8 @@ export type LongformExportRecord = {
   progress: number;
   /** File name inside the project's output dir once done. */
   file?: string;
+  /** Audio-only (mp3) companion extracted from `file`, for podcast platforms. */
+  audioFile?: string;
   error?: string;
   /** Duration of the rendered edit, for the summary line. */
   durationSec?: number;
@@ -152,11 +185,23 @@ export type LongformProject = {
   silences: SilenceRange[];
   segments: LongformSegment[];
   hook: LongformHook;
+  /** Whole-video captions burned over the edited runtime. */
+  captions: LongformCaptions;
   /** Images dropped onto the timeline, rendered over the edited video. */
   overlays: LongformOverlay[];
   music: LongformMusic;
+  /** Auto-placed viral sound effects; absent on projects saved before the feature. */
+  sfx?: SfxSettings;
+  /** Output frame of the export; absent on older projects (treated as `wide`). */
+  layout?: LongformLayout;
   pace: LongformPace;
   exports: LongformExportRecord[];
+  /** Publish-ready titles/description/tags; absent until first generated. */
+  metadata?: import("@/lib/longform/metadata").LongformVideoMetadata;
+  /** Editable posting description shown in the editor's Description dropdown; absent on projects saved before the field. */
+  description?: string;
+  /** Comma-separated keywords/tags for this video; absent on older projects. */
+  keywords?: string;
   createdAt: string;
   updatedAt: string;
 };

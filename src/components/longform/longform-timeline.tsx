@@ -34,6 +34,7 @@ export function LongformTimeline({
   selection,
   onSeek,
   onToggleSegment,
+  onHookStartChange,
   onHookEndChange,
   onSelectionChange,
   imageUrl,
@@ -52,6 +53,7 @@ export function LongformTimeline({
   selection: TimelineSelection | null;
   onSeek: (t: number) => void;
   onToggleSegment: (id: string) => void;
+  onHookStartChange: (start: number) => void;
   onHookEndChange: (end: number) => void;
   onSelectionChange: (selection: TimelineSelection | null) => void;
   imageUrl: (overlay: LongformOverlay) => string;
@@ -71,7 +73,9 @@ export function LongformTimeline({
   const [zoom, setZoom] = useState(1);
   const [trackWidth, setTrackWidth] = useState(0);
   const [dragOver, setDragOver] = useState(false);
-  const draggingRef = useRef<"scrub" | "hook" | "sel-start" | "sel-end" | "overlay" | "audio" | null>(null);
+  const draggingRef = useRef<
+    "scrub" | "hook" | "hook-start" | "sel-start" | "sel-end" | "overlay" | "audio" | null
+  >(null);
   const overlays = project.overlays;
   const audioClips = project.music.clips ?? [];
 
@@ -149,7 +153,7 @@ export function LongformTimeline({
       draggingRef.current = "hook";
       const move = (e: PointerEvent) => {
         if (draggingRef.current === "hook") {
-          onHookEndChange(Math.min(15, Math.max(2, timeFromPointer(e.clientX))));
+          onHookEndChange(Math.min(duration, Math.max(2, timeFromPointer(e.clientX))));
         }
       };
       const up = () => {
@@ -160,7 +164,28 @@ export function LongformTimeline({
       window.addEventListener("pointermove", move);
       window.addEventListener("pointerup", up);
     },
-    [onHookEndChange, timeFromPointer]
+    [duration, onHookEndChange, timeFromPointer]
+  );
+
+  const beginHookStartDrag = useCallback(
+    (event: React.PointerEvent) => {
+      event.preventDefault();
+      event.stopPropagation();
+      draggingRef.current = "hook-start";
+      const move = (e: PointerEvent) => {
+        if (draggingRef.current === "hook-start") {
+          onHookStartChange(Math.max(0, Math.min(duration, timeFromPointer(e.clientX))));
+        }
+      };
+      const up = () => {
+        draggingRef.current = null;
+        window.removeEventListener("pointermove", move);
+        window.removeEventListener("pointerup", up);
+      };
+      window.addEventListener("pointermove", move);
+      window.addEventListener("pointerup", up);
+    },
+    [duration, onHookStartChange, timeFromPointer]
   );
 
   const beginSelectionDrag = useCallback(
@@ -288,7 +313,7 @@ export function LongformTimeline({
         <p className="text-xs text-[var(--muted-foreground)]">
           {selection
             ? "Drag the blue handles to fine-tune your selection, then press Delete (or use Remove/Keep in the Trim panel)."
-            : "Click a red block to keep it, or kept footage to cut it. Drag the purple handle to resize the hook. Drop images or audio here and drag them along their track — press Delete to remove a selected image."}
+            : "Click a red block to keep it, or kept footage to cut it. Drag the purple handles to move and resize the hook. Drop images or audio here and drag them along their track — press Delete to remove a selected image."}
         </p>
         <div className="flex shrink-0 items-center gap-1">
           <span className="mr-1 text-xs text-[var(--muted-foreground)]">{cutCount} cuts</span>
@@ -395,11 +420,14 @@ export function LongformTimeline({
               );
             })}
 
-            {/* Hook region */}
+            {/* Hook region — the [start, end] window pulled to the front of the export. */}
             {project.hook.enabled && (
               <div
-                className="pointer-events-none absolute top-0 h-full border-r-2 border-[var(--accent)] bg-gradient-to-r from-[var(--accent)]/25 to-[var(--accent)]/5"
-                style={{ left: 0, width: pct(project.hook.end) }}
+                className="pointer-events-none absolute top-0 h-full border-x-2 border-[var(--accent)] bg-gradient-to-r from-[var(--accent)]/25 to-[var(--accent)]/5"
+                style={{
+                  left: pct(project.hook.start ?? 0),
+                  width: pct(project.hook.end - (project.hook.start ?? 0))
+                }}
               >
                 <span className="absolute left-1 top-1 rounded bg-[var(--accent)] px-1 py-0.5 text-[9px] font-bold uppercase tracking-wide text-[var(--accent-contrast)]">
                   Hook
@@ -409,15 +437,33 @@ export function LongformTimeline({
             {project.hook.enabled && (
               <div
                 role="slider"
-                aria-label="Hook length"
+                aria-label="Hook start"
+                aria-valuemin={0}
+                aria-valuemax={Math.round(duration * 10) / 10}
+                aria-valuenow={Math.round((project.hook.start ?? 0) * 10) / 10}
+                tabIndex={0}
+                onPointerDown={beginHookStartDrag}
+                onKeyDown={(event) => {
+                  if (event.key === "ArrowLeft") onHookStartChange(Math.max(0, (project.hook.start ?? 0) - 0.5));
+                  if (event.key === "ArrowRight") onHookStartChange(Math.min(duration, (project.hook.start ?? 0) + 0.5));
+                }}
+                className="absolute top-0 z-10 h-full w-2 -translate-x-1/2 cursor-ew-resize rounded bg-[var(--accent)] opacity-80 hover:opacity-100"
+                style={{ left: pct(project.hook.start ?? 0) }}
+                data-no-press
+              />
+            )}
+            {project.hook.enabled && (
+              <div
+                role="slider"
+                aria-label="Hook end"
                 aria-valuemin={2}
-                aria-valuemax={15}
+                aria-valuemax={Math.round(duration * 10) / 10}
                 aria-valuenow={Math.round(project.hook.end * 10) / 10}
                 tabIndex={0}
                 onPointerDown={beginHookDrag}
                 onKeyDown={(event) => {
                   if (event.key === "ArrowLeft") onHookEndChange(Math.max(2, project.hook.end - 0.5));
-                  if (event.key === "ArrowRight") onHookEndChange(Math.min(15, project.hook.end + 0.5));
+                  if (event.key === "ArrowRight") onHookEndChange(Math.min(duration, project.hook.end + 0.5));
                 }}
                 className="absolute top-0 z-10 h-full w-2 -translate-x-1/2 cursor-ew-resize rounded bg-[var(--accent)] opacity-80 hover:opacity-100"
                 style={{ left: pct(project.hook.end) }}

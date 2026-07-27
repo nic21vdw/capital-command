@@ -4,7 +4,9 @@ import { saveSourceFromStream } from "@/lib/clipping/sources";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 // Allow large uploads to stream through without Next buffering the body.
-export const maxDuration = 300;
+// Sized for multi-hour stream VODs (tens of GB) arriving over a slow uplink;
+// self-hosted Node ignores this, but managed hosts enforce it per-request.
+export const maxDuration = 3600;
 
 /**
  * Accepts a raw video body (sent as `fetch(url, { body: file })`) and streams

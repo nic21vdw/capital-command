@@ -42,6 +42,43 @@ export function formatAssTime(seconds: number): string {
 const TS_INLINE = /<(\d{1,2}:\d{2}:\d{2}[.,]\d{3})>/g;
 const TAG = /<[^>]+>/g;
 
+// Subtitle text arrives HTML-escaped (VTT inherits HTML escaping; YouTube in
+// particular encodes the ">>" speaker-change marker as "&gt;&gt;"). Decoding
+// must happen AFTER tag stripping so a decoded "<"/">" can't be eaten as a tag.
+const NAMED_ENTITIES: Record<string, string> = {
+  amp: "&",
+  lt: "<",
+  gt: ">",
+  quot: '"',
+  apos: "'",
+  nbsp: " "
+};
+
+export function decodeHtmlEntities(text: string): string {
+  return text.replace(/&(#x?[0-9a-fA-F]+|[a-zA-Z]+);/g, (match, entity: string) => {
+    if (entity.startsWith("#")) {
+      const hex = entity[1] === "x" || entity[1] === "X";
+      const code = parseInt(entity.slice(hex ? 2 : 1), hex ? 16 : 10);
+      return Number.isFinite(code) && code > 0 && code <= 0x10ffff ? String.fromCodePoint(code) : match;
+    }
+    return NAMED_ENTITIES[entity.toLowerCase()] ?? match;
+  });
+}
+
+// Non-speech caption furniture: bracketed sound tags like [Music], [Applause],
+// [ __ ] (YouTube's profanity mask) and ">>"/">>>" speaker-change chevrons.
+// None of it is spoken audio, so it never belongs in burned captions.
+const SOUND_TAG = /\[[^\]]*\]/g;
+
+/** Cue text -> clean spoken tokens: strip tags, decode entities, drop noise. */
+function cleanTokens(text: string): string[] {
+  return decodeHtmlEntities(text.replace(TAG, ""))
+    .replace(SOUND_TAG, " ")
+    .split(/\s+/)
+    .map((token) => token.replace(/^>+/, ""))
+    .filter(Boolean);
+}
+
 type RawCue = { start: number; end: number; raw: string };
 
 function readCues(content: string): RawCue[] {
@@ -72,10 +109,8 @@ function wordsFromCue(cue: RawCue): CaptionWord[] {
       currentStart = parseTimestamp(segments[i]);
       continue;
     }
-    const clean = segments[i].replace(TAG, "").trim();
-    if (!clean) continue;
-    for (const token of clean.split(/\s+/)) {
-      if (token) words.push({ text: token, start: currentStart, end: currentStart });
+    for (const token of cleanTokens(segments[i])) {
+      words.push({ text: token, start: currentStart, end: currentStart });
     }
   }
   return words;
@@ -105,11 +140,7 @@ export function parseSubtitleWords(content: string): CaptionWord[] {
   } else {
     // No per-word timing: spread each cue's words evenly across its duration.
     for (const cue of cues) {
-      const tokens = cue.raw
-        .replace(TAG, "")
-        .split(/\s+/)
-        .map((t) => t.trim())
-        .filter(Boolean);
+      const tokens = cleanTokens(cue.raw);
       if (tokens.length === 0) continue;
       const step = (cue.end - cue.start) / tokens.length;
       tokens.forEach((text, idx) => {
@@ -221,6 +252,25 @@ export function splitSegment(seg: CaptionSegment, atSeconds: number): [CaptionSe
   ];
 }
 
+/**
+ * Re-tokenizes a segment's text into evenly-timed words across its span. Used
+ * when the caption text is edited by hand (per-segment box or the combined
+ * transcript box) so word-level highlighting tracks the new wording instead of
+ * the stale transcript timing. Even distribution is the right call here: once
+ * the words change, the original per-word timings no longer map to anything.
+ */
+export function retimeWords(seg: CaptionSegment, text: string): CaptionWord[] {
+  const tokens = text.trim().split(/\s+/).filter(Boolean);
+  if (tokens.length === 0) return [];
+  const span = Math.max(0.05, seg.end - seg.start);
+  const step = span / tokens.length;
+  return tokens.map((token, i) => ({
+    text: token,
+    start: seg.start + step * i,
+    end: seg.start + step * (i + 1)
+  }));
+}
+
 export function mergeSegments(a: CaptionSegment, b: CaptionSegment): CaptionSegment {
   const [first, second] = a.start <= b.start ? [a, b] : [b, a];
   return {
@@ -320,6 +370,10 @@ export function buildAss(
     // Dedicated watermark style: drop-shadow outline (BorderStyle 1), never an
     // opaque caption box, so the CoLateral lockup stays legible on any frame.
     `Style: Watermark,${style.fontFamily.split(",")[0].trim()},${Math.max(10, Math.round(height * 0.03))},&H00FFFFFF,&H00FFFFFF,&H00000000,&H80000000,-1,0,0,0,100,100,0,0,1,2,2,1,40,40,40,1`,
+    // Dedicated clip-title style: bold white with a clean drop-shadow outline
+    // (never a caption box), used by buildClipTitleDialogue for the headline
+    // burned above the video band on every rendered clip.
+    `Style: Title,${style.fontFamily.split(",")[0].trim()},${Math.max(12, Math.round(height * 0.034))},&H00FFFFFF,&H00FFFFFF,&H00000000,&H80000000,-1,0,0,0,100,100,0,0,1,3,2,2,60,60,60,1`,
     "",
     "[Events]",
     "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text"
@@ -422,6 +476,37 @@ export function buildTextOverlayDialogue(
     .flatMap((line) => wrapLine(line, maxChars))
     .join("\n");
   return `Dialogue: 1,${formatAssTime(opts.start)},${formatAssTime(opts.end)},Default,,0,0,0,,${tag}${escapeAss(wrapped)}`;
+}
+
+/**
+ * The clip's title as a single ASS dialogue line: bold white text centered
+ * horizontally, sitting just above the top edge of the contain-fitted video so
+ * it lands on the blurred fill rather than over the footage. `videoTopFrac` is
+ * the video band's top edge as a fraction of the frame height ((1 - videoH/frameH)/2);
+ * pass 0 for a source that fills the frame — the title then clamps to a safe
+ * band near the top instead of disappearing. Shown for the whole clip.
+ */
+export function buildClipTitleDialogue(
+  title: string,
+  width: number,
+  height: number,
+  start: number,
+  end: number,
+  videoTopFrac: number
+): string {
+  const fs = Math.max(12, Math.round(height * 0.034));
+  const gap = Math.round(height * 0.018);
+  // \an2 anchors the text block's bottom-center at pos, so a wrapped title
+  // grows upward into the blur instead of down over the video.
+  const y = Math.max(Math.round(height * 0.1), Math.round(clamp01(videoTopFrac) * height) - gap);
+  const maxChars = Math.max(1, Math.floor((width * 0.88) / (fs * 0.52)));
+  const wrapped = wrapLine(title, maxChars).join("\n");
+  const tag = `{\\an2\\pos(${Math.round(width / 2)},${y})}`;
+  return `Dialogue: 3,${formatAssTime(start)},${formatAssTime(end)},Title,,0,0,0,,${tag}${escapeAss(wrapped)}`;
+}
+
+function clamp01(value: number) {
+  return Math.min(1, Math.max(0, value));
 }
 
 /** Greedy word-wrap; words longer than maxChars are hard-broken. */

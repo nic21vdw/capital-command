@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { captionSegmentSchema, captionStyleSchema } from "@/lib/storage/schemas";
+import { captionSegmentSchema, captionStyleSchema, sfxSettingsSchema } from "@/lib/storage/schemas";
 
 // Zod validation for the Long-Form Editor's API payloads. Only the fields the
 // editor is allowed to change are accepted — pipeline state (status, stage,
@@ -15,6 +15,7 @@ export const longformSegmentSchema = z.object({
 
 export const longformHookSchema = z.object({
   enabled: z.coerce.boolean(),
+  start: z.coerce.number().min(0).max(60).default(0),
   end: z.coerce.number().min(0).max(60),
   zoom: z.coerce.number().min(1).max(2.5),
   focusX: z.coerce.number().min(0).max(1),
@@ -23,6 +24,13 @@ export const longformHookSchema = z.object({
   highlightCurrentWord: z.coerce.boolean(),
   captions: z.array(captionSegmentSchema),
   captionStyle: captionStyleSchema
+});
+
+export const longformCaptionsSchema = z.object({
+  enabled: z.coerce.boolean(),
+  highlightCurrentWord: z.coerce.boolean(),
+  segments: z.array(captionSegmentSchema).max(5000),
+  style: captionStyleSchema
 });
 
 export const longformOverlaySchema = z.object({
@@ -67,15 +75,31 @@ export const longformPaceSchema = z.object({
 export const longformProjectPatchSchema = z
   .object({
     name: z.string().trim().min(1).max(200),
-    segments: z.array(longformSegmentSchema).max(5000),
+    // Editable posting copy shown in the editor's Description dropdown. Generous
+    // caps so a full YouTube description and keyword list both fit.
+    description: z.string().max(10000),
+    keywords: z.string().max(2000),
+    // Sized for stream VODs: an 8-hour recording on the Ultra pace produces
+    // well over 10k segments, and the editor PATCHes the full list back.
+    segments: z.array(longformSegmentSchema).max(50000),
     hook: longformHookSchema,
+    captions: longformCaptionsSchema,
     overlays: z.array(longformOverlaySchema).max(100),
     music: longformMusicSchema,
+    sfx: sfxSettingsSchema,
+    layout: z.enum(["wide", "vertical"]),
     pace: longformPaceSchema
   })
   .partial();
 
-export const longformCreateSchema = z.object({
-  sourceId: z.string().min(1),
-  name: z.string().trim().max(200).optional()
-});
+// A project starts from either a previously uploaded `sourceId` or a video
+// `url` (YouTube/VOD link) the server downloads itself. Exactly one is required.
+export const longformCreateSchema = z
+  .object({
+    sourceId: z.string().min(1).optional(),
+    url: z.string().trim().url().optional(),
+    name: z.string().trim().max(200).optional()
+  })
+  .refine((data) => Boolean(data.sourceId) !== Boolean(data.url), {
+    message: "Provide either a `sourceId` or a `url`, not both."
+  });

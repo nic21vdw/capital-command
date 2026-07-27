@@ -1,11 +1,13 @@
 import { mkdtemp, stat } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { accountIdConfigured } from "@/lib/publisher/accounts";
 import { facebookAdapter } from "@/lib/publisher/adapters/facebook";
 import { instagramAdapter } from "@/lib/publisher/adapters/instagram";
 import { tiktokAdapter } from "@/lib/publisher/adapters/tiktok";
 import { youtubeAdapter } from "@/lib/publisher/adapters/youtube";
-import { publisherConfig, type PublisherConfig } from "@/lib/publisher/config";
+import { type BufferOutcome, syncDueToBuffer, validateBufferAuth } from "@/lib/publisher/buffer";
+import { bufferConfigured, publisherConfig, type PublisherConfig } from "@/lib/publisher/config";
 import { mediaHost } from "@/lib/publisher/hosting";
 import { PermanentError, StillProcessingError, isTransient } from "@/lib/publisher/http";
 import { PublishQueue, isTerminalStatus, publishQueue } from "@/lib/publisher/queue";
@@ -50,6 +52,8 @@ export type RunReport = {
   authChecks: Array<{ platform: PlatformId; ok: boolean; detail: string }>;
   plans: Array<{ itemId: string; clip: string; due: boolean; plan: PublishPlan }>;
   outcomes: RunOutcome[];
+  /** Present only when Buffer is enabled — one entry per item the Buffer pass acted on. */
+  bufferOutcomes?: BufferOutcome[];
 };
 
 export type RunDueOptions = {
@@ -138,6 +142,21 @@ export async function runDue(now: Date = new Date(), options: RunDueOptions = {}
       log(`[publisher]   auth ${check.platform}: ${check.ok ? "✓" : "✗"} ${check.detail}`);
     }
 
+    // Buffer is a delivery layer, not one of the four platforms, so it reports
+    // separately. Prove its token works too when it is turned on.
+    if (config.buffer.enabled) {
+      if (!bufferConfigured(config)) {
+        log("[publisher]   auth buffer: ✗ enabled but missing BUFFER_ACCESS_TOKEN / BUFFER_PROFILE_IDS");
+      } else {
+        try {
+          await validateBufferAuth(config);
+          log(`[publisher]   auth buffer: ✓ token OK, ${config.buffer.profileIds.length} profile(s) targeted`);
+        } catch (error) {
+          log(`[publisher]   auth buffer: ✗ ${error instanceof Error ? error.message : String(error)}`);
+        }
+      }
+    }
+
     // 2. Show the exact plan for every unfinished item — payload summary,
     //    resolved local + UTC publish time — without posting anything.
     for (const item of await queue.list()) {
@@ -162,6 +181,20 @@ export async function runDue(now: Date = new Date(), options: RunDueOptions = {}
     return report;
   }
 
+  // Buffer delivery pass (opt-in). Runs independently of the direct-platform
+  // loop below and only ever writes to each item's `buffer` field, so it can
+  // never disturb a platform's publish state. A thrown error here is contained
+  // so it cannot abort the direct publishes.
+  const runBuffer = async () => {
+    if (!config.buffer.enabled) return;
+    try {
+      const bufferOutcomes = await syncDueToBuffer(now, { queue, config, log, itemId: options.itemId });
+      if (bufferOutcomes.length > 0) report.bufferOutcomes = bufferOutcomes;
+    } catch (error) {
+      log(`[publisher]   buffer pass failed: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  };
+
   let due = await queue.dueItems(now);
   if (options.itemId) {
     due = due.filter((entry) => entry.item.id === options.itemId);
@@ -179,6 +212,7 @@ export async function runDue(now: Date = new Date(), options: RunDueOptions = {}
   }
   if (due.length === 0) {
     log("[publisher] no due items.");
+    await runBuffer();
     return report;
   }
 
@@ -192,8 +226,10 @@ export async function runDue(now: Date = new Date(), options: RunDueOptions = {}
         log(`[publisher]   ${item.id} → ${platform}: ${outcome} — ${detail}`);
       };
       try {
-        if (!adapter.configured()) {
-          throw new PermanentError(`${platform} credentials are not configured in .env.`);
+        // Account-aware: an item on an extra account publishes with that
+        // account's own credentials, not the platform's .env defaults.
+        if (!(await accountIdConfigured(platform, item.accountId, config))) {
+          throw new PermanentError(`${platform} credentials are not configured for this account.`);
         }
         const state = item.platforms[platform];
         let result: PostResult;
@@ -234,5 +270,7 @@ export async function runDue(now: Date = new Date(), options: RunDueOptions = {}
       }
     }
   }
+
+  await runBuffer();
   return report;
 }

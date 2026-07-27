@@ -1,6 +1,7 @@
 "use client";
 
-import { CalendarClock, ExternalLink, GripVertical, Loader2, Scissors } from "lucide-react";
+import { useRef } from "react";
+import { CalendarClock, CheckCircle2, ExternalLink, GripVertical, Loader2, Scissors, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
@@ -14,9 +15,106 @@ import {
 } from "@/components/uploading-center/use-uploading-center";
 import { cn } from "@/lib/utils";
 import type { ScheduleSlot } from "@/lib/publisher/slots";
-import type { PlatformId, QueueItem } from "@/lib/publisher/types";
+import type { PlatformId, PlatformState, QueueItem } from "@/lib/publisher/types";
 
 export const CLIP_DRAG_TYPE = "application/x-capital-command-clip";
+
+export const TITLE_MAX_LENGTH = 100;
+
+/** Hashtags offered as one-click suggestions under the title field. */
+export const SUGGESTED_HASHTAGS = [
+  "#AI",
+  "#vibecoding",
+  "#coding",
+  "#business",
+  "#buildinpublic",
+  "#startup",
+  "#tech",
+  "#programming",
+  "#automation",
+  "#entrepreneur"
+];
+
+/** Append a hashtag to the title, keeping within the max title length. */
+export function appendHashtag(title: string, hashtag: string): string {
+  const trimmed = title.trimEnd();
+  const next = trimmed.length > 0 ? `${trimmed} ${hashtag}` : hashtag;
+  return next.length <= TITLE_MAX_LENGTH ? next : title;
+}
+
+function hasHashtag(title: string, hashtag: string): boolean {
+  return title.toLowerCase().includes(hashtag.toLowerCase());
+}
+
+/** Short, friendly local timestamp like "Mon, Jul 14, 7:30 PM". */
+export function formatStamp(iso: string): string {
+  return new Date(iso).toLocaleString(undefined, {
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit"
+  });
+}
+
+/** Just the day part, like "Mon, Jul 14" — used for the "Uploaded …" confirmation. */
+export function formatDay(iso: string): string {
+  return new Date(iso).toLocaleDateString(undefined, {
+    weekday: "short",
+    month: "short",
+    day: "numeric"
+  });
+}
+
+export type PlatformSummary = {
+  /**
+   * "Uploaded Mon, Jul 14" once the bytes actually reached the platform, so a
+   * scheduled clip reads as genuinely uploaded and not merely planned. Null
+   * before anything has been sent.
+   */
+  uploaded: string | null;
+  /** Secondary context: go-live time, reminder time, or the failure reason. */
+  note: string;
+};
+
+/**
+ * A human summary of where a single platform post stands. YouTube uploads land
+ * on the channel the moment they're scheduled (private + publishAt), so the
+ * card must confirm the upload day up front — otherwise a future go-live time
+ * next to a "Scheduled" chip makes it look like nothing was uploaded at all.
+ *
+ * `uploadedAt` is stamped by the runner on the first successful upload; older
+ * items that predate that stamp fall back to when the post was created (a
+ * YouTube post with a video id has definitely been uploaded).
+ */
+export function summarizePlatformState(
+  platform: PlatformId,
+  state: PlatformState,
+  item: { publishAt: string; createdAt: string }
+): PlatformSummary {
+  const goLive = formatStamp(item.publishAt);
+  const uploadIso = state.uploadedAt ?? (state.postId ? item.createdAt : null);
+  const uploaded = uploadIso ? `Uploaded ${formatDay(uploadIso)}` : null;
+  switch (state.status) {
+    case "scheduled":
+      return { uploaded, note: `Goes live ${goLive}` };
+    case "published":
+      return {
+        uploaded: uploaded ?? `Uploaded ${formatDay(state.publishedAt ?? item.publishAt)}`,
+        note: `Live since ${formatStamp(state.publishedAt ?? item.publishAt)}`
+      };
+    case "uploaded":
+      return { uploaded, note: `Processing · goes live ${goLive}` };
+    case "pending":
+      return { uploaded: null, note: `Uploading… · scheduled for ${goLive}` };
+    case "manual":
+      return { uploaded: null, note: `Manual reminder for ${goLive}` };
+    case "failed":
+      return { uploaded: null, note: state.error ? `Upload failed — ${state.error}` : "Upload failed" };
+    default:
+      return { uploaded, note: `Scheduled for ${goLive}` };
+  }
+}
 
 /**
  * One clip from the current run: thumbnail, editable title/caption, platform
@@ -35,7 +133,9 @@ export function ClipCard({
   onDraftChange,
   onTitleCommit,
   onSchedule,
-  onEditClip
+  onEditClip,
+  onTailorCaption,
+  tailoring = false
 }: {
   clip: ReadyClip;
   draft: ClipDraft;
@@ -51,8 +151,17 @@ export function ClipCard({
   onSchedule: () => void;
   /** Open this clip in the Clip Editor to trim/caption before scheduling. */
   onEditClip: () => void;
+  /** Tailor the caption to the selected platform with the free AI provider. */
+  onTailorCaption?: () => void;
+  /** True while the AI caption is being generated. */
+  tailoring?: boolean;
 }) {
+  const titleRef = useRef<HTMLTextAreaElement>(null);
   const openSlots = slots.filter((slot) => !slot.past && !isSlotTaken(draft.platform, slot.utc));
+  // A clip whose trim/edits haven't been baked into a render yet still schedules
+  // fine — scheduling renders the trimmed cut first, then posts it — so the note
+  // below is informational, not a block.
+  const needsRerender = clip.needsRerender;
 
   return (
     <div
@@ -82,8 +191,9 @@ export function ClipCard({
             {/* Wrapping textarea (not a single-line input) so long titles stay
                 fully visible; field-sizing grows it to fit the content. */}
             <Textarea
+              ref={titleRef}
               value={draft.title}
-              maxLength={100}
+              maxLength={TITLE_MAX_LENGTH}
               rows={1}
               onChange={(event) => onDraftChange({ ...draft, title: event.target.value.replace(/\n/g, " ") })}
               onBlur={onTitleCommit}
@@ -93,6 +203,42 @@ export function ClipCard({
               placeholder="Title"
               className="field-sizing-content min-h-9 resize-none py-2"
             />
+          </div>
+          {/* One-click hashtag suggestions, appended to the title like YouTube's
+              tag chips. Chips already present in the title (or that would push
+              it past the length limit) are hidden. */}
+          <div className="flex flex-wrap gap-1.5 pl-6">
+            {SUGGESTED_HASHTAGS.filter(
+              (hashtag) =>
+                !hasHashtag(draft.title, hashtag) && appendHashtag(draft.title, hashtag) !== draft.title
+            ).map((hashtag) => (
+              <button
+                key={hashtag}
+                type="button"
+                onClick={() => {
+                  onDraftChange({ ...draft, title: appendHashtag(draft.title, hashtag) });
+                  titleRef.current?.focus();
+                }}
+                className="inline-flex items-center rounded-full border border-[var(--border)] bg-[var(--surface-1)] px-2 py-0.5 text-[11px] text-[var(--muted-foreground)] transition hover:border-[var(--accent)] hover:text-[var(--accent)]"
+              >
+                {hashtag}
+              </button>
+            ))}
+          </div>
+          <div className="flex items-center justify-between gap-2 pl-6">
+            <span className="text-[11px] text-[var(--muted-foreground)]">Caption</span>
+            {onTailorCaption ? (
+              <button
+                type="button"
+                onClick={onTailorCaption}
+                disabled={tailoring}
+                title={`Write a caption + hashtags tailored to ${PLATFORM_LABELS[draft.platform]} (free AI)`}
+                className="inline-flex items-center gap-1 rounded-full border border-[var(--border)] bg-[var(--surface-1)] px-2 py-0.5 text-[11px] text-[var(--muted-foreground)] transition hover:border-[var(--accent)] hover:text-[var(--accent)] disabled:opacity-60"
+              >
+                {tailoring ? <Loader2 className="h-3 w-3 animate-spin" /> : <Sparkles className="h-3 w-3" />}
+                {tailoring ? "Writing…" : `AI caption for ${PLATFORM_LABELS[draft.platform]}`}
+              </button>
+            ) : null}
           </div>
           <Textarea
             value={draft.caption}
@@ -126,36 +272,61 @@ export function ClipCard({
                 </option>
               ))}
             </Select>
-            <Button onClick={onSchedule} disabled={scheduling || !draft.slotUtc} className="h-9 px-3">
+            <Button
+              onClick={onSchedule}
+              disabled={scheduling || !draft.slotUtc}
+              className="h-9 px-3"
+              title={needsRerender ? "Renders your trimmed clip, then schedules it" : undefined}
+            >
               {scheduling ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <CalendarClock className="mr-1.5 h-4 w-4" />}
-              Schedule
+              {scheduling && needsRerender ? "Baking…" : "Schedule"}
             </Button>
           </div>
+          {needsRerender ? (
+            <button
+              type="button"
+              onClick={onEditClip}
+              className="flex w-full items-start gap-2 rounded-lg border border-amber-400/25 bg-amber-400/8 px-3 py-2 text-left text-xs text-amber-200 transition hover:border-amber-400/50"
+            >
+              <Scissors className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+              <span>
+                Your trim will be rendered automatically when you schedule this clip — or
+                <span className="font-semibold"> open the editor</span> to fine-tune it first.
+              </span>
+            </button>
+          ) : null}
           <div className="flex items-start justify-between gap-2">
             {scheduledItems.length === 0 ? (
               <StatusChip status="draft" />
             ) : (
-              <div className="min-w-0 flex-1 space-y-1">
+              <div className="min-w-0 flex-1 space-y-1.5">
                 {scheduledItems.map((item) =>
                 (Object.entries(item.platforms) as [PlatformId, NonNullable<QueueItem["platforms"][PlatformId]>][]).map(
                   ([platform, state]) => {
                     const url = remoteUrlFor(platform, state.postId);
+                    const summary = summarizePlatformState(platform, state, item);
                     return (
-                      <div key={`${item.id}:${platform}`} className="flex items-center gap-2 text-xs text-[var(--muted-foreground)]">
-                        <StatusChip status={state.status} />
-                        <span className="truncate">
-                          {PLATFORM_LABELS[platform]} · {new Date(item.publishAt).toLocaleString()}
-                        </span>
-                        {url ? (
-                          <a
-                            href={url}
-                            target="_blank"
-                            rel="noreferrer"
-                            className={cn("inline-flex items-center gap-1 text-[var(--accent)] hover:underline")}
-                          >
-                            Open <ExternalLink className="h-3 w-3" />
-                          </a>
-                        ) : null}
+                      <div key={`${item.id}:${platform}`} className="space-y-0.5 text-xs">
+                        <div className="flex items-center gap-2 text-[var(--muted-foreground)]">
+                          <StatusChip status={state.status} />
+                          <span className="truncate font-medium text-white">{PLATFORM_LABELS[platform]}</span>
+                          {summary.uploaded ? (
+                            <span className="inline-flex items-center gap-1 whitespace-nowrap text-emerald-300">
+                              <CheckCircle2 className="h-3 w-3" /> {summary.uploaded}
+                            </span>
+                          ) : null}
+                          {url ? (
+                            <a
+                              href={url}
+                              target="_blank"
+                              rel="noreferrer"
+                              className={cn("ml-auto inline-flex items-center gap-1 text-[var(--accent)] hover:underline")}
+                            >
+                              Open <ExternalLink className="h-3 w-3" />
+                            </a>
+                          ) : null}
+                        </div>
+                        <span className="block truncate pl-0.5 text-[var(--muted-foreground)]">{summary.note}</span>
                       </div>
                     );
                   }

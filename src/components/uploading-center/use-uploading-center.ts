@@ -4,7 +4,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { windowSegments } from "@/lib/clipping/captions";
 import { leadingSilenceSec } from "@/lib/clipping/editor";
+import { hasEditsBeyondAutoRender, renderSignature } from "@/lib/clipping/export-signature";
 import type { ClipCandidate, ClipJob } from "@/lib/clipping/types";
+import type { ClipProject } from "@/types/domain";
 import { placeChannelVideos, type ChannelPlacement } from "@/lib/publisher/channelPlacement";
 import type { ChannelSchedule, ChannelVideo } from "@/lib/publisher/channelVideos";
 import type { ScheduleSlot } from "@/lib/publisher/slots";
@@ -21,6 +23,24 @@ import type { PlatformId, QueueItem } from "@/lib/publisher/types";
 
 export type YoutubeAccount = { title: string; thumbnail: string | null };
 
+/** One connectable social account (see /api/publish/accounts). */
+export type SocialAccountView = {
+  id: string;
+  platform: PlatformId;
+  label: string;
+  createdAt: string;
+  /** The platform's built-in account backed by today's .env credentials. */
+  primary: boolean;
+  /** True when posts for this account publish automatically. */
+  connected: boolean;
+  /** Connected YouTube channel's name/avatar, when known. */
+  youtube: YoutubeAccount | null;
+};
+
+export function primaryAccountIdFor(platform: PlatformId): string {
+  return `${platform}-primary`;
+}
+
 export type Overview = {
   enabled: boolean;
   timezone: string;
@@ -33,6 +53,14 @@ export type Overview = {
 
 /** The schedule grid always shows a two-week window. */
 export const SLOT_WINDOW_DAYS = 14;
+
+/**
+ * Where the default window starts, in days before today, so the calendar opens
+ * on roughly the last week plus the next week — recent uploads and history land
+ * on their days right away instead of hiding in a list, and today sits near the
+ * middle. Paging steps by SLOT_WINDOW_DAYS from here in either direction.
+ */
+export const DEFAULT_SLOT_OFFSET_DAYS = -7;
 
 export type ReadyClip = {
   /** Stable key: jobId + the exact output file that would be posted. */
@@ -50,13 +78,98 @@ export type ReadyClip = {
   previewUrl: string;
   /** Dead air the clip opens on, in seconds; previews seek past it. */
   startSec: number;
+  /**
+   * True when a saved Clip Editor project for this clip has a trim (or other
+   * edits) that its current render doesn't reflect — because it was never
+   * rendered, or was trimmed again after its last render. Scheduling doesn't
+   * block on this: it bakes the edits into a fresh render first (see
+   * `schedule`), so the uploaded file is always the edited cut.
+   */
+  needsRerender: boolean;
+  /**
+   * The backend clip's source (master) file — the key its Clip Editor project
+   * is saved against. Used to find the project to bake when `needsRerender`.
+   */
+  masterFile?: string;
 };
+
+/** Resolve a milliseconds delay without pulling in a timer library. */
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * Renders a clip project to completion and returns the output file name, so a
+ * clip whose trim isn't baked in yet can be rendered right before it's posted —
+ * guaranteeing the uploaded file is the edited cut without a trip to the editor.
+ * Throws with a human-readable message on any render failure.
+ */
+async function bakeProject(project: ClipProject): Promise<string> {
+  const startRes = await fetch(`/api/clips/${project.jobId}/export`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(project)
+  });
+  if (!startRes.ok) throw new Error(await readError(startRes));
+  const { export: rec } = (await startRes.json()) as { export?: { id: string } };
+  if (!rec?.id) throw new Error("The render could not start.");
+  // Poll the shared export record until it finishes. Bounded so a wedged render
+  // can never hang the schedule action forever (10 min at a 1.2s cadence).
+  for (let i = 0; i < 500; i += 1) {
+    await delay(1200);
+    const res = await fetch(`/api/clips/${project.jobId}/export/${rec.id}`, { cache: "no-store" });
+    if (!res.ok) {
+      if (res.status === 404) throw new Error("The render was lost after a server restart — try again.");
+      continue; // transient blip — keep polling
+    }
+    const { export: state } = (await res.json()) as {
+      export?: { status: string; file?: string; error?: string };
+    };
+    if (!state) continue;
+    if (state.status === "done") {
+      if (!state.file) throw new Error("The render finished but produced no file.");
+      return state.file;
+    }
+    if (state.status === "error") throw new Error(state.error ?? "The render failed.");
+    if (state.status === "canceled") throw new Error("The render was canceled.");
+  }
+  throw new Error("The render is taking too long — check the Clip Editor and try again.");
+}
+
+/**
+ * Whether a clip's ready-to-post file is out of date with its saved editor
+ * project — i.e. the current trim/edits haven't been baked into a render yet,
+ * so uploading now would post the wrong cut.
+ */
+function computeNeedsRerender(clip: ClipCandidate, projects: ClipProject[]): boolean {
+  if (!clip.file) return false;
+  const project = projects
+    .filter((candidate) => candidate.sourceFile === clip.file)
+    .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))[0];
+  if (!project) return false;
+  if (clip.editedFile) {
+    // A render exists — stale only if the project changed since it was made.
+    // Legacy renders carry no signature; leave those alone to avoid false alarms.
+    if (!clip.editedSignature) return false;
+    return renderSignature({ ...project, settings: project.exportSettings }) !== clip.editedSignature;
+  }
+  // No render at all: flag only edits the auto render can't already contain
+  // (a real trim, added overlays, a watermark).
+  return hasEditsBeyondAutoRender({ ...project, settings: project.exportSettings });
+}
 
 export type ClipDraft = {
   title: string;
   caption: string;
   platform: PlatformId;
   slotUtc: string;
+};
+
+const DEFAULT_ACTIVE_ACCOUNTS: Record<PlatformId, string> = {
+  youtube: primaryAccountIdFor("youtube"),
+  tiktok: primaryAccountIdFor("tiktok"),
+  instagram: primaryAccountIdFor("instagram"),
+  facebook: primaryAccountIdFor("facebook")
 };
 
 export const PLATFORM_LABELS: Record<PlatformId, string> = {
@@ -141,11 +254,18 @@ async function readError(response: Response): Promise<string> {
   return `Request failed (${response.status}).`;
 }
 
-export function useUploadingCenter() {
+export function useUploadingCenter(clipProjects: ClipProject[] = []) {
   const [jobs, setJobs] = useState<ClipJob[]>([]);
   const [queueItems, setQueueItems] = useState<QueueItem[]>([]);
   const [overview, setOverview] = useState<Overview | null>(null);
   const [channel, setChannel] = useState<ChannelSchedule | null>(null);
+  const [accounts, setAccounts] = useState<SocialAccountView[]>([]);
+  /**
+   * Which account each platform's tab (and calendar) is showing. Defaults to
+   * every platform's primary account — the pre-multi-account behavior — so
+   * everything already scheduled or uploaded stays right where it was.
+   */
+  const [activeAccountIds, setActiveAccountIds] = useState<Record<PlatformId, string>>(DEFAULT_ACTIVE_ACCOUNTS);
   const [loaded, setLoaded] = useState(false);
   const [activeJobId, setActiveJobId] = useState<string | null>(null);
   /** Key of the action in flight ("schedule:<clipKey>", "publish:<id>", …). */
@@ -158,8 +278,9 @@ export function useUploadingCenter() {
    * (0 = the current period, 14 = the next one, …). Changing it recreates
    * `refresh`, and the page's fetch effect re-runs with the new window.
    */
-  const [slotOffsetDays, setSlotOffsetDays] = useState(0);
+  const [slotOffsetDays, setSlotOffsetDays] = useState(DEFAULT_SLOT_OFFSET_DAYS);
 
+  const activeYoutubeAccountId = activeAccountIds.youtube;
   const refresh = useCallback(async (options?: { channelRefresh?: boolean }) => {
     // Sequential local fetches; a failure keeps the last good data and the
     // 60s tick tries again.
@@ -172,9 +293,14 @@ export function useUploadingCenter() {
         cache: "no-store"
       });
       if (overviewRes.ok) setOverview((await overviewRes.json()) as Overview);
-      // The channel schedule is cached 5 minutes server-side; channelRefresh
-      // bypasses that right after a publish so the new video appears at once.
-      const channelRes = await fetch(`/api/publish/youtube-channel${options?.channelRefresh ? "?refresh=1" : ""}`, {
+      const accountsRes = await fetch("/api/publish/accounts", { cache: "no-store" });
+      if (accountsRes.ok) setAccounts(((await accountsRes.json()) as { accounts?: SocialAccountView[] }).accounts ?? []);
+      // The channel schedule is cached 5 minutes server-side per account;
+      // channelRefresh bypasses that right after a publish so the new video
+      // appears at once. Reads the YouTube account selected on the tab.
+      const channelParams = new URLSearchParams({ account: activeYoutubeAccountId });
+      if (options?.channelRefresh) channelParams.set("refresh", "1");
+      const channelRes = await fetch(`/api/publish/youtube-channel?${channelParams.toString()}`, {
         cache: "no-store"
       });
       if (channelRes.ok) setChannel((await channelRes.json()) as ChannelSchedule);
@@ -183,7 +309,7 @@ export function useUploadingCenter() {
     } finally {
       setLoaded(true);
     }
-  }, [slotOffsetDays]);
+  }, [activeYoutubeAccountId, slotOffsetDays]);
 
   // NOTE: the initial fetch + 60s poll effect lives in UploadingCenterPage —
   // react-hooks/set-state-in-effect flags `void refresh()` inside a custom
@@ -219,6 +345,7 @@ export function useUploadingCenter() {
 
   const readyClips = useMemo<ReadyClip[]>(() => {
     if (!activeJob) return [];
+    const projectsForJob = clipProjects.filter((project) => project.jobId === activeJob.id);
     return activeJob.clips.flatMap((clip, index) => {
       // Prefer the Clip Editor's export (the edited clip IS the clip), then
       // the ready-to-post vertical render; the master is a last resort and
@@ -246,11 +373,13 @@ export function useUploadingCenter() {
             ? `/api/clips/${activeJob.id}/files/${encodeURIComponent(clip.posterFile)}`
             : `/api/clips/${activeJob.id}/thumbnail/${encodeURIComponent(thumbSource)}`,
           previewUrl: `/api/clips/${activeJob.id}/files/${encodeURIComponent(file)}`,
-          startSec
+          startSec,
+          needsRerender: computeNeedsRerender(clip, projectsForJob),
+          masterFile: clip.file
         }
       ];
     });
-  }, [activeJob]);
+  }, [activeJob, clipProjects]);
 
   /** Queue items that came from a given clip card. */
   const itemsForClip = useCallback(
@@ -286,18 +415,64 @@ export function useUploadingCenter() {
   }, [jobs, queueItems]);
   const thumbnailForItem = useCallback((item: QueueItem) => thumbnailByItemId.get(item.id) ?? null, [thumbnailByItemId]);
 
-  /** Occupied slots per platform, keyed by the slot's UTC instant. */
+  /** The account a queue item belongs to on a platform (legacy items → primary). */
+  const itemAccountIdFor = useCallback(
+    (item: QueueItem, platform: PlatformId) => item.accountId ?? primaryAccountIdFor(platform),
+    []
+  );
+
+  /**
+   * Occupied slots per platform, keyed by the slot's UTC instant — only for
+   * the account each platform's tab is showing, so every account gets its own
+   * calendar and two accounts can post at the same slot time.
+   */
   const itemsByPlatformSlot = useMemo(() => {
     const map = new Map<PlatformId, Map<string, QueueItem>>();
     for (const item of queueItems) {
       const utc = new Date(item.publishAt).toISOString();
       for (const platform of Object.keys(item.platforms) as PlatformId[]) {
+        if (itemAccountIdFor(item, platform) !== activeAccountIds[platform]) continue;
         if (!map.has(platform)) map.set(platform, new Map());
         map.get(platform)!.set(utc, item);
       }
     }
     return map;
-  }, [queueItems]);
+  }, [activeAccountIds, itemAccountIdFor, queueItems]);
+
+  /**
+   * Every queue item for the account each platform's tab is showing, keyed by
+   * platform (not by slot) — the calendar places each on the day it goes live,
+   * whether or not its time lines up with a slot.
+   */
+  const itemsByPlatform = useMemo(() => {
+    const map = new Map<PlatformId, QueueItem[]>();
+    for (const item of queueItems) {
+      for (const platform of Object.keys(item.platforms) as PlatformId[]) {
+        if (itemAccountIdFor(item, platform) !== activeAccountIds[platform]) continue;
+        let bucket = map.get(platform);
+        if (!bucket) {
+          bucket = [];
+          map.set(platform, bucket);
+        }
+        bucket.push(item);
+      }
+    }
+    return map;
+  }, [activeAccountIds, itemAccountIdFor, queueItems]);
+
+  /**
+   * Queue items visible under the current account selection: at least one of
+   * the item's platforms is showing the account the item belongs to.
+   */
+  const visibleQueueItems = useMemo(
+    () =>
+      queueItems.filter((item) =>
+        (Object.keys(item.platforms) as PlatformId[]).some(
+          (platform) => itemAccountIdFor(item, platform) === activeAccountIds[platform]
+        )
+      ),
+    [activeAccountIds, itemAccountIdFor, queueItems]
+  );
 
   /**
    * Persists a title edit on the backend clip so it survives navigation and
@@ -420,12 +595,89 @@ export function useUploadingCenter() {
       toast.success("Uploaded to YouTube — it now shows as Scheduled on your channel.");
     } else if (outcome?.outcome === "published") {
       toast.success(`Published to ${PLATFORM_LABELS[platform]}.`);
-    } else if (outcome?.outcome === "failed" || outcome?.outcome === "retrying") {
-      toast.warning(`Scheduled, but the upload hit a snag: ${outcome.detail || outcome.outcome}. It will retry.`);
+    } else if (
+      platform === "youtube" &&
+      outcome?.outcome === "failed" &&
+      outcome.detail.includes("YouTube connection expired")
+    ) {
+      const accountId = item?.accountId ?? primaryAccountIdFor("youtube");
+      toast.error("Your YouTube connection expired. Reconnect once and Command will resume this upload automatically.", {
+        duration: Infinity,
+        action: {
+          label: "Reconnect YouTube",
+          onClick: () => {
+            window.location.href = `/api/auth/google?account=${encodeURIComponent(accountId)}`;
+          }
+        }
+      });
+    } else if (outcome?.outcome === "retrying") {
+      toast.warning(`Upload interrupted — Command will retry automatically. ${outcome.detail || ""}`.trim());
+    } else if (outcome?.outcome === "failed") {
+      toast.error(`Upload failed: ${outcome.detail || "The platform rejected the upload."}`);
     } else {
       toast.success(`Scheduled for ${PLATFORM_LABELS[platform]}.`);
     }
   }, []);
+
+  /**
+   * The clip's most recently edited Clip Editor project, used to bake its trim
+   * into a render right before scheduling. Matched on the clip's master file,
+   * the key projects are saved against (see computeNeedsRerender).
+   */
+  const projectForClip = useCallback(
+    (clip: ReadyClip): ClipProject | null => {
+      if (!clip.masterFile) return null;
+      return (
+        clipProjects
+          .filter((project) => project.jobId === clip.jobId && project.sourceFile === clip.masterFile)
+          .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))[0] ?? null
+      );
+    },
+    [clipProjects]
+  );
+
+  /**
+   * Tailors a clip's caption + hashtags to the platform its draft targets via
+   * the free AI provider (DeepSeek Flash by default). Returns the platform-ready
+   * caption (hashtags appended) plus a best-time hint, or null on failure. The
+   * caller writes the returned caption into the draft — this never mutates it.
+   */
+  const tailorCaption = useCallback(
+    async (
+      clip: ReadyClip,
+      platform: PlatformId,
+      title: string
+    ): Promise<{ caption: string; bestTime?: string; note?: string } | null> => {
+      setBusy(`tailor:${clip.key}`);
+      try {
+        const response = await fetch("/api/publish/ai-copy", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            jobId: clip.jobId,
+            clipId: clip.clipId,
+            platform,
+            title: title.trim() || undefined
+          })
+        });
+        if (!response.ok) {
+          toast.error(await readError(response));
+          return null;
+        }
+        const { copy } = (await response.json()) as {
+          copy: { caption: string; hashtags: string[]; bestTime?: string; note?: string };
+        };
+        const caption = copy.hashtags.length ? `${copy.caption}\n\n${copy.hashtags.join(" ")}` : copy.caption;
+        return { caption, bestTime: copy.bestTime, note: copy.note };
+      } catch {
+        toast.error("Couldn't tailor the caption — try again.");
+        return null;
+      } finally {
+        setBusy(null);
+      }
+    },
+    []
+  );
 
   const schedule = useCallback(
     async (clip: ReadyClip, draft: ClipDraft) => {
@@ -435,19 +687,42 @@ export function useUploadingCenter() {
       }
       setBusy(`schedule:${clip.key}`);
       try {
+        // If the trim/edits aren't baked into the current render, render them
+        // now and post the fresh cut — so the upload is always the edited clip,
+        // no round-trip through the editor required.
+        let file = clip.file;
+        if (clip.needsRerender) {
+          const project = projectForClip(clip);
+          if (!project) {
+            toast.error("Open this clip in the editor and hit Schedule Short to bake in your edits first.");
+            return false;
+          }
+          const bakeToast = toast.loading("Baking your trim before scheduling…");
+          try {
+            file = await bakeProject(project);
+          } catch (error) {
+            toast.error(`Couldn't render the trimmed clip: ${error instanceof Error ? error.message : "render failed"}.`, {
+              id: bakeToast
+            });
+            return false;
+          }
+          toast.dismiss(bakeToast);
+        }
         const response = await fetch("/api/publish", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             jobId: clip.jobId,
-            file: clip.file,
+            file,
             publishAt: draft.slotUtc,
             title: draft.title.trim() || undefined,
             caption: draft.caption.trim() || undefined,
             platforms: [draft.platform],
             // "public" is what makes YouTube honor publishAt: the video is
             // uploaded private and YouTube flips it live at the slot time.
-            visibility: "public"
+            visibility: "public",
+            // The post lands on the account the platform's tab is showing.
+            accountId: activeAccountIds[draft.platform]
           })
         });
         if (!response.ok) {
@@ -461,7 +736,7 @@ export function useUploadingCenter() {
         setBusy(null);
       }
     },
-    [announceScheduleOutcome, refresh]
+    [activeAccountIds, announceScheduleOutcome, projectForClip, refresh]
   );
 
   /**
@@ -477,7 +752,8 @@ export function useUploadingCenter() {
         const params = new URLSearchParams({
           name: file.name,
           publishAt: draft.slotUtc,
-          platform: draft.platform
+          platform: draft.platform,
+          accountId: activeAccountIds[draft.platform]
         });
         const response = await fetch(`/api/publish/upload?${params.toString()}`, {
           method: "POST",
@@ -498,7 +774,7 @@ export function useUploadingCenter() {
         setBusy(null);
       }
     },
-    [announceScheduleOutcome, refresh]
+    [activeAccountIds, announceScheduleOutcome, refresh]
   );
 
   /**
@@ -514,18 +790,33 @@ export function useUploadingCenter() {
       let firstError: string | null = null;
       try {
         for (const { clip, draft } of assignments) {
+          let file = clip.file;
+          if (clip.needsRerender) {
+            const project = projectForClip(clip);
+            if (!project) {
+              firstError ??= "Some clips need editing in the Clip Editor before they can be scheduled.";
+              continue;
+            }
+            try {
+              file = await bakeProject(project);
+            } catch (error) {
+              firstError ??= `Couldn't render a trimmed clip: ${error instanceof Error ? error.message : "render failed"}.`;
+              continue;
+            }
+          }
           try {
             const response = await fetch("/api/publish", {
               method: "POST",
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({
                 jobId: clip.jobId,
-                file: clip.file,
+                file,
                 publishAt: draft.slotUtc,
                 title: draft.title.trim() || undefined,
                 caption: draft.caption.trim() || undefined,
                 platforms: [draft.platform],
-                visibility: "public"
+                visibility: "public",
+                accountId: activeAccountIds[draft.platform]
               })
             });
             if (!response.ok) {
@@ -551,7 +842,7 @@ export function useUploadingCenter() {
         setBusy(null);
       }
     },
-    [refresh]
+    [activeAccountIds, projectForClip, refresh]
   );
 
   const publishNow = useCallback(
@@ -595,6 +886,70 @@ export function useUploadingCenter() {
     [refresh]
   );
 
+  /** A platform's accounts, primary first (the API returns them ordered). */
+  const accountsFor = useCallback(
+    (platform: PlatformId) => accounts.filter((account) => account.platform === platform),
+    [accounts]
+  );
+
+  /** The account a platform's tab is currently showing. */
+  const activeAccountFor = useCallback(
+    (platform: PlatformId) =>
+      accounts.find((account) => account.id === activeAccountIds[platform]) ?? null,
+    [accounts, activeAccountIds]
+  );
+
+  const setActiveAccount = useCallback((platform: PlatformId, accountId: string) => {
+    setActiveAccountIds((current) => ({ ...current, [platform]: accountId }));
+  }, []);
+
+  /** Adds an account and switches the platform's tab straight to it. */
+  const addAccount = useCallback(
+    async (platform: PlatformId, label: string) => {
+      setBusy(`add-account:${platform}`);
+      try {
+        const response = await fetch("/api/publish/accounts", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ platform, label })
+        });
+        if (!response.ok) {
+          toast.error(await readError(response));
+          return false;
+        }
+        const { account } = (await response.json()) as { account: SocialAccountView };
+        setAccounts((current) => [...current, account]);
+        setActiveAccount(platform, account.id);
+        toast.success(`Added ${PLATFORM_LABELS[platform]} account "${account.label}".`);
+        await refresh();
+        return true;
+      } finally {
+        setBusy(null);
+      }
+    },
+    [refresh, setActiveAccount]
+  );
+
+  const removeAccount = useCallback(
+    async (account: SocialAccountView) => {
+      setBusy(`remove-account:${account.id}`);
+      try {
+        const response = await fetch(`/api/publish/accounts/${account.id}`, { method: "DELETE" });
+        if (!response.ok) {
+          toast.error(await readError(response));
+          return false;
+        }
+        setActiveAccount(account.platform, primaryAccountIdFor(account.platform));
+        toast.success(`Removed account "${account.label}".`);
+        await refresh();
+        return true;
+      } finally {
+        setBusy(null);
+      }
+    },
+    [refresh, setActiveAccount]
+  );
+
   return {
     loaded,
     overview,
@@ -608,18 +963,28 @@ export function useUploadingCenter() {
     channelDayMarkers: channelPlacement.dayMarkers,
     channelVideosOutsideWindow: channelPlacement.outsideWindow,
     queueItems,
+    visibleQueueItems,
+    accounts,
+    activeAccountIds,
+    accountsFor,
+    activeAccountFor,
+    setActiveAccount,
+    addAccount,
+    removeAccount,
     jobsWithClips,
     activeJob,
     setActiveJobId,
     readyClips,
     itemsForClip,
     itemsByPlatformSlot,
+    itemsByPlatform,
     thumbnailForItem,
     busy,
     uploadSuccess,
     dismissUploadSuccess: () => setUploadSuccess(null),
     renameClip,
     renameQueueItem,
+    tailorCaption,
     schedule,
     uploadToSlot,
     autoAssign,

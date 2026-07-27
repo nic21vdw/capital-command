@@ -7,10 +7,13 @@ import {
   exportRanges,
   hookCaptions,
   keptRanges,
+  planCaptions,
   planHook,
   planHookEnd,
+  remapCaptionsToOutput,
   sourceTimeToOutput,
-  sourceToOutputIntervals
+  sourceToOutputIntervals,
+  transcriptCaptions
 } from "@/lib/longform/plan";
 import type { LongformHook, LongformSegment } from "@/lib/longform/types";
 import type { CaptionSegment } from "@/types/domain";
@@ -53,6 +56,24 @@ describe("buildSegments", () => {
     const segments = buildSegments(30, [{ start: 10, end: 10.4 }], DEFAULT_PACE);
     expect(segments).toHaveLength(1);
     expect(segments[0]).toMatchObject({ start: 0, kind: "speech", enabled: true });
+  });
+
+  it("plans a full cut list for a stream-length recording", () => {
+    // An 8-hour stream VOD with a pause every ~4 seconds: every qualifying
+    // silence must become a cut — nothing caps or truncates the plan.
+    const durationSec = 8 * 3600;
+    const silences = Array.from({ length: 7200 }, (_, i) => ({ start: i * 4 + 3, end: i * 4 + 4 }));
+    const segments = buildSegments(durationSec, silences, DEFAULT_PACE);
+    const cuts = segments.filter((s) => s.kind === "silence" && !s.enabled);
+    expect(cuts).toHaveLength(7200);
+    // The tiling covers the whole recording with no gaps or overlaps.
+    expect(segments[0].start).toBe(0);
+    expect(segments[segments.length - 1].end).toBeCloseTo(durationSec, 3);
+    for (let i = 1; i < segments.length; i++) {
+      expect(segments[i].start).toBeCloseTo(segments[i - 1].end, 3);
+    }
+    // The last hour of the stream is still being cut, not just the start.
+    expect(cuts[cuts.length - 1].start).toBeGreaterThan(7 * 3600);
   });
 
   it("covers the full duration with no gaps or overlaps", () => {
@@ -119,7 +140,7 @@ describe("planHookEnd", () => {
 describe("hookCaptions", () => {
   it("re-chunks the hook window into short punchy segments", () => {
     const transcript = [caption("c1", 0, 6, "one two three four five six seven eight")];
-    const chunks = hookCaptions(transcript, 6);
+    const chunks = hookCaptions(transcript, 0, 6);
     expect(chunks.length).toBeGreaterThan(1);
     for (const chunk of chunks) {
       expect(chunk.words.length).toBeLessThanOrEqual(3);
@@ -129,10 +150,133 @@ describe("hookCaptions", () => {
 
   it("only includes words inside the hook window", () => {
     const transcript = [caption("c1", 0, 20, "a b c d e f g h i j k l m n o p q r s t")];
-    const chunks = hookCaptions(transcript, 5);
+    const chunks = hookCaptions(transcript, 0, 5);
     for (const chunk of chunks) {
       expect(chunk.end).toBeLessThanOrEqual(5.01);
     }
+  });
+
+  it("rebases a moved hook window to hook-local seconds", () => {
+    // A hook pulled from 10-16s of the source must emit captions starting at 0
+    // (the hook's own first frame), since the export burns them onto the clip
+    // it trimmed out of the middle.
+    const transcript = [caption("c1", 10, 16, "one two three four five six")];
+    const chunks = hookCaptions(transcript, 10, 16);
+    expect(chunks.length).toBeGreaterThan(0);
+    expect(chunks[0].start).toBeCloseTo(0, 3);
+    for (const chunk of chunks) {
+      expect(chunk.end).toBeLessThanOrEqual(6.01);
+      for (const word of chunk.words) expect(word.start).toBeGreaterThanOrEqual(-0.001);
+    }
+  });
+});
+
+describe("transcriptCaptions", () => {
+  it("re-chunks the whole transcript into readable segments", () => {
+    const transcript = [
+      caption("c1", 0, 6, "one two three four five six seven eight"),
+      caption("c2", 7, 12, "nine ten eleven twelve")
+    ];
+    const chunks = transcriptCaptions(transcript, 5);
+    expect(chunks.length).toBeGreaterThan(1);
+    for (const chunk of chunks) {
+      expect(chunk.words.length).toBeLessThanOrEqual(5);
+      expect(chunk.enabled).toBe(true);
+    }
+    // Every word of the source survives the re-chunk.
+    const words = chunks.flatMap((chunk) => chunk.words.map((w) => w.text));
+    expect(words).toHaveLength(12);
+  });
+
+  it("keeps phrase segments as-is when the transcript has no word timing", () => {
+    const transcript: CaptionSegment[] = [
+      { id: "c1", start: 0, end: 4, text: "hello there", words: [], enabled: true }
+    ];
+    const chunks = transcriptCaptions(transcript, 5);
+    expect(chunks).toHaveLength(1);
+    expect(chunks[0]).toMatchObject({ start: 0, end: 4, text: "hello there" });
+  });
+});
+
+describe("planCaptions", () => {
+  it("starts switched off so existing exports keep rendering unchanged", () => {
+    const plan = planCaptions([caption("c1", 0, 5, "one two three")]);
+    expect(plan.enabled).toBe(false);
+    expect(plan.highlightCurrentWord).toBe(true);
+    expect(plan.segments.length).toBeGreaterThan(0);
+  });
+});
+
+describe("remapCaptionsToOutput", () => {
+  const segments: LongformSegment[] = [
+    { id: "1", start: 0, end: 20, kind: "speech", enabled: true },
+    { id: "2", start: 20, end: 25, kind: "silence", enabled: false },
+    { id: "3", start: 25, end: 40, kind: "speech", enabled: true }
+  ];
+  const hook = hookWith({ enabled: true, end: 5 });
+
+  it("passes kept captions straight through", () => {
+    const [seg] = remapCaptionsToOutput([caption("c1", 10, 13, "a b c")], segments, hook);
+    expect(seg.start).toBeCloseTo(10, 3);
+    expect(seg.end).toBeCloseTo(13, 3);
+    expect(seg.words.map((w) => w.text)).toEqual(["a", "b", "c"]);
+  });
+
+  it("shifts captions after a cut back by the removed dead space", () => {
+    const [seg] = remapCaptionsToOutput([caption("c1", 30, 33, "a b c")], segments, hook);
+    // The 5s cut at 20-25 pulls everything after it 5s earlier.
+    expect(seg.start).toBeCloseTo(25, 3);
+    expect(seg.end).toBeCloseTo(28, 3);
+    expect(seg.words[0].start).toBeCloseTo(25, 3);
+  });
+
+  it("drops captions entirely inside cut footage", () => {
+    expect(remapCaptionsToOutput([caption("c1", 21, 24, "gone")], segments, hook)).toEqual([]);
+  });
+
+  it("shortens a caption straddling a cut and snaps its words to the jump", () => {
+    const [seg] = remapCaptionsToOutput([caption("c1", 18, 28, "a b c d e")], segments, hook);
+    // 18-20 plays, 20-25 is cut, 25-28 plays at output 20-23.
+    expect(seg.start).toBeCloseTo(18, 3);
+    expect(seg.end).toBeCloseTo(23, 3);
+    for (const word of seg.words) {
+      expect(word.start).toBeGreaterThanOrEqual(seg.start);
+      expect(word.end).toBeLessThanOrEqual(seg.end);
+    }
+  });
+
+  it("skips disabled and empty segments", () => {
+    const off = { ...caption("c1", 10, 12, "quiet"), enabled: false };
+    const blank = { ...caption("c2", 13, 15, "x"), text: "  " };
+    expect(remapCaptionsToOutput([off, blank], segments, hook)).toEqual([]);
+  });
+
+  it("clips captions to after the hook window when the hook burns its own", () => {
+    const remapped = remapCaptionsToOutput(
+      [caption("c1", 2, 4, "inside hook"), caption("c2", 3, 8, "straddles"), caption("c3", 10, 12, "after")],
+      segments,
+      hook,
+      { start: hook.start, end: hook.end }
+    );
+    expect(remapped).toHaveLength(2);
+    // The straddling caption starts where the hook's captions stop.
+    expect(remapped[0].start).toBeCloseTo(5, 3);
+    expect(remapped[0].end).toBeCloseTo(8, 3);
+    expect(remapped[0].words.every((w) => w.start >= 5)).toBe(true);
+    expect(remapped[1]).toMatchObject({ start: 10, end: 12 });
+  });
+
+  it("keeps body captions before a moved hook window and drops the ones inside it", () => {
+    // Hook pulled from 10-15s of the source. Captions before 10s belong to the
+    // body (they play after the hook); ones inside the window are the hook's.
+    const movedHook = hookWith({ enabled: true, start: 10, end: 15 });
+    const remapped = remapCaptionsToOutput(
+      [caption("c1", 2, 4, "before"), caption("c2", 11, 13, "inside"), caption("c3", 30, 32, "after")],
+      segments,
+      movedHook,
+      { start: movedHook.start, end: movedHook.end }
+    );
+    expect(remapped.map((s) => s.text)).toEqual(["before", "after"]);
   });
 });
 
@@ -241,6 +385,25 @@ describe("exportRanges", () => {
     const { bodyRanges } = exportRanges(straddle, hookWith({ enabled: true, end: 7 }));
     expect(bodyRanges).toEqual([{ start: 7, end: 30 }]);
   });
+
+  it("pulls a moved hook window out of the middle and keeps the footage around it", () => {
+    // A single kept take, hook sourced from 10-15s. The body is what's left on
+    // both sides of the window (before it plays after the hook in the export).
+    const take: LongformSegment[] = [{ id: "1", start: 0, end: 30, kind: "speech", enabled: true }];
+    const { hookRange, bodyRanges } = exportRanges(take, hookWith({ enabled: true, start: 10, end: 15 }));
+    expect(hookRange).toEqual({ start: 10, end: 15 });
+    expect(bodyRanges).toEqual([
+      { start: 0, end: 10 },
+      { start: 15, end: 30 }
+    ]);
+  });
+
+  it("drops the hook when its window is empty or inverted", () => {
+    const take: LongformSegment[] = [{ id: "1", start: 0, end: 30, kind: "speech", enabled: true }];
+    const { hookRange, bodyRanges } = exportRanges(take, hookWith({ enabled: true, start: 8, end: 8 }));
+    expect(hookRange).toBeNull();
+    expect(bodyRanges).toEqual([{ start: 0, end: 30 }]);
+  });
 });
 
 describe("editedDurationSec", () => {
@@ -315,5 +478,18 @@ describe("sourceTimeToOutput", () => {
   it("returns null when the whole edit is empty", () => {
     const allCut = segments.map((seg) => ({ ...seg, enabled: false }));
     expect(sourceTimeToOutput(10, allCut, hookWith({ enabled: false, end: 0 }))).toBeNull();
+  });
+
+  it("resolves points around a hook pulled from the middle by source containment", () => {
+    // One kept take 0-40, hook sourced from 10-15 → output is hook[10-15] (0-5),
+    // then body[0-10] (5-15), then body[15-40] (15-40).
+    const take: LongformSegment[] = [{ id: "1", start: 0, end: 40, kind: "speech", enabled: true }];
+    const moved = hookWith({ enabled: true, start: 10, end: 15 });
+    // A source point inside the hook window maps to the front.
+    expect(sourceTimeToOutput(12, take, moved)).toBeCloseTo(2, 3);
+    // A source point before the hook window plays after it: src 5 → 5s hook + 5s.
+    expect(sourceTimeToOutput(5, take, moved)).toBeCloseTo(10, 3);
+    // A source point after the hook window: src 20 → 5 (hook) + 10 (body 0-10) + 5.
+    expect(sourceTimeToOutput(20, take, moved)).toBeCloseTo(20, 3);
   });
 });
