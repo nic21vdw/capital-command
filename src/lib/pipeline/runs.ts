@@ -8,6 +8,7 @@ import { startLongformExport } from "@/lib/longform/render";
 import { createProject, getProject, projectOutputDir, updateProject } from "@/lib/longform/store";
 import type { LongformProject } from "@/lib/longform/types";
 import { generatePipelinePosts } from "@/lib/pipeline/posts";
+import { realisticImagePrompt, visualMomentFromClips } from "@/lib/pipeline/visual-brief";
 import type {
   PipelineRun,
   PipelineRunOverview,
@@ -377,6 +378,14 @@ function imagesStage(run: PipelineRun, project: LongformProject | undefined, sli
   return stage("waiting", "Written from the transcript once analysis finishes.");
 }
 
+function visualsStage(run: PipelineRun, job: ClipJob | undefined, ready: boolean): PipelineStage {
+  if (run.status !== "running") return stage("waiting", "Waiting for the source.");
+  if (!job) return stage("waiting", "Waiting for the clip analysis.");
+  if (ready) return stage("ready", "Best transcript moment ready for a realistic screenshot ad");
+  if (job.status === "error") return stage("skipped", "No strong transcript moment was available.");
+  return stage("waiting", "Choosing the strongest transcript moment and frame.");
+}
+
 function postsStage(run: PipelineRun): PipelineStage {
   if (run.status !== "running") return stage("waiting", "Waiting for the source.");
   if (run.posts && run.posts.length > 0) {
@@ -425,6 +434,10 @@ export async function runOverview(run: PipelineRun): Promise<PipelineRunOverview
   const longformReady = Boolean(exportRecord?.status === "done" && exportRecord.file);
   const audioReady = Boolean(exportRecord?.audioFile);
   const posts = run.posts?.length ?? 0;
+  const moment = visualMomentFromClips(job?.clips ?? [], job?.sourceCaptions ?? []);
+  const visualMoment = moment
+    ? { ...moment, prompt: realisticImagePrompt(moment, run.name) }
+    : undefined;
 
   const stages = {
     source: sourceStage(run),
@@ -432,12 +445,19 @@ export async function runOverview(run: PipelineRun): Promise<PipelineRunOverview
     clips: clipsStage(run, job),
     audio: audioStage(run, project),
     images: imagesStage(run, project, slideCount),
+    visuals: visualsStage(run, job, Boolean(visualMoment)),
     posts: postsStage(run),
     schedule: stage("waiting", "")
   };
 
-  const readyItems = clipsReady + (longformReady ? 1 : 0) + (audioReady ? 1 : 0) + (slideCount > 0 ? 1 : 0) + posts;
-  const upstreamSettled = (["longform", "clips", "audio", "images", "posts"] as const).every(
+  const readyItems =
+    clipsReady +
+    (longformReady ? 1 : 0) +
+    (audioReady ? 1 : 0) +
+    (slideCount > 0 ? 1 : 0) +
+    (visualMoment ? 1 : 0) +
+    posts;
+  const upstreamSettled = (["longform", "clips", "audio", "images", "visuals", "posts"] as const).every(
     (key) => stages[key].status !== "running" && stages[key].status !== "waiting"
   );
   if (run.status === "error") {
@@ -454,7 +474,16 @@ export async function runOverview(run: PipelineRun): Promise<PipelineRunOverview
   return {
     run,
     stages,
-    schedulable: { clipsReady, longformReady, audioReady, carouselSlides: slideCount, posts, queued },
+    visualMoment,
+    schedulable: {
+      clipsReady,
+      longformReady,
+      audioReady,
+      carouselSlides: slideCount,
+      visualAdReady: Boolean(visualMoment),
+      posts,
+      queued
+    },
     settled:
       run.status === "error" ||
       (upstreamSettled && stages.source.status !== "running" && stages.schedule.status !== "running")

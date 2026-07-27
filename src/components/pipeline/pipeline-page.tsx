@@ -14,6 +14,7 @@ import {
   Loader2,
   Podcast,
   Scissors,
+  Sparkles,
   Trash2,
   Upload,
   UploadCloud,
@@ -25,6 +26,7 @@ import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { PageHeader } from "@/components/ui/page-header";
 import { Progress } from "@/components/ui/progress";
+import { VisualAdComposer } from "@/components/pipeline/visual-ad-composer";
 import { cn } from "@/lib/utils";
 import type {
   PipelinePost,
@@ -455,6 +457,16 @@ export function PipelinePage() {
             )}
           </StageRow>
 
+          <StageRow icon={Sparkles} title="Realistic visual ads" stage={stages.visuals}>
+            {active.visualMoment && (
+              <VisualAdComposer
+                sourceId={run.sourceId}
+                streamName={run.name}
+                moment={active.visualMoment}
+              />
+            )}
+          </StageRow>
+
           <StageRow icon={AtSign} title="Text-only posts" stage={stages.posts}>
             {run.posts && run.posts.length > 0 && (
               <div className="mt-3 space-y-2">
@@ -490,6 +502,7 @@ export function PipelinePage() {
                   <span>{schedulable.longformReady ? "1 long-form video" : "long-form pending"}</span>
                   <span>{schedulable.audioReady ? "1 MP3" : "MP3 pending"}</span>
                   <span>{schedulable.carouselSlides > 0 ? `${schedulable.carouselSlides} slides` : "slides pending"}</span>
+                  <span>{schedulable.visualAdReady ? "visual ad ready" : "visual ad pending"}</span>
                   <span>{schedulable.posts} posts</span>
                   {schedulable.queued > 0 && <span className="text-emerald-300">{schedulable.queued} queued</span>}
                 </div>
