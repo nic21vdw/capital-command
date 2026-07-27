@@ -50,6 +50,19 @@ function Write-Log($message) {
   Write-Output $message
 }
 
+# Tee-Object is what you would reach for here, but on Windows PowerShell 5.1 it
+# has no -Encoding parameter and writes UTF-16LE. Mixed with the UTF-8 that
+# Write-Log produces, the log becomes half unreadable and, worse, invisible to
+# any line-based tooling: grep matched none of the Tee-written lines, so a log
+# watcher sat silent through a whole run. This streams the same output while
+# keeping one encoding for the whole file.
+function Write-Piped {
+  process {
+    Write-Output $_
+    Add-Content -Path $log -Value $_ -Encoding utf8
+  }
+}
+
 function Stop-App {
   # Only ever the local port this script manages; a remote APP_BASE_URL is not
   # ours to stop.
@@ -107,7 +120,7 @@ if ($needsRebuild) {
   # it, which is the same path a crash already takes.
   if (Stop-App) { Write-Log "Stopped the running app so the build can replace it." }
 
-  & npm.cmd run build 2>&1 | Tee-Object -FilePath $log -Append
+  & npm.cmd run build 2>&1 | Write-Piped
 
   # `next build` has exited 0 without producing a build here before (OneDrive
   # grabbing files mid-trace), so the artifact is what gets trusted, not the
@@ -146,7 +159,7 @@ if (-not (Test-App)) {
 $scanArgs = @("tsx", "src/lib/ingest/cli.ts", "scan", "--limit", "2")
 if ($args.Count -gt 0) { $scanArgs += $args }
 
-& npx.cmd @scanArgs 2>&1 | Tee-Object -FilePath $log -Append
+& npx.cmd @scanArgs 2>&1 | Write-Piped
 $code = $LASTEXITCODE
 
 if ($startedByUs) {
