@@ -393,6 +393,126 @@ td {
   animation: fade-up 0.35s cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
+/*
+  Stream Pipeline motion
+  ----------------------
+  The home screen opens as one big search bar; submitting a stream lifts it to
+  the top and the flow builds under it. Everything below exists so a run that
+  takes minutes still reads as alive: the rail carries a pulse into whatever is
+  working, the working node breathes, and its card catches a slow sheen.
+*/
+
+@keyframes pipeline-hero-lift {
+  from {
+    opacity: 0;
+    transform: translateY(14px) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes pipeline-rail-flow {
+  from {
+    transform: translateY(-120%);
+  }
+  to {
+    transform: translateY(220%);
+  }
+}
+
+@keyframes pipeline-node-pulse {
+  0% {
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--accent) 40%, transparent);
+  }
+  70% {
+    box-shadow: 0 0 0 9px color-mix(in srgb, var(--accent) 0%, transparent);
+  }
+  100% {
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--accent) 0%, transparent);
+  }
+}
+
+@keyframes pipeline-card-sheen {
+  from {
+    transform: translateX(-60%);
+  }
+  to {
+    transform: translateX(160%);
+  }
+}
+
+@keyframes pipeline-orbit {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.pipeline-hero-enter {
+  animation: pipeline-hero-lift 0.5s var(--ease-ios-spring) both;
+}
+
+.pipeline-rail-live {
+  position: relative;
+  overflow: hidden;
+}
+
+.pipeline-rail-live::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  height: 44%;
+  background: linear-gradient(to bottom, transparent, var(--accent), transparent);
+  animation: pipeline-rail-flow 1.5s linear infinite;
+}
+
+.pipeline-node-live {
+  animation: pipeline-node-pulse 1.9s var(--ease-ios) infinite;
+}
+
+.pipeline-card-live {
+  position: relative;
+  overflow: hidden;
+}
+
+.pipeline-card-live::after {
+  content: "";
+  position: absolute;
+  inset: -1px;
+  width: 45%;
+  background: linear-gradient(
+    100deg,
+    transparent,
+    color-mix(in srgb, var(--accent) 12%, transparent),
+    transparent
+  );
+  animation: pipeline-card-sheen 2.6s var(--ease-ios) infinite;
+  pointer-events: none;
+}
+
+.pipeline-orbit {
+  animation: pipeline-orbit 2.4s linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pipeline-rail-live::after,
+  .pipeline-card-live::after {
+    display: none;
+  }
+
+  .pipeline-node-live,
+  .pipeline-orbit,
+  .pipeline-hero-enter {
+    animation: none;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
