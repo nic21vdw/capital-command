@@ -55,6 +55,10 @@ both. Two accounts posting the same wording would read as mirrored spam.
   point is that an offline morning can't dump a backlog into the feed.
 - A slot is past/future by its OWN time, never the per-account offset, so the
   accounts can never drift out of step at the edges of the day.
+- Planning is CHECK, generate (minutes), then APPEND — three steps, not one
+  atomic write. The append re-checks that nothing landed on the day meanwhile
+  and drops its own batch if it lost the race; without that, two overlapping
+  ticks each see an empty day and every slot gets posted twice.
 - Never put a token in an API response or a log line — the route exposes only
   each account's id, label, version and offset.
 - See `src/lib/threads/README.md`.
