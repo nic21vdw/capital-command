@@ -381,8 +381,14 @@ function audioStage(run: PipelineRun, project: LongformProject | undefined): Pip
 function imagesStage(run: PipelineRun, project: LongformProject | undefined, slideCount: number): PipelineStage {
   if (run.status !== "running") return stage("waiting", "Waiting for the source.");
   if (run.carouselId) {
+    // No slides behind the id means the carousel was deleted from the Studio.
+    // Reporting DEFAULT_SLIDE_COUNT here claimed "8 carousel slides written"
+    // for a carousel that no longer exists — the same phrasing the clips stage
+    // uses for a missing job, since the count is best-effort and a failed read
+    // looks identical to a deletion.
+    if (slideCount === 0) return stage("error", "The carousel is gone — it may have been deleted.");
     const note = run.carouselNote ? ` (${run.carouselNote})` : "";
-    return stage("ready", `${slideCount || DEFAULT_SLIDE_COUNT} carousel slides written${note}`);
+    return stage("ready", `${slideCount} carousel slides written${note}`);
   }
   // Attempted and gave up: a note with no carousel. Reported as skipped, never
   // as ready — there is nothing here anyone should schedule.
