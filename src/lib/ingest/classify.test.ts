@@ -162,6 +162,40 @@ describe("decideUpload", () => {
   });
 });
 
+describe("already in the pipeline", () => {
+  const inPipeline = {
+    publishedPostIds: new Set<string>(),
+    ingestedVideoIds: new Set<string>(),
+    pipelineVideoIds: new Set(["vid-1"])
+  };
+
+  // The gap a real dry run found: a stream run through the pipeline by hand is
+  // invisible to both the publish queue and the ledger, so the first scan would
+  // re-download and re-clip the whole thing.
+  it("skips a video that is already a pipeline run's source", () => {
+    expect(decideUpload(upload({ wasLiveStream: true }), inPipeline)).toEqual({
+      action: "skip",
+      reason: "already-in-the-pipeline"
+    });
+  });
+
+  it("still ingests a stream the pipeline has not seen", () => {
+    expect(decideUpload(upload({ videoId: "vid-2", wasLiveStream: true }), inPipeline).action).toBe("ingest");
+  });
+
+  // Provenance is the certain check and stays first.
+  it("reports provenance ahead of the pipeline guard", () => {
+    const both = { ...inPipeline, publishedPostIds: new Set(["vid-1"]) };
+    expect(decideUpload(upload(), both).reason).toBe("published-by-distribution-centre");
+  });
+
+  // Absent set = the pipeline could not be read. It must not crash or start
+  // skipping everything.
+  it("is inert when the pipeline could not be read", () => {
+    expect(decideUpload(upload({ wasLiveStream: true }), nothingSeen).action).toBe("ingest");
+  });
+});
+
 describe("live-only mode", () => {
   const liveOnly = { liveOnly: true };
 

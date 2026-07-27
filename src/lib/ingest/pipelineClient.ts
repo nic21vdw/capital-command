@@ -90,6 +90,51 @@ export async function fetchOverviews(): Promise<PipelineRunOverview[]> {
   return Array.isArray(runs) ? (runs as PipelineRunOverview[]) : [];
 }
 
+/**
+ * The YouTube video id in a watch URL, or null for anything else.
+ *
+ * Tolerant of the query junk a real link carries — `&t=5571s`, playlist ids,
+ * `si=` share tokens — because these come from whatever was pasted into the
+ * pipeline by hand, not from a canonical source.
+ */
+export function videoIdFromUrl(url: string | undefined): string | null {
+  if (!url) return null;
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    return null;
+  }
+  const host = parsed.hostname.replace(/^www\./, "");
+  if (host === "youtu.be") {
+    const id = parsed.pathname.slice(1).split("/")[0];
+    return id || null;
+  }
+  if (host !== "youtube.com" && host !== "m.youtube.com" && host !== "music.youtube.com") return null;
+  const v = parsed.searchParams.get("v");
+  if (v) return v;
+  // /live/<id>, /shorts/<id>, /embed/<id>
+  const match = /^\/(?:live|shorts|embed)\/([^/?#]+)/.exec(parsed.pathname);
+  return match ? match[1] : null;
+}
+
+/**
+ * Videos the pipeline has already taken in, by id.
+ *
+ * The third provenance guard. The publish queue only knows what this app
+ * *published*; the ledger only knows what a previous SCAN took in. A stream
+ * run through the pipeline by hand is invisible to both, and would be
+ * re-downloaded and re-clipped from scratch on the first scan.
+ */
+export async function pipelineSourceVideoIds(): Promise<Set<string>> {
+  const ids = new Set<string>();
+  for (const overview of await fetchOverviews()) {
+    const id = videoIdFromUrl(overview.run.sourceUrl);
+    if (id) ids.add(id);
+  }
+  return ids;
+}
+
 export type PipelineWaitResult = {
   outcome: "ready" | "error" | "timeout";
   error?: string;
