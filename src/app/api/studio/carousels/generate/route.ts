@@ -92,6 +92,13 @@ export async function POST(request: NextRequest) {
     sourceId
   });
 
+  // Only null when `requireModel` is set, which this route does not do — the
+  // Studio keeps its fallback, since someone is looking at the result and can
+  // rewrite it. Narrowed rather than asserted so that stays true if it changes.
+  if (!carousel) {
+    return NextResponse.json({ error: reason ?? "Could not write a carousel." }, { status: 502 });
+  }
+
   await writeAppData({ ...data, videoStudio: { ...studio, carousels: [carousel, ...studio.carousels] } });
   return NextResponse.json({ carousel, reason, configured: carouselGenerationConfigured() });
 }

@@ -136,44 +136,84 @@ export function toCarouselRecord(input: {
  * Writes carousel copy from source text in one Claude call. Never throws —
  * falls back to sentence-split slides with a reason.
  */
+/**
+ * How many times to ask the model before giving up. The free endpoint declines
+ * or drops a request often enough that one attempt is not a fair test, and the
+ * cost of a retry is far lower than the cost of shipping the fallback.
+ */
+const CAROUSEL_ATTEMPTS = 3;
+
 export async function generateCarousel(input: {
   title: string;
   sourceText: string;
   slideCount: number;
   sourceType: Carousel["sourceType"];
   sourceId?: string;
-}): Promise<{ carousel: Carousel; reason: string | null }> {
+  /**
+   * Return `carousel: null` instead of transcript-derived slides when the model
+   * cannot be reached.
+   *
+   * The fallback exists for the Video Studio, where a person is looking at the
+   * result and can rewrite it. Unattended — the Stream Pipeline — it is worse
+   * than nothing: `fallbackCarousel` slices the transcript, which reads as
+   * broken mid-sentence thoughts and is exactly what the channel's copy
+   * conventions forbid. Silently counting those as slides "ready to schedule"
+   * is how unusable copy reaches a queue.
+   */
+  requireModel?: boolean;
+}): Promise<{ carousel: Carousel | null; reason: string | null }> {
   const slideCount = Math.max(MIN_SLIDES, Math.min(MAX_SLIDES, input.slideCount || DEFAULT_SLIDE_COUNT));
-  const fallback = () =>
-    toCarouselRecord({ ...fallbackCarousel({ ...input, slideCount }), sourceType: input.sourceType, sourceId: input.sourceId });
-
-  if (!carouselGenerationConfigured()) {
-    return { carousel: fallback(), reason: "AI is not configured — built simple slides from the text instead." };
-  }
-  try {
-    const result = await runAi({
-      maxTokens: 3000,
-      system: CAROUSEL_SYSTEM_PROMPT,
-      messages: [{ role: "user", content: buildCarouselPrompt({ title: input.title, sourceText: input.sourceText, slideCount }) }]
-    });
-    if (!result || result.refused) {
-      return { carousel: fallback(), reason: "The model was unavailable or declined — built simple slides instead." };
-    }
-    const parsed = parseCarousel(result.text);
-    if (!parsed) {
-      return { carousel: fallback(), reason: "Could not read the carousel output — built simple slides instead." };
-    }
+  const give = (reason: string): { carousel: Carousel | null; reason: string } => {
+    if (input.requireModel) return { carousel: null, reason };
     return {
       carousel: toCarouselRecord({
-        title: parsed.title === "Carousel" ? input.title : parsed.title,
-        slides: parsed.slides,
+        ...fallbackCarousel({ ...input, slideCount }),
         sourceType: input.sourceType,
         sourceId: input.sourceId
       }),
-      reason: null
+      reason
     };
-  } catch (error) {
-    const message = error instanceof Error ? error.message : "unknown error";
-    return { carousel: fallback(), reason: `Carousel generation failed (${message}) — built simple slides instead.` };
+  };
+
+  if (!carouselGenerationConfigured()) {
+    return give("AI is not configured — built simple slides from the text instead.");
   }
+
+  let last = "The model was unavailable or declined.";
+  for (let attempt = 1; attempt <= CAROUSEL_ATTEMPTS; attempt += 1) {
+    try {
+      const result = await runAi({
+        maxTokens: 3000,
+        system: CAROUSEL_SYSTEM_PROMPT,
+        messages: [
+          { role: "user", content: buildCarouselPrompt({ title: input.title, sourceText: input.sourceText, slideCount }) }
+        ]
+      });
+      if (!result || result.refused) {
+        last = "The model was unavailable or declined.";
+      } else {
+        const parsed = parseCarousel(result.text);
+        if (parsed) {
+          return {
+            carousel: toCarouselRecord({
+              title: parsed.title === "Carousel" ? input.title : parsed.title,
+              slides: parsed.slides,
+              sourceType: input.sourceType,
+              sourceId: input.sourceId
+            }),
+            reason: null
+          };
+        }
+        last = "Could not read the carousel output.";
+      }
+    } catch (error) {
+      last = `Carousel generation failed (${error instanceof Error ? error.message : "unknown error"}).`;
+    }
+  }
+
+  return give(
+    input.requireModel
+      ? `${last} Tried ${CAROUSEL_ATTEMPTS} times — no slides written rather than slicing the transcript.`
+      : `${last} Built simple slides instead.`
+  );
 }

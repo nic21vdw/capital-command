@@ -248,16 +248,31 @@ export async function advanceRun(run: PipelineRun): Promise<void> {
     });
   }
 
-  // Transcript ready → write the carousel images copy from it.
-  if (project && project.status === "ready" && project.transcript.length > 0 && !run.carouselId) {
+  // Transcript ready → write the carousel images copy from it. `carouselNote`
+  // doubles as the "already tried and failed" marker: without it this step
+  // would re-run on every poll, and each attempt now costs three model calls.
+  if (
+    project &&
+    project.status === "ready" &&
+    project.transcript.length > 0 &&
+    !run.carouselId &&
+    !run.carouselNote
+  ) {
     void step(run, "carousel", async () => {
       const { carousel, reason } = await generateCarousel({
         title: run.name,
         sourceText: project.transcript.map((segment) => segment.text).join(" "),
         slideCount: DEFAULT_SLIDE_COUNT,
         sourceType: "longform",
-        sourceId: project.id
+        sourceId: project.id,
+        // Nobody is watching this one. Transcript-sliced slides would be
+        // counted as "ready to schedule" and could reach a queue unread.
+        requireModel: true
       });
+      if (!carousel) {
+        await update(run, { carouselNote: reason ?? "No carousel slides were written." });
+        return;
+      }
       const data = await readAppData();
       const studio = data.videoStudio ?? defaultVideoStudio;
       await writeAppData({ ...data, videoStudio: { ...studio, carousels: [carousel, ...studio.carousels] } });
@@ -369,6 +384,9 @@ function imagesStage(run: PipelineRun, project: LongformProject | undefined, sli
     const note = run.carouselNote ? ` (${run.carouselNote})` : "";
     return stage("ready", `${slideCount || DEFAULT_SLIDE_COUNT} carousel slides written${note}`);
   }
+  // Attempted and gave up: a note with no carousel. Reported as skipped, never
+  // as ready — there is nothing here anyone should schedule.
+  if (run.carouselNote) return stage("skipped", run.carouselNote);
   if (project?.status === "error") return stage("skipped", "Needs the transcript, and analysis failed.");
   if (project?.status === "ready" && project.transcript.length === 0) {
     return stage("skipped", "No transcript came out of this stream to write slides from.");
