@@ -7,6 +7,7 @@
     "dev": "next dev --port 3000",
     "prebuild": "node scripts/prepare-dev-cache.mjs",
     "build": "next build",
+    "postbuild": "node scripts/stamp-build-commit.mjs",
     "start": "next start --port 3000",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
