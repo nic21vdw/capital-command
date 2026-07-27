@@ -48,10 +48,14 @@ export function isVertical(aspect: ChannelUpload["aspect"]): boolean {
  * @param upload the video, as read from the channel
  * @param seen ids we already know about: everything the publisher posted, and
  *   everything a previous scan took in
+ * @param options `liveOnly` narrows the scan to live stream VODs and leaves
+ *   ordinary uploads alone — the default for the automated daily run, where a
+ *   stream is the thing worth fanning out into every format unattended.
  */
 export function decideUpload(
   upload: ChannelUpload,
-  seen: { publishedPostIds: ReadonlySet<string>; ingestedVideoIds: ReadonlySet<string> }
+  seen: { publishedPostIds: ReadonlySet<string>; ingestedVideoIds: ReadonlySet<string> },
+  options: { liveOnly?: boolean } = {}
 ): IngestDecision {
   // Provenance first: this is the only check that is certain, so nothing below
   // ever gets the chance to second-guess it.
@@ -72,6 +76,14 @@ export function decideUpload(
   // shape test entirely — a short technical-difficulties stream still counts.
   if (upload.wasLiveStream) {
     return { action: "ingest", reason: "live-stream" };
+  }
+
+  // Everything below here is an ordinary upload. In live-only mode that is not
+  // what the run is for, so it stops here rather than falling through to the
+  // Short heuristics — the shape of a non-stream is irrelevant when nothing but
+  // streams is being taken in.
+  if (options.liveOnly) {
+    return { action: "skip", reason: "not-a-live-stream" };
   }
 
   const short = upload.durationSec > 0 && upload.durationSec <= SHORT_MAX_SECONDS;
@@ -106,5 +118,7 @@ export function explainDecision(decision: IngestDecision): string {
       return `probably a Short (<= ${SHORT_MAX_SECONDS}s, frame shape unknown) — review by hand`;
     case "not-public":
       return "not public";
+    case "not-a-live-stream":
+      return "not a live stream (live-only scan)";
   }
 }

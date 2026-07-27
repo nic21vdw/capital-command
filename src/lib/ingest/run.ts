@@ -8,26 +8,33 @@ import {
   writeLedger,
   MAX_INGEST_ATTEMPTS
 } from "@/lib/ingest/ledger";
+import {
+  AppUnreachableError,
+  appBaseUrl,
+  startPipelineRun,
+  waitForPipelineRun
+} from "@/lib/ingest/pipelineClient";
 import type { IngestLedger, IngestRecord, ScanCandidate } from "@/lib/ingest/types";
-import { createProjectFromUrl, getProject } from "@/lib/longform/store";
 import { publishQueue } from "@/lib/publisher/queue";
 
 /**
- * The daily scan, end to end: read the channel, decide, take in what is new.
+ * The daily scan, end to end: read the channel, decide, hand what is new to the
+ * Stream Pipeline and wait for it to fan out.
  *
- * Ingest stops at an analyzed long-form project. Nothing here clips or
- * publishes — new content lands in the app for you to look at, and never goes
- * out to a channel unreviewed.
+ * The scan takes a stream all the way through the pipeline — long-form edit,
+ * clips, podcast MP3, carousel, text posts — and stops at "ready to schedule".
+ * It never publishes: every output lands in the app for you to look at, and
+ * nothing goes out to a channel unreviewed.
  */
 
 /**
- * How long to wait for one video's download + analysis. A long stream VOD is a
- * big download; past this the scan stops waiting, records a timeout, and lets
- * the next run retry. The work itself is not cancelled — it keeps going in the
- * app if the app is what is running it.
+ * How long to wait for one stream's full fan-out. A long VOD is a big download
+ * before any of the work starts; past this the scan stops waiting, records a
+ * timeout, and lets the next run re-check. The work itself is not cancelled —
+ * the app keeps going, and tomorrow's scan sees the finished run.
  */
-const DEFAULT_TIMEOUT_MS = 90 * 60 * 1000;
-const POLL_MS = 5000;
+const DEFAULT_TIMEOUT_MS = 4 * 60 * 60 * 1000;
+const POLL_MS = 10_000;
 
 export type ScanReport = {
   configured: boolean;
@@ -71,36 +78,6 @@ export async function publishedPostIds(): Promise<{ ids: Set<string>; queueEmpty
   return { ids, queueEmpty: ids.size === 0 };
 }
 
-/**
- * Waits for a project to reach a terminal state.
- *
- * `createProjectFromUrl` returns immediately and does the download in the
- * background (`void downloadAndAnalyze`), which is right for the web app but
- * would let a one-shot CLI exit mid-download. Polling the store keeps the
- * process alive and turns the fire-and-forget into something a scheduled task
- * can actually report on.
- */
-async function waitForProject(
-  projectId: string,
-  timeoutMs: number,
-  onProgress?: (stage: string, progress: number) => void
-): Promise<{ outcome: "ready" | "error" | "timeout"; error?: string }> {
-  const deadline = Date.now() + timeoutMs;
-  let lastStage = "";
-  while (Date.now() < deadline) {
-    const project = await getProject(projectId);
-    if (!project) return { outcome: "error", error: "The project disappeared from the store." };
-    if (project.stage !== lastStage) {
-      lastStage = project.stage;
-      onProgress?.(project.stage, project.progress);
-    }
-    if (project.status === "ready") return { outcome: "ready" };
-    if (project.status === "error") return { outcome: "error", error: project.error ?? "Analysis failed." };
-    await new Promise((resolve) => setTimeout(resolve, POLL_MS));
-  }
-  return { outcome: "timeout" };
-}
-
 export type RunOptions = {
   now?: Date;
   accountId?: string;
@@ -111,6 +88,14 @@ export type RunOptions = {
    *  turning one scheduled run into an all-day download. */
   limit?: number;
   timeoutMs?: number;
+  pollMs?: number;
+  /**
+   * Take in live stream VODs only and leave ordinary uploads alone. On by
+   * default: the scheduled run exists to catch streams, and a stream is the
+   * thing worth fanning out into every format without being asked. Pass false
+   * to take in long-form uploads too.
+   */
+  liveOnly?: boolean;
   log?: (message: string) => void;
 };
 
@@ -119,6 +104,8 @@ export async function runDailyScan(options: RunOptions = {}): Promise<ScanReport
   const dryRun = options.dryRun ?? false;
   const limit = options.limit ?? 3;
   const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+  const pollMs = options.pollMs ?? POLL_MS;
+  const liveOnly = options.liveOnly ?? true;
   const now = options.now ?? new Date();
 
   const scan = await scanChannelUploads({
@@ -169,10 +156,13 @@ export async function runDailyScan(options: RunOptions = {}): Promise<ScanReport
 
   const candidates: ScanCandidate[] = scan.uploads.map((upload) => ({
     upload,
-    decision: decideUpload(upload, seen)
+    decision: decideUpload(upload, seen, { liveOnly })
   }));
 
-  log(`Found ${candidates.length} upload(s) in the lookback window.`);
+  log(
+    `Found ${candidates.length} upload(s) in the lookback window` +
+      (liveOnly ? " (live streams only)." : ".")
+  );
   for (const candidate of candidates) {
     const verb = candidate.decision.action === "ingest" ? "INGEST" : "skip  ";
     log(`  ${verb}  ${candidate.upload.videoId}  ${explainDecision(candidate.decision)}  ${candidate.upload.title}`);
@@ -203,6 +193,8 @@ export async function runDailyScan(options: RunOptions = {}): Promise<ScanReport
     log(`Taking the oldest ${limit} of ${toIngest.length}; the rest are picked up by the next run.`);
   }
 
+  log(`Handing streams to the pipeline at ${appBaseUrl()}.`);
+
   for (const candidate of toIngest.slice(0, limit)) {
     const { upload } = candidate;
     const attempts = attemptsFor(ledger, upload.videoId) + 1;
@@ -210,20 +202,34 @@ export async function runDailyScan(options: RunOptions = {}): Promise<ScanReport
 
     let record: IngestRecord;
     try {
-      const project = await createProjectFromUrl(upload.url, upload.title);
-      const result = await waitForProject(project.id, timeoutMs, (stage, progress) =>
-        log(`    ${stage} ${progress}%`)
-      );
+      const runId = await startPipelineRun(upload.url, upload.title);
+      log(`    pipeline run ${runId} started`);
+      const result = await waitForPipelineRun(runId, timeoutMs, pollMs, (line) => log(`    ${line}`));
+
+      const schedulable = result.overview?.schedulable;
       record = {
         videoId: upload.videoId,
         title: upload.title,
-        projectId: project.id,
+        runId,
+        projectId: result.overview?.run.longformProjectId ?? null,
         ingestedAt: new Date().toISOString(),
         outcome: result.outcome,
         attempts,
+        ...(schedulable
+          ? {
+              outputs: {
+                clipsReady: schedulable.clipsReady,
+                longformReady: schedulable.longformReady,
+                audioReady: schedulable.audioReady,
+                carouselSlides: schedulable.carouselSlides,
+                posts: schedulable.posts
+              }
+            }
+          : {}),
         ...(result.error ? { error: result.error } : {})
       };
-      if (result.outcome === "ready") log(`    ready — project ${project.id}`);
+
+      if (result.outcome === "ready") log(`    ready — ${summarizeOutputs(record)}`);
       else if (result.outcome === "timeout") log(`    still running after the timeout; will re-check next run`);
       else log(`    failed: ${result.error}`);
     } catch (error) {
@@ -231,6 +237,7 @@ export async function runDailyScan(options: RunOptions = {}): Promise<ScanReport
       record = {
         videoId: upload.videoId,
         title: upload.title,
+        runId: null,
         projectId: null,
         ingestedAt: new Date().toISOString(),
         outcome: "error",
@@ -238,6 +245,17 @@ export async function runDailyScan(options: RunOptions = {}): Promise<ScanReport
         error: message
       };
       log(`    failed to start: ${message}`);
+      if (error instanceof AppUnreachableError) {
+        // Nothing will succeed until the app is back up. Recording this video
+        // and stopping beats burning an attempt on every remaining stream for
+        // the same reason — three unreachable days would otherwise abandon the
+        // whole backlog.
+        ingested.push(record);
+        ledger = upsertRecord(ledger, record);
+        await writeLedger({ ...ledger, lastScanAt: new Date().toISOString() });
+        log("Stopping the scan: the app is not reachable, so nothing else can be handed over either.");
+        break;
+      }
     }
 
     ingested.push(record);
@@ -261,6 +279,21 @@ export async function runDailyScan(options: RunOptions = {}): Promise<ScanReport
     needsReview,
     dryRun
   };
+}
+
+/** What a settled run produced, in one line for the log and the report. */
+export function summarizeOutputs(record: IngestRecord): string {
+  const outputs = record.outputs;
+  if (!outputs) return `run ${record.runId ?? "?"}`;
+  const parts = [
+    outputs.longformReady ? "long-form edit" : null,
+    outputs.clipsReady > 0 ? `${outputs.clipsReady} clip${outputs.clipsReady === 1 ? "" : "s"}` : null,
+    outputs.audioReady ? "podcast MP3" : null,
+    outputs.carouselSlides > 0 ? `${outputs.carouselSlides}-slide carousel` : null,
+    outputs.posts > 0 ? `${outputs.posts} text post${outputs.posts === 1 ? "" : "s"}` : null
+  ].filter(Boolean);
+  if (parts.length === 0) return `run ${record.runId ?? "?"} settled with no outputs`;
+  return `run ${record.runId ?? "?"}: ${parts.join(", ")} ready to schedule`;
 }
 
 /** Ledger shape for callers that only want to read it (e.g. a dashboard panel). */

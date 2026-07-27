@@ -39,7 +39,8 @@ export type IngestDecision =
         | "already-ingested"
         | "short-vertical"
         | "probable-short-unknown-aspect"
-        | "not-public";
+        | "not-public"
+        | "not-a-live-stream";
       /** True when the skip is a judgement call the human may want to overturn. */
       needsReview?: boolean;
     };
@@ -49,15 +50,28 @@ export type ScanCandidate = {
   decision: IngestDecision;
 };
 
+/** What one settled pipeline run produced, recorded so the report can say it. */
+export type IngestOutputs = {
+  clipsReady: number;
+  longformReady: boolean;
+  audioReady: boolean;
+  carouselSlides: number;
+  posts: number;
+};
+
 /** One entry in the ledger of what the scan has already taken in. */
 export type IngestRecord = {
   videoId: string;
   title: string;
-  /** The long-form project the video became, when ingest got that far. */
+  /** The pipeline run the video was handed to, when the scan got that far. */
+  runId: string | null;
+  /** The long-form project inside that run, once the run created one. */
   projectId: string | null;
   ingestedAt: string;
-  /** Terminal outcome of the download+analysis, for the next run's report. */
+  /** Terminal outcome of the whole pipeline run, for the next run's report. */
   outcome: "ready" | "error" | "timeout";
+  /** What the run produced, once it settled. */
+  outputs?: IngestOutputs;
   /**
    * How many scans have tried this video. Only `ready` is done; anything else is
    * retried tomorrow until the cap, so one bad download does not silently

@@ -16,6 +16,24 @@ idempotent behind an id check.
   a stage in `runs.ts` (+ `types.ts`), a row in
   `src/components/pipeline/pipeline-page.tsx`, and a count in the
   scheduler-stage summary.
+- Pipeline runs are owned by ONE process: a `globalThis` Map flushed to
+  `data/pipeline/runs.json`. Anything outside the Next server that wants to
+  start or advance a run must go through the HTTP API (`POST /api/pipeline`,
+  `GET /api/pipeline`) — see `src/lib/ingest/pipelineClient.ts`. Importing
+  `@/lib/pipeline/runs` from a separate process (a CLI, a scheduled task)
+  gives it a second copy of that Map and the two clobber each other's
+  `runs.json`.
+
+## Automatic channel ingest (`src/lib/ingest`)
+
+A daily scan reads the YouTube channel and runs each NEW LIVE STREAM through
+the whole Stream Pipeline unattended, stopping at "ready to schedule" — it
+never publishes. Live streams only by default (`--all` widens it to ordinary
+long-form uploads). Two guards stop it re-ingesting the app's own output:
+exact provenance (`platforms.youtube.postId` in the publish queue) and a
+Shorts shape heuristic. The ledger (`data/channel-ingest.json`) records what
+has been taken in; only a SETTLED pipeline run counts as done, so a timeout
+is retried rather than lost. See `src/lib/ingest/README.md`.
 
 ## Clip metadata conventions (titles, descriptions, tags)
 

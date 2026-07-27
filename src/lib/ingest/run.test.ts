@@ -16,6 +16,7 @@ afterEach(() => {
   vi.doUnmock("@/lib/publisher/queue");
   vi.doUnmock("@/lib/ingest/channelScan");
   vi.doUnmock("@/lib/ingest/ledger");
+  vi.doUnmock("@/lib/ingest/pipelineClient");
 });
 
 const anUpload = {
@@ -28,6 +29,53 @@ const anUpload = {
   privacyStatus: "public",
   url: "https://www.youtube.com/watch?v=car-1"
 };
+
+const aStream = {
+  videoId: "stream-1",
+  title: "Sunday build stream",
+  publishedAt: "2026-07-26T08:00:00.000Z",
+  durationSec: 10_800,
+  aspect: { width: 1920, height: 1080 },
+  wasLiveStream: true,
+  privacyStatus: "public",
+  url: "https://www.youtube.com/watch?v=stream-1"
+};
+
+/** A pipeline that accepts a stream and settles with a full fan-out. */
+function mockPipeline(
+  overrides: {
+    start?: () => Promise<string>;
+    wait?: () => Promise<unknown>;
+  } = {}
+) {
+  const startPipelineRun = vi.fn(overrides.start ?? (async () => "run-1"));
+  const waitForPipelineRun = vi.fn(
+    overrides.wait ??
+      (async () => ({
+        outcome: "ready",
+        overview: {
+          run: { id: "run-1", longformProjectId: "proj-1" },
+          schedulable: {
+            clipsReady: 8,
+            longformReady: true,
+            audioReady: true,
+            carouselSlides: 6,
+            posts: 3,
+            queued: 0
+          }
+        }
+      }))
+  );
+  class AppUnreachableError extends Error {}
+  vi.doMock("@/lib/ingest/pipelineClient", () => ({
+    startPipelineRun,
+    waitForPipelineRun,
+    appBaseUrl: () => "http://localhost:3000",
+    appReachable: async () => true,
+    AppUnreachableError
+  }));
+  return { startPipelineRun, waitForPipelineRun, AppUnreachableError };
+}
 
 function mockScan(uploads: unknown[]) {
   vi.doMock("@/lib/ingest/channelScan", () => ({
@@ -47,6 +95,10 @@ function mockLedger() {
     settledVideoIds: () => new Set<string>(),
     attemptsFor: () => 0,
     abandonedRecords: () => [],
+    upsertRecord: (ledger: { records: unknown[] }, record: unknown) => ({
+      ...ledger,
+      records: [...ledger.records, record]
+    }),
     MAX_INGEST_ATTEMPTS: 3
   }));
 }
@@ -78,7 +130,11 @@ describe("runDailyScan", () => {
 
     const messages: string[] = [];
     const { runDailyScan } = await import("@/lib/ingest/run");
-    const report = await runDailyScan({ dryRun: true, log: (message) => messages.push(message) });
+    const report = await runDailyScan({
+      dryRun: true,
+      liveOnly: false,
+      log: (message) => messages.push(message)
+    });
 
     expect(messages.join("\n")).toMatch(/shape alone/);
     expect(report.candidates).toHaveLength(1);
@@ -151,5 +207,114 @@ describe("runDailyScan", () => {
     const { runDailyScan } = await import("@/lib/ingest/run");
     const report = await runDailyScan({});
     expect(report).toMatchObject({ needsReconnect: true, ingested: [] });
+  });
+});
+
+describe("running a stream through the pipeline", () => {
+  function setup() {
+    mockLedger();
+    vi.doMock("@/lib/publisher/queue", () => ({ publishQueue: () => ({ list: async () => [] }) }));
+  }
+
+  it("hands a new live stream to the pipeline and records what it produced", async () => {
+    mockScan([aStream]);
+    setup();
+    const pipeline = mockPipeline();
+
+    const { runDailyScan } = await import("@/lib/ingest/run");
+    const report = await runDailyScan({});
+
+    expect(pipeline.startPipelineRun).toHaveBeenCalledWith(aStream.url, aStream.title);
+    expect(report.ingested).toHaveLength(1);
+    expect(report.ingested[0]).toMatchObject({
+      videoId: "stream-1",
+      runId: "run-1",
+      projectId: "proj-1",
+      outcome: "ready",
+      outputs: { clipsReady: 8, longformReady: true, audioReady: true, carouselSlides: 6, posts: 3 }
+    });
+  });
+
+  // The whole point of the scheduled run: it must not stop at a long-form
+  // project the way the first version did.
+  it("waits for the run to settle rather than returning once it starts", async () => {
+    mockScan([aStream]);
+    setup();
+    const pipeline = mockPipeline();
+
+    const { runDailyScan } = await import("@/lib/ingest/run");
+    await runDailyScan({});
+
+    expect(pipeline.waitForPipelineRun).toHaveBeenCalledOnce();
+    expect(pipeline.waitForPipelineRun).toHaveBeenCalledWith(
+      "run-1",
+      expect.any(Number),
+      expect.any(Number),
+      expect.any(Function)
+    );
+  });
+
+  it("leaves ordinary uploads alone by default", async () => {
+    mockScan([anUpload]);
+    setup();
+    const pipeline = mockPipeline();
+
+    const { runDailyScan } = await import("@/lib/ingest/run");
+    const report = await runDailyScan({});
+
+    expect(report.candidates[0].decision).toEqual({ action: "skip", reason: "not-a-live-stream" });
+    expect(pipeline.startPipelineRun).not.toHaveBeenCalled();
+  });
+
+  it("takes ordinary uploads too when asked", async () => {
+    mockScan([anUpload]);
+    setup();
+    const pipeline = mockPipeline();
+
+    const { runDailyScan } = await import("@/lib/ingest/run");
+    await runDailyScan({ liveOnly: false });
+
+    expect(pipeline.startPipelineRun).toHaveBeenCalledWith(anUpload.url, anUpload.title);
+  });
+
+  // A timeout means "still going", not "failed" — the ledger must leave it
+  // unsettled so tomorrow re-checks instead of re-downloading.
+  it("records a still-running pipeline as a timeout, not a success", async () => {
+    mockScan([aStream]);
+    setup();
+    mockPipeline({ wait: async () => ({ outcome: "timeout" }) });
+
+    const { runDailyScan } = await import("@/lib/ingest/run");
+    const report = await runDailyScan({});
+
+    expect(report.ingested[0]).toMatchObject({ outcome: "timeout", runId: "run-1" });
+    expect(report.ingested[0].outputs).toBeUndefined();
+  });
+
+  it("stops the whole scan when the app is unreachable", async () => {
+    mockScan([aStream, { ...aStream, videoId: "stream-2", url: "https://youtu.be/stream-2" }]);
+    setup();
+
+    class AppUnreachableError extends Error {}
+    const startPipelineRun = vi.fn(async () => {
+      throw new AppUnreachableError("app is down");
+    });
+    vi.doMock("@/lib/ingest/pipelineClient", () => ({
+      startPipelineRun,
+      waitForPipelineRun: vi.fn(),
+      appBaseUrl: () => "http://localhost:3000",
+      appReachable: async () => false,
+      AppUnreachableError
+    }));
+
+    const messages: string[] = [];
+    const { runDailyScan } = await import("@/lib/ingest/run");
+    const report = await runDailyScan({ log: (message) => messages.push(message) });
+
+    // One attempt burned, not one per stream.
+    expect(startPipelineRun).toHaveBeenCalledOnce();
+    expect(report.ingested).toHaveLength(1);
+    expect(report.ingested[0].outcome).toBe("error");
+    expect(messages.join("\n")).toMatch(/not reachable/);
   });
 });

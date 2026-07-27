@@ -39,6 +39,7 @@ function record(overrides: Partial<IngestRecord> = {}): IngestRecord {
   return {
     videoId: "vid-1",
     title: "Sunday stream",
+    runId: "run-1",
     projectId: "proj-1",
     ingestedAt: "2026-07-26T12:00:00.000Z",
     outcome: "ready",

@@ -161,3 +161,41 @@ describe("decideUpload", () => {
     );
   });
 });
+
+describe("live-only mode", () => {
+  const liveOnly = { liveOnly: true };
+
+  it("takes in a live stream", () => {
+    expect(decideUpload(upload({ wasLiveStream: true }), nothingSeen, liveOnly)).toEqual({
+      action: "ingest",
+      reason: "live-stream"
+    });
+  });
+
+  it("leaves a long-form upload alone", () => {
+    expect(decideUpload(upload({ durationSec: 1800 }), nothingSeen, liveOnly)).toEqual({
+      action: "skip",
+      reason: "not-a-live-stream"
+    });
+  });
+
+  // The stronger reasons still win, so the report says why in the most useful
+  // terms rather than blaming live-only for everything it did not take.
+  it("keeps reporting the more specific reason", () => {
+    const published = { publishedPostIds: new Set(["vid-1"]), ingestedVideoIds: new Set<string>() };
+    expect(decideUpload(upload(), published, liveOnly).reason).toBe("published-by-distribution-centre");
+    expect(decideUpload(upload({ privacyStatus: "private" }), nothingSeen, liveOnly).reason).toBe("not-public");
+  });
+
+  // A short vertical live stream is still a stream. Live-only must not become a
+  // second Shorts filter.
+  it("does not apply the Short heuristics to a stream", () => {
+    expect(
+      decideUpload(
+        upload({ wasLiveStream: true, durationSec: 90, aspect: { width: 1080, height: 1920 } }),
+        nothingSeen,
+        liveOnly
+      ).action
+    ).toBe("ingest");
+  });
+});
