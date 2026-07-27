@@ -166,11 +166,16 @@ function drawBaseText(ctx: CanvasRenderingContext2D, slide: CarouselSlide, index
   const scale = w / 1080;
   const margin = 80 * scale;
 
-  // Slide counter.
+  // The band the copy is centered inside — the whole slide unless a photo has
+  // claimed the top of it.
+  const bandTop = (slide.textBand?.top ?? 0) * h;
+  const bandBottom = (slide.textBand?.bottom ?? 1) * h;
+
+  // Slide counter — under the photo rather than over it when there is one.
   ctx.fillStyle = COLATERAL_THEME.counter;
   ctx.font = `600 ${34 * scale}px system-ui, -apple-system, sans-serif`;
   ctx.textAlign = "right";
-  ctx.fillText(`${index + 1}/${total}`, w - margin - 0 * scale, 100 * scale);
+  ctx.fillText(`${index + 1}/${total}`, w - margin - 0 * scale, bandTop + 100 * scale);
 
   const isHook = index === 0;
   const headingFont = `800 ${(isHook ? 92 : 72) * scale}px system-ui, -apple-system, sans-serif`;
@@ -182,7 +187,7 @@ function drawBaseText(ctx: CanvasRenderingContext2D, slide: CarouselSlide, index
   const headingLineH = (isHook ? 108 : 86) * scale;
   const bodyLineH = 62 * scale;
   const blockH = headingLines.length * headingLineH + (bodyLines.length ? 40 * scale + bodyLines.length * bodyLineH : 0);
-  let y = (h - blockH) / 2 + (isHook ? 70 : 50) * scale;
+  let y = bandTop + (bandBottom - bandTop - blockH) / 2 + (isHook ? 70 : 50) * scale;
 
   ctx.textAlign = "left";
   ctx.font = headingFont;

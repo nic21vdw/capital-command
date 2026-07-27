@@ -444,13 +444,25 @@ export function PipelinePage() {
           </StageRow>
 
           <StageRow icon={Images} title="Carousel images" stage={stages.images}>
-            {run.carouselId && (
-              <div className="mt-3">
-                <Link href="/carousels">
-                  <Button variant="secondary" className="px-3 py-1.5 text-xs">
-                    Open in Carousels
-                  </Button>
-                </Link>
+            {(run.carouselId || run.longformProjectId) && (
+              <div className="mt-3 flex flex-wrap gap-2">
+                {run.carouselId && (
+                  <Link href="/carousels">
+                    <Button variant="secondary" className="px-3 py-1.5 text-xs">
+                      Open in Carousels
+                    </Button>
+                  </Link>
+                )}
+                {/* The unattended stage writes one text-only carousel. More
+                    batches, or photos on the slides, are a person's call — this
+                    lands on the Carousels page with this stream already picked. */}
+                {run.longformProjectId && (
+                  <Link href={`/carousels?longform=${run.longformProjectId}`}>
+                    <Button variant="secondary" className="px-3 py-1.5 text-xs">
+                      Add photos / more batches
+                    </Button>
+                  </Link>
+                )}
               </div>
             )}
           </StageRow>
