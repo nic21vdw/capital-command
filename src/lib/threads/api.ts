@@ -36,6 +36,26 @@ function endpoint(config: ThreadsConfig, path: string): string {
 
 const FORM_HEADERS = { "Content-Type": "application/x-www-form-urlencoded" };
 
+/** Ids resolved from a token, so the lookup happens once per process. */
+const resolvedIds = new Map<string, string>();
+
+/**
+ * The account's numeric user id — configured, or looked up from the token.
+ *
+ * Meta hands you a token and makes you go hunting for the matching numeric id;
+ * the token already knows it, so leaving THREADS_USER_ID blank is the normal
+ * way to connect an account. Cached per token so a day of posting costs one
+ * extra call at most.
+ */
+export async function accountUserId(account: ThreadsAccount, config: ThreadsConfig): Promise<string> {
+  if (account.userId) return account.userId;
+  const cached = resolvedIds.get(account.accessToken);
+  if (cached) return cached;
+  const profile = await fetchThreadsProfile(account, config);
+  resolvedIds.set(account.accessToken, profile.id);
+  return profile.id;
+}
+
 /** Creates the text container. Returns its creation id. */
 export async function createTextContainer(
   account: ThreadsAccount,
@@ -43,8 +63,9 @@ export async function createTextContainer(
   config: ThreadsConfig = threadsConfig()
 ): Promise<string> {
   const body = new URLSearchParams({ media_type: "TEXT", text, access_token: account.accessToken });
+  const userId = await accountUserId(account, config);
 
-  const data = await fetchJson<CreateResponse>(endpoint(config, `${encodeURIComponent(account.userId)}/threads`), {
+  const data = await fetchJson<CreateResponse>(endpoint(config, `${encodeURIComponent(userId)}/threads`), {
     label: `Threads container create (${account.label})`,
     headers: FORM_HEADERS,
     body
@@ -60,11 +81,13 @@ export async function publishContainer(
   config: ThreadsConfig = threadsConfig()
 ): Promise<string> {
   const body = new URLSearchParams({ creation_id: creationId, access_token: account.accessToken });
+  const userId = await accountUserId(account, config);
 
-  const data = await fetchJson<PublishResponse>(
-    endpoint(config, `${encodeURIComponent(account.userId)}/threads_publish`),
-    { label: `Threads publish (${account.label})`, headers: FORM_HEADERS, body }
-  );
+  const data = await fetchJson<PublishResponse>(endpoint(config, `${encodeURIComponent(userId)}/threads_publish`), {
+    label: `Threads publish (${account.label})`,
+    headers: FORM_HEADERS,
+    body
+  });
   if (!data.id) throw new PermanentError("Threads published the container but returned no post id.");
   return data.id;
 }
@@ -128,7 +151,9 @@ export async function validateThreadsAuth(
   config: ThreadsConfig = threadsConfig()
 ): Promise<{ id: string; username: string | null }> {
   const profile = await fetchThreadsProfile(account, config);
-  if (profile.id !== account.userId) {
+  // Only a user id given by hand can disagree with the token; a resolved one
+  // came from the token in the first place.
+  if (account.userId && profile.id !== account.userId) {
     throw new PermanentError(
       `The ${account.label} token belongs to Threads user ${profile.id}${
         profile.username ? ` (@${profile.username})` : ""

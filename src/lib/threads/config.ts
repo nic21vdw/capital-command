@@ -19,8 +19,12 @@ export type ThreadsAccount = {
   id: string;
   /** Handle or nickname, for logs and the dashboard. Falls back to the id. */
   label: string;
-  /** The Threads profile's numeric user id (not the handle). */
-  userId: string;
+  /**
+   * The Threads profile's numeric user id. Optional: left unset, it is looked
+   * up once from the token itself, so connecting an account only ever means
+   * pasting the token Meta gives you.
+   */
+  userId: string | null;
   /** Long-lived token with threads_basic + threads_content_publish. */
   accessToken: string;
   /** Which version of each idea this account posts. */
@@ -85,8 +89,9 @@ function version(name: string, fallback: ThreadsVersion): ThreadsVersion {
 
 /**
  * Account slots. The first uses the unsuffixed variables so a single-account
- * setup reads naturally; the second adds `_2`. Each is skipped unless BOTH its
- * id and token are set — a half-configured account would fail every post.
+ * setup reads naturally; the second adds `_2`. An account exists as soon as it
+ * has a token — the user id is optional and resolved from the token when it
+ * isn't given.
  */
 const SLOTS = [
   { id: "primary", suffix: "", defaultPosts: "text" as ThreadsVersion, defaultOffset: 0 },
@@ -96,9 +101,9 @@ const SLOTS = [
 function readAccounts(): ThreadsAccount[] {
   const accounts: ThreadsAccount[] = [];
   for (const slot of SLOTS) {
-    const userId = str(`THREADS_USER_ID${slot.suffix}`);
     const accessToken = str(`THREADS_ACCESS_TOKEN${slot.suffix}`);
-    if (!userId || !accessToken) continue;
+    if (!accessToken) continue;
+    const userId = str(`THREADS_USER_ID${slot.suffix}`);
     accounts.push({
       id: slot.id,
       label: str(`THREADS_LABEL${slot.suffix}`) ?? slot.id,
@@ -143,7 +148,7 @@ export function findAccount(config: ThreadsConfig, accountId: string): ThreadsAc
 export function threadsBlockedReason(config: ThreadsConfig = threadsConfig()): string | null {
   if (!config.enabled) return "The Threads autopilot is switched off (THREADS_ENABLED=false).";
   if (config.accounts.length === 0) {
-    return "No Threads account is connected — set THREADS_USER_ID and THREADS_ACCESS_TOKEN in .env.";
+    return "No Threads account is connected — paste a token into THREADS_ACCESS_TOKEN in .env.";
   }
   return null;
 }

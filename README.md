@@ -304,10 +304,10 @@ tells you the other half of the pack is going unused.
    public.
 3. On the Threads use case's **Settings** tab, under *User Token Generator*,
    generate a long-lived token for each account.
-4. In `.env`, fill in `THREADS_USER_ID` / `THREADS_ACCESS_TOKEN` for the first
-   account and `THREADS_USER_ID_2` / `THREADS_ACCESS_TOKEN_2` for the second
-   (the numeric id, not the @handle). Everything else has a working default —
-   see `.env.example` for the full list.
+4. In `.env`, paste the tokens into `THREADS_ACCESS_TOKEN` and
+   `THREADS_ACCESS_TOKEN_2`. That's all that's required — each account's
+   numeric user id is looked up from its own token, so you never have to go
+   find it. Everything else has a working default; see `.env.example`.
 5. `npm run threads:check` — confirms each token works and belongs to its id.
 6. `npm run threads:dry` — plans today's batch and prints exactly what each
    account would post, without posting anything.

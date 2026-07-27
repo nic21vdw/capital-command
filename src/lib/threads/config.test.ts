@@ -58,7 +58,15 @@ describe("threadsConfig", () => {
     expect(threadsBlockedReason(config)).toBeNull();
   });
 
-  it("ignores a half-configured account rather than failing every post", () => {
+  it("connects on the token alone, leaving the id to be resolved from it", () => {
+    process.env.THREADS_ACCESS_TOKEN = "token-1";
+    const [primary] = threadsConfig().accounts;
+
+    expect(primary).toMatchObject({ id: "primary", userId: null });
+    expect(threadsBlockedReason(threadsConfig())).toBeNull();
+  });
+
+  it("ignores an account with an id but no token — it could never post", () => {
     connectPrimary();
     process.env.THREADS_USER_ID_2 = "222";
     expect(threadsConfig().accounts.map((account) => account.id)).toEqual(["primary"]);

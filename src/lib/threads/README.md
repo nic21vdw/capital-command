@@ -71,8 +71,10 @@ label, assigned version and offset, and nothing else.
    must be public.
 3. Generate a long-lived token per account from the use case's Settings tab
    (User Token Generator).
-4. Fill in `THREADS_USER_ID` / `THREADS_ACCESS_TOKEN` and the `_2` pair in
-   `.env`.
+4. Paste each token into `THREADS_ACCESS_TOKEN` / `THREADS_ACCESS_TOKEN_2`.
+   The numeric user id is optional — `accountUserId()` resolves it from the
+   token once per process, because Meta hands you a token and then makes you
+   go hunting for the matching id.
 5. `npm run threads:check` — confirms each token and that it belongs to its id.
 6. `npm run threads:dry` — plans today's batch and reports what each account
    would post, without posting.
