@@ -26,6 +26,7 @@
     "threads:plan": "tsx src/lib/threads/cli.ts plan",
     "threads:run": "tsx src/lib/threads/cli.ts run-due",
     "threads:status": "tsx src/lib/threads/cli.ts status",
+    "threads:links": "node scripts/threads-links.mjs",
     "threads:check": "tsx src/lib/threads/cli.ts check",
     "ingest:scan": "tsx src/lib/ingest/cli.ts scan",
     "ingest:scan:all": "tsx src/lib/ingest/cli.ts scan --all",
