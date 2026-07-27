@@ -19,6 +19,7 @@
     "publish:enqueue": "tsx src/lib/publisher/cli.ts enqueue",
     "publish:buffer": "tsx src/lib/publisher/cli.ts buffer sync",
     "publish:buffer:profiles": "tsx src/lib/publisher/cli.ts buffer profiles",
+    "threads:register": "powershell -NoProfile -ExecutionPolicy Bypass -File .\\scripts\\register-threads-task.ps1",
     "threads:tick": "tsx src/lib/threads/cli.ts tick",
     "threads:dry": "tsx src/lib/threads/cli.ts tick --dry-run",
     "threads:plan": "tsx src/lib/threads/cli.ts plan",

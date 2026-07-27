@@ -286,28 +286,26 @@ drops it).
 
 **Setup, once:**
 
-1. Create a Meta app with the **Threads API**, add your Threads profile, and
-   mint a long-lived token with `threads_basic` + `threads_content_publish`
-   ([Meta's Threads API docs](https://developers.facebook.com/docs/threads)).
-2. In `.env`, set `THREADS_USER_ID` (the numeric id, not the @handle) and
+1. In your Meta app, add the **Access the Threads API** use case
+   ([Meta's Threads API docs](https://developers.facebook.com/docs/threads)) and
+   these three permissions under *Permissions and features*:
+   `threads_basic`, `threads_content_publish`, and — because the variant posts
+   as a reply — **`threads_manage_replies`**. Without the third one, every main
+   post goes out and every reply fails.
+2. On that use case's **Settings** tab, under *User Token Generator*, click
+   **Add or Remove Threads Testers**, add your Threads account, accept the
+   invite in Threads (Settings → Website permissions → Invites), then generate
+   the long-lived token. Your account has to be public for this to work.
+3. In `.env`, set `THREADS_USER_ID` (the numeric id, not the @handle) and
    `THREADS_ACCESS_TOKEN`. Everything else has a working default — see
    `.env.example` for the full list.
-3. `npm run threads:check` — confirms the token works and belongs to that id.
-4. `npm run threads:dry` — plans today's batch and prints exactly what it would
+4. `npm run threads:check` — confirms the token works and belongs to that id.
+5. `npm run threads:dry` — plans today's batch and prints exactly what it would
    post, without posting anything.
-5. Register the scheduled task (PowerShell, from the project folder):
-
-   ```powershell
-   $action = New-ScheduledTaskAction -Execute "powershell.exe" `
-     -Argument "-NoProfile -ExecutionPolicy Bypass -File `"$PWD\scripts\threads-autopilot.ps1`""
-   $trigger = New-ScheduledTaskTrigger -Once -At (Get-Date) `
-     -RepetitionInterval (New-TimeSpan -Minutes 5)
-   Register-ScheduledTask -TaskName "Capital Command threads autopilot" -Action $action -Trigger $trigger `
-     -Description "Generate and post the daily Threads batch"
-   ```
-
-   The task starts the app if it isn't running, plans the day's batch once,
-   and posts whatever is due. Log: `threads-autopilot.log`.
+6. `npm run threads:register` — registers the scheduled task (every 5 minutes,
+   all day). It starts the app if it isn't running, plans the day's batch once,
+   and posts whatever is due. Log: `threads-autopilot.log`. Remove it again with
+   `Unregister-ScheduledTask -TaskName "Capital Command threads autopilot" -Confirm:$false`.
 
 **Day to day:** nothing. The Post Engine page (`/x-posts`) shows an autopilot
 card with today's tally, the next post time, and buttons to schedule, post

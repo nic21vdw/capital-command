@@ -4,6 +4,7 @@ package-lock.json
 pnpm-lock.yaml
 .pnpm-store
 .env
+.env.backup*
 coverage
 dist
 .test-dist

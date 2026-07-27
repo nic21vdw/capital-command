@@ -11,12 +11,10 @@
 #
 # Register it to run every 5 minutes, all day:
 #
-#   $action = New-ScheduledTaskAction -Execute "powershell.exe" `
-#     -Argument "-NoProfile -ExecutionPolicy Bypass -File `"$PWD\scripts\threads-autopilot.ps1`""
-#   $trigger = New-ScheduledTaskTrigger -Once -At (Get-Date) `
-#     -RepetitionInterval (New-TimeSpan -Minutes 5)
-#   Register-ScheduledTask -TaskName "Capital Command threads autopilot" -Action $action -Trigger $trigger `
-#     -Description "Generate and post the daily Threads batch"
+#   npm run threads:register
+#
+# (which is scripts\register-threads-task.ps1 — read that for the settings and
+# for how to remove the task again).
 #
 # A missed run is not a problem: posts more than THREADS_LATE_GRACE_MINUTES
 # late are skipped rather than fired, so coming back from an offline morning
@@ -45,7 +43,14 @@ $stamp = (Get-Date).ToString("yyyy-MM-dd HH:mm:ss")
 Add-Content -Path $log -Value "" -Encoding utf8
 Add-Content -Path $log -Value "=== threads $Mode $stamp ===" -Encoding utf8
 
+# curl.exe rather than Invoke-WebRequest: IWR has hung indefinitely here under
+# Task Scheduler despite -TimeoutSec, and one wedged instance blocks every later
+# trigger for the rest of the day. --max-time cannot hang.
 function Test-App {
+  if (Get-Command curl.exe -ErrorAction SilentlyContinue) {
+    & curl.exe --silent --output NUL --max-time 10 "$baseUrl/api/threads" 2>$null
+    return ($LASTEXITCODE -eq 0)
+  }
   try {
     Invoke-WebRequest -Uri "$baseUrl/api/threads" -UseBasicParsing -TimeoutSec 10 | Out-Null
     return $true
@@ -73,5 +78,11 @@ if (-not (Test-App)) {
 $cliArgs = @("tsx", "src/lib/threads/cli.ts", $Mode)
 if ($DryRun) { $cliArgs += "--dry-run" }
 
-& npx.cmd @cliArgs 2>&1 | Tee-Object -FilePath $log -Append
+# Written a line at a time rather than through Tee-Object: Tee writes UTF-16 on
+# Windows PowerShell, which garbles the log the rest of this script appends to.
+& npx.cmd @cliArgs 2>&1 | ForEach-Object {
+  $line = "$_"
+  Write-Host $line
+  Add-Content -Path $log -Value $line -Encoding utf8
+}
 exit $LASTEXITCODE

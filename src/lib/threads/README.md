@@ -52,14 +52,19 @@ writes, which is the same trap the Stream Pipeline had to be redesigned around.
 
 ## Setup
 
-1. Create a Meta app with the Threads API, add your Threads profile, and mint a
-   long-lived token with `threads_basic` + `threads_content_publish`.
-2. Put the numeric user id and token in `.env` as `THREADS_USER_ID` /
+1. Add the Threads API use case to your Meta app with three permissions:
+   `threads_basic`, `threads_content_publish`, and `threads_manage_replies` —
+   the third is what `reply_to_id` needs, so without it every main post goes out
+   and every reply fails.
+2. Generate a long-lived token from the use case's Settings tab (User Token
+   Generator → add your account as a Threads Tester, accept the invite in
+   Threads, generate). The account must be public.
+3. Put the numeric user id and token in `.env` as `THREADS_USER_ID` /
    `THREADS_ACCESS_TOKEN`.
-3. `npm run threads:check` — confirms the token and that it belongs to that id.
-4. `npm run threads:dry` — plans today's batch and reports what it would post,
+4. `npm run threads:check` — confirms the token and that it belongs to that id.
+5. `npm run threads:dry` — plans today's batch and reports what it would post,
    without posting.
-5. Register `scripts/threads-autopilot.ps1` in Task Scheduler to run every five
-   minutes (the registration command is in the script header).
+6. `npm run threads:register` — registers the Task Scheduler entry that ticks
+   every five minutes.
 
 `npm run threads:status` shows what is scheduled and what went out.
