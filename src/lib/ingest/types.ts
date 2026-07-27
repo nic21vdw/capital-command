@@ -40,7 +40,8 @@ export type IngestDecision =
         | "short-vertical"
         | "probable-short-unknown-aspect"
         | "not-public"
-        | "not-a-live-stream";
+        | "not-a-live-stream"
+        | "already-in-the-pipeline";
       /** True when the skip is a judgement call the human may want to overturn. */
       needsReview?: boolean;
     };

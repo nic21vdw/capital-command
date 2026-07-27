@@ -67,14 +67,16 @@ function mockPipeline(
       }))
   );
   class AppUnreachableError extends Error {}
+  const pipelineSourceVideoIds = vi.fn(async () => new Set<string>());
   vi.doMock("@/lib/ingest/pipelineClient", () => ({
     startPipelineRun,
     waitForPipelineRun,
+    pipelineSourceVideoIds,
     appBaseUrl: () => "http://localhost:3000",
     appReachable: async () => true,
     AppUnreachableError
   }));
-  return { startPipelineRun, waitForPipelineRun, AppUnreachableError };
+  return { startPipelineRun, waitForPipelineRun, pipelineSourceVideoIds, AppUnreachableError };
 }
 
 function mockScan(uploads: unknown[]) {
@@ -124,6 +126,7 @@ describe("runDailyScan", () => {
   it("says so when provenance has nothing to match against", async () => {
     mockScan([anUpload]);
     mockLedger();
+    mockPipeline();
     vi.doMock("@/lib/publisher/queue", () => ({
       publishQueue: () => ({ list: async () => [] })
     }));
@@ -144,6 +147,7 @@ describe("runDailyScan", () => {
   it("matches provenance from the queue and skips the app's own upload", async () => {
     mockScan([anUpload]);
     mockLedger();
+    mockPipeline();
     vi.doMock("@/lib/publisher/queue", () => ({
       publishQueue: () => ({
         list: async () => [
@@ -164,6 +168,7 @@ describe("runDailyScan", () => {
   it("a dry run takes nothing in", async () => {
     mockScan([anUpload]);
     mockLedger();
+    mockPipeline();
     vi.doMock("@/lib/publisher/queue", () => ({ publishQueue: () => ({ list: async () => [] }) }));
     const ledger = await import("@/lib/ingest/ledger");
 
@@ -291,6 +296,52 @@ describe("running a stream through the pipeline", () => {
     expect(report.ingested[0].outputs).toBeUndefined();
   });
 
+  it("does not re-ingest a stream that is already a pipeline run's source", async () => {
+    mockScan([aStream]);
+    setup();
+    const pipeline = mockPipeline();
+    pipeline.pipelineSourceVideoIds.mockResolvedValue(new Set(["stream-1"]));
+
+    const { runDailyScan } = await import("@/lib/ingest/run");
+    const report = await runDailyScan({});
+
+    expect(report.candidates[0].decision).toEqual({ action: "skip", reason: "already-in-the-pipeline" });
+    expect(pipeline.startPipelineRun).not.toHaveBeenCalled();
+  });
+
+  // Losing this read is not fatal — provenance and the ledger still stand — but
+  // it must be said, because the consequence is an expensive re-download.
+  it("warns but carries on when the pipeline runs cannot be read", async () => {
+    mockScan([aStream]);
+    setup();
+    const pipeline = mockPipeline();
+    pipeline.pipelineSourceVideoIds.mockRejectedValue(new Error("boom"));
+
+    const messages: string[] = [];
+    const { runDailyScan } = await import("@/lib/ingest/run");
+    const report = await runDailyScan({ log: (message) => messages.push(message) });
+
+    expect(messages.join("\n")).toMatch(/could not read existing pipeline runs/i);
+    expect(report.ingested).toHaveLength(1);
+  });
+
+  // Nic titles by day and streams more than once a day, so two sessions can
+  // share a title and still be different content. Both must be taken in.
+  it("takes in two same-titled streams as separate content", async () => {
+    mockScan([
+      aStream,
+      { ...aStream, videoId: "stream-1b", durationSec: 14_041, url: "https://youtu.be/stream-1b" }
+    ]);
+    setup();
+    const pipeline = mockPipeline();
+
+    const { runDailyScan } = await import("@/lib/ingest/run");
+    const report = await runDailyScan({});
+
+    expect(report.candidates.every((c) => c.decision.action === "ingest")).toBe(true);
+    expect(pipeline.startPipelineRun).toHaveBeenCalledTimes(2);
+  });
+
   it("stops the whole scan when the app is unreachable", async () => {
     mockScan([aStream, { ...aStream, videoId: "stream-2", url: "https://youtu.be/stream-2" }]);
     setup();
@@ -302,6 +353,7 @@ describe("running a stream through the pipeline", () => {
     vi.doMock("@/lib/ingest/pipelineClient", () => ({
       startPipelineRun,
       waitForPipelineRun: vi.fn(),
+      pipelineSourceVideoIds: async () => new Set<string>(),
       appBaseUrl: () => "http://localhost:3000",
       appReachable: async () => false,
       AppUnreachableError
