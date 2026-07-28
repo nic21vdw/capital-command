@@ -90,6 +90,8 @@ const navGroups: NavGroup[] = [
 
 const allNavItems = navGroups.flatMap((group) => group.items);
 const SIDEBAR_COLLAPSED_KEY = "capital-command:sidebar-collapsed";
+// Shown in the sidebar brand until a display name is saved in Settings.
+const DEFAULT_BRAND_NAME = "Nic Vandewetering";
 
 function initialsFrom(name: string) {
   const parts = name.trim().split(/\s+/).filter(Boolean);
@@ -100,14 +102,33 @@ function initialsFrom(name: string) {
     .join("");
 }
 
+// The brand mark is the profile set in Settings, not a fixed logo: the photo
+// when one is uploaded, otherwise the display name's initials on the purple
+// gradient badge.
 function Brand({ collapsed = false }: { collapsed?: boolean }) {
+  const { data } = useAppData();
+  const profile = data.settings.profile;
+  const displayName = profile?.displayName?.trim() || DEFAULT_BRAND_NAME;
+  const avatar = profile?.avatar;
+  const initials = initialsFrom(displayName) || "?";
+
   return (
     <Link href="/" className={cn("flex items-center gap-3", collapsed && "justify-center")} title="Dashboard">
-      <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-gradient-to-br from-[#a855f7] to-[#7c3aed] text-sm font-bold tracking-tight text-[#fff] shadow-[0_2px_10px_rgba(124,58,237,0.45)]">
-        NV
+      <span
+        className={cn(
+          "flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-lg text-sm font-bold tracking-tight text-white",
+          !avatar && "bg-gradient-to-br from-[#a855f7] to-[#7c3aed] shadow-[0_2px_10px_rgba(124,58,237,0.45)]"
+        )}
+      >
+        {avatar ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={avatar} alt="" className="h-full w-full object-cover" />
+        ) : (
+          initials
+        )}
       </span>
-      <span className={cn("flex flex-col leading-tight", collapsed && "hidden")}>
-        <span className="text-sm font-semibold text-white">Nic Vandewetering</span>
+      <span className={cn("flex min-w-0 flex-col leading-tight", collapsed && "hidden")}>
+        <span className="truncate text-sm font-semibold text-white">{displayName}</span>
         <span className="text-xs text-[var(--muted-foreground)]">YouTube creator tools</span>
       </span>
     </Link>
