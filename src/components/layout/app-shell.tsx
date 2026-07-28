@@ -13,6 +13,7 @@ import {
   FileText,
   Images,
   Lightbulb,
+  Megaphone,
   Mic,
   Presentation,
   Radar,
@@ -81,7 +82,10 @@ const navGroups: NavGroup[] = [
       { href: "/x-posts", label: "X / Threads Posts", icon: AtSign },
       // Thread-format content engine for Facebook/Instagram (hook post +
       // numbered comment thread + CTA comment).
-      { href: "/facebook", label: "FB / IG Threads", icon: Facebook }
+      { href: "/facebook", label: "FB / IG Threads", icon: Facebook },
+      // Product Hunt launch: a playbook dated backwards from launch day, the
+      // listing copy, and the live standing once the listing is up.
+      { href: "/launch", label: "Launch Pad", icon: Megaphone }
     ]
   }
 ];

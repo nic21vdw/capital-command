@@ -63,6 +63,24 @@ both. Two accounts posting the same wording would read as mirrored spam.
   each account's id, label, version and offset.
 - See `src/lib/threads/README.md`.
 
+## Launch Pad (`src/lib/launch`)
+
+Product Hunt launch planning at `/launch`. Product Hunt has NO write API for
+creating a launch, so this module never publishes — it dates a playbook
+backwards from launch day, writes the listing copy, and reads the live standing
+back once the listing exists. Submitting stays manual on purpose.
+
+- The checklist is DERIVED, never stored: `LAUNCH_PLAYBOOK` holds `offsetDays`
+  per task and `buildLaunchPlan` dates them off `launch.launchDate`. Only the
+  completed task ids are persisted, so editing the playbook updates every
+  launch and moving the date moves the schedule. Keep it that way.
+- Rank is read off the day's vote-ordered leaderboard because the API has no
+  rank field; outside the top 20 it must return null, never a guess.
+- Launches live in `AppData.productLaunches` and go through `/api/data` like
+  every other collection. `/api/launch` generates copy and reads Product Hunt;
+  it never writes.
+- See `src/lib/launch/README.md`.
+
 ## Clip metadata conventions (titles, descriptions, tags)
 
 Clip titles are NEVER raw transcript fragments — a slice of what was said
