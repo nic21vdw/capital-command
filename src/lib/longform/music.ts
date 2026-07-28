@@ -4,7 +4,7 @@ import path from "node:path";
 import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { hasAudioStream, hasVideoStream, probeDuration, runFfmpeg } from "@/lib/clipping/ffmpeg";
-import type { MusicTrack } from "@/lib/longform/types";
+import type { MusicTrack, MusicTrackOrigin } from "@/lib/longform/types";
 
 // The shared background-music library: songs uploaded once and reusable
 // across every long-form project. Files live on disk next to a small JSON
@@ -75,7 +75,8 @@ export function trackFilePath(track: MusicTrack) {
 export async function saveTrackFromStream(
   body: ReadableStream<Uint8Array>,
   fileName: string,
-  mime: string
+  mime: string,
+  origin?: MusicTrackOrigin
 ): Promise<MusicTrack> {
   const id = crypto.randomUUID().slice(0, 12);
   const dir = trackDir(id);
@@ -123,12 +124,32 @@ export async function saveTrackFromStream(
     mime: outMime,
     sizeBytes: size,
     durationSec,
-    createdAt: new Date().toISOString()
+    createdAt: new Date().toISOString(),
+    origin
   };
   const tracks = await readLibrary();
   tracks.push(track);
   await writeLibrary(tracks);
   return track;
+}
+
+/**
+ * Pulls a finished song off a generator's URL into the library. The download
+ * streams straight through the upload path, so a generated track lands in the
+ * same shape as one dropped in by hand — the rest of the app can't tell them
+ * apart beyond `origin`.
+ */
+export async function saveTrackFromUrl(
+  url: string,
+  fileName: string,
+  origin?: MusicTrackOrigin
+): Promise<MusicTrack> {
+  const response = await fetch(url);
+  if (!response.ok || !response.body) {
+    throw new Error(`Could not download the finished song (HTTP ${response.status}).`);
+  }
+  const mime = response.headers.get("content-type")?.split(";")[0]?.trim() || "audio/mpeg";
+  return saveTrackFromStream(response.body as ReadableStream<Uint8Array>, fileName, mime, origin);
 }
 
 export async function deleteTrack(id: string) {

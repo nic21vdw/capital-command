@@ -14,6 +14,7 @@ import {
   Images,
   Lightbulb,
   Mic,
+  Music4,
   Presentation,
   Radar,
   Rocket,
@@ -60,7 +61,10 @@ const navGroups: NavGroup[] = [
       // Higgsfield-generated avatar videos (real footage, AI avatar, no lines).
       { href: "/avatar", label: "Higgsfield Avatar", icon: Sparkles },
       // AI voiceover clips in Nic's cloned voice, from typed dialogue.
-      { href: "/voiceover", label: "Voiceover", icon: Mic }
+      { href: "/voiceover", label: "Voiceover", icon: Mic },
+      // Licensed music models (fal.ai) writing background tracks into the
+      // shared music library the Long-Form Editor pulls from.
+      { href: "/music", label: "Music Studio", icon: Music4 }
     ]
   },
   {

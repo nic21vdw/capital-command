@@ -206,7 +206,18 @@ export type LongformProject = {
   updatedAt: string;
 };
 
-/** A song uploaded to the shared background-music library. */
+/** Where a library song came from, when it wasn't uploaded by hand. */
+export type MusicTrackOrigin = {
+  provider: "fal";
+  /** Registry id from src/lib/music/models.ts, e.g. "lyria3-pro". */
+  modelId: string;
+  modelLabel: string;
+  requestId: string;
+  prompt: string;
+  instrumental: boolean;
+};
+
+/** A song in the shared background-music library: uploaded, or AI-generated. */
 export type MusicTrack = {
   id: string;
   fileName: string;
@@ -215,4 +226,5 @@ export type MusicTrack = {
   sizeBytes: number;
   durationSec: number;
   createdAt: string;
+  origin?: MusicTrackOrigin;
 };
