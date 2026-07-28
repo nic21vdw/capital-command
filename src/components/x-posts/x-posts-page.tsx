@@ -47,7 +47,9 @@ interface AutopilotStatus {
     accounts: Array<{ id: string; label: string; posts: "text" | "variant"; offsetMinutes: number }>;
     unassignedVersions: Array<"text" | "variant">;
   };
+  scheduler?: { lastTickAt?: string; lastPostAt?: string; healthy: boolean; minutesSince: number | null };
   today: ThreadsBatchSummary;
+  items: unknown[];
 }
 
 interface AutopilotActionResponse {
@@ -55,6 +57,7 @@ interface AutopilotActionResponse {
   checks?: Array<{ accountId: string; label: string; ok: boolean; username?: string | null; error?: string }>;
   plan?: { created: number; skipped?: string };
   run?: { published: number; skipped: number; note?: string };
+  moved?: number;
 }
 
 const FORMAT_STYLES: Record<XPostFormat, string> = {
@@ -144,6 +147,7 @@ export function XPostsPage() {
   const autoRequested = useRef(false);
 
   const activePack = pack ?? storedPack;
+  const autopilot = useAutopilot();
 
   // Keep the "generated Xm ago" freshness read-out live so a stale, cached pack
   // is visibly old — the whole point is not to copy something from before.
@@ -215,7 +219,7 @@ export function XPostsPage() {
       {activePack ? <PackSummary pack={activePack} now={now} /> : null}
 
       <div className="mt-6">
-        <AutopilotCard />
+        <AutopilotCard {...autopilot} />
       </div>
 
       <div className="mt-6">
@@ -227,6 +231,12 @@ export function XPostsPage() {
                 label: "Today's posts",
                 icon: Clock,
                 content: <ScheduleTab posts={activePack.posts} />
+              },
+              {
+                id: "autopilot",
+                label: "Autopilot schedule",
+                icon: CalendarClock,
+                content: <AutopilotTab {...autopilot} />
               },
               {
                 id: "export",
@@ -270,7 +280,41 @@ export function XPostsPage() {
  * today. The scheduled task drives the same endpoints every few minutes — the
  * buttons here are for checking the setup or nudging it by hand.
  */
-function AutopilotCard() {
+type QueueItemView = {
+  id: string;
+  batchDate: string;
+  slot: number;
+  accountId: string;
+  version: "text" | "variant";
+  topic: string;
+  text: string;
+  publishAt: string;
+  status: "pending" | "published" | "failed" | "skipped";
+  postId?: string;
+  error?: string;
+  note?: string;
+};
+
+/** "7:10 AM" in the viewer's own clock. */
+function clock(iso: string): string {
+  return new Date(iso).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+}
+
+/** The value shape a datetime-local input wants: local wall clock, no zone. */
+function toLocalInput(iso: string): string {
+  const date = new Date(iso);
+  const pad = (value: number) => String(value).padStart(2, "0");
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
+
+function friendlyDate(dateKey: string): string {
+  if (dateKey === localDateKey()) return "Today";
+  const [y, m, d] = dateKey.split("-").map(Number);
+  return new Date(y, (m ?? 1) - 1, d ?? 1).toLocaleDateString([], { weekday: "long", month: "short", day: "numeric" });
+}
+
+/** One loader shared by the summary card and the management board. */
+function useAutopilot() {
   const [status, setStatus] = useState<AutopilotStatus | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
 
@@ -291,35 +335,30 @@ function AutopilotCard() {
     void load();
   }, [load]);
 
-  const act = useCallback(
-    async (action: "plan" | "run-due" | "check", label: string) => {
-      setBusy(action);
+  // The scheduler keeps ticking while this page is open; without a refresh the
+  // times and tallies on screen quietly go stale.
+  useEffect(() => {
+    const id = window.setInterval(() => void load(), 60_000);
+    return () => window.clearInterval(id);
+  }, [load]);
+
+  const send = useCallback(
+    async (body: Record<string, unknown>, key: string, success?: (json: AutopilotActionResponse) => string) => {
+      setBusy(key);
       try {
         const response = await fetch("/api/threads", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ action })
+          body: JSON.stringify(body)
         });
         const json = (await response.json()) as AutopilotActionResponse;
         if (!response.ok) throw new Error(json.error ?? "request failed");
-        if (action === "check") {
-          const checks = json.checks ?? [];
-          const bad = checks.filter((check) => !check.ok);
-          if (bad.length > 0) {
-            toast.error(bad.map((check) => `${check.label}: ${check.error}`).join(" · "));
-          } else {
-            toast.success(
-              `Connected: ${checks.map((check) => (check.username ? `@${check.username}` : check.label)).join(", ")}.`
-            );
-          }
-        } else if (action === "plan") {
-          toast.success(json.plan?.skipped ?? `Scheduled ${json.plan?.created ?? 0} posts for today.`);
-        } else {
-          toast.success(json.run?.note ?? `Posted ${json.run?.published ?? 0}, skipped ${json.run?.skipped ?? 0}.`);
-        }
+        if (success) toast.success(success(json));
         await load();
+        return json;
       } catch (error) {
-        toast.error(error instanceof Error ? error.message : `${label} failed.`);
+        toast.error(error instanceof Error ? error.message : "That didn't work.");
+        return null;
       } finally {
         setBusy(null);
       }
@@ -327,11 +366,27 @@ function AutopilotCard() {
     [load]
   );
 
+  return { status, busy, reload: load, send };
+}
+
+type AutopilotProps = ReturnType<typeof useAutopilot>;
+
+function versionLabel(version: "text" | "variant"): string {
+  return version === "text" ? "punchy version" : "warm rewrite";
+}
+
+function AutopilotCard({ status, busy, send }: AutopilotProps) {
   if (!status) return null;
 
-  const { today, settings, blockedReason } = status;
+  const { today, settings, blockedReason, scheduler } = status;
   const expected = settings.postsPerDay * Math.max(1, settings.accounts.length);
-  const versionLabel = (version: "text" | "variant") => (version === "text" ? "punchy version" : "warm rewrite");
+  const minutesSince = scheduler?.minutesSince;
+  const heartbeat =
+    minutesSince === null || minutesSince === undefined
+      ? "never run"
+      : minutesSince < 1
+        ? "just now"
+        : `${Math.round(minutesSince)} min ago`;
 
   return (
     <Card>
@@ -342,8 +397,9 @@ function AutopilotCard() {
             {today.published}/{today.total || expected} posted today
           </h2>
           <p className="mt-1 text-xs text-[var(--muted-foreground)]">
-            {settings.postsPerDay} slots a day in {settings.timezone} · {settings.accounts.length || "no"} account
-            {settings.accounts.length === 1 ? "" : "s"}
+            {settings.postsPerDay} slots a day in {settings.timezone} ·{" "}
+            {settings.accounts.map((account) => `${account.label} (${versionLabel(account.posts)})`).join(", ") ||
+              "no account connected"}
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -353,61 +409,281 @@ function AutopilotCard() {
           {today.pending ? <Badge>{today.pending} queued</Badge> : null}
           {today.failed ? <Badge className="text-rose-200">{today.failed} failed</Badge> : null}
           {today.skipped ? <Badge>{today.skipped} skipped</Badge> : null}
-          {today.nextAt ? <Badge>Next {formatStamp(today.nextAt)}</Badge> : null}
+          {today.nextAt ? <Badge className="text-[var(--accent)]">Next {clock(today.nextAt)}</Badge> : null}
         </div>
       </div>
 
-      {settings.accounts.length > 0 ? (
-        <div className="mt-4 space-y-2">
-          {settings.accounts.map((account) => {
-            const tally = today.accounts?.find((entry) => entry.accountId === account.id);
-            return (
-              <div
-                key={account.id}
-                className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-[var(--border)] px-3 py-2 text-xs"
-              >
-                <span className="font-medium text-white">{account.label}</span>
-                <span className="text-[var(--muted-foreground)]">
-                  {versionLabel(account.posts)}
-                  {account.offsetMinutes ? ` · +${account.offsetMinutes} min` : ""}
-                </span>
-                <span className="text-[var(--muted-foreground)]">
-                  {tally ? `${tally.published}/${tally.total} posted` : "nothing scheduled yet"}
-                </span>
-              </div>
-            );
-          })}
-        </div>
-      ) : null}
+      <div
+        className={cn(
+          "mt-4 flex flex-wrap items-center gap-x-4 gap-y-1 rounded-xl border px-3 py-2 text-xs",
+          scheduler?.healthy
+            ? "border-emerald-400/25 bg-emerald-400/10 text-emerald-100"
+            : "border-amber-400/30 bg-amber-400/10 text-amber-100"
+        )}
+      >
+        <span className="flex items-center gap-1.5 font-medium">
+          <Clock className="h-3.5 w-3.5" />
+          Scheduler checked {heartbeat}
+        </span>
+        <span className="text-[var(--muted-foreground)]">
+          {scheduler?.healthy
+            ? "Ticking every 5 minutes."
+            : "Expected every 5 minutes — the scheduled task may be off, or the PC asleep."}
+        </span>
+      </div>
 
       {blockedReason ? (
-        <p className="mt-4 rounded-xl border border-amber-400/30 bg-amber-400/10 px-3 py-2 text-xs text-amber-100">
+        <p className="mt-3 rounded-xl border border-amber-400/30 bg-amber-400/10 px-3 py-2 text-xs text-amber-100">
           {blockedReason}
         </p>
       ) : null}
 
       {settings.unassignedVersions.length > 0 && !blockedReason ? (
-        <p className="mt-4 rounded-xl border border-amber-400/30 bg-amber-400/10 px-3 py-2 text-xs text-amber-100">
-          No account posts the {settings.unassignedVersions.map(versionLabel).join(" or ")} — that half of each day&apos;s
-          pack is being written and never used. Connect the second account, or point an existing one at it.
+        <p className="mt-3 rounded-xl border border-amber-400/30 bg-amber-400/10 px-3 py-2 text-xs text-amber-100">
+          No account posts the {settings.unassignedVersions.map(versionLabel).join(" or ")} — that half of each
+          day&apos;s pack is written and never used.
         </p>
       ) : null}
 
       <div className="mt-4 flex flex-wrap gap-2">
-        <Button onClick={() => act("plan", "Scheduling")} disabled={busy !== null}>
+        <Button
+          onClick={() =>
+            send({ action: "plan" }, "plan", (json) => json.plan?.skipped ?? `Scheduled ${json.plan?.created ?? 0} posts.`)
+          }
+          disabled={busy !== null}
+        >
           <CalendarClock className="mr-2 h-4 w-4" />
           {busy === "plan" ? "Scheduling…" : "Schedule today"}
         </Button>
-        <Button onClick={() => act("run-due", "Posting")} disabled={busy !== null}>
+        <Button
+          onClick={() =>
+            send({ action: "run-due" }, "run", (json) => json.run?.note ?? `Posted ${json.run?.published ?? 0}.`)
+          }
+          disabled={busy !== null}
+        >
           <AtSign className="mr-2 h-4 w-4" />
-          {busy === "run-due" ? "Posting…" : "Post what's due"}
+          {busy === "run" ? "Posting…" : "Post what's due"}
         </Button>
-        <Button onClick={() => act("check", "Connection check")} disabled={busy !== null}>
+        <Button
+          onClick={() =>
+            send(
+              { action: "check" },
+              "check",
+              (json) =>
+                `Connected: ${(json.checks ?? []).map((entry) => (entry.username ? `@${entry.username}` : entry.label)).join(", ")}.`
+            )
+          }
+          disabled={busy !== null}
+        >
           <ShieldCheck className="mr-2 h-4 w-4" />
           {busy === "check" ? "Checking…" : "Check connection"}
         </Button>
       </div>
     </Card>
+  );
+}
+
+/** The batch board: what is going out, when, and every knob to change it. */
+function AutopilotTab({ status, busy, send }: AutopilotProps) {
+  const [selected, setSelected] = useState<string | null>(null);
+  const [editing, setEditing] = useState<string | null>(null);
+  const [draft, setDraft] = useState("");
+
+  const items = useMemo(() => (status?.items ?? []) as QueueItemView[], [status]);
+  const dates = useMemo(() => [...new Set(items.map((item) => item.batchDate))].sort().reverse(), [items]);
+  const active = selected && dates.includes(selected) ? selected : (dates[0] ?? localDateKey());
+  const batch = useMemo(
+    () => items.filter((item) => item.batchDate === active).sort((a, b) => a.publishAt.localeCompare(b.publishAt)),
+    [items, active]
+  );
+  const pending = useMemo(() => batch.filter((item) => item.status === "pending"), [batch]);
+
+  if (!status) {
+    return (
+      <Card>
+        <p className="py-8 text-center text-sm text-[var(--muted-foreground)]">Loading the schedule…</p>
+      </Card>
+    );
+  }
+
+  const handle = status.settings.accounts[0]?.label ?? "";
+
+  return (
+    <div className="space-y-4">
+      <Card>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex flex-wrap gap-2">
+            {dates.map((date) => (
+              <button
+                key={date}
+                onClick={() => setSelected(date)}
+                className={cn(
+                  "rounded-full border px-3 py-1 text-xs font-medium transition",
+                  date === active
+                    ? "border-[var(--accent)] bg-[var(--accent)]/15 text-white"
+                    : "border-[var(--border)] text-[var(--muted-foreground)] hover:text-white"
+                )}
+              >
+                {friendlyDate(date)}
+              </button>
+            ))}
+          </div>
+          <p className="text-xs text-[var(--muted-foreground)]">
+            {pending.length} still to post
+            {pending.length > 0
+              ? ` · ${clock(pending[0].publishAt)} → ${clock(pending[pending.length - 1].publishAt)}`
+              : ""}
+          </p>
+        </div>
+
+        <div className="mt-4 flex flex-wrap items-center gap-2">
+          <span className="text-xs text-[var(--muted-foreground)]">Move the whole batch:</span>
+          {[-60, -15, 15, 60].map((minutes) => (
+            <Button
+              key={minutes}
+              onClick={() =>
+                send(
+                  { action: "shift", date: active, minutes },
+                  `shift${minutes}`,
+                  (json) =>
+                    `Moved ${json.moved ?? 0} posts ${Math.abs(minutes)} min ${minutes < 0 ? "earlier" : "later"}.`
+                )
+              }
+              disabled={busy !== null || pending.length === 0}
+            >
+              {minutes > 0 ? `+${minutes}m` : `${minutes}m`}
+            </Button>
+          ))}
+          <Button
+            onClick={() =>
+              send(
+                { action: "plan", force: true },
+                "replan",
+                (json) => json.plan?.skipped ?? `Rebuilt with ${json.plan?.created ?? 0} posts.`
+              )
+            }
+            disabled={busy !== null}
+          >
+            <RefreshCw className={cn("mr-2 h-4 w-4", busy === "replan" && "animate-spin")} />
+            {busy === "replan" ? "Rebuilding…" : "Rebuild from a fresh pack"}
+          </Button>
+        </div>
+      </Card>
+
+      {batch.length === 0 ? (
+        <Card>
+          <p className="py-8 text-center text-sm text-[var(--muted-foreground)]">Nothing scheduled for this day yet.</p>
+        </Card>
+      ) : null}
+
+      {batch.map((item) => (
+        <Card key={item.id} className="space-y-3">
+          <div className="flex flex-wrap items-center gap-3">
+            <span className="flex h-6 w-6 items-center justify-center rounded-full bg-white/8 text-xs font-semibold text-white">
+              {item.slot}
+            </span>
+            {item.status === "pending" ? (
+              <Input
+                type="datetime-local"
+                defaultValue={toLocalInput(item.publishAt)}
+                onBlur={(event) => {
+                  const next = new Date(event.target.value);
+                  if (Number.isNaN(next.getTime()) || next.toISOString() === item.publishAt) return;
+                  void send({ action: "reschedule", id: item.id, at: next.toISOString() }, `time-${item.id}`, () =>
+                    `Moved to ${clock(next.toISOString())}.`
+                  );
+                }}
+                className="w-52"
+              />
+            ) : (
+              <span className="text-sm font-semibold text-white">{clock(item.publishAt)}</span>
+            )}
+            <Badge
+              className={cn(
+                item.status === "published" && "text-emerald-200",
+                item.status === "failed" && "text-rose-200",
+                item.status === "skipped" && "text-amber-200"
+              )}
+            >
+              {item.status}
+            </Badge>
+            <Badge>{item.topic}</Badge>
+            {item.postId && handle ? (
+              <a
+                href={`https://www.threads.com/@${handle}`}
+                target="_blank"
+                rel="noreferrer"
+                className="text-xs text-[var(--accent)] underline"
+              >
+                view on Threads
+              </a>
+            ) : null}
+          </div>
+
+          {editing === item.id ? (
+            <div className="space-y-2">
+              <textarea
+                value={draft}
+                onChange={(event) => setDraft(event.target.value)}
+                rows={4}
+                maxLength={500}
+                className="w-full rounded-xl border border-[var(--border)] bg-[var(--panel)] p-3 text-sm text-white"
+              />
+              <div className="flex items-center gap-2">
+                <Button
+                  onClick={async () => {
+                    const done = await send({ action: "edit", id: item.id, text: draft }, `edit-${item.id}`, () => "Updated.");
+                    if (done) setEditing(null);
+                  }}
+                  disabled={busy !== null}
+                >
+                  <Check className="mr-2 h-4 w-4" />
+                  Save
+                </Button>
+                <Button onClick={() => setEditing(null)} disabled={busy !== null}>
+                  Cancel
+                </Button>
+                <span className="text-xs text-[var(--muted-foreground)]">{draft.length}/500</span>
+              </div>
+            </div>
+          ) : (
+            <p className="whitespace-pre-wrap text-sm text-[var(--foreground)]">{item.text}</p>
+          )}
+
+          {item.error ? <p className="text-xs text-rose-200">{item.error}</p> : null}
+          {item.note && item.status !== "pending" ? (
+            <p className="text-xs text-[var(--muted-foreground)]">{item.note}</p>
+          ) : null}
+
+          {item.status === "pending" && editing !== item.id ? (
+            <div className="flex flex-wrap gap-2">
+              <Button
+                onClick={() => {
+                  setEditing(item.id);
+                  setDraft(item.text);
+                }}
+                disabled={busy !== null}
+              >
+                <MessageSquare className="mr-2 h-4 w-4" />
+                Edit copy
+              </Button>
+              <Button
+                onClick={() => send({ action: "skip", id: item.id }, `skip-${item.id}`, () => "Skipped.")}
+                disabled={busy !== null}
+              >
+                Skip
+              </Button>
+              <Button
+                onClick={() => send({ action: "remove", id: item.id }, `remove-${item.id}`, () => "Removed.")}
+                disabled={busy !== null}
+              >
+                Remove
+              </Button>
+            </div>
+          ) : null}
+        </Card>
+      ))}
+    </div>
   );
 }
 

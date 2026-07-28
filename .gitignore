@@ -32,4 +32,5 @@ backups/
 # Remotion render output + bundle cache
 out/
 .remotion/
+data/threads-state.json
 data/carousel-images/
