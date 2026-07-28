@@ -7,9 +7,16 @@
  * Every fal endpoint speaks the same three routes, which is why one client
  * covers five very different models:
  *
- *   POST https://queue.fal.run/{endpointId}                        -> { request_id, status }
- *   GET  https://queue.fal.run/{endpointId}/requests/{id}/status   -> { status, queue_position }
- *   GET  https://queue.fal.run/{endpointId}/requests/{id}          -> the model's own output
+ *   POST https://queue.fal.run/{endpointId}                    -> { request_id, status_url, response_url }
+ *   GET  {status_url}                                          -> { status, queue_position }
+ *   GET  {response_url}                                        -> the model's own output
+ *
+ * The polling routes are NOT under the submit path: a job submitted to
+ * fal-ai/lyria3/pro is polled at fal-ai/lyria3/requests/{id}, because fal
+ * drops the variant sub-path and keys the queue on owner/app. (The published
+ * OpenAPI schema documents the submit path for all three, which answers a
+ * poll with 405.) Submissions hand back the exact URLs, so those are what we
+ * store and reuse; queueUrlBase is only the fallback.
  *
  * House AI pattern: *Configured() gate, pure request builder (see models.ts),
  * graceful fallback (no key configured -> clear error, never a thrown
@@ -22,6 +29,17 @@ const DEFAULT_FAL_QUEUE_BASE = "https://queue.fal.run";
 function queueBase() {
   return (process.env.FAL_QUEUE_BASE || DEFAULT_FAL_QUEUE_BASE).replace(/\/+$/, "");
 }
+
+/**
+ * The queue path for polling: owner/app, with any variant sub-path dropped
+ * ("fal-ai/lyria3/pro" -> "fal-ai/lyria3"). Pure, for tests.
+ */
+export function queueUrlBase(endpointId: string): string {
+  return endpointId.split("/").filter(Boolean).slice(0, 2).join("/");
+}
+
+/** URLs fal hands back on submit; stored so polling never has to guess a path. */
+export type FalPollUrls = { statusUrl?: string; responseUrl?: string };
 
 export type FalQueueStatus = "IN_QUEUE" | "IN_PROGRESS" | "COMPLETED";
 
@@ -46,7 +64,7 @@ function authHeaders(): Record<string, string> {
 export async function submitFalJob(
   endpointId: string,
   input: Record<string, unknown>
-): Promise<{ requestId: string | null; error: string | null }> {
+): Promise<FalPollUrls & { requestId: string | null; error: string | null }> {
   if (!falConfigured()) {
     return { requestId: null, error: "FAL_KEY is not set — add it to .env to generate music." };
   }
@@ -57,14 +75,14 @@ export async function submitFalJob(
       body: JSON.stringify(input)
     });
     const data = (await response.json().catch(() => null)) as
-      | { request_id?: string; detail?: unknown; error?: string }
+      | { request_id?: string; status_url?: string; response_url?: string; detail?: unknown; error?: string }
       | null;
     if (!response.ok) {
       return { requestId: null, error: `fal rejected the request: ${describeFalError(data, response.status)}` };
     }
     const requestId = data?.request_id ?? null;
     if (!requestId) return { requestId: null, error: "fal did not return a request id." };
-    return { requestId, error: null };
+    return { requestId, statusUrl: data?.status_url, responseUrl: data?.response_url, error: null };
   } catch (error) {
     const message = error instanceof Error ? error.message : "unknown error";
     return { requestId: null, error: `Could not reach fal (${message}).` };
@@ -76,11 +94,16 @@ export async function submitFalJob(
  * the result fetch, so callers get the model's output in a single round trip.
  * Never throws.
  */
-export async function checkFalJob(endpointId: string, requestId: string): Promise<FalJobState> {
+export async function checkFalJob(
+  endpointId: string,
+  requestId: string,
+  urls: FalPollUrls = {}
+): Promise<FalJobState> {
   if (!falConfigured()) return { status: "failed", error: "FAL_KEY is not set." };
   const id = encodeURIComponent(requestId);
+  const pollRoot = `${queueBase()}/${queueUrlBase(endpointId)}/requests/${id}`;
   try {
-    const statusResponse = await fetch(`${queueBase()}/${endpointId}/requests/${id}/status`, {
+    const statusResponse = await fetch(urls.statusUrl || `${pollRoot}/status`, {
       headers: authHeaders(),
       cache: "no-store"
     });
@@ -94,7 +117,7 @@ export async function checkFalJob(endpointId: string, requestId: string): Promis
       return { status: "pending", queuePosition: statusData?.queue_position ?? null };
     }
 
-    const resultResponse = await fetch(`${queueBase()}/${endpointId}/requests/${id}`, {
+    const resultResponse = await fetch(urls.responseUrl || pollRoot, {
       headers: authHeaders(),
       cache: "no-store"
     });

@@ -29,6 +29,9 @@ export type MusicJobRecord = {
   prompt: string;
   instrumental: boolean;
   durationSec?: number;
+  /** Poll URLs fal handed back on submit; absent on jobs recorded before them. */
+  statusUrl?: string;
+  responseUrl?: string;
   /** Library tracks imported from this request — empty until it finishes. */
   trackIds: string[];
   queuePosition?: number | null;
@@ -104,7 +107,10 @@ export async function startMusicJob(
   if (!model) return { job: null, error: "Unknown model." };
   if (!request.prompt.trim()) return { job: null, error: "Describe the music you want." };
 
-  const { requestId, error } = await submitFalJob(model.endpointId, buildModelInput(model, request));
+  const { requestId, statusUrl, responseUrl, error } = await submitFalJob(
+    model.endpointId,
+    buildModelInput(model, request)
+  );
   if (!requestId) return { job: null, error: error ?? "fal did not start that generation." };
 
   const now = new Date().toISOString();
@@ -113,6 +119,8 @@ export async function startMusicJob(
     modelId: model.id,
     modelLabel: model.label,
     status: "pending",
+    statusUrl,
+    responseUrl,
     title: request.title?.trim() || heuristicSongBrief(request.prompt).title,
     prompt: request.prompt.trim(),
     instrumental: request.instrumental,
@@ -125,7 +133,10 @@ export async function startMusicJob(
 }
 
 async function importFinishedTakes(job: MusicJobRecord, model: MusicModel): Promise<MusicJobRecord> {
-  const state = await checkFalJob(model.endpointId, job.requestId);
+  const state = await checkFalJob(model.endpointId, job.requestId, {
+    statusUrl: job.statusUrl,
+    responseUrl: job.responseUrl
+  });
   if (state.status === "pending") {
     return job.queuePosition === state.queuePosition ? job : saveJob({ ...job, queuePosition: state.queuePosition });
   }
