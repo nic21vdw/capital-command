@@ -101,7 +101,7 @@ function initialsFrom(name: string) {
 function Brand({ collapsed = false }: { collapsed?: boolean }) {
   return (
     <Link href="/" className={cn("flex items-center gap-3", collapsed && "justify-center")} title="Dashboard">
-      <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-gradient-to-br from-[#a855f7] to-[#7c3aed] text-sm font-bold tracking-tight text-white shadow-[0_2px_10px_rgba(124,58,237,0.45)]">
+      <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-gradient-to-br from-[#a855f7] to-[#7c3aed] text-sm font-bold tracking-tight text-[#fff] shadow-[0_2px_10px_rgba(124,58,237,0.45)]">
         NV
       </span>
       <span className={cn("flex flex-col leading-tight", collapsed && "hidden")}>

@@ -47,7 +47,7 @@ export function DashboardInsightsPage() {
               .sort((a, b) => b.gainLossPercent - a.gainLossPercent)
               .slice(0, 5)
               .map((holding) => (
-                <div key={holding.id} className="flex items-center justify-between rounded-2xl border border-white/8 bg-black/20 p-3">
+                <div key={holding.id} className="flex items-center justify-between rounded-2xl border border-white/8 bg-[var(--well)] p-3">
                   <div>
                     <p className="font-medium text-white">{holding.ticker}</p>
                     <p className="text-sm text-[var(--muted-foreground)]">{holding.name}</p>
@@ -62,7 +62,7 @@ export function DashboardInsightsPage() {
           <div className="mt-4 space-y-3">
             {summary.holdingsMissingData.length ? (
               summary.holdingsMissingData.map((holding) => (
-                <div key={holding.id} className="rounded-2xl border border-white/8 bg-black/20 p-3">
+                <div key={holding.id} className="rounded-2xl border border-white/8 bg-[var(--well)] p-3">
                   <p className="font-medium text-white">{holding.ticker}</p>
                   <p className="text-sm text-[var(--muted-foreground)]">
                     Current price unavailable. Manual override can keep calculations intact.
@@ -70,7 +70,7 @@ export function DashboardInsightsPage() {
                 </div>
               ))
             ) : (
-              <div className="rounded-2xl border border-white/8 bg-black/20 p-4 text-sm text-[var(--muted-foreground)]">
+              <div className="rounded-2xl border border-white/8 bg-[var(--well)] p-4 text-sm text-[var(--muted-foreground)]">
                 No holdings are currently missing price data.
               </div>
             )}

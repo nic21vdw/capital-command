@@ -62,7 +62,7 @@ export function NotesPage() {
             {data.researchNotes.map((note) => (
               <button
                 key={note.id}
-                className="w-full rounded-2xl border border-white/8 bg-black/20 p-4 text-left transition hover:bg-white/6"
+                className="w-full rounded-2xl border border-white/8 bg-[var(--well)] p-4 text-left transition hover:bg-white/6"
                 onClick={() => setEditing(note)}
               >
                 <div className="flex items-center justify-between gap-3">
@@ -95,7 +95,7 @@ export function NotesPage() {
                 <InfoBlock label="Key risks" value={editing.keyRisks} />
                 <InfoBlock label="Source links" value={editing.sourceLinks.join("\n") || "None"} />
               </div>
-              <div className="mt-6 rounded-3xl border border-white/8 bg-black/20 p-5">
+              <div className="mt-6 rounded-3xl border border-white/8 bg-[var(--well)] p-5">
                 <p className="mb-3 text-sm uppercase tracking-[0.2em] text-[var(--muted-foreground)]">Markdown preview</p>
                 <div className="prose prose-invert max-w-none text-sm">
                   <ReactMarkdown remarkPlugins={[remarkGfm]}>{editing.body}</ReactMarkdown>
@@ -103,7 +103,7 @@ export function NotesPage() {
               </div>
             </div>
           ) : (
-            <div className="flex min-h-80 items-center justify-center rounded-3xl border border-dashed border-white/10 bg-black/20 text-center">
+            <div className="flex min-h-80 items-center justify-center rounded-3xl border border-dashed border-white/10 bg-[var(--well)] text-center">
               <div>
                 <p className="text-lg font-medium text-white">Select a note</p>
                 <p className="mt-2 text-sm text-[var(--muted-foreground)]">Your research details and markdown preview will appear here.</p>
@@ -141,7 +141,7 @@ export function NotesPage() {
 
 function InfoBlock({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-2xl border border-white/8 bg-black/20 p-4">
+    <div className="rounded-2xl border border-white/8 bg-[var(--well)] p-4">
       <p className="text-xs uppercase tracking-[0.2em] text-[var(--muted-foreground)]">{label}</p>
       <p className="mt-2 whitespace-pre-wrap text-sm text-white">{value}</p>
     </div>

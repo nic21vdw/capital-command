@@ -89,7 +89,7 @@ export const settingsSchema = z.object({
   currency: z.enum(["CAD", "USD"]),
   // Unknown/legacy values (e.g. old accent ids) gracefully fall back to undefined,
   // and the UI resolves that to the default preset at runtime.
-  themePreset: z.enum(["slate", "midnight", "graphite", "forest", "paper", "arctic"]).optional().catch(undefined),
+  themePreset: z.enum(["slate", "midnight", "graphite", "forest", "dracula", "paper", "arctic"]).optional().catch(undefined),
   profile: userProfileSchema.optional()
 });
 
