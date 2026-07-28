@@ -84,6 +84,30 @@ fallback when no API key is configured or the call fails.
   `captions.ts`), and fresh editor projects seed the matching white text
   overlay (`makeTitleOverlay`).
 
+## Carousels (`/carousels`)
+
+Slide copy is written by `src/lib/studio/carousel.ts` from a script, a
+long-form transcript (which is what the Stream Pipeline produces), a clip, an
+uploaded photo batch, or pasted text. Deck sizing lives in
+`src/lib/carousels/deck.ts` — imported by BOTH the page and the generator, so
+the picker can promise what the server will do.
+
+- One source can produce several carousels in a pass. Each batch gets its own
+  angle from `CAROUSEL_ANGLES` and they run concurrently; a single batch is
+  asked for with no angle and no batch record, which is what keeps the
+  pipeline's unattended carousel exactly as it was.
+- Uploaded photos land on disk (`data/carousel-images`, served by
+  `/api/studio/carousels/images/<id>`), never inline as data URLs — a batch of
+  base64 photos in `data/capital-command.json` would be re-read and rewritten
+  on every app-data operation.
+- Every uploaded photo gets its own slide: `resolveSlideCount` raises the deck
+  to the photo count, and a short model reply is padded rather than dropping
+  photos. The model never sees the photos — the description box is how it knows
+  what they show.
+- A photo takes the top of the slide and the copy stays in `heading`/`body`
+  with a `textBand` under it, so one photo slide still renders correctly at
+  4:5, 1:1, 9:16 and 16:9 without being laid out per ratio.
+
 ## Remotion / motion video conventions
 
 When asked to make a "motion video" (a new Remotion short/segment), the
