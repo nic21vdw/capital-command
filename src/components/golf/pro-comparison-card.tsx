@@ -173,7 +173,7 @@ export function ProComparisonCard({ frames, analysis }: Props) {
                     <img src={impactFrame.pose.overlayDataUrl} alt="Your impact" className="w-full" />
                   ) : (
                     <div className="flex h-32 items-center justify-center">
-                      <p className="text-[10px] text-[var(--muted-foreground)]">No frame</p>
+                      <p className="text-[10px] text-[#fff]/50">No frame</p>
                     </div>
                   )}
                 </div>

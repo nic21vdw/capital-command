@@ -695,7 +695,7 @@ function PostPreview({
         {format === "text" ? (
           // The signature look: black background, bold centered white text.
           <div className="flex min-h-44 items-center justify-center rounded-xl bg-black p-6">
-            <p className="whitespace-pre-wrap text-center text-lg font-bold leading-snug text-white">
+            <p className="whitespace-pre-wrap text-center text-lg font-bold leading-snug text-[#fff]">
               {hook || "Your clickbait headline lands here 👇"}
             </p>
           </div>
@@ -708,7 +708,7 @@ function PostPreview({
                   {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img src={media.url} alt={media.name} className="max-h-72 w-full object-contain" />
                   {body ? (
-                    <p className="absolute inset-x-0 bottom-0 bg-black/50 p-3 text-center text-base font-semibold text-white">{body}</p>
+                    <p className="absolute inset-x-0 bottom-0 bg-black/50 p-3 text-center text-base font-semibold text-[#fff]">{body}</p>
                   ) : null}
                 </div>
               ) : (

@@ -45,6 +45,8 @@
   --card-from: #14181f;
   --card-to: #14181f;
   --shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --well: rgba(0, 0, 0, 0.2);
+  --well-deep: rgba(0, 0, 0, 0.4);
   color-scheme: dark;
 }
 
@@ -64,6 +66,8 @@
   --card-from: #14181f;
   --card-to: #14181f;
   --shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --well: rgba(0, 0, 0, 0.2);
+  --well-deep: rgba(0, 0, 0, 0.4);
   color-scheme: dark;
 }
 
@@ -83,6 +87,8 @@
   --card-from: #0c1119;
   --card-to: #0c1119;
   --shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
+  --well: rgba(0, 0, 0, 0.2);
+  --well-deep: rgba(0, 0, 0, 0.4);
   color-scheme: dark;
 }
 
@@ -102,6 +108,8 @@
   --card-from: #18181b;
   --card-to: #18181b;
   --shadow: 0 1px 2px rgba(0, 0, 0, 0.45);
+  --well: rgba(0, 0, 0, 0.2);
+  --well-deep: rgba(0, 0, 0, 0.4);
   color-scheme: dark;
 }
 
@@ -121,6 +129,8 @@
   --card-from: #0f1c16;
   --card-to: #0f1c16;
   --shadow: 0 1px 2px rgba(0, 0, 0, 0.45);
+  --well: rgba(0, 0, 0, 0.2);
+  --well-deep: rgba(0, 0, 0, 0.4);
   color-scheme: dark;
 }
 
@@ -140,6 +150,8 @@
   --card-from: #282a36;
   --card-to: #282a36;
   --shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
+  --well: rgba(0, 0, 0, 0.2);
+  --well-deep: rgba(0, 0, 0, 0.4);
   color-scheme: dark;
 }
 
@@ -159,6 +171,8 @@
   --card-from: #ffffff;
   --card-to: #ffffff;
   --shadow: 0 1px 2px rgba(27, 26, 22, 0.06), 0 1px 3px rgba(27, 26, 22, 0.1);
+  --well: rgba(27, 26, 22, 0.05);
+  --well-deep: rgba(27, 26, 22, 0.09);
   color-scheme: light;
 }
 
@@ -178,7 +192,57 @@
   --card-from: #ffffff;
   --card-to: #ffffff;
   --shadow: 0 1px 2px rgba(15, 23, 34, 0.06), 0 1px 3px rgba(15, 23, 34, 0.1);
+  --well: rgba(15, 23, 34, 0.05);
+  --well-deep: rgba(15, 23, 34, 0.09);
   color-scheme: light;
+}
+
+/*
+  Light-theme readability remaps
+  ------------------------------
+  Status/accent chips across the app were authored with light palette shades
+  (text-emerald-300, border-amber-400/30, text-red-200, …) that read well on
+  dark surfaces but wash out on light ones. Tailwind v4 compiles those
+  utilities to var(--color-*) references, so — exactly like the --color-white
+  ink remap above — the light themes swap each light shade for a darker step
+  of the same hue. Dark themes are untouched.
+
+  Mapping: 100 → 900, 200 → 800, 300 → 700, 400 → 600 (500+ already work on
+  light backgrounds). Tinted backgrounds like bg-amber-400/10 keep working
+  because the opacity is applied to the remapped hue.
+*/
+[data-theme="paper"],
+[data-theme="arctic"] {
+  --color-amber-100: #78350f;
+  --color-amber-200: #92400e;
+  --color-amber-300: #b45309;
+  --color-amber-400: #d97706;
+  --color-blue-200: #1e40af;
+  --color-blue-400: #2563eb;
+  --color-cyan-200: #155e75;
+  --color-cyan-400: #0891b2;
+  --color-emerald-100: #064e3b;
+  --color-emerald-200: #065f46;
+  --color-emerald-300: #047857;
+  --color-emerald-400: #059669;
+  --color-gray-300: #374151;
+  --color-indigo-300: #4338ca;
+  --color-indigo-400: #4f46e5;
+  --color-pink-200: #9d174d;
+  --color-pink-400: #db2777;
+  --color-red-200: #991b1b;
+  --color-red-300: #b91c1c;
+  --color-red-400: #dc2626;
+  --color-rose-200: #9f1239;
+  --color-rose-300: #be123c;
+  --color-rose-400: #e11d48;
+  --color-sky-200: #075985;
+  --color-sky-300: #0369a1;
+  --color-sky-400: #0284c7;
+  --color-teal-300: #0f766e;
+  --color-teal-400: #0d9488;
+  --color-violet-200: #5b21b6;
+  --color-violet-400: #7c3aed;
 }
 
 * {

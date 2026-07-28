@@ -166,11 +166,30 @@ function drawBaseText(ctx: CanvasRenderingContext2D, slide: CarouselSlide, index
   const scale = w / 1080;
   const margin = 80 * scale;
 
-  // Slide counter.
-  ctx.fillStyle = COLATERAL_THEME.counter;
+  // The band the copy is centered inside — the whole slide unless a photo has
+  // claimed the top of it.
+  const bandTop = (slide.textBand?.top ?? 0) * h;
+  const bandBottom = (slide.textBand?.bottom ?? 1) * h;
+
+  // Slide counter. On a photo slide it rides on a chip over the photo: dropped
+  // into the copy band instead, it ends up shoulder to shoulder with the
+  // heading, and a heading one word longer runs straight into it.
+  const counter = `${index + 1}/${total}`;
   ctx.font = `600 ${34 * scale}px system-ui, -apple-system, sans-serif`;
   ctx.textAlign = "right";
-  ctx.fillText(`${index + 1}/${total}`, w - margin - 0 * scale, 100 * scale);
+  if (slide.textBand) {
+    const padX = 22 * scale;
+    const chipH = 60 * scale;
+    const chipW = ctx.measureText(counter).width + padX * 2;
+    ctx.fillStyle = "rgba(15,23,42,0.55)";
+    roundedRectPath(ctx, w - margin - chipW, 52 * scale, chipW, chipH, chipH / 2);
+    ctx.fill();
+    ctx.fillStyle = "rgba(255,255,255,0.94)";
+    ctx.fillText(counter, w - margin - padX, 52 * scale + chipH / 2 + 12 * scale);
+  } else {
+    ctx.fillStyle = COLATERAL_THEME.counter;
+    ctx.fillText(counter, w - margin - 0 * scale, 100 * scale);
+  }
 
   const isHook = index === 0;
   const headingFont = `800 ${(isHook ? 92 : 72) * scale}px system-ui, -apple-system, sans-serif`;
@@ -182,7 +201,7 @@ function drawBaseText(ctx: CanvasRenderingContext2D, slide: CarouselSlide, index
   const headingLineH = (isHook ? 108 : 86) * scale;
   const bodyLineH = 62 * scale;
   const blockH = headingLines.length * headingLineH + (bodyLines.length ? 40 * scale + bodyLines.length * bodyLineH : 0);
-  let y = (h - blockH) / 2 + (isHook ? 70 : 50) * scale;
+  let y = bandTop + (bandBottom - bandTop - blockH) / 2 + (isHook ? 70 : 50) * scale;
 
   ctx.textAlign = "left";
   ctx.font = headingFont;
