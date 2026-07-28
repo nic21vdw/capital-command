@@ -222,6 +222,32 @@ describe("youtube adapter", () => {
       expect(result.status).toBe("published");
     });
 
+    it("asks for a reconnect when the grant predates the privacy-update scope", async () => {
+      mockFetchRoutes([
+        { match: "oauth2.googleapis.com/token", respond: () => jsonResponse({ access_token: "at-1", expires_in: 3600 }) },
+        {
+          match: "id=vid-private",
+          respond: () => jsonResponse({ items: [{ status: { privacyStatus: "private", publishAt: FUTURE } }] })
+        },
+        {
+          match: "part=status",
+          respond: () =>
+            jsonResponse(
+              { error: { code: 403, message: "Request had insufficient authentication scopes.", status: "PERMISSION_DENIED" } },
+              { status: 403 }
+            )
+        }
+      ]);
+      const adapter = await loadAdapter();
+      const item = testItem({ visibility: "public", platformIds: ["youtube"] });
+
+      // The upload already succeeded, so the failure must name the fix rather
+      // than leaking Google's raw JSON into the queue's error field.
+      await expect(
+        adapter.finalize!(item, { status: "scheduled", attempts: 0, postId: "vid-private" })
+      ).rejects.toThrow(/Reconnect YouTube/);
+    });
+
     it("fails permanently when the video no longer exists", async () => {
       mockFetchRoutes([
         { match: "oauth2.googleapis.com/token", respond: () => jsonResponse({ access_token: "at-1", expires_in: 3600 }) },
