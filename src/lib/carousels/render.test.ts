@@ -111,6 +111,21 @@ describe("photo slide geometry", () => {
     expect(counter!.y).toBeLessThan(IMAGE_SLIDE_LAYOUT.imageHeight * portrait.height);
   });
 
+  it("paints the photo at a thumbnail render too, scaled to the smaller canvas", async () => {
+    const [slide] = attachSlideImages([copy], [{ id: "a.png", url: "/api/studio/carousels/images/a.png" }]);
+    const canvas = await renderSlideCanvas(slide, 0, 5, "portrait", { width: 416 });
+
+    expect(canvas.width).toBe(416);
+    expect(canvas.height).toBe(Math.round((416 * portrait.height) / portrait.width));
+    const photo = drawnImages[0];
+    expect(photo).toBeDefined();
+    // Same picture, not a different layout — the photo still claims the top
+    // band, measured against the smaller canvas.
+    expect(photo.y).toBe(0);
+    expect(photo.h).toBeGreaterThanOrEqual(IMAGE_SLIDE_LAYOUT.imageHeight * canvas.height);
+    expect(photo.h).toBeLessThan(portrait.height * IMAGE_SLIDE_LAYOUT.imageHeight);
+  });
+
   it("leaves a slide without a photo laid out as it always was", async () => {
     await renderSlideCanvas(copy, 2, 5, "portrait");
     const counter = drawnText.find((line) => line.text === "3/5");
