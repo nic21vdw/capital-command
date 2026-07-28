@@ -26,12 +26,20 @@ Every fal endpoint speaks the same three routes, which is why one client drives
 five very different models:
 
 ```
-POST https://queue.fal.run/{endpointId}                       -> { request_id, status }
-GET  https://queue.fal.run/{endpointId}/requests/{id}/status  -> { status, queue_position }
-GET  https://queue.fal.run/{endpointId}/requests/{id}         -> the model's own output
+POST https://queue.fal.run/{endpointId}   -> { request_id, status_url, response_url }
+GET  {status_url}                         -> { status, queue_position }
+GET  {response_url}                       -> the model's own output
 ```
 
 Auth is `Authorization: Key <FAL_KEY>` — fal's scheme is `Key`, not `Bearer`.
+
+**The polling routes are not under the submit path.** A job submitted to
+`fal-ai/lyria3/pro` is polled at `fal-ai/lyria3/requests/{id}` — fal drops the
+variant sub-path and keys the queue on `owner/app`. Polling the submit path
+answers **405**, and fal's published OpenAPI schema documents that wrong path
+for all three routes, so don't trust it here. Submissions hand back the exact
+`status_url` / `response_url`; those are stored on the job and reused, and
+`queueUrlBase` is only the fallback for records written before them.
 
 `fal.ts` owns that transport. Everything model-specific lives in `models.ts` as
 one registry entry per model:

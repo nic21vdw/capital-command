@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { heuristicSongBrief, parseSongBrief } from "@/lib/music/brief";
-import { describeFalError } from "@/lib/music/fal";
+import { describeFalError, queueUrlBase } from "@/lib/music/fal";
 import { buildModelInput, getMusicModel, MUSIC_MODELS, readModelAudio, type StudioRequest } from "@/lib/music/models";
 import { trackFileName } from "@/lib/music/jobs";
 
@@ -119,6 +119,21 @@ describe("readModelAudio", () => {
   it("falls back to the single audio key when a take list is missing", () => {
     expect(readModelAudio(model("lyria3-pro"), { audio: { url: "https://x/1.mp3" } })).toHaveLength(1);
     expect(readModelAudio(model("lyria3-pro"), {})).toEqual([]);
+  });
+});
+
+describe("queueUrlBase", () => {
+  it("drops a variant sub-path, because fal keys the queue on owner/app", () => {
+    // Polling fal-ai/lyria3/pro/requests/{id} answers 405 — the published
+    // OpenAPI schema documents the submit path for all three routes.
+    expect(queueUrlBase("fal-ai/lyria3/pro")).toBe("fal-ai/lyria3");
+    expect(queueUrlBase("fal-ai/minimax-music/v2.6")).toBe("fal-ai/minimax-music");
+    expect(queueUrlBase("sonilo/v1.1/text-to-music")).toBe("sonilo/v1.1");
+  });
+
+  it("leaves a two-segment endpoint alone", () => {
+    expect(queueUrlBase("fal-ai/ace-step")).toBe("fal-ai/ace-step");
+    expect(queueUrlBase("cassetteai/music-generator")).toBe("cassetteai/music-generator");
   });
 });
 

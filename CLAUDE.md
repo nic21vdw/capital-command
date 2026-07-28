@@ -83,6 +83,10 @@ holds everything model-specific.
 - Generated tracks land in the SAME library as uploads
   (`src/lib/longform/music.ts`); only `MusicTrack.origin` differs. Don't build
   a parallel store.
+- fal's POLL routes are NOT under the submit path: a job sent to
+  `fal-ai/lyria3/pro` is polled at `fal-ai/lyria3/requests/{id}` (405
+  otherwise), and fal's own OpenAPI schema documents this wrong. Store the
+  `status_url` / `response_url` a submission returns and reuse them.
 - Polling `GET /api/music?requestId=…` is what ADVANCES a job — the poll that
   first sees `COMPLETED` imports the takes — so every step is idempotent behind
   the ledger plus an in-flight map, same rule as the Stream Pipeline: the job
