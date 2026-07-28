@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { accountIdConfigured, addAccount, listAccounts, isPrimaryAccountId, type SocialAccount } from "@/lib/publisher/accounts";
 import { youtubeChannelInfo, type YoutubeChannelInfo } from "@/lib/publisher/googleAuth";
+import { tiktokCreatorInfo, type TiktokCreatorInfo } from "@/lib/publisher/tiktokAuth";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -12,6 +13,8 @@ export type SocialAccountView = SocialAccount & {
   connected: boolean;
   /** Connected YouTube channel's name/avatar, when known. */
   youtube: YoutubeChannelInfo | null;
+  /** Connected TikTok profile's display name/avatar, when known. */
+  tiktok: TiktokCreatorInfo | null;
 };
 
 async function accountView(account: SocialAccount): Promise<SocialAccountView> {
@@ -20,7 +23,8 @@ async function accountView(account: SocialAccount): Promise<SocialAccountView> {
     ...account,
     primary: isPrimaryAccountId(account.id),
     connected,
-    youtube: account.platform === "youtube" && connected ? await youtubeChannelInfo(account.id) : null
+    youtube: account.platform === "youtube" && connected ? await youtubeChannelInfo(account.id) : null,
+    tiktok: account.platform === "tiktok" && connected ? await tiktokCreatorInfo() : null
   };
 }
 

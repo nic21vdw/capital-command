@@ -116,17 +116,17 @@ export type PublisherConfig = {
 };
 
 /**
- * Refresh token minted by the in-app "Connect YouTube" flow
- * (/api/auth/google), persisted by tokens.ts in data/publisher-tokens.json.
- * A token minted by Connect YouTube wins locally so reconnecting replaces a
- * stale .env grant. This read must be synchronous because publisherConfig()
- * is, so the r2 token backend is not consulted here — set
- * YOUTUBE_REFRESH_TOKEN explicitly for GitHub Actions runs.
+ * A refresh token minted by an in-app connect flow ("Connect YouTube" via
+ * /api/auth/google, "Connect TikTok" via /api/auth/tiktok), persisted by
+ * tokens.ts in data/publisher-tokens.json. A connected token wins locally so
+ * reconnecting replaces a stale .env grant. This read must be synchronous
+ * because publisherConfig() is, so the r2 token backend is not consulted
+ * here — set the *_REFRESH_TOKEN variables explicitly for GitHub Actions runs.
  */
-function cachedYoutubeRefreshToken(): string | null {
+function cachedRefreshToken(key: string): string | null {
   try {
     const raw = readFileSync(path.join(process.cwd(), "data", "publisher-tokens.json"), "utf8");
-    const value = (JSON.parse(raw) as Record<string, unknown>)["youtube.refreshToken"];
+    const value = (JSON.parse(raw) as Record<string, unknown>)[key];
     return typeof value === "string" && value ? value : null;
   } catch {
     return null;
@@ -160,7 +160,7 @@ export function publisherConfig(): PublisherConfig {
     youtube: {
       clientId: str("YOUTUBE_CLIENT_ID"),
       clientSecret: str("YOUTUBE_CLIENT_SECRET"),
-      refreshToken: cachedYoutubeRefreshToken() ?? str("YOUTUBE_REFRESH_TOKEN"),
+      refreshToken: cachedRefreshToken("youtube.refreshToken") ?? str("YOUTUBE_REFRESH_TOKEN"),
       categoryId: str("YOUTUBE_CATEGORY_ID"),
       dailyUploadBudget: num("YOUTUBE_DAILY_UPLOAD_BUDGET", 6)
     },
@@ -184,7 +184,7 @@ export function publisherConfig(): PublisherConfig {
     tiktok: {
       clientKey: str("TIKTOK_CLIENT_KEY"),
       clientSecret: str("TIKTOK_CLIENT_SECRET"),
-      refreshToken: str("TIKTOK_REFRESH_TOKEN"),
+      refreshToken: cachedRefreshToken("tiktok.refreshToken") ?? str("TIKTOK_REFRESH_TOKEN"),
       audited: flag("TIKTOK_AUDITED")
     },
     s3: {

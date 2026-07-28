@@ -21,7 +21,7 @@ import type { PlatformId, QueueItem } from "@/lib/publisher/types";
  * needs no tick at all); it is a no-op when nothing is due.
  */
 
-export type YoutubeAccount = { title: string; thumbnail: string | null };
+export type ConnectedProfile = { title: string; thumbnail: string | null };
 
 /** One connectable social account (see /api/publish/accounts). */
 export type SocialAccountView = {
@@ -34,7 +34,9 @@ export type SocialAccountView = {
   /** True when posts for this account publish automatically. */
   connected: boolean;
   /** Connected YouTube channel's name/avatar, when known. */
-  youtube: YoutubeAccount | null;
+  youtube: ConnectedProfile | null;
+  /** Connected TikTok profile's display name/avatar, when known. */
+  tiktok: ConnectedProfile | null;
 };
 
 export function primaryAccountIdFor(platform: PlatformId): string {
@@ -44,7 +46,7 @@ export function primaryAccountIdFor(platform: PlatformId): string {
 export type Overview = {
   enabled: boolean;
   timezone: string;
-  platforms: Record<PlatformId, { configured: boolean; account?: YoutubeAccount | null }>;
+  platforms: Record<PlatformId, { configured: boolean; account?: ConnectedProfile | null }>;
   quota: YoutubeQuota;
   /** Which window the slots below belong to, in days after today. */
   slotOffsetDays: number;
