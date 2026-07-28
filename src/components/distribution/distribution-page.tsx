@@ -475,7 +475,7 @@ export function DistributionPage() {
   return (
     <div>
       <PageHeader
-        eyebrow="Distribution Centre"
+        eyebrow="Step 3 · Schedule"
         title="One recording, every format"
         description="Pick what you're starting with, then follow the pipeline down: your raw material becomes a clean master, and from there it fans out into every format you can post. Videos do everything; text and ideas set you up to record and unlock the rest."
       />

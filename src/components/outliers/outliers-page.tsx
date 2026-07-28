@@ -223,7 +223,7 @@ export function OutliersPage() {
   return (
     <div>
       <PageHeader
-        eyebrow="YouTube tools"
+        eyebrow="Studio"
         title="Outlier Radar"
         description="Watch other channels, baseline them on the median views of their recent uploads, and flag videos breaking out above the baseline. One click analyzes your competition as a group — shared breakout topics, packaging patterns, and an AI brief on what to make next."
       />
