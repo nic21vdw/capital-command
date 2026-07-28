@@ -155,4 +155,29 @@ committed as a standalone project under `video/`.
 - After wiring it in, verify by running the dev server, opening
   `/presentation`, selecting the new project tab, and confirming the
   Player actually renders/autoplays each scene — don't just rely on
-  `tsc --noEmit`.
+  `tsc --noEmit`. When the dev server is off-limits, the equivalent check is
+  `npx remotion still src/remotion/deck-entry.tsx "<project>--<slide>" out.png`
+  — same bundle the Download MP4 button uses, so a scene that stills cleanly
+  will play in the deck.
+- A project directory may back MORE THAN ONE deck entry. `video/broll-collateral`
+  is one Remotion project whose ten scenes are grouped into four `PROJECTS`
+  entries; share the theme/components rather than copying a project folder per
+  deck tab. Deck entries can carry a `group` label, which the picker renders as
+  a section heading.
+
+## B-roll for advertising collateral
+
+`video/broll-collateral/` is the library of 5-second product-footage clips
+(see its README). Two rules hold it together:
+
+- **The product screenshots are drawn, not captured.**
+  `src/components/AppWindow.tsx` renders the app's own chrome, sidebar groups,
+  and screen bodies as components. When the real nav or palette changes, update
+  that file and `video/broll-collateral/src/theme.ts` to match — stale-looking
+  footage is the failure mode here, and a captured PNG also goes soft when a
+  screen sits close to camera.
+- **Every clip is exactly 150 frames and self-fades at both edges**
+  (`clipFade` in `src/motion.ts`), so any two cut together without a flash. New
+  B-roll clips must keep both properties or they stop being interchangeable.
+  Use the helpers in `src/motion.ts` (`enter`, `stagger`, `ramp`, `drift`)
+  rather than hand-rolled easings, so the whole library moves as one system.

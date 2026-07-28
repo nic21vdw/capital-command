@@ -29,6 +29,17 @@ import { Capabilities as ClaudeCapabilities } from "../../../video/claude-traile
 import { Momentum as ClaudeMomentum } from "../../../video/claude-trailer/src/scenes/Momentum";
 import { EndCard as ClaudeEndCard } from "../../../video/claude-trailer/src/scenes/EndCard";
 import { VIDEO as COLATERAL_INTRO_VIDEO } from "../../../video/colateral-intro/src/theme";
+import { VIDEO as BROLL_VIDEO, VIDEO_VERTICAL as BROLL_VIDEO_VERTICAL, CLIP_FRAMES as BROLL_FRAMES } from "../../../video/broll-collateral/src/theme";
+import { FloatingScreens as BrollFloatingScreens } from "../../../video/broll-collateral/src/scenes/FloatingScreens";
+import { CardShuffle as BrollCardShuffle } from "../../../video/broll-collateral/src/scenes/CardShuffle";
+import { DepthDolly as BrollDepthDolly } from "../../../video/broll-collateral/src/scenes/DepthDolly";
+import { PipelineFlow as BrollPipelineFlow } from "../../../video/broll-collateral/src/scenes/PipelineFlow";
+import { ClipGridPop as BrollClipGridPop } from "../../../video/broll-collateral/src/scenes/ClipGridPop";
+import { CalendarFill as BrollCalendarFill } from "../../../video/broll-collateral/src/scenes/CalendarFill";
+import { PhoneShowcase as BrollPhoneShowcase } from "../../../video/broll-collateral/src/scenes/PhoneShowcase";
+import { VerticalStack as BrollVerticalStack } from "../../../video/broll-collateral/src/scenes/VerticalStack";
+import { GlassMetrics as BrollGlassMetrics } from "../../../video/broll-collateral/src/scenes/GlassMetrics";
+import { WordmarkAmbient as BrollWordmarkAmbient } from "../../../video/broll-collateral/src/scenes/WordmarkAmbient";
 import { RevealDraftingTable as ColateralRevealDraftingTable } from "../../../video/colateral-intro/src/scenes/RevealDraftingTable";
 import { RevealLoadPath as ColateralRevealLoadPath } from "../../../video/colateral-intro/src/scenes/RevealLoadPath";
 import { RevealBeamyEntrance as ColateralRevealBeamyEntrance } from "../../../video/colateral-intro/src/scenes/RevealBeamyEntrance";
@@ -49,6 +60,12 @@ export type Project = {
   description: string;
   format: { width: number; height: number; fps: number };
   slides: Slide[];
+  /**
+   * Optional section heading in the deck's project picker. Projects with the
+   * same group are listed together under it; ungrouped projects fall under
+   * "Videos". Purely presentational — nothing in the render path reads it.
+   */
+  group?: string;
 };
 
 // Overlay scenes (logo, lower third, CTA, end card) render transparent on
@@ -151,6 +168,58 @@ export const PROJECTS: Project[] = [
       { id: "RevealBeamyEntrance", title: "Beamy's Entrance", note: "Beamy dances a 4-beat loop while letters spawn on the beat — playful", component: ColateralRevealBeamyEntrance, durationInFrames: 180 },
       { id: "RevealCanvasSpawn", title: "Canvas Spawn", note: "Real tool cards spawn and link across the canvas, then converge into the mark — product-led", component: ColateralRevealCanvasSpawn, durationInFrames: 195 },
       { id: "RevealTypeset", title: "Typeset", note: "The live hero, animated — kerning settle, Beamy perched beside the mark — minimal/corporate", component: ColateralRevealTypeset, durationInFrames: 180 }
+    ]
+  },
+  // ---------------------------------------------------------------------
+  // B-roll library (`video/broll-collateral`). Ten interchangeable 5s clips
+  // of the product itself — real CoLateral Command screens, drawn rather than
+  // screenshotted so they never go stale, floating on iOS motion. Grouped into
+  // four decks by what the footage is FOR, not by which file it lives in.
+  // ---------------------------------------------------------------------
+  {
+    id: "broll-floating-ui",
+    group: "B-Roll Library",
+    name: "B-Roll · Floating UI",
+    description: "Product screens floating in 3D with depth of field · 5s each · 1920×1080",
+    format: BROLL_VIDEO,
+    slides: [
+      { id: "FloatingScreens", title: "Floating Screens", note: "Five screens drift at different depths, hero sharp in the middle", component: BrollFloatingScreens, durationInFrames: BROLL_FRAMES },
+      { id: "CardShuffle", title: "Card Shuffle", note: "iOS app-switcher fan-out, hold, and settle back to the deck", component: BrollCardShuffle, durationInFrames: BROLL_FRAMES },
+      { id: "DepthDolly", title: "Depth Dolly", note: "Lateral camera glide past a wall of screens — true perspective parallax", component: BrollDepthDolly, durationInFrames: BROLL_FRAMES }
+    ]
+  },
+  {
+    id: "broll-product-tour",
+    group: "B-Roll Library",
+    name: "B-Roll · Product Tour",
+    description: "The app doing its job: fan-out, clips, scheduling · 5s each · 1920×1080",
+    format: BROLL_VIDEO,
+    slides: [
+      { id: "PipelineFlow", title: "Pipeline Flow", note: "Stream Pipeline presents like a sheet, formats fly out as glass pills", component: BrollPipelineFlow, durationInFrames: BROLL_FRAMES },
+      { id: "ClipGridPop", title: "Clip Grid Pop", note: "Finished 9:16 shorts lift out of the Clip Generator toward camera", component: BrollClipGridPop, durationInFrames: BROLL_FRAMES },
+      { id: "CalendarFill", title: "Calendar Fill", note: "A month fills in, then an iOS sheet confirms 72 posts across 4 channels", component: BrollCalendarFill, durationInFrames: BROLL_FRAMES }
+    ]
+  },
+  {
+    id: "broll-vertical",
+    group: "B-Roll Library",
+    name: "B-Roll · Vertical Cuts",
+    description: "Shorts / Reels / TikTok inserts · 5s each · 1080×1920 vertical",
+    format: BROLL_VIDEO_VERTICAL,
+    slides: [
+      { id: "PhoneShowcase", title: "Phone Showcase", note: "iPhone rises in and pages the shorts feed with real iOS paging springs", component: BrollPhoneShowcase, durationInFrames: BROLL_FRAMES },
+      { id: "VerticalStack", title: "Vertical Stack", note: "A column of screens climbs the frame, sharp only in the middle band", component: BrollVerticalStack, durationInFrames: BROLL_FRAMES }
+    ]
+  },
+  {
+    id: "broll-brand-atmos",
+    group: "B-Roll Library",
+    name: "B-Roll · Brand Atmos",
+    description: "Claim tiles and the wordmark bookend · 5s each · 1920×1080",
+    format: BROLL_VIDEO,
+    slides: [
+      { id: "GlassMetrics", title: "Glass Metrics", note: "Frosted tiles count up over out-of-focus product footage", component: BrollGlassMetrics, durationInFrames: BROLL_FRAMES },
+      { id: "WordmarkAmbient", title: "Wordmark Ambient", note: "CoLateral resolves out of a blur — “One stream in. Every format out.”", component: BrollWordmarkAmbient, durationInFrames: BROLL_FRAMES }
     ]
   }
 ];
