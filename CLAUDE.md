@@ -63,6 +63,26 @@ both. Two accounts posting the same wording would read as mirrored spam.
   each account's id, label, version and offset.
 - See `src/lib/threads/README.md`.
 
+## AI music (`src/lib/music`)
+
+Background music written on demand from a one-line idea, in the Long-Form
+Editor's Audio panel. Suno has NO official self-serve API (partner pilot only
+as of July 2026), so `suno.ts` speaks the two routes every public gateway
+exposes — `POST /api/v1/generate` and `GET /api/v1/generate/record-info` — with
+the host behind `SUNO_API_BASE`. An official API would change this one file.
+
+- Generated songs land in the SAME library as uploads (`src/lib/longform/music.ts`);
+  the only difference is `MusicTrack.origin`. Don't build a parallel store.
+- Polling `GET /api/longform/music/generate` is what ADVANCES a job — the poll
+  that first sees `SUCCESS` imports the takes — so every step is idempotent
+  behind the ledger plus an in-flight map, same rule as the Stream Pipeline:
+  the job map lives in one process, outsiders go through the HTTP API.
+- Only an exact `SUCCESS` means finished. `TEXT_SUCCESS` / `FIRST_SUCCESS` are
+  intermediate states with no downloadable audio yet.
+- Commercial rights come from the Suno PLAN behind the gateway key, not from
+  the key. Keep that caveat in the docs wherever generation is offered.
+- See `src/lib/music/README.md`.
+
 ## Clip metadata conventions (titles, descriptions, tags)
 
 Clip titles are NEVER raw transcript fragments — a slice of what was said

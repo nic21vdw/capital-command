@@ -206,7 +206,16 @@ export type LongformProject = {
   updatedAt: string;
 };
 
-/** A song uploaded to the shared background-music library. */
+/** Where a library song came from, when it wasn't uploaded by hand. */
+export type MusicTrackOrigin = {
+  provider: "suno";
+  taskId: string;
+  songId: string;
+  prompt: string;
+  style?: string;
+};
+
+/** A song in the shared background-music library: uploaded, or AI-generated. */
 export type MusicTrack = {
   id: string;
   fileName: string;
@@ -215,4 +224,5 @@ export type MusicTrack = {
   sizeBytes: number;
   durationSec: number;
   createdAt: string;
+  origin?: MusicTrackOrigin;
 };

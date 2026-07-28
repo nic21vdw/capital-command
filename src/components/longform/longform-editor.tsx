@@ -1780,6 +1780,11 @@ function MusicPanel({
   const [extracting, setExtracting] = useState(false);
   const [dragging, setDragging] = useState(false);
   const [auditionId, setAuditionId] = useState<string | null>(null);
+  const [idea, setIdea] = useState("");
+  const [generating, setGenerating] = useState(false);
+  const [generateStatus, setGenerateStatus] = useState("");
+  const [sunoReady, setSunoReady] = useState(true);
+  const aliveRef = useRef(true);
   const dragDepth = useRef(0);
   const fileRef = useRef<HTMLInputElement>(null);
   const auditionRef = useRef<HTMLAudioElement | null>(null);
@@ -1810,6 +1815,30 @@ function MusicPanel({
 
   // Stop the audition player when the panel unmounts.
   useEffect(() => () => auditionRef.current?.pause(), []);
+
+  // A Suno job outlives most panel visits, so the poll loop checks this before
+  // touching state — closing the panel abandons the loop, not the job.
+  useEffect(() => {
+    aliveRef.current = true;
+    return () => {
+      aliveRef.current = false;
+    };
+  }, []);
+
+  // Whether a Suno key is configured; without one the generator explains itself
+  // instead of failing on the first click.
+  useEffect(() => {
+    let cancelled = false;
+    void fetch("/api/longform/music/generate", { cache: "no-store" })
+      .then((response) => (response.ok ? response.json() : null))
+      .then((data: { configured?: boolean } | null) => {
+        if (!cancelled && data) setSunoReady(Boolean(data.configured));
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const toggleAudition = (track: MusicTrack) => {
     const el = auditionRef.current;
@@ -1870,6 +1899,67 @@ function MusicPanel({
     await refresh();
   };
 
+  // Suno writes the brief and the song server-side; the browser starts the job
+  // and then polls, because a track takes a couple of minutes to come back.
+  const generateSong = async () => {
+    const brief = idea.trim();
+    if (!brief || generating) return;
+    setGenerating(true);
+    setGenerateStatus("Writing the brief…");
+    try {
+      const response = await fetch("/api/longform/music/generate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ idea: brief })
+      });
+      const started = (await response.json()) as { job?: { taskId: string }; error?: string };
+      if (!response.ok || !started.job) {
+        toast.error(started.error ?? "Could not start that song.");
+        return;
+      }
+
+      setGenerateStatus("Suno is writing your song…");
+      const taskId = started.job.taskId;
+      const deadline = Date.now() + 10 * 60 * 1000;
+      while (Date.now() < deadline) {
+        await new Promise((resolve) => setTimeout(resolve, 8000));
+        if (!aliveRef.current) return;
+        const poll = await fetch(`/api/longform/music/generate?taskId=${encodeURIComponent(taskId)}`, {
+          cache: "no-store"
+        });
+        if (!poll.ok) continue;
+        const data = (await poll.json()) as {
+          job?: { status: string; error?: string };
+          tracks?: MusicTrack[];
+        };
+        if (data.job?.status === "failed") {
+          toast.error(data.job.error ?? "Suno could not finish that song.");
+          return;
+        }
+        if (data.job?.status === "complete") {
+          const made = data.tracks ?? [];
+          await refresh();
+          if (made[0]) addAudioClip(made[0], time);
+          setIdea("");
+          toast.success(
+            made.length > 1
+              ? `Suno wrote ${made.length} takes — the first one is on the timeline.`
+              : `“${made[0]?.fileName ?? "Your song"}” is in your library.`
+          );
+          return;
+        }
+      }
+      toast.error("Suno is still working — check your library in a minute.");
+    } catch {
+      toast.error("Could not reach the song generator.");
+    } finally {
+      if (aliveRef.current) {
+        setGenerating(false);
+        setGenerateStatus("");
+      }
+    }
+  };
+
   const removeTrack = async (track: MusicTrack) => {
     try {
       if (auditionId === track.id) {
@@ -1927,6 +2017,44 @@ function MusicPanel({
 
       {/* Hidden audition player for previewing library tracks. */}
       <audio ref={auditionRef} hidden onEnded={() => setAuditionId(null)} />
+
+      <div className="space-y-2 rounded-xl border border-[var(--border)] p-3">
+        <div className="flex items-center gap-2">
+          <Sparkles className="h-4 w-4 text-[var(--accent)]" />
+          <h4 className="text-sm font-semibold text-white">Write a song with Suno</h4>
+        </div>
+        <p className="text-xs text-[var(--muted-foreground)]">
+          Describe the vibe — the brief, the style tags and the track are written for you, and both takes land in your
+          library.
+        </p>
+        <textarea
+          value={idea}
+          onChange={(event) => setIdea(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) void generateSong();
+          }}
+          rows={2}
+          disabled={generating || !sunoReady}
+          placeholder="Calm lo-fi loop for a build-stream recap — keys, soft drums, no vocals"
+          className="w-full resize-none rounded-lg border border-[var(--border)] bg-transparent px-3 py-2 text-sm text-white placeholder:text-[var(--muted-foreground)] focus:border-[var(--accent)] focus:outline-none disabled:opacity-60"
+        />
+        <div className="flex items-center gap-2">
+          <Button
+            className="gap-2 px-3 py-1.5 text-xs"
+            onClick={() => void generateSong()}
+            disabled={generating || !idea.trim() || !sunoReady}
+          >
+            {generating ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
+            {generating ? "Generating…" : "Generate song"}
+          </Button>
+          {generating && <span className="text-xs text-[var(--muted-foreground)]">{generateStatus}</span>}
+        </div>
+        {!sunoReady && (
+          <p className="text-[10px] text-amber-300/80">
+            Set SUNO_API_KEY in .env to turn this on — until then, upload songs below.
+          </p>
+        )}
+      </div>
 
       <input
         ref={fileRef}
