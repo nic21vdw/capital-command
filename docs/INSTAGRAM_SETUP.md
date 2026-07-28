@@ -25,6 +25,13 @@ failing with a Graph error code.
 
 ---
 
+### If the app uses Facebook Login for Business
+
+Check **Facebook Login for Business → Configurations** on the app. If that list
+is empty, the login dialog has nothing to launch through and fails with a bare
+"Something went wrong" — create a configuration (General, *user access token*,
+with the four permissions below) before generating any token.
+
 ## 1. Create the Meta app
 
 1. Go to <https://developers.facebook.com/apps> and click **Create app**.
@@ -78,6 +85,12 @@ It will:
   missing rather than letting you discover it at publish time;
 - list your Pages and find the Instagram professional account linked to one
   (if several Pages qualify it stops and asks for `--page <id|name>`);
+- if no Page reports one — which is what happens when the account is connected
+  through a **business portfolio** rather than the older Page link — it tells
+  you to pass `--ig-user-id <id>`, which you can read off
+  business.facebook.com → Settings → Accounts → Instagram accounts. It then
+  finds whichever token can actually reach that account, preferring a Page
+  token (never expires) and falling back to the user token (60 days);
 - take that Page's access token — a Page token derived from a long-lived user
   token **does not expire**, which is why this is the token that gets saved;
 - call the publishing-quota endpoint as a live proof the credentials work;

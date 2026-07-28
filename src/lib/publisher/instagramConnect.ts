@@ -20,7 +20,9 @@ export type InstagramConnection = {
   longLivedUserToken: string;
   userTokenExpiresAt: string | null;
   pages: InstagramPage[];
-  page: InstagramPage;
+  page: InstagramPage | null;
+  accessToken: string;
+  tokenSource: "page" | "user";
   igUserId: string;
   igUsername: string | null;
   grantedScopes: string[];
@@ -34,6 +36,7 @@ export type ConnectOptions = {
   userToken: string;
   graphApiVersion?: string;
   pageId?: string;
+  igUserId?: string;
 };
 
 type GraphError = { error?: { message?: string; type?: string; code?: number } };
@@ -136,7 +139,20 @@ export async function publishingQuota(
   return typeof usage === "number" ? usage : null;
 }
 
-function choosePage(pages: InstagramPage[], wanted?: string): InstagramPage {
+async function accountUsername(
+  igUserId: string,
+  token: string,
+  graphApiVersion: string
+): Promise<string | null> {
+  const query = new URLSearchParams({ fields: "username", access_token: token });
+  const data = await fetchJson<{ username?: string }>(`${base(graphApiVersion)}/${igUserId}?${query}`, {
+    label: "Instagram profile",
+    method: "GET"
+  }).catch(() => null);
+  return data?.username ?? null;
+}
+
+function choosePage(pages: InstagramPage[], wanted?: string): InstagramPage | null {
   const linked = pages.filter((page) => page.igUserId);
   if (wanted) {
     const match = pages.find(
@@ -147,19 +163,7 @@ function choosePage(pages: InstagramPage[], wanted?: string): InstagramPage {
         `No Page called "${wanted}" on this token. Available: ${pages.map((p) => `${p.pageName} (${p.pageId})`).join(", ") || "none"}`
       );
     }
-    if (!match.igUserId) {
-      throw new PermanentError(
-        `Page "${match.pageName}" has no linked Instagram professional account. Link it in Meta Business Suite → Settings → Accounts, then re-run.`
-      );
-    }
     return match;
-  }
-  if (linked.length === 0) {
-    throw new PermanentError(
-      pages.length === 0
-        ? "This token can see no Facebook Pages. Re-generate it with pages_show_list granted and the Page selected."
-        : `None of these Pages has a linked Instagram professional account: ${pages.map((p) => p.pageName).join(", ")}. Convert the Instagram account to Business/Creator and link it to the Page.`
-    );
   }
   if (linked.length > 1) {
     throw new PermanentError(
@@ -168,7 +172,55 @@ function choosePage(pages: InstagramPage[], wanted?: string): InstagramPage {
         .join(", ")}`
     );
   }
-  return linked[0];
+  return linked[0] ?? null;
+}
+
+async function resolveAccount(
+  pages: InstagramPage[],
+  userToken: string,
+  graphApiVersion: string,
+  options: ConnectOptions
+): Promise<{ igUserId: string; page: InstagramPage | null; quotaUsage: number | null }> {
+  const chosen = choosePage(pages, options.pageId);
+  const igUserId = options.igUserId ?? chosen?.igUserId ?? null;
+
+  if (!igUserId) {
+    throw new PermanentError(
+      [
+        pages.length === 0
+          ? "This token can see no Facebook Pages."
+          : `No Page reports a linked Instagram account (${pages.map((p) => p.pageName).join(", ")}).`,
+        "If the Instagram account is connected through a business portfolio rather than the older Page link, the Graph API does not expose it here.",
+        "Find the numeric id under business.facebook.com → Settings → Accounts → Instagram accounts, and pass it with --ig-user-id."
+      ].join(" ")
+    );
+  }
+
+  const candidates: Array<InstagramPage | null> = chosen ? [chosen, ...pages, null] : [...pages, null];
+  const seen = new Set<string>();
+  let lastError: unknown = null;
+
+  for (const candidate of candidates) {
+    const key = candidate?.pageId ?? "__user__";
+    if (seen.has(key)) continue;
+    seen.add(key);
+    try {
+      const quotaUsage = await publishingQuota(
+        igUserId,
+        candidate?.pageAccessToken ?? userToken,
+        graphApiVersion
+      );
+      return { igUserId, page: candidate, quotaUsage };
+    } catch (error) {
+      lastError = error;
+    }
+  }
+
+  throw new PermanentError(
+    `No token on this account can publish to Instagram ${igUserId}. Last error: ${
+      lastError instanceof Error ? lastError.message : String(lastError)
+    }`
+  );
 }
 
 export async function connectInstagram(options: ConnectOptions, now = new Date()): Promise<InstagramConnection> {
@@ -184,17 +236,23 @@ export async function connectInstagram(options: ConnectOptions, now = new Date()
     graphApiVersion
   });
   const pages = await listPages(longLivedUserToken, graphApiVersion);
-  const page = choosePage(pages, options.pageId);
-  const igUserId = page.igUserId as string;
-  const quotaUsage = await publishingQuota(igUserId, page.pageAccessToken, graphApiVersion);
+  const { igUserId, page, quotaUsage } = await resolveAccount(
+    pages,
+    longLivedUserToken,
+    graphApiVersion,
+    options
+  );
+  const igUsername = page?.igUsername ?? (await accountUsername(igUserId, page?.pageAccessToken ?? longLivedUserToken, graphApiVersion));
 
   return {
     longLivedUserToken,
     userTokenExpiresAt: expiresAt,
     pages,
     page,
+    accessToken: page?.pageAccessToken ?? longLivedUserToken,
+    tokenSource: page ? "page" : "user",
     igUserId,
-    igUsername: page.igUsername,
+    igUsername,
     grantedScopes,
     missingScopes: REQUIRED_SCOPES.filter(
       (scope) => grantedScopes.length > 0 && !grantedScopes.includes(scope)
@@ -209,11 +267,12 @@ export function envUpdatesFor(
 ): Record<string, string> {
   return {
     IG_USER_ID: connection.igUserId,
-    IG_ACCESS_TOKEN: connection.page.pageAccessToken,
+    IG_ACCESS_TOKEN: connection.accessToken,
     IG_APP_ID: app.appId,
     IG_APP_SECRET: app.appSecret,
-    FB_PAGE_ID: connection.page.pageId,
-    FB_PAGE_ACCESS_TOKEN: connection.page.pageAccessToken
+    ...(connection.page
+      ? { FB_PAGE_ID: connection.page.pageId, FB_PAGE_ACCESS_TOKEN: connection.page.pageAccessToken }
+      : {})
   };
 }
 

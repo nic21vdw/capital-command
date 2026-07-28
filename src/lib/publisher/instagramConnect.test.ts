@@ -62,7 +62,7 @@ describe("connectInstagram", () => {
 
     expect(connection.igUserId).toBe("17840000000000001");
     expect(connection.igUsername).toBe("nic");
-    expect(connection.page.pageAccessToken).toBe("page-token");
+    expect(connection.page?.pageAccessToken).toBe("page-token");
     expect(connection.longLivedUserToken).toBe("long-lived");
     expect(connection.userTokenExpiresAt).toBe("2026-09-25T12:00:00.000Z");
     expect(connection.missingScopes).toEqual([]);
@@ -82,11 +82,62 @@ describe("connectInstagram", () => {
     expect(connection.missingScopes).toEqual(["instagram_content_publish", "pages_read_engagement"]);
   });
 
-  it("explains a Page with no Instagram account linked", async () => {
+  it("points at --ig-user-id when no Page reports a linked Instagram account", async () => {
     routes({ pages: { data: [{ id: "page-1", name: "Side Project", access_token: "page-token" }] } });
-    await expect(connectInstagram({ ...APP, graphApiVersion: "v23.0" }, NOW)).rejects.toThrow(
-      /no linked Instagram professional account|None of these Pages/
+    await expect(connectInstagram({ ...APP, graphApiVersion: "v23.0" }, NOW)).rejects.toThrow(/--ig-user-id/);
+  });
+
+  it("connects through a business portfolio, where the Page does not expose the account", async () => {
+    const requests = mockFetchRoutes([
+      { match: "/oauth/access_token", respond: () => jsonResponse({ access_token: "long-lived", expires_in: 5_184_000 }) },
+      { match: "/debug_token", respond: () => jsonResponse({ data: { scopes: SCOPES } }) },
+      {
+        match: "/me/accounts",
+        respond: () => jsonResponse({ data: [{ id: "page-1", name: "CoLateral", access_token: "page-token" }] })
+      },
+      { match: "content_publishing_limit", respond: () => jsonResponse({ data: [{ quota_usage: 0 }] }) },
+      { match: "graph.facebook.com", respond: () => jsonResponse({ username: "nic_vandewetering" }) }
+    ]);
+
+    const connection = await connectInstagram(
+      { ...APP, graphApiVersion: "v23.0", igUserId: "17841414226901547" },
+      NOW
     );
+
+    expect(connection.igUserId).toBe("17841414226901547");
+    expect(connection.igUsername).toBe("nic_vandewetering");
+    expect(connection.tokenSource).toBe("page");
+    expect(connection.accessToken).toBe("page-token");
+    expect(requests.some((r) => r.url.includes("content_publishing_limit"))).toBe(true);
+  });
+
+  it("falls back to the user token when no Page token can reach the account", async () => {
+    mockFetchRoutes([
+      { match: "/oauth/access_token", respond: () => jsonResponse({ access_token: "long-lived", expires_in: 5_184_000 }) },
+      { match: "/debug_token", respond: () => jsonResponse({ data: { scopes: SCOPES } }) },
+      {
+        match: "/me/accounts",
+        respond: () => jsonResponse({ data: [{ id: "page-1", name: "Unrelated", access_token: "page-token" }] })
+      },
+      {
+        match: "content_publishing_limit",
+        respond: (request) =>
+          request.url.includes("access_token=page-token")
+            ? jsonResponse({ error: { message: "no access" } }, { status: 400 })
+            : jsonResponse({ data: [{ quota_usage: 2 }] })
+      },
+      { match: "graph.facebook.com", respond: () => jsonResponse({ username: "nic_vandewetering" }) }
+    ]);
+
+    const connection = await connectInstagram(
+      { ...APP, graphApiVersion: "v23.0", igUserId: "17841414226901547" },
+      NOW
+    );
+
+    expect(connection.tokenSource).toBe("user");
+    expect(connection.accessToken).toBe("long-lived");
+    expect(connection.page).toBeNull();
+    expect(connection.quotaUsage).toBe(2);
   });
 
   it("asks which Page to use when more than one has an Instagram account", async () => {

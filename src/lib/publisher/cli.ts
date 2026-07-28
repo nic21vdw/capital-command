@@ -243,7 +243,7 @@ async function main() {
     if (!appId || !appSecret || !userToken) {
       console.error(
         [
-          "Usage: instagram connect --app-id <id> --app-secret <secret> --token <short-lived user token> [--page <id|name>] [--write]",
+          "Usage: instagram connect --app-id <id> --app-secret <secret> --token <short-lived user token> [--page <id|name>] [--ig-user-id <id>] [--write]",
           "",
           "The three values come from the Meta App Dashboard — see docs/INSTAGRAM_SETUP.md:",
           "  app id / secret   Settings → Basic",
@@ -261,12 +261,20 @@ async function main() {
       appSecret,
       userToken,
       pageId: flagStr(args, "page"),
+      igUserId: flagStr(args, "ig-user-id"),
       graphApiVersion: config.instagram.graphApiVersion
     });
 
     console.log(`[publisher] connected @${connection.igUsername ?? connection.igUserId}`);
     console.log(`[publisher]   IG_USER_ID:  ${connection.igUserId}`);
-    console.log(`[publisher]   Page:        ${connection.page.pageName} (${connection.page.pageId})`);
+    console.log(
+      `[publisher]   Page:        ${connection.page ? `${connection.page.pageName} (${connection.page.pageId})` : "none — the account is reached through the business portfolio"}`
+    );
+    console.log(
+      connection.tokenSource === "page"
+        ? "[publisher]   token:       Page token (does not expire)"
+        : `[publisher]   token:       user token — EXPIRES ${connection.userTokenExpiresAt ?? "in ~60 days"}, re-run this command before then`
+    );
     console.log(`[publisher]   permissions: ${connection.grantedScopes.join(", ") || "(could not read)"}`);
     if (connection.quotaUsage !== null) {
       console.log(`[publisher]   published in the last 24h: ${connection.quotaUsage}/50`);
