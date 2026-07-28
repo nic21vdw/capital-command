@@ -92,7 +92,7 @@ export function ScriptsPage() {
   return (
     <div>
       <PageHeader
-        eyebrow="Scripts"
+        eyebrow="Studio"
         title="Script Studio"
         description="Full scripts written in your voice, following your script framework — hook to CTA, with a production kit of suggested graphics and sound effects you accept or dismiss. Start from a saved idea in the Idea Lab, or straight from a title here."
         actions={

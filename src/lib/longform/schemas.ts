@@ -92,6 +92,26 @@ export const longformProjectPatchSchema = z
   })
   .partial();
 
+/**
+ * POST body for an export. With `topicId` the render is that one topic
+ * segment of the recording; without it, the whole edit as before.
+ */
+export const longformExportSchema = z
+  .object({
+    topicId: z.string().min(1).max(64).optional()
+  })
+  .default({});
+
+/** POST body for (re)planning the recording's topic segments. */
+export const longformTopicPlanSchema = z
+  .object({
+    /** Pin the number of segments instead of letting the length decide. */
+    count: z.coerce.number().int().min(2).max(6).optional(),
+    /** How long each segment should aim to be. */
+    targetMinutes: z.coerce.number().min(3).max(30).optional()
+  })
+  .default({});
+
 // A project starts from either a previously uploaded `sourceId` or a video
 // `url` (YouTube/VOD link) the server downloads itself. Exactly one is required.
 export const longformCreateSchema = z

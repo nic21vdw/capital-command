@@ -2,11 +2,14 @@ import { mkdir, readFile, rename, rm, unlink, writeFile } from "node:fs/promises
 import path from "node:path";
 import { detectSilences } from "@/lib/clipping/analysis";
 import { probeDuration, runFfmpeg } from "@/lib/clipping/ffmpeg";
+import { listJobs } from "@/lib/clipping/jobs";
 import { readSourceMeta, saveSourceFromUrl, sourceFilePath } from "@/lib/clipping/sources";
 import { transcribeMedia } from "@/lib/clipping/whisper";
 import { DEFAULT_PACE, buildSegments, hookCaptions, planCaptions, planHook } from "@/lib/longform/plan";
+import { buildTopics, type TopicPlanOptions } from "@/lib/longform/topics";
 import type { LongformPace, LongformProject } from "@/lib/longform/types";
 import { defaultSfxSettings } from "@/lib/sfx/types";
+import type { CaptionSegment } from "@/types/domain";
 
 const longformRoot = path.join(process.cwd(), "data", "longform");
 const projectsFile = path.join(longformRoot, "projects.json");
@@ -324,6 +327,86 @@ export async function replanProject(id: string, pace: LongformPace): Promise<Lon
   return project;
 }
 
+// ----- Topic segments -----
+
+/** How much of the recording a transcript must span to plan topics from it. */
+const TOPIC_COVERAGE = 0.8;
+
+function transcriptCoverage(transcript: CaptionSegment[], durationSec: number): number {
+  if (transcript.length === 0 || durationSec <= 0) return 0;
+  const end = transcript[transcript.length - 1].end;
+  return Math.min(1, end / durationSec);
+}
+
+/**
+ * The best whole-recording transcript available for this source. The project's
+ * own transcript is used when it covers the video; long recordings only get
+ * their opening minutes transcribed for the hook, so those fall back to the
+ * full transcript the clips subsystem produced from the SAME source (the
+ * Stream Pipeline runs both, so a stream normally has one). Returns null when
+ * nothing covers the recording — topics would otherwise all land in the first
+ * few minutes.
+ */
+async function fullSourceTranscript(project: LongformProject): Promise<CaptionSegment[] | null> {
+  if (transcriptCoverage(project.transcript ?? [], project.durationSec) >= TOPIC_COVERAGE) {
+    return project.transcript;
+  }
+  if (!project.sourceId) return null;
+  try {
+    const jobs = await listJobs();
+    for (const job of jobs) {
+      if (job.sourceId !== project.sourceId) continue;
+      const captions = job.sourceCaptions ?? [];
+      if (transcriptCoverage(captions, project.durationSec) >= TOPIC_COVERAGE) return captions;
+    }
+  } catch {
+    // The clips store is unavailable — fall through to the note below.
+  }
+  return null;
+}
+
+const NO_TRANSCRIPT_NOTE =
+  "Topic segments need a transcript of the whole recording. This one is long enough that only its opening minutes were transcribed for the hook — run the same source through the Stream Pipeline (or the Clip Generator), which transcribes it end to end, and the segments appear here.";
+
+/**
+ * Reads the transcript and stores the stream's topic segments on the project.
+ * Safe to call repeatedly: it simply replans. Leaves `topics` untouched (and
+ * records why) when no whole-recording transcript exists yet, so a later call
+ * can still succeed once the clips subsystem has transcribed the source.
+ */
+export async function planProjectTopics(
+  id: string,
+  options?: TopicPlanOptions
+): Promise<LongformProject | undefined> {
+  await loadProjects();
+  const project = projects.get(id);
+  if (!project) return undefined;
+  const transcript = await fullSourceTranscript(project);
+  if (!transcript) {
+    await update(project, { topicsNote: NO_TRANSCRIPT_NOTE });
+    return project;
+  }
+  const topics = await buildTopics({ streamName: project.name, transcript, options });
+  // Replanning moves the windows, so old per-segment exports no longer line up
+  // with the new ids; the finished files stay in the export list either way.
+  await update(project, {
+    topics,
+    topicsNote: topics.length
+      ? undefined
+      : "The transcript did not split into distinct subjects — this recording reads as one continuous topic."
+  });
+  return project;
+}
+
+/** Marks a topic segment with the export it was last rendered as. */
+export async function setTopicExport(projectId: string, topicId: string, exportId: string) {
+  await loadProjects();
+  const project = projects.get(projectId);
+  if (!project?.topics) return;
+  const topics = project.topics.map((topic) => (topic.id === topicId ? { ...topic, exportId } : topic));
+  await update(project, { topics });
+}
+
 // Sources longer than this (stream VODs, multi-hour recordings) only get the
 // opening minutes transcribed: the transcript exists to caption the hook,
 // which covers at most the first 60 seconds, and whisper on a full multi-hour
@@ -415,10 +498,18 @@ async function runAnalysis(project: LongformProject) {
     hook,
     captions,
     transcript,
+    // A re-analysis re-reads the audio, so any earlier topic plan is stale.
+    topics: undefined,
+    topicsNote: undefined,
     status: "ready",
     stage: "ready",
     progress: 100
   });
+
+  // Topic segments are planned from the finished transcript (and can involve an
+  // AI titling call), so they run after the project is already usable — the
+  // plan lands on the next poll rather than holding the editor closed.
+  void planProjectTopics(project.id).catch(() => undefined);
 }
 
 /** Recomputes the hook captions from the stored transcript for a new hook window. */

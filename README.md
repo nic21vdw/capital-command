@@ -243,11 +243,26 @@ local scheduler and the Actions cron against the same queue at the same time.
    trial runs.
 
 **TikTok (Content Posting API)**
-1. [developers.tiktok.com](https://developers.tiktok.com) → create an app →
-   add **Content Posting API** → request the `video.publish` scope.
-2. Complete the OAuth flow for your account and store
-   `TIKTOK_CLIENT_KEY`, `TIKTOK_CLIENT_SECRET`, `TIKTOK_REFRESH_TOKEN`.
-3. **Audit gate:** until TikTok audits and approves the app, every API post is
+1. [developers.tiktok.com](https://developers.tiktok.com) → **Manage apps** →
+   create an app (verify the app's ownership of your site/handle if prompted).
+2. Add two products: **Login Kit** and **Content Posting API**, and turn on
+   **Direct Post** under the Content Posting API. Request the scopes
+   `user.info.basic`, `video.upload` and `video.publish`.
+3. Configure Login Kit as **Login Kit for Desktop** and register the redirect
+   URI `http://localhost:3000/api/auth/tiktok/callback`. The *web* variant only
+   accepts `https` URIs, which localhost can't offer; the desktop variant
+   explicitly allows `localhost`/`127.0.0.1` and uses PKCE, which
+   `src/lib/publisher/tiktokAuth.ts` implements (SHA256 **hex** challenge —
+   TikTok's own encoding, not the base64url of the PKCE RFC). If you register a
+   different URI, set `TIKTOK_REDIRECT_URI` to match it exactly.
+4. Copy the app's **Client key** and **Client secret** into `TIKTOK_CLIENT_KEY`
+   / `TIKTOK_CLIENT_SECRET`, restart the app, then open the Uploading Center's
+   **TikTok** tab and click **Connect TikTok**. The refresh token is minted and
+   stored server-side in `data/publisher-tokens.json` — `TIKTOK_REFRESH_TOKEN`
+   only needs filling in by hand for GitHub Actions runs. TikTok rotates the
+   refresh token on every use and the adapter persists each rotation; the grant
+   itself lasts 365 days, so reconnect once a year.
+5. **Audit gate:** until TikTok audits and approves the app, every API post is
    forced to `SELF_ONLY` (only you can see it) — that's the built-in sandbox.
    Once approved, set `TIKTOK_AUDITED=true` and posts follow your configured
    visibility (`public` → `PUBLIC_TO_EVERYONE`). No code changes needed.
