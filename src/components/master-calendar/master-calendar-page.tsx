@@ -129,7 +129,8 @@ function EventChip({ event }: { event: MasterCalendarEvent }) {
     <Link
       href={source.href}
       title={`${event.time ? `${event.time} · ` : ""}${event.title} — open ${source.hrefLabel}`}
-      className="flex items-center gap-1.5 rounded-md bg-white/5 px-1.5 py-1 text-[11px] leading-tight transition hover:bg-white/10"
+      className="flex items-center gap-1.5 rounded-md border-l-2 bg-white/5 px-1.5 py-1 text-[11px] leading-tight transition hover:translate-x-0.5 hover:bg-white/10"
+      style={{ borderLeftColor: source.color }}
     >
       <SourceIcon source={event.source} className="h-3 w-3" />
       {event.time ? <span className="shrink-0 font-semibold text-[var(--muted-foreground)]">{event.time}</span> : null}
@@ -154,7 +155,8 @@ function SourceGroupChip({ source, events }: { source: CalendarSource; events: M
         type="button"
         onClick={() => setOpen((value) => !value)}
         title={open ? `Collapse ${source.shortLabel}` : `Show ${events.length} ${source.shortLabel}`}
-        className="flex w-full items-center gap-1.5 rounded-md bg-white/5 px-1.5 py-1 text-[11px] leading-tight transition hover:bg-white/10"
+        className="flex w-full items-center gap-1.5 rounded-md border-l-2 bg-white/5 px-1.5 py-1 text-[11px] leading-tight transition hover:bg-white/10"
+        style={{ borderLeftColor: source.color }}
       >
         <SourceIcon source={source.id} className="h-3 w-3" />
         <span className="shrink-0 font-semibold text-white">{events.length}</span>
@@ -178,7 +180,8 @@ function EventCard({ event }: { event: MasterCalendarEvent }) {
   return (
     <Link
       href={source.href}
-      className="group flex items-center gap-3 rounded-lg border border-[var(--border)] bg-white/5 px-3 py-2.5 transition hover:border-[var(--border-strong)] hover:bg-white/10"
+      className="group flex items-center gap-3 rounded-lg border border-[var(--border)] border-l-2 bg-white/5 px-3 py-2.5 transition hover:border-[var(--border-strong)] hover:bg-white/10"
+      style={{ borderLeftColor: source.color }}
     >
       <span className="w-12 shrink-0 text-sm font-semibold text-[var(--accent)]">{event.time ?? "—"}</span>
       <SourceIcon source={event.source} className="h-4 w-4" />
@@ -355,7 +358,7 @@ export function MasterCalendarPage() {
   return (
     <div>
       <PageHeader
-        eyebrow="Distribute"
+        eyebrow="Step 4 · Calendar"
         title="Master Calendar"
         description="Every distribution calendar in one place: scheduled shorts uploads, carousel schedules, X/Threads packs, FB/IG thread posts and dated long-form content — what goes out where, and when."
       />
@@ -459,34 +462,57 @@ export function MasterCalendarPage() {
         ) : null}
       </Card>
 
-      <Card className="p-0">
+      <Card className="overflow-hidden p-0">
         {/* Toolbar: period navigation + view switch. */}
-        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[var(--border)] px-4 py-3">
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[var(--border)] bg-gradient-to-r from-white/[0.04] to-transparent px-4 py-3">
           <div className="flex items-center gap-2">
-            <Button variant="secondary" className="h-8 w-8 p-0" onClick={() => shift(-1)} aria-label="Previous period">
-              <ChevronLeft className="h-4 w-4" />
-            </Button>
-            <Button variant="secondary" className="h-8 px-3" onClick={() => setAnchor(todayKey)}>
-              Today
-            </Button>
-            <Button variant="secondary" className="h-8 w-8 p-0" onClick={() => shift(1)} aria-label="Next period">
-              <ChevronRight className="h-4 w-4" />
-            </Button>
-            <span className="ml-2 flex items-center gap-2 text-sm font-semibold text-white">
+            <div className="flex items-center overflow-hidden rounded-lg border border-[var(--border)]">
+              <button
+                type="button"
+                onClick={() => shift(-1)}
+                aria-label="Previous period"
+                className="flex h-8 w-8 items-center justify-center text-[var(--muted-foreground)] transition hover:bg-white/10 hover:text-white"
+              >
+                <ChevronLeft className="h-4 w-4" />
+              </button>
+              <button
+                type="button"
+                onClick={() => setAnchor(todayKey)}
+                className="border-x border-[var(--border)] px-3 text-xs font-medium leading-8 text-[var(--muted-foreground)] transition hover:bg-white/10 hover:text-white"
+              >
+                Today
+              </button>
+              <button
+                type="button"
+                onClick={() => shift(1)}
+                aria-label="Next period"
+                className="flex h-8 w-8 items-center justify-center text-[var(--muted-foreground)] transition hover:bg-white/10 hover:text-white"
+              >
+                <ChevronRight className="h-4 w-4" />
+              </button>
+            </div>
+            <span className="ml-2 flex items-center gap-2 text-sm font-semibold tracking-tight text-white">
               <CalendarDays className="h-4 w-4 text-[var(--accent)]" />
               {periodLabel}
+              {visibleEvents.length > 0 ? (
+                <Badge className="border-white/10 bg-white/5 text-[10px] text-[var(--muted-foreground)]">
+                  {visibleEvents.length} scheduled
+                </Badge>
+              ) : null}
               {loading ? <Loader2 className="h-3.5 w-3.5 animate-spin text-[var(--muted-foreground)]" /> : null}
             </span>
           </div>
-          <div className="flex rounded-lg border border-[var(--border)] p-0.5">
+          <div className="flex rounded-full border border-[var(--border)] bg-white/5 p-0.5">
             {(["day", "week", "month"] as const).map((mode) => (
               <button
                 key={mode}
                 type="button"
                 onClick={() => setView(mode)}
                 className={cn(
-                  "rounded-md px-3 py-1.5 text-xs font-medium capitalize transition",
-                  view === mode ? "bg-white/10 text-white" : "text-[var(--muted-foreground)] hover:text-white"
+                  "rounded-full px-3.5 py-1.5 text-xs font-medium capitalize transition-all",
+                  view === mode
+                    ? "bg-[var(--accent)] text-[var(--accent-contrast)] shadow-[0_1px_6px_color-mix(in_srgb,var(--accent)_45%,transparent)]"
+                    : "text-[var(--muted-foreground)] hover:text-white"
                 )}
               >
                 {mode}
@@ -496,11 +522,17 @@ export function MasterCalendarPage() {
         </div>
 
         {view === "month" ? (
-          <div className="overflow-x-auto">
+          <div className="panel-enter overflow-x-auto">
             <div className="min-w-[840px]">
-              <div className="grid grid-cols-7 border-b border-[var(--border)]">
-                {WEEKDAY_LABELS.map((label) => (
-                  <div key={label} className="px-2 py-2 text-center text-[11px] font-medium uppercase tracking-wider text-[var(--muted-foreground)]">
+              <div className="grid grid-cols-7 border-b border-[var(--border)] bg-white/[0.02]">
+                {WEEKDAY_LABELS.map((label, index) => (
+                  <div
+                    key={label}
+                    className={cn(
+                      "px-2 py-2 text-center text-[11px] font-semibold uppercase tracking-wider",
+                      index === 0 || index === 6 ? "text-[var(--muted-foreground)]/70" : "text-[var(--muted-foreground)]"
+                    )}
+                  >
                     {label}
                   </div>
                 ))}
@@ -510,14 +542,16 @@ export function MasterCalendarPage() {
                   const dayEvents = eventsByDay.get(dateKey) ?? [];
                   const inMonth = dateKey.slice(0, 7) === anchor.slice(0, 7);
                   const isToday = dateKey === todayKey;
+                  const weekend = index % 7 === 0 || index % 7 === 6;
                   return (
                     <div
                       key={dateKey}
                       className={cn(
-                        "min-h-[6.5rem] space-y-1 border-[var(--border)] p-1.5",
+                        "min-h-[6.5rem] space-y-1 border-[var(--border)] p-1.5 transition-colors",
                         index % 7 !== 0 && "border-l",
                         index >= 7 && "border-t",
-                        !inMonth && "opacity-40"
+                        !inMonth && "opacity-40",
+                        isToday ? "bg-[var(--accent)]/8" : weekend && "bg-white/[0.02]"
                       )}
                     >
                       <button
@@ -526,7 +560,9 @@ export function MasterCalendarPage() {
                         title="Open day view"
                         className={cn(
                           "flex h-6 w-6 items-center justify-center rounded-full text-xs transition hover:bg-white/10",
-                          isToday ? "bg-[var(--accent)] font-semibold text-[var(--accent-contrast)]" : "text-[var(--muted-foreground)]"
+                          isToday
+                            ? "bg-[var(--accent)] font-semibold text-[var(--accent-contrast)] shadow-[0_0_10px_color-mix(in_srgb,var(--accent)_50%,transparent)]"
+                            : "text-[var(--muted-foreground)] hover:text-white"
                         )}
                       >
                         {Number(dateKey.slice(8, 10))}
@@ -540,7 +576,8 @@ export function MasterCalendarPage() {
                             type="button"
                             onClick={() => openDay(dateKey)}
                             title={`${sourceEvents.length} ${source.shortLabel} — open day`}
-                            className="flex w-full items-center gap-1.5 rounded-md bg-white/5 px-1.5 py-1 text-[11px] leading-tight transition hover:bg-white/10"
+                            className="flex w-full items-center gap-1.5 rounded-md border-l-2 bg-white/5 px-1.5 py-1 text-[11px] leading-tight transition hover:bg-white/10"
+                            style={{ borderLeftColor: source.color }}
                           >
                             <SourceIcon source={source.id} className="h-3 w-3" />
                             <span className="shrink-0 font-semibold text-white">{sourceEvents.length}</span>
@@ -557,20 +594,27 @@ export function MasterCalendarPage() {
         ) : null}
 
         {view === "week" ? (
-          <div className="overflow-x-auto">
+          <div className="panel-enter overflow-x-auto">
             <div className="grid min-w-[840px] grid-cols-7">
               {weekDays.map((dateKey, index) => {
                 const dayEvents = eventsByDay.get(dateKey) ?? [];
                 const isToday = dateKey === todayKey;
                 return (
-                  <div key={dateKey} className={cn("min-h-[16rem] border-[var(--border)]", index > 0 && "border-l")}>
+                  <div
+                    key={dateKey}
+                    className={cn(
+                      "min-h-[16rem] border-[var(--border)] transition-colors",
+                      index > 0 && "border-l",
+                      isToday && "bg-[var(--accent)]/5"
+                    )}
+                  >
                     <button
                       type="button"
                       onClick={() => openDay(dateKey)}
                       title="Open day view"
                       className={cn(
                         "flex w-full items-baseline justify-center gap-1.5 border-b border-[var(--border)] px-2 py-2 transition hover:bg-white/5",
-                        isToday && "bg-white/5"
+                        isToday && "border-b-2 border-b-[var(--accent)]/60 bg-[var(--accent)]/10"
                       )}
                     >
                       <span className="text-[11px] font-medium uppercase tracking-wider text-[var(--muted-foreground)]">
@@ -579,7 +623,9 @@ export function MasterCalendarPage() {
                       <span
                         className={cn(
                           "flex h-6 w-6 items-center justify-center rounded-full text-sm",
-                          isToday ? "bg-[var(--accent)] font-semibold text-[var(--accent-contrast)]" : "text-white"
+                          isToday
+                            ? "bg-[var(--accent)] font-semibold text-[var(--accent-contrast)] shadow-[0_0_10px_color-mix(in_srgb,var(--accent)_50%,transparent)]"
+                            : "text-white"
                         )}
                       >
                         {Number(dateKey.slice(8, 10))}
@@ -598,12 +644,15 @@ export function MasterCalendarPage() {
         ) : null}
 
         {view === "day" ? (
-          <div className="space-y-1.5 p-4">
+          <div className="panel-enter space-y-1.5 p-4">
             {groupBySource(eventsByDay.get(anchor) ?? []).map(({ source, events: sourceEvents }) => (
               <SourceGroupCard key={source.id} source={source} events={sourceEvents} />
             ))}
             {(eventsByDay.get(anchor) ?? []).length === 0 && !loading ? (
-              <p className="py-8 text-center text-sm text-[var(--muted-foreground)]">Nothing scheduled on this day.</p>
+              <div className="flex flex-col items-center gap-2 py-12 text-center">
+                <CalendarDays className="h-8 w-8 text-[var(--muted-foreground)]/50" />
+                <p className="text-sm text-[var(--muted-foreground)]">Nothing scheduled on this day.</p>
+              </div>
             ) : null}
           </div>
         ) : null}
