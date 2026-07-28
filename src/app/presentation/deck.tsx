@@ -5,7 +5,23 @@ import { Player, type PlayerRef } from "@remotion/player";
 import { ChevronDown, ChevronLeft, ChevronRight, Clapperboard, Download, Loader2, Play } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
-import { PROJECTS } from "./projects";
+import { PROJECTS, type Project } from "./projects";
+
+/**
+ * The picker lists projects under their `group` heading, in the order the
+ * groups first appear in `PROJECTS`. Ungrouped projects share a default
+ * heading so the list never mixes headed and un-headed rows.
+ */
+function groupProjects(projects: Project[]) {
+  const groups: { label: string; items: Project[] }[] = [];
+  for (const project of projects) {
+    const label = project.group ?? "Videos";
+    const existing = groups.find((g) => g.label === label);
+    if (existing) existing.items.push(project);
+    else groups.push({ label, items: [project] });
+  }
+  return groups;
+}
 
 function isTypingTarget(target: EventTarget | null) {
   if (!(target instanceof HTMLElement)) return false;
@@ -26,6 +42,7 @@ export const PresentationDeck: React.FC = () => {
   const menuRef = useRef<HTMLDivElement>(null);
 
   const project = useMemo(() => PROJECTS.find((p) => p.id === projectId) ?? PROJECTS[0], [projectId]);
+  const groups = useMemo(() => groupProjects(PROJECTS), []);
   const slides = project.slides;
   const slide = slides[Math.min(index, slides.length - 1)];
   const clamp = useCallback((i: number) => Math.max(0, Math.min(slides.length - 1, i)), [slides.length]);
@@ -106,8 +123,11 @@ export const PresentationDeck: React.FC = () => {
   return (
     <div className="space-y-4">
       <header className="flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <p className="text-[11px] font-medium uppercase tracking-wider text-[var(--accent)]">Segment Deck</p>
+        {/* keyed so the title block re-plays the iOS push-in on every project switch */}
+        <div key={project.id} className="page-enter">
+          <p className="text-[11px] font-medium uppercase tracking-wider text-[var(--accent)]">
+            {project.group ?? "Segment Deck"}
+          </p>
           <h1 className="mt-1 text-2xl font-semibold text-white">{project.name}</h1>
           <p className="mt-1 text-sm text-[var(--muted-foreground)]">{project.description}</p>
         </div>
@@ -151,29 +171,38 @@ export const PresentationDeck: React.FC = () => {
         {menuOpen && (
           <ul
             role="listbox"
-            className="absolute z-20 mt-1 w-full overflow-hidden rounded-lg border border-[var(--border)] bg-[var(--panel)] shadow-xl"
+            className="modal-panel-enter absolute z-20 mt-1 max-h-[60vh] w-full origin-top overflow-y-auto rounded-xl border border-[var(--border)] bg-[var(--panel)] py-1 shadow-2xl backdrop-blur-xl"
           >
-            {PROJECTS.map((p) => {
-              const active = p.id === project.id;
-              return (
-                <li key={p.id} role="option" aria-selected={active}>
-                  <button
-                    type="button"
-                    onClick={() => selectProject(p.id)}
-                    className={cn(
-                      "flex w-full items-center gap-2 px-3 py-2 text-left text-sm transition",
-                      active
-                        ? "bg-white/8 font-medium text-white"
-                        : "text-[var(--muted-foreground)] hover:bg-white/5 hover:text-white"
-                    )}
-                  >
-                    <Clapperboard className={cn("h-4 w-4", active && "text-[var(--accent)]")} />
-                    {p.name}
-                    <span className="ml-auto rounded-full bg-white/8 px-2 py-0.5 text-[11px]">{p.slides.length}</span>
-                  </button>
-                </li>
-              );
-            })}
+            {groups.map((group) => (
+              <li key={group.label}>
+                <p className="px-3 pb-1 pt-2 text-[10px] font-semibold uppercase tracking-wider text-[var(--muted-foreground)]">
+                  {group.label}
+                </p>
+                <ul>
+                  {group.items.map((p) => {
+                    const active = p.id === project.id;
+                    return (
+                      <li key={p.id} role="option" aria-selected={active}>
+                        <button
+                          type="button"
+                          onClick={() => selectProject(p.id)}
+                          className={cn(
+                            "mx-1 flex w-[calc(100%-0.5rem)] items-center gap-2 rounded-lg px-2 py-2 text-left text-sm transition duration-300 ease-ios",
+                            active
+                              ? "bg-white/8 font-medium text-white"
+                              : "text-[var(--muted-foreground)] hover:bg-white/5 hover:text-white"
+                          )}
+                        >
+                          <Clapperboard className={cn("h-4 w-4 shrink-0", active && "text-[var(--accent)]")} />
+                          <span className="truncate">{p.name}</span>
+                          <span className="ml-auto shrink-0 rounded-full bg-white/8 px-2 py-0.5 text-[11px]">{p.slides.length}</span>
+                        </button>
+                      </li>
+                    );
+                  })}
+                </ul>
+              </li>
+            ))}
           </ul>
         )}
       </div>
@@ -189,10 +218,12 @@ export const PresentationDeck: React.FC = () => {
                 type="button"
                 onClick={() => setIndex(i)}
                 className={cn(
-                  "min-w-52 rounded-xl border p-3 text-left transition xl:min-w-0",
+                  // iOS list-row selection: the active row lifts and glows on the
+                  // UIKit deceleration curve rather than snapping to a new colour.
+                  "min-w-52 rounded-xl border p-3 text-left transition-all duration-300 ease-ios xl:min-w-0",
                   active
-                    ? "border-[var(--accent)] bg-white/8"
-                    : "border-[var(--border)] bg-[var(--panel)] hover:border-[var(--border-strong)]"
+                    ? "scale-[1.015] border-[var(--accent)] bg-white/8 shadow-[0_8px_28px_-12px_var(--accent)]"
+                    : "border-[var(--border)] bg-[var(--panel)] hover:border-[var(--border-strong)] hover:bg-white/4"
                 )}
               >
                 <div className="flex items-center gap-2">
@@ -217,7 +248,12 @@ export const PresentationDeck: React.FC = () => {
 
         {/* stage */}
         <main className="flex min-w-0 flex-1 flex-col gap-3">
-          <div className="flex items-center justify-center overflow-hidden rounded-xl border border-[var(--border)] bg-black/60 p-3">
+          {/* keyed wrapper: every slide change cross-fades and lifts the stage
+              in, so switching segments reads as a transition, not a swap */}
+          <div
+            key={`${project.id}:${slide.id}`}
+            className="panel-enter flex items-center justify-center overflow-hidden rounded-xl border border-[var(--border)] bg-black/60 p-3"
+          >
             <Player
               // key remounts the player on project/slide change -> restarts + autoplays
               key={`${project.id}:${slide.id}`}

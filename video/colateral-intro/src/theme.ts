@@ -1,30 +1,58 @@
 /**
- * CoLateral intro palette — clean, premium, on WHITE, in the CoLateral BLUE.
- * Matches the brand wordmark: "Co" reads near-black navy, "Lateral" the vivid
- * brand blue. Beam Buddy is a pixel-art structural I-beam in the same blue,
- * wearing a white hard hat. These B-roll clips drop over/behind a talking-head
- * intro, so everything sits on a bright white stage.
+ * CoLateral intro palette — lifted directly from the live front page
+ * (`CoLateral-AI/index.html` + `src/components/mascot/beamy.css`) so the B-roll
+ * and the product read as one brand.
+ *
+ * The app is DARK: a near-black blue-grey stage with purple as the accent.
+ * The wordmark is "Co" in near-white and "Lateral" in the brand purple. Beamy —
+ * the mascot — is a purple pixel-art I-beam in a cream hard hat with a purple
+ * "C" badge on the dome.
  */
 export const theme = {
-  bg: "#ffffff", // white stage (requested)
-  brandLight: "#4d97ff", // lighter blue — gradients / glows
-  brandDark: "#1655c8", // deeper blue — gradient bottom / shading
-  brand: "#1f6fe6", // the "Lateral" blue — primary brand fill
-  deep: "#0b3a86", // deepest blue — pupils, mouth, accents
-  ink: "#0f1b2d", // near-black navy — the "Co" wordmark text
-  blush: "#8fbdf7", // soft blue cheek blush
-  grid: "#d6e6fb", // faint blueprint grid line (blue-tinted) on white
-  sky: "#eaf2ff", // pale blue tint — blueprint fill / speech bubbles
-  hat: "#f6f9ff", // hard-hat white
-  hatShade: "#c4d9f4", // hard-hat shading / underside
+  // --- stage / surfaces (index.html :root) ---
+  bg: "#070c12", // --bg  page black
+  s0: "#0c1219", // --s0  raised surface
+  s1: "#111922", // --s1
+  s2: "#16212e", // --s2
+
+  // --- text ---
+  tx: "#dce7f0", // --tx   body text
+  tx2: "#8ca5bc", // --tx2  secondary
+  tx3: "#536b82", // --tx3  muted / fine print
+  wordmarkInk: "#f7fbff", // .wordmark colour — the "Co"
+  tagline: "#c6d7e7", // .tagline colour
+
+  // --- accents (note: the app's --blue token is in fact PURPLE) ---
+  brand: "#bd93f9", // --blue    the "Lateral" purple
+  indigo: "#b580ff", // --indigo  eyebrow gradient end
+  green: "#1ed96b", // --green
+  amber: "#f0b429", // --amber
+
+  // --- Beamy sprite palette (beamy.css custom properties) ---
+  beamyBody: "#8a5cc9",
+  beamyHi: "#b18ee6",
+  beamyShadow: "#5a3a8f",
+  beamyInk: "#1a1622",
+  beamyHat: "#ece6d8",
+  beamyHatShade: "#c2bccf",
+  beamyAccent: "#5e3a8f",
+  beamyGlow: "rgba(185, 139, 250, 0.35)",
+
+  // --- lines ---
+  bd: "rgba(255,255,255,.075)", // --bd
+  bd2: "rgba(255,255,255,.14)", // --bd2
+  grid: "rgba(140, 165, 188, 0.16)", // canvas dot grid
 } as const;
 
-/** Friendly, bold, rounded stack (Poppins/Archivo feel) with safe fallbacks. */
+/** The front page loads Inter (rsms.me/inter). Match it, with safe fallbacks. */
 export const fontFamily =
-  '"Poppins", "Archivo", "Segoe UI", system-ui, -apple-system, sans-serif';
+  'Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
 
-/** Chunky pixel/console stack for the 8-bit kicker labels. */
-export const pixelFontFamily =
-  '"Press Start 2P", "Courier New", ui-monospace, monospace';
+/** Brand copy, verbatim from the hero so the B-roll never contradicts the site. */
+export const copy = {
+  eyebrow: "The All-in-One Engineering Workspace",
+  tagline: "One reviewable, source-tied workspace for structural engineering teams.",
+  trustline: "For qualified structural & building engineers",
+} as const;
 
 export const VIDEO = { width: 1920, height: 1080, fps: 30 } as const;

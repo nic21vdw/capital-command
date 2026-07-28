@@ -318,7 +318,7 @@ export function EditorTimeline({
                       ? "border-red-400/30 bg-red-500/15 text-red-200/70 line-through"
                       : isSilence
                         ? "border-amber-300/35 bg-amber-300/15 text-amber-100"
-                        : "border-[var(--accent)]/35 bg-[var(--accent)]/18 text-white"
+                        : "border-[var(--accent)]/35 bg-[var(--accent)]/18 text-[#fff]"
                   )}
                   style={{
                     left: pct(segment.start),
@@ -346,7 +346,7 @@ export function EditorTimeline({
                   if (event.key === "ArrowLeft") onSegmentBoundaryChange(segment.id, segment.end - 0.1);
                   if (event.key === "ArrowRight") onSegmentBoundaryChange(segment.id, segment.end + 0.1);
                 }}
-                className="absolute inset-y-1 z-10 w-2 -translate-x-1/2 cursor-ew-resize rounded-sm bg-white/0 transition hover:bg-white/50 focus:bg-white/50"
+                className="absolute inset-y-1 z-10 w-2 -translate-x-1/2 cursor-ew-resize rounded-sm bg-[#fff]/0 transition hover:bg-[#fff]/50 focus:bg-[#fff]/50"
                 style={{ left: pct(segment.end), touchAction: "none" }}
               />
             ))}
@@ -418,7 +418,7 @@ export function EditorTimeline({
                   onPointerDown={beginBlockDrag("caption", c)}
                   className={cn(
                     "absolute top-1 bottom-1 overflow-hidden rounded px-1.5 text-left text-[10px] leading-tight transition",
-                    c.enabled ? "bg-[var(--accent)]/30 text-white" : "bg-white/5 text-white/40 line-through",
+                    c.enabled ? "bg-[var(--accent)]/30 text-[#fff]" : "bg-[#fff]/5 text-[#fff]/40 line-through",
                     selectedCaptionId === c.id && "ring-2 ring-[var(--accent)]"
                   )}
                   style={{
@@ -447,7 +447,7 @@ export function EditorTimeline({
                     onPointerDown={beginBlockDrag("overlay", { id: o.id, start: o.start, end })}
                     className={cn(
                       "absolute top-1 bottom-1 overflow-hidden rounded px-1.5 text-left text-[10px] text-black/80 transition",
-                      selectedOverlayId === o.id && "ring-2 ring-white"
+                      selectedOverlayId === o.id && "ring-2 ring-[#fff]"
                     )}
                     style={{
                       left: pct(o.start),
@@ -472,8 +472,8 @@ export function EditorTimeline({
 function Playhead({ time, dur }: { time: number; dur: number }) {
   const left = `${(Math.max(0, Math.min(dur, time)) / dur) * 100}%`;
   return (
-    <div className="pointer-events-none absolute inset-y-0 z-20 w-0.5 -translate-x-1/2 bg-white" style={{ left }}>
-      <span className="absolute -top-0.5 left-1/2 h-2 w-2 -translate-x-1/2 rotate-45 bg-white" />
+    <div className="pointer-events-none absolute inset-y-0 z-20 w-0.5 -translate-x-1/2 bg-[#fff]" style={{ left }}>
+      <span className="absolute -top-0.5 left-1/2 h-2 w-2 -translate-x-1/2 rotate-45 bg-[#fff]" />
     </div>
   );
 }

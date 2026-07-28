@@ -24,6 +24,7 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
+import { VisualAdComposer } from "@/components/pipeline/visual-ad-composer";
 import { cn } from "@/lib/utils";
 import type {
   PipelinePost,
@@ -64,6 +65,7 @@ const LAUNCHING_STAGES: Record<PipelineStageKey, PipelineStage> = {
   clips: { status: "waiting", detail: "Waiting for the source." },
   audio: { status: "waiting", detail: "Waiting for the long-form export." },
   images: { status: "waiting", detail: "Waiting for the transcript." },
+  visuals: { status: "waiting", detail: "Waiting for a moment worth shooting." },
   posts: { status: "waiting", detail: "Waiting for the transcript." },
   schedule: { status: "waiting", detail: "Waiting for the first output." }
 };
@@ -602,15 +604,37 @@ export function PipelinePage() {
       key: "images",
       icon: Images,
       title: "Carousel images",
-      children: run?.carouselId ? (
-        <div className="mt-3">
-          <Link href="/carousels">
-            <Button variant="secondary" className="px-3 py-1.5 text-xs">
-              Open in Carousels
-            </Button>
-          </Link>
-        </div>
-      ) : null
+      children:
+        run?.carouselId || run?.longformProjectId ? (
+          <div className="mt-3 flex flex-wrap gap-2">
+            {run?.carouselId ? (
+              <Link href="/carousels">
+                <Button variant="secondary" className="px-3 py-1.5 text-xs">
+                  Open in Carousels
+                </Button>
+              </Link>
+            ) : null}
+            {/* The unattended stage writes one text-only carousel. More batches,
+                or photos on the slides, are a person's call — this lands on the
+                Carousels page with this stream already picked. */}
+            {run?.longformProjectId ? (
+              <Link href={`/carousels?longform=${run.longformProjectId}`}>
+                <Button variant="secondary" className="px-3 py-1.5 text-xs">
+                  Add photos / more batches
+                </Button>
+              </Link>
+            ) : null}
+          </div>
+        ) : null
+    },
+    {
+      key: "visuals",
+      icon: Sparkles,
+      title: "Realistic visual ads",
+      children:
+        active?.visualMoment && run?.sourceId ? (
+          <VisualAdComposer sourceId={run.sourceId} streamName={run.name} moment={active.visualMoment} />
+        ) : null
     },
     {
       key: "posts",
@@ -653,6 +677,7 @@ export function PipelinePage() {
             <span>{schedulable.longformReady ? "1 long-form video" : "long-form pending"}</span>
             <span>{schedulable.audioReady ? "1 MP3" : "MP3 pending"}</span>
             <span>{schedulable.carouselSlides > 0 ? `${schedulable.carouselSlides} slides` : "slides pending"}</span>
+            <span>{schedulable.visualAdReady ? "visual ad ready" : "visual ad pending"}</span>
             <span>{schedulable.posts} posts</span>
             {schedulable.queued > 0 && <span className="text-emerald-300">{schedulable.queued} queued</span>}
           </div>

@@ -1,6 +1,6 @@
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { threadsConfig, type ThreadsConfig } from "@/lib/threads/config";
+import { THREADS_TEXT_LIMIT, threadsConfig, type ThreadsConfig } from "@/lib/threads/config";
 import type { ThreadsBatchSummary, ThreadsQueueItem } from "@/lib/threads/types";
 
 /**
@@ -107,4 +107,59 @@ export function summarizeBatch(items: ThreadsQueueItem[], date: string): Threads
 export function summarizeBatches(items: ThreadsQueueItem[]): ThreadsBatchSummary[] {
   const dates = [...new Set(items.map((item) => item.batchDate))].sort((a, b) => b.localeCompare(a));
   return dates.map((date) => summarizeBatch(items, date));
+}
+
+/**
+ * Editing what is queued. All pure over the item list, so the rules — only a
+ * pending post can be changed, a published one is history — are testable
+ * without touching a file or the network.
+ */
+
+export type QueueEditResult = { items: ThreadsQueueItem[]; changed: number; error?: string };
+
+function editable(item: ThreadsQueueItem): boolean {
+  return item.status === "pending";
+}
+
+/** Moves one queued post to a new time. */
+export function rescheduleItem(items: ThreadsQueueItem[], id: string, publishAt: string): QueueEditResult {
+  const target = items.find((item) => item.id === id);
+  if (!target) return { items, changed: 0, error: "No such queued post." };
+  if (!editable(target)) return { items, changed: 0, error: `That post is already ${target.status}.` };
+  if (Number.isNaN(new Date(publishAt).getTime())) return { items, changed: 0, error: "That isn't a valid time." };
+
+  target.publishAt = new Date(publishAt).toISOString();
+  // A post that was backed off or half-claimed gets a clean slate at its new
+  // time, or the runner would keep honouring gates set for the old one.
+  delete target.nextAttemptAt;
+  delete target.claimedAt;
+  return { items, changed: 1 };
+}
+
+/** Shifts every still-pending post of a day by the given minutes. */
+export function shiftBatch(items: ThreadsQueueItem[], date: string, minutes: number): QueueEditResult {
+  if (!Number.isFinite(minutes) || minutes === 0) {
+    return { items, changed: 0, error: "Give a non-zero number of minutes." };
+  }
+  const pending = items.filter((item) => item.batchDate === date && editable(item));
+  if (pending.length === 0) return { items, changed: 0, error: "Nothing pending on that day to move." };
+
+  for (const item of pending) {
+    item.publishAt = new Date(new Date(item.publishAt).getTime() + minutes * 60_000).toISOString();
+    delete item.nextAttemptAt;
+    delete item.claimedAt;
+  }
+  return { items, changed: pending.length };
+}
+
+/** Rewrites the copy of one queued post. */
+export function editItemText(items: ThreadsQueueItem[], id: string, text: string): QueueEditResult {
+  const trimmed = text.trim();
+  if (!trimmed) return { items, changed: 0, error: "A post can't be empty." };
+  const target = items.find((item) => item.id === id);
+  if (!target) return { items, changed: 0, error: "No such queued post." };
+  if (!editable(target)) return { items, changed: 0, error: `That post is already ${target.status}.` };
+
+  target.text = trimmed.slice(0, THREADS_TEXT_LIMIT);
+  return { items, changed: 1 };
 }

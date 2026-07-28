@@ -2,6 +2,7 @@ import { threadsBlockedReason, threadsConfig, type ThreadsConfig } from "@/lib/t
 import { planBatch } from "@/lib/threads/plan";
 import { itemsForDate, mutateQueue, pruneOld } from "@/lib/threads/queue";
 import { runDue } from "@/lib/threads/runner";
+import { recordThreadsState } from "@/lib/threads/state";
 import type { ThreadsPlanResult, ThreadsRunReport } from "@/lib/threads/types";
 import { ensureDailyPack } from "@/lib/x-posts/daily";
 import { localDateKey } from "@/lib/x-strategy/analytics";
@@ -105,5 +106,17 @@ export async function threadsTick(
   const now = options.now ?? new Date();
   const plan = await planTodaysBatch({ config, now, log: options.log });
   const run = await runDue(now, { config, dryRun: options.dryRun, log: options.log });
+
+  // Stamped every tick, busy or idle: a queue of pending posts looks the same
+  // whether the scheduler is alive or was switched off days ago, and the
+  // dashboard has no other way to tell.
+  if (!options.dryRun) {
+    await recordThreadsState({
+      lastTickAt: now.toISOString(),
+      ...(plan.created > 0 ? { lastPlanAt: now.toISOString(), lastPlanCreated: plan.created } : {}),
+      ...(run.published > 0 ? { lastPostAt: now.toISOString() } : {})
+    });
+  }
+
   return { plan, run };
 }

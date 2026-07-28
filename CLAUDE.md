@@ -84,6 +84,56 @@ fallback when no API key is configured or the call fails.
   `captions.ts`), and fresh editor projects seed the matching white text
   overlay (`makeTitleOverlay`).
 
+## Clip previews: center + blur, always the whole frame
+
+Every surface that shows a clip renders through `ClipFrame`
+(`src/components/clips/clip-frame.tsx`), never a bare `<video>`. It reproduces
+the center + blur composition `renderCaptionedVertical` burns into the
+ready-to-post file: the whole frame `object-contain` over a blurred, dimmed
+copy of the same footage.
+
+- NEVER `object-cover` on a clip — it crops footage out of shot, and the point
+  of a preview is to show what you are actually shipping.
+- NEVER let a clip letterbox onto the card background — black bars are the bug
+  this exists to prevent. A tile has to look right whichever file is backing
+  it: the finished 9:16 render (`downloadFile`), the instant 16:9 preview
+  published before the HD render lands (`previewFile`), or the neutral master
+  of an older job whose ready render never happened (`file`).
+- Preview boxes are a full `aspect-[9/16]` — the shape the clip posts in — so
+  nothing is cut off. Use `aspect="16/9"` only when the subject genuinely is a
+  widescreen master (e.g. an editor project's source).
+
+The render side already defaults to center + blur and should stay that way:
+`compositionMode` defaults to `"center-blur"` both at project creation
+(`editor.ts`) and on load (`schemas.ts`), and the Clip Generator's ready render
+goes through `renderCaptionedVertical` unconditionally. `DEFAULT_CLIP_LAYOUT`
+in `layouts.ts` is `"restream-stack"`, but that is only a parameter fallback
+for the opt-in layout-variant helpers — it is NOT a shipped default, so don't
+"fix" it into `center` and change what the variants mean.
+## Carousels (`/carousels`)
+
+Slide copy is written by `src/lib/studio/carousel.ts` from a script, a
+long-form transcript (which is what the Stream Pipeline produces), a clip, an
+uploaded photo batch, or pasted text. Deck sizing lives in
+`src/lib/carousels/deck.ts` — imported by BOTH the page and the generator, so
+the picker can promise what the server will do.
+
+- One source can produce several carousels in a pass. Each batch gets its own
+  angle from `CAROUSEL_ANGLES` and they run concurrently; a single batch is
+  asked for with no angle and no batch record, which is what keeps the
+  pipeline's unattended carousel exactly as it was.
+- Uploaded photos land on disk (`data/carousel-images`, served by
+  `/api/studio/carousels/images/<id>`), never inline as data URLs — a batch of
+  base64 photos in `data/capital-command.json` would be re-read and rewritten
+  on every app-data operation.
+- Every uploaded photo gets its own slide: `resolveSlideCount` raises the deck
+  to the photo count, and a short model reply is padded rather than dropping
+  photos. The model never sees the photos — the description box is how it knows
+  what they show.
+- A photo takes the top of the slide and the copy stays in `heading`/`body`
+  with a `textBand` under it, so one photo slide still renders correctly at
+  4:5, 1:1, 9:16 and 16:9 without being laid out per ratio.
+
 ## Remotion / motion video conventions
 
 When asked to make a "motion video" (a new Remotion short/segment), the
@@ -105,4 +155,29 @@ committed as a standalone project under `video/`.
 - After wiring it in, verify by running the dev server, opening
   `/presentation`, selecting the new project tab, and confirming the
   Player actually renders/autoplays each scene — don't just rely on
-  `tsc --noEmit`.
+  `tsc --noEmit`. When the dev server is off-limits, the equivalent check is
+  `npx remotion still src/remotion/deck-entry.tsx "<project>--<slide>" out.png`
+  — same bundle the Download MP4 button uses, so a scene that stills cleanly
+  will play in the deck.
+- A project directory may back MORE THAN ONE deck entry. `video/broll-collateral`
+  is one Remotion project whose ten scenes are grouped into four `PROJECTS`
+  entries; share the theme/components rather than copying a project folder per
+  deck tab. Deck entries can carry a `group` label, which the picker renders as
+  a section heading.
+
+## B-roll for advertising collateral
+
+`video/broll-collateral/` is the library of 5-second product-footage clips
+(see its README). Two rules hold it together:
+
+- **The product screenshots are drawn, not captured.**
+  `src/components/AppWindow.tsx` renders the app's own chrome, sidebar groups,
+  and screen bodies as components. When the real nav or palette changes, update
+  that file and `video/broll-collateral/src/theme.ts` to match — stale-looking
+  footage is the failure mode here, and a captured PNG also goes soft when a
+  screen sits close to camera.
+- **Every clip is exactly 150 frames and self-fades at both edges**
+  (`clipFade` in `src/motion.ts`), so any two cut together without a flash. New
+  B-roll clips must keep both properties or they stop being interchangeable.
+  Use the helpers in `src/motion.ts` (`enter`, `stagger`, `ramp`, `drift`)
+  rather than hand-rolled easings, so the whole library moves as one system.

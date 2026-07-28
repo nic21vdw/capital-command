@@ -76,8 +76,8 @@ export function PoseOverlayCard({ frames, activePhase, onSelectPhase }: Props) {
         <div className="relative overflow-hidden rounded-2xl bg-black ring-1 ring-white/8" style={{ minHeight: 200 }}>
           {active?.processing && (
             <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-3 bg-black/80 backdrop-blur-sm">
-              <span className="h-10 w-10 animate-spin rounded-full border-2 border-white/20 border-t-[var(--accent)]" />
-              <p className="text-xs text-[var(--muted-foreground)]">Running pose detection…</p>
+              <span className="h-10 w-10 animate-spin rounded-full border-2 border-[#fff]/20 border-t-[var(--accent)]" />
+              <p className="text-xs text-[#fff]/60">Running pose detection…</p>
             </div>
           )}
 
@@ -86,12 +86,12 @@ export function PoseOverlayCard({ frames, activePhase, onSelectPhase }: Props) {
             <img src={displayUrl} alt={activePhase} className="w-full rounded-2xl" />
           ) : (
             <div className="flex h-56 flex-col items-center justify-center gap-4">
-              <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-white/6 ring-1 ring-white/10">
-                <Scan className="h-6 w-6 text-white/25" />
+              <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-[#fff]/6 ring-1 ring-[#fff]/10">
+                <Scan className="h-6 w-6 text-[#fff]/25" />
               </div>
               <div className="text-center">
-                <p className="text-sm font-medium text-white/40">No frame yet</p>
-                <p className="mt-1 text-xs text-[var(--muted-foreground)]">
+                <p className="text-sm font-medium text-[#fff]/40">No frame yet</p>
+                <p className="mt-1 text-xs text-[#fff]/50">
                   {hasAnyFrame
                     ? 'Select a phase above to preview'
                     : 'Click "Analyze Swing" to extract frames and detect pose'}
@@ -104,12 +104,12 @@ export function PoseOverlayCard({ frames, activePhase, onSelectPhase }: Props) {
           {active && !active.processing && displayUrl && (
             <div className="absolute bottom-3 right-3">
               {active.pose?.detected ? (
-                <span className="flex items-center gap-1.5 rounded-lg bg-emerald-500/25 px-2.5 py-1 text-xs font-semibold text-emerald-400 ring-1 ring-emerald-500/30 backdrop-blur-sm">
-                  <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
+                <span className="flex items-center gap-1.5 rounded-lg bg-emerald-500/25 px-2.5 py-1 text-xs font-semibold text-[#34d399] ring-1 ring-emerald-500/30 backdrop-blur-sm">
+                  <span className="h-1.5 w-1.5 rounded-full bg-[#34d399]" />
                   Pose detected
                 </span>
               ) : active.dataUrl ? (
-                <span className="rounded-lg bg-amber-500/25 px-2.5 py-1 text-xs font-semibold text-amber-400 ring-1 ring-amber-500/30 backdrop-blur-sm">
+                <span className="rounded-lg bg-amber-500/25 px-2.5 py-1 text-xs font-semibold text-[#fbbf24] ring-1 ring-amber-500/30 backdrop-blur-sm">
                   No pose found
                 </span>
               ) : null}
