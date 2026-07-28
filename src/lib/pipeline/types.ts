@@ -61,6 +61,7 @@ export type PipelineStageKey =
   | "clips"
   | "audio"
   | "images"
+  | "visuals"
   | "posts"
   | "schedule";
 
@@ -76,12 +77,21 @@ export type PipelineStage = {
 export type PipelineRunOverview = {
   run: PipelineRun;
   stages: Record<PipelineStageKey, PipelineStage>;
+  /** Strongest transcript-grounded moment for screenshot and AI ad creation. */
+  visualMoment?: {
+    headline: string;
+    transcript: string;
+    start: number;
+    end: number;
+    prompt: string;
+  };
   /** Counts the schedule stage summarizes. */
   schedulable: {
     clipsReady: number;
     longformReady: boolean;
     audioReady: boolean;
     carouselSlides: number;
+    visualAdReady: boolean;
     posts: number;
     /** Publish-queue items already created from this run's clip job. */
     queued: number;
