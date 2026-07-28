@@ -42,7 +42,8 @@ export function testConfig(overrides: Partial<PublisherConfig> = {}): PublisherC
       accessToken: "ig-token",
       graphApiVersion: "v23.0",
       webhookVerifyToken: "ig-verify-token",
-      appSecret: "ig-app-secret"
+      appSecret: "ig-app-secret",
+      appId: "ig-app-id"
     },
     facebook: { pageId: "10000000000000000", pageAccessToken: "fb-token", graphApiVersion: "v23.0" },
     tiktok: { clientKey: "tt-key", clientSecret: "tt-secret", refreshToken: "tt-refresh", audited: false },

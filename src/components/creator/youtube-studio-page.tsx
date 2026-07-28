@@ -233,7 +233,7 @@ export function YouTubeStudioPage() {
               <span>Both thresholds are met. You can apply for the Partner Program from YouTube Studio.</span>
             </div>
           ) : (
-            <div className="mt-5 space-y-2 rounded-2xl border border-white/8 bg-black/20 p-4 text-sm">
+            <div className="mt-5 space-y-2 rounded-2xl border border-white/8 bg-[var(--well)] p-4 text-sm">
               {bottleneckLabel ? <p className="font-medium text-white">{bottleneckLabel}</p> : null}
               {monetization.projectedWatchHourDate ? (
                 <p className="text-[var(--muted-foreground)]">
@@ -267,7 +267,7 @@ export function YouTubeStudioPage() {
                   </p>
                   <div className="space-y-2">
                     {insights.topPerformers.slice(0, 3).map((row) => (
-                      <div key={row.id} className="rounded-2xl border border-white/8 bg-black/20 p-3">
+                      <div key={row.id} className="rounded-2xl border border-white/8 bg-[var(--well)] p-3">
                         <p className="truncate text-sm font-medium text-white">{row.title}</p>
                         <p className="mt-0.5 text-xs text-[var(--muted-foreground)]">
                           {formatCount(row.views)} views · {row.performanceReason}
@@ -285,7 +285,7 @@ export function YouTubeStudioPage() {
                   </p>
                   <div className="space-y-2">
                     {insights.underPerformers.slice(0, 3).map((row) => (
-                      <div key={row.id} className="rounded-2xl border border-white/8 bg-black/20 p-3">
+                      <div key={row.id} className="rounded-2xl border border-white/8 bg-[var(--well)] p-3">
                         <p className="truncate text-sm font-medium text-white">{row.title}</p>
                         <p className="mt-0.5 text-xs text-[var(--muted-foreground)]">
                           {formatCount(row.views)} views · {row.performanceReason}

@@ -220,7 +220,7 @@ function NumberField({
   return (
     <label className="block">
       <span className="mb-1 block text-[10px] uppercase tracking-wide text-[var(--muted-foreground)]">{label}</span>
-      <div className="flex items-center rounded-lg border border-white/10 bg-black/20 focus-within:border-[var(--accent)]">
+      <div className="flex items-center rounded-lg border border-white/10 bg-[var(--well)] focus-within:border-[var(--accent)]">
         <input
           type="number"
           value={Number.isFinite(value) ? Math.round(value * 100) / 100 : 0}
@@ -1258,7 +1258,7 @@ export function ThumbnailGeneratorPage() {
             </p>
 
             {savedThumbnails.length === 0 ? (
-              <p className="mt-3 rounded-2xl border border-dashed border-white/10 bg-black/20 px-3 py-4 text-xs text-[var(--muted-foreground)]">
+              <p className="mt-3 rounded-2xl border border-dashed border-white/10 bg-[var(--well)] px-3 py-4 text-xs text-[var(--muted-foreground)]">
                 Nothing saved yet. Build a thumbnail, then hit Save — your images, text, layout, and call-outs are all stored.
               </p>
             ) : (
@@ -1290,7 +1290,7 @@ export function ThumbnailGeneratorPage() {
                             if (event.key === "Enter") void renameSavedThumbnail(saved, renameDraft);
                             if (event.key === "Escape") setRenamingId(null);
                           }}
-                          className="min-w-0 flex-1 rounded-md border border-[var(--accent)] bg-black/40 px-1.5 py-0.5 text-xs text-white outline-none"
+                          className="min-w-0 flex-1 rounded-md border border-[var(--accent)] bg-[var(--well-deep)] px-1.5 py-0.5 text-xs text-white outline-none"
                         />
                       ) : (
                         <p className="min-w-0 flex-1 truncate text-xs font-medium text-white" title={saved.name}>
@@ -1370,7 +1370,7 @@ export function ThumbnailGeneratorPage() {
                     onClick={() => setSelectedId(layer.id)}
                     className={cn(
                       "flex cursor-pointer items-center gap-3 rounded-2xl border px-3 py-2 transition",
-                      selectedId === layer.id ? "border-[var(--accent)] bg-[var(--accent)]/10" : "border-white/10 bg-black/20 hover:border-white/30"
+                      selectedId === layer.id ? "border-[var(--accent)] bg-[var(--accent)]/10" : "border-white/10 bg-[var(--well)] hover:border-white/30"
                     )}
                   >
                     {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -1470,7 +1470,7 @@ export function ThumbnailGeneratorPage() {
                     type="checkbox"
                     checked={activeImage.treatment.flip}
                     onChange={(event) => updateTreatment(activeImage.id, { flip: event.target.checked })}
-                    className="h-4 w-4 rounded border-white/20 bg-black/20"
+                    className="h-4 w-4 rounded border-white/20 bg-[var(--well)]"
                   />
                   Flip horizontally
                 </label>
@@ -1484,7 +1484,7 @@ export function ThumbnailGeneratorPage() {
                     type="color"
                     value={activeImage.treatment.strokeColor}
                     onChange={(event) => updateTreatment(activeImage.id, { strokeColor: event.target.value })}
-                    className="h-10 w-full cursor-pointer rounded-xl border border-white/10 bg-black/20"
+                    className="h-10 w-full cursor-pointer rounded-xl border border-white/10 bg-[var(--well)]"
                   />
                 </label>
                 <Range label="Glow" value={activeImage.treatment.glow} min={0} max={1} step={0.05} onChange={(v) => updateTreatment(activeImage.id, { glow: v })} format={(v) => `${Math.round(v * 100)}%`} />
@@ -1499,7 +1499,7 @@ export function ThumbnailGeneratorPage() {
                     type="checkbox"
                     checked={activeImage.treatment.shadow}
                     onChange={(event) => updateTreatment(activeImage.id, { shadow: event.target.checked })}
-                    className="h-4 w-4 rounded border-white/20 bg-black/20"
+                    className="h-4 w-4 rounded border-white/20 bg-[var(--well)]"
                   />
                   Drop shadow
                 </label>
@@ -1508,13 +1508,13 @@ export function ThumbnailGeneratorPage() {
                     type="checkbox"
                     checked={activeImage.treatment.backlight}
                     onChange={(event) => updateTreatment(activeImage.id, { backlight: event.target.checked })}
-                    className="h-4 w-4 rounded border-white/20 bg-black/20"
+                    className="h-4 w-4 rounded border-white/20 bg-[var(--well)]"
                   />
                   Accent backlight
                 </label>
               </div>
 
-              <div className="mt-4 space-y-3 rounded-2xl border border-white/10 bg-black/20 p-3">
+              <div className="mt-4 space-y-3 rounded-2xl border border-white/10 bg-[var(--well)] p-3">
                 <Range label="BG removal tolerance" value={bgTolerance} min={8} max={120} step={2} onChange={setBgTolerance} />
                 <Button variant="secondary" className="w-full" onClick={handleRemoveBackground} disabled={removingBg}>
                   <Eraser className="mr-2 h-4 w-4" />
@@ -1535,7 +1535,7 @@ export function ThumbnailGeneratorPage() {
                     setManualLayout(event.target.checked);
                     if (!event.target.checked) setEditing(false);
                   }}
-                  className="h-4 w-4 rounded border-white/20 bg-black/20"
+                  className="h-4 w-4 rounded border-white/20 bg-[var(--well)]"
                 />
                 Free placement
               </label>
@@ -1573,7 +1573,7 @@ export function ThumbnailGeneratorPage() {
                       onClick={() => setSelectedId("text")}
                       className={cn(
                         "rounded-xl border px-3 py-1.5 text-xs font-medium transition",
-                        selectedId === "text" ? "border-[var(--accent)] bg-[var(--accent)]/10 text-white" : "border-white/10 bg-black/20 text-[var(--muted-foreground)] hover:border-white/30"
+                        selectedId === "text" ? "border-[var(--accent)] bg-[var(--accent)]/10 text-white" : "border-white/10 bg-[var(--well)] text-[var(--muted-foreground)] hover:border-white/30"
                       )}
                     >
                       Text
@@ -1586,7 +1586,7 @@ export function ThumbnailGeneratorPage() {
                       onClick={() => setSelectedId(layer.id)}
                       className={cn(
                         "rounded-xl border px-3 py-1.5 text-xs font-medium transition",
-                        selectedId === layer.id ? "border-[var(--accent)] bg-[var(--accent)]/10 text-white" : "border-white/10 bg-black/20 text-[var(--muted-foreground)] hover:border-white/30"
+                        selectedId === layer.id ? "border-[var(--accent)] bg-[var(--accent)]/10 text-white" : "border-white/10 bg-[var(--well)] text-[var(--muted-foreground)] hover:border-white/30"
                       )}
                     >
                       Image {index + 1}
@@ -1599,7 +1599,7 @@ export function ThumbnailGeneratorPage() {
                       onClick={() => setSelectedId(sticker.id)}
                       className={cn(
                         "inline-flex items-center gap-1 rounded-xl border px-3 py-1.5 text-xs font-medium transition",
-                        selectedId === sticker.id ? "border-[var(--accent)] bg-[var(--accent)]/10 text-white" : "border-white/10 bg-black/20 text-[var(--muted-foreground)] hover:border-white/30"
+                        selectedId === sticker.id ? "border-[var(--accent)] bg-[var(--accent)]/10 text-white" : "border-white/10 bg-[var(--well)] text-[var(--muted-foreground)] hover:border-white/30"
                       )}
                     >
                       {sticker.type === "emoji" && sticker.text ? (
@@ -1620,7 +1620,7 @@ export function ThumbnailGeneratorPage() {
                     const proportional = selectedImage ? selectedImage.lockAspect ?? true : true;
                     const locked = selectedImage?.locked ?? false;
                     return (
-                      <div className="space-y-3 rounded-2xl border border-white/10 bg-black/20 p-3">
+                      <div className="space-y-3 rounded-2xl border border-white/10 bg-[var(--well)] p-3">
                         <div className="flex items-center justify-between">
                           <span className="flex min-w-0 items-center gap-2 text-sm font-medium text-white">
                             <Layers className="h-4 w-4 shrink-0 text-[var(--accent)]" />
@@ -1774,7 +1774,7 @@ export function ThumbnailGeneratorPage() {
                     );
                   })()
                 ) : (
-                  <p className="rounded-2xl border border-dashed border-white/10 bg-black/20 px-3 py-3 text-xs text-[var(--muted-foreground)]">
+                  <p className="rounded-2xl border border-dashed border-white/10 bg-[var(--well)] px-3 py-3 text-xs text-[var(--muted-foreground)]">
                     Select a layer above (or click it on the canvas) to move, scale, rotate, and adjust opacity.
                   </p>
                 )}
@@ -1853,7 +1853,7 @@ export function ThumbnailGeneratorPage() {
                   type="color"
                   value={highlightColor}
                   onChange={(event) => setHighlightColor(event.target.value)}
-                  className="h-10 w-full cursor-pointer rounded-xl border border-white/10 bg-black/20"
+                  className="h-10 w-full cursor-pointer rounded-xl border border-white/10 bg-[var(--well)]"
                 />
               </label>
               <div className="flex flex-col justify-end gap-2 pb-1">
@@ -1862,7 +1862,7 @@ export function ThumbnailGeneratorPage() {
                     type="checkbox"
                     checked={customColor}
                     onChange={(event) => setTextColor(event.target.checked ? "#ffffff" : "auto")}
-                    className="h-4 w-4 rounded border-white/20 bg-black/20"
+                    className="h-4 w-4 rounded border-white/20 bg-[var(--well)]"
                   />
                   Custom text color
                 </label>
@@ -1871,7 +1871,7 @@ export function ThumbnailGeneratorPage() {
                     type="color"
                     value={textColor}
                     onChange={(event) => setTextColor(event.target.value)}
-                    className="h-10 w-full cursor-pointer rounded-xl border border-white/10 bg-black/20"
+                    className="h-10 w-full cursor-pointer rounded-xl border border-white/10 bg-[var(--well)]"
                   />
                 )}
               </div>
@@ -1883,7 +1883,7 @@ export function ThumbnailGeneratorPage() {
                   type="checkbox"
                   checked={uppercase}
                   onChange={(event) => setUppercase(event.target.checked)}
-                  className="h-4 w-4 rounded border-white/20 bg-black/20"
+                  className="h-4 w-4 rounded border-white/20 bg-[var(--well)]"
                 />
                 Uppercase text
               </label>
@@ -1941,7 +1941,7 @@ export function ThumbnailGeneratorPage() {
                   key={preset.type}
                   type="button"
                   onClick={() => addSticker(preset.type, preset.defaults)}
-                  className="inline-flex items-center gap-1.5 rounded-xl border border-white/10 bg-black/20 px-3 py-1.5 text-xs font-medium text-white transition hover:border-[var(--accent)]"
+                  className="inline-flex items-center gap-1.5 rounded-xl border border-white/10 bg-[var(--well)] px-3 py-1.5 text-xs font-medium text-white transition hover:border-[var(--accent)]"
                 >
                   <Plus className="h-3.5 w-3.5" />
                   {preset.label}
@@ -1952,7 +1952,7 @@ export function ThumbnailGeneratorPage() {
             {stickers.length > 0 && (
               <div className="mt-4 space-y-3">
                 {stickers.map((sticker) => (
-                  <div key={sticker.id} className="rounded-2xl border border-white/10 bg-black/20 p-3">
+                  <div key={sticker.id} className="rounded-2xl border border-white/10 bg-[var(--well)] p-3">
                     <div className="flex items-center justify-between">
                       <span className="text-xs font-semibold uppercase tracking-wide text-white">{sticker.type}</span>
                       <button
@@ -2008,7 +2008,7 @@ export function ThumbnailGeneratorPage() {
                           type="color"
                           value={sticker.color}
                           onChange={(event) => updateSticker(sticker.id, { color: event.target.value })}
-                          className="h-9 w-full cursor-pointer rounded-xl border border-white/10 bg-black/20"
+                          className="h-9 w-full cursor-pointer rounded-xl border border-white/10 bg-[var(--well)]"
                         />
                       </label>
                     )}
@@ -2028,7 +2028,7 @@ export function ThumbnailGeneratorPage() {
                     key={idea}
                     type="button"
                     onClick={() => setOverlayText(idea)}
-                    className="rounded-xl border border-white/10 bg-black/20 px-3 py-1.5 text-xs font-medium text-white transition hover:border-[var(--accent)]"
+                    className="rounded-xl border border-white/10 bg-[var(--well)] px-3 py-1.5 text-xs font-medium text-white transition hover:border-[var(--accent)]"
                   >
                     {idea}
                   </button>
@@ -2038,7 +2038,7 @@ export function ThumbnailGeneratorPage() {
                 <div className="mt-4 space-y-2">
                   <span className="block text-xs uppercase tracking-wide text-[var(--muted-foreground)]">Video title treatments</span>
                   {treatments.map((treatment) => (
-                    <div key={treatment} className="flex items-center justify-between gap-2 rounded-xl bg-black/20 px-3 py-2">
+                    <div key={treatment} className="flex items-center justify-between gap-2 rounded-xl bg-[var(--well)] px-3 py-2">
                       <p className="text-sm text-white">{treatment}</p>
                       <button
                         type="button"
@@ -2106,7 +2106,7 @@ export function ThumbnailGeneratorPage() {
             </div>
 
             {/* ---- Project / save ---- */}
-            <div className="mt-4 space-y-3 rounded-2xl border border-white/10 bg-black/20 p-3">
+            <div className="mt-4 space-y-3 rounded-2xl border border-white/10 bg-[var(--well)] p-3">
               <div className="flex items-center gap-2">
                 <Input
                   placeholder="Project name"
@@ -2132,7 +2132,7 @@ export function ThumbnailGeneratorPage() {
                     type="checkbox"
                     checked={autosave}
                     onChange={(event) => setAutosave(event.target.checked)}
-                    className="h-4 w-4 rounded border-white/20 bg-black/20"
+                    className="h-4 w-4 rounded border-white/20 bg-[var(--well)]"
                   />
                   Autosave
                 </label>
@@ -2140,7 +2140,7 @@ export function ThumbnailGeneratorPage() {
             </div>
 
             {/* ---- Export ---- */}
-            <div className="mt-3 space-y-3 rounded-2xl border border-white/10 bg-black/20 p-3">
+            <div className="mt-3 space-y-3 rounded-2xl border border-white/10 bg-[var(--well)] p-3">
               <div className="flex flex-wrap items-center gap-2">
                 <span className="text-xs font-semibold uppercase tracking-wide text-[var(--muted-foreground)]">Export</span>
                 <div className="ml-auto flex flex-wrap gap-1.5">

@@ -15,6 +15,7 @@ import {
   Lightbulb,
   Megaphone,
   Mic,
+  Music4,
   Presentation,
   Radar,
   Rocket,
@@ -61,7 +62,10 @@ const navGroups: NavGroup[] = [
       // Higgsfield-generated avatar videos (real footage, AI avatar, no lines).
       { href: "/avatar", label: "Higgsfield Avatar", icon: Sparkles },
       // AI voiceover clips in Nic's cloned voice, from typed dialogue.
-      { href: "/voiceover", label: "Voiceover", icon: Mic }
+      { href: "/voiceover", label: "Voiceover", icon: Mic },
+      // Licensed music models (fal.ai) writing background tracks into the
+      // shared music library the Long-Form Editor pulls from.
+      { href: "/music", label: "Music Studio", icon: Music4 }
     ]
   },
   {
@@ -69,7 +73,9 @@ const navGroups: NavGroup[] = [
     items: [
       // One stream in (link or file) → long-form edit, shorts, MP3, images,
       // and text posts all fan out automatically, ready for the scheduler.
-      { href: "/pipeline", label: "Stream Pipeline", icon: Workflow },
+      // It is also the app's home screen, so it lives at "/" ( /pipeline still
+      // renders the same page for old bookmarks).
+      { href: "/", label: "Stream Pipeline", icon: Workflow },
       // Every distribution calendar merged into one day/week/month view — the
       // first stop for "what goes out where, and when".
       { href: "/master-calendar", label: "Master Calendar", icon: CalendarRange },
@@ -92,6 +98,8 @@ const navGroups: NavGroup[] = [
 
 const allNavItems = navGroups.flatMap((group) => group.items);
 const SIDEBAR_COLLAPSED_KEY = "capital-command:sidebar-collapsed";
+// Shown in the sidebar brand until a display name is saved in Settings.
+const DEFAULT_BRAND_NAME = "Nic Vandewetering";
 
 function initialsFrom(name: string) {
   const parts = name.trim().split(/\s+/).filter(Boolean);
@@ -102,14 +110,33 @@ function initialsFrom(name: string) {
     .join("");
 }
 
+// The brand mark is the profile set in Settings, not a fixed logo: the photo
+// when one is uploaded, otherwise the display name's initials on the purple
+// gradient badge.
 function Brand({ collapsed = false }: { collapsed?: boolean }) {
+  const { data } = useAppData();
+  const profile = data.settings.profile;
+  const displayName = profile?.displayName?.trim() || DEFAULT_BRAND_NAME;
+  const avatar = profile?.avatar;
+  const initials = initialsFrom(displayName) || "?";
+
   return (
     <Link href="/" className={cn("flex items-center gap-3", collapsed && "justify-center")} title="Dashboard">
-      <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-gradient-to-br from-[#a855f7] to-[#7c3aed] text-sm font-bold tracking-tight text-white shadow-[0_2px_10px_rgba(124,58,237,0.45)]">
-        NV
+      <span
+        className={cn(
+          "flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-lg text-sm font-bold tracking-tight text-white",
+          !avatar && "bg-gradient-to-br from-[#a855f7] to-[#7c3aed] shadow-[0_2px_10px_rgba(124,58,237,0.45)]"
+        )}
+      >
+        {avatar ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={avatar} alt="" className="h-full w-full object-cover" />
+        ) : (
+          initials
+        )}
       </span>
-      <span className={cn("flex flex-col leading-tight", collapsed && "hidden")}>
-        <span className="text-sm font-semibold text-white">Nic Vandewetering</span>
+      <span className={cn("flex min-w-0 flex-col leading-tight", collapsed && "hidden")}>
+        <span className="truncate text-sm font-semibold text-white">{displayName}</span>
         <span className="text-xs text-[var(--muted-foreground)]">YouTube creator tools</span>
       </span>
     </Link>

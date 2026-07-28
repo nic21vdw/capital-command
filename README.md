@@ -204,15 +204,26 @@ local scheduler and the Actions cron against the same queue at the same time.
    scope (e.g. the [OAuth playground](https://developers.google.com/oauthplayground)
    with "Use your own OAuth credentials" checked) → `YOUTUBE_REFRESH_TOKEN`.
 
-**Instagram (Graph API content publishing)**
+**Instagram (Graph API content publishing)** — full walkthrough:
+[docs/INSTAGRAM_SETUP.md](docs/INSTAGRAM_SETUP.md)
 1. Switch the Instagram account to **Business/Creator** and link it to a
    Facebook Page.
 2. [developers.facebook.com](https://developers.facebook.com) → create an app →
-   add the Instagram product.
-3. Grant `instagram_content_publish` (plus `pages_show_list`,
-   `instagram_basic`) and generate a **long-lived** access token
-   → `IG_ACCESS_TOKEN`.
-4. Find the numeric professional-account id → `IG_USER_ID`.
+   add the Instagram product. Copy the app id and app secret from
+   **Settings → Basic**.
+3. **Tools → Graph API Explorer**, grant `instagram_basic`,
+   `instagram_content_publish`, `pages_show_list` and `pages_read_engagement`,
+   and generate a token. It only lasts an hour — that is fine.
+4. Hand those three values to the connect command; it does the rest:
+   ```bash
+   npm run publish:instagram:connect -- --app-id <id> --app-secret <secret> \
+     --token <token from step 3> --write
+   ```
+   It exchanges the short-lived token for a **non-expiring Page token**, finds
+   the Instagram account linked to your Page, verifies the permissions and the
+   publishing quota, and writes `IG_USER_ID`, `IG_ACCESS_TOKEN`, `FB_PAGE_ID`
+   and `FB_PAGE_ACCESS_TOKEN` into `.env`. Drop `--write` to print them instead.
+   Re-check any time with `npm run publish:instagram:check`.
 5. Configure the `S3_*` variables — Instagram downloads the video from a
    public HTTPS URL, so clips must be hosted (see R2 below).
    Note: API-published Reels are always **public**; use a test account for

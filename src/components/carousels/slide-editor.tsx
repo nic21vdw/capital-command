@@ -176,13 +176,13 @@ export function SlideEditor({
       {/* Top bar */}
       <div className="flex items-center justify-between gap-3 px-4 py-3 sm:px-6">
         <div className="flex items-center gap-2">
-          <div className="inline-flex rounded-lg border border-[var(--border)] bg-white/5 p-0.5">
+          <div className="inline-flex rounded-lg border border-[#fff]/10 bg-[#fff]/5 p-0.5">
             <button
               type="button"
               onClick={() => setMode("preview")}
               className={cn(
                 "inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition",
-                mode === "preview" ? "bg-[var(--accent)] text-[var(--accent-contrast)]" : "text-[var(--muted-foreground)] hover:text-white"
+                mode === "preview" ? "bg-[var(--accent)] text-[var(--accent-contrast)]" : "text-[#fff]/60 hover:text-[#fff]"
               )}
             >
               <Eye className="h-3.5 w-3.5" /> Preview
@@ -192,13 +192,13 @@ export function SlideEditor({
               onClick={() => setMode("edit")}
               className={cn(
                 "inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition",
-                mode === "edit" ? "bg-[var(--accent)] text-[var(--accent-contrast)]" : "text-[var(--muted-foreground)] hover:text-white"
+                mode === "edit" ? "bg-[var(--accent)] text-[var(--accent-contrast)]" : "text-[#fff]/60 hover:text-[#fff]"
               )}
             >
               <Pencil className="h-3.5 w-3.5" /> Edit
             </button>
           </div>
-          <span className="hidden text-xs text-[var(--muted-foreground)] sm:inline">
+          <span className="hidden text-xs text-[#fff]/60 sm:inline">
             Slide {index + 1} / {total} · {spec.label} {spec.badge}
           </span>
         </div>
@@ -213,7 +213,7 @@ export function SlideEditor({
             type="button"
             onClick={requestClose}
             aria-label="Close"
-            className="flex h-9 w-9 items-center justify-center rounded-lg text-[var(--muted-foreground)] transition hover:bg-white/10 hover:text-white"
+            className="flex h-9 w-9 items-center justify-center rounded-lg text-[#fff]/60 transition hover:bg-[#fff]/10 hover:text-[#fff]"
           >
             <X className="h-5 w-5" />
           </button>
@@ -264,7 +264,7 @@ export function SlideEditor({
             aria-label={`Slide ${i + 1}`}
             className={cn(
               "h-2 rounded-full transition-all",
-              i === index ? "w-6 bg-[var(--accent)]" : "w-2 bg-white/25 hover:bg-white/50"
+              i === index ? "w-6 bg-[var(--accent)]" : "w-2 bg-[#fff]/25 hover:bg-[#fff]/50"
             )}
           />
         ))}
@@ -316,7 +316,7 @@ function PreviewStage({
           type="button"
           onClick={() => onNavigate(index - 1)}
           aria-label="Previous slide"
-          className="absolute left-1 z-10 flex h-11 w-11 items-center justify-center rounded-full bg-black/40 text-white backdrop-blur transition hover:bg-black/70 sm:left-3"
+          className="absolute left-1 z-10 flex h-11 w-11 items-center justify-center rounded-full bg-black/40 text-[#fff] backdrop-blur transition hover:bg-black/70 sm:left-3"
         >
           <ChevronLeft className="h-6 w-6" />
         </button>
@@ -325,7 +325,7 @@ function PreviewStage({
         key={index}
         ref={canvasRef}
         className={cn(
-          "modal-panel-enter max-h-full max-w-full rounded-2xl border border-white/10 shadow-[0_24px_80px_rgba(0,0,0,0.6)] transition-opacity duration-200",
+          "modal-panel-enter max-h-full max-w-full rounded-2xl border border-[#fff]/10 shadow-[0_24px_80px_rgba(0,0,0,0.6)] transition-opacity duration-200",
           ready ? "opacity-100" : "opacity-0"
         )}
         style={{ aspectRatio: `${spec.width} / ${spec.height}` }}
@@ -345,7 +345,7 @@ function PreviewStage({
           type="button"
           onClick={() => onNavigate(index + 1)}
           aria-label="Next slide"
-          className="absolute right-1 z-10 flex h-11 w-11 items-center justify-center rounded-full bg-black/40 text-white backdrop-blur transition hover:bg-black/70 sm:right-3"
+          className="absolute right-1 z-10 flex h-11 w-11 items-center justify-center rounded-full bg-black/40 text-[#fff] backdrop-blur transition hover:bg-black/70 sm:right-3"
         >
           <ChevronRight className="h-6 w-6" />
         </button>
@@ -553,7 +553,7 @@ function EditStage({
       <span
         key={corner}
         onPointerDown={(event) => startResize(event, layer, corner)}
-        className={cn("absolute z-10 h-3 w-3 touch-none rounded-sm border border-[var(--accent)] bg-white shadow", CORNER_POS[corner])}
+        className={cn("absolute z-10 h-3 w-3 touch-none rounded-sm border border-[var(--accent)] bg-[#fff] shadow", CORNER_POS[corner])}
       />
     ));
 
@@ -562,7 +562,7 @@ function EditStage({
       ref={stageRef}
       className={cn(
         "modal-panel-enter relative max-h-full overflow-hidden rounded-2xl border shadow-[0_24px_80px_rgba(0,0,0,0.6)]",
-        dropActive ? "border-[var(--accent)] ring-2 ring-[var(--accent)]/60" : "border-white/10"
+        dropActive ? "border-[var(--accent)] ring-2 ring-[var(--accent)]/60" : "border-[#fff]/10"
       )}
       style={{ aspectRatio: `${spec.width} / ${spec.height}`, height: "min(72vh, 100%)" }}
       onPointerDown={(event) => {
@@ -590,7 +590,7 @@ function EditStage({
             "absolute cursor-move touch-none select-none",
             selectedLayer === layer.id
               ? "outline outline-2 outline-[var(--accent)]"
-              : "outline-dashed outline-1 outline-white/30 hover:outline-white/60"
+              : "outline-dashed outline-1 outline-[#fff]/30 hover:outline-[#fff]/60"
           )}
           style={{
             left: `${layer.x * 100}%`,
@@ -622,7 +622,7 @@ function EditStage({
           onPointerDown={(event) => startMove(event, layer)}
           className={cn(
             "absolute cursor-move touch-none select-none",
-            selectedLayer === layer.id ? "outline outline-2 outline-[var(--accent)]" : "outline-dashed outline-1 outline-white/20 hover:outline-white/50"
+            selectedLayer === layer.id ? "outline outline-2 outline-[var(--accent)]" : "outline-dashed outline-1 outline-[#fff]/20 hover:outline-[#fff]/50"
           )}
           style={{
             left: `${layer.x * 100}%`,
@@ -643,7 +643,7 @@ function EditStage({
       ))}
 
       {dropActive ? (
-        <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-[var(--accent)]/10 text-sm font-medium text-white">
+        <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-[var(--accent)]/10 text-sm font-medium text-[#fff]">
           Drop image to add it
         </div>
       ) : null}

@@ -904,6 +904,13 @@ export interface CarouselSlide {
   bodyColor?: string;
   /** Whether the base heading/body/counter/handle chrome is drawn. */
   hideBaseText?: boolean;
+  /**
+   * Vertical band (fractions of the slide height) the base heading/body/counter
+   * are laid out inside. Defaults to the whole slide; a photo slide sets it to
+   * the strip below the photo so the copy still wraps and centers itself at
+   * whatever aspect ratio the carousel exports at.
+   */
+  textBand?: { top: number; bottom: number };
   /** Draggable text/image elements composited over the base slide. */
   layers?: SlideLayer[];
 }
@@ -933,15 +940,31 @@ export interface CarouselSchedule {
   createdAt: string;
 }
 
+/**
+ * Set on every carousel written in one pass when more than one was asked for —
+ * "3 batches of 8 slides from this stream". The group id ties the siblings
+ * together; the angle is the brief that kept them from being three rewrites of
+ * the same post.
+ */
+export interface CarouselBatch {
+  groupId: string;
+  /** 1-based position within the pass. */
+  index: number;
+  total: number;
+  /** Short label for the angle this batch took ("The mistakes"). */
+  angle?: string;
+}
+
 export interface Carousel {
   id: string;
   title: string;
-  /** `short` = generated from a short-form video (a clip). */
-  sourceType: "script" | "longform" | "short" | "custom";
+  /** `short` = generated from a short-form video (a clip); `images` = written around an uploaded photo batch. */
+  sourceType: "script" | "longform" | "short" | "custom" | "images";
   sourceId?: string;
   slides: CarouselSlide[];
   aspectRatio?: CarouselAspectRatio;
   schedules?: CarouselSchedule[];
+  batch?: CarouselBatch;
   createdAt: string;
 }
 

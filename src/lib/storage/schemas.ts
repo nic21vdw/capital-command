@@ -89,7 +89,7 @@ export const settingsSchema = z.object({
   currency: z.enum(["CAD", "USD"]),
   // Unknown/legacy values (e.g. old accent ids) gracefully fall back to undefined,
   // and the UI resolves that to the default preset at runtime.
-  themePreset: z.enum(["slate", "midnight", "graphite", "forest", "paper", "arctic"]).optional().catch(undefined),
+  themePreset: z.enum(["slate", "midnight", "graphite", "forest", "dracula", "paper", "arctic"]).optional().catch(undefined),
   profile: userProfileSchema.optional()
 });
 
@@ -435,7 +435,15 @@ export const carouselSlideSchema = z.object({
   headingColor: z.string().optional(),
   bodyColor: z.string().optional(),
   hideBaseText: z.boolean().optional(),
+  textBand: z.object({ top: z.number(), bottom: z.number() }).optional(),
   layers: z.array(slideLayerSchema).optional()
+});
+
+export const carouselBatchSchema = z.object({
+  groupId: z.string(),
+  index: z.number().int().min(1),
+  total: z.number().int().min(1),
+  angle: z.string().optional()
 });
 
 export const carouselScheduleSchema = z.object({
@@ -452,11 +460,12 @@ export const carouselScheduleSchema = z.object({
 export const carouselSchema = z.object({
   id: z.string(),
   title: z.string().trim().min(1),
-  sourceType: z.enum(["script", "longform", "short", "custom"]).default("custom"),
+  sourceType: z.enum(["script", "longform", "short", "custom", "images"]).default("custom"),
   sourceId: z.string().optional(),
   slides: z.array(carouselSlideSchema).default([]),
   aspectRatio: z.enum(["portrait", "square", "story", "landscape"]).optional(),
   schedules: z.array(carouselScheduleSchema).optional(),
+  batch: carouselBatchSchema.optional(),
   createdAt: z.string().default(() => new Date().toISOString())
 });
 

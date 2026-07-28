@@ -57,7 +57,7 @@ function IssueCard({ issue, expanded, onToggle }: {
           )}
             style={{ backgroundColor: 'currentColor' }}
           >
-            <span className="text-white text-[10px] font-black">{issue.priority}</span>
+            <span className="text-[#fff] text-[10px] font-black">{issue.priority}</span>
           </span>
 
           {/* Thumbnail + title */}
@@ -70,7 +70,7 @@ function IssueCard({ issue, expanded, onToggle }: {
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img src={issue.annotatedFrameUrl} alt={issue.name} className="h-full w-full object-cover" />
                 <div className="absolute inset-0 flex items-center justify-center bg-black/30 opacity-0 transition hover:opacity-100">
-                  <span className="text-[10px] font-bold text-white">View</span>
+                  <span className="text-[10px] font-bold text-[#fff]">View</span>
                 </div>
               </div>
             )}
@@ -150,7 +150,7 @@ function IssueCard({ issue, expanded, onToggle }: {
           <div className="relative max-h-[90vh] max-w-4xl w-full" onClick={(e) => e.stopPropagation()}>
             <button
               onClick={() => setLightboxOpen(false)}
-              className="absolute -right-3 -top-3 z-10 flex h-8 w-8 items-center justify-center rounded-full bg-white/10 text-white hover:bg-white/20"
+              className="absolute -right-3 -top-3 z-10 flex h-8 w-8 items-center justify-center rounded-full bg-[#fff]/10 text-[#fff] hover:bg-[#fff]/20"
             >
               <X className="h-4 w-4" />
             </button>
@@ -161,8 +161,8 @@ function IssueCard({ issue, expanded, onToggle }: {
               className="w-full rounded-2xl shadow-2xl"
             />
             <div className="mt-3 rounded-xl bg-black/60 px-4 py-3">
-              <p className="text-xs font-semibold text-white">{issue.name}</p>
-              <p className="mt-0.5 text-xs text-[var(--muted-foreground)]">{issue.whatAISees}</p>
+              <p className="text-xs font-semibold text-[#fff]">{issue.name}</p>
+              <p className="mt-0.5 text-xs text-[#fff]/60">{issue.whatAISees}</p>
             </div>
           </div>
         </div>

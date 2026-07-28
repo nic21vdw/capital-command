@@ -3,8 +3,17 @@ import { z } from "zod";
 import { checkAllAccounts } from "@/lib/threads/api";
 import { threadsBlockedReason, threadsConfig, threadsConfigured, unassignedVersions } from "@/lib/threads/config";
 import { planTodaysBatch, threadsTick } from "@/lib/threads/daily";
-import { mutateQueue, readQueue, summarizeBatch, summarizeBatches } from "@/lib/threads/queue";
+import {
+  editItemText,
+  mutateQueue,
+  readQueue,
+  rescheduleItem,
+  shiftBatch,
+  summarizeBatch,
+  summarizeBatches
+} from "@/lib/threads/queue";
 import { runDue } from "@/lib/threads/runner";
+import { readThreadsState, tickHealth } from "@/lib/threads/state";
 import { localDateKey } from "@/lib/x-strategy/analytics";
 
 export const runtime = "nodejs";
@@ -26,8 +35,10 @@ export const maxDuration = 300;
 export async function GET() {
   const config = threadsConfig();
   const items = await readQueue();
+  const state = await readThreadsState();
   const today = localDateKey();
   return NextResponse.json({
+    scheduler: { ...state, ...tickHealth(state) },
     enabled: config.enabled,
     configured: threadsConfigured(config),
     blockedReason: threadsBlockedReason(config),
@@ -51,11 +62,18 @@ export async function GET() {
 }
 
 const actionSchema = z.object({
-  action: z.enum(["tick", "plan", "run-due", "check", "skip", "remove"]),
+  action: z.enum(["tick", "plan", "run-due", "check", "skip", "remove", "reschedule", "shift", "edit"]),
   force: z.boolean().optional(),
   focus: z.string().optional(),
   dryRun: z.boolean().optional(),
-  id: z.string().min(1).optional()
+  id: z.string().min(1).optional(),
+  /** reschedule: the new instant, ISO-8601. */
+  at: z.string().min(1).optional(),
+  /** shift: which batch, and by how many minutes (negative moves earlier). */
+  date: z.string().min(1).optional(),
+  minutes: z.number().optional(),
+  /** edit: the replacement copy. */
+  text: z.string().optional()
 });
 
 /**
@@ -66,8 +84,11 @@ const actionSchema = z.object({
  *   plan     schedule today's batch only; `force` regenerates the pack
  *   run-due  post what's due only; `dryRun` reports without posting
  *   check    validate the Threads token without posting
- *   skip     take one queued post out of the running
- *   remove   delete one queued post outright
+ *   skip       take one queued post out of the running
+ *   remove     delete one queued post outright
+ *   reschedule move one queued post to a new time
+ *   shift      move a whole day's pending posts by N minutes
+ *   edit       rewrite one queued post's copy
  */
 export async function POST(request: NextRequest) {
   let body: unknown;
@@ -81,7 +102,7 @@ export async function POST(request: NextRequest) {
   if (!parsed.success) {
     return NextResponse.json({ error: parsed.error.issues[0]?.message ?? "Invalid request." }, { status: 400 });
   }
-  const { action, force, focus, dryRun, id } = parsed.data;
+  const { action, force, focus, dryRun, id, at, date, minutes, text } = parsed.data;
   const config = threadsConfig();
 
   try {
@@ -105,7 +126,39 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ plan, run });
     }
 
+    if (action === "shift") {
+      if (!date || minutes === undefined) {
+        return NextResponse.json({ error: '"shift" needs a date and a number of minutes.' }, { status: 400 });
+      }
+      const outcome = await mutateQueue((items) => {
+        const result = shiftBatch(items, date, minutes);
+        return { items: result.items, result };
+      });
+      if (outcome.error) return NextResponse.json({ error: outcome.error }, { status: 400 });
+      return NextResponse.json({ ok: true, moved: outcome.changed });
+    }
+
     if (!id) return NextResponse.json({ error: `"${action}" needs the id of a queued post.` }, { status: 400 });
+
+    if (action === "reschedule") {
+      if (!at) return NextResponse.json({ error: '"reschedule" needs a new time.' }, { status: 400 });
+      const outcome = await mutateQueue((items) => {
+        const result = rescheduleItem(items, id, at);
+        return { items: result.items, result };
+      });
+      if (outcome.error) return NextResponse.json({ error: outcome.error }, { status: 400 });
+      return NextResponse.json({ ok: true });
+    }
+
+    if (action === "edit") {
+      if (text === undefined) return NextResponse.json({ error: '"edit" needs the replacement text.' }, { status: 400 });
+      const outcome = await mutateQueue((items) => {
+        const result = editItemText(items, id, text);
+        return { items: result.items, result };
+      });
+      if (outcome.error) return NextResponse.json({ error: outcome.error }, { status: 400 });
+      return NextResponse.json({ ok: true });
+    }
 
     if (action === "skip") {
       const found = await mutateQueue((items) => {
