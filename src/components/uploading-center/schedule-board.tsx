@@ -504,7 +504,7 @@ function EditableTitle({ title, onRename }: { title: string; onRename: (title: s
         }
       }}
       aria-label="Video title"
-      className="w-full min-w-0 flex-1 rounded border border-[var(--accent)]/50 bg-black/40 px-1 py-0.5 text-xs font-medium text-white outline-none"
+      className="w-full min-w-0 flex-1 rounded border border-[var(--accent)]/50 bg-[var(--well-deep)] px-1 py-0.5 text-xs font-medium text-white outline-none"
     />
   );
 }

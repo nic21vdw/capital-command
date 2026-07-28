@@ -68,7 +68,9 @@ const navGroups: NavGroup[] = [
     items: [
       // One stream in (link or file) → long-form edit, shorts, MP3, images,
       // and text posts all fan out automatically, ready for the scheduler.
-      { href: "/pipeline", label: "Stream Pipeline", icon: Workflow },
+      // It is also the app's home screen, so it lives at "/" ( /pipeline still
+      // renders the same page for old bookmarks).
+      { href: "/", label: "Stream Pipeline", icon: Workflow },
       // Every distribution calendar merged into one day/week/month view — the
       // first stop for "what goes out where, and when".
       { href: "/master-calendar", label: "Master Calendar", icon: CalendarRange },

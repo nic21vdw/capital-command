@@ -1,7 +1,21 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { CalendarClock, ChevronDown, Download, Eye, Images, Loader2, Pencil, Sparkles, Trash2 } from "lucide-react";
+import { useSearchParams } from "next/navigation";
+import {
+  CalendarClock,
+  ChevronDown,
+  Download,
+  Eye,
+  ImagePlus,
+  Images,
+  Layers,
+  Loader2,
+  Pencil,
+  Sparkles,
+  Trash2,
+  X
+} from "lucide-react";
 import { toast } from "sonner";
 import { useAppData } from "@/components/providers/app-provider";
 import { ScheduleCalendar } from "@/components/carousels/schedule-calendar";
@@ -15,6 +29,14 @@ import { PageHeader } from "@/components/ui/page-header";
 import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import {
+  carouselAngle,
+  MAX_BATCH_COUNT,
+  MAX_SLIDES,
+  MIN_SLIDES,
+  resolveSlideCount
+} from "@/lib/carousels/deck";
+import type { CarouselImage } from "@/lib/carousels/imageSlides";
+import {
   ASPECT_RATIO_LIST,
   aspectSpec,
   carouselBaseName,
@@ -22,15 +44,17 @@ import {
   downloadSlide,
   renderSlideCanvas
 } from "@/lib/carousels/render";
+import { cn } from "@/lib/utils";
 import type { Carousel, CarouselAspectRatio, CarouselSchedule, CarouselSlide } from "@/types/domain";
 
 /**
  * Carousels: turn a script, a long-form video's transcript, a short-form video
- * (a clip), or pasted text into a swipeable carousel distributable to
- * Instagram, Facebook, and TikTok. Copy is generated server-side; the slides
- * are drawn on a canvas here (any aspect ratio), double-click to preview or
- * open the editor, download in any format, or schedule the upload across
- * networks.
+ * (a clip), a batch of uploaded photos, or pasted text into swipeable carousels
+ * distributable to Instagram, Facebook, and TikTok. One source can produce
+ * several carousels at once — each batch takes its own angle. Copy is generated
+ * server-side; the slides are drawn on a canvas here (any aspect ratio),
+ * double-click to preview or open the editor, download in any format, or
+ * schedule the upload across networks.
  */
 
 type LongformListItem = { id: string; name: string; status: string; transcript?: unknown[] };
@@ -38,28 +62,46 @@ type LongformListItem = { id: string; name: string; status: string; transcript?:
 // A single ready clip flattened out of the clip jobs, offered as a carousel source.
 type ShortOption = { jobId: string; clipId: string; label: string };
 
+type SourceType = "script" | "longform" | "short" | "custom" | "images";
+
 // Human-readable label for a carousel's source, shown on each card.
 const SOURCE_LABEL: Record<Carousel["sourceType"], string> = {
   script: "script",
   longform: "video",
   short: "short-form video",
-  custom: "text"
+  custom: "text",
+  images: "photos"
 };
+
+const SLIDE_COUNT_OPTIONS = Array.from({ length: MAX_SLIDES - MIN_SLIDES + 1 }, (_, i) => MIN_SLIDES + i);
 
 export function CarouselsPage() {
   const { data, loading, refresh } = useAppData();
   const carousels = useMemo(() => data.videoStudio?.carousels ?? [], [data.videoStudio]);
   const scripts = useMemo(() => data.videoStudio?.scripts ?? [], [data.videoStudio]);
 
+  // Arriving from the Stream Pipeline's carousel row: the stream's transcript is
+  // already the source, so the photos and the batch count are all that's left.
+  const presetLongform = useSearchParams().get("longform");
+
   const [projects, setProjects] = useState<LongformListItem[]>([]);
   const [shorts, setShorts] = useState<ShortOption[]>([]);
-  const [sourceType, setSourceType] = useState<"script" | "longform" | "short" | "custom">("script");
-  const [sourceId, setSourceId] = useState("");
+  const [sourceType, setSourceType] = useState<SourceType>(presetLongform ? "longform" : "script");
+  const [sourceId, setSourceId] = useState(presetLongform ?? "");
   const [customTitle, setCustomTitle] = useState("");
   const [customText, setCustomText] = useState("");
   const [slideCount, setSlideCount] = useState(8);
+  const [batchCount, setBatchCount] = useState(1);
+  const [images, setImages] = useState<CarouselImage[]>([]);
+  const [imageNotes, setImageNotes] = useState("");
+  const [uploading, setUploading] = useState(false);
+  const [imageDrag, setImageDrag] = useState(false);
   const [generating, setGenerating] = useState(false);
   const [reason, setReason] = useState<string | null>(null);
+  const imageInputRef = useRef<HTMLInputElement | null>(null);
+
+  // Photos claim a slide each, so they can push the deck past the picked count.
+  const deckSlides = resolveSlideCount({ slideCount, imageCount: images.length });
 
   useEffect(() => {
     void fetch("/api/longform/projects", { cache: "no-store" })
@@ -129,8 +171,36 @@ export function CarouselsPage() {
     [carousels, refresh]
   );
 
+  /** Uploads a batch of photos and keeps them in picked order. */
+  const addImages = useCallback(async (files: FileList | File[]) => {
+    const picked = Array.from(files).filter((file) => file.type.startsWith("image/"));
+    if (picked.length === 0) return;
+    const form = new FormData();
+    for (const file of picked) form.append("files", file);
+    setUploading(true);
+    try {
+      const response = await fetch("/api/studio/carousels/images", { method: "POST", body: form });
+      const json = (await response.json()) as { images?: CarouselImage[]; rejected?: string[]; error?: string };
+      if (!response.ok || !json.images?.length) {
+        toast.error(json.error ?? "Could not upload those photos.");
+        return;
+      }
+      setImages((current) => [...current, ...json.images!]);
+      if (json.rejected?.length) toast.error(json.rejected.join(" "));
+      else toast.success(`${json.images.length} photo${json.images.length === 1 ? "" : "s"} attached.`);
+    } catch {
+      toast.error("Could not upload those photos.");
+    } finally {
+      setUploading(false);
+    }
+  }, []);
+
   const generate = async () => {
-    const body: Record<string, unknown> = { slideCount };
+    const body: Record<string, unknown> = { slideCount, batchCount };
+    if (images.length > 0) {
+      body.imageIds = images.map((image) => image.id);
+      body.imageNotes = imageNotes;
+    }
     if (sourceType === "script") {
       if (!sourceId) return void toast.error("Pick a script first.");
       body.scriptId = sourceId;
@@ -142,6 +212,10 @@ export function CarouselsPage() {
       const [clipJobId, clipId] = sourceId.split("::");
       body.clipJobId = clipJobId;
       body.clipId = clipId;
+    } else if (sourceType === "images") {
+      if (images.length === 0) return void toast.error("Attach some photos first.");
+      if (!imageNotes.trim()) return void toast.error("Describe what the photos show so the slides can be written.");
+      body.title = customTitle || "Photo carousel";
     } else {
       if (!customText.trim()) return void toast.error("Paste some text first.");
       body.text = customText;
@@ -154,13 +228,18 @@ export function CarouselsPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body)
       });
-      const json = (await response.json()) as { carousel?: Carousel; reason?: string | null; error?: string };
-      if (!response.ok || !json.carousel) {
+      const json = (await response.json()) as { carousels?: Carousel[]; reason?: string | null; error?: string };
+      if (!response.ok || !json.carousels?.length) {
         toast.error(json.error ?? "Could not generate the carousel.");
         return;
       }
       setReason(json.reason ?? null);
-      toast.success(`Carousel written — ${json.carousel.slides.length} slides.`);
+      const slides = json.carousels.reduce((total, entry) => total + entry.slides.length, 0);
+      toast.success(
+        json.carousels.length === 1
+          ? `Carousel written — ${slides} slides.`
+          : `${json.carousels.length} carousels written — ${slides} slides.`
+      );
       void refresh();
     } catch {
       toast.error("Could not generate the carousel.");
@@ -174,21 +253,22 @@ export function CarouselsPage() {
       <PageHeader
         eyebrow="Carousels"
         title="Carousels"
-        description="Turn a script, a finished video's transcript, a short-form video, or pasted text into a swipeable carousel — hook slide, value slides, CTA slide — distributable to Instagram, Facebook, and TikTok. Double-click a slide to preview or edit it, pick an aspect ratio, download, or schedule the upload."
+        description="Turn a script, a finished video's transcript, a short-form video, a batch of photos, or pasted text into swipeable carousels — hook slide, value slides, CTA slide — distributable to Instagram, Facebook, and TikTok. Ask for several batches and each one takes a different angle on the same stream. Double-click a slide to preview or edit it, pick an aspect ratio, download, or schedule the upload."
       />
 
       <Card className="mb-6 space-y-3">
-        <div className="grid gap-3 sm:grid-cols-[160px_1fr_120px_auto]">
+        <div className="grid gap-3 sm:grid-cols-[170px_1fr_130px_130px_auto]">
           <Select
             value={sourceType}
             onChange={(event) => {
-              setSourceType(event.target.value as typeof sourceType);
+              setSourceType(event.target.value as SourceType);
               setSourceId("");
             }}
           >
             <option value="script">From script</option>
             <option value="longform">From video</option>
             <option value="short">From short-form video</option>
+            <option value="images">From photos</option>
             <option value="custom">From text</option>
           </Select>
 
@@ -225,10 +305,22 @@ export function CarouselsPage() {
             <Input placeholder="Carousel title" value={customTitle} onChange={(event) => setCustomTitle(event.target.value)} />
           )}
 
-          <Select value={slideCount} onChange={(event) => setSlideCount(Number(event.target.value))}>
-            {[4, 5, 6, 7, 8, 9, 10].map((count) => (
+          <Select value={slideCount} onChange={(event) => setSlideCount(Number(event.target.value))} aria-label="Slides per carousel">
+            {SLIDE_COUNT_OPTIONS.map((count) => (
               <option key={count} value={count}>
                 {count} slides
+              </option>
+            ))}
+          </Select>
+
+          <Select
+            value={batchCount}
+            onChange={(event) => setBatchCount(Number(event.target.value))}
+            aria-label="How many carousels to write"
+          >
+            {Array.from({ length: MAX_BATCH_COUNT }, (_, i) => i + 1).map((count) => (
+              <option key={count} value={count}>
+                {count} batch{count === 1 ? "" : "es"}
               </option>
             ))}
           </Select>
@@ -238,6 +330,24 @@ export function CarouselsPage() {
             {generating ? "Writing…" : "Generate"}
           </Button>
         </div>
+
+        <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-[var(--muted-foreground)]">
+          <Layers className="h-3.5 w-3.5 text-[var(--accent)]" />
+          <span>
+            {batchCount === 1
+              ? `One carousel of ${deckSlides} slides`
+              : `${batchCount} carousels of ${deckSlides} slides — ${batchCount * deckSlides} in total`}
+          </span>
+          {batchCount > 1 ? (
+            <span className="text-white/70">
+              · {Array.from({ length: batchCount }, (_, i) => carouselAngle(i).label).join(" · ")}
+            </span>
+          ) : null}
+          {images.length > 0 && deckSlides > slideCount ? (
+            <span className="text-amber-300/90">· raised to {deckSlides} so every photo gets a slide</span>
+          ) : null}
+        </p>
+
         {sourceType === "custom" ? (
           <Textarea
             placeholder="Paste the content to turn into slides…"
@@ -245,6 +355,20 @@ export function CarouselsPage() {
             onChange={(event) => setCustomText(event.target.value)}
           />
         ) : null}
+
+        <ImageBatch
+          images={images}
+          notes={imageNotes}
+          uploading={uploading}
+          dragging={imageDrag}
+          required={sourceType === "images"}
+          inputRef={imageInputRef}
+          onPick={(files) => void addImages(files)}
+          onDraggingChange={setImageDrag}
+          onNotesChange={setImageNotes}
+          onRemove={(id) => setImages((current) => current.filter((image) => image.id !== id))}
+          onClear={() => setImages([])}
+        />
       </Card>
 
       {reason ? (
@@ -258,7 +382,7 @@ export function CarouselsPage() {
             <p className="text-sm text-[var(--muted-foreground)]">
               {loading
                 ? "Loading…"
-                : "No carousels yet — generate one from a script, a video, a short-form video, or pasted text."}
+                : "No carousels yet — generate one from a script, a video, a short-form video, a batch of photos, or pasted text."}
             </p>
           </div>
         </Card>
@@ -270,6 +394,129 @@ export function CarouselsPage() {
           ))}
         </div>
       )}
+    </div>
+  );
+}
+
+/**
+ * The photo batch: pick or drop images, reorder-by-removal, and say what they
+ * show. Uploading happens as soon as they're picked, so the same batch survives
+ * a re-generate and can feed several batches of slides. The description is how
+ * the model knows what is in them — the copy is written from these words, not
+ * from the pixels.
+ */
+function ImageBatch({
+  images,
+  notes,
+  uploading,
+  dragging,
+  required,
+  inputRef,
+  onPick,
+  onDraggingChange,
+  onNotesChange,
+  onRemove,
+  onClear
+}: {
+  images: CarouselImage[];
+  notes: string;
+  uploading: boolean;
+  dragging: boolean;
+  required: boolean;
+  inputRef: React.RefObject<HTMLInputElement | null>;
+  onPick: (files: FileList | File[]) => void;
+  onDraggingChange: (dragging: boolean) => void;
+  onNotesChange: (notes: string) => void;
+  onRemove: (id: string) => void;
+  onClear: () => void;
+}) {
+  return (
+    <div
+      onDragOver={(event) => {
+        event.preventDefault();
+        onDraggingChange(true);
+      }}
+      onDragLeave={() => onDraggingChange(false)}
+      onDrop={(event) => {
+        event.preventDefault();
+        onDraggingChange(false);
+        if (event.dataTransfer.files.length > 0) onPick(event.dataTransfer.files);
+      }}
+      className={cn(
+        "space-y-3 rounded-xl border border-dashed p-3 transition",
+        dragging ? "border-[var(--accent)] bg-white/5" : "border-[var(--border)]"
+      )}
+    >
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="text-xs text-[var(--muted-foreground)]">
+          <span className="font-medium text-white">Slide photos{required ? "" : " (optional)"}</span>
+          {images.length > 0
+            ? ` · ${images.length} attached, one per slide in this order`
+            : " · drop a batch here and each photo gets its own slide"}
+        </div>
+        <div className="flex items-center gap-2">
+          <Button
+            variant="secondary"
+            className="gap-1.5 px-3 py-1.5 text-xs"
+            disabled={uploading}
+            onClick={() => inputRef.current?.click()}
+          >
+            {uploading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ImagePlus className="h-3.5 w-3.5" />}
+            {uploading ? "Uploading…" : "Add photos"}
+          </Button>
+          {images.length > 0 ? (
+            <Button variant="secondary" className="px-3 py-1.5 text-xs" onClick={onClear}>
+              Clear
+            </Button>
+          ) : null}
+        </div>
+      </div>
+
+      <input
+        ref={inputRef}
+        type="file"
+        accept="image/png,image/jpeg,image/webp,image/gif"
+        multiple
+        className="hidden"
+        onChange={(event) => {
+          if (event.target.files?.length) onPick(event.target.files);
+          event.target.value = "";
+        }}
+      />
+
+      {images.length > 0 ? (
+        <div className="flex flex-wrap gap-2">
+          {images.map((image, index) => (
+            <div key={image.id} className="group relative">
+              <img
+                src={image.url}
+                alt={image.fileName ?? `Photo ${index + 1}`}
+                className="h-20 w-20 rounded-lg border border-[var(--border)] object-cover"
+              />
+              <span className="absolute left-1 top-1 rounded bg-black/70 px-1 text-[10px] font-medium text-white">
+                {index + 1}
+              </span>
+              <button
+                type="button"
+                onClick={() => onRemove(image.id)}
+                aria-label={`Remove ${image.fileName ?? `photo ${index + 1}`}`}
+                className="absolute right-1 top-1 rounded bg-black/70 p-0.5 text-white opacity-0 transition group-hover:opacity-100 hover:bg-black"
+              >
+                <X className="h-3 w-3" />
+              </button>
+            </div>
+          ))}
+        </div>
+      ) : null}
+
+      {images.length > 0 ? (
+        <Textarea
+          rows={3}
+          placeholder="What do these photos show, and how should they be used? One line per photo works best — the slide copy is written from this plus the transcript."
+          value={notes}
+          onChange={(event) => onNotesChange(event.target.value)}
+        />
+      ) : null}
     </div>
   );
 }
@@ -385,7 +632,15 @@ function CarouselCard({ carousel, refresh }: { carousel: Carousel; refresh: () =
     <Card className="space-y-3">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h3 className="font-semibold text-white">{carousel.title}</h3>
+          <div className="flex flex-wrap items-center gap-2">
+            <h3 className="font-semibold text-white">{carousel.title}</h3>
+            {carousel.batch ? (
+              <Badge>
+                Batch {carousel.batch.index}/{carousel.batch.total}
+                {carousel.batch.angle ? ` · ${carousel.batch.angle}` : ""}
+              </Badge>
+            ) : null}
+          </div>
           <p className="text-xs text-[var(--muted-foreground)]">
             {slides.length} slides · from {SOURCE_LABEL[carousel.sourceType] ?? carousel.sourceType} ·{" "}
             {new Date(carousel.createdAt).toLocaleDateString()}
@@ -488,7 +743,7 @@ function CarouselCard({ carousel, refresh }: { carousel: Carousel; refresh: () =
                   event.stopPropagation();
                   setEditor({ index, mode: "preview" });
                 }}
-                className="pointer-events-auto inline-flex items-center gap-1 rounded-md bg-black/60 px-2 py-1 text-[10px] font-medium text-white backdrop-blur transition hover:bg-black/80"
+                className="pointer-events-auto inline-flex items-center gap-1 rounded-md bg-black/60 px-2 py-1 text-[10px] font-medium text-[#fff] backdrop-blur transition hover:bg-black/80"
               >
                 <Eye className="h-3 w-3" /> Preview
               </button>

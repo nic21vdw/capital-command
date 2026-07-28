@@ -201,7 +201,7 @@ export function CreatorPage() {
           {CONTENT_STATUSES.map((status) => {
             const columnItems = items.filter((item) => item.status === status);
             return (
-              <div key={status} className="rounded-3xl border border-white/8 bg-black/20 p-4">
+              <div key={status} className="rounded-3xl border border-white/8 bg-[var(--well)] p-4">
                 <div className="mb-3 flex items-center justify-between">
                   <h3 className="text-sm font-semibold uppercase tracking-wide text-white">{status}</h3>
                   <Badge>{columnItems.length}</Badge>
@@ -360,7 +360,7 @@ export function CreatorPage() {
               name="monetized"
               type="checkbox"
               defaultChecked={profile.monetized}
-              className="h-4 w-4 rounded border-white/20 bg-black/20"
+              className="h-4 w-4 rounded border-white/20 bg-[var(--well)]"
             />
             Channel is monetized
           </label>

@@ -289,7 +289,7 @@ export function LongformPreview({
         </span>
       )}
       {inCut && !hookActive && (
-        <span className="absolute left-3 top-3 rounded-full bg-red-500/90 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-white shadow">
+        <span className="absolute left-3 top-3 rounded-full bg-red-500/90 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-[#fff] shadow">
           Cut in edit
         </span>
       )}
@@ -325,7 +325,7 @@ export function LongformPreview({
               "relative text-center leading-tight",
               captionInteractive && "pointer-events-auto cursor-move touch-none rounded-lg px-2 py-0.5",
               captionInteractive && captionSelected && "outline outline-2 outline-[var(--accent)]",
-              captionInteractive && !captionSelected && "hover:outline hover:outline-1 hover:outline-white/50"
+              captionInteractive && !captionSelected && "hover:outline hover:outline-1 hover:outline-[#fff]/50"
             )}
             style={{
               fontFamily: style.fontFamily,
@@ -356,7 +356,7 @@ export function LongformPreview({
             {captionInteractive && captionSelected && (
               <span
                 onPointerDown={beginCaptionDrag("scale")}
-                className="absolute -bottom-2 -right-2 h-4 w-4 cursor-nwse-resize touch-none rounded-full border-2 border-white bg-[var(--accent)]"
+                className="absolute -bottom-2 -right-2 h-4 w-4 cursor-nwse-resize touch-none rounded-full border-2 border-[#fff] bg-[var(--accent)]"
               />
             )}
           </p>
@@ -384,7 +384,7 @@ export function LongformPreview({
         >
           <span
             className={cn(
-              "flex h-14 w-14 items-center justify-center rounded-full bg-black/55 text-white backdrop-blur transition",
+              "flex h-14 w-14 items-center justify-center rounded-full bg-black/55 text-[#fff] backdrop-blur transition",
               playing ? "opacity-0 hover:opacity-90" : "opacity-90"
             )}
           >
