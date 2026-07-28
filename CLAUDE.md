@@ -16,6 +16,52 @@ idempotent behind an id check.
   a stage in `runs.ts` (+ `types.ts`), a row in
   `src/components/pipeline/pipeline-page.tsx`, and a count in the
   scheduler-stage summary.
+- Pipeline runs are owned by ONE process: a `globalThis` Map flushed to
+  `data/pipeline/runs.json`. Anything outside the Next server that wants to
+  start or advance a run must go through the HTTP API (`POST /api/pipeline`,
+  `GET /api/pipeline`) — see `src/lib/ingest/pipelineClient.ts`. Importing
+  `@/lib/pipeline/runs` from a separate process (a CLI, a scheduled task)
+  gives it a second copy of that Map and the two clobber each other's
+  `runs.json`.
+
+## Automatic channel ingest (`src/lib/ingest`)
+
+A daily scan reads the YouTube channel and runs each NEW LIVE STREAM through
+the whole Stream Pipeline unattended, stopping at "ready to schedule" — it
+never publishes. Live streams only by default (`--all` widens it to ordinary
+long-form uploads). Two guards stop it re-ingesting the app's own output:
+exact provenance (`platforms.youtube.postId` in the publish queue) and a
+Shorts shape heuristic. The ledger (`data/channel-ingest.json`) records what
+has been taken in; only a SETTLED pipeline run counts as done, so a timeout
+is retried rather than lost. See `src/lib/ingest/README.md`.
+
+## Threads autopilot (`src/lib/threads`)
+
+A scheduled task ticks every few minutes; each tick plans today's batch if it
+isn't on the queue yet (DeepSeek writes the pack via `ensureDailyPack`) and
+posts whatever is due. Both halves are idempotent, which is what makes a dumb,
+frequent scheduler safe.
+
+Each connected Threads account posts ONE version of every idea — the pack's
+punchy `text` or its warmer `threadsVariant` — which is why the pack writes
+both. Two accounts posting the same wording would read as mirrored spam.
+
+- The app owns `data/threads-queue.json`. Anything outside the Next server
+  (CLI, PowerShell task) must go through `/api/threads`, never import
+  `@/lib/threads/queue` — a second in-process copy clobbers the app's writes,
+  same trap as the Stream Pipeline.
+- A missed slot is SKIPPED, never fired late, and past slots are never
+  scheduled. Preserve that when touching `runner.ts` / `plan.ts`: the whole
+  point is that an offline morning can't dump a backlog into the feed.
+- A slot is past/future by its OWN time, never the per-account offset, so the
+  accounts can never drift out of step at the edges of the day.
+- Planning is CHECK, generate (minutes), then APPEND — three steps, not one
+  atomic write. The append re-checks that nothing landed on the day meanwhile
+  and drops its own batch if it lost the race; without that, two overlapping
+  ticks each see an empty day and every slot gets posted twice.
+- Never put a token in an API response or a log line — the route exposes only
+  each account's id, label, version and offset.
+- See `src/lib/threads/README.md`.
 
 ## Clip metadata conventions (titles, descriptions, tags)
 
@@ -64,6 +110,29 @@ goes through `renderCaptionedVertical` unconditionally. `DEFAULT_CLIP_LAYOUT`
 in `layouts.ts` is `"restream-stack"`, but that is only a parameter fallback
 for the opt-in layout-variant helpers — it is NOT a shipped default, so don't
 "fix" it into `center` and change what the variants mean.
+## Carousels (`/carousels`)
+
+Slide copy is written by `src/lib/studio/carousel.ts` from a script, a
+long-form transcript (which is what the Stream Pipeline produces), a clip, an
+uploaded photo batch, or pasted text. Deck sizing lives in
+`src/lib/carousels/deck.ts` — imported by BOTH the page and the generator, so
+the picker can promise what the server will do.
+
+- One source can produce several carousels in a pass. Each batch gets its own
+  angle from `CAROUSEL_ANGLES` and they run concurrently; a single batch is
+  asked for with no angle and no batch record, which is what keeps the
+  pipeline's unattended carousel exactly as it was.
+- Uploaded photos land on disk (`data/carousel-images`, served by
+  `/api/studio/carousels/images/<id>`), never inline as data URLs — a batch of
+  base64 photos in `data/capital-command.json` would be re-read and rewritten
+  on every app-data operation.
+- Every uploaded photo gets its own slide: `resolveSlideCount` raises the deck
+  to the photo count, and a short model reply is padded rather than dropping
+  photos. The model never sees the photos — the description box is how it knows
+  what they show.
+- A photo takes the top of the slide and the copy stays in `heading`/`body`
+  with a `textBand` under it, so one photo slide still renders correctly at
+  4:5, 1:1, 9:16 and 16:9 without being laid out per ratio.
 
 ## Remotion / motion video conventions
 

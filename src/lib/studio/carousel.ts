@@ -1,8 +1,10 @@
 import { aiConfigured, runAi } from "@/lib/ai";
+import { carouselAngle, clampBatchCount, MAX_SLIDES, resolveSlideCount } from "@/lib/carousels/deck";
+import { attachSlideImages, type CarouselImage } from "@/lib/carousels/imageSlides";
 import { CHANNEL_KEYWORDS } from "@/lib/clipping/keywords";
 import type { ClipCandidate, ClipJob } from "@/lib/clipping/types";
 import { carouselSchema } from "@/lib/storage/schemas";
-import type { Carousel, CarouselSlide } from "@/types/domain";
+import type { Carousel, CarouselBatch, CarouselSlide } from "@/types/domain";
 
 /**
  * Carousel copy for Instagram, Facebook, and TikTok. Turns a video's script or
@@ -10,13 +12,25 @@ import type { Carousel, CarouselSlide } from "@/types/domain";
  * slide — that the client renders to 1080x1350 PNGs on a canvas (no
  * server-side image deps).
  *
+ * One source can produce several carousels in a pass (batches), and a batch of
+ * uploaded photos can ride along as slide material — see CAROUSEL_ANGLES and
+ * `generateCarouselBatches`.
+ *
  * House AI pattern: *Configured() gate, pure prompt builder, tolerant
  * parser, graceful fallback.
  */
 
-export const DEFAULT_SLIDE_COUNT = 8;
-export const MIN_SLIDES = 4;
-export const MAX_SLIDES = 10;
+export {
+  CAROUSEL_ANGLES,
+  carouselAngle,
+  clampBatchCount,
+  DEFAULT_BATCH_COUNT,
+  DEFAULT_SLIDE_COUNT,
+  MAX_BATCH_COUNT,
+  MAX_SLIDES,
+  MIN_SLIDES,
+  resolveSlideCount
+} from "@/lib/carousels/deck";
 
 export function carouselGenerationConfigured() {
   return aiConfigured();
@@ -55,17 +69,50 @@ export function clipCarouselSource(job: ClipJob, clip: ClipCandidate): { title: 
 }
 
 /** Builds the carousel prompt. Pure, for tests. */
-export function buildCarouselPrompt(input: { title: string; sourceText: string; slideCount: number }): string {
-  return [
+export function buildCarouselPrompt(input: {
+  title: string;
+  sourceText: string;
+  slideCount: number;
+  /** The brief for this batch, when several are being written from one source. */
+  angle?: string;
+  batchIndex?: number;
+  batchTotal?: number;
+  /** How many leading slides already carry an uploaded photo. */
+  imageCount?: number;
+  /** What the photos show / how they should be used, in the user's words. */
+  imageNotes?: string;
+}): string {
+  const lines = [
     `Turn this video content into a carousel of exactly ${input.slideCount} slides (for Instagram, Facebook, and TikTok).`,
-    "",
-    `Video: ${input.title}`,
-    "",
+    ""
+  ];
+  if (input.batchTotal && input.batchTotal > 1) {
+    lines.push(
+      `This is carousel ${input.batchIndex ?? 1} of ${input.batchTotal} written from the SAME source. It must stand on its own and must not repeat the others — commit to one angle.`,
+      ""
+    );
+  }
+  if (input.angle?.trim()) {
+    lines.push(`Angle for this carousel: ${input.angle.trim()}`, "");
+  }
+  lines.push(`Video: ${input.title}`, "");
+  if (input.imageCount && input.imageCount > 0) {
+    const plural = input.imageCount === 1 ? "" : "s";
+    lines.push(
+      `The first ${input.imageCount} slide${plural} already carr${input.imageCount === 1 ? "ies" : "y"} a supplied photo across the top, in the order listed below. Write each of those slides as the caption for its own photo — the copy and the photo have to make sense together — and never describe a photo that was not described to you.`,
+      ""
+    );
+  }
+  if (input.imageNotes?.trim()) {
+    lines.push("The photos, in order, and how they should be used:", input.imageNotes.trim().slice(0, 2000), "");
+  }
+  lines.push(
     "Content:",
     input.sourceText.slice(0, 9000),
     "",
     'Respond with ONLY valid JSON: {"title":"short internal name for this carousel","slides":[{"heading":"...","body":"..."}]}'
-  ].join("\n");
+  );
+  return lines.join("\n");
 }
 
 /** Parses slides out of the model reply. */
@@ -102,9 +149,14 @@ export function fallbackCarousel(input: { title: string; sourceText: string; sli
     .split(/(?<=[.!?])\s+/)
     .map((sentence) => sentence.trim())
     .filter((sentence) => sentence.length > 20);
-  const middleCount = Math.max(2, Math.min(input.slideCount - 2, sentences.length));
-  const step = Math.max(1, Math.floor(sentences.length / middleCount));
-  const middles = Array.from({ length: middleCount }, (_, i) => sentences[Math.min(i * step, sentences.length - 1)] ?? "");
+  // Always the full deck: a photo batch sizes the deck, and a short fallback
+  // would leave the last photos with no slide to sit on.
+  const middleCount = Math.max(2, input.slideCount - 2);
+  const step = sentences.length / middleCount;
+  const middles = Array.from(
+    { length: middleCount },
+    (_, i) => sentences[Math.min(Math.floor(i * step), sentences.length - 1)] ?? ""
+  );
   return {
     title: input.title,
     slides: [
@@ -115,65 +167,199 @@ export function fallbackCarousel(input: { title: string; sourceText: string; sli
   };
 }
 
-/** Assembles the persisted record. */
+/**
+ * Assembles the persisted record. Photos are attached last, so a slide's copy
+ * is written first and then gets its picture — never the other way round.
+ */
 export function toCarouselRecord(input: {
   title: string;
   slides: Array<Pick<CarouselSlide, "heading" | "body">>;
   sourceType: Carousel["sourceType"];
   sourceId?: string;
+  images?: CarouselImage[];
+  batch?: CarouselBatch;
 }): Carousel {
+  const slides: CarouselSlide[] = input.slides.map((slide) => ({
+    id: `slide-${crypto.randomUUID().slice(0, 8)}`,
+    ...slide
+  }));
   return carouselSchema.parse({
     id: `carousel-${crypto.randomUUID()}`,
     title: input.title,
     sourceType: input.sourceType,
     sourceId: input.sourceId,
-    slides: input.slides.map((slide) => ({ id: `slide-${crypto.randomUUID().slice(0, 8)}`, ...slide })),
+    slides: input.images?.length ? attachSlideImages(slides, input.images) : slides,
+    batch: input.batch,
     createdAt: new Date().toISOString()
   }) as Carousel;
+}
+
+/**
+ * Pads a deck out to the number of photos waiting for it. The model is asked
+ * for exactly the right count but sometimes writes fewer; a photo with no slide
+ * would simply vanish, so it gets a blank slide to sit on instead and the
+ * shortfall is reported.
+ */
+function padForImages(
+  slides: Array<Pick<CarouselSlide, "heading" | "body">>,
+  imageCount: number
+): { slides: Array<Pick<CarouselSlide, "heading" | "body">>; missing: number } {
+  const missing = Math.max(0, imageCount - slides.length);
+  if (missing === 0) return { slides, missing };
+  return {
+    slides: [...slides, ...Array.from({ length: missing }, () => ({ heading: "", body: "" }))],
+    missing
+  };
 }
 
 /**
  * Writes carousel copy from source text in one Claude call. Never throws —
  * falls back to sentence-split slides with a reason.
  */
-export async function generateCarousel(input: {
+/**
+ * How many times to ask the model before giving up. The free endpoint declines
+ * or drops a request often enough that one attempt is not a fair test, and the
+ * cost of a retry is far lower than the cost of shipping the fallback.
+ */
+const CAROUSEL_ATTEMPTS = 3;
+
+export type CarouselGenerationInput = {
   title: string;
   sourceText: string;
   slideCount: number;
   sourceType: Carousel["sourceType"];
   sourceId?: string;
-}): Promise<{ carousel: Carousel; reason: string | null }> {
-  const slideCount = Math.max(MIN_SLIDES, Math.min(MAX_SLIDES, input.slideCount || DEFAULT_SLIDE_COUNT));
-  const fallback = () =>
-    toCarouselRecord({ ...fallbackCarousel({ ...input, slideCount }), sourceType: input.sourceType, sourceId: input.sourceId });
+  /** The brief for this batch — see CAROUSEL_ANGLES. */
+  angle?: string;
+  /** Photos to sit on the leading slides, in order. */
+  images?: CarouselImage[];
+  /** What those photos show, in the user's words. */
+  imageNotes?: string;
+  batch?: CarouselBatch;
+  /**
+   * Return `carousel: null` instead of transcript-derived slides when the model
+   * cannot be reached.
+   *
+   * The fallback exists for the Video Studio, where a person is looking at the
+   * result and can rewrite it. Unattended — the Stream Pipeline — it is worse
+   * than nothing: `fallbackCarousel` slices the transcript, which reads as
+   * broken mid-sentence thoughts and is exactly what the channel's copy
+   * conventions forbid. Silently counting those as slides "ready to schedule"
+   * is how unusable copy reaches a queue.
+   */
+  requireModel?: boolean;
+};
 
-  if (!carouselGenerationConfigured()) {
-    return { carousel: fallback(), reason: "AI is not configured — built simple slides from the text instead." };
-  }
-  try {
-    const result = await runAi({
-      maxTokens: 3000,
-      system: CAROUSEL_SYSTEM_PROMPT,
-      messages: [{ role: "user", content: buildCarouselPrompt({ title: input.title, sourceText: input.sourceText, slideCount }) }]
-    });
-    if (!result || result.refused) {
-      return { carousel: fallback(), reason: "The model was unavailable or declined — built simple slides instead." };
-    }
-    const parsed = parseCarousel(result.text);
-    if (!parsed) {
-      return { carousel: fallback(), reason: "Could not read the carousel output — built simple slides instead." };
-    }
+export async function generateCarousel(
+  input: CarouselGenerationInput
+): Promise<{ carousel: Carousel | null; reason: string | null }> {
+  const images = input.images ?? [];
+  const slideCount = resolveSlideCount({ slideCount: input.slideCount, imageCount: images.length });
+  const give = (reason: string): { carousel: Carousel | null; reason: string } => {
+    if (input.requireModel) return { carousel: null, reason };
     return {
       carousel: toCarouselRecord({
-        title: parsed.title === "Carousel" ? input.title : parsed.title,
-        slides: parsed.slides,
+        ...fallbackCarousel({ ...input, slideCount }),
         sourceType: input.sourceType,
-        sourceId: input.sourceId
+        sourceId: input.sourceId,
+        images,
+        batch: input.batch
       }),
-      reason: null
+      reason
     };
-  } catch (error) {
-    const message = error instanceof Error ? error.message : "unknown error";
-    return { carousel: fallback(), reason: `Carousel generation failed (${message}) — built simple slides instead.` };
+  };
+
+  if (!carouselGenerationConfigured()) {
+    return give("AI is not configured — built simple slides from the text instead.");
   }
+
+  const prompt = buildCarouselPrompt({
+    title: input.title,
+    sourceText: input.sourceText,
+    slideCount,
+    angle: input.angle,
+    batchIndex: input.batch?.index,
+    batchTotal: input.batch?.total,
+    imageCount: images.length,
+    imageNotes: input.imageNotes
+  });
+
+  let last = "The model was unavailable or declined.";
+  for (let attempt = 1; attempt <= CAROUSEL_ATTEMPTS; attempt += 1) {
+    try {
+      const result = await runAi({
+        maxTokens: 3000,
+        system: CAROUSEL_SYSTEM_PROMPT,
+        messages: [{ role: "user", content: prompt }]
+      });
+      if (!result || result.refused) {
+        last = "The model was unavailable or declined.";
+      } else {
+        const parsed = parseCarousel(result.text);
+        if (parsed) {
+          const padded = padForImages(parsed.slides, images.length);
+          return {
+            carousel: toCarouselRecord({
+              title: parsed.title === "Carousel" ? input.title : parsed.title,
+              slides: padded.slides,
+              sourceType: input.sourceType,
+              sourceId: input.sourceId,
+              images,
+              batch: input.batch
+            }),
+            reason: padded.missing
+              ? `${padded.missing} photo${padded.missing === 1 ? "" : "s"} got a slide with no copy written for it — add the words in the editor.`
+              : null
+          };
+        }
+        last = "Could not read the carousel output.";
+      }
+    } catch (error) {
+      last = `Carousel generation failed (${error instanceof Error ? error.message : "unknown error"}).`;
+    }
+  }
+
+  return give(
+    input.requireModel
+      ? `${last} Tried ${CAROUSEL_ATTEMPTS} times — no slides written rather than slicing the transcript.`
+      : `${last} Built simple slides instead.`
+  );
+}
+
+/**
+ * Writes several carousels from one source in a single pass — "3 batches of 8
+ * slides from this stream".
+ *
+ * Each batch gets its own angle so the set is three different posts rather than
+ * three rewrites, and they run concurrently: a batch takes minutes on the free
+ * endpoint, and five of those in series is a request nobody waits out. Batches
+ * fail independently — whatever came back is returned, with a note about what
+ * did not.
+ */
+export async function generateCarouselBatches(
+  input: Omit<CarouselGenerationInput, "angle" | "batch"> & { batchCount?: number }
+): Promise<{ carousels: Carousel[]; reason: string | null }> {
+  const total = clampBatchCount(input.batchCount);
+  const groupId = crypto.randomUUID().slice(0, 8);
+
+  const results = await Promise.all(
+    Array.from({ length: total }, (_, index) => {
+      const angle = carouselAngle(index);
+      return generateCarousel({
+        ...input,
+        // A single carousel is asked for exactly as it always was — no angle, no
+        // batch record — so the Stream Pipeline's slides do not change shape.
+        angle: total > 1 ? angle.instruction : undefined,
+        batch: total > 1 ? { groupId, index: index + 1, total, angle: angle.label } : undefined
+      });
+    })
+  );
+
+  const carousels = results.map((result) => result.carousel).filter((carousel): carousel is Carousel => Boolean(carousel));
+  const notes = [...new Set(results.map((result) => result.reason).filter((reason): reason is string => Boolean(reason)))];
+  const short = total - carousels.length;
+  const reason = [short > 0 ? `${carousels.length} of ${total} batches came back.` : "", ...notes]
+    .filter(Boolean)
+    .join(" ");
+  return { carousels, reason: reason || null };
 }

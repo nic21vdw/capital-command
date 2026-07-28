@@ -85,39 +85,39 @@ function Group({ label, children }: { label: string; children: React.ReactNode }
 /** Tiny 9:16 diagram of what each layout does. */
 function LayoutThumb({ id }: { id: ClipCompositionMode }) {
   return (
-    <span className="relative block h-14 w-8 shrink-0 overflow-hidden rounded border border-white/15 bg-black/60">
+    <span className="relative block h-14 w-8 shrink-0 overflow-hidden rounded border border-[#fff]/15 bg-black/60">
       {id === "stacked-split" && (
         <>
-          <span className="absolute inset-x-0 top-[6%] h-[42%] bg-white/25" />
+          <span className="absolute inset-x-0 top-[6%] h-[42%] bg-[#fff]/25" />
           <span className="absolute inset-x-0 top-[52%] h-[42%] bg-[var(--accent)]/70" />
         </>
       )}
       {id === "stacked-split-flip" && (
         <>
           <span className="absolute inset-x-0 top-[6%] h-[42%] bg-[var(--accent)]/70" />
-          <span className="absolute inset-x-0 top-[52%] h-[42%] bg-white/25" />
+          <span className="absolute inset-x-0 top-[52%] h-[42%] bg-[#fff]/25" />
         </>
       )}
       {id === "screen-lead" && (
         <>
-          <span className="absolute inset-x-0 top-[12%] h-[44%] bg-white/25" />
+          <span className="absolute inset-x-0 top-[12%] h-[44%] bg-[#fff]/25" />
           <span className="absolute right-[8%] top-[60%] h-[24%] w-[38%] bg-[var(--accent)]/70" />
         </>
       )}
       {id === "face-lead" && (
         <>
-          <span className="absolute inset-x-[5%] top-[6%] h-[26%] bg-white/25" />
+          <span className="absolute inset-x-[5%] top-[6%] h-[26%] bg-[#fff]/25" />
           <span className="absolute inset-x-0 top-[36%] h-[56%] bg-[var(--accent)]/70" />
         </>
       )}
       {id === "center-blur" && (
         <>
-          <span className="absolute inset-0 bg-white/10" />
-          <span className="absolute inset-x-0 top-1/2 h-[34%] -translate-y-1/2 bg-white/35" />
+          <span className="absolute inset-0 bg-[#fff]/10" />
+          <span className="absolute inset-x-0 top-1/2 h-[34%] -translate-y-1/2 bg-[#fff]/35" />
         </>
       )}
-      {id === "crop-fill" && <span className="absolute inset-0 bg-white/35" />}
-      {id === "fit" && <span className="absolute inset-x-0 top-1/2 h-[30%] -translate-y-1/2 bg-white/35" />}
+      {id === "crop-fill" && <span className="absolute inset-0 bg-[#fff]/35" />}
+      {id === "fit" && <span className="absolute inset-x-0 top-1/2 h-[30%] -translate-y-1/2 bg-[#fff]/35" />}
     </span>
   );
 }
@@ -160,7 +160,7 @@ export const CaptionsPanel = memo(function CaptionsPanel({ api }: { api: EditorA
                 key={c.id}
                 className={cn(
                   "rounded-lg border p-2.5 transition",
-                  selected ? "border-[var(--accent)]/60 bg-[var(--accent)]/8" : "border-[var(--border)] bg-black/20"
+                  selected ? "border-[var(--accent)]/60 bg-[var(--accent)]/8" : "border-[var(--border)] bg-[var(--well)]"
                 )}
                 onClick={() => api.setSelectedCaptionId(c.id)}
               >
@@ -236,7 +236,7 @@ function CombinedCaptionsBox({ api }: { api: EditorApi }) {
   };
 
   return (
-    <div className="space-y-1.5 rounded-lg border border-[var(--border)] bg-black/20 p-2.5">
+    <div className="space-y-1.5 rounded-lg border border-[var(--border)] bg-[var(--well)] p-2.5">
       <div className="flex items-center gap-2">
         <p className="text-xs font-medium text-white">Full transcript</p>
         <span className="text-[11px] text-[var(--muted-foreground)]">One line per caption — edits sync to the segments below.</span>
@@ -1000,7 +1000,7 @@ function PublishMetaSection({ api }: { api: EditorApi }) {
   }
 
   return (
-    <div className="space-y-4 rounded-lg border border-[var(--border)] bg-black/20 p-3">
+    <div className="space-y-4 rounded-lg border border-[var(--border)] bg-[var(--well)] p-3">
       <div className="flex items-center gap-2">
         <Sparkles className="h-4 w-4 text-[var(--accent)]" />
         <p className="text-sm font-medium text-white">Titles &amp; description</p>

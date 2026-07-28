@@ -487,7 +487,7 @@ export function ClipGeneratorPage() {
                       "w-full cursor-pointer rounded-lg border p-3 text-left transition",
                       activeJob?.id === job.id
                         ? "border-[var(--accent)]/70 bg-[var(--accent)]/10"
-                        : "border-white/10 bg-black/20 hover:border-white/25"
+                        : "border-white/10 bg-[var(--well)] hover:border-white/25"
                     )}
                   >
                     <div className="flex items-start justify-between gap-3">
@@ -556,7 +556,7 @@ export function ClipGeneratorPage() {
                       onCommit={(next) => void renameProject(activeJob, next)}
                       ariaLabel="Project title"
                       className="mt-3 truncate text-2xl font-semibold text-white"
-                      inputClassName="mt-3 w-full rounded-md border border-[var(--accent)]/50 bg-black/40 px-2 py-1 text-2xl font-semibold text-white outline-none"
+                      inputClassName="mt-3 w-full rounded-md border border-[var(--accent)]/50 bg-[var(--well-deep)] px-2 py-1 text-2xl font-semibold text-white outline-none"
                     />
                     <p className="mt-1 truncate text-xs text-[var(--muted-foreground)]">
                       {activeJob.sourceId ? "Uploaded file" : activeJob.sourceUrl}
@@ -860,7 +860,7 @@ function ClipCard({
               onCommit={onRename}
               ariaLabel={`Clip ${index + 1} title`}
               className="line-clamp-2 text-base font-semibold text-white"
-              inputClassName="w-full rounded-md border border-[var(--accent)]/50 bg-black/40 px-2 py-1 text-base font-semibold text-white outline-none"
+              inputClassName="w-full rounded-md border border-[var(--accent)]/50 bg-[var(--well-deep)] px-2 py-1 text-base font-semibold text-white outline-none"
             />
             <div className="mt-2 flex flex-wrap gap-1.5">
               <Badge>

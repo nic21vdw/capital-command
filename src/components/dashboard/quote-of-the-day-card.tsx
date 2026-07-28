@@ -17,7 +17,7 @@ export function QuoteOfTheDayCard() {
   return (
     <Card className="bg-[linear-gradient(135deg,var(--card-from),var(--card-to))]">
       <div className="flex items-start gap-4">
-        <div className="rounded-2xl border border-white/8 bg-black/20 p-3 text-[var(--accent)]">
+        <div className="rounded-2xl border border-white/8 bg-[var(--well)] p-3 text-[var(--accent)]">
           <QuoteIcon className="h-5 w-5" />
         </div>
         <div className="min-w-0">

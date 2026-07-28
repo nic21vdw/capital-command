@@ -1120,7 +1120,7 @@ export function ClipEditor({
                             : "border-[var(--border)] hover:border-[var(--border-strong)]"
                         )}
                       >
-                        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-black/40 font-mono text-xs text-white">
+                        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-[var(--well-deep)] font-mono text-xs text-white">
                           {index + 1}
                         </span>
                         <span className="min-w-0 flex-1">
