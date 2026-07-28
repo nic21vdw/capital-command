@@ -18,6 +18,9 @@ data/longform/
 data/pipeline/
 data/voiceover/
 .worktrees/
+.codex-worktrees/
+data/*.tmp
+data/uploads/
 data/publish-queue.json
 data/threads-queue.json
 data/publisher-tokens.json
