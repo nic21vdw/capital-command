@@ -63,6 +63,8 @@ export type PublisherConfig = {
     webhookVerifyToken: string | null;
     /** Meta app secret, used to verify the X-Hub-Signature-256 header on incoming webhook events. */
     appSecret: string | null;
+    /** Meta app id — with the secret it forms the app token used to inspect access tokens. */
+    appId: string | null;
   };
   facebook: {
     /** The Facebook Page id to post to (not the user id). */
@@ -169,7 +171,8 @@ export function publisherConfig(): PublisherConfig {
       // https://developers.facebook.com/docs/graph-api/changelog
       graphApiVersion: str("IG_GRAPH_API_VERSION") ?? "v23.0",
       webhookVerifyToken: str("IG_WEBHOOK_VERIFY_TOKEN"),
-      appSecret: str("IG_APP_SECRET")
+      appSecret: str("IG_APP_SECRET"),
+      appId: str("IG_APP_ID")
     },
     facebook: {
       pageId: str("FB_PAGE_ID"),

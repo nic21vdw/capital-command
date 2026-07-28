@@ -9,6 +9,8 @@ import path from "node:path";
  *   npx tsx src/lib/publisher/cli.ts enqueue --clip <path> --at <time> [...]
  *   npx tsx src/lib/publisher/cli.ts list
  *   npx tsx src/lib/publisher/cli.ts remove <itemId>
+ *   npx tsx src/lib/publisher/cli.ts instagram connect --token <t> [--write]
+ *   npx tsx src/lib/publisher/cli.ts instagram check
  *
  * `scheduler` is the long-running mode for when your machine is on; the
  * GitHub Actions workflow covers the always-on cron case with `run-due`.
@@ -203,6 +205,94 @@ async function main() {
     return;
   }
 
+  if (command === "instagram") {
+    const { connectInstagram, envUpdatesFor, applyEnvUpdates, inspectInstagram, REQUIRED_SCOPES } = await import(
+      "@/lib/publisher/instagramConnect"
+    );
+    const sub = args.positional[1] ?? "connect";
+
+    if (sub === "check") {
+      try {
+        const status = await inspectInstagram(config);
+        console.log(`[publisher] Instagram OK — @${status.username ?? "?"} (${status.igUserId})`);
+        if (status.followers !== null) console.log(`[publisher]   followers: ${status.followers.toLocaleString()}`);
+        if (status.quotaUsage !== null) console.log(`[publisher]   published in the last 24h: ${status.quotaUsage}/50`);
+        console.log(
+          `[publisher]   token: ${
+            status.neverExpires
+              ? "never expires"
+              : status.tokenExpiresAt
+                ? `expires ${status.tokenExpiresAt}`
+                : "expiry unknown — set IG_APP_ID and IG_APP_SECRET to see it"
+          }`
+        );
+        if (status.missingScopes.length > 0) {
+          console.error(`[publisher]   MISSING permissions: ${status.missingScopes.join(", ")}`);
+          process.exitCode = 1;
+        }
+      } catch (error) {
+        console.error(`[publisher] Instagram check failed: ${error instanceof Error ? error.message : String(error)}`);
+        process.exitCode = 1;
+      }
+      return;
+    }
+
+    const appId = flagStr(args, "app-id") ?? process.env.IG_APP_ID;
+    const appSecret = flagStr(args, "app-secret") ?? process.env.IG_APP_SECRET;
+    const userToken = flagStr(args, "token");
+    if (!appId || !appSecret || !userToken) {
+      console.error(
+        [
+          "Usage: instagram connect --app-id <id> --app-secret <secret> --token <short-lived user token> [--page <id|name>] [--write]",
+          "",
+          "The three values come from the Meta App Dashboard — see docs/INSTAGRAM_SETUP.md:",
+          "  app id / secret   Settings → Basic",
+          `  token             Tools → Graph API Explorer, granting ${REQUIRED_SCOPES.join(", ")}`,
+          "",
+          "--write saves IG_USER_ID / IG_ACCESS_TOKEN (and the Page equivalents) into .env."
+        ].join("\n")
+      );
+      process.exitCode = 1;
+      return;
+    }
+
+    const connection = await connectInstagram({
+      appId,
+      appSecret,
+      userToken,
+      pageId: flagStr(args, "page"),
+      graphApiVersion: config.instagram.graphApiVersion
+    });
+
+    console.log(`[publisher] connected @${connection.igUsername ?? connection.igUserId}`);
+    console.log(`[publisher]   IG_USER_ID:  ${connection.igUserId}`);
+    console.log(`[publisher]   Page:        ${connection.page.pageName} (${connection.page.pageId})`);
+    console.log(`[publisher]   permissions: ${connection.grantedScopes.join(", ") || "(could not read)"}`);
+    if (connection.quotaUsage !== null) {
+      console.log(`[publisher]   published in the last 24h: ${connection.quotaUsage}/50`);
+    }
+    if (connection.missingScopes.length > 0) {
+      console.error(
+        `[publisher]   MISSING permissions: ${connection.missingScopes.join(", ")} — re-generate the token with those granted.`
+      );
+      process.exitCode = 1;
+    }
+
+    const updates = envUpdatesFor(connection, { appId, appSecret });
+    if (args.flags.has("write")) {
+      const { readFile, writeFile } = await import("node:fs/promises");
+      const envPath = path.join(process.cwd(), ".env");
+      const existing = await readFile(envPath, "utf8").catch(() => "");
+      await writeFile(envPath, applyEnvUpdates(existing, updates), "utf8");
+      console.log(`[publisher] wrote ${Object.keys(updates).join(", ")} to ${envPath}`);
+      console.log("[publisher] confirm with `npm run publish:instagram:check`, then add instagram to PUBLISH_PLATFORMS.");
+    } else {
+      console.log("[publisher] add these to .env (or re-run with --write):");
+      for (const [key, value] of Object.entries(updates)) console.log(`${key}=${value}`);
+    }
+    return;
+  }
+
   if (command === "remove") {
     const id = args.positional[1];
     if (!id) {
@@ -223,6 +313,8 @@ async function main() {
       '  enqueue --clip <path> --at <time>    add a finished clip to the queue',
       "  list                                 show the queue and per-platform status",
       "  buffer [sync|profiles|check]         schedule due posts into Buffer / inspect the connection",
+      "  instagram connect --token <t>        turn a Meta token into IG_USER_ID + IG_ACCESS_TOKEN (--write saves them)",
+      "  instagram check                      confirm the saved Instagram credentials still work",
       "  remove <itemId>                      drop an item from the queue"
     ].join("\n")
   );
