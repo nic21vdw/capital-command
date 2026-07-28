@@ -208,11 +208,13 @@ export type LongformProject = {
 
 /** Where a library song came from, when it wasn't uploaded by hand. */
 export type MusicTrackOrigin = {
-  provider: "suno";
-  taskId: string;
-  songId: string;
+  provider: "fal";
+  /** Registry id from src/lib/music/models.ts, e.g. "lyria3-pro". */
+  modelId: string;
+  modelLabel: string;
+  requestId: string;
   prompt: string;
-  style?: string;
+  instrumental: boolean;
 };
 
 /** A song in the shared background-music library: uploaded, or AI-generated. */

@@ -1783,7 +1783,7 @@ function MusicPanel({
   const [idea, setIdea] = useState("");
   const [generating, setGenerating] = useState(false);
   const [generateStatus, setGenerateStatus] = useState("");
-  const [sunoReady, setSunoReady] = useState(true);
+  const [studioReady, setStudioReady] = useState(true);
   const aliveRef = useRef(true);
   const dragDepth = useRef(0);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -1816,8 +1816,8 @@ function MusicPanel({
   // Stop the audition player when the panel unmounts.
   useEffect(() => () => auditionRef.current?.pause(), []);
 
-  // A Suno job outlives most panel visits, so the poll loop checks this before
-  // touching state — closing the panel abandons the loop, not the job.
+  // A generation outlives most panel visits, so the poll loop checks this
+  // before touching state — closing the panel abandons the loop, not the job.
   useEffect(() => {
     aliveRef.current = true;
     return () => {
@@ -1825,14 +1825,14 @@ function MusicPanel({
     };
   }, []);
 
-  // Whether a Suno key is configured; without one the generator explains itself
+  // Whether a fal key is configured; without one the generator explains itself
   // instead of failing on the first click.
   useEffect(() => {
     let cancelled = false;
-    void fetch("/api/longform/music/generate", { cache: "no-store" })
+    void fetch("/api/music", { cache: "no-store" })
       .then((response) => (response.ok ? response.json() : null))
       .then((data: { configured?: boolean } | null) => {
-        if (!cancelled && data) setSunoReady(Boolean(data.configured));
+        if (!cancelled && data) setStudioReady(Boolean(data.configured));
       })
       .catch(() => undefined);
     return () => {
@@ -1899,41 +1899,40 @@ function MusicPanel({
     await refresh();
   };
 
-  // Suno writes the brief and the song server-side; the browser starts the job
-  // and then polls, because a track takes a couple of minutes to come back.
+  // The quick generator: one line in, a finished bed on the timeline. It runs
+  // the studio's default model (Lyria 3 Pro) so the panel stays a one-click
+  // affair; /music is where the other models and their controls live.
   const generateSong = async () => {
     const brief = idea.trim();
     if (!brief || generating) return;
     setGenerating(true);
-    setGenerateStatus("Writing the brief…");
+    setGenerateStatus("Starting the generation…");
     try {
-      const response = await fetch("/api/longform/music/generate", {
+      const response = await fetch("/api/music", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ idea: brief })
+        body: JSON.stringify({ modelId: "lyria3-pro", prompt: brief, instrumental: true })
       });
-      const started = (await response.json()) as { job?: { taskId: string }; error?: string };
+      const started = (await response.json()) as { job?: { requestId: string }; error?: string };
       if (!response.ok || !started.job) {
-        toast.error(started.error ?? "Could not start that song.");
+        toast.error(started.error ?? "Could not start that track.");
         return;
       }
 
-      setGenerateStatus("Suno is writing your song…");
-      const taskId = started.job.taskId;
+      setGenerateStatus("Writing your track…");
+      const requestId = started.job.requestId;
       const deadline = Date.now() + 10 * 60 * 1000;
       while (Date.now() < deadline) {
         await new Promise((resolve) => setTimeout(resolve, 8000));
         if (!aliveRef.current) return;
-        const poll = await fetch(`/api/longform/music/generate?taskId=${encodeURIComponent(taskId)}`, {
-          cache: "no-store"
-        });
+        const poll = await fetch(`/api/music?requestId=${encodeURIComponent(requestId)}`, { cache: "no-store" });
         if (!poll.ok) continue;
         const data = (await poll.json()) as {
           job?: { status: string; error?: string };
           tracks?: MusicTrack[];
         };
         if (data.job?.status === "failed") {
-          toast.error(data.job.error ?? "Suno could not finish that song.");
+          toast.error(data.job.error ?? "That generation failed.");
           return;
         }
         if (data.job?.status === "complete") {
@@ -1943,15 +1942,15 @@ function MusicPanel({
           setIdea("");
           toast.success(
             made.length > 1
-              ? `Suno wrote ${made.length} takes — the first one is on the timeline.`
-              : `“${made[0]?.fileName ?? "Your song"}” is in your library.`
+              ? `${made.length} takes landed — the first one is on the timeline.`
+              : `“${made[0]?.fileName ?? "Your track"}” is in your library.`
           );
           return;
         }
       }
-      toast.error("Suno is still working — check your library in a minute.");
+      toast.error("Still generating — check your library in a minute.");
     } catch {
-      toast.error("Could not reach the song generator.");
+      toast.error("Could not reach the music studio.");
     } finally {
       if (aliveRef.current) {
         setGenerating(false);
@@ -2021,11 +2020,15 @@ function MusicPanel({
       <div className="space-y-2 rounded-xl border border-[var(--border)] p-3">
         <div className="flex items-center gap-2">
           <Sparkles className="h-4 w-4 text-[var(--accent)]" />
-          <h4 className="text-sm font-semibold text-white">Write a song with Suno</h4>
+          <h4 className="text-sm font-semibold text-white">Write a track</h4>
         </div>
         <p className="text-xs text-[var(--muted-foreground)]">
-          Describe the vibe — the brief, the style tags and the track are written for you, and both takes land in your
-          library.
+          Describe the vibe and Lyria 3 writes an instrumental straight onto the timeline. For the other models, longer
+          beds and vocals, open the{" "}
+          <Link href="/music" className="text-[var(--accent)] hover:underline">
+            Music Studio
+          </Link>
+          .
         </p>
         <textarea
           value={idea}
@@ -2034,7 +2037,7 @@ function MusicPanel({
             if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) void generateSong();
           }}
           rows={2}
-          disabled={generating || !sunoReady}
+          disabled={generating || !studioReady}
           placeholder="Calm lo-fi loop for a build-stream recap — keys, soft drums, no vocals"
           className="w-full resize-none rounded-lg border border-[var(--border)] bg-transparent px-3 py-2 text-sm text-white placeholder:text-[var(--muted-foreground)] focus:border-[var(--accent)] focus:outline-none disabled:opacity-60"
         />
@@ -2042,16 +2045,16 @@ function MusicPanel({
           <Button
             className="gap-2 px-3 py-1.5 text-xs"
             onClick={() => void generateSong()}
-            disabled={generating || !idea.trim() || !sunoReady}
+            disabled={generating || !idea.trim() || !studioReady}
           >
             {generating ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
-            {generating ? "Generating…" : "Generate song"}
+            {generating ? "Generating…" : "Generate track"}
           </Button>
           {generating && <span className="text-xs text-[var(--muted-foreground)]">{generateStatus}</span>}
         </div>
-        {!sunoReady && (
+        {!studioReady && (
           <p className="text-[10px] text-amber-300/80">
-            Set SUNO_API_KEY in .env to turn this on — until then, upload songs below.
+            Set FAL_KEY in .env to turn this on — until then, upload songs below.
           </p>
         )}
       </div>
