@@ -25,6 +25,7 @@ function recordingContext() {
     createLinearGradient: () => gradient,
     createRadialGradient: () => gradient,
     fillRect: () => undefined,
+    fill: () => undefined,
     // Roughly proportional, so wrapText splits long copy like a real font would.
     measureText: (text: string) => ({ width: text.length * 24 }),
     fillText: (text: string, x: number, y: number) => drawnText.push({ text, x, y }),
@@ -87,8 +88,10 @@ describe("photo slide geometry", () => {
     expect(photo.h).toBeGreaterThanOrEqual(IMAGE_SLIDE_LAYOUT.imageHeight * portrait.height);
 
     const bandTop = IMAGE_SLIDE_LAYOUT.band.top * portrait.height;
-    expect(drawnText.length).toBeGreaterThan(1);
-    for (const line of drawnText) expect(line.y).toBeGreaterThan(bandTop);
+    // Everything except the slide counter, which deliberately rides the photo.
+    const copyLines = drawnText.filter((line) => !/^\d+\/\d+$/.test(line.text));
+    expect(copyLines.length).toBeGreaterThan(1);
+    for (const line of copyLines) expect(line.y).toBeGreaterThan(bandTop);
   });
 
   it("keeps the copy inside the band rather than running off the bottom", async () => {
@@ -97,12 +100,25 @@ describe("photo slide geometry", () => {
     for (const line of drawnText) expect(line.y).toBeLessThan(portrait.height);
   });
 
-  it("leaves a slide without a photo laid out exactly as before", async () => {
+  it("keeps the counter out of the copy, over the photo instead", async () => {
+    const [slide] = attachSlideImages([copy], [{ id: "a.png", url: "/api/studio/carousels/images/a.png" }]);
+    await renderSlideCanvas(slide, 0, 8, "portrait");
+    const counter = drawnText.find((line) => line.text === "1/8");
+    const copyLines = drawnText.filter((line) => line !== counter);
+    expect(counter).toBeDefined();
+    // Up on the photo, well above the first line of copy.
+    expect(counter!.y).toBeLessThan(Math.min(...copyLines.map((line) => line.y)));
+    expect(counter!.y).toBeLessThan(IMAGE_SLIDE_LAYOUT.imageHeight * portrait.height);
+  });
+
+  it("leaves a slide without a photo laid out as it always was", async () => {
     await renderSlideCanvas(copy, 2, 5, "portrait");
-    const banded = [...drawnText];
-    drawnText.length = 0;
-    await renderSlideCanvas({ ...copy, textBand: { top: 0, bottom: 1 } }, 2, 5, "portrait");
-    expect(drawnText).toEqual(banded);
+    const counter = drawnText.find((line) => line.text === "3/5");
+    // Top-right of the slide, in the channel's plain counter position.
+    expect(counter?.y).toBe(100);
+    const copyLines = drawnText.filter((line) => line !== counter);
+    // Centered on the whole slide, not pushed into a band.
+    expect(Math.min(...copyLines.map((line) => line.y))).toBeLessThan(portrait.height / 2);
   });
 
   it("centers the copy in the band at every aspect ratio", async () => {

@@ -171,11 +171,25 @@ function drawBaseText(ctx: CanvasRenderingContext2D, slide: CarouselSlide, index
   const bandTop = (slide.textBand?.top ?? 0) * h;
   const bandBottom = (slide.textBand?.bottom ?? 1) * h;
 
-  // Slide counter — under the photo rather than over it when there is one.
-  ctx.fillStyle = COLATERAL_THEME.counter;
+  // Slide counter. On a photo slide it rides on a chip over the photo: dropped
+  // into the copy band instead, it ends up shoulder to shoulder with the
+  // heading, and a heading one word longer runs straight into it.
+  const counter = `${index + 1}/${total}`;
   ctx.font = `600 ${34 * scale}px system-ui, -apple-system, sans-serif`;
   ctx.textAlign = "right";
-  ctx.fillText(`${index + 1}/${total}`, w - margin - 0 * scale, bandTop + 100 * scale);
+  if (slide.textBand) {
+    const padX = 22 * scale;
+    const chipH = 60 * scale;
+    const chipW = ctx.measureText(counter).width + padX * 2;
+    ctx.fillStyle = "rgba(15,23,42,0.55)";
+    roundedRectPath(ctx, w - margin - chipW, 52 * scale, chipW, chipH, chipH / 2);
+    ctx.fill();
+    ctx.fillStyle = "rgba(255,255,255,0.94)";
+    ctx.fillText(counter, w - margin - padX, 52 * scale + chipH / 2 + 12 * scale);
+  } else {
+    ctx.fillStyle = COLATERAL_THEME.counter;
+    ctx.fillText(counter, w - margin - 0 * scale, 100 * scale);
+  }
 
   const isHook = index === 0;
   const headingFont = `800 ${(isHook ? 92 : 72) * scale}px system-ui, -apple-system, sans-serif`;
