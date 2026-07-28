@@ -88,14 +88,30 @@ function wrapText(ctx: CanvasRenderingContext2D, text: string, font: string, max
   return lines;
 }
 
+/**
+ * Decoded images, kept by source. A deck of photo slides is repainted on every
+ * data refresh and every aspect-ratio change; without this, each repaint waits
+ * on a fresh decode per slide and the photos pop in long after the copy.
+ */
+const decoded = new Map<string, Promise<HTMLImageElement>>();
+/** Enough for a deck of photo slides several times over. Editor drops are data
+ * URLs and would otherwise grow the map without bound. */
+const DECODED_LIMIT = 120;
+
 /** Loads an image data URL into a decoded HTMLImageElement. */
 export function loadImage(src: string): Promise<HTMLImageElement> {
-  return new Promise((resolve, reject) => {
+  const cached = decoded.get(src);
+  if (cached) return cached;
+  const pending = new Promise<HTMLImageElement>((resolve, reject) => {
     const image = new Image();
     image.onload = () => resolve(image);
     image.onerror = () => reject(new Error("image failed to load"));
     image.src = src;
   });
+  pending.catch(() => decoded.delete(src));
+  if (decoded.size >= DECODED_LIMIT) decoded.delete(decoded.keys().next().value!);
+  decoded.set(src, pending);
+  return pending;
 }
 
 function roundedRectPath(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) {
@@ -236,11 +252,23 @@ export type RenderSlideOptions = {
   skipImageLayers?: boolean;
   skipTextLayers?: boolean;
   skipBaseText?: boolean;
+  /**
+   * Pixel width to render at; the height follows the aspect ratio. Defaults to
+   * the ratio's export resolution.
+   *
+   * Every measurement in here is a fraction of the slide, so a small render is
+   * the same picture, not a different layout. A wall of thumbnails must ask for
+   * thumbnail pixels: forty 1080×1350 canvases is a quarter of a gigabyte of
+   * backing store, and past the browser's canvas budget the extra ones come
+   * back blank.
+   */
+  width?: number;
 };
 
 /**
  * Renders one slide into a fresh canvas at the given aspect ratio's full
- * resolution. Async because image layers must decode first.
+ * resolution, or at `options.width`. Async because image layers must decode
+ * first.
  */
 export async function renderSlideCanvas(
   slide: CarouselSlide,
@@ -250,37 +278,39 @@ export async function renderSlideCanvas(
   options: RenderSlideOptions = {}
 ): Promise<HTMLCanvasElement> {
   const spec = aspectSpec(ratio);
+  const width = options.width ? Math.max(1, Math.round(options.width)) : spec.width;
+  const height = Math.max(1, Math.round((width * spec.height) / spec.width));
   const canvas = document.createElement("canvas");
-  canvas.width = spec.width;
-  canvas.height = spec.height;
+  canvas.width = width;
+  canvas.height = height;
   const ctx = canvas.getContext("2d")!;
 
   // Background: solid/gradient override or the brand default.
   if (!options.skipBackground) {
     if (slide.background) {
       ctx.fillStyle = slide.background;
-      ctx.fillRect(0, 0, spec.width, spec.height);
+      ctx.fillRect(0, 0, width, height);
     } else {
-      paintDefaultBackground(ctx, spec.width, spec.height);
+      paintDefaultBackground(ctx, width, height);
     }
   }
 
   // Image layers render under the base copy; text layers over it.
   if (!options.skipImageLayers) {
     const imageLayers = (slide.layers ?? []).filter((l): l is Extract<SlideLayer, { type: "image" }> => l.type === "image");
-    const decoded = await Promise.all(
+    const images = await Promise.all(
       imageLayers.map(async (layer) => ({ layer, img: await loadImage(layer.src).catch(() => null) }))
     );
-    for (const { layer, img } of decoded) {
-      if (img) drawImageLayer(ctx, layer, img, spec.width, spec.height);
+    for (const { layer, img } of images) {
+      if (img) drawImageLayer(ctx, layer, img, width, height);
     }
   }
 
-  if (!options.skipBaseText && !slide.hideBaseText) drawBaseText(ctx, slide, index, total, spec.width, spec.height);
+  if (!options.skipBaseText && !slide.hideBaseText) drawBaseText(ctx, slide, index, total, width, height);
 
   if (!options.skipTextLayers) {
     for (const layer of slide.layers ?? []) {
-      if (layer.type === "text") drawTextLayer(ctx, layer, spec.width, spec.height);
+      if (layer.type === "text") drawTextLayer(ctx, layer, width, height);
     }
   }
 

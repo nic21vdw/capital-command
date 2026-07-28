@@ -75,6 +75,14 @@ const SOURCE_LABEL: Record<Carousel["sourceType"], string> = {
 
 const SLIDE_COUNT_OPTIONS = Array.from({ length: MAX_SLIDES - MIN_SLIDES + 1 }, (_, i) => MIN_SLIDES + i);
 
+/**
+ * Backing-store pixels per CSS pixel in a slide preview. Two keeps the
+ * thumbnails sharp on a retina screen and still costs a fraction of a
+ * full-resolution render. A fixed number rather than devicePixelRatio: the
+ * canvas size is written during render, and the server has no such thing.
+ */
+const PREVIEW_SCALE = 2;
+
 export function CarouselsPage() {
   const { data, loading, refresh } = useAppData();
   const carousels = useMemo(() => data.videoStudio?.carousels ?? [], [data.videoStudio]);
@@ -533,12 +541,20 @@ function CarouselCard({ carousel, refresh }: { carousel: Carousel; refresh: () =
   const spec = aspectSpec(ratio);
   const slides = carousel.slides;
 
+  // Preview cards: fixed height, width follows the aspect ratio.
+  const previewHeight = 260;
+  const previewWidth = Math.round((previewHeight * spec.width) / spec.height);
+  const previewPixels = previewWidth * PREVIEW_SCALE;
+
   // Draw the small previews (at the selected ratio) once the card mounts and
-  // whenever the slides or ratio change.
+  // whenever the slides or ratio change. They are rendered at thumbnail size,
+  // not at the export resolution: a page of decks is dozens of these at once,
+  // and full-size canvases blow past the browser's canvas budget — the ones
+  // over the line come back empty, photo slides first.
   useEffect(() => {
     let cancelled = false;
     slides.forEach((slide, index) => {
-      void renderSlideCanvas(slide, index, slides.length, ratio).then((full) => {
+      void renderSlideCanvas(slide, index, slides.length, ratio, { width: previewPixels }).then((full) => {
         if (cancelled) return;
         const target = previewRefs.current[index];
         if (!target) return;
@@ -551,7 +567,7 @@ function CarouselCard({ carousel, refresh }: { carousel: Carousel; refresh: () =
     return () => {
       cancelled = true;
     };
-  }, [slides, ratio]);
+  }, [slides, ratio, previewPixels]);
 
   const patchCarousel = useCallback(
     async (patch: Partial<Pick<Carousel, "slides" | "aspectRatio" | "schedules">>) => {
@@ -624,9 +640,6 @@ function CarouselCard({ carousel, refresh }: { carousel: Carousel; refresh: () =
     else toast.error("Could not delete the carousel.");
   };
 
-  // Preview cards: fixed height, width follows the aspect ratio.
-  const previewHeight = 260;
-  const previewWidth = Math.round((previewHeight * spec.width) / spec.height);
 
   return (
     <Card className="space-y-3">
@@ -729,8 +742,8 @@ function CarouselCard({ carousel, refresh }: { carousel: Carousel; refresh: () =
               ref={(element) => {
                 previewRefs.current[index] = element;
               }}
-              width={previewWidth}
-              height={previewHeight}
+              width={previewWidth * PREVIEW_SCALE}
+              height={previewHeight * PREVIEW_SCALE}
               style={{ width: previewWidth, height: previewHeight }}
               className="cursor-zoom-in rounded-lg border border-[var(--border)] transition group-hover:border-[var(--accent)]/60"
               title={slide.heading || `Slide ${index + 1}`}
