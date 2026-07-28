@@ -29,11 +29,6 @@ import { Capabilities as ClaudeCapabilities } from "../../../video/claude-traile
 import { Momentum as ClaudeMomentum } from "../../../video/claude-trailer/src/scenes/Momentum";
 import { EndCard as ClaudeEndCard } from "../../../video/claude-trailer/src/scenes/EndCard";
 import { VIDEO as COLATERAL_INTRO_VIDEO } from "../../../video/colateral-intro/src/theme";
-import { IntroAssemble as ColateralIntroAssemble } from "../../../video/colateral-intro/src/scenes/IntroAssemble";
-import { IntroBeamSweep as ColateralIntroBeamSweep } from "../../../video/colateral-intro/src/scenes/IntroBeamSweep";
-import { IntroBlueprintBuild as ColateralIntroBlueprintBuild } from "../../../video/colateral-intro/src/scenes/IntroBlueprintBuild";
-import { IntroBeamGreeting as ColateralIntroBeamGreeting } from "../../../video/colateral-intro/src/scenes/IntroBeamGreeting";
-import { IntroPixelType as ColateralIntroPixelType } from "../../../video/colateral-intro/src/scenes/IntroPixelType";
 import { VIDEO as BROLL_VIDEO, VIDEO_VERTICAL as BROLL_VIDEO_VERTICAL, CLIP_FRAMES as BROLL_FRAMES } from "../../../video/broll-collateral/src/theme";
 import { FloatingScreens as BrollFloatingScreens } from "../../../video/broll-collateral/src/scenes/FloatingScreens";
 import { CardShuffle as BrollCardShuffle } from "../../../video/broll-collateral/src/scenes/CardShuffle";
@@ -45,6 +40,11 @@ import { PhoneShowcase as BrollPhoneShowcase } from "../../../video/broll-collat
 import { VerticalStack as BrollVerticalStack } from "../../../video/broll-collateral/src/scenes/VerticalStack";
 import { GlassMetrics as BrollGlassMetrics } from "../../../video/broll-collateral/src/scenes/GlassMetrics";
 import { WordmarkAmbient as BrollWordmarkAmbient } from "../../../video/broll-collateral/src/scenes/WordmarkAmbient";
+import { RevealDraftingTable as ColateralRevealDraftingTable } from "../../../video/colateral-intro/src/scenes/RevealDraftingTable";
+import { RevealLoadPath as ColateralRevealLoadPath } from "../../../video/colateral-intro/src/scenes/RevealLoadPath";
+import { RevealBeamyEntrance as ColateralRevealBeamyEntrance } from "../../../video/colateral-intro/src/scenes/RevealBeamyEntrance";
+import { RevealCanvasSpawn as ColateralRevealCanvasSpawn } from "../../../video/colateral-intro/src/scenes/RevealCanvasSpawn";
+import { RevealTypeset as ColateralRevealTypeset } from "../../../video/colateral-intro/src/scenes/RevealTypeset";
 
 export type Slide = {
   id: string;
@@ -160,14 +160,14 @@ export const PROJECTS: Project[] = [
   {
     id: "colateral-intro",
     name: "CoLateral Intro",
-    description: "Title-reveal B-roll with the 8-bit Beam Buddy on white · CoLateral blue · 1920×1080",
+    description: "Name-reveal intro cards on the live product's dark stage · CoLateral purple + Beamy · 1920×1080",
     format: COLATERAL_INTRO_VIDEO,
     slides: [
-      { id: "IntroAssemble", title: "Assemble", note: "Beam Buddy drops in, beam draws, wordmark settles on — calm/premium", component: ColateralIntroAssemble, durationInFrames: 150 },
-      { id: "IntroBeamSweep", title: "Beam Sweep", note: "Buddy pops in, fires a light beam that wipes “CoLateral” in — playful", component: ColateralIntroBeamSweep, durationInFrames: 150 },
-      { id: "IntroBlueprintBuild", title: "Blueprint Build", note: "Kicker + block-snap wordmark on a blueprint grid, Buddy hops in — layered/premium", component: ColateralIntroBlueprintBuild, durationInFrames: 150 },
-      { id: "IntroBeamGreeting", title: "Beam Greeting", note: "Beam-sweep reveal, then Buddy pipes up with a speech bubble — playful", component: ColateralIntroBeamGreeting, durationInFrames: 150 },
-      { id: "IntroPixelType", title: "Pixel Type", note: "8-bit type-on with a blinking caret over CRT scanlines — retro/techy", component: ColateralIntroPixelType, durationInFrames: 150 }
+      { id: "RevealDraftingTable", title: "Drafting Table", note: "Logo draws on like a CAD line, letters spawn, Beamy walks in and waves — calm/premium", component: ColateralRevealDraftingTable, durationInFrames: 180 },
+      { id: "RevealLoadPath", title: "Load Path", note: "Loads drop, the beam deflects, the moment diagram traces, then it snaps straight into the wordmark — structural", component: ColateralRevealLoadPath, durationInFrames: 180 },
+      { id: "RevealBeamyEntrance", title: "Beamy's Entrance", note: "Beamy dances a 4-beat loop while letters spawn on the beat — playful", component: ColateralRevealBeamyEntrance, durationInFrames: 180 },
+      { id: "RevealCanvasSpawn", title: "Canvas Spawn", note: "Real tool cards spawn and link across the canvas, then converge into the mark — product-led", component: ColateralRevealCanvasSpawn, durationInFrames: 195 },
+      { id: "RevealTypeset", title: "Typeset", note: "The live hero, animated — kerning settle, Beamy perched beside the mark — minimal/corporate", component: ColateralRevealTypeset, durationInFrames: 180 }
     ]
   },
   // ---------------------------------------------------------------------

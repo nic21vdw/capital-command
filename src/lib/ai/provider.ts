@@ -6,7 +6,10 @@
  * newing up a provider SDK itself.
  *
  * Default provider: DeepSeek Flash (free) via an OpenAI-compatible endpoint —
- * no API key required, so every AI feature works out of the box for $0.
+ * no API key required, so every AI feature works out of the box for $0. It is
+ * a REASONING model: it thinks in `reasoning_content` and answers in
+ * `content`, both paid for out of the same max_tokens budget, so a big request
+ * needs room for the thinking as well as the answer (see runDeepSeek).
  * Anthropic (Claude) stays available and can be selected with AI_PROVIDER when
  * a key is present, so nothing that relied on Claude breaks.
  *
@@ -58,8 +61,15 @@ const DEFAULT_ANTHROPIC_MODEL = "claude-opus-4-8";
 const DEFAULT_MAX_TOKENS = 8000;
 const HARD_MAX_TOKENS = 32000;
 
-/** A slow free endpoint must never stall the clip pipeline or publish queue. */
-const REQUEST_TIMEOUT_MS = 60_000;
+/**
+ * A slow free endpoint must never stall the clip pipeline or publish queue,
+ * but a reasoning model asked for a big answer genuinely takes minutes — it
+ * thinks before it writes. The allowance scales with the token budget (roughly
+ * 10ms per output token) between a one-minute floor and a four-minute ceiling.
+ */
+function requestTimeoutMs(maxTokens: number): number {
+  return Math.min(240_000, Math.max(60_000, maxTokens * 10));
+}
 
 function env(name: string): string | undefined {
   const value = process.env[name];
@@ -107,7 +117,19 @@ export function aiConfigured(): boolean {
   return true;
 }
 
-async function runDeepSeek(req: AiRequest): Promise<AiResult | null> {
+type DeepSeekAttempt = {
+  /** The model's answer. Empty when it never got as far as writing one. */
+  text: string;
+  refused: boolean;
+  /**
+   * True when the budget was spent thinking before the answer began. That is
+   * not a failure — the same call succeeds with more room.
+   */
+  outOfRoom: boolean;
+};
+
+/** One DeepSeek call at one specific token budget. Null on a transport/HTTP failure. */
+async function callDeepSeek(req: AiRequest, maxTokens: number): Promise<DeepSeekAttempt | null> {
   const base = (env("DEEPSEEK_BASE_URL") || DEFAULT_DEEPSEEK_BASE_URL).replace(/\/+$/, "");
   const model = env("DEEPSEEK_MODEL") || DEFAULT_DEEPSEEK_MODEL;
   // Optional — the free tier is keyless, but a key is sent as a Bearer token
@@ -119,7 +141,7 @@ async function runDeepSeek(req: AiRequest): Promise<AiResult | null> {
   for (const message of req.messages) messages.push({ role: message.role, content: message.content });
 
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  const timer = setTimeout(() => controller.abort(), requestTimeoutMs(maxTokens));
   try {
     const response = await fetch(`${base}/chat/completions`, {
       method: "POST",
@@ -131,20 +153,60 @@ async function runDeepSeek(req: AiRequest): Promise<AiResult | null> {
         model,
         messages,
         temperature: req.temperature ?? 0.2,
-        max_tokens: aiMaxTokens(req.maxTokens)
+        max_tokens: maxTokens
       }),
       signal: controller.signal
     });
     if (!response.ok) return null;
     const data = (await response.json()) as {
-      choices?: Array<{ message?: { content?: unknown }; finish_reason?: string }>;
+      choices?: Array<{
+        message?: { content?: unknown; reasoning_content?: unknown };
+        finish_reason?: string;
+      }>;
     };
     const choice = data?.choices?.[0];
     const text = typeof choice?.message?.content === "string" ? choice.message.content : "";
-    if (!text.trim()) return null;
-    return { text, refused: choice?.finish_reason === "content_filter" };
+    const reasoning =
+      typeof choice?.message?.reasoning_content === "string" ? choice.message.reasoning_content : "";
+    const refused = choice?.finish_reason === "content_filter";
+
+    // DeepSeek's flash models are REASONING models: they think in
+    // `reasoning_content` and answer in `content`, and both come out of the
+    // same max_tokens budget. Reading only `content` — and treating an empty
+    // one as a dead provider — is why every AI feature in the app quietly fell
+    // back to its offline heuristic on any answer big enough that the thinking
+    // ran to the end of the budget.
+    const outOfRoom = !text.trim() && (choice?.finish_reason === "length" || Boolean(reasoning.trim()));
+    return { text, refused, outOfRoom };
   } finally {
     clearTimeout(timer);
+  }
+}
+
+/**
+ * DeepSeek with room to think. Starts at the caller's budget and doubles up to
+ * the hard ceiling whenever the model used everything up reasoning without
+ * answering, so a big request (a 24-post pack, a long script) gets what it
+ * needs instead of silently degrading. `reasoning_content` is never returned as
+ * the answer — it is the model's scratchpad, not its output.
+ */
+async function runDeepSeek(req: AiRequest): Promise<AiResult | null> {
+  let budget = aiMaxTokens(req.maxTokens);
+
+  for (;;) {
+    const attempt = await callDeepSeek(req, budget);
+    if (!attempt) return null;
+    if (attempt.text.trim()) return { text: attempt.text, refused: attempt.refused };
+    // A refusal is a real answer: the caller decides what to do about it.
+    if (attempt.refused) return { text: "", refused: true };
+    if (!attempt.outOfRoom || budget >= HARD_MAX_TOKENS) return null;
+
+    const raised = Math.min(HARD_MAX_TOKENS, budget * 2);
+    if (raised <= budget) return null;
+    console.warn(
+      `[ai] deepseek used its whole ${budget}-token budget thinking without answering — retrying with ${raised}.`
+    );
+    budget = raised;
   }
 }
 

@@ -2209,7 +2209,7 @@ function PublishPanel({
                 {copied === "description" ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />} Copy
               </Button>
             </div>
-            <pre className="max-h-64 overflow-y-auto whitespace-pre-wrap rounded-lg border border-[var(--border)] bg-black/20 px-3 py-2 font-sans text-xs leading-relaxed text-white/85">
+            <pre className="max-h-64 overflow-y-auto whitespace-pre-wrap rounded-lg border border-[var(--border)] bg-[var(--well)] px-3 py-2 font-sans text-xs leading-relaxed text-white/85">
               {metadata.description}
             </pre>
           </div>

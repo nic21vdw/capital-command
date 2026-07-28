@@ -1,38 +1,50 @@
 import React from "react";
 import { Composition } from "remotion";
-import { IntroAssemble } from "./scenes/IntroAssemble";
-import { IntroBeamSweep } from "./scenes/IntroBeamSweep";
-import { IntroBlueprintBuild } from "./scenes/IntroBlueprintBuild";
-import { IntroBeamGreeting } from "./scenes/IntroBeamGreeting";
-import { IntroPixelType } from "./scenes/IntroPixelType";
+import { RevealDraftingTable } from "./scenes/RevealDraftingTable";
+import { RevealLoadPath } from "./scenes/RevealLoadPath";
+import { RevealBeamyEntrance } from "./scenes/RevealBeamyEntrance";
+import { RevealCanvasSpawn } from "./scenes/RevealCanvasSpawn";
+import { RevealTypeset } from "./scenes/RevealTypeset";
 import { VIDEO } from "./theme";
 
 /**
- * CoLateral intro B-roll clips, 1920×1080 @ 30fps, 5s (150 frames) each.
- * All reveal the "CoLateral" wordmark on white — "Co" near-black, "Lateral"
- * brand blue — with the 8-bit Beam Buddy mascot (a structural I-beam in a hard
- * hat). Five iterations to pick from:
- *   IntroAssemble       — structural drop-in + beam underline (calm/premium)
- *   IntroBeamSweep      — pop-in + light-beam wipe reveal (playful/energetic)
- *   IntroBlueprintBuild — kicker + block-snap wordmark on a blueprint (layered)
- *   IntroBeamGreeting   — beam-sweep reveal + Buddy speech bubble (playful)
- *   IntroPixelType      — 8-bit type-on with blinking caret + scanlines (retro)
+ * CoLateral name-reveal intro cards, 1920×1080 @ 30fps.
+ *
+ * All five sit on the live product's dark stage (#070c12) with the brand purple
+ * (#bd93f9), the real "Co" + "Lateral" wordmark split, and Beamy — the app's
+ * pixel-art I-beam mascot — ported pixel-for-pixel from `Beamy.js`.
+ *
+ *   RevealDraftingTable  — mark draws on, letters spawn, Beamy waves (calm)
+ *   RevealLoadPath       — loads, deflection + moment diagram (structural)
+ *   RevealBeamyEntrance  — Beamy dances, letters spawn on the beat (playful)
+ *   RevealCanvasSpawn    — real tool cards link up, converge into the mark
+ *   RevealTypeset        — the live hero, animated (minimal / most corporate)
  */
 export const RemotionRoot: React.FC = () => {
-  const common = {
-    durationInFrames: 150,
-    fps: VIDEO.fps,
-    width: VIDEO.width,
-    height: VIDEO.height,
-  } as const;
+  const base = { fps: VIDEO.fps, width: VIDEO.width, height: VIDEO.height } as const;
 
   return (
     <>
-      <Composition id="IntroAssemble" component={IntroAssemble} {...common} />
-      <Composition id="IntroBeamSweep" component={IntroBeamSweep} {...common} />
-      <Composition id="IntroBlueprintBuild" component={IntroBlueprintBuild} {...common} />
-      <Composition id="IntroBeamGreeting" component={IntroBeamGreeting} {...common} />
-      <Composition id="IntroPixelType" component={IntroPixelType} {...common} />
+      <Composition
+        id="RevealDraftingTable"
+        component={RevealDraftingTable}
+        durationInFrames={180}
+        {...base}
+      />
+      <Composition id="RevealLoadPath" component={RevealLoadPath} durationInFrames={180} {...base} />
+      <Composition
+        id="RevealBeamyEntrance"
+        component={RevealBeamyEntrance}
+        durationInFrames={180}
+        {...base}
+      />
+      <Composition
+        id="RevealCanvasSpawn"
+        component={RevealCanvasSpawn}
+        durationInFrames={195}
+        {...base}
+      />
+      <Composition id="RevealTypeset" component={RevealTypeset} durationInFrames={180} {...base} />
     </>
   );
 };

@@ -115,7 +115,7 @@ function WeeklyTracker({ week }: { week: WeekStatus }) {
               key={day.date}
               className={cn(
                 "rounded-2xl border p-3 text-center transition",
-                day.isToday ? "border-[var(--accent)] bg-[var(--accent)]/10" : "border-white/8 bg-black/20",
+                day.isToday ? "border-[var(--accent)] bg-[var(--accent)]/10" : "border-white/8 bg-[var(--well)]",
                 day.isFuture && "opacity-40"
               )}
             >
@@ -158,7 +158,7 @@ function WeeklyTracker({ week }: { week: WeekStatus }) {
       <div
         className={cn(
           "mt-5 rounded-2xl border p-4 text-sm",
-          behind ? "border-amber-400/30 bg-amber-400/10 text-amber-100" : "border-white/8 bg-black/20 text-white"
+          behind ? "border-amber-400/30 bg-amber-400/10 text-amber-100" : "border-white/8 bg-[var(--well)] text-white"
         )}
       >
         {week.remainingReplies === 0 && week.remainingPosts === 0 ? (
@@ -253,7 +253,7 @@ function BriefTab({ analysis, week }: { analysis: XAnalysis; week: WeekStatus })
             <Textarea readOnly value={brief} className="min-h-[360px] font-mono text-xs leading-relaxed" />
           </div>
         ) : (
-          <div className="rounded-2xl border border-dashed border-white/12 bg-black/20 p-8 text-center text-sm text-[var(--muted-foreground)]">
+          <div className="rounded-2xl border border-dashed border-white/12 bg-[var(--well)] p-8 text-center text-sm text-[var(--muted-foreground)]">
             Your generated session brief will appear here.
           </div>
         )}
@@ -443,7 +443,7 @@ function HistoryTab({ activities, today, mutate }: { activities: XActivity[]; to
         {recent.map((activity) => (
           <div
             key={activity.id}
-            className="flex flex-col gap-2 rounded-2xl border border-white/8 bg-black/20 p-4 sm:flex-row sm:items-start sm:justify-between"
+            className="flex flex-col gap-2 rounded-2xl border border-white/8 bg-[var(--well)] p-4 sm:flex-row sm:items-start sm:justify-between"
           >
             <div className="min-w-0">
               <div className="flex flex-wrap items-center gap-2">
