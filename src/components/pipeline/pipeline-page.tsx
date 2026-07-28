@@ -11,6 +11,7 @@ import {
   Copy,
   Download,
   Images,
+  Layers,
   Loader2,
   Plus,
   Podcast,
@@ -62,6 +63,7 @@ const POST_PLATFORM_LABELS: Record<PipelinePost["platform"], string> = {
 const LAUNCHING_STAGES: Record<PipelineStageKey, PipelineStage> = {
   source: { status: "running", detail: "Pulling the stream in..." },
   longform: { status: "waiting", detail: "Waiting for the source." },
+  segments: { status: "waiting", detail: "Waiting for the full transcript." },
   clips: { status: "waiting", detail: "Waiting for the source." },
   audio: { status: "waiting", detail: "Waiting for the long-form export." },
   images: { status: "waiting", detail: "Waiting for the transcript." },
@@ -571,6 +573,20 @@ export function PipelinePage() {
       )
     },
     {
+      key: "segments",
+      icon: Layers,
+      title: "Topic segments",
+      children: (
+        <div className="mt-3">
+          <Link href={longformHref}>
+            <Button variant="secondary" className="px-3 py-1.5 text-xs">
+              Render segments
+            </Button>
+          </Link>
+        </div>
+      )
+    },
+    {
       key: "clips",
       icon: Scissors,
       title: "Short-form clips",
@@ -675,6 +691,7 @@ export function PipelinePage() {
           <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-[var(--muted-foreground)]">
             <span>{schedulable.clipsReady} shorts</span>
             <span>{schedulable.longformReady ? "1 long-form video" : "long-form pending"}</span>
+            <span>{schedulable.segments > 0 ? `${schedulable.segments} topic segments` : "segments pending"}</span>
             <span>{schedulable.audioReady ? "1 MP3" : "MP3 pending"}</span>
             <span>{schedulable.carouselSlides > 0 ? `${schedulable.carouselSlides} slides` : "slides pending"}</span>
             <span>{schedulable.visualAdReady ? "visual ad ready" : "visual ad pending"}</span>
