@@ -93,6 +93,28 @@ holds everything model-specific.
   map lives in one process, outsiders go through the HTTP API.
 - See `src/lib/music/README.md`.
 
+## Long-form topic segments vs short-form clips
+
+A stream is several videos. `src/lib/longform/topics.ts` reads the transcript
+and splits the recording into the 3-5 subjects it actually covered (lexical
+cohesion — vocabulary turnover marks where one subject ends), each one roughly
+ten minutes and each exportable as its own long-form upload. `projectForTopic`
+in `plan.ts` renders one by clipping the project's timeline to that window and
+moving the hook onto its opening, so segments go through the SAME export engine
+as the full edit (cuts, captions, overlays, mix) and nothing downstream needs a
+special case.
+
+- Topic segments and short-form clips are independent selections over the same
+  transcript, and must stay that way: the Clip Generator scans the whole stream
+  for its best 30-second moments wherever they fall; topic segments carve the
+  stream into whole subjects. Neither constrains the other.
+- Topics need a transcript of the WHOLE recording. Long-form analysis only
+  transcribes the opening of a long source (that is all the hook needs), so
+  `planProjectTopics` falls back to the full transcript the clip job made from
+  the same `sourceId`; the pipeline plans the segments once that lands.
+- Segments are planned automatically but rendered on demand — auto-rendering
+  five ten-minute videos per stream is hours of encoding nobody asked for.
+
 ## Clip metadata conventions (titles, descriptions, tags)
 
 Clip titles are NEVER raw transcript fragments — a slice of what was said

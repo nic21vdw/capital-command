@@ -6,8 +6,8 @@ import { animatedReframeChain } from "@/lib/clipping/render";
 import { readSourceMeta, sourceFilePath } from "@/lib/clipping/sources";
 import { getTrack, trackFilePath } from "@/lib/longform/music";
 import { overlayFilePath } from "@/lib/longform/overlays";
-import { editedDurationSec, exportRanges, remapCaptionsToOutput, sourceTimeToOutput, sourceToOutputIntervals, type KeptRange } from "@/lib/longform/plan";
-import { getProject, projectOutputDir, projectWorkDir, updateProject } from "@/lib/longform/store";
+import { editedDurationSec, exportRanges, projectForTopic, remapCaptionsToOutput, sourceTimeToOutput, sourceToOutputIntervals, type KeptRange } from "@/lib/longform/plan";
+import { getProject, projectOutputDir, projectWorkDir, setTopicExport, updateProject } from "@/lib/longform/store";
 import type { LongformExportRecord, LongformProject } from "@/lib/longform/types";
 import { planSfxCues } from "@/lib/sfx/cues";
 import { resolveSoundPath } from "@/lib/sfx/sounds";
@@ -104,17 +104,43 @@ async function patchRecord(projectId: string, recordId: string, patch: Partial<L
 }
 
 /**
+ * Resolves what an export actually renders: the whole edit, or the project
+ * clipped to one topic segment. Throws when a topic id no longer exists (the
+ * segments were replanned since the export was requested).
+ */
+function exportTarget(project: LongformProject, topicId?: string): LongformProject {
+  if (!topicId) return project;
+  const topic = project.topics?.find((item) => item.id === topicId);
+  if (!topic) {
+    throw new Error("That segment is no longer part of this project — find the segments again and retry.");
+  }
+  return projectForTopic(project, topic);
+}
+
+/**
  * Starts rendering the edited video and returns the (processing) export
  * record immediately; the client polls the export route for progress.
+ *
+ * With `topicId` the render is one topic segment of the recording instead of
+ * the whole edit: the same hook, cuts, captions and mix, over that segment's
+ * window only.
  */
-export async function startLongformExport(project: LongformProject): Promise<LongformExportRecord> {
+export async function startLongformExport(
+  project: LongformProject,
+  options: { topicId?: string } = {}
+): Promise<LongformExportRecord> {
   if (project.status !== "ready") throw new Error("This project is still processing.");
   if (project.exports.some((record) => record.status === "processing")) {
     throw new Error("An export is already rendering for this project.");
   }
-  const { hookRange, bodyRanges } = exportRanges(project.segments, project.hook);
+  const target = exportTarget(project, options.topicId);
+  const { hookRange, bodyRanges } = exportRanges(target.segments, target.hook);
   if (!hookRange && bodyRanges.length === 0) {
-    throw new Error("Nothing to export — every segment is cut. Re-enable at least one segment.");
+    throw new Error(
+      options.topicId
+        ? "Nothing to export in that segment — every part of it is cut."
+        : "Nothing to export — every segment is cut. Re-enable at least one segment."
+    );
   }
 
   const recordId = crypto.randomUUID().slice(0, 8);
@@ -125,8 +151,8 @@ export async function startLongformExport(project: LongformProject): Promise<Lon
   // decorator keyword-matches it onto a category; with emoji disabled the
   // title is returned unchanged.
   const finalized = await finalizeTitle({
-    baseTitle: project.name,
-    category: project.name,
+    baseTitle: target.name,
+    category: target.name,
     pipelineType: "long",
     videoId: recordId
   });
@@ -135,14 +161,18 @@ export async function startLongformExport(project: LongformProject): Promise<Lon
     id: recordId,
     status: "processing",
     progress: 1,
-    durationSec: editedDurationSec(project.segments, project.hook),
+    durationSec: editedDurationSec(target.segments, target.hook),
     title: finalized.title,
     emojiUsed: finalized.emojiUsed,
+    topicId: options.topicId,
     createdAt: new Date().toISOString()
   };
   // Keep the record list short; old files stay on disk until project delete.
-  const exports = [record, ...project.exports].slice(0, 6);
+  // Segment renders are kept alongside the full-edit ones, so a stream that
+  // produced five segments does not push its own outputs off the list.
+  const exports = [record, ...project.exports].slice(0, 12);
   await updateProject(project.id, { exports });
+  if (options.topicId) await setTopicExport(project.id, options.topicId, recordId);
 
   const controller = new AbortController();
   controllers.set(record.id, controller);
@@ -184,8 +214,12 @@ export async function cancelLongformExport(
 }
 
 async function runExport(projectId: string, recordId: string, signal: AbortSignal) {
-  const project = await getProject(projectId);
-  if (!project) throw new Error("Project is gone.");
+  const stored = await getProject(projectId);
+  if (!stored) throw new Error("Project is gone.");
+  // A segment render works on the clipped view of the project. Re-deriving it
+  // here (rather than passing it in) keeps the stored record the only source
+  // of truth for what this export is.
+  const project = exportTarget(stored, stored.exports.find((item) => item.id === recordId)?.topicId);
   const meta = await readSourceMeta(project.sourceId);
   if (!meta) throw new Error("The uploaded source file for this project is gone. Upload the video again.");
   const srcPath = sourceFilePath(meta);

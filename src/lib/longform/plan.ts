@@ -2,7 +2,14 @@ import type { SilenceRange } from "@/lib/clipping/analysis";
 import { chunkWords, windowSegments } from "@/lib/clipping/captions";
 import { resolveThoughtEnd } from "@/lib/clipping/thought-end";
 import type { CaptionSegment, CaptionStyle, CaptionWord } from "@/types/domain";
-import type { LongformCaptions, LongformHook, LongformPace, LongformSegment } from "@/lib/longform/types";
+import type {
+  LongformCaptions,
+  LongformHook,
+  LongformPace,
+  LongformProject,
+  LongformSegment,
+  LongformTopic
+} from "@/lib/longform/types";
 
 // Pure planning logic for the Long-Form Editor: turn detected silences into a
 // cut plan and the opening seconds into a viral-style hook. Everything here is
@@ -425,6 +432,73 @@ export function remapCaptionsToOutput(
     out.push({ ...seg, id: `cap-${out.length + 1}`, start, end, words });
   }
   return out;
+}
+
+// ----- Topic segments -----
+// A topic segment is exported as its own video by running the WHOLE export
+// engine over a restricted view of the project: the same cuts, captions,
+// overlays and mix, with the timeline clipped to the segment window and the
+// hook moved onto the segment's opening. Nothing downstream needs to know a
+// segment is being rendered rather than the full edit.
+
+/** The hook a topic segment opens with: the project's hook style, its own window. */
+function topicHook(project: LongformProject, start: number, end: number): LongformHook {
+  const source = project.hook;
+  if (!source?.enabled) return { ...source, enabled: false, start: round3(start), end: round3(start) };
+  const sourceLength = Math.max(MIN_SEGMENT_SEC, source.end - (source.start ?? 0));
+  // Never let the hook eat more than half of a short segment.
+  const length = Math.min(sourceLength, (end - start) / 2);
+  const hookEnd = round3(Math.min(end, start + length));
+  return {
+    ...source,
+    start: round3(start),
+    end: hookEnd,
+    captions: hookCaptions(project.transcript ?? [], start, hookEnd)
+  };
+}
+
+/**
+ * A view of the project restricted to one topic segment. The cut plan is
+ * clipped to the segment window, the hook is re-pointed at its opening, and
+ * placed audio is clipped the same way so music from another part of the
+ * stream cannot slide into this one. Pure — the stored project is untouched.
+ */
+export function projectForTopic(project: LongformProject, topic: LongformTopic): LongformProject {
+  const limit = project.durationSec > 0 ? project.durationSec : topic.end;
+  const start = Math.max(0, Math.min(topic.start, limit));
+  const end = Math.max(start + MIN_SEGMENT_SEC, Math.min(topic.end, limit));
+
+  const segments = project.segments
+    .filter((segment) => segment.end > start && segment.start < end)
+    .map((segment) => ({
+      ...segment,
+      start: round3(Math.max(segment.start, start)),
+      end: round3(Math.min(segment.end, end))
+    }))
+    .filter((segment) => segment.end - segment.start >= MIN_SEGMENT_SEC)
+    .map((segment, index) => ({ ...segment, id: `seg-${index + 1}` }));
+
+  const clips = (project.music?.clips ?? [])
+    .map((clip) => {
+      const clipStart = Math.max(clip.start, start);
+      const clipEnd = Math.min(clip.start + clip.duration, end);
+      return { ...clip, start: round3(clipStart), duration: round3(clipEnd - clipStart) };
+    })
+    .filter((clip) => clip.duration >= 0.1);
+
+  return {
+    ...project,
+    name: topic.title || project.name,
+    segments,
+    hook: topicHook(project, start, end),
+    music: { ...project.music, clips }
+  };
+}
+
+/** Runtime of one topic segment once the cuts inside it are applied. */
+export function topicDurationSec(project: LongformProject, topic: LongformTopic): number {
+  const view = projectForTopic(project, topic);
+  return editedDurationSec(view.segments, view.hook);
 }
 
 /** Total runtime of the edited video (hook + kept body). */

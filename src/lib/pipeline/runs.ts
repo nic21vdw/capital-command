@@ -5,7 +5,7 @@ import { createJobFromUpload, getJob } from "@/lib/clipping/jobs";
 import { readSourceMeta, saveSourceFromUrl } from "@/lib/clipping/sources";
 import type { ClipJob } from "@/lib/clipping/types";
 import { startLongformExport } from "@/lib/longform/render";
-import { createProject, getProject, projectOutputDir, updateProject } from "@/lib/longform/store";
+import { createProject, getProject, planProjectTopics, projectOutputDir, updateProject } from "@/lib/longform/store";
 import type { LongformProject } from "@/lib/longform/types";
 import { generatePipelinePosts } from "@/lib/pipeline/posts";
 import { realisticImagePrompt, visualMomentFromClips } from "@/lib/pipeline/visual-brief";
@@ -216,7 +216,11 @@ export async function advanceRun(run: PipelineRun): Promise<void> {
   // Long-form analysis done → start the export render (or adopt one the user
   // already started from the Long-Form Editor).
   if (project && project.status === "ready" && !run.longformExportId) {
-    const existing = project.exports.find((record) => record.status === "done" || record.status === "processing");
+    // Only a whole-edit export can stand in for the run's long-form output; a
+    // topic-segment render is one of several videos, not the video.
+    const existing = project.exports.find(
+      (record) => !record.topicId && (record.status === "done" || record.status === "processing")
+    );
     if (existing) {
       await update(run, { longformExportId: existing.id });
     } else {
@@ -246,6 +250,19 @@ export async function advanceRun(run: PipelineRun): Promise<void> {
       exportRecord.audioFile = audioName;
       await updateProject(project.id, { exports: project.exports });
       await persistRuns();
+    });
+  }
+
+  // The long-form analysis only transcribes the opening of a long stream (the
+  // hook is all it needs), while the clip job transcribes the whole thing.
+  // Once that full transcript exists, plan the stream's topic segments from
+  // it — the long-form project picks it up automatically because both sides
+  // work from the same source id. One attempt is enough: the clip job writes
+  // its transcript once.
+  if (project && project.status === "ready" && !project.topics && !run.segmentsPlanned && job?.sourceCaptions?.length) {
+    void step(run, "segments", async () => {
+      await planProjectTopics(project.id);
+      await update(run, { segmentsPlanned: true });
     });
   }
 
@@ -349,6 +366,27 @@ function longformStage(run: PipelineRun, project: LongformProject | undefined): 
     return stage("ready", `Edited video rendered${length}`);
   }
   return stage("error", record.error ?? "The export failed. Open the Long-Form Editor to retry.");
+}
+
+/**
+ * Topic segments: the stream split into the separate subjects it covered, each
+ * one publishable as its own long-form video. They are planned automatically
+ * but rendered on demand — five ten-minute renders per stream is hours of
+ * encoding nobody asked for, so the Long-Form Editor's Segments tab starts them.
+ */
+function segmentsStage(run: PipelineRun, project: LongformProject | undefined, rendered: number): PipelineStage {
+  if (run.status !== "running") return stage("waiting", "Waiting for the source.");
+  if (project?.status === "error") return stage("skipped", "Needs the transcript, and analysis failed.");
+  if (!project || project.status === "processing") return stage("waiting", "Split from the transcript once analysis finishes.");
+  const topics = project.topics;
+  if (!topics) {
+    return stage("running", project.topicsNote ? "Waiting on the full transcript…" : "Reading the transcript for subjects…");
+  }
+  if (topics.length === 0) {
+    return stage("skipped", project.topicsNote ?? "This recording reads as one continuous topic.");
+  }
+  const renderedNote = rendered > 0 ? ` · ${rendered} rendered` : "";
+  return stage("ready", `${topics.length} topic segment${topics.length === 1 ? "" : "s"} ready to render${renderedNote}`);
 }
 
 function clipsStage(run: PipelineRun, job: ClipJob | undefined): PipelineStage {
@@ -463,9 +501,15 @@ export async function runOverview(run: PipelineRun): Promise<PipelineRunOverview
     ? { ...moment, prompt: realisticImagePrompt(moment, run.name) }
     : undefined;
 
+  const topics = project?.topics ?? [];
+  const segmentsRendered = topics.filter((topic) =>
+    project?.exports.some((item) => item.topicId === topic.id && item.status === "done" && item.file)
+  ).length;
+
   const stages = {
     source: sourceStage(run),
     longform: longformStage(run, project),
+    segments: segmentsStage(run, project, segmentsRendered),
     clips: clipsStage(run, job),
     audio: audioStage(run, project),
     images: imagesStage(run, project, slideCount),
@@ -480,8 +524,9 @@ export async function runOverview(run: PipelineRun): Promise<PipelineRunOverview
     (audioReady ? 1 : 0) +
     (slideCount > 0 ? 1 : 0) +
     (visualMoment ? 1 : 0) +
-    posts;
-  const upstreamSettled = (["longform", "clips", "audio", "images", "visuals", "posts"] as const).every(
+    posts +
+    segmentsRendered;
+  const upstreamSettled = (["longform", "segments", "clips", "audio", "images", "visuals", "posts"] as const).every(
     (key) => stages[key].status !== "running" && stages[key].status !== "waiting"
   );
   if (run.status === "error") {
@@ -502,6 +547,7 @@ export async function runOverview(run: PipelineRun): Promise<PipelineRunOverview
     schedulable: {
       clipsReady,
       longformReady,
+      segments: topics.length,
       audioReady,
       carouselSlides: slideCount,
       visualAdReady: Boolean(visualMoment),

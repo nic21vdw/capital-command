@@ -478,6 +478,13 @@ export function LongformStudioPage() {
                             → <span className="text-white">{formatClock(editedSec)}</span> edited
                           </>
                         )}
+                        {project.topics && project.topics.length > 0 && (
+                          <>
+                            {" · "}
+                            <span className="text-white">{project.topics.length}</span> topic segment
+                            {project.topics.length === 1 ? "" : "s"}
+                          </>
+                        )}
                       </p>
                     </div>
                     <Badge

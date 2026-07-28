@@ -43,6 +43,8 @@ export type PipelineRun = {
   longformExportId?: string;
   /** Clip job auto-created from the same source. */
   clipJobId?: string;
+  /** Whether the topic-segment plan has been attempted from the full transcript. */
+  segmentsPlanned?: boolean;
   /** Carousel written from the transcript, once available. */
   carouselId?: string;
   carouselNote?: string;
@@ -58,6 +60,7 @@ export type PipelineStageStatus = "waiting" | "running" | "ready" | "error" | "s
 export type PipelineStageKey =
   | "source"
   | "longform"
+  | "segments"
   | "clips"
   | "audio"
   | "images"
@@ -89,6 +92,8 @@ export type PipelineRunOverview = {
   schedulable: {
     clipsReady: number;
     longformReady: boolean;
+    /** Topic segments found in the stream, each publishable on its own. */
+    segments: number;
     audioReady: boolean;
     carouselSlides: number;
     visualAdReady: boolean;
