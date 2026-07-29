@@ -354,6 +354,21 @@ fourteen posts going out in one minute. One account's expired token fails only
 its own half of the day. Design notes:
 [`src/lib/threads/README.md`](src/lib/threads/README.md).
 
+## Launch Pad (Product Hunt)
+
+**Launch Pad** (`/launch`) plans a Product Hunt launch as a content event. Pick
+a launch date and the playbook dates itself backwards from it — warm up the
+account, build the gallery, cut the demo, schedule for 12:01am PT, work the
+comments all day, then bank the badge and the retro. It also writes the listing
+copy (tagline, description, the maker's first comment, topics, gallery order,
+and launch-day posts for X / Threads / LinkedIn / YouTube Community).
+
+Product Hunt has **no write API for creating a launch**, so nothing here
+publishes — submitting the listing is a manual step. Once the listing is up,
+paste its slug and, with a `PRODUCT_HUNT_TOKEN` set, Launch Pad reads the live
+votes, comments, and the day's rank back. Everything else works without a
+token. Design notes: [`src/lib/launch/README.md`](src/lib/launch/README.md).
+
 ## Animated video segments (Remotion)
 
 Make **dynamic animated clips** to record commentary over — title cards,

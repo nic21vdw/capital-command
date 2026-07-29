@@ -13,6 +13,7 @@ import {
   FileText,
   Images,
   Lightbulb,
+  Megaphone,
   Mic,
   Music4,
   Presentation,
@@ -63,7 +64,12 @@ const PIPELINE_STAGES: PipelineStage[] = [
       { href: "/editor", label: "Clip Editor", icon: Scissors },
       { href: "/carousels", label: "Carousels & Images", icon: Images },
       { href: "/x-posts", label: "X / Threads Posts", icon: AtSign },
-      { href: "/facebook", label: "FB / IG Threads", icon: Facebook }
+      // Thread-format content engine for Facebook/Instagram (hook post +
+      // numbered comment thread + CTA comment).
+      { href: "/facebook", label: "FB / IG Threads", icon: Facebook },
+      // Product Hunt launch: a playbook dated backwards from launch day, the
+      // listing copy, and the live standing once the listing is up.
+      { href: "/launch", label: "Launch Pad", icon: Megaphone }
     ]
   },
   {

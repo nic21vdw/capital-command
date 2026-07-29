@@ -540,6 +540,47 @@ export const fbStrategySchema = z.object({
 
 export const defaultFbStrategy = fbStrategySchema.parse({});
 
+// ----- Product launches (Launch Pad) -----
+export const launchCopySchema = z.object({
+  name: z.string().default(""),
+  tagline: z.string().default(""),
+  description: z.string().default(""),
+  firstComment: z.string().default(""),
+  topics: z.array(z.string()).default([]),
+  galleryCaptions: z.array(z.string()).default([]),
+  socialPosts: z.array(z.object({ surface: z.string(), text: z.string() })).default([]),
+  generatedAt: z.string().default(() => new Date().toISOString()),
+  aiGenerated: z.boolean().default(false)
+});
+
+export const launchStatsSchema = z.object({
+  votes: z.coerce.number().default(0),
+  comments: z.coerce.number().default(0),
+  rank: z.coerce.number().nullable().default(null),
+  dayLaunchCount: z.coerce.number().nullable().default(null),
+  name: z.string().default(""),
+  tagline: z.string().default(""),
+  url: z.string().default(""),
+  featuredAt: z.string().nullable().default(null),
+  fetchedAt: z.string().default(() => new Date().toISOString())
+});
+
+export const productLaunchSchema = z.object({
+  id: z.string(),
+  product: z.string().trim().min(1).default("CoLateral"),
+  productUrl: z.string().default(""),
+  launchDate: z.string(),
+  status: z.enum(["planning", "scheduled", "live", "done"]).default("planning"),
+  slug: z.string().optional(),
+  hunter: z.string().optional(),
+  notes: z.string().optional(),
+  copy: launchCopySchema.optional(),
+  stats: launchStatsSchema.optional(),
+  completedTasks: z.array(z.string()).default([]),
+  createdAt: z.string().default(() => new Date().toISOString()),
+  updatedAt: z.string().default(() => new Date().toISOString())
+});
+
 // ----- Saved thumbnails (Thumbnail Generator) -----
 // A persisted thumbnail project: all of the generator's settings plus the
 // uploaded images serialized as PNG data URLs so a project can be reopened
@@ -941,7 +982,8 @@ export const appDataSchema = z.object({
   brandAssets: brandAssetsSchema.default(defaultBrandAssets),
   videoStudio: videoStudioSchema.default(defaultVideoStudio),
   avatarVideos: z.array(avatarVideoSchema).default([]),
-  voiceovers: z.array(voiceoverSchema).default([])
+  voiceovers: z.array(voiceoverSchema).default([]),
+  productLaunches: z.array(productLaunchSchema).default([])
 });
 
 export const importHoldingSchema = z.object({
