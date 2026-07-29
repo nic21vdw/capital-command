@@ -4,8 +4,8 @@ import { xDailyPackSchema } from "@/lib/storage/schemas";
 import type { XDailyPack, XPostFormat, XSuggestedPost, XSuggestedReply } from "@/types/domain";
 
 /**
- * Server-side generation of the X/Threads pack: 24 fresh original posts (each
- * with a reworded Threads variant) spread across the waking day with human
+ * Server-side generation of the Threads pack: 24 fresh original posts (each
+ * written twice, punchy and warm) spread across the waking day with human
  * jitter, plus 20 evergreen replies. Every press of Generate writes a brand
  * new pack. Prefers Claude (fresh writing against the positioning brief,
  * avoiding topics from recent packs); degrades to the built-in idea library
@@ -15,6 +15,20 @@ import type { XDailyPack, XPostFormat, XSuggestedPost, XSuggestedReply } from "@
 
 export const POSTS_PER_PACK = 24;
 export const REPLIES_PER_PACK = 20;
+
+/**
+ * Both versions of an idea post to Threads, so both get Threads' 500 characters
+ * — the old 270 was X's limit, kept long after X stopped being a destination.
+ * The punchy one stays tight and the warm one is given room, because the point
+ * of writing each idea twice is that two feeds don't read as duplicates: length
+ * is the most visible way they differ.
+ */
+const THREADS_LIMIT = 500;
+const PUNCHY_MIN = 150;
+const PUNCHY_MAX = 260;
+const PUNCHY_CEILING = 300;
+const WARM_MIN = 300;
+const WARM_MAX = 450;
 
 export function plannerConfigured() {
   return aiConfigured();
@@ -143,7 +157,7 @@ export async function generateDailyPack(input: {
   const avoid = recentTopics.length ? recentTopics.join("; ") : "(none yet)";
   const focusLine = focus.trim() || "(open — no specific focus today)";
 
-  const userPrompt = `Here is my X/Threads positioning brief:
+  const userPrompt = `Here is my Threads positioning brief:
 
 ${brief}
 
@@ -154,7 +168,12 @@ Today's optional focus topic: ${focusLine}
 
 Write today's content pack:
 
-1. Exactly ${POSTS_PER_PACK} ORIGINAL standalone posts. Each must be a specific, insightful, non-generic thought in my voice (see voice rules in the brief). Every single post must take a DIFFERENT angle — no two posts in the set may circle the same idea. Vary the formats across the set: insight, contrarian, story, question, framework, observation. At most 4 of the ${POSTS_PER_PACK} may touch CoLateral, and only obliquely — the rest build the personal brand (verification, judgment, agentic engineering, vertical AI, professional workflows). Keep each under 270 characters. For each post also write "threadsVariant": the same idea rephrased for Threads (slightly warmer/more conversational, different wording so the two feeds are not duplicates).
+1. Exactly ${POSTS_PER_PACK} ORIGINAL standalone posts. Each must be a specific, insightful, non-generic thought in my voice (see voice rules in the brief). Every single post must take a DIFFERENT angle — no two posts in the set may circle the same idea. Vary the formats across the set: insight, contrarian, story, question, framework, observation. At most 4 of the ${POSTS_PER_PACK} may touch CoLateral, and only obliquely — the rest build the personal brand (verification, judgment, agentic engineering, vertical AI, professional workflows).
+
+Write every post twice, both for Threads, which allows ${THREADS_LIMIT} characters:
+- "text" is the punchy version: tight and quotable, ${PUNCHY_MIN}-${PUNCHY_MAX} characters, never over ${PUNCHY_CEILING}.
+- "threadsVariant" is the same idea told warmer and more conversational — room to give the thought a second beat or a concrete detail. ${WARM_MIN}-${WARM_MAX} characters, always clearly longer than the punchy version, and reworded throughout so the two never read as duplicates.
+Neither version may exceed ${THREADS_LIMIT} characters.
 
 2. Exactly ${REPLIES_PER_PACK} evergreen REPLIES I can adapt when engaging with typical conversations in my space. For each, give "scenario" (one line describing the kind of post it answers, e.g. "Someone ships an impressive AI demo") and "text" (the reply, 2-4 sentences, adds a genuine engineering/professional-workflow perspective, never salesy).
 
