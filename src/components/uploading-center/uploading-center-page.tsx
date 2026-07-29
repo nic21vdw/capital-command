@@ -37,10 +37,13 @@ import {
   DEFAULT_SLOT_OFFSET_DAYS,
   PLATFORM_LABELS,
   SLOT_WINDOW_DAYS,
+  copyPlatformFor,
   studioContentUrl,
   studioVideoUrl,
+  targetPlatforms,
   useUploadingCenter,
   type ClipDraft,
+  type PlatformTarget,
   type ReadyClip,
   type UploadSuccess,
 } from "@/components/uploading-center/use-uploading-center";
@@ -140,16 +143,17 @@ export function UploadingCenterPage() {
   const onTailorCaption = useCallback(
     async (clip: ReadyClip) => {
       const draft = draftFor(clip);
-      const result = await tailorCaption(clip, draft.platform, draft.title);
+      const result = await tailorCaption(clip, copyPlatformFor(draft.platform), draft.title);
       if (!result) return;
       setDrafts((current) => ({
         ...current,
         [clip.key]: { ...(current[clip.key] ?? draft), caption: result.caption },
       }));
+      const label = draft.platform === "all" ? "all platforms" : draft.platform;
       if (result.bestTime) {
-        toast.success(`Tailored for ${draft.platform}. Best time to post: ~${result.bestTime}.`);
+        toast.success(`Tailored for ${label}. Best time to post: ~${result.bestTime}.`);
       } else {
-        toast.success(`Caption tailored for ${draft.platform}.`);
+        toast.success(`Caption tailored for ${label}.`);
       }
     },
     [draftFor, tailorCaption],
@@ -199,6 +203,13 @@ export function UploadingCenterPage() {
       Boolean(itemAtSlot(platform, slotUtc)) ||
       (platform === "youtube" && channelVideosBySlot.has(slotUtc)),
     [itemAtSlot, channelVideosBySlot],
+  );
+  // A card aimed at "All platforms" needs a slot free on every one of them —
+  // it posts to all four at that time.
+  const isTargetSlotTaken = useCallback(
+    (target: PlatformTarget, slotUtc: string) =>
+      targetPlatforms(target).some((platform) => isSlotTaken(platform, slotUtc)),
+    [isSlotTaken],
   );
 
   // Placement mode: the editor's Schedule Short button lands here with
@@ -352,17 +363,18 @@ export function UploadingCenterPage() {
     for (const clip of readyClips) {
       if (itemsForClip(clip).length > 0) continue;
       const draft = draftFor(clip);
+      const platforms = targetPlatforms(draft.platform);
       const slot = slots.find(
         (candidate) =>
           !candidate.past &&
-          !consumed.has(`${draft.platform}:${candidate.utc}`) &&
-          !isSlotTaken(draft.platform, candidate.utc),
+          !platforms.some((platform) => consumed.has(`${platform}:${candidate.utc}`)) &&
+          !isTargetSlotTaken(draft.platform, candidate.utc),
       );
       if (!slot) {
         unslotted += 1;
         continue;
       }
-      consumed.add(`${draft.platform}:${slot.utc}`);
+      for (const platform of platforms) consumed.add(`${platform}:${slot.utc}`);
       assignments.push({ clip, draft: { ...draft, slotUtc: slot.utc } });
     }
     if (assignments.length === 0) {
@@ -379,7 +391,7 @@ export function UploadingCenterPage() {
       );
     }
     void autoAssign(assignments);
-  }, [autoAssign, draftFor, isSlotTaken, itemsForClip, readyClips, slots]);
+  }, [autoAssign, draftFor, isTargetSlotTaken, itemsForClip, readyClips, slots]);
 
   const tabs = PLATFORM_TABS.map(({ id, icon }) => {
     const activeAccount = activeAccountFor(id);
@@ -586,7 +598,7 @@ export function UploadingCenterPage() {
               draftFor={draftFor}
               onDraftChange={onDraftChange}
               onTitleCommit={onTitleCommit}
-              isSlotTaken={isSlotTaken}
+              isSlotTaken={isTargetSlotTaken}
               itemsForClip={itemsForClip}
               busy={busy}
               highlightedKey={placingKey}
