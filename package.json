@@ -16,6 +16,7 @@
     "publish:dry": "tsx src/lib/publisher/cli.ts run-due --dry-run",
     "publish:run": "tsx src/lib/publisher/cli.ts run-due",
     "publish:scheduler": "tsx src/lib/publisher/cli.ts scheduler",
+    "publish:register": "powershell -NoProfile -ExecutionPolicy Bypass -File .\\scripts\\register-publish-task.ps1",
     "publish:list": "tsx src/lib/publisher/cli.ts list",
     "publish:enqueue": "tsx src/lib/publisher/cli.ts enqueue",
     "publish:buffer": "tsx src/lib/publisher/cli.ts buffer sync",
