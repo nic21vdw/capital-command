@@ -84,7 +84,7 @@ function routes(finalStatus: "PUBLISH_COMPLETE" | "SEND_TO_USER_INBOX" = "SEND_T
 }
 
 describe("tiktok adapter", () => {
-  it("uploads to the creator's drafts while unaudited", async () => {
+  it("sends to the creator's TikTok inbox while unaudited", async () => {
     const requests = routes();
     const adapter = await loadAdapter();
 
@@ -101,7 +101,7 @@ describe("tiktok adapter", () => {
     });
 
     // 2. Inbox init: TikTok refuses Direct Post from an unaudited app to a
-    //    public account, so the clip goes to the creator's drafts instead.
+    //    public account, so the clip goes to the creator's inbox instead.
     //    post_info is omitted — the inbox flow rejects it.
     const init = requests[1];
     expect(init.url).toBe("https://open.tiktokapis.com/v2/post/publish/inbox/video/init/");
@@ -128,7 +128,7 @@ describe("tiktok adapter", () => {
 
     expect(result.status).toBe("scheduled");
     expect(result.containerId).toBe("pub-1");
-    expect(result.detail).toMatch(/drafts/i);
+    expect(result.detail).toMatch(/inbox/i);
   });
 
   it("direct-posts with the configured visibility once TIKTOK_AUDITED=true", async () => {

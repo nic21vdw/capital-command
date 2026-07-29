@@ -17,8 +17,8 @@ import type { PlatformAdapter, PostResult, PublishInput, PublishPlan } from "@/l
  * SELF_ONLY is not enough to make posting work before approval.
  *
  * So until TIKTOK_AUDITED is true this adapter uses the INBOX flow instead:
- * the clip is uploaded to the creator's TikTok drafts and they publish it
- * with one tap in the app. Nothing is posted publicly by the API, which is
+ * the clip is sent to the creator's TikTok INBOX and they finish the post
+ * from the notification in the TikTok mobile app. Nothing is posted publicly by the API, which is
  * why TikTok allows it for an unaudited client on a public account. After
  * approval, the same code Direct Posts with the configured visibility — one
  * .env flip, no code change.
@@ -106,7 +106,7 @@ function uploadMode(): "file" | "url" {
   return process.env.TIKTOK_UPLOAD_MODE?.trim().toLowerCase() === "url" ? "url" : "file";
 }
 
-/** Before audit approval the only flow TikTok accepts is the inbox/draft one. */
+/** Before audit approval the only flow TikTok accepts is the inbox one. */
 function inboxFlow(): boolean {
   return !publisherConfig().tiktok.audited;
 }
@@ -206,7 +206,7 @@ async function pollStatus(publishId: string, token: string): Promise<PostResult>
       return {
         status: "scheduled",
         containerId: publishId,
-        detail: "Uploaded to your TikTok drafts — open TikTok and tap to publish."
+        detail: "Sent to your TikTok inbox — open the TikTok app on your phone and tap the notification to finish the post."
       };
     }
     if (data.status === "PUBLISH_COMPLETE") {
@@ -254,7 +254,7 @@ export const tiktokAdapter: PlatformAdapter = {
         "No native scheduling — the runner fires this at the target time.",
         config.tiktok.audited
           ? "App is audited: Direct Post, visibility follows the item setting."
-          : "App not audited yet (TIKTOK_AUDITED unset): uploads to your TikTok drafts instead — TikTok refuses Direct Post from an unaudited app to a public account.",
+          : "App not audited yet (TIKTOK_AUDITED unset): sends the clip to your TikTok inbox instead — TikTok refuses Direct Post from an unaudited app to a public account.",
         uploadMode() === "url" ? "Source: PULL_FROM_URL from hosted media." : "Source: FILE_UPLOAD (direct binary, no hosting needed)."
       ]
     };
