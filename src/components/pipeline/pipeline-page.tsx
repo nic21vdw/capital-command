@@ -72,6 +72,22 @@ const LAUNCHING_STAGES: Record<PipelineStageKey, PipelineStage> = {
   schedule: { status: "waiting", detail: "Waiting for the first output." }
 };
 
+function runStatusLabel(entry: PipelineRunOverview) {
+  if (entry.run.status === "error") return "Needs attention";
+  if (entry.settled) return "Finished";
+  return "Running";
+}
+
+function formatStartedAt(iso: string) {
+  const started = new Date(iso);
+  if (Number.isNaN(started.getTime())) return "Unknown date";
+  const today = new Date();
+  const sameDay = started.toDateString() === today.toDateString();
+  const time = started.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+  if (sameDay) return `Today ${time}`;
+  return `${started.toLocaleDateString(undefined, { month: "short", day: "numeric" })} ${time}`;
+}
+
 function StatusChip({ status }: { status: PipelineStageStatus }) {
   return (
     <span
@@ -401,9 +417,12 @@ export function PipelinePage() {
         if (!response.ok) throw new Error();
         const remaining = overviews.filter((entry) => entry.run.id !== runId);
         setOverviews(remaining);
+        // Removing the run you were reading goes back to the search screen.
+        // Clearing the id alone would silently swap the flow to the NEWEST run,
+        // which reads as "it threw me back to the top of the pipeline".
         if (activeRunId === runId) {
           setActiveRunId(null);
-          if (remaining.length === 0) setShowFlow(false);
+          setShowFlow(false);
         }
         toast.success("Run removed. Its outputs stay in their own tools.");
       } catch {
@@ -413,10 +432,13 @@ export function PipelinePage() {
     [activeRunId, overviews]
   );
 
+  // Opening a run scrolls back to the top of the page, not to the flow: the
+  // picker stays in view, so it is obvious WHICH run is now open.
   const openRun = useCallback((runId: string) => {
     setActiveRunId(runId);
     setPostsOpen(false);
     setShowFlow(true);
+    requestAnimationFrame(() => window.scrollTo({ top: 0, behavior: "smooth" }));
   }, []);
 
   const backToSearch = useCallback(() => {
@@ -465,56 +487,77 @@ export function PipelinePage() {
 
   // The opening screen stays close to bare, so it only offers the handful of
   // most recent runs; the full, scrollable list lives above a running flow.
-  const runChips = (compact = false) => {
-    const listed = compact ? overviews : overviews.slice(0, 4);
+  // Names are shown in FULL and stamped with when the run started — a channel
+  // posts the same series week after week, so four runs can share a title and
+  // a truncated pill leaves nothing to tell them apart by.
+  const runList = (compact = false) => {
+    const listed = compact ? overviews : overviews.slice(0, 6);
     return listed.length === 0 ? null : (
-      <div
-        className={cn(
-          "flex items-center gap-2 pb-1",
-          compact ? "mt-4 overflow-x-auto" : "mt-8 flex-wrap justify-center"
-        )}
-      >
-        {listed.map((entry) => {
-          const isActive = showFlow && entry.run.id === (run?.id ?? "");
-          return (
-            <button
-              key={entry.run.id}
-              type="button"
-              onClick={() => openRun(entry.run.id)}
-              className={cn(
-                "group flex shrink-0 items-center gap-2 rounded-full border px-3 py-1.5 text-xs transition",
-                isActive
-                  ? "border-[var(--accent)] bg-white/8 text-white"
-                  : "border-[var(--border)] text-[var(--muted-foreground)] hover:border-[var(--border-strong)] hover:text-white"
-              )}
-            >
-              <span
+      <div className={compact ? "mt-4" : "mt-8"}>
+        <p className="pb-2 text-[11px] font-medium uppercase tracking-[0.14em] text-[var(--muted-foreground)]">
+          Earlier pipelines
+        </p>
+        <div
+          className={cn(
+            "grid gap-2 sm:grid-cols-2",
+            compact && overviews.length > 4 && "max-h-64 overflow-y-auto pr-1"
+          )}
+        >
+          {listed.map((entry) => {
+            const isActive = showFlow && entry.run.id === (run?.id ?? "");
+            return (
+              <div
+                key={entry.run.id}
                 className={cn(
-                  "h-1.5 w-1.5 rounded-full",
-                  entry.run.status === "error"
-                    ? "bg-red-400"
-                    : entry.settled
-                      ? "bg-emerald-400"
-                      : "bg-sky-400 animate-pulse"
+                  "group flex items-start gap-2 rounded-xl border px-3 py-2 transition",
+                  isActive
+                    ? "border-[var(--accent)] bg-white/8"
+                    : "border-[var(--border)] hover:border-[var(--border-strong)] hover:bg-white/4"
                 )}
-              />
-              <span className="max-w-48 truncate">{entry.run.name}</span>
-              <span
-                role="button"
-                tabIndex={-1}
-                onClick={(event) => {
-                  event.stopPropagation();
-                  void deleteRun(entry.run.id);
-                }}
-                className="hidden text-[var(--muted-foreground)] transition hover:text-red-300 group-hover:block"
-                aria-label="Remove run"
-                title="Remove run"
               >
-                <Trash2 className="h-3 w-3" />
-              </span>
-            </button>
-          );
-        })}
+                <button
+                  type="button"
+                  onClick={() => openRun(entry.run.id)}
+                  className="flex min-w-0 flex-1 items-start gap-2 text-left"
+                  title={`Open ${entry.run.name}`}
+                >
+                  <span
+                    className={cn(
+                      "mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full",
+                      entry.run.status === "error"
+                        ? "bg-red-400"
+                        : entry.settled
+                          ? "bg-emerald-400"
+                          : "bg-sky-400 animate-pulse"
+                    )}
+                  />
+                  <span className="min-w-0 flex-1">
+                    <span
+                      className={cn(
+                        "block break-words text-xs font-medium",
+                        isActive ? "text-white" : "text-white/90"
+                      )}
+                    >
+                      {entry.run.name}
+                    </span>
+                    <span className="mt-0.5 block text-[11px] text-[var(--muted-foreground)]">
+                      {runStatusLabel(entry)} · {formatStartedAt(entry.run.createdAt)}
+                    </span>
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void deleteRun(entry.run.id)}
+                  className="mt-0.5 shrink-0 text-[var(--muted-foreground)] opacity-0 transition hover:text-red-300 focus-visible:opacity-100 group-hover:opacity-100"
+                  aria-label={`Remove ${entry.run.name}`}
+                  title="Remove run"
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                </button>
+              </div>
+            );
+          })}
+        </div>
       </div>
     );
   };
@@ -544,7 +587,7 @@ export function PipelinePage() {
           <p className="mt-3 text-center text-xs text-[var(--muted-foreground)]">
             One stream in — long-form edit, shorts, MP3, carousel, and posts come back out.
           </p>
-          {loaded && runChips()}
+          {loaded && runList()}
         </div>
         {fileInput}
       </div>
@@ -743,7 +786,7 @@ export function PipelinePage() {
             />
           </div>
         </div>
-        {runChips(true)}
+        {runList(true)}
       </div>
 
       <div className="mx-auto mt-6 max-w-3xl">

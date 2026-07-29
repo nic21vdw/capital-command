@@ -12,6 +12,7 @@ import {
   Facebook,
   FileText,
   Images,
+  Instagram,
   Lightbulb,
   Megaphone,
   Mic,
@@ -157,7 +158,7 @@ function Brand({ collapsed = false }: { collapsed?: boolean }) {
 }
 
 /* ------------------------------------------------------------------ */
-/* YouTube channel identity                                            */
+/* Connected publishing accounts                                       */
 /* ------------------------------------------------------------------ */
 
 type ChannelSummary = {
@@ -168,10 +169,16 @@ type ChannelSummary = {
   extraConnected: number;
 };
 
-type ChannelCardState =
-  | { status: "loading" }
-  | { status: "connected"; channel: ChannelSummary }
-  | { status: "disconnected" };
+/** Every platform the app can publish as, and whether it is signed in. */
+type Connections = {
+  loaded: boolean;
+  /** The YouTube channel this whole pipeline publishes as, when signed in. */
+  channel: ChannelSummary | null;
+  instagram: number;
+  facebook: number;
+  tiktok: { title: string; thumbnail: string | null } | null;
+  tiktokAccounts: number;
+};
 
 type AccountRow = {
   id: string;
@@ -179,41 +186,58 @@ type AccountRow = {
   primary: boolean;
   connected: boolean;
   youtube: { title: string; thumbnail: string | null } | null;
+  tiktok?: { title: string; thumbnail: string | null } | null;
 };
 
-const CHANNEL_CACHE_KEY = "capital-command:youtube-channel";
+const CHANNEL_CACHE_KEY = "capital-command:connected-accounts";
 const CHANNEL_CACHE_TTL_MS = 60_000;
 
-function summarize(accounts: AccountRow[]): ChannelCardState {
-  const connected = accounts.filter((account) => account.platform === "youtube" && account.connected && account.youtube);
-  if (connected.length === 0) return { status: "disconnected" };
+const EMPTY_CONNECTIONS: Connections = {
+  loaded: false,
+  channel: null,
+  instagram: 0,
+  facebook: 0,
+  tiktok: null,
+  tiktokAccounts: 0
+};
+
+function connectedOn(accounts: AccountRow[], platform: string) {
+  return accounts.filter((account) => account.platform === platform && account.connected);
+}
+
+function summarize(accounts: AccountRow[]): Connections {
+  const youtube = connectedOn(accounts, "youtube").filter((account) => account.youtube);
   // The primary channel is the face of the app; any primary-connected account
   // wins, otherwise the first connected one does.
-  const lead = connected.find((account) => account.primary) ?? connected[0];
+  const lead = youtube.find((account) => account.primary) ?? youtube[0];
+  const tiktok = connectedOn(accounts, "tiktok");
+  const tiktokProfile = tiktok.find((account) => account.tiktok)?.tiktok ?? null;
   return {
-    status: "connected",
-    channel: {
-      title: lead.youtube!.title,
-      thumbnail: lead.youtube!.thumbnail,
-      extraConnected: connected.length - 1
-    }
+    loaded: true,
+    channel: lead
+      ? { title: lead.youtube!.title, thumbnail: lead.youtube!.thumbnail, extraConnected: youtube.length - 1 }
+      : null,
+    instagram: connectedOn(accounts, "instagram").length,
+    facebook: connectedOn(accounts, "facebook").length,
+    tiktok: tiktokProfile,
+    tiktokAccounts: tiktok.length
   };
 }
 
 /**
- * The signed-in YouTube channel, resolved through the local backend (tokens
- * never reach the browser). Cached briefly in sessionStorage so page-to-page
- * navigation doesn't flash the loading state or refetch every time.
+ * Which publishing accounts are signed in, resolved through the local backend
+ * (tokens never reach the browser). Cached briefly in sessionStorage so
+ * page-to-page navigation doesn't flash the loading state or refetch every time.
  */
-function useYoutubeChannel(): ChannelCardState {
-  const [state, setState] = useState<ChannelCardState>({ status: "loading" });
+function useConnections(): Connections {
+  const [state, setState] = useState<Connections>(EMPTY_CONNECTIONS);
 
   useEffect(() => {
     try {
       const raw = window.sessionStorage.getItem(CHANNEL_CACHE_KEY);
       if (raw) {
-        const cached = JSON.parse(raw) as { at: number; state: ChannelCardState };
-        if (Date.now() - cached.at < CHANNEL_CACHE_TTL_MS && cached.state.status !== "loading") {
+        const cached = JSON.parse(raw) as { at: number; state: Connections };
+        if (Date.now() - cached.at < CHANNEL_CACHE_TTL_MS && cached.state?.loaded) {
           // Deferred like the sidebar-collapse read: a synchronous setState
           // inside an effect body triggers a cascading re-render lint error.
           queueMicrotask(() => setState(cached.state));
@@ -236,7 +260,9 @@ function useYoutubeChannel(): ChannelCardState {
         }
       })
       .catch((error) => {
-        if (!(error instanceof DOMException && error.name === "AbortError")) setState({ status: "disconnected" });
+        if (!(error instanceof DOMException && error.name === "AbortError")) {
+          setState({ ...EMPTY_CONNECTIONS, loaded: true });
+        }
       });
     return () => controller.abort();
   }, []);
@@ -269,9 +295,9 @@ function ChannelAvatar({ channel, className }: { channel: ChannelSummary; classN
  * not connected → a sign-in call to action straight into Google OAuth.
  */
 function ChannelCard({ collapsed = false }: { collapsed?: boolean }) {
-  const state = useYoutubeChannel();
+  const state = useConnections();
 
-  if (state.status === "loading") {
+  if (!state.loaded) {
     return (
       <div
         className={cn(
@@ -288,47 +314,123 @@ function ChannelCard({ collapsed = false }: { collapsed?: boolean }) {
     );
   }
 
-  if (state.status === "connected") {
-    const { channel } = state;
-    return (
-      <Link
-        href="/uploading-center"
-        title={collapsed ? `${channel.title} — YouTube` : "Manage channel accounts in the Uploading Center"}
-        className={cn(
-          "group flex items-center gap-3 rounded-xl border border-[var(--border)] bg-gradient-to-br from-white/[0.06] to-transparent px-3 py-2.5 transition hover:border-[var(--border-strong)] hover:from-white/[0.09]",
-          collapsed && "justify-center px-2"
-        )}
-      >
-        <ChannelAvatar channel={channel} className="h-9 w-9" />
-        <span className={cn("flex min-w-0 flex-1 flex-col leading-tight", collapsed && "hidden")}>
-          <span className="truncate text-sm font-semibold text-white">{channel.title}</span>
-          <span className="flex items-center gap-1.5 text-xs text-[var(--muted-foreground)]">
-            <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
-            YouTube · Signed in
-            {channel.extraConnected > 0 ? ` · +${channel.extraConnected}` : ""}
+  const channel = state.channel;
+  return (
+    <div className="space-y-2">
+      {channel ? (
+        <Link
+          href="/uploading-center"
+          title={collapsed ? `${channel.title} — YouTube` : "Manage channel accounts in the Uploading Center"}
+          className={cn(
+            "group flex items-center gap-3 rounded-xl border border-[var(--border)] bg-gradient-to-br from-white/[0.06] to-transparent px-3 py-2.5 transition hover:border-[var(--border-strong)] hover:from-white/[0.09]",
+            collapsed && "justify-center px-2"
+          )}
+        >
+          <ChannelAvatar channel={channel} className="h-9 w-9" />
+          <span className={cn("flex min-w-0 flex-1 flex-col leading-tight", collapsed && "hidden")}>
+            <span className="truncate text-sm font-semibold text-white">{channel.title}</span>
+            <span className="flex items-center gap-1.5 text-xs text-[var(--muted-foreground)]">
+              <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
+              YouTube · Signed in
+              {channel.extraConnected > 0 ? ` · +${channel.extraConnected}` : ""}
+            </span>
           </span>
-        </span>
-      </Link>
-    );
-  }
+        </Link>
+      ) : (
+        <a
+          href="/api/auth/google"
+          title={collapsed ? "Sign in with YouTube" : undefined}
+          className={cn(
+            "group flex items-center gap-3 rounded-xl border border-dashed border-[var(--border-strong)] px-3 py-2.5 transition hover:border-[#ff0000]/60 hover:bg-white/[0.04]",
+            collapsed && "justify-center px-2"
+          )}
+        >
+          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[#ff0000]/15 text-[#ff4d4d] transition group-hover:bg-[#ff0000]/25">
+            <Youtube className="h-4.5 w-4.5" />
+          </span>
+          <span className={cn("flex min-w-0 flex-1 flex-col leading-tight", collapsed && "hidden")}>
+            <span className="text-sm font-semibold text-white">Sign in with YouTube</span>
+            <span className="text-xs text-[var(--muted-foreground)]">Connect your channel to publish</span>
+          </span>
+        </a>
+      )}
+      <ConnectionRows state={state} collapsed={collapsed} />
+    </div>
+  );
+}
+
+/**
+ * The other places a stream goes out. YouTube gets the card above because the
+ * app publishes as that channel; Meta (Instagram + Facebook) and TikTok get a
+ * line each so it is obvious at a glance which of them can actually post
+ * without a person in the loop.
+ */
+function ConnectionRows({ state, collapsed }: { state: Connections; collapsed: boolean }) {
+  const meta = state.instagram + state.facebook;
+  const metaDetail = [
+    state.instagram > 0 ? "Instagram" : null,
+    state.facebook > 0 ? "Facebook" : null
+  ].filter(Boolean).join(" · ");
+
+  const rows = [
+    {
+      key: "meta",
+      icon: Instagram,
+      label: "Meta",
+      tint: "text-[#e1306c]",
+      background: "bg-[#e1306c]/15",
+      connected: meta > 0,
+      detail: meta > 0 ? `${metaDetail} · Signed in` : "Not connected"
+    },
+    {
+      key: "tiktok",
+      icon: Music4,
+      label: state.tiktok?.title ?? "TikTok",
+      tint: "text-[#25f4ee]",
+      background: "bg-[#25f4ee]/12",
+      connected: state.tiktokAccounts > 0,
+      detail: state.tiktokAccounts > 0 ? "TikTok · Signed in" : "Not connected"
+    }
+  ];
 
   return (
-    <a
-      href="/api/auth/google"
-      title={collapsed ? "Sign in with YouTube" : undefined}
-      className={cn(
-        "group flex items-center gap-3 rounded-xl border border-dashed border-[var(--border-strong)] px-3 py-2.5 transition hover:border-[#ff0000]/60 hover:bg-white/[0.04]",
-        collapsed && "justify-center px-2"
-      )}
-    >
-      <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[#ff0000]/15 text-[#ff4d4d] transition group-hover:bg-[#ff0000]/25">
-        <Youtube className="h-4.5 w-4.5" />
-      </span>
-      <span className={cn("flex min-w-0 flex-1 flex-col leading-tight", collapsed && "hidden")}>
-        <span className="text-sm font-semibold text-white">Sign in with YouTube</span>
-        <span className="text-xs text-[var(--muted-foreground)]">Connect your channel to publish</span>
-      </span>
-    </a>
+    <div className={cn("flex gap-1.5", collapsed ? "flex-col items-center" : "flex-col")}>
+      {rows.map((row) => {
+        const Icon = row.icon;
+        return (
+          <Link
+            key={row.key}
+            href="/uploading-center"
+            title={`${row.label} — ${row.detail}`}
+            className={cn(
+              "flex items-center gap-2.5 rounded-lg border px-2.5 py-1.5 transition hover:border-[var(--border-strong)] hover:bg-white/[0.04]",
+              row.connected ? "border-[var(--border)]" : "border-dashed border-[var(--border)]",
+              collapsed && "justify-center px-2"
+            )}
+          >
+            <span
+              className={cn(
+                "relative flex h-6 w-6 shrink-0 items-center justify-center rounded-full",
+                row.background,
+                row.tint,
+                !row.connected && "opacity-50"
+              )}
+            >
+              <Icon className="h-3.5 w-3.5" />
+              {collapsed && row.connected && (
+                <span className="absolute -bottom-0.5 -right-0.5 h-2 w-2 rounded-full border border-[var(--panel)] bg-emerald-400" />
+              )}
+            </span>
+            <span className={cn("flex min-w-0 flex-1 items-center gap-1.5 leading-tight", collapsed && "hidden")}>
+              <span className={cn("h-1.5 w-1.5 shrink-0 rounded-full", row.connected ? "bg-emerald-400" : "bg-white/20")} />
+              <span className="truncate text-xs text-[var(--muted-foreground)]">
+                {row.connected ? row.detail : `${row.label} · not connected`}
+              </span>
+            </span>
+          </Link>
+        );
+      })}
+    </div>
   );
 }
 
@@ -623,27 +725,54 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   );
 }
 
-/** The channel identity, shrunk to an avatar chip for the mobile top bar. */
+/** The connected accounts, shrunk to avatar chips for the mobile top bar. */
 function MobileChannelChip() {
-  const state = useYoutubeChannel();
-  if (state.status === "connected") {
-    return (
-      <Link href="/uploading-center" aria-label={`${state.channel.title} — YouTube`} title={state.channel.title}>
-        <ChannelAvatar channel={state.channel} className="h-9 w-9" />
-      </Link>
-    );
-  }
-  if (state.status === "disconnected") {
-    return (
-      <a
-        href="/api/auth/google"
-        aria-label="Sign in with YouTube"
-        title="Sign in with YouTube"
-        className="flex h-9 w-9 items-center justify-center rounded-full bg-[#ff0000]/15 text-[#ff4d4d] transition hover:bg-[#ff0000]/25"
-      >
-        <Youtube className="h-4 w-4" />
-      </a>
-    );
-  }
-  return <span className="h-9 w-9 animate-pulse rounded-full bg-white/10" />;
+  const state = useConnections();
+  if (!state.loaded) return <span className="h-9 w-9 animate-pulse rounded-full bg-white/10" />;
+
+  const others = [
+    state.instagram + state.facebook > 0
+      ? { key: "meta", icon: Instagram, tint: "text-[#e1306c]", background: "bg-[#e1306c]/15", label: "Meta connected" }
+      : null,
+    state.tiktokAccounts > 0
+      ? { key: "tiktok", icon: Music4, tint: "text-[#25f4ee]", background: "bg-[#25f4ee]/12", label: "TikTok connected" }
+      : null
+  ].filter(Boolean) as Array<{ key: string; icon: LucideIcon; tint: string; background: string; label: string }>;
+
+  return (
+    <span className="flex items-center gap-1.5">
+      {state.channel ? (
+        <Link
+          href="/uploading-center"
+          aria-label={`${state.channel.title} — YouTube`}
+          title={state.channel.title}
+        >
+          <ChannelAvatar channel={state.channel} className="h-9 w-9" />
+        </Link>
+      ) : (
+        <a
+          href="/api/auth/google"
+          aria-label="Sign in with YouTube"
+          title="Sign in with YouTube"
+          className="flex h-9 w-9 items-center justify-center rounded-full bg-[#ff0000]/15 text-[#ff4d4d] transition hover:bg-[#ff0000]/25"
+        >
+          <Youtube className="h-4 w-4" />
+        </a>
+      )}
+      {others.map((entry) => {
+        const Icon = entry.icon;
+        return (
+          <Link
+            key={entry.key}
+            href="/uploading-center"
+            aria-label={entry.label}
+            title={entry.label}
+            className={cn("flex h-7 w-7 items-center justify-center rounded-full", entry.background, entry.tint)}
+          >
+            <Icon className="h-3.5 w-3.5" />
+          </Link>
+        );
+      })}
+    </span>
+  );
 }
