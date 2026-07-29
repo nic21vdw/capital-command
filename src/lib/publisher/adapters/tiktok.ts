@@ -11,10 +11,17 @@ import type { PlatformAdapter, PostResult, PublishInput, PublishPlan } from "@/l
  *
  * No native scheduling exists, so the runner calls this at the target time.
  *
- * Audit gate: until the TikTok app passes audit, posts from it can only be
- * SELF_ONLY (visible to the account owner). This adapter forces SELF_ONLY
- * whenever TIKTOK_AUDITED is not true, so the same code works in sandbox
- * today and goes public with a single .env flip after approval.
+ * Audit gate. TikTok refuses Direct Post from an unaudited client outright
+ * unless the target account is itself private —
+ * "unaudited_client_can_only_post_to_private_accounts" — so forcing
+ * SELF_ONLY is not enough to make posting work before approval.
+ *
+ * So until TIKTOK_AUDITED is true this adapter uses the INBOX flow instead:
+ * the clip is uploaded to the creator's TikTok drafts and they publish it
+ * with one tap in the app. Nothing is posted publicly by the API, which is
+ * why TikTok allows it for an unaudited client on a public account. After
+ * approval, the same code Direct Posts with the configured visibility — one
+ * .env flip, no code change.
  *
  * Primary source is FILE_UPLOAD (direct binary upload — no hosting needed);
  * PULL_FROM_URL is available via TIKTOK_UPLOAD_MODE=url and requires the
@@ -99,29 +106,47 @@ function uploadMode(): "file" | "url" {
   return process.env.TIKTOK_UPLOAD_MODE?.trim().toLowerCase() === "url" ? "url" : "file";
 }
 
+/** Before audit approval the only flow TikTok accepts is the inbox/draft one. */
+function inboxFlow(): boolean {
+  return !publisherConfig().tiktok.audited;
+}
+
+function initEndpoint(): string {
+  return inboxFlow() ? `${API_BASE}/post/publish/inbox/video/init/` : `${API_BASE}/post/publish/video/init/`;
+}
+
+type SourceInfo =
+  | { source: "FILE_UPLOAD"; video_size: number; chunk_size: number; total_chunk_count: number }
+  | { source: "PULL_FROM_URL"; video_url: string };
+
 type InitBody = {
-  post_info: {
+  /**
+   * Only Direct Post carries post_info — the inbox flow has no title or
+   * privacy of its own, because the creator writes those in the TikTok app
+   * before they publish. Sending it there is rejected.
+   */
+  post_info?: {
     title: string;
     privacy_level: string;
     disable_duet: boolean;
     disable_comment: boolean;
     disable_stitch: boolean;
   };
-  source_info:
-    | { source: "FILE_UPLOAD"; video_size: number; chunk_size: number; total_chunk_count: number }
-    | { source: "PULL_FROM_URL"; video_url: string };
+  source_info: SourceInfo;
 };
 
 function buildInitBody(input: PublishInput, size: number): InitBody {
   const caption = composeCaption(input.item).slice(0, 2200);
-  const post_info = {
-    // TikTok has no separate description field; hashtags go in the title text.
-    title: caption,
-    privacy_level: privacyLevel(input),
-    disable_duet: false,
-    disable_comment: false,
-    disable_stitch: false
-  };
+  const post_info = inboxFlow()
+    ? undefined
+    : {
+        // TikTok has no separate description field; hashtags go in the title text.
+        title: caption,
+        privacy_level: privacyLevel(input),
+        disable_duet: false,
+        disable_comment: false,
+        disable_stitch: false
+      };
   if (uploadMode() === "url") {
     if (!input.publicUrl) {
       throw new PermanentError("TIKTOK_UPLOAD_MODE=url needs hosted media — configure the S3_* variables, or switch back to file mode.");
@@ -174,6 +199,16 @@ async function pollStatus(publishId: string, token: string): Promise<PostResult>
       }
     );
     const data = assertOk(payload, "TikTok status fetch");
+    // Inbox flow: TikTok has the clip and it is waiting in the creator's
+    // drafts. Nothing else happens over the API — the last step is a tap in
+    // the TikTok app — so this is terminal, not something to keep polling.
+    if (data.status === "SEND_TO_USER_INBOX") {
+      return {
+        status: "scheduled",
+        containerId: publishId,
+        detail: "Uploaded to your TikTok drafts — open TikTok and tap to publish."
+      };
+    }
     if (data.status === "PUBLISH_COMPLETE") {
       // VERIFY: the post id field is spelled "publicaly_available_post_id" in
       // the official status-fetch reference (sic).
@@ -211,15 +246,15 @@ export const tiktokAdapter: PlatformAdapter = {
     const body = buildInitBody(input, 0);
     return {
       platform: "tiktok",
-      endpoint: `${API_BASE}/post/publish/video/init/`,
+      endpoint: initEndpoint(),
       payload: { ...body },
       publishAtUtc: toRfc3339Utc(publishAt),
       publishAtLocal: formatInTimezone(publishAt, config.timezone),
       notes: [
         "No native scheduling — the runner fires this at the target time.",
         config.tiktok.audited
-          ? "App is audited: visibility follows the item setting."
-          : "App not audited yet (TIKTOK_AUDITED unset): forced to SELF_ONLY sandbox posting.",
+          ? "App is audited: Direct Post, visibility follows the item setting."
+          : "App not audited yet (TIKTOK_AUDITED unset): uploads to your TikTok drafts instead — TikTok refuses Direct Post from an unaudited app to a public account.",
         uploadMode() === "url" ? "Source: PULL_FROM_URL from hosted media." : "Source: FILE_UPLOAD (direct binary, no hosting needed)."
       ]
     };
@@ -234,7 +269,7 @@ export const tiktokAdapter: PlatformAdapter = {
 
     const size = (await stat(input.localPath)).size;
     const initPayload = await fetchJson<TiktokEnvelope<{ publish_id?: string; upload_url?: string }>>(
-      `${API_BASE}/post/publish/video/init/`,
+      initEndpoint(),
       {
         label: "TikTok publish init",
         headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json; charset=UTF-8" },
