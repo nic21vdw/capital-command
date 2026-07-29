@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState, type ComponentType, type CSSProperties } 
 import Link from "next/link";
 import {
   ArrowUpRight,
+  AtSign,
   CalendarDays,
   ChevronLeft,
   ChevronRight,
@@ -33,25 +34,21 @@ import { cn } from "@/lib/utils";
 /** Icon components accept the same className/style lucide icons do. */
 type IconComponent = ComponentType<{ className?: string; style?: CSSProperties }>;
 
-/** The X (formerly Twitter) wordmark — lucide has no reliable X/Threads logo. */
-function XLogo({ className, style }: { className?: string; style?: CSSProperties }) {
-  return (
-    <svg viewBox="0 0 24 24" className={className} style={style} fill="currentColor" aria-hidden="true">
-      <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24h-6.66l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z" />
-    </svg>
-  );
+/** The Threads @ mark — lucide has no Threads logo, and @ is what the app uses. */
+function ThreadsLogo({ className, style }: { className?: string; style?: CSSProperties }) {
+  return <AtSign className={className} style={style} aria-hidden="true" />;
 }
 
 /**
  * Each calendar source's platform logo, tinted with its source colour so the
- * calendar reads by brand (YouTube, Instagram, X, Facebook) instead of by an
+ * calendar reads by brand (YouTube, Instagram, Threads, Facebook) instead of by an
  * anonymous coloured dot. Long-form has no single social logo, so it uses a
  * clapperboard to stand in for tracked video content.
  */
 const SOURCE_ICONS: Record<CalendarSourceId, IconComponent> = {
   shorts: Youtube,
   carousels: Instagram,
-  x: XLogo,
+  x: ThreadsLogo,
   fb: Facebook,
   content: Clapperboard
 };
@@ -77,7 +74,7 @@ function groupBySource(events: MasterCalendarEvent[]): { source: CalendarSource;
 
 /**
  * Master Calendar: every distribution surface — scheduled shorts, carousel
- * schedules, X/Threads packs, FB/IG thread posts, dated long-form content —
+ * schedules, Threads packs, FB/IG thread posts, dated long-form content —
  * on one day/week/month calendar. Events are aggregated server-side by
  * /api/master-calendar; each one links back to the calendar that owns it.
  */
@@ -141,7 +138,7 @@ function EventChip({ event }: { event: MasterCalendarEvent }) {
 }
 
 /**
- * A source's events for one day collapsed to a count (e.g. "24 X / Threads"),
+ * A source's events for one day collapsed to a count (e.g. "24 Threads"),
  * expandable in place. The whole point of batch-scheduling is to see at a
  * glance whether the day's pack is ready — not to scroll a 24-item list — so
  * groups of 2+ collapse; a lone event renders inline as its own chip.
@@ -360,7 +357,7 @@ export function MasterCalendarPage() {
       <PageHeader
         eyebrow="Step 4 · Calendar"
         title="Master Calendar"
-        description="Every distribution calendar in one place: scheduled shorts uploads, carousel schedules, X/Threads packs, FB/IG thread posts and dated long-form content — what goes out where, and when."
+        description="Every distribution calendar in one place: scheduled shorts uploads, carousel schedules, Threads packs, FB/IG thread posts and dated long-form content — what goes out where, and when."
       />
 
       {/* Source legend: toggle a source's visibility, or jump into its calendar. */}
@@ -671,7 +668,7 @@ export function MasterCalendarPage() {
             </Link>
             , generate an{" "}
             <Link href="/x-posts" className="text-[var(--accent)] hover:underline">
-              X/Threads pack
+              Threads pack
             </Link>{" "}
             or draft{" "}
             <Link href="/facebook" className="text-[var(--accent)] hover:underline">

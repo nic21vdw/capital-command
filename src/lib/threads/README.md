@@ -3,8 +3,8 @@
 One batch of posts a day, written and sent without anyone opening the app.
 
 This replaces the old routine — generate 24 posts, then schedule and upload
-them by hand through a browser agent. The pack is the same one the X/Threads
-Post Engine writes; the difference is that it now lands on a queue and posts
+them by hand through a browser agent. The pack is the same one the Threads
+Engine page writes; the difference is that it now lands on a queue and posts
 itself.
 
 ## The loop

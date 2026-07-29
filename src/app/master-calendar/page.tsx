@@ -4,7 +4,7 @@ import { MasterCalendarPage } from "@/components/master-calendar/master-calendar
 export const metadata = {
   title: "Master Calendar | Nic Vandewetering",
   description:
-    "Every distribution calendar in one place: scheduled shorts, carousels, X/Threads packs, FB/IG threads and long-form content by day, week or month."
+    "Every distribution calendar in one place: scheduled shorts, carousels, Threads packs, FB/IG threads and long-form content by day, week or month."
 };
 
 export default function Page() {

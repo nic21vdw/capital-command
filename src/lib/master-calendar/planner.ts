@@ -19,7 +19,7 @@ const WEEKDAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
 /** Cadence the planner aims for; also stated to the model. */
 const GOAL_TEXT =
-  "Cadence goal: at least one short-form clip (Shorts/Reels/TikTok) every weekday, a long-form video most weeks, and keep the X/Threads packs flowing. Weekends are optional.";
+  "Cadence goal: at least one short-form clip (Shorts/Reels/TikTok) every weekday, a long-form video most weeks, and keep the Threads packs flowing. Weekends are optional.";
 
 export type CalendarPlanKind = "short" | "longform" | "post";
 

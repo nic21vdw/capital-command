@@ -2,7 +2,6 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  AtSign,
   BookOpen,
   CalendarClock,
   Check,
@@ -59,6 +58,9 @@ interface AutopilotActionResponse {
   run?: { published: number; skipped: number; note?: string };
   moved?: number;
 }
+
+/** Threads' own limit — the only one that matters here. */
+const THREADS_LIMIT = 500;
 
 const FORMAT_STYLES: Record<XPostFormat, string> = {
   insight: "border-sky-400/30 bg-sky-400/10 text-sky-200",
@@ -193,8 +195,8 @@ export function XPostsPage() {
     <div>
       <PageHeader
         eyebrow="Step 2 · Formats"
-        title="Post Engine"
-        description="Two buttons: Generate 24 writes a fresh day of posts against your positioning brief, and Schedule from now puts them on the Threads queue starting the moment you press it. Everything after that posts itself."
+        title="Threads Engine"
+        description="Two buttons: Generate 24 writes a fresh day of Threads posts against your positioning brief, and Schedule from now puts them on the queue starting the moment you press it. Everything after that posts itself."
         actions={
           <div className="flex flex-wrap items-center gap-2">
             <Button onClick={() => generate(true)} disabled={generating || autopilot.busy !== null} className="shrink-0">
@@ -241,8 +243,8 @@ export function XPostsPage() {
               },
               {
                 id: "export",
-                label: "Schedule / export",
-                icon: CalendarClock,
+                label: "Export",
+                icon: Download,
                 content: <ExportTab pack={activePack} now={now} />
               },
               {
@@ -747,10 +749,9 @@ function ScheduleTab({ posts }: { posts: XSuggestedPost[] }) {
 
 function PostCard({ post }: { post: XSuggestedPost }) {
   const { copiedId, copy } = useCopy();
-  const [showThreads, setShowThreads] = useState(false);
-  const text = showThreads ? post.threadsVariant : post.text;
-  const overLimit = !showThreads && post.text.length > 280;
-  const nearLimit = !showThreads && post.text.length > 260;
+  const text = post.threadsVariant;
+  const overLimit = text.length > THREADS_LIMIT;
+  const nearLimit = text.length > THREADS_LIMIT - 40;
 
   return (
     <div className="flex gap-4">
@@ -778,51 +779,23 @@ function PostCard({ post }: { post: XSuggestedPost }) {
 
         <p className="whitespace-pre-wrap text-sm leading-relaxed text-white/90">{text}</p>
 
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <div className="flex items-center gap-1 rounded-lg bg-white/5 p-0.5">
-            <button
-              type="button"
-              onClick={() => setShowThreads(false)}
-              className={cn(
-                "flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs transition",
-                !showThreads ? "bg-white/10 font-medium text-white" : "text-[var(--muted-foreground)] hover:text-white"
-              )}
-            >
-              <AtSign className="h-3 w-3" /> X
-            </button>
-            <button
-              type="button"
-              onClick={() => setShowThreads(true)}
-              className={cn(
-                "flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs transition",
-                showThreads ? "bg-white/10 font-medium text-white" : "text-[var(--muted-foreground)] hover:text-white"
-              )}
-            >
-              <MessageSquare className="h-3 w-3" /> Threads
-            </button>
-          </div>
-          <div className="flex items-center gap-3">
-            <span
-              className={cn(
-                "text-xs tabular-nums",
-                overLimit ? "text-rose-300" : nearLimit ? "text-amber-300" : "text-[var(--muted-foreground)]"
-              )}
-            >
-              {text.length} chars
-            </span>
-            <Button
-              variant="secondary"
-              className="px-3 py-1.5 text-xs"
-              onClick={() => copy(`${post.id}:${showThreads ? "threads" : "x"}`, text)}
-            >
-              {copiedId === `${post.id}:${showThreads ? "threads" : "x"}` ? (
-                <Check className="mr-1.5 h-3.5 w-3.5" />
-              ) : (
-                <Copy className="mr-1.5 h-3.5 w-3.5" />
-              )}
-              Copy
-            </Button>
-          </div>
+        <div className="flex flex-wrap items-center justify-end gap-3">
+          <span
+            className={cn(
+              "text-xs tabular-nums",
+              overLimit ? "text-rose-300" : nearLimit ? "text-amber-300" : "text-[var(--muted-foreground)]"
+            )}
+          >
+            {text.length}/{THREADS_LIMIT}
+          </span>
+          <Button variant="secondary" className="px-3 py-1.5 text-xs" onClick={() => copy(post.id, text)}>
+            {copiedId === post.id ? (
+              <Check className="mr-1.5 h-3.5 w-3.5" />
+            ) : (
+              <Copy className="mr-1.5 h-3.5 w-3.5" />
+            )}
+            Copy
+          </Button>
         </div>
       </Card>
     </div>
@@ -869,12 +842,12 @@ function ExportTab({ pack, now }: { pack: XDailyPack; now: number }) {
       <Card className="space-y-2">
         <div className="flex items-center gap-2 text-white">
           <CalendarClock className="h-4 w-4 text-[var(--accent)]" />
-          <h3 className="font-semibold">Threads-ready schedule export</h3>
+          <h3 className="font-semibold">Schedule export</h3>
         </div>
         <p className="text-sm text-[var(--muted-foreground)]">
-          All {pack.posts.length} posts as their <span className="text-white/90">Threads variants</span> (never the X
-          text), each paired with an absolute datetime built from {pack.date} plus the suggested time — ready to feed a
-          scheduler. Regenerate first if this batch isn&apos;t fresh: it was generated {relativeFrom(pack.createdAt, now)}.
+          A copy for outside the app: all {pack.posts.length} posts, each paired with an absolute datetime built from{" "}
+          {pack.date} plus its suggested time. The autopilot doesn&apos;t need this — it&apos;s here for a spreadsheet or
+          another tool. Regenerate first if this batch isn&apos;t fresh: it was generated {relativeFrom(pack.createdAt, now)}.
         </p>
       </Card>
 
@@ -952,19 +925,19 @@ function RepliesTab({ replies }: { replies: XSuggestedReply[] }) {
 const GUARDRAILS: Array<{ title: string; body: string }> = [
   {
     title: "Human cadence, not clockwork",
-    body: "Suggested times carry a few minutes of daily jitter on the ~2-hour rhythm. Posting exactly on the hour, every hour, every day is a classic automation fingerprint — drift a little, skip a slot when life happens."
+    body: "Slot times carry a few minutes of daily jitter, and each account posts on its own offset. Posting exactly on the hour, every hour, every day is a classic automation fingerprint — drift a little, skip a slot when life happens."
   },
   {
-    title: "Post from the app, by hand",
-    body: "Copy from here and post manually. The pack gives you 24 distinct posts to choose from — you don't have to post them all. Genuinely distinct posts published by a human are fine; it's identical, machine-timed content that trips spam systems."
+    title: "A missed slot is skipped, never fired late",
+    body: "If the machine was asleep all morning, those posts are dropped rather than dumped into the feed on waking. Fourteen posts landing in one minute is the single most obvious spam signal there is."
   },
   {
-    title: "Never cross-post identical text",
-    body: "Every post ships with a reworded Threads variant. Duplicate content across (and within) platforms is a downranking signal on both — always use the variant, never the same words twice."
+    title: "Two accounts never post the same words",
+    body: "Each day's ideas are written twice — a punchy version and a warmer rewrite — and each connected account is assigned one of them. Identical wording across two feeds reads as mirrored spam and gets both downranked."
   },
   {
     title: "Mix broadcasting with conversation",
-    body: "Pure broadcast accounts get throttled. Use the reply bank between posting slots — a healthy ratio is roughly 2 replies for every original post you actually publish, which is what the 20-reply bank is for."
+    body: "Pure broadcast accounts get throttled. Use the reply bank between posting slots — a healthy ratio is roughly 2 replies for every original post that goes out, which is what the 20-reply bank is for."
   },
   {
     title: "No hashtags, no bait, few links",
@@ -993,11 +966,11 @@ function PlaybookTab() {
           <h3 className="font-semibold">The daily system</h3>
         </div>
         <ol className="list-decimal space-y-2 pl-5 text-sm text-[var(--muted-foreground)]">
-          <li>Hit Generate whenever you want fresh material: 24 originals + 20 replies, written against your positioning brief.</li>
-          <li>Post at (or near) the suggested times, or cherry-pick your favourites — the pack is a menu, not a quota.</li>
+          <li>Generate 24 — a fresh day of posts plus 20 replies, written against your positioning brief.</li>
+          <li>Schedule from now — the batch goes on the queue starting at the press and posts itself from there.</li>
+          <li>Left alone, the scheduled tick does both of those on its own each morning; the buttons are for taking over.</li>
           <li>Between posts, spend a few minutes scrolling and spend 2-3 replies from the bank, adapted to the actual post.</li>
-          <li>Use the X text on X and the Threads variant on Threads, never the same wording on both.</li>
-          <li>Every regeneration avoids the angles from your recent packs. Nothing you do here is logged or tracked.</li>
+          <li>Every regeneration avoids the angles from your recent packs.</li>
         </ol>
         <p className="text-xs text-[var(--muted-foreground)]">
           The voice, angles, and rules come from your positioning brief in Reply Studio settings — edit it there and every
@@ -1023,9 +996,9 @@ function PlaybookTab() {
       <Card className="space-y-2">
         <h3 className="font-semibold text-white">On your phone</h3>
         <p className="text-sm text-[var(--muted-foreground)]">
-          A daily Claude routine delivers the same brief-driven pack to the Claude app each morning, so you can copy posts
-          straight from your phone when you&apos;re away from the dashboard. Manage it from Claude&apos;s routines
-          (&quot;Daily X/Threads content pack&quot;).
+          A daily Claude routine delivers the same brief-driven pack to the Claude app each morning, so you can read the
+          day&apos;s posts from your phone when you&apos;re away from the dashboard. Manage it from Claude&apos;s routines
+          (&quot;Daily Threads content pack&quot;).
         </p>
       </Card>
     </div>
