@@ -104,8 +104,14 @@ export type ThreadsPlanResult = {
   date: string;
   /** How many queue items the plan added (one per slot per account). */
   created: number;
-  /** Slots dropped because their time had already passed when planning ran. */
+  /**
+   * Slots dropped because their time had already passed when planning ran — or,
+   * when the batch started from the click, because the day had no room left.
+   */
   droppedPastSlots: number;
+  /** Start-now batches: when the first post fires and the spacing after it. */
+  startedAt?: string;
+  gapMinutes?: number;
   /** Set when nothing was planned, with the reason. */
   skipped?: string;
   /** Why the pack itself fell back to the idea library, when it did. */

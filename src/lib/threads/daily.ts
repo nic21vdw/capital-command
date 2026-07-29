@@ -23,6 +23,13 @@ export async function planTodaysBatch(
     now?: Date;
     /** Replace today's batch with a freshly generated pack. */
     force?: boolean;
+    /**
+     * Run the day from this moment instead of the pack's clock times — the
+     * dashboard's "Schedule from now" button. It replaces what is still pending
+     * but reuses today's pack, so it can follow a Generate without paying for a
+     * second one.
+     */
+    startNow?: boolean;
     focus?: string;
     log?: (line: string) => void;
   } = {}
@@ -31,19 +38,20 @@ export async function planTodaysBatch(
   const now = options.now ?? new Date();
   const log = options.log ?? ((line: string) => console.log(line));
   const date = localDateKey(now);
+  const replace = Boolean(options.force || options.startNow);
 
   const blocked = threadsBlockedReason(config);
   if (blocked) return { date, created: 0, droppedPastSlots: 0, skipped: blocked };
 
   const before = await mutateQueue((items) => {
     const kept = pruneOld(items, now, config);
-    if (!options.force) return { items: kept, result: itemsForDate(kept, date) };
+    if (!replace) return { items: kept, result: itemsForDate(kept, date) };
     // A forced replan clears only what has not gone out yet — anything already
     // published stays on the record.
     const cleared = kept.filter((item) => item.batchDate !== date || item.status !== "pending");
     return { items: cleared, result: itemsForDate(cleared, date) };
   });
-  if (!options.force && before.length > 0) {
+  if (!replace && before.length > 0) {
     return { date, created: 0, droppedPastSlots: 0, skipped: "Today's batch is already scheduled." };
   }
   const alreadySeen = new Set(before.map((item) => item.id));
@@ -55,13 +63,28 @@ export async function planTodaysBatch(
     }`
   );
 
-  const { items, droppedPastSlots } = planBatch({ pack, config, now });
+  // Anything already live keeps its slot out of the running: pressing "Schedule
+  // from now" at noon must not put the morning's posts back through the feed.
+  const alreadyPosted = new Set(before.filter((item) => item.status === "published").map((item) => item.slot));
+
+  const { items, droppedPastSlots, startedAt, gapMinutes } = planBatch({
+    pack,
+    config,
+    now,
+    startNow: options.startNow,
+    skipSlots: alreadyPosted
+  });
   if (items.length === 0) {
+    const nothingLeft = pack.posts.slice(0, config.postsPerDay).every((post) => alreadyPosted.has(post.slot));
     return {
       date,
       created: 0,
       droppedPastSlots,
-      skipped: "Every slot for today has already passed — the next batch starts tomorrow morning.",
+      skipped: nothingLeft
+        ? "Every post in today's pack has already gone out — hit Generate 24 for a fresh day."
+        : options.startNow
+          ? "Too little of the day is left to schedule anything — try again tomorrow."
+          : "Every slot for today has already passed — the next batch starts tomorrow morning.",
       packReason: reason,
       packSource: pack.source
     };
@@ -89,7 +112,15 @@ export async function planTodaysBatch(
     }`
   );
 
-  return { date, created: items.length, droppedPastSlots, packReason: reason, packSource: pack.source };
+  return {
+    date,
+    created: items.length,
+    droppedPastSlots,
+    startedAt,
+    gapMinutes,
+    packReason: reason,
+    packSource: pack.source
+  };
 }
 
 export type ThreadsTickResult = { plan: ThreadsPlanResult; run: ThreadsRunReport };

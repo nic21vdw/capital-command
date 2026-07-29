@@ -150,6 +150,97 @@ describe("planBatch", () => {
   });
 });
 
+describe("planBatch, starting from now", () => {
+  /** A pack of `count` slots on the natural ~40 min rhythm. */
+  function longPack(count: number): XDailyPack {
+    return pack({
+      posts: Array.from({ length: count }, (_, index) => {
+        const minutes = 7 * 60 + 15 + index * 40;
+        return {
+          id: `xpost-${index + 1}`,
+          slot: index + 1,
+          time: `${String(Math.floor(minutes / 60)).padStart(2, "0")}:${String(minutes % 60).padStart(2, "0")}`,
+          format: "insight" as const,
+          topic: `topic ${index + 1}`,
+          text: `punchy ${index + 1}`,
+          threadsVariant: `warm ${index + 1}`
+        };
+      })
+    });
+  }
+
+  it("ignores the pack's clock times and runs the day from the click", () => {
+    const { items, startedAt, gapMinutes } = planBatch({
+      pack: longPack(3),
+      config: config({ accounts: [account()] }),
+      now: new Date("2026-07-22T14:00:00.000Z"),
+      startNow: true
+    });
+
+    expect(startedAt).toBe("2026-07-22T14:01:00.000Z");
+    expect(gapMinutes).toBe(40);
+    expect(items.map((item) => item.publishAt)).toEqual([
+      "2026-07-22T14:01:00.000Z",
+      "2026-07-22T14:41:00.000Z",
+      "2026-07-22T15:21:00.000Z"
+    ]);
+  });
+
+  it("still gives each account its own version and offset", () => {
+    const { items } = planBatch({
+      pack: longPack(1),
+      config: config(),
+      now: new Date("2026-07-22T14:00:00.000Z"),
+      startNow: true
+    });
+
+    expect(items.map((item) => [item.accountId, item.text, item.publishAt])).toEqual([
+      ["primary", "punchy 1", "2026-07-22T14:01:00.000Z"],
+      ["secondary", "warm 1", "2026-07-22T14:04:00.000Z"]
+    ]);
+  });
+
+  it("tightens the rhythm so a late start still fits the whole batch into the day", () => {
+    const { items, gapMinutes, droppedPastSlots } = planBatch({
+      pack: longPack(24),
+      config: config({ accounts: [account()] }),
+      now: new Date("2026-07-22T20:00:00.000Z"),
+      startNow: true
+    });
+
+    expect(gapMinutes).toBeLessThan(40);
+    expect(droppedPastSlots).toBe(0);
+    expect(items).toHaveLength(24);
+    expect(new Date(items[items.length - 1].publishAt) <= new Date("2026-07-23T00:00:00.000Z")).toBe(true);
+  });
+
+  it("leaves out slots that have already gone out, and closes up around them", () => {
+    const { items } = planBatch({
+      pack: longPack(3),
+      config: config({ accounts: [account()] }),
+      now: new Date("2026-07-22T14:00:00.000Z"),
+      startNow: true,
+      skipSlots: new Set([1, 2])
+    });
+
+    expect(items.map((item) => [item.slot, item.publishAt])).toEqual([[3, "2026-07-22T14:01:00.000Z"]]);
+  });
+
+  it("drops what cannot fit before midnight rather than spilling into tomorrow", () => {
+    const { items, gapMinutes, droppedPastSlots } = planBatch({
+      pack: longPack(24),
+      config: config({ accounts: [account()] }),
+      now: new Date("2026-07-22T23:00:00.000Z"),
+      startNow: true
+    });
+
+    expect(gapMinutes).toBe(5);
+    expect(items).toHaveLength(12);
+    expect(droppedPastSlots).toBe(12);
+    expect(new Date(items[items.length - 1].publishAt) <= new Date("2026-07-23T00:00:00.000Z")).toBe(true);
+  });
+});
+
 describe("fitToThreads", () => {
   it("leaves a normal post untouched", () => {
     expect(fitToThreads("  a normal post  ")).toBe("a normal post");

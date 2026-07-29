@@ -55,7 +55,7 @@ interface AutopilotStatus {
 interface AutopilotActionResponse {
   error?: string;
   checks?: Array<{ accountId: string; label: string; ok: boolean; username?: string | null; error?: string }>;
-  plan?: { created: number; skipped?: string };
+  plan?: { created: number; skipped?: string; startedAt?: string; gapMinutes?: number; droppedPastSlots?: number };
   run?: { published: number; skipped: number; note?: string };
   moved?: number;
 }
@@ -142,7 +142,6 @@ export function XPostsPage() {
   const [pack, setPack] = useState<XDailyPack | null>(null);
   const [reason, setReason] = useState<string | null>(null);
   const [generating, setGenerating] = useState(false);
-  const [focus, setFocus] = useState("");
   const [now, setNow] = useState(() => Date.now());
   const autoRequested = useRef(false);
 
@@ -163,7 +162,7 @@ export function XPostsPage() {
         const response = await fetch("/api/x-posts/generate", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ focus, force, requestedAt: new Date().toISOString() })
+          body: JSON.stringify({ force, requestedAt: new Date().toISOString() })
         });
         if (!response.ok) throw new Error("request failed");
         const json = (await response.json()) as GenerateResponse;
@@ -179,7 +178,7 @@ export function XPostsPage() {
         setGenerating(false);
       }
     },
-    [focus, refresh]
+    [refresh]
   );
 
   // First visit of the day: kick off generation automatically so the pack is
@@ -195,18 +194,20 @@ export function XPostsPage() {
       <PageHeader
         eyebrow="Step 2 · Formats"
         title="Post Engine"
-        description="Hit Generate for 24 fresh original posts — each with a reworded Threads variant — plus twenty ready replies for engaging as you scroll. Every press writes a brand-new set matched to your positioning brief, avoiding angles from your recent packs. Suggestions only, nothing is tracked."
+        description="Two buttons: Generate 24 writes a fresh day of posts against your positioning brief, and Schedule from now puts them on the Threads queue starting the moment you press it. Everything after that posts itself."
         actions={
-          <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-            <Input
-              placeholder="Optional focus (e.g. context engineering)"
-              value={focus}
-              onChange={(event) => setFocus(event.target.value)}
-              className="sm:w-64"
-            />
-            <Button onClick={() => generate(true)} disabled={generating} className="shrink-0">
+          <div className="flex flex-wrap items-center gap-2">
+            <Button onClick={() => generate(true)} disabled={generating || autopilot.busy !== null} className="shrink-0">
               <RefreshCw className={cn("mr-2 h-4 w-4", generating && "animate-spin")} />
-              {generating ? "Writing…" : activePack ? "Generate 24 fresh" : "Generate 24 posts"}
+              {generating ? "Writing…" : "Generate 24"}
+            </Button>
+            <Button
+              onClick={() => autopilot.scheduleNow()}
+              disabled={generating || autopilot.busy !== null || !activePack}
+              className="shrink-0"
+            >
+              <CalendarClock className="mr-2 h-4 w-4" />
+              {autopilot.busy === "schedule-now" ? "Scheduling…" : "Schedule from now"}
             </Button>
           </div>
         }
@@ -366,7 +367,27 @@ function useAutopilot() {
     [load]
   );
 
-  return { status, busy, reload: load, send };
+  /**
+   * The second of the page's two buttons: hand today's pack to the queue
+   * starting right now, replacing whatever was still waiting to go out.
+   */
+  const scheduleNow = useCallback(
+    () => send({ action: "schedule-now" }, "schedule-now", (json) => describePlan(json.plan)),
+    [send]
+  );
+
+  return { status, busy, reload: load, send, scheduleNow };
+}
+
+function describePlan(plan: AutopilotActionResponse["plan"]): string {
+  if (!plan) return "Nothing to schedule.";
+  if (plan.skipped) return plan.skipped;
+  const from = plan.startedAt ? ` from ${clock(plan.startedAt)}` : "";
+  const gap = plan.gapMinutes ? `, one every ${plan.gapMinutes} min` : "";
+  const dropped = plan.droppedPastSlots
+    ? ` ${plan.droppedPastSlots} didn't fit before midnight and were left out.`
+    : "";
+  return `Scheduled ${plan.created} post${plan.created === 1 ? "" : "s"}${from}${gap}.${dropped}`;
 }
 
 type AutopilotProps = ReturnType<typeof useAutopilot>;
@@ -447,24 +468,7 @@ function AutopilotCard({ status, busy, send }: AutopilotProps) {
 
       <div className="mt-4 flex flex-wrap gap-2">
         <Button
-          onClick={() =>
-            send({ action: "plan" }, "plan", (json) => json.plan?.skipped ?? `Scheduled ${json.plan?.created ?? 0} posts.`)
-          }
-          disabled={busy !== null}
-        >
-          <CalendarClock className="mr-2 h-4 w-4" />
-          {busy === "plan" ? "Scheduling…" : "Schedule today"}
-        </Button>
-        <Button
-          onClick={() =>
-            send({ action: "run-due" }, "run", (json) => json.run?.note ?? `Posted ${json.run?.published ?? 0}.`)
-          }
-          disabled={busy !== null}
-        >
-          <AtSign className="mr-2 h-4 w-4" />
-          {busy === "run" ? "Posting…" : "Post what's due"}
-        </Button>
-        <Button
+          variant="secondary"
           onClick={() =>
             send(
               { action: "check" },
@@ -554,19 +558,6 @@ function AutopilotTab({ status, busy, send }: AutopilotProps) {
               {minutes > 0 ? `+${minutes}m` : `${minutes}m`}
             </Button>
           ))}
-          <Button
-            onClick={() =>
-              send(
-                { action: "plan", force: true },
-                "replan",
-                (json) => json.plan?.skipped ?? `Rebuilt with ${json.plan?.created ?? 0} posts.`
-              )
-            }
-            disabled={busy !== null}
-          >
-            <RefreshCw className={cn("mr-2 h-4 w-4", busy === "replan" && "animate-spin")} />
-            {busy === "replan" ? "Rebuilding…" : "Rebuild from a fresh pack"}
-          </Button>
         </div>
       </Card>
 

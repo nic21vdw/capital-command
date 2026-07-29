@@ -22,6 +22,27 @@ it does two things:
 Both steps are safe to repeat, which is the whole design: the scheduled task
 is dumb and frequent, and the idempotency lives here.
 
+## The two buttons
+
+The dashboard (`/x-posts`) is deliberately just two:
+
+- **Generate 24** writes a fresh day of posts against the positioning brief.
+- **Schedule from now** (`POST /api/threads {action:"schedule-now"}`) hands that
+  pack to the queue starting one minute after the press, keeping the pack's own
+  rhythm but tightening it — never below `MIN_GAP_MINUTES` — so the last post
+  still lands before midnight. Whatever won't fit is dropped rather than spilling
+  into tomorrow, where it would collide with tomorrow's batch.
+
+Two rules make that button safe to press at any hour, more than once:
+
+- It replaces only what is still **pending**. Slots that have already gone out
+  keep their place in history and are left out of the new layout, so pressing it
+  at noon can't put the morning's posts back through the feed.
+- It reuses today's pack. Only **Generate 24** pays for a new one.
+
+The scheduled tick still plans an unattended day on its own; pressing the button
+just re-lays the rest of the day from now.
+
 ## Two accounts, one version each
 
 The pack deliberately writes each idea twice — a punchier `text` and a warmer

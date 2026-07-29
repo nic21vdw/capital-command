@@ -62,7 +62,18 @@ export async function GET() {
 }
 
 const actionSchema = z.object({
-  action: z.enum(["tick", "plan", "run-due", "check", "skip", "remove", "reschedule", "shift", "edit"]),
+  action: z.enum([
+    "tick",
+    "plan",
+    "schedule-now",
+    "run-due",
+    "check",
+    "skip",
+    "remove",
+    "reschedule",
+    "shift",
+    "edit"
+  ]),
   force: z.boolean().optional(),
   focus: z.string().optional(),
   dryRun: z.boolean().optional(),
@@ -82,6 +93,9 @@ const actionSchema = z.object({
  *   tick     plan today's batch if it isn't scheduled yet, then post what's due
  *            (what the scheduled task calls every few minutes)
  *   plan     schedule today's batch only; `force` regenerates the pack
+ *   schedule-now
+ *            replace what is still pending and run today's pack from this
+ *            moment, keeping its rhythm but fitting it into the rest of the day
  *   run-due  post what's due only; `dryRun` reports without posting
  *   check    validate the Threads token without posting
  *   skip       take one queued post out of the running
@@ -115,6 +129,10 @@ export async function POST(request: NextRequest) {
 
     if (action === "plan") {
       return NextResponse.json({ plan: await planTodaysBatch({ config, force, focus }) });
+    }
+
+    if (action === "schedule-now") {
+      return NextResponse.json({ plan: await planTodaysBatch({ config, startNow: true, force, focus }) });
     }
 
     if (action === "run-due") {
