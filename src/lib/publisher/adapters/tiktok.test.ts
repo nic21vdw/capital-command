@@ -11,13 +11,25 @@ import type { PublishInput } from "@/lib/publisher/types";
  * with FILE_UPLOAD → chunk PUT → status/fetch). No live calls.
  */
 
-// The adapter prefers a persisted refresh-token rotation over the .env seed,
-// so without this the suite would pick up the real connected token from
-// data/publisher-tokens.json on a machine where TikTok is connected.
+// A connected machine has a real refresh token in data/publisher-tokens.json,
+// and BOTH the adapter (via getCachedToken) and publisherConfig (which reads
+// that file synchronously) prefer it over the .env seed. Pin the token to the
+// env stub so the suite never reaches for the live one.
 vi.mock("@/lib/publisher/tokens", () => ({
   getCachedToken: async () => null,
   setCachedToken: async () => undefined
 }));
+
+vi.mock("@/lib/publisher/config", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/publisher/config")>();
+  return {
+    ...actual,
+    publisherConfig: () => {
+      const config = actual.publisherConfig();
+      return { ...config, tiktok: { ...config.tiktok, refreshToken: process.env.TIKTOK_REFRESH_TOKEN ?? null } };
+    }
+  };
+});
 
 const CLIP_BYTES = 4096;
 let clipPath: string;
