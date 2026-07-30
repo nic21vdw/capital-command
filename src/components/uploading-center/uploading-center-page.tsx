@@ -78,6 +78,7 @@ export function UploadingCenterPage() {
     removeAccount,
     jobsWithClips,
     activeJob,
+    activeCaptions,
     setActiveJobId,
     readyClips,
     itemsForClip,
@@ -293,11 +294,7 @@ export function UploadingCenterPage() {
         clipStart: candidate.start,
         clipEnd: candidate.end,
       });
-      const windowed = windowSegments(
-        activeJob.sourceCaptions ?? [],
-        candidate.start,
-        candidate.end,
-      );
+      const windowed = windowSegments(activeCaptions, candidate.start, candidate.end);
       const words = windowed.flatMap((segment) => segment.words);
       project.captions = words.length
         ? chunkWords(words, project.captionStyle.maxWordsPerCaption)
@@ -315,7 +312,7 @@ export function UploadingCenterPage() {
       router.push(`/editor?${params.toString()}`);
       void mutate("upsertClipProject", project);
     },
-    [activeJob, clipProjects, mutate, router],
+    [activeCaptions, activeJob, clipProjects, mutate, router],
   );
   const handleDrop = useCallback(
     (platform: PlatformId, slotUtc: string, clipKey: string) => {
