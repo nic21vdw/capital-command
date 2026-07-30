@@ -44,7 +44,7 @@ import { LongformPreview } from "@/components/longform/longform-preview";
 import { LongformTimeline, type TimelineSelection } from "@/components/longform/longform-timeline";
 import { CAPTION_PRESETS } from "@/lib/clipping/captions";
 import { applyCaptionPreset, formatClock } from "@/lib/clipping/editor";
-import { PACE_PRESETS, applyManualRange, editedDurationSec, hookCaptions, topicDurationSec, transcriptCaptions, type PacePresetId } from "@/lib/longform/plan";
+import { PACE_PRESETS, applyManualRange, editedDurationSec, hookCaptions, topicDurationSec, topicRanges, transcriptCaptions, type PacePresetId } from "@/lib/longform/plan";
 import type { LongformVideoMetadata } from "@/lib/longform/metadata";
 import type { LongformAudioClip, LongformExportRecord, LongformOverlay, LongformProject, LongformTopic, MusicTrack } from "@/lib/longform/types";
 import type { CaptionAlignment, CaptionAnimation, CaptionPosition, CaptionPresetId, CaptionSegment } from "@/types/domain";
@@ -2379,12 +2379,14 @@ function PublishPanel({
 }
 
 /**
- * Topic segments: the recording split into the 3-5 subjects it actually
- * covered, each exportable as its own long-form upload with this project's
- * hook, cuts, captions and mix applied to that window only.
+ * Topic segments: the 3-5 subjects the recording actually covered, each
+ * exportable as its own long-form upload with this project's hook, cuts,
+ * captions and mix. A segment is gathered rather than sliced — its parts can
+ * come from anywhere in the stream, and they play back to back — so each one
+ * lists the stretches it is assembled from.
  *
  * This is NOT short-form clipping. The Clip Generator reads the same stream
- * looking for its best 30-second moments anywhere in it; this panel carves the
+ * looking for its best 30-second moments anywhere in it; this panel gathers the
  * stream into whole subjects. Neither one constrains the other.
  */
 function SegmentsPanel({
@@ -2515,9 +2517,10 @@ function SegmentsPanel({
       <div>
         <h3 className="text-sm font-semibold text-white">Topic segments</h3>
         <p className="mt-1 text-xs text-[var(--muted-foreground)]">
-          Reads the transcript and splits the stream into the separate subjects it covered — each one exports as its
-          own long-form video with this project&rsquo;s hook, cuts, captions and mix. Short-form clips are unaffected:
-          the Clip Generator still scans the whole stream for its own best moments.
+          Reads the transcript and gathers the stream into the separate subjects it covered, pulling each subject
+          together from wherever it came up — even if that is four stretches an hour apart. Each one exports as its own
+          long-form video with this project&rsquo;s hook, cuts, captions and mix. Short-form clips are unaffected: the
+          Clip Generator still scans the whole stream for its own best moments.
         </p>
       </div>
 
@@ -2547,7 +2550,7 @@ function SegmentsPanel({
           {topics && topics.length > 0 ? "Find segments again" : "Find segments"}
         </Button>
         <p className="text-[11px] text-[var(--muted-foreground)]">
-          Auto picks 3-5 based on how long the recording is, aiming for roughly ten minutes each.
+          Auto picks 3-5 based on how long the recording is, aiming for roughly ten minutes of runtime each.
         </p>
       </div>
 
@@ -2572,6 +2575,7 @@ function SegmentsPanel({
           const record = project.exports.find((item) => item.topicId === topic.id);
           const rendering = record?.status === "processing";
           const runtime = topicDurationSec(project, topic);
+          const parts = topicRanges(project, topic);
           return (
             <div key={topic.id} className="space-y-2 rounded-lg border border-[var(--border)] bg-[var(--surface-2)] p-3">
               <div className="flex items-start justify-between gap-2">
@@ -2586,13 +2590,27 @@ function SegmentsPanel({
                 </span>
               </div>
 
-              <button
-                type="button"
-                onClick={() => seek(topic.start)}
-                className="text-[11px] tabular-nums text-[var(--accent)] transition hover:opacity-80"
-              >
-                {formatClock(topic.start)} – {formatClock(topic.end)} in the recording · jump here
-              </button>
+              <div className="space-y-1">
+                {parts.length > 1 && (
+                  <p className="text-[11px] text-[var(--muted-foreground)]">
+                    Gathered from {parts.length} stretches of the recording, played in this order:
+                  </p>
+                )}
+                <div className="flex flex-wrap gap-x-3 gap-y-1">
+                  {parts.map((part, partIndex) => (
+                    <button
+                      key={`${part.start}-${part.end}`}
+                      type="button"
+                      onClick={() => seek(part.start)}
+                      className="text-[11px] tabular-nums text-[var(--accent)] transition hover:opacity-80"
+                    >
+                      {parts.length > 1 && <span className="mr-1 not-italic">{partIndex + 1}.</span>}
+                      {formatClock(part.start)} – {formatClock(part.end)}
+                      {parts.length === 1 && " in the recording"} · jump here
+                    </button>
+                  ))}
+                </div>
+              </div>
 
               {topic.keywords.length > 0 && (
                 <div className="flex flex-wrap gap-1">

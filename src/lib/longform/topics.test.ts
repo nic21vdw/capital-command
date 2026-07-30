@@ -35,25 +35,60 @@ function caption(start: number, end: number, text: string): CaptionSegment {
  * vocabulary. Every line ends a sentence so thought-end snapping has somewhere
  * to land.
  */
-function streamTranscript(): CaptionSegment[] {
-  const subjects = [
+const SUBJECT_LINES = [
+  [
     "The hackathon build is running and the submission deadline drives every decision today.",
-    "Our hackathon demo needs the submission video recorded before the deadline tonight.",
+    "Our hackathon demo needs the submission video recorded before the deadline tonight."
+  ],
+  [
     "The pricing page conversion rate decides how much revenue each visitor is worth.",
-    "Revenue per visitor tells us whether the pricing tiers convert or scare people away.",
+    "Revenue per visitor tells us whether the pricing tiers convert or scare people away."
+  ],
+  [
     "Steel connection checks in the structural workspace still fail on eccentric bolt groups.",
     "The bolt group geometry drives those structural checks more than the steel grade does."
-  ];
+  ]
+];
+
+/** Lays the given subjects out back to back, `lines` lines of 15 seconds each. */
+function transcriptFor(order: number[], lines: number): CaptionSegment[] {
   const segments: CaptionSegment[] = [];
   let time = 0;
-  for (let subject = 0; subject < 3; subject += 1) {
-    for (let line = 0; line < 40; line += 1) {
-      const text = subjects[subject * 2 + (line % 2)];
-      segments.push(caption(time, time + 14, text));
+  for (const subject of order) {
+    for (let line = 0; line < lines; line += 1) {
+      segments.push(caption(time, time + 14, SUBJECT_LINES[subject][line % 2]));
       time += 15;
     }
   }
   return segments;
+}
+
+/** A word only one of the fixture's subjects ever says. */
+const SUBJECT_MARKERS = ["hackathon", "pricing", "bolt"];
+
+function markerCount(text: string, marker: string): number {
+  return text.split(marker).length - 1;
+}
+
+/** Which fixture subject a segment is mostly about. */
+function dominantSubject(text: string): string {
+  return SUBJECT_MARKERS.reduce((best, marker) =>
+    markerCount(text, marker) > markerCount(text, best) ? marker : best
+  );
+}
+
+/** A stream that covers its three subjects once each, in order, ~10 minutes apiece. */
+function streamTranscript(): CaptionSegment[] {
+  return transcriptFor([0, 1, 2], 40);
+}
+
+/**
+ * The real shape of a stream: the creator drops a subject and picks it up again
+ * later, so every subject is spread over two stretches five minutes long that
+ * sit in different halves of the recording.
+ */
+function interleavedTranscript(): CaptionSegment[] {
+  return transcriptFor([0, 1, 2, 1, 0, 2], 20);
 }
 
 describe("contentTerms", () => {
@@ -91,16 +126,51 @@ describe("planTopicSegments", () => {
     }
   });
 
-  it("keeps segments inside the length bounds, in order, without overlapping", () => {
-    const topics = planTopicSegments(transcript);
-    let previousEnd = -1;
-    for (const topic of topics) {
+  it("keeps every segment inside the length bounds", () => {
+    for (const topic of planTopicSegments(transcript)) {
+      expect(topic.ranges.length).toBeGreaterThan(0);
+      expect(topic.durationSec).toBeGreaterThanOrEqual(120);
+      expect(topic.durationSec).toBeLessThanOrEqual(1200);
       expect(topic.end).toBeGreaterThan(topic.start);
-      expect(topic.end - topic.start).toBeGreaterThanOrEqual(120);
-      expect(topic.end - topic.start).toBeLessThanOrEqual(1200);
-      expect(topic.start).toBeGreaterThanOrEqual(previousEnd);
-      previousEnd = topic.end;
+      expect(topic.start).toBe(topic.ranges[0].start);
+      expect(topic.end).toBe(topic.ranges[topic.ranges.length - 1].end);
     }
+  });
+
+  it("never plays the same second of the recording in two segments", () => {
+    const ranges = planTopicSegments(transcript)
+      .flatMap((topic) => topic.ranges)
+      .sort((a, b) => a.start - b.start);
+    for (const [index, range] of ranges.entries()) {
+      expect(range.end).toBeGreaterThan(range.start);
+      if (index > 0) expect(range.start).toBeGreaterThanOrEqual(ranges[index - 1].end);
+    }
+  });
+
+  it("gathers a subject the stream came back to into one segment", () => {
+    const topics = planTopicSegments(interleavedTranscript());
+    expect(topics.length).toBeGreaterThanOrEqual(2);
+    // Every subject in the fixture is talked about in two separate stretches,
+    // so at least one segment has to be assembled from more than one of them.
+    const gathered = topics.filter((topic) => topic.ranges.length > 1);
+    expect(gathered.length).toBeGreaterThan(0);
+    for (const topic of gathered) {
+      // The stretches are genuinely apart — a gathered segment is not a window.
+      const jumps = topic.ranges.slice(1).map((range, index) => range.start - topic.ranges[index].end);
+      expect(Math.max(...jumps)).toBeGreaterThan(60);
+      expect(topic.end - topic.start).toBeGreaterThan(topic.durationSec);
+      expect(topic.durationSec).toBeLessThanOrEqual(1200);
+    }
+  });
+
+  it("keeps a gathered segment about one subject", () => {
+    const gathered = planTopicSegments(interleavedTranscript()).find((topic) => topic.ranges.length > 1);
+    expect(gathered).toBeDefined();
+    // Each fixture subject owns a word nothing else says. A boundary can sit a
+    // block late and catch a line of the next subject, so what matters is that
+    // one subject clearly owns the segment.
+    const counts = SUBJECT_MARKERS.map((word) => markerCount(gathered!.text, word)).sort((a, b) => b - a);
+    expect(counts[0]).toBeGreaterThan(counts[1] * 5);
   });
 
   it("gives each segment its own distinctive keywords", () => {
@@ -109,6 +179,16 @@ describe("planTopicSegments", () => {
     const first = new Set(topics[0].keywords);
     const last = topics[topics.length - 1].keywords;
     expect(last.some((keyword) => !first.has(keyword))).toBe(true);
+  });
+
+  it("never publishes the same subject as two segments", () => {
+    // An hour that returns to each of its three subjects three times: the
+    // length cap fills a segment and leaves the rest of that subject behind,
+    // and that leftover must not come back as a second upload about it.
+    const topics = planTopicSegments(transcriptFor([0, 1, 2, 0, 1, 2, 0, 1, 2, 1], 24));
+    expect(topics.length).toBeGreaterThan(1);
+    const subjects = topics.map((topic) => dominantSubject(topic.text));
+    expect(new Set(subjects).size).toBe(topics.length);
   });
 
   it("honours a pinned segment count", () => {
@@ -269,5 +349,98 @@ describe("projectForTopic", () => {
     const original = project();
     const view = projectForTopic({ ...original, hook: { ...original.hook, enabled: false } }, topic);
     expect(view.hook.enabled).toBe(false);
+  });
+});
+
+const gatheredTopic: LongformTopic = {
+  id: "topic-1",
+  title: "What The Hackathon Deadline Taught Us",
+  summary: "Two stretches of the stream about the same build.",
+  ranges: [
+    { start: 100, end: 400 },
+    { start: 1000, end: 1300 }
+  ],
+  start: 100,
+  end: 1300,
+  keywords: ["hackathon", "deadline"],
+  titleSource: "ai"
+};
+
+describe("projectForTopic, gathered from several ranges", () => {
+  it("clips the cut plan to every range and leaves the footage between them out", () => {
+    const view = projectForTopic(project(), gatheredTopic);
+    expect(view.segments.map((segment) => [segment.start, segment.end])).toEqual([
+      [100, 400],
+      [1000, 1300]
+    ]);
+    expect(view.segments.map((segment) => segment.id)).toEqual(["seg-1", "seg-2"]);
+  });
+
+  it("reports the runtime as the ranges added up, not the span between them", () => {
+    expect(topicDurationSec(project(), gatheredTopic)).toBe(600);
+  });
+
+  it("opens the hook on the first range", () => {
+    const view = projectForTopic(project(), gatheredTopic);
+    expect(view.hook.start).toBe(100);
+    expect(view.hook.end).toBe(107);
+  });
+
+  it("never runs the hook past the first range", () => {
+    const view = projectForTopic(project(), {
+      ...gatheredTopic,
+      ranges: [
+        { start: 100, end: 104 },
+        { start: 1000, end: 1300 }
+      ]
+    });
+    expect(view.hook.end).toBe(104);
+  });
+
+  it("keeps the audio caught by each range and drops the rest", () => {
+    const view = projectForTopic(project(), {
+      ...gatheredTopic,
+      ranges: [
+        { start: 0, end: 200 },
+        { start: 900, end: 1300 }
+      ]
+    });
+    expect(view.music.clips.map((clip) => clip.id)).toEqual(["a1", "a2"]);
+    expect(view.music.clips.map((clip) => clip.start)).toEqual([30, 900]);
+  });
+
+  it("splits one placed track caught by two ranges into two clips", () => {
+    const view = projectForTopic(
+      project({
+        music: {
+          enabled: true,
+          clips: [{ id: "a1", trackId: "t1", fileName: "bed.mp3", start: 0, duration: 1800, volume: 0.1 }],
+          videoVolume: 1,
+          masterVolume: 1
+        }
+      }),
+      gatheredTopic
+    );
+    expect(view.music.clips.map((clip) => clip.id)).toEqual(["a1-p1", "a1-p2"]);
+    expect(view.music.clips.map((clip) => [clip.start, clip.duration])).toEqual([
+      [100, 300],
+      [1000, 300]
+    ]);
+  });
+
+  it("merges overlapping ranges and drops anything past the source", () => {
+    const view = projectForTopic(project({ durationSec: 1200 }), {
+      ...gatheredTopic,
+      ranges: [
+        { start: 300, end: 600 },
+        { start: 500, end: 700 },
+        { start: 1300, end: 1500 }
+      ]
+    });
+    expect(view.segments.map((segment) => [segment.start, segment.end])).toEqual([
+      [300, 600],
+      [600, 640],
+      [640, 700]
+    ]);
   });
 });

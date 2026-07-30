@@ -113,17 +113,29 @@ holds everything model-specific.
 ## Long-form topic segments vs short-form clips
 
 A stream is several videos. `src/lib/longform/topics.ts` reads the transcript
-and splits the recording into the 3-5 subjects it actually covered (lexical
-cohesion — vocabulary turnover marks where one subject ends), each one roughly
-ten minutes and each exportable as its own long-form upload. `projectForTopic`
-in `plan.ts` renders one by clipping the project's timeline to that window and
-moving the hook onto its opening, so segments go through the SAME export engine
-as the full edit (cuts, captions, overlays, mix) and nothing downstream needs a
-special case.
+and gathers the recording into the 3-5 subjects it actually covered, each
+exportable as its own long-form upload. `projectForTopic` in `plan.ts` renders
+one by clipping the project's timeline to that segment's ranges and moving the
+hook onto its opening, so segments go through the SAME export engine as the full
+edit (cuts, captions, overlays, mix) and nothing downstream needs a special
+case.
 
+- A segment is GATHERED, not sliced. A stream does not run one, two, three: a
+  subject is dropped and picked up again twenty minutes later, so
+  `LongformTopic.ranges` holds every stretch that belongs to the subject and the
+  export plays them back to back (which is what dead-space cutting already
+  does). `start`/`end` are only the outer span for display — the runtime is
+  `topicDurationSec`. Topics stored before `ranges` existed read back as the
+  single window `[start, end]`.
+- The gathering is three passes: lexical-cohesion boundaries (vocabulary
+  turnover), a pool of ~2.5 minute pieces with the dead-air ones dropped, then
+  agglomerative clustering of those pieces by idf-weighted vocabulary. One
+  subject gives ONE upload: where the length cap leaves the same subject in two
+  clusters, the one carrying more of it wins and the leftover is dropped rather
+  than published as a near-duplicate.
 - Topic segments and short-form clips are independent selections over the same
   transcript, and must stay that way: the Clip Generator scans the whole stream
-  for its best 30-second moments wherever they fall; topic segments carve the
+  for its best 30-second moments wherever they fall; topic segments gather the
   stream into whole subjects. Neither constrains the other.
 - Topics need a transcript of the WHOLE recording. Long-form analysis only
   transcribes the opening of a long source (that is all the hook needs), so

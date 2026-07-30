@@ -142,21 +142,39 @@ export type LongformMusic = {
  * tangent), and each one exports as its own standalone upload of roughly ten
  * minutes, cut and captioned with the project's own settings.
  *
+ * A topic is GATHERED, not sliced: a stream drops a subject and comes back to
+ * it later, so `ranges` holds every stretch of the recording that belongs to
+ * this subject and the export plays them back to back. `start` and `end` are
+ * only the outer span for display — the runtime is the ranges added up, which
+ * `topicDurationSec` reports.
+ *
  * Topics do NOT tile the recording: stretches that are mostly dead air or
- * off-topic chatter are left out on purpose. They are also entirely separate
- * from short-form clip selection, which scans the whole stream for its own
- * best 30-second moments.
+ * never joined a subject are left out on purpose. They are also entirely
+ * separate from short-form clip selection, which scans the whole stream for its
+ * own best 30-second moments.
  */
+export type LongformTopicRange = {
+  /** Source-timeline seconds, both landing on a completed thought. */
+  start: number;
+  end: number;
+};
+
 export type LongformTopic = {
   id: string;
   /** Publish-ready title for this segment as its own video. */
   title: string;
   /** One line on what the segment covers. */
   summary: string;
-  /** Source-timeline seconds, both landing on a completed thought. */
+  /**
+   * The stretches this segment plays, in chronological order. Absent on topics
+   * planned before segments could be gathered — those are the single window
+   * `[start, end]`, which is how they are read back.
+   */
+  ranges?: LongformTopicRange[];
+  /** Outer span of the segment: the first range's start and the last one's end. */
   start: number;
   end: number;
-  /** Distinctive terms that made this stretch its own subject. */
+  /** Distinctive terms that made this subject its own segment. */
   keywords: string[];
   /** Whether Claude wrote the title or the offline keyword titler did. */
   titleSource: "ai" | "fallback";
