@@ -69,7 +69,10 @@ beforeEach(() => {
   holdPack = null;
   ensureDailyPack.mockClear();
   process.env.THREADS_ACCESS_TOKEN = "token-1";
-  process.env.THREADS_TIMEZONE = "UTC";
+  // The batch date is the machine's LOCAL day, so the slot times below have to
+  // be read in the machine's own zone too — pinned to UTC, a run after 20:00
+  // local reads 23:59 as already past and the batch is dropped.
+  process.env.THREADS_TIMEZONE = Intl.DateTimeFormat().resolvedOptions().timeZone;
 });
 
 afterEach(() => {

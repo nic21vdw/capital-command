@@ -13,6 +13,19 @@ const NOW = "2026-06-15T12:00:00.000Z";
 // it (Jun 8–14, Jun 1–7, ...) has fully ended and is eligible for reconciliation.
 const TODAY = "2026-06-15";
 
+/**
+ * An ISO stamp for a local calendar day. Timestamps on goals and completions are
+ * read back as LOCAL dates (`goalCreatedDate`), so a UTC-midnight literal like
+ * "2026-06-08T00:00:00.000Z" lands on Jun 7 for anyone west of UTC — which pulls
+ * an extra missed week into reconciliation and makes these expectations depend on
+ * the machine's timezone. Anchoring at local noon keeps the day it means the day
+ * it is, in every zone.
+ */
+function localStamp(date: string): string {
+  const [year, month, day] = date.split("-").map(Number);
+  return new Date(year, (month ?? 1) - 1, day ?? 1, 12, 0, 0, 0).toISOString();
+}
+
 function makeGoal(overrides: Partial<ExecutionGoal> = {}): ExecutionGoal {
   return {
     id: overrides.id ?? "g-stream",
@@ -25,8 +38,8 @@ function makeGoal(overrides: Partial<ExecutionGoal> = {}): ExecutionGoal {
     icon: overrides.icon ?? "Radio",
     displayOrder: overrides.displayOrder ?? 0,
     active: overrides.active ?? true,
-    createdAt: overrides.createdAt ?? "2026-05-01T00:00:00.000Z",
-    updatedAt: overrides.updatedAt ?? "2026-05-01T00:00:00.000Z",
+    createdAt: overrides.createdAt ?? localStamp("2026-05-01"),
+    updatedAt: overrides.updatedAt ?? localStamp("2026-05-01"),
     archivedAt: overrides.archivedAt
   };
 }
@@ -38,10 +51,10 @@ function mkCompletion(goalId: string, date: string, quantity = 1): ExecutionComp
     id: `c-${seq}`,
     goalId,
     date,
-    timestamp: `${date}T10:00:00.000Z`,
+    timestamp: localStamp(date),
     quantity,
     source: "manual",
-    createdAt: `${date}T10:00:00.000Z`
+    createdAt: localStamp(date)
   };
 }
 
@@ -75,7 +88,7 @@ describe("computeWeekBreakdown", () => {
 
 describe("reconcileExecution", () => {
   it("1. a fully completed week creates no debt", () => {
-    const goal = makeGoal({ weeklyTarget: 5, createdAt: "2026-06-08T00:00:00.000Z" });
+    const goal = makeGoal({ weeklyTarget: 5, createdAt: localStamp("2026-06-08") });
     const ws = weekStart("2026-06-08");
     const result = reconcileExecution({
       goals: [goal],
@@ -92,7 +105,7 @@ describe("reconcileExecution", () => {
   });
 
   it("2. a partially completed week creates the correct debt", () => {
-    const goal = makeGoal({ weeklyTarget: 5, createdAt: "2026-06-08T00:00:00.000Z" });
+    const goal = makeGoal({ weeklyTarget: 5, createdAt: localStamp("2026-06-08") });
     const ws = weekStart("2026-06-08");
     const result = reconcileExecution({
       goals: [goal],
@@ -106,7 +119,7 @@ describe("reconcileExecution", () => {
   });
 
   it("3. multiple missed weeks accumulate debt", () => {
-    const goal = makeGoal({ weeklyTarget: 5, createdAt: "2026-05-01T00:00:00.000Z" });
+    const goal = makeGoal({ weeklyTarget: 5, createdAt: localStamp("2026-05-01") });
     // Three fully-missed ended weeks: May 25, Jun 1, Jun 8.
     const result = reconcileExecution({
       goals: [goal],
@@ -123,7 +136,7 @@ describe("reconcileExecution", () => {
   });
 
   it("4. extra work repays the oldest debt first", () => {
-    const goal = makeGoal({ weeklyTarget: 5, createdAt: "2026-06-01T00:00:00.000Z" });
+    const goal = makeGoal({ weeklyTarget: 5, createdAt: localStamp("2026-06-01") });
     // Week Jun 1: 0 done → 5 debt. Week Jun 8: 7 done → 5 baseline + 2 to debt.
     const completions = completionsForWeek(goal.id, weekStart("2026-06-08"), 7);
     const result = reconcileExecution({
@@ -141,7 +154,7 @@ describe("reconcileExecution", () => {
   });
 
   it("5. extra work beyond all debt is recorded as overachievement", () => {
-    const goal = makeGoal({ weeklyTarget: 5, createdAt: "2026-06-08T00:00:00.000Z" });
+    const goal = makeGoal({ weeklyTarget: 5, createdAt: localStamp("2026-06-08") });
     // Single week, 8 done, no prior debt → 3 overachievement, 0 debt.
     const result = reconcileExecution({
       goals: [goal],
@@ -157,7 +170,7 @@ describe("reconcileExecution", () => {
   });
 
   it("6. debt never exceeds 10× the weekly target", () => {
-    const goal = makeGoal({ weeklyTarget: 5, createdAt: "2024-01-01T00:00:00.000Z" });
+    const goal = makeGoal({ weeklyTarget: 5, createdAt: localStamp("2024-01-01") });
     // A year+ of fully-missed weeks would be 250+ of debt uncapped.
     const result = reconcileExecution({
       goals: [goal],
@@ -171,7 +184,7 @@ describe("reconcileExecution", () => {
   });
 
   it("7. reconciliation can run twice without duplicate debt", () => {
-    const goal = makeGoal({ weeklyTarget: 5, createdAt: "2026-06-01T00:00:00.000Z" });
+    const goal = makeGoal({ weeklyTarget: 5, createdAt: localStamp("2026-06-01") });
     const input = {
       goals: [goal],
       completions: completionsForWeek(goal.id, weekStart("2026-06-08"), 2),
@@ -188,7 +201,7 @@ describe("reconcileExecution", () => {
   });
 
   it("8. removing a completion recalculates the correct totals", () => {
-    const goal = makeGoal({ weeklyTarget: 5, createdAt: "2026-06-08T00:00:00.000Z" });
+    const goal = makeGoal({ weeklyTarget: 5, createdAt: localStamp("2026-06-08") });
     const all = completionsForWeek(goal.id, weekStart("2026-06-08"), 5);
     const withAll = reconcileExecution({
       goals: [goal],
@@ -221,7 +234,7 @@ describe("reconcileExecution", () => {
       frequency: "daily",
       dailyTarget: 1,
       weeklyTarget: 7,
-      createdAt: "2026-06-08T00:00:00.000Z"
+      createdAt: localStamp("2026-06-08")
     });
     const ws = weekStart("2026-06-08");
     const completions = [0, 1, 2, 3, 4].map((offset) => mkCompletion(goal.id, addDays(ws, offset)));
@@ -238,7 +251,7 @@ describe("reconcileExecution", () => {
   });
 
   it("10. goal target changes do not alter finalized historical weeks", () => {
-    const goal = makeGoal({ weeklyTarget: 5, createdAt: "2026-06-08T00:00:00.000Z" });
+    const goal = makeGoal({ weeklyTarget: 5, createdAt: localStamp("2026-06-08") });
     const completions = completionsForWeek(goal.id, weekStart("2026-06-08"), 2);
     const first = reconcileExecution({
       goals: [goal],
@@ -291,7 +304,7 @@ describe("perfectDayStreak", () => {
       frequency: "daily",
       dailyTarget: 2,
       weeklyTarget: 14,
-      createdAt: "2026-06-10T00:00:00.000Z"
+      createdAt: localStamp("2026-06-10")
     });
     const completions = [
       mkCompletion(goal.id, "2026-06-13", 2),
