@@ -21,7 +21,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: FFMPEG_MISSING_MESSAGE }, { status: 500 });
   }
 
-  let body: { url?: unknown; sourceId?: unknown; name?: unknown };
+  let body: { url?: unknown; sourceId?: unknown; name?: unknown; plan?: unknown; autoApprove?: unknown };
   try {
     body = (await request.json()) as typeof body;
   } catch {
@@ -31,16 +31,19 @@ export async function POST(request: NextRequest) {
   const url = typeof body.url === "string" ? body.url.trim() : "";
   const sourceId = typeof body.sourceId === "string" ? body.sourceId.trim() : "";
   const name = typeof body.name === "string" ? body.name.trim() : "";
+  // A new run stops at its plan and downloads nothing until it is approved,
+  // unless the caller says nobody is watching — which only the channel scan does.
+  const options = { plan: body.plan, autoApprove: body.autoApprove === true };
 
   try {
     if (sourceId) {
-      const run = await createRunFromSource(sourceId, name || undefined);
+      const run = await createRunFromSource(sourceId, name || undefined, options);
       return NextResponse.json({ run }, { status: 201 });
     }
     if (!/^https?:\/\/\S+$/i.test(url)) {
       return NextResponse.json({ error: "Enter a valid http(s) stream/VOD URL, or upload a file." }, { status: 400 });
     }
-    const run = await createRunFromUrl(url, name || undefined);
+    const run = await createRunFromUrl(url, name || undefined, options);
     return NextResponse.json({ run }, { status: 201 });
   } catch (error) {
     return NextResponse.json(

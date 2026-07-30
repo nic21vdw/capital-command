@@ -10,8 +10,10 @@ import {
   Clapperboard,
   Copy,
   Download,
+  ClipboardCheck,
   Images,
   Layers,
+  ListChecks,
   Loader2,
   Plus,
   Podcast,
@@ -25,9 +27,12 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
+import { PlanCard } from "@/components/pipeline/plan-card";
+import { ReviewCard, type ReviewSubmission } from "@/components/pipeline/review-card";
 import { VisualAdComposer } from "@/components/pipeline/visual-ad-composer";
 import { cn } from "@/lib/utils";
 import type {
+  PipelinePlan,
   PipelinePost,
   PipelineRun,
   PipelineRunOverview,
@@ -61,7 +66,8 @@ const POST_PLATFORM_LABELS: Record<PipelinePost["platform"], string> = {
 // Rendered the instant a stream is submitted, before the server has echoed a
 // run back — so the flow builds itself on screen rather than appearing later.
 const LAUNCHING_STAGES: Record<PipelineStageKey, PipelineStage> = {
-  source: { status: "running", detail: "Pulling the stream in..." },
+  plan: { status: "running", detail: "Working out what this stream turns into..." },
+  source: { status: "waiting", detail: "Nothing is fetched until the plan is approved." },
   longform: { status: "waiting", detail: "Waiting for the source." },
   segments: { status: "waiting", detail: "Waiting for the full transcript." },
   clips: { status: "waiting", detail: "Waiting for the source." },
@@ -69,11 +75,14 @@ const LAUNCHING_STAGES: Record<PipelineStageKey, PipelineStage> = {
   images: { status: "waiting", detail: "Waiting for the transcript." },
   visuals: { status: "waiting", detail: "Waiting for a moment worth shooting." },
   posts: { status: "waiting", detail: "Waiting for the transcript." },
+  review: { status: "waiting", detail: "The written selections land here before anything renders." },
   schedule: { status: "waiting", detail: "Waiting for the first output." }
 };
 
 function runStatusLabel(entry: PipelineRunOverview) {
   if (entry.run.status === "error") return "Needs attention";
+  if (entry.run.status === "planning") return "Waiting on you";
+  if (entry.review?.ready && !entry.review.approvedAt) return "Waiting on you";
   if (entry.settled) return "Finished";
   return "Running";
 }
@@ -285,6 +294,7 @@ export function PipelinePage() {
   const dragDepth = useRef(0);
   const uploadInputRef = useRef<HTMLInputElement>(null);
   const [postsOpen, setPostsOpen] = useState(false);
+  const [approving, setApproving] = useState(false);
 
   // While a brand-new run is being created there is no id to match yet, so the
   // flow must NOT fall back to the newest previous run — it renders the
@@ -333,7 +343,7 @@ export function PipelinePage() {
         setActiveRunId(data.run.id);
         setPostsOpen(false);
         setUrl("");
-        toast.success("Pipeline started. Everything runs from here.");
+        toast.success("Here's the plan. Nothing downloads until you start it.");
         await refresh();
         setLaunching(false);
       } else {
@@ -408,6 +418,48 @@ export function PipelinePage() {
       void uploadFile(file);
     },
     [busy, uploadFile]
+  );
+
+  /**
+   * Both gates go through one PATCH: the edits on screen and the approval
+   * travel together, so what is approved is exactly what was being looked at.
+   */
+  const revise = useCallback(
+    async (runId: string, body: Record<string, unknown>, success: string) => {
+      setApproving(true);
+      try {
+        const response = await fetch(`/api/pipeline/${runId}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body)
+        });
+        const data = (await response.json()) as PipelineRunOverview & { error?: string };
+        if (!response.ok) {
+          toast.error(data.error ?? "Could not update the run.");
+          return;
+        }
+        setOverviews((current) => current.map((entry) => (entry.run.id === runId ? data : entry)));
+        toast.success(success);
+      } catch {
+        toast.error("Request failed. Is the dev server still running?");
+      } finally {
+        setApproving(false);
+        await refresh();
+      }
+    },
+    [refresh]
+  );
+
+  const startPlanned = useCallback(
+    (runId: string, plan: PipelinePlan) =>
+      void revise(runId, { approve: "plan", plan }, "Started. Pulling the stream in now."),
+    [revise]
+  );
+
+  const approveOutputs = useCallback(
+    (runId: string, submission: ReviewSubmission) =>
+      void revise(runId, { approve: "outputs", ...submission }, "Approved. Rendering what you kept."),
+    [revise]
   );
 
   const deleteRun = useCallback(
@@ -585,7 +637,8 @@ export function PipelinePage() {
             />
           </div>
           <p className="mt-3 text-center text-xs text-[var(--muted-foreground)]">
-            One stream in — long-form edit, shorts, MP3, carousel, and posts come back out.
+            One stream in — long-form edit, shorts, MP3, carousel, and posts come back out. You see the plan first, and
+            approve the cuts before anything renders.
           </p>
           {loaded && runList()}
         </div>
@@ -600,6 +653,21 @@ export function PipelinePage() {
     title: string;
     children?: React.ReactNode;
   }> = [
+    {
+      key: "plan",
+      icon: ListChecks,
+      title: "What this run will do",
+      children:
+        active?.plan && run ? (
+          <PlanCard
+            key={run.id}
+            plan={active.plan}
+            editable={run.status === "planning"}
+            busy={approving}
+            onStart={(plan) => startPlanned(run.id, plan)}
+          />
+        ) : null
+    },
     { key: "source", icon: UploadCloud, title: "Stream source" },
     {
       key: "longform",
@@ -723,6 +791,20 @@ export function PipelinePage() {
                 </div>
               ))}
           </div>
+        ) : null
+    },
+    {
+      key: "review",
+      icon: ClipboardCheck,
+      title: "Review before rendering",
+      children:
+        active?.review && run ? (
+          <ReviewCard
+            key={run.id}
+            review={active.review}
+            busy={approving}
+            onApprove={(submission) => approveOutputs(run.id, submission)}
+          />
         ) : null
     },
     {

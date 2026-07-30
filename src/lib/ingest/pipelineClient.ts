@@ -73,9 +73,19 @@ export async function appReachable(): Promise<boolean> {
   }
 }
 
-/** Starts a run from a VOD link. Returns the new run's id. */
+/**
+ * Starts a run from a VOD link. Returns the new run's id.
+ *
+ * `autoApprove` is what makes the scan unattended. A run started by hand stops
+ * at its plan before anything is downloaded, and again once the selections are
+ * written and before anything is rendered; a scan has nobody to ask, so a gated
+ * run would sit at the first gate until the wait timed out.
+ */
 export async function startPipelineRun(url: string, name: string): Promise<string> {
-  const body = await call("/api/pipeline", { method: "POST", body: JSON.stringify({ url, name }) });
+  const body = await call("/api/pipeline", {
+    method: "POST",
+    body: JSON.stringify({ url, name, autoApprove: true })
+  });
   const id = (body as { run?: { id?: unknown } } | undefined)?.run?.id;
   if (typeof id !== "string" || !id) {
     throw new Error("The pipeline accepted the stream but returned no run id.");

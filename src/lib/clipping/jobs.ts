@@ -62,6 +62,13 @@ async function loadJobs() {
       }
     }
     for (const job of JSON.parse(raw) as ClipJob[]) {
+      // A job held at `review` has nothing in flight — the selection is written
+      // and it is waiting on a person — so a restart leaves it exactly where it
+      // was rather than throwing the analysis away.
+      if (job.stage === "review" && job.status === "processing") {
+        jobs.set(job.id, job);
+        continue;
+      }
       // Anything mid-flight when the server stopped can't resume.
       if (job.status === "processing" || job.status === "queued") {
         job.status = "error";
@@ -335,7 +342,8 @@ export async function createJobFromUrl(
 export async function createJobFromUpload(
   sourceId: string,
   topic: string | undefined,
-  clipCount?: number
+  clipCount?: number,
+  options?: { reviewGate?: boolean }
 ): Promise<ClipJob> {
   await loadJobs();
   const meta = await readSourceMeta(sourceId);
@@ -346,6 +354,7 @@ export async function createJobFromUpload(
     fileName: meta.fileName,
     topic: topic || undefined,
     clipCount: clampClipCount(clipCount),
+    reviewGate: options?.reviewGate || undefined,
     sourceUrl: `upload://${sourceId}`,
     sourceId,
     status: "queued",
@@ -445,11 +454,92 @@ async function runLocalPipeline(job: ClipJob, meta: SourceMeta) {
   // real title in, not a placeholder.
   await assignClipTitles(job);
 
+  await renderOrHold(job, false);
+}
+
+/**
+ * Encoding is the expensive half, so a job carrying `reviewGate` stops here
+ * with its moments picked and titled and waits for `approveClipRenders`.
+ * Everything up to this point is analysis, which is what makes the hold worth
+ * having: the selection can be edited before any time is spent on frames.
+ */
+async function renderOrHold(job: ClipJob, mirrorToDrive: boolean) {
+  if (job.reviewGate) {
+    await update(job, { status: "processing", stage: "review", progress: 46 });
+    return;
+  }
+  await renderAndFinish(job, mirrorToDrive);
+}
+
+/** Renders every clip still in the job and finishes it. Shared by both pipelines. */
+async function renderAndFinish(job: ClipJob, mirrorToDrive: boolean) {
   await renderClipIndexes(
     job,
     job.clips.map((_, index) => index)
   );
+
+  // Optionally mirror the finished clips into a Google Drive-synced folder.
+  // No API or sign-in: this just copies files into a local folder that Google
+  // Drive for Desktop syncs (see CLIPS_DRIVE_DIR in .env). Off unless set.
+  if (mirrorToDrive && driveDir()) {
+    const rendered = job.clips
+      .filter((clip) => clip.downloadFile || clip.file)
+      .map((clip) => {
+        // Mirror the ready-to-post download clip when it rendered, else the master.
+        const fileName = (clip.downloadFile ?? clip.file) as string;
+        return { sourcePath: path.join(outputDir(job.id), fileName), fileName };
+      });
+    if (rendered.length > 0) {
+      try {
+        const { folder, copied } = await copyClipsToDrive(job.fileName, rendered);
+        job.driveFolder = folder;
+        job.notices.push(`Copied ${copied} clip${copied === 1 ? "" : "s"} to your Google Drive folder: ${folder}`);
+      } catch (error) {
+        job.notices.push(
+          `Could not copy clips to your Google Drive folder: ${error instanceof Error ? error.message : String(error)}.`
+        );
+      }
+      await persistJobs();
+    }
+  }
+
   await update(job, { status: "done", stage: "finished", progress: 100 });
+}
+
+/**
+ * Releases a job held at `review` and renders what is left of its selection.
+ * Idempotent: a job that is not holding is returned untouched, so a repeated
+ * approval (or a second poll) cannot start two render passes.
+ */
+export async function approveClipRenders(id: string): Promise<ClipJob | undefined> {
+  await loadJobs();
+  const job = jobs.get(id);
+  if (!job) return undefined;
+  if (job.stage !== "review") return job;
+  if (job.clips.length === 0) {
+    await update(job, { reviewGate: false, status: "done", stage: "finished", progress: 100 });
+    return job;
+  }
+  await update(job, { reviewGate: false, stage: "rendering", progress: 50 });
+  void renderAndFinish(job, !job.sourceId).catch((error) => failJob(job, error));
+  return job;
+}
+
+/**
+ * Drops moments from a job's selection while it is held at `review`. Only legal
+ * before rendering — after that there are files on disk behind each clip, which
+ * is the Clip Generator's job to remove, not this one's.
+ */
+export async function dropClipCandidates(id: string, clipIds: string[]): Promise<ClipJob | undefined> {
+  await loadJobs();
+  const job = jobs.get(id);
+  if (!job) return undefined;
+  if (job.stage !== "review") throw new Error("Clips can only be dropped while the job is waiting for approval.");
+  const dropped = new Set(clipIds);
+  const kept = job.clips.filter((clip) => !dropped.has(clip.id));
+  if (kept.length === job.clips.length) return job;
+  await update(job, { clips: kept });
+  return job;
 }
 
 /** Cuts [start, end] out of a local file with a fast keyframe seek + stream copy. */
@@ -550,37 +640,7 @@ async function runPipeline(job: ClipJob, url: string) {
   // real title in, not a placeholder.
   await assignClipTitles(job);
 
-  await renderClipIndexes(
-    job,
-    job.clips.map((_, index) => index)
-  );
-
-  // Optionally mirror the finished clips into a Google Drive-synced folder.
-  // No API or sign-in: this just copies files into a local folder that Google
-  // Drive for Desktop syncs (see CLIPS_DRIVE_DIR in .env). Off unless set.
-  if (driveDir()) {
-    const rendered = job.clips
-      .filter((clip) => clip.downloadFile || clip.file)
-      .map((clip) => {
-        // Mirror the ready-to-post download clip when it rendered, else the master.
-        const fileName = (clip.downloadFile ?? clip.file) as string;
-        return { sourcePath: path.join(outputDir(job.id), fileName), fileName };
-      });
-    if (rendered.length > 0) {
-      try {
-        const { folder, copied } = await copyClipsToDrive(job.fileName, rendered);
-        job.driveFolder = folder;
-        job.notices.push(`Copied ${copied} clip${copied === 1 ? "" : "s"} to your Google Drive folder: ${folder}`);
-      } catch (error) {
-        job.notices.push(
-          `Could not copy clips to your Google Drive folder: ${error instanceof Error ? error.message : String(error)}.`
-        );
-      }
-      await persistJobs();
-    }
-  }
-
-  await update(job, { status: "done", stage: "finished", progress: 100 });
+  await renderOrHold(job, true);
 }
 
 // The ready-to-post download clip is composed at 9:16 (1080x1920), matching a

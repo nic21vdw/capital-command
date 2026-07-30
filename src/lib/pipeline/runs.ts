@@ -1,15 +1,24 @@
 import { mkdir, readFile, rename, stat, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { runFfmpeg } from "@/lib/clipping/ffmpeg";
-import { createJobFromUpload, getJob } from "@/lib/clipping/jobs";
+import {
+  approveClipRenders,
+  createJobFromUpload,
+  dropClipCandidates,
+  getJob,
+  renameJob
+} from "@/lib/clipping/jobs";
 import { readSourceMeta, saveSourceFromUrl } from "@/lib/clipping/sources";
 import type { ClipJob } from "@/lib/clipping/types";
 import { startLongformExport } from "@/lib/longform/render";
 import { createProject, getProject, planProjectTopics, projectOutputDir, updateProject } from "@/lib/longform/store";
 import type { LongformProject } from "@/lib/longform/types";
+import { defaultPipelinePlan, describePlan, normalizePipelinePlan, plannedOutputs } from "@/lib/pipeline/plan";
 import { generatePipelinePosts } from "@/lib/pipeline/posts";
 import { realisticImagePrompt, visualMomentFromClips } from "@/lib/pipeline/visual-brief";
 import type {
+  PipelinePlan,
+  PipelineReview,
   PipelineRun,
   PipelineRunOverview,
   PipelineStage,
@@ -19,7 +28,7 @@ import { publisherConfig } from "@/lib/publisher/config";
 import { publishQueue } from "@/lib/publisher/queue";
 import { defaultVideoStudio } from "@/lib/storage/schemas";
 import { readAppData, writeAppData } from "@/lib/storage/store";
-import { DEFAULT_SLIDE_COUNT, generateCarousel } from "@/lib/studio/carousel";
+import { generateCarousel } from "@/lib/studio/carousel";
 
 // A run is a thin coordination record over the existing subsystems — the
 // media itself lives with the long-form project, the clip job, and the shared
@@ -116,44 +125,192 @@ function newRunRecord(fields: Partial<PipelineRun> & Pick<PipelineRun, "name" | 
   return run;
 }
 
+/** The plan a run is working to; older records predate plans and get the defaults. */
+function runPlan(run: PipelineRun): PipelinePlan {
+  return run.plan ?? defaultPipelinePlan();
+}
+
+/** True when the expensive half — the long-form export and the clip renders — may start. */
+function rendersApproved(run: PipelineRun): boolean {
+  return Boolean(run.autoApprove || run.outputsApprovedAt);
+}
+
+export type CreateRunOptions = {
+  /** Partial plan from the request; anything missing takes the default. */
+  plan?: unknown;
+  /**
+   * Skip both gates. Only for runs nobody is watching (the channel scan), which
+   * would otherwise sit at "waiting for approval" forever.
+   */
+  autoApprove?: boolean;
+};
+
 /**
- * Starts a run from a VOD link: the full video downloads to a shared source
- * in the background, then the fan-out begins. Returns immediately with the
- * run in the `ingesting` state so the client can poll.
+ * Starts a run from a VOD link. By default it stops at the plan: NOTHING is
+ * downloaded until `approvePlan` — the point of the gate is that a stream is
+ * only worth fetching once the run's shape has been agreed. An `autoApprove`
+ * run begins ingesting immediately, exactly as it used to.
  */
-export async function createRunFromUrl(url: string, name?: string): Promise<PipelineRun> {
+export async function createRunFromUrl(
+  url: string,
+  name?: string,
+  options?: CreateRunOptions
+): Promise<PipelineRun> {
   await loadRuns();
+  const autoApprove = options?.autoApprove === true;
+  const requested = (name ?? "").trim();
   const run = newRunRecord({
-    name: (name ?? "").trim() || "Stream",
-    status: "ingesting",
-    progress: 2,
-    sourceUrl: url
+    name: requested || "Stream",
+    status: autoApprove ? "ingesting" : "planning",
+    progress: autoApprove ? 2 : undefined,
+    sourceUrl: url,
+    plan: normalizePipelinePlan(options?.plan),
+    requestedName: requested || undefined,
+    autoApprove: autoApprove || undefined,
+    planApprovedAt: autoApprove ? new Date().toISOString() : undefined
   });
   await persistRuns();
-  void ingestFromUrl(run, url, name).catch(async (error) => {
-    await update(run, { status: "error", error: error instanceof Error ? error.message : String(error) });
-  });
+  if (autoApprove) void ingestFromUrl(run, url).catch((error) => failRun(run, error));
   return run;
 }
 
-/** Starts a run from an already-uploaded source (`POST /api/clips/sources`). */
-export async function createRunFromSource(sourceId: string, name?: string): Promise<PipelineRun> {
+/**
+ * Starts a run from an already-uploaded source (`POST /api/clips/sources`). The
+ * file is on disk by the time this is called, so the plan gate here buys the
+ * analysis and render time rather than the download.
+ */
+export async function createRunFromSource(
+  sourceId: string,
+  name?: string,
+  options?: CreateRunOptions
+): Promise<PipelineRun> {
   await loadRuns();
   const meta = await readSourceMeta(sourceId);
   if (!meta) throw new Error("That uploaded video could not be found. Upload it again.");
+  const autoApprove = options?.autoApprove === true;
   const run = newRunRecord({
     name: (name ?? "").trim() || meta.fileName.replace(/\.[a-z0-9]+$/i, "") || meta.fileName,
-    status: "running",
+    status: autoApprove ? "running" : "planning",
     sourceId,
     fileName: meta.fileName,
-    durationSec: meta.durationSec
+    durationSec: meta.durationSec,
+    plan: normalizePipelinePlan(options?.plan),
+    autoApprove: autoApprove || undefined,
+    planApprovedAt: autoApprove ? new Date().toISOString() : undefined
   });
   await persistRuns();
+  if (autoApprove) await advanceRun(run);
+  return run;
+}
+
+async function failRun(run: PipelineRun, error: unknown) {
+  await update(run, { status: "error", error: error instanceof Error ? error.message : String(error) });
+}
+
+/**
+ * Gate one. Accepts the plan (with any edits made while it was on screen) and
+ * lets the run start: the download for a link, the fan-out for an upload.
+ * Idempotent — a run that already started is returned untouched, so a
+ * double-click cannot download the same stream twice.
+ */
+export async function approvePlan(runId: string, plan?: unknown): Promise<PipelineRun | undefined> {
+  await loadRuns();
+  const run = runs.get(runId);
+  if (!run) return undefined;
+  if (run.status !== "planning") return run;
+  const approved = normalizePipelinePlan(plan, runPlan(run));
+  const now = new Date().toISOString();
+  if (run.sourceUrl) {
+    await update(run, { plan: approved, planApprovedAt: now, status: "ingesting", progress: 2 });
+    void ingestFromUrl(run, run.sourceUrl).catch((error) => failRun(run, error));
+  } else {
+    await update(run, { plan: approved, planApprovedAt: now, status: "running" });
+    await advanceRun(run);
+  }
+  return run;
+}
+
+/**
+ * Gate two. Releases the renders: the long-form export and the clip encodes
+ * start on this call (and on the poll that follows), using whatever survived
+ * the review.
+ */
+export async function approveOutputs(runId: string): Promise<PipelineRun | undefined> {
+  await loadRuns();
+  const run = runs.get(runId);
+  if (!run) return undefined;
+  if (!run.outputsApprovedAt) await update(run, { outputsApprovedAt: new Date().toISOString() });
   await advanceRun(run);
   return run;
 }
 
-async function ingestFromUrl(run: PipelineRun, url: string, name?: string) {
+/** An edit made at one of the gates, before the run has been approved. */
+export type PipelineRevision = {
+  /** Plan edits, while the run is still `planning`. */
+  plan?: unknown;
+  approve?: "plan" | "outputs";
+  clipTitles?: Array<{ id: string; title: string }>;
+  dropClips?: string[];
+  segmentTitles?: Array<{ id: string; title: string }>;
+  dropSegments?: string[];
+  postTexts?: Array<{ id: string; text: string }>;
+  dropPosts?: string[];
+};
+
+/**
+ * Applies a review edit and, when asked, approves the gate in the same call —
+ * so the button that says "Approve" always acts on exactly what is on screen.
+ * Edits are refused once the renders are away: at that point the outputs belong
+ * to their own tools, which is where they can still be changed.
+ */
+export async function reviseRun(runId: string, revision: PipelineRevision): Promise<PipelineRun | undefined> {
+  await loadRuns();
+  const run = runs.get(runId);
+  if (!run) return undefined;
+
+  if (revision.approve === "plan") return approvePlan(runId, revision.plan);
+  if (revision.plan) {
+    if (run.status !== "planning") throw new Error("This run has already started — the plan can no longer be changed.");
+    await update(run, { plan: normalizePipelinePlan(revision.plan, runPlan(run)) });
+    return run;
+  }
+  if (run.outputsApprovedAt) {
+    throw new Error("This run is already rendering — edit these outputs in their own tools.");
+  }
+
+  if (run.clipJobId) {
+    for (const edit of revision.clipTitles ?? []) {
+      await renameJob(run.clipJobId, { clipId: edit.id, clipTitle: edit.title });
+    }
+    if (revision.dropClips?.length) await dropClipCandidates(run.clipJobId, revision.dropClips);
+  }
+
+  if (run.longformProjectId && (revision.segmentTitles?.length || revision.dropSegments?.length)) {
+    const project = await getProject(run.longformProjectId);
+    if (project?.topics) {
+      const dropped = new Set(revision.dropSegments ?? []);
+      const titles = new Map((revision.segmentTitles ?? []).map((edit) => [edit.id, edit.title.trim()]));
+      const topics = project.topics
+        .filter((topic) => !dropped.has(topic.id))
+        .map((topic) => (titles.get(topic.id) ? { ...topic, title: titles.get(topic.id)! } : topic));
+      await updateProject(project.id, { topics });
+    }
+  }
+
+  if (run.posts && (revision.postTexts?.length || revision.dropPosts?.length)) {
+    const dropped = new Set(revision.dropPosts ?? []);
+    const texts = new Map((revision.postTexts ?? []).map((edit) => [edit.id, edit.text.trim()]));
+    const posts = run.posts
+      .filter((post) => !dropped.has(post.id))
+      .map((post) => (texts.get(post.id) ? { ...post, text: texts.get(post.id)! } : post));
+    await update(run, { posts });
+  }
+
+  if (revision.approve === "outputs") return approveOutputs(runId);
+  return run;
+}
+
+async function ingestFromUrl(run: PipelineRun, url: string) {
   const meta = await saveSourceFromUrl(url, (pct) => {
     const next = Math.max(2, Math.min(99, Math.round(pct)));
     if (next !== run.progress) void update(run, { progress: next });
@@ -164,7 +321,10 @@ async function ingestFromUrl(run: PipelineRun, url: string, name?: string) {
     sourceId: meta.id,
     fileName: meta.fileName,
     durationSec: meta.durationSec,
-    name: (name ?? "").trim() || meta.fileName.replace(/\.[a-z0-9]+$/i, "") || run.name
+    // A name typed with the link wins over the VOD's own title; the download
+    // may finish long after the plan was approved, so it is read off the record
+    // rather than passed in.
+    name: (run.requestedName ?? "").trim() || meta.fileName.replace(/\.[a-z0-9]+$/i, "") || run.name
   });
   await advanceRun(run);
 }
@@ -192,8 +352,11 @@ async function step(run: PipelineRun, key: string, work: () => Promise<void>) {
  * where the records left off. Every step is idempotent behind an id check.
  */
 export async function advanceRun(run: PipelineRun): Promise<void> {
+  // `planning` is the first gate: the plan exists, nothing else does, and
+  // nothing may start until it is approved.
   if (run.status !== "running" || !run.sourceId) return;
   const sourceId = run.sourceId;
+  const plan = runPlan(run);
 
   // Fan out both editors from the shared source. Cheap (they background their
   // own work), so these are awaited to get ids into the run record early.
@@ -205,7 +368,12 @@ export async function advanceRun(run: PipelineRun): Promise<void> {
   }
   if (!run.clipJobId) {
     await step(run, "clips", async () => {
-      const job = await createJobFromUpload(sourceId, undefined);
+      // The clip job carries the review hold itself: it analyses the stream and
+      // stops with its moments picked, so the selection can be edited before a
+      // single frame is encoded.
+      const job = await createJobFromUpload(sourceId, undefined, plan.clipCount, {
+        reviewGate: !run.autoApprove
+      });
       await update(run, { clipJobId: job.id });
     });
   }
@@ -213,9 +381,17 @@ export async function advanceRun(run: PipelineRun): Promise<void> {
   const project = run.longformProjectId ? await getProject(run.longformProjectId) : undefined;
   const job = run.clipJobId ? await getJob(run.clipJobId) : undefined;
 
+  // Approved → let the clip job render what survived the review.
+  if (job && job.stage === "review" && rendersApproved(run)) {
+    await step(run, "clip-renders", async () => {
+      await approveClipRenders(job.id);
+    });
+  }
+
   // Long-form analysis done → start the export render (or adopt one the user
-  // already started from the Long-Form Editor).
-  if (project && project.status === "ready" && !run.longformExportId) {
+  // already started from the Long-Form Editor). Held behind the review gate:
+  // this is the single most expensive thing the run does.
+  if (project && project.status === "ready" && plan.longform && rendersApproved(run) && !run.longformExportId) {
     // Only a whole-edit export can stand in for the run's long-form output; a
     // topic-segment render is one of several videos, not the video.
     const existing = project.exports.find(
@@ -234,7 +410,7 @@ export async function advanceRun(run: PipelineRun): Promise<void> {
   // Export rendered → extract the podcast MP3 from the finished file, so the
   // audio carries the exact same cuts and mix. Idempotent: skips if present.
   const exportRecord = project?.exports.find((record) => record.id === run.longformExportId);
-  if (project && exportRecord?.status === "done" && exportRecord.file && !exportRecord.audioFile) {
+  if (project && plan.audio && exportRecord?.status === "done" && exportRecord.file && !exportRecord.audioFile) {
     void step(run, "audio", async () => {
       const outputDir = projectOutputDir(project.id);
       const videoPath = path.join(outputDir, exportRecord.file!);
@@ -259,7 +435,14 @@ export async function advanceRun(run: PipelineRun): Promise<void> {
   // it — the long-form project picks it up automatically because both sides
   // work from the same source id. One attempt is enough: the clip job writes
   // its transcript once.
-  if (project && project.status === "ready" && !project.topics && !run.segmentsPlanned && job?.sourceCaptions?.length) {
+  if (
+    project &&
+    plan.segments &&
+    project.status === "ready" &&
+    !project.topics &&
+    !run.segmentsPlanned &&
+    job?.sourceCaptions?.length
+  ) {
     void step(run, "segments", async () => {
       await planProjectTopics(project.id);
       await update(run, { segmentsPlanned: true });
@@ -271,6 +454,7 @@ export async function advanceRun(run: PipelineRun): Promise<void> {
   // would re-run on every poll, and each attempt now costs three model calls.
   if (
     project &&
+    plan.carouselSlides > 0 &&
     project.status === "ready" &&
     project.transcript.length > 0 &&
     !run.carouselId &&
@@ -280,7 +464,7 @@ export async function advanceRun(run: PipelineRun): Promise<void> {
       const { carousel, reason } = await generateCarousel({
         title: run.name,
         sourceText: project.transcript.map((segment) => segment.text).join(" "),
-        slideCount: DEFAULT_SLIDE_COUNT,
+        slideCount: plan.carouselSlides,
         sourceType: "longform",
         sourceId: project.id,
         // Nobody is watching this one. Transcript-sliced slides would be
@@ -300,23 +484,27 @@ export async function advanceRun(run: PipelineRun): Promise<void> {
 
   // Text posts want the richest material: the transcript plus the clip job's
   // finished titles. Fire once both sides have settled (either can fail —
-  // whatever material exists is used).
+  // whatever material exists is used). A job held for review counts as settled:
+  // its titles are written, and the posts are part of what gets reviewed, so
+  // waiting for the renders would deadlock the gate against itself.
   const longformSettled = !project || project.status !== "processing";
-  const clipsSettled = !job || job.status === "done" || job.status === "error";
+  const clipsSettled = !job || job.status === "done" || job.status === "error" || job.stage === "review";
   const hasMaterial = Boolean(project?.transcript.length) || Boolean(job?.clips.some((clip) => clip.title));
-  if (!run.posts && longformSettled && clipsSettled && (project || job) && !hasMaterial) {
+  const wantsPosts = plan.postPlatforms.length > 0;
+  if (wantsPosts && !run.posts && longformSettled && clipsSettled && (project || job) && !hasMaterial) {
     // Both sides settled with nothing to write from — record the skip so the
     // stage (and the run) can finish instead of waiting forever.
     await update(run, { posts: [], postsNote: "No transcript or clip titles came out of this stream to write from." });
   }
-  if (!run.posts && longformSettled && clipsSettled && hasMaterial && (project || job)) {
+  if (wantsPosts && !run.posts && longformSettled && clipsSettled && hasMaterial && (project || job)) {
     void step(run, "posts", async () => {
       const { posts, reason } = await generatePipelinePosts({
         streamTitle: run.name,
         transcriptText: project?.transcript.map((segment) => segment.text).join(" ") ?? "",
         clipHighlights: (job?.clips ?? [])
           .filter((clip) => clip.title)
-          .map((clip) => ({ title: clip.title!, quote: clip.hookQuote }))
+          .map((clip) => ({ title: clip.title!, quote: clip.hookQuote })),
+        platforms: plan.postPlatforms
       });
       await update(run, { posts, postsNote: reason ?? undefined });
     });
@@ -337,14 +525,27 @@ function formatDuration(seconds: number) {
   return `${m}:${String(s).padStart(2, "0")}`;
 }
 
+/**
+ * The first gate, reported as a stage so the plan reads as the pipeline's own
+ * first step rather than a dialog in front of it.
+ */
+function planStage(run: PipelineRun, plan: PipelinePlan): PipelineStage {
+  const formats = plannedOutputs(plan).filter((output) => output.enabled).length;
+  if (run.status === "planning") {
+    return stage("running", `${formats} formats planned from this stream — change anything, then start the run.`);
+  }
+  return stage("ready", describePlan(plan));
+}
+
 function sourceStage(run: PipelineRun): PipelineStage {
+  if (run.status === "planning") return stage("waiting", "Nothing is fetched until the plan is approved.");
   if (run.status === "error") return stage("error", run.error ?? "Ingest failed.");
   if (run.status === "ingesting") return stage("running", "Downloading the stream…", run.progress);
   const length = run.durationSec ? ` · ${formatDuration(run.durationSec)}` : "";
   return stage("ready", `${run.fileName ?? "Source"}${length}`);
 }
 
-function longformStage(run: PipelineRun, project: LongformProject | undefined): PipelineStage {
+function longformStage(run: PipelineRun, plan: PipelinePlan, project: LongformProject | undefined): PipelineStage {
   if (run.status !== "running") return stage("waiting", "Waiting for the source.");
   if (!project) return stage(run.longformProjectId ? "error" : "running", run.longformProjectId ? "The long-form project is gone — it may have been deleted." : "Creating the long-form project…");
   if (project.status === "error") return stage("error", project.error ?? "Analysis failed.");
@@ -359,6 +560,10 @@ function longformStage(run: PipelineRun, project: LongformProject | undefined): 
     return stage("running", labels[project.stage] ?? "Analyzing…", project.progress);
   }
   const record = project.exports.find((item) => item.id === run.longformExportId);
+  if (!plan.longform && !record) {
+    return stage("skipped", "The plan left the export out — the edit is ready in the Long-Form Editor.");
+  }
+  if (!record && !rendersApproved(run)) return stage("waiting", "Edit planned — the export starts when you approve.");
   if (!record) return stage("running", "Edit planned — starting the export…");
   if (record.status === "processing") return stage("running", "Rendering the edited video…", record.progress);
   if (record.status === "done" && record.file) {
@@ -374,8 +579,14 @@ function longformStage(run: PipelineRun, project: LongformProject | undefined): 
  * but rendered on demand — five ten-minute renders per stream is hours of
  * encoding nobody asked for, so the Long-Form Editor's Segments tab starts them.
  */
-function segmentsStage(run: PipelineRun, project: LongformProject | undefined, rendered: number): PipelineStage {
+function segmentsStage(
+  run: PipelineRun,
+  plan: PipelinePlan,
+  project: LongformProject | undefined,
+  rendered: number
+): PipelineStage {
   if (run.status !== "running") return stage("waiting", "Waiting for the source.");
+  if (!plan.segments) return stage("skipped", "The plan left this stream whole — no topic segments.");
   if (project?.status === "error") return stage("skipped", "Needs the transcript, and analysis failed.");
   if (!project || project.status === "processing") return stage("waiting", "Split from the transcript once analysis finishes.");
   const topics = project.topics;
@@ -398,6 +609,13 @@ function clipsStage(run: PipelineRun, job: ClipJob | undefined): PipelineStage {
     if (ready === 0) return stage("error", "The job finished but no clips rendered.");
     return stage("ready", `${ready} short${ready === 1 ? "" : "s"} rendered, ready to schedule`);
   }
+  if (job.stage === "review") {
+    const picked = job.clips.length;
+    return stage(
+      "waiting",
+      `${picked} moment${picked === 1 ? "" : "s"} picked and titled — rendering starts when you approve.`
+    );
+  }
   const labels: Record<string, string> = {
     downloading: "Reading the source…",
     analyzing: "Transcribing…",
@@ -407,18 +625,26 @@ function clipsStage(run: PipelineRun, job: ClipJob | undefined): PipelineStage {
   return stage("running", labels[job.stage] ?? "Working…", job.progress);
 }
 
-function audioStage(run: PipelineRun, project: LongformProject | undefined): PipelineStage {
+function audioStage(run: PipelineRun, plan: PipelinePlan, project: LongformProject | undefined): PipelineStage {
   if (run.status !== "running") return stage("waiting", "Waiting for the source.");
+  if (!plan.audio) return stage("skipped", "No MP3 in the plan.");
   const record = project?.exports.find((item) => item.id === run.longformExportId);
   if (project?.status === "error") return stage("skipped", "Needs the long-form edit, which failed.");
+  if (!record && !rendersApproved(run)) return stage("waiting", "Cut from the edited video once you approve the renders.");
   if (!record || record.status === "processing") return stage("waiting", "Cut from the edited video once it renders.");
   if (record.status === "done" && record.audioFile) return stage("ready", "Podcast MP3 extracted from the edit");
   if (record.status === "done") return stage("running", "Extracting the MP3…");
   return stage("skipped", "Needs the long-form edit, which failed.");
 }
 
-function imagesStage(run: PipelineRun, project: LongformProject | undefined, slideCount: number): PipelineStage {
+function imagesStage(
+  run: PipelineRun,
+  plan: PipelinePlan,
+  project: LongformProject | undefined,
+  slideCount: number
+): PipelineStage {
   if (run.status !== "running") return stage("waiting", "Waiting for the source.");
+  if (plan.carouselSlides === 0 && !run.carouselId) return stage("skipped", "No carousel in the plan.");
   if (run.carouselId) {
     // No slides behind the id means the carousel was deleted from the Studio.
     // Reporting DEFAULT_SLIDE_COUNT here claimed "8 carousel slides written"
@@ -440,22 +666,84 @@ function imagesStage(run: PipelineRun, project: LongformProject | undefined, sli
   return stage("waiting", "Written from the transcript once analysis finishes.");
 }
 
-function visualsStage(run: PipelineRun, job: ClipJob | undefined, ready: boolean): PipelineStage {
+function visualsStage(run: PipelineRun, plan: PipelinePlan, job: ClipJob | undefined, ready: boolean): PipelineStage {
   if (run.status !== "running") return stage("waiting", "Waiting for the source.");
+  if (!plan.visualAd) return stage("skipped", "No visual ad brief in the plan.");
   if (!job) return stage("waiting", "Waiting for the clip analysis.");
   if (ready) return stage("ready", "Best transcript moment ready for a realistic screenshot ad");
   if (job.status === "error") return stage("skipped", "No strong transcript moment was available.");
   return stage("waiting", "Choosing the strongest transcript moment and frame.");
 }
 
-function postsStage(run: PipelineRun): PipelineStage {
+function postsStage(run: PipelineRun, plan: PipelinePlan): PipelineStage {
   if (run.status !== "running") return stage("waiting", "Waiting for the source.");
+  if (plan.postPlatforms.length === 0 && !run.posts?.length) return stage("skipped", "No text posts in the plan.");
   if (run.posts && run.posts.length > 0) {
     const note = run.postsNote ? ` (${run.postsNote})` : "";
     return stage("ready", `${run.posts.length} text posts written${note}`);
   }
   if (run.posts) return stage("skipped", run.postsNote ?? "Nothing to write from.");
   return stage("waiting", "Written from the transcript and clip titles once they exist.");
+}
+
+/**
+ * The second gate. Every selection this run is going to make is written by the
+ * time it turns ready; approving it is what releases the renders. Reported as
+ * `running` while it waits, because the run genuinely is not finished — it is
+ * standing at this step.
+ */
+function reviewStage(run: PipelineRun, review: PipelineReview | undefined): PipelineStage {
+  if (run.autoApprove) return stage("skipped", "Unattended run — it approves itself.");
+  if (run.status === "planning") return stage("waiting", "The written selections land here before anything renders.");
+  if (run.status === "error") return stage("skipped", "The run never got far enough to review.");
+  if (run.outputsApprovedAt) return stage("ready", "Approved — rendering what you kept.");
+  if (!review) return stage("waiting", "The written selections land here before anything renders.");
+  if (!review.ready) return stage("running", `Still writing: ${review.pending.join(", ")}…`);
+  return stage("running", "Everything is written. Check it over, then start the renders.");
+}
+
+/**
+ * Gathers what the second gate puts up for approval. Undefined for an
+ * unattended run, and before the source exists there is nothing to show.
+ */
+function buildReview(
+  run: PipelineRun,
+  plan: PipelinePlan,
+  project: LongformProject | undefined,
+  job: ClipJob | undefined,
+  carouselHeadings: string[]
+): PipelineReview | undefined {
+  if (run.autoApprove || !run.sourceId) return undefined;
+
+  const pending: string[] = [];
+  const clipsPicked = Boolean(job && (job.stage === "review" || job.status === "done" || job.status === "error"));
+  if (!clipsPicked) pending.push("clip moments");
+  if (plan.segments && !project?.topics && project?.status !== "error") pending.push("topic segments");
+  if (plan.carouselSlides > 0 && !run.carouselId && !run.carouselNote) pending.push("carousel slides");
+  if (plan.postPlatforms.length > 0 && !run.posts) pending.push("text posts");
+
+  return {
+    ready: pending.length === 0,
+    approvedAt: run.outputsApprovedAt,
+    segments: (project?.topics ?? []).map((topic) => ({
+      id: topic.id,
+      title: topic.title,
+      summary: topic.summary,
+      start: topic.start,
+      end: topic.end
+    })),
+    clips: (job?.clips ?? []).map((clip) => ({
+      id: clip.id,
+      title: clip.title ?? "Untitled moment",
+      hookQuote: clip.hookQuote,
+      start: clip.start,
+      end: clip.end,
+      score: clip.score
+    })),
+    carouselHeadings,
+    posts: run.posts ?? [],
+    pending
+  };
 }
 
 /**
@@ -466,15 +754,19 @@ function postsStage(run: PipelineRun): PipelineStage {
 export async function runOverview(run: PipelineRun): Promise<PipelineRunOverview> {
   await advanceRun(run);
 
+  const plan = runPlan(run);
   const project = run.longformProjectId ? await getProject(run.longformProjectId) : undefined;
   const job = run.clipJobId ? await getJob(run.clipJobId) : undefined;
   const exportRecord = project?.exports.find((item) => item.id === run.longformExportId);
 
   let slideCount = 0;
+  let carouselHeadings: string[] = [];
   if (run.carouselId) {
     try {
       const data = await readAppData();
-      slideCount = (data.videoStudio ?? defaultVideoStudio).carousels.find((c) => c.id === run.carouselId)?.slides.length ?? 0;
+      const carousel = (data.videoStudio ?? defaultVideoStudio).carousels.find((c) => c.id === run.carouselId);
+      slideCount = carousel?.slides.length ?? 0;
+      carouselHeadings = (carousel?.slides ?? []).map((slide) => slide.heading);
     } catch {
       // Non-critical count.
     }
@@ -506,15 +798,19 @@ export async function runOverview(run: PipelineRun): Promise<PipelineRunOverview
     project?.exports.some((item) => item.topicId === topic.id && item.status === "done" && item.file)
   ).length;
 
+  const review = buildReview(run, plan, project, job, carouselHeadings);
+
   const stages = {
+    plan: planStage(run, plan),
     source: sourceStage(run),
-    longform: longformStage(run, project),
-    segments: segmentsStage(run, project, segmentsRendered),
+    longform: longformStage(run, plan, project),
+    segments: segmentsStage(run, plan, project, segmentsRendered),
     clips: clipsStage(run, job),
-    audio: audioStage(run, project),
-    images: imagesStage(run, project, slideCount),
-    visuals: visualsStage(run, job, Boolean(visualMoment)),
-    posts: postsStage(run),
+    audio: audioStage(run, plan, project),
+    images: imagesStage(run, plan, project, slideCount),
+    visuals: visualsStage(run, plan, job, Boolean(visualMoment)),
+    posts: postsStage(run, plan),
+    review: reviewStage(run, review),
     schedule: stage("waiting", "")
   };
 
@@ -526,9 +822,11 @@ export async function runOverview(run: PipelineRun): Promise<PipelineRunOverview
     (visualMoment ? 1 : 0) +
     posts +
     segmentsRendered;
-  const upstreamSettled = (["longform", "segments", "clips", "audio", "images", "visuals", "posts"] as const).every(
-    (key) => stages[key].status !== "running" && stages[key].status !== "waiting"
-  );
+  // `review` is in this list on purpose: a run standing at the gate has not
+  // finished, and the channel scan's wait must not read it as done.
+  const upstreamSettled = (
+    ["longform", "segments", "clips", "audio", "images", "visuals", "posts", "review"] as const
+  ).every((key) => stages[key].status !== "running" && stages[key].status !== "waiting");
   if (run.status === "error") {
     stages.schedule = stage("error", "Nothing reached the scheduler — the source never ingested.");
   } else if (readyItems === 0) {
@@ -543,6 +841,8 @@ export async function runOverview(run: PipelineRun): Promise<PipelineRunOverview
   return {
     run,
     stages,
+    plan,
+    review,
     visualMoment,
     schedulable: {
       clipsReady,

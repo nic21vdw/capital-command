@@ -12,10 +12,34 @@ the finished export, write the carousel + text posts from the transcript),
 so polling `GET /api/pipeline` is what drives runs forward and every step is
 idempotent behind an id check.
 
+A run started by hand passes TWO GATES, because the expensive half of the
+pipeline is the encoding and nobody should wait for a render they were never
+going to keep:
+
+1. **The plan** (`status: "planning"`, `src/lib/pipeline/plan.ts`). Nothing is
+   downloaded until it is approved. The plan says what the run will produce and
+   how much of it — clip count, slide count, which feeds get posts, whether the
+   long-form edit and MP3 are rendered at all — and every stage reads it
+   afterwards (`runPlan`). `plannedOutputs` writes the summary the page shows,
+   so the promise on screen and the work the server does come from one function.
+2. **The review** (`outputsApprovedAt`). Everything the run DECIDED from the
+   transcript — topic segments, clip moments with titles, slide headings, post
+   copy — is written and put up for editing before a frame is encoded. The clip
+   job holds itself at `stage: "review"` (`reviewGate` on the job, released by
+   `approveClipRenders`), and the long-form export does not start. Titles are
+   editable and anything can be dropped, through `PATCH /api/pipeline/<runId>`.
+
+Both gates are skipped by `autoApprove`, which ONLY the channel scan sets —
+a gated unattended run would sit at the first gate until its wait timed out.
+Analysis (transcription, moment selection, topic splitting, the carousel and
+post copy) all happens BEFORE the second gate on purpose: that is what makes
+the review worth reading, and it is cheap next to the renders.
+
 - When a NEW output format is added to the app, wire it into the pipeline:
   a stage in `runs.ts` (+ `types.ts`), a row in
   `src/components/pipeline/pipeline-page.tsx`, and a count in the
-  scheduler-stage summary.
+  scheduler-stage summary. Give it a line in `plannedOutputs` too, and hold its
+  RENDER (never its analysis) behind `rendersApproved`.
 - Pipeline runs are owned by ONE process: a `globalThis` Map flushed to
   `data/pipeline/runs.json`. Anything outside the Next server that wants to
   start or advance a run must go through the HTTP API (`POST /api/pipeline`,
