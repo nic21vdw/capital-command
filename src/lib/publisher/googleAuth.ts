@@ -65,7 +65,7 @@ export function isYoutubeReconnectRequired(error: unknown): boolean {
   return message === YOUTUBE_RECONNECT_REQUIRED || /invalid_grant|token has been expired or revoked/i.test(message);
 }
 
-export type YoutubeChannelInfo = { title: string; thumbnail: string | null };
+export type YoutubeChannelInfo = { title: string; thumbnail: string | null; handle: string | null };
 
 export function googleAuthUrl(redirectUri: string, accountId: string = primaryAccountId("youtube")): string {
   const { youtube } = publisherConfig();
@@ -131,7 +131,9 @@ export async function exchangeGoogleCode(
 
 async function fetchChannelInfo(accessToken: string): Promise<YoutubeChannelInfo | null> {
   const data = await fetchJson<{
-    items?: Array<{ snippet?: { title?: string; thumbnails?: Record<string, { url?: string }> } }>;
+    items?: Array<{
+      snippet?: { title?: string; customUrl?: string; thumbnails?: Record<string, { url?: string }> };
+    }>;
   }>(CHANNELS_URL, {
     label: "YouTube channel lookup",
     method: "GET",
@@ -140,7 +142,9 @@ async function fetchChannelInfo(accessToken: string): Promise<YoutubeChannelInfo
   const snippet = data.items?.[0]?.snippet;
   if (!snippet?.title) return null;
   const thumbnail = snippet.thumbnails?.default?.url ?? snippet.thumbnails?.medium?.url ?? null;
-  return { title: snippet.title, thumbnail };
+  // customUrl is the channel's @handle, already carrying the "@"; handles are
+  // stored bare everywhere so one component decides how to render them.
+  return { title: snippet.title, thumbnail, handle: snippet.customUrl?.replace(/^@/, "") || null };
 }
 
 /**
@@ -175,7 +179,10 @@ export async function youtubeChannelInfo(
   const cached = await getCachedToken(youtubeChannelKey(accountId));
   if (cached) {
     try {
-      return JSON.parse(cached) as YoutubeChannelInfo;
+      const info = JSON.parse(cached) as YoutubeChannelInfo;
+      // An entry cached before handles were read has no handle key at all;
+      // treat that as a miss once so the @handle fills itself in.
+      if ("handle" in info) return info;
     } catch {
       // Corrupt cache entry — refetch below.
     }

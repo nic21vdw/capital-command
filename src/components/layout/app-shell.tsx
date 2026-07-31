@@ -126,13 +126,16 @@ function initialsFrom(name: string) {
 
 // The brand mark is the profile set in Settings, not a fixed logo: the photo
 // when one is uploaded, otherwise the display name's initials on the purple
-// gradient badge.
+// gradient badge. The line under it is the greeting — "Welcome, @handle" — so
+// the first thing the sidebar says is which creator this session is posting as.
 function Brand({ collapsed = false }: { collapsed?: boolean }) {
   const { data } = useAppData();
+  const connections = useConnections();
   const profile = data.settings.profile;
   const displayName = profile?.displayName?.trim() || DEFAULT_BRAND_NAME;
   const avatar = profile?.avatar;
   const initials = initialsFrom(displayName) || "?";
+  const handle = leadHandle(connections);
 
   return (
     <Link href="/" className={cn("flex items-center gap-3", collapsed && "justify-center")} title="Dashboard">
@@ -151,7 +154,9 @@ function Brand({ collapsed = false }: { collapsed?: boolean }) {
       </span>
       <span className={cn("flex min-w-0 flex-col leading-tight", collapsed && "hidden")}>
         <span className="truncate text-sm font-semibold text-white">{displayName}</span>
-        <span className="text-xs text-[var(--muted-foreground)]">YouTube creator tools</span>
+        <span className="truncate text-xs text-[var(--muted-foreground)]">
+          {handle ? `Welcome, @${handle}` : "YouTube creator tools"}
+        </span>
       </span>
     </Link>
   );
@@ -161,10 +166,19 @@ function Brand({ collapsed = false }: { collapsed?: boolean }) {
 /* Connected publishing accounts                                       */
 /* ------------------------------------------------------------------ */
 
-type ChannelSummary = {
-  /** The connected channel shown on the card (primary account first). */
-  title: string;
-  thumbnail: string | null;
+type Profile = { title: string; thumbnail: string | null; handle?: string | null };
+
+/** One platform's standing: who it posts as, and whether it can. */
+type PlatformConnection = {
+  platform: PlatformKey;
+  profile: Profile | null;
+  /** How many accounts on this platform are signed in. */
+  connected: number;
+  /** Signed in, but something still stops it publishing unattended. */
+  blocker: string | null;
+};
+
+type ChannelSummary = Profile & {
   /** How many other connected YouTube accounts exist beyond this one. */
   extraConnected: number;
 };
@@ -174,10 +188,8 @@ type Connections = {
   loaded: boolean;
   /** The YouTube channel this whole pipeline publishes as, when signed in. */
   channel: ChannelSummary | null;
-  instagram: number;
-  facebook: number;
-  tiktok: { title: string; thumbnail: string | null } | null;
-  tiktokAccounts: number;
+  /** The non-YouTube platforms, in the order the sidebar lists them. */
+  others: PlatformConnection[];
 };
 
 type AccountRow = {
@@ -185,43 +197,101 @@ type AccountRow = {
   platform: string;
   primary: boolean;
   connected: boolean;
-  youtube: { title: string; thumbnail: string | null } | null;
-  tiktok?: { title: string; thumbnail: string | null } | null;
+  profile?: Profile | null;
+  blocker?: string | null;
+  youtube: Profile | null;
+  tiktok?: Profile | null;
 };
+
+/** The Threads autopilot's standing, ridden along on /api/publish/accounts. */
+type ThreadsStanding = { connected: number; blocker: string | null; label: string | null };
+
+type PlatformKey = "youtube" | "instagram" | "tiktok" | "facebook" | "threads";
+
+const OTHER_PLATFORMS: PlatformKey[] = ["instagram", "tiktok", "facebook", "threads"];
+
+const PLATFORM_STYLE: Record<PlatformKey, { label: string; icon: LucideIcon; tint: string; background: string }> = {
+  youtube: { label: "YouTube", icon: Youtube, tint: "text-[#ff4d4d]", background: "bg-[#ff0000]/15" },
+  instagram: { label: "Instagram", icon: Instagram, tint: "text-[#e1306c]", background: "bg-[#e1306c]/15" },
+  tiktok: { label: "TikTok", icon: Music4, tint: "text-[#25f4ee]", background: "bg-[#25f4ee]/12" },
+  facebook: { label: "Facebook", icon: Facebook, tint: "text-[#4267b2]", background: "bg-[#4267b2]/20" },
+  threads: { label: "Threads", icon: AtSign, tint: "text-[#38bdf8]", background: "bg-[#38bdf8]/15" }
+};
+
+/** A platform logo opens that network's Channel Hub — its own content calendar. */
+function channelHref(platform: PlatformKey): string {
+  return `/channels/${platform}`;
+}
 
 const CHANNEL_CACHE_KEY = "capital-command:connected-accounts";
 const CHANNEL_CACHE_TTL_MS = 60_000;
 
-const EMPTY_CONNECTIONS: Connections = {
-  loaded: false,
-  channel: null,
-  instagram: 0,
-  facebook: 0,
-  tiktok: null,
-  tiktokAccounts: 0
-};
+const EMPTY_CONNECTIONS: Connections = { loaded: false, channel: null, others: [] };
+
+function profileOf(account: AccountRow): Profile | null {
+  return account.profile ?? account.youtube ?? account.tiktok ?? null;
+}
 
 function connectedOn(accounts: AccountRow[], platform: string) {
   return accounts.filter((account) => account.platform === platform && account.connected);
 }
 
-function summarize(accounts: AccountRow[]): Connections {
-  const youtube = connectedOn(accounts, "youtube").filter((account) => account.youtube);
+function summarize(accounts: AccountRow[], threads: ThreadsStanding | undefined): Connections {
+  const youtube = connectedOn(accounts, "youtube").filter((account) => profileOf(account));
   // The primary channel is the face of the app; any primary-connected account
   // wins, otherwise the first connected one does.
   const lead = youtube.find((account) => account.primary) ?? youtube[0];
-  const tiktok = connectedOn(accounts, "tiktok");
-  const tiktokProfile = tiktok.find((account) => account.tiktok)?.tiktok ?? null;
+  const leadProfile = lead ? profileOf(lead) : null;
   return {
     loaded: true,
-    channel: lead
-      ? { title: lead.youtube!.title, thumbnail: lead.youtube!.thumbnail, extraConnected: youtube.length - 1 }
-      : null,
-    instagram: connectedOn(accounts, "instagram").length,
-    facebook: connectedOn(accounts, "facebook").length,
-    tiktok: tiktokProfile,
-    tiktokAccounts: tiktok.length
+    channel: leadProfile ? { ...leadProfile, extraConnected: youtube.length - 1 } : null,
+    others: OTHER_PLATFORMS.map((platform) => {
+      // Threads is the autopilot's, not the publish queue's, so its standing
+      // comes from its own field rather than from the account list.
+      if (platform === "threads") {
+        return {
+          platform,
+          profile: threads?.label ? { title: threads.label, thumbnail: null } : null,
+          connected: threads?.connected ?? 0,
+          blocker: threads?.blocker ?? null
+        };
+      }
+      const signedIn = connectedOn(accounts, platform);
+      return {
+        platform,
+        profile: signedIn.map(profileOf).find(Boolean) ?? null,
+        connected: signedIn.length,
+        blocker: signedIn.map((account) => account.blocker).find(Boolean) ?? null
+      };
+    })
   };
+}
+
+/** The @handle the greeting uses: the YouTube channel's, else any connected. */
+function leadHandle(state: Connections): string | null {
+  return state.channel?.handle || state.others.map((row) => row.profile?.handle).find(Boolean) || null;
+}
+
+/** What a row says it posts as: the @handle when the platform gives one. */
+function handleLabel(profile: Profile | null, fallback: string): string {
+  if (profile?.handle) return `@${profile.handle}`;
+  return profile?.title ?? fallback;
+}
+
+// Both the brand line and the channel card ask for this on the same mount, so
+// the request is shared rather than fired twice.
+let inFlight: Promise<Connections> | null = null;
+
+function loadConnections(): Promise<Connections> {
+  if (!inFlight) {
+    inFlight = fetch("/api/publish/accounts", { cache: "no-store" })
+      .then((res) => (res.ok ? res.json() : Promise.reject(new Error(`${res.status}`))))
+      .then((json: { accounts?: AccountRow[]; threads?: ThreadsStanding }) => summarize(json.accounts ?? [], json.threads))
+      .finally(() => {
+        inFlight = null;
+      });
+  }
+  return inFlight;
 }
 
 /**
@@ -247,11 +317,10 @@ function useConnections(): Connections {
     } catch {
       // Bad cache — fall through to a fresh fetch.
     }
-    const controller = new AbortController();
-    void fetch("/api/publish/accounts", { cache: "no-store", signal: controller.signal })
-      .then((res) => (res.ok ? res.json() : Promise.reject(new Error(`${res.status}`))))
-      .then((json: { accounts?: AccountRow[] }) => {
-        const next = summarize(json.accounts ?? []);
+    let live = true;
+    void loadConnections()
+      .then((next) => {
+        if (!live) return;
         setState(next);
         try {
           window.sessionStorage.setItem(CHANNEL_CACHE_KEY, JSON.stringify({ at: Date.now(), state: next }));
@@ -259,12 +328,12 @@ function useConnections(): Connections {
           // Non-critical cache write.
         }
       })
-      .catch((error) => {
-        if (!(error instanceof DOMException && error.name === "AbortError")) {
-          setState({ ...EMPTY_CONNECTIONS, loaded: true });
-        }
+      .catch(() => {
+        if (live) setState({ ...EMPTY_CONNECTIONS, loaded: true });
       });
-    return () => controller.abort();
+    return () => {
+      live = false;
+    };
   }, []);
 
   return state;
@@ -319,8 +388,8 @@ function ChannelCard({ collapsed = false }: { collapsed?: boolean }) {
     <div className="space-y-2">
       {channel ? (
         <Link
-          href="/uploading-center"
-          title={collapsed ? `${channel.title} — YouTube` : "Manage channel accounts in the Uploading Center"}
+          href={channelHref("youtube")}
+          title={collapsed ? `${channel.title} — YouTube` : "Open the YouTube channel calendar"}
           className={cn(
             "group flex items-center gap-3 rounded-xl border border-[var(--border)] bg-gradient-to-br from-white/[0.06] to-transparent px-3 py-2.5 transition hover:border-[var(--border-strong)] hover:from-white/[0.09]",
             collapsed && "justify-center px-2"
@@ -330,9 +399,9 @@ function ChannelCard({ collapsed = false }: { collapsed?: boolean }) {
           <span className={cn("flex min-w-0 flex-1 flex-col leading-tight", collapsed && "hidden")}>
             <span className="truncate text-sm font-semibold text-white">{channel.title}</span>
             <span className="flex items-center gap-1.5 text-xs text-[var(--muted-foreground)]">
-              <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
-              YouTube · Signed in
-              {channel.extraConnected > 0 ? ` · +${channel.extraConnected}` : ""}
+              <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-emerald-400" />
+              <span className="truncate">{handleLabel(channel, "YouTube")}</span>
+              {channel.extraConnected > 0 ? <span className="shrink-0">+{channel.extraConnected}</span> : null}
             </span>
           </span>
         </Link>
@@ -361,71 +430,62 @@ function ChannelCard({ collapsed = false }: { collapsed?: boolean }) {
 
 /**
  * The other places a stream goes out. YouTube gets the card above because the
- * app publishes as that channel; Meta (Instagram + Facebook) and TikTok get a
- * line each so it is obvious at a glance which of them can actually post
- * without a person in the loop.
+ * app publishes as that channel; Instagram, TikTok and Facebook get a line
+ * each, showing the @handle they post as, so it is obvious at a glance which
+ * of them can actually post without a person in the loop.
+ *
+ * A row has three states, not two. Green is posting unattended; amber is
+ * signed in but held up by something outside the app (a permission the token
+ * never got, an app still in review) — the case that otherwise only surfaces
+ * as a failed upload hours later; grey is not connected at all.
  */
 function ConnectionRows({ state, collapsed }: { state: Connections; collapsed: boolean }) {
-  const meta = state.instagram + state.facebook;
-  const metaDetail = [
-    state.instagram > 0 ? "Instagram" : null,
-    state.facebook > 0 ? "Facebook" : null
-  ].filter(Boolean).join(" · ");
-
-  const rows = [
-    {
-      key: "meta",
-      icon: Instagram,
-      label: "Meta",
-      tint: "text-[#e1306c]",
-      background: "bg-[#e1306c]/15",
-      connected: meta > 0,
-      detail: meta > 0 ? `${metaDetail} · Signed in` : "Not connected"
-    },
-    {
-      key: "tiktok",
-      icon: Music4,
-      label: state.tiktok?.title ?? "TikTok",
-      tint: "text-[#25f4ee]",
-      background: "bg-[#25f4ee]/12",
-      connected: state.tiktokAccounts > 0,
-      detail: state.tiktokAccounts > 0 ? "TikTok · Signed in" : "Not connected"
-    }
-  ];
-
   return (
     <div className={cn("flex gap-1.5", collapsed ? "flex-col items-center" : "flex-col")}>
-      {rows.map((row) => {
-        const Icon = row.icon;
+      {state.others.map((row) => {
+        const style = PLATFORM_STYLE[row.platform];
+        const Icon = style.icon;
+        const connected = row.connected > 0;
+        const held = connected && Boolean(row.blocker);
+        const detail = connected ? handleLabel(row.profile, style.label) : `${style.label} · not connected`;
+        const dot = held ? "bg-amber-400" : connected ? "bg-emerald-400" : "bg-white/20";
         return (
           <Link
-            key={row.key}
-            href="/uploading-center"
-            title={`${row.label} — ${row.detail}`}
+            key={row.platform}
+            href={channelHref(row.platform)}
+            title={row.blocker ? `${style.label} — ${row.blocker}` : `${style.label} — ${detail}`}
             className={cn(
               "flex items-center gap-2.5 rounded-lg border px-2.5 py-1.5 transition hover:border-[var(--border-strong)] hover:bg-white/[0.04]",
-              row.connected ? "border-[var(--border)]" : "border-dashed border-[var(--border)]",
+              connected ? "border-[var(--border)]" : "border-dashed border-[var(--border)]",
               collapsed && "justify-center px-2"
             )}
           >
             <span
               className={cn(
-                "relative flex h-6 w-6 shrink-0 items-center justify-center rounded-full",
-                row.background,
-                row.tint,
-                !row.connected && "opacity-50"
+                "relative flex h-6 w-6 shrink-0 items-center justify-center overflow-hidden rounded-full",
+                style.background,
+                style.tint,
+                !connected && "opacity-50"
               )}
             >
-              <Icon className="h-3.5 w-3.5" />
-              {collapsed && row.connected && (
-                <span className="absolute -bottom-0.5 -right-0.5 h-2 w-2 rounded-full border border-[var(--panel)] bg-emerald-400" />
+              {row.profile?.thumbnail ? (
+                // eslint-disable-next-line @next/next/no-img-element -- remote avatar host isn't in next.config images
+                <img src={row.profile.thumbnail} alt="" className="h-full w-full object-cover" />
+              ) : (
+                <Icon className="h-3.5 w-3.5" />
+              )}
+              {collapsed && connected && (
+                <span
+                  className={cn(
+                    "absolute -bottom-0.5 -right-0.5 h-2 w-2 rounded-full border border-[var(--panel)]",
+                    held ? "bg-amber-400" : "bg-emerald-400"
+                  )}
+                />
               )}
             </span>
             <span className={cn("flex min-w-0 flex-1 items-center gap-1.5 leading-tight", collapsed && "hidden")}>
-              <span className={cn("h-1.5 w-1.5 shrink-0 rounded-full", row.connected ? "bg-emerald-400" : "bg-white/20")} />
-              <span className="truncate text-xs text-[var(--muted-foreground)]">
-                {row.connected ? row.detail : `${row.label} · not connected`}
-              </span>
+              <span className={cn("h-1.5 w-1.5 shrink-0 rounded-full", dot)} />
+              <span className="truncate text-xs text-[var(--muted-foreground)]">{detail}</span>
             </span>
           </Link>
         );
@@ -730,22 +790,15 @@ function MobileChannelChip() {
   const state = useConnections();
   if (!state.loaded) return <span className="h-9 w-9 animate-pulse rounded-full bg-white/10" />;
 
-  const others = [
-    state.instagram + state.facebook > 0
-      ? { key: "meta", icon: Instagram, tint: "text-[#e1306c]", background: "bg-[#e1306c]/15", label: "Meta connected" }
-      : null,
-    state.tiktokAccounts > 0
-      ? { key: "tiktok", icon: Music4, tint: "text-[#25f4ee]", background: "bg-[#25f4ee]/12", label: "TikTok connected" }
-      : null
-  ].filter(Boolean) as Array<{ key: string; icon: LucideIcon; tint: string; background: string; label: string }>;
+  const others = state.others.filter((row) => row.connected > 0);
 
   return (
     <span className="flex items-center gap-1.5">
       {state.channel ? (
         <Link
-          href="/uploading-center"
+          href={channelHref("youtube")}
           aria-label={`${state.channel.title} — YouTube`}
-          title={state.channel.title}
+          title={handleLabel(state.channel, "YouTube")}
         >
           <ChannelAvatar channel={state.channel} className="h-9 w-9" />
         </Link>
@@ -759,17 +812,28 @@ function MobileChannelChip() {
           <Youtube className="h-4 w-4" />
         </a>
       )}
-      {others.map((entry) => {
-        const Icon = entry.icon;
+      {others.map((row) => {
+        const style = PLATFORM_STYLE[row.platform];
+        const Icon = style.icon;
+        const label = `${style.label} — ${row.blocker ?? handleLabel(row.profile, style.label)}`;
         return (
           <Link
-            key={entry.key}
-            href="/uploading-center"
-            aria-label={entry.label}
-            title={entry.label}
-            className={cn("flex h-7 w-7 items-center justify-center rounded-full", entry.background, entry.tint)}
+            key={row.platform}
+            href={channelHref(row.platform)}
+            aria-label={label}
+            title={label}
+            className={cn(
+              "flex h-7 w-7 items-center justify-center overflow-hidden rounded-full",
+              style.background,
+              style.tint
+            )}
           >
-            <Icon className="h-3.5 w-3.5" />
+            {row.profile?.thumbnail ? (
+              // eslint-disable-next-line @next/next/no-img-element -- remote avatar host isn't in next.config images
+              <img src={row.profile.thumbnail} alt="" className="h-full w-full object-cover" />
+            ) : (
+              <Icon className="h-3.5 w-3.5" />
+            )}
           </Link>
         );
       })}

@@ -1,37 +1,95 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { accountIdConfigured, addAccount, listAccounts, isPrimaryAccountId, type SocialAccount } from "@/lib/publisher/accounts";
+import { publisherConfig } from "@/lib/publisher/config";
 import { youtubeChannelInfo, type YoutubeChannelInfo } from "@/lib/publisher/googleAuth";
-import { tiktokCreatorInfo, type TiktokCreatorInfo } from "@/lib/publisher/tiktokAuth";
+import {
+  FACEBOOK_SCOPE_BLOCKER,
+  facebookCanPublish,
+  facebookProfile,
+  instagramProfile,
+  type MetaProfile
+} from "@/lib/publisher/metaProfile";
+import { TIKTOK_AUDIT_BLOCKER, tiktokCreatorInfo, type TiktokCreatorInfo } from "@/lib/publisher/tiktokAuth";
+import { threadsBlockedReason, threadsConfig, threadsConfigured } from "@/lib/threads/config";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+
+/** Who an account posts as: display name, @handle and avatar. */
+export type ConnectedProfile = MetaProfile;
 
 export type SocialAccountView = SocialAccount & {
   primary: boolean;
   /** True when posts for this account publish automatically. */
   connected: boolean;
+  /** The profile behind this account, whichever platform minted it. */
+  profile: ConnectedProfile | null;
+  /** Connected, but something still stops it publishing unattended. */
+  blocker: string | null;
   /** Connected YouTube channel's name/avatar, when known. */
   youtube: YoutubeChannelInfo | null;
   /** Connected TikTok profile's display name/avatar, when known. */
   tiktok: TiktokCreatorInfo | null;
 };
 
+async function profileFor(
+  account: SocialAccount
+): Promise<{ profile: ConnectedProfile | null; blocker: string | null }> {
+  if (account.platform === "youtube") return { profile: await youtubeChannelInfo(account.id), blocker: null };
+  if (account.platform === "tiktok") {
+    const config = publisherConfig();
+    return {
+      profile: await tiktokCreatorInfo(),
+      blocker: config.tiktok.audited ? null : TIKTOK_AUDIT_BLOCKER
+    };
+  }
+  if (account.platform === "instagram") return { profile: await instagramProfile(), blocker: null };
+  return {
+    profile: await facebookProfile(),
+    blocker: (await facebookCanPublish()) ? null : FACEBOOK_SCOPE_BLOCKER
+  };
+}
+
 async function accountView(account: SocialAccount): Promise<SocialAccountView> {
   const connected = await accountIdConfigured(account.platform, account.id);
+  const { profile, blocker } = connected
+    ? await profileFor(account)
+    : { profile: null, blocker: null };
   return {
     ...account,
     primary: isPrimaryAccountId(account.id),
     connected,
-    youtube: account.platform === "youtube" && connected ? await youtubeChannelInfo(account.id) : null,
-    tiktok: account.platform === "tiktok" && connected ? await tiktokCreatorInfo() : null
+    profile,
+    blocker,
+    youtube: account.platform === "youtube" ? (profile as YoutubeChannelInfo | null) : null,
+    tiktok: account.platform === "tiktok" ? (profile as TiktokCreatorInfo | null) : null
+  };
+}
+
+/**
+ * Threads is not a publish-queue platform — the autopilot owns its own queue
+ * and its own accounts — but the sidebar lists it beside the other four, so
+ * its standing rides along here rather than costing the app shell a second
+ * request. Reading it is pure config parsing: no tokens leave the server and
+ * no I/O happens.
+ */
+function threadsStanding() {
+  const config = threadsConfig();
+  return {
+    connected: threadsConfigured(config) ? config.accounts.length : 0,
+    blocker: threadsBlockedReason(config),
+    label: config.accounts[0]?.label ?? null
   };
 }
 
 /** GET /api/publish/accounts — every social account across all platforms. */
 export async function GET() {
   const accounts = await listAccounts();
-  return NextResponse.json({ accounts: await Promise.all(accounts.map(accountView)) });
+  return NextResponse.json({
+    accounts: await Promise.all(accounts.map(accountView)),
+    threads: threadsStanding()
+  });
 }
 
 const createSchema = z.object({
