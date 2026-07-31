@@ -93,3 +93,36 @@ importing `jobs.ts` and getting its own copy.
 | --- | --- |
 | `FAL_KEY` | One key for every model. Without it the studio lists the models and plays the library, but generating is off and says so. |
 | `FAL_QUEUE_BASE` | Advanced: stand a proxy — or a local stub — in front of `https://queue.fal.run`. |
+
+## The browsable folder (`scripts/music-library.mjs`)
+
+The library stores every song as `data/longform/music/<id>/track.<ext>` — right
+for the app, useless for browsing. `npm run music:sync` keeps a human-readable
+mirror at `~/Music/Capital Command`:
+
+```
+Capital Command/
+  Generated/<Model Label>/<Song Title>.<ext>   exported from the library
+  Uploaded/<Song Title>.<ext>                  songs added by hand
+  Drop-in/                                     put Suno downloads here
+  Drop-in/imported/                            where they land once absorbed
+```
+
+`music:export` copies out, `music:import` uploads anything waiting in `Drop-in`
+into the library, and `music:sync` does both — import first, so a song dropped
+in comes back out under its model folder on the same run.
+
+Both halves are idempotent. Export records each track id in a hidden
+`.exported.json` manifest and skips anything still on disk, so re-running after
+a generation batch copies only the new songs; import moves a file to
+`Drop-in/imported/` rather than deleting it, so a failed upload is never lost.
+
+The script talks to the app over `/api/longform/music` — it never imports
+`@/lib/longform/music`, because the library index has the same one-process rule
+as the pipeline runs and the Threads queue.
+
+| Variable | Meaning |
+| --- | --- |
+| `MUSIC_LIBRARY_DIR` | Where the mirror lives. Default `~/Music/Capital Command`. |
+| `CC_APP_URL` | The running app. Default `http://localhost:3000`. |
+| `CC_REPO_ROOT` | Where `data/` lives, if the script runs from elsewhere. Default `process.cwd()`. |
