@@ -58,6 +58,21 @@ global `~/.claude/CLAUDE.md`: where the two disagree, this file wins.
 - If a change is genuinely risky and you want it seen first, say so in the reply
   and ask — do not silently fall back to opening a PR.
 
+### When the harness blocks the push
+
+Some Claude Code sessions run with guards that refuse both `git push` to `main`
+and `gh pr merge`, whatever this file says — they are environment policy, not a
+rule you can talk your way past. Do NOT try to route around one (no `gh api`
+merge calls, no rewriting the remote). Instead:
+
+1. Do the whole job up to the push: commit, verify, and say what you ran.
+2. Push the work to a branch so nothing is stranded on a local worktree.
+3. Hand Nic the exact one-line command to land it, and say plainly that you
+   could not.
+
+A blocked push is not a failed task. Silently downgrading to a PR and calling it
+done, or claiming something landed when it did not, is.
+
 ### Working in parallel
 
 Several agent sessions run against this repo at once and the main checkout is
