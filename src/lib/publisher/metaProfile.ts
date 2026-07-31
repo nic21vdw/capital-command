@@ -98,9 +98,13 @@ export type FacebookProbe = { ready: boolean; detail: string };
  * It opens video_reels with a deliberately unresolvable file_url. A token
  * without pages_manage_posts is refused at the permission gate — code 200,
  * "Subject does not have permission to post videos on this target" — before
- * Facebook ever looks at the URL. A token that has it gets past the gate and
- * fails on the URL instead, which is the answer we want. Facebook cannot
- * fetch the file either way, so no video, draft or container is created.
+ * Facebook ever looks at the URL, and that refusal is the signal.
+ *
+ * A token that has the permission gets past the gate, so the start call may
+ * open an upload session and hand back a video id. Nothing follows it: no
+ * bytes are ever transferred and the finish phase is never called, so the
+ * session expires on its own and the Page's video_reels, videos and posts
+ * edges stay untouched.
  */
 export async function facebookPublishProbe(
   config: PublisherConfig = publisherConfig()
