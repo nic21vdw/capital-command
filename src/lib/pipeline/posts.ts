@@ -18,6 +18,8 @@ export type PipelinePostsInput = {
   transcriptText: string;
   /** Claude/heuristic-titled best moments from the clip job. */
   clipHighlights: Array<{ title: string; quote?: string }>;
+  /** Which feeds to write for. Defaults to all three when the run doesn't say. */
+  platforms?: PipelinePost["platform"][];
 };
 
 const X_POST_COUNT = 3;
@@ -41,8 +43,17 @@ ${TITLE_STYLE_EXAMPLES.map((t) => `  - ${t}`).join("\n")}
 
 You always return strict JSON.`;
 
+const ALL_PLATFORMS: PipelinePost["platform"][] = ["x", "threads", "facebook"];
+
+function wantedPlatforms(input: PipelinePostsInput): PipelinePost["platform"][] {
+  const asked = input.platforms;
+  if (!asked) return ALL_PLATFORMS;
+  return ALL_PLATFORMS.filter((platform) => asked.includes(platform));
+}
+
 /** Builds the user prompt from the run's material. Pure, for tests. */
 export function buildPipelinePostsPrompt(input: PipelinePostsInput): string {
+  const platforms = wantedPlatforms(input);
   const lines: string[] = [`Stream: ${input.streamTitle.trim() || "(untitled)"}`];
   if (input.clipHighlights.length > 0) {
     lines.push("", "Best moments already clipped from this stream:");
@@ -55,14 +66,16 @@ export function buildPipelinePostsPrompt(input: PipelinePostsInput): string {
   if (transcript) {
     lines.push("", "Transcript excerpt (the stream's opening):", transcript);
   }
+  const asks: Record<PipelinePost["platform"], string> = {
+    x: `Exactly ${X_POST_COUNT} posts for X — each under 270 characters, each taking a DIFFERENT angle (insight, contrarian take, concrete lesson).`,
+    threads: `Exactly ${THREADS_POST_COUNT} posts for Threads — the same ideas rephrased warmer and more conversational, different wording so the feeds are not duplicates.`,
+    facebook: `Exactly ${FACEBOOK_POST_COUNT} post for Facebook/LinkedIn — 2-4 sentences telling the story of what was built and inviting people to watch.`
+  };
+  lines.push("", `Write text-only posts about this stream:`);
+  platforms.forEach((platform, index) => lines.push(`${index + 1}. ${asks[platform]}`));
   lines.push(
     "",
-    `Write text-only posts about this stream:`,
-    `1. Exactly ${X_POST_COUNT} posts for X — each under 270 characters, each taking a DIFFERENT angle (insight, contrarian take, concrete lesson).`,
-    `2. Exactly ${THREADS_POST_COUNT} posts for Threads — the same ideas rephrased warmer and more conversational, different wording so the feeds are not duplicates.`,
-    `3. Exactly ${FACEBOOK_POST_COUNT} post for Facebook/LinkedIn — 2-4 sentences telling the story of what was built and inviting people to watch.`,
-    "",
-    'Return ONLY a JSON array (no prose): [{"platform": "x" | "threads" | "facebook", "text": "..."}].'
+    `Return ONLY a JSON array (no prose): [{"platform": ${platforms.map((p) => `"${p}"`).join(" | ")}, "text": "..."}].`
   );
   return lines.join("\n");
 }
@@ -96,6 +109,7 @@ export function parsePipelinePosts(text: string): PipelinePost[] {
  * complete phrases) and the stream name — simple, but never broken fragments.
  */
 export function fallbackPipelinePosts(input: PipelinePostsInput): PipelinePost[] {
+  const platforms = wantedPlatforms(input);
   const highlights = input.clipHighlights.filter((h) => h.title.trim());
   const streamTitle = input.streamTitle.trim() || "today's stream";
   const posts: PipelinePost[] = [];
@@ -120,7 +134,12 @@ export function fallbackPipelinePosts(input: PipelinePostsInput): PipelinePost[]
       `New session: ${streamTitle}. The full recording, the short clips, and the podcast version are all up now. ` +
       (highlights[0] ? `Start with the best moment: ${highlights[0].title.trim()}.` : `Come watch the build.`)
   });
-  return posts;
+  // Written for X and Facebook, then narrowed: a run that only asked for Threads
+  // still gets the X copy, retargeted, rather than nothing at all.
+  const kept = posts.filter((post) => platforms.includes(post.platform));
+  if (kept.length > 0) return kept;
+  const only = platforms[0];
+  return only ? posts.slice(0, 1).map((post) => ({ ...post, platform: only })) : [];
 }
 
 /**
@@ -148,7 +167,8 @@ export async function generatePipelinePosts(
         reason: "The model was unavailable or declined — built simple announcement posts instead."
       };
     }
-    const posts = parsePipelinePosts(result.text);
+    const wanted = wantedPlatforms(input);
+    const posts = parsePipelinePosts(result.text).filter((post) => wanted.includes(post.platform));
     if (posts.length === 0) {
       return {
         posts: fallbackPipelinePosts(input),

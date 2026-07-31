@@ -14,7 +14,30 @@ export type PipelinePost = {
   text: string;
 };
 
+/**
+ * What a run has been asked to produce, agreed before the stream is fetched.
+ * See `src/lib/pipeline/plan.ts` for the defaults and the summary it renders.
+ */
+export type PipelinePlan = {
+  /** How many short-form clips to cut (MIN_CLIP_COUNT…MAX_CLIP_COUNT). */
+  clipCount: number;
+  /** Render the whole-stream long-form edit. Off still plans the edit, it just never exports. */
+  longform: boolean;
+  /** Split the stream into its topic segments. */
+  segments: boolean;
+  /** Cut the podcast MP3 out of the long-form export. Requires `longform`. */
+  audio: boolean;
+  /** Slides in the carousel written from the transcript; 0 writes none. */
+  carouselSlides: number;
+  /** Prepare the strongest transcript moment as a realistic screenshot-ad brief. */
+  visualAd: boolean;
+  /** Which feeds get text-only posts; empty writes none. */
+  postPlatforms: PipelinePost["platform"][];
+};
+
 export type PipelineRunStatus =
+  /** Waiting for the plan to be approved — nothing has been fetched yet. */
+  | "planning"
   /** The source video is still downloading from the pasted link. */
   | "ingesting"
   /** The source exists; stages are fanning out and advancing. */
@@ -31,8 +54,32 @@ export type PipelineRun = {
   progress?: number;
   error?: string;
   notices: string[];
+  /**
+   * What this run will produce. Written when the run is created, editable while
+   * the run is `planning`, and read by every stage from then on. Optional only
+   * because runs persisted before the plan existed have none.
+   */
+  plan?: PipelinePlan;
+  /**
+   * Set when the plan was approved and the fetch was allowed to start. An
+   * unattended run (the channel scan) is created already approved.
+   */
+  planApprovedAt?: string;
+  /**
+   * Set when the transcript-derived selections were approved and rendering was
+   * allowed to start. Until then the long-form export and the clip renders are
+   * held, which is the whole point of the second gate.
+   */
+  outputsApprovedAt?: string;
+  /**
+   * True when this run skips both gates — nobody is watching it. The channel
+   * ingest sets it; the pipeline page never does.
+   */
+  autoApprove?: boolean;
   /** The pasted VOD link, when the run started from a URL. */
   sourceUrl?: string;
+  /** A name given with the link, kept so a download that lands after the plan gate can still honour it. */
+  requestedName?: string;
   /** Shared uploaded/downloaded source both editors work from. */
   sourceId?: string;
   fileName?: string;
@@ -58,6 +105,8 @@ export type PipelineRun = {
 export type PipelineStageStatus = "waiting" | "running" | "ready" | "error" | "skipped";
 
 export type PipelineStageKey =
+  /** Gate one: what the run is about to do, before anything is fetched. */
+  | "plan"
   | "source"
   | "longform"
   | "segments"
@@ -66,6 +115,8 @@ export type PipelineStageKey =
   | "images"
   | "visuals"
   | "posts"
+  /** Gate two: the written selections, before anything is rendered. */
+  | "review"
   | "schedule";
 
 /** Live, joined view of one stage — what the pipeline page renders. */
@@ -77,9 +128,33 @@ export type PipelineStage = {
   progress?: number;
 };
 
+/**
+ * Everything the second gate puts up for approval: the choices that were made
+ * from the transcript, before a frame has been encoded. Editable through
+ * `PATCH /api/pipeline/<runId>` until the run is approved.
+ */
+export type PipelineReview = {
+  /** True once every selection this run is going to make has been written. */
+  ready: boolean;
+  approvedAt?: string;
+  /** Topic segments the stream will be split into. */
+  segments: Array<{ id: string; title: string; summary: string; start: number; end: number }>;
+  /** Clip moments about to be rendered, in the order they were picked. */
+  clips: Array<{ id: string; title: string; hookQuote?: string; start: number; end: number; score: number }>;
+  /** Slide headings of the written carousel, so the deck can be judged at a glance. */
+  carouselHeadings: string[];
+  posts: PipelinePost[];
+  /** What is still being written, in one line, while `ready` is false. */
+  pending: string[];
+};
+
 export type PipelineRunOverview = {
   run: PipelineRun;
   stages: Record<PipelineStageKey, PipelineStage>;
+  /** Present once the run has a plan — the pre-flight summary and the gate. */
+  plan?: PipelinePlan;
+  /** Present from the moment the first selection lands until the run finishes. */
+  review?: PipelineReview;
   /** Strongest transcript-grounded moment for screenshot and AI ad creation. */
   visualMoment?: {
     headline: string;

@@ -1,6 +1,11 @@
 export type ClipJobStatus = "queued" | "processing" | "done" | "error";
 
-export type ClipJobStage = "downloading" | "analyzing" | "selecting" | "rendering" | "finished";
+/**
+ * `review` is a hold: the moments are picked and titled but nothing has been
+ * encoded yet. Only a job created with `reviewGate` stops there, and only the
+ * Stream Pipeline's approval (or `approveClipRenders`) moves it on.
+ */
+export type ClipJobStage = "downloading" | "analyzing" | "selecting" | "review" | "rendering" | "finished";
 
 export type ClipLayoutPreset = "center" | "restream-stack" | "face-stack" | "screen-focus" | "face-focus";
 
@@ -110,6 +115,12 @@ export type ClipJob = {
    * upload time (defaults to TARGET_CLIP_COUNT) and drives every selection pass.
    */
   clipCount?: number;
+  /**
+   * Hold the job at `review` once the moments are picked and titled, instead of
+   * rendering straight through. Set by the Stream Pipeline so the selection can
+   * be edited before any encoding time is spent; cleared on approval.
+   */
+  reviewGate?: boolean;
   renderLayout?: ClipLayoutPreset;
   renderVariants?: boolean;
   layoutOverrides?: ClipLayoutOverrides;

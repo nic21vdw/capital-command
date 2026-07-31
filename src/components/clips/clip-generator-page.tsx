@@ -47,6 +47,7 @@ const STAGE_LABELS: Record<ClipJobStage, string> = {
   downloading: "Fetching the source",
   analyzing: "Transcribing the audio",
   selecting: "Picking the best moments",
+  review: "Waiting for approval in the pipeline",
   rendering: "Rendering clips",
   finished: "Ready"
 };
