@@ -9,6 +9,7 @@ import type { ClipCandidate, ClipJob } from "@/lib/clipping/types";
 import type { ClipProject } from "@/types/domain";
 import { placeChannelVideos, type ChannelPlacement } from "@/lib/publisher/channelPlacement";
 import type { ChannelSchedule, ChannelVideo } from "@/lib/publisher/channelVideos";
+import type { RevisePatch } from "@/lib/publisher/revise";
 import type { ScheduleSlot } from "@/lib/publisher/slots";
 import type { YoutubeQuota } from "@/lib/publisher/quota";
 import type { PlatformId, QueueItem } from "@/lib/publisher/types";
@@ -888,6 +889,91 @@ export function useUploadingCenter(clipProjects: ClipProject[] = []) {
     [refresh]
   );
 
+  /**
+   * Change a scheduled post — its time, copy, visibility, account or targets.
+   * The server decides what is allowed (a post already on a platform can only
+   * be renamed) and answers 409 with a sentence explaining why, which is what
+   * the toast shows.
+   */
+  const revise = useCallback(
+    async (item: QueueItem, patch: RevisePatch) => {
+      setBusy(`revise:${item.id}`);
+      try {
+        const response = await fetch(`/api/publish/${item.id}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(patch)
+        });
+        if (!response.ok) {
+          toast.error(await readError(response));
+          return false;
+        }
+        const result = (await response.json()) as { youtube?: string; youtubeError?: string };
+        if (result.youtube === "error") toast.warning(`Saved here, but YouTube said: ${result.youtubeError}`);
+        else toast.success("Post updated.");
+        await refresh({ channelRefresh: result.youtube === "updated" });
+        return true;
+      } finally {
+        setBusy(null);
+      }
+    },
+    [refresh]
+  );
+
+  /** Take a post out of the running without losing the clip or the copy. */
+  const skip = useCallback(
+    async (item: QueueItem) => {
+      setBusy(`skip:${item.id}`);
+      try {
+        const response = await fetch(`/api/publish/${item.id}/skip`, { method: "POST" });
+        if (!response.ok) {
+          toast.error(await readError(response));
+          return false;
+        }
+        toast.success("Skipped — it stays on the day but won't post.");
+        await refresh();
+        return true;
+      } finally {
+        setBusy(null);
+      }
+    },
+    [refresh]
+  );
+
+  /** Move a whole day's still-movable posts. Reports what could not move. */
+  const shiftDayBy = useCallback(
+    async (dateKey: string, minutes: number) => {
+      setBusy(`shift:${dateKey}`);
+      try {
+        const response = await fetch("/api/publish/shift", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ date: dateKey, minutes })
+        });
+        const result = (await response.json()) as {
+          moved?: number;
+          blocked?: { title: string; reason: string }[];
+          error?: string;
+        };
+        if (!response.ok) {
+          toast.error(result.error ?? "Couldn't move that day.");
+          return false;
+        }
+        const direction = minutes > 0 ? "later" : "earlier";
+        const blocked = result.blocked ?? [];
+        toast.success(
+          `Moved ${result.moved} post${result.moved === 1 ? "" : "s"} ${Math.abs(minutes)} min ${direction}` +
+            (blocked.length > 0 ? ` · left ${blocked.length} alone (${blocked[0].reason})` : "")
+        );
+        await refresh();
+        return true;
+      } finally {
+        setBusy(null);
+      }
+    },
+    [refresh]
+  );
+
   /** A platform's accounts, primary first (the API returns them ordered). */
   const accountsFor = useCallback(
     (platform: PlatformId) => accounts.filter((account) => account.platform === platform),
@@ -992,6 +1078,9 @@ export function useUploadingCenter(clipProjects: ClipProject[] = []) {
     autoAssign,
     publishNow,
     remove,
+    revise,
+    skip,
+    shiftDayBy,
     refresh
   };
 }

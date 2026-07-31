@@ -28,8 +28,19 @@ export type Visibility = "public" | "private" | "unlisted";
  *   manual    → the platform had no credentials when the post was created, so
  *               it is tracked as a reminder to post by hand. Terminal for the
  *               runner; connecting the platform later does not retro-fire it.
+ *   skipped   → deliberately taken out of the running from the Uploading
+ *               Center. Terminal: the record stays so the day still shows what
+ *               was planned, but the runner never posts it. Same idea as the
+ *               Threads autopilot's skipped items.
  */
-export type PlatformStatus = "pending" | "uploaded" | "scheduled" | "published" | "failed" | "manual";
+export type PlatformStatus =
+  | "pending"
+  | "uploaded"
+  | "scheduled"
+  | "published"
+  | "failed"
+  | "manual"
+  | "skipped";
 
 export type PlatformState = {
   status: PlatformStatus;
