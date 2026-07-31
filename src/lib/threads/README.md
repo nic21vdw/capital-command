@@ -73,9 +73,34 @@ A day with nothing on the queue at all is not "behind", it is unplanned — that
 belongs to step 1, and catch-up leaves it alone. Switch the whole thing off with
 `THREADS_CATCHUP=false`.
 
-The one failure this cannot fix is a machine that is simply off: nothing local
-posts while Windows is asleep. Catch-up rescues the rest of the day once it
-wakes; it cannot rescue the hours themselves.
+## The machine has to stay awake
+
+Nothing local posts while Windows is asleep, and catch-up cannot rescue hours
+that have already gone — only the rest of the day once the machine wakes. A
+default Balanced power plan sleeps after 30 minutes idle, which is enough to
+lose most of a round-the-clock day and was exactly how one day here delivered 7
+posts out of 24.
+
+The scheduled task cannot solve this itself. `WakeToRun` sounds like the answer,
+but the task repeats every five minutes: the machine would wake every five
+minutes all night and never meaningfully sleep, paying an awake machine's power
+for a sleeping one's reliability.
+
+So the host stays awake instead — display off, machine on:
+
+    powercfg /change standby-timeout-ac 0
+    powercfg /change standby-timeout-dc 0
+    powercfg /change hibernate-timeout-ac 0
+    powercfg /change hibernate-timeout-dc 0
+
+`npm run threads:register` checks this and warns when a sleep timeout would eat
+the overnight batch. A Windows feature update or a power-plan reset silently
+puts the timeouts back, and the symptom — a day that quietly delivers half its
+posts — looks like nothing more than a quiet feed, so it is worth re-checking
+whenever the count drops.
+
+Wanting the machine to sleep anyway means moving the app and this task to an
+always-on host; there is no local arrangement that gets both.
 
 ## The two buttons
 

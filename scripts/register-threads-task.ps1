@@ -59,3 +59,27 @@ Register-ScheduledTask -TaskName $TaskName -Action $action -Trigger $trigger -Se
 Write-Host "Registered '$TaskName' - every $IntervalMinutes minutes."
 Write-Host "Log: $(Join-Path $root 'threads-autopilot.log')"
 Write-Host "Remove with: Unregister-ScheduledTask -TaskName `"$TaskName`" -Confirm:`$false"
+
+# A sleeping machine posts nothing, and the failure is silent - the feed just
+# goes quiet for the night and the morning's slots are skipped. The task cannot
+# fix this itself: WakeToRun on a five-minute repetition would wake the machine
+# every five minutes all night, which is not sleeping at all. So check the power
+# plan here, where someone is already looking.
+function Get-IdleTimeout($setting) {
+  $raw = powercfg /q SCHEME_CURRENT SUB_SLEEP $setting 2>$null
+  $line = $raw | Select-String "Current AC Power Setting Index"
+  if (-not $line) { return $null }
+  return [Convert]::ToInt32((($line -split ":")[1].Trim()), 16)
+}
+
+$standby = Get-IdleTimeout "STANDBYIDLE"
+if ($null -ne $standby -and $standby -gt 0) {
+  Write-Warning "This PC sleeps after $($standby / 60) minutes idle, so the overnight batch will not post."
+  Write-Host "  Keep it awake (the display still turns off) with:"
+  Write-Host "    powercfg /change standby-timeout-ac 0"
+  Write-Host "    powercfg /change standby-timeout-dc 0"
+  Write-Host "    powercfg /change hibernate-timeout-ac 0"
+  Write-Host "    powercfg /change hibernate-timeout-dc 0"
+} else {
+  Write-Host "Power plan: this PC does not sleep on idle - the overnight batch will post."
+}
