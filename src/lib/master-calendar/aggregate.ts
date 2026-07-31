@@ -39,7 +39,7 @@ export function todayKeyIn(timeZone: string, now = new Date()): string {
 }
 
 /** A UTC instant's local calendar date + wall-clock time in `timeZone`. */
-function localDateTime(instant: Date, timeZone: string): { dateKey: string; time: string } {
+export function localDateTime(instant: Date, timeZone: string): { dateKey: string; time: string } {
   const parts: Record<string, string> = {};
   for (const part of new Intl.DateTimeFormat("en-CA", {
     timeZone,

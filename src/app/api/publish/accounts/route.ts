@@ -11,6 +11,7 @@ import {
   type MetaProfile
 } from "@/lib/publisher/metaProfile";
 import { TIKTOK_AUDIT_BLOCKER, tiktokCreatorInfo, type TiktokCreatorInfo } from "@/lib/publisher/tiktokAuth";
+import { threadsBlockedReason, threadsConfig, threadsConfigured } from "@/lib/threads/config";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -66,10 +67,29 @@ async function accountView(account: SocialAccount): Promise<SocialAccountView> {
   };
 }
 
+/**
+ * Threads is not a publish-queue platform — the autopilot owns its own queue
+ * and its own accounts — but the sidebar lists it beside the other four, so
+ * its standing rides along here rather than costing the app shell a second
+ * request. Reading it is pure config parsing: no tokens leave the server and
+ * no I/O happens.
+ */
+function threadsStanding() {
+  const config = threadsConfig();
+  return {
+    connected: threadsConfigured(config) ? config.accounts.length : 0,
+    blocker: threadsBlockedReason(config),
+    label: config.accounts[0]?.label ?? null
+  };
+}
+
 /** GET /api/publish/accounts — every social account across all platforms. */
 export async function GET() {
   const accounts = await listAccounts();
-  return NextResponse.json({ accounts: await Promise.all(accounts.map(accountView)) });
+  return NextResponse.json({
+    accounts: await Promise.all(accounts.map(accountView)),
+    threads: threadsStanding()
+  });
 }
 
 const createSchema = z.object({
