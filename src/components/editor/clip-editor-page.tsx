@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { Clapperboard, Film, Loader2, Plus, Trash2 } from "lucide-react";
 import { useAppData } from "@/components/providers/app-provider";
+import { ClipFrame } from "@/components/clips/clip-frame";
 import { chunkWords, windowSegments } from "@/lib/clipping/captions";
 import { generateClipTitle, makeClipProject, makeTitleOverlay } from "@/lib/clipping/editor";
 import { Badge } from "@/components/ui/badge";
@@ -230,7 +231,7 @@ export function ClipEditorPage() {
   const projectList = (
     <div className="space-y-6">
       <PageHeader
-        eyebrow="Creator Tools"
+        eyebrow="Step 2 · Formats"
         title="Clip Editor"
         description="Open a clip to trim it on the timeline, pick a short-form layout, and export. Edits are non-destructive and saved automatically."
         actions={
@@ -304,16 +305,16 @@ export function ClipEditorPage() {
                   <Trash2 className="h-4 w-4" />
                 </button>
               </div>
-              <video
+              <ClipFrame
                 src={`/api/clips/${project.jobId}/files/${encodeURIComponent(project.sourceFile)}`}
                 poster={
                   project.posterFile
                     ? `/api/clips/${project.jobId}/files/${encodeURIComponent(project.posterFile)}`
                     : undefined
                 }
+                aspect="16/9"
                 preload="metadata"
-                muted
-                className="aspect-video w-full rounded-lg bg-black object-contain ring-1 ring-white/10"
+                className="rounded-lg ring-1 ring-white/10"
               />
               <div className="flex items-center justify-between">
                 <Badge>{new Date(project.updatedAt).toLocaleDateString()}</Badge>
@@ -357,7 +358,7 @@ export function ClipEditorPage() {
                         onClick={() => void createFromClip(job, clip, index)}
                         className="rounded-lg border border-[var(--border)] p-1.5 text-left transition hover:border-[var(--accent)]"
                       >
-                        <video
+                        <ClipFrame
                           src={`/api/clips/${job.id}/files/${encodeURIComponent((clip.previewFile ?? clip.file) as string)}`}
                           poster={
                             clip.posterFile
@@ -365,9 +366,7 @@ export function ClipEditorPage() {
                               : undefined
                           }
                           preload="metadata"
-                          muted
-                          playsInline
-                          className="aspect-[9/16] w-full rounded bg-black object-cover"
+                          className="rounded"
                         />
                         <div className="mt-1 flex items-center justify-between gap-1">
                           <p className="truncate text-[11px] text-white">Clip {index + 1}</p>

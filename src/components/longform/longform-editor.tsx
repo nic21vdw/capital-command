@@ -13,6 +13,7 @@ import {
   FileText,
   Image as ImageIcon,
   ImagePlus,
+  Layers,
   Loader2,
   Monitor,
   Music4,
@@ -43,9 +44,9 @@ import { LongformPreview } from "@/components/longform/longform-preview";
 import { LongformTimeline, type TimelineSelection } from "@/components/longform/longform-timeline";
 import { CAPTION_PRESETS } from "@/lib/clipping/captions";
 import { applyCaptionPreset, formatClock } from "@/lib/clipping/editor";
-import { PACE_PRESETS, applyManualRange, editedDurationSec, hookCaptions, transcriptCaptions, type PacePresetId } from "@/lib/longform/plan";
+import { PACE_PRESETS, applyManualRange, editedDurationSec, hookCaptions, topicDurationSec, transcriptCaptions, type PacePresetId } from "@/lib/longform/plan";
 import type { LongformVideoMetadata } from "@/lib/longform/metadata";
-import type { LongformAudioClip, LongformExportRecord, LongformOverlay, LongformProject, MusicTrack } from "@/lib/longform/types";
+import type { LongformAudioClip, LongformExportRecord, LongformOverlay, LongformProject, LongformTopic, MusicTrack } from "@/lib/longform/types";
 import type { CaptionAlignment, CaptionAnimation, CaptionPosition, CaptionPresetId, CaptionSegment } from "@/types/domain";
 import { cn } from "@/lib/utils";
 
@@ -58,6 +59,7 @@ const TABS = [
   { id: "captions", label: "Captions", icon: Captions },
   { id: "cuts", label: "Cuts", icon: Scissors },
   { id: "trim", label: "Trim", icon: Slice },
+  { id: "segments", label: "Segments", icon: Layers },
   { id: "images", label: "Images", icon: ImageIcon },
   { id: "music", label: "Audio", icon: Music4 },
   { id: "publish", label: "Publish", icon: FileText },
@@ -697,7 +699,7 @@ export function LongformEditor({
 
         {/* Panels */}
         <div className="min-w-0">
-          <div className="mb-3 grid grid-cols-7 gap-1 rounded-xl border border-[var(--border)] bg-[var(--surface)] p-1">
+          <div className="mb-3 grid grid-cols-5 gap-1 rounded-xl border border-[var(--border)] bg-[var(--surface)] p-1">
             {TABS.map((item) => {
               const Icon = item.icon;
               const active = tab === item.id;
@@ -740,6 +742,9 @@ export function LongformEditor({
                 applyRange={applyRange}
                 seek={seek}
               />
+            )}
+            {tab === "segments" && (
+              <SegmentsPanel project={project} setProject={setProject} skipDirtyRef={skipDirtyRef} seek={seek} />
             )}
             {tab === "images" && (
               <ImagesPanel
@@ -1780,6 +1785,11 @@ function MusicPanel({
   const [extracting, setExtracting] = useState(false);
   const [dragging, setDragging] = useState(false);
   const [auditionId, setAuditionId] = useState<string | null>(null);
+  const [idea, setIdea] = useState("");
+  const [generating, setGenerating] = useState(false);
+  const [generateStatus, setGenerateStatus] = useState("");
+  const [studioReady, setStudioReady] = useState(true);
+  const aliveRef = useRef(true);
   const dragDepth = useRef(0);
   const fileRef = useRef<HTMLInputElement>(null);
   const auditionRef = useRef<HTMLAudioElement | null>(null);
@@ -1810,6 +1820,30 @@ function MusicPanel({
 
   // Stop the audition player when the panel unmounts.
   useEffect(() => () => auditionRef.current?.pause(), []);
+
+  // A generation outlives most panel visits, so the poll loop checks this
+  // before touching state — closing the panel abandons the loop, not the job.
+  useEffect(() => {
+    aliveRef.current = true;
+    return () => {
+      aliveRef.current = false;
+    };
+  }, []);
+
+  // Whether a fal key is configured; without one the generator explains itself
+  // instead of failing on the first click.
+  useEffect(() => {
+    let cancelled = false;
+    void fetch("/api/music", { cache: "no-store" })
+      .then((response) => (response.ok ? response.json() : null))
+      .then((data: { configured?: boolean } | null) => {
+        if (!cancelled && data) setStudioReady(Boolean(data.configured));
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const toggleAudition = (track: MusicTrack) => {
     const el = auditionRef.current;
@@ -1870,6 +1904,66 @@ function MusicPanel({
     await refresh();
   };
 
+  // The quick generator: one line in, a finished bed on the timeline. It runs
+  // the studio's default model (Lyria 3 Pro) so the panel stays a one-click
+  // affair; /music is where the other models and their controls live.
+  const generateSong = async () => {
+    const brief = idea.trim();
+    if (!brief || generating) return;
+    setGenerating(true);
+    setGenerateStatus("Starting the generation…");
+    try {
+      const response = await fetch("/api/music", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ modelId: "lyria3-pro", prompt: brief, instrumental: true })
+      });
+      const started = (await response.json()) as { job?: { requestId: string }; error?: string };
+      if (!response.ok || !started.job) {
+        toast.error(started.error ?? "Could not start that track.");
+        return;
+      }
+
+      setGenerateStatus("Writing your track…");
+      const requestId = started.job.requestId;
+      const deadline = Date.now() + 10 * 60 * 1000;
+      while (Date.now() < deadline) {
+        await new Promise((resolve) => setTimeout(resolve, 8000));
+        if (!aliveRef.current) return;
+        const poll = await fetch(`/api/music?requestId=${encodeURIComponent(requestId)}`, { cache: "no-store" });
+        if (!poll.ok) continue;
+        const data = (await poll.json()) as {
+          job?: { status: string; error?: string };
+          tracks?: MusicTrack[];
+        };
+        if (data.job?.status === "failed") {
+          toast.error(data.job.error ?? "That generation failed.");
+          return;
+        }
+        if (data.job?.status === "complete") {
+          const made = data.tracks ?? [];
+          await refresh();
+          if (made[0]) addAudioClip(made[0], time);
+          setIdea("");
+          toast.success(
+            made.length > 1
+              ? `${made.length} takes landed — the first one is on the timeline.`
+              : `“${made[0]?.fileName ?? "Your track"}” is in your library.`
+          );
+          return;
+        }
+      }
+      toast.error("Still generating — check your library in a minute.");
+    } catch {
+      toast.error("Could not reach the music studio.");
+    } finally {
+      if (aliveRef.current) {
+        setGenerating(false);
+        setGenerateStatus("");
+      }
+    }
+  };
+
   const removeTrack = async (track: MusicTrack) => {
     try {
       if (auditionId === track.id) {
@@ -1927,6 +2021,48 @@ function MusicPanel({
 
       {/* Hidden audition player for previewing library tracks. */}
       <audio ref={auditionRef} hidden onEnded={() => setAuditionId(null)} />
+
+      <div className="space-y-2 rounded-xl border border-[var(--border)] p-3">
+        <div className="flex items-center gap-2">
+          <Sparkles className="h-4 w-4 text-[var(--accent)]" />
+          <h4 className="text-sm font-semibold text-white">Write a track</h4>
+        </div>
+        <p className="text-xs text-[var(--muted-foreground)]">
+          Describe the vibe and Lyria 3 writes an instrumental straight onto the timeline. For the other models, longer
+          beds and vocals, open the{" "}
+          <Link href="/music" className="text-[var(--accent)] hover:underline">
+            Music Studio
+          </Link>
+          .
+        </p>
+        <textarea
+          value={idea}
+          onChange={(event) => setIdea(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) void generateSong();
+          }}
+          rows={2}
+          disabled={generating || !studioReady}
+          placeholder="Calm lo-fi loop for a build-stream recap — keys, soft drums, no vocals"
+          className="w-full resize-none rounded-lg border border-[var(--border)] bg-transparent px-3 py-2 text-sm text-white placeholder:text-[var(--muted-foreground)] focus:border-[var(--accent)] focus:outline-none disabled:opacity-60"
+        />
+        <div className="flex items-center gap-2">
+          <Button
+            className="gap-2 px-3 py-1.5 text-xs"
+            onClick={() => void generateSong()}
+            disabled={generating || !idea.trim() || !studioReady}
+          >
+            {generating ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
+            {generating ? "Generating…" : "Generate track"}
+          </Button>
+          {generating && <span className="text-xs text-[var(--muted-foreground)]">{generateStatus}</span>}
+        </div>
+        {!studioReady && (
+          <p className="text-[10px] text-amber-300/80">
+            Set FAL_KEY in .env to turn this on — until then, upload songs below.
+          </p>
+        )}
+      </div>
 
       <input
         ref={fileRef}
@@ -2209,7 +2345,7 @@ function PublishPanel({
                 {copied === "description" ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />} Copy
               </Button>
             </div>
-            <pre className="max-h-64 overflow-y-auto whitespace-pre-wrap rounded-lg border border-[var(--border)] bg-black/20 px-3 py-2 font-sans text-xs leading-relaxed text-white/85">
+            <pre className="max-h-64 overflow-y-auto whitespace-pre-wrap rounded-lg border border-[var(--border)] bg-[var(--well)] px-3 py-2 font-sans text-xs leading-relaxed text-white/85">
               {metadata.description}
             </pre>
           </div>
@@ -2242,6 +2378,287 @@ function PublishPanel({
   );
 }
 
+/**
+ * Topic segments: the recording split into the 3-5 subjects it actually
+ * covered, each exportable as its own long-form upload with this project's
+ * hook, cuts, captions and mix applied to that window only.
+ *
+ * This is NOT short-form clipping. The Clip Generator reads the same stream
+ * looking for its best 30-second moments anywhere in it; this panel carves the
+ * stream into whole subjects. Neither one constrains the other.
+ */
+function SegmentsPanel({
+  project,
+  setProject,
+  skipDirtyRef,
+  seek
+}: {
+  project: LongformProject;
+  setProject: React.Dispatch<React.SetStateAction<LongformProject>>;
+  skipDirtyRef: React.MutableRefObject<boolean>;
+  seek: (t: number) => void;
+}) {
+  const [planning, setPlanning] = useState(false);
+  const [count, setCount] = useState<number | "auto">("auto");
+  const [starting, setStarting] = useState<string | null>(null);
+  const topics = project.topics;
+  const active = project.exports.find((record) => record.status === "processing");
+
+  const applyTopics = useCallback(
+    (next: LongformTopic[], note: string | null) => {
+      skipDirtyRef.current = true;
+      setProject((current) => ({ ...current, topics: next, topicsNote: note ?? undefined }));
+    },
+    [setProject, skipDirtyRef]
+  );
+
+  // Segments are planned in the background right after analysis, so an editor
+  // opened straight away may not have them yet. Poll until the plan lands.
+  useEffect(() => {
+    if (topics) return;
+    let cancelled = false;
+    const load = () =>
+      void fetch(`/api/longform/projects/${project.id}/topics`, { cache: "no-store" })
+        .then((response) => response.json())
+        .then((data: { topics?: LongformTopic[] | null; note?: string | null }) => {
+          if (cancelled || !data.topics) return;
+          applyTopics(data.topics, data.note ?? null);
+        })
+        .catch(() => undefined);
+    load();
+    const timer = setInterval(load, 4000);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  }, [project.id, topics, applyTopics]);
+
+  // Mirror the Export panel: keep the rendering segment's progress moving.
+  useEffect(() => {
+    if (!active) return;
+    const timer = setInterval(() => {
+      void fetch(`/api/longform/projects/${project.id}/export/${active.id}`, { cache: "no-store" })
+        .then((response) => response.json())
+        .then((data: { export?: LongformExportRecord }) => {
+          if (!data.export) return;
+          const record = data.export;
+          skipDirtyRef.current = true;
+          setProject((current) => ({
+            ...current,
+            exports: current.exports.map((item) => (item.id === record.id ? record : item))
+          }));
+          if (record.status === "done") toast.success("Segment rendered.");
+          if (record.status === "error") toast.error(record.error ?? "That segment failed to render.");
+        })
+        .catch(() => undefined);
+    }, 1500);
+    return () => clearInterval(timer);
+  }, [active, project.id, setProject, skipDirtyRef]);
+
+  const findSegments = async () => {
+    setPlanning(true);
+    try {
+      const response = await fetch(`/api/longform/projects/${project.id}/topics`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(count === "auto" ? {} : { count })
+      });
+      const data = (await response.json()) as { topics?: LongformTopic[]; note?: string | null; error?: string };
+      if (!response.ok || !data.topics) {
+        toast.error(data.error ?? "Could not read the transcript for segments.");
+        return;
+      }
+      applyTopics(data.topics, data.note ?? null);
+      if (data.topics.length > 0) {
+        toast.success(`${data.topics.length} segment${data.topics.length === 1 ? "" : "s"} found.`);
+      } else {
+        toast(data.note ?? "No separate subjects came out of this transcript.");
+      }
+    } catch {
+      toast.error("Could not read the transcript for segments.");
+    } finally {
+      setPlanning(false);
+    }
+  };
+
+  const exportSegment = async (topic: LongformTopic) => {
+    setStarting(topic.id);
+    try {
+      const response = await fetch(`/api/longform/projects/${project.id}/export`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ topicId: topic.id })
+      });
+      const data = (await response.json()) as { export?: LongformExportRecord; error?: string };
+      if (!response.ok || !data.export) {
+        toast.error(data.error ?? "Could not start that segment.");
+        return;
+      }
+      const record = data.export;
+      skipDirtyRef.current = true;
+      setProject((current) => ({
+        ...current,
+        topics: (current.topics ?? []).map((item) =>
+          item.id === topic.id ? { ...item, exportId: record.id } : item
+        ),
+        exports: [record, ...current.exports.filter((item) => item.id !== record.id)]
+      }));
+    } catch {
+      toast.error("Could not start that segment.");
+    } finally {
+      setStarting(null);
+    }
+  };
+
+  return (
+    <div className="space-y-4">
+      <div>
+        <h3 className="text-sm font-semibold text-white">Topic segments</h3>
+        <p className="mt-1 text-xs text-[var(--muted-foreground)]">
+          Reads the transcript and splits the stream into the separate subjects it covered — each one exports as its
+          own long-form video with this project&rsquo;s hook, cuts, captions and mix. Short-form clips are unaffected:
+          the Clip Generator still scans the whole stream for its own best moments.
+        </p>
+      </div>
+
+      <div className="space-y-2 rounded-lg border border-[var(--border)] px-3 py-2.5">
+        <div className="flex items-center justify-between gap-2 text-xs text-[var(--muted-foreground)]">
+          <span>How many segments</span>
+          <div className="flex gap-1">
+            {(["auto", 3, 4, 5] as const).map((option) => (
+              <button
+                key={String(option)}
+                type="button"
+                onClick={() => setCount(option)}
+                className={cn(
+                  "rounded-md border px-2 py-1 text-[11px] font-medium transition",
+                  count === option
+                    ? "border-[var(--accent)]/60 bg-[var(--accent)]/10 text-white"
+                    : "border-[var(--border)] text-[var(--muted-foreground)] hover:text-white"
+                )}
+              >
+                {option === "auto" ? "Auto" : option}
+              </button>
+            ))}
+          </div>
+        </div>
+        <Button variant="secondary" className="w-full gap-2" disabled={planning} onClick={() => void findSegments()}>
+          {planning ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
+          {topics && topics.length > 0 ? "Find segments again" : "Find segments"}
+        </Button>
+        <p className="text-[11px] text-[var(--muted-foreground)]">
+          Auto picks 3-5 based on how long the recording is, aiming for roughly ten minutes each.
+        </p>
+      </div>
+
+      {project.topicsNote && (
+        <p className="rounded-lg border border-amber-400/30 bg-amber-400/5 px-3 py-2 text-xs text-amber-200/90">
+          {project.topicsNote}
+        </p>
+      )}
+
+      {!topics && (
+        <p className="text-xs text-[var(--muted-foreground)]">Reading the transcript for subjects…</p>
+      )}
+
+      {topics && topics.length === 0 && !project.topicsNote && (
+        <p className="text-xs text-[var(--muted-foreground)]">
+          No separate subjects were found in this recording — export it as one video from the Export tab.
+        </p>
+      )}
+
+      <div className="space-y-3">
+        {(topics ?? []).map((topic, index) => {
+          const record = project.exports.find((item) => item.topicId === topic.id);
+          const rendering = record?.status === "processing";
+          const runtime = topicDurationSec(project, topic);
+          return (
+            <div key={topic.id} className="space-y-2 rounded-lg border border-[var(--border)] bg-[var(--surface-2)] p-3">
+              <div className="flex items-start justify-between gap-2">
+                <div className="min-w-0">
+                  <p className="text-sm font-semibold text-white">
+                    {index + 1}. {topic.title}
+                  </p>
+                  <p className="mt-0.5 text-xs text-[var(--muted-foreground)]">{topic.summary}</p>
+                </div>
+                <span className="shrink-0 rounded-full border border-white/10 bg-white/5 px-2 py-0.5 text-[10px] tabular-nums text-[var(--muted-foreground)]">
+                  {formatClock(runtime)}
+                </span>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => seek(topic.start)}
+                className="text-[11px] tabular-nums text-[var(--accent)] transition hover:opacity-80"
+              >
+                {formatClock(topic.start)} – {formatClock(topic.end)} in the recording · jump here
+              </button>
+
+              {topic.keywords.length > 0 && (
+                <div className="flex flex-wrap gap-1">
+                  {topic.keywords.map((keyword) => (
+                    <span
+                      key={keyword}
+                      className="rounded-full border border-[var(--border)] px-2 py-0.5 text-[10px] text-[var(--muted-foreground)]"
+                    >
+                      {keyword}
+                    </span>
+                  ))}
+                </div>
+              )}
+
+              {rendering ? (
+                <div className="space-y-1">
+                  <Progress value={record?.progress ?? 0} />
+                  <p className="text-center text-[11px] text-[var(--muted-foreground)]">
+                    Rendering this segment… {record?.progress ?? 0}%
+                  </p>
+                </div>
+              ) : record?.status === "done" && record.file ? (
+                <div className="flex gap-2">
+                  <a
+                    href={`/api/longform/projects/${project.id}/export/${record.id}?file=1&download=1`}
+                    className="flex flex-1 items-center justify-center gap-2 rounded-lg border border-[var(--border)] px-3 py-1.5 text-xs text-white transition hover:border-[var(--border-strong)]"
+                  >
+                    <Download className="h-3.5 w-3.5" /> Download
+                  </a>
+                  <Button
+                    variant="secondary"
+                    className="flex-1 gap-2 px-3 py-1.5 text-xs"
+                    disabled={Boolean(active) || starting === topic.id}
+                    onClick={() => void exportSegment(topic)}
+                  >
+                    Render again
+                  </Button>
+                </div>
+              ) : (
+                <Button
+                  className="w-full gap-2 px-3 py-1.5 text-xs"
+                  disabled={Boolean(active) || starting === topic.id}
+                  onClick={() => void exportSegment(topic)}
+                >
+                  {starting === topic.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Upload className="h-3.5 w-3.5" />}
+                  Export this segment
+                </Button>
+              )}
+
+              {record?.status === "error" && (
+                <p className="text-[11px] text-red-300">{record.error}</p>
+              )}
+            </div>
+          );
+        })}
+      </div>
+
+      {active && (
+        <p className="text-center text-[11px] text-[var(--muted-foreground)]">
+          One render at a time — the other segments unlock when this one finishes.
+        </p>
+      )}
+    </div>
+  );
+}
+
 function ExportPanel({
   project,
   setProject,
@@ -2260,7 +2677,9 @@ function ExportPanel({
   const [sending, setSending] = useState<string | null>(null);
   const [extracting, setExtracting] = useState<string | null>(null);
   const active = project.exports.find((record) => record.status === "processing");
-  const latestDone = project.exports.find((record) => record.status === "done" && record.file);
+  // Segment renders live in the same export list but belong to the Segments
+  // tab — this panel is always about the whole edit.
+  const latestDone = project.exports.find((record) => !record.topicId && record.status === "done" && record.file);
 
   // Poll while an export renders. State comes back through the project so a
   // restarted panel picks the render right back up.

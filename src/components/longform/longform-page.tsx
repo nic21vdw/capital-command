@@ -253,7 +253,7 @@ export function LongformStudioPage() {
   return (
     <div className="space-y-6">
       <PageHeader
-        eyebrow="YouTube tools"
+        eyebrow="Step 2 · Formats"
         title="Long-Form Editor"
         description="Throw in a raw recording — it punches in on your hook with viral captions, cuts every stretch of dead air, lays music under it, and hands the finished edit to the Clip Generator."
       />
@@ -476,6 +476,13 @@ export function LongformStudioPage() {
                           <>
                             {" "}
                             → <span className="text-white">{formatClock(editedSec)}</span> edited
+                          </>
+                        )}
+                        {project.topics && project.topics.length > 0 && (
+                          <>
+                            {" · "}
+                            <span className="text-white">{project.topics.length}</span> topic segment
+                            {project.topics.length === 1 ? "" : "s"}
                           </>
                         )}
                       </p>

@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import {
+  ArrowUp,
   AtSign,
   CalendarClock,
   Check,
@@ -10,27 +11,28 @@ import {
   Copy,
   Download,
   Images,
-  Link as LinkIcon,
+  Layers,
   Loader2,
+  Plus,
   Podcast,
   Scissors,
+  Sparkles,
   Trash2,
-  Upload,
   UploadCloud,
   type LucideIcon
 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
-import { PageHeader } from "@/components/ui/page-header";
 import { Progress } from "@/components/ui/progress";
+import { VisualAdComposer } from "@/components/pipeline/visual-ad-composer";
 import { cn } from "@/lib/utils";
 import type {
   PipelinePost,
   PipelineRun,
   PipelineRunOverview,
   PipelineStage,
+  PipelineStageKey,
   PipelineStageStatus
 } from "@/lib/pipeline/types";
 
@@ -55,6 +57,36 @@ const POST_PLATFORM_LABELS: Record<PipelinePost["platform"], string> = {
   threads: "Threads",
   facebook: "FB / LinkedIn"
 };
+
+// Rendered the instant a stream is submitted, before the server has echoed a
+// run back — so the flow builds itself on screen rather than appearing later.
+const LAUNCHING_STAGES: Record<PipelineStageKey, PipelineStage> = {
+  source: { status: "running", detail: "Pulling the stream in..." },
+  longform: { status: "waiting", detail: "Waiting for the source." },
+  segments: { status: "waiting", detail: "Waiting for the full transcript." },
+  clips: { status: "waiting", detail: "Waiting for the source." },
+  audio: { status: "waiting", detail: "Waiting for the long-form export." },
+  images: { status: "waiting", detail: "Waiting for the transcript." },
+  visuals: { status: "waiting", detail: "Waiting for a moment worth shooting." },
+  posts: { status: "waiting", detail: "Waiting for the transcript." },
+  schedule: { status: "waiting", detail: "Waiting for the first output." }
+};
+
+function runStatusLabel(entry: PipelineRunOverview) {
+  if (entry.run.status === "error") return "Needs attention";
+  if (entry.settled) return "Finished";
+  return "Running";
+}
+
+function formatStartedAt(iso: string) {
+  const started = new Date(iso);
+  if (Number.isNaN(started.getTime())) return "Unknown date";
+  const today = new Date();
+  const sameDay = started.toDateString() === today.toDateString();
+  const time = started.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+  if (sameDay) return `Today ${time}`;
+  return `${started.toLocaleDateString(undefined, { month: "short", day: "numeric" })} ${time}`;
+}
 
 function StatusChip({ status }: { status: PipelineStageStatus }) {
   return (
@@ -94,44 +126,135 @@ function CopyPostButton({ text }: { text: string }) {
   );
 }
 
+/**
+ * The one control the app opens on: a single pill that takes a link, a click to
+ * upload, or a dropped file. `compact` is the version that stays pinned above a
+ * running flow.
+ */
+function StreamSearchBar({
+  value,
+  onChange,
+  onSubmit,
+  onPickFile,
+  busy,
+  compact = false
+}: {
+  value: string;
+  onChange: (next: string) => void;
+  onSubmit: () => void;
+  onPickFile: () => void;
+  busy: boolean;
+  compact?: boolean;
+}) {
+  return (
+    <div
+      className={cn(
+        "flex items-center gap-2 rounded-full border border-[var(--border)] bg-[var(--surface-2)] transition focus-within:border-[var(--accent)]",
+        compact
+          ? "px-2 py-1.5 shadow-[0_1px_8px_rgba(0,0,0,0.25)]"
+          : "px-3 py-2.5 shadow-[0_8px_40px_rgba(0,0,0,0.35)] focus-within:shadow-[0_8px_44px_color-mix(in_srgb,var(--accent)_18%,transparent)]"
+      )}
+    >
+      <button
+        type="button"
+        onClick={onPickFile}
+        disabled={busy}
+        aria-label="Upload a video file"
+        title="Upload a video file"
+        className={cn(
+          "flex shrink-0 items-center justify-center rounded-full text-[var(--muted-foreground)] transition hover:bg-white/8 hover:text-white disabled:opacity-40",
+          compact ? "h-8 w-8" : "h-10 w-10"
+        )}
+      >
+        <Plus className={compact ? "h-4 w-4" : "h-5 w-5"} />
+      </button>
+      <input
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        onKeyDown={(event) => {
+          if (event.key === "Enter") onSubmit();
+        }}
+        disabled={busy}
+        placeholder={compact ? "Run another stream..." : "Paste a stream or VOD link"}
+        aria-label="Stream or VOD link"
+        className={cn(
+          "min-w-0 flex-1 bg-transparent text-white outline-none placeholder:text-[var(--muted-foreground)] disabled:opacity-60",
+          compact ? "h-8 text-sm" : "h-10 text-base"
+        )}
+      />
+      <button
+        type="button"
+        onClick={onSubmit}
+        disabled={busy || !value.trim()}
+        aria-label="Run the pipeline"
+        title="Run the pipeline"
+        className={cn(
+          "flex shrink-0 items-center justify-center rounded-full bg-[var(--accent)] text-[var(--accent-contrast)] transition hover:opacity-90 disabled:bg-white/10 disabled:text-[var(--muted-foreground)]",
+          compact ? "h-8 w-8" : "h-10 w-10"
+        )}
+      >
+        {busy ? (
+          <Loader2 className={cn("animate-spin", compact ? "h-4 w-4" : "h-4.5 w-4.5")} />
+        ) : (
+          <ArrowUp className={compact ? "h-4 w-4" : "h-5 w-5"} />
+        )}
+      </button>
+    </div>
+  );
+}
+
 /** One node in the top-to-bottom flow: icon on the rail, card to the right. */
 function StageRow({
   icon: Icon,
   title,
   stage,
+  index,
   last = false,
+  flowing = false,
   children
 }: {
   icon: LucideIcon;
   title: string;
   stage: PipelineStage;
+  index: number;
   last?: boolean;
+  flowing?: boolean;
   children?: React.ReactNode;
 }) {
   const active = stage.status === "running";
   const done = stage.status === "ready";
   return (
-    <div className="flex gap-4">
+    <div className="animate-in flex gap-4" style={{ animationDelay: `${index * 70}ms` }}>
       {/* Rail: the node plus the connector running down to the next stage. */}
       <div className="flex flex-col items-center">
         <div
           className={cn(
-            "flex h-10 w-10 shrink-0 items-center justify-center rounded-full border transition",
+            "relative flex h-10 w-10 shrink-0 items-center justify-center rounded-full border transition",
             done
               ? "border-emerald-400/40 bg-emerald-400/10 text-emerald-300"
               : active
-                ? "border-sky-400/40 bg-sky-400/10 text-sky-300"
+                ? "pipeline-node-live border-sky-400/40 bg-sky-400/10 text-sky-300"
                 : stage.status === "error"
                   ? "border-red-400/40 bg-red-400/10 text-red-300"
                   : "border-[var(--border)] bg-[var(--panel)] text-[var(--muted-foreground)]"
           )}
         >
           <Icon className="h-4.5 w-4.5" />
+          {active && (
+            <span className="pipeline-orbit pointer-events-none absolute -inset-1 rounded-full border border-transparent border-t-sky-300/70" />
+          )}
         </div>
-        {!last && <div className={cn("w-px flex-1", done ? "bg-emerald-400/30" : "bg-[var(--border)]")} />}
+        {!last && (
+          <div
+            className={cn(
+              "w-px flex-1",
+              flowing ? "pipeline-rail-live bg-[var(--border)]" : done ? "bg-emerald-400/30" : "bg-[var(--border)]"
+            )}
+          />
+        )}
       </div>
       <div className="min-w-0 flex-1 pb-6">
-        <Card className="p-4">
+        <Card className={cn("p-4", active && "pipeline-card-live border-sky-400/25")}>
           <div className="flex flex-wrap items-center justify-between gap-2">
             <h3 className="text-sm font-semibold text-white">{title}</h3>
             <StatusChip status={stage.status} />
@@ -151,6 +274,10 @@ export function PipelinePage() {
   const [overviews, setOverviews] = useState<PipelineRunOverview[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [activeRunId, setActiveRunId] = useState<string | null>(null);
+  // The app opens on the bare search bar; the flow only exists once a stream has
+  // been sent through it (or a past run is picked up again).
+  const [showFlow, setShowFlow] = useState(false);
+  const [launching, setLaunching] = useState(false);
   const [url, setUrl] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [uploading, setUploading] = useState(false);
@@ -159,10 +286,14 @@ export function PipelinePage() {
   const uploadInputRef = useRef<HTMLInputElement>(null);
   const [postsOpen, setPostsOpen] = useState(false);
 
-  const active = useMemo(
-    () => overviews.find((entry) => entry.run.id === activeRunId) ?? overviews[0] ?? null,
-    [activeRunId, overviews]
-  );
+  // While a brand-new run is being created there is no id to match yet, so the
+  // flow must NOT fall back to the newest previous run — it renders the
+  // launching skeleton instead until the server hands back the real run.
+  const active = useMemo(() => {
+    if (activeRunId) return overviews.find((entry) => entry.run.id === activeRunId) ?? null;
+    if (launching) return null;
+    return overviews[0] ?? null;
+  }, [activeRunId, launching, overviews]);
 
   const refresh = useCallback(async () => {
     try {
@@ -190,6 +321,8 @@ export function PipelinePage() {
 
   const startRun = useCallback(
     async (body: { url?: string; sourceId?: string }) => {
+      setShowFlow(true);
+      setLaunching(true);
       const response = await fetch("/api/pipeline", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -198,14 +331,18 @@ export function PipelinePage() {
       const data = (await response.json()) as { run?: PipelineRun; error?: string };
       if (response.ok && data.run) {
         setActiveRunId(data.run.id);
+        setPostsOpen(false);
         setUrl("");
         toast.success("Pipeline started. Everything runs from here.");
-        void refresh();
+        await refresh();
+        setLaunching(false);
       } else {
+        setLaunching(false);
+        setShowFlow(overviews.length > 0);
         toast.error(data.error ?? "Could not start the pipeline.");
       }
     },
-    [refresh]
+    [overviews.length, refresh]
   );
 
   const submitUrl = useCallback(async () => {
@@ -218,6 +355,7 @@ export function PipelinePage() {
     try {
       await startRun({ url: trimmed });
     } catch {
+      setLaunching(false);
       toast.error("Request failed. Is the dev server still running?");
     } finally {
       setSubmitting(false);
@@ -227,6 +365,8 @@ export function PipelinePage() {
   const uploadFile = useCallback(
     async (file: File) => {
       setUploading(true);
+      setShowFlow(true);
+      setLaunching(true);
       try {
         const response = await fetch(`/api/clips/sources?name=${encodeURIComponent(file.name)}`, {
           method: "POST",
@@ -235,11 +375,13 @@ export function PipelinePage() {
         });
         const data = (await response.json()) as { source?: { id: string }; error?: string };
         if (!response.ok || !data.source) {
+          setLaunching(false);
           toast.error(data.error ?? "Upload failed.");
           return;
         }
         await startRun({ sourceId: data.source.id });
       } catch {
+        setLaunching(false);
         toast.error("Upload failed. Is the dev server still running?");
       } finally {
         setUploading(false);
@@ -248,12 +390,14 @@ export function PipelinePage() {
     [startRun]
   );
 
+  const busy = submitting || uploading;
+
   const onDrop = useCallback(
     (event: React.DragEvent) => {
       event.preventDefault();
       dragDepth.current = 0;
       setDragActive(false);
-      if (submitting || uploading) return;
+      if (busy) return;
       const file = Array.from(event.dataTransfer.files).find(
         (item) => item.type.startsWith("video/") || /\.(mp4|mov|mkv|webm|avi|m4v)$/i.test(item.name)
       );
@@ -263,7 +407,7 @@ export function PipelinePage() {
       }
       void uploadFile(file);
     },
-    [submitting, uploading, uploadFile]
+    [busy, uploadFile]
   );
 
   const deleteRun = useCallback(
@@ -271,18 +415,41 @@ export function PipelinePage() {
       try {
         const response = await fetch(`/api/pipeline/${runId}`, { method: "DELETE" });
         if (!response.ok) throw new Error();
-        setOverviews((prev) => prev.filter((entry) => entry.run.id !== runId));
-        if (activeRunId === runId) setActiveRunId(null);
+        const remaining = overviews.filter((entry) => entry.run.id !== runId);
+        setOverviews(remaining);
+        // Removing the run you were reading goes back to the search screen.
+        // Clearing the id alone would silently swap the flow to the NEWEST run,
+        // which reads as "it threw me back to the top of the pipeline".
+        if (activeRunId === runId) {
+          setActiveRunId(null);
+          setShowFlow(false);
+        }
         toast.success("Run removed. Its outputs stay in their own tools.");
       } catch {
         toast.error("Could not remove the run.");
       }
     },
-    [activeRunId]
+    [activeRunId, overviews]
   );
 
+  // Opening a run scrolls back to the top of the page, not to the flow: the
+  // picker stays in view, so it is obvious WHICH run is now open.
+  const openRun = useCallback((runId: string) => {
+    setActiveRunId(runId);
+    setPostsOpen(false);
+    setShowFlow(true);
+    requestAnimationFrame(() => window.scrollTo({ top: 0, behavior: "smooth" }));
+  }, []);
+
+  const backToSearch = useCallback(() => {
+    setShowFlow(false);
+    setLaunching(false);
+    setActiveRunId(null);
+    setUrl("");
+  }, []);
+
   const run = active?.run;
-  const stages = active?.stages;
+  const stages = active?.stages ?? (launching ? LAUNCHING_STAGES : null);
   const schedulable = active?.schedulable;
   const longformHref = run?.longformProjectId ? `/longform?open=${run.longformProjectId}` : "/longform";
   const audioHref =
@@ -290,224 +457,378 @@ export function PipelinePage() {
       ? `/api/longform/projects/${run.longformProjectId}/export/${run.longformExportId}/audio?download=1`
       : null;
 
-  return (
-    <div>
-      <PageHeader
-        eyebrow="Distribute"
-        title="Stream Pipeline"
-        description="Drop one stream in at the top — the long-form edit, short clips, podcast MP3, carousel images, and text posts all come out below, ready to schedule."
-      />
+  const dragProps = {
+    onDragEnter: (event: React.DragEvent) => {
+      event.preventDefault();
+      dragDepth.current += 1;
+      setDragActive(true);
+    },
+    onDragLeave: () => {
+      dragDepth.current = Math.max(0, dragDepth.current - 1);
+      if (dragDepth.current === 0) setDragActive(false);
+    },
+    onDragOver: (event: React.DragEvent) => event.preventDefault(),
+    onDrop
+  };
 
-      {/* Ingest: the single entry point the whole pipeline hangs off. */}
-      <Card
-        className={cn("p-5 transition", dragActive && "border-[var(--accent)] bg-white/5")}
-        onDragEnter={(event) => {
-          event.preventDefault();
-          dragDepth.current += 1;
-          setDragActive(true);
-        }}
-        onDragLeave={() => {
-          dragDepth.current = Math.max(0, dragDepth.current - 1);
-          if (dragDepth.current === 0) setDragActive(false);
-        }}
-        onDragOver={(event) => event.preventDefault()}
-        onDrop={onDrop}
-      >
-        <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
-          <div className="relative flex-1">
-            <LinkIcon className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--muted-foreground)]" />
-            <Input
-              value={url}
-              onChange={(event) => setUrl(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key === "Enter") void submitUrl();
-              }}
-              placeholder="Paste a stream / VOD link (YouTube, Twitch...)"
-              className="pl-9"
-              disabled={submitting || uploading}
-            />
-          </div>
-          <div className="flex items-center gap-2">
-            <Button onClick={() => void submitUrl()} disabled={submitting || uploading || !url.trim()}>
-              {submitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <UploadCloud className="mr-2 h-4 w-4" />}
-              Run pipeline
-            </Button>
-            <Button
-              variant="secondary"
-              onClick={() => uploadInputRef.current?.click()}
-              disabled={submitting || uploading}
-            >
-              {uploading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Upload className="mr-2 h-4 w-4" />}
-              Upload file
-            </Button>
-          </div>
-        </div>
-        <p className="mt-2 text-xs text-[var(--muted-foreground)]">
-          One link or file is all it takes — or drag a video anywhere onto this card.
+  const fileInput = (
+    <input
+      ref={uploadInputRef}
+      type="file"
+      accept="video/*,.mp4,.mov,.mkv,.webm,.avi,.m4v"
+      className="hidden"
+      onChange={(event) => {
+        const file = event.target.files?.[0];
+        event.target.value = "";
+        if (file) void uploadFile(file);
+      }}
+    />
+  );
+
+  // The opening screen stays close to bare, so it only offers the handful of
+  // most recent runs; the full, scrollable list lives above a running flow.
+  // Names are shown in FULL and stamped with when the run started — a channel
+  // posts the same series week after week, so four runs can share a title and
+  // a truncated pill leaves nothing to tell them apart by.
+  const runList = (compact = false) => {
+    const listed = compact ? overviews : overviews.slice(0, 6);
+    return listed.length === 0 ? null : (
+      <div className={compact ? "mt-4" : "mt-8"}>
+        <p className="pb-2 text-[11px] font-medium uppercase tracking-[0.14em] text-[var(--muted-foreground)]">
+          Earlier pipelines
         </p>
-        <input
-          ref={uploadInputRef}
-          type="file"
-          accept="video/*,.mp4,.mov,.mkv,.webm,.avi,.m4v"
-          className="hidden"
-          onChange={(event) => {
-            const file = event.target.files?.[0];
-            event.target.value = "";
-            if (file) void uploadFile(file);
-          }}
-        />
-      </Card>
-
-      {/* Run history chips. */}
-      {overviews.length > 0 && (
-        <div className="mt-4 flex items-center gap-2 overflow-x-auto pb-1">
-          {overviews.map((entry) => {
-            const isActive = entry.run.id === (run?.id ?? "");
+        <div
+          className={cn(
+            "grid gap-2 sm:grid-cols-2",
+            compact && overviews.length > 4 && "max-h-64 overflow-y-auto pr-1"
+          )}
+        >
+          {listed.map((entry) => {
+            const isActive = showFlow && entry.run.id === (run?.id ?? "");
             return (
-              <button
+              <div
                 key={entry.run.id}
-                type="button"
-                onClick={() => setActiveRunId(entry.run.id)}
                 className={cn(
-                  "group flex shrink-0 items-center gap-2 rounded-full border px-3 py-1.5 text-xs transition",
+                  "group flex items-start gap-2 rounded-xl border px-3 py-2 transition",
                   isActive
-                    ? "border-[var(--accent)] bg-white/8 text-white"
-                    : "border-[var(--border)] text-[var(--muted-foreground)] hover:border-[var(--border-strong)] hover:text-white"
+                    ? "border-[var(--accent)] bg-white/8"
+                    : "border-[var(--border)] hover:border-[var(--border-strong)] hover:bg-white/4"
                 )}
               >
-                <span
-                  className={cn(
-                    "h-1.5 w-1.5 rounded-full",
-                    entry.run.status === "error" ? "bg-red-400" : entry.settled ? "bg-emerald-400" : "bg-sky-400 animate-pulse"
-                  )}
-                />
-                <span className="max-w-48 truncate">{entry.run.name}</span>
-                <span
-                  role="button"
-                  tabIndex={-1}
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    void deleteRun(entry.run.id);
-                  }}
-                  className="hidden text-[var(--muted-foreground)] transition hover:text-red-300 group-hover:block"
-                  aria-label="Remove run"
+                <button
+                  type="button"
+                  onClick={() => openRun(entry.run.id)}
+                  className="flex min-w-0 flex-1 items-start gap-2 text-left"
+                  title={`Open ${entry.run.name}`}
+                >
+                  <span
+                    className={cn(
+                      "mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full",
+                      entry.run.status === "error"
+                        ? "bg-red-400"
+                        : entry.settled
+                          ? "bg-emerald-400"
+                          : "bg-sky-400 animate-pulse"
+                    )}
+                  />
+                  <span className="min-w-0 flex-1">
+                    <span
+                      className={cn(
+                        "block break-words text-xs font-medium",
+                        isActive ? "text-white" : "text-white/90"
+                      )}
+                    >
+                      {entry.run.name}
+                    </span>
+                    <span className="mt-0.5 block text-[11px] text-[var(--muted-foreground)]">
+                      {runStatusLabel(entry)} · {formatStartedAt(entry.run.createdAt)}
+                    </span>
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void deleteRun(entry.run.id)}
+                  className="mt-0.5 shrink-0 text-[var(--muted-foreground)] opacity-0 transition hover:text-red-300 focus-visible:opacity-100 group-hover:opacity-100"
+                  aria-label={`Remove ${entry.run.name}`}
                   title="Remove run"
                 >
-                  <Trash2 className="h-3 w-3" />
-                </span>
-              </button>
+                  <Trash2 className="h-3.5 w-3.5" />
+                </button>
+              </div>
             );
           })}
         </div>
-      )}
+      </div>
+    );
+  };
 
-      {/* The flow itself: source at the top, scheduler at the bottom. */}
-      {!loaded ? null : !active || !run || !stages ? (
-        <Card className="mt-6 p-10 text-center text-sm text-[var(--muted-foreground)]">
-          No runs yet. Paste a stream link or drop a file above and watch every format come out below.
-        </Card>
-      ) : (
-        <div className="mt-6 lg:max-w-3xl">
-          <StageRow icon={UploadCloud} title="Stream source" stage={stages.source} />
-
-          <StageRow icon={Clapperboard} title="Long-form edit" stage={stages.longform}>
-            <div className="mt-3">
-              <Link href={longformHref}>
-                <Button variant="secondary" className="px-3 py-1.5 text-xs">
-                  Open in Long-Form Editor
-                </Button>
-              </Link>
-            </div>
-          </StageRow>
-
-          <StageRow icon={Scissors} title="Short-form clips" stage={stages.clips}>
-            <div className="mt-3">
-              <Link href="/clips">
-                <Button variant="secondary" className="px-3 py-1.5 text-xs">
-                  Open in Clip Generator
-                </Button>
-              </Link>
-            </div>
-          </StageRow>
-
-          <StageRow icon={Podcast} title="Podcast MP3" stage={stages.audio}>
-            {stages.audio.status === "ready" && audioHref && (
-              <div className="mt-3">
-                <a href={audioHref}>
-                  <Button variant="secondary" className="px-3 py-1.5 text-xs">
-                    <Download className="mr-1.5 h-3.5 w-3.5" />
-                    Download MP3
-                  </Button>
-                </a>
-              </div>
-            )}
-          </StageRow>
-
-          <StageRow icon={Images} title="Carousel images" stage={stages.images}>
-            {run.carouselId && (
-              <div className="mt-3">
-                <Link href="/carousels">
-                  <Button variant="secondary" className="px-3 py-1.5 text-xs">
-                    Open in Carousels
-                  </Button>
-                </Link>
-              </div>
-            )}
-          </StageRow>
-
-          <StageRow icon={AtSign} title="Text-only posts" stage={stages.posts}>
-            {run.posts && run.posts.length > 0 && (
-              <div className="mt-3 space-y-2">
-                <button
-                  type="button"
-                  onClick={() => setPostsOpen((open) => !open)}
-                  className="text-xs font-medium text-[var(--accent)] transition hover:opacity-80"
-                >
-                  {postsOpen ? "Hide posts" : `Show ${run.posts.length} posts`}
-                </button>
-                {postsOpen &&
-                  run.posts.map((post) => (
-                    <div
-                      key={post.id}
-                      className="flex items-start gap-2 rounded-lg border border-[var(--border)] bg-white/3 p-3"
-                    >
-                      <span className="mt-0.5 shrink-0 rounded-full border border-white/10 bg-white/6 px-2 py-0.5 text-[10px] font-medium text-[var(--muted-foreground)]">
-                        {POST_PLATFORM_LABELS[post.platform]}
-                      </span>
-                      <p className="min-w-0 flex-1 whitespace-pre-wrap text-sm text-white/90">{post.text}</p>
-                      <CopyPostButton text={post.text} />
-                    </div>
-                  ))}
-              </div>
-            )}
-          </StageRow>
-
-          <StageRow icon={CalendarClock} title="Scheduler" stage={stages.schedule} last>
-            {schedulable && (
-              <div className="mt-3 space-y-3">
-                <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-[var(--muted-foreground)]">
-                  <span>{schedulable.clipsReady} shorts</span>
-                  <span>{schedulable.longformReady ? "1 long-form video" : "long-form pending"}</span>
-                  <span>{schedulable.audioReady ? "1 MP3" : "MP3 pending"}</span>
-                  <span>{schedulable.carouselSlides > 0 ? `${schedulable.carouselSlides} slides` : "slides pending"}</span>
-                  <span>{schedulable.posts} posts</span>
-                  {schedulable.queued > 0 && <span className="text-emerald-300">{schedulable.queued} queued</span>}
-                </div>
-                <div className="flex flex-wrap gap-2">
-                  <Link href="/uploading-center">
-                    <Button className="px-3 py-1.5 text-xs">Schedule in Uploading Center</Button>
-                  </Link>
-                  <Link href="/master-calendar">
-                    <Button variant="secondary" className="px-3 py-1.5 text-xs">
-                      Master Calendar
-                    </Button>
-                  </Link>
-                </div>
-              </div>
-            )}
-          </StageRow>
+  if (!showFlow) {
+    return (
+      <div
+        {...dragProps}
+        className={cn(
+          "flex min-h-[calc(100vh-12rem)] flex-col items-center justify-center rounded-2xl border border-transparent px-4 transition",
+          dragActive && "border-dashed border-[var(--accent)] bg-white/3"
+        )}
+      >
+        <div className="pipeline-hero-enter w-full max-w-2xl">
+          <h1 className="text-center text-3xl font-semibold tracking-tight text-white sm:text-4xl">
+            {dragActive ? "Drop it anywhere." : "Ready when you are."}
+          </h1>
+          <div className="mt-8">
+            <StreamSearchBar
+              value={url}
+              onChange={setUrl}
+              onSubmit={() => void submitUrl()}
+              onPickFile={() => uploadInputRef.current?.click()}
+              busy={busy}
+            />
+          </div>
+          <p className="mt-3 text-center text-xs text-[var(--muted-foreground)]">
+            One stream in — long-form edit, shorts, MP3, carousel, and posts come back out.
+          </p>
+          {loaded && runList()}
         </div>
+        {fileInput}
+      </div>
+    );
+  }
+
+  const rows: Array<{
+    key: PipelineStageKey;
+    icon: LucideIcon;
+    title: string;
+    children?: React.ReactNode;
+  }> = [
+    { key: "source", icon: UploadCloud, title: "Stream source" },
+    {
+      key: "longform",
+      icon: Clapperboard,
+      title: "Long-form edit",
+      children: (
+        <div className="mt-3">
+          <Link href={longformHref}>
+            <Button variant="secondary" className="px-3 py-1.5 text-xs">
+              Open in Long-Form Editor
+            </Button>
+          </Link>
+        </div>
+      )
+    },
+    {
+      key: "segments",
+      icon: Layers,
+      title: "Topic segments",
+      children: (
+        <div className="mt-3">
+          <Link href={longformHref}>
+            <Button variant="secondary" className="px-3 py-1.5 text-xs">
+              Render segments
+            </Button>
+          </Link>
+        </div>
+      )
+    },
+    {
+      key: "clips",
+      icon: Scissors,
+      title: "Short-form clips",
+      children: (
+        <div className="mt-3">
+          <Link href="/clips">
+            <Button variant="secondary" className="px-3 py-1.5 text-xs">
+              Open in Clip Generator
+            </Button>
+          </Link>
+        </div>
+      )
+    },
+    {
+      key: "audio",
+      icon: Podcast,
+      title: "Podcast MP3",
+      children:
+        stages?.audio.status === "ready" && audioHref ? (
+          <div className="mt-3">
+            <a href={audioHref}>
+              <Button variant="secondary" className="px-3 py-1.5 text-xs">
+                <Download className="mr-1.5 h-3.5 w-3.5" />
+                Download MP3
+              </Button>
+            </a>
+          </div>
+        ) : null
+    },
+    {
+      key: "images",
+      icon: Images,
+      title: "Carousel images",
+      children:
+        run?.carouselId || run?.longformProjectId ? (
+          <div className="mt-3 flex flex-wrap gap-2">
+            {run?.carouselId ? (
+              <Link href="/carousels">
+                <Button variant="secondary" className="px-3 py-1.5 text-xs">
+                  Open in Carousels
+                </Button>
+              </Link>
+            ) : null}
+            {/* The unattended stage writes one text-only carousel. More batches,
+                or photos on the slides, are a person's call — this lands on the
+                Carousels page with this stream already picked. */}
+            {run?.longformProjectId ? (
+              <Link href={`/carousels?longform=${run.longformProjectId}`}>
+                <Button variant="secondary" className="px-3 py-1.5 text-xs">
+                  Add photos / more batches
+                </Button>
+              </Link>
+            ) : null}
+          </div>
+        ) : null
+    },
+    {
+      key: "visuals",
+      icon: Sparkles,
+      title: "Realistic visual ads",
+      children:
+        active?.visualMoment && run?.sourceId ? (
+          <VisualAdComposer sourceId={run.sourceId} streamName={run.name} moment={active.visualMoment} />
+        ) : null
+    },
+    {
+      key: "posts",
+      icon: AtSign,
+      title: "Text-only posts",
+      children:
+        run?.posts && run.posts.length > 0 ? (
+          <div className="mt-3 space-y-2">
+            <button
+              type="button"
+              onClick={() => setPostsOpen((open) => !open)}
+              className="text-xs font-medium text-[var(--accent)] transition hover:opacity-80"
+            >
+              {postsOpen ? "Hide posts" : `Show ${run.posts.length} posts`}
+            </button>
+            {postsOpen &&
+              run.posts.map((post) => (
+                <div
+                  key={post.id}
+                  className="flex items-start gap-2 rounded-lg border border-[var(--border)] bg-white/3 p-3"
+                >
+                  <span className="mt-0.5 shrink-0 rounded-full border border-white/10 bg-white/6 px-2 py-0.5 text-[10px] font-medium text-[var(--muted-foreground)]">
+                    {POST_PLATFORM_LABELS[post.platform]}
+                  </span>
+                  <p className="min-w-0 flex-1 whitespace-pre-wrap text-sm text-white/90">{post.text}</p>
+                  <CopyPostButton text={post.text} />
+                </div>
+              ))}
+          </div>
+        ) : null
+    },
+    {
+      key: "schedule",
+      icon: CalendarClock,
+      title: "Scheduler",
+      children: schedulable ? (
+        <div className="mt-3 space-y-3">
+          <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-[var(--muted-foreground)]">
+            <span>{schedulable.clipsReady} shorts</span>
+            <span>{schedulable.longformReady ? "1 long-form video" : "long-form pending"}</span>
+            <span>{schedulable.segments > 0 ? `${schedulable.segments} topic segments` : "segments pending"}</span>
+            <span>{schedulable.audioReady ? "1 MP3" : "MP3 pending"}</span>
+            <span>{schedulable.carouselSlides > 0 ? `${schedulable.carouselSlides} slides` : "slides pending"}</span>
+            <span>{schedulable.visualAdReady ? "visual ad ready" : "visual ad pending"}</span>
+            <span>{schedulable.posts} posts</span>
+            {schedulable.queued > 0 && <span className="text-emerald-300">{schedulable.queued} queued</span>}
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <Link href="/uploading-center">
+              <Button className="px-3 py-1.5 text-xs">Schedule in Uploading Center</Button>
+            </Link>
+            <Link href="/master-calendar">
+              <Button variant="secondary" className="px-3 py-1.5 text-xs">
+                Master Calendar
+              </Button>
+            </Link>
+          </div>
+        </div>
+      ) : null
+    }
+  ];
+
+  return (
+    <div
+      {...dragProps}
+      className={cn(
+        "rounded-2xl border border-transparent transition",
+        dragActive && "border-dashed border-[var(--accent)] bg-white/3"
       )}
+    >
+      <div className="pipeline-hero-enter mx-auto max-w-3xl">
+        <div className="flex items-center gap-3">
+          <button
+            type="button"
+            onClick={backToSearch}
+            className="flex shrink-0 items-center gap-1.5 rounded-full border border-[var(--border)] px-3 py-1.5 text-xs text-[var(--muted-foreground)] transition hover:border-[var(--border-strong)] hover:text-white"
+            title="Start a new stream"
+          >
+            <Sparkles className="h-3.5 w-3.5" />
+            New stream
+          </button>
+          <div className="min-w-0 flex-1">
+            <StreamSearchBar
+              value={url}
+              onChange={setUrl}
+              onSubmit={() => void submitUrl()}
+              onPickFile={() => uploadInputRef.current?.click()}
+              busy={busy}
+              compact
+            />
+          </div>
+        </div>
+        {runList(true)}
+      </div>
+
+      <div className="mx-auto mt-6 max-w-3xl">
+        {!stages ? (
+          loaded ? (
+            <Card className="p-10 text-center text-sm text-[var(--muted-foreground)]">
+              That run is gone. Paste a stream link above to start a new one.
+            </Card>
+          ) : null
+        ) : (
+          <>
+            <div className="mb-4 flex flex-wrap items-baseline gap-x-3 gap-y-1">
+              <h2 className="text-lg font-semibold text-white">{run?.name ?? "Starting the pipeline..."}</h2>
+              <span className="text-xs text-[var(--muted-foreground)]">
+                {run?.sourceUrl ?? run?.fileName ?? "Reading the stream"}
+              </span>
+            </div>
+            {run?.notices?.map((notice) => (
+              <p key={notice} className="mb-2 text-xs text-amber-300/90">
+                {notice}
+              </p>
+            ))}
+            {rows.map((row, index) => {
+              const next = rows[index + 1];
+              return (
+                <StageRow
+                  key={row.key}
+                  icon={row.icon}
+                  title={row.title}
+                  stage={stages[row.key]}
+                  index={index}
+                  last={index === rows.length - 1}
+                  flowing={Boolean(next && stages[next.key].status === "running")}
+                >
+                  {row.children}
+                </StageRow>
+              );
+            })}
+          </>
+        )}
+      </div>
+      {fileInput}
     </div>
   );
 }

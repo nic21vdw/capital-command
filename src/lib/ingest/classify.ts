@@ -5,12 +5,17 @@ import type { ChannelUpload, IngestDecision } from "@/lib/ingest/types";
  * here is a judgement about your content, so each one is directly testable
  * without a YouTube round trip.
  *
- * Two independent guards stop the distribution centre from eating its own tail:
+ * Three independent guards stop the distribution centre from eating its own
+ * tail, or redoing work it has already done:
  *
  *  1. **Exact provenance.** Anything this app published to YouTube is recorded
  *     in the publish queue as `platforms.youtube.postId`. An id match is proof,
  *     not a guess, and it is checked first.
- *  2. **Shape.** A vertical video of three minutes or less is a Short. That
+ *  2. **Already in the pipeline.** A video that is already some pipeline run's
+ *     source has been taken in, whether a scan did it or you pasted the link
+ *     yourself. Without this, the first scan on an established channel
+ *     re-downloads and re-clips every stream you handled by hand.
+ *  3. **Shape.** A vertical video of three minutes or less is a Short. That
  *     catches Shorts posted by hand from a phone, which never went through the
  *     queue and so have no postId to match.
  *
@@ -54,7 +59,12 @@ export function isVertical(aspect: ChannelUpload["aspect"]): boolean {
  */
 export function decideUpload(
   upload: ChannelUpload,
-  seen: { publishedPostIds: ReadonlySet<string>; ingestedVideoIds: ReadonlySet<string> },
+  seen: {
+    publishedPostIds: ReadonlySet<string>;
+    ingestedVideoIds: ReadonlySet<string>;
+    /** Videos that are already the source of a pipeline run (see guard 2). */
+    pipelineVideoIds?: ReadonlySet<string>;
+  },
   options: { liveOnly?: boolean } = {}
 ): IngestDecision {
   // Provenance first: this is the only check that is certain, so nothing below
@@ -64,6 +74,9 @@ export function decideUpload(
   }
   if (seen.ingestedVideoIds.has(upload.videoId)) {
     return { action: "skip", reason: "already-ingested" };
+  }
+  if (seen.pipelineVideoIds?.has(upload.videoId)) {
+    return { action: "skip", reason: "already-in-the-pipeline" };
   }
 
   // Private and unlisted uploads are drafts, not published content. Ingesting a
@@ -120,5 +133,7 @@ export function explainDecision(decision: IngestDecision): string {
       return "not public";
     case "not-a-live-stream":
       return "not a live stream (live-only scan)";
+    case "already-in-the-pipeline":
+      return "already a pipeline run's source";
   }
 }

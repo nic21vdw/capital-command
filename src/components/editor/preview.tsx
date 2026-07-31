@@ -214,7 +214,7 @@ function CaptionLayer({
             "relative inline-block rounded-lg px-2 py-0.5 leading-tight",
             interactive && "pointer-events-auto cursor-move touch-none",
             interactive && selected && "outline outline-2 outline-[var(--accent)]",
-            interactive && !selected && "hover:outline hover:outline-1 hover:outline-white/50",
+            interactive && !selected && "hover:outline hover:outline-1 hover:outline-[#fff]/50",
             animate === "pop" && "animate-[caption-pop_180ms_cubic-bezier(0.2,1.4,0.4,1)_both]",
             animate === "fade" && "animate-[caption-fade_220ms_ease-out_both]"
           )}
@@ -244,7 +244,7 @@ function CaptionLayer({
           {interactive && selected && (
             <span
               onPointerDown={beginDrag("scale")}
-              className="absolute -bottom-2 -right-2 h-4 w-4 cursor-nwse-resize touch-none rounded-full border-2 border-white bg-[var(--accent)]"
+              className="absolute -bottom-2 -right-2 h-4 w-4 cursor-nwse-resize touch-none rounded-full border-2 border-[#fff] bg-[var(--accent)]"
             />
           )}
         </span>
@@ -392,7 +392,7 @@ function OverlayItem({
         className={cn(
           "relative",
           selected && "outline outline-2 outline-[var(--accent)]",
-          !selected && !overlay.locked && !editing && "hover:outline hover:outline-1 hover:outline-white/50"
+          !selected && !overlay.locked && !editing && "hover:outline hover:outline-1 hover:outline-[#fff]/50"
         )}
       >
         {/* Invisible click slop so selecting the box doesn't require hitting
@@ -464,7 +464,7 @@ function OverlayItem({
                 className="absolute right-0 top-1/2 flex h-8 w-8 cursor-ew-resize items-center justify-center"
                 style={{ touchAction: "none", transform: `translate(50%, -50%) scale(${handleScale})` }}
               >
-                <span className="h-4 w-4 rounded-full border-2 border-white bg-[var(--accent)]" />
+                <span className="h-4 w-4 rounded-full border-2 border-[#fff] bg-[var(--accent)]" />
               </span>
             )}
             <span
@@ -472,15 +472,15 @@ function OverlayItem({
               className="absolute bottom-0 right-0 flex h-8 w-8 cursor-nwse-resize items-center justify-center"
               style={{ touchAction: "none", transform: `translate(50%, 50%) scale(${handleScale})` }}
             >
-              <span className="h-4 w-4 rounded-full border-2 border-white bg-[var(--accent)]" />
+              <span className="h-4 w-4 rounded-full border-2 border-[#fff] bg-[var(--accent)]" />
             </span>
             <span
               onPointerDown={onPointerDown("rotate")}
               className="absolute left-1/2 top-0 flex h-8 w-8 cursor-grab items-center justify-center"
               style={{ touchAction: "none", transform: `translate(-50%, -100%) scale(${handleScale})`, transformOrigin: "50% 100%" }}
             >
-              <span className="flex h-5 w-5 items-center justify-center rounded-full border-2 border-white bg-[var(--accent)]">
-                <RotateCw className="h-3 w-3 text-white" />
+              <span className="flex h-5 w-5 items-center justify-center rounded-full border-2 border-[#fff] bg-[var(--accent)]">
+                <RotateCw className="h-3 w-3 text-[#fff]" />
               </span>
             </span>
           </>
@@ -672,15 +672,15 @@ function CropRectEditor({
           {label}
         </span>
         {/* Rule-of-thirds guides while adjusting. */}
-        <span className="pointer-events-none absolute inset-y-0 left-1/3 w-px bg-white/25" />
-        <span className="pointer-events-none absolute inset-y-0 left-2/3 w-px bg-white/25" />
-        <span className="pointer-events-none absolute inset-x-0 top-1/3 h-px bg-white/25" />
-        <span className="pointer-events-none absolute inset-x-0 top-2/3 h-px bg-white/25" />
+        <span className="pointer-events-none absolute inset-y-0 left-1/3 w-px bg-[#fff]/25" />
+        <span className="pointer-events-none absolute inset-y-0 left-2/3 w-px bg-[#fff]/25" />
+        <span className="pointer-events-none absolute inset-x-0 top-1/3 h-px bg-[#fff]/25" />
+        <span className="pointer-events-none absolute inset-x-0 top-2/3 h-px bg-[#fff]/25" />
         {CROP_HANDLES.map((h) => (
           <span
             key={h.id}
             onPointerDown={begin(h.id)}
-            className={cn("absolute h-3 w-3 rounded-full border-2 border-white bg-[var(--accent)]", h.className)}
+            className={cn("absolute h-3 w-3 rounded-full border-2 border-[#fff] bg-[var(--accent)]", h.className)}
             style={{ cursor: h.cursor, touchAction: "none" }}
           />
         ))}
@@ -895,7 +895,7 @@ export function EditorPreview({
           // overflow-visible (not hidden) so a text box's edit handles stay on
           // screen even when the box is dragged/scaled past the frame edge. The
           // video/blur layers are clipped by their own inner wrapper below.
-          "relative select-none overflow-visible rounded-2xl bg-black shadow-[0_18px_48px_-12px_rgba(0,0,0,0.55)] ring-1 ring-white/10",
+          "relative select-none overflow-visible rounded-2xl bg-black shadow-[0_18px_48px_-12px_rgba(0,0,0,0.55)] ring-1 ring-[#fff]/10",
           canPan && "cursor-grab active:cursor-grabbing"
         )}
         style={{
@@ -967,8 +967,8 @@ export function EditorPreview({
         {loadFailed && (
           <div className="absolute inset-0 z-30 flex flex-col items-center justify-center gap-2 bg-black/80 px-6 text-center">
             <FileVideo className="h-7 w-7 text-[var(--accent)]" />
-            <p className="text-sm font-semibold text-white">This clip&apos;s video isn&apos;t available</p>
-            <p className="max-w-xs text-xs text-[var(--muted-foreground)]">
+            <p className="text-sm font-semibold text-[#fff]">This clip&apos;s video isn&apos;t available</p>
+            <p className="max-w-xs text-xs text-[#fff]/65">
               The rendered file couldn&apos;t be loaded — it may have been removed from the server or the render never
               finished. Re-render the clip in the Clip Generator, then start a new project. Captions, overlays, and
               export settings on this project are still saved.
@@ -977,7 +977,7 @@ export function EditorPreview({
         )}
 
         {/* Safe-area guide. */}
-        {!cropping && <div className="pointer-events-none absolute inset-[5%] z-10 rounded-md border border-dashed border-white/15" />}
+        {!cropping && <div className="pointer-events-none absolute inset-[5%] z-10 rounded-md border border-dashed border-[#fff]/15" />}
 
         {!cropping && (
           <CaptionLayer
@@ -1034,7 +1034,7 @@ export function EditorPreview({
                   "flex items-center gap-1.5 rounded-full border px-2.5 py-1.5 text-[11px] font-medium backdrop-blur transition-all duration-200",
                   cropping
                     ? "border-transparent bg-[var(--accent)] text-[var(--accent-contrast)] shadow-lg"
-                    : "border-white/15 bg-black/55 text-white/85 hover:bg-black/75 hover:text-white"
+                    : "border-[#fff]/15 bg-black/55 text-[#fff]/85 hover:bg-black/75 hover:text-[#fff]"
                 )}
               >
                 {cropping ? <Check className="h-3.5 w-3.5" /> : <Crop className="h-3.5 w-3.5" />} {label}

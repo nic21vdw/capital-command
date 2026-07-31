@@ -24,9 +24,18 @@ const TOKEN_URL = "https://oauth2.googleapis.com/token";
 // youtube.readonly is used both to read the connected channel's name/avatar
 // for the "YouTube connected" badge and to list the channel's own uploads so
 // the Uploading Center can show what is already scheduled on YouTube itself.
-// Tokens minted before readonly was added still upload fine but fail channel
-// reads with a 403 — the UI surfaces that as a "reconnect" prompt.
-const SCOPE = "https://www.googleapis.com/auth/youtube.upload https://www.googleapis.com/auth/youtube.readonly";
+// youtube.force-ssl is what lets the runner flip a scheduled upload to public:
+// youtube.upload can create a video but cannot modify one afterwards, so a
+// token without force-ssl uploads fine and then fails the privacy update with
+// a 403 ACCESS_TOKEN_SCOPE_INSUFFICIENT, stranding the video as private.
+// Tokens minted before a scope was added keep working for everything they
+// already covered and fail only the newer call — the UI surfaces that as a
+// "reconnect" prompt.
+const SCOPE = [
+  "https://www.googleapis.com/auth/youtube.upload",
+  "https://www.googleapis.com/auth/youtube.readonly",
+  "https://www.googleapis.com/auth/youtube.force-ssl"
+].join(" ");
 const CHANNELS_URL = "https://www.googleapis.com/youtube/v3/channels?part=snippet&mine=true";
 
 export const YOUTUBE_REFRESH_TOKEN_CACHE_KEY = youtubeRefreshTokenKey();
@@ -35,6 +44,21 @@ export const YOUTUBE_CHANNEL_CACHE_KEY = youtubeChannelKey();
 /** Stable, user-safe reason recorded when Google revokes an OAuth grant. */
 export const YOUTUBE_RECONNECT_REQUIRED =
   "YouTube connection expired or was revoked. Reconnect YouTube to resume the upload automatically.";
+
+/**
+ * Recorded when the grant predates a scope the call needs. The upload itself
+ * succeeded, so the video is sitting private on the channel rather than lost.
+ */
+export const YOUTUBE_RECONNECT_FOR_SCOPE =
+  "YouTube connection is missing a permission this step needs (the video uploaded but could not be made public). Reconnect YouTube to grant it, then retry.";
+
+export function isYoutubeScopeInsufficient(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  return (
+    message === YOUTUBE_RECONNECT_FOR_SCOPE ||
+    /ACCESS_TOKEN_SCOPE_INSUFFICIENT|insufficientPermissions|insufficient authentication scopes/i.test(message)
+  );
+}
 
 export function isYoutubeReconnectRequired(error: unknown): boolean {
   const message = error instanceof Error ? error.message : String(error);

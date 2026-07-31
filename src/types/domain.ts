@@ -904,6 +904,13 @@ export interface CarouselSlide {
   bodyColor?: string;
   /** Whether the base heading/body/counter/handle chrome is drawn. */
   hideBaseText?: boolean;
+  /**
+   * Vertical band (fractions of the slide height) the base heading/body/counter
+   * are laid out inside. Defaults to the whole slide; a photo slide sets it to
+   * the strip below the photo so the copy still wraps and centers itself at
+   * whatever aspect ratio the carousel exports at.
+   */
+  textBand?: { top: number; bottom: number };
   /** Draggable text/image elements composited over the base slide. */
   layers?: SlideLayer[];
 }
@@ -933,15 +940,31 @@ export interface CarouselSchedule {
   createdAt: string;
 }
 
+/**
+ * Set on every carousel written in one pass when more than one was asked for —
+ * "3 batches of 8 slides from this stream". The group id ties the siblings
+ * together; the angle is the brief that kept them from being three rewrites of
+ * the same post.
+ */
+export interface CarouselBatch {
+  groupId: string;
+  /** 1-based position within the pass. */
+  index: number;
+  total: number;
+  /** Short label for the angle this batch took ("The mistakes"). */
+  angle?: string;
+}
+
 export interface Carousel {
   id: string;
   title: string;
-  /** `short` = generated from a short-form video (a clip). */
-  sourceType: "script" | "longform" | "short" | "custom";
+  /** `short` = generated from a short-form video (a clip); `images` = written around an uploaded photo batch. */
+  sourceType: "script" | "longform" | "short" | "custom" | "images";
   sourceId?: string;
   slides: CarouselSlide[];
   aspectRatio?: CarouselAspectRatio;
   schedules?: CarouselSchedule[];
+  batch?: CarouselBatch;
   createdAt: string;
 }
 
@@ -979,6 +1002,58 @@ export interface VideoStudio {
   carousels: Carousel[];
 }
 
+export type LaunchPhase = "prep" | "final" | "launch-day" | "after";
+export type LaunchStatus = "planning" | "scheduled" | "live" | "done";
+
+export interface LaunchCopy {
+  /** Product name as it appears on the listing. */
+  name: string;
+  /** Product Hunt caps the tagline at 60 characters. */
+  tagline: string;
+  description: string;
+  /** The maker's first comment — the highest-leverage piece of copy on the page. */
+  firstComment: string;
+  topics: string[];
+  galleryCaptions: string[];
+  /** Launch-day posts for the channel's own audience, one per surface. */
+  socialPosts: { surface: string; text: string }[];
+  generatedAt: string;
+  /** False when the AI call could not run and the deterministic draft was used. */
+  aiGenerated: boolean;
+}
+
+export interface LaunchStats {
+  votes: number;
+  comments: number;
+  /** Position among that day's launches by votes, or null when it can't be determined. */
+  rank: number | null;
+  /** How many launches shared the day, for context on the rank. */
+  dayLaunchCount: number | null;
+  name: string;
+  tagline: string;
+  url: string;
+  featuredAt: string | null;
+  fetchedAt: string;
+}
+
+export interface ProductLaunch {
+  id: string;
+  product: string;
+  productUrl: string;
+  /** Local calendar date (YYYY-MM-DD) the launch goes live. */
+  launchDate: string;
+  status: LaunchStatus;
+  /** Product Hunt slug, known only once the listing exists. */
+  slug?: string;
+  hunter?: string;
+  notes?: string;
+  copy?: LaunchCopy;
+  stats?: LaunchStats;
+  completedTasks: string[];
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface AppData {
   holdings: Holding[];
   watchlist: WatchlistItem[];
@@ -1012,6 +1087,8 @@ export interface AppData {
   avatarVideos?: AvatarVideo[];
   /** AI voiceover clips in Nic's cloned voice. Optional so pre-existing data files stay valid; the schema defaults it. */
   voiceovers?: Voiceover[];
+  /** Product Hunt launches tracked in Launch Pad. Optional so pre-existing data files stay valid; the schema defaults it. */
+  productLaunches?: ProductLaunch[];
 }
 
 export interface BrandAssets {

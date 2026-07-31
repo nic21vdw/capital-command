@@ -5,7 +5,7 @@ import { ensureExecution } from "@/lib/execution/server";
 import { todayLocal } from "@/lib/execution/dates";
 import { getMarketDataProvider } from "@/lib/marketData";
 import { seedData } from "@/lib/mockData/seed";
-import { appDataSchema, brandAssetsSchema, clipProjectSchema, contentItemSchema, creatorProfileSchema, defaultCreatorProfile, defaultFbStrategy, executionCompletionSchema, executionGoalSchema, expenseSchema, fbPostSchema, fbStrategySchema, goalSchema, holdingSchema, importHoldingSchema, researchNoteSchema, savedThumbnailSchema, settingsSchema, videoProjectSchema, watchlistSchema, xActivitySchema, xStrategySchema } from "@/lib/storage/schemas";
+import { appDataSchema, brandAssetsSchema, clipProjectSchema, contentItemSchema, creatorProfileSchema, defaultCreatorProfile, defaultFbStrategy, executionCompletionSchema, executionGoalSchema, expenseSchema, fbPostSchema, fbStrategySchema, goalSchema, holdingSchema, importHoldingSchema, productLaunchSchema, researchNoteSchema, savedThumbnailSchema, settingsSchema, videoProjectSchema, watchlistSchema, xActivitySchema, xStrategySchema } from "@/lib/storage/schemas";
 import { readAppData, resetAppData, writeAppData } from "@/lib/storage/store";
 import type { AppData, ExecutionGoal, Holding } from "@/types/domain";
 
@@ -335,6 +335,40 @@ export async function POST(request: NextRequest) {
     case "updateFbBrief": {
       const brief = fbStrategySchema.shape.brief.parse((payload as { brief?: unknown })?.brief);
       data = { ...data, fbStrategy: { ...(data.fbStrategy ?? defaultFbStrategy), brief } };
+      break;
+    }
+    case "upsertProductLaunch": {
+      const parsed = productLaunchSchema.parse({ ...(payload as object), updatedAt: new Date().toISOString() });
+      const launches = data.productLaunches ?? [];
+      const exists = launches.some((launch) => launch.id === parsed.id);
+      data = {
+        ...data,
+        productLaunches: exists ? launches.map((launch) => (launch.id === parsed.id ? parsed : launch)) : [parsed, ...launches]
+      };
+      break;
+    }
+    case "deleteProductLaunch": {
+      const id = String(payload);
+      data = { ...data, productLaunches: (data.productLaunches ?? []).filter((launch) => launch.id !== id) };
+      break;
+    }
+    case "toggleLaunchTask": {
+      const input = (payload ?? {}) as { launchId?: string; taskId?: string; done?: boolean };
+      const launch = (data.productLaunches ?? []).find((entry) => entry.id === input.launchId);
+      if (!launch || !input.taskId) {
+        return NextResponse.json({ error: "Unknown launch task" }, { status: 400 });
+      }
+      const completed = new Set(launch.completedTasks);
+      if (input.done === false) completed.delete(input.taskId);
+      else completed.add(input.taskId);
+      data = {
+        ...data,
+        productLaunches: (data.productLaunches ?? []).map((entry) =>
+          entry.id === launch.id
+            ? { ...entry, completedTasks: [...completed], updatedAt: new Date().toISOString() }
+            : entry
+        )
+      };
       break;
     }
     case "importHoldings": {

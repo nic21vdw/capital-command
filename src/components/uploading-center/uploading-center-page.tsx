@@ -163,7 +163,12 @@ export function UploadingCenterPage() {
     if (oauthToastShown.current) return;
     const connected = searchParams.get("connected");
     const connectError = searchParams.get("connect_error");
-    if (connected === "youtube") {
+    if (connected === "tiktok") {
+      oauthToastShown.current = true;
+      toast.success(
+        "TikTok connected — scheduled posts will publish automatically.",
+      );
+    } else if (connected === "youtube") {
       oauthToastShown.current = true;
       // A non-primary connection carries its account id — switch the YouTube
       // tab to that account so the fresh connection is what's on screen.
@@ -177,7 +182,7 @@ export function UploadingCenterPage() {
       );
     } else if (connectError) {
       oauthToastShown.current = true;
-      toast.error(`YouTube connect failed: ${connectError}`);
+      toast.error(`Connect failed: ${connectError}`);
     }
   }, [searchParams, setActiveAccount]);
 
@@ -429,12 +434,27 @@ export function UploadingCenterPage() {
           {id === "youtube" && configured && channel?.needsReconnect ? (
             <ReconnectYoutubeNotice accountId={activeAccount?.id} />
           ) : null}
-          {id !== "youtube" && !configured ? (
+          {id === "tiktok" && !configured && activeAccount?.primary ? (
+            <ConnectTiktokNotice />
+          ) : null}
+          {id !== "youtube" &&
+          !configured &&
+          !(id === "tiktok" && activeAccount?.primary) ? (
             <p className="flex items-center gap-2 rounded-lg border border-amber-400/25 bg-amber-400/8 px-3 py-2 text-xs text-amber-200">
               <AlertTriangle className="h-4 w-4 shrink-0" />
               {PLATFORM_LABELS[id]} isn&apos;t connected yet — assignments save
               as <StatusChip status="manual" /> reminders. Automatic posting
               arrives with the unified posting API.
+            </p>
+          ) : null}
+          {id === "tiktok" && configured ? (
+            <p className="rounded-lg border border-emerald-400/25 bg-emerald-400/8 px-3 py-2 text-xs text-emerald-200">
+              {activeAccount?.tiktok
+                ? `Connected as ${activeAccount.tiktok.title}. `
+                : "TikTok connected. "}
+              Posts publish at their slot time through the Content Posting API.
+              Until TikTok audits the app they land on your profile as private
+              (SELF_ONLY) — flip TIKTOK_AUDITED=true after approval.
             </p>
           ) : null}
           <SchedulePeriodNav
@@ -478,9 +498,9 @@ export function UploadingCenterPage() {
   return (
     <div>
       <PageHeader
-        eyebrow="YouTube tools"
+        eyebrow="Step 3 · Schedule"
         title="Uploading Center"
-        description="Assign finished clips to a platform and a slot. Dropping a clip — or a video file straight from your computer — on a slot uploads it to YouTube immediately as a scheduled Short (landscape clips are re-rendered vertical automatically) — it appears under Scheduled in YouTube Studio and goes live at the slot time on its own; TikTok and Instagram queue as manual reminders until a unified posting API is connected."
+        description="Assign finished clips to a platform and a slot. Dropping a clip — or a video file straight from your computer — on a slot uploads it to YouTube immediately as a scheduled Short (landscape clips are re-rendered vertical automatically) — it appears under Scheduled in YouTube Studio and goes live at the slot time on its own. Connect TikTok on its tab and clips post there at the slot time too; Instagram and Facebook queue as manual reminders until their tokens are configured."
         actions={
           <div className="flex w-full max-w-sm flex-col gap-2">
             {activeYoutubeAccount?.connected ? (
@@ -756,6 +776,26 @@ function connectUrl(accountId?: string) {
   return accountId
     ? `/api/auth/google?account=${encodeURIComponent(accountId)}`
     : "/api/auth/google";
+}
+
+function ConnectTiktokNotice() {
+  return (
+    <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-amber-400/25 bg-amber-400/8 px-3 py-2">
+      <p className="flex items-center gap-2 text-xs text-amber-200">
+        <AlertTriangle className="h-4 w-4 shrink-0" />
+        TikTok isn&apos;t connected — new assignments save as manual reminders
+        instead of posting. Connecting needs TIKTOK_CLIENT_KEY and
+        TIKTOK_CLIENT_SECRET in .env first.
+      </p>
+      <Button
+        variant="secondary"
+        className="h-8 px-3 text-xs"
+        onClick={() => (window.location.href = "/api/auth/tiktok")}
+      >
+        Connect TikTok
+      </Button>
+    </div>
+  );
 }
 
 function ReconnectYoutubeNotice({ accountId }: { accountId?: string }) {

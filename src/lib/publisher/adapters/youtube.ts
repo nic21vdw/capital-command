@@ -3,7 +3,9 @@ import { primaryAccountId } from "@/lib/publisher/accounts";
 import { publisherConfig } from "@/lib/publisher/config";
 import {
   isYoutubeReconnectRequired,
+  isYoutubeScopeInsufficient,
   youtubeRefreshTokenFor,
+  YOUTUBE_RECONNECT_FOR_SCOPE,
   YOUTUBE_RECONNECT_REQUIRED
 } from "@/lib/publisher/googleAuth";
 import { PermanentError, fetchJson, fetchRaw } from "@/lib/publisher/http";
@@ -226,12 +228,17 @@ export const youtubeAdapter: PlatformAdapter = {
     // and must not be resent with a non-private video) and set it public.
     const nextStatus: Record<string, unknown> = { ...status, privacyStatus: "public" };
     delete nextStatus.publishAt;
-    await fetchJson(`${VIDEOS_URL}?part=status`, {
-      label: "YouTube privacy update",
-      method: "PUT",
-      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json; charset=UTF-8" },
-      body: JSON.stringify({ id: state.postId, status: nextStatus })
-    });
+    try {
+      await fetchJson(`${VIDEOS_URL}?part=status`, {
+        label: "YouTube privacy update",
+        method: "PUT",
+        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json; charset=UTF-8" },
+        body: JSON.stringify({ id: state.postId, status: nextStatus })
+      });
+    } catch (error) {
+      if (isYoutubeScopeInsufficient(error)) throw new PermanentError(YOUTUBE_RECONNECT_FOR_SCOPE);
+      throw error;
+    }
     return {
       status: "published",
       postId: state.postId,

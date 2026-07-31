@@ -94,7 +94,7 @@ export function DashboardPage() {
           </div>
           <div className="space-y-3">
             {summary.accountAllocation.map((account) => (
-              <div key={account.name} className="rounded-2xl border border-white/8 bg-black/20 p-3">
+              <div key={account.name} className="rounded-2xl border border-white/8 bg-[var(--well)] p-3">
                 <div className="flex items-center justify-between gap-3">
                   <span className="text-sm text-white">{account.name}</span>
                   <span className="text-sm text-[var(--muted-foreground)]">
@@ -118,7 +118,7 @@ export function DashboardPage() {
           <h2 className="text-xl font-semibold text-white">Top holdings</h2>
           <div className="mt-4 space-y-3">
             {summary.topHoldings.map((holding) => (
-              <div key={holding.id} className="rounded-2xl border border-white/8 bg-black/20 p-3">
+              <div key={holding.id} className="rounded-2xl border border-white/8 bg-[var(--well)] p-3">
                 <div className="flex items-center justify-between">
                   <div>
                     <p className="font-medium text-white">{holding.ticker}</p>
@@ -137,7 +137,7 @@ export function DashboardPage() {
           <h2 className="text-xl font-semibold text-white">Biggest movers</h2>
           <div className="mt-4 space-y-3">
             {summary.biggestMovers.map((holding) => (
-              <div key={holding.id} className="rounded-2xl border border-white/8 bg-black/20 p-3">
+              <div key={holding.id} className="rounded-2xl border border-white/8 bg-[var(--well)] p-3">
                 <div className="flex items-center justify-between">
                   <div>
                     <p className="font-medium text-white">{holding.ticker}</p>
@@ -157,7 +157,7 @@ export function DashboardPage() {
         <Card>
           <h2 className="text-xl font-semibold text-white">Watchlist and notes</h2>
           <div className="mt-4 space-y-4">
-            <div className="rounded-2xl border border-white/8 bg-black/20 p-4">
+            <div className="rounded-2xl border border-white/8 bg-[var(--well)] p-4">
               <p className="text-sm text-[var(--muted-foreground)]">Watchlist snapshot</p>
               <div className="mt-3 space-y-2">
                 {data.watchlist.slice(0, 3).map((item) => (
@@ -170,7 +170,7 @@ export function DashboardPage() {
                 ))}
               </div>
             </div>
-            <div className="rounded-2xl border border-white/8 bg-black/20 p-4">
+            <div className="rounded-2xl border border-white/8 bg-[var(--well)] p-4">
               <p className="flex items-center gap-2 text-sm text-[var(--muted-foreground)]">
                 <NotebookPen className="h-4 w-4" />
                 Recent notes

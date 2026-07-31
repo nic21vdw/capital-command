@@ -5,9 +5,10 @@ import { createJobFromUpload, getJob } from "@/lib/clipping/jobs";
 import { readSourceMeta, saveSourceFromUrl } from "@/lib/clipping/sources";
 import type { ClipJob } from "@/lib/clipping/types";
 import { startLongformExport } from "@/lib/longform/render";
-import { createProject, getProject, projectOutputDir, updateProject } from "@/lib/longform/store";
+import { createProject, getProject, planProjectTopics, projectOutputDir, updateProject } from "@/lib/longform/store";
 import type { LongformProject } from "@/lib/longform/types";
 import { generatePipelinePosts } from "@/lib/pipeline/posts";
+import { realisticImagePrompt, visualMomentFromClips } from "@/lib/pipeline/visual-brief";
 import type {
   PipelineRun,
   PipelineRunOverview,
@@ -215,7 +216,11 @@ export async function advanceRun(run: PipelineRun): Promise<void> {
   // Long-form analysis done → start the export render (or adopt one the user
   // already started from the Long-Form Editor).
   if (project && project.status === "ready" && !run.longformExportId) {
-    const existing = project.exports.find((record) => record.status === "done" || record.status === "processing");
+    // Only a whole-edit export can stand in for the run's long-form output; a
+    // topic-segment render is one of several videos, not the video.
+    const existing = project.exports.find(
+      (record) => !record.topicId && (record.status === "done" || record.status === "processing")
+    );
     if (existing) {
       await update(run, { longformExportId: existing.id });
     } else {
@@ -248,16 +253,44 @@ export async function advanceRun(run: PipelineRun): Promise<void> {
     });
   }
 
-  // Transcript ready → write the carousel images copy from it.
-  if (project && project.status === "ready" && project.transcript.length > 0 && !run.carouselId) {
+  // The long-form analysis only transcribes the opening of a long stream (the
+  // hook is all it needs), while the clip job transcribes the whole thing.
+  // Once that full transcript exists, plan the stream's topic segments from
+  // it — the long-form project picks it up automatically because both sides
+  // work from the same source id. One attempt is enough: the clip job writes
+  // its transcript once.
+  if (project && project.status === "ready" && !project.topics && !run.segmentsPlanned && job?.sourceCaptions?.length) {
+    void step(run, "segments", async () => {
+      await planProjectTopics(project.id);
+      await update(run, { segmentsPlanned: true });
+    });
+  }
+
+  // Transcript ready → write the carousel images copy from it. `carouselNote`
+  // doubles as the "already tried and failed" marker: without it this step
+  // would re-run on every poll, and each attempt now costs three model calls.
+  if (
+    project &&
+    project.status === "ready" &&
+    project.transcript.length > 0 &&
+    !run.carouselId &&
+    !run.carouselNote
+  ) {
     void step(run, "carousel", async () => {
       const { carousel, reason } = await generateCarousel({
         title: run.name,
         sourceText: project.transcript.map((segment) => segment.text).join(" "),
         slideCount: DEFAULT_SLIDE_COUNT,
         sourceType: "longform",
-        sourceId: project.id
+        sourceId: project.id,
+        // Nobody is watching this one. Transcript-sliced slides would be
+        // counted as "ready to schedule" and could reach a queue unread.
+        requireModel: true
       });
+      if (!carousel) {
+        await update(run, { carouselNote: reason ?? "No carousel slides were written." });
+        return;
+      }
       const data = await readAppData();
       const studio = data.videoStudio ?? defaultVideoStudio;
       await writeAppData({ ...data, videoStudio: { ...studio, carousels: [carousel, ...studio.carousels] } });
@@ -335,6 +368,27 @@ function longformStage(run: PipelineRun, project: LongformProject | undefined): 
   return stage("error", record.error ?? "The export failed. Open the Long-Form Editor to retry.");
 }
 
+/**
+ * Topic segments: the stream split into the separate subjects it covered, each
+ * one publishable as its own long-form video. They are planned automatically
+ * but rendered on demand — five ten-minute renders per stream is hours of
+ * encoding nobody asked for, so the Long-Form Editor's Segments tab starts them.
+ */
+function segmentsStage(run: PipelineRun, project: LongformProject | undefined, rendered: number): PipelineStage {
+  if (run.status !== "running") return stage("waiting", "Waiting for the source.");
+  if (project?.status === "error") return stage("skipped", "Needs the transcript, and analysis failed.");
+  if (!project || project.status === "processing") return stage("waiting", "Split from the transcript once analysis finishes.");
+  const topics = project.topics;
+  if (!topics) {
+    return stage("running", project.topicsNote ? "Waiting on the full transcript…" : "Reading the transcript for subjects…");
+  }
+  if (topics.length === 0) {
+    return stage("skipped", project.topicsNote ?? "This recording reads as one continuous topic.");
+  }
+  const renderedNote = rendered > 0 ? ` · ${rendered} rendered` : "";
+  return stage("ready", `${topics.length} topic segment${topics.length === 1 ? "" : "s"} ready to render${renderedNote}`);
+}
+
 function clipsStage(run: PipelineRun, job: ClipJob | undefined): PipelineStage {
   if (run.status !== "running") return stage("waiting", "Waiting for the source.");
   if (!job) return stage(run.clipJobId ? "error" : "running", run.clipJobId ? "The clip job is gone — it may have been deleted." : "Creating the clip job…");
@@ -366,15 +420,32 @@ function audioStage(run: PipelineRun, project: LongformProject | undefined): Pip
 function imagesStage(run: PipelineRun, project: LongformProject | undefined, slideCount: number): PipelineStage {
   if (run.status !== "running") return stage("waiting", "Waiting for the source.");
   if (run.carouselId) {
+    // No slides behind the id means the carousel was deleted from the Studio.
+    // Reporting DEFAULT_SLIDE_COUNT here claimed "8 carousel slides written"
+    // for a carousel that no longer exists — the same phrasing the clips stage
+    // uses for a missing job, since the count is best-effort and a failed read
+    // looks identical to a deletion.
+    if (slideCount === 0) return stage("error", "The carousel is gone — it may have been deleted.");
     const note = run.carouselNote ? ` (${run.carouselNote})` : "";
-    return stage("ready", `${slideCount || DEFAULT_SLIDE_COUNT} carousel slides written${note}`);
+    return stage("ready", `${slideCount} carousel slides written${note}`);
   }
+  // Attempted and gave up: a note with no carousel. Reported as skipped, never
+  // as ready — there is nothing here anyone should schedule.
+  if (run.carouselNote) return stage("skipped", run.carouselNote);
   if (project?.status === "error") return stage("skipped", "Needs the transcript, and analysis failed.");
   if (project?.status === "ready" && project.transcript.length === 0) {
     return stage("skipped", "No transcript came out of this stream to write slides from.");
   }
   if (project?.status === "ready") return stage("running", "Writing carousel slides from the transcript…");
   return stage("waiting", "Written from the transcript once analysis finishes.");
+}
+
+function visualsStage(run: PipelineRun, job: ClipJob | undefined, ready: boolean): PipelineStage {
+  if (run.status !== "running") return stage("waiting", "Waiting for the source.");
+  if (!job) return stage("waiting", "Waiting for the clip analysis.");
+  if (ready) return stage("ready", "Best transcript moment ready for a realistic screenshot ad");
+  if (job.status === "error") return stage("skipped", "No strong transcript moment was available.");
+  return stage("waiting", "Choosing the strongest transcript moment and frame.");
 }
 
 function postsStage(run: PipelineRun): PipelineStage {
@@ -425,19 +496,37 @@ export async function runOverview(run: PipelineRun): Promise<PipelineRunOverview
   const longformReady = Boolean(exportRecord?.status === "done" && exportRecord.file);
   const audioReady = Boolean(exportRecord?.audioFile);
   const posts = run.posts?.length ?? 0;
+  const moment = visualMomentFromClips(job?.clips ?? [], job?.sourceCaptions ?? []);
+  const visualMoment = moment
+    ? { ...moment, prompt: realisticImagePrompt(moment, run.name) }
+    : undefined;
+
+  const topics = project?.topics ?? [];
+  const segmentsRendered = topics.filter((topic) =>
+    project?.exports.some((item) => item.topicId === topic.id && item.status === "done" && item.file)
+  ).length;
 
   const stages = {
     source: sourceStage(run),
     longform: longformStage(run, project),
+    segments: segmentsStage(run, project, segmentsRendered),
     clips: clipsStage(run, job),
     audio: audioStage(run, project),
     images: imagesStage(run, project, slideCount),
+    visuals: visualsStage(run, job, Boolean(visualMoment)),
     posts: postsStage(run),
     schedule: stage("waiting", "")
   };
 
-  const readyItems = clipsReady + (longformReady ? 1 : 0) + (audioReady ? 1 : 0) + (slideCount > 0 ? 1 : 0) + posts;
-  const upstreamSettled = (["longform", "clips", "audio", "images", "posts"] as const).every(
+  const readyItems =
+    clipsReady +
+    (longformReady ? 1 : 0) +
+    (audioReady ? 1 : 0) +
+    (slideCount > 0 ? 1 : 0) +
+    (visualMoment ? 1 : 0) +
+    posts +
+    segmentsRendered;
+  const upstreamSettled = (["longform", "segments", "clips", "audio", "images", "visuals", "posts"] as const).every(
     (key) => stages[key].status !== "running" && stages[key].status !== "waiting"
   );
   if (run.status === "error") {
@@ -454,7 +543,17 @@ export async function runOverview(run: PipelineRun): Promise<PipelineRunOverview
   return {
     run,
     stages,
-    schedulable: { clipsReady, longformReady, audioReady, carouselSlides: slideCount, posts, queued },
+    visualMoment,
+    schedulable: {
+      clipsReady,
+      longformReady,
+      segments: topics.length,
+      audioReady,
+      carouselSlides: slideCount,
+      visualAdReady: Boolean(visualMoment),
+      posts,
+      queued
+    },
     settled:
       run.status === "error" ||
       (upstreamSettled && stages.source.status !== "running" && stages.schedule.status !== "running")

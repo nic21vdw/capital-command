@@ -90,11 +90,68 @@ export async function fetchOverviews(): Promise<PipelineRunOverview[]> {
   return Array.isArray(runs) ? (runs as PipelineRunOverview[]) : [];
 }
 
+/**
+ * The YouTube video id in a watch URL, or null for anything else.
+ *
+ * Tolerant of the query junk a real link carries — `&t=5571s`, playlist ids,
+ * `si=` share tokens — because these come from whatever was pasted into the
+ * pipeline by hand, not from a canonical source.
+ */
+export function videoIdFromUrl(url: string | undefined): string | null {
+  if (!url) return null;
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    return null;
+  }
+  const host = parsed.hostname.replace(/^www\./, "");
+  if (host === "youtu.be") {
+    const id = parsed.pathname.slice(1).split("/")[0];
+    return id || null;
+  }
+  if (host !== "youtube.com" && host !== "m.youtube.com" && host !== "music.youtube.com") return null;
+  const v = parsed.searchParams.get("v");
+  if (v) return v;
+  // /live/<id>, /shorts/<id>, /embed/<id>
+  const match = /^\/(?:live|shorts|embed)\/([^/?#]+)/.exec(parsed.pathname);
+  return match ? match[1] : null;
+}
+
+/**
+ * Videos the pipeline has already taken in, by id.
+ *
+ * The third provenance guard. The publish queue only knows what this app
+ * *published*; the ledger only knows what a previous SCAN took in. A stream
+ * run through the pipeline by hand is invisible to both, and would be
+ * re-downloaded and re-clipped from scratch on the first scan.
+ */
+export async function pipelineSourceVideoIds(): Promise<Set<string>> {
+  const ids = new Set<string>();
+  for (const overview of await fetchOverviews()) {
+    const id = videoIdFromUrl(overview.run.sourceUrl);
+    if (id) ids.add(id);
+  }
+  return ids;
+}
+
 export type PipelineWaitResult = {
   outcome: "ready" | "error" | "timeout";
   error?: string;
   overview?: PipelineRunOverview;
 };
+
+/**
+ * How many polls in a row may fail before the wait gives up.
+ *
+ * One bad poll is not a failed run. `GET /api/pipeline` reads several JSON
+ * stores while the pipeline is writing them, and on Windows the atomic
+ * write-then-rename falls back to an in-place write that a concurrent reader
+ * can catch mid-flight — a 500 with "Unexpected end of JSON input". The run
+ * itself is unaffected and keeps going, so treating a single 500 as fatal
+ * abandons healthy work and burns a ledger attempt for nothing.
+ */
+const MAX_CONSECUTIVE_POLL_FAILURES = 5;
 
 /**
  * Polls until the run settles — every stage past `waiting`/`running` — or the
@@ -113,18 +170,32 @@ export async function waitForPipelineRun(
   const deadline = Date.now() + timeoutMs;
   let last = "";
   let missing = 0;
+  let failures = 0;
 
   while (Date.now() < deadline) {
     let overviews: PipelineRunOverview[];
     try {
       overviews = await fetchOverviews();
+      failures = 0;
     } catch (error) {
       if (error instanceof AppUnreachableError) {
         // The app went down mid-run (restart, machine sleep). Nothing here can
         // advance the run, so stop waiting and let the next scan re-check.
         return { outcome: "timeout", error: error.message };
       }
-      throw error;
+      // Reachable but erroring — see MAX_CONSECUTIVE_POLL_FAILURES. Ride it out
+      // rather than abandoning a run that is still being worked on.
+      failures += 1;
+      const message = error instanceof Error ? error.message : String(error);
+      if (failures >= MAX_CONSECUTIVE_POLL_FAILURES) {
+        return {
+          outcome: "timeout",
+          error: `The pipeline API failed ${failures} polls in a row (last: ${message}). The run may still be going.`
+        };
+      }
+      onProgress?.(`poll failed (${message}) — retrying ${failures}/${MAX_CONSECUTIVE_POLL_FAILURES}`);
+      await sleep(pollMs);
+      continue;
     }
 
     const overview = overviews.find((item) => item.run.id === runId);

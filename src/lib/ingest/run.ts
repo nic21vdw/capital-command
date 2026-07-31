@@ -11,6 +11,7 @@ import {
 import {
   AppUnreachableError,
   appBaseUrl,
+  pipelineSourceVideoIds,
   startPipelineRun,
   waitForPipelineRun
 } from "@/lib/ingest/pipelineClient";
@@ -149,9 +150,25 @@ export async function runDailyScan(options: RunOptions = {}): Promise<ScanReport
         "(<= 3 min and vertical), not by provenance."
     );
   }
+  // Third guard: what the pipeline already holds. A read failure here is NOT
+  // fatal the way the publish-queue read is — the ledger and provenance still
+  // stand — but it is said out loud, because the run that would be re-ingested
+  // is an expensive mistake rather than a wrong one.
+  let pipelineVideoIds = new Set<string>();
+  try {
+    pipelineVideoIds = await pipelineSourceVideoIds();
+  } catch (error) {
+    log(
+      `Warning: could not read existing pipeline runs (${
+        error instanceof Error ? error.message : String(error)
+      }). A stream already taken in by hand could be ingested again.`
+    );
+  }
+
   const seen = {
     publishedPostIds: published.ids,
-    ingestedVideoIds: settledVideoIds(ledger)
+    ingestedVideoIds: settledVideoIds(ledger),
+    pipelineVideoIds
   };
 
   const candidates: ScanCandidate[] = scan.uploads.map((upload) => ({
@@ -201,8 +218,13 @@ export async function runDailyScan(options: RunOptions = {}): Promise<ScanReport
     log(`Ingesting ${upload.videoId} (attempt ${attempts}/${MAX_INGEST_ATTEMPTS}): ${upload.title}`);
 
     let record: IngestRecord;
+    // Held outside the try so a failure *after* the run started still records
+    // which run it was. Losing that link leaves a run nobody can trace back to
+    // the video that created it.
+    let startedRunId: string | null = null;
     try {
       const runId = await startPipelineRun(upload.url, upload.title);
+      startedRunId = runId;
       log(`    pipeline run ${runId} started`);
       const result = await waitForPipelineRun(runId, timeoutMs, pollMs, (line) => log(`    ${line}`));
 
@@ -237,14 +259,14 @@ export async function runDailyScan(options: RunOptions = {}): Promise<ScanReport
       record = {
         videoId: upload.videoId,
         title: upload.title,
-        runId: null,
+        runId: startedRunId,
         projectId: null,
         ingestedAt: new Date().toISOString(),
         outcome: "error",
         attempts,
         error: message
       };
-      log(`    failed to start: ${message}`);
+      log(startedRunId ? `    run ${startedRunId} failed: ${message}` : `    failed to start: ${message}`);
       if (error instanceof AppUnreachableError) {
         // Nothing will succeed until the app is back up. Recording this video
         // and stopping beats burning an attempt on every remaining stream for

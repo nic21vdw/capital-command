@@ -204,15 +204,26 @@ local scheduler and the Actions cron against the same queue at the same time.
    scope (e.g. the [OAuth playground](https://developers.google.com/oauthplayground)
    with "Use your own OAuth credentials" checked) → `YOUTUBE_REFRESH_TOKEN`.
 
-**Instagram (Graph API content publishing)**
+**Instagram (Graph API content publishing)** — full walkthrough:
+[docs/INSTAGRAM_SETUP.md](docs/INSTAGRAM_SETUP.md)
 1. Switch the Instagram account to **Business/Creator** and link it to a
    Facebook Page.
 2. [developers.facebook.com](https://developers.facebook.com) → create an app →
-   add the Instagram product.
-3. Grant `instagram_content_publish` (plus `pages_show_list`,
-   `instagram_basic`) and generate a **long-lived** access token
-   → `IG_ACCESS_TOKEN`.
-4. Find the numeric professional-account id → `IG_USER_ID`.
+   add the Instagram product. Copy the app id and app secret from
+   **Settings → Basic**.
+3. **Tools → Graph API Explorer**, grant `instagram_basic`,
+   `instagram_content_publish`, `pages_show_list` and `pages_read_engagement`,
+   and generate a token. It only lasts an hour — that is fine.
+4. Hand those three values to the connect command; it does the rest:
+   ```bash
+   npm run publish:instagram:connect -- --app-id <id> --app-secret <secret> \
+     --token <token from step 3> --write
+   ```
+   It exchanges the short-lived token for a **non-expiring Page token**, finds
+   the Instagram account linked to your Page, verifies the permissions and the
+   publishing quota, and writes `IG_USER_ID`, `IG_ACCESS_TOKEN`, `FB_PAGE_ID`
+   and `FB_PAGE_ACCESS_TOKEN` into `.env`. Drop `--write` to print them instead.
+   Re-check any time with `npm run publish:instagram:check`.
 5. Configure the `S3_*` variables — Instagram downloads the video from a
    public HTTPS URL, so clips must be hosted (see R2 below).
    Note: API-published Reels are always **public**; use a test account for
@@ -232,11 +243,26 @@ local scheduler and the Actions cron against the same queue at the same time.
    trial runs.
 
 **TikTok (Content Posting API)**
-1. [developers.tiktok.com](https://developers.tiktok.com) → create an app →
-   add **Content Posting API** → request the `video.publish` scope.
-2. Complete the OAuth flow for your account and store
-   `TIKTOK_CLIENT_KEY`, `TIKTOK_CLIENT_SECRET`, `TIKTOK_REFRESH_TOKEN`.
-3. **Audit gate:** until TikTok audits and approves the app, every API post is
+1. [developers.tiktok.com](https://developers.tiktok.com) → **Manage apps** →
+   create an app (verify the app's ownership of your site/handle if prompted).
+2. Add two products: **Login Kit** and **Content Posting API**, and turn on
+   **Direct Post** under the Content Posting API. Request the scopes
+   `user.info.basic`, `video.upload` and `video.publish`.
+3. Configure Login Kit as **Login Kit for Desktop** and register the redirect
+   URI `http://localhost:3000/api/auth/tiktok/callback`. The *web* variant only
+   accepts `https` URIs, which localhost can't offer; the desktop variant
+   explicitly allows `localhost`/`127.0.0.1` and uses PKCE, which
+   `src/lib/publisher/tiktokAuth.ts` implements (SHA256 **hex** challenge —
+   TikTok's own encoding, not the base64url of the PKCE RFC). If you register a
+   different URI, set `TIKTOK_REDIRECT_URI` to match it exactly.
+4. Copy the app's **Client key** and **Client secret** into `TIKTOK_CLIENT_KEY`
+   / `TIKTOK_CLIENT_SECRET`, restart the app, then open the Uploading Center's
+   **TikTok** tab and click **Connect TikTok**. The refresh token is minted and
+   stored server-side in `data/publisher-tokens.json` — `TIKTOK_REFRESH_TOKEN`
+   only needs filling in by hand for GitHub Actions runs. TikTok rotates the
+   refresh token on every use and the adapter persists each rotation; the grant
+   itself lasts 365 days, so reconnect once a year.
+5. **Audit gate:** until TikTok audits and approves the app, every API post is
    forced to `SELF_ONLY` (only you can see it) — that's the built-in sandbox.
    Once approved, set `TIKTOK_AUDITED=true` and posts follow your configured
    visibility (`public` → `PUBLIC_TO_EVERYONE`). No code changes needed.
@@ -271,6 +297,77 @@ local scheduler and the Actions cron against the same queue at the same time.
    `.github/workflows/publish.yml`, set `PUBLISH_QUEUE_BACKEND=r2` locally,
    enqueue, then trigger the workflow manually from the Actions tab with
    "dry run" first.
+
+## Threads autopilot (a fresh batch of posts every 24 hours, posted for you)
+
+The X/Threads Post Engine already writes 24 fresh posts a day against your
+positioning brief, and writes every idea **twice** — a punchier `text` and a
+warmer `threadsVariant` — so two feeds never read as duplicates. The autopilot
+takes it the rest of the way: each connected Threads account posts one of those
+versions at its slot times, unattended. No browser agent, no copy-pasting.
+
+With both accounts connected you get 24 posts a day on each, covering the same
+ideas in genuinely different words:
+
+```
+slot 1  07:15  account 1  → the punchy version
+slot 1  07:18  account 2  → the warm rewrite
+```
+
+Connect only one account and it simply posts its own version; the dashboard
+tells you the other half of the pack is going unused.
+
+**Setup, once:**
+
+1. In your Meta app, add the **Access the Threads API** use case
+   ([Meta's Threads API docs](https://developers.facebook.com/docs/threads))
+   with `threads_basic` and `threads_content_publish` under *Permissions and
+   features*.
+2. **App roles → Add People → Threads Tester**, add each Threads account, then
+   accept each invite *from that account*: Threads → Settings → **Website
+   permissions** → Invites. Being an app Administrator does not cover this —
+   the consent has to come from the account side, and each account must be
+   public.
+3. On the Threads use case's **Settings** tab, under *User Token Generator*,
+   generate a long-lived token for each account.
+4. In `.env`, paste the tokens into `THREADS_ACCESS_TOKEN` and
+   `THREADS_ACCESS_TOKEN_2`. That's all that's required — each account's
+   numeric user id is looked up from its own token, so you never have to go
+   find it. Everything else has a working default; see `.env.example`.
+5. `npm run threads:check` — confirms each token works and belongs to its id.
+6. `npm run threads:dry` — plans today's batch and prints exactly what each
+   account would post, without posting anything.
+7. `npm run threads:register` — registers the scheduled task (every 5 minutes,
+   all day). It starts the app if it isn't running, plans the day's batch once,
+   and posts whatever is due. Log: `threads-autopilot.log`. Remove it again with
+   `Unregister-ScheduledTask -TaskName "Capital Command threads autopilot" -Confirm:$false`.
+
+**Day to day:** nothing. The Post Engine page (`/x-posts`) shows an autopilot
+card with each account's tally, the next post time, and buttons to schedule,
+post what's due, or re-check the connections by hand. `npm run threads:status`
+is the same thing in a terminal.
+
+**If your PC was off**, posts that missed their slot by more than
+`THREADS_LATE_GRACE_MINUTES` (45 by default) are skipped rather than fired
+late, and the next day starts fresh — so you never come back to a burst of
+fourteen posts going out in one minute. One account's expired token fails only
+its own half of the day. Design notes:
+[`src/lib/threads/README.md`](src/lib/threads/README.md).
+
+## Launch Pad (Product Hunt)
+
+**Launch Pad** (`/launch`) plans a Product Hunt launch as a content event. Pick
+a launch date and the playbook dates itself backwards from it — warm up the
+account, build the gallery, cut the demo, schedule for 12:01am PT, work the
+comments all day, then bank the badge and the retro. It also writes the listing
+copy (tagline, description, the maker's first comment, topics, gallery order,
+and launch-day posts for X / Threads / LinkedIn / YouTube Community).
+
+Product Hunt has **no write API for creating a launch**, so nothing here
+publishes — submitting the listing is a manual step. Once the listing is up,
+paste its slug and, with a `PRODUCT_HUNT_TOKEN` set, Launch Pad reads the live
+votes, comments, and the day's rank back. Everything else works without a
+token. Design notes: [`src/lib/launch/README.md`](src/lib/launch/README.md).
 
 ## Animated video segments (Remotion)
 

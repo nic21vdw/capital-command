@@ -89,7 +89,7 @@ export const settingsSchema = z.object({
   currency: z.enum(["CAD", "USD"]),
   // Unknown/legacy values (e.g. old accent ids) gracefully fall back to undefined,
   // and the UI resolves that to the default preset at runtime.
-  themePreset: z.enum(["slate", "midnight", "graphite", "forest", "paper", "arctic"]).optional().catch(undefined),
+  themePreset: z.enum(["slate", "midnight", "graphite", "forest", "dracula", "paper", "arctic"]).optional().catch(undefined),
   profile: userProfileSchema.optional()
 });
 
@@ -435,7 +435,15 @@ export const carouselSlideSchema = z.object({
   headingColor: z.string().optional(),
   bodyColor: z.string().optional(),
   hideBaseText: z.boolean().optional(),
+  textBand: z.object({ top: z.number(), bottom: z.number() }).optional(),
   layers: z.array(slideLayerSchema).optional()
+});
+
+export const carouselBatchSchema = z.object({
+  groupId: z.string(),
+  index: z.number().int().min(1),
+  total: z.number().int().min(1),
+  angle: z.string().optional()
 });
 
 export const carouselScheduleSchema = z.object({
@@ -452,11 +460,12 @@ export const carouselScheduleSchema = z.object({
 export const carouselSchema = z.object({
   id: z.string(),
   title: z.string().trim().min(1),
-  sourceType: z.enum(["script", "longform", "short", "custom"]).default("custom"),
+  sourceType: z.enum(["script", "longform", "short", "custom", "images"]).default("custom"),
   sourceId: z.string().optional(),
   slides: z.array(carouselSlideSchema).default([]),
   aspectRatio: z.enum(["portrait", "square", "story", "landscape"]).optional(),
   schedules: z.array(carouselScheduleSchema).optional(),
+  batch: carouselBatchSchema.optional(),
   createdAt: z.string().default(() => new Date().toISOString())
 });
 
@@ -530,6 +539,47 @@ export const fbStrategySchema = z.object({
 });
 
 export const defaultFbStrategy = fbStrategySchema.parse({});
+
+// ----- Product launches (Launch Pad) -----
+export const launchCopySchema = z.object({
+  name: z.string().default(""),
+  tagline: z.string().default(""),
+  description: z.string().default(""),
+  firstComment: z.string().default(""),
+  topics: z.array(z.string()).default([]),
+  galleryCaptions: z.array(z.string()).default([]),
+  socialPosts: z.array(z.object({ surface: z.string(), text: z.string() })).default([]),
+  generatedAt: z.string().default(() => new Date().toISOString()),
+  aiGenerated: z.boolean().default(false)
+});
+
+export const launchStatsSchema = z.object({
+  votes: z.coerce.number().default(0),
+  comments: z.coerce.number().default(0),
+  rank: z.coerce.number().nullable().default(null),
+  dayLaunchCount: z.coerce.number().nullable().default(null),
+  name: z.string().default(""),
+  tagline: z.string().default(""),
+  url: z.string().default(""),
+  featuredAt: z.string().nullable().default(null),
+  fetchedAt: z.string().default(() => new Date().toISOString())
+});
+
+export const productLaunchSchema = z.object({
+  id: z.string(),
+  product: z.string().trim().min(1).default("CoLateral"),
+  productUrl: z.string().default(""),
+  launchDate: z.string(),
+  status: z.enum(["planning", "scheduled", "live", "done"]).default("planning"),
+  slug: z.string().optional(),
+  hunter: z.string().optional(),
+  notes: z.string().optional(),
+  copy: launchCopySchema.optional(),
+  stats: launchStatsSchema.optional(),
+  completedTasks: z.array(z.string()).default([]),
+  createdAt: z.string().default(() => new Date().toISOString()),
+  updatedAt: z.string().default(() => new Date().toISOString())
+});
 
 // ----- Saved thumbnails (Thumbnail Generator) -----
 // A persisted thumbnail project: all of the generator's settings plus the
@@ -932,7 +982,8 @@ export const appDataSchema = z.object({
   brandAssets: brandAssetsSchema.default(defaultBrandAssets),
   videoStudio: videoStudioSchema.default(defaultVideoStudio),
   avatarVideos: z.array(avatarVideoSchema).default([]),
-  voiceovers: z.array(voiceoverSchema).default([])
+  voiceovers: z.array(voiceoverSchema).default([]),
+  productLaunches: z.array(productLaunchSchema).default([])
 });
 
 export const importHoldingSchema = z.object({

@@ -48,13 +48,31 @@ stops anything being taken twice.
 
 ## How a video is judged
 
-Two independent guards stop the pipeline eating its own tail, in this order:
+Three independent guards stop the pipeline eating its own tail, or redoing work
+it has already done, in this order:
 
 1. **Provenance (exact).** Everything this app publishes to YouTube is recorded
    in the publish queue as `platforms.youtube.postId`. An id match is proof.
-2. **Shape (heuristic).** A vertical video of ≤ 3 minutes is a Short. This is the
+2. **Already in the pipeline (exact).** A video that is already some run's
+   source has been taken in — whether a scan did it or you pasted the link
+   yourself. Without this, the first scan on an established channel re-downloads
+   and re-clips every stream you handled by hand.
+3. **Shape (heuristic).** A vertical video of ≤ 3 minutes is a Short. This is the
    backstop for Shorts posted by hand from a phone, which never went through the
    queue and so have no postId to match.
+
+Guard 2 reads `GET /api/pipeline` and extracts the video id from each run's
+`sourceUrl`. A failed read is **not** fatal — provenance and the ledger still
+stand — but it is warned about, because the consequence is an expensive
+re-download rather than a wrong decision.
+
+### Same title is not the same stream
+
+A title can legitimately repeat across a day: a 12-hour hackathon broadcast in
+two parts, or a stream that dropped and restarted, both titled "Day 23". These
+are distinct recordings and each one is taken in. Nothing here collapses
+candidates by title — the only "already handled" signals are the exact id
+matches in guards 1 and 2.
 
 Live streams skip the shape test entirely — a stream is never a Short, and its
 VOD is the most valuable thing to clip.
@@ -63,6 +81,7 @@ VOD is the most valuable thing to clip.
 | --- | --- |
 | `postId` in the publish queue | skip — the app published it |
 | Already in the ledger | skip — an earlier scan took it |
+| Already a pipeline run's source | skip — the pipeline has it |
 | Not public | skip — a draft is not released content |
 | Has `liveStreamingDetails` | **ingest** — stream VOD |
 | Not a stream, live-only mode (default) | skip — `--all` to include it |
