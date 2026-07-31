@@ -230,6 +230,18 @@ async function main() {
           console.error(`[publisher]   MISSING permissions: ${status.missingScopes.join(", ")}`);
           process.exitCode = 1;
         }
+        // One Meta grant backs both platforms, so checking Instagram without
+        // checking the Page is how a broken Facebook stays hidden.
+        const { facebookProfile, facebookPublishProbe } = await import("@/lib/publisher/metaProfile");
+        const page = await facebookProfile(config);
+        if (!page) {
+          console.log("[publisher] Facebook: no Page configured (FB_PAGE_ID / FB_PAGE_ACCESS_TOKEN).");
+        } else {
+          const probe = await facebookPublishProbe(config);
+          console.log(`[publisher] Facebook ${probe.ready ? "OK" : "NOT READY"} — ${page.title}`);
+          console.log(`[publisher]   Reels: ${probe.detail}`);
+          if (!probe.ready) process.exitCode = 1;
+        }
       } catch (error) {
         console.error(`[publisher] Instagram check failed: ${error instanceof Error ? error.message : String(error)}`);
         process.exitCode = 1;

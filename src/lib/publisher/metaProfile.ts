@@ -89,6 +89,43 @@ export async function facebookProfile(config: PublisherConfig = publisherConfig(
  * is reported as ready so a working setup is never blocked by a missing
  * IG_APP_ID.
  */
+export type FacebookProbe = { ready: boolean; detail: string };
+
+/**
+ * The definitive answer to "can this token actually post a Reel", asked of
+ * the endpoint itself rather than inferred from the token's scope list.
+ *
+ * It opens video_reels with a deliberately unresolvable file_url. A token
+ * without pages_manage_posts is refused at the permission gate — code 200,
+ * "Subject does not have permission to post videos on this target" — before
+ * Facebook ever looks at the URL. A token that has it gets past the gate and
+ * fails on the URL instead, which is the answer we want. Facebook cannot
+ * fetch the file either way, so no video, draft or container is created.
+ */
+export async function facebookPublishProbe(
+  config: PublisherConfig = publisherConfig()
+): Promise<FacebookProbe> {
+  const { pageId, pageAccessToken, graphApiVersion } = config.facebook;
+  if (!pageId || !pageAccessToken) return { ready: false, detail: "FB_PAGE_ID / FB_PAGE_ACCESS_TOKEN are not set." };
+  const response = await fetch(`${graphBase(graphApiVersion)}/${pageId}/video_reels`, {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({
+      upload_phase: "start",
+      file_url: "https://probe.invalid/permission-check.mp4",
+      access_token: pageAccessToken
+    })
+  }).catch((error) => (error instanceof Error ? error : new Error(String(error))));
+  if (response instanceof Error) return { ready: false, detail: `could not reach Meta: ${response.message}` };
+
+  const body = await response.text();
+  if (/pages_manage_posts/i.test(body)) {
+    return { ready: false, detail: `missing ${FACEBOOK_PUBLISH_SCOPE} — reconnect Meta granting it.` };
+  }
+  if (response.ok) return { ready: true, detail: "video_reels accepted the request." };
+  return { ready: true, detail: "past the permission gate (Meta rejected only the probe URL, as expected)." };
+}
+
 export async function facebookCanPublish(config: PublisherConfig = publisherConfig()): Promise<boolean> {
   const { pageAccessToken } = config.facebook;
   const { appId, appSecret, graphApiVersion } = config.instagram;
