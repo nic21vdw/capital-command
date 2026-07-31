@@ -60,10 +60,34 @@ export type ThreadsConfig = {
   claimTimeoutMinutes: number;
   /** Batches older than this are dropped from the queue file. */
   retentionDays: number;
+  /**
+   * Local hour from which a tick also plans TOMORROW. Slots run round the
+   * clock, so a day planned on the day itself loses every slot before the tick
+   * that planned it — the batch has to exist before the day starts.
+   */
+  planAheadHour: number;
+  /**
+   * Re-lay the rest of a day that fell behind (the machine was off, the app was
+   * down) across the time that is left, instead of letting those posts go.
+   */
+  catchUp: boolean;
+  /**
+   * How far apart caught-up posts may be crowded. Deliberately much wider than
+   * MIN_GAP_MINUTES: recovering a day is not a licence to empty twelve posts
+   * into the feed in an hour, so whatever doesn't fit at this spacing is left.
+   */
+  catchUpMinGapMinutes: number;
+  /** Slots short of the day's target before a catch-up is worth doing. */
+  catchUpMinShortfall: number;
+  /** Never re-lay the day more often than this. */
+  catchUpCooldownMinutes: number;
 };
 
 /** Threads rejects anything longer than this; posts are fitted to it. */
 export const THREADS_TEXT_LIMIT = 500;
+
+/** However little room is left in a day, posts never crowd closer than this. */
+export const MIN_GAP_MINUTES = 5;
 
 function flag(name: string, fallback = false): boolean {
   const raw = process.env[name]?.trim().toLowerCase();
@@ -131,7 +155,12 @@ export function threadsConfig(): ThreadsConfig {
     backoffBaseMinutes: num("THREADS_BACKOFF_BASE_MINUTES", 5),
     backoffCapMinutes: num("THREADS_BACKOFF_CAP_MINUTES", 60),
     claimTimeoutMinutes: num("THREADS_CLAIM_TIMEOUT_MINUTES", 10),
-    retentionDays: num("THREADS_RETENTION_DAYS", 14)
+    retentionDays: num("THREADS_RETENTION_DAYS", 14),
+    planAheadHour: Math.min(23, Math.max(0, num("THREADS_PLAN_AHEAD_HOUR", 21))),
+    catchUp: flag("THREADS_CATCHUP", true),
+    catchUpMinGapMinutes: Math.max(MIN_GAP_MINUTES, num("THREADS_CATCHUP_GAP_MINUTES", 20)),
+    catchUpMinShortfall: Math.max(1, num("THREADS_CATCHUP_MIN_SHORTFALL", 2)),
+    catchUpCooldownMinutes: Math.max(5, num("THREADS_CATCHUP_COOLDOWN_MINUTES", 60))
   };
 }
 

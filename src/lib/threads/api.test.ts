@@ -15,7 +15,12 @@ function config(): ThreadsConfig {
     backoffBaseMinutes: 5,
     backoffCapMinutes: 60,
     claimTimeoutMinutes: 10,
-    retentionDays: 14
+    retentionDays: 14,
+    planAheadHour: 21,
+    catchUp: true,
+    catchUpMinGapMinutes: 20,
+    catchUpMinShortfall: 2,
+    catchUpCooldownMinutes: 60
   };
 }
 
