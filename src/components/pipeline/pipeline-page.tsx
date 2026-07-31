@@ -26,6 +26,7 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { VisualAdComposer } from "@/components/pipeline/visual-ad-composer";
+import { quoteOfTheDay } from "@/lib/pipeline/greeting";
 import { cn } from "@/lib/utils";
 import type {
   PipelinePost,
@@ -285,6 +286,10 @@ export function PipelinePage() {
   const dragDepth = useRef(0);
   const uploadInputRef = useRef<HTMLInputElement>(null);
   const [postsOpen, setPostsOpen] = useState(false);
+  // Fixed for the life of the page: the headline must not shuffle itself on a
+  // re-render. The only render it can disagree with is the server's, across
+  // midnight, which is why the heading suppresses its hydration warning.
+  const [quote] = useState(quoteOfTheDay);
 
   // While a brand-new run is being created there is no id to match yet, so the
   // flow must NOT fall back to the newest previous run — it renders the
@@ -572,8 +577,11 @@ export function PipelinePage() {
         )}
       >
         <div className="pipeline-hero-enter w-full max-w-2xl">
-          <h1 className="text-center text-3xl font-semibold tracking-tight text-white sm:text-4xl">
-            {dragActive ? "Drop it anywhere." : "Ready when you are."}
+          <h1
+            suppressHydrationWarning
+            className="text-center text-3xl font-semibold tracking-tight text-white sm:text-4xl"
+          >
+            {dragActive ? "Drop it anywhere." : quote}
           </h1>
           <div className="mt-8">
             <StreamSearchBar

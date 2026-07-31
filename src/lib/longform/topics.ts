@@ -8,19 +8,35 @@ import type { CaptionSegment } from "@/types/domain";
 // A stream is not one video. Across three hours the creator moves through
 // several distinct subjects — hackathon progress, a bug hunt, a business
 // tangent — and each of those is its own watchable upload. This module reads
-// the transcript and finds those stretches: 3-5 topical windows of roughly ten
-// minutes each, every one starting and ending on a completed thought.
+// the transcript and assembles 3-5 of them, each roughly ten minutes.
+//
+// A segment is GATHERED, not sliced. A stream does not run one, two, three: the
+// creator drops a subject, chases something else for twenty minutes, then comes
+// back to it. So a segment is a set of RANGES pulled from wherever in the
+// recording that subject was actually being talked about, played back to back —
+// which is what the export engine already does with the dead space it cuts, so
+// nothing downstream needs a special case.
 //
 // This is deliberately NOT how short-form clips are chosen. The Clip Generator
 // scans the whole stream for the single best 30-second moments wherever they
-// fall; topic segments carve the stream into long, coherent subjects. The two
+// fall; topic segments gather the stream into long, coherent subjects. The two
 // run over the same transcript and never share a selection.
 //
-// The split itself is lexical cohesion (a TextTiling-style pass): consecutive
-// blocks of speech are compared by vocabulary, and the points where vocabulary
-// turns over are where one subject ends and the next begins. Titles follow the
-// channel convention in clipping/titles.ts — written by Claude against the
-// keyword set and style guide, with a keyword-driven offline fallback.
+// The gathering runs in three passes:
+//   1. Boundaries — lexical cohesion (a TextTiling-style pass): consecutive
+//      blocks of speech are compared by vocabulary, and the points where
+//      vocabulary turns over are where one stretch ends and the next begins.
+//   2. Pieces — the recording is cut at those boundaries into a pool of
+//      two-to-three minute pieces, and any piece that is mostly dead air is
+//      dropped on the spot.
+//   3. Subjects — the pieces are clustered by vocabulary (agglomerative,
+//      strongest pair first), so pieces from opposite ends of the stream that
+//      are about the same thing land in the same segment. Thin or leftover
+//      clusters are left out: segments do not tile the recording.
+//
+// Titles follow the channel convention in clipping/titles.ts — written by
+// Claude against the keyword set and style guide, with a keyword-driven
+// offline fallback.
 
 /** Seconds of speech compared as one unit when measuring vocabulary turnover. */
 const BLOCK_SEC = 30;
@@ -30,11 +46,28 @@ const WINDOW_BLOCKS = 4;
 const PAUSE_BOUNDARY_SEC = 20;
 /** Bonus depth given to a boundary that sits on such a pause. */
 const PAUSE_BOUNDARY_BONUS = 0.15;
+/** How long one piece of the gathering pool runs, before clustering. */
+const PIECE_TARGET_SEC = 150;
+/** Shortest piece worth gathering — under this it is a scrap, not a moment. */
+const MIN_PIECE_SEC = 75;
+/** Words per second under which a piece is mostly dead air and gets dropped. */
+const MIN_PIECE_DENSITY = 0.35;
+/** Vocabulary similarity under which two pieces are not the same subject. */
+const SUBJECT_FLOOR = 0.06;
+/**
+ * Vocabulary similarity over which two subjects are the SAME subject. A long
+ * stream fills a segment to `maxSec` and leaves the rest of that subject behind
+ * as another cluster; publishing both would be two uploads of one thing, so the
+ * weaker one is dropped instead.
+ */
+const DUPLICATE_SUBJECT_CEILING = 0.5;
+/** Words per second of comfortably paced speech, for scoring density. */
+const FLUENT_WORDS_PER_SEC = 2.5;
 
 export const DEFAULT_TOPIC_OPTIONS = {
-  /** Shortest a topic segment may be — below this it is a tangent, not a video. */
+  /** Shortest a topic segment may run in total — below this it is a tangent, not a video. */
   minSec: 240,
-  /** Longest a topic segment may be before it is split again. */
+  /** Longest a topic segment may run in total before it stops gathering. */
   maxSec: 1200,
   /** The length we aim for: a ten minute upload. */
   targetSec: 600,
@@ -44,15 +77,24 @@ export const DEFAULT_TOPIC_OPTIONS = {
 
 export type TopicPlanOptions = Partial<typeof DEFAULT_TOPIC_OPTIONS>;
 
-/** A topic window found in the transcript, before it is titled. */
+/** One stretch of the recording a segment plays. */
+export type PlannedRange = { start: number; end: number };
+
+/** A topic segment found in the transcript, before it is titled. */
 export type PlannedTopic = {
+  /** The stretches this segment is assembled from, in chronological order. */
+  ranges: PlannedRange[];
+  /** First second of the first range — where the segment opens. */
   start: number;
+  /** Last second of the last range; the span between the two is NOT the runtime. */
   end: number;
-  /** Distinctive terms of this stretch, strongest first. */
+  /** How long the segment actually plays: the ranges added up. */
+  durationSec: number;
+  /** Distinctive terms of this subject, strongest first. */
   keywords: string[];
-  /** Everything said inside the window, as plain text. */
+  /** Everything said inside the ranges, as plain text. */
   text: string;
-  /** How strong a standalone video this stretch looks like. */
+  /** How strong a standalone video this subject looks like. */
   score: number;
 };
 
@@ -258,10 +300,201 @@ function segmentsInWindow(spoken: CaptionSegment[], start: number, end: number):
 }
 
 /**
- * Reads the transcript and returns the stream's 3-5 strongest topic windows,
- * in chronological order. Windows do not tile the recording: stretches that
- * are mostly dead air or off-topic chatter are left out, which is the point —
- * each one that survives is a video someone would sit through.
+ * Everything said across a segment's ranges. An ellipsis marks each jump, so
+ * the titler can see it is reading one subject picked up in several places
+ * rather than one continuous stretch.
+ */
+function rangeText(spoken: CaptionSegment[], ranges: PlannedRange[]): string {
+  return ranges
+    .map((range) =>
+      segmentsInWindow(spoken, range.start, range.end)
+        .map((segment) => segment.text.trim())
+        .join(" ")
+        .replace(/\s+/g, " ")
+        .trim()
+    )
+    .filter(Boolean)
+    .join(" … ");
+}
+
+function wordCount(segments: CaptionSegment[]): number {
+  return segments.reduce((sum, segment) => {
+    const trimmed = segment.text.trim();
+    return sum + (trimmed ? trimmed.split(/\s+/).length : 0);
+  }, 0);
+}
+
+/**
+ * Term weights of a stretch: how often it says each word, scaled by how rare
+ * that word is across the whole recording. Rare words are what make two
+ * stretches the same subject; "build" said everywhere says nothing.
+ */
+function weightedTerms(
+  segments: CaptionSegment[],
+  documentFrequency: Map<string, number>,
+  blockCount: number
+): Map<string, number> {
+  const out = new Map<string, number>();
+  for (const segment of segments) {
+    for (const term of contentTerms(segment.text)) {
+      const idf = Math.log(1 + blockCount / Math.max(1, documentFrequency.get(term) ?? 1));
+      if (idf > 0) out.set(term, (out.get(term) ?? 0) + idf);
+    }
+  }
+  return out;
+}
+
+function addWeights(a: Map<string, number>, b: Map<string, number>): Map<string, number> {
+  const out = new Map(a);
+  for (const [term, weight] of b) out.set(term, (out.get(term) ?? 0) + weight);
+  return out;
+}
+
+/** One piece of the gathering pool: a stretch of speech and its vocabulary. */
+type SubjectPiece = {
+  start: number;
+  end: number;
+  segments: CaptionSegment[];
+  terms: Map<string, number>;
+  words: number;
+};
+
+type Subject = { pieces: SubjectPiece[]; terms: Map<string, number>; durationSec: number };
+
+function pieceLength(piece: SubjectPiece): number {
+  return piece.end - piece.start;
+}
+
+/**
+ * Clusters the pool into subjects, strongest vocabulary match first, so pieces
+ * from anywhere in the recording can end up in the same segment. Two subjects
+ * only join if they genuinely share vocabulary, and a subject stops gathering
+ * once it reaches `maxSec`. A long stream therefore ends with MORE subjects
+ * than are wanted, and the weakest are dropped by the caller rather than
+ * everything being forced into `desired` buckets.
+ */
+function gatherSubjects(pool: SubjectPiece[], desired: number, maxSec: number): SubjectPiece[][] {
+  const subjects: Array<Subject | null> = pool.map((piece) => ({
+    pieces: [piece],
+    terms: piece.terms,
+    durationSec: pieceLength(piece)
+  }));
+  const affinity = (a: Subject, b: Subject) =>
+    a.durationSec + b.durationSec > maxSec ? -1 : termSimilarity(a.terms, b.terms);
+  const sim = subjects.map(() => new Array<number>(subjects.length).fill(-1));
+  for (let i = 0; i < subjects.length; i += 1) {
+    for (let j = i + 1; j < subjects.length; j += 1) sim[i][j] = affinity(subjects[i]!, subjects[j]!);
+  }
+
+  let alive = subjects.length;
+  while (alive > desired) {
+    let best = -1;
+    let left = -1;
+    let right = -1;
+    for (let i = 0; i < subjects.length; i += 1) {
+      if (!subjects[i]) continue;
+      for (let j = i + 1; j < subjects.length; j += 1) {
+        if (!subjects[j] || sim[i][j] <= best) continue;
+        best = sim[i][j];
+        left = i;
+        right = j;
+      }
+    }
+    if (left === -1 || best < SUBJECT_FLOOR) break;
+    subjects[left] = {
+      pieces: [...subjects[left]!.pieces, ...subjects[right]!.pieces],
+      terms: addWeights(subjects[left]!.terms, subjects[right]!.terms),
+      durationSec: subjects[left]!.durationSec + subjects[right]!.durationSec
+    };
+    subjects[right] = null;
+    alive -= 1;
+    for (let k = 0; k < subjects.length; k += 1) {
+      if (k === left || !subjects[k]) continue;
+      const [lo, hi] = k < left ? [k, left] : [left, k];
+      sim[lo][hi] = affinity(subjects[lo]!, subjects[hi]!);
+    }
+  }
+
+  return subjects
+    .filter((subject): subject is Subject => Boolean(subject))
+    .map((subject) => [...subject.pieces].sort((a, b) => a.start - b.start));
+}
+
+/** How alike the pieces of one subject are — a gathered segment that hangs together scores higher. */
+function subjectCohesion(pieces: SubjectPiece[]): number {
+  if (pieces.length < 2) return 1;
+  let total = 0;
+  let pairs = 0;
+  for (let i = 0; i < pieces.length; i += 1) {
+    for (let j = i + 1; j < pieces.length; j += 1) {
+      total += termSimilarity(pieces[i].terms, pieces[j].terms);
+      pairs += 1;
+    }
+  }
+  return pairs === 0 ? 1 : total / pairs;
+}
+
+/** Adjacent pieces become one range; a gap left by dropped dead air stays a gap. */
+function toRanges(pieces: SubjectPiece[]): PlannedRange[] {
+  const ranges: PlannedRange[] = [];
+  for (const piece of [...pieces].sort((a, b) => a.start - b.start)) {
+    const last = ranges[ranges.length - 1];
+    if (last && piece.start - last.end < 1) last.end = Math.max(last.end, piece.end);
+    else ranges.push({ start: piece.start, end: piece.end });
+  }
+  return ranges;
+}
+
+/**
+ * Cuts the recording into the pool of pieces the subjects are gathered from:
+ * split at the sharpest vocabulary turnovers first, then keep splitting
+ * anything much longer than the pool granularity so one undivided hour cannot
+ * swallow a whole segment on its own.
+ */
+function buildPiecePool(
+  span: Piece,
+  candidates: BoundaryCandidate[],
+  targetCount: number,
+  minPieceSec: number
+): Piece[] {
+  const used = new Set<number>();
+  let pieces: Piece[] = [span];
+  const stuck = new Set<Piece>();
+
+  while (pieces.length < targetCount) {
+    const longest = pieces
+      .filter((piece) => !stuck.has(piece))
+      .sort((a, b) => b.end - b.start - (a.end - a.start))[0];
+    if (!longest) break;
+    const split = splitPiece(longest, candidates, used, minPieceSec, false);
+    if (!split) {
+      stuck.add(longest);
+      continue;
+    }
+    pieces = pieces.flatMap((piece) => (piece === longest ? split : [piece]));
+  }
+
+  const cap = Math.max(PIECE_TARGET_SEC * 2, minPieceSec * 2);
+  for (let guard = 0; guard < 400; guard += 1) {
+    const overlong = pieces.find((piece) => piece.end - piece.start > cap && !stuck.has(piece));
+    if (!overlong) break;
+    const split = splitPiece(overlong, candidates, used, minPieceSec, true);
+    if (!split) {
+      stuck.add(overlong);
+      continue;
+    }
+    pieces = pieces.flatMap((piece) => (piece === overlong ? split : [piece]));
+  }
+
+  return pieces;
+}
+
+/**
+ * Reads the transcript and returns the stream's 3-5 strongest subjects, each as
+ * a set of ranges gathered from wherever in the recording that subject came up.
+ * Segments do not tile the recording: dead air, and stretches that never joined
+ * a subject, are left out — the point is that everything that survives is a
+ * video someone would sit through.
  */
 export function planTopicSegments(
   transcript: CaptionSegment[],
@@ -288,77 +521,109 @@ export function planTopicSegments(
 
   const blocks = buildTopicBlocks(transcript);
   const candidates = boundaryCandidates(blocks);
-  const used = new Set<number>();
-  let pieces: Piece[] = [{ start: spanStart, end: spanEnd }];
-
-  // Split at the sharpest vocabulary turnovers first, building a pool larger
-  // than the final count so the weakest stretches can be dropped afterwards.
-  const poolTarget = Math.min(candidates.length + 1, desired * 2);
-  while (pieces.length < poolTarget) {
-    const longest = [...pieces].sort((a, b) => b.end - b.start - (a.end - a.start))[0];
-    const split = splitPiece(longest, candidates, used, minSec, false);
-    if (!split) break;
-    pieces = pieces.flatMap((piece) => (piece === longest ? split : [piece]));
-  }
-
-  // Anything still over the cap is split again regardless of depth — a
-  // 40 minute "segment" is a stream, not an upload.
-  for (let guard = 0; guard < 12; guard += 1) {
-    const overlong = pieces.find((piece) => piece.end - piece.start > maxSec);
-    if (!overlong) break;
-    const split = splitPiece(overlong, candidates, used, minSec, true);
-    if (!split) break;
-    pieces = pieces.flatMap((piece) => (piece === overlong ? split : [piece]));
-  }
+  const minPieceSec = Math.max(BLOCK_SEC, Math.min(MIN_PIECE_SEC, minSec / 2));
+  const pieceCount = Math.max(desired, Math.round(total / PIECE_TARGET_SEC));
+  const pieces = buildPiecePool({ start: spanStart, end: spanEnd }, candidates, pieceCount, minPieceSec);
 
   const documentFrequency = new Map<string, number>();
   for (const block of blocks) {
     for (const term of block.terms.keys()) documentFrequency.set(term, (documentFrequency.get(term) ?? 0) + 1);
   }
 
-  const scored = pieces.map((piece) => {
-    const inside = segmentsInWindow(spoken, piece.start, piece.end);
-    const text = inside.map((segment) => segment.text.trim()).join(" ").replace(/\s+/g, " ").trim();
-    const duration = Math.max(1, piece.end - piece.start);
-    const words = text ? text.split(/\s+/).length : 0;
-    // Words per second: a stretch that is mostly dead air makes a poor video.
-    const density = clamp(words / duration / 2.5, 0, 1);
-    const lengthFit = clamp(1 - Math.abs(duration - targetSec) / targetSec, 0, 1);
+  // Dead air is dropped here rather than after clustering: a piece nobody spoke
+  // through has no vocabulary to gather on, and would only pad a segment.
+  const pool: SubjectPiece[] = pieces
+    .map((piece) => {
+      const segments = segmentsInWindow(spoken, piece.start, piece.end);
+      return {
+        start: piece.start,
+        end: piece.end,
+        segments,
+        words: wordCount(segments),
+        terms: weightedTerms(segments, documentFrequency, blocks.length)
+      };
+    })
+    .filter(
+      (piece) => piece.terms.size > 0 && piece.words / Math.max(1, pieceLength(piece)) >= MIN_PIECE_DENSITY
+    );
+  if (pool.length === 0) return [];
+
+  const describe = (group: SubjectPiece[]) => {
+    const ranges = toRanges(group);
+    const durationSec = group.reduce((sum, piece) => sum + pieceLength(piece), 0);
+    const words = group.reduce((sum, piece) => sum + piece.words, 0);
+    const text = rangeText(spoken, ranges);
+    const density = clamp(words / Math.max(1, durationSec) / FLUENT_WORDS_PER_SEC, 0, 1);
+    const lengthFit = clamp(1 - Math.abs(durationSec - targetSec) / targetSec, 0, 1);
     const lower = text.toLowerCase();
     const channelHits = CHANNEL_KEYWORDS.filter((keyword) => lower.includes(keyword.toLowerCase())).length;
     return {
-      start: piece.start,
-      end: piece.end,
-      keywords: windowKeywords(inside, documentFrequency, blocks.length),
-      text,
-      score: round3(density * 2 + lengthFit * 1.5 + clamp(channelHits / 4, 0, 1))
+      ranges,
+      durationSec,
+      terms: group.map((piece) => piece.terms).reduce(addWeights, new Map<string, number>()),
+      score: round3(
+        density * 2 + lengthFit * 1.5 + subjectCohesion(group) * 0.5 + clamp(channelHits / 4, 0, 1)
+      )
     };
-  });
+  };
 
-  const kept = scored
-    .filter((topic) => topic.text.length > 0)
+  const subjects = gatherSubjects(pool, desired, maxSec).map(describe);
+  const strong = subjects.filter((subject) => subject.durationSec >= minSec);
+  // Nothing gathered into a full-length subject. If the recording is short
+  // enough to be one upload on its own, that is what it is.
+  const usable = strong.length > 0 ? strong : total <= maxSec ? [describe(pool)] : [];
+
+  // One subject, one upload. Where the cap left the same subject in two
+  // clusters, the one carrying more of it represents the subject and the rest
+  // of that material is left out rather than published twice.
+  const families: Array<Array<(typeof usable)[number]>> = [];
+  for (const subject of [...usable].sort((a, b) => b.durationSec - a.durationSec)) {
+    const family = families.find((members) =>
+      members.some((member) => termSimilarity(member.terms, subject.terms) >= DUPLICATE_SUBJECT_CEILING)
+    );
+    if (family) family.push(subject);
+    else families.push([subject]);
+  }
+
+  const kept = families
+    .map((members) => members[0])
     .sort((a, b) => b.score - a.score)
     .slice(0, desired)
-    .sort((a, b) => a.start - b.start);
+    .sort((a, b) => a.ranges[0].start - b.ranges[0].start);
+  if (kept.length === 0) return [];
 
-  // Land every edge on a completed thought so a segment never opens or closes
-  // halfway through a sentence.
-  return kept.map((topic, index) => {
-    const next = kept[index + 1];
-    const hardEnd = next ? Math.min(spanEnd, next.start) : spanEnd;
-    const resolved = resolveThoughtEnd(spoken, topic.end, {
-      minEnd: topic.start + minSec / 2,
-      maxEnd: hardEnd,
-      maxExtension: 30,
-      maxTrim: 30
-    });
-    const opening = spoken.find((segment) => segment.start >= topic.start - 0.001);
-    return {
-      ...topic,
-      start: round3(opening ? opening.start : topic.start),
-      end: round3(Math.max(topic.start + minSec / 2, resolved.end))
-    };
-  });
+  // Land every edge on a completed thought so no range opens or closes halfway
+  // through a sentence, and never past where the next range begins.
+  const edges = kept
+    .flatMap((subject) => subject.ranges.map((range) => range.start))
+    .sort((a, b) => a - b);
+
+  return kept
+    .map((subject) => {
+      const ranges = subject.ranges.map((range) => {
+        const opening = spoken.find((segment) => segment.start >= range.start - 0.001);
+        const start = round3(opening && opening.start < range.end ? opening.start : range.start);
+        const nextEdge = edges.find((edge) => edge >= range.end - 0.001) ?? spanEnd;
+        const resolved = resolveThoughtEnd(spoken, range.end, {
+          minEnd: Math.min(range.end, start + minPieceSec / 2),
+          maxEnd: Math.max(range.end, nextEdge),
+          maxExtension: 30,
+          maxTrim: 30
+        });
+        return { start, end: round3(Math.max(start + minPieceSec / 2, resolved.end)) };
+      });
+      const segments = ranges.flatMap((range) => segmentsInWindow(spoken, range.start, range.end));
+      return {
+        ranges,
+        start: ranges[0].start,
+        end: ranges[ranges.length - 1].end,
+        durationSec: round3(ranges.reduce((sum, range) => sum + (range.end - range.start), 0)),
+        keywords: windowKeywords(segments, documentFrequency, blocks.length),
+        text: rangeText(spoken, ranges),
+        score: subject.score
+      };
+    })
+    .filter((topic) => topic.text.length > 0);
 }
 
 // ----- Titles and summaries -----
@@ -401,7 +666,7 @@ export const TOPIC_SEGMENT_SYSTEM_PROMPT = `You are a YouTube strategist who tur
 
 Channel context: the creator live-streams himself building CoLateral (an AI-powered workspace for structural engineers) using AI coding tools, and shares what he learns about AI, business and engineering. Recurring keywords to work in whenever a segment genuinely supports them: ${CHANNEL_KEYWORDS.join(", ")}.
 
-Each segment below is one subject the stream covered, and it will be published as its own video. For every segment write:
+Each segment below is one subject the stream covered, and it will be published as its own video. A segment is often gathered from several moments spread across the stream, so its transcript can jump — an ellipsis marks each jump. Write about the SUBJECT the moments share, never about the stream's running order or where in the stream they came from. For every segment write:
 - "title": a complete, grammatical phrase in Title Case, under ${MAX_TOPIC_TITLE_CHARS} characters. NEVER a transcript fragment and never a thought that trails off. Lead with curiosity, stakes, or a bold claim. No quotation marks, hashtags, or emoji.
 - "summary": one sentence (under 160 characters) saying what this segment covers, in plain language.
 
@@ -416,6 +681,8 @@ export type TopicTitleRequest = {
   id: string;
   /** Whole minutes the segment runs, for the model's sense of scale. */
   minutes: number;
+  /** How many stretches of the recording it is gathered from; 1 is continuous. */
+  parts?: number;
   /** What is said inside the segment, plain text. */
   text: string;
 };
@@ -425,14 +692,15 @@ export function buildTopicSegmentPrompt(segments: TopicTitleRequest[], context?:
   const lines: string[] = [];
   if (context?.streamTitle?.trim()) lines.push(`Stream: ${context.streamTitle.trim()}`);
   lines.push(
-    `This stream was split into ${segments.length} topic segment${segments.length === 1 ? "" : "s"}. Write a title and a summary for EACH.`,
+    `This stream was gathered into ${segments.length} topic segment${segments.length === 1 ? "" : "s"}. Write a title and a summary for EACH.`,
     "",
     'Return ONLY a JSON array (no prose) of objects: [{"id": "<segment id>", "title": "...", "summary": "..."}] — one entry per segment, keeping each id exactly as given.',
     ""
   );
   for (const segment of segments) {
+    const parts = segment.parts && segment.parts > 1 ? `, gathered from ${segment.parts} moments` : "";
     lines.push(
-      `Segment ${segment.id} (about ${segment.minutes} minute${segment.minutes === 1 ? "" : "s"} long):`,
+      `Segment ${segment.id} (about ${segment.minutes} minute${segment.minutes === 1 ? "" : "s"} long${parts}):`,
       segment.text.replace(/\s+/g, " ").trim().slice(0, MAX_TOPIC_EXCERPT_CHARS),
       ""
     );
@@ -520,7 +788,8 @@ export async function buildTopics(input: {
 
   const requests: TopicTitleRequest[] = planned.map((topic, index) => ({
     id: `topic-${index + 1}`,
-    minutes: Math.max(1, Math.round((topic.end - topic.start) / 60)),
+    minutes: Math.max(1, Math.round(topic.durationSec / 60)),
+    parts: topic.ranges.length,
     text: topic.text
   }));
   const written = await generateTopicMetadata(requests, { streamTitle: input.streamName });
@@ -532,6 +801,7 @@ export async function buildTopics(input: {
       id,
       title: ai?.title || fallbackTopicTitle(topic.keywords, index),
       summary: ai?.summary || fallbackTopicSummary(topic.keywords),
+      ranges: topic.ranges,
       start: topic.start,
       end: topic.end,
       keywords: topic.keywords,
