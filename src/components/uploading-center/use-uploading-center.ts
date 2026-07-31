@@ -245,6 +245,16 @@ function itemMatchesClip(item: QueueItem, clip: ReadyClip): boolean {
   });
 }
 
+/**
+ * Re-cutting a clip in the Clip Generator overwrites its renders under their
+ * existing names, and those files are served with a long private cache — so
+ * every URL pointing at them carries the re-cut stamp or the browser keeps
+ * showing the previous cut.
+ */
+function cacheBust(clip: ClipCandidate): string {
+  return clip.recutAt ? `?v=${encodeURIComponent(clip.recutAt)}` : "";
+}
+
 /** All postable file names for a backend clip, most-preferred first. */
 function clipFiles(clip: ClipCandidate): string[] {
   const files = [clip.editedFile, clip.downloadFile, clip.file].filter((file): file is string => Boolean(file));
@@ -428,9 +438,9 @@ export function useUploadingCenter(clipProjects: ClipProject[] = []) {
           headline: clipHeadline(clip, index),
           durationSec: Math.max(0, Math.round(clip.end - clip.start)),
           thumbnailUrl: clip.posterFile
-            ? `/api/clips/${activeJob.id}/files/${encodeURIComponent(clip.posterFile)}`
+            ? `/api/clips/${activeJob.id}/files/${encodeURIComponent(clip.posterFile)}${cacheBust(clip)}`
             : `/api/clips/${activeJob.id}/thumbnail/${encodeURIComponent(thumbSource)}`,
-          previewUrl: `/api/clips/${activeJob.id}/files/${encodeURIComponent(file)}`,
+          previewUrl: `/api/clips/${activeJob.id}/files/${encodeURIComponent(file)}${cacheBust(clip)}`,
           startSec,
           needsRerender: computeNeedsRerender(clip, projectsForJob),
           masterFile: clip.file
@@ -464,7 +474,7 @@ export function useUploadingCenter(clipProjects: ClipProject[] = []) {
       // The thumbnail endpoint only serves files the job produced (clip.file);
       // downloadFile renders aren't in that list.
       if (clip.posterFile) {
-        map.set(item.id, `/api/clips/${job.id}/files/${encodeURIComponent(clip.posterFile)}`);
+        map.set(item.id, `/api/clips/${job.id}/files/${encodeURIComponent(clip.posterFile)}${cacheBust(clip)}`);
       } else if (clip.file) {
         map.set(item.id, `/api/clips/${job.id}/thumbnail/${encodeURIComponent(clip.file)}`);
       }
