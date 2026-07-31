@@ -64,7 +64,7 @@ const PIPELINE_STAGES: PipelineStage[] = [
       { href: "/clips", label: "Short Clips", icon: Wand2 },
       { href: "/editor", label: "Clip Editor", icon: Scissors },
       { href: "/carousels", label: "Carousels & Images", icon: Images },
-      { href: "/x-posts", label: "X / Threads Posts", icon: AtSign },
+      { href: "/x-posts", label: "Threads Posts", icon: AtSign },
       // Thread-format content engine for Facebook/Instagram (hook post +
       // numbered comment thread + CTA comment).
       { href: "/facebook", label: "FB / IG Threads", icon: Facebook },

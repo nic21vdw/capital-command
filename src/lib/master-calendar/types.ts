@@ -1,7 +1,7 @@
 /**
  * The Master Calendar's unified event model. Every distribution surface —
  * scheduled shorts uploads (publish queue), carousel upload schedules,
- * X/Threads daily packs, FB/IG thread posts and the dated content tracker —
+ * Threads daily packs, FB/IG thread posts and the dated content tracker —
  * is flattened into MasterCalendarEvent so one calendar can render them all
  * side by side and link back to the calendar that owns each item.
  */
@@ -61,11 +61,11 @@ export const CALENDAR_SOURCES: CalendarSource[] = [
   },
   {
     id: "x",
-    label: "X / Threads daily packs",
-    shortLabel: "X / Threads",
+    label: "Threads daily packs",
+    shortLabel: "Threads",
     color: "#38bdf8",
     href: "/x-posts",
-    hrefLabel: "X / Threads Posts"
+    hrefLabel: "Threads Posts"
   },
   {
     id: "fb",
