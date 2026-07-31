@@ -252,6 +252,13 @@ export function isMovable(item: QueueItem): boolean {
   return open.length > 0 && open.some((platform) => item.platforms[platform]?.status !== "skipped");
 }
 
+export function moveRefusal(item: QueueItem): string | null {
+  if (isMovable(item)) return null;
+  const locked = lockedPlatforms(item);
+  if (locked.length > 0) return `Already on ${labelList(locked)} — this one can't be moved.`;
+  return "Skipped — this one won't post.";
+}
+
 export type ShiftResult = {
   /** The items to write back, already moved. */
   moved: QueueItem[];

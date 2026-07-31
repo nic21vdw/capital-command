@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState, type ComponentType, type CSSProperties } from "react";
+import { useEffect, useMemo, useState, type ComponentType, type CSSProperties, type DragEvent } from "react";
 import Link from "next/link";
 import {
   ArrowUpRight,
@@ -11,6 +11,7 @@ import {
   Facebook,
   Instagram,
   Loader2,
+  Lock,
   Repeat,
   Sparkles,
   Youtube
@@ -28,6 +29,9 @@ import {
   type MasterCalendarResponse
 } from "@/lib/master-calendar/types";
 import type { CalendarPlan } from "@/lib/master-calendar/planner";
+import { editableTarget } from "@/lib/master-calendar/editing";
+import { EventEditor } from "@/components/master-calendar/event-editor";
+import { CALENDAR_DRAG_TYPE, useCalendarEditing } from "@/components/master-calendar/use-calendar-editing";
 import { cn } from "@/lib/utils";
 
 /** Icon components accept the same className/style lucide icons do. */
@@ -123,20 +127,31 @@ function statusTone(status: string): string {
 }
 
 /** A single event as a compact clickable row (month/week cells). */
-function EventChip({ event }: { event: MasterCalendarEvent }) {
+function EventChip({ event, onOpen }: { event: MasterCalendarEvent; onOpen: (event: MasterCalendarEvent) => void }) {
   const source = CALENDAR_SOURCE_BY_ID[event.source];
+  const movable = Boolean(editableTarget(event));
   return (
-    <Link
-      href={source.href}
-      title={`${event.time ? `${event.time} · ` : ""}${event.title} — open ${source.hrefLabel}`}
-      className="flex items-center gap-1.5 rounded-md border-l-2 bg-white/5 px-1.5 py-1 text-[11px] leading-tight transition hover:translate-x-0.5 hover:bg-white/10"
+    <button
+      type="button"
+      draggable={movable}
+      onDragStart={(drag) => {
+        drag.dataTransfer.setData(CALENDAR_DRAG_TYPE, event.id);
+        drag.dataTransfer.effectAllowed = "move";
+      }}
+      onClick={() => onOpen(event)}
+      title={`${event.time ? `${event.time} · ` : ""}${event.title}${movable ? " — drag to another day, or click to edit" : ""}`}
+      className={cn(
+        "flex w-full items-center gap-1.5 rounded-md border-l-2 bg-white/5 px-1.5 py-1 text-left text-[11px] leading-tight transition hover:bg-white/10",
+        movable ? "cursor-grab active:cursor-grabbing" : "hover:translate-x-0.5"
+      )}
       style={{ borderLeftColor: source.color }}
     >
       <SourceIcon source={event.source} className="h-3 w-3" />
       {event.time ? <span className="shrink-0 font-semibold text-[var(--muted-foreground)]">{event.time}</span> : null}
       <span className="min-w-0 truncate text-white">{event.title}</span>
+      {event.edit?.lockedReason ? <Lock className="h-2.5 w-2.5 shrink-0 text-[var(--muted-foreground)]" /> : null}
       {event.recurring ? <Repeat className="h-2.5 w-2.5 shrink-0 text-[var(--muted-foreground)]" /> : null}
-    </Link>
+    </button>
   );
 }
 
@@ -146,9 +161,17 @@ function EventChip({ event }: { event: MasterCalendarEvent }) {
  * glance whether the day's pack is ready — not to scroll a 24-item list — so
  * groups of 2+ collapse; a lone event renders inline as its own chip.
  */
-function SourceGroupChip({ source, events }: { source: CalendarSource; events: MasterCalendarEvent[] }) {
+function SourceGroupChip({
+  source,
+  events,
+  onOpen
+}: {
+  source: CalendarSource;
+  events: MasterCalendarEvent[];
+  onOpen: (event: MasterCalendarEvent) => void;
+}) {
   const [open, setOpen] = useState(false);
-  if (events.length === 1) return <EventChip event={events[0]} />;
+  if (events.length === 1) return <EventChip event={events[0]} onOpen={onOpen} />;
   return (
     <div>
       <button
@@ -166,7 +189,7 @@ function SourceGroupChip({ source, events }: { source: CalendarSource; events: M
       {open ? (
         <div className="mt-1 space-y-1 border-l border-[var(--border)] pl-1.5">
           {events.map((event) => (
-            <EventChip key={event.id} event={event} />
+            <EventChip key={event.id} event={event} onOpen={onOpen} />
           ))}
         </div>
       ) : null}
@@ -175,12 +198,13 @@ function SourceGroupChip({ source, events }: { source: CalendarSource; events: M
 }
 
 /** A single event as a full row with platforms + status (day view). */
-function EventCard({ event }: { event: MasterCalendarEvent }) {
+function EventCard({ event, onOpen }: { event: MasterCalendarEvent; onOpen: (event: MasterCalendarEvent) => void }) {
   const source = CALENDAR_SOURCE_BY_ID[event.source];
   return (
-    <Link
-      href={source.href}
-      className="group flex items-center gap-3 rounded-lg border border-[var(--border)] border-l-2 bg-white/5 px-3 py-2.5 transition hover:border-[var(--border-strong)] hover:bg-white/10"
+    <button
+      type="button"
+      onClick={() => onOpen(event)}
+      className="group flex w-full items-center gap-3 rounded-lg border border-[var(--border)] border-l-2 bg-white/5 px-3 py-2.5 text-left transition hover:border-[var(--border-strong)] hover:bg-white/10"
       style={{ borderLeftColor: source.color }}
     >
       <span className="w-12 shrink-0 text-sm font-semibold text-[var(--accent)]">{event.time ?? "—"}</span>
@@ -195,14 +219,22 @@ function EventCard({ event }: { event: MasterCalendarEvent }) {
       {event.recurring ? <Repeat className="h-3.5 w-3.5 shrink-0 text-[var(--muted-foreground)]" /> : null}
       <Badge className={cn("shrink-0 capitalize", statusTone(event.status))}>{event.status}</Badge>
       <ArrowUpRight className="h-3.5 w-3.5 shrink-0 text-[var(--muted-foreground)] opacity-0 transition group-hover:opacity-100" />
-    </Link>
+    </button>
   );
 }
 
 /** Day-view equivalent of SourceGroupChip: a collapsible batch header + rows. */
-function SourceGroupCard({ source, events }: { source: CalendarSource; events: MasterCalendarEvent[] }) {
+function SourceGroupCard({
+  source,
+  events,
+  onOpen
+}: {
+  source: CalendarSource;
+  events: MasterCalendarEvent[];
+  onOpen: (event: MasterCalendarEvent) => void;
+}) {
   const [open, setOpen] = useState(false);
-  if (events.length === 1) return <EventCard event={events[0]} />;
+  if (events.length === 1) return <EventCard event={events[0]} onOpen={onOpen} />;
   return (
     <div className="rounded-lg border border-[var(--border)] bg-white/5">
       <button
@@ -225,7 +257,7 @@ function SourceGroupCard({ source, events }: { source: CalendarSource; events: M
       {open ? (
         <div className="space-y-1.5 border-t border-[var(--border)] p-1.5">
           {events.map((event) => (
-            <EventCard key={event.id} event={event} />
+            <EventCard key={event.id} event={event} onOpen={onOpen} />
           ))}
         </div>
       ) : null}
@@ -246,6 +278,10 @@ export function MasterCalendarPage() {
   const [plan, setPlan] = useState<CalendarPlan | null>(null);
   const [planning, setPlanning] = useState(false);
   const [planRange, setPlanRange] = useState<string | null>(null);
+  const [editing, setEditing] = useState<MasterCalendarEvent | null>(null);
+  const [dragOverDay, setDragOverDay] = useState<string | null>(null);
+  const [reloadToken, setReloadToken] = useState(0);
+  const editor = useCalendarEditing(response?.timezone ?? "UTC", () => setReloadToken((token) => token + 1));
 
   // The window of days the current view needs. A month renders the standard
   // 6-week grid starting on the Sunday before the 1st.
@@ -273,7 +309,7 @@ export function MasterCalendarPage() {
         if (!(error instanceof DOMException && error.name === "AbortError")) setFetchedRange(rangeId);
       });
     return () => controller.abort();
-  }, [rangeId, range.start, range.days]);
+  }, [rangeId, range.start, range.days, reloadToken]);
 
   const events = useMemo(() => response?.events ?? [], [response]);
   const visibleEvents = useMemo(() => events.filter((event) => !hidden.has(event.source)), [events, hidden]);
@@ -304,6 +340,22 @@ export function MasterCalendarPage() {
     setAnchor(dateKey);
     setView("day");
   };
+
+  const dropProps = (dateKey: string) => ({
+    onDragOver: (drag: DragEvent) => {
+      if (!drag.dataTransfer.types.includes(CALENDAR_DRAG_TYPE)) return;
+      drag.preventDefault();
+      drag.dataTransfer.dropEffect = "move";
+      setDragOverDay(dateKey);
+    },
+    onDragLeave: () => setDragOverDay((current) => (current === dateKey ? null : current)),
+    onDrop: (drag: DragEvent) => {
+      drag.preventDefault();
+      setDragOverDay(null);
+      const dropped = events.find((item) => item.id === drag.dataTransfer.getData(CALENDAR_DRAG_TYPE));
+      if (dropped) void editor.moveToDay(dropped, dateKey);
+    }
+  });
 
   const toggleSource = (id: CalendarSourceId) => {
     setHidden((current) => {
@@ -546,12 +598,14 @@ export function MasterCalendarPage() {
                   return (
                     <div
                       key={dateKey}
+                      {...dropProps(dateKey)}
                       className={cn(
                         "min-h-[6.5rem] space-y-1 border-[var(--border)] p-1.5 transition-colors",
                         index % 7 !== 0 && "border-l",
                         index >= 7 && "border-t",
                         !inMonth && "opacity-40",
-                        isToday ? "bg-[var(--accent)]/8" : weekend && "bg-white/[0.02]"
+                        isToday ? "bg-[var(--accent)]/8" : weekend && "bg-white/[0.02]",
+                        dragOverDay === dateKey && "bg-[var(--accent)]/20 ring-1 ring-inset ring-[var(--accent)]"
                       )}
                     >
                       <button
@@ -569,7 +623,7 @@ export function MasterCalendarPage() {
                       </button>
                       {groupBySource(dayEvents).map(({ source, events: sourceEvents }) =>
                         sourceEvents.length === 1 ? (
-                          <EventChip key={source.id} event={sourceEvents[0]} />
+                          <EventChip key={source.id} event={sourceEvents[0]} onOpen={setEditing} />
                         ) : (
                           <button
                             key={source.id}
@@ -602,10 +656,12 @@ export function MasterCalendarPage() {
                 return (
                   <div
                     key={dateKey}
+                    {...dropProps(dateKey)}
                     className={cn(
                       "min-h-[16rem] border-[var(--border)] transition-colors",
                       index > 0 && "border-l",
-                      isToday && "bg-[var(--accent)]/5"
+                      isToday && "bg-[var(--accent)]/5",
+                      dragOverDay === dateKey && "bg-[var(--accent)]/20 ring-1 ring-inset ring-[var(--accent)]"
                     )}
                   >
                     <button
@@ -633,7 +689,7 @@ export function MasterCalendarPage() {
                     </button>
                     <div className="space-y-1 p-1.5">
                       {groupBySource(dayEvents).map(({ source, events: sourceEvents }) => (
-                        <SourceGroupChip key={source.id} source={source} events={sourceEvents} />
+                        <SourceGroupChip key={source.id} source={source} events={sourceEvents} onOpen={setEditing} />
                       ))}
                     </div>
                   </div>
@@ -646,7 +702,7 @@ export function MasterCalendarPage() {
         {view === "day" ? (
           <div className="panel-enter space-y-1.5 p-4">
             {groupBySource(eventsByDay.get(anchor) ?? []).map(({ source, events: sourceEvents }) => (
-              <SourceGroupCard key={source.id} source={source} events={sourceEvents} />
+              <SourceGroupCard key={source.id} source={source} events={sourceEvents} onOpen={setEditing} />
             ))}
             {(eventsByDay.get(anchor) ?? []).length === 0 && !loading ? (
               <div className="flex flex-col items-center gap-2 py-12 text-center">
@@ -680,6 +736,18 @@ export function MasterCalendarPage() {
             — everything lands here.
           </p>
         </Card>
+      ) : null}
+
+      {editing ? (
+        <EventEditor
+          event={events.find((item) => item.id === editing.id) ?? editing}
+          timeZone={response?.timezone ?? "UTC"}
+          busy={editor.busy === editing.id}
+          onClose={() => setEditing(null)}
+          onNudge={(minutes) => editor.nudge(editing, minutes)}
+          onRewrite={(text) => editor.rewrite(editing, text)}
+          onSkip={() => editor.skip(editing)}
+        />
       ) : null}
 
       {response ? (

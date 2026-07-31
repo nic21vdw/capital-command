@@ -2,14 +2,12 @@ import { NextRequest, NextResponse } from "next/server";
 import {
   eventTargetsChannel,
   isChannelId,
-  mergeThreadsEvents,
   sortEvents,
   type ChannelAccount,
   type ChannelId,
   type ChannelResponse
 } from "@/lib/channels/platforms";
-import { addDaysToKey, buildMasterCalendarEvents, localDateTime, todayKeyIn } from "@/lib/master-calendar/aggregate";
-import type { MasterCalendarEvent } from "@/lib/master-calendar/types";
+import { buildMasterCalendarEvents, todayKeyIn } from "@/lib/master-calendar/aggregate";
 import { accountIdConfigured, listAccounts } from "@/lib/publisher/accounts";
 import { publisherConfig } from "@/lib/publisher/config";
 import { publishQueue } from "@/lib/publisher/queue";
@@ -19,7 +17,6 @@ import { TIKTOK_AUDIT_BLOCKER, tiktokCreatorInfo } from "@/lib/publisher/tiktokA
 import { readAppData } from "@/lib/storage/store";
 import { threadsBlockedReason, threadsConfig, threadsConfigured } from "@/lib/threads/config";
 import { readQueue } from "@/lib/threads/queue";
-import type { ThreadsQueueItem } from "@/lib/threads/types";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -78,36 +75,6 @@ async function standingFor(channel: ChannelId): Promise<Standing> {
 }
 
 /**
- * The Threads autopilot's queue as calendar events. These are the posts that
- * will actually fire, which is why they supersede the suggested pack for any
- * day they cover (see mergeThreadsEvents).
- */
-function threadsQueueEvents(
-  items: ThreadsQueueItem[],
-  timeZone: string,
-  startKey: string,
-  endKeyExclusive: string
-): MasterCalendarEvent[] {
-  const events: MasterCalendarEvent[] = [];
-  for (const item of items) {
-    const instant = new Date(item.publishAt);
-    if (Number.isNaN(instant.getTime())) continue;
-    const { dateKey, time } = localDateTime(instant, timeZone);
-    if (dateKey < startKey || dateKey >= endKeyExclusive) continue;
-    events.push({
-      id: `threads:${item.id}`,
-      source: "x",
-      dateKey,
-      time,
-      title: item.topic || item.text.slice(0, 80),
-      platforms: ["Threads"],
-      status: item.status
-    });
-  }
-  return events;
-}
-
-/**
  * GET /api/channels/<channel>?start=YYYY-MM-DD&days=42 — one network's whole
  * scheduled output for a window: its short clips, long-form videos, carousels
  * and text posts, plus who it posts as. Nothing here is a new content store —
@@ -125,7 +92,6 @@ export async function GET(request: NextRequest, context: { params: Promise<{ cha
   const daysRaw = Number(request.nextUrl.searchParams.get("days"));
   const days = Number.isFinite(daysRaw) && daysRaw > 0 ? Math.min(Math.floor(daysRaw), MAX_DAYS) : 42;
   const startKey = startRaw && DATE_KEY_RE.test(startRaw) ? startRaw : todayKeyIn(config.timezone);
-  const endKey = addDaysToKey(startKey, days);
 
   const [data, queueItems, standing, threadsItems] = await Promise.all([
     readAppData(),
@@ -136,12 +102,15 @@ export async function GET(request: NextRequest, context: { params: Promise<{ cha
     channel === "threads" ? readQueue() : Promise.resolve([])
   ]);
 
-  const all = buildMasterCalendarEvents({ data, queueItems, timeZone: config.timezone, startKey, days });
-  const mine = all.filter((event) => eventTargetsChannel(event, channel));
-  const events =
-    channel === "threads"
-      ? sortEvents(mergeThreadsEvents(mine, threadsQueueEvents(threadsItems, config.timezone, startKey, endKey)))
-      : mine;
+  const all = buildMasterCalendarEvents({
+    data,
+    queueItems,
+    threadsItems,
+    timeZone: config.timezone,
+    startKey,
+    days
+  });
+  const events = sortEvents(all.filter((event) => eventTargetsChannel(event, channel)));
 
   const body: ChannelResponse = {
     channel,

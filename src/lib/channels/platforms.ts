@@ -126,20 +126,6 @@ export function countByKind(events: MasterCalendarEvent[]): ChannelKindCount[] {
   }));
 }
 
-/**
- * A channel's events, newest scheduling surface winning where two describe the
- * same thing: the Threads autopilot's real queue supersedes the suggested pack
- * on any day it has already scheduled, so the page shows what will actually
- * post rather than both. Days the queue has not reached still show the pack.
- */
-export function mergeThreadsEvents(
-  packEvents: MasterCalendarEvent[],
-  queueEvents: MasterCalendarEvent[]
-): MasterCalendarEvent[] {
-  const scheduledDays = new Set(queueEvents.map((event) => event.dateKey));
-  return [...queueEvents, ...packEvents.filter((event) => !scheduledDays.has(event.dateKey))];
-}
-
 export function sortEvents(events: MasterCalendarEvent[]): MasterCalendarEvent[] {
   return [...events].sort((a, b) => {
     if (a.dateKey !== b.dateKey) return a.dateKey.localeCompare(b.dateKey);
