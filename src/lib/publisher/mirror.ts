@@ -94,6 +94,51 @@ function seedFor(platform: PlatformId, seed: number): number {
   return hash || 1;
 }
 
+/**
+ * Deals each platform its own running order over the same slots, with no slot
+ * ever holding the same clip twice across platforms.
+ *
+ * An independent shuffle per platform is not enough: with a couple of dozen
+ * clips a plain permutation lands roughly one clip back in the slot it started
+ * in, so the "different order" quietly posts the same clip everywhere at that
+ * instant — exactly the thing shuffling is for. So each platform shuffles
+ * independently and then repairs collisions by swapping the offending slot
+ * with one that can take it, which keeps the order random rather than making
+ * it a rotation of the lead's.
+ *
+ * `reserved[i]` is the clip the lead platform already holds at slot i.
+ */
+export function dealDistinctOrders(
+  clipIds: string[],
+  platforms: PlatformId[],
+  seed: number,
+  reserved: string[] = []
+): Map<PlatformId, string[]> {
+  const size = clipIds.length;
+  const used: Array<Set<string>> = Array.from({ length: size }, (_, i) =>
+    reserved[i] ? new Set([reserved[i]]) : new Set<string>()
+  );
+  const orders = new Map<PlatformId, string[]>();
+
+  for (const platform of platforms) {
+    const order = shuffled(clipIds, seedFor(platform, seed));
+    for (let i = 0; i < size; i += 1) {
+      if (!used[i].has(order[i])) continue;
+      for (let step = 1; step < size; step += 1) {
+        const j = (i + step) % size;
+        if (!used[i].has(order[j]) && !used[j].has(order[i])) {
+          [order[i], order[j]] = [order[j], order[i]];
+          break;
+        }
+      }
+    }
+    order.forEach((clipId, i) => used[i].add(clipId));
+    orders.set(platform, order);
+  }
+
+  return orders;
+}
+
 function isLive(item: QueueItem, platform: PlatformId): boolean {
   const state = item.platforms[platform];
   return Boolean(state) && state!.status !== "failed";
@@ -127,41 +172,92 @@ export function planMirror(items: QueueItem[], options: MirrorOptions): MirrorPl
     return false;
   });
 
-  for (const platform of targets) {
-    const usable = PUBLIC_ONLY.includes(platform) ? publishable : schedule;
-
-    if (mode === "match") {
+  if (mode === "match") {
+    for (const platform of targets) {
+      const usable = PUBLIC_ONLY.includes(platform) ? publishable : schedule;
       for (const item of usable) {
         if (item.platforms[platform]) continue;
         plan.additions.push({ itemId: item.id, platform });
       }
-      continue;
     }
+    return plan;
+  }
 
-    // Shuffle: the slots stay put, the clips move between them. Slots this
-    // platform already occupies are left alone, and their clips are taken out
-    // of the pool so nothing gets scheduled twice.
+  // Shuffle: the slots stay put, the clips move between them. Slots a platform
+  // already occupies are left alone so a re-run adds nothing, and the orders
+  // are dealt together so no instant carries one clip on two platforms.
+  const openFor = new Map<PlatformId, QueueItem[]>();
+  for (const platform of targets) {
+    const usable = PUBLIC_ONLY.includes(platform) ? publishable : schedule;
     const taken = new Set(
       items
         .filter((item) => item.platforms[platform] && new Date(item.publishAt).getTime() > options.now.getTime())
         .map((item) => item.publishAt)
     );
-    const openSlots = usable.filter((item) => !taken.has(item.publishAt));
-    const pool = shuffled(
-      openSlots.map((item) => item.id),
-      seedFor(platform, seed)
+    openFor.set(
+      platform,
+      usable.filter((item) => !taken.has(item.publishAt))
     );
-    openSlots.forEach((slot, index) => {
-      plan.newItems.push({
-        sourceItemId: pool[index],
-        slotItemId: slot.id,
-        publishAt: slot.publishAt,
-        platform
+  }
+
+  // Platforms sharing the same open slots are dealt as one group, which is
+  // what lets the deal guarantee distinct clips per instant.
+  const groups = new Map<string, PlatformId[]>();
+  for (const [platform, slots] of openFor) {
+    if (slots.length === 0) continue;
+    const key = slots.map((slot) => slot.id).join("|");
+    groups.set(key, [...(groups.get(key) ?? []), platform]);
+  }
+
+  for (const [, platforms] of groups) {
+    const slots = openFor.get(platforms[0])!;
+    const clipIds = slots.map((slot) => slot.id);
+    const orders = dealDistinctOrders(clipIds, platforms, seed, clipIds);
+    for (const platform of platforms) {
+      const order = orders.get(platform)!;
+      slots.forEach((slot, index) => {
+        plan.newItems.push({
+          sourceItemId: order[index],
+          slotItemId: slot.id,
+          publishAt: slot.publishAt,
+          platform
+        });
       });
-    });
+    }
   }
 
   return plan;
+}
+
+/**
+ * Undoes a mirror: which target platform states can be lifted back off the
+ * lead's items. Only ones the runner has never acted on — still pending, never
+ * attempted, holding no post or container id. Anything that reached a platform
+ * stays, because removing it would lose the record of a real post.
+ */
+export function planUnmirror(
+  items: QueueItem[],
+  targets: PlatformId[],
+  now: Date
+): { removals: MirrorAddition[]; kept: Array<{ itemId: string; platform: PlatformId; reason: string }> } {
+  const removals: MirrorAddition[] = [];
+  const kept: Array<{ itemId: string; platform: PlatformId; reason: string }> = [];
+
+  for (const item of items) {
+    if (new Date(item.publishAt).getTime() <= now.getTime()) continue;
+    for (const platform of targets) {
+      const state = item.platforms[platform];
+      if (!state) continue;
+      const started = state.status !== "pending" || state.attempts > 0 || state.postId || state.containerId;
+      if (started) {
+        kept.push({ itemId: item.id, platform, reason: `already ${state.status}${state.postId ? ` (${state.postId})` : ""}` });
+        continue;
+      }
+      removals.push({ itemId: item.id, platform });
+    }
+  }
+
+  return { removals, kept };
 }
 
 /** One-line summary of what a plan would do, for the CLI and the report. */

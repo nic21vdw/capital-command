@@ -101,6 +101,50 @@ describe("runDue — one schedule for every platform", () => {
     expect(Object.keys((await queue.get("past"))!.platforms)).toEqual(["youtube"]);
   });
 
+  // Shuffled slots hold a different clip per platform, so each needs its own
+  // item — the runner has to create them, not just tick a platform on.
+  it("creates a separate post per platform when shuffling", async () => {
+    const { queue, log } = setup();
+    const config = testConfig({
+      platforms: ["youtube", "instagram"],
+      mirror: { enabled: true, lead: "youtube", targets: ["instagram"], mode: "shuffle" }
+    });
+    for (const [id, at] of [
+      ["one", "2026-07-20T15:00:00.000Z"],
+      ["two", "2026-07-21T15:00:00.000Z"]
+    ]) {
+      await queue.add(testItem({ id, clipPath, publishAt: at, visibility: "public", platformIds: ["youtube"] }));
+    }
+
+    await runDue(DUE, { config, queue, log, adapters: {} });
+
+    const all = await queue.list();
+    expect(all).toHaveLength(4);
+    const igItems = all.filter((i) => i.platforms.instagram);
+    expect(igItems).toHaveLength(2);
+    // The lead's own items are left on YouTube alone.
+    expect(all.filter((i) => i.platforms.youtube).every((i) => !i.platforms.instagram)).toBe(true);
+    // Same slots, and each clip dealt once.
+    expect(igItems.map((i) => i.publishAt).sort()).toEqual(["2026-07-20T15:00:00.000Z", "2026-07-21T15:00:00.000Z"]);
+    expect(new Set(igItems.map((i) => i.clipPath)).size).toBe(1);
+  });
+
+  it("does not re-deal slots it already filled on a second run", async () => {
+    const { queue, log } = setup();
+    const config = testConfig({
+      platforms: ["youtube", "instagram"],
+      mirror: { enabled: true, lead: "youtube", targets: ["instagram"], mode: "shuffle" }
+    });
+    await queue.add(
+      testItem({ id: "one", clipPath, publishAt: "2026-07-20T15:00:00.000Z", visibility: "public", platformIds: ["youtube"] })
+    );
+
+    await runDue(DUE, { config, queue, log, adapters: {} });
+    await runDue(DUE, { config, queue, log, adapters: {} });
+
+    expect(await queue.list()).toHaveLength(2);
+  });
+
   it("does nothing when the mirror is switched off", async () => {
     const { queue, log } = setup();
     const config = testConfig({ platforms: ["youtube", "instagram"] });

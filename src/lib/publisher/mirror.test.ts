@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { describeMirrorPlan, leadSchedule, planMirror, shuffled } from "@/lib/publisher/mirror";
+import { dealDistinctOrders, describeMirrorPlan, leadSchedule, planMirror, planUnmirror, shuffled } from "@/lib/publisher/mirror";
 import type { PlatformId, PlatformStatus, QueueItem, Visibility } from "@/lib/publisher/types";
 
 /**
@@ -137,6 +137,116 @@ describe("planMirror — shuffle", () => {
     ];
     const plan = planMirror(items, { targets: ["instagram"], mode: "shuffle", now: NOW, seed: 7 });
     expect(plan.newItems).toEqual([]);
+  });
+});
+
+describe("dealDistinctOrders", () => {
+  const clips = Array.from({ length: 26 }, (_, i) => `clip-${i}`);
+
+  it("gives every platform a full permutation of the clips", () => {
+    const orders = dealDistinctOrders(clips, ["instagram", "facebook"], 5, clips);
+    for (const order of orders.values()) {
+      expect([...order].sort()).toEqual([...clips].sort());
+    }
+  });
+
+  // The whole point: no instant may carry the same clip on two platforms, and
+  // an independent shuffle alone leaves roughly one such collision per pass.
+  it("never puts one clip in the same slot on two platforms", () => {
+    const orders = dealDistinctOrders(clips, ["instagram", "facebook"], 5, clips);
+    clips.forEach((leadClip, index) => {
+      const atSlot = [leadClip, ...[...orders.values()].map((order) => order[index])];
+      expect(new Set(atSlot).size).toBe(atSlot.length);
+    });
+  });
+
+  it("holds for many seeds, not just a lucky one", () => {
+    for (let seed = 1; seed <= 40; seed += 1) {
+      const orders = dealDistinctOrders(clips, ["instagram", "facebook", "tiktok"], seed, clips);
+      clips.forEach((leadClip, index) => {
+        const atSlot = [leadClip, ...[...orders.values()].map((order) => order[index])];
+        expect(new Set(atSlot).size).toBe(atSlot.length);
+      });
+    }
+  });
+
+  it("still deals differently for each platform", () => {
+    const orders = dealDistinctOrders(clips, ["instagram", "facebook"], 5, clips);
+    expect(orders.get("instagram")).not.toEqual(orders.get("facebook"));
+  });
+
+  it("repeats exactly for the same seed", () => {
+    expect(dealDistinctOrders(clips, ["instagram"], 11, clips)).toEqual(
+      dealDistinctOrders(clips, ["instagram"], 11, clips)
+    );
+  });
+});
+
+describe("planMirror — shuffle keeps every instant distinct", () => {
+  it("gives each platform a different clip at every slot", () => {
+    const schedule = Array.from({ length: 12 }, (_, i) =>
+      item(`c${i}`, `2026-08-${String(i + 2).padStart(2, "0")}T14:00:00.000Z`)
+    );
+    const plan = planMirror(schedule, {
+      targets: ["instagram", "facebook"],
+      mode: "shuffle",
+      now: NOW,
+      seed: 3
+    });
+    const bySlot = new Map<string, string[]>();
+    for (const entry of plan.newItems) {
+      bySlot.set(entry.publishAt, [...(bySlot.get(entry.publishAt) ?? []), entry.sourceItemId]);
+    }
+    for (const slotItem of schedule) {
+      const atSlot = [slotItem.id, ...(bySlot.get(slotItem.publishAt) ?? [])];
+      expect(new Set(atSlot).size).toBe(atSlot.length);
+    }
+  });
+});
+
+describe("planUnmirror", () => {
+  it("lifts off target platforms the runner never touched", () => {
+    const items = [item("a", "2026-08-01T14:00:00.000Z", { youtube: "scheduled", instagram: "pending", facebook: "pending" })];
+    const { removals, kept } = planUnmirror(items, ["instagram", "facebook"], NOW);
+    expect(removals).toEqual([
+      { itemId: "a", platform: "instagram" },
+      { itemId: "a", platform: "facebook" }
+    ]);
+    expect(kept).toEqual([]);
+  });
+
+  // Removing one of these would erase the only record that a post went out.
+  it("keeps anything that already reached the platform", () => {
+    const items = [item("a", "2026-08-01T14:00:00.000Z", { youtube: "scheduled", instagram: "published" })];
+    const { removals, kept } = planUnmirror(items, ["instagram"], NOW);
+    expect(removals).toEqual([]);
+    expect(kept[0].reason).toContain("already published");
+  });
+
+  it("keeps a pending state that has already been attempted", () => {
+    const items = [item("a", "2026-08-01T14:00:00.000Z", { youtube: "scheduled" })];
+    items[0].platforms.instagram = { status: "pending", attempts: 2 };
+    const { removals, kept } = planUnmirror(items, ["instagram"], NOW);
+    expect(removals).toEqual([]);
+    expect(kept).toHaveLength(1);
+  });
+
+  it("keeps a pending state that already has a container", () => {
+    const items = [item("a", "2026-08-01T14:00:00.000Z", { youtube: "scheduled" })];
+    items[0].platforms.instagram = { status: "pending", attempts: 0, containerId: "c1" };
+    const { removals } = planUnmirror(items, ["instagram"], NOW);
+    expect(removals).toEqual([]);
+  });
+
+  it("never touches a slot that has already passed", () => {
+    const items = [item("old", "2026-07-01T14:00:00.000Z", { youtube: "published", instagram: "pending" })];
+    expect(planUnmirror(items, ["instagram"], NOW).removals).toEqual([]);
+  });
+
+  it("leaves the lead platform alone", () => {
+    const items = [item("a", "2026-08-01T14:00:00.000Z", { youtube: "pending", instagram: "pending" })];
+    const { removals } = planUnmirror(items, ["instagram"], NOW);
+    expect(removals.every((r) => r.platform !== "youtube")).toBe(true);
   });
 });
 

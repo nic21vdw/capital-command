@@ -318,10 +318,10 @@ async function main() {
   // Copies the lead platform's upcoming schedule onto the others. Prints the
   // plan and changes nothing unless --write is passed.
   if (command === "mirror") {
-    const { planMirror, describeMirrorPlan } = await import("@/lib/publisher/mirror");
+    const { planMirror, planUnmirror, describeMirrorPlan } = await import("@/lib/publisher/mirror");
     const { newPlatformState } = await import("@/lib/publisher/queue");
     const queue = publishQueue(config);
-    const items = await queue.list();
+    let items = await queue.list();
 
     const lead = (flagStr(args, "lead") ?? "youtube") as PlatformId;
     const targets = (flagStr(args, "targets") ?? "instagram,facebook")
@@ -331,6 +331,60 @@ async function main() {
     const mode = flagStr(args, "mode") === "shuffle" ? "shuffle" : "match";
     const seedRaw = Number(flagStr(args, "seed"));
     const seed = Number.isFinite(seedRaw) && seedRaw > 0 ? seedRaw : 1;
+
+    // --reset lifts a previous mirror back off before re-dealing, so switching
+    // between match and shuffle doesn't leave both arrangements in the queue.
+    if (args.flags.has("reset")) {
+      const { removals, kept } = planUnmirror(items, targets, new Date());
+      for (const keep of kept) console.log(`[publisher]   kept ${keep.itemId} ${keep.platform}: ${keep.reason}`);
+
+      // A standalone item a previous shuffle created, still untouched: it holds
+      // only target platforms, so dropping it hands the slot back to the lead.
+      const isOrphan = (item: (typeof items)[number]) => {
+        const platforms = Object.keys(item.platforms) as PlatformId[];
+        if (platforms.length === 0) return true;
+        if (new Date(item.publishAt).getTime() <= Date.now()) return false;
+        return (
+          platforms.every((p) => targets.includes(p)) &&
+          platforms.every((p) => {
+            const state = item.platforms[p]!;
+            return state.status === "pending" && state.attempts === 0 && !state.postId && !state.containerId;
+          })
+        );
+      };
+      const orphans = items.filter(isOrphan);
+      console.log(
+        `[publisher] reset: lifting ${removals.length} untouched platform states, dropping ${orphans.length} standalone posts.`
+      );
+
+      if (args.flags.has("write")) {
+        for (const removal of removals) {
+          const item = await queue.get(removal.itemId);
+          if (!item) continue;
+          delete item.platforms[removal.platform];
+          await queue.add(item);
+        }
+        for (const orphan of orphans) await queue.remove(orphan.id);
+        items = await queue.list();
+      } else {
+        // Plan against what the reset WOULD leave, so a dry run previews the
+        // new deal instead of reporting there is nothing left to do.
+        const dropped = new Set(orphans.map((orphan) => orphan.id));
+        const byItem = new Map<string, Set<PlatformId>>();
+        for (const removal of removals) {
+          byItem.set(removal.itemId, (byItem.get(removal.itemId) ?? new Set()).add(removal.platform));
+        }
+        items = items
+          .filter((item) => !dropped.has(item.id))
+          .map((item) => {
+            const lifted = byItem.get(item.id);
+            if (!lifted) return item;
+            const platforms = { ...item.platforms };
+            for (const platform of lifted) delete platforms[platform];
+            return { ...item, platforms };
+          });
+      }
+    }
 
     const plan = planMirror(items, { lead, targets, mode, now: new Date(), seed });
     console.log(`[publisher] mirror ${lead} → ${targets.join(", ")} (${mode}): ${describeMirrorPlan(plan)}`);
