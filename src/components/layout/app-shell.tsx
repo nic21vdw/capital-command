@@ -203,16 +203,25 @@ type AccountRow = {
   tiktok?: Profile | null;
 };
 
-type PlatformKey = "youtube" | "instagram" | "tiktok" | "facebook";
+/** The Threads autopilot's standing, ridden along on /api/publish/accounts. */
+type ThreadsStanding = { connected: number; blocker: string | null; label: string | null };
 
-const OTHER_PLATFORMS: PlatformKey[] = ["instagram", "tiktok", "facebook"];
+type PlatformKey = "youtube" | "instagram" | "tiktok" | "facebook" | "threads";
+
+const OTHER_PLATFORMS: PlatformKey[] = ["instagram", "tiktok", "facebook", "threads"];
 
 const PLATFORM_STYLE: Record<PlatformKey, { label: string; icon: LucideIcon; tint: string; background: string }> = {
   youtube: { label: "YouTube", icon: Youtube, tint: "text-[#ff4d4d]", background: "bg-[#ff0000]/15" },
   instagram: { label: "Instagram", icon: Instagram, tint: "text-[#e1306c]", background: "bg-[#e1306c]/15" },
   tiktok: { label: "TikTok", icon: Music4, tint: "text-[#25f4ee]", background: "bg-[#25f4ee]/12" },
-  facebook: { label: "Facebook", icon: Facebook, tint: "text-[#4267b2]", background: "bg-[#4267b2]/20" }
+  facebook: { label: "Facebook", icon: Facebook, tint: "text-[#4267b2]", background: "bg-[#4267b2]/20" },
+  threads: { label: "Threads", icon: AtSign, tint: "text-[#38bdf8]", background: "bg-[#38bdf8]/15" }
 };
+
+/** A platform logo opens that network's Channel Hub — its own content calendar. */
+function channelHref(platform: PlatformKey): string {
+  return `/channels/${platform}`;
+}
 
 const CHANNEL_CACHE_KEY = "capital-command:connected-accounts";
 const CHANNEL_CACHE_TTL_MS = 60_000;
@@ -227,7 +236,7 @@ function connectedOn(accounts: AccountRow[], platform: string) {
   return accounts.filter((account) => account.platform === platform && account.connected);
 }
 
-function summarize(accounts: AccountRow[]): Connections {
+function summarize(accounts: AccountRow[], threads: ThreadsStanding | undefined): Connections {
   const youtube = connectedOn(accounts, "youtube").filter((account) => profileOf(account));
   // The primary channel is the face of the app; any primary-connected account
   // wins, otherwise the first connected one does.
@@ -237,6 +246,16 @@ function summarize(accounts: AccountRow[]): Connections {
     loaded: true,
     channel: leadProfile ? { ...leadProfile, extraConnected: youtube.length - 1 } : null,
     others: OTHER_PLATFORMS.map((platform) => {
+      // Threads is the autopilot's, not the publish queue's, so its standing
+      // comes from its own field rather than from the account list.
+      if (platform === "threads") {
+        return {
+          platform,
+          profile: threads?.label ? { title: threads.label, thumbnail: null } : null,
+          connected: threads?.connected ?? 0,
+          blocker: threads?.blocker ?? null
+        };
+      }
       const signedIn = connectedOn(accounts, platform);
       return {
         platform,
@@ -267,7 +286,7 @@ function loadConnections(): Promise<Connections> {
   if (!inFlight) {
     inFlight = fetch("/api/publish/accounts", { cache: "no-store" })
       .then((res) => (res.ok ? res.json() : Promise.reject(new Error(`${res.status}`))))
-      .then((json: { accounts?: AccountRow[] }) => summarize(json.accounts ?? []))
+      .then((json: { accounts?: AccountRow[]; threads?: ThreadsStanding }) => summarize(json.accounts ?? [], json.threads))
       .finally(() => {
         inFlight = null;
       });
@@ -369,8 +388,8 @@ function ChannelCard({ collapsed = false }: { collapsed?: boolean }) {
     <div className="space-y-2">
       {channel ? (
         <Link
-          href="/uploading-center"
-          title={collapsed ? `${channel.title} — YouTube` : "Manage channel accounts in the Uploading Center"}
+          href={channelHref("youtube")}
+          title={collapsed ? `${channel.title} — YouTube` : "Open the YouTube channel calendar"}
           className={cn(
             "group flex items-center gap-3 rounded-xl border border-[var(--border)] bg-gradient-to-br from-white/[0.06] to-transparent px-3 py-2.5 transition hover:border-[var(--border-strong)] hover:from-white/[0.09]",
             collapsed && "justify-center px-2"
@@ -433,7 +452,7 @@ function ConnectionRows({ state, collapsed }: { state: Connections; collapsed: b
         return (
           <Link
             key={row.platform}
-            href="/uploading-center"
+            href={channelHref(row.platform)}
             title={row.blocker ? `${style.label} — ${row.blocker}` : `${style.label} — ${detail}`}
             className={cn(
               "flex items-center gap-2.5 rounded-lg border px-2.5 py-1.5 transition hover:border-[var(--border-strong)] hover:bg-white/[0.04]",
@@ -777,7 +796,7 @@ function MobileChannelChip() {
     <span className="flex items-center gap-1.5">
       {state.channel ? (
         <Link
-          href="/uploading-center"
+          href={channelHref("youtube")}
           aria-label={`${state.channel.title} — YouTube`}
           title={handleLabel(state.channel, "YouTube")}
         >
@@ -800,7 +819,7 @@ function MobileChannelChip() {
         return (
           <Link
             key={row.platform}
-            href="/uploading-center"
+            href={channelHref(row.platform)}
             aria-label={label}
             title={label}
             className={cn(

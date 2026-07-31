@@ -35,6 +35,32 @@ Shorts shape heuristic. The ledger (`data/channel-ingest.json`) records what
 has been taken in; only a SETTLED pipeline run counts as done, so a timeout
 is retried rather than lost. See `src/lib/ingest/README.md`.
 
+## Channel Hub (`/channels/<network>`, `src/lib/channels`)
+
+One screen per connected network — YouTube, Instagram, TikTok, Facebook,
+Threads — showing everything already scheduled to go out there: short clips,
+long-form videos, carousels and text posts on one calendar. Opened by clicking
+that network's logo in the sidebar.
+
+- It is a READING surface and owns no storage. Every event is a
+  `MasterCalendarEvent` from `buildMasterCalendarEvents`, narrowed to one
+  network; every row links back to the Uploading Center / Carousels /
+  Threads Posts where the item is actually managed. Don't grow an editor here.
+- Matching is by ALIAS, not by a shared enum: events name their networks as
+  display strings from several sources (the publish queue's platform labels, a
+  carousel schedule's target list, the content tracker's free-text platform
+  field), so a new label goes in `CHANNELS[...].aliases`.
+- Events group by the SHAPE of the post (short / long-form / carousel / text),
+  not by the subsystem that produced it — which subsystem owns it is an
+  implementation detail the creator doesn't think in.
+- The Threads page prefers the autopilot's real queue over the suggested pack
+  on any day the queue has already scheduled (`mergeThreadsEvents`), so it
+  shows what will actually post rather than both.
+- Threads is not a publish-queue platform, but the sidebar lists it beside the
+  other four, so its standing rides along on `/api/publish/accounts` rather
+  than costing the app shell a second request. Reading it is pure config
+  parsing — no tokens leave the server.
+
 ## Threads autopilot (`src/lib/threads`)
 
 A scheduled task ticks every few minutes; each tick plans today's batch if it
