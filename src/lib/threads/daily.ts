@@ -1,8 +1,9 @@
+import { localCalendarParts, zonedToUtc } from "@/lib/publisher/time";
 import { threadsBlockedReason, threadsConfig, type ThreadsConfig } from "@/lib/threads/config";
-import { planBatch } from "@/lib/threads/plan";
-import { itemsForDate, mutateQueue, pruneOld } from "@/lib/threads/queue";
+import { endOfLocalDay, planBatch } from "@/lib/threads/plan";
+import { itemsForDate, mutateQueue, pruneOld, readQueue } from "@/lib/threads/queue";
 import { runDue } from "@/lib/threads/runner";
-import { recordThreadsState } from "@/lib/threads/state";
+import { readThreadsState, recordThreadsState } from "@/lib/threads/state";
 import type { ThreadsPlanResult, ThreadsRunReport } from "@/lib/threads/types";
 import { ensureDailyPack } from "@/lib/x-posts/daily";
 import { localDateKey } from "@/lib/x-strategy/analytics";
@@ -30,6 +31,13 @@ export async function planTodaysBatch(
      * second one.
      */
     startNow?: boolean;
+    /**
+     * Which day to plan. Defaults to today; the tick passes tomorrow in the
+     * evening so a round-the-clock day exists before its first slot arrives.
+     */
+    date?: string;
+    /** Floor on the spacing of a start-now layout (see PlanBatchInput). */
+    minGapMinutes?: number;
     focus?: string;
     log?: (line: string) => void;
   } = {}
@@ -37,7 +45,7 @@ export async function planTodaysBatch(
   const config = options.config ?? threadsConfig();
   const now = options.now ?? new Date();
   const log = options.log ?? ((line: string) => console.log(line));
-  const date = localDateKey(now);
+  const date = options.date ?? localDateKey(now);
   const replace = Boolean(options.force || options.startNow);
 
   const blocked = threadsBlockedReason(config);
@@ -72,6 +80,7 @@ export async function planTodaysBatch(
     config,
     now,
     startNow: options.startNow,
+    minGapMinutes: options.minGapMinutes,
     skipSlots: alreadyPosted
   });
   if (items.length === 0) {
@@ -123,12 +132,132 @@ export async function planTodaysBatch(
   };
 }
 
-export type ThreadsTickResult = { plan: ThreadsPlanResult; run: ThreadsRunReport };
+/** The local date key of the day after `now`, in the autopilot's timezone. */
+export function nextDateKey(now: Date, config: ThreadsConfig): string {
+  const { dateKey } = localCalendarParts(now, config.timezone);
+  const [year, month, day] = dateKey.split("-").map(Number);
+  // Noon, not midnight: a DST jump at the day boundary would otherwise land
+  // back on the day it started from.
+  const tomorrow = zonedToUtc(config.timezone, year, month, day + 1, 12, 0, 0);
+  return localCalendarParts(tomorrow, config.timezone).dateKey;
+}
+
+/**
+ * Plan TOMORROW, once the evening comes round.
+ *
+ * With slots spread across the whole clock, a day planned on the day itself
+ * arrives with its early hours already gone — planning at 07:00 drops every
+ * slot before it. Writing tomorrow's batch tonight is what makes the first
+ * post of the day a 00:20 one instead of the first one after the machine woke
+ * up. Idempotent behind the same batch-date check as today's plan, so the
+ * evening's ticks pay for exactly one pack between them.
+ */
+export async function planTomorrow(
+  options: { config?: ThreadsConfig; now?: Date; log?: (line: string) => void } = {}
+): Promise<ThreadsPlanResult | null> {
+  const config = options.config ?? threadsConfig();
+  const now = options.now ?? new Date();
+  const { time } = localCalendarParts(now, config.timezone);
+  const hour = Number(time.split(":")[0]);
+  if (!Number.isFinite(hour) || hour < config.planAheadHour) return null;
+
+  const date = nextDateKey(now, config);
+  const existing = itemsForDate(await readQueue(), date);
+  if (existing.length > 0) return null;
+
+  return planTodaysBatch({ ...options, config, now, date });
+}
+
+/**
+ * Slots of a day that are still going to happen: already published, or pending
+ * with their time still ahead. Anything else — skipped, failed, or never
+ * scheduled because the day was planned late — is a hole in the day.
+ */
+export async function slotsStillStanding(date: string, now: Date): Promise<Set<number>> {
+  const items = itemsForDate(await readQueue(), date);
+  return new Set(
+    items
+      .filter(
+        (item) =>
+          item.status === "published" ||
+          (item.status === "pending" && new Date(item.publishAt).getTime() > now.getTime())
+      )
+      .map((item) => item.slot)
+  );
+}
+
+/**
+ * Rescue a day that fell behind.
+ *
+ * The machine was off, or the app wouldn't start, and the slots that came due
+ * meanwhile were skipped — correctly, because firing them late all at once is
+ * the one thing this design refuses to do. But leaving it there means a day
+ * that quietly delivers four posts instead of twenty-four, which is the whole
+ * point of the autopilot missed.
+ *
+ * So: re-lay what is left across the time that remains, at a deliberately wide
+ * spacing, dropping whatever still doesn't fit. That is the dashboard's
+ * "Schedule from now" button, pressed automatically — not a backlog dump, and
+ * bounded by a cooldown so a day that simply has no room left doesn't churn
+ * its own queue every five minutes.
+ */
+export async function catchUpToday(
+  options: { config?: ThreadsConfig; now?: Date; log?: (line: string) => void } = {}
+): Promise<ThreadsPlanResult | null> {
+  const config = options.config ?? threadsConfig();
+  const now = options.now ?? new Date();
+  if (!config.catchUp || threadsBlockedReason(config)) return null;
+
+  const date = localDateKey(now);
+  const standing = await slotsStillStanding(date, now);
+  // Nothing planned at all is a day that hasn't been planned yet, not a day
+  // that fell behind — leave that to the ordinary plan step.
+  if (standing.size === 0) return null;
+  if (config.postsPerDay - standing.size < config.catchUpMinShortfall) return null;
+
+  const minutesLeft = (endOfLocalDay(now, config.timezone).getTime() - now.getTime()) / 60_000;
+  if (minutesLeft < config.catchUpMinGapMinutes * 2) return null;
+
+  const { lastCatchUpAt } = await readThreadsState();
+  if (lastCatchUpAt) {
+    const sinceMinutes = (now.getTime() - new Date(lastCatchUpAt).getTime()) / 60_000;
+    if (sinceMinutes < config.catchUpCooldownMinutes) return null;
+  }
+
+  const log = options.log ?? ((line: string) => console.log(line));
+  log(
+    `[threads] ${date} is ${config.postsPerDay - standing.size} slot(s) short — re-laying the rest of the day from now`
+  );
+  const plan = await planTodaysBatch({
+    config,
+    now,
+    log,
+    startNow: true,
+    minGapMinutes: config.catchUpMinGapMinutes
+  });
+  await recordThreadsState({ lastCatchUpAt: now.toISOString() });
+  return plan;
+}
+
+export type ThreadsTickResult = {
+  plan: ThreadsPlanResult;
+  run: ThreadsRunReport;
+  /** Tomorrow's batch, when this tick was the one that planned it. */
+  ahead?: ThreadsPlanResult;
+  /** The re-layout, when today had fallen behind enough to need one. */
+  catchUp?: ThreadsPlanResult;
+};
 
 /**
  * One turn of the whole loop, and the only thing the scheduled task needs to
- * call: make sure today's batch exists, then post whatever is due. Running it
- * every few minutes is what makes the 24-hour cycle unattended.
+ * call. Four steps, each idempotent, so running it every few minutes forever is
+ * the entire automation:
+ *
+ *   1. make sure today's batch exists
+ *   2. from the evening on, write tomorrow's too — a round-the-clock day has to
+ *      be on the queue before its first slot arrives
+ *   3. if today fell behind, re-lay what is left across the rest of it
+ *   4. post whatever is due
  */
 export async function threadsTick(
   options: { config?: ThreadsConfig; now?: Date; dryRun?: boolean; log?: (line: string) => void } = {}
@@ -136,18 +265,23 @@ export async function threadsTick(
   const config = options.config ?? threadsConfig();
   const now = options.now ?? new Date();
   const plan = await planTodaysBatch({ config, now, log: options.log });
+  // Both of these change what is queued, so a dry run has to stay out of them.
+  const ahead = options.dryRun ? null : await planTomorrow({ config, now, log: options.log });
+  const catchUp = options.dryRun ? null : await catchUpToday({ config, now, log: options.log });
   const run = await runDue(now, { config, dryRun: options.dryRun, log: options.log });
 
   // Stamped every tick, busy or idle: a queue of pending posts looks the same
   // whether the scheduler is alive or was switched off days ago, and the
   // dashboard has no other way to tell.
   if (!options.dryRun) {
+    const created = plan.created + (ahead?.created ?? 0) + (catchUp?.created ?? 0);
     await recordThreadsState({
       lastTickAt: now.toISOString(),
-      ...(plan.created > 0 ? { lastPlanAt: now.toISOString(), lastPlanCreated: plan.created } : {}),
+      ...(created > 0 ? { lastPlanAt: now.toISOString(), lastPlanCreated: created } : {}),
+      ...(ahead?.created ? { plannedAheadFor: ahead.date } : {}),
       ...(run.published > 0 ? { lastPostAt: now.toISOString() } : {})
     });
   }
 
-  return { plan, run };
+  return { plan, run, ...(ahead ? { ahead } : {}), ...(catchUp ? { catchUp } : {}) };
 }

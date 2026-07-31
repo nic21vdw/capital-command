@@ -44,19 +44,48 @@ function hash32(input: string): number {
   return hash >>> 0;
 }
 
+/** "HH:MM" as minutes past local midnight, or null when it isn't one. */
+function clockMinutes(value: string | undefined): number | null {
+  const match = value?.trim().match(/^(\d{1,2}):(\d{2})$/);
+  if (!match) return null;
+  const minutes = Number(match[1]) * 60 + Number(match[2]);
+  return minutes >= 0 && minutes < 1440 ? minutes : null;
+}
+
 /**
- * Posting slots spread evenly from ~7:15 to ~22:15 local across however many
- * posts the pack carries. Each slot gets ±10 minutes of date-seeded jitter so
- * the schedule never looks machine-regular (exactly-on-the-hour posting every
- * day is a classic automation fingerprint).
+ * The window the day's slots are spread across, as minutes past midnight.
+ *
+ * The default is the whole clock — a pack of 24 lands one post an hour, around
+ * the clock, which is what the autopilot is for. Threads allows 250 API posts
+ * per profile per 24 hours, so the ceiling here is what a feed will tolerate,
+ * not what the API will accept.
+ *
+ * Pull it back to waking hours with THREADS_DAY_START / THREADS_DAY_END
+ * ("HH:MM" each) if the overnight posts aren't earning their place.
+ */
+export function scheduleWindow(): { start: number; span: number } {
+  const start = clockMinutes(process.env.THREADS_DAY_START) ?? 20;
+  const end = clockMinutes(process.env.THREADS_DAY_END) ?? 23 * 60 + 20;
+  // A window that ends before it starts wraps midnight, which would put the
+  // day's later slots on the next calendar day — so it is read as a full day.
+  const span = end > start ? end - start : 1440 - start;
+  return { start, span };
+}
+
+/**
+ * Posting slots spread evenly across the day's window (by default the whole
+ * clock — see `scheduleWindow`). Each slot gets ±10 minutes of date-seeded
+ * jitter so the schedule never looks machine-regular (exactly-on-the-hour
+ * posting every day is a classic automation fingerprint).
  */
 export function scheduleTimes(date: string, count = POSTS_PER_PACK): string[] {
-  const startMinutes = 7 * 60 + 15;
-  const spanMinutes = 15 * 60; // ~7:15 → ~22:15
+  const { start: startMinutes, span: spanMinutes } = scheduleWindow();
   const gap = count > 1 ? spanMinutes / (count - 1) : 0;
   return Array.from({ length: count }, (_, index) => {
     const jitter = (hash32(`${date}:${index}`) % 21) - 10;
-    const total = Math.round(startMinutes + index * gap + jitter);
+    // Clamped inside the day: jitter on a slot near midnight would otherwise
+    // run off either end of the clock and render as a nonsense time.
+    const total = Math.min(1439, Math.max(0, Math.round(startMinutes + index * gap + jitter)));
     const hours = Math.floor(total / 60) % 24;
     const minutes = total % 60;
     return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}`;

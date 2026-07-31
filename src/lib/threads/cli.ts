@@ -84,14 +84,14 @@ async function call(method: "GET" | "POST", body?: unknown): Promise<Record<stri
   return parsed;
 }
 
-function printPlan(plan: PlanResult | undefined) {
+function printPlan(plan: PlanResult | undefined, label = "plan") {
   if (!plan) return;
   if (plan.skipped) {
-    console.log(`[threads] plan (${plan.date}): ${plan.skipped}`);
+    console.log(`[threads] ${label} (${plan.date}): ${plan.skipped}`);
     return;
   }
   console.log(
-    `[threads] plan (${plan.date}): scheduled ${plan.created} post(s)${
+    `[threads] ${label} (${plan.date}): scheduled ${plan.created} post(s)${
       plan.droppedPastSlots ? `, dropped ${plan.droppedPastSlots} slot(s) already past` : ""
     }`
   );
@@ -137,6 +137,8 @@ async function main() {
   if (command === "tick") {
     const body = await call("POST", { action: "tick", dryRun });
     printPlan(body.plan as PlanResult | undefined);
+    printPlan(body.ahead as PlanResult | undefined, "planned ahead");
+    printPlan(body.catchUp as PlanResult | undefined, "catch-up");
     printRun(body.run as RunReport | undefined);
     return;
   }

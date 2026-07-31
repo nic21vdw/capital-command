@@ -1,5 +1,5 @@
 import { localCalendarParts, zonedToUtc } from "@/lib/publisher/time";
-import { THREADS_TEXT_LIMIT, type ThreadsAccount, type ThreadsConfig } from "@/lib/threads/config";
+import { MIN_GAP_MINUTES, THREADS_TEXT_LIMIT, type ThreadsAccount, type ThreadsConfig } from "@/lib/threads/config";
 import type { ThreadsQueueItem } from "@/lib/threads/types";
 import type { XDailyPack, XSuggestedPost } from "@/types/domain";
 
@@ -26,10 +26,10 @@ import type { XDailyPack, XSuggestedPost } from "@/types/domain";
 
 /** Fallback rhythm when a pack's own slot times say nothing useful. */
 const DEFAULT_GAP_MINUTES = 40;
-/** However little room is left in the day, posts never crowd closer than this. */
-export const MIN_GAP_MINUTES = 5;
 /** The first post of a start-now batch goes out on the very next tick. */
 const FIRST_POST_DELAY_MINUTES = 1;
+
+export { MIN_GAP_MINUTES };
 
 /** Trims to the Threads limit on a word boundary, without a dangling ellipsis. */
 export function fitToThreads(text: string, limit = THREADS_TEXT_LIMIT): string {
@@ -56,6 +56,13 @@ export type PlanBatchInput = {
    * the layout closes up around them.
    */
   skipSlots?: Set<number>;
+  /**
+   * Floor on how tightly a start-now batch may be packed. The dashboard button
+   * takes the default and crams the day; an automatic catch-up passes a much
+   * wider gap and simply drops what won't fit, so rescuing a lost morning can
+   * never read as a burst.
+   */
+  minGapMinutes?: number;
   /** Injected in tests so ids are predictable. */
   newId?: () => string;
 };
@@ -71,6 +78,13 @@ export type PlanBatchOutput = {
   startedAt?: string;
   gapMinutes?: number;
 };
+
+/** The instant the local day rolls over — the hard stop for a start-now batch. */
+export function endOfLocalDay(now: Date, timezone: string): Date {
+  const { dateKey } = localCalendarParts(now, timezone);
+  const [year, month, day] = dateKey.split("-").map(Number);
+  return zonedToUtc(timezone, year, month, day + 1, 0, 0, 0);
+}
 
 /** Minutes between the pack's own slots, so a start-now batch keeps its rhythm. */
 function packGapMinutes(pack: XDailyPack): number {
@@ -90,15 +104,13 @@ function packGapMinutes(pack: XDailyPack): number {
  * can hold it, squeezed down to MIN_GAP_MINUTES if not, and truncated rather
  * than allowed to run past midnight into tomorrow's batch.
  */
-function startNowTimes(pack: XDailyPack, config: ThreadsConfig, now: Date, count: number) {
+function startNowTimes(pack: XDailyPack, config: ThreadsConfig, now: Date, count: number, minGap: number) {
   const first = now.getTime() + FIRST_POST_DELAY_MINUTES * 60_000;
-  const { dateKey } = localCalendarParts(now, config.timezone);
-  const [year, month, day] = dateKey.split("-").map(Number);
-  const endOfDay = zonedToUtc(config.timezone, year, month, day + 1, 0, 0, 0).getTime();
+  const endOfDay = endOfLocalDay(now, config.timezone).getTime();
 
   const room = Math.max(0, endOfDay - first);
   const maxGap = count > 1 ? Math.floor(room / (count - 1) / 60_000) : DEFAULT_GAP_MINUTES;
-  const gapMinutes = Math.max(MIN_GAP_MINUTES, Math.min(packGapMinutes(pack), maxGap));
+  const gapMinutes = Math.max(minGap, Math.min(packGapMinutes(pack), maxGap));
 
   const times: Date[] = [];
   for (let index = 0; index < count; index += 1) {
@@ -109,14 +121,24 @@ function startNowTimes(pack: XDailyPack, config: ThreadsConfig, now: Date, count
   return { times, gapMinutes };
 }
 
-export function planBatch({ pack, config, now, startNow, skipSlots, newId }: PlanBatchInput): PlanBatchOutput {
+export function planBatch({
+  pack,
+  config,
+  now,
+  startNow,
+  skipSlots,
+  minGapMinutes,
+  newId
+}: PlanBatchInput): PlanBatchOutput {
   const nextId = newId ?? (() => `thread-${crypto.randomUUID()}`);
   const createdAt = now.toISOString();
   const [year, month, day] = pack.date.split("-").map(Number);
   const posts = pack.posts
     .slice(0, config.postsPerDay)
     .filter((post) => !skipSlots?.has(post.slot));
-  const laidOut = startNow ? startNowTimes(pack, config, now, posts.length) : null;
+  const laidOut = startNow
+    ? startNowTimes(pack, config, now, posts.length, Math.max(MIN_GAP_MINUTES, minGapMinutes ?? MIN_GAP_MINUTES))
+    : null;
 
   const items: ThreadsQueueItem[] = [];
   let droppedPastSlots = 0;

@@ -90,8 +90,9 @@ const actionSchema = z.object({
 /**
  * POST /api/threads — drive the autopilot.
  *
- *   tick     plan today's batch if it isn't scheduled yet, then post what's due
- *            (what the scheduled task calls every few minutes)
+ *   tick     plan today's batch if it isn't scheduled yet, write tomorrow's once
+ *            the evening comes round, re-lay today if it fell behind, then post
+ *            what's due (what the scheduled task calls every few minutes)
  *   plan     schedule today's batch only; `force` regenerates the pack
  *   schedule-now
  *            replace what is still pending and run today's pack from this
@@ -140,8 +141,7 @@ export async function POST(request: NextRequest) {
     }
 
     if (action === "tick") {
-      const { plan, run } = await threadsTick({ config, dryRun });
-      return NextResponse.json({ plan, run });
+      return NextResponse.json(await threadsTick({ config, dryRun }));
     }
 
     if (action === "shift") {

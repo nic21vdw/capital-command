@@ -20,6 +20,10 @@ export type ThreadsState = {
   lastPlanCreated?: number;
   /** When a tick last published anything. */
   lastPostAt?: string;
+  /** The last day written in advance, so the evening's ticks plan it once. */
+  plannedAheadFor?: string;
+  /** When a day was last re-laid after falling behind — gates the cooldown. */
+  lastCatchUpAt?: string;
 };
 
 export async function readThreadsState(): Promise<ThreadsState> {
