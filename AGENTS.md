@@ -4,6 +4,74 @@
 Claude Code, Codex, and any other coding agent should read it. `CLAUDE.md` is a
 pointer to this file. When a rule changes, change it here and nowhere else.
 
+Capital Command is a Next.js app that turns one live stream into every content
+format Nic ships: clips, long-form segments, carousels, text posts, music beds
+and scheduled uploads. It also carries a personal finance dashboard. State lives
+in JSON files under `data/`, owned by the Next server process.
+
+## Quick start
+
+```bash
+npm run dev          # http://localhost:3000
+npm run typecheck    # tsc --noEmit
+npm test             # tsc -p tsconfig.test.json, then the compiled test suite
+npm run lint         # eslint
+npm run build        # next build (postbuild stamps the commit)
+```
+
+`npm install --ignore-scripts` is enough for dev. The only postinstall is
+ffmpeg-static's binary download, which fails behind a proxy and is only needed
+for actual clip rendering and export.
+
+Subsystem CLIs live behind prefixes and are not part of the test chain:
+`publish:*` (the upload queue), `threads:*` (Threads autopilot), `ingest:*`
+(channel ingest), `remotion:*` (video renders), `tiktok:audit`.
+
+## Verification
+
+- `npm run typecheck` for anything touching types; `npm test` when calculation or
+  library behaviour changes; `npm run lint` for UI work.
+- `npm test` runs `scripts/run-tests.ps1`: a `tsc -p tsconfig.test.json` build
+  followed by the compiled portfolio test. A type error stops it before any test
+  executes, so a type failure and a test failure look similar - read the output.
+- A typecheck is not evidence that a screen renders. For UI changes, use the
+  `verify` skill in `.claude/skills/verify/` to launch and drive the real app.
+- Remotion work is not verified by `tsc`. Render or still the composition, and
+  confirm it plays in `/presentation` (see the Remotion section below).
+- If nothing was run, say so plainly rather than implying the change was checked.
+
+## Git workflow
+
+**Work goes straight to `main`. Do not open pull requests.**
+
+Commit to `main` and push. No branch, no `gh pr create`, no waiting for a
+review that is not coming. This overrides the branch-and-PR default in the
+global `~/.claude/CLAUDE.md`: where the two disagree, this file wins.
+
+- **Verify before you push, not after.** Pushing to `main` is the deploy, so a
+  broken push is a broken app. Run what the change deserves — `npm run typecheck`
+  for types, `npm test` for behaviour, the `verify` skill for UI — and say
+  plainly in the reply if something failed. Never imply a check you did not run.
+- **Pull before you push.** Several sessions push to `main` all day, so a push
+  will be rejected as stale often. `git pull --rebase` and re-run the
+  verification, since rebasing onto someone else's work can break yours.
+- If a change is genuinely risky and you want it seen first, say so in the reply
+  and ask — do not silently fall back to opening a PR.
+
+### Working in parallel
+
+Several agent sessions run against this repo at once and the main checkout is
+often dirty with another session's work. Before editing, check
+`git status --porcelain` and `git worktree list`. If the tree holds someone
+else's work in progress, do the work in a fresh worktree off `origin/main`
+rather than committing around them — and never `git stash` or `git checkout`
+their files to get a clean tree.
+
+## Conventions
+
+No comments in code unless a linter, formatter, type checker or doc generator
+depends on them, or Nic explicitly asks. If a piece of code cannot be understood
+without a comment, restructure or rename it instead.
 
 ## Stream Pipeline (`/pipeline`)
 
@@ -39,6 +107,83 @@ exact provenance (`platforms.youtube.postId` in the publish queue) and a
 Shorts shape heuristic. The ledger (`data/channel-ingest.json`) records what
 has been taken in; only a SETTLED pipeline run counts as done, so a timeout
 is retried rather than lost. See `src/lib/ingest/README.md`.
+
+## Revising a scheduled post (`src/lib/publisher/revise.ts`)
+
+The publish queue can be changed after the fact — time, caption, hashtags,
+visibility, account, platform targets — plus skip (terminal, keeps the record)
+and a whole-day shift. All of it goes through `revise.ts`, which is PURE: the
+API routes are thin shells over it, so the rules are tested without a queue, a
+network or a clock.
+
+- The one hard rule is `lockedPlatforms`: once a platform has the post
+  (`uploaded` / `scheduled` / `published`) it can only be RENAMED, because
+  YouTube's `videos.update` genuinely renames a live video and nothing else
+  local can reach the platform's copy. `failed`, `pending`, `manual` and
+  `skipped` are still ours. A refusal is a 409 with a sentence a creator can
+  act on, never a bare status code.
+- `skipped` is a terminal `PlatformStatus` — add it to any exhaustive switch.
+  It exists so stopping a post doesn't mean deleting it and losing the clip
+  and the copy with it.
+- Moving a post CLEARS `nextAttemptAt` and `claimedAt` (`withoutGates`), or the
+  runner keeps honouring backoff gates set for the schedule it no longer has.
+  Same reason the Threads autopilot does it in `rescheduleItem`.
+- `AgendaDay.past` means "no slots left to schedule into", NOT "nothing left to
+  move" — a 21:45 post sits on a day with no open slots and is still movable.
+  Use `isMovable` for anything about moving; it is shared with the UI so the
+  "Shift day" control appears exactly when the shift would do something.
+- A day shift reports what it could NOT move (`blocked`) rather than passing
+  over it in silence — "moved 4, left 2 alone" is the honest answer.
+
+## Channel Hub (`/channels/<network>`, `src/lib/channels`)
+
+One screen per connected network — YouTube, Instagram, TikTok, Facebook,
+Threads — showing everything already scheduled to go out there: short clips,
+long-form videos, carousels and text posts on one calendar. Opened by clicking
+that network's logo in the sidebar.
+
+- It owns no storage. Every event is a `MasterCalendarEvent` from
+  `buildMasterCalendarEvents`, narrowed to one network. Rescheduling and
+  rewriting happen in place (see Calendar editing below) but always by calling
+  the owning system's API — the hub never touches a store directly, and
+  anything it can't edit links back to where it is managed.
+- Matching is by ALIAS, not by a shared enum: events name their networks as
+  display strings from several sources (the publish queue's platform labels, a
+  carousel schedule's target list, the content tracker's free-text platform
+  field), so a new label goes in `CHANNELS[...].aliases`.
+- Events group by the SHAPE of the post (short / long-form / carousel / text),
+  not by the subsystem that produced it — which subsystem owns it is an
+  implementation detail the creator doesn't think in.
+- The Threads page prefers the autopilot's real queue over the suggested pack
+  on any day the queue has already scheduled (`mergeThreadsEvents`), so it
+  shows what will actually post rather than both.
+- Threads is not a publish-queue platform, but the sidebar lists it beside the
+  other four, so its standing rides along on `/api/publish/accounts` rather
+  than costing the app shell a second request. Reading it is pure config
+  parsing — no tokens leave the server.
+
+## Calendar editing (`src/lib/master-calendar/editing.ts`)
+
+The Master Calendar and the Channel Hub reschedule in place: drag an event to
+another day, or click it to nudge the time, rewrite the copy and skip it.
+
+- The calendar OWNS NOTHING. Every write goes to the system that owns the
+  event through the route its own screen uses — `/api/publish/:id` for the
+  publish queue, `/api/threads` for the autopilot — so the rules about what may
+  change live in one place and a refusal is whatever sentence the server wrote.
+- An event is editable only when the aggregator attached `edit`
+  (`CalendarEditTarget`), and movable only when that target has no
+  `lockedReason`. Carousel schedules, FB/IG drafts and the content tracker have
+  no such API yet, so they stay read-only and link out. Adding one means
+  attaching `edit` in `aggregate.ts` and a case in `editing.ts` — nothing in
+  the calendar components changes.
+- A day drop carries the WALL-CLOCK time across, not the elapsed milliseconds,
+  so a 19:30 post is still 19:30 on the far side of a DST boundary. That is why
+  `movedToDay` goes through `zonedToUtc` instead of adding 86,400,000 ms.
+- The Master Calendar now shows the autopilot's REAL queue, not just the
+  suggested pack — `buildMasterCalendarEvents` takes `threadsItems` and
+  `mergeThreadsEvents` lets the queue win on days it has scheduled. Both
+  calendars share that, so they can no longer disagree about a day.
 
 ## Threads autopilot (`src/lib/threads`)
 
@@ -85,6 +230,7 @@ back once the listing exists. Submitting stays manual on purpose.
   every other collection. `/api/launch` generates copy and reads Product Hunt;
   it never writes.
 - See `src/lib/launch/README.md`.
+
 ## Music Studio (`/music`, `src/lib/music`)
 
 Background music written by licensed models hosted on fal.ai. One key
@@ -158,6 +304,35 @@ fallback when no API key is configured or the call fails.
   `captions.ts`), and fresh editor projects seed the matching white text
   overlay (`makeTitleOverlay`).
 
+## Clip ranges: the suggestion is editable, in SOURCE time
+
+A clip candidate is a range in the stream, not a file — `ClipCandidate.start` /
+`.end` are absolute source seconds and everything rendered is derived from them.
+So the Clip Generator shows each clip's place in the whole recording
+(`StreamMap`) and lets the range be moved anywhere in it (`ClipRangeEditor` →
+`recutClip` in `jobs.ts` → `POST /api/clips/<job>/recut`), which just points
+`renderClipIndexes` at new times.
+
+- TWO coordinate systems, never mixed. `src/lib/clipping/timeline.ts` is
+  absolute SOURCE seconds (where a clip sits in the stream);
+  `src/lib/clipping/segments.ts` and the Clip Editor's timeline are
+  CLIP-RELATIVE (0 = first frame of the rendered master). `windowSegments` is
+  the only boundary between them.
+- A re-cut REWRITES the clip's files under their existing names, and those are
+  served with a long private cache — so every URL pointing at a clip file
+  carries `?v=<clip.recutAt>` or the browser keeps painting the previous cut.
+  Any new surface that links a clip file must do the same.
+- A re-cut also invalidates any Clip Editor project cut from the old range
+  (its trim, segments and captions describe footage that no longer exists), so
+  a project is only reopened when its `clipStart`/`clipEnd` still match the
+  clip; otherwise it is rebuilt.
+- `clip.originalRange` records where the automatic selection put the clip the
+  first time it moves, so "suggested range" always means the suggestion rather
+  than the previous manual cut.
+- URL jobs keep only their audio after analysis, so a re-cut there is another
+  `downloadSection`; uploads still have the whole file on disk, which is why
+  only they get the source scrubber and waveform in the range editor.
+
 ## Clip previews: center + blur, always the whole frame
 
 Every surface that shows a clip renders through `ClipFrame`
@@ -184,6 +359,7 @@ goes through `renderCaptionedVertical` unconditionally. `DEFAULT_CLIP_LAYOUT`
 in `layouts.ts` is `"restream-stack"`, but that is only a parameter fallback
 for the opt-in layout-variant helpers — it is NOT a shipped default, so don't
 "fix" it into `center` and change what the variants mean.
+
 ## Carousels (`/carousels`)
 
 Slide copy is written by `src/lib/studio/carousel.ts` from a script, a
@@ -255,3 +431,10 @@ committed as a standalone project under `video/`.
   B-roll clips must keep both properties or they stop being interchangeable.
   Use the helpers in `src/motion.ts` (`enter`, `stagger`, `ramp`, `drift`)
   rather than hand-rolled easings, so the whole library moves as one system.
+
+## Skills
+
+- `.claude/skills/verify/` — build, launch and drive the app to check a change
+  end to end.
+- `.claude/skills/animate-video/` — turn an idea or script into Remotion
+  segments and render them to MP4.
