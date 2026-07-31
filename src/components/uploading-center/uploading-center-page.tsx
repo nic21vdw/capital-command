@@ -98,6 +98,9 @@ export function UploadingCenterPage() {
     autoAssign,
     publishNow,
     remove,
+    revise,
+    skip,
+    shiftDayBy,
     refresh,
   } = useUploadingCenter(clipProjects);
 
@@ -488,6 +491,11 @@ export function UploadingCenterPage() {
             onPublishNow={(item) => void publishNow(item)}
             onRemove={(item) => void remove(item)}
             onRename={(item, title) => void renameQueueItem(item, title)}
+            timeZone={overview?.timezone ?? "UTC"}
+            accounts={accountsFor(id)}
+            onRevise={(item, patch) => revise(item, patch)}
+            onSkip={(item) => skip(item)}
+            onShiftDay={(dateKey, minutes) => shiftDayBy(dateKey, minutes)}
             busy={busy}
           />
           {id === "youtube" && channel?.error ? (

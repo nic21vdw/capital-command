@@ -35,6 +35,33 @@ Shorts shape heuristic. The ledger (`data/channel-ingest.json`) records what
 has been taken in; only a SETTLED pipeline run counts as done, so a timeout
 is retried rather than lost. See `src/lib/ingest/README.md`.
 
+## Revising a scheduled post (`src/lib/publisher/revise.ts`)
+
+The publish queue can be changed after the fact — time, caption, hashtags,
+visibility, account, platform targets — plus skip (terminal, keeps the record)
+and a whole-day shift. All of it goes through `revise.ts`, which is PURE: the
+API routes are thin shells over it, so the rules are tested without a queue, a
+network or a clock.
+
+- The one hard rule is `lockedPlatforms`: once a platform has the post
+  (`uploaded` / `scheduled` / `published`) it can only be RENAMED, because
+  YouTube's `videos.update` genuinely renames a live video and nothing else
+  local can reach the platform's copy. `failed`, `pending`, `manual` and
+  `skipped` are still ours. A refusal is a 409 with a sentence a creator can
+  act on, never a bare status code.
+- `skipped` is a terminal `PlatformStatus` — add it to any exhaustive switch.
+  It exists so stopping a post doesn't mean deleting it and losing the clip
+  and the copy with it.
+- Moving a post CLEARS `nextAttemptAt` and `claimedAt` (`withoutGates`), or the
+  runner keeps honouring backoff gates set for the schedule it no longer has.
+  Same reason the Threads autopilot does it in `rescheduleItem`.
+- `AgendaDay.past` means "no slots left to schedule into", NOT "nothing left to
+  move" — a 21:45 post sits on a day with no open slots and is still movable.
+  Use `isMovable` for anything about moving; it is shared with the UI so the
+  "Shift day" control appears exactly when the shift would do something.
+- A day shift reports what it could NOT move (`blocked`) rather than passing
+  over it in silence — "moved 4, left 2 alone" is the honest answer.
+
 ## Channel Hub (`/channels/<network>`, `src/lib/channels`)
 
 One screen per connected network — YouTube, Instagram, TikTok, Facebook,
@@ -42,10 +69,11 @@ Threads — showing everything already scheduled to go out there: short clips,
 long-form videos, carousels and text posts on one calendar. Opened by clicking
 that network's logo in the sidebar.
 
-- It is a READING surface and owns no storage. Every event is a
-  `MasterCalendarEvent` from `buildMasterCalendarEvents`, narrowed to one
-  network; every row links back to the Uploading Center / Carousels /
-  Threads Posts where the item is actually managed. Don't grow an editor here.
+- It owns no storage. Every event is a `MasterCalendarEvent` from
+  `buildMasterCalendarEvents`, narrowed to one network. Rescheduling and
+  rewriting happen in place (see Calendar editing below) but always by calling
+  the owning system's API — the hub never touches a store directly, and
+  anything it can't edit links back to where it is managed.
 - Matching is by ALIAS, not by a shared enum: events name their networks as
   display strings from several sources (the publish queue's platform labels, a
   carousel schedule's target list, the content tracker's free-text platform
@@ -60,6 +88,29 @@ that network's logo in the sidebar.
   other four, so its standing rides along on `/api/publish/accounts` rather
   than costing the app shell a second request. Reading it is pure config
   parsing — no tokens leave the server.
+
+## Calendar editing (`src/lib/master-calendar/editing.ts`)
+
+The Master Calendar and the Channel Hub reschedule in place: drag an event to
+another day, or click it to nudge the time, rewrite the copy and skip it.
+
+- The calendar OWNS NOTHING. Every write goes to the system that owns the
+  event through the route its own screen uses — `/api/publish/:id` for the
+  publish queue, `/api/threads` for the autopilot — so the rules about what may
+  change live in one place and a refusal is whatever sentence the server wrote.
+- An event is editable only when the aggregator attached `edit`
+  (`CalendarEditTarget`), and movable only when that target has no
+  `lockedReason`. Carousel schedules, FB/IG drafts and the content tracker have
+  no such API yet, so they stay read-only and link out. Adding one means
+  attaching `edit` in `aggregate.ts` and a case in `editing.ts` — nothing in
+  the calendar components changes.
+- A day drop carries the WALL-CLOCK time across, not the elapsed milliseconds,
+  so a 19:30 post is still 19:30 on the far side of a DST boundary. That is why
+  `movedToDay` goes through `zonedToUtc` instead of adding 86,400,000 ms.
+- The Master Calendar now shows the autopilot's REAL queue, not just the
+  suggested pack — `buildMasterCalendarEvents` takes `threadsItems` and
+  `mergeThreadsEvents` lets the queue win on days it has scheduled. Both
+  calendars share that, so they can no longer disagree about a day.
 
 ## Threads autopilot (`src/lib/threads`)
 

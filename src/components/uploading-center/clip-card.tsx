@@ -113,6 +113,8 @@ export function summarizePlatformState(
       return { uploaded: null, note: `Manual reminder for ${goLive}` };
     case "failed":
       return { uploaded: null, note: state.error ? `Upload failed — ${state.error}` : "Upload failed" };
+    case "skipped":
+      return { uploaded: null, note: state.note ?? "Skipped — this one will not post" };
     default:
       return { uploaded, note: `Scheduled for ${goLive}` };
   }

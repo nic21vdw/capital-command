@@ -8,6 +8,23 @@
 
 export type CalendarSourceId = "shorts" | "carousels" | "x" | "fb" | "content";
 
+/**
+ * What the calendar needs to reschedule an event without a second fetch.
+ * Present only on events backed by a system that can actually be rewritten —
+ * the publish queue and the Threads autopilot's queue. Carousel schedules,
+ * FB/IG drafts and the content tracker are still read-only here and link out.
+ */
+export type CalendarEditTarget = {
+  kind: "queue" | "threads";
+  id: string;
+  /** Current instant, UTC ISO-8601. */
+  publishAt: string;
+  /** The editable copy: a queue item's caption, or the Threads post text. */
+  text: string;
+  /** Set when it can no longer be moved; the sentence says why. */
+  lockedReason?: string;
+};
+
 export type MasterCalendarEvent = {
   /** Unique across the whole calendar (source-prefixed). */
   id: string;
@@ -27,6 +44,7 @@ export type MasterCalendarEvent = {
   status: string;
   /** True for occurrences expanded from a repeating carousel schedule. */
   recurring?: boolean;
+  edit?: CalendarEditTarget;
 };
 
 export type CalendarSource = {

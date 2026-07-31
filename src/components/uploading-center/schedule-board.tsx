@@ -1,13 +1,25 @@
 "use client";
 
 import { useRef, useState } from "react";
-import { Clapperboard, ExternalLink, Loader2, Pencil, Send, Trash2, Upload } from "lucide-react";
+import {
+  Clapperboard,
+  ClockArrowUp,
+  ExternalLink,
+  Loader2,
+  Pencil,
+  Send,
+  SlidersHorizontal,
+  Trash2,
+  Upload
+} from "lucide-react";
 import { toast } from "sonner";
+import { RevisePostModal } from "@/components/uploading-center/revise-post-modal";
 import { StatusChip } from "@/components/uploading-center/status-chip";
 import { CLIP_DRAG_TYPE } from "@/components/uploading-center/clip-card";
 import { remoteUrlFor, studioVideoUrl } from "@/components/uploading-center/use-uploading-center";
 import { cn } from "@/lib/utils";
 import type { AgendaDay, AgendaEntry } from "@/lib/publisher/agenda";
+import { isMovable, type RevisePatch } from "@/lib/publisher/revise";
 import type { ScheduleSlot } from "@/lib/publisher/slots";
 import type { PlatformId, PlatformState, QueueItem } from "@/lib/publisher/types";
 
@@ -32,18 +44,27 @@ export function ScheduleBoard({
   platform,
   days,
   thumbnailForItem,
+  timeZone,
+  accounts,
   onDropClip,
   onUploadVideo,
   onSelectSlot,
   onPublishNow,
   onRemove,
   onRename,
+  onRevise,
+  onSkip,
+  onShiftDay,
   busy
 }: {
   platform: PlatformId;
   /** The visible window, one entry per day, already placed and sorted. */
   days: AgendaDay[];
   thumbnailForItem: (item: QueueItem) => string | null;
+  /** Publish timezone, so revised times read back in the creator's clock. */
+  timeZone: string;
+  /** This platform's accounts, for reassigning a post. */
+  accounts: { id: string; platform: PlatformId; label: string }[];
   onDropClip: (slotUtc: string, clipKey: string) => void;
   /** A video file from the user's computer dropped on (or picked for) a slot. */
   onUploadVideo: (slotUtc: string, file: File) => void;
@@ -52,9 +73,22 @@ export function ScheduleBoard({
   onPublishNow: (item: QueueItem) => void;
   onRemove: (item: QueueItem) => void;
   onRename: (item: QueueItem, title: string) => void;
+  onRevise: (item: QueueItem, patch: RevisePatch) => Promise<boolean>;
+  onSkip: (item: QueueItem) => Promise<boolean>;
+  onShiftDay: (dateKey: string, minutes: number) => Promise<boolean>;
   busy: string | null;
 }) {
   const [dragOverSlot, setDragOverSlot] = useState<string | null>(null);
+  // One dialog for the whole board — the cards are too small to edit in place.
+  const [revising, setRevising] = useState<QueueItem | null>(null);
+  // The board re-renders from the refreshed queue after a save, so the open
+  // dialog reads its item back out of `days` rather than holding a stale copy.
+  const revisingItem = revising
+    ? days
+        .flatMap((day) => day.entries)
+        .flatMap((entry) => (entry.kind === "queue" ? [entry.item] : []))
+        .find((item) => item.id === revising.id) ?? revising
+    : null;
 
   // One hidden file input for the whole board; the slot whose Upload button
   // opened the picker is remembered so the chosen file lands on it.
@@ -97,9 +131,22 @@ export function ScheduleBoard({
           onPublishNow={onPublishNow}
           onRemove={onRemove}
           onRename={onRename}
+          onRevise={setRevising}
+          onShiftDay={onShiftDay}
           busy={busy}
         />
       ))}
+      {revisingItem ? (
+        <RevisePostModal
+          item={revisingItem}
+          timeZone={timeZone}
+          accounts={accounts}
+          busy={busy === `revise:${revisingItem.id}` || busy === `skip:${revisingItem.id}`}
+          onClose={() => setRevising(null)}
+          onSave={(patch) => onRevise(revisingItem, patch)}
+          onSkip={() => onSkip(revisingItem)}
+        />
+      ) : null}
     </div>
   );
 }
@@ -118,6 +165,8 @@ function DayBand({
   onPublishNow,
   onRemove,
   onRename,
+  onRevise,
+  onShiftDay,
   busy
 }: {
   platform: PlatformId;
@@ -132,10 +181,15 @@ function DayBand({
   onPublishNow: (item: QueueItem) => void;
   onRemove: (item: QueueItem) => void;
   onRename: (item: QueueItem, title: string) => void;
+  onRevise: (item: QueueItem) => void;
+  onShiftDay: (dateKey: string, minutes: number) => Promise<boolean>;
   busy: string | null;
 }) {
   const { today, past, entries, openSlots } = day;
   const empty = entries.length === 0 && openSlots.length === 0;
+  // Not `!past`: that flag means the day has no slots left to schedule into,
+  // which says nothing about whether its posts can still move.
+  const canShift = entries.some((entry) => entry.kind === "queue" && isMovable(entry.item));
   return (
     <div
       className={cn(
@@ -156,6 +210,11 @@ function DayBand({
             {entries.length} post{entries.length === 1 ? "" : "s"}
           </span>
         ) : null}
+        {/* Move the whole day at once — the morning you decide everything
+            should run later. */}
+        {canShift ? (
+          <DayShift dateKey={day.dateKey} onShiftDay={onShiftDay} busy={busy === `shift:${day.dateKey}`} />
+        ) : null}
       </div>
       <div className="grid gap-2 [grid-template-columns:repeat(auto-fill,minmax(13.5rem,1fr))]">
         {entries.map((entry) =>
@@ -170,6 +229,7 @@ function DayBand({
               onPublishNow={onPublishNow}
               onRemove={onRemove}
               onRename={onRename}
+              onRevise={onRevise}
               busy={busy}
             />
           ) : (
@@ -201,6 +261,58 @@ function DayBand({
   );
 }
 
+/**
+ * Shift every still-movable post of one day. Collapsed to a single control so
+ * the day column stays a date, not a toolbar; the amounts match the nudges in
+ * the revise dialog so the two read as one system.
+ */
+function DayShift({
+  dateKey,
+  onShiftDay,
+  busy
+}: {
+  dateKey: string;
+  onShiftDay: (dateKey: string, minutes: number) => Promise<boolean>;
+  busy: boolean;
+}) {
+  const [open, setOpen] = useState(false);
+  if (busy) return <Loader2 className="h-3 w-3 animate-spin text-[var(--muted-foreground)]" />;
+  if (!open) {
+    return (
+      <button
+        type="button"
+        onClick={() => setOpen(true)}
+        title="Move this whole day"
+        className="flex w-fit items-center gap-1 text-[10px] text-[var(--muted-foreground)] transition hover:text-white"
+      >
+        <ClockArrowUp className="h-3 w-3" />
+        Shift day
+      </button>
+    );
+  }
+  return (
+    <div className="flex flex-wrap gap-1">
+      {[-60, -15, 15, 60].map((minutes) => (
+        <button
+          key={minutes}
+          type="button"
+          onClick={() => void onShiftDay(dateKey, minutes).then(() => setOpen(false))}
+          className="rounded border border-[var(--border)] px-1 py-0.5 text-[10px] text-[var(--muted-foreground)] transition hover:border-[var(--border-strong)] hover:text-white"
+        >
+          {minutes > 0 ? `+${minutes}` : minutes}
+        </button>
+      ))}
+      <button
+        type="button"
+        onClick={() => setOpen(false)}
+        className="px-1 text-[10px] text-[var(--muted-foreground)] transition hover:text-white"
+      >
+        ✕
+      </button>
+    </div>
+  );
+}
+
 /** A scheduled/queued post of ours — editable, with publish/remove actions. */
 function QueueEntryCard({
   platform,
@@ -211,6 +323,7 @@ function QueueEntryCard({
   onPublishNow,
   onRemove,
   onRename,
+  onRevise,
   busy
 }: {
   platform: PlatformId;
@@ -221,13 +334,18 @@ function QueueEntryCard({
   onPublishNow: (item: QueueItem) => void;
   onRemove: (item: QueueItem) => void;
   onRename: (item: QueueItem, title: string) => void;
+  onRevise: (item: QueueItem) => void;
   busy: string | null;
 }) {
   const state = item.platforms[platform] as PlatformState;
   const url = remoteUrlFor(platform, state.postId);
   const thumbnailUrl = thumbnailForItem(item);
   const actionable = state.status === "pending" || state.status === "uploaded" || state.status === "failed";
-  const working = busy === `publish:${item.id}` || busy === `remove:${item.id}`;
+  const working =
+    busy === `publish:${item.id}` ||
+    busy === `remove:${item.id}` ||
+    busy === `revise:${item.id}` ||
+    busy === `skip:${item.id}`;
   return (
     <div
       className={cn(
@@ -281,6 +399,15 @@ function QueueEntryCard({
             <Loader2 className="h-3.5 w-3.5 animate-spin text-[var(--muted-foreground)]" />
           ) : (
             <>
+              <button
+                type="button"
+                onClick={() => onRevise(item)}
+                aria-label="Revise post"
+                title="Revise — time, caption, visibility, account, platforms"
+                className="text-[var(--muted-foreground)] transition hover:text-white"
+              >
+                <SlidersHorizontal className="h-3.5 w-3.5" />
+              </button>
               {actionable ? (
                 <button
                   type="button"

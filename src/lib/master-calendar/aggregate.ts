@@ -1,5 +1,7 @@
 import type { AppData, Carousel, ContentItem, FbPost, XDailyPack } from "@/types/domain";
+import { moveRefusal } from "@/lib/publisher/revise";
 import type { PlatformId, QueueItem } from "@/lib/publisher/types";
+import type { ThreadsQueueItem } from "@/lib/threads/types";
 import type { MasterCalendarEvent } from "@/lib/master-calendar/types";
 
 /**
@@ -99,7 +101,51 @@ function shortsEvents(
       time,
       title: truncate(item.title || item.clipPath.split("/").pop() || "Scheduled short"),
       platforms: (Object.keys(item.platforms) as PlatformId[]).map((platform) => PLATFORM_LABELS[platform]),
-      status: queueItemStatus(item)
+      status: queueItemStatus(item),
+      edit: {
+        kind: "queue",
+        id: item.id,
+        publishAt: item.publishAt,
+        text: item.caption,
+        ...(moveRefusal(item) ? { lockedReason: moveRefusal(item)! } : {})
+      }
+    });
+  }
+  return events;
+}
+
+/**
+ * The Threads autopilot's queue as calendar events. These are the posts that
+ * will actually fire, which is why they supersede the suggested pack for any
+ * day they cover (see mergeThreadsEvents in lib/channels).
+ */
+export function threadsQueueEvents(
+  items: ThreadsQueueItem[],
+  timeZone: string,
+  startKey: string,
+  endKeyExclusive: string
+): MasterCalendarEvent[] {
+  const events: MasterCalendarEvent[] = [];
+  for (const item of items) {
+    const instant = new Date(item.publishAt);
+    if (Number.isNaN(instant.getTime())) continue;
+    const { dateKey, time } = localDateTime(instant, timeZone);
+    if (!inRange(dateKey, startKey, endKeyExclusive)) continue;
+    events.push({
+      id: `threads:${item.id}`,
+      source: "x",
+      dateKey,
+      time,
+      title: truncate(item.topic || item.text),
+      platforms: ["Threads"],
+      status: item.status,
+      edit: {
+        kind: "threads",
+        id: item.id,
+        publishAt: item.publishAt,
+        text: item.text,
+        ...(item.status === "pending" ? {} : { lockedReason: `Already ${item.status} — this one can't be moved.` })
+      }
     });
   }
   return events;
@@ -206,20 +252,37 @@ function contentEvents(items: ContentItem[], startKey: string, endKey: string): 
   return events;
 }
 
+/**
+ * The autopilot's real queue supersedes the suggested pack on any day it has
+ * already scheduled, so the calendar shows what will actually post rather than
+ * both. Days the queue has not reached still show the pack.
+ */
+export function mergeThreadsEvents(
+  packEvents: MasterCalendarEvent[],
+  queueEvents: MasterCalendarEvent[]
+): MasterCalendarEvent[] {
+  const scheduledDays = new Set(queueEvents.map((event) => event.dateKey));
+  return [...queueEvents, ...packEvents.filter((event) => !scheduledDays.has(event.dateKey))];
+}
+
 export function buildMasterCalendarEvents(options: {
   data: AppData;
   queueItems: QueueItem[];
+  threadsItems?: ThreadsQueueItem[];
   timeZone: string;
   startKey: string;
   days: number;
 }): MasterCalendarEvent[] {
-  const { data, queueItems, timeZone, startKey, days } = options;
+  const { data, queueItems, threadsItems = [], timeZone, startKey, days } = options;
   const endKey = addDaysToKey(startKey, days);
 
   const events = [
     ...shortsEvents(queueItems, timeZone, startKey, endKey),
     ...carouselEvents(data.videoStudio?.carousels ?? [], startKey, endKey, days),
-    ...xEvents(data.xPlanner?.packs ?? [], startKey, endKey),
+    ...mergeThreadsEvents(
+      xEvents(data.xPlanner?.packs ?? [], startKey, endKey),
+      threadsQueueEvents(threadsItems, timeZone, startKey, endKey)
+    ),
     ...fbEvents(data.fbStrategy?.posts ?? [], startKey, endKey),
     ...contentEvents(data.contentItems ?? [], startKey, endKey)
   ];

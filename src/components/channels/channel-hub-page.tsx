@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState, type ComponentType, type CSSProperties } from "react";
+import { useEffect, useMemo, useState, type ComponentType, type CSSProperties, type DragEvent } from "react";
 import Link from "next/link";
 import {
   ArrowUpRight,
@@ -13,6 +13,7 @@ import {
   Images,
   Instagram,
   Loader2,
+  Lock,
   MessageSquareText,
   Music4,
   Repeat,
@@ -33,6 +34,9 @@ import {
   type ChannelResponse
 } from "@/lib/channels/platforms";
 import type { MasterCalendarEvent } from "@/lib/master-calendar/types";
+import { editableTarget } from "@/lib/master-calendar/editing";
+import { EventEditor } from "@/components/master-calendar/event-editor";
+import { CALENDAR_DRAG_TYPE, useCalendarEditing } from "@/components/master-calendar/use-calendar-editing";
 import { cn } from "@/lib/utils";
 
 /**
@@ -102,34 +106,53 @@ function statusTone(status: string): string {
 }
 
 /** A post as a compact chip, tinted by what kind of thing it is. */
-function EventChip({ event }: { event: MasterCalendarEvent }) {
+function EventChip({ event, onOpen }: { event: MasterCalendarEvent; onOpen: (event: MasterCalendarEvent) => void }) {
   const kind = channelKindOf(event);
   const Icon = KIND_ICONS[kind];
-  const { href, label } = kindHref(kind);
+  const movable = Boolean(editableTarget(event));
   return (
-    <Link
-      href={href}
-      title={`${event.time ? `${event.time} · ` : ""}${event.title} — manage in ${label}`}
-      className="flex items-center gap-1.5 rounded-md bg-white/5 px-1.5 py-1 text-[11px] leading-tight transition hover:translate-x-0.5 hover:bg-white/10"
+    <button
+      type="button"
+      draggable={movable}
+      onDragStart={(drag) => {
+        drag.dataTransfer.setData(CALENDAR_DRAG_TYPE, event.id);
+        drag.dataTransfer.effectAllowed = "move";
+      }}
+      onClick={() => onOpen(event)}
+      title={`${event.time ? `${event.time} · ` : ""}${event.title}${movable ? " — drag to another day, or click to edit" : ""}`}
+      className={cn(
+        "flex w-full items-center gap-1.5 rounded-md bg-white/5 px-1.5 py-1 text-left text-[11px] leading-tight transition hover:bg-white/10",
+        movable ? "cursor-grab active:cursor-grabbing" : "hover:translate-x-0.5"
+      )}
     >
       <Icon className="h-3 w-3 shrink-0 text-[var(--muted-foreground)]" />
       {event.time ? <span className="shrink-0 font-semibold text-[var(--muted-foreground)]">{event.time}</span> : null}
       <span className="min-w-0 truncate text-white">{event.title}</span>
+      {event.edit?.lockedReason ? <Lock className="h-2.5 w-2.5 shrink-0 text-[var(--muted-foreground)]" /> : null}
       {event.recurring ? <Repeat className="h-2.5 w-2.5 shrink-0 text-[var(--muted-foreground)]" /> : null}
-    </Link>
+    </button>
   );
 }
 
 /** A post as a full row: when, what kind, title, status, and where to edit it. */
-function EventRow({ event, accent }: { event: MasterCalendarEvent; accent: string }) {
+function EventRow({
+  event,
+  accent,
+  onOpen
+}: {
+  event: MasterCalendarEvent;
+  accent: string;
+  onOpen: (event: MasterCalendarEvent) => void;
+}) {
   const kind = channelKindOf(event);
   const Icon = KIND_ICONS[kind];
-  const { href, label } = kindHref(kind);
+  const { label } = kindHref(kind);
   return (
-    <Link
-      href={href}
-      title={`Manage in ${label}`}
-      className="group flex items-center gap-3 rounded-lg border border-[var(--border)] border-l-2 bg-white/5 px-3 py-2.5 transition hover:border-[var(--border-strong)] hover:bg-white/10"
+    <button
+      type="button"
+      onClick={() => onOpen(event)}
+      title={`Click to edit · managed in ${label}`}
+      className="group flex w-full items-center gap-3 rounded-lg border border-[var(--border)] border-l-2 bg-white/5 px-3 py-2.5 text-left transition hover:border-[var(--border-strong)] hover:bg-white/10"
       style={{ borderLeftColor: accent }}
     >
       <span className="w-12 shrink-0 text-sm font-semibold text-[var(--accent)]">{event.time ?? "—"}</span>
@@ -143,7 +166,7 @@ function EventRow({ event, accent }: { event: MasterCalendarEvent; accent: strin
       {event.recurring ? <Repeat className="h-3.5 w-3.5 shrink-0 text-[var(--muted-foreground)]" /> : null}
       <Badge className={cn("shrink-0 capitalize", statusTone(event.status))}>{event.status}</Badge>
       <ArrowUpRight className="h-3.5 w-3.5 shrink-0 text-[var(--muted-foreground)] opacity-0 transition group-hover:opacity-100" />
-    </Link>
+    </button>
   );
 }
 
@@ -215,6 +238,10 @@ export function ChannelHubPage({ channel }: { channel: ChannelId }) {
   const [hidden, setHidden] = useState<Set<ChannelKind>>(new Set());
   const [response, setResponse] = useState<ChannelResponse | null>(null);
   const [fetchedRange, setFetchedRange] = useState<string | null>(null);
+  const [editing, setEditing] = useState<MasterCalendarEvent | null>(null);
+  const [dragOverDay, setDragOverDay] = useState<string | null>(null);
+  const [reloadToken, setReloadToken] = useState(0);
+  const editor = useCalendarEditing(response?.timezone ?? "UTC", () => setReloadToken((token) => token + 1));
 
   // The list view reads a month forward from today; the grids read their grid.
   const range = useMemo(() => {
@@ -241,7 +268,7 @@ export function ChannelHubPage({ channel }: { channel: ChannelId }) {
         if (!(error instanceof DOMException && error.name === "AbortError")) setFetchedRange(rangeId);
       });
     return () => controller.abort();
-  }, [channel, rangeId, range.start, range.days]);
+  }, [channel, rangeId, range.start, range.days, reloadToken]);
 
   const events = useMemo(() => response?.events ?? [], [response]);
   const visibleEvents = useMemo(
@@ -257,6 +284,22 @@ export function ChannelHubPage({ channel }: { channel: ChannelId }) {
     return byDay;
   }, [visibleEvents]);
   const counts = useMemo(() => countByKind(events), [events]);
+
+  const dropProps = (dateKey: string) => ({
+    onDragOver: (drag: DragEvent) => {
+      if (!drag.dataTransfer.types.includes(CALENDAR_DRAG_TYPE)) return;
+      drag.preventDefault();
+      drag.dataTransfer.dropEffect = "move";
+      setDragOverDay(dateKey);
+    },
+    onDragLeave: () => setDragOverDay((current) => (current === dateKey ? null : current)),
+    onDrop: (drag: DragEvent) => {
+      drag.preventDefault();
+      setDragOverDay(null);
+      const dropped = events.find((item) => item.id === drag.dataTransfer.getData(CALENDAR_DRAG_TYPE));
+      if (dropped) void editor.moveToDay(dropped, dateKey);
+    }
+  });
 
   const shift = (direction: 1 | -1) => {
     setAnchor((current) => {
@@ -425,12 +468,14 @@ export function ChannelHubPage({ channel }: { channel: ChannelId }) {
                   return (
                     <div
                       key={dateKey}
+                      {...dropProps(dateKey)}
                       className={cn(
                         "min-h-[6.5rem] space-y-1 border-[var(--border)] p-1.5 transition-colors",
                         index % 7 !== 0 && "border-l",
                         index >= 7 && "border-t",
                         !inMonth && "opacity-40",
-                        isToday ? "bg-[var(--accent)]/8" : weekend && "bg-white/[0.02]"
+                        isToday ? "bg-[var(--accent)]/8" : weekend && "bg-white/[0.02]",
+                        dragOverDay === dateKey && "bg-[var(--accent)]/20 ring-1 ring-inset ring-[var(--accent)]"
                       )}
                     >
                       <span
@@ -444,7 +489,7 @@ export function ChannelHubPage({ channel }: { channel: ChannelId }) {
                         {Number(dateKey.slice(8, 10))}
                       </span>
                       {dayEvents.map((event) => (
-                        <EventChip key={event.id} event={event} />
+                        <EventChip key={event.id} event={event} onOpen={setEditing} />
                       ))}
                     </div>
                   );
@@ -463,10 +508,12 @@ export function ChannelHubPage({ channel }: { channel: ChannelId }) {
                 return (
                   <div
                     key={dateKey}
+                    {...dropProps(dateKey)}
                     className={cn(
                       "min-h-[16rem] border-[var(--border)] transition-colors",
                       index > 0 && "border-l",
-                      isToday && "bg-[var(--accent)]/5"
+                      isToday && "bg-[var(--accent)]/5",
+                      dragOverDay === dateKey && "bg-[var(--accent)]/20 ring-1 ring-inset ring-[var(--accent)]"
                     )}
                   >
                     <div
@@ -491,7 +538,7 @@ export function ChannelHubPage({ channel }: { channel: ChannelId }) {
                     </div>
                     <div className="space-y-1 p-1.5">
                       {dayEvents.map((event) => (
-                        <EventChip key={event.id} event={event} />
+                        <EventChip key={event.id} event={event} onOpen={setEditing} />
                       ))}
                     </div>
                   </div>
@@ -511,7 +558,7 @@ export function ChannelHubPage({ channel }: { channel: ChannelId }) {
                 </p>
                 <div className="space-y-1.5">
                   {(eventsByDay.get(dateKey) ?? []).map((event) => (
-                    <EventRow key={event.id} event={event} accent={meta.color} />
+                    <EventRow key={event.id} event={event} accent={meta.color} onOpen={setEditing} />
                   ))}
                 </div>
               </div>
@@ -544,6 +591,18 @@ export function ChannelHubPage({ channel }: { channel: ChannelId }) {
             .
           </p>
         </Card>
+      ) : null}
+
+      {editing ? (
+        <EventEditor
+          event={events.find((item) => item.id === editing.id) ?? editing}
+          timeZone={response?.timezone ?? "UTC"}
+          busy={editor.busy === editing.id}
+          onClose={() => setEditing(null)}
+          onNudge={(minutes) => editor.nudge(editing, minutes)}
+          onRewrite={(text) => editor.rewrite(editing, text)}
+          onSkip={() => editor.skip(editing)}
+        />
       ) : null}
 
       <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-[var(--muted-foreground)]">

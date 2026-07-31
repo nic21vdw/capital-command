@@ -243,7 +243,13 @@ export class PublishQueue {
  * publishAt passes, for the verify-went-public finalize step.
  */
 export function isTerminalStatus(status: PlatformState["status"]): boolean {
-  return status === "published" || status === "failed" || status === "scheduled" || status === "manual";
+  return (
+    status === "published" ||
+    status === "failed" ||
+    status === "scheduled" ||
+    status === "manual" ||
+    status === "skipped"
+  );
 }
 
 /**

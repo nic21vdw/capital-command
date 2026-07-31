@@ -3,6 +3,7 @@ import { buildMasterCalendarEvents, todayKeyIn } from "@/lib/master-calendar/agg
 import { publisherConfig } from "@/lib/publisher/config";
 import { publishQueue } from "@/lib/publisher/queue";
 import { readAppData } from "@/lib/storage/store";
+import { readQueue as readThreadsQueue } from "@/lib/threads/queue";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -24,16 +25,18 @@ export async function GET(request: NextRequest) {
   const days = Number.isFinite(daysRaw) && daysRaw > 0 ? Math.min(Math.floor(daysRaw), MAX_DAYS) : 42;
   const startKey = startRaw && DATE_KEY_RE.test(startRaw) ? startRaw : todayKeyIn(config.timezone);
 
-  const [data, queueItems] = await Promise.all([
+  const [data, queueItems, threadsItems] = await Promise.all([
     readAppData(),
     // Same gate as GET /api/publish: with the publisher off the queue file is
     // not consulted, so the two surfaces always agree on what's scheduled.
-    config.enabled ? publishQueue(config).list() : Promise.resolve([])
+    config.enabled ? publishQueue(config).list() : Promise.resolve([]),
+    readThreadsQueue()
   ]);
 
   const events = buildMasterCalendarEvents({
     data,
     queueItems,
+    threadsItems,
     timeZone: config.timezone,
     startKey,
     days

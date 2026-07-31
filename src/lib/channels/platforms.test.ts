@@ -5,7 +5,6 @@ import {
   countByKind,
   eventTargetsChannel,
   isChannelId,
-  mergeThreadsEvents,
   sortEvents
 } from "@/lib/channels/platforms";
 import type { MasterCalendarEvent } from "@/lib/master-calendar/types";
@@ -80,25 +79,6 @@ describe("countByKind", () => {
       { kind: "carousel", count: 0 },
       { kind: "text", count: 1 }
     ]);
-  });
-});
-
-describe("mergeThreadsEvents", () => {
-  it("lets the real queue supersede the suggested pack on days it has scheduled", () => {
-    const pack = [
-      event({ id: "x:pack:1", source: "x", dateKey: "2026-07-30", status: "suggested" }),
-      event({ id: "x:pack:2", source: "x", dateKey: "2026-07-31", status: "suggested" })
-    ];
-    const queue = [event({ id: "x:queue:1", source: "x", dateKey: "2026-07-30", status: "pending" })];
-
-    const merged = mergeThreadsEvents(pack, queue);
-
-    expect(merged.map((item) => item.id)).toEqual(["x:queue:1", "x:pack:2"]);
-  });
-
-  it("keeps the pack untouched when the queue has not reached those days", () => {
-    const pack = [event({ id: "x:pack:1", source: "x", dateKey: "2026-08-02", status: "suggested" })];
-    expect(mergeThreadsEvents(pack, [])).toHaveLength(1);
   });
 });
 
