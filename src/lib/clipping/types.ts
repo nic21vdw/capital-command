@@ -77,6 +77,15 @@ export type ClipCandidate = {
   previewFile?: string;
   /** Poster frame filename, so players paint a frame instantly instead of black. */
   posterFile?: string;
+  /**
+   * ISO-8601 timestamp of the last creator re-cut of this clip's in/out points.
+   * A re-cut overwrites the clip's files under their existing names, so this
+   * doubles as the cache-buster every surface appends to their URLs — without
+   * it the browser keeps painting the previous cut from its own cache.
+   */
+  recutAt?: string;
+  /** Where the automatic selection put this clip, kept so a re-cut can be undone. */
+  originalRange?: { start: number; end: number };
   /** Legacy layout used by older rendered files. New files are neutral source masters. */
   layoutPreset?: ClipLayoutPreset;
   /** Legacy alternate compositions rendered from the same moment. */

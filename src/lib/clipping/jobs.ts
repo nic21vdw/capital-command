@@ -19,6 +19,7 @@ import { readSourceMeta, sourceFilePath, type SourceMeta } from "@/lib/clipping/
 import { defaultCaptionStyle } from "@/lib/storage/schemas";
 import { ensureClipThumbnail } from "@/lib/clipping/thumbnails";
 import { fetchSourceCaptions } from "@/lib/clipping/transcription";
+import { clampRange } from "@/lib/clipping/timeline";
 import { selectByTranscript } from "@/lib/clipping/transcript-select";
 import { refineClipVirality, viralityRefinementConfigured } from "@/lib/clipping/virality";
 import { transcribeMedia } from "@/lib/clipping/whisper";
@@ -174,6 +175,67 @@ export async function renameJob(
     clip.title = trimmed || undefined;
   }
   await persistJobs();
+  return job;
+}
+
+/**
+ * Moves one clip's in/out points inside the source stream and re-cuts it.
+ *
+ * The automatic selection is a suggestion: a 22-second clip out of a 3-hour
+ * stream is one reading of a moment that may well run longer, so the creator
+ * can extend or tighten it against the whole recording. Everything downstream
+ * is derived from the range, so a re-cut is just the render pipeline pointed at
+ * new times — the clip keeps its id, its title and its place in the job, and
+ * `renderClipIndexes` rewrites its master, preview, poster and ready-to-post
+ * files (and drops any Clip Editor export, which was cut from the old range).
+ *
+ * Returns immediately with the job marked processing; the render runs in the
+ * background and the UI polls it in, exactly like a fresh job.
+ */
+export async function recutClip(
+  id: string,
+  patch: { clipId: string; start: number; end: number }
+): Promise<ClipJob | undefined> {
+  await loadJobs();
+  const job = jobs.get(id);
+  if (!job) return undefined;
+  if (job.status === "processing" || job.status === "queued") {
+    throw new Error("This stream is still processing — wait for it to finish first.");
+  }
+  const index = job.clips.findIndex((candidate) => candidate.id === patch.clipId);
+  if (index < 0) throw new Error("That clip is no longer part of this job.");
+  const clip = job.clips[index];
+
+  if (!Number.isFinite(patch.start) || !Number.isFinite(patch.end)) {
+    throw new Error("The new clip range must be two times in seconds.");
+  }
+  const range = clampRange(
+    { start: patch.start, end: patch.end },
+    { durationSec: job.durationSec ?? clip.end, anchor: "start" }
+  );
+  if (range.start === clip.start && range.end === clip.end) return job;
+
+  // Remember where the automatic selection put it the FIRST time it moves, so
+  // "revert" always means the suggestion rather than the previous manual cut.
+  clip.originalRange ??= { start: clip.start, end: clip.end };
+  clip.start = range.start;
+  clip.end = range.end;
+  clip.recutAt = new Date().toISOString();
+  // Every rendered artefact belongs to the old range; the render rewrites them,
+  // and until it does the card has nothing stale to show.
+  clip.file = undefined;
+  clip.previewFile = undefined;
+  clip.posterFile = undefined;
+  clip.downloadFile = undefined;
+  clip.editedFile = undefined;
+  clip.editedSignature = undefined;
+  clip.editedAt = undefined;
+  clip.variants = undefined;
+  clip.layoutPreset = undefined;
+
+  job.notices = job.notices.filter((notice) => !notice.startsWith(`Clip ${index + 1}`));
+  await update(job, { status: "processing", stage: "rendering", progress: 50, notices: job.notices });
+  void renderClipIndexes(job, [index]).catch((error) => failJob(job, error));
   return job;
 }
 

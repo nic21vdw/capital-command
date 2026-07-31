@@ -153,6 +153,35 @@ fallback when no API key is configured or the call fails.
   `captions.ts`), and fresh editor projects seed the matching white text
   overlay (`makeTitleOverlay`).
 
+## Clip ranges: the suggestion is editable, in SOURCE time
+
+A clip candidate is a range in the stream, not a file — `ClipCandidate.start` /
+`.end` are absolute source seconds and everything rendered is derived from them.
+So the Clip Generator shows each clip's place in the whole recording
+(`StreamMap`) and lets the range be moved anywhere in it (`ClipRangeEditor` →
+`recutClip` in `jobs.ts` → `POST /api/clips/<job>/recut`), which just points
+`renderClipIndexes` at new times.
+
+- TWO coordinate systems, never mixed. `src/lib/clipping/timeline.ts` is
+  absolute SOURCE seconds (where a clip sits in the stream);
+  `src/lib/clipping/segments.ts` and the Clip Editor's timeline are
+  CLIP-RELATIVE (0 = first frame of the rendered master). `windowSegments` is
+  the only boundary between them.
+- A re-cut REWRITES the clip's files under their existing names, and those are
+  served with a long private cache — so every URL pointing at a clip file
+  carries `?v=<clip.recutAt>` or the browser keeps painting the previous cut.
+  Any new surface that links a clip file must do the same.
+- A re-cut also invalidates any Clip Editor project cut from the old range
+  (its trim, segments and captions describe footage that no longer exists), so
+  a project is only reopened when its `clipStart`/`clipEnd` still match the
+  clip; otherwise it is rebuilt.
+- `clip.originalRange` records where the automatic selection put the clip the
+  first time it moves, so "suggested range" always means the suggestion rather
+  than the previous manual cut.
+- URL jobs keep only their audio after analysis, so a re-cut there is another
+  `downloadSection`; uploads still have the whole file on disk, which is why
+  only they get the source scrubber and waveform in the range editor.
+
 ## Clip previews: center + blur, always the whole frame
 
 Every surface that shows a clip renders through `ClipFrame`
