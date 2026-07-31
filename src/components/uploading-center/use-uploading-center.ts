@@ -11,7 +11,7 @@ import { placeChannelVideos, type ChannelPlacement } from "@/lib/publisher/chann
 import type { ChannelSchedule, ChannelVideo } from "@/lib/publisher/channelVideos";
 import type { ScheduleSlot } from "@/lib/publisher/slots";
 import type { YoutubeQuota } from "@/lib/publisher/quota";
-import type { PlatformId, QueueItem } from "@/lib/publisher/types";
+import { ALL_PLATFORMS, type PlatformId, type QueueItem } from "@/lib/publisher/types";
 
 /**
  * Data layer for the Uploading Center. The front end only ever talks to the
@@ -160,10 +160,25 @@ function computeNeedsRerender(clip: ClipCandidate, projects: ClipProject[]): boo
   return hasEditsBeyondAutoRender({ ...project, settings: project.exportSettings });
 }
 
+/**
+ * What a clip card is aimed at: one platform, or "all" — the same clip posted
+ * to every platform at the same slot. "all" is expanded into one queue item
+ * per platform at schedule time, never a single multi-platform item, because
+ * an item carries exactly one accountId while each platform's tab has its own
+ * active account (see enqueue.ts).
+ */
+export const ALL_PLATFORMS_TARGET = "all";
+
+export type PlatformTarget = PlatformId | typeof ALL_PLATFORMS_TARGET;
+
+export function targetPlatforms(target: PlatformTarget): PlatformId[] {
+  return target === ALL_PLATFORMS_TARGET ? [...ALL_PLATFORMS] : [target];
+}
+
 export type ClipDraft = {
   title: string;
   caption: string;
-  platform: PlatformId;
+  platform: PlatformTarget;
   slotUtc: string;
 };
 
@@ -180,6 +195,20 @@ export const PLATFORM_LABELS: Record<PlatformId, string> = {
   instagram: "Instagram",
   facebook: "Facebook"
 };
+
+/** Platform picker options, "All platforms" first. */
+export const PLATFORM_TARGET_LABELS: Record<PlatformTarget, string> = {
+  all: "All platforms",
+  ...PLATFORM_LABELS
+};
+
+/**
+ * The platform an "all platforms" caption is written for: one caption goes out
+ * to every platform, so it is tailored to the longest-form of them.
+ */
+export function copyPlatformFor(target: PlatformTarget): PlatformId {
+  return target === ALL_PLATFORMS_TARGET ? "youtube" : target;
+}
 
 // Keep in sync with the Clip Generator's headline: the creator/auto title on
 // the backend clip wins, then the hook quote, then a quote from the rationale.
@@ -710,29 +739,56 @@ export function useUploadingCenter(clipProjects: ClipProject[] = []) {
           }
           toast.dismiss(bakeToast);
         }
-        const response = await fetch("/api/publish", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            jobId: clip.jobId,
-            file,
-            publishAt: draft.slotUtc,
-            title: draft.title.trim() || undefined,
-            caption: draft.caption.trim() || undefined,
-            platforms: [draft.platform],
-            // "public" is what makes YouTube honor publishAt: the video is
-            // uploaded private and YouTube flips it live at the slot time.
-            visibility: "public",
-            // The post lands on the account the platform's tab is showing.
-            accountId: activeAccountIds[draft.platform]
-          })
-        });
-        if (!response.ok) {
-          toast.error(await readError(response));
+        // One post per targeted platform, each on that platform's own active
+        // account. Sequential because the queue store isn't safe under
+        // concurrent writes, and a platform that fails never blocks the rest.
+        const platforms = targetPlatforms(draft.platform);
+        let scheduled = 0;
+        let firstError: string | null = null;
+        for (const platform of platforms) {
+          const response = await fetch("/api/publish", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              jobId: clip.jobId,
+              file,
+              publishAt: draft.slotUtc,
+              title: draft.title.trim() || undefined,
+              caption: draft.caption.trim() || undefined,
+              platforms: [platform],
+              // "public" is what makes YouTube honor publishAt: the video is
+              // uploaded private and YouTube flips it live at the slot time.
+              visibility: "public",
+              // The post lands on the account the platform's tab is showing.
+              accountId: activeAccountIds[platform]
+            })
+          });
+          if (!response.ok) {
+            firstError ??= await readError(response);
+            continue;
+          }
+          scheduled += 1;
+          // YouTube always gets the full treatment (the upload confirmation
+          // dialog, the reconnect prompt); the rest fold into the summary
+          // below when several platforms were targeted at once.
+          if (platforms.length === 1 || platform === "youtube") {
+            await announceScheduleOutcome(response, platform);
+          }
+        }
+        if (scheduled === 0) {
+          toast.error(firstError ?? "Couldn't schedule this clip.");
           return false;
         }
-        await announceScheduleOutcome(response, draft.platform);
-        await refresh({ channelRefresh: draft.platform === "youtube" });
+        if (platforms.length > 1) {
+          if (scheduled === platforms.length) {
+            toast.success(`Scheduled on all ${scheduled} platforms.`);
+          } else {
+            toast.warning(
+              `Scheduled on ${scheduled} of ${platforms.length} platforms${firstError ? ` — ${firstError}` : "."}`
+            );
+          }
+        }
+        await refresh({ channelRefresh: platforms.includes("youtube") });
         return true;
       } finally {
         setBusy(null);
@@ -788,6 +844,8 @@ export function useUploadingCenter(clipProjects: ClipProject[] = []) {
     async (assignments: Array<{ clip: ReadyClip; draft: ClipDraft }>) => {
       if (assignments.length === 0) return;
       setBusy("auto-assign");
+      // Counted in posts, not clips: a clip aimed at every platform is four.
+      const total = assignments.reduce((sum, { draft }) => sum + targetPlatforms(draft.platform).length, 0);
       let scheduled = 0;
       let firstError: string | null = null;
       try {
@@ -806,36 +864,36 @@ export function useUploadingCenter(clipProjects: ClipProject[] = []) {
               continue;
             }
           }
-          try {
-            const response = await fetch("/api/publish", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                jobId: clip.jobId,
-                file,
-                publishAt: draft.slotUtc,
-                title: draft.title.trim() || undefined,
-                caption: draft.caption.trim() || undefined,
-                platforms: [draft.platform],
-                visibility: "public",
-                accountId: activeAccountIds[draft.platform]
-              })
-            });
-            if (!response.ok) {
-              firstError ??= await readError(response);
-              continue;
+          for (const platform of targetPlatforms(draft.platform)) {
+            try {
+              const response = await fetch("/api/publish", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  jobId: clip.jobId,
+                  file,
+                  publishAt: draft.slotUtc,
+                  title: draft.title.trim() || undefined,
+                  caption: draft.caption.trim() || undefined,
+                  platforms: [platform],
+                  visibility: "public",
+                  accountId: activeAccountIds[platform]
+                })
+              });
+              if (!response.ok) {
+                firstError ??= await readError(response);
+                continue;
+              }
+              scheduled += 1;
+            } catch {
+              firstError ??= "Network error while scheduling.";
             }
-            scheduled += 1;
-          } catch {
-            firstError ??= "Network error while scheduling.";
           }
         }
-        if (scheduled === assignments.length) {
-          toast.success(`Auto-assigned ${scheduled} clip${scheduled === 1 ? "" : "s"} to the next open slots.`);
+        if (scheduled === total) {
+          toast.success(`Auto-assigned ${scheduled} post${scheduled === 1 ? "" : "s"} to the next open slots.`);
         } else if (scheduled > 0) {
-          toast.warning(
-            `Auto-assigned ${scheduled} of ${assignments.length} clips${firstError ? ` — ${firstError}` : "."}`
-          );
+          toast.warning(`Auto-assigned ${scheduled} of ${total} posts${firstError ? ` — ${firstError}` : "."}`);
         } else {
           toast.error(firstError ?? "Auto assign failed.");
         }

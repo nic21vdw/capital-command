@@ -9,8 +9,10 @@ import { ClipPreview } from "@/components/uploading-center/clip-preview";
 import { StatusChip } from "@/components/uploading-center/status-chip";
 import {
   PLATFORM_LABELS,
+  PLATFORM_TARGET_LABELS,
   remoteUrlFor,
   type ClipDraft,
+  type PlatformTarget,
   type ReadyClip
 } from "@/components/uploading-center/use-uploading-center";
 import { cn } from "@/lib/utils";
@@ -140,7 +142,9 @@ export function ClipCard({
   clip: ReadyClip;
   draft: ClipDraft;
   slots: ScheduleSlot[];
-  isSlotTaken: (platform: PlatformId, slotUtc: string) => boolean;
+  /** True when the slot is booked on the card's target — on every one of its
+   *  platforms when that target is "All platforms". */
+  isSlotTaken: (target: PlatformTarget, slotUtc: string) => boolean;
   scheduledItems: QueueItem[];
   scheduling: boolean;
   /** Accent ring while this clip is being placed onto the board. */
@@ -158,6 +162,8 @@ export function ClipCard({
 }) {
   const titleRef = useRef<HTMLTextAreaElement>(null);
   const openSlots = slots.filter((slot) => !slot.past && !isSlotTaken(draft.platform, slot.utc));
+  const everywhere = draft.platform === "all";
+  const targetLabel = draft.platform === "all" ? "all platforms" : PLATFORM_LABELS[draft.platform];
   // A clip whose trim/edits haven't been baked into a render yet still schedules
   // fine — scheduling renders the trimmed cut first, then posts it — so the note
   // below is informational, not a block.
@@ -232,11 +238,11 @@ export function ClipCard({
                 type="button"
                 onClick={onTailorCaption}
                 disabled={tailoring}
-                title={`Write a caption + hashtags tailored to ${PLATFORM_LABELS[draft.platform]} (free AI)`}
+                title={`Write a caption + hashtags tailored to ${targetLabel} (free AI)`}
                 className="inline-flex items-center gap-1 rounded-full border border-[var(--border)] bg-[var(--surface-1)] px-2 py-0.5 text-[11px] text-[var(--muted-foreground)] transition hover:border-[var(--accent)] hover:text-[var(--accent)] disabled:opacity-60"
               >
                 {tailoring ? <Loader2 className="h-3 w-3 animate-spin" /> : <Sparkles className="h-3 w-3" />}
-                {tailoring ? "Writing…" : `AI caption for ${PLATFORM_LABELS[draft.platform]}`}
+                {tailoring ? "Writing…" : `AI caption for ${targetLabel}`}
               </button>
             ) : null}
           </div>
@@ -249,13 +255,15 @@ export function ClipCard({
           <div className="flex flex-wrap items-center gap-2">
             <Select
               value={draft.platform}
-              onChange={(event) => onDraftChange({ ...draft, platform: event.target.value as PlatformId, slotUtc: "" })}
+              onChange={(event) =>
+                onDraftChange({ ...draft, platform: event.target.value as PlatformTarget, slotUtc: "" })
+              }
               className="h-9 w-auto min-w-28"
               aria-label="Platform"
             >
-              {(Object.keys(PLATFORM_LABELS) as PlatformId[]).map((platform) => (
-                <option key={platform} value={platform}>
-                  {PLATFORM_LABELS[platform]}
+              {(Object.keys(PLATFORM_TARGET_LABELS) as PlatformTarget[]).map((target) => (
+                <option key={target} value={target}>
+                  {PLATFORM_TARGET_LABELS[target]}
                 </option>
               ))}
             </Select>
@@ -265,7 +273,7 @@ export function ClipCard({
               className="h-9 w-auto min-w-40 flex-1"
               aria-label="Schedule slot"
             >
-              <option value="">Pick a slot…</option>
+              <option value="">{everywhere ? "Pick a slot open everywhere…" : "Pick a slot…"}</option>
               {openSlots.map((slot) => (
                 <option key={slot.id} value={slot.utc}>
                   {slot.dateLabel} · {slot.time}
@@ -276,12 +284,24 @@ export function ClipCard({
               onClick={onSchedule}
               disabled={scheduling || !draft.slotUtc}
               className="h-9 px-3"
-              title={needsRerender ? "Renders your trimmed clip, then schedules it" : undefined}
+              title={
+                everywhere
+                  ? "Schedules this clip on YouTube, TikTok, Instagram and Facebook at that slot"
+                  : needsRerender
+                    ? "Renders your trimmed clip, then schedules it"
+                    : undefined
+              }
             >
               {scheduling ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <CalendarClock className="mr-1.5 h-4 w-4" />}
-              {scheduling && needsRerender ? "Baking…" : "Schedule"}
+              {scheduling && needsRerender ? "Baking…" : everywhere ? "Schedule everywhere" : "Schedule"}
             </Button>
           </div>
+          {everywhere ? (
+            <p className="pl-6 text-[11px] text-[var(--muted-foreground)]">
+              One post per platform at the same slot, each on that platform&apos;s selected account. A platform that
+              isn&apos;t connected saves as a manual reminder.
+            </p>
+          ) : null}
           {needsRerender ? (
             <button
               type="button"
