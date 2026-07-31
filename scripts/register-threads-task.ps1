@@ -53,10 +53,47 @@ if (Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue) {
   Write-Host "Replaced the existing '$TaskName' task."
 }
 
-Register-ScheduledTask -TaskName $TaskName -Action $action -Trigger $trigger -Settings $settings `
-  -Description "Generate and post the daily Threads batch (Capital Command)" | Out-Null
+# A task registered the default way runs only while this account is logged ON.
+# A Windows Update reboot then leaves the machine at the login screen with the
+# autopilot silently stopped - the feed just goes quiet, with no error anywhere.
+# S4U ("run whether the user is logged on or not") survives that, but setting it
+# needs elevation, so an ordinary prompt falls back rather than failing outright.
+$elevated = ([Security.Principal.WindowsPrincipal] `
+  [Security.Principal.WindowsIdentity]::GetCurrent()
+).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+
+$principal = $null
+if ($elevated) {
+  $principal = New-ScheduledTaskPrincipal -UserId $env:USERNAME -LogonType S4U -RunLevel Limited
+}
+
+$register = @{
+  TaskName    = $TaskName
+  Action      = $action
+  Trigger     = $trigger
+  Settings    = $settings
+  Description = "Generate and post the daily Threads batch (Capital Command)"
+}
+if ($principal) { $register.Principal = $principal }
+
+try {
+  Register-ScheduledTask @register | Out-Null
+} catch {
+  if (-not $principal) { throw }
+  Write-Warning "Could not register to run while logged out ($($_.Exception.Message)) - falling back."
+  $register.Remove("Principal")
+  Register-ScheduledTask @register | Out-Null
+  $principal = $null
+}
 
 Write-Host "Registered '$TaskName' - every $IntervalMinutes minutes."
+if ($principal) {
+  Write-Host "Runs whether or not you are logged on, so a reboot cannot stop it."
+} else {
+  Write-Warning "This task only runs while you are logged ON - an overnight reboot will stop it."
+  Write-Host "  Re-run this from an Administrator PowerShell to fix that:"
+  Write-Host "    npm run threads:register"
+}
 Write-Host "Log: $(Join-Path $root 'threads-autopilot.log')"
 Write-Host "Remove with: Unregister-ScheduledTask -TaskName `"$TaskName`" -Confirm:`$false"
 
