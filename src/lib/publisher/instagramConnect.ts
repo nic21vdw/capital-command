@@ -1,11 +1,21 @@
 import { PermanentError, fetchJson } from "@/lib/publisher/http";
 import { publisherConfig, type PublisherConfig } from "@/lib/publisher/config";
 
+/**
+ * One Meta grant covers both platforms, so it has to ask for both.
+ *
+ * pages_manage_posts is the Facebook half and is easy to miss: without it the
+ * token still reads the Page and still publishes to Instagram, so everything
+ * looks connected right up until a Reel is due and video_reels answers
+ * "(#200) Subject does not have permission to post videos on this target".
+ * Asking for it here is what makes that a connect-time error instead.
+ */
 export const REQUIRED_SCOPES = [
   "instagram_basic",
   "instagram_content_publish",
   "pages_show_list",
-  "pages_read_engagement"
+  "pages_read_engagement",
+  "pages_manage_posts"
 ] as const;
 
 export type InstagramPage = {

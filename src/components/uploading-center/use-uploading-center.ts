@@ -22,7 +22,7 @@ import { ALL_PLATFORMS, type PlatformId, type QueueItem } from "@/lib/publisher/
  * needs no tick at all); it is a no-op when nothing is due.
  */
 
-export type ConnectedProfile = { title: string; thumbnail: string | null };
+export type ConnectedProfile = { title: string; thumbnail: string | null; handle?: string | null };
 
 /** One connectable social account (see /api/publish/accounts). */
 export type SocialAccountView = {
@@ -34,6 +34,10 @@ export type SocialAccountView = {
   primary: boolean;
   /** True when posts for this account publish automatically. */
   connected: boolean;
+  /** The profile behind this account, whichever platform minted it. */
+  profile: ConnectedProfile | null;
+  /** Connected, but something still stops it publishing unattended. */
+  blocker: string | null;
   /** Connected YouTube channel's name/avatar, when known. */
   youtube: ConnectedProfile | null;
   /** Connected TikTok profile's display name/avatar, when known. */

@@ -70,7 +70,10 @@ describe("exchangeTiktokCode", () => {
       },
       {
         match: "/v2/user/info/",
-        respond: () => jsonResponse({ data: { user: { display_name: "Nic", avatar_url: "https://cdn/a.jpg" } } })
+        respond: () =>
+          jsonResponse({
+            data: { user: { display_name: "Nic", avatar_url: "https://cdn/a.jpg", username: "nicvandewetering" } }
+          })
       }
     ]);
     const { tiktokAuthUrl, exchangeTiktokCode, tiktokCreatorInfo } = await load();
@@ -90,16 +93,60 @@ describe("exchangeTiktokCode", () => {
     expect(cache.get("tiktok.refreshToken")).toBe("tt-refresh");
     // The verifier is single-use — a replayed callback must not reuse it.
     expect(cache.get("tiktok.codeVerifier")).toBe("");
-    expect(await tiktokCreatorInfo()).toEqual({ title: "Nic", thumbnail: "https://cdn/a.jpg" });
+    expect(await tiktokCreatorInfo()).toEqual({
+      title: "Nic",
+      thumbnail: "https://cdn/a.jpg",
+      handle: "nicvandewetering"
+    });
   });
 
-  it("still connects when the profile lookup fails", async () => {
+  // A grant made without user.info.basic 401s on the user lookup, which is the
+  // state a connection lands in when only the posting scopes were approved.
+  it("falls back to the posting creator query when user.info is not authorized", async () => {
     mockFetchRoutes([
       {
         match: "/v2/oauth/token/",
         respond: () => jsonResponse({ access_token: "tt-at", refresh_token: "tt-refresh" })
       },
-      { match: "/v2/user/info/", respond: () => jsonResponse({ error: "nope" }, { status: 403 }) }
+      {
+        match: "/v2/user/info/",
+        respond: () => jsonResponse({ error: { code: "scope_not_authorized" } }, { status: 401 })
+      },
+      {
+        match: "/v2/post/publish/creator_info/query/",
+        respond: () =>
+          jsonResponse({
+            data: {
+              creator_nickname: "Nic",
+              creator_username: "nicvandewetering",
+              creator_avatar_url: "https://cdn/a.jpg"
+            }
+          })
+      }
+    ]);
+    const { tiktokAuthUrl, exchangeTiktokCode, tiktokCreatorInfo } = await load();
+    await tiktokAuthUrl(REDIRECT);
+
+    await exchangeTiktokCode("abc", REDIRECT);
+
+    expect(await tiktokCreatorInfo()).toEqual({
+      title: "Nic",
+      thumbnail: "https://cdn/a.jpg",
+      handle: "nicvandewetering"
+    });
+  });
+
+  it("still connects when every profile lookup fails", async () => {
+    mockFetchRoutes([
+      {
+        match: "/v2/oauth/token/",
+        respond: () => jsonResponse({ access_token: "tt-at", refresh_token: "tt-refresh" })
+      },
+      { match: "/v2/user/info/", respond: () => jsonResponse({ error: "nope" }, { status: 403 }) },
+      {
+        match: "/v2/post/publish/creator_info/query/",
+        respond: () => jsonResponse({ error: "nope" }, { status: 403 })
+      }
     ]);
     const { tiktokAuthUrl, exchangeTiktokCode, tiktokCreatorInfo } = await load();
     await tiktokAuthUrl(REDIRECT);

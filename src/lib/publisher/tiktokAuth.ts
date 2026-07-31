@@ -24,7 +24,8 @@ import { getCachedToken, setCachedToken } from "@/lib/publisher/tokens";
 
 const AUTH_URL = "https://www.tiktok.com/v2/auth/authorize/";
 const TOKEN_URL = "https://open.tiktokapis.com/v2/oauth/token/";
-const USER_URL = "https://open.tiktokapis.com/v2/user/info/?fields=display_name,avatar_url";
+const USER_URL = "https://open.tiktokapis.com/v2/user/info/?fields=display_name,avatar_url,username";
+const CREATOR_INFO_URL = "https://open.tiktokapis.com/v2/post/publish/creator_info/query/";
 // video.upload puts a draft in the creator's inbox; video.publish is the
 // Direct Post scope the adapter actually uses. user.info.basic is what the
 // "Connected as …" badge reads.
@@ -34,7 +35,16 @@ export const TIKTOK_REFRESH_TOKEN_CACHE_KEY = "tiktok.refreshToken";
 export const TIKTOK_CREATOR_CACHE_KEY = "tiktok.creator";
 const VERIFIER_CACHE_KEY = "tiktok.codeVerifier";
 
-export type TiktokCreatorInfo = { title: string; thumbnail: string | null };
+export type TiktokCreatorInfo = { title: string; thumbnail: string | null; handle: string | null };
+
+/**
+ * Signed in and refreshing, but TikTok's audit gate still routes clips to the
+ * creator inbox instead of posting them — see the adapter for why forcing
+ * SELF_ONLY is not enough to get around it.
+ */
+export const TIKTOK_AUDIT_BLOCKER =
+  "Connected, but the TikTok app is still unaudited — clips land in the creator inbox to finish in the app " +
+  "instead of posting. Set TIKTOK_AUDITED=true once approved.";
 
 /**
  * The redirect URI TikTok sends the browser back to. It must match the value
@@ -118,24 +128,91 @@ export async function exchangeTiktokCode(code: string, redirectUri: string): Pro
   }
 }
 
-async function fetchCreatorInfo(accessToken: string): Promise<TiktokCreatorInfo | null> {
-  const data = await fetchJson<{ data?: { user?: { display_name?: string; avatar_url?: string } } }>(USER_URL, {
-    label: "TikTok user lookup",
-    method: "GET",
-    headers: { Authorization: `Bearer ${accessToken}` }
-  });
+async function fetchUserInfo(accessToken: string): Promise<TiktokCreatorInfo | null> {
+  const data = await fetchJson<{ data?: { user?: { display_name?: string; avatar_url?: string; username?: string } } }>(
+    USER_URL,
+    { label: "TikTok user lookup", method: "GET", headers: { Authorization: `Bearer ${accessToken}` } }
+  );
   const user = data.data?.user;
   if (!user?.display_name) return null;
-  return { title: user.display_name, thumbnail: user.avatar_url ?? null };
+  return { title: user.display_name, thumbnail: user.avatar_url ?? null, handle: user.username ?? null };
 }
 
-/** The connected account's display name and avatar for the UI, when known. */
+/**
+ * The same profile read off the Content Posting API's creator query. It is
+ * covered by video.publish rather than user.info.basic, so it still answers
+ * for a grant that never got the user-info scope — and it is the only one of
+ * the two that returns the @handle.
+ */
+async function fetchPostingCreatorInfo(accessToken: string): Promise<TiktokCreatorInfo | null> {
+  const data = await fetchJson<{
+    data?: { creator_nickname?: string; creator_username?: string; creator_avatar_url?: string };
+  }>(CREATOR_INFO_URL, {
+    label: "TikTok creator lookup",
+    headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json; charset=UTF-8" }
+  });
+  const creator = data.data;
+  const handle = creator?.creator_username ?? null;
+  const title = creator?.creator_nickname ?? (handle ? `@${handle}` : null);
+  if (!title) return null;
+  return { title, thumbnail: creator?.creator_avatar_url ?? null, handle };
+}
+
+async function fetchCreatorInfo(accessToken: string): Promise<TiktokCreatorInfo | null> {
+  try {
+    const info = await fetchUserInfo(accessToken);
+    if (info?.handle) return info;
+    const posting = await fetchPostingCreatorInfo(accessToken);
+    return posting ?? info;
+  } catch {
+    return fetchPostingCreatorInfo(accessToken).catch(() => null);
+  }
+}
+
+/** A fresh access token from the persisted refresh token, or null. */
+async function accessTokenFromRefresh(): Promise<string | null> {
+  const { tiktok } = publisherConfig();
+  const refreshToken = (await getCachedToken(TIKTOK_REFRESH_TOKEN_CACHE_KEY)) ?? tiktok.refreshToken;
+  if (!tiktok.clientKey || !tiktok.clientSecret || !refreshToken) return null;
+  const data = await fetchJson<{ access_token?: string; refresh_token?: string }>(TOKEN_URL, {
+    label: "TikTok token refresh",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({
+      client_key: tiktok.clientKey,
+      client_secret: tiktok.clientSecret,
+      grant_type: "refresh_token",
+      refresh_token: refreshToken
+    })
+  }).catch(() => null);
+  // TikTok rotates the refresh token on use; dropping the new one strands the
+  // connection until someone reconnects by hand.
+  if (data?.refresh_token && data.refresh_token !== refreshToken) {
+    await setCachedToken(TIKTOK_REFRESH_TOKEN_CACHE_KEY, data.refresh_token);
+  }
+  return data?.access_token ?? null;
+}
+
+// One lookup per process for a connection cached before handles were read.
+let creatorRefetched = false;
+
+/** The connected account's display name, @handle and avatar, when known. */
 export async function tiktokCreatorInfo(): Promise<TiktokCreatorInfo | null> {
   const cached = await getCachedToken(TIKTOK_CREATOR_CACHE_KEY);
-  if (!cached) return null;
-  try {
-    return JSON.parse(cached) as TiktokCreatorInfo;
-  } catch {
-    return null;
+  let stored: TiktokCreatorInfo | null = null;
+  if (cached) {
+    try {
+      stored = JSON.parse(cached) as TiktokCreatorInfo;
+    } catch {
+      stored = null;
+    }
   }
+  if (stored?.handle) return stored;
+  if (creatorRefetched) return stored;
+  creatorRefetched = true;
+  const accessToken = await accessTokenFromRefresh();
+  if (!accessToken) return stored;
+  const fresh = await fetchCreatorInfo(accessToken);
+  if (!fresh) return stored;
+  await setCachedToken(TIKTOK_CREATOR_CACHE_KEY, JSON.stringify(fresh));
+  return fresh;
 }
