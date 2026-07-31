@@ -3,10 +3,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { windowSegments } from "@/lib/clipping/captions";
+import { loadJobCaptions } from "@/lib/clipping/captions-client";
 import { leadingSilenceSec } from "@/lib/clipping/editor";
 import { hasEditsBeyondAutoRender, renderSignature } from "@/lib/clipping/export-signature";
 import type { ClipCandidate, ClipJob } from "@/lib/clipping/types";
-import type { ClipProject } from "@/types/domain";
+import type { CaptionSegment, ClipProject } from "@/types/domain";
 import { placeChannelVideos, type ChannelPlacement } from "@/lib/publisher/channelPlacement";
 import type { ChannelSchedule, ChannelVideo } from "@/lib/publisher/channelVideos";
 import type { ScheduleSlot } from "@/lib/publisher/slots";
@@ -94,6 +95,9 @@ export type ReadyClip = {
    */
   masterFile?: string;
 };
+
+/** Stable empty transcript, so a job without captions doesn't rebuild its clips. */
+const NO_CAPTIONS: CaptionSegment[] = [];
 
 /** Resolve a milliseconds delay without pulling in a timer library. */
 function delay(ms: number): Promise<void> {
@@ -374,6 +378,25 @@ export function useUploadingCenter(clipProjects: ClipProject[] = []) {
     [activeJobId, jobsWithClips]
   );
 
+  // The job list carries no transcripts — only the tab actually on screen
+  // needs one, so it is fetched per active job rather than for all fifty.
+  // Kept with the id they were loaded for, so switching tabs can never read the
+  // previous job's transcript over the new job's clips.
+  const [loadedCaptions, setLoadedCaptions] = useState<{ jobId: string; captions: CaptionSegment[] } | null>(null);
+  const captionsJobId = activeJob?.id ?? null;
+  useEffect(() => {
+    if (!captionsJobId) return;
+    let cancelled = false;
+    void loadJobCaptions(captionsJobId).then((captions) => {
+      if (!cancelled) setLoadedCaptions({ jobId: captionsJobId, captions });
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [captionsJobId]);
+  const activeCaptions =
+    loadedCaptions && loadedCaptions.jobId === captionsJobId ? loadedCaptions.captions : NO_CAPTIONS;
+
   const readyClips = useMemo<ReadyClip[]>(() => {
     if (!activeJob) return [];
     const projectsForJob = clipProjects.filter((project) => project.jobId === activeJob.id);
@@ -390,7 +413,7 @@ export function useUploadingCenter(clipProjects: ClipProject[] = []) {
       // where the user set its start.
       const startSec = clip.editedFile
         ? 0
-        : leadingSilenceSec(windowSegments(activeJob.sourceCaptions ?? [], clip.start, clip.end));
+        : leadingSilenceSec(windowSegments(activeCaptions, clip.start, clip.end));
       return [
         {
           key: `${activeJob.id}/${file}`,
@@ -410,7 +433,7 @@ export function useUploadingCenter(clipProjects: ClipProject[] = []) {
         }
       ];
     });
-  }, [activeJob, clipProjects]);
+  }, [activeCaptions, activeJob, clipProjects]);
 
   /** Queue items that came from a given clip card. */
   const itemsForClip = useCallback(
@@ -1033,6 +1056,7 @@ export function useUploadingCenter(clipProjects: ClipProject[] = []) {
     removeAccount,
     jobsWithClips,
     activeJob,
+    activeCaptions,
     setActiveJobId,
     readyClips,
     itemsForClip,

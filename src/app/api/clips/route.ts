@@ -1,12 +1,19 @@
 import { NextRequest, NextResponse } from "next/server";
 import { FFMPEG_MISSING_MESSAGE, resolveFfmpeg, runFfmpeg } from "@/lib/clipping/ffmpeg";
-import { createJobFromUpload, createJobFromUrl, listJobs } from "@/lib/clipping/jobs";
+import { createJobFromUpload, createJobFromUrl, jobWithoutCaptions, listJobs } from "@/lib/clipping/jobs";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
+/**
+ * Every job, WITHOUT its source captions. A stream's word-level transcript is
+ * ~98% of a job's weight, and several pages poll this list every few seconds —
+ * shipping the transcripts here served nobody and blocked the server for the
+ * whole app. A page that needs one job's captions asks
+ * `/api/clips/<jobId>/captions` for that job alone.
+ */
 export async function GET() {
-  return NextResponse.json({ jobs: await listJobs() });
+  return NextResponse.json({ jobs: (await listJobs()).map(jobWithoutCaptions) });
 }
 
 export async function POST(request: NextRequest) {
