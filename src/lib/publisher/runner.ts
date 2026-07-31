@@ -7,10 +7,11 @@ import { instagramAdapter } from "@/lib/publisher/adapters/instagram";
 import { tiktokAdapter } from "@/lib/publisher/adapters/tiktok";
 import { youtubeAdapter } from "@/lib/publisher/adapters/youtube";
 import { type BufferOutcome, syncDueToBuffer, validateBufferAuth } from "@/lib/publisher/buffer";
-import { bufferConfigured, publisherConfig, type PublisherConfig } from "@/lib/publisher/config";
+import { bufferConfigured, configuredPlatforms, publisherConfig, type PublisherConfig } from "@/lib/publisher/config";
 import { mediaHost } from "@/lib/publisher/hosting";
+import { describeMirrorPlan, planMirror } from "@/lib/publisher/mirror";
 import { PermanentError, StillProcessingError, isTransient } from "@/lib/publisher/http";
-import { PublishQueue, isTerminalStatus, publishQueue } from "@/lib/publisher/queue";
+import { PublishQueue, isTerminalStatus, newPlatformState, publishQueue } from "@/lib/publisher/queue";
 import { formatInTimezone } from "@/lib/publisher/time";
 import type { PlatformAdapter, PlatformId, PlatformState, PostResult, PublishInput, PublishPlan, QueueItem } from "@/lib/publisher/types";
 
@@ -194,6 +195,37 @@ export async function runDue(now: Date = new Date(), options: RunDueOptions = {}
       log(`[publisher]   buffer pass failed: ${error instanceof Error ? error.message : String(error)}`);
     }
   };
+
+  // Keep every platform on one schedule before deciding what is due, so a clip
+  // that was only ever scheduled on YouTube is already on Instagram/Facebook by
+  // the time its slot comes round. Contained: a failure here must not stop the
+  // posts that are already queued from going out.
+  if (config.mirror.enabled && !options.itemId) {
+    try {
+      const configured = new Set(configuredPlatforms(config));
+      const targets = config.mirror.targets.filter((platform) => configured.has(platform));
+      if (targets.length > 0) {
+        const plan = planMirror(await queue.list(), {
+          lead: config.mirror.lead,
+          targets,
+          mode: config.mirror.mode,
+          now
+        });
+        for (const skip of plan.skipped) log(`[publisher]   mirror skipped ${skip.itemId}: ${skip.reason}`);
+        if (plan.additions.length > 0) {
+          for (const add of plan.additions) {
+            const item = await queue.get(add.itemId);
+            if (!item || item.platforms[add.platform]) continue;
+            item.platforms[add.platform] = newPlatformState();
+            await queue.add(item);
+          }
+          log(`[publisher] mirrored ${config.mirror.lead} → ${describeMirrorPlan(plan)}`);
+        }
+      }
+    } catch (error) {
+      log(`[publisher]   mirror pass failed: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
 
   let due = await queue.dueItems(now);
   if (options.itemId) {

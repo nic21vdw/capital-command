@@ -55,6 +55,65 @@ function setup() {
   return { config, queue, logs, log };
 }
 
+describe("runDue — one schedule for every platform", () => {
+  // The point of the mirror pass: a clip only ever scheduled on YouTube is
+  // already on Instagram and Facebook before its slot arrives, without anyone
+  // keeping a second calendar.
+  it("puts the lead platform's upcoming slots onto the other platforms", async () => {
+    const { queue, log } = setup();
+    const config = testConfig({
+      platforms: ["youtube", "instagram", "facebook"],
+      mirror: { enabled: true, lead: "youtube", targets: ["instagram", "facebook"], mode: "match" }
+    });
+    const future = testItem({
+      id: "future",
+      clipPath,
+      publishAt: "2026-07-20T15:00:00.000Z",
+      visibility: "public",
+      platformIds: ["youtube"]
+    });
+    await queue.add(future);
+
+    await runDue(DUE, { config, queue, log, adapters: {} });
+
+    const stored = await queue.get("future");
+    expect(Object.keys(stored!.platforms).sort()).toEqual(["facebook", "instagram", "youtube"]);
+    expect(stored!.platforms.instagram?.status).toBe("pending");
+  });
+
+  it("leaves slots that already passed alone", async () => {
+    const { queue, log } = setup();
+    const config = testConfig({
+      platforms: ["youtube", "instagram"],
+      mirror: { enabled: true, lead: "youtube", targets: ["instagram"], mode: "match" }
+    });
+    const past = testItem({
+      id: "past",
+      clipPath,
+      publishAt: "2026-07-01T15:00:00.000Z",
+      visibility: "public",
+      platformIds: ["youtube"]
+    });
+    await queue.add(past);
+
+    await runDue(DUE, { config, queue, log, adapters: { youtube: fakeAdapter("youtube", async () => ({ status: "scheduled" })) } });
+
+    expect(Object.keys((await queue.get("past"))!.platforms)).toEqual(["youtube"]);
+  });
+
+  it("does nothing when the mirror is switched off", async () => {
+    const { queue, log } = setup();
+    const config = testConfig({ platforms: ["youtube", "instagram"] });
+    await queue.add(
+      testItem({ id: "future", clipPath, publishAt: "2026-07-20T15:00:00.000Z", visibility: "public", platformIds: ["youtube"] })
+    );
+
+    await runDue(DUE, { config, queue, log, adapters: {} });
+
+    expect(Object.keys((await queue.get("future"))!.platforms)).toEqual(["youtube"]);
+  });
+});
+
 describe("runDue", () => {
   it("publishes due platforms; one platform's failure does not block the others", async () => {
     const { config, queue, log } = setup();

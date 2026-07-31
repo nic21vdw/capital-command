@@ -35,6 +35,9 @@ export function testConfig(overrides: Partial<PublisherConfig> = {}): PublisherC
     maxAttempts: 3,
     backoffBaseMinutes: 2,
     backoffCapMinutes: 120,
+    // Off by default in tests: a suite about one platform's publish path
+    // should not have the runner quietly add two more platforms to its items.
+    mirror: { enabled: false, lead: "youtube", targets: ["instagram", "facebook"], mode: "match" },
     claimTimeoutMinutes: 15,
     youtube: { clientId: "yt-id", clientSecret: "yt-secret", refreshToken: "yt-refresh", categoryId: null, dailyUploadBudget: 6 },
     instagram: {

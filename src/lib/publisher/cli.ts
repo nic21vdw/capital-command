@@ -313,6 +313,124 @@ async function main() {
     return;
   }
 
+  // mirror [--mode match|shuffle] [--targets a,b] [--lead youtube] [--seed n] [--write]
+  //
+  // Copies the lead platform's upcoming schedule onto the others. Prints the
+  // plan and changes nothing unless --write is passed.
+  if (command === "mirror") {
+    const { planMirror, describeMirrorPlan } = await import("@/lib/publisher/mirror");
+    const { newPlatformState } = await import("@/lib/publisher/queue");
+    const queue = publishQueue(config);
+    const items = await queue.list();
+
+    const lead = (flagStr(args, "lead") ?? "youtube") as PlatformId;
+    const targets = (flagStr(args, "targets") ?? "instagram,facebook")
+      .split(",")
+      .map((t) => t.trim().toLowerCase())
+      .filter((t): t is PlatformId => (ALL_PLATFORMS as string[]).includes(t));
+    const mode = flagStr(args, "mode") === "shuffle" ? "shuffle" : "match";
+    const seedRaw = Number(flagStr(args, "seed"));
+    const seed = Number.isFinite(seedRaw) && seedRaw > 0 ? seedRaw : 1;
+
+    const plan = planMirror(items, { lead, targets, mode, now: new Date(), seed });
+    console.log(`[publisher] mirror ${lead} → ${targets.join(", ")} (${mode}): ${describeMirrorPlan(plan)}`);
+    for (const skip of plan.skipped) console.log(`[publisher]   skipped ${skip.itemId}: ${skip.reason}`);
+
+    if (mode === "shuffle" && plan.newItems.length > 0) {
+      const byId = new Map(items.map((i) => [i.id, i]));
+      for (const entry of plan.newItems) {
+        const source = byId.get(entry.sourceItemId);
+        console.log(
+          `[publisher]   ${entry.platform} ${formatInTimezone(new Date(entry.publishAt), config.timezone)} → ${source?.title ?? entry.sourceItemId}`
+        );
+      }
+    }
+
+    if (!args.flags.has("write")) {
+      console.log("[publisher] dry run — re-run with --write to apply.");
+      return;
+    }
+
+    const byId = new Map(items.map((i) => [i.id, i]));
+    for (const add of plan.additions) {
+      const item = byId.get(add.itemId);
+      if (item) item.platforms[add.platform] = newPlatformState();
+    }
+    for (const entry of plan.newItems) {
+      const source = byId.get(entry.sourceItemId);
+      if (!source) continue;
+      await queue.add({
+        ...source,
+        id: `${entry.platform.slice(0, 2)}-${entry.slotItemId}-${crypto.randomUUID().slice(0, 6)}`,
+        publishAt: entry.publishAt,
+        createdAt: new Date().toISOString(),
+        platforms: { [entry.platform]: newPlatformState() }
+      });
+    }
+    for (const add of plan.additions) {
+      const item = byId.get(add.itemId);
+      if (item) await queue.add(item);
+    }
+    console.log(`[publisher] wrote ${plan.additions.length + plan.newItems.length} scheduled posts.`);
+    return;
+  }
+
+  // retitle [--write] [--push] — rewrite scheduled clips' titles through the
+  // channel style guide, and optionally push them to videos already on YouTube.
+  if (command === "retitle") {
+    const { collectRetitleTargets, writeTitles } = await import("@/lib/publisher/retitle");
+    const { readFile } = await import("node:fs/promises");
+    const queue = publishQueue(config);
+    const items = await queue.list();
+    const now = Date.now();
+    const upcoming = items.filter((i) => new Date(i.publishAt).getTime() > now);
+
+    const jobs = JSON.parse(await readFile(path.join(process.cwd(), "data", "clips", "jobs.json"), "utf8"));
+    // Clip Editor exports resolve through their project, not their file name.
+    const appData = JSON.parse(
+      await readFile(path.join(process.cwd(), "data", "capital-command.json"), "utf8").catch(() => "{}")
+    );
+    const { targets, unresolved } = collectRetitleTargets(upcoming, jobs, appData.clipProjects ?? []);
+    console.log(`[publisher] ${targets.length} upcoming clips have a transcript; ${unresolved.length} do not.`);
+    for (const miss of unresolved) console.log(`[publisher]   keeping title on ${miss.itemId}: ${miss.reason}`);
+
+    const titles = await writeTitles(targets, jobs);
+    if (titles.size === 0) {
+      console.error("[publisher] no titles came back — leaving every title as it is.");
+      process.exitCode = 1;
+      return;
+    }
+
+    for (const target of targets) {
+      const title = titles.get(target.item.id);
+      if (!title || title === target.item.title) continue;
+      console.log(`[publisher]   ${target.item.title}\n[publisher]     → ${title}`);
+      if (args.flags.has("write")) {
+        target.item.title = title;
+        await queue.add(target.item);
+      }
+    }
+
+    if (args.flags.has("write") && args.flags.has("push")) {
+      const { updateYoutubeVideoTitle } = await import("@/lib/publisher/adapters/youtube");
+      let pushed = 0;
+      for (const target of targets) {
+        const videoId = target.item.platforms.youtube?.postId;
+        const title = titles.get(target.item.id);
+        if (!videoId || !title) continue;
+        try {
+          await updateYoutubeVideoTitle(videoId, title, target.item.accountId);
+          pushed += 1;
+        } catch (error) {
+          console.error(`[publisher]   YouTube ${videoId} not renamed: ${error instanceof Error ? error.message : String(error)}`);
+        }
+      }
+      console.log(`[publisher] renamed ${pushed} videos already on YouTube.`);
+    }
+    if (!args.flags.has("write")) console.log("[publisher] dry run — re-run with --write to apply (add --push to rename on YouTube).");
+    return;
+  }
+
   if (command === "remove") {
     const id = args.positional[1];
     if (!id) {
@@ -333,6 +451,8 @@ async function main() {
       '  enqueue --clip <path> --at <time>    add a finished clip to the queue',
       "  list                                 show the queue and per-platform status",
       "  buffer [sync|profiles|check]         schedule due posts into Buffer / inspect the connection",
+      "  mirror [--mode shuffle] [--write]    copy YouTube's upcoming schedule onto Instagram/Facebook",
+      "  retitle [--write] [--push]           rewrite upcoming clip titles via the channel style guide",
       "  instagram connect --token <t>        turn a Meta token into IG_USER_ID + IG_ACCESS_TOKEN (--write saves them)",
       "  instagram check                      confirm the saved Instagram credentials still work",
       "  remove <itemId>                      drop an item from the queue"
