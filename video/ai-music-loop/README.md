@@ -1,8 +1,8 @@
-# AI Music Sessions loop
+# House Sessions loop
 
-Seamless 30-second, 1080p ambient visual for AI-generated stream music playlists.
+Seamless 30-second, 1080p EDM / house compilation visual for AI stream music playlists.
 
-Designed to play on loop behind a long YouTube upload of live-stream AI music — soft Dracula orbs, reactive-style wave rings, equalizer bars, and a simple title lockup.
+Purple-magenta club gradient, laser beams, perspective floor grid, circular spectrum rings, and a kick-synced equalizer — the classic YouTube house mix look.
 
 ## Preview
 
@@ -17,4 +17,4 @@ npm run preview
 npm run render
 ```
 
-Output: `out/ai-music-loop.mp4` (1920×1080, 30 fps, 30 s, seamless loop).
+Output: `out/ai-music-loop.mp4` (1920×1080, 30 fps, 30 s, seamless loop at ~124 BPM).

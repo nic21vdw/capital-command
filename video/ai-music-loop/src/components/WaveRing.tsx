@@ -1,9 +1,8 @@
 import React from "react";
 import { useCurrentFrame, useVideoConfig } from "remotion";
-import { theme } from "../theme";
+import { BEAT_FRAMES, theme } from "../theme";
 
-const RING_COUNT = 3;
-const SAMPLES = 96;
+const SAMPLES = 120;
 
 function ringPath(
   cx: number,
@@ -20,8 +19,8 @@ function ringPath(
     let wave = 0;
     for (let h = 1; h <= harmonics; h++) {
       wave +=
-        Math.sin(a * (3 + h) + t * (0.8 + h * 0.35) + phase) *
-        (amp / (h * 1.4));
+        Math.sin(a * (4 + h * 2) + t * (1.2 + h * 0.4) + phase) *
+        (amp / (h * 1.15));
     }
     const r = baseR + wave;
     const x = cx + Math.cos(a) * r;
@@ -35,24 +34,18 @@ export const WaveRing: React.FC = () => {
   const frame = useCurrentFrame();
   const { durationInFrames, width, height } = useVideoConfig();
   const t = (frame / durationInFrames) * Math.PI * 2;
+  const beat = 0.5 + 0.5 * Math.sin((frame / BEAT_FRAMES) * Math.PI * 2);
   const cx = width / 2;
-  const cy = height / 2 - 20;
+  const cy = height * 0.46;
 
-  const rings = Array.from({ length: RING_COUNT }, (_, i) => {
-    const baseR = 150 + i * 55;
-    const amp = 10 + i * 6 + 8 * (0.5 + 0.5 * Math.sin(t * 1.2 + i));
-    const opacity = 0.55 - i * 0.12;
-    const colors = [theme.accent, theme.pink, theme.cyan];
-    return {
-      d: ringPath(cx, cy, baseR, amp, t, i * 1.7, 3 + i),
-      color: colors[i % colors.length],
-      opacity,
-      strokeWidth: 2.2 - i * 0.3,
-    };
-  });
+  const rings = [
+    { base: 120, amp: 18 + beat * 22, color: theme.pink, op: 0.95, w: 3.5, h: 4 },
+    { base: 175, amp: 14 + beat * 18, color: theme.magenta, op: 0.75, w: 2.8, h: 3 },
+    { base: 235, amp: 12 + beat * 14, color: theme.violet, op: 0.55, w: 2.2, h: 3 },
+    { base: 300, amp: 10 + beat * 12, color: theme.cyan, op: 0.35, w: 1.6, h: 2 },
+  ];
 
-  const corePulse = 0.55 + 0.25 * (0.5 + 0.5 * Math.sin(t * 2));
-  const coreScale = 0.94 + 0.08 * (0.5 + 0.5 * Math.sin(t * 1.5));
+  const coreScale = 0.9 + beat * 0.22;
 
   return (
     <svg
@@ -62,47 +55,54 @@ export const WaveRing: React.FC = () => {
     >
       <defs>
         <radialGradient id="coreGlow" cx="50%" cy="50%" r="50%">
-          <stop offset="0%" stopColor={theme.accent} stopOpacity="0.55" />
-          <stop offset="45%" stopColor={theme.pink} stopOpacity="0.18" />
-          <stop offset="100%" stopColor={theme.bg} stopOpacity="0" />
+          <stop offset="0%" stopColor={theme.white} stopOpacity="0.9" />
+          <stop offset="18%" stopColor={theme.pink} stopOpacity="0.7" />
+          <stop offset="48%" stopColor={theme.purple} stopOpacity="0.35" />
+          <stop offset="100%" stopColor={theme.bgDeep} stopOpacity="0" />
         </radialGradient>
+        <filter id="glow">
+          <feGaussianBlur stdDeviation="4" result="blur" />
+          <feMerge>
+            <feMergeNode in="blur" />
+            <feMergeNode in="SourceGraphic" />
+          </feMerge>
+        </filter>
       </defs>
 
       <circle
         cx={cx}
         cy={cy}
-        r={210 * coreScale}
+        r={260 * coreScale}
         fill="url(#coreGlow)"
-        opacity={corePulse}
+        opacity={0.55 + beat * 0.3}
       />
 
       {rings.map((ring, i) => (
         <path
           key={i}
-          d={ring.d}
+          d={ringPath(cx, cy, ring.base, ring.amp, t, i * 1.3, ring.h)}
           fill="none"
           stroke={ring.color}
-          strokeWidth={ring.strokeWidth}
-          opacity={ring.opacity}
+          strokeWidth={ring.w}
+          opacity={ring.op}
           strokeLinejoin="round"
+          filter="url(#glow)"
         />
       ))}
 
       <circle
         cx={cx}
         cy={cy}
-        r={42 + 6 * Math.sin(t * 2)}
-        fill="none"
-        stroke={theme.text}
-        strokeWidth={1.5}
-        opacity={0.35}
+        r={28 + beat * 10}
+        fill={theme.white}
+        opacity={0.85}
       />
       <circle
         cx={cx}
         cy={cy}
-        r={8}
+        r={14 + beat * 6}
         fill={theme.pink}
-        opacity={0.85 + 0.15 * Math.sin(t * 3)}
+        opacity={1}
       />
     </svg>
   );
