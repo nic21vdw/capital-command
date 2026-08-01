@@ -5,6 +5,7 @@ import { Loader2, RotateCcw, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import { COLLAPSED_ROWS, foldRows } from "@/lib/pipeline/review-fold";
 import type { PipelinePost, PipelineReview } from "@/lib/pipeline/types";
 import { cn } from "@/lib/utils";
 
@@ -43,6 +44,38 @@ function SectionHeading({ children, count }: { children: React.ReactNode; count?
       <h4 className="text-[11px] font-medium uppercase tracking-[0.14em] text-[var(--muted-foreground)]">{children}</h4>
       {count ? <span className="text-[11px] text-[var(--muted-foreground)]">{count}</span> : null}
     </div>
+  );
+}
+
+/**
+ * A list that folds once it is long enough to bury the Approve button. The rule
+ * itself lives in `review-fold.ts` — see there for why touched rows stay up.
+ */
+function SectionList<T extends { id: string }>({
+  items,
+  touched,
+  render
+}: {
+  items: T[];
+  touched: (item: T) => boolean;
+  render: (item: T) => React.ReactNode;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const visible = foldRows(items, expanded, touched);
+  const hidden = items.length - visible.length;
+  return (
+    <>
+      {visible.map(render)}
+      {(hidden > 0 || expanded) && items.length > COLLAPSED_ROWS && (
+        <button
+          type="button"
+          onClick={() => setExpanded((open) => !open)}
+          className="text-xs font-medium text-[var(--accent)] transition hover:opacity-80"
+        >
+          {expanded ? "Show fewer" : `Show all ${items.length}`}
+        </button>
+      )}
+    </>
   );
 }
 
@@ -126,7 +159,10 @@ export function ReviewCard({
           <SectionHeading count={`${keptSegments} of ${review.segments.length} kept`}>
             Topic segments — each becomes its own long-form video
           </SectionHeading>
-          {review.segments.map((segment) => (
+          <SectionList
+            items={review.segments}
+            touched={(segment) => Boolean(dropped[segment.id] || titles[segment.id] !== undefined)}
+            render={(segment) => (
             <div
               key={segment.id}
               className={cn(
@@ -149,7 +185,8 @@ export function ReviewCard({
               </div>
               <DropButton dropped={Boolean(dropped[segment.id])} onToggle={() => toggleDrop(segment.id)} label="segment" />
             </div>
-          ))}
+            )}
+          />
         </div>
       )}
 
@@ -158,7 +195,10 @@ export function ReviewCard({
           <SectionHeading count={`${keptClips} of ${review.clips.length} kept`}>
             Short-form clips — the moments about to be rendered
           </SectionHeading>
-          {review.clips.map((clip) => (
+          <SectionList
+            items={review.clips}
+            touched={(clip) => Boolean(dropped[clip.id] || titles[clip.id] !== undefined)}
+            render={(clip) => (
             <div
               key={clip.id}
               className={cn(
@@ -181,7 +221,8 @@ export function ReviewCard({
               </div>
               <DropButton dropped={Boolean(dropped[clip.id])} onToggle={() => toggleDrop(clip.id)} label="clip" />
             </div>
-          ))}
+            )}
+          />
         </div>
       )}
 
@@ -206,7 +247,10 @@ export function ReviewCard({
           <SectionHeading count={`${review.posts.length - submission.dropPosts.length} of ${review.posts.length} kept`}>
             Text posts
           </SectionHeading>
-          {review.posts.map((post) => (
+          <SectionList
+            items={review.posts}
+            touched={(post) => Boolean(dropped[post.id] || texts[post.id] !== undefined)}
+            render={(post) => (
             <div
               key={post.id}
               className={cn(
@@ -226,7 +270,8 @@ export function ReviewCard({
               />
               <DropButton dropped={Boolean(dropped[post.id])} onToggle={() => toggleDrop(post.id)} label="post" />
             </div>
-          ))}
+            )}
+          />
         </div>
       )}
 
