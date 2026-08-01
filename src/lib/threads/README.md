@@ -73,7 +73,45 @@ A day with nothing on the queue at all is not "behind", it is unplanned — that
 belongs to step 1, and catch-up leaves it alone. Switch the whole thing off with
 `THREADS_CATCHUP=false`.
 
-## The machine has to stay awake
+## Threads cannot schedule, so something must be online
+
+Worth stating plainly, because it is the first idea everyone has: **the Threads
+API has no scheduled publishing.** There is no `scheduled_publish_time`, no
+future-dated container — a post exists the moment `threads_publish` is called.
+Handing Threads a day's worth of posts in the morning and walking away is not
+possible, and no amount of work on this module will make it so. Every product
+that offers "Threads scheduling" is holding your content on its own servers and
+calling the API at the minute.
+
+That leaves exactly three ways to run a day, and it is worth knowing which one
+you are on:
+
+1. **This machine, during a window.** Slots are confined to waking hours
+   (`THREADS_DAY_START` / `THREADS_DAY_END`) so the host can be switched off
+   overnight. Free, and what this repo does today.
+2. **This machine, round the clock.** Leave the window unset and keep the host
+   awake — the fullest reach, at the cost of an always-on desktop.
+3. **Hand off to something always-on.** `src/lib/publisher/buffer.ts` already
+   does this for the publish queue: push a post once with a future
+   `scheduled_at` and let Buffer fire it. Wiring the Threads autopilot into that
+   is the only way to get overnight posts with the host switched off. Buffer's
+   free tier holds 10 queued posts per channel, so a 24-post day needs a paid
+   plan.
+
+## The posting window and the end of the day
+
+With a window configured, it is not only the pack's slots that respect it —
+`endOfPostingDay` makes the start-now layout (and so the automatic catch-up)
+stop at the window's end rather than at midnight. Re-laying a missed morning
+across a 07:00-23:00 day must not park posts at 23:45, after the machine is
+switched off: they would never fire, and the day would report itself recovered
+when it wasn't.
+
+Only an **explicitly set** `THREADS_DAY_END` shortens the day. The default
+window ends at 23:20 purely so the last slot isn't pinned to midnight, and
+reading that as a curfew would quietly truncate every start-now batch.
+
+## Keeping the machine awake (round-the-clock only)
 
 Nothing local posts while Windows is asleep, and catch-up cannot rescue hours
 that have already gone — only the rest of the day once the machine wakes. A

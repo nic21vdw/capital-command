@@ -1,6 +1,7 @@
 import { localCalendarParts, zonedToUtc } from "@/lib/publisher/time";
 import { MIN_GAP_MINUTES, THREADS_TEXT_LIMIT, type ThreadsAccount, type ThreadsConfig } from "@/lib/threads/config";
 import type { ThreadsQueueItem } from "@/lib/threads/types";
+import { scheduleWindow } from "@/lib/x-posts/generator";
 import type { XDailyPack, XSuggestedPost } from "@/types/domain";
 
 /**
@@ -79,11 +80,45 @@ export type PlanBatchOutput = {
   gapMinutes?: number;
 };
 
-/** The instant the local day rolls over — the hard stop for a start-now batch. */
+/** The instant the local day rolls over. */
 export function endOfLocalDay(now: Date, timezone: string): Date {
   const { dateKey } = localCalendarParts(now, timezone);
   const [year, month, day] = dateKey.split("-").map(Number);
   return zonedToUtc(timezone, year, month, day + 1, 0, 0, 0);
+}
+
+/**
+ * The hard stop for a start-now batch: the end of the posting window, or
+ * midnight when the window runs to the end of the day.
+ *
+ * Midnight alone is the wrong stop once the window is pulled back to waking
+ * hours. Re-laying a missed morning would otherwise spread posts to 23:45 —
+ * past the hour the machine gets switched off, so they would never fire, and
+ * the day would report itself as recovered when it wasn't.
+ */
+export function endOfPostingDay(now: Date, config: ThreadsConfig): Date {
+  const midnight = endOfLocalDay(now, config.timezone);
+  // Only an explicitly configured window shortens the day. The default window
+  // ends at 23:20 purely so the last slot isn't pinned to midnight, and reading
+  // that as a curfew would quietly truncate every start-now batch.
+  if (!process.env.THREADS_DAY_END?.trim()) return midnight;
+
+  const { start, span } = scheduleWindow();
+  const endMinutes = start + span;
+  if (endMinutes >= 24 * 60) return midnight;
+
+  const { dateKey } = localCalendarParts(now, config.timezone);
+  const [year, month, day] = dateKey.split("-").map(Number);
+  const windowEnd = zonedToUtc(
+    config.timezone,
+    year,
+    month,
+    day,
+    Math.floor(endMinutes / 60),
+    endMinutes % 60,
+    0
+  );
+  return windowEnd.getTime() < midnight.getTime() ? windowEnd : midnight;
 }
 
 /** Minutes between the pack's own slots, so a start-now batch keeps its rhythm. */
@@ -106,7 +141,7 @@ function packGapMinutes(pack: XDailyPack): number {
  */
 function startNowTimes(pack: XDailyPack, config: ThreadsConfig, now: Date, count: number, minGap: number) {
   const first = now.getTime() + FIRST_POST_DELAY_MINUTES * 60_000;
-  const endOfDay = endOfLocalDay(now, config.timezone).getTime();
+  const endOfDay = endOfPostingDay(now, config).getTime();
 
   const room = Math.max(0, endOfDay - first);
   const maxGap = count > 1 ? Math.floor(room / (count - 1) / 60_000) : DEFAULT_GAP_MINUTES;

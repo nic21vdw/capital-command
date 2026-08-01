@@ -116,6 +116,8 @@ afterEach(() => {
   delete process.env.THREADS_TIMEZONE;
   delete process.env.THREADS_PLAN_AHEAD_HOUR;
   delete process.env.THREADS_CATCHUP;
+  delete process.env.THREADS_DAY_START;
+  delete process.env.THREADS_DAY_END;
 });
 
 describe("planTomorrow", () => {
@@ -214,6 +216,23 @@ describe("catchUpToday", () => {
     const second = await catchUpToday({ now: localAt(18, 20), log: () => {} });
 
     expect(second).toBeNull();
+  });
+
+  it("stops at the end of the posting window, not midnight", async () => {
+    // The machine gets switched off at 23:00, so a post laid at 23:45 would
+    // never fire — and the day would report itself recovered when it wasn't.
+    process.env.THREADS_DAY_START = "07:00";
+    process.env.THREADS_DAY_END = "23:00";
+    const { catchUpToday } = await import("@/lib/threads/daily");
+    const now = localAt(18);
+    store.items = dayWith(localKey(now), [1, 2]);
+
+    await catchUpToday({ now, log: () => {} });
+
+    const pending = store.items.filter((item) => item.status === "pending");
+    expect(pending.length).toBeGreaterThan(0);
+    const latest = Math.max(...pending.map((item) => new Date(item.publishAt).getTime()));
+    expect(latest).toBeLessThanOrEqual(localAt(23).getTime());
   });
 
   it("stays out of the way when switched off", async () => {
