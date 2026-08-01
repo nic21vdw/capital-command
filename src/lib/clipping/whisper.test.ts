@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { clampWordsToDuration, offsetWordChunks, wordsFromChunks, type WordChunk } from "./whisper";
+import type { CaptionSegment } from "@/types/domain";
+import {
+  clampWordsToDuration,
+  offsetWordChunks,
+  transcriptQualityWarning,
+  wordsFromChunks,
+  type WordChunk
+} from "./whisper";
 
 describe("wordsFromChunks", () => {
   it("keeps words in spoken order even when a timestamp jumps backwards", () => {
@@ -182,5 +189,32 @@ describe("clampWordsToDuration", () => {
   it("leaves everything alone when the duration is unknown", () => {
     const words = [{ text: "a", start: 0, end: 1 }];
     expect(clampWordsToDuration(words, 0)).toEqual(words);
+  });
+});
+
+describe("transcriptQualityWarning", () => {
+  const line = (id: number, text: string): CaptionSegment => ({
+    id: `s${id}`,
+    start: id,
+    end: id + 1,
+    text,
+    enabled: true,
+    words: []
+  });
+
+  it("flags a transcript that loops one line, the signature of unreadable audio", () => {
+    const segments = Array.from({ length: 12 }, (_, i) =>
+      line(i, i % 2 === 0 ? "Thanks for watching!" : `real line ${i}`)
+    );
+    expect(transcriptQualityWarning(segments)).toMatch(/CLIPS_WHISPER_MODEL/);
+  });
+
+  it("leaves a normal transcript alone", () => {
+    const segments = Array.from({ length: 12 }, (_, i) => line(i, `a distinct sentence number ${i}`));
+    expect(transcriptQualityWarning(segments)).toBeNull();
+  });
+
+  it("says nothing about a transcript too short to judge", () => {
+    expect(transcriptQualityWarning([line(0, "same"), line(1, "same")])).toBeNull();
   });
 });

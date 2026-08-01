@@ -77,6 +77,13 @@ export type ClipCandidate = {
   previewFile?: string;
   /** Poster frame filename, so players paint a frame instantly instead of black. */
   posterFile?: string;
+  /**
+   * Region of the source frame the ready render zooms into, normalized 0-1.
+   * Unset means the whole frame, which is the shipped default — a screen-share
+   * clip is otherwise rendered at the source's own scale and an IDE or CAD
+   * panel is unreadable on a phone.
+   */
+  screenSource?: ClipLayoutRect;
   /** Legacy layout used by older rendered files. New files are neutral source masters. */
   layoutPreset?: ClipLayoutPreset;
   /** Legacy alternate compositions rendered from the same moment. */

@@ -11,6 +11,7 @@ import {
   remapClipOverlays
 } from "@/lib/clipping/segments";
 import { LAYOUT_MODE_PRESETS } from "@/lib/clipping/layouts";
+import { screenCropFilter } from "@/lib/clipping/render";
 import { reframeChain, stackedLayoutChain } from "@/lib/clipping/render";
 import { maybeAutoEnqueueExport } from "@/lib/publisher/enqueue";
 import { planSfxCues } from "@/lib/sfx/cues";
@@ -206,17 +207,21 @@ function centerBlurChain(
   h: number,
   scale = 1,
   offsetX = 0,
-  offsetY = 0
+  offsetY = 0,
+  screenSource?: RegionRect
 ): string {
   const cropScale = Math.max(1, scale);
   const sx = Math.max(-1, Math.min(1, offsetX));
   const sy = Math.max(-1, Math.min(1, offsetY));
   const x = `(W-w)/2+${sx.toFixed(4)}*(W-w)/2`;
   const y = `(H-h)/2+${sy.toFixed(4)}*(H-h)/2`;
+  // The screen crop is applied to the foreground only, before it is fitted —
+  // exactly what the Clip Generator's ready render does, so an edit exported
+  // here and the auto-rendered file frame the same region.
   return (
     `[${inLabel}]split=2[__bg][__fg];` +
     `[__bg]scale=${w}:${h}:force_original_aspect_ratio=increase,crop=${w}:${h},boxblur=24:4,eq=brightness=-0.1[__bgb];` +
-    `[__fg]scale=${w}:${h}:force_original_aspect_ratio=decrease,scale=iw*${cropScale}:ih*${cropScale},setsar=1[__fgs];` +
+    `[__fg]${screenCropFilter(screenSource)}scale=${w}:${h}:force_original_aspect_ratio=decrease,scale=iw*${cropScale}:ih*${cropScale},setsar=1[__fgs];` +
     `[__bgb][__fgs]overlay=x='${x}':y='${y}'[${outLabel}]`
   );
 }
@@ -240,7 +245,16 @@ function sourceCompositionChain(spec: ExportSpec, w: number, h: number): string 
   if (spec.compositionMode === "crop-fill") {
     return reframeChain("0:v", "v0", w, h, spec.reframe.scale, spec.reframe.offsetX, spec.reframe.offsetY);
   }
-  return centerBlurChain("0:v", "v0", w, h, spec.reframe.scale, spec.reframe.offsetX, spec.reframe.offsetY);
+  return centerBlurChain(
+    "0:v",
+    "v0",
+    w,
+    h,
+    spec.reframe.scale,
+    spec.reframe.offsetX,
+    spec.reframe.offsetY,
+    spec.screenSource
+  );
 }
 
 async function buildArgs(spec: ExportSpec, dir: string): Promise<{ args: string[]; outFile: string }> {
@@ -485,7 +499,8 @@ async function runExport(record: ExportRecord, spec: ExportSpec, signal: AbortSi
       audio: spec.audio,
       sfx: spec.sfx,
       settings: spec.settings
-    })
+    }),
+    spec.screenSource
   ).catch(() => undefined);
 
   record.progress = 100;

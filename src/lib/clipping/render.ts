@@ -200,7 +200,32 @@ export async function renderSourceClip(inputPath: string, outputPath: string, au
  * over a blurred, dimmed fill of itself so nothing is cropped away. The input
  * is already trimmed to the clip range, so the whole file is rendered.
  */
-export async function renderVertical(inputPath: string, outputPath: string, audioPresent: boolean) {
+/**
+ * Crops the foreground to a region of the source before it is scaled up.
+ *
+ * A 16:9 screen-share fills the 1080-wide output frame at 1080x607 — the whole
+ * width already — so nothing about the LAYOUT can make the content bigger. The
+ * only way to make an IDE or a CAD panel legible on a phone is to throw away
+ * source width, which is what this does. Returns "" for the whole frame, so an
+ * unset crop emits byte-identical filtergraphs to before.
+ */
+export function screenCropFilter(rect?: Rect): string {
+  if (!rect) return "";
+  const x = Math.min(0.95, Math.max(0, rect.x));
+  const y = Math.min(0.95, Math.max(0, rect.y));
+  const w = Math.min(1 - x, Math.max(0.05, rect.w));
+  const h = Math.min(1 - y, Math.max(0.05, rect.h));
+  if (x <= 0.001 && y <= 0.001 && w >= 0.999 && h >= 0.999) return "";
+  return `crop=iw*${w.toFixed(4)}:ih*${h.toFixed(4)}:iw*${x.toFixed(4)}:ih*${y.toFixed(4)},`;
+}
+
+export async function renderVertical(
+  inputPath: string,
+  outputPath: string,
+  audioPresent: boolean,
+  screenSource?: Rect
+) {
+  const crop = screenCropFilter(screenSource);
   await runFfmpeg([
     "-y",
     "-i",
@@ -208,9 +233,11 @@ export async function renderVertical(inputPath: string, outputPath: string, audi
     "-filter_complex",
     // Downscale the blurred background before blurring (cheaper) and use a
     // lighter boxblur — visually equivalent to the old 24:4 but much faster.
+    // The background is always the WHOLE frame: cropping it too would leave the
+    // fill reading as a zoomed slab rather than the scene behind the shot.
     "[0:v]split=2[bg][fg];" +
       "[bg]scale=540:960:force_original_aspect_ratio=increase,crop=540:960,boxblur=12:2,eq=brightness=-0.08,scale=1080:1920[bgb];" +
-      "[fg]scale=1080:-2[fgs];" +
+      `[fg]${crop}scale=1080:-2[fgs];` +
       "[bgb][fgs]overlay=(W-w)/2:(H-h)/2",
     "-c:v",
     "libx264",
@@ -241,12 +268,13 @@ export async function renderCaptionedVertical(
   inputPath: string,
   outputPath: string,
   assPath: string | null,
-  audioPresent: boolean
+  audioPresent: boolean,
+  screenSource?: Rect
 ) {
   const composition =
     "[0:v]split=2[bg][fg];" +
     "[bg]scale=540:960:force_original_aspect_ratio=increase,crop=540:960,boxblur=12:2,eq=brightness=-0.08,scale=1080:1920[bgb];" +
-    "[fg]scale=1080:-2[fgs];" +
+    `[fg]${screenCropFilter(screenSource)}scale=1080:-2[fgs];` +
     "[bgb][fgs]overlay=(W-w)/2:(H-h)/2,setsar=1[vc]";
   const filter = assPath
     ? `${composition};[vc]ass='${escapeFilterPath(assPath)}'[vout]`

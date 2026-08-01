@@ -242,6 +242,33 @@ export function wordsFromChunks(chunks: WordChunk[]): CaptionWord[] {
   return words;
 }
 
+/** Share of identical caption lines above which a transcript reads as hallucinated. */
+const DEGENERATE_REPEAT_SHARE = 0.4;
+
+/**
+ * Flags a transcript that is almost certainly not a transcript.
+ *
+ * The bundled model is `whisper-base.en` — English only. Fed Spanish, music, or
+ * room noise it does not fail; it loops a single plausible English line, and
+ * every downstream writer then treats that as what was said. Nothing else in
+ * the pipeline can tell the difference, so catching the repetition here is what
+ * stops a mistranscribed stream being published as if it were fine.
+ */
+export function transcriptQualityWarning(segments: CaptionSegment[]): string | null {
+  const lines = segments.map((segment) => segment.text.trim().toLowerCase()).filter(Boolean);
+  if (lines.length < 8) return null;
+  const counts = new Map<string, number>();
+  for (const line of lines) counts.set(line, (counts.get(line) ?? 0) + 1);
+  const commonest = Math.max(...counts.values());
+  if (commonest / lines.length < DEGENERATE_REPEAT_SHARE) return null;
+  return (
+    "The transcript repeats the same line over and over, which usually means the audio was music, noise, or a " +
+    "language the bundled English-only speech model cannot read. Captions, titles and posts written from it will " +
+    "be wrong. Set CLIPS_WHISPER_MODEL to a multilingual Whisper model (for example Xenova/whisper-base) and run " +
+    "the source again if it is not in English."
+  );
+}
+
 /**
  * Drops words stamped past the end of the media and trims the one that
  * straddles it. A word may legitimately end a hair after the probed duration

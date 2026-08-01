@@ -1,6 +1,12 @@
 import { describe, expect, it, vi } from "vitest";
 import { CLIP_LAYOUTS } from "./layouts";
-import { animatedReframeChain, reframeChain, renderCaptionedVertical, stackedLayoutChain } from "./render";
+import {
+  animatedReframeChain,
+  reframeChain,
+  renderCaptionedVertical,
+  screenCropFilter,
+  stackedLayoutChain
+} from "./render";
 
 const runFfmpeg = vi.fn((..._args: unknown[]): Promise<void> => Promise.resolve());
 vi.mock("./ffmpeg", () => ({ runFfmpeg: (...args: unknown[]) => runFfmpeg(...args) }));
@@ -144,5 +150,30 @@ describe("renderCaptionedVertical", () => {
     const args = runFfmpeg.mock.calls[0][0] as string[];
     expect(args).toContain("-an");
     expect(args).not.toContain("aac");
+  });
+});
+
+describe("screenCropFilter", () => {
+  it("emits nothing for the whole frame, so an unset crop renders exactly as before", () => {
+    expect(screenCropFilter(undefined)).toBe("");
+    expect(screenCropFilter({ x: 0, y: 0, w: 1, h: 1 })).toBe("");
+  });
+
+  it("crops to the requested region in source-relative terms", () => {
+    expect(screenCropFilter({ x: 0.38, y: 0.2, w: 0.45, h: 0.6 })).toBe(
+      "crop=iw*0.4500:ih*0.6000:iw*0.3800:ih*0.2000,"
+    );
+  });
+
+  it("clamps a region that runs past the edge of the frame", () => {
+    expect(screenCropFilter({ x: 0.8, y: 0, w: 0.5, h: 1 })).toBe(
+      "crop=iw*0.2000:ih*1.0000:iw*0.8000:ih*0.0000,"
+    );
+  });
+
+  it("refuses a degenerate crop rather than emitting a zero-size filter", () => {
+    expect(screenCropFilter({ x: 0, y: 0, w: 0, h: 0 })).toBe(
+      "crop=iw*0.0500:ih*0.0500:iw*0.0000:ih*0.0000,"
+    );
   });
 });

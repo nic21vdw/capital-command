@@ -566,6 +566,40 @@ function reframeGeometry(
   return { mask: { left: 0, top: 0, width: frameW, height: frameH }, video };
 }
 
+/**
+ * Centre-blur with a screen crop: fit the CROPPED region into the frame, apply
+ * the reframe zoom/pan on top, and position the video so that region fills the
+ * mask. Mirrors `centerBlurChain`'s filter order — crop, contain-fit, zoom,
+ * offset — so the preview matches the exported file.
+ */
+function croppedCenterBlurGeometry(
+  frameW: number,
+  frameH: number,
+  videoAspect: number,
+  reframe: ReframeTransform,
+  crop: Rect
+): { mask: Box; video: Box } {
+  const cropW = Math.max(0.01, crop.w);
+  const cropH = Math.max(0.01, crop.h);
+  const croppedAspect = videoAspect * (cropW / cropH);
+  const frameAspect = frameW / frameH;
+  const baseW = croppedAspect >= frameAspect ? frameW : frameH * croppedAspect;
+  const zoom = Math.max(1, reframe.scale);
+  const maskW = baseW * zoom;
+  const maskH = maskW / croppedAspect;
+  const ox = clamp(reframe.offsetX, -1, 1);
+  const oy = clamp(reframe.offsetY, -1, 1);
+  const mask: Box = {
+    left: ((frameW - maskW) / 2) * (1 + ox),
+    top: ((frameH - maskH) / 2) * (1 + oy),
+    width: maskW,
+    height: maskH
+  };
+  const vw = maskW / cropW;
+  const vh = vw / videoAspect;
+  return { mask, video: { left: -crop.x * vw, top: -crop.y * vh, width: vw, height: vh } };
+}
+
 function boxStyle(box: Box): React.CSSProperties {
   return { left: box.left, top: box.top, width: box.width, height: box.height };
 }
@@ -747,10 +781,15 @@ export function EditorPreview({
       })
     : null;
   const hasFaceLayer = Boolean(layout?.layers.some((l) => l.kind === "face"));
+  // Centre-blur has no layout, but it is the shipped default for every clip —
+  // and the composition that most needs a crop, because a screen-share fills
+  // the output width at source scale and reads as an unusable postage stamp.
+  const cropsScreen = Boolean(layout) || project.compositionMode === "center-blur";
+  const screenCrop = project.screenSource ?? null;
   const cropTarget: CropTarget =
     cropEditing === "face" && hasFaceLayer && onFaceSourceChange
       ? "face"
-      : cropEditing === "screen" && layout && onScreenSourceChange
+      : cropEditing === "screen" && cropsScreen && onScreenSourceChange
         ? "screen"
         : null;
   const cropping = cropTarget !== null;
@@ -839,6 +878,16 @@ export function EditorPreview({
       };
     }
     const mode = isFit ? "fit" : project.compositionMode === "crop-fill" ? "crop-fill" : "center-blur";
+    // A screen crop on a centre-blur clip zooms the foreground into a region of
+    // the source — the only thing that makes screen-share content legible, and
+    // the one case reframeGeometry can't express because it always fits the
+    // whole frame.
+    if (mode === "center-blur" && screenCrop) {
+      return {
+        screen: croppedCenterBlurGeometry(frameW, frameH, videoAspect, project.reframe, screenCrop),
+        face: null
+      };
+    }
     return { screen: reframeGeometry(mode, frameW, frameH, videoAspect, project.reframe), face: null };
   })();
 
@@ -1012,8 +1061,8 @@ export function EditorPreview({
           />
         )}
 
-        {/* Crop mode toggles, shown whenever the layout crops the source. */}
-        {layout && onCropEditingChange && (
+        {/* Crop mode toggles, shown whenever the composition crops the source. */}
+        {cropsScreen && onCropEditingChange && (
           <div className="absolute right-2 top-2 z-40 flex flex-col items-end gap-1.5">
             {(cropping
               ? ([{ target: null as CropTarget, label: "Done" }] as const)

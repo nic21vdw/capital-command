@@ -469,11 +469,12 @@ export const LayoutPanel = memo(function LayoutPanel({ api }: { api: EditorApi }
         </div>
       </Group>
 
-      {activeLayout && (
+      {(activeLayout || project.compositionMode === "center-blur") && (
         <Group label="Screen crop">
           <p className="text-xs text-[var(--muted-foreground)]">
-            Which part of the source the screen panel shows. Shrink it to cut the camera out of the screen and zoom
-            in on the content.
+            {activeLayout
+              ? "Which part of the source the screen panel shows. Shrink it to cut the camera out of the screen and zoom in on the content."
+              : "Which part of the source the clip shows. A screen share fills the frame's width at its own scale, so shrinking this is the only way to make an editor or a dashboard readable on a phone."}
           </p>
           <div className="flex gap-1.5">
             <Button

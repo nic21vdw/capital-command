@@ -22,7 +22,8 @@ import { fetchSourceCaptions } from "@/lib/clipping/transcription";
 import { selectByTranscript } from "@/lib/clipping/transcript-select";
 import { refineClipVirality, viralityRefinementConfigured } from "@/lib/clipping/virality";
 import { transcribeSource } from "@/lib/clipping/source-transcript";
-import type { ClipCandidate, ClipJob } from "@/lib/clipping/types";
+import { transcriptQualityWarning } from "@/lib/clipping/whisper";
+import type { ClipCandidate, ClipJob, ClipLayoutRect } from "@/lib/clipping/types";
 
 const clipsRoot = path.join(process.cwd(), "data", "clips");
 const jobsFile = path.join(clipsRoot, "jobs.json");
@@ -401,6 +402,8 @@ async function runLocalPipeline(job: ClipJob, meta: SourceMeta) {
     try {
       transcript = await transcribeSource(job.sourceId, audioPath, workDir(job.id));
       if (transcript.length > 0) {
+        const warning = transcriptQualityWarning(transcript);
+        if (warning && !job.notices.includes(warning)) job.notices.push(warning);
         await update(job, {
           sourceCaptions: transcript,
           captionsFetchedAt: new Date().toISOString(),
@@ -637,7 +640,8 @@ export async function attachEditedClipRender(
   jobId: string,
   sourceFile: string,
   exportFile: string,
-  signature?: string
+  signature?: string,
+  screenSource?: ClipLayoutRect
 ) {
   await loadJobs();
   const job = jobs.get(jobId);
@@ -648,6 +652,9 @@ export async function attachEditedClipRender(
   clip.editedFile = exportFile;
   clip.editedSignature = signature;
   clip.editedAt = new Date().toISOString();
+  // Remember the framing the edit chose, so re-rendering the ready-to-post file
+  // reproduces it instead of falling back to the whole (unreadable) frame.
+  clip.screenSource = screenSource;
   await persistJobs();
 }
 
@@ -758,9 +765,9 @@ async function renderClipIndexes(job: ClipJob, indexes: number[]) {
         try {
           const dims = await probeDimensions(produced).catch(() => undefined);
           const assPath = await writeClipDownloadAss(job, clip, i, dims);
-          await renderCaptionedVertical(produced, downloadPath, assPath, true);
+          await renderCaptionedVertical(produced, downloadPath, assPath, true, clip.screenSource);
         } catch {
-          await renderCaptionedVertical(produced, downloadPath, null, true);
+          await renderCaptionedVertical(produced, downloadPath, null, true, clip.screenSource);
         }
         clip.downloadFile = downloadName;
         // The preview only exists to give the card something to show before the

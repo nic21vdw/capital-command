@@ -5,6 +5,7 @@ import { probeDuration, runFfmpeg } from "@/lib/clipping/ffmpeg";
 import { listJobs } from "@/lib/clipping/jobs";
 import { readSourceMeta, saveSourceFromUrl, sourceFilePath } from "@/lib/clipping/sources";
 import { readSourceTranscript, transcribeSource } from "@/lib/clipping/source-transcript";
+import { transcriptQualityWarning } from "@/lib/clipping/whisper";
 import { DEFAULT_PACE, buildSegments, hookCaptions, planCaptions, planHook } from "@/lib/longform/plan";
 import { buildTopics, type TopicPlanOptions } from "@/lib/longform/topics";
 import type { LongformPace, LongformProject } from "@/lib/longform/types";
@@ -480,6 +481,8 @@ async function runAnalysis(project: LongformProject) {
           "This is a long recording, so only the opening minutes were transcribed for the hook captions. Dead-space cuts still cover the entire video."
         );
       }
+      const warning = transcriptQualityWarning(transcript);
+      if (warning) project.notices.push(warning);
       await update(project, { transcript, transcriptError: undefined });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);

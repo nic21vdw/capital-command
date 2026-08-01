@@ -179,6 +179,32 @@ goes through `renderCaptionedVertical` unconditionally. `DEFAULT_CLIP_LAYOUT`
 in `layouts.ts` is `"restream-stack"`, but that is only a parameter fallback
 for the opt-in layout-variant helpers — it is NOT a shipped default, so don't
 "fix" it into `center` and change what the variants mean.
+
+### Screen-share legibility is a CROP, never a layout
+
+A 16:9 source already fills the output's full width (`scale=1080:-2` → 1080x607
+in a 1080x1920 frame), and every layout's screen layer is `contain` into a
+full-width slot — so it renders at that same 1080x607. **No layout change can
+make screen content bigger.** Switching a screen-share clip to `restream-stack`
+buys nothing and additionally crops `DEFAULT_FACE_SOURCE` (top-right) which is
+wrong for any stream whose camera sits elsewhere.
+
+The only thing that enlarges content is throwing away source width, which is
+what `screenSource` does: a normalized region applied to the FOREGROUND only
+(`screenCropFilter` in `render.ts`), leaving the blurred fill reading as the
+whole scene. It is honoured by the ready render, the editor export, and the
+editor preview, and it defaults to the whole frame — so an unset crop emits
+byte-identical filtergraphs to before. Set it per clip by dragging on the
+preview; an edit that sets one writes it back onto the clip so a later
+re-render keeps the framing.
+
+## Transcription is English-only
+
+`whisper-base.en` is bundled. Fed another language it does not fail — it loops
+one plausible English line, and every downstream writer treats that as what was
+said. `transcriptQualityWarning` catches that repetition and puts a notice on
+the job/project; `CLIPS_WHISPER_MODEL` swaps in a multilingual model.
+
 ## Carousels (`/carousels`)
 
 Slide copy is written by `src/lib/studio/carousel.ts` from a script, a
