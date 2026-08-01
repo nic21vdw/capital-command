@@ -1,8 +1,8 @@
 # House Sessions loop
 
-Seamless 30-second, 1080p ambient visual for long house / EDM playlist uploads.
+Seamless 30-second, 1080p ambient visual for long house playlist uploads.
 
-Minimal monochrome light, soft haze, quiet spectrum rings, and a subtle equalizer. No BPM labels, no name plate. Motion is phase-driven so the loop closes cleanly.
+Colorful but clean: soft multicolor haze, light rays, spectrum rings, lively equalizer. No name plate, no BPM. Motion is phase-driven so the loop closes cleanly.
 
 ## Preview
 

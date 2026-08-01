@@ -2,43 +2,47 @@ import React from "react";
 import { AbsoluteFill, useCurrentFrame, useVideoConfig } from "remotion";
 import { theme } from "../theme";
 
+const ORBS = [
+  { x: 0.22, y: 0.3, size: 820, color: theme.violet, s: 0.7, p: 0.3, a: 0.28 },
+  { x: 0.78, y: 0.26, size: 720, color: theme.magenta, s: 0.55, p: 1.6, a: 0.22 },
+  { x: 0.5, y: 0.7, size: 900, color: theme.cyan, s: 0.6, p: 2.4, a: 0.18 },
+  { x: 0.35, y: 0.55, size: 520, color: theme.coral, s: 0.8, p: 3.5, a: 0.14 },
+  { x: 0.68, y: 0.58, size: 480, color: theme.gold, s: 0.5, p: 4.2, a: 0.1 },
+];
+
 export const AmbientBackground: React.FC = () => {
   const frame = useCurrentFrame();
   const { durationInFrames } = useVideoConfig();
   const t = (frame / durationInFrames) * Math.PI * 2;
 
-  const lights = [
-    { x: 0.28, y: 0.32, size: 980, color: "rgba(180, 190, 210, 0.14)", s: 0.55, p: 0.4 },
-    { x: 0.72, y: 0.28, size: 860, color: "rgba(200, 185, 165, 0.10)", s: 0.4, p: 1.8 },
-    { x: 0.5, y: 0.62, size: 1100, color: "rgba(140, 155, 175, 0.09)", s: 0.48, p: 2.9 },
-  ];
-
   return (
     <AbsoluteFill
       style={{
-        background: `radial-gradient(ellipse at 50% 40%, ${theme.surface} 0%, ${theme.bg} 72%)`,
+        background: `radial-gradient(ellipse at 50% 42%, ${theme.surface} 0%, ${theme.bg} 68%)`,
         overflow: "hidden",
       }}
     >
-      {lights.map((light, i) => {
-        const driftX = Math.sin(t * light.s + light.p) * 28;
-        const driftY = Math.cos(t * light.s * 0.7 + light.p) * 18;
-        const pulse = 0.75 + 0.25 * Math.sin(t * light.s + light.p);
+      {ORBS.map((orb, i) => {
+        const driftX = Math.sin(t * orb.s + orb.p) * 42;
+        const driftY = Math.cos(t * orb.s * 0.75 + orb.p) * 28;
+        const scale = 0.92 + 0.12 * (0.5 + 0.5 * Math.sin(t * orb.s * 1.2 + orb.p));
+        const opacity =
+          orb.a * (0.75 + 0.35 * (0.5 + 0.5 * Math.sin(t * orb.s + orb.p)));
 
         return (
           <div
             key={i}
             style={{
               position: "absolute",
-              left: `${light.x * 100}%`,
-              top: `${light.y * 100}%`,
-              width: light.size,
-              height: light.size,
-              transform: `translate(calc(-50% + ${driftX}px), calc(-50% + ${driftY}px))`,
+              left: `${orb.x * 100}%`,
+              top: `${orb.y * 100}%`,
+              width: orb.size,
+              height: orb.size,
+              transform: `translate(calc(-50% + ${driftX}px), calc(-50% + ${driftY}px)) scale(${scale})`,
               borderRadius: "50%",
-              background: `radial-gradient(circle, ${light.color} 0%, transparent 70%)`,
-              opacity: pulse,
-              filter: "blur(40px)",
+              background: `radial-gradient(circle, ${orb.color} 0%, transparent 68%)`,
+              opacity,
+              filter: "blur(28px)",
             }}
           />
         );
@@ -49,7 +53,7 @@ export const AmbientBackground: React.FC = () => {
           position: "absolute",
           inset: 0,
           background:
-            "radial-gradient(ellipse at 50% 55%, transparent 35%, rgba(0,0,0,0.55) 100%)",
+            "radial-gradient(ellipse at 50% 55%, transparent 28%, rgba(7,6,15,0.62) 100%)",
         }}
       />
     </AbsoluteFill>

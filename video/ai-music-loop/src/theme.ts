@@ -1,12 +1,14 @@
 export const theme = {
-  bg: "#050508",
-  surface: "#0c0d12",
-  warm: "#c4b8a8",
-  cool: "#8a9bb0",
-  soft: "#6b7280",
-  white: "#e8e6e3",
-  accent: "#9aa3b2",
-  glow: "#b8c0cc",
+  bg: "#07060f",
+  surface: "#12102a",
+  indigo: "#4338ca",
+  violet: "#7c3aed",
+  magenta: "#d946ef",
+  coral: "#fb7185",
+  cyan: "#22d3ee",
+  gold: "#fbbf24",
+  white: "#f4f4f5",
+  soft: "#a1a1aa",
 } as const;
 
 export const fontFamily =

@@ -2,10 +2,13 @@ import React, { useMemo } from "react";
 import { AbsoluteFill, useCurrentFrame, useVideoConfig } from "remotion";
 import { theme } from "../theme";
 
+const COLORS = [theme.cyan, theme.magenta, theme.coral, theme.gold, theme.white, theme.violet];
+
 type Particle = {
   x: number;
   y: number;
   size: number;
+  color: string;
   speed: number;
   phase: number;
   drift: number;
@@ -18,10 +21,11 @@ function makeParticles(count: number): Particle[] {
     out.push({
       x: ((seed * 17) % 1000) / 1000,
       y: ((seed * 31) % 1000) / 1000,
-      size: 1 + ((seed * 7) % 18) / 10,
-      speed: 0.35 + ((seed * 13) % 80) / 100,
+      size: 1.4 + ((seed * 7) % 28) / 10,
+      color: COLORS[i % COLORS.length],
+      speed: 0.45 + ((seed * 13) % 100) / 100,
       phase: ((seed * 3) % 628) / 100,
-      drift: 12 + ((seed * 11) % 28),
+      drift: 18 + ((seed * 11) % 36),
     });
   }
   return out;
@@ -30,7 +34,7 @@ function makeParticles(count: number): Particle[] {
 export const Particles: React.FC = () => {
   const frame = useCurrentFrame();
   const { durationInFrames } = useVideoConfig();
-  const particles = useMemo(() => makeParticles(28), []);
+  const particles = useMemo(() => makeParticles(42), []);
   const t = (frame / durationInFrames) * Math.PI * 2;
 
   return (
@@ -38,9 +42,10 @@ export const Particles: React.FC = () => {
       {particles.map((p, i) => {
         const x = p.x * 100 + Math.sin(t * p.speed + p.phase) * (p.drift / 19.2);
         const y =
-          p.y * 100 + Math.cos(t * p.speed * 0.65 + p.phase) * (p.drift / 10.8);
+          p.y * 100 + Math.cos(t * p.speed * 0.7 + p.phase) * (p.drift / 10.8);
         const opacity =
-          0.08 + 0.18 * (0.5 + 0.5 * Math.sin(t * p.speed + p.phase));
+          0.18 + 0.45 * (0.5 + 0.5 * Math.sin(t * p.speed * 1.4 + p.phase));
+        const size = p.size * (0.9 + 0.25 * (0.5 + 0.5 * Math.sin(t * p.speed + p.phase)));
 
         return (
           <div
@@ -49,11 +54,12 @@ export const Particles: React.FC = () => {
               position: "absolute",
               left: `${x}%`,
               top: `${y}%`,
-              width: p.size,
-              height: p.size,
+              width: size,
+              height: size,
               borderRadius: "50%",
-              backgroundColor: theme.white,
+              backgroundColor: p.color,
               opacity,
+              boxShadow: `0 0 ${size * 3.5}px ${p.color}`,
               transform: "translate(-50%, -50%)",
             }}
           />
