@@ -1,5 +1,6 @@
 import { aiConfigured, runAi } from "@/lib/ai";
 import { POST_LIBRARY, REPLY_LIBRARY } from "@/lib/x-posts/library";
+import { humanize } from "@/lib/x-posts/voice";
 import { xDailyPackSchema } from "@/lib/storage/schemas";
 import type { XDailyPack, XPostFormat, XSuggestedPost, XSuggestedReply } from "@/types/domain";
 
@@ -130,13 +131,16 @@ function buildPack(input: {
       time: times[index],
       format: post.format,
       topic: post.topic,
-      text: post.text,
-      threadsVariant: post.threadsVariant
+      // Both versions go through the voice pass: the dash removal is what makes
+      // "no em dashes" true rather than merely requested, and each version gets
+      // its own seed so one slip never lands on both at once.
+      text: humanize(post.text, `${input.date}:${index}:text`),
+      threadsVariant: humanize(post.threadsVariant, `${input.date}:${index}:variant`)
     })),
-    replies: input.replies.map((reply): XSuggestedReply => ({
+    replies: input.replies.map((reply, index): XSuggestedReply => ({
       id: `xreply-${crypto.randomUUID()}`,
       scenario: reply.scenario,
-      text: reply.text
+      text: humanize(reply.text, `${input.date}:reply:${index}`)
     })),
     requestedAt: input.requestedAt,
     createdAt: new Date().toISOString()
@@ -199,6 +203,16 @@ Write today's content pack:
 
 1. Exactly ${POSTS_PER_PACK} ORIGINAL standalone posts. Each must be a specific, insightful, non-generic thought in my voice (see voice rules in the brief). Every single post must take a DIFFERENT angle — no two posts in the set may circle the same idea. Vary the formats across the set: insight, contrarian, story, question, framework, observation. At most 4 of the ${POSTS_PER_PACK} may touch CoLateral, and only obliquely — the rest build the personal brand (verification, judgment, agentic engineering, vertical AI, professional workflows).
 
+HOW IT MUST SOUND. These posts go out on a personal feed, so they have to read like a person typed them, not like copy that was drafted:
+
+- NEVER use an em dash or an en dash. Not one, anywhere. Use a comma, a full stop, or start a new line. This is the single clearest sign a post was written by a model.
+- No "it's not X, it's Y" seesaws, no "here's the thing", no rule-of-three lists where every item is the same length. Those are cadences, and the cadence is the tell.
+- Vary the sentence length hard. A long thought, then three words. Some posts should be one line; some should run four short lines. Do not make them all the same shape.
+- Plain words over impressive ones. "use" not "leverage", "start" not "embark", "so" not "thus". No "delve", "robust", "seamless", "landscape", "testament", "crucial".
+- Contractions throughout. Start a sentence with And or But when it reads better. Trailing thoughts are fine.
+- Say the specific thing. A real number, a real hour of the day, a thing that actually broke. Vague authority reads as generated; a small concrete detail reads as lived.
+- No hashtags, no emoji, no "Thoughts?" sign-off begging for replies.
+
 Write every post twice, both for Threads, which allows ${THREADS_LIMIT} characters:
 - "text" is the punchy version: tight and quotable, ${PUNCHY_MIN}-${PUNCHY_MAX} characters, never over ${PUNCHY_CEILING}.
 - "threadsVariant" is the same idea told warmer and more conversational — room to give the thought a second beat or a concrete detail. ${WARM_MIN}-${WARM_MAX} characters, always clearly longer than the punchy version, and reworded throughout so the two never read as duplicates.
@@ -218,7 +232,7 @@ Respond with ONLY valid JSON, no commentary, in exactly this shape:
       // skips a doomed first attempt that costs a minute and a half.
       maxTokens: 32000,
       system:
-        "You are a sharp ghostwriter for a structural engineer who builds AI tooling (CoLateral AI). You write specific, credible, non-generic social posts in his voice. You never fabricate facts, projects, or numbers. You output strict JSON when asked.",
+        "You are a sharp ghostwriter for a structural engineer who builds AI tooling (CoLateral AI). You write specific, credible, non-generic social posts in his voice. You write like a person typing on their phone, not like polished marketing copy: plain words, varied sentence length, contractions, and NEVER an em dash or en dash. You never fabricate facts, projects, or numbers. You output strict JSON when asked.",
       messages: [{ role: "user", content: userPrompt }]
     });
 

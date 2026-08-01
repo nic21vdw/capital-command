@@ -2,6 +2,7 @@ import { localCalendarParts, zonedToUtc } from "@/lib/publisher/time";
 import { MIN_GAP_MINUTES, THREADS_TEXT_LIMIT, type ThreadsAccount, type ThreadsConfig } from "@/lib/threads/config";
 import type { ThreadsQueueItem } from "@/lib/threads/types";
 import { scheduleWindow } from "@/lib/x-posts/generator";
+import { stripDashes } from "@/lib/x-posts/voice";
 import type { XDailyPack, XSuggestedPost } from "@/types/domain";
 
 /**
@@ -32,9 +33,18 @@ const FIRST_POST_DELAY_MINUTES = 1;
 
 export { MIN_GAP_MINUTES };
 
-/** Trims to the Threads limit on a word boundary, without a dangling ellipsis. */
+/**
+ * Trims to the Threads limit on a word boundary, without a dangling ellipsis.
+ *
+ * Dashes are stripped here as well as at pack build, because this is the last
+ * point every post passes through before it is queued — packs from the idea
+ * library, older packs written before the voice pass existed, and copy edited
+ * by hand from the dashboard all arrive here. Stripping is idempotent, so
+ * running it twice costs nothing. The typo pass is deliberately NOT repeated:
+ * it runs once, at pack build, or a post would collect a new slip every replan.
+ */
 export function fitToThreads(text: string, limit = THREADS_TEXT_LIMIT): string {
-  const clean = text.trim();
+  const clean = stripDashes(text).trim();
   if (clean.length <= limit) return clean;
   const cut = clean.slice(0, limit);
   const lastSpace = cut.lastIndexOf(" ");

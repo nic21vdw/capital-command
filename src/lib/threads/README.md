@@ -73,6 +73,33 @@ A day with nothing on the queue at all is not "behind", it is unplanned — that
 belongs to step 1, and catch-up leaves it alone. Switch the whole thing off with
 `THREADS_CATCHUP=false`.
 
+## How the posts have to read
+
+Nobody types an em dash on a phone. Models reach for one constantly, so it is
+the clearest sign a feed is automated — and asking the model not to only works
+for a few posts before it drifts back. `src/lib/x-posts/voice.ts` is what makes
+it true instead of merely requested:
+
+- `stripDashes` is deterministic and runs over **every** post, whatever wrote
+  it: the model, the fallback idea library, or a hand edit from the dashboard.
+  A punctuation dash becomes a comma, which is what someone typing fast would
+  have written, comma splice and all. Line breaks survive, because collapsing a
+  four-line post into a paragraph is a bigger tell than the dash was.
+- It runs twice on purpose — at pack build and again in `fitToThreads`, the last
+  gate before anything is queued. Stripping is idempotent, so that costs
+  nothing.
+- `sprinkleTypo` drops the apostrophe from one contraction on a small share of
+  posts (`THREADS_TYPO_RATE`, default 0.08; set 0 to switch it off). Seeded off
+  the post, so a replan never rewrites it, and it runs ONLY at pack build — put
+  it in `fitToThreads` and a post would collect a fresh slip every catch-up.
+- It touches contractions only, never a noun and never a brand: a misspelled
+  product or platform name reads as careless about the thing being sold, where
+  "dont" just reads like a person.
+
+The prompt asks for the same voice — no dashes, no "it's not X, it's Y", plain
+words, hard-varied sentence length — so most posts arrive clean and the pass is
+the backstop rather than the whole mechanism.
+
 ## Threads cannot schedule, so something must be online
 
 Worth stating plainly, because it is the first idea everyone has: **the Threads
