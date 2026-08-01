@@ -46,6 +46,16 @@ const HOOK_ZOOM_RAMP_SEC = 0.5;
 const VIDEO_ENC = ["-c:v", "libx264", "-preset", "superfast", "-crf", "20"];
 const AUDIO_ENC = ["-c:a", "aac", "-b:a", "160k", "-ar", "48000", "-ac", "2"];
 
+// Streaming platforms play everything at roughly -14 LUFS. A raw stream edit
+// lands nearer -25 dBFS mean, which sounds broken-quiet next to the video
+// before it in a feed — and the podcast MP3 inherits exactly the same level.
+// One-pass loudnorm on the FINAL mix (never per part, which would let the hook
+// and the body settle at different levels and jump at the seam) is close enough
+// and only costs an audio re-encode.
+// TP sits at -2 rather than the usual -1: the AAC encode after this filter
+// overshoots, and at -1.5 the finished file measured -0.1 dBFS true peak.
+const LOUDNORM = "loudnorm=I=-14:TP=-2:LRA=11";
+
 /** Escapes a filesystem path for use inside an ffmpeg filtergraph argument. */
 function escapeFilterPath(p: string): string {
   return p.replace(/\\/g, "/").replace(/:/g, "\\:").replace(/'/g, "\\'");
@@ -386,16 +396,19 @@ async function runExport(projectId: string, recordId: string, signal: AbortSigna
   const masterVolChanged = Math.abs(masterVol - 1) > 0.001;
   const mixed = await mixAudioClips(project, videoPath, finalPath, editedSec, hasAudio, videoVol, masterVol, signal);
   if (!mixed) {
-    if (hasAudio && (videoVolChanged || masterVolChanged)) {
-      // No audio clips, but the video/master gain differs from unity —
-      // re-encode just the audio with the combined gain applied. Video is
-      // stream-copied.
+    if (hasAudio) {
+      // No audio clips to mix, but the track still gets the video/master gain
+      // and the broadcast-level pass. Video is stream-copied, so this is an
+      // audio-only re-encode.
+      const gain = videoVolChanged || masterVolChanged
+        ? `volume=${videoVol.toFixed(3)},volume=${masterVol.toFixed(3)},`
+        : "";
       await runFfmpeg([
         "-y",
         "-i",
         videoPath,
         "-filter_complex",
-        `[0:a]volume=${videoVol.toFixed(3)},volume=${masterVol.toFixed(3)}[aout]`,
+        `[0:a]${gain}${LOUDNORM}[aout]`,
         "-map",
         "0:v",
         "-map",
@@ -531,8 +544,8 @@ async function mixAudioClips(
   });
 
   const filter = hasAudio
-    ? `${filters.join(";")};[0:a]volume=${videoVol.toFixed(3)}[v0];[v0]${labels.join("")}amix=inputs=${labels.length + 1}:duration=first:dropout_transition=0:normalize=0[mix];[mix]volume=${masterVol.toFixed(3)}[aout]`
-    : `${filters.join(";")};${labels.join("")}${labels.length > 1 ? `amix=inputs=${labels.length}:duration=longest:dropout_transition=0:normalize=0,` : ""}apad,atrim=0:${editedSec.toFixed(3)}[mix];[mix]volume=${masterVol.toFixed(3)}[aout]`;
+    ? `${filters.join(";")};[0:a]volume=${videoVol.toFixed(3)}[v0];[v0]${labels.join("")}amix=inputs=${labels.length + 1}:duration=first:dropout_transition=0:normalize=0[mix];[mix]volume=${masterVol.toFixed(3)},${LOUDNORM}[aout]`
+    : `${filters.join(";")};${labels.join("")}${labels.length > 1 ? `amix=inputs=${labels.length}:duration=longest:dropout_transition=0:normalize=0,` : ""}apad,atrim=0:${editedSec.toFixed(3)}[mix];[mix]volume=${masterVol.toFixed(3)},${LOUDNORM}[aout]`;
 
   await runFfmpeg([
     "-y",

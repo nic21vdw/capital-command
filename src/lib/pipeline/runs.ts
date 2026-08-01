@@ -8,7 +8,12 @@ import { startLongformExport } from "@/lib/longform/render";
 import { createProject, getProject, planProjectTopics, projectOutputDir, updateProject } from "@/lib/longform/store";
 import type { LongformProject } from "@/lib/longform/types";
 import { generatePipelinePosts } from "@/lib/pipeline/posts";
-import { realisticImagePrompt, visualMomentFromClips } from "@/lib/pipeline/visual-brief";
+import {
+  MIN_SPEECH_WORDS,
+  realisticImagePrompt,
+  speechWordCount,
+  visualMomentFromClips
+} from "@/lib/pipeline/visual-brief";
 import type {
   PipelineRun,
   PipelineRunOverview,
@@ -41,12 +46,41 @@ const g = globalThis as PipelineGlobal;
 const runs = (g.__pipelineRuns ??= new Map<string, PipelineRun>());
 const inflight = (g.__pipelineInflight ??= new Set<string>());
 
+const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+/**
+ * Reads the runs file, tolerating a read that lands mid-write. Returns null
+ * when the file is there but never parsed cleanly, so the caller can leave the
+ * store unloaded and try again on the next request instead of reporting an
+ * empty pipeline (or throwing a 500 out of `GET /api/pipeline`).
+ */
+async function readRunsFile(): Promise<PipelineRun[] | null> {
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    let raw: string;
+    try {
+      raw = await readFile(runsFile, "utf8");
+    } catch {
+      return []; // First run — no file yet.
+    }
+    try {
+      const parsed = JSON.parse(raw) as PipelineRun[];
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      await delay(40 * (attempt + 1));
+    }
+  }
+  return null;
+}
+
 async function loadRuns() {
   if (g.__pipelineRunsLoaded) return;
+  const stored = await readRunsFile();
+  // Leaving `__pipelineRunsLoaded` false on a torn read is the point: marking
+  // it loaded would strand the server with an empty run list until restart.
+  if (stored === null) return;
   g.__pipelineRunsLoaded = true;
-  try {
-    const raw = await readFile(runsFile, "utf8");
-    for (const run of JSON.parse(raw) as PipelineRun[]) {
+  {
+    for (const run of stored) {
       // A download that was mid-flight when the server stopped can't resume.
       // Everything after ingest is re-driven by advanceRun, so `running`
       // survives a restart (the underlying stores mark their own casualties).
@@ -56,8 +90,6 @@ async function loadRuns() {
       }
       runs.set(run.id, run);
     }
-  } catch {
-    // First run — no file yet.
   }
 }
 
@@ -68,14 +100,19 @@ async function persistRuns() {
     const payload = JSON.stringify(list, null, 2);
     const tmpPath = `${runsFile}.${process.pid}.${Date.now()}.tmp`;
     await writeFile(tmpPath, payload, "utf8");
-    try {
-      await rename(tmpPath, runsFile);
-    } catch {
-      // Windows can refuse the atomic replace while the file is read; fall
-      // back to an in-place write like the other stores do.
-      await writeFile(runsFile, payload, "utf8");
-      await unlink(tmpPath).catch(() => undefined);
+    // Windows refuses the atomic replace while a reader has the file open, and
+    // the poller reads it constantly. Retrying the rename keeps the swap atomic;
+    // the old in-place fallback is what let readers see a half-written file.
+    for (let attempt = 0; attempt < 6; attempt += 1) {
+      try {
+        await rename(tmpPath, runsFile);
+        return;
+      } catch {
+        await delay(25 * (attempt + 1));
+      }
     }
+    await writeFile(runsFile, payload, "utf8");
+    await unlink(tmpPath).catch(() => undefined);
   };
   persistQueue = persistQueue.then(write, write);
   await persistQueue;
@@ -169,16 +206,42 @@ async function ingestFromUrl(run: PipelineRun, url: string, name?: string) {
   await advanceRun(run);
 }
 
+const MAX_NOTICES = 20;
+
+/**
+ * Condenses a failure into one storable line. Tool output (ffmpeg, yt-dlp)
+ * arrives as a multi-KB dump with a fresh heap pointer embedded in every run —
+ * so the plain dedupe below never matched and a retrying step grew `runs.json`
+ * without bound. Scrubbing the addresses is what makes the dedupe work.
+ */
+function noticeText(message: string): string {
+  const line = message
+    .replace(/0x[0-9a-f]{4,}/gi, "0x…")
+    .replace(/\b[0-9a-f]{12,}\b/gi, "…")
+    .replace(/\s+/g, " ")
+    .trim();
+  return line.length > 300 ? `${line.slice(0, 300)}…` : line;
+}
+
 /** Runs one advance step at most once at a time, tolerating failures. */
-async function step(run: PipelineRun, key: string, work: () => Promise<void>) {
+async function step(
+  run: PipelineRun,
+  key: string,
+  work: () => Promise<void>,
+  onError?: (message: string) => Promise<void>
+) {
   const guard = `${run.id}:${key}`;
   if (inflight.has(guard)) return;
   inflight.add(guard);
   try {
     await work();
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    if (!run.notices.includes(message)) run.notices.push(message);
+    const message = noticeText(error instanceof Error ? error.message : String(error));
+    if (!run.notices.includes(message)) {
+      run.notices.push(message);
+      if (run.notices.length > MAX_NOTICES) run.notices.splice(0, run.notices.length - MAX_NOTICES);
+    }
+    if (onError) await onError(message);
     await persistRuns();
   } finally {
     inflight.delete(guard);
@@ -234,7 +297,13 @@ export async function advanceRun(run: PipelineRun): Promise<void> {
   // Export rendered → extract the podcast MP3 from the finished file, so the
   // audio carries the exact same cuts and mix. Idempotent: skips if present.
   const exportRecord = project?.exports.find((record) => record.id === run.longformExportId);
-  if (project && exportRecord?.status === "done" && exportRecord.file && !exportRecord.audioFile) {
+  if (project && exportRecord?.status === "done" && exportRecord.file && !exportRecord.audioFile && !run.audioNote) {
+    // A source with no audio track has nothing to extract. Without this the
+    // step re-ran `ffmpeg -vn` on every poll forever, the stage never left
+    // "Extracting the MP3…", and the run never settled.
+    if (project.hasAudio === false) {
+      await update(run, { audioNote: "This recording has no audio track, so there is no podcast MP3 to cut." });
+    } else {
     void step(run, "audio", async () => {
       const outputDir = projectOutputDir(project.id);
       const videoPath = path.join(outputDir, exportRecord.file!);
@@ -250,7 +319,12 @@ export async function advanceRun(run: PipelineRun): Promise<void> {
       exportRecord.audioFile = audioName;
       await updateProject(project.id, { exports: project.exports });
       await persistRuns();
+    }, async () => {
+      // One shot. ffmpeg failing here means the edit has no usable audio, and
+      // retrying it every 2.5s is what spammed the notices.
+      await update(run, { audioNote: "The podcast MP3 could not be cut from the edited video." });
     });
+    }
   }
 
   // The long-form analysis only transcribes the opening of a long stream (the
@@ -269,17 +343,17 @@ export async function advanceRun(run: PipelineRun): Promise<void> {
   // Transcript ready → write the carousel images copy from it. `carouselNote`
   // doubles as the "already tried and failed" marker: without it this step
   // would re-run on every poll, and each attempt now costs three model calls.
-  if (
-    project &&
-    project.status === "ready" &&
-    project.transcript.length > 0 &&
-    !run.carouselId &&
-    !run.carouselNote
-  ) {
+  if (project && project.status === "ready" && !run.carouselId && !run.carouselNote) {
+    const transcriptText = project.transcript.map((segment) => segment.text).join(" ");
+    if (speechWordCount(transcriptText) < MIN_SPEECH_WORDS) {
+      if (project.transcript.length > 0) {
+        await update(run, { carouselNote: "No speech was transcribed from this stream to write slides from." });
+      }
+    } else {
     void step(run, "carousel", async () => {
       const { carousel, reason } = await generateCarousel({
         title: run.name,
-        sourceText: project.transcript.map((segment) => segment.text).join(" "),
+        sourceText: transcriptText,
         slideCount: DEFAULT_SLIDE_COUNT,
         sourceType: "longform",
         sourceId: project.id,
@@ -296,6 +370,7 @@ export async function advanceRun(run: PipelineRun): Promise<void> {
       await writeAppData({ ...data, videoStudio: { ...studio, carousels: [carousel, ...studio.carousels] } });
       await update(run, { carouselId: carousel.id, carouselNote: reason ?? undefined });
     });
+    }
   }
 
   // Text posts want the richest material: the transcript plus the clip job's
@@ -303,17 +378,23 @@ export async function advanceRun(run: PipelineRun): Promise<void> {
   // whatever material exists is used).
   const longformSettled = !project || project.status !== "processing";
   const clipsSettled = !job || job.status === "done" || job.status === "error";
-  const hasMaterial = Boolean(project?.transcript.length) || Boolean(job?.clips.some((clip) => clip.title));
+  // Real speech, not just Whisper's non-speech tags: a music-only or silent
+  // recording used to reach this point with a transcript full of "(bells
+  // ringing)" and have a whole content pack invented from it.
+  const transcriptText = project?.transcript.map((segment) => segment.text).join(" ") ?? "";
+  const captionText = (job?.sourceCaptions ?? []).map((segment) => segment.text).join(" ");
+  const hasMaterial =
+    speechWordCount(transcriptText) >= MIN_SPEECH_WORDS || speechWordCount(captionText) >= MIN_SPEECH_WORDS;
   if (!run.posts && longformSettled && clipsSettled && (project || job) && !hasMaterial) {
     // Both sides settled with nothing to write from — record the skip so the
     // stage (and the run) can finish instead of waiting forever.
-    await update(run, { posts: [], postsNote: "No transcript or clip titles came out of this stream to write from." });
+    await update(run, { posts: [], postsNote: "No speech was transcribed from this stream to write posts from." });
   }
   if (!run.posts && longformSettled && clipsSettled && hasMaterial && (project || job)) {
     void step(run, "posts", async () => {
       const { posts, reason } = await generatePipelinePosts({
         streamTitle: run.name,
-        transcriptText: project?.transcript.map((segment) => segment.text).join(" ") ?? "",
+        transcriptText,
         clipHighlights: (job?.clips ?? [])
           .filter((clip) => clip.title)
           .map((clip) => ({ title: clip.title!, quote: clip.hookQuote }))
@@ -374,12 +455,29 @@ function longformStage(run: PipelineRun, project: LongformProject | undefined): 
  * but rendered on demand — five ten-minute renders per stream is hours of
  * encoding nobody asked for, so the Long-Form Editor's Segments tab starts them.
  */
-function segmentsStage(run: PipelineRun, project: LongformProject | undefined, rendered: number): PipelineStage {
+function segmentsStage(
+  run: PipelineRun,
+  project: LongformProject | undefined,
+  rendered: number,
+  job: ClipJob | undefined
+): PipelineStage {
   if (run.status !== "running") return stage("waiting", "Waiting for the source.");
   if (project?.status === "error") return stage("skipped", "Needs the transcript, and analysis failed.");
   if (!project || project.status === "processing") return stage("waiting", "Split from the transcript once analysis finishes.");
   const topics = project.topics;
   if (!topics) {
+    // The whole-recording transcript comes from the clip job. Once that has
+    // settled and any pending plan attempt has run, no transcript is ever
+    // coming — reporting `running` forever is what left a run from five days
+    // ago still claiming to be reading its transcript.
+    const clipsSettled = !job || job.status === "done" || job.status === "error";
+    const attemptPending = Boolean(job?.sourceCaptions?.length) && !run.segmentsPlanned;
+    if (clipsSettled && !attemptPending) {
+      return stage(
+        "skipped",
+        project.topicsNote ?? "No whole-recording transcript came out of this stream to split into subjects."
+      );
+    }
     return stage("running", project.topicsNote ? "Waiting on the full transcript…" : "Reading the transcript for subjects…");
   }
   if (topics.length === 0) {
@@ -389,6 +487,9 @@ function segmentsStage(run: PipelineRun, project: LongformProject | undefined, r
   return stage("ready", `${topics.length} topic segment${topics.length === 1 ? "" : "s"} ready to render${renderedNote}`);
 }
 
+/** Below this a clip is padding rather than a moment anyone chose. */
+const WEAK_CLIP_SCORE = 25;
+
 function clipsStage(run: PipelineRun, job: ClipJob | undefined): PipelineStage {
   if (run.status !== "running") return stage("waiting", "Waiting for the source.");
   if (!job) return stage(run.clipJobId ? "error" : "running", run.clipJobId ? "The clip job is gone — it may have been deleted." : "Creating the clip job…");
@@ -396,7 +497,15 @@ function clipsStage(run: PipelineRun, job: ClipJob | undefined): PipelineStage {
   if (job.status === "error") return stage("error", job.error ?? "Clipping failed.");
   if (job.status === "done") {
     if (ready === 0) return stage("error", "The job finished but no clips rendered.");
-    return stage("ready", `${ready} short${ready === 1 ? "" : "s"} rendered, ready to schedule`);
+    // A job that could not find enough strong moments pads the list with
+    // evenly-spaced filler. Those rendered identically to a 79-scoring clip and
+    // were counted the same in "ready to schedule" — worth saying out loud
+    // before anyone queues them.
+    const weak = job.clips.filter(
+      (clip) => (clip.editedFile || clip.downloadFile || clip.file) && clip.score < WEAK_CLIP_SCORE
+    ).length;
+    const weakNote = weak > 0 ? ` · ${weak} scored low, worth a look before queueing` : "";
+    return stage("ready", `${ready} short${ready === 1 ? "" : "s"} rendered, ready to schedule${weakNote}`);
   }
   const labels: Record<string, string> = {
     downloading: "Reading the source…",
@@ -413,6 +522,7 @@ function audioStage(run: PipelineRun, project: LongformProject | undefined): Pip
   if (project?.status === "error") return stage("skipped", "Needs the long-form edit, which failed.");
   if (!record || record.status === "processing") return stage("waiting", "Cut from the edited video once it renders.");
   if (record.status === "done" && record.audioFile) return stage("ready", "Podcast MP3 extracted from the edit");
+  if (run.audioNote) return stage("skipped", run.audioNote);
   if (record.status === "done") return stage("running", "Extracting the MP3…");
   return stage("skipped", "Needs the long-form edit, which failed.");
 }
@@ -444,7 +554,11 @@ function visualsStage(run: PipelineRun, job: ClipJob | undefined, ready: boolean
   if (run.status !== "running") return stage("waiting", "Waiting for the source.");
   if (!job) return stage("waiting", "Waiting for the clip analysis.");
   if (ready) return stage("ready", "Best transcript moment ready for a realistic screenshot ad");
-  if (job.status === "error") return stage("skipped", "No strong transcript moment was available.");
+  // A settled job with no moment has none coming — the old `waiting` here left
+  // the run unsettled for good on any stream without usable speech.
+  if (job.status === "error" || job.status === "done") {
+    return stage("skipped", "No strong transcript moment was available.");
+  }
   return stage("waiting", "Choosing the strongest transcript moment and frame.");
 }
 
@@ -459,44 +573,71 @@ function postsStage(run: PipelineRun): PipelineStage {
 }
 
 /**
+ * The reads every run's overview wants but none of them owns: the carousel
+ * list out of a 10 MB app-data file, and the publish queue. `GET /api/pipeline`
+ * builds one of these for the whole request — re-reading both per run made a
+ * poll of nine runs take seconds, on a 2.5s poll interval.
+ */
+export type OverviewContext = {
+  carousels: () => Promise<{ id: string; slides: unknown[] }[]>;
+  queuedByJob: () => Promise<Map<string, number>>;
+};
+
+export function overviewContext(): OverviewContext {
+  let carousels: Promise<{ id: string; slides: unknown[] }[]> | undefined;
+  let queued: Promise<Map<string, number>> | undefined;
+  return {
+    carousels: () =>
+      (carousels ??= readAppData()
+        .then((data) => (data.videoStudio ?? defaultVideoStudio).carousels)
+        .catch(() => [])),
+    queuedByJob: () =>
+      (queued ??= (async () => {
+        const counts = new Map<string, number>();
+        const config = publisherConfig();
+        if (!config.enabled) return counts;
+        try {
+          for (const item of await publishQueue(config).list()) {
+            if (item.jobId) counts.set(item.jobId, (counts.get(item.jobId) ?? 0) + 1);
+          }
+        } catch {
+          // Best-effort count.
+        }
+        return counts;
+      })())
+  };
+}
+
+/**
  * Joins the run with the live state of everything it references. Also
  * advances the run first, so polling the overview IS what drives the
  * pipeline forward.
  */
-export async function runOverview(run: PipelineRun): Promise<PipelineRunOverview> {
+export async function runOverview(run: PipelineRun, context?: OverviewContext): Promise<PipelineRunOverview> {
   await advanceRun(run);
 
+  const ctx = context ?? overviewContext();
   const project = run.longformProjectId ? await getProject(run.longformProjectId) : undefined;
   const job = run.clipJobId ? await getJob(run.clipJobId) : undefined;
   const exportRecord = project?.exports.find((item) => item.id === run.longformExportId);
 
   let slideCount = 0;
   if (run.carouselId) {
-    try {
-      const data = await readAppData();
-      slideCount = (data.videoStudio ?? defaultVideoStudio).carousels.find((c) => c.id === run.carouselId)?.slides.length ?? 0;
-    } catch {
-      // Non-critical count.
-    }
+    const carousels = await ctx.carousels();
+    slideCount = carousels.find((c) => c.id === run.carouselId)?.slides.length ?? 0;
   }
 
   // Best-effort: how many publish-queue items already came from this clip job.
   let queued = 0;
-  const config = publisherConfig();
-  if (config.enabled && run.clipJobId) {
-    try {
-      const items = await publishQueue(config).list();
-      queued = items.filter((item) => item.jobId === run.clipJobId).length;
-    } catch {
-      queued = 0;
-    }
+  if (run.clipJobId) {
+    queued = (await ctx.queuedByJob()).get(run.clipJobId) ?? 0;
   }
 
   const clipsReady = (job?.clips ?? []).filter((clip) => clip.editedFile || clip.downloadFile || clip.file).length;
   const longformReady = Boolean(exportRecord?.status === "done" && exportRecord.file);
   const audioReady = Boolean(exportRecord?.audioFile);
   const posts = run.posts?.length ?? 0;
-  const moment = visualMomentFromClips(job?.clips ?? [], job?.sourceCaptions ?? []);
+  const moment = visualMomentFromClips(job?.clips ?? [], job?.sourceCaptions ?? [], run.durationSec);
   const visualMoment = moment
     ? { ...moment, prompt: realisticImagePrompt(moment, run.name) }
     : undefined;
@@ -509,7 +650,7 @@ export async function runOverview(run: PipelineRun): Promise<PipelineRunOverview
   const stages = {
     source: sourceStage(run),
     longform: longformStage(run, project),
-    segments: segmentsStage(run, project, segmentsRendered),
+    segments: segmentsStage(run, project, segmentsRendered, job),
     clips: clipsStage(run, job),
     audio: audioStage(run, project),
     images: imagesStage(run, project, slideCount),

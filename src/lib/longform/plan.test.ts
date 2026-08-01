@@ -493,3 +493,30 @@ describe("sourceTimeToOutput", () => {
     expect(sourceTimeToOutput(20, take, moved)).toBeCloseTo(20, 3);
   });
 });
+
+describe("planHook anchoring", () => {
+  it("starts the hook at the first spoken word, not at a silent opening", () => {
+    // A stream that opens on a title card or music leaves the first seconds
+    // untranscribed; anchoring at 0 produced a hook window with no words in
+    // it, which is how a fully-transcribed stream exported a caption-less hook.
+    const transcript = [
+      caption("a", 42, 47, "right so here is the thing nobody tells you"),
+      caption("b", 47, 53, "you do not need permission to start building")
+    ];
+    const hook = planHook(transcript, 600);
+    expect(hook.start).toBeCloseTo(42);
+    expect(hook.end).toBeGreaterThan(hook.start);
+    expect(hook.captions.length).toBeGreaterThan(0);
+  });
+
+  it("still anchors at zero when speech starts immediately", () => {
+    const hook = planHook([caption("a", 0, 6, "we are live and building today")], 600);
+    expect(hook.start).toBe(0);
+    expect(hook.captions.length).toBeGreaterThan(0);
+  });
+
+  it("keeps the punch-in gentle enough not to crop a screen share", () => {
+    const hook = planHook([], 600);
+    expect(hook.zoom).toBeLessThanOrEqual(1.15);
+  });
+});

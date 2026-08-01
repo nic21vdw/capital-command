@@ -45,6 +45,8 @@ export type PipelineRun = {
   clipJobId?: string;
   /** Whether the topic-segment plan has been attempted from the full transcript. */
   segmentsPlanned?: boolean;
+  /** Why no podcast MP3 was cut — doubles as the "don't try again" marker. */
+  audioNote?: string;
   /** Carousel written from the transcript, once available. */
   carouselId?: string;
   carouselNote?: string;

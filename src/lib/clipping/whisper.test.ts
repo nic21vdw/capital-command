@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { offsetWordChunks, wordsFromChunks, type WordChunk } from "./whisper";
+import { clampWordsToDuration, offsetWordChunks, wordsFromChunks, type WordChunk } from "./whisper";
 
 describe("wordsFromChunks", () => {
   it("keeps words in spoken order even when a timestamp jumps backwards", () => {
@@ -127,5 +127,60 @@ describe("offsetWordChunks", () => {
     expect(words.map((w) => w.text)).toEqual(["first", "second"]);
     expect(words[1].start).toBeCloseTo(600.1, 3);
     expect(words[0].end).toBeLessThanOrEqual(words[1].start);
+  });
+});
+
+describe("wordsFromChunks hyphen and contraction joining", () => {
+  it("joins a token that opens with a hyphen onto the word before it", () => {
+    // The model splits "push-ups" into two tokens and every consumer re-joins
+    // tokens with a space, which burned "push -ups" into finished captions.
+    const words = wordsFromChunks([
+      { text: " 75", timestamp: [1.0, 1.3] },
+      { text: " push", timestamp: [1.3, 1.6] },
+      { text: "-ups", timestamp: [1.6, 1.9] }
+    ]);
+    expect(words.map((w) => w.text)).toEqual(["75", "push-ups"]);
+    expect(words[1].end).toBeCloseTo(1.9);
+  });
+
+  it("joins a contraction tail onto its word", () => {
+    const words = wordsFromChunks([
+      { text: " it", timestamp: [0, 0.2] },
+      { text: "'s", timestamp: [0.2, 0.3] },
+      { text: " done", timestamp: [0.3, 0.6] }
+    ]);
+    expect(words.map((w) => w.text)).toEqual(["it's", "done"]);
+  });
+
+  it("leaves an ordinary word untouched", () => {
+    const words = wordsFromChunks([
+      { text: " well", timestamp: [0, 0.3] },
+      { text: " known", timestamp: [0.3, 0.6] }
+    ]);
+    expect(words.map((w) => w.text)).toEqual(["well", "known"]);
+  });
+});
+
+describe("clampWordsToDuration", () => {
+  it("drops a word stamped past the end of the media", () => {
+    const words = clampWordsToDuration(
+      [
+        { text: "hello", start: 1, end: 1.4 },
+        { text: "ringing", start: 28.06, end: 29.92 }
+      ],
+      25
+    );
+    expect(words.map((w) => w.text)).toEqual(["hello"]);
+  });
+
+  it("trims the word that straddles the end instead of dropping it", () => {
+    const words = clampWordsToDuration([{ text: "end", start: 24.8, end: 26.4 }], 25);
+    expect(words).toHaveLength(1);
+    expect(words[0].end).toBeCloseTo(25.5);
+  });
+
+  it("leaves everything alone when the duration is unknown", () => {
+    const words = [{ text: "a", start: 0, end: 1 }];
+    expect(clampWordsToDuration(words, 0)).toEqual(words);
   });
 });
