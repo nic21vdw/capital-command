@@ -1,8 +1,12 @@
-# House Sessions loop
+# House playlist visualizer
 
-Seamless 30-second, 1080p ambient visual for long house playlist uploads.
+Audio-reactive 1080p Remotion visual driven by the Suno stream playlist tracks.
 
-Colorful but clean: soft multicolor haze, light rays, spectrum rings, lively equalizer. No name plate, no BPM. Motion is phase-driven so the loop closes cleanly.
+Bars, rings, light rays, and glow all follow the real track waveform — not fake sine waves. Audio is embedded in the render.
+
+## Setup
+
+Tracks are expected at `public/tracks` (junction to your Downloads playlist folder).
 
 ## Preview
 
@@ -11,10 +15,24 @@ npm install
 npm run preview
 ```
 
-## Render
+Open `AiMusicTrack` (single song) or `AiMusicPlaylist` (multi-song).
+
+## Render one track (with music)
 
 ```bash
-npm run render
+npx remotion render src/index.ts AiMusicTrack out/track.mp4 --props="{\"trackIndex\":3}"
 ```
 
-Output: `out/ai-music-loop.mp4` (1920×1080, 30 fps, 30 s, seamless).
+## Render a slice of the playlist
+
+Full playlist is ~259 minutes. Sample the first three tracks:
+
+```bash
+npx remotion render src/index.ts AiMusicPlaylist out/sample.mp4 --props="{\"fromTrack\":0,\"trackCount\":3}"
+```
+
+Full playlist:
+
+```bash
+npx remotion render src/index.ts AiMusicPlaylist out/full.mp4 --props="{\"fromTrack\":0}"
+```

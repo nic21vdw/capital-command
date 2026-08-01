@@ -1,0 +1,535 @@
+{
+  "fps": 30,
+  "tracks": [
+    {
+      "file": "01 - Rapid Cycle (v1).mp3",
+      "title": "Rapid Cycle",
+      "seconds": 179.832,
+      "frames": 5395
+    },
+    {
+      "file": "02 - Blue Hour (v1).mp3",
+      "title": "Blue Hour",
+      "seconds": 239.592,
+      "frames": 7188
+    },
+    {
+      "file": "03 - Pixel Riot (v1).mp3",
+      "title": "Pixel Riot",
+      "seconds": 131.232,
+      "frames": 3937
+    },
+    {
+      "file": "04 - Guaracha Heat (v1).mp3",
+      "title": "Guaracha Heat",
+      "seconds": 180.072,
+      "frames": 5402
+    },
+    {
+      "file": "05 - Aurora Mode (v1).mp3",
+      "title": "Aurora Mode",
+      "seconds": 239.712,
+      "frames": 7191
+    },
+    {
+      "file": "06 - Ship It (v1).mp3",
+      "title": "Ship It",
+      "seconds": 167.712,
+      "frames": 5031
+    },
+    {
+      "file": "07 - Neon Bazaar (v1).mp3",
+      "title": "Neon Bazaar",
+      "seconds": 179.472,
+      "frames": 5384
+    },
+    {
+      "file": "08 - Static Garden (v1).mp3",
+      "title": "Static Garden",
+      "seconds": 179.352,
+      "frames": 5381
+    },
+    {
+      "file": "09 - Overclock (v1).mp3",
+      "title": "Overclock",
+      "seconds": 184.752,
+      "frames": 5543
+    },
+    {
+      "file": "10 - Signal Flare (v1).mp3",
+      "title": "Signal Flare",
+      "seconds": 122.352,
+      "frames": 3671
+    },
+    {
+      "file": "11 - Sunburst Ave (v1).mp3",
+      "title": "Sunburst Ave",
+      "seconds": 138.648,
+      "frames": 4159
+    },
+    {
+      "file": "12 - Hard Reset (v1).mp3",
+      "title": "Hard Reset",
+      "seconds": 128.88,
+      "frames": 3866
+    },
+    {
+      "file": "13 - Ember Rise (v1).mp3",
+      "title": "Ember Rise",
+      "seconds": 177.912,
+      "frames": 5337
+    },
+    {
+      "file": "14 - Chrome Coast (v1).mp3",
+      "title": "Chrome Coast",
+      "seconds": 204.168,
+      "frames": 6125
+    },
+    {
+      "file": "15 - Pressure Wave (v1).mp3",
+      "title": "Pressure Wave",
+      "seconds": 160.56,
+      "frames": 4817
+    },
+    {
+      "file": "16 - Long Runway (v1).mp3",
+      "title": "Long Runway",
+      "seconds": 98.112,
+      "frames": 2943
+    },
+    {
+      "file": "17 - Kawaii Circuit (v1).mp3",
+      "title": "Kawaii Circuit",
+      "seconds": 136.56,
+      "frames": 4097
+    },
+    {
+      "file": "18 - Acid Rally (v1).mp3",
+      "title": "Acid Rally",
+      "seconds": 165.648,
+      "frames": 4969
+    },
+    {
+      "file": "19 - Solar Panels (v1).mp3",
+      "title": "Solar Panels",
+      "seconds": 124.752,
+      "frames": 3743
+    },
+    {
+      "file": "20 - Neon Pulse (v1).mp3",
+      "title": "Neon Pulse",
+      "seconds": 179.688,
+      "frames": 5391
+    },
+    {
+      "file": "21 - Copper Wire (v1).mp3",
+      "title": "Copper Wire",
+      "seconds": 207.648,
+      "frames": 6229
+    },
+    {
+      "file": "22 - Amber Signal (v1).mp3",
+      "title": "Amber Signal",
+      "seconds": 203.04,
+      "frames": 6091
+    },
+    {
+      "file": "23 - Bounce Protocol (v1).mp3",
+      "title": "Bounce Protocol",
+      "seconds": 177.552,
+      "frames": 5327
+    },
+    {
+      "file": "24 - First Light (v1).mp3",
+      "title": "First Light",
+      "seconds": 179.832,
+      "frames": 5395
+    },
+    {
+      "file": "25 - Zero Latency (v1).mp3",
+      "title": "Zero Latency",
+      "seconds": 179.688,
+      "frames": 5391
+    },
+    {
+      "file": "26 - Turbo Lane (v1).mp3",
+      "title": "Turbo Lane",
+      "seconds": 183.648,
+      "frames": 5509
+    },
+    {
+      "file": "27 - Ion Drift (v1).mp3",
+      "title": "Ion Drift",
+      "seconds": 180.192,
+      "frames": 5406
+    },
+    {
+      "file": "28 - Payday (v1).mp3",
+      "title": "Payday",
+      "seconds": 167.28,
+      "frames": 5018
+    },
+    {
+      "file": "29 - Iron Bloom (v1).mp3",
+      "title": "Iron Bloom",
+      "seconds": 179.76,
+      "frames": 5393
+    },
+    {
+      "file": "30 - Split Second (v1).mp3",
+      "title": "Split Second",
+      "seconds": 146.208,
+      "frames": 4386
+    },
+    {
+      "file": "31 - Solar Flare Drive (v1).mp3",
+      "title": "Solar Flare Drive",
+      "seconds": 179.64,
+      "frames": 5389
+    },
+    {
+      "file": "32 - Green Candles (v1).mp3",
+      "title": "Green Candles",
+      "seconds": 159.6,
+      "frames": 4788
+    },
+    {
+      "file": "33 - Slipstream (v1).mp3",
+      "title": "Slipstream",
+      "seconds": 179.688,
+      "frames": 5391
+    },
+    {
+      "file": "34 - Autopilot (v1).mp3",
+      "title": "Autopilot",
+      "seconds": 479.232,
+      "frames": 14377
+    },
+    {
+      "file": "35 - Voltage Drop (v1).mp3",
+      "title": "Voltage Drop",
+      "seconds": 179.64,
+      "frames": 5389
+    },
+    {
+      "file": "36 - Perimeter (v1).mp3",
+      "title": "Perimeter",
+      "seconds": 179.76,
+      "frames": 5393
+    },
+    {
+      "file": "37 - Nitro Bloom (v1).mp3",
+      "title": "Nitro Bloom",
+      "seconds": 179.712,
+      "frames": 5391
+    },
+    {
+      "file": "38 - Neon Commute (v1).mp3",
+      "title": "Neon Commute",
+      "seconds": 154.68,
+      "frames": 4640
+    },
+    {
+      "file": "39 - Brass Tacks (v1).mp3",
+      "title": "Brass Tacks",
+      "seconds": 175.8,
+      "frames": 5274
+    },
+    {
+      "file": "40 - Skyline Sprint (v1).mp3",
+      "title": "Skyline Sprint",
+      "seconds": 132.072,
+      "frames": 3962
+    },
+    {
+      "file": "41 - Chrome Temple (v1).mp3",
+      "title": "Chrome Temple",
+      "seconds": 179.712,
+      "frames": 5391
+    },
+    {
+      "file": "42 - Afterburner (v1).mp3",
+      "title": "Afterburner",
+      "seconds": 112.44,
+      "frames": 3373
+    },
+    {
+      "file": "43 - Overtime (v1).mp3",
+      "title": "Overtime",
+      "seconds": 185.16,
+      "frames": 5555
+    },
+    {
+      "file": "44 - Sunrise Protocol (v1).mp3",
+      "title": "Sunrise Protocol",
+      "seconds": 153.672,
+      "frames": 4610
+    },
+    {
+      "file": "45 - Turbo Lane (v2).mp3",
+      "title": "Turbo Lane",
+      "seconds": 209.16,
+      "frames": 6275
+    },
+    {
+      "file": "46 - Ion Drift (v2).mp3",
+      "title": "Ion Drift",
+      "seconds": 179.76,
+      "frames": 5393
+    },
+    {
+      "file": "47 - Green Candles (v2).mp3",
+      "title": "Green Candles",
+      "seconds": 143.712,
+      "frames": 4311
+    },
+    {
+      "file": "48 - Neon Pulse (v2).mp3",
+      "title": "Neon Pulse",
+      "seconds": 180.24,
+      "frames": 5407
+    },
+    {
+      "file": "49 - Sunburst Ave (v2).mp3",
+      "title": "Sunburst Ave",
+      "seconds": 137.088,
+      "frames": 4113
+    },
+    {
+      "file": "50 - Guaracha Heat (v2).mp3",
+      "title": "Guaracha Heat",
+      "seconds": 157.272,
+      "frames": 4718
+    },
+    {
+      "file": "51 - Blue Hour (v2).mp3",
+      "title": "Blue Hour",
+      "seconds": 247.848,
+      "frames": 7435
+    },
+    {
+      "file": "52 - Pressure Wave (v2).mp3",
+      "title": "Pressure Wave",
+      "seconds": 179.76,
+      "frames": 5393
+    },
+    {
+      "file": "53 - Amber Signal (v2).mp3",
+      "title": "Amber Signal",
+      "seconds": 217.128,
+      "frames": 6514
+    },
+    {
+      "file": "54 - Solar Flare Drive (v2).mp3",
+      "title": "Solar Flare Drive",
+      "seconds": 179.928,
+      "frames": 5398
+    },
+    {
+      "file": "55 - First Light (v2).mp3",
+      "title": "First Light",
+      "seconds": 183.528,
+      "frames": 5506
+    },
+    {
+      "file": "56 - Slipstream (v2).mp3",
+      "title": "Slipstream",
+      "seconds": 180,
+      "frames": 5400
+    },
+    {
+      "file": "57 - Overclock (v2).mp3",
+      "title": "Overclock",
+      "seconds": 205.92,
+      "frames": 6178
+    },
+    {
+      "file": "58 - Kawaii Circuit (v2).mp3",
+      "title": "Kawaii Circuit",
+      "seconds": 150.96,
+      "frames": 4529
+    },
+    {
+      "file": "59 - Perimeter (v2).mp3",
+      "title": "Perimeter",
+      "seconds": 180.24,
+      "frames": 5407
+    },
+    {
+      "file": "60 - Hard Reset (v2).mp3",
+      "title": "Hard Reset",
+      "seconds": 217.872,
+      "frames": 6536
+    },
+    {
+      "file": "61 - Bounce Protocol (v2).mp3",
+      "title": "Bounce Protocol",
+      "seconds": 177.672,
+      "frames": 5330
+    },
+    {
+      "file": "62 - Sunrise Protocol (v2).mp3",
+      "title": "Sunrise Protocol",
+      "seconds": 188.928,
+      "frames": 5668
+    },
+    {
+      "file": "63 - Acid Rally (v2).mp3",
+      "title": "Acid Rally",
+      "seconds": 184.68,
+      "frames": 5540
+    },
+    {
+      "file": "64 - Iron Bloom (v2).mp3",
+      "title": "Iron Bloom",
+      "seconds": 179.592,
+      "frames": 5388
+    },
+    {
+      "file": "65 - Long Runway (v2).mp3",
+      "title": "Long Runway",
+      "seconds": 154.728,
+      "frames": 4642
+    },
+    {
+      "file": "66 - Rapid Cycle (v2).mp3",
+      "title": "Rapid Cycle",
+      "seconds": 179.448,
+      "frames": 5383
+    },
+    {
+      "file": "67 - Brass Tacks (v2).mp3",
+      "title": "Brass Tacks",
+      "seconds": 146.28,
+      "frames": 4388
+    },
+    {
+      "file": "68 - Aurora Mode (v2).mp3",
+      "title": "Aurora Mode",
+      "seconds": 248.328,
+      "frames": 7450
+    },
+    {
+      "file": "69 - Static Garden (v2).mp3",
+      "title": "Static Garden",
+      "seconds": 179.592,
+      "frames": 5388
+    },
+    {
+      "file": "70 - Payday (v2).mp3",
+      "title": "Payday",
+      "seconds": 158.28,
+      "frames": 4748
+    },
+    {
+      "file": "71 - Neon Bazaar (v2).mp3",
+      "title": "Neon Bazaar",
+      "seconds": 179.472,
+      "frames": 5384
+    },
+    {
+      "file": "72 - Afterburner (v2).mp3",
+      "title": "Afterburner",
+      "seconds": 139.248,
+      "frames": 4177
+    },
+    {
+      "file": "73 - Ship It (v2).mp3",
+      "title": "Ship It",
+      "seconds": 146.64,
+      "frames": 4399
+    },
+    {
+      "file": "74 - Voltage Drop (v2).mp3",
+      "title": "Voltage Drop",
+      "seconds": 179.4,
+      "frames": 5382
+    },
+    {
+      "file": "75 - Pixel Riot (v2).mp3",
+      "title": "Pixel Riot",
+      "seconds": 126.768,
+      "frames": 3803
+    },
+    {
+      "file": "76 - Copper Wire (v2).mp3",
+      "title": "Copper Wire",
+      "seconds": 135.48,
+      "frames": 4064
+    },
+    {
+      "file": "77 - Ember Rise (v2).mp3",
+      "title": "Ember Rise",
+      "seconds": 179.112,
+      "frames": 5373
+    },
+    {
+      "file": "78 - Chrome Temple (v2).mp3",
+      "title": "Chrome Temple",
+      "seconds": 179.832,
+      "frames": 5395
+    },
+    {
+      "file": "79 - Signal Flare (v2).mp3",
+      "title": "Signal Flare",
+      "seconds": 162.432,
+      "frames": 4873
+    },
+    {
+      "file": "80 - Split Second (v2).mp3",
+      "title": "Split Second",
+      "seconds": 169.68,
+      "frames": 5090
+    },
+    {
+      "file": "81 - Nitro Bloom (v2).mp3",
+      "title": "Nitro Bloom",
+      "seconds": 179.832,
+      "frames": 5395
+    },
+    {
+      "file": "82 - Neon Commute (v2).mp3",
+      "title": "Neon Commute",
+      "seconds": 168.192,
+      "frames": 5046
+    },
+    {
+      "file": "83 - Zero Latency (v2).mp3",
+      "title": "Zero Latency",
+      "seconds": 179.472,
+      "frames": 5384
+    },
+    {
+      "file": "84 - Solar Panels (v2).mp3",
+      "title": "Solar Panels",
+      "seconds": 137.472,
+      "frames": 4124
+    },
+    {
+      "file": "85 - Skyline Sprint (v2).mp3",
+      "title": "Skyline Sprint",
+      "seconds": 167.76,
+      "frames": 5033
+    },
+    {
+      "file": "86 - Chrome Coast (v2).mp3",
+      "title": "Chrome Coast",
+      "seconds": 179.832,
+      "frames": 5395
+    },
+    {
+      "file": "87 - Autopilot (v2).mp3",
+      "title": "Autopilot",
+      "seconds": 254.688,
+      "frames": 7641
+    },
+    {
+      "file": "88 - Overtime (v2).mp3",
+      "title": "Overtime",
+      "seconds": 187.272,
+      "frames": 5618
+    }
+  ],
+  "totalFrames": 466652,
+  "totalSeconds": 15555.066666666668
+}

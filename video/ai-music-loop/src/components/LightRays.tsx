@@ -4,13 +4,20 @@ import { theme } from "../theme";
 
 const RAY_COUNT = 12;
 
-export const LightRays: React.FC = () => {
+type Props = {
+  level?: number;
+  mid?: number;
+};
+
+export const LightRays: React.FC<Props> = ({ level = 0.15, mid = 0.15 }) => {
   const frame = useCurrentFrame();
   const { durationInFrames, width, height } = useVideoConfig();
   const t = (frame / durationInFrames) * Math.PI * 2;
   const cx = width / 2;
   const cy = height * 0.5;
   const spin = (frame / durationInFrames) * 28;
+  const energy = Math.min(1, level * 1.6);
+  const body = Math.min(1, mid * 1.8);
 
   return (
     <AbsoluteFill style={{ pointerEvents: "none" }}>
@@ -25,10 +32,18 @@ export const LightRays: React.FC = () => {
         <g transform={`rotate(${spin} ${cx} ${cy})`}>
           {Array.from({ length: RAY_COUNT }).map((_, i) => {
             const a = (i / RAY_COUNT) * Math.PI * 2;
-            const len = 380 + 70 * Math.sin(t * 1.5 + i * 0.8);
+            const len =
+              340 +
+              50 * Math.sin(t * 1.5 + i * 0.8) +
+              energy * 120 +
+              body * 40;
             const x2 = cx + Math.cos(a) * len;
             const y2 = cy + Math.sin(a) * len;
-            const opacity = 0.1 + 0.12 * (0.5 + 0.5 * Math.sin(t * 2 + i));
+            const opacity =
+              0.05 +
+              energy * 0.18 +
+              body * 0.08 +
+              0.05 * (0.5 + 0.5 * Math.sin(t * 2 + i));
 
             return (
               <line
@@ -38,7 +53,7 @@ export const LightRays: React.FC = () => {
                 x2={x2}
                 y2={y2}
                 stroke="url(#rayGrad)"
-                strokeWidth={2.5}
+                strokeWidth={2 + energy * 2.5}
                 opacity={opacity}
               />
             );

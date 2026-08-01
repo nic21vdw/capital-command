@@ -2,7 +2,14 @@ import React, { useMemo } from "react";
 import { AbsoluteFill, useCurrentFrame, useVideoConfig } from "remotion";
 import { theme } from "../theme";
 
-const COLORS = [theme.cyan, theme.magenta, theme.coral, theme.gold, theme.white, theme.violet];
+const COLORS = [
+  theme.cyan,
+  theme.magenta,
+  theme.coral,
+  theme.gold,
+  theme.white,
+  theme.violet,
+];
 
 type Particle = {
   x: number;
@@ -31,21 +38,37 @@ function makeParticles(count: number): Particle[] {
   return out;
 }
 
-export const Particles: React.FC = () => {
+type Props = {
+  level?: number;
+  high?: number;
+};
+
+export const Particles: React.FC<Props> = ({ level = 0.15, high = 0.15 }) => {
   const frame = useCurrentFrame();
   const { durationInFrames } = useVideoConfig();
   const particles = useMemo(() => makeParticles(42), []);
   const t = (frame / durationInFrames) * Math.PI * 2;
+  const energy = Math.min(1, level * 1.7);
+  const sparkle = Math.min(1, high * 2);
 
   return (
     <AbsoluteFill style={{ pointerEvents: "none" }}>
       {particles.map((p, i) => {
-        const x = p.x * 100 + Math.sin(t * p.speed + p.phase) * (p.drift / 19.2);
+        const x =
+          p.x * 100 +
+          Math.sin(t * p.speed + p.phase) * (p.drift / 19.2) * (1 + energy);
         const y =
-          p.y * 100 + Math.cos(t * p.speed * 0.7 + p.phase) * (p.drift / 10.8);
+          p.y * 100 +
+          Math.cos(t * p.speed * 0.7 + p.phase) * (p.drift / 10.8) -
+          energy * 2;
         const opacity =
-          0.18 + 0.45 * (0.5 + 0.5 * Math.sin(t * p.speed * 1.4 + p.phase));
-        const size = p.size * (0.9 + 0.25 * (0.5 + 0.5 * Math.sin(t * p.speed + p.phase)));
+          0.1 +
+          0.25 * energy +
+          0.4 * sparkle * (0.5 + 0.5 * Math.sin(t * p.speed * 1.4 + p.phase));
+        const size =
+          p.size *
+          (0.85 + energy * 0.5 + sparkle * 0.35) *
+          (0.9 + 0.25 * (0.5 + 0.5 * Math.sin(t * p.speed + p.phase)));
 
         return (
           <div
@@ -59,7 +82,7 @@ export const Particles: React.FC = () => {
               borderRadius: "50%",
               backgroundColor: p.color,
               opacity,
-              boxShadow: `0 0 ${size * 3.5}px ${p.color}`,
+              boxShadow: `0 0 ${size * (2.5 + energy * 3)}px ${p.color}`,
               transform: "translate(-50%, -50%)",
             }}
           />

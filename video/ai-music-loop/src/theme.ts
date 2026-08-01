@@ -14,6 +14,4 @@ export const theme = {
 export const fontFamily =
   '"Segoe UI", "Helvetica Neue", Helvetica, Arial, sans-serif';
 
-export const LOOP_SECONDS = 30;
 export const FPS = 30;
-export const TOTAL_FRAMES = LOOP_SECONDS * FPS;

@@ -1,44 +1,26 @@
-import React, { useMemo } from "react";
-import { useCurrentFrame, useVideoConfig } from "remotion";
+import React from "react";
+import { useVideoConfig } from "remotion";
 import { theme } from "../theme";
 
-const BAR_COUNT = 56;
 const COLORS = [theme.cyan, theme.violet, theme.magenta, theme.coral, theme.gold];
 
-type Bar = {
-  phase: number;
-  speed: number;
-  base: number;
-  peak: number;
-  color: string;
+type Props = {
+  bars?: number[];
 };
 
-function makeBars(): Bar[] {
-  return Array.from({ length: BAR_COUNT }, (_, i) => {
-    const seed = i * 9973;
-    const centerBias = 1 - Math.abs(i - BAR_COUNT / 2) / (BAR_COUNT / 2);
-    return {
-      phase: ((seed * 3) % 628) / 100,
-      speed: 0.85 + ((seed * 5) % 110) / 100,
-      base: 12 + centerBias * 16 + ((seed * 7) % 10),
-      peak: 40 + centerBias * 70 + ((seed * 11) % 24),
-      color: COLORS[i % COLORS.length],
-    };
-  });
-}
+export const Equalizer: React.FC<Props> = ({ bars = [] }) => {
+  const { width, height } = useVideoConfig();
+  const values =
+    bars.length > 0
+      ? bars
+      : Array.from({ length: 56 }, () => 0.08);
 
-export const Equalizer: React.FC = () => {
-  const frame = useCurrentFrame();
-  const { durationInFrames, width, height } = useVideoConfig();
-  const bars = useMemo(() => makeBars(), []);
-  const t = (frame / durationInFrames) * Math.PI * 2;
-  const swell = 0.5 + 0.5 * Math.sin(t * 2);
-
-  const barWidth = 9;
-  const gap = 8;
-  const totalW = BAR_COUNT * barWidth + (BAR_COUNT - 1) * gap;
+  const barWidth = 10;
+  const gap = 7;
+  const totalW = values.length * barWidth + (values.length - 1) * gap;
   const startX = (width - totalW) / 2;
   const baseY = height - 80;
+  const maxH = 210;
 
   return (
     <svg
@@ -46,13 +28,9 @@ export const Equalizer: React.FC = () => {
       height={height}
       style={{ position: "absolute", inset: 0, pointerEvents: "none" }}
     >
-      {bars.map((bar, i) => {
-        const wave =
-          0.4 +
-          0.25 * swell +
-          0.22 * Math.sin(t * bar.speed + bar.phase) +
-          0.13 * Math.sin(t * bar.speed * 1.7 + bar.phase * 1.25);
-        const h = bar.base + (bar.peak - bar.base) * Math.max(0.12, wave);
+      {values.map((raw, i) => {
+        const value = Math.min(1, Math.pow(Math.max(0, raw), 0.85) * 1.35);
+        const h = 10 + value * maxH;
         const x = startX + i * (barWidth + gap);
         const y = baseY - h;
 
@@ -64,8 +42,8 @@ export const Equalizer: React.FC = () => {
             width={barWidth}
             height={h}
             rx={barWidth / 2}
-            fill={bar.color}
-            opacity={0.35 + 0.45 * wave}
+            fill={COLORS[i % COLORS.length]}
+            opacity={0.25 + value * 0.7}
           />
         );
       })}

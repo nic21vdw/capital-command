@@ -2,11 +2,19 @@ import React from "react";
 import { useCurrentFrame, useVideoConfig } from "remotion";
 import { fontFamily, theme } from "../theme";
 
-export const TitleLockup: React.FC = () => {
+type Props = {
+  title?: string;
+  level?: number;
+};
+
+export const TitleLockup: React.FC<Props> = ({
+  title = "HOUSE",
+  level = 0.15,
+}) => {
   const frame = useCurrentFrame();
   const { durationInFrames } = useVideoConfig();
   const t = (frame / durationInFrames) * Math.PI * 2;
-  const glow = 0.55 + 0.45 * (0.5 + 0.5 * Math.sin(t * 2));
+  const glow = 0.4 + Math.min(1, level * 1.8) * 0.7;
 
   return (
     <div
@@ -37,19 +45,20 @@ export const TitleLockup: React.FC = () => {
 
       <div
         style={{
-          fontSize: 52,
+          fontSize: 48,
           fontWeight: 700,
-          letterSpacing: "0.16em",
+          letterSpacing: "0.12em",
           color: theme.white,
           textAlign: "center",
           lineHeight: 1.05,
+          maxWidth: "90%",
           textShadow: `
             0 0 ${18 * glow}px ${theme.magenta}99,
             0 0 ${40 * glow}px ${theme.violet}66
           `,
         }}
       >
-        HOUSE
+        {title}
       </div>
     </div>
   );

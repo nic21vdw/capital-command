@@ -2,6 +2,11 @@ import React from "react";
 import { AbsoluteFill, useCurrentFrame, useVideoConfig } from "remotion";
 import { theme } from "../theme";
 
+type Props = {
+  level?: number;
+  bass?: number;
+};
+
 const ORBS = [
   { x: 0.22, y: 0.3, size: 820, color: theme.violet, s: 0.7, p: 0.3, a: 0.28 },
   { x: 0.78, y: 0.26, size: 720, color: theme.magenta, s: 0.55, p: 1.6, a: 0.22 },
@@ -10,10 +15,15 @@ const ORBS = [
   { x: 0.68, y: 0.58, size: 480, color: theme.gold, s: 0.5, p: 4.2, a: 0.1 },
 ];
 
-export const AmbientBackground: React.FC = () => {
+export const AmbientBackground: React.FC<Props> = ({
+  level = 0.15,
+  bass = 0.15,
+}) => {
   const frame = useCurrentFrame();
   const { durationInFrames } = useVideoConfig();
   const t = (frame / durationInFrames) * Math.PI * 2;
+  const hit = Math.min(1, level * 1.8);
+  const thump = Math.min(1, bass * 2.2);
 
   return (
     <AbsoluteFill
@@ -23,11 +33,13 @@ export const AmbientBackground: React.FC = () => {
       }}
     >
       {ORBS.map((orb, i) => {
-        const driftX = Math.sin(t * orb.s + orb.p) * 42;
-        const driftY = Math.cos(t * orb.s * 0.75 + orb.p) * 28;
-        const scale = 0.92 + 0.12 * (0.5 + 0.5 * Math.sin(t * orb.s * 1.2 + orb.p));
-        const opacity =
-          orb.a * (0.75 + 0.35 * (0.5 + 0.5 * Math.sin(t * orb.s + orb.p)));
+        const driftX = Math.sin(t * orb.s + orb.p) * (36 + hit * 24);
+        const driftY = Math.cos(t * orb.s * 0.75 + orb.p) * (22 + hit * 16);
+        const scale =
+          0.9 +
+          0.1 * (0.5 + 0.5 * Math.sin(t * orb.s * 1.2 + orb.p)) +
+          thump * 0.12;
+        const opacity = orb.a * (0.55 + hit * 0.9 + thump * 0.35);
 
         return (
           <div
@@ -54,6 +66,7 @@ export const AmbientBackground: React.FC = () => {
           inset: 0,
           background:
             "radial-gradient(ellipse at 50% 55%, transparent 28%, rgba(7,6,15,0.62) 100%)",
+          opacity: 1 - hit * 0.15,
         }}
       />
     </AbsoluteFill>

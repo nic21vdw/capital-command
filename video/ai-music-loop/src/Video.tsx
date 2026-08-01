@@ -1,21 +1,63 @@
 import React from "react";
-import { AbsoluteFill } from "remotion";
-import { AmbientBackground } from "./components/AmbientBackground";
-import { Equalizer } from "./components/Equalizer";
-import { LightRays } from "./components/LightRays";
-import { Particles } from "./components/Particles";
-import { TitleLockup } from "./components/TitleLockup";
-import { WaveRing } from "./components/WaveRing";
+import { AbsoluteFill, Sequence } from "remotion";
+import manifest from "./track-manifest.json";
+import { TrackScene } from "./TrackScene";
 
-export const Video: React.FC = () => {
+export type SingleTrackProps = {
+  trackIndex: number;
+};
+
+export const SingleTrackVideo: React.FC<SingleTrackProps> = ({
+  trackIndex,
+}) => {
+  const track =
+    manifest.tracks[
+      Math.max(0, Math.min(manifest.tracks.length - 1, trackIndex))
+    ];
+
   return (
     <AbsoluteFill>
-      <AmbientBackground />
-      <LightRays />
-      <Particles />
-      <WaveRing />
-      <TitleLockup />
-      <Equalizer />
+      <TrackScene file={track.file} title={track.title} playAudio />
     </AbsoluteFill>
   );
 };
+
+export type PlaylistProps = {
+  fromTrack?: number;
+  trackCount?: number;
+};
+
+export const PlaylistVideo: React.FC<PlaylistProps> = ({
+  fromTrack = 0,
+  trackCount,
+}) => {
+  const start = Math.max(0, fromTrack);
+  const end =
+    trackCount == null
+      ? manifest.tracks.length
+      : Math.min(manifest.tracks.length, start + trackCount);
+  const slice = manifest.tracks.slice(start, end);
+
+  let cursor = 0;
+
+  return (
+    <AbsoluteFill>
+      {slice.map((track) => {
+        const from = cursor;
+        cursor += track.frames;
+        return (
+          <Sequence
+            key={track.file}
+            from={from}
+            durationInFrames={track.frames}
+            name={track.title}
+          >
+            <TrackScene file={track.file} title={track.title} playAudio />
+          </Sequence>
+        );
+      })}
+    </AbsoluteFill>
+  );
+};
+
+export const Video = SingleTrackVideo;

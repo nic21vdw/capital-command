@@ -2,14 +2,17 @@
   "name": "ai-music-loop",
   "version": "1.0.0",
   "private": true,
-  "description": "Seamless looping ambient visual for AI-generated stream music playlists on YouTube.",
+  "description": "Audio-reactive Remotion visual for Suno stream house playlists.",
   "scripts": {
     "preview": "remotion studio",
-    "render": "remotion render AiMusicLoop out/ai-music-loop.mp4",
-    "still": "remotion still AiMusicLoop out/poster.png --frame=150"
+    "render": "remotion render AiMusicTrack out/ai-music-track.mp4",
+    "render:playlist-sample": "remotion render AiMusicPlaylist out/ai-music-playlist-sample.mp4 --props={\"fromTrack\":0,\"trackCount\":3}",
+    "still": "remotion still AiMusicTrack out/poster.png --frame=150"
   },
   "dependencies": {
     "@remotion/cli": "4.0.290",
+    "@remotion/media-utils": "4.0.290",
+    "music-metadata": "^11.0.0",
     "react": "18.3.1",
     "react-dom": "18.3.1",
     "remotion": "4.0.290"
