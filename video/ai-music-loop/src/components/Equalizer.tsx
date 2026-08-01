@@ -1,16 +1,14 @@
 import React, { useMemo } from "react";
 import { useCurrentFrame, useVideoConfig } from "remotion";
-import { BEAT_FRAMES, theme } from "../theme";
+import { theme } from "../theme";
 
-const BAR_COUNT = 72;
-const COLORS = [theme.pink, theme.magenta, theme.violet, theme.purple, theme.cyan];
+const BAR_COUNT = 48;
 
 type Bar = {
   phase: number;
   speed: number;
   base: number;
   peak: number;
-  color: string;
 };
 
 function makeBars(): Bar[] {
@@ -19,10 +17,9 @@ function makeBars(): Bar[] {
     const centerBias = 1 - Math.abs(i - BAR_COUNT / 2) / (BAR_COUNT / 2);
     return {
       phase: ((seed * 3) % 628) / 100,
-      speed: 1 + ((seed * 5) % 140) / 100,
-      base: 20 + centerBias * 30 + ((seed * 7) % 18),
-      peak: 70 + centerBias * 160 + ((seed * 11) % 50),
-      color: COLORS[i % COLORS.length],
+      speed: 0.7 + ((seed * 5) % 100) / 100,
+      base: 8 + centerBias * 10 + ((seed * 7) % 8),
+      peak: 28 + centerBias * 42 + ((seed * 11) % 18),
     };
   });
 }
@@ -32,13 +29,12 @@ export const Equalizer: React.FC = () => {
   const { durationInFrames, width, height } = useVideoConfig();
   const bars = useMemo(() => makeBars(), []);
   const t = (frame / durationInFrames) * Math.PI * 2;
-  const beat = 0.5 + 0.5 * Math.sin((frame / BEAT_FRAMES) * Math.PI * 2);
 
-  const barWidth = 12;
-  const gap = 6;
+  const barWidth = 8;
+  const gap = 10;
   const totalW = BAR_COUNT * barWidth + (BAR_COUNT - 1) * gap;
   const startX = (width - totalW) / 2;
-  const baseY = height - 70;
+  const baseY = height - 88;
 
   return (
     <svg
@@ -46,20 +42,12 @@ export const Equalizer: React.FC = () => {
       height={height}
       style={{ position: "absolute", inset: 0, pointerEvents: "none" }}
     >
-      <defs>
-        <linearGradient id="barGrad" x1="0" y1="1" x2="0" y2="0">
-          <stop offset="0%" stopColor={theme.purple} />
-          <stop offset="55%" stopColor={theme.magenta} />
-          <stop offset="100%" stopColor={theme.pink} />
-        </linearGradient>
-      </defs>
       {bars.map((bar, i) => {
         const wave =
-          0.35 +
-          0.35 * beat +
-          0.2 * Math.sin(t * bar.speed + bar.phase) +
-          0.1 * Math.sin(t * bar.speed * 2.1 + bar.phase * 1.4);
-        const h = bar.base + (bar.peak - bar.base) * Math.max(0.1, wave);
+          0.45 +
+          0.3 * Math.sin(t * bar.speed + bar.phase) +
+          0.25 * Math.sin(t * bar.speed * 1.6 + bar.phase * 1.2);
+        const h = bar.base + (bar.peak - bar.base) * Math.max(0.15, wave);
         const x = startX + i * (barWidth + gap);
         const y = baseY - h;
 
@@ -71,8 +59,8 @@ export const Equalizer: React.FC = () => {
             width={barWidth}
             height={h}
             rx={barWidth / 2}
-            fill="url(#barGrad)"
-            opacity={0.55 + 0.4 * wave}
+            fill={theme.white}
+            opacity={0.12 + 0.22 * wave}
           />
         );
       })}

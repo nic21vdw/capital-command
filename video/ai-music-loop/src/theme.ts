@@ -1,22 +1,17 @@
 export const theme = {
-  bgDeep: "#0a0018",
-  bgMid: "#1a0538",
-  purple: "#7b2ff7",
-  violet: "#a855f7",
-  magenta: "#e040fb",
-  pink: "#ff2d95",
-  blue: "#4f46e5",
-  cyan: "#22d3ee",
-  white: "#f8fafc",
-  soft: "#c4b5fd",
-  dim: "#4c1d95",
+  bg: "#050508",
+  surface: "#0c0d12",
+  warm: "#c4b8a8",
+  cool: "#8a9bb0",
+  soft: "#6b7280",
+  white: "#e8e6e3",
+  accent: "#9aa3b2",
+  glow: "#b8c0cc",
 } as const;
 
 export const fontFamily =
-  '"Segoe UI Black", "Impact", "Arial Black", "Segoe UI", system-ui, sans-serif';
+  '"Segoe UI", "Helvetica Neue", Helvetica, Arial, sans-serif';
 
 export const LOOP_SECONDS = 30;
 export const FPS = 30;
 export const TOTAL_FRAMES = LOOP_SECONDS * FPS;
-export const BPM = 124;
-export const BEAT_FRAMES = (60 / BPM) * FPS;
