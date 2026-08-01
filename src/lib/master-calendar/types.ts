@@ -1,12 +1,29 @@
 /**
  * The Master Calendar's unified event model. Every distribution surface —
  * scheduled shorts uploads (publish queue), carousel upload schedules,
- * X/Threads daily packs, FB/IG thread posts and the dated content tracker —
+ * Threads daily packs, FB/IG thread posts and the dated content tracker —
  * is flattened into MasterCalendarEvent so one calendar can render them all
  * side by side and link back to the calendar that owns each item.
  */
 
 export type CalendarSourceId = "shorts" | "podcasts" | "carousels" | "x" | "fb" | "content";
+
+/**
+ * What the calendar needs to reschedule an event without a second fetch.
+ * Present only on events backed by a system that can actually be rewritten —
+ * the publish queue and the Threads autopilot's queue. Carousel schedules,
+ * FB/IG drafts and the content tracker are still read-only here and link out.
+ */
+export type CalendarEditTarget = {
+  kind: "queue" | "threads";
+  id: string;
+  /** Current instant, UTC ISO-8601. */
+  publishAt: string;
+  /** The editable copy: a queue item's caption, or the Threads post text. */
+  text: string;
+  /** Set when it can no longer be moved; the sentence says why. */
+  lockedReason?: string;
+};
 
 export type MasterCalendarEvent = {
   /** Unique across the whole calendar (source-prefixed). */
@@ -27,6 +44,7 @@ export type MasterCalendarEvent = {
   status: string;
   /** True for occurrences expanded from a repeating carousel schedule. */
   recurring?: boolean;
+  edit?: CalendarEditTarget;
 };
 
 export type CalendarSource = {
@@ -69,11 +87,11 @@ export const CALENDAR_SOURCES: CalendarSource[] = [
   },
   {
     id: "x",
-    label: "X / Threads daily packs",
-    shortLabel: "X / Threads",
+    label: "Threads daily packs",
+    shortLabel: "Threads",
     color: "#38bdf8",
     href: "/x-posts",
-    hrefLabel: "X / Threads Posts"
+    hrefLabel: "Threads Posts"
   },
   {
     id: "fb",

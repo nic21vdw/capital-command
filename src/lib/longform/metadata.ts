@@ -1,5 +1,5 @@
-import Anthropic from "@anthropic-ai/sdk";
-import { CHANNEL_KEYWORDS, TITLE_STYLE_EXAMPLES } from "@/lib/clipping/titles";
+import { aiConfigured, runAi } from "@/lib/ai";
+import { CHANNEL_KEYWORDS, TITLE_STYLE_EXAMPLES } from "@/lib/clipping/keywords";
 import type { LongformProject, LongformSegment } from "@/lib/longform/types";
 import type { CaptionSegment } from "@/types/domain";
 
@@ -39,7 +39,7 @@ const MAX_TAGS = 18;
 const MAX_TRANSCRIPT_CHARS = 9000;
 
 export function longformMetadataConfigured() {
-  return Boolean(process.env.ANTHROPIC_API_KEY);
+  return aiConfigured();
 }
 
 export function formatChapterTime(seconds: number): string {
@@ -260,10 +260,8 @@ export async function generateLongformMetadata(project: LongformProject): Promis
   const transcriptText = transcriptLines(project.transcript, project.segments);
 
   try {
-    const client = new Anthropic();
-    const response = await client.messages.create({
-      model: "claude-opus-4-8",
-      max_tokens: 2500,
+    const result = await runAi({
+      maxTokens: 2500,
       system: LONGFORM_METADATA_SYSTEM_PROMPT,
       messages: [
         {
@@ -277,12 +275,8 @@ export async function generateLongformMetadata(project: LongformProject): Promis
         }
       ]
     });
-    if (response.stop_reason === "refusal") return fallback;
-    const text = response.content
-      .filter((block): block is Anthropic.TextBlock => block.type === "text")
-      .map((block) => block.text)
-      .join("\n");
-    const parsed = parseLongformMetadata(text);
+    if (!result || result.refused) return fallback;
+    const parsed = parseLongformMetadata(result.text);
     if (!parsed) return fallback;
     const chapters = wantChapters ? parsed.chapters : [];
     return {

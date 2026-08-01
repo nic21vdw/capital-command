@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
-import { configuredPlatforms, publisherConfig } from "@/lib/publisher/config";
+import { bufferConfigured, configuredPlatforms, publisherConfig } from "@/lib/publisher/config";
 import { youtubeChannelInfo } from "@/lib/publisher/googleAuth";
+import { facebookProfile, instagramProfile } from "@/lib/publisher/metaProfile";
+import { tiktokCreatorInfo } from "@/lib/publisher/tiktokAuth";
 import { youtubeQuota } from "@/lib/publisher/quota";
 import { publishQueue } from "@/lib/publisher/queue";
 import { generateSlots } from "@/lib/publisher/slots";
@@ -36,13 +38,34 @@ export async function GET(request: NextRequest) {
   return NextResponse.json({
     enabled: config.enabled,
     timezone: config.timezone,
+    // Every platform in ALL_PLATFORMS gets an entry, including the ones with
+    // no credentials — the client types this as a full record and reads it by
+    // platform id, so a missing key would read as undefined rather than off.
     platforms: {
       youtube: {
         configured: configured.has("youtube"),
         account: configured.has("youtube") ? await youtubeChannelInfo() : null
       },
-      instagram: { configured: configured.has("instagram") },
-      tiktok: { configured: configured.has("tiktok") }
+      instagram: {
+        configured: configured.has("instagram"),
+        account: configured.has("instagram") ? await instagramProfile(config) : null
+      },
+      tiktok: {
+        configured: configured.has("tiktok"),
+        account: configured.has("tiktok") ? await tiktokCreatorInfo() : null
+      },
+      facebook: {
+        configured: configured.has("facebook"),
+        account: configured.has("facebook") ? await facebookProfile(config) : null
+      }
+    },
+    // Buffer is a delivery layer, not one of the four platforms — surfaced
+    // separately so the UI can show it's managing scheduled posts. `enabled`
+    // without `configured` means the token/profiles still need to be set.
+    buffer: {
+      enabled: config.buffer.enabled,
+      configured: bufferConfigured(config),
+      profileCount: config.buffer.profileIds.length
     },
     quota: youtubeQuota(items, now, config),
     // Echoed back so the client can tell which window the slots belong to

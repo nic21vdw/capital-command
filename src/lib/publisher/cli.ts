@@ -9,6 +9,8 @@ import path from "node:path";
  *   npx tsx src/lib/publisher/cli.ts enqueue --clip <path> --at <time> [...]
  *   npx tsx src/lib/publisher/cli.ts list
  *   npx tsx src/lib/publisher/cli.ts remove <itemId>
+ *   npx tsx src/lib/publisher/cli.ts instagram connect --token <t> [--write]
+ *   npx tsx src/lib/publisher/cli.ts instagram check
  *
  * `scheduler` is the long-running mode for when your machine is on; the
  * GitHub Actions workflow covers the always-on cron case with `run-due`.
@@ -148,7 +150,338 @@ async function main() {
           .join(" ");
         console.log(`  ${platform.padEnd(9)} ${state.status}${extras ? `  ${extras}` : ""}`);
       }
+      if (item.buffer) {
+        const extras = [
+          item.buffer.updateIds?.length && `ids=${item.buffer.updateIds.join(",")}`,
+          item.buffer.error && `error=${item.buffer.error}`
+        ]
+          .filter(Boolean)
+          .join(" ");
+        console.log(`  ${"buffer".padEnd(9)} ${item.buffer.status}${extras ? `  ${extras}` : ""}`);
+      }
     }
+    return;
+  }
+
+  if (command === "buffer") {
+    const { syncDueToBuffer, listBufferProfiles, validateBufferAuth } = await import("@/lib/publisher/buffer");
+    const { bufferConfigured } = await import("@/lib/publisher/config");
+    const sub = args.positional[1] ?? "sync";
+
+    if (!config.buffer.enabled) {
+      console.error("[publisher] Buffer is off. Set BUFFER_ENABLED=true (and BUFFER_ACCESS_TOKEN / BUFFER_PROFILE_IDS).");
+      process.exitCode = 1;
+      return;
+    }
+
+    if (sub === "profiles" || sub === "check") {
+      try {
+        const profiles = await listBufferProfiles(config);
+        if (sub === "check") await validateBufferAuth(config);
+        console.log(`[publisher] Buffer token OK — ${profiles.length} connected profile(s):`);
+        for (const p of profiles) {
+          console.log(`  ${p.id ?? "(no id)"}  ${p.service ?? "?"}  ${p.formatted_username ?? ""}`);
+        }
+      } catch (error) {
+        console.error(`[publisher] Buffer check failed: ${error instanceof Error ? error.message : String(error)}`);
+        process.exitCode = 1;
+      }
+      return;
+    }
+
+    // Default: sync — schedule every due queue item into Buffer.
+    if (!bufferConfigured(config)) {
+      console.error("[publisher] Buffer is enabled but not connected — set BUFFER_ACCESS_TOKEN and BUFFER_PROFILE_IDS.");
+      process.exitCode = 1;
+      return;
+    }
+    const outcomes = await syncDueToBuffer(new Date(), { config });
+    if (outcomes.length === 0) {
+      console.log("[publisher] Buffer: nothing due to schedule.");
+      return;
+    }
+    for (const o of outcomes) console.log(`  ${o.itemId}  ${o.outcome.padEnd(9)} ${o.detail}`);
+    process.exitCode = outcomes.some((o) => o.outcome === "failed") ? 1 : 0;
+    return;
+  }
+
+  if (command === "instagram") {
+    const { connectInstagram, envUpdatesFor, applyEnvUpdates, inspectInstagram, REQUIRED_SCOPES } = await import(
+      "@/lib/publisher/instagramConnect"
+    );
+    const sub = args.positional[1] ?? "connect";
+
+    if (sub === "check") {
+      try {
+        const status = await inspectInstagram(config);
+        console.log(`[publisher] Instagram OK — @${status.username ?? "?"} (${status.igUserId})`);
+        if (status.followers !== null) console.log(`[publisher]   followers: ${status.followers.toLocaleString()}`);
+        if (status.quotaUsage !== null) console.log(`[publisher]   published in the last 24h: ${status.quotaUsage}/50`);
+        console.log(
+          `[publisher]   token: ${
+            status.neverExpires
+              ? "never expires"
+              : status.tokenExpiresAt
+                ? `expires ${status.tokenExpiresAt}`
+                : "expiry unknown — set IG_APP_ID and IG_APP_SECRET to see it"
+          }`
+        );
+        if (status.missingScopes.length > 0) {
+          console.error(`[publisher]   MISSING permissions: ${status.missingScopes.join(", ")}`);
+          process.exitCode = 1;
+        }
+        // One Meta grant backs both platforms, so checking Instagram without
+        // checking the Page is how a broken Facebook stays hidden.
+        const { facebookProfile, facebookPublishProbe } = await import("@/lib/publisher/metaProfile");
+        const page = await facebookProfile(config);
+        if (!page) {
+          console.log("[publisher] Facebook: no Page configured (FB_PAGE_ID / FB_PAGE_ACCESS_TOKEN).");
+        } else {
+          const probe = await facebookPublishProbe(config);
+          console.log(`[publisher] Facebook ${probe.ready ? "OK" : "NOT READY"} — ${page.title}`);
+          console.log(`[publisher]   Reels: ${probe.detail}`);
+          if (!probe.ready) process.exitCode = 1;
+        }
+      } catch (error) {
+        console.error(`[publisher] Instagram check failed: ${error instanceof Error ? error.message : String(error)}`);
+        process.exitCode = 1;
+      }
+      return;
+    }
+
+    const appId = flagStr(args, "app-id") ?? process.env.IG_APP_ID;
+    const appSecret = flagStr(args, "app-secret") ?? process.env.IG_APP_SECRET;
+    const userToken = flagStr(args, "token");
+    if (!appId || !appSecret || !userToken) {
+      console.error(
+        [
+          "Usage: instagram connect --app-id <id> --app-secret <secret> --token <short-lived user token> [--page <id|name>] [--ig-user-id <id>] [--write]",
+          "",
+          "The three values come from the Meta App Dashboard — see docs/INSTAGRAM_SETUP.md:",
+          "  app id / secret   Settings → Basic",
+          `  token             Tools → Graph API Explorer, granting ${REQUIRED_SCOPES.join(", ")}`,
+          "",
+          "--write saves IG_USER_ID / IG_ACCESS_TOKEN (and the Page equivalents) into .env."
+        ].join("\n")
+      );
+      process.exitCode = 1;
+      return;
+    }
+
+    const connection = await connectInstagram({
+      appId,
+      appSecret,
+      userToken,
+      pageId: flagStr(args, "page"),
+      igUserId: flagStr(args, "ig-user-id"),
+      graphApiVersion: config.instagram.graphApiVersion
+    });
+
+    console.log(`[publisher] connected @${connection.igUsername ?? connection.igUserId}`);
+    console.log(`[publisher]   IG_USER_ID:  ${connection.igUserId}`);
+    console.log(
+      `[publisher]   Page:        ${connection.page ? `${connection.page.pageName} (${connection.page.pageId})` : "none — the account is reached through the business portfolio"}`
+    );
+    console.log(
+      connection.tokenSource === "page"
+        ? "[publisher]   token:       Page token (does not expire)"
+        : `[publisher]   token:       user token — EXPIRES ${connection.userTokenExpiresAt ?? "in ~60 days"}, re-run this command before then`
+    );
+    console.log(`[publisher]   permissions: ${connection.grantedScopes.join(", ") || "(could not read)"}`);
+    if (connection.quotaUsage !== null) {
+      console.log(`[publisher]   published in the last 24h: ${connection.quotaUsage}/50`);
+    }
+    if (connection.missingScopes.length > 0) {
+      console.error(
+        `[publisher]   MISSING permissions: ${connection.missingScopes.join(", ")} — re-generate the token with those granted.`
+      );
+      process.exitCode = 1;
+    }
+
+    const updates = envUpdatesFor(connection, { appId, appSecret });
+    if (args.flags.has("write")) {
+      const { readFile, writeFile } = await import("node:fs/promises");
+      const envPath = path.join(process.cwd(), ".env");
+      const existing = await readFile(envPath, "utf8").catch(() => "");
+      await writeFile(envPath, applyEnvUpdates(existing, updates), "utf8");
+      console.log(`[publisher] wrote ${Object.keys(updates).join(", ")} to ${envPath}`);
+      console.log("[publisher] confirm with `npm run publish:instagram:check`, then add instagram to PUBLISH_PLATFORMS.");
+    } else {
+      console.log("[publisher] add these to .env (or re-run with --write):");
+      for (const [key, value] of Object.entries(updates)) console.log(`${key}=${value}`);
+    }
+    return;
+  }
+
+  // mirror [--mode match|shuffle] [--targets a,b] [--lead youtube] [--seed n] [--write]
+  //
+  // Copies the lead platform's upcoming schedule onto the others. Prints the
+  // plan and changes nothing unless --write is passed.
+  if (command === "mirror") {
+    const { planMirror, planUnmirror, describeMirrorPlan } = await import("@/lib/publisher/mirror");
+    const { newPlatformState } = await import("@/lib/publisher/queue");
+    const queue = publishQueue(config);
+    let items = await queue.list();
+
+    const lead = (flagStr(args, "lead") ?? "youtube") as PlatformId;
+    const targets = (flagStr(args, "targets") ?? "instagram,facebook")
+      .split(",")
+      .map((t) => t.trim().toLowerCase())
+      .filter((t): t is PlatformId => (ALL_PLATFORMS as string[]).includes(t));
+    const mode = flagStr(args, "mode") === "shuffle" ? "shuffle" : "match";
+    const seedRaw = Number(flagStr(args, "seed"));
+    const seed = Number.isFinite(seedRaw) && seedRaw > 0 ? seedRaw : 1;
+
+    // --reset lifts a previous mirror back off before re-dealing, so switching
+    // between match and shuffle doesn't leave both arrangements in the queue.
+    if (args.flags.has("reset")) {
+      const { removals, kept } = planUnmirror(items, targets, new Date());
+      for (const keep of kept) console.log(`[publisher]   kept ${keep.itemId} ${keep.platform}: ${keep.reason}`);
+
+      // A standalone item a previous shuffle created, still untouched: it holds
+      // only target platforms, so dropping it hands the slot back to the lead.
+      const isOrphan = (item: (typeof items)[number]) => {
+        const platforms = Object.keys(item.platforms) as PlatformId[];
+        if (platforms.length === 0) return true;
+        if (new Date(item.publishAt).getTime() <= Date.now()) return false;
+        return (
+          platforms.every((p) => targets.includes(p)) &&
+          platforms.every((p) => {
+            const state = item.platforms[p]!;
+            return state.status === "pending" && state.attempts === 0 && !state.postId && !state.containerId;
+          })
+        );
+      };
+      const orphans = items.filter(isOrphan);
+      console.log(
+        `[publisher] reset: lifting ${removals.length} untouched platform states, dropping ${orphans.length} standalone posts.`
+      );
+
+      if (args.flags.has("write")) {
+        for (const removal of removals) {
+          const item = await queue.get(removal.itemId);
+          if (!item) continue;
+          delete item.platforms[removal.platform];
+          await queue.add(item);
+        }
+        for (const orphan of orphans) await queue.remove(orphan.id);
+        items = await queue.list();
+      } else {
+        // Plan against what the reset WOULD leave, so a dry run previews the
+        // new deal instead of reporting there is nothing left to do.
+        const dropped = new Set(orphans.map((orphan) => orphan.id));
+        const byItem = new Map<string, Set<PlatformId>>();
+        for (const removal of removals) {
+          byItem.set(removal.itemId, (byItem.get(removal.itemId) ?? new Set()).add(removal.platform));
+        }
+        items = items
+          .filter((item) => !dropped.has(item.id))
+          .map((item) => {
+            const lifted = byItem.get(item.id);
+            if (!lifted) return item;
+            const platforms = { ...item.platforms };
+            for (const platform of lifted) delete platforms[platform];
+            return { ...item, platforms };
+          });
+      }
+    }
+
+    const plan = planMirror(items, { lead, targets, mode, now: new Date(), seed });
+    console.log(`[publisher] mirror ${lead} → ${targets.join(", ")} (${mode}): ${describeMirrorPlan(plan)}`);
+    for (const skip of plan.skipped) console.log(`[publisher]   skipped ${skip.itemId}: ${skip.reason}`);
+
+    if (mode === "shuffle" && plan.newItems.length > 0) {
+      const byId = new Map(items.map((i) => [i.id, i]));
+      for (const entry of plan.newItems) {
+        const source = byId.get(entry.sourceItemId);
+        console.log(
+          `[publisher]   ${entry.platform} ${formatInTimezone(new Date(entry.publishAt), config.timezone)} → ${source?.title ?? entry.sourceItemId}`
+        );
+      }
+    }
+
+    if (!args.flags.has("write")) {
+      console.log("[publisher] dry run — re-run with --write to apply.");
+      return;
+    }
+
+    const byId = new Map(items.map((i) => [i.id, i]));
+    for (const add of plan.additions) {
+      const item = byId.get(add.itemId);
+      if (item) item.platforms[add.platform] = newPlatformState();
+    }
+    for (const entry of plan.newItems) {
+      const source = byId.get(entry.sourceItemId);
+      if (!source) continue;
+      await queue.add({
+        ...source,
+        id: `${entry.platform.slice(0, 2)}-${entry.slotItemId}-${crypto.randomUUID().slice(0, 6)}`,
+        publishAt: entry.publishAt,
+        createdAt: new Date().toISOString(),
+        platforms: { [entry.platform]: newPlatformState() }
+      });
+    }
+    for (const add of plan.additions) {
+      const item = byId.get(add.itemId);
+      if (item) await queue.add(item);
+    }
+    console.log(`[publisher] wrote ${plan.additions.length + plan.newItems.length} scheduled posts.`);
+    return;
+  }
+
+  // retitle [--write] [--push] — rewrite scheduled clips' titles through the
+  // channel style guide, and optionally push them to videos already on YouTube.
+  if (command === "retitle") {
+    const { collectRetitleTargets, writeTitles } = await import("@/lib/publisher/retitle");
+    const { readFile } = await import("node:fs/promises");
+    const queue = publishQueue(config);
+    const items = await queue.list();
+    const now = Date.now();
+    const upcoming = items.filter((i) => new Date(i.publishAt).getTime() > now);
+
+    const jobs = JSON.parse(await readFile(path.join(process.cwd(), "data", "clips", "jobs.json"), "utf8"));
+    // Clip Editor exports resolve through their project, not their file name.
+    const appData = JSON.parse(
+      await readFile(path.join(process.cwd(), "data", "capital-command.json"), "utf8").catch(() => "{}")
+    );
+    const { targets, unresolved } = collectRetitleTargets(upcoming, jobs, appData.clipProjects ?? []);
+    console.log(`[publisher] ${targets.length} upcoming clips have a transcript; ${unresolved.length} do not.`);
+    for (const miss of unresolved) console.log(`[publisher]   keeping title on ${miss.itemId}: ${miss.reason}`);
+
+    const titles = await writeTitles(targets, jobs);
+    if (titles.size === 0) {
+      console.error("[publisher] no titles came back — leaving every title as it is.");
+      process.exitCode = 1;
+      return;
+    }
+
+    for (const target of targets) {
+      const title = titles.get(target.item.id);
+      if (!title || title === target.item.title) continue;
+      console.log(`[publisher]   ${target.item.title}\n[publisher]     → ${title}`);
+      if (args.flags.has("write")) {
+        target.item.title = title;
+        await queue.add(target.item);
+      }
+    }
+
+    if (args.flags.has("write") && args.flags.has("push")) {
+      const { updateYoutubeVideoTitle } = await import("@/lib/publisher/adapters/youtube");
+      let pushed = 0;
+      for (const target of targets) {
+        const videoId = target.item.platforms.youtube?.postId;
+        const title = titles.get(target.item.id);
+        if (!videoId || !title) continue;
+        try {
+          await updateYoutubeVideoTitle(videoId, title, target.item.accountId);
+          pushed += 1;
+        } catch (error) {
+          console.error(`[publisher]   YouTube ${videoId} not renamed: ${error instanceof Error ? error.message : String(error)}`);
+        }
+      }
+      console.log(`[publisher] renamed ${pushed} videos already on YouTube.`);
+    }
+    if (!args.flags.has("write")) console.log("[publisher] dry run — re-run with --write to apply (add --push to rename on YouTube).");
     return;
   }
 
@@ -171,6 +504,11 @@ async function main() {
       "  scheduler [--interval <minutes>]     keep running while your machine is on",
       '  enqueue --clip <path> --at <time>    add a finished clip to the queue',
       "  list                                 show the queue and per-platform status",
+      "  buffer [sync|profiles|check]         schedule due posts into Buffer / inspect the connection",
+      "  mirror [--mode shuffle] [--write]    copy YouTube's upcoming schedule onto Instagram/Facebook",
+      "  retitle [--write] [--push]           rewrite upcoming clip titles via the channel style guide",
+      "  instagram connect --token <t>        turn a Meta token into IG_USER_ID + IG_ACCESS_TOKEN (--write saves them)",
+      "  instagram check                      confirm the saved Instagram credentials still work",
       "  remove <itemId>                      drop an item from the queue"
     ].join("\n")
   );

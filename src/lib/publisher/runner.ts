@@ -6,10 +6,12 @@ import { facebookAdapter } from "@/lib/publisher/adapters/facebook";
 import { instagramAdapter } from "@/lib/publisher/adapters/instagram";
 import { tiktokAdapter } from "@/lib/publisher/adapters/tiktok";
 import { youtubeAdapter } from "@/lib/publisher/adapters/youtube";
-import { publisherConfig, type PublisherConfig } from "@/lib/publisher/config";
+import { type BufferOutcome, syncDueToBuffer, validateBufferAuth } from "@/lib/publisher/buffer";
+import { bufferConfigured, configuredPlatforms, publisherConfig, type PublisherConfig } from "@/lib/publisher/config";
 import { mediaHost } from "@/lib/publisher/hosting";
+import { describeMirrorPlan, planMirror } from "@/lib/publisher/mirror";
 import { PermanentError, StillProcessingError, isTransient } from "@/lib/publisher/http";
-import { PublishQueue, isTerminalStatus, publishQueue } from "@/lib/publisher/queue";
+import { PublishQueue, isTerminalStatus, newPlatformState, publishQueue } from "@/lib/publisher/queue";
 import { formatInTimezone } from "@/lib/publisher/time";
 import type { PlatformAdapter, PlatformId, PlatformState, PostResult, PublishInput, PublishPlan, QueueItem } from "@/lib/publisher/types";
 
@@ -51,6 +53,8 @@ export type RunReport = {
   authChecks: Array<{ platform: PlatformId; ok: boolean; detail: string }>;
   plans: Array<{ itemId: string; clip: string; due: boolean; plan: PublishPlan }>;
   outcomes: RunOutcome[];
+  /** Present only when Buffer is enabled — one entry per item the Buffer pass acted on. */
+  bufferOutcomes?: BufferOutcome[];
 };
 
 export type RunDueOptions = {
@@ -139,6 +143,21 @@ export async function runDue(now: Date = new Date(), options: RunDueOptions = {}
       log(`[publisher]   auth ${check.platform}: ${check.ok ? "✓" : "✗"} ${check.detail}`);
     }
 
+    // Buffer is a delivery layer, not one of the four platforms, so it reports
+    // separately. Prove its token works too when it is turned on.
+    if (config.buffer.enabled) {
+      if (!bufferConfigured(config)) {
+        log("[publisher]   auth buffer: ✗ enabled but missing BUFFER_ACCESS_TOKEN / BUFFER_PROFILE_IDS");
+      } else {
+        try {
+          await validateBufferAuth(config);
+          log(`[publisher]   auth buffer: ✓ token OK, ${config.buffer.profileIds.length} profile(s) targeted`);
+        } catch (error) {
+          log(`[publisher]   auth buffer: ✗ ${error instanceof Error ? error.message : String(error)}`);
+        }
+      }
+    }
+
     // 2. Show the exact plan for every unfinished item — payload summary,
     //    resolved local + UTC publish time — without posting anything.
     for (const item of await queue.list()) {
@@ -163,6 +182,64 @@ export async function runDue(now: Date = new Date(), options: RunDueOptions = {}
     return report;
   }
 
+  // Buffer delivery pass (opt-in). Runs independently of the direct-platform
+  // loop below and only ever writes to each item's `buffer` field, so it can
+  // never disturb a platform's publish state. A thrown error here is contained
+  // so it cannot abort the direct publishes.
+  const runBuffer = async () => {
+    if (!config.buffer.enabled) return;
+    try {
+      const bufferOutcomes = await syncDueToBuffer(now, { queue, config, log, itemId: options.itemId });
+      if (bufferOutcomes.length > 0) report.bufferOutcomes = bufferOutcomes;
+    } catch (error) {
+      log(`[publisher]   buffer pass failed: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  };
+
+  // Keep every platform on one schedule before deciding what is due, so a clip
+  // that was only ever scheduled on YouTube is already on Instagram/Facebook by
+  // the time its slot comes round. Contained: a failure here must not stop the
+  // posts that are already queued from going out.
+  if (config.mirror.enabled && !options.itemId) {
+    try {
+      const configured = new Set(configuredPlatforms(config));
+      const targets = config.mirror.targets.filter((platform) => configured.has(platform));
+      if (targets.length > 0) {
+        const plan = planMirror(await queue.list(), {
+          lead: config.mirror.lead,
+          targets,
+          mode: config.mirror.mode,
+          now
+        });
+        for (const skip of plan.skipped) log(`[publisher]   mirror skipped ${skip.itemId}: ${skip.reason}`);
+        for (const add of plan.additions) {
+          const item = await queue.get(add.itemId);
+          if (!item || item.platforms[add.platform]) continue;
+          item.platforms[add.platform] = newPlatformState();
+          await queue.add(item);
+        }
+        // Shuffled slots hold a different clip per platform, which one item
+        // cannot express, so each gets its own.
+        for (const entry of plan.newItems) {
+          const source = await queue.get(entry.sourceItemId);
+          if (!source) continue;
+          await queue.add({
+            ...source,
+            id: crypto.randomUUID().slice(0, 8),
+            publishAt: entry.publishAt,
+            createdAt: new Date().toISOString(),
+            platforms: { [entry.platform]: newPlatformState() }
+          });
+        }
+        if (plan.additions.length + plan.newItems.length > 0) {
+          log(`[publisher] mirrored ${config.mirror.lead} → ${describeMirrorPlan(plan)}`);
+        }
+      }
+    } catch (error) {
+      log(`[publisher]   mirror pass failed: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
   let due = await queue.dueItems(now);
   if (options.itemId) {
     due = due.filter((entry) => entry.item.id === options.itemId);
@@ -180,6 +257,7 @@ export async function runDue(now: Date = new Date(), options: RunDueOptions = {}
   }
   if (due.length === 0) {
     log("[publisher] no due items.");
+    await runBuffer();
     return report;
   }
 
@@ -237,5 +315,7 @@ export async function runDue(now: Date = new Date(), options: RunDueOptions = {}
       }
     }
   }
+
+  await runBuffer();
   return report;
 }

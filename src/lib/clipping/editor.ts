@@ -355,6 +355,7 @@ export function makeClipProject(input: {
     clipEnd: input.clipEnd,
     trimStart: 0,
     trimEnd: duration,
+    segments: [],
     title: "",
     aspectRatio: "9:16",
     compositionMode: "center-blur",

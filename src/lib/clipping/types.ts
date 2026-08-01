@@ -1,6 +1,11 @@
 export type ClipJobStatus = "queued" | "processing" | "done" | "error";
 
-export type ClipJobStage = "downloading" | "analyzing" | "selecting" | "rendering" | "finished";
+/**
+ * `review` is a hold: the moments are picked and titled but nothing has been
+ * encoded yet. Only a job created with `reviewGate` stops there, and only the
+ * Stream Pipeline's approval (or `approveClipRenders`) moves it on.
+ */
+export type ClipJobStage = "downloading" | "analyzing" | "selecting" | "review" | "rendering" | "finished";
 
 export type ClipLayoutPreset = "center" | "restream-stack" | "face-stack" | "screen-focus" | "face-focus";
 
@@ -77,6 +82,15 @@ export type ClipCandidate = {
   previewFile?: string;
   /** Poster frame filename, so players paint a frame instantly instead of black. */
   posterFile?: string;
+  /**
+   * ISO-8601 timestamp of the last creator re-cut of this clip's in/out points.
+   * A re-cut overwrites the clip's files under their existing names, so this
+   * doubles as the cache-buster every surface appends to their URLs — without
+   * it the browser keeps painting the previous cut from its own cache.
+   */
+  recutAt?: string;
+  /** Where the automatic selection put this clip, kept so a re-cut can be undone. */
+  originalRange?: { start: number; end: number };
   /** Legacy layout used by older rendered files. New files are neutral source masters. */
   layoutPreset?: ClipLayoutPreset;
   /** Legacy alternate compositions rendered from the same moment. */
@@ -96,6 +110,17 @@ export type ClipJob = {
   sourceUrl: string;
   /** Set when the job was created from an uploaded file instead of a URL. */
   sourceId?: string;
+  /**
+   * How many clips the creator asked to generate from this source. Chosen at
+   * upload time (defaults to TARGET_CLIP_COUNT) and drives every selection pass.
+   */
+  clipCount?: number;
+  /**
+   * Hold the job at `review` once the moments are picked and titled, instead of
+   * rendering straight through. Set by the Stream Pipeline so the selection can
+   * be edited before any encoding time is spent; cleared on approval.
+   */
+  reviewGate?: boolean;
   renderLayout?: ClipLayoutPreset;
   renderVariants?: boolean;
   layoutOverrides?: ClipLayoutOverrides;
@@ -108,6 +133,11 @@ export type ClipJob = {
   notices: string[];
   createdAt: string;
   durationSec?: number;
+  /**
+   * Full-source audio silence ranges measured with ffmpeg. New clip projects
+   * window these into clip-local keep/cut blocks; older jobs fall back to word gaps.
+   */
+  silences?: import("@/lib/clipping/analysis").SilenceRange[];
   /** Drive-synced folder the clips were copied into, when CLIPS_DRIVE_DIR is set. */
   driveFolder?: string;
   clips: ClipCandidate[];

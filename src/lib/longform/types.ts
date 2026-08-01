@@ -135,6 +135,53 @@ export type LongformMusic = {
   fadeOut?: number;
 };
 
+/**
+ * One subject the recording covers, found by reading the transcript — the
+ * long-form counterpart to a short-form clip. A stream that ran three hours
+ * carries several of these (hackathon progress, a bug hunt, a business
+ * tangent), and each one exports as its own standalone upload of roughly ten
+ * minutes, cut and captioned with the project's own settings.
+ *
+ * A topic is GATHERED, not sliced: a stream drops a subject and comes back to
+ * it later, so `ranges` holds every stretch of the recording that belongs to
+ * this subject and the export plays them back to back. `start` and `end` are
+ * only the outer span for display — the runtime is the ranges added up, which
+ * `topicDurationSec` reports.
+ *
+ * Topics do NOT tile the recording: stretches that are mostly dead air or
+ * never joined a subject are left out on purpose. They are also entirely
+ * separate from short-form clip selection, which scans the whole stream for its
+ * own best 30-second moments.
+ */
+export type LongformTopicRange = {
+  /** Source-timeline seconds, both landing on a completed thought. */
+  start: number;
+  end: number;
+};
+
+export type LongformTopic = {
+  id: string;
+  /** Publish-ready title for this segment as its own video. */
+  title: string;
+  /** One line on what the segment covers. */
+  summary: string;
+  /**
+   * The stretches this segment plays, in chronological order. Absent on topics
+   * planned before segments could be gathered — those are the single window
+   * `[start, end]`, which is how they are read back.
+   */
+  ranges?: LongformTopicRange[];
+  /** Outer span of the segment: the first range's start and the last one's end. */
+  start: number;
+  end: number;
+  /** Distinctive terms that made this subject its own segment. */
+  keywords: string[];
+  /** Whether Claude wrote the title or the offline keyword titler did. */
+  titleSource: "ai" | "fallback";
+  /** Export record this segment was last rendered as, if any. */
+  exportId?: string;
+};
+
 /** Tunables for how aggressively dead space is cut. */
 export type LongformPace = {
   /** Silences at least this long (seconds) get cut. */
@@ -160,6 +207,8 @@ export type LongformExportRecord = {
   title?: string;
   /** Whether the decorated title carries an injected emoji. */
   emojiUsed?: boolean;
+  /** Set when this export is one topic segment rather than the whole edit. */
+  topicId?: string;
   createdAt: string;
 };
 
@@ -184,6 +233,14 @@ export type LongformProject = {
   /** Raw detected silences the segment plan was built from. */
   silences: SilenceRange[];
   segments: LongformSegment[];
+  /**
+   * Topic segments found in the transcript, each exportable as its own video.
+   * Absent until they have been planned; an empty array means the planner ran
+   * and found nothing to split (see `topicsNote`).
+   */
+  topics?: LongformTopic[];
+  /** Why there are no topic segments, when the planner could not produce any. */
+  topicsNote?: string;
   hook: LongformHook;
   /** Whole-video captions burned over the edited runtime. */
   captions: LongformCaptions;
@@ -206,7 +263,18 @@ export type LongformProject = {
   updatedAt: string;
 };
 
-/** A song uploaded to the shared background-music library. */
+/** Where a library song came from, when it wasn't uploaded by hand. */
+export type MusicTrackOrigin = {
+  provider: "fal";
+  /** Registry id from src/lib/music/models.ts, e.g. "lyria3-pro". */
+  modelId: string;
+  modelLabel: string;
+  requestId: string;
+  prompt: string;
+  instrumental: boolean;
+};
+
+/** A song in the shared background-music library: uploaded, or AI-generated. */
 export type MusicTrack = {
   id: string;
   fileName: string;
@@ -215,4 +283,5 @@ export type MusicTrack = {
   sizeBytes: number;
   durationSec: number;
   createdAt: string;
+  origin?: MusicTrackOrigin;
 };

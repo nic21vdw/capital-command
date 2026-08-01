@@ -4,7 +4,9 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { Clapperboard, Film, Loader2, Plus, Trash2 } from "lucide-react";
 import { useAppData } from "@/components/providers/app-provider";
+import { ClipFrame } from "@/components/clips/clip-frame";
 import { chunkWords, windowSegments } from "@/lib/clipping/captions";
+import { loadJobCaptions } from "@/lib/clipping/captions-client";
 import { generateClipTitle, makeClipProject, makeTitleOverlay } from "@/lib/clipping/editor";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -15,7 +17,7 @@ import { Select } from "@/components/ui/select";
 import { ClipEditor } from "@/components/editor/clip-editor";
 import { clearDraftProject, readDraftProject, writeDraftProject } from "@/components/editor/drafts";
 import { EditorExportsProvider } from "@/components/editor/exports-provider";
-import type { ClipProject } from "@/types/domain";
+import type { CaptionSegment, ClipProject } from "@/types/domain";
 import type { ClipCandidate, ClipJob } from "@/lib/clipping/types";
 
 function formatDate(value?: string) {
@@ -27,7 +29,13 @@ function sourceLabel(job: ClipJob | null, fallbackJobId: string) {
   return job?.fileName || `Job ${fallbackJobId}`;
 }
 
-function projectFromClip(job: ClipJob, clip: ClipCandidate, index: number, sourceFile = clip.file): ClipProject | null {
+function projectFromClip(
+  job: ClipJob,
+  clip: ClipCandidate,
+  index: number,
+  captions: CaptionSegment[],
+  sourceFile = clip.file
+): ClipProject | null {
   if (!sourceFile) return null;
   const project = makeClipProject({
     jobId: job.id,
@@ -38,7 +46,7 @@ function projectFromClip(job: ClipJob, clip: ClipCandidate, index: number, sourc
     clipStart: clip.start,
     clipEnd: clip.end
   });
-  const windowed = windowSegments(job.sourceCaptions ?? [], clip.start, clip.end);
+  const windowed = windowSegments(captions, clip.start, clip.end);
   const words = windowed.flatMap((segment) => segment.words);
   project.captions = words.length ? chunkWords(words, project.captionStyle.maxWordsPerCaption) : windowed;
   project.title = clip.title || generateClipTitle(project.captions, `Clip ${index + 1}`);
@@ -61,6 +69,8 @@ export function ClipEditorPage() {
   const [loadingJobs, setLoadingJobs] = useState(false);
   const [draftProject, setDraftProject] = useState<ClipProject | null>(null);
   const [filterJobId, setFilterJobId] = useState<string>("all");
+  // Newest-first by default; the user can switch to A→Z by project name.
+  const [sortMode, setSortMode] = useState<"date" | "name">("date");
 
   const storedProject = projects.find((p) => p.id === openId) ?? null;
   const draftForOpen = draftProject?.id === openId ? draftProject : null;
@@ -85,15 +95,15 @@ export function ClipEditorPage() {
   const sortedProjects = useMemo(
     () =>
       [...projects].sort((a, b) => {
-        const jobA = jobsById.get(a.jobId);
-        const jobB = jobsById.get(b.jobId);
-        const sourceOrder = sourceLabel(jobA ?? null, a.jobId).localeCompare(sourceLabel(jobB ?? null, b.jobId));
-        if (sourceOrder !== 0) return sourceOrder;
-        const jobDateOrder = (jobB?.createdAt ?? "").localeCompare(jobA?.createdAt ?? "");
-        if (jobDateOrder !== 0) return jobDateOrder;
+        if (sortMode === "name") {
+          const nameOrder = a.name.localeCompare(b.name, undefined, { sensitivity: "base" });
+          if (nameOrder !== 0) return nameOrder;
+          return b.updatedAt.localeCompare(a.updatedAt);
+        }
+        // "date": most recently edited first.
         return b.updatedAt.localeCompare(a.updatedAt);
       }),
-    [jobsById, projects]
+    [projects, sortMode]
   );
   // One option per source video that actually has projects, in the same
   // source-first order the grid uses.
@@ -145,7 +155,7 @@ export function ClipEditorPage() {
         : job.clips.findIndex((clip) => clip.file === sourceFile || clip.variants?.some((variant) => variant.file === sourceFile));
       const clip = job.clips[clipIndex];
       if (!clip) return;
-      const project = projectFromClip(job, clip, clipIndex, sourceFile);
+      const project = projectFromClip(job, clip, clipIndex, job.sourceCaptions ?? [], sourceFile);
       if (!project || cancelled) return;
       project.id = openId;
       writeDraftProject(project);
@@ -187,7 +197,7 @@ export function ClipEditorPage() {
   }, [loadJobs]);
 
   const createFromClip = async (job: ClipJob, clip: ClipCandidate, index: number) => {
-    const project = projectFromClip(job, clip, index);
+    const project = projectFromClip(job, clip, index, await loadJobCaptions(job.id));
     if (!project) return;
     writeDraftProject(project);
     await mutate("upsertClipProject", project, { successMessage: "Clip project created." });
@@ -228,7 +238,7 @@ export function ClipEditorPage() {
   const projectList = (
     <div className="space-y-6">
       <PageHeader
-        eyebrow="Creator Tools"
+        eyebrow="Step 2 · Formats"
         title="Clip Editor"
         description="Open a clip to trim it on the timeline, pick a short-form layout, and export. Edits are non-destructive and saved automatically."
         actions={
@@ -246,6 +256,17 @@ export function ClipEditorPage() {
                     {option.label}
                   </option>
                 ))}
+              </Select>
+            ) : null}
+            {projects.length > 1 ? (
+              <Select
+                value={sortMode}
+                onChange={(event) => setSortMode(event.target.value as "date" | "name")}
+                className="h-9 w-auto max-w-44"
+                aria-label="Sort projects"
+              >
+                <option value="date">Sort by date</option>
+                <option value="name">Sort by name</option>
               </Select>
             ) : null}
             <Button onClick={openPicker}>
@@ -291,16 +312,16 @@ export function ClipEditorPage() {
                   <Trash2 className="h-4 w-4" />
                 </button>
               </div>
-              <video
+              <ClipFrame
                 src={`/api/clips/${project.jobId}/files/${encodeURIComponent(project.sourceFile)}`}
                 poster={
                   project.posterFile
                     ? `/api/clips/${project.jobId}/files/${encodeURIComponent(project.posterFile)}`
                     : undefined
                 }
+                aspect="16/9"
                 preload="metadata"
-                muted
-                className="aspect-video w-full rounded-lg bg-black object-contain ring-1 ring-white/10"
+                className="rounded-lg ring-1 ring-white/10"
               />
               <div className="flex items-center justify-between">
                 <Badge>{new Date(project.updatedAt).toLocaleDateString()}</Badge>
@@ -344,7 +365,7 @@ export function ClipEditorPage() {
                         onClick={() => void createFromClip(job, clip, index)}
                         className="rounded-lg border border-[var(--border)] p-1.5 text-left transition hover:border-[var(--accent)]"
                       >
-                        <video
+                        <ClipFrame
                           src={`/api/clips/${job.id}/files/${encodeURIComponent((clip.previewFile ?? clip.file) as string)}`}
                           poster={
                             clip.posterFile
@@ -352,9 +373,7 @@ export function ClipEditorPage() {
                               : undefined
                           }
                           preload="metadata"
-                          muted
-                          playsInline
-                          className="aspect-[9/16] w-full rounded bg-black object-cover"
+                          className="rounded"
                         />
                         <div className="mt-1 flex items-center justify-between gap-1">
                           <p className="truncate text-[11px] text-white">Clip {index + 1}</p>

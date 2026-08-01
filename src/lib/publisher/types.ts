@@ -28,8 +28,19 @@ export type Visibility = "public" | "private" | "unlisted";
  *   manual    → the platform had no credentials when the post was created, so
  *               it is tracked as a reminder to post by hand. Terminal for the
  *               runner; connecting the platform later does not retro-fire it.
+ *   skipped   → deliberately taken out of the running from the Uploading
+ *               Center. Terminal: the record stays so the day still shows what
+ *               was planned, but the runner never posts it. Same idea as the
+ *               Threads autopilot's skipped items.
  */
-export type PlatformStatus = "pending" | "uploaded" | "scheduled" | "published" | "failed" | "manual";
+export type PlatformStatus =
+  | "pending"
+  | "uploaded"
+  | "scheduled"
+  | "published"
+  | "failed"
+  | "manual"
+  | "skipped";
 
 export type PlatformState = {
   status: PlatformStatus;
@@ -47,6 +58,41 @@ export type PlatformState = {
   /** When the platform accepted the bytes — feeds the YouTube quota meter. */
   uploadedAt?: string;
   /** Human note for the UI (e.g. why a post is "manual"). Not an error. */
+  note?: string;
+};
+
+/**
+ * Buffer (buffer.com) scheduling state — present only when a post is routed
+ * through Buffer, which fans a single scheduled update out to every channel
+ * connected inside Buffer and publishes it at the target time. Buffer is a
+ * native-scheduling delivery layer that sits alongside (not inside) the four
+ * direct-API platforms above, so it lives in its own optional field and never
+ * changes how the existing per-platform machinery behaves.
+ *
+ *   pending   → nothing sent to Buffer yet
+ *   scheduled → Buffer accepted the update(s) with a future scheduled time and
+ *               will publish them itself; the runner later verifies they sent
+ *   published → Buffer reported the update(s) as "sent"
+ *   failed    → permanently failed; the error field says why
+ *   manual    → Buffer isn't configured (no token/profiles), tracked as a
+ *               reminder rather than a job. Terminal for the runner.
+ */
+export type BufferStatus = "pending" | "scheduled" | "published" | "failed" | "manual";
+
+export type BufferState = {
+  status: BufferStatus;
+  /** Buffer update ids created for this post — one per targeted Buffer profile. */
+  updateIds?: string[];
+  error?: string;
+  attempts: number;
+  /** Backoff gate — the runner skips Buffer for this item until this instant. */
+  nextAttemptAt?: string;
+  /** Soft lease so overlapping runners don't double-schedule one item. */
+  claimedAt?: string;
+  /** When Buffer accepted the update(s). */
+  scheduledAt?: string;
+  publishedAt?: string;
+  /** Human note for the UI/logs (e.g. why a post is "manual"). Not an error. */
   note?: string;
 };
 
@@ -77,6 +123,12 @@ export type QueueItem = {
    * platform's primary account.
    */
   accountId?: string;
+  /**
+   * Buffer scheduling state, present only when this post is routed through
+   * Buffer (BUFFER_ENABLED). Absent on every post scheduled without Buffer —
+   * those are untouched by the Buffer pass.
+   */
+  buffer?: BufferState;
 };
 
 export type PostResult = {

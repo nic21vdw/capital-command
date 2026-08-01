@@ -35,6 +35,9 @@ export function testConfig(overrides: Partial<PublisherConfig> = {}): PublisherC
     maxAttempts: 3,
     backoffBaseMinutes: 2,
     backoffCapMinutes: 120,
+    // Off by default in tests: a suite about one platform's publish path
+    // should not have the runner quietly add two more platforms to its items.
+    mirror: { enabled: false, lead: "youtube", targets: ["instagram", "facebook"], mode: "match" },
     claimTimeoutMinutes: 15,
     youtube: { clientId: "yt-id", clientSecret: "yt-secret", refreshToken: "yt-refresh", categoryId: null, dailyUploadBudget: 6 },
     instagram: {
@@ -42,11 +45,13 @@ export function testConfig(overrides: Partial<PublisherConfig> = {}): PublisherC
       accessToken: "ig-token",
       graphApiVersion: "v23.0",
       webhookVerifyToken: "ig-verify-token",
-      appSecret: "ig-app-secret"
+      appSecret: "ig-app-secret",
+      appId: "ig-app-id"
     },
     facebook: { pageId: "10000000000000000", pageAccessToken: "fb-token", graphApiVersion: "v23.0" },
     tiktok: { clientKey: "tt-key", clientSecret: "tt-secret", refreshToken: "tt-refresh", audited: false },
     s3: { endpoint: null, bucket: null, accessKeyId: null, secretAccessKey: null, region: "auto", publicBaseUrl: null },
+    buffer: { enabled: false, accessToken: null, profileIds: [], apiBase: "https://api.bufferapp.com/1", shortenLinks: true },
     ...overrides
   };
 }

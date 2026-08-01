@@ -74,7 +74,7 @@ export function CompetitionPanel({
       }
       // …then generate the AI brief over the fresh numbers.
       if (!state.insightsConfigured) {
-        toast.info("Trend breakdown updated. Set ANTHROPIC_API_KEY to also get the AI competition brief.");
+        toast.info("Trend breakdown updated. Configure an AI provider to also get the AI competition brief.");
         return;
       }
       const data = await readJson<{ insight: CompetitorInsight; competitorInsights: CompetitorInsight[] }>(
@@ -311,7 +311,7 @@ export function CompetitionPanel({
             <p className="text-xs text-[var(--muted-foreground)]">
               {state.insightsConfigured
                 ? "Analyze competition also generates an AI brief: cross-channel trends, what's working, and 5 next-video ideas grounded in the numbers above."
-                : "Set ANTHROPIC_API_KEY in .env.local to add an AI brief — cross-channel trends and next-video ideas — to this analysis."}
+                : "Configure an AI provider to add an AI brief — cross-channel trends and next-video ideas — to this analysis."}
             </p>
           ) : null}
         </div>

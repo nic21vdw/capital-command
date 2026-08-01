@@ -5,10 +5,10 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Select } from "@/components/ui/select";
 import { ClipCard } from "@/components/uploading-center/clip-card";
-import type { ClipDraft, ReadyClip } from "@/components/uploading-center/use-uploading-center";
+import type { ClipDraft, PlatformTarget, ReadyClip } from "@/components/uploading-center/use-uploading-center";
 import type { ClipJob } from "@/lib/clipping/types";
 import type { ScheduleSlot } from "@/lib/publisher/slots";
-import type { PlatformId, QueueItem } from "@/lib/publisher/types";
+import type { QueueItem } from "@/lib/publisher/types";
 
 /**
  * The clips produced by the current run (newest job with rendered clips by
@@ -30,6 +30,7 @@ export function ClipQueue({
   highlightedKey,
   onSchedule,
   onEditClip,
+  onTailorCaption,
   onAutoAssign
 }: {
   jobs: ClipJob[];
@@ -40,7 +41,7 @@ export function ClipQueue({
   draftFor: (clip: ReadyClip) => ClipDraft;
   onDraftChange: (clip: ReadyClip, draft: ClipDraft) => void;
   onTitleCommit: (clip: ReadyClip) => void;
-  isSlotTaken: (platform: PlatformId, slotUtc: string) => boolean;
+  isSlotTaken: (target: PlatformTarget, slotUtc: string) => boolean;
   itemsForClip: (clip: ReadyClip) => QueueItem[];
   busy: string | null;
   /** Clip currently being placed onto the board (arrived via Schedule Short). */
@@ -48,6 +49,8 @@ export function ClipQueue({
   onSchedule: (clip: ReadyClip) => void;
   /** Open the given clip in the Clip Editor. */
   onEditClip: (clip: ReadyClip) => void;
+  /** Tailor the clip's caption to its selected platform with the free AI provider. */
+  onTailorCaption: (clip: ReadyClip) => void;
   onAutoAssign: () => void;
 }) {
   const autoAssigning = busy === "auto-assign";
@@ -110,6 +113,8 @@ export function ClipQueue({
               onTitleCommit={() => onTitleCommit(clip)}
               onSchedule={() => onSchedule(clip)}
               onEditClip={() => onEditClip(clip)}
+              onTailorCaption={() => onTailorCaption(clip)}
+              tailoring={busy === `tailor:${clip.key}`}
             />
           ))}
         </div>

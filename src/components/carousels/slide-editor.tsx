@@ -6,6 +6,7 @@ import {
   ChevronRight,
   Eye,
   ImagePlus,
+  Layers,
   Loader2,
   Pencil,
   Save,
@@ -15,11 +16,13 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
-import { aspectSpec, renderSlideCanvas } from "@/lib/carousels/render";
+import { aspectSpec, COLATERAL_THEME, loadImage, renderSlideCanvas } from "@/lib/carousels/render";
 import { cn } from "@/lib/utils";
 import type { CarouselAspectRatio, CarouselSlide, SlideLayer } from "@/types/domain";
 
 type Mode = "preview" | "edit";
+
+const clamp01 = (value: number) => Math.max(0, Math.min(1, value));
 
 const uid = () => (typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : `id-${Date.now()}-${Math.round(Math.random() * 1e6)}`);
 
@@ -104,7 +107,7 @@ export function SlideEditor({
       y: 0.12,
       width: 0.6,
       fontSize: 0.06,
-      color: "#ffffff",
+      color: COLATERAL_THEME.heading,
       weight: 700,
       align: "left"
     };
@@ -112,16 +115,46 @@ export function SlideEditor({
     setSelectedLayer(layer.id);
   };
 
-  const addImageLayer = (src: string) => {
-    const layer: SlideLayer = { id: uid(), type: "image", src, x: 0.25, y: 0.25, width: 0.5, height: 0.35, radius: 0.04 };
-    patchSlide((entry) => ({ ...entry, layers: [...(entry.layers ?? []), layer] }));
-    setSelectedLayer(layer.id);
-  };
+  /**
+   * Drops an image onto the stage. Sizes the box to the image's natural aspect
+   * ratio (so nothing is stretched or cropped on arrival — like any image
+   * editor) and centers it on `pos` when dropped, else near the top-left.
+   */
+  const addImageLayer = useCallback(
+    async (src: string, pos?: { x: number; y: number }) => {
+      const img = await loadImage(src).catch(() => null);
+      let width = 0.5;
+      let height = 0.35;
+      if (img && img.width > 0 && img.height > 0) {
+        const boxWpx = width * spec.width;
+        const boxHpx = boxWpx * (img.height / img.width);
+        height = boxHpx / spec.height;
+        if (height > 0.8) {
+          height = 0.8;
+          width = ((height * spec.height) * (img.width / img.height)) / spec.width;
+        }
+      }
+      const x = clamp01((pos?.x ?? 0.25) - width / 2);
+      const y = clamp01((pos?.y ?? 0.25) - height / 2);
+      const layer: SlideLayer = { id: uid(), type: "image", src, x, y, width, height, radius: 0.02, fit: "contain" };
+      patchSlide((entry) => ({ ...entry, layers: [...(entry.layers ?? []), layer] }));
+      setSelectedLayer(layer.id);
+    },
+    [patchSlide, spec.width, spec.height]
+  );
 
   const removeLayer = (layerId: string) => {
     patchSlide((entry) => ({ ...entry, layers: (entry.layers ?? []).filter((layer) => layer.id !== layerId) }));
     setSelectedLayer(null);
   };
+
+  // Push the current slide's background onto every slide in the deck.
+  const applyBackgroundToAll = useCallback(() => {
+    const background = draft[index]?.background;
+    setDraft((current) => current.map((entry) => ({ ...entry, background })));
+    setDirty(true);
+    toast.success(background ? "Background applied to all slides." : "Reset the background on all slides.");
+  }, [draft, index]);
 
   const handleSave = async () => {
     await onSave(draft);
@@ -143,13 +176,13 @@ export function SlideEditor({
       {/* Top bar */}
       <div className="flex items-center justify-between gap-3 px-4 py-3 sm:px-6">
         <div className="flex items-center gap-2">
-          <div className="inline-flex rounded-lg border border-[var(--border)] bg-white/5 p-0.5">
+          <div className="inline-flex rounded-lg border border-[#fff]/10 bg-[#fff]/5 p-0.5">
             <button
               type="button"
               onClick={() => setMode("preview")}
               className={cn(
                 "inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition",
-                mode === "preview" ? "bg-[var(--accent)] text-[var(--accent-contrast)]" : "text-[var(--muted-foreground)] hover:text-white"
+                mode === "preview" ? "bg-[var(--accent)] text-[var(--accent-contrast)]" : "text-[#fff]/60 hover:text-[#fff]"
               )}
             >
               <Eye className="h-3.5 w-3.5" /> Preview
@@ -159,13 +192,13 @@ export function SlideEditor({
               onClick={() => setMode("edit")}
               className={cn(
                 "inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition",
-                mode === "edit" ? "bg-[var(--accent)] text-[var(--accent-contrast)]" : "text-[var(--muted-foreground)] hover:text-white"
+                mode === "edit" ? "bg-[var(--accent)] text-[var(--accent-contrast)]" : "text-[#fff]/60 hover:text-[#fff]"
               )}
             >
               <Pencil className="h-3.5 w-3.5" /> Edit
             </button>
           </div>
-          <span className="hidden text-xs text-[var(--muted-foreground)] sm:inline">
+          <span className="hidden text-xs text-[#fff]/60 sm:inline">
             Slide {index + 1} / {total} · {spec.label} {spec.badge}
           </span>
         </div>
@@ -180,7 +213,7 @@ export function SlideEditor({
             type="button"
             onClick={requestClose}
             aria-label="Close"
-            className="flex h-9 w-9 items-center justify-center rounded-lg text-[var(--muted-foreground)] transition hover:bg-white/10 hover:text-white"
+            className="flex h-9 w-9 items-center justify-center rounded-lg text-[#fff]/60 transition hover:bg-[#fff]/10 hover:text-[#fff]"
           >
             <X className="h-5 w-5" />
           </button>
@@ -202,6 +235,7 @@ export function SlideEditor({
               selectedLayer={selectedLayer}
               onSelectLayer={setSelectedLayer}
               onUpdateLayer={updateLayer}
+              onAddImage={addImageLayer}
             />
           )}
         </div>
@@ -215,6 +249,7 @@ export function SlideEditor({
             onRemoveLayer={removeLayer}
             onAddText={addTextLayer}
             onAddImage={addImageLayer}
+            onApplyBackgroundToAll={applyBackgroundToAll}
           />
         ) : null}
       </div>
@@ -229,7 +264,7 @@ export function SlideEditor({
             aria-label={`Slide ${i + 1}`}
             className={cn(
               "h-2 rounded-full transition-all",
-              i === index ? "w-6 bg-[var(--accent)]" : "w-2 bg-white/25 hover:bg-white/50"
+              i === index ? "w-6 bg-[var(--accent)]" : "w-2 bg-[#fff]/25 hover:bg-[#fff]/50"
             )}
           />
         ))}
@@ -281,7 +316,7 @@ function PreviewStage({
           type="button"
           onClick={() => onNavigate(index - 1)}
           aria-label="Previous slide"
-          className="absolute left-1 z-10 flex h-11 w-11 items-center justify-center rounded-full bg-black/40 text-white backdrop-blur transition hover:bg-black/70 sm:left-3"
+          className="absolute left-1 z-10 flex h-11 w-11 items-center justify-center rounded-full bg-black/40 text-[#fff] backdrop-blur transition hover:bg-black/70 sm:left-3"
         >
           <ChevronLeft className="h-6 w-6" />
         </button>
@@ -290,7 +325,7 @@ function PreviewStage({
         key={index}
         ref={canvasRef}
         className={cn(
-          "modal-panel-enter max-h-full max-w-full rounded-2xl border border-white/10 shadow-[0_24px_80px_rgba(0,0,0,0.6)] transition-opacity duration-200",
+          "modal-panel-enter max-h-full max-w-full rounded-2xl border border-[#fff]/10 shadow-[0_24px_80px_rgba(0,0,0,0.6)] transition-opacity duration-200",
           ready ? "opacity-100" : "opacity-0"
         )}
         style={{ aspectRatio: `${spec.width} / ${spec.height}` }}
@@ -310,7 +345,7 @@ function PreviewStage({
           type="button"
           onClick={() => onNavigate(index + 1)}
           aria-label="Next slide"
-          className="absolute right-1 z-10 flex h-11 w-11 items-center justify-center rounded-full bg-black/40 text-white backdrop-blur transition hover:bg-black/70 sm:right-3"
+          className="absolute right-1 z-10 flex h-11 w-11 items-center justify-center rounded-full bg-black/40 text-[#fff] backdrop-blur transition hover:bg-black/70 sm:right-3"
         >
           <ChevronRight className="h-6 w-6" />
         </button>
@@ -319,7 +354,22 @@ function PreviewStage({
   );
 }
 
-/** Edit: canvas backdrop (bg + base chrome) with draggable DOM layers over it. */
+type Corner = "nw" | "ne" | "sw" | "se";
+const CORNERS: Corner[] = ["nw", "ne", "sw", "se"];
+const CORNER_POS: Record<Corner, string> = {
+  nw: "left-0 top-0 -translate-x-1/2 -translate-y-1/2 cursor-nwse-resize",
+  ne: "right-0 top-0 translate-x-1/2 -translate-y-1/2 cursor-nesw-resize",
+  sw: "left-0 bottom-0 -translate-x-1/2 translate-y-1/2 cursor-nesw-resize",
+  se: "right-0 bottom-0 translate-x-1/2 translate-y-1/2 cursor-nwse-resize"
+};
+
+/**
+ * Edit: a stack of canvases (background at the bottom, base chrome above the
+ * image layers) with the image + text layers as interactive DOM elements — so
+ * they can be dragged, scaled with corner handles, and dropped in from the OS,
+ * just like any image editor. Z-order matches the export exactly: background →
+ * images → base chrome → text.
+ */
 function EditStage({
   slide,
   index,
@@ -327,7 +377,8 @@ function EditStage({
   ratio,
   selectedLayer,
   onSelectLayer,
-  onUpdateLayer
+  onUpdateLayer,
+  onAddImage
 }: {
   slide: CarouselSlide;
   index: number;
@@ -336,28 +387,24 @@ function EditStage({
   selectedLayer: string | null;
   onSelectLayer: (id: string | null) => void;
   onUpdateLayer: (id: string, patch: Partial<SlideLayer>) => void;
+  onAddImage: (src: string, pos?: { x: number; y: number }) => void;
 }) {
-  const backdropRef = useRef<HTMLCanvasElement | null>(null);
+  const bgRef = useRef<HTMLCanvasElement | null>(null);
+  const chromeRef = useRef<HTMLCanvasElement | null>(null);
   const stageRef = useRef<HTMLDivElement | null>(null);
+  const [dropActive, setDropActive] = useState(false);
   const spec = aspectSpec(ratio);
 
-  // Repaint the backdrop (everything except text layers) when base copy,
-  // background, or image layers change.
-  const backdropDeps = JSON.stringify({
-    bg: slide.background,
-    hc: slide.headingColor,
-    bc: slide.bodyColor,
-    h: slide.heading,
-    b: slide.body,
-    hide: slide.hideBaseText,
-    imgs: (slide.layers ?? []).filter((l) => l.type === "image")
-  });
+  // Background canvas — repaints when the background changes.
   useEffect(() => {
     let cancelled = false;
-    const backdropSlide: CarouselSlide = { ...slide, layers: (slide.layers ?? []).filter((l) => l.type === "image") };
-    void renderSlideCanvas(backdropSlide, index, total, ratio).then((canvas) => {
+    void renderSlideCanvas(slide, index, total, ratio, {
+      skipImageLayers: true,
+      skipTextLayers: true,
+      skipBaseText: true
+    }).then((canvas) => {
       if (cancelled) return;
-      const target = backdropRef.current;
+      const target = bgRef.current;
       if (!target) return;
       target.width = canvas.width;
       target.height = canvas.height;
@@ -366,13 +413,44 @@ function EditStage({
     return () => {
       cancelled = true;
     };
+  }, [slide.background, slide, index, total, ratio]);
+
+  // Base-chrome canvas (transparent) — sits above image layers, below text.
+  const chromeDeps = JSON.stringify({
+    hc: slide.headingColor,
+    bc: slide.bodyColor,
+    h: slide.heading,
+    b: slide.body,
+    hide: slide.hideBaseText
+  });
+  useEffect(() => {
+    let cancelled = false;
+    void renderSlideCanvas(slide, index, total, ratio, {
+      skipBackground: true,
+      skipImageLayers: true,
+      skipTextLayers: true
+    }).then((canvas) => {
+      if (cancelled) return;
+      const target = chromeRef.current;
+      if (!target) return;
+      target.width = canvas.width;
+      target.height = canvas.height;
+      const ctx = target.getContext("2d");
+      ctx?.clearRect(0, 0, target.width, target.height);
+      ctx?.drawImage(canvas, 0, 0);
+    });
+    return () => {
+      cancelled = true;
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [backdropDeps, index, total, ratio]);
+  }, [chromeDeps, index, total, ratio]);
 
-  const textLayers = (slide.layers ?? []).filter((l): l is Extract<SlideLayer, { type: "text" }> => l.type === "text");
+  const layers = slide.layers ?? [];
+  const imageLayers = layers.filter((l): l is Extract<SlideLayer, { type: "image" }> => l.type === "image");
+  const textLayers = layers.filter((l): l is Extract<SlideLayer, { type: "text" }> => l.type === "text");
 
-  // Pointer drag: convert pixel deltas to slide fractions.
-  const startDrag = (event: React.PointerEvent, layer: Extract<SlideLayer, { type: "text" }>) => {
+  // Drag the whole layer: convert pixel deltas to slide fractions.
+  const startMove = (event: React.PointerEvent, layer: SlideLayer) => {
     event.preventDefault();
     event.stopPropagation();
     onSelectLayer(layer.id);
@@ -386,10 +464,7 @@ function EditStage({
     const move = (moveEvent: PointerEvent) => {
       const dx = (moveEvent.clientX - startX) / rect.width;
       const dy = (moveEvent.clientY - startY) / rect.height;
-      onUpdateLayer(layer.id, {
-        x: Math.max(0, Math.min(0.98, originX + dx)),
-        y: Math.max(0, Math.min(0.98, originY + dy))
-      });
+      onUpdateLayer(layer.id, { x: clamp01(originX + dx), y: clamp01(originY + dy) });
     };
     const up = () => {
       window.removeEventListener("pointermove", move);
@@ -399,23 +474,155 @@ function EditStage({
     window.addEventListener("pointerup", up);
   };
 
+  // Corner-handle resize. Images scale their box freely; text scales its width
+  // and font size together (its height is derived from content).
+  const startResize = (event: React.PointerEvent, layer: SlideLayer, corner: Corner) => {
+    event.preventDefault();
+    event.stopPropagation();
+    onSelectLayer(layer.id);
+    const stage = stageRef.current;
+    if (!stage) return;
+    const rect = stage.getBoundingClientRect();
+    const startX = event.clientX;
+    const startY = event.clientY;
+    const west = corner === "nw" || corner === "sw";
+    const north = corner === "nw" || corner === "ne";
+    const origin = { x: layer.x, y: layer.y };
+
+    if (layer.type === "image") {
+      const w0 = layer.width;
+      const h0 = layer.height;
+      const move = (moveEvent: PointerEvent) => {
+        const dx = (moveEvent.clientX - startX) / rect.width;
+        const dy = (moveEvent.clientY - startY) / rect.height;
+        const width = Math.max(0.05, west ? w0 - dx : w0 + dx);
+        const height = Math.max(0.05, north ? h0 - dy : h0 + dy);
+        const x = west ? origin.x + (w0 - width) : origin.x;
+        const y = north ? origin.y + (h0 - height) : origin.y;
+        onUpdateLayer(layer.id, { width, height, x: clamp01(x), y: clamp01(y) });
+      };
+      const up = () => {
+        window.removeEventListener("pointermove", move);
+        window.removeEventListener("pointerup", up);
+      };
+      window.addEventListener("pointermove", move);
+      window.addEventListener("pointerup", up);
+      return;
+    }
+
+    // Text: horizontal drag drives width + a proportional font-size scale.
+    const w0 = layer.width;
+    const font0 = layer.fontSize;
+    const move = (moveEvent: PointerEvent) => {
+      const dx = (moveEvent.clientX - startX) / rect.width;
+      const width = Math.max(0.1, Math.min(1, west ? w0 - dx : w0 + dx));
+      const scale = width / w0;
+      const fontSize = Math.max(0.02, Math.min(0.2, font0 * scale));
+      const x = west ? clamp01(origin.x + (w0 - width)) : origin.x;
+      onUpdateLayer(layer.id, { width, fontSize, x });
+    };
+    const up = () => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+  };
+
+  const handleDrop = (event: React.DragEvent) => {
+    event.preventDefault();
+    setDropActive(false);
+    const rect = stageRef.current?.getBoundingClientRect();
+    const pos = rect
+      ? { x: clamp01((event.clientX - rect.left) / rect.width), y: clamp01((event.clientY - rect.top) / rect.height) }
+      : undefined;
+    const files = Array.from(event.dataTransfer.files).filter((file) => file.type.startsWith("image/"));
+    if (files.length === 0) {
+      if (event.dataTransfer.files.length) toast.error("Drop an image file (PNG, JPG…).");
+      return;
+    }
+    files.forEach((file) => {
+      const reader = new FileReader();
+      reader.onload = () => typeof reader.result === "string" && onAddImage(reader.result, pos);
+      reader.readAsDataURL(file);
+    });
+  };
+
+  const cornerHandles = (layer: SlideLayer) =>
+    CORNERS.map((corner) => (
+      <span
+        key={corner}
+        onPointerDown={(event) => startResize(event, layer, corner)}
+        className={cn("absolute z-10 h-3 w-3 touch-none rounded-sm border border-[var(--accent)] bg-[#fff] shadow", CORNER_POS[corner])}
+      />
+    ));
+
   return (
     <div
       ref={stageRef}
-      className="modal-panel-enter relative max-h-full overflow-hidden rounded-2xl border border-white/10 shadow-[0_24px_80px_rgba(0,0,0,0.6)]"
+      className={cn(
+        "modal-panel-enter relative max-h-full overflow-hidden rounded-2xl border shadow-[0_24px_80px_rgba(0,0,0,0.6)]",
+        dropActive ? "border-[var(--accent)] ring-2 ring-[var(--accent)]/60" : "border-[#fff]/10"
+      )}
       style={{ aspectRatio: `${spec.width} / ${spec.height}`, height: "min(72vh, 100%)" }}
       onPointerDown={(event) => {
-        if (event.target === event.currentTarget || event.target === backdropRef.current) onSelectLayer(null);
+        if (event.target === event.currentTarget || event.target === bgRef.current || event.target === chromeRef.current) {
+          onSelectLayer(null);
+        }
       }}
+      onDragOver={(event) => {
+        event.preventDefault();
+        if (!dropActive) setDropActive(true);
+      }}
+      onDragLeave={(event) => {
+        if (event.target === event.currentTarget) setDropActive(false);
+      }}
+      onDrop={handleDrop}
     >
-      <canvas ref={backdropRef} className="pointer-events-none absolute inset-0 h-full w-full" />
+      <canvas ref={bgRef} className="pointer-events-none absolute inset-0 h-full w-full" />
+
+      {/* Image layers: interactive, between background and base chrome. */}
+      {imageLayers.map((layer) => (
+        <div
+          key={layer.id}
+          onPointerDown={(event) => startMove(event, layer)}
+          className={cn(
+            "absolute cursor-move touch-none select-none",
+            selectedLayer === layer.id
+              ? "outline outline-2 outline-[var(--accent)]"
+              : "outline-dashed outline-1 outline-[#fff]/30 hover:outline-[#fff]/60"
+          )}
+          style={{
+            left: `${layer.x * 100}%`,
+            top: `${layer.y * 100}%`,
+            width: `${layer.width * 100}%`,
+            height: `${layer.height * 100}%`,
+            transform: layer.rotation ? `rotate(${layer.rotation}deg)` : undefined
+          }}
+        >
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={layer.src}
+            alt=""
+            draggable={false}
+            className="h-full w-full"
+            style={{ objectFit: layer.fit ?? "contain", borderRadius: `${Math.min(50, (layer.radius ?? 0) * 100)}%` }}
+          />
+          {selectedLayer === layer.id ? cornerHandles(layer) : null}
+        </div>
+      ))}
+
+      {/* Base chrome sits above images, below text — pointer-transparent. */}
+      <canvas ref={chromeRef} className="pointer-events-none absolute inset-0 h-full w-full" />
+
+      {/* Text layers on top. */}
       {textLayers.map((layer) => (
         <div
           key={layer.id}
-          onPointerDown={(event) => startDrag(event, layer)}
+          onPointerDown={(event) => startMove(event, layer)}
           className={cn(
             "absolute cursor-move touch-none select-none",
-            selectedLayer === layer.id ? "outline outline-2 outline-[var(--accent)]" : "outline-dashed outline-1 outline-white/20 hover:outline-white/50"
+            selectedLayer === layer.id ? "outline outline-2 outline-[var(--accent)]" : "outline-dashed outline-1 outline-[#fff]/20 hover:outline-[#fff]/50"
           )}
           style={{
             left: `${layer.x * 100}%`,
@@ -431,8 +638,15 @@ function EditStage({
           }}
         >
           {layer.text || " "}
+          {selectedLayer === layer.id ? cornerHandles(layer) : null}
         </div>
       ))}
+
+      {dropActive ? (
+        <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-[var(--accent)]/10 text-sm font-medium text-[#fff]">
+          Drop image to add it
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -445,7 +659,8 @@ function Inspector({
   onUpdateLayer,
   onRemoveLayer,
   onAddText,
-  onAddImage
+  onAddImage,
+  onApplyBackgroundToAll
 }: {
   slide: CarouselSlide;
   selectedLayer: string | null;
@@ -454,6 +669,7 @@ function Inspector({
   onRemoveLayer: (id: string) => void;
   onAddText: () => void;
   onAddImage: (src: string) => void;
+  onApplyBackgroundToAll: () => void;
 }) {
   const fileRef = useRef<HTMLInputElement | null>(null);
   const layer = (slide.layers ?? []).find((entry) => entry.id === selectedLayer) ?? null;
@@ -492,7 +708,7 @@ function Inspector({
         <LayerControls layer={layer} onUpdate={(patch) => onUpdateLayer(layer.id, patch)} onRemove={() => onRemoveLayer(layer.id)} />
       ) : (
         <p className="rounded-lg border border-dashed border-[var(--border)] p-3 text-center text-[11px] text-[var(--muted-foreground)]">
-          Select a layer to edit it, or drag one on the stage.
+          Select a layer to edit it. Drag images or text on the stage to move them, drag their corners to scale, or drop an image file straight onto the slide.
         </p>
       )}
 
@@ -503,7 +719,7 @@ function Inspector({
           Background
           <span className="flex items-center gap-1.5">
             <ColorInput
-              value={slide.background ?? "#0b0b14"}
+              value={slide.background ?? "#ffffff"}
               onChange={(value) => onPatchSlide((entry) => ({ ...entry, background: value }))}
             />
             {slide.background ? (
@@ -517,6 +733,13 @@ function Inspector({
             ) : null}
           </span>
         </label>
+        <button
+          type="button"
+          onClick={onApplyBackgroundToAll}
+          className="flex w-full items-center justify-center gap-1.5 rounded-lg border border-[var(--border)] bg-white/5 px-2 py-1.5 text-[11px] text-[var(--muted-foreground)] transition hover:border-[var(--accent)]/50 hover:text-white"
+        >
+          <Layers className="h-3.5 w-3.5" /> Apply background to all slides
+        </button>
 
         <label className="flex items-center justify-between gap-2 text-xs text-white">
           Show base text
@@ -546,11 +769,11 @@ function Inspector({
             />
             <div className="flex items-center justify-between text-xs text-white">
               Heading color
-              <ColorInput value={slide.headingColor ?? "#ffffff"} onChange={(value) => onPatchSlide((entry) => ({ ...entry, headingColor: value }))} />
+              <ColorInput value={slide.headingColor ?? COLATERAL_THEME.heading} onChange={(value) => onPatchSlide((entry) => ({ ...entry, headingColor: value }))} />
             </div>
             <div className="flex items-center justify-between text-xs text-white">
               Body color
-              <ColorInput value={slide.bodyColor ?? "#d7d5e6"} onChange={(value) => onPatchSlide((entry) => ({ ...entry, bodyColor: value }))} />
+              <ColorInput value={slide.bodyColor ?? COLATERAL_THEME.body} onChange={(value) => onPatchSlide((entry) => ({ ...entry, bodyColor: value }))} />
             </div>
           </>
         ) : null}
@@ -626,10 +849,25 @@ function LayerControls({
         </>
       ) : (
         <>
+          <div className="flex items-center gap-1">
+            {(["contain", "cover"] as const).map((fit) => (
+              <button
+                key={fit}
+                type="button"
+                onClick={() => onUpdate({ fit })}
+                className={cn(
+                  "flex-1 rounded-md px-1 py-1 text-[10px] capitalize transition",
+                  (layer.fit ?? "contain") === fit ? "bg-[var(--accent)] text-[var(--accent-contrast)]" : "bg-white/5 text-[var(--muted-foreground)] hover:text-white"
+                )}
+              >
+                {fit === "contain" ? "Fit (whole)" : "Fill (crop)"}
+              </button>
+            ))}
+          </div>
           <Slider label="Width" min={0.1} max={1} step={0.02} value={layer.width} onChange={(value) => onUpdate({ width: value })} />
           <Slider label="Height" min={0.1} max={1} step={0.02} value={layer.height} onChange={(value) => onUpdate({ height: value })} />
           <Slider label="Corner" min={0} max={0.5} step={0.02} value={layer.radius ?? 0} onChange={(value) => onUpdate({ radius: value })} />
-          <p className="text-[10px] text-[var(--muted-foreground)]">Drag on the stage to reposition.</p>
+          <p className="text-[10px] text-[var(--muted-foreground)]">Drag to move · drag the corner handles to scale.</p>
         </>
       )}
     </div>

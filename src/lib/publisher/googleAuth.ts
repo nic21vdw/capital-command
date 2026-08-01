@@ -24,9 +24,18 @@ const TOKEN_URL = "https://oauth2.googleapis.com/token";
 // youtube.readonly is used both to read the connected channel's name/avatar
 // for the "YouTube connected" badge and to list the channel's own uploads so
 // the Uploading Center can show what is already scheduled on YouTube itself.
-// Tokens minted before readonly was added still upload fine but fail channel
-// reads with a 403 — the UI surfaces that as a "reconnect" prompt.
-const SCOPE = "https://www.googleapis.com/auth/youtube.upload https://www.googleapis.com/auth/youtube.readonly";
+// youtube.force-ssl is what lets the runner flip a scheduled upload to public:
+// youtube.upload can create a video but cannot modify one afterwards, so a
+// token without force-ssl uploads fine and then fails the privacy update with
+// a 403 ACCESS_TOKEN_SCOPE_INSUFFICIENT, stranding the video as private.
+// Tokens minted before a scope was added keep working for everything they
+// already covered and fail only the newer call — the UI surfaces that as a
+// "reconnect" prompt.
+const SCOPE = [
+  "https://www.googleapis.com/auth/youtube.upload",
+  "https://www.googleapis.com/auth/youtube.readonly",
+  "https://www.googleapis.com/auth/youtube.force-ssl"
+].join(" ");
 const CHANNELS_URL = "https://www.googleapis.com/youtube/v3/channels?part=snippet&mine=true";
 
 export const YOUTUBE_REFRESH_TOKEN_CACHE_KEY = youtubeRefreshTokenKey();
@@ -36,12 +45,27 @@ export const YOUTUBE_CHANNEL_CACHE_KEY = youtubeChannelKey();
 export const YOUTUBE_RECONNECT_REQUIRED =
   "YouTube connection expired or was revoked. Reconnect YouTube to resume the upload automatically.";
 
+/**
+ * Recorded when the grant predates a scope the call needs. The upload itself
+ * succeeded, so the video is sitting private on the channel rather than lost.
+ */
+export const YOUTUBE_RECONNECT_FOR_SCOPE =
+  "YouTube connection is missing a permission this step needs (the video uploaded but could not be made public). Reconnect YouTube to grant it, then retry.";
+
+export function isYoutubeScopeInsufficient(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  return (
+    message === YOUTUBE_RECONNECT_FOR_SCOPE ||
+    /ACCESS_TOKEN_SCOPE_INSUFFICIENT|insufficientPermissions|insufficient authentication scopes/i.test(message)
+  );
+}
+
 export function isYoutubeReconnectRequired(error: unknown): boolean {
   const message = error instanceof Error ? error.message : String(error);
   return message === YOUTUBE_RECONNECT_REQUIRED || /invalid_grant|token has been expired or revoked/i.test(message);
 }
 
-export type YoutubeChannelInfo = { title: string; thumbnail: string | null };
+export type YoutubeChannelInfo = { title: string; thumbnail: string | null; handle: string | null };
 
 export function googleAuthUrl(redirectUri: string, accountId: string = primaryAccountId("youtube")): string {
   const { youtube } = publisherConfig();
@@ -107,7 +131,9 @@ export async function exchangeGoogleCode(
 
 async function fetchChannelInfo(accessToken: string): Promise<YoutubeChannelInfo | null> {
   const data = await fetchJson<{
-    items?: Array<{ snippet?: { title?: string; thumbnails?: Record<string, { url?: string }> } }>;
+    items?: Array<{
+      snippet?: { title?: string; customUrl?: string; thumbnails?: Record<string, { url?: string }> };
+    }>;
   }>(CHANNELS_URL, {
     label: "YouTube channel lookup",
     method: "GET",
@@ -116,7 +142,9 @@ async function fetchChannelInfo(accessToken: string): Promise<YoutubeChannelInfo
   const snippet = data.items?.[0]?.snippet;
   if (!snippet?.title) return null;
   const thumbnail = snippet.thumbnails?.default?.url ?? snippet.thumbnails?.medium?.url ?? null;
-  return { title: snippet.title, thumbnail };
+  // customUrl is the channel's @handle, already carrying the "@"; handles are
+  // stored bare everywhere so one component decides how to render them.
+  return { title: snippet.title, thumbnail, handle: snippet.customUrl?.replace(/^@/, "") || null };
 }
 
 /**
@@ -151,7 +179,10 @@ export async function youtubeChannelInfo(
   const cached = await getCachedToken(youtubeChannelKey(accountId));
   if (cached) {
     try {
-      return JSON.parse(cached) as YoutubeChannelInfo;
+      const info = JSON.parse(cached) as YoutubeChannelInfo;
+      // An entry cached before handles were read has no handle key at all;
+      // treat that as a miss once so the @handle fills itself in.
+      if ("handle" in info) return info;
     } catch {
       // Corrupt cache entry — refetch below.
     }

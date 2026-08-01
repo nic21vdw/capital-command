@@ -110,7 +110,7 @@ export function SwingTimelineCard({
                   )}
                   {frame?.processing && (
                     <div className="absolute inset-0 flex items-center justify-center bg-black/60">
-                      <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-white/20 border-t-[var(--accent)]" />
+                      <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-[#fff]/20 border-t-[var(--accent)]" />
                     </div>
                   )}
                   {/* Badges */}
@@ -163,7 +163,7 @@ export function SwingTimelineCard({
           <div className="relative max-h-[90vh] max-w-4xl w-full" onClick={(e) => e.stopPropagation()}>
             <button
               onClick={() => setLightboxPhase(null)}
-              className="absolute -right-3 -top-3 z-10 flex h-8 w-8 items-center justify-center rounded-full bg-white/10 text-white hover:bg-white/20"
+              className="absolute -right-3 -top-3 z-10 flex h-8 w-8 items-center justify-center rounded-full bg-[#fff]/10 text-[#fff] hover:bg-[#fff]/20"
             >
               <X className="h-4 w-4" />
             </button>
@@ -174,15 +174,15 @@ export function SwingTimelineCard({
               className="w-full rounded-2xl shadow-2xl"
             />
             <div className="mt-3 flex justify-between rounded-xl bg-black/60 px-4 py-2">
-              <p className="text-xs font-semibold text-white capitalize">
+              <p className="text-xs font-semibold text-[#fff] capitalize">
                 {lightboxPhase.replace(/_/g, ' ')}
               </p>
               <div className="flex gap-3">
                 {lightboxFrame.pose?.detected && (
-                  <span className="text-xs text-emerald-400">Pose detected</span>
+                  <span className="text-xs text-[#34d399]">Pose detected</span>
                 )}
                 {lightboxFrame.annotatedUrl && (
-                  <span className="text-xs text-red-400">Fault annotated</span>
+                  <span className="text-xs text-[#f87171]">Fault annotated</span>
                 )}
               </div>
             </div>

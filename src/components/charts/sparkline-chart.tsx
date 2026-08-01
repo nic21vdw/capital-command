@@ -28,16 +28,16 @@ export function SparklineChart({
           <XAxis
             dataKey="label"
             hide={!showAxis}
-            stroke="#728197"
+            stroke="var(--muted-foreground)"
             tickLine={false}
             axisLine={false}
             interval="preserveStartEnd"
             fontSize={11}
           />
-          <YAxis hide stroke="#728197" tickLine={false} axisLine={false} domain={["dataMin", "dataMax"]} />
+          <YAxis hide stroke="var(--muted-foreground)" tickLine={false} axisLine={false} domain={["dataMin", "dataMax"]} />
           <Tooltip
             contentStyle={{ background: "var(--surface)", borderRadius: 12, border: "1px solid var(--border)", color: "var(--foreground)" }}
-            labelStyle={{ color: "#8d9aae" }}
+            labelStyle={{ color: "var(--muted-foreground)" }}
           />
           <Area
             type="monotone"

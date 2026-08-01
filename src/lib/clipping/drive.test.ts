@@ -1,21 +1,29 @@
-import assert from "node:assert/strict";
+import { describe, expect, it } from "vitest";
 import { sanitizeFolderName } from "./drive";
 
-// Strips characters Windows/macOS reject in folder names.
-assert.equal(sanitizeFolderName('Stream: "Best" of <2024>'), "Stream Best of 2024");
+describe("sanitizeFolderName", () => {
+  it("strips characters Windows and macOS reject in folder names", () => {
+    expect(sanitizeFolderName('Stream: "Best" of <2024>')).toBe("Stream Best of 2024");
+  });
 
-// Collapses whitespace and trims.
-assert.equal(sanitizeFolderName("  My   Big    Stream  "), "My Big Stream");
+  it("collapses whitespace and trims", () => {
+    expect(sanitizeFolderName("  My   Big    Stream  ")).toBe("My Big Stream");
+  });
 
-// Drops a trailing dot/space that Windows would silently strip.
-assert.equal(sanitizeFolderName("Episode 12."), "Episode 12");
+  it("drops a trailing dot or space that Windows would silently strip", () => {
+    expect(sanitizeFolderName("Episode 12.")).toBe("Episode 12");
+  });
 
-// Keeps ordinary punctuation like hyphens intact.
-assert.equal(sanitizeFolderName("Live - Q&A night"), "Live - Q&A night");
+  it("keeps ordinary punctuation like hyphens intact", () => {
+    expect(sanitizeFolderName("Live - Q&A night")).toBe("Live - Q&A night");
+  });
 
-// Falls back when nothing usable remains.
-assert.equal(sanitizeFolderName("///"), "Untitled stream");
-assert.equal(sanitizeFolderName("   "), "Untitled stream");
+  it("falls back when nothing usable remains", () => {
+    expect(sanitizeFolderName("///")).toBe("Untitled stream");
+    expect(sanitizeFolderName("   ")).toBe("Untitled stream");
+  });
 
-// Caps very long titles so the path stays valid.
-assert.ok(sanitizeFolderName("a".repeat(300)).length <= 120);
+  it("caps very long titles so the path stays valid", () => {
+    expect(sanitizeFolderName("a".repeat(300)).length).toBeLessThanOrEqual(120);
+  });
+});

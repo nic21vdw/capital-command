@@ -1,5 +1,5 @@
-import Anthropic from "@anthropic-ai/sdk";
-import { TARGET_CLIP_COUNT } from "@/lib/clipping/analysis";
+import { aiConfigured, runAi } from "@/lib/ai";
+import { clampClipCount, TARGET_CLIP_COUNT } from "@/lib/clipping/analysis";
 import { resolveThoughtEnd } from "@/lib/clipping/thought-end";
 import type { CaptionSegment } from "@/types/domain";
 import type { ClipCandidate, ClipScoreBreakdown } from "@/lib/clipping/types";
@@ -27,13 +27,12 @@ const END_EXTENSION_SEC = 10;
 // And when no conclusion exists ahead, pull back at most this far to the
 // previous completed thought instead of ending mid-sentence.
 const END_TRIM_SEC = 6;
-const TARGET_CLIPS = TARGET_CLIP_COUNT;
 // Keep the timeline we send to the model bounded regardless of stream length so
 // even a multi-hour VOD is covered end-to-end (we just coarsen the granularity).
 const MAX_TIMELINE_LINES = 1500;
 
 export function transcriptSelectionConfigured() {
-  return Boolean(process.env.ANTHROPIC_API_KEY);
+  return aiConfigured();
 }
 
 function clock(seconds: number) {
@@ -180,10 +179,13 @@ function toCandidate(
 export async function selectByTranscript(
   segments: CaptionSegment[],
   durationSec: number,
-  topic?: string
+  topic?: string,
+  targetCount: number = TARGET_CLIP_COUNT
 ): Promise<ClipCandidate[] | null> {
   if (!transcriptSelectionConfigured()) return null;
   if (!segments || segments.length === 0) return null;
+
+  const target = clampClipCount(targetCount);
 
   const timeline = buildTimeline(segments, durationSec);
   if (!timeline.trim()) return null;
@@ -194,7 +196,7 @@ export async function selectByTranscript(
 
   const userPrompt = `Below is the FULL timestamped transcript of a ${clock(durationSec)} stream. Each line is "[mm:ss] text" (timestamps may be h:mm:ss for long streams).
 
-Read the ENTIRE transcript, beginning to end, and choose exactly ${TARGET_CLIPS} best moments to cut into short-form clips.
+Read the ENTIRE transcript, beginning to end, and choose exactly ${target} best moments to cut into short-form clips.
 
 Rules:
 - Choose moments from ACROSS THE WHOLE STREAM - do not cluster them all near the start. Spread them over the full timeline.
@@ -220,20 +222,17 @@ TRANSCRIPT:
 ${timeline}`;
 
   try {
-    const client = new Anthropic();
-    const response = await client.messages.create({
-      model: "claude-opus-4-8",
-      max_tokens: 3200,
+    const result = await runAi({
+      // Each clip is ~120 tokens of JSON (start/end/title/reason/scores); scale
+      // the budget with the requested count so a large batch isn't truncated.
+      maxTokens: Math.max(3200, target * 140),
       system:
         "You are an expert short-form video editor who finds the most viral, self-contained moments inside long livestream transcripts. You always return strict JSON.",
       messages: [{ role: "user", content: userPrompt }]
     });
 
-    if (response.stop_reason === "refusal") return null;
-    const text = response.content
-      .filter((block) => block.type === "text")
-      .map((block) => (block as { text: string }).text)
-      .join("\n");
+    if (!result || result.refused) return null;
+    const text = result.text;
 
     const starts = segments.map((s) => s.start);
     const candidates = parseClips(text)
@@ -244,7 +243,7 @@ ${timeline}`;
 
     // Keep the strongest first and re-id so the UI numbering matches the order.
     candidates.sort((a, b) => b.score - a.score);
-    return candidates.slice(0, TARGET_CLIPS).map((c, i) => ({ ...c, id: `clip-${i + 1}` }));
+    return candidates.slice(0, target).map((c, i) => ({ ...c, id: `clip-${i + 1}` }));
   } catch {
     return null;
   }

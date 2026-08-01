@@ -13,6 +13,11 @@ import type { PlatformId } from "@/lib/publisher/types";
 
 const ADD_OPTION = "__add__";
 
+/** The connected profile behind an account, whichever platform minted it. */
+function profileOf(account: SocialAccountView) {
+  return account.profile ?? account.youtube ?? account.tiktok;
+}
+
 /**
  * The per-platform account picker at the top of each Uploading Center tab:
  * a dropdown of every account connected (or planned) for the platform, an
@@ -76,7 +81,7 @@ export function AccountSwitcher({
         {accounts.map((account) => (
           <option key={account.id} value={account.id}>
             {account.label}
-            {account.platform === "youtube" && account.youtube ? ` — ${account.youtube.title}` : ""}
+            {profileOf(account) ? ` — ${profileOf(account)?.title}` : ""}
             {account.connected ? "" : " (not connected)"}
           </option>
         ))}
@@ -84,13 +89,13 @@ export function AccountSwitcher({
       </Select>
       {activeAccount?.connected ? (
         <span className="flex items-center gap-1.5 text-xs text-emerald-300">
-          {activeAccount.youtube?.thumbnail ? (
+          {profileOf(activeAccount)?.thumbnail ? (
             // eslint-disable-next-line @next/next/no-img-element -- remote avatar host isn't in next.config images
-            <img src={activeAccount.youtube.thumbnail} alt="" className="h-4 w-4 rounded-full" />
+            <img src={profileOf(activeAccount)?.thumbnail ?? ""} alt="" className="h-4 w-4 rounded-full" />
           ) : (
             <CheckCircle2 className="h-3.5 w-3.5" />
           )}
-          {activeAccount.youtube ? `Connected as ${activeAccount.youtube.title}` : "Connected"}
+          {profileOf(activeAccount) ? `Connected as ${profileOf(activeAccount)?.title}` : "Connected"}
         </span>
       ) : null}
       {platform === "youtube" && activeAccount && !activeAccount.connected ? (

@@ -1,4 +1,4 @@
-import Anthropic from "@anthropic-ai/sdk";
+import { aiConfigured, runAi } from "@/lib/ai";
 import type { XAnalysis } from "@/lib/x-strategy/analytics";
 
 /**
@@ -9,7 +9,7 @@ import type { XAnalysis } from "@/lib/x-strategy/analytics";
  */
 
 export function strategyConfigured() {
-  return Boolean(process.env.ANTHROPIC_API_KEY);
+  return aiConfigured();
 }
 
 const EXECUTION_INSTRUCTIONS = `EXECUTION INSTRUCTIONS FOR THIS SESSION
@@ -29,7 +29,7 @@ export async function generateSearchStrategy(
   analysis: XAnalysis,
   focus: string
 ): Promise<{ strategy: string | null; reason: string | null }> {
-  if (!process.env.ANTHROPIC_API_KEY) {
+  if (!strategyConfigured()) {
     return {
       strategy: null,
       reason: null
@@ -55,24 +55,18 @@ Given this positioning and recent reply history, generate 5 specific X search qu
 Format your answer as a ready-to-use list with two clearly labelled sections: "SEARCH QUERIES" (numbered 1-5) and "ACCOUNTS TO CHECK" (3 handles, each with a one-line reason). Do not add any other commentary.`;
 
   try {
-    const client = new Anthropic();
-    const response = await client.messages.create({
-      model: "claude-opus-4-8",
-      max_tokens: 1500,
+    const result = await runAi({
+      maxTokens: 1500,
       system:
         "You are a sharp social-media strategist helping a structural engineer who builds AI tooling find high-quality reply opportunities on X. Be specific and practical.",
       messages: [{ role: "user", content: userPrompt }]
     });
 
-    if (response.stop_reason === "refusal") {
-      return { strategy: null, reason: "AI search suggestions skipped: the model declined this request." };
+    if (!result || result.refused) {
+      return { strategy: null, reason: "AI search suggestions skipped: the model was unavailable or declined this request." };
     }
 
-    const text = response.content
-      .filter((block) => block.type === "text")
-      .map((block) => (block as { text: string }).text)
-      .join("\n")
-      .trim();
+    const text = result.text.trim();
 
     if (!text) {
       return { strategy: null, reason: "AI search suggestions failed: the model returned no text." };

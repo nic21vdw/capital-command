@@ -275,10 +275,19 @@ export function PodcastStudioPage() {
   }, []);
 
   useEffect(() => {
-    void load().catch((error) => {
-      toast.error(error instanceof Error ? error.message : String(error));
-      setLoading(false);
-    });
+    let active = true;
+    void (async () => {
+      try {
+        await load();
+      } catch (error) {
+        if (!active) return;
+        toast.error(error instanceof Error ? error.message : String(error));
+        setLoading(false);
+      }
+    })();
+    return () => {
+      active = false;
+    };
   }, [load]);
 
   const selectedJob = useMemo(

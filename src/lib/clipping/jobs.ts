@@ -1,6 +1,13 @@
 import { mkdir, readFile, rename, rm, stat, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { TARGET_CLIP_COUNT, detectSilences, extractEnergy, fallbackCandidates, selectCandidates } from "@/lib/clipping/analysis";
+import {
+  TARGET_CLIP_COUNT,
+  clampClipCount,
+  detectSilences,
+  extractEnergy,
+  fallbackCandidates,
+  selectCandidates
+} from "@/lib/clipping/analysis";
 import { buildAss, buildClipTitleDialogue, chunkWords, windowSegments } from "@/lib/clipping/captions";
 import { generateClipTitle } from "@/lib/clipping/editor";
 import { generateViralTitles } from "@/lib/clipping/titles";
@@ -12,13 +19,16 @@ import { readSourceMeta, sourceFilePath, type SourceMeta } from "@/lib/clipping/
 import { defaultCaptionStyle } from "@/lib/storage/schemas";
 import { ensureClipThumbnail } from "@/lib/clipping/thumbnails";
 import { fetchSourceCaptions } from "@/lib/clipping/transcription";
+import { clampRange } from "@/lib/clipping/timeline";
 import { selectByTranscript } from "@/lib/clipping/transcript-select";
+import { refineClipVirality, viralityRefinementConfigured } from "@/lib/clipping/virality";
 import { transcribeMedia } from "@/lib/clipping/whisper";
 import type { ClipCandidate, ClipJob } from "@/lib/clipping/types";
 
 const clipsRoot = path.join(process.cwd(), "data", "clips");
 const jobsFile = path.join(clipsRoot, "jobs.json");
 let persistQueue = Promise.resolve();
+let queuedPersist: Promise<void> | null = null;
 
 const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -41,11 +51,12 @@ async function loadJobs() {
   if (g.__clipJobsLoaded) return;
   g.__clipJobsLoaded = true;
   try {
-    let raw = "";
+    let parsed: ClipJob[] = [];
     for (let attempt = 0; attempt < 3; attempt += 1) {
       try {
-        raw = await readFile(jobsFile, "utf8");
-        JSON.parse(raw);
+        // Parsing this file is seconds of blocked event loop, so it happens
+        // once — never a second time just to validate the read.
+        parsed = JSON.parse(await readFile(jobsFile, "utf8")) as ClipJob[];
         break;
       } catch (error) {
         if ((error as NodeJS.ErrnoException).code === "ENOENT") return;
@@ -53,7 +64,14 @@ async function loadJobs() {
         await new Promise((resolve) => setTimeout(resolve, 40));
       }
     }
-    for (const job of JSON.parse(raw) as ClipJob[]) {
+    for (const job of parsed) {
+      // A job held at `review` has nothing in flight — the selection is written
+      // and it is waiting on a person — so a restart leaves it exactly where it
+      // was rather than throwing the analysis away.
+      if (job.stage === "review" && job.status === "processing") {
+        jobs.set(job.id, job);
+        continue;
+      }
       // Anything mid-flight when the server stopped can't resume.
       if (job.status === "processing" || job.status === "queued") {
         job.status = "error";
@@ -66,38 +84,67 @@ async function loadJobs() {
   }
 }
 
-async function persistJobs() {
-  const write = async () => {
-    await mkdir(clipsRoot, { recursive: true });
-    const list = [...jobs.values()].sort((a, b) => b.createdAt.localeCompare(a.createdAt)).slice(0, 50);
-    const payload = JSON.stringify(list, null, 2);
-    const tmpPath = `${jobsFile}.${process.pid}.${Date.now()}.tmp`;
-    await writeFile(tmpPath, payload, "utf8");
-    for (let attempt = 0; attempt < 5; attempt += 1) {
-      try {
-        await rename(tmpPath, jobsFile);
-        return;
-      } catch (error) {
-        if (!isTransientReplaceError(error) || attempt === 4) {
-          if (isTransientReplaceError(error)) {
-            await writeFile(jobsFile, payload, "utf8");
-            await unlink(tmpPath).catch(() => undefined);
-            return;
-          }
+async function writeJobs() {
+  // Serialising every job is ~half a second of blocked event loop, which
+  // freezes every other page in the app. Snapshot and release the coalescing
+  // slot in the same tick, so anything mutated after this point queues its own
+  // write rather than being silently folded into this one. Not pretty-printed:
+  // indentation doubles the file, and nothing reads it by hand.
+  const payload = JSON.stringify(
+    [...jobs.values()].sort((a, b) => b.createdAt.localeCompare(a.createdAt)).slice(0, 50)
+  );
+  queuedPersist = null;
+
+  await mkdir(clipsRoot, { recursive: true });
+  const tmpPath = `${jobsFile}.${process.pid}.${Date.now()}.tmp`;
+  await writeFile(tmpPath, payload, "utf8");
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    try {
+      await rename(tmpPath, jobsFile);
+      return;
+    } catch (error) {
+      if (!isTransientReplaceError(error) || attempt === 4) {
+        if (isTransientReplaceError(error)) {
+          await writeFile(jobsFile, payload, "utf8");
           await unlink(tmpPath).catch(() => undefined);
-          throw error;
+          return;
         }
-        await wait(100 * (attempt + 1));
+        await unlink(tmpPath).catch(() => undefined);
+        throw error;
       }
+      await wait(100 * (attempt + 1));
     }
-  };
-  persistQueue = persistQueue.then(write, write);
-  await persistQueue;
+  }
+}
+
+/**
+ * A queued write snapshots the job map at the moment it starts, so it already
+ * covers every change made while it was waiting. Callers that arrive before it
+ * starts share it instead of queueing another full serialisation — that is what
+ * keeps a burst of render progress updates from pegging the event loop.
+ */
+async function persistJobs() {
+  if (queuedPersist) return queuedPersist;
+  const run = persistQueue.then(writeJobs, writeJobs);
+  queuedPersist = run;
+  persistQueue = run;
+  await run;
 }
 
 export async function listJobs(): Promise<ClipJob[]> {
   await loadJobs();
   return [...jobs.values()].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+}
+
+/**
+ * A job without its source captions. The word-level transcript of a multi-hour
+ * stream is ~98% of a job's weight, so any listing that isn't rendering a
+ * transcript sheds it here rather than serialising megabytes nobody reads.
+ */
+export function jobWithoutCaptions(job: ClipJob): ClipJob {
+  const light = { ...job };
+  delete light.sourceCaptions;
+  return light;
 }
 
 export async function getJob(id: string): Promise<ClipJob | undefined> {
@@ -170,6 +217,67 @@ export async function renameJob(
 }
 
 /**
+ * Moves one clip's in/out points inside the source stream and re-cuts it.
+ *
+ * The automatic selection is a suggestion: a 22-second clip out of a 3-hour
+ * stream is one reading of a moment that may well run longer, so the creator
+ * can extend or tighten it against the whole recording. Everything downstream
+ * is derived from the range, so a re-cut is just the render pipeline pointed at
+ * new times — the clip keeps its id, its title and its place in the job, and
+ * `renderClipIndexes` rewrites its master, preview, poster and ready-to-post
+ * files (and drops any Clip Editor export, which was cut from the old range).
+ *
+ * Returns immediately with the job marked processing; the render runs in the
+ * background and the UI polls it in, exactly like a fresh job.
+ */
+export async function recutClip(
+  id: string,
+  patch: { clipId: string; start: number; end: number }
+): Promise<ClipJob | undefined> {
+  await loadJobs();
+  const job = jobs.get(id);
+  if (!job) return undefined;
+  if (job.status === "processing" || job.status === "queued") {
+    throw new Error("This stream is still processing — wait for it to finish first.");
+  }
+  const index = job.clips.findIndex((candidate) => candidate.id === patch.clipId);
+  if (index < 0) throw new Error("That clip is no longer part of this job.");
+  const clip = job.clips[index];
+
+  if (!Number.isFinite(patch.start) || !Number.isFinite(patch.end)) {
+    throw new Error("The new clip range must be two times in seconds.");
+  }
+  const range = clampRange(
+    { start: patch.start, end: patch.end },
+    { durationSec: job.durationSec ?? clip.end, anchor: "start" }
+  );
+  if (range.start === clip.start && range.end === clip.end) return job;
+
+  // Remember where the automatic selection put it the FIRST time it moves, so
+  // "revert" always means the suggestion rather than the previous manual cut.
+  clip.originalRange ??= { start: clip.start, end: clip.end };
+  clip.start = range.start;
+  clip.end = range.end;
+  clip.recutAt = new Date().toISOString();
+  // Every rendered artefact belongs to the old range; the render rewrites them,
+  // and until it does the card has nothing stale to show.
+  clip.file = undefined;
+  clip.previewFile = undefined;
+  clip.posterFile = undefined;
+  clip.downloadFile = undefined;
+  clip.editedFile = undefined;
+  clip.editedSignature = undefined;
+  clip.editedAt = undefined;
+  clip.variants = undefined;
+  clip.layoutPreset = undefined;
+
+  job.notices = job.notices.filter((notice) => !notice.startsWith(`Clip ${index + 1}`));
+  await update(job, { status: "processing", stage: "rendering", progress: 50, notices: job.notices });
+  void renderClipIndexes(job, [index]).catch((error) => failJob(job, error));
+  return job;
+}
+
+/**
  * Fetches (and caches) automatic captions for a job. Platform captions are
  * tried first for URL sources, with local Whisper transcription as a fallback
  * so every source with an audio track gets captions. Force re-fetch to
@@ -216,24 +324,49 @@ function overlapRatio(a: { start: number; end: number }, b: { start: number; end
   return union > 0 ? inter / union : 0;
 }
 
-function mergeClipCandidates(primary: ClipCandidate[], supplemental: ClipCandidate[]) {
+function mergeClipCandidates(
+  primary: ClipCandidate[],
+  supplemental: ClipCandidate[],
+  targetCount: number = TARGET_CLIP_COUNT
+) {
+  const limit = clampClipCount(targetCount);
   const merged: ClipCandidate[] = [];
   for (const candidate of [...primary, ...supplemental]) {
-    if (merged.length >= TARGET_CLIP_COUNT) break;
+    if (merged.length >= limit) break;
     if (merged.some((existing) => overlapRatio(existing, candidate) > 0.45)) continue;
     merged.push(candidate);
   }
   for (const candidate of supplemental) {
-    if (merged.length >= TARGET_CLIP_COUNT) break;
+    if (merged.length >= limit) break;
     if (merged.some((existing) => Math.abs(existing.start - candidate.start) < 1)) continue;
     merged.push(candidate);
   }
-  return merged.slice(0, TARGET_CLIP_COUNT).map((candidate, index) => ({ ...candidate, id: `clip-${index + 1}` }));
+  return merged.slice(0, limit).map((candidate, index) => ({ ...candidate, id: `clip-${index + 1}` }));
 }
 
 /** A clip's transcript, windowed to clip-local time. */
 function clipCaptions(job: ClipJob, clip: ClipCandidate) {
   return windowSegments(job.sourceCaptions ?? [], clip.start, clip.end);
+}
+
+/**
+ * Virality second pass: re-reads each selected clip's own transcript and
+ * re-ranks the set (see virality.ts). Free on DeepSeek Flash, so it runs on
+ * every job that has a transcript. Returns the candidates unchanged when AI is
+ * unavailable or there is no transcript to judge from.
+ */
+async function refineJobVirality(job: ClipJob, candidates: ClipCandidate[]): Promise<ClipCandidate[]> {
+  if (!viralityRefinementConfigured() || candidates.length === 0) return candidates;
+  const transcripts = new Map(
+    candidates.map((clip) => [
+      clip.id,
+      clipCaptions(job, clip)
+        .map((segment) => segment.text)
+        .join(" ")
+        .trim()
+    ])
+  );
+  return refineClipVirality(candidates, transcripts, job.topic);
 }
 
 /**
@@ -270,7 +403,8 @@ async function assignClipTitles(job: ClipJob) {
 
 export async function createJobFromUrl(
   url: string,
-  topic: string | undefined
+  topic: string | undefined,
+  clipCount?: number
 ): Promise<ClipJob> {
   await loadJobs();
   const id = crypto.randomUUID().slice(0, 8);
@@ -278,6 +412,7 @@ export async function createJobFromUrl(
     id,
     fileName: url,
     topic: topic || undefined,
+    clipCount: clampClipCount(clipCount),
     sourceUrl: url,
     status: "queued",
     stage: "downloading",
@@ -297,7 +432,12 @@ export async function createJobFromUrl(
 }
 
 /** Creates a clip job from a previously uploaded source file. */
-export async function createJobFromUpload(sourceId: string, topic: string | undefined): Promise<ClipJob> {
+export async function createJobFromUpload(
+  sourceId: string,
+  topic: string | undefined,
+  clipCount?: number,
+  options?: { reviewGate?: boolean }
+): Promise<ClipJob> {
   await loadJobs();
   const meta = await readSourceMeta(sourceId);
   if (!meta) throw new Error("That uploaded video could not be found. Upload it again.");
@@ -306,6 +446,8 @@ export async function createJobFromUpload(sourceId: string, topic: string | unde
     id,
     fileName: meta.fileName,
     topic: topic || undefined,
+    clipCount: clampClipCount(clipCount),
+    reviewGate: options?.reviewGate || undefined,
     sourceUrl: `upload://${sourceId}`,
     sourceId,
     status: "queued",
@@ -346,6 +488,12 @@ async function runLocalPipeline(job: ClipJob, meta: SourceMeta) {
     audioPath = path.join(workDir(job.id), "source-audio.mp3");
     await runFfmpeg(["-y", "-i", srcPath, "-vn", "-ac", "1", "-ar", "16000", "-b:a", "64k", audioPath]);
   }
+  // Start the same full-audio silence pass the Long-Form Editor uses while
+  // transcription runs. The result is persisted for every clip, even when
+  // transcript selection already finds all ten candidates.
+  const silencePromise = audioPath
+    ? detectSilences(audioPath).catch(() => [])
+    : Promise.resolve([]);
 
   // Transcribe the upload locally so captions, titles, and moment selection
   // all work exactly like they do for platform VODs.
@@ -368,24 +516,30 @@ async function runLocalPipeline(job: ClipJob, meta: SourceMeta) {
     }
   }
 
+  const silences = await silencePromise;
+  job.silences = silences;
+  const targetCount = clampClipCount(job.clipCount);
   await update(job, { stage: "selecting", progress: 42 });
   let candidates: ClipCandidate[] | null = null;
   if (transcript && transcript.length > 0) {
-    candidates = await selectByTranscript(transcript, durationSec, job.topic);
+    candidates = await selectByTranscript(transcript, durationSec, job.topic, targetCount);
   }
-  if (!candidates || candidates.length < TARGET_CLIP_COUNT) {
+  if (!candidates || candidates.length < targetCount) {
     if (audioPath) {
-      const [windows, silences] = await Promise.all([extractEnergy(audioPath), detectSilences(audioPath)]);
-      const energyCandidates = selectCandidates(windows, silences, durationSec, transcript ?? []);
+      const windows = await extractEnergy(audioPath);
+      const energyCandidates = selectCandidates(windows, silences, durationSec, transcript ?? [], targetCount);
       candidates =
-        candidates && candidates.length > 0 ? mergeClipCandidates(candidates, energyCandidates) : energyCandidates;
+        candidates && candidates.length > 0
+          ? mergeClipCandidates(candidates, energyCandidates, targetCount)
+          : energyCandidates;
       if (!transcript || transcript.length === 0) {
         job.notices.push("No transcript was available — moments were picked from whole-stream audio energy instead.");
       }
     } else {
-      candidates = fallbackCandidates(durationSec, "This video has no audio track");
+      candidates = fallbackCandidates(durationSec, "This video has no audio track", targetCount);
     }
   }
+  candidates = await refineJobVirality(job, candidates);
   job.clips = candidates;
   await persistJobs();
 
@@ -393,11 +547,92 @@ async function runLocalPipeline(job: ClipJob, meta: SourceMeta) {
   // real title in, not a placeholder.
   await assignClipTitles(job);
 
+  await renderOrHold(job, false);
+}
+
+/**
+ * Encoding is the expensive half, so a job carrying `reviewGate` stops here
+ * with its moments picked and titled and waits for `approveClipRenders`.
+ * Everything up to this point is analysis, which is what makes the hold worth
+ * having: the selection can be edited before any time is spent on frames.
+ */
+async function renderOrHold(job: ClipJob, mirrorToDrive: boolean) {
+  if (job.reviewGate) {
+    await update(job, { status: "processing", stage: "review", progress: 46 });
+    return;
+  }
+  await renderAndFinish(job, mirrorToDrive);
+}
+
+/** Renders every clip still in the job and finishes it. Shared by both pipelines. */
+async function renderAndFinish(job: ClipJob, mirrorToDrive: boolean) {
   await renderClipIndexes(
     job,
     job.clips.map((_, index) => index)
   );
+
+  // Optionally mirror the finished clips into a Google Drive-synced folder.
+  // No API or sign-in: this just copies files into a local folder that Google
+  // Drive for Desktop syncs (see CLIPS_DRIVE_DIR in .env). Off unless set.
+  if (mirrorToDrive && driveDir()) {
+    const rendered = job.clips
+      .filter((clip) => clip.downloadFile || clip.file)
+      .map((clip) => {
+        // Mirror the ready-to-post download clip when it rendered, else the master.
+        const fileName = (clip.downloadFile ?? clip.file) as string;
+        return { sourcePath: path.join(outputDir(job.id), fileName), fileName };
+      });
+    if (rendered.length > 0) {
+      try {
+        const { folder, copied } = await copyClipsToDrive(job.fileName, rendered);
+        job.driveFolder = folder;
+        job.notices.push(`Copied ${copied} clip${copied === 1 ? "" : "s"} to your Google Drive folder: ${folder}`);
+      } catch (error) {
+        job.notices.push(
+          `Could not copy clips to your Google Drive folder: ${error instanceof Error ? error.message : String(error)}.`
+        );
+      }
+      await persistJobs();
+    }
+  }
+
   await update(job, { status: "done", stage: "finished", progress: 100 });
+}
+
+/**
+ * Releases a job held at `review` and renders what is left of its selection.
+ * Idempotent: a job that is not holding is returned untouched, so a repeated
+ * approval (or a second poll) cannot start two render passes.
+ */
+export async function approveClipRenders(id: string): Promise<ClipJob | undefined> {
+  await loadJobs();
+  const job = jobs.get(id);
+  if (!job) return undefined;
+  if (job.stage !== "review") return job;
+  if (job.clips.length === 0) {
+    await update(job, { reviewGate: false, status: "done", stage: "finished", progress: 100 });
+    return job;
+  }
+  await update(job, { reviewGate: false, stage: "rendering", progress: 50 });
+  void renderAndFinish(job, !job.sourceId).catch((error) => failJob(job, error));
+  return job;
+}
+
+/**
+ * Drops moments from a job's selection while it is held at `review`. Only legal
+ * before rendering — after that there are files on disk behind each clip, which
+ * is the Clip Generator's job to remove, not this one's.
+ */
+export async function dropClipCandidates(id: string, clipIds: string[]): Promise<ClipJob | undefined> {
+  await loadJobs();
+  const job = jobs.get(id);
+  if (!job) return undefined;
+  if (job.stage !== "review") throw new Error("Clips can only be dropped while the job is waiting for approval.");
+  const dropped = new Set(clipIds);
+  const kept = job.clips.filter((clip) => !dropped.has(clip.id));
+  if (kept.length === job.clips.length) return job;
+  await update(job, { clips: kept });
+  return job;
 }
 
 /** Cuts [start, end] out of a local file with a fast keyframe seek + stream copy. */
@@ -436,6 +671,7 @@ async function runPipeline(job: ClipJob, url: string) {
   const audioPath = await downloadAudio(url, workDir(job.id), (pct) =>
     void update(job, { progress: 5 + Math.round((pct / 100) * 20) })
   );
+  const silencePromise = detectSilences(audioPath).catch(() => []);
   const durationSec = meta.durationSec || (await probeDuration(audioPath));
   await update(job, { durationSec: Math.round(durationSec) });
 
@@ -465,24 +701,31 @@ async function runPipeline(job: ClipJob, url: string) {
     await update(job, { captionsError: error instanceof Error ? error.message : String(error) });
   }
 
+  const silences = await silencePromise;
+  job.silences = silences;
+  const targetCount = clampClipCount(job.clipCount);
   await update(job, { stage: "selecting", progress: 42 });
   let candidates: ClipCandidate[] | null = null;
   if (transcript && transcript.length > 0) {
-    candidates = await selectByTranscript(transcript, durationSec, job.topic);
+    candidates = await selectByTranscript(transcript, durationSec, job.topic, targetCount);
   }
 
-  if (!candidates || candidates.length < TARGET_CLIP_COUNT) {
+  if (!candidates || candidates.length < targetCount) {
     // Score moments from audio energy across the whole stream. We still pass the transcript (if any) so scoring
     // can read what is said, not just how loud it is.
-    const [windows, silences] = await Promise.all([extractEnergy(audioPath), detectSilences(audioPath)]);
-    const energyCandidates = selectCandidates(windows, silences, durationSec, transcript ?? []);
-    candidates = candidates && candidates.length > 0 ? mergeClipCandidates(candidates, energyCandidates) : energyCandidates;
+    const windows = await extractEnergy(audioPath);
+    const energyCandidates = selectCandidates(windows, silences, durationSec, transcript ?? [], targetCount);
+    candidates =
+      candidates && candidates.length > 0
+        ? mergeClipCandidates(candidates, energyCandidates, targetCount)
+        : energyCandidates;
     if (!transcript || transcript.length === 0) {
       job.notices.push(
         "No transcript was available for this source — picked moments from whole-stream audio energy instead."
       );
     }
   }
+  candidates = await refineJobVirality(job, candidates);
   job.clips = candidates;
   await persistJobs();
 
@@ -490,37 +733,7 @@ async function runPipeline(job: ClipJob, url: string) {
   // real title in, not a placeholder.
   await assignClipTitles(job);
 
-  await renderClipIndexes(
-    job,
-    job.clips.map((_, index) => index)
-  );
-
-  // Optionally mirror the finished clips into a Google Drive-synced folder.
-  // No API or sign-in: this just copies files into a local folder that Google
-  // Drive for Desktop syncs (see CLIPS_DRIVE_DIR in .env). Off unless set.
-  if (driveDir()) {
-    const rendered = job.clips
-      .filter((clip) => clip.downloadFile || clip.file)
-      .map((clip) => {
-        // Mirror the ready-to-post download clip when it rendered, else the master.
-        const fileName = (clip.downloadFile ?? clip.file) as string;
-        return { sourcePath: path.join(outputDir(job.id), fileName), fileName };
-      });
-    if (rendered.length > 0) {
-      try {
-        const { folder, copied } = await copyClipsToDrive(job.fileName, rendered);
-        job.driveFolder = folder;
-        job.notices.push(`Copied ${copied} clip${copied === 1 ? "" : "s"} to your Google Drive folder: ${folder}`);
-      } catch (error) {
-        job.notices.push(
-          `Could not copy clips to your Google Drive folder: ${error instanceof Error ? error.message : String(error)}.`
-        );
-      }
-      await persistJobs();
-    }
-  }
-
-  await update(job, { status: "done", stage: "finished", progress: 100 });
+  await renderOrHold(job, true);
 }
 
 // The ready-to-post download clip is composed at 9:16 (1080x1920), matching a

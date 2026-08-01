@@ -36,16 +36,36 @@ export function aspectSpec(ratio: CarouselAspectRatio | undefined): AspectRatioS
   return ASPECT_RATIOS[ratio ?? DEFAULT_ASPECT_RATIO];
 }
 
+/**
+ * CoLateral brand theme — a clean white/light canvas with blue accents. This
+ * is the current provisional default (a fuller theme spec will land later);
+ * every color the base chrome + default background use routes through here so
+ * the theme can be swapped in one place.
+ */
+export const COLATERAL_THEME = {
+  /** Background gradient (top-left → bottom-right). */
+  bgFrom: "#ffffff",
+  bgTo: "#e8f0ff",
+  /** Soft blue glow bloomed into the top-right corner. */
+  glow: "rgba(37,99,235,0.16)",
+  /** Blue accent used for the counter chip + accent bar. */
+  accent: "#2563eb",
+  /** Default heading / body / counter ink on the light canvas. */
+  heading: "#0f172a",
+  body: "#475569",
+  counter: "rgba(15,23,42,0.42)"
+} as const;
+
 /** The brand gradient background used when a slide has no override. */
 export function paintDefaultBackground(ctx: CanvasRenderingContext2D, w: number, h: number) {
   const bg = ctx.createLinearGradient(0, 0, w, h);
-  bg.addColorStop(0, "#0b0b14");
-  bg.addColorStop(1, "#151329");
+  bg.addColorStop(0, COLATERAL_THEME.bgFrom);
+  bg.addColorStop(1, COLATERAL_THEME.bgTo);
   ctx.fillStyle = bg;
   ctx.fillRect(0, 0, w, h);
   const glow = ctx.createRadialGradient(w * 0.85, h * 0.1, 50, w * 0.85, h * 0.1, Math.max(w, h) * 0.6);
-  glow.addColorStop(0, "rgba(124,58,237,0.35)");
-  glow.addColorStop(1, "rgba(124,58,237,0)");
+  glow.addColorStop(0, COLATERAL_THEME.glow);
+  glow.addColorStop(1, "rgba(37,99,235,0)");
   ctx.fillStyle = glow;
   ctx.fillRect(0, 0, w, h);
 }
@@ -68,14 +88,30 @@ function wrapText(ctx: CanvasRenderingContext2D, text: string, font: string, max
   return lines;
 }
 
+/**
+ * Decoded images, kept by source. A deck of photo slides is repainted on every
+ * data refresh and every aspect-ratio change; without this, each repaint waits
+ * on a fresh decode per slide and the photos pop in long after the copy.
+ */
+const decoded = new Map<string, Promise<HTMLImageElement>>();
+/** Enough for a deck of photo slides several times over. Editor drops are data
+ * URLs and would otherwise grow the map without bound. */
+const DECODED_LIMIT = 120;
+
 /** Loads an image data URL into a decoded HTMLImageElement. */
 export function loadImage(src: string): Promise<HTMLImageElement> {
-  return new Promise((resolve, reject) => {
+  const cached = decoded.get(src);
+  if (cached) return cached;
+  const pending = new Promise<HTMLImageElement>((resolve, reject) => {
     const image = new Image();
     image.onload = () => resolve(image);
     image.onerror = () => reject(new Error("image failed to load"));
     image.src = src;
   });
+  pending.catch(() => decoded.delete(src));
+  if (decoded.size >= DECODED_LIMIT) decoded.delete(decoded.keys().next().value!);
+  decoded.set(src, pending);
+  return pending;
 }
 
 function roundedRectPath(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) {
@@ -104,8 +140,10 @@ function drawImageLayer(ctx: CanvasRenderingContext2D, layer: Extract<SlideLayer
     roundedRectPath(ctx, lx, ly, lw, lh, layer.radius * Math.min(lw, lh));
     ctx.clip();
   }
-  // Cover-fit the source into the box.
-  const scale = Math.max(lw / img.width, lh / img.height);
+  // "contain" shows the whole image (letterboxed — right for logos + PNGs with
+  // transparency); "cover" fills the box, cropping overflow (right for photos).
+  const fit = layer.fit ?? "cover";
+  const scale = fit === "contain" ? Math.min(lw / img.width, lh / img.height) : Math.max(lw / img.width, lh / img.height);
   const dw = img.width * scale;
   const dh = img.height * scale;
   ctx.drawImage(img, lx + (lw - dw) / 2, ly + (lh - dh) / 2, dw, dh);
@@ -139,16 +177,35 @@ function drawTextLayer(ctx: CanvasRenderingContext2D, layer: Extract<SlideLayer,
   ctx.restore();
 }
 
-/** Draws the channel base chrome (counter, heading, body, accent, handle). */
+/** Draws the channel base chrome (counter, heading, body, accent bar). */
 function drawBaseText(ctx: CanvasRenderingContext2D, slide: CarouselSlide, index: number, total: number, w: number, h: number) {
   const scale = w / 1080;
   const margin = 80 * scale;
 
-  // Slide counter.
-  ctx.fillStyle = "rgba(255,255,255,0.55)";
+  // The band the copy is centered inside — the whole slide unless a photo has
+  // claimed the top of it.
+  const bandTop = (slide.textBand?.top ?? 0) * h;
+  const bandBottom = (slide.textBand?.bottom ?? 1) * h;
+
+  // Slide counter. On a photo slide it rides on a chip over the photo: dropped
+  // into the copy band instead, it ends up shoulder to shoulder with the
+  // heading, and a heading one word longer runs straight into it.
+  const counter = `${index + 1}/${total}`;
   ctx.font = `600 ${34 * scale}px system-ui, -apple-system, sans-serif`;
   ctx.textAlign = "right";
-  ctx.fillText(`${index + 1}/${total}`, w - margin - 0 * scale, 100 * scale);
+  if (slide.textBand) {
+    const padX = 22 * scale;
+    const chipH = 60 * scale;
+    const chipW = ctx.measureText(counter).width + padX * 2;
+    ctx.fillStyle = "rgba(15,23,42,0.55)";
+    roundedRectPath(ctx, w - margin - chipW, 52 * scale, chipW, chipH, chipH / 2);
+    ctx.fill();
+    ctx.fillStyle = "rgba(255,255,255,0.94)";
+    ctx.fillText(counter, w - margin - padX, 52 * scale + chipH / 2 + 12 * scale);
+  } else {
+    ctx.fillStyle = COLATERAL_THEME.counter;
+    ctx.fillText(counter, w - margin - 0 * scale, 100 * scale);
+  }
 
   const isHook = index === 0;
   const headingFont = `800 ${(isHook ? 92 : 72) * scale}px system-ui, -apple-system, sans-serif`;
@@ -160,11 +217,11 @@ function drawBaseText(ctx: CanvasRenderingContext2D, slide: CarouselSlide, index
   const headingLineH = (isHook ? 108 : 86) * scale;
   const bodyLineH = 62 * scale;
   const blockH = headingLines.length * headingLineH + (bodyLines.length ? 40 * scale + bodyLines.length * bodyLineH : 0);
-  let y = (h - blockH) / 2 + (isHook ? 70 : 50) * scale;
+  let y = bandTop + (bandBottom - bandTop - blockH) / 2 + (isHook ? 70 : 50) * scale;
 
   ctx.textAlign = "left";
   ctx.font = headingFont;
-  ctx.fillStyle = slide.headingColor ?? "#ffffff";
+  ctx.fillStyle = slide.headingColor ?? COLATERAL_THEME.heading;
   for (const line of headingLines) {
     ctx.fillText(line, margin, y);
     y += headingLineH;
@@ -172,58 +229,89 @@ function drawBaseText(ctx: CanvasRenderingContext2D, slide: CarouselSlide, index
   if (bodyLines.length) {
     y += 40 * scale;
     ctx.font = bodyFont;
-    ctx.fillStyle = slide.bodyColor ?? "rgba(255,255,255,0.82)";
+    ctx.fillStyle = slide.bodyColor ?? COLATERAL_THEME.body;
     for (const line of bodyLines) {
       ctx.fillText(line, margin, y);
       y += bodyLineH;
     }
   }
 
-  // Accent bar + handle footer.
-  ctx.fillStyle = "#7c3aed";
-  ctx.fillRect(margin, h - 150 * scale, 90 * scale, 8 * scale);
-  ctx.font = `600 ${36 * scale}px system-ui, -apple-system, sans-serif`;
-  ctx.fillStyle = "rgba(255,255,255,0.6)";
-  ctx.fillText("@nic21vdw", margin, h - 84 * scale);
+  // Blue accent bar anchoring the bottom-left.
+  ctx.fillStyle = COLATERAL_THEME.accent;
+  ctx.fillRect(margin, h - 130 * scale, 90 * scale, 8 * scale);
 }
 
 /**
+ * Which parts of a slide to paint. Defaults draw everything (the export path);
+ * the editor uses these to split a slide across stacked canvases so image
+ * layers can live as interactive DOM elements in the correct z-order.
+ */
+export type RenderSlideOptions = {
+  /** Leave the canvas transparent instead of painting the background. */
+  skipBackground?: boolean;
+  skipImageLayers?: boolean;
+  skipTextLayers?: boolean;
+  skipBaseText?: boolean;
+  /**
+   * Pixel width to render at; the height follows the aspect ratio. Defaults to
+   * the ratio's export resolution.
+   *
+   * Every measurement in here is a fraction of the slide, so a small render is
+   * the same picture, not a different layout. A wall of thumbnails must ask for
+   * thumbnail pixels: forty 1080×1350 canvases is a quarter of a gigabyte of
+   * backing store, and past the browser's canvas budget the extra ones come
+   * back blank.
+   */
+  width?: number;
+};
+
+/**
  * Renders one slide into a fresh canvas at the given aspect ratio's full
- * resolution. Async because image layers must decode first.
+ * resolution, or at `options.width`. Async because image layers must decode
+ * first.
  */
 export async function renderSlideCanvas(
   slide: CarouselSlide,
   index: number,
   total: number,
-  ratio: CarouselAspectRatio
+  ratio: CarouselAspectRatio,
+  options: RenderSlideOptions = {}
 ): Promise<HTMLCanvasElement> {
   const spec = aspectSpec(ratio);
+  const width = options.width ? Math.max(1, Math.round(options.width)) : spec.width;
+  const height = Math.max(1, Math.round((width * spec.height) / spec.width));
   const canvas = document.createElement("canvas");
-  canvas.width = spec.width;
-  canvas.height = spec.height;
+  canvas.width = width;
+  canvas.height = height;
   const ctx = canvas.getContext("2d")!;
 
   // Background: solid/gradient override or the brand default.
-  if (slide.background) {
-    ctx.fillStyle = slide.background;
-    ctx.fillRect(0, 0, spec.width, spec.height);
-  } else {
-    paintDefaultBackground(ctx, spec.width, spec.height);
+  if (!options.skipBackground) {
+    if (slide.background) {
+      ctx.fillStyle = slide.background;
+      ctx.fillRect(0, 0, width, height);
+    } else {
+      paintDefaultBackground(ctx, width, height);
+    }
   }
 
   // Image layers render under the base copy; text layers over it.
-  const imageLayers = (slide.layers ?? []).filter((l): l is Extract<SlideLayer, { type: "image" }> => l.type === "image");
-  const decoded = await Promise.all(
-    imageLayers.map(async (layer) => ({ layer, img: await loadImage(layer.src).catch(() => null) }))
-  );
-  for (const { layer, img } of decoded) {
-    if (img) drawImageLayer(ctx, layer, img, spec.width, spec.height);
+  if (!options.skipImageLayers) {
+    const imageLayers = (slide.layers ?? []).filter((l): l is Extract<SlideLayer, { type: "image" }> => l.type === "image");
+    const images = await Promise.all(
+      imageLayers.map(async (layer) => ({ layer, img: await loadImage(layer.src).catch(() => null) }))
+    );
+    for (const { layer, img } of images) {
+      if (img) drawImageLayer(ctx, layer, img, width, height);
+    }
   }
 
-  if (!slide.hideBaseText) drawBaseText(ctx, slide, index, total, spec.width, spec.height);
+  if (!options.skipBaseText && !slide.hideBaseText) drawBaseText(ctx, slide, index, total, width, height);
 
-  for (const layer of slide.layers ?? []) {
-    if (layer.type === "text") drawTextLayer(ctx, layer, spec.width, spec.height);
+  if (!options.skipTextLayers) {
+    for (const layer of slide.layers ?? []) {
+      if (layer.type === "text") drawTextLayer(ctx, layer, width, height);
+    }
   }
 
   return canvas;

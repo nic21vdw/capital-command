@@ -223,7 +223,7 @@ export function OutliersPage() {
   return (
     <div>
       <PageHeader
-        eyebrow="YouTube tools"
+        eyebrow="Studio"
         title="Outlier Radar"
         description="Watch other channels, baseline them on the median views of their recent uploads, and flag videos breaking out above the baseline. One click analyzes your competition as a group — shared breakout topics, packaging patterns, and an AI brief on what to make next."
       />
@@ -722,7 +722,7 @@ function OutlierInsightsPanel({ outlier, channel }: { outlier: Outlier; channel:
     <div className="rounded-lg border border-[var(--border)] bg-[var(--surface-2)] p-4">
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         {stats.map((stat) => (
-          <div key={stat.label} className="rounded-lg border border-[var(--border)] bg-black/20 px-3 py-2">
+          <div key={stat.label} className="rounded-lg border border-[var(--border)] bg-[var(--well)] px-3 py-2">
             <p className="text-[11px] uppercase tracking-wider text-[var(--muted-foreground)]">{stat.label}</p>
             <p className="mt-0.5 text-sm font-semibold tabular-nums text-white">{stat.value}</p>
             {stat.comparison ? <p className="text-xs text-[var(--muted-foreground)]">{stat.comparison}</p> : null}

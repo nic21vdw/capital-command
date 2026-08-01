@@ -10,43 +10,59 @@ import {
   Loader2,
   RotateCw,
   Scissors,
+  SlidersHorizontal,
   SquarePlay,
   Trash2,
   Upload
 } from "lucide-react";
 import { toast } from "sonner";
 import { useAppData } from "@/components/providers/app-provider";
+import { ClipFrame } from "@/components/clips/clip-frame";
+import { ClipRangeEditor } from "@/components/clips/clip-range-editor";
+import { StreamMap } from "@/components/clips/stream-map";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { PageHeader } from "@/components/ui/page-header";
 import { Progress } from "@/components/ui/progress";
+import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
+import { MAX_CLIP_COUNT, TARGET_CLIP_COUNT } from "@/lib/clipping/clip-count";
 import { chunkWords, windowSegments } from "@/lib/clipping/captions";
+import { loadJobCaptions } from "@/lib/clipping/captions-client";
 import { generateClipTitle, makeClipProject, makeTitleOverlay } from "@/lib/clipping/editor";
+import { buildClipSegments, buildClipSegmentsFromSilences } from "@/lib/clipping/segments";
+import { formatTimecode, type TimeRange } from "@/lib/clipping/timeline";
 import { writeDraftProject } from "@/components/editor/drafts";
 import { cn, safeFilename } from "@/lib/utils";
 import type { ClipCandidate, ClipJob, ClipJobStage, ClipJobStatus } from "@/lib/clipping/types";
+import type { CaptionSegment } from "@/types/domain";
+
+// Preset clip counts offered in the generator. Kept within [1, MAX_CLIP_COUNT];
+// bigger streams warrant more clips, so the range runs well past the default.
+const CLIP_COUNT_OPTIONS = [3, 5, 10, 15, 20, 25, 30, 40, MAX_CLIP_COUNT];
 
 const STAGE_LABELS: Record<ClipJobStage, string> = {
   downloading: "Fetching the source",
   analyzing: "Transcribing the audio",
   selecting: "Picking the best moments",
+  review: "Waiting for approval in the pipeline",
   rendering: "Rendering clips",
   finished: "Ready"
 };
 
-function formatTimestamp(seconds: number) {
-  const h = Math.floor(seconds / 3600);
-  const m = Math.floor((seconds % 3600) / 60);
-  const s = Math.floor(seconds % 60);
-  if (h > 0) return `${h}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
-  return `${m}:${String(s).padStart(2, "0")}`;
-}
-
-function fileUrl(jobId: string, fileName: string, download = false) {
-  return `/api/clips/${jobId}/files/${encodeURIComponent(fileName)}${download ? "?download=1" : ""}`;
+/**
+ * A re-cut overwrites a clip's files under their existing names, and those are
+ * served with a long private cache, so `version` (the clip's `recutAt`) is what
+ * makes a fresh cut actually appear instead of the browser replaying the old one.
+ */
+function fileUrl(jobId: string, fileName: string, { download = false, version = "" } = {}) {
+  const query = new URLSearchParams();
+  if (download) query.set("download", "1");
+  if (version) query.set("v", version);
+  const suffix = query.size > 0 ? `?${query.toString()}` : "";
+  return `/api/clips/${jobId}/files/${encodeURIComponent(fileName)}${suffix}`;
 }
 
 function thumbnailUrl(jobId: string, fileName: string) {
@@ -65,6 +81,11 @@ function statusClass(status: ClipJobStatus) {
   return "border-sky-400/30 bg-sky-400/10 text-sky-300";
 }
 
+type ClipRef = { jobId: string; clipId: string };
+
+const clipRefFor = (ref: ClipRef | null, jobId: string | undefined) =>
+  ref && ref.jobId === jobId ? ref.clipId : null;
+
 function clipHeadline(clip: ClipCandidate, index: number) {
   if (clip.title) return clip.title;
   if (clip.hookQuote) return clip.hookQuote;
@@ -81,23 +102,47 @@ export function ClipGeneratorPage() {
   const [activeJobId, setActiveJobId] = useState<string | null>(null);
   const [url, setUrl] = useState("");
   const [brief, setBrief] = useState("");
+  const [clipCount, setClipCount] = useState(TARGET_CLIP_COUNT);
   const [submitting, setSubmitting] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [retryingJobId, setRetryingJobId] = useState<string | null>(null);
+  // Selection, expansion and the in-flight re-cut all belong to ONE job, so
+  // they carry their job's id and are read back through the active job rather
+  // than reset by an effect every time the workspace switches streams.
+  const [selected, setSelected] = useState<ClipRef | null>(null);
+  const [expanded, setExpanded] = useState<ClipRef | null>(null);
+  const [recutRequest, setRecutRequest] = useState<ClipRef | null>(null);
+  const [captionsByJob, setCaptionsByJob] = useState<Record<string, CaptionSegment[]>>({});
+  const [captionsLoadingJobId, setCaptionsLoadingJobId] = useState<string | null>(null);
   const [dragActive, setDragActive] = useState(false);
   const dragDepth = useRef(0);
   const uploadInputRef = useRef<HTMLInputElement>(null);
+  const captionsRequested = useRef(new Set<string>());
 
   const activeJob = useMemo(
     () => jobs.find((job) => job.id === activeJobId) ?? jobs[0] ?? null,
     [activeJobId, jobs]
   );
   const processing = activeJob?.status === "processing" || activeJob?.status === "queued";
+  const selectedClipId = clipRefFor(selected, activeJob?.id);
+  const expandedClipId = clipRefFor(expanded, activeJob?.id);
+  // A re-cut is finished the moment its clip has a playable file again — the
+  // job itself carries the answer, so nothing has to be cleared by hand.
+  const requestedRecutId = clipRefFor(recutRequest, activeJob?.id);
+  const recuttingClip = activeJob?.clips.find((clip) => clip.id === requestedRecutId);
+  const recuttingClipId = recuttingClip && !recuttingClip.file && !recuttingClip.previewFile ? recuttingClip.id : null;
+
   // A clip is viewable as soon as it has an instant preview OR its final HD
   // render — clips stream into the workspace while the job is still running.
+  // A clip being re-cut has neither for a moment: its card stays on screen so
+  // the range panel doesn't vanish out from under whoever just moved it.
+  const isVisible = useCallback(
+    (clip: ClipCandidate) => Boolean(clip.file || clip.previewFile) || clip.id === recuttingClipId,
+    [recuttingClipId]
+  );
   const previewableClips = useMemo(
-    () => (activeJob ? activeJob.clips.filter((clip) => clip.file || clip.previewFile) : []),
-    [activeJob]
+    () => (activeJob ? activeJob.clips.filter(isVisible) : []),
+    [activeJob, isVisible]
   );
   const failedClipCount =
     activeJob?.status === "done" ? activeJob.clips.filter((clip) => !clip.file).length : 0;
@@ -123,8 +168,82 @@ export function ClipGeneratorPage() {
     return () => clearInterval(timer);
   }, [jobs, refresh]);
 
+  /**
+   * The transcript is what makes a range editable by reading rather than
+   * guessing, but a multi-hour word list is far too heavy to ship with the job
+   * list — so it is fetched once, for one job, the first time a range panel
+   * opens.
+   */
+  const ensureCaptions = useCallback(async (jobId: string) => {
+    if (captionsRequested.current.has(jobId)) return;
+    captionsRequested.current.add(jobId);
+    setCaptionsLoadingJobId(jobId);
+    try {
+      const response = await fetch(`/api/clips/${jobId}/captions`, { cache: "no-store" });
+      const data = response.ok ? ((await response.json()) as { captions?: CaptionSegment[] }) : {};
+      setCaptionsByJob((prev) => ({ ...prev, [jobId]: data.captions ?? [] }));
+    } catch {
+      setCaptionsByJob((prev) => ({ ...prev, [jobId]: [] }));
+    } finally {
+      setCaptionsLoadingJobId(null);
+    }
+  }, []);
+
+  const toggleRangeEditor = useCallback(
+    (job: ClipJob, clip: ClipCandidate) => {
+      const ref = { jobId: job.id, clipId: clip.id };
+      setExpanded((current) =>
+        current && current.jobId === job.id && current.clipId === clip.id ? null : ref
+      );
+      setSelected(ref);
+      void ensureCaptions(job.id);
+    },
+    [ensureCaptions]
+  );
+
+  const recutClip = useCallback(
+    async (job: ClipJob, clip: ClipCandidate, range: TimeRange) => {
+      setRecutRequest({ jobId: job.id, clipId: clip.id });
+      try {
+        const response = await fetch(`/api/clips/${job.id}/recut`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ clipId: clip.id, start: range.start, end: range.end })
+        });
+        const data = (await response.json()) as { job?: ClipJob; error?: string };
+        if (!response.ok || !data.job) {
+          toast.error(data.error ?? "Could not re-cut that clip.");
+          setRecutRequest(null);
+          return;
+        }
+        // Land the job the re-cut returned straight away: it already has the
+        // new range and no rendered files, so the card switches to its
+        // re-cutting state without waiting for the next poll.
+        const next = data.job;
+        setJobs((prev) => prev.map((existing) => (existing.id === next.id ? next : existing)));
+        toast.success(
+          `Re-cutting clip to ${formatTimecode(range.start)} - ${formatTimecode(range.end)} (${Math.round(range.end - range.start)}s).`
+        );
+        void refresh();
+      } catch {
+        toast.error("Re-cut failed. Is the dev server still running?");
+        setRecutRequest(null);
+      }
+    },
+    [refresh]
+  );
+
+  const revealClip = useCallback(
+    (clipId: string) => {
+      if (!activeJob) return;
+      setSelected({ jobId: activeJob.id, clipId });
+      document.getElementById(`clip-card-${clipId}`)?.scrollIntoView({ behavior: "smooth", block: "center" });
+    },
+    [activeJob]
+  );
+
   const startJob = useCallback(
-    async (body: { url?: string; sourceId?: string; topic?: string }) => {
+    async (body: { url?: string; sourceId?: string; topic?: string; clipCount?: number }) => {
       const response = await fetch("/api/clips", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -152,13 +271,13 @@ export function ClipGeneratorPage() {
     }
     setSubmitting(true);
     try {
-      await startJob({ url: trimmed, topic: brief.trim() || undefined });
+      await startJob({ url: trimmed, topic: brief.trim() || undefined, clipCount });
     } catch {
       toast.error("Request failed. Is the dev server still running?");
     } finally {
       setSubmitting(false);
     }
-  }, [brief, startJob, url]);
+  }, [brief, clipCount, startJob, url]);
 
   const uploadFile = useCallback(
     async (file: File) => {
@@ -174,14 +293,14 @@ export function ClipGeneratorPage() {
           toast.error(data.error ?? "Upload failed.");
           return;
         }
-        await startJob({ sourceId: data.source.id, topic: brief.trim() || undefined });
+        await startJob({ sourceId: data.source.id, topic: brief.trim() || undefined, clipCount });
       } catch {
         toast.error("Upload failed. Is the dev server still running?");
       } finally {
         setUploading(false);
       }
     },
-    [brief, startJob]
+    [brief, clipCount, startJob]
   );
 
   const onDrop = useCallback(
@@ -232,9 +351,18 @@ export function ClipGeneratorPage() {
     async (job: ClipJob, clip: ClipCandidate, index: number, sourceFile = clip.file) => {
       if (!sourceFile) return;
       // Re-open the existing project for this clip so earlier edits are kept —
-      // only build a fresh project the first time a clip is opened.
+      // only build a fresh project the first time a clip is opened. A project
+      // cut from a range the clip no longer has (it was re-cut since) is not
+      // that project: its trim, segments and captions all describe footage that
+      // has been replaced, so it is rebuilt rather than reopened.
       const existing = clipProjects
-        .filter((p) => p.jobId === job.id && p.sourceFile === sourceFile)
+        .filter(
+          (p) =>
+            p.jobId === job.id &&
+            p.sourceFile === sourceFile &&
+            p.clipStart === clip.start &&
+            p.clipEnd === clip.end
+        )
         .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))[0];
       if (existing) {
         const params = new URLSearchParams({
@@ -255,9 +383,18 @@ export function ClipGeneratorPage() {
         clipStart: clip.start,
         clipEnd: clip.end
       });
-      const windowed = windowSegments(job.sourceCaptions ?? [], clip.start, clip.end);
+      const windowed = windowSegments(await loadJobCaptions(job.id), clip.start, clip.end);
       const words = windowed.flatMap((segment) => segment.words);
       project.captions = words.length ? chunkWords(words, project.captionStyle.maxWordsPerCaption) : windowed;
+      const localSilences = (job.silences ?? [])
+        .filter((silence) => silence.end > clip.start && silence.start < clip.end)
+        .map((silence) => ({
+          start: Math.max(0, silence.start - clip.start),
+          end: Math.min(project.baseDurationSec, silence.end - clip.start)
+        }));
+      project.segments = localSilences.length
+        ? buildClipSegmentsFromSilences(project.baseDurationSec, localSilences)
+        : buildClipSegments(project.baseDurationSec, project.captions);
       project.title = clip.title || generateClipTitle(project.captions, `Clip ${index + 1}`);
       if (project.title) project.name = project.title;
       project.overlays = [...project.overlays, makeTitleOverlay(project)];
@@ -333,7 +470,7 @@ export function ClipGeneratorPage() {
   return (
     <div className="space-y-5">
       <PageHeader
-        eyebrow="YouTube creator tools"
+        eyebrow="Step 2 · Formats"
         title="Clip Generator"
         description="Turn a raw livestream or recording into short clips: every source is transcribed and captioned automatically, the best moments are picked and titled, and each clip opens in the editor ready to export for Shorts and Reels."
       />
@@ -367,6 +504,31 @@ export function ClipGeneratorPage() {
                 disabled={busy}
                 className="min-h-20"
               />
+              <div className="space-y-1.5">
+                <label
+                  htmlFor="clip-count"
+                  className="block text-xs font-medium text-[var(--muted-foreground)]"
+                >
+                  Clips to generate
+                </label>
+                <Select
+                  id="clip-count"
+                  value={clipCount}
+                  onChange={(event) => setClipCount(Number(event.target.value))}
+                  disabled={busy}
+                  aria-label="Number of clips to generate"
+                >
+                  {CLIP_COUNT_OPTIONS.map((count) => (
+                    <option key={count} value={count}>
+                      {count} clip{count === 1 ? "" : "s"}
+                      {count === TARGET_CLIP_COUNT ? " (default)" : ""}
+                    </option>
+                  ))}
+                </Select>
+                <p className="text-[11px] leading-4 text-[var(--muted-foreground)]">
+                  Longer streams have more clippable moments — pick more for a multi-hour VOD (up to {MAX_CLIP_COUNT}).
+                </p>
+              </div>
               <Button onClick={() => void submitUrl()} disabled={busy || !url.trim()} className="w-full">
                 {submitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <LinkIcon className="mr-2 h-4 w-4" />}
                 Find clips
@@ -444,7 +606,7 @@ export function ClipGeneratorPage() {
                       "w-full cursor-pointer rounded-lg border p-3 text-left transition",
                       activeJob?.id === job.id
                         ? "border-[var(--accent)]/70 bg-[var(--accent)]/10"
-                        : "border-white/10 bg-black/20 hover:border-white/25"
+                        : "border-white/10 bg-[var(--well)] hover:border-white/25"
                     )}
                   >
                     <div className="flex items-start justify-between gap-3">
@@ -504,7 +666,7 @@ export function ClipGeneratorPage() {
                   <div className="min-w-0">
                     <div className="flex flex-wrap items-center gap-2">
                       <Badge className={statusClass(activeJob.status)}>{statusLabel(activeJob)}</Badge>
-                      {activeJob.durationSec ? <Badge>{formatTimestamp(activeJob.durationSec)}</Badge> : null}
+                      {activeJob.durationSec ? <Badge>{formatTimecode(activeJob.durationSec)}</Badge> : null}
                       {activeJob.topic && <Badge>{activeJob.topic}</Badge>}
                     </div>
                     <EditableTitle
@@ -513,7 +675,7 @@ export function ClipGeneratorPage() {
                       onCommit={(next) => void renameProject(activeJob, next)}
                       ariaLabel="Project title"
                       className="mt-3 truncate text-2xl font-semibold text-white"
-                      inputClassName="mt-3 w-full rounded-md border border-[var(--accent)]/50 bg-black/40 px-2 py-1 text-2xl font-semibold text-white outline-none"
+                      inputClassName="mt-3 w-full rounded-md border border-[var(--accent)]/50 bg-[var(--well-deep)] px-2 py-1 text-2xl font-semibold text-white outline-none"
                     />
                     <p className="mt-1 truncate text-xs text-[var(--muted-foreground)]">
                       {activeJob.sourceId ? "Uploaded file" : activeJob.sourceUrl}
@@ -564,6 +726,17 @@ export function ClipGeneratorPage() {
                     ))}
                   </div>
                 )}
+
+                {activeJob.durationSec && activeJob.clips.length > 0 && (
+                  <div className="mt-5">
+                    <StreamMap
+                      durationSec={activeJob.durationSec}
+                      clips={activeJob.clips}
+                      selectedClipId={selectedClipId}
+                      onSelect={revealClip}
+                    />
+                  </div>
+                )}
               </Card>
 
               {(activeJob.status === "done" || previewableClips.length > 0) && (
@@ -574,7 +747,7 @@ export function ClipGeneratorPage() {
                       <p className="text-sm text-[var(--muted-foreground)]">
                         {processing
                           ? `${previewableClips.length} clip${previewableClips.length === 1 ? "" : "s"} so far — previews appear the moment each one is cut, HD renders finish in the background.`
-                          : `${previewableClips.length} clip${previewableClips.length === 1 ? "" : "s"}, best first. Open one to trim, pick a layout, and export.`}
+                          : `${previewableClips.length} clip${previewableClips.length === 1 ? "" : "s"}, best first. Adjust range moves a clip's in and out points anywhere in the stream; Open in editor trims, styles and exports it.`}
                       </p>
                     </div>
                     {failedClipCount > 0 && (
@@ -592,14 +765,21 @@ export function ClipGeneratorPage() {
                       </p>
                     </Card>
                   ) : (
-                    <div className="grid gap-3 2xl:grid-cols-2">
+                    <div className="grid items-start gap-3 2xl:grid-cols-2">
                       {activeJob.clips.map((clip, index) =>
-                        clip.file || clip.previewFile ? (
+                        isVisible(clip) ? (
                           <ClipCard
                             key={clip.id}
+                            job={activeJob}
                             clip={clip}
                             index={index}
-                            jobId={activeJob.id}
+                            selected={selectedClipId === clip.id}
+                            expanded={expandedClipId === clip.id}
+                            recutting={recuttingClipId === clip.id}
+                            captions={captionsByJob[activeJob.id] ?? []}
+                            captionsLoading={captionsLoadingJobId === activeJob.id}
+                            onToggleRange={() => toggleRangeEditor(activeJob, clip)}
+                            onRecut={(range) => void recutClip(activeJob, clip, range)}
                             onEdit={() => void editClip(activeJob, clip, index)}
                             onRename={(title) => void renameClip(activeJob, clip, title)}
                           />
@@ -703,18 +883,33 @@ function Notice({ tone, text }: { tone: "warning" | "danger"; text: string }) {
 }
 
 function ClipCard({
+  job,
   clip,
   index,
-  jobId,
+  selected,
+  expanded,
+  recutting,
+  captions,
+  captionsLoading,
+  onToggleRange,
+  onRecut,
   onEdit,
   onRename
 }: {
+  job: ClipJob;
   clip: ClipCandidate;
   index: number;
-  jobId: string;
+  selected: boolean;
+  expanded: boolean;
+  recutting: boolean;
+  captions: CaptionSegment[];
+  captionsLoading: boolean;
+  onToggleRange: () => void;
+  onRecut: (range: TimeRange) => void;
   onEdit: () => void;
   onRename: (title: string) => void;
 }) {
+  const jobId = job.id;
   const duration = Math.round(clip.end - clip.start);
   const videoRef = useRef<HTMLVideoElement>(null);
   // Prefer the Clip Editor's export when the clip has been edited, then the
@@ -778,32 +973,42 @@ function ClipCard({
   );
 
   return (
-    <Card className="animate-in overflow-hidden p-0 transition-all duration-200 hover:border-[var(--border-strong)] hover:shadow-lg">
-      <div className="grid min-h-full md:grid-cols-[200px_minmax(0,1fr)]">
-        <div className="relative bg-black" onPointerEnter={startPreview} onPointerLeave={stopPreview}>
-          {playbackFile && (
-            <video
-              ref={videoRef}
-              src={fileUrl(jobId, playbackFile)}
-              // The poster paints the card instantly; the mp4 itself is not
-              // touched until hover, so ten cards don't fight over bandwidth
-              // (and show black boxes) while the page loads. Prefer the
-              // eagerly-generated poster frame, falling back to the on-demand
-              // thumbnail route for clips rendered before it existed.
-              poster={
-                clip.posterFile
-                  ? fileUrl(jobId, clip.posterFile)
-                  : clip.file
-                    ? thumbnailUrl(jobId, clip.file)
-                    : undefined
-              }
-              preload="none"
-              muted
-              loop
-              playsInline
-              className="aspect-video h-full min-h-32 w-full object-contain md:aspect-auto"
-            />
-          )}
+    <Card
+      id={`clip-card-${clip.id}`}
+      className={cn(
+        "animate-in overflow-hidden p-0 transition-all duration-200 hover:border-[var(--border-strong)] hover:shadow-lg",
+        selected && "border-[var(--accent)]/70 shadow-lg",
+        // The range panel needs the full width to be worth having — a lane
+        // squeezed into half a grid column can't show enough of the stream.
+        expanded && "2xl:col-span-2"
+      )}
+    >
+      <div className="grid min-h-full md:grid-cols-[220px_minmax(0,1fr)]">
+        {/* The preview is a full 9:16 frame — the shape the clip actually posts
+            in — so nothing is cut off, whichever file is backing it. */}
+        <div
+          className="relative mx-auto w-full max-w-[240px] md:max-w-none"
+          onPointerEnter={startPreview}
+          onPointerLeave={stopPreview}
+        >
+          <ClipFrame
+            ref={videoRef}
+            src={playbackFile ? fileUrl(jobId, playbackFile, { version: clip.recutAt }) : undefined}
+            // The poster paints the card instantly; the mp4 itself is not
+            // touched until hover, so ten cards don't fight over bandwidth
+            // (and show black boxes) while the page loads. Prefer the
+            // eagerly-generated poster frame, falling back to the on-demand
+            // thumbnail route for clips rendered before it existed.
+            poster={
+              clip.posterFile
+                ? fileUrl(jobId, clip.posterFile, { version: clip.recutAt })
+                : clip.file
+                  ? thumbnailUrl(jobId, clip.file)
+                  : undefined
+            }
+            preload="none"
+            loop
+          />
           <Badge className="absolute left-3 top-3 border-[var(--accent)]/30 bg-black/70 text-[var(--accent)]">
             #{index + 1}
           </Badge>
@@ -816,13 +1021,21 @@ function ClipCard({
               onCommit={onRename}
               ariaLabel={`Clip ${index + 1} title`}
               className="line-clamp-2 text-base font-semibold text-white"
-              inputClassName="w-full rounded-md border border-[var(--accent)]/50 bg-black/40 px-2 py-1 text-base font-semibold text-white outline-none"
+              inputClassName="w-full rounded-md border border-[var(--accent)]/50 bg-[var(--well-deep)] px-2 py-1 text-base font-semibold text-white outline-none"
             />
             <div className="mt-2 flex flex-wrap gap-1.5">
-              <Badge>
-                {formatTimestamp(clip.start)} - {formatTimestamp(clip.end)}
+              <Badge title={`This clip is ${formatTimecode(clip.start)} into the stream`}>
+                {formatTimecode(clip.start)} - {formatTimecode(clip.end)}
               </Badge>
               <Badge>{duration}s</Badge>
+              {clip.originalRange && (
+                <Badge
+                  className="border-[var(--accent)]/30 bg-[var(--accent)]/10 text-[var(--accent)]"
+                  title={`The generator suggested ${formatTimecode(clip.originalRange.start)} - ${formatTimecode(clip.originalRange.end)}`}
+                >
+                  Re-cut
+                </Badge>
+              )}
               {clip.score > 0 && (
                 <Badge
                   className="border-emerald-400/30 bg-emerald-400/10 text-emerald-300"
@@ -839,28 +1052,57 @@ function ClipCard({
           {!clip.file && (
             <div className="mt-auto flex items-center gap-2 pt-1 text-xs text-[var(--muted-foreground)]">
               <Loader2 className="h-3.5 w-3.5 animate-spin" />
-              Finalizing the HD render — hover to preview it now
+              {recutting
+                ? "Re-cutting this clip from the new range..."
+                : "Finalizing the HD render — hover to preview it now"}
             </div>
           )}
 
-          {clip.file && (
-            <div className="mt-auto flex flex-wrap gap-2 pt-1">
-              <Button className="px-3 py-1.5 text-xs" onClick={onEdit}>
-                <SquarePlay className="mr-1.5 h-3.5 w-3.5" />
-                Open in editor
-              </Button>
-              <a
-                href={fileUrl(jobId, clip.editedFile ?? clip.downloadFile ?? clip.file, true)}
-                download={`${safeFilename(clipHeadline(clip, index))}.${(clip.editedFile ?? clip.downloadFile ?? clip.file).split(".").pop() || "mp4"}`}
-                className="inline-flex items-center justify-center rounded-lg border border-[var(--border)] px-3 py-1.5 text-xs font-medium text-[var(--muted-foreground)] transition hover:border-[var(--border-strong)] hover:text-white"
-              >
-                <Download className="mr-1.5 h-3.5 w-3.5" />
-                Download
-              </a>
-            </div>
-          )}
+          <div className="mt-auto flex flex-wrap gap-2 pt-1">
+            {clip.file && (
+              <>
+                <Button className="px-3 py-1.5 text-xs" onClick={onEdit}>
+                  <SquarePlay className="mr-1.5 h-3.5 w-3.5" />
+                  Open in editor
+                </Button>
+                <a
+                  href={fileUrl(jobId, clip.editedFile ?? clip.downloadFile ?? clip.file, {
+                    download: true,
+                    version: clip.recutAt
+                  })}
+                  download={`${safeFilename(clipHeadline(clip, index))}.${(clip.editedFile ?? clip.downloadFile ?? clip.file).split(".").pop() || "mp4"}`}
+                  className="inline-flex items-center justify-center rounded-lg border border-[var(--border)] px-3 py-1.5 text-xs font-medium text-[var(--muted-foreground)] transition hover:border-[var(--border-strong)] hover:text-white"
+                >
+                  <Download className="mr-1.5 h-3.5 w-3.5" />
+                  Download
+                </a>
+              </>
+            )}
+            <Button
+              variant="secondary"
+              className="px-3 py-1.5 text-xs"
+              onClick={onToggleRange}
+              aria-expanded={expanded}
+            >
+              <SlidersHorizontal className="mr-1.5 h-3.5 w-3.5" />
+              {expanded ? "Hide range" : "Adjust range"}
+            </Button>
+          </div>
         </div>
       </div>
+
+      {expanded && (
+        <ClipRangeEditor
+          key={`${clip.start}-${clip.end}`}
+          job={job}
+          clip={clip}
+          index={index}
+          captions={captions}
+          captionsLoading={captionsLoading}
+          busy={recutting}
+          onApply={onRecut}
+        />
+      )}
     </Card>
   );
 }

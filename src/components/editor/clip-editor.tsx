@@ -28,6 +28,13 @@ import { toast } from "sonner";
 import { useAppData } from "@/components/providers/app-provider";
 import { chunkWords, retimeWords, serializeSrt, serializeVtt, splitSegment, mergeSegments, windowSegments } from "@/lib/clipping/captions";
 import { formatClock, generateClipTitle } from "@/lib/clipping/editor";
+import {
+  buildClipSegments,
+  cutClipRanges,
+  ensureClipSegments,
+  resizeClipSegmentBoundary,
+  setClipSilenceEnabled
+} from "@/lib/clipping/segments";
 import { Button } from "@/components/ui/button";
 import { EditorPreview } from "@/components/editor/preview";
 import { EditorTimeline } from "@/components/editor/timeline";
@@ -42,11 +49,13 @@ import {
 } from "@/components/editor/panels";
 import { writeDraftProject } from "@/components/editor/drafts";
 import { useEditorExports } from "@/components/editor/exports-provider";
+import { placeChannelVideos } from "@/lib/publisher/channelPlacement";
 import { cn, safeFilename } from "@/lib/utils";
 import type { CaptionSegment, ClipProject, CropTarget, Overlay, OverlayKind } from "@/types/domain";
 import type { ClipCandidate, ClipJob } from "@/lib/clipping/types";
 import type { EditorApi } from "@/components/editor/types";
 import type { ScheduleSlot } from "@/lib/publisher/slots";
+import type { ChannelSchedule } from "@/lib/publisher/channelVideos";
 
 // One open slot offered in the Schedule Short dropdown for one-click scheduling.
 type QuickSlot = { utc: string; label: string; today: boolean };
@@ -89,7 +98,14 @@ export function ClipEditor({
   const { data, mutate } = useAppData();
   const { exportStateFor, startExport, stopExport } = useEditorExports();
   const router = useRouter();
-  const [project, setProject] = useState<ClipProject>(initialProject);
+  const [project, setProject] = useState<ClipProject>(() => ({
+    ...initialProject,
+    segments: ensureClipSegments(
+      initialProject.baseDurationSec,
+      initialProject.captions,
+      initialProject.segments
+    )
+  }));
   const [time, setTime] = useState(0);
   const [playing, setPlaying] = useState(false);
   const [tab, setTab] = useState<(typeof TABS)[number]["id"]>("layout");
@@ -105,6 +121,14 @@ export function ClipEditor({
 
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const trimEndRef = useRef(0);
+  const cutRangesRef = useRef(
+    cutClipRanges(
+      initialProject.baseDurationSec,
+      initialProject.trimStart,
+      initialProject.trimEnd || initialProject.baseDurationSec,
+      ensureClipSegments(initialProject.baseDurationSec, initialProject.captions, initialProject.segments)
+    )
+  );
   const lastTimeUpdateRef = useRef(0);
   // Mirrors `time` for callbacks that only need the playhead when invoked, so
   // they don't have to be re-created (and re-render memoized children) on
@@ -122,7 +146,8 @@ export function ClipEditor({
 
   useEffect(() => {
     trimEndRef.current = trimEnd;
-  }, [trimEnd]);
+    cutRangesRef.current = cutClipRanges(duration, trimStart, trimEnd, project.segments);
+  }, [duration, trimEnd, trimStart, project.segments]);
 
   // The clip bin: other detected moments from the same stream, one click away.
   useEffect(() => {
@@ -159,7 +184,14 @@ export function ClipEditor({
       const v = videoRef.current;
       if (v) {
         const end = trimEndRef.current;
-        if (!v.paused && v.currentTime >= end - 0.02) {
+        const cut = !v.paused
+          ? cutRangesRef.current.find((range) => v.currentTime >= range.start - 0.015 && v.currentTime < range.end - 0.02)
+          : undefined;
+        if (cut && cut.end < end - 0.02) {
+          v.currentTime = Math.min(end, cut.end + 0.01);
+          timeRef.current = v.currentTime;
+          setTime(v.currentTime);
+        } else if (!v.paused && (v.currentTime >= end - 0.02 || (cut && cut.end >= end - 0.02))) {
           v.pause();
           v.currentTime = end;
           setPlaying(false);
@@ -263,7 +295,7 @@ export function ClipEditor({
   // record every intermediate value: a debounce lets the project settle, then
   // commits one checkpoint. That collapses an entire drag into a single undo.
   const projectRef = useRef(project);
-  const lastCommittedRef = useRef<ClipProject>(initialProject);
+  const lastCommittedRef = useRef<ClipProject>(project);
   const pastRef = useRef<ClipProject[]>([]);
   const futureRef = useRef<ClipProject[]>([]);
   // Set while an undo/redo is applying so the commit effect doesn't re-record
@@ -372,6 +404,36 @@ export function ClipEditor({
     patch({ trimStart: 0, trimEnd: duration });
   }, [duration, patch]);
 
+  const toggleTimelineSegment = useCallback((id: string) => {
+    setProject((current) => ({
+      ...current,
+      segments: ensureClipSegments(current.baseDurationSec, current.captions, current.segments).map((segment) =>
+        segment.id === id ? { ...segment, enabled: !segment.enabled } : segment
+      )
+    }));
+  }, []);
+
+  const resizeTimelineBoundary = useCallback((leftId: string, boundary: number) => {
+    setProject((current) => ({
+      ...current,
+      segments: resizeClipSegmentBoundary(
+        ensureClipSegments(current.baseDurationSec, current.captions, current.segments),
+        leftId,
+        boundary
+      )
+    }));
+  }, []);
+
+  const setSilenceIncluded = useCallback((included: boolean) => {
+    setProject((current) => ({
+      ...current,
+      segments: setClipSilenceEnabled(
+        ensureClipSegments(current.baseDurationSec, current.captions, current.segments),
+        included
+      )
+    }));
+  }, []);
+
   // Split the current selection at the playhead: this project keeps the first
   // half; the second half is saved as its own project so both can be exported.
   const splitAtPlayhead = useCallback(() => {
@@ -400,7 +462,17 @@ export function ClipEditor({
     if (!v) return;
     if (v.currentTime < trimStart || v.currentTime >= trimEnd) {
       v.currentTime = trimStart;
+      timeRef.current = trimStart;
       setTime(trimStart);
+    }
+    const currentCut = cutRangesRef.current.find(
+      (range) => v.currentTime >= range.start - 0.015 && v.currentTime < range.end - 0.02
+    );
+    if (currentCut) {
+      const next = currentCut.end < trimEnd - 0.02 ? currentCut.end + 0.01 : trimStart;
+      v.currentTime = next;
+      timeRef.current = next;
+      setTime(next);
     }
     v.muted = muted;
     v.volume = volume;
@@ -456,9 +528,14 @@ export function ClipEditor({
     }
     const trimmedCaptions = captions.filter((caption) => caption.end > trimStart && caption.start < trimEnd);
     const title = generateClipTitle(trimmedCaptions.length ? trimmedCaptions : captions, project.name, project.title);
-    patch({ title, name: title, captions });
+    patch({
+      title,
+      name: title,
+      captions,
+      segments: project.segments?.length ? project.segments : buildClipSegments(duration, captions)
+    });
     toast.success("Generated clip title.");
-  }, [project.captions, project.captionStyle.maxWordsPerCaption, project.clipEnd, project.clipStart, project.jobId, project.name, project.title, trimEnd, trimStart, patch]);
+  }, [project.captions, project.captionStyle.maxWordsPerCaption, project.clipEnd, project.clipStart, project.jobId, project.name, project.title, project.segments, duration, trimEnd, trimStart, patch]);
 
   // --- Caption operations ---
   const updateCaption = useCallback((id: string, partial: Partial<CaptionSegment>) => {
@@ -489,14 +566,14 @@ export function ClipEditor({
       const windowed = windowSegments(data.captions ?? [], project.clipStart, project.clipEnd);
       const words = windowed.flatMap((s) => s.words);
       const rechunked = words.length ? chunkWords(words, project.captionStyle.maxWordsPerCaption) : windowed;
-      patch({ captions: rechunked });
+      patch({ captions: rechunked, segments: buildClipSegments(duration, rechunked) });
       toast.success(`Loaded ${rechunked.length} caption segments.`);
     } catch {
       toast.error("Caption request failed.");
     } finally {
       setFetchingCaptions(false);
     }
-  }, [project.jobId, project.clipStart, project.clipEnd, project.captionStyle.maxWordsPerCaption, patch]);
+  }, [project.jobId, project.clipStart, project.clipEnd, project.captionStyle.maxWordsPerCaption, duration, patch]);
 
   const addCaption = useCallback(() => {
     const start = timeRef.current;
@@ -704,20 +781,26 @@ export function ClipEditor({
   }, [project.jobId, project.sourceFile, router]);
 
   // Load the open slots for one two-week window: the schedule grid's slots at
-  // `offsetDays` minus any already booked in the queue, soonest first. Called
-  // when the menu opens (offset 0) and whenever the arrows page the window, so
-  // it reflects whatever was scheduled since the editor loaded.
+  // `offsetDays` minus any already booked, soonest first. Called when the menu
+  // opens (offset 0) and whenever the arrows page the window, so it reflects
+  // whatever was scheduled since the editor loaded. "Booked" mirrors the
+  // Uploading Center exactly — a slot is taken when this app's queue holds it
+  // OR a video is already scheduled/published on the YouTube channel itself at
+  // that time (e.g. scheduled by hand in YouTube Studio). Without the channel
+  // check the dropdown would offer a slot the Uploading Center already shows as
+  // occupied, so quick-scheduling there would double-book it.
   const loadSlots = useCallback(async (offsetDays = 0) => {
     const target = Math.min(MAX_SLOT_OFFSET_DAYS, Math.max(0, offsetDays));
     setSlotsLoading(true);
     setSlotOffsetDays(target);
     try {
-      const [overviewRes, queueRes] = await Promise.all([
+      const [overviewRes, queueRes, channelRes] = await Promise.all([
         fetch(`/api/publish/overview?days=${SLOT_WINDOW_DAYS}&offsetDays=${target}`, { cache: "no-store" }),
-        fetch("/api/publish", { cache: "no-store" })
+        fetch("/api/publish", { cache: "no-store" }),
+        fetch("/api/publish/youtube-channel", { cache: "no-store" })
       ]);
       const overview = overviewRes.ok
-        ? ((await overviewRes.json()) as { enabled: boolean; slots: ScheduleSlot[] })
+        ? ((await overviewRes.json()) as { enabled: boolean; timezone: string; slots: ScheduleSlot[] })
         : null;
       if (!overview?.enabled) {
         setPublishEnabled(false);
@@ -733,10 +816,19 @@ export function ClipEditor({
       setSlotWindowLabel(first && last ? (first === last ? first : `${first} – ${last}`) : null);
       const queue = queueRes.ok ? ((await queueRes.json()) as { items?: Array<{ publishAt: string }> }) : {};
       const taken = new Set((queue.items ?? []).map((item) => new Date(item.publishAt).toISOString()));
+      // Place the channel's real schedule onto the grid with the same helper the
+      // Uploading Center uses, so occupancy is computed identically on both sides.
+      const channel = channelRes.ok ? ((await channelRes.json()) as ChannelSchedule) : null;
+      const channelBySlot = placeChannelVideos({
+        videos: channel?.videos ?? [],
+        slots: overview.slots,
+        isSlotOccupied: (slotUtc) => taken.has(slotUtc),
+        timeZone: overview.timezone ?? "UTC"
+      }).bySlotUtc;
       // Show every open time in the window (not just the soonest handful) so the
       // menu is a full picker you can page through as far ahead as you like.
       const open = overview.slots
-        .filter((slot) => !slot.past && !taken.has(slot.utc))
+        .filter((slot) => !slot.past && !taken.has(slot.utc) && !channelBySlot.has(slot.utc))
         .map((slot) => ({ utc: slot.utc, label: `${slot.dateLabel} · ${slot.time}`, today: slot.today }));
       setSlotOptions(open);
     } catch {
@@ -1028,7 +1120,7 @@ export function ClipEditor({
                             : "border-[var(--border)] hover:border-[var(--border-strong)]"
                         )}
                       >
-                        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-black/40 font-mono text-xs text-white">
+                        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-[var(--well-deep)] font-mono text-xs text-white">
                           {index + 1}
                         </span>
                         <span className="min-w-0 flex-1">
@@ -1131,6 +1223,9 @@ export function ClipEditor({
             onSetTrim={setTrim}
             onResetTrim={resetTrim}
             onSplit={splitAtPlayhead}
+            onToggleSegment={toggleTimelineSegment}
+            onSegmentBoundaryChange={resizeTimelineBoundary}
+            onSetSilenceIncluded={setSilenceIncluded}
             selectedCaptionId={selectedCaptionId}
             onSelectCaption={setSelectedCaptionId}
             onCaptionChange={updateCaption}
