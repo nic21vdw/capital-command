@@ -2379,9 +2379,9 @@ function PublishPanel({
 }
 
 /**
- * Topic segments: the recording split into the 3-5 subjects it actually
- * covered, each exportable as its own long-form upload with this project's
- * hook, cuts, captions and mix applied to that window only.
+ * Topic segments: the recording split into the subjects it actually covered —
+ * as many as its length carries — each exportable as its own long-form upload
+ * with this project's hook, cuts, captions and mix applied to that window only.
  *
  * This is NOT short-form clipping. The Clip Generator reads the same stream
  * looking for its best 30-second moments anywhere in it; this panel carves the
@@ -2525,7 +2525,7 @@ function SegmentsPanel({
         <div className="flex items-center justify-between gap-2 text-xs text-[var(--muted-foreground)]">
           <span>How many segments</span>
           <div className="flex gap-1">
-            {(["auto", 3, 4, 5] as const).map((option) => (
+            {(["auto", 3, 5, 10, 20] as const).map((option) => (
               <button
                 key={String(option)}
                 type="button"
@@ -2547,7 +2547,8 @@ function SegmentsPanel({
           {topics && topics.length > 0 ? "Find segments again" : "Find segments"}
         </Button>
         <p className="text-[11px] text-[var(--muted-foreground)]">
-          Auto picks 3-5 based on how long the recording is, aiming for roughly ten minutes each.
+          Auto scales with the recording — around twenty for a six hour stream, three for a short one — aiming for
+          roughly ten minutes each.
         </p>
       </div>
 

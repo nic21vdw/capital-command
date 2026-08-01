@@ -19,10 +19,12 @@ import type { PipelinePlan, PipelinePost } from "@/lib/pipeline/types";
 export { MAX_CLIP_COUNT, MIN_CLIP_COUNT, MAX_SLIDES, MIN_SLIDES };
 
 /**
- * How many subjects the topic planner splits a stream into. It reads the number
- * off the transcript itself, so the plan can only promise the range.
+ * How many subjects the topic planner splits a stream into. The count comes
+ * from the length of the recording (`topicCountCeiling`), which is not known
+ * until the source has been read — so the plan promises the behaviour, not a
+ * number.
  */
-export const PLAN_SEGMENT_RANGE = { min: 3, max: 5 } as const;
+export const PLAN_SEGMENT_RANGE = { min: 3, max: 20 } as const;
 
 export const PLAN_POST_PLATFORMS: Array<{ platform: PipelinePost["platform"]; label: string; count: number }> = [
   { platform: "x", label: "X", count: 3 },
@@ -119,7 +121,7 @@ export function plannedOutputs(plan: PipelinePlan): PlannedOutput[] {
       key: "segments",
       label: "Topic segments",
       detail: plan.segments
-        ? `The stream split into the ${PLAN_SEGMENT_RANGE.min}-${PLAN_SEGMENT_RANGE.max} subjects it covers, each publishable on its own (rendered on demand)`
+        ? "The stream split into the subjects it covers — more of them the longer it runs — each publishable on its own (rendered on demand)"
         : "Not split into subjects",
       enabled: plan.segments
     },

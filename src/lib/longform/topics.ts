@@ -8,8 +8,14 @@ import type { CaptionSegment } from "@/types/domain";
 // A stream is not one video. Across three hours the creator moves through
 // several distinct subjects — hackathon progress, a bug hunt, a business
 // tangent — and each of those is its own watchable upload. This module reads
-// the transcript and finds those stretches: 3-5 topical windows of roughly ten
+// the transcript and finds those stretches: topical windows of roughly ten
 // minutes each, every one starting and ending on a completed thought.
+//
+// HOW MANY comes from the length of the recording, not a fixed number. A six
+// hour stream carries far more separate subjects than a forty minute one, and
+// a flat cap on a marathon throws away the best of them: the windows are scored
+// and only the top `desired` survive, so a low cap discards good material
+// rather than trimming filler.
 //
 // This is deliberately NOT how short-form clips are chosen. The Clip Generator
 // scans the whole stream for the single best 30-second moments wherever they
@@ -31,6 +37,16 @@ const PAUSE_BOUNDARY_SEC = 20;
 /** Bonus depth given to a boundary that sits on such a pause. */
 const PAUSE_BOUNDARY_BONUS = 0.15;
 
+/**
+ * The share of a recording that is worth publishing as topic segments.
+ *
+ * Segments never tile the stream — dead air, setup and off-topic stretches are
+ * left out — so the count is derived from the part worth keeping rather than
+ * from the whole runtime. At 0.5 a six hour stream aims for twenty segments
+ * (about half of it), and a half hour stream still floors at `minCount`.
+ */
+const TOPIC_COVERAGE = 0.5;
+
 export const DEFAULT_TOPIC_OPTIONS = {
   /** Shortest a topic segment may be — below this it is a tangent, not a video. */
   minSec: 240,
@@ -39,8 +55,18 @@ export const DEFAULT_TOPIC_OPTIONS = {
   /** The length we aim for: a ten minute upload. */
   targetSec: 600,
   minCount: 3,
-  maxCount: 5
+  /** Ceiling for a marathon: past this, one stream stops being a publishing plan. */
+  maxCount: 20
 };
+
+/**
+ * How many segments a recording of this length should yield. Exported so a
+ * caller (and the tests) can see the number the transcript will be held to.
+ */
+export function topicCountCeiling(totalSec: number, options: TopicPlanOptions = {}): number {
+  const { targetSec, minCount, maxCount } = { ...DEFAULT_TOPIC_OPTIONS, ...options };
+  return clamp(Math.round((totalSec * TOPIC_COVERAGE) / targetSec), minCount, maxCount);
+}
 
 export type TopicPlanOptions = Partial<typeof DEFAULT_TOPIC_OPTIONS>;
 
@@ -276,14 +302,11 @@ export function planTopicSegments(
   const total = spanEnd - spanStart;
   if (total < minSec) return [];
 
-  // How many segments this recording can actually carry: the target length
-  // sets the ambition, the caps and the material set the limit.
+  // How many segments this recording can actually carry: its length sets the
+  // ambition, the material sets the limit.
   const desired = Math.max(
     1,
-    Math.min(
-      clamp(Math.round(total / targetSec), minCount, maxCount),
-      Math.floor(total / minSec)
-    )
+    Math.min(topicCountCeiling(total, { targetSec, minCount, maxCount }), Math.floor(total / minSec))
   );
 
   const blocks = buildTopicBlocks(transcript);
@@ -302,8 +325,11 @@ export function planTopicSegments(
   }
 
   // Anything still over the cap is split again regardless of depth — a
-  // 40 minute "segment" is a stream, not an upload.
-  for (let guard = 0; guard < 12; guard += 1) {
+  // 40 minute "segment" is a stream, not an upload. The guard scales with the
+  // count: a long recording starts with more pieces, so it needs more splits
+  // before every one of them is under the cap.
+  const splitGuard = Math.max(12, desired * 2);
+  for (let guard = 0; guard < splitGuard; guard += 1) {
     const overlong = pieces.find((piece) => piece.end - piece.start > maxSec);
     if (!overlong) break;
     const split = splitPiece(overlong, candidates, used, minSec, true);

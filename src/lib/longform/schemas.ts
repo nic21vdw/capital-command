@@ -106,7 +106,7 @@ export const longformExportSchema = z
 export const longformTopicPlanSchema = z
   .object({
     /** Pin the number of segments instead of letting the length decide. */
-    count: z.coerce.number().int().min(2).max(6).optional(),
+    count: z.coerce.number().int().min(2).max(20).optional(),
     /** How long each segment should aim to be. */
     targetMinutes: z.coerce.number().min(3).max(30).optional()
   })

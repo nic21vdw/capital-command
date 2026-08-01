@@ -137,7 +137,7 @@ holds everything model-specific.
 ## Long-form topic segments vs short-form clips
 
 A stream is several videos. `src/lib/longform/topics.ts` reads the transcript
-and splits the recording into the 3-5 subjects it actually covered (lexical
+and splits the recording into the subjects it actually covered (lexical
 cohesion — vocabulary turnover marks where one subject ends), each one roughly
 ten minutes and each exportable as its own long-form upload. `projectForTopic`
 in `plan.ts` renders one by clipping the project's timeline to that window and
@@ -153,8 +153,14 @@ special case.
   transcribes the opening of a long source (that is all the hook needs), so
   `planProjectTopics` falls back to the full transcript the clip job made from
   the same `sourceId`; the pipeline plans the segments once that lands.
+- HOW MANY segments comes from the LENGTH of the recording
+  (`topicCountCeiling`), never a flat number: a six hour stream yields around
+  twenty, a half hour one the `minCount` floor of three. This matters because
+  the windows are scored and only the top `desired` survive — a flat cap does
+  not trim filler, it discards the best of what the splitter already found. A
+  caller (the editor's Segments tab) can still pin an exact count.
 - Segments are planned automatically but rendered on demand — auto-rendering
-  five ten-minute videos per stream is hours of encoding nobody asked for.
+  twenty ten-minute videos per stream is hours of encoding nobody asked for.
 
 ## Clip metadata conventions (titles, descriptions, tags)
 

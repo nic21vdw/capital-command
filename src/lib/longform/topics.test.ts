@@ -8,7 +8,8 @@ import {
   fallbackTopicTitle,
   parseTopicSegments,
   planTopicSegments,
-  termSimilarity
+  termSimilarity,
+  topicCountCeiling
 } from "@/lib/longform/topics";
 import type { LongformProject, LongformTopic } from "@/lib/longform/types";
 import type { CaptionSegment } from "@/types/domain";
@@ -52,6 +53,26 @@ function streamTranscript(): CaptionSegment[] {
       segments.push(caption(time, time + 14, text));
       time += 15;
     }
+  }
+  return segments;
+}
+
+/** The same six subjects, cycled to fill `hours` of continuous speech. */
+function longStreamTranscript(hours: number): CaptionSegment[] {
+  const subjects = [
+    "The hackathon build is running and the submission deadline drives every decision today.",
+    "The pricing page conversion rate decides how much revenue each visitor is worth.",
+    "Steel connection checks in the structural workspace still fail on eccentric bolt groups.",
+    "Our automation dashboard schedules every clip across the social platforms overnight.",
+    "The transcript pipeline turns one recording into shorts, carousels and podcast audio.",
+    "Community questions about the discord launch shaped what we shipped this evening."
+  ];
+  const segments: CaptionSegment[] = [];
+  const totalLines = Math.round((hours * 3600) / 15);
+  // Change subject every 40 lines (~10 minutes) so the vocabulary genuinely
+  // turns over often enough to carry a segment per subject.
+  for (let line = 0; line < totalLines; line += 1) {
+    segments.push(caption(line * 15, line * 15 + 14, subjects[Math.floor(line / 40) % subjects.length]));
   }
   return segments;
 }
@@ -119,6 +140,54 @@ describe("planTopicSegments", () => {
   it("returns nothing for a recording too short to carry a segment", () => {
     expect(planTopicSegments([caption(0, 30, "Quick note about the build.")])).toEqual([]);
     expect(planTopicSegments([])).toEqual([]);
+  });
+
+  // A flat cap discards the best windows rather than trimming filler: every
+  // piece is scored and only the top `desired` survive, so a six hour stream
+  // held to five segments loses good material it already found.
+  it("finds far more segments in a long stream than in a short one", () => {
+    const short = planTopicSegments(streamTranscript());
+    const long = planTopicSegments(longStreamTranscript(6));
+    expect(long.length).toBeGreaterThan(short.length * 3);
+    expect(long.length).toBeLessThanOrEqual(20);
+  });
+
+  it("still honours a pinned count on a long stream", () => {
+    const topics = planTopicSegments(longStreamTranscript(6), { minCount: 4, maxCount: 4 });
+    expect(topics).toHaveLength(4);
+  });
+
+  it("keeps every segment inside the length bounds however long the recording is", () => {
+    const topics = planTopicSegments(longStreamTranscript(6));
+    let previousEnd = -1;
+    for (const topic of topics) {
+      expect(topic.end - topic.start).toBeLessThanOrEqual(1200);
+      expect(topic.start).toBeGreaterThanOrEqual(previousEnd);
+      previousEnd = topic.end;
+    }
+  });
+});
+
+describe("topicCountCeiling", () => {
+  it("scales with the length of the recording", () => {
+    expect(topicCountCeiling(30 * 60)).toBe(3);
+    expect(topicCountCeiling(60 * 60)).toBe(3);
+    expect(topicCountCeiling(2 * 3600)).toBe(6);
+    expect(topicCountCeiling(6 * 3600)).toBe(18);
+  });
+
+  it("floors at minCount so a short recording still gets a plan", () => {
+    expect(topicCountCeiling(10 * 60)).toBe(3);
+  });
+
+  // Past a point one stream stops being a publishing plan and becomes a backlog.
+  it("caps a marathon rather than scaling forever", () => {
+    expect(topicCountCeiling(20 * 3600)).toBe(20);
+    expect(topicCountCeiling(60 * 3600)).toBe(20);
+  });
+
+  it("lets a caller pin the count outright", () => {
+    expect(topicCountCeiling(6 * 3600, { minCount: 4, maxCount: 4 })).toBe(4);
   });
 });
 
