@@ -1,0 +1,21 @@
+{
+  "name": "ai-music-loop",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Seamless looping ambient visual for AI-generated stream music playlists on YouTube.",
+  "scripts": {
+    "preview": "remotion studio",
+    "render": "remotion render AiMusicLoop out/ai-music-loop.mp4",
+    "still": "remotion still AiMusicLoop out/poster.png --frame=150"
+  },
+  "dependencies": {
+    "@remotion/cli": "4.0.290",
+    "react": "18.3.1",
+    "react-dom": "18.3.1",
+    "remotion": "4.0.290"
+  },
+  "devDependencies": {
+    "@types/react": "18.3.12",
+    "typescript": "5.6.3"
+  }
+}
