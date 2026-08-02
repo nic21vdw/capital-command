@@ -34,3 +34,6 @@ out/
 .remotion/
 data/threads-state.json
 data/carousel-images/
+
+.env.bak-*
+data/publish-queue.backup-*

@@ -1,0 +1,59 @@
+# Watches for the TikTok app audit to clear, and says so loudly when it does.
+#
+# TikTok has no "is my app approved yet" endpoint, so this asks the question
+# that matters: it opens a Direct Post and reads the answer. Init only - no
+# bytes are uploaded, so nothing is posted and nothing lands in the inbox.
+#
+# Register it to check every few hours:
+#
+#   npm run tiktok:watch:register
+#
+# When the audit clears it writes TIKTOK-APPROVED.txt to the Desktop, pops a
+# message box, and logs it. It deliberately does NOT flip TIKTOK_AUDITED or
+# publish anything - going live should be a decision someone makes awake.
+
+$ErrorActionPreference = "Stop"
+
+$root = Split-Path -Parent $PSScriptRoot
+$log = Join-Path $root "tiktok-audit-watch.log"
+
+Set-Location $root
+
+if ((Test-Path $log) -and ((Get-Item $log).Length -gt 1MB)) {
+  Move-Item $log "$log.old" -Force
+}
+
+$stamp = (Get-Date).ToString("yyyy-MM-dd HH:mm:ss")
+$output = & npx.cmd tsx src/lib/publisher/auditCheck.ts 2>&1 | Out-String
+$code = $LASTEXITCODE
+$line = "$stamp  exit=$code  $($output.Trim())"
+Write-Host $line
+Add-Content -Path $log -Value $line -Encoding utf8
+
+if ($code -ne 0) { exit $code }
+
+# Approved. Make it impossible to miss.
+$marker = Join-Path ([Environment]::GetFolderPath("Desktop")) "TIKTOK-APPROVED.txt"
+@(
+  "TikTok approved the Capital Command app on $stamp.",
+  "",
+  "Direct Post is now open. To publish scheduled clips automatically:",
+  "  1. Set TIKTOK_AUDITED=true in .env",
+  "  2. Restart the app (or let the publish runner restart it)",
+  "",
+  "Scheduled clips will then post straight to the profile - no inbox tap.",
+  "",
+  "Remove this watcher with:",
+  '  Unregister-ScheduledTask -TaskName "Capital Command tiktok audit watch" -Confirm:$false'
+) | Set-Content -Path $marker -Encoding utf8
+
+try {
+  Add-Type -AssemblyName System.Windows.Forms
+  [System.Windows.Forms.MessageBox]::Show(
+    "TikTok approved the Capital Command app. Set TIKTOK_AUDITED=true to start publishing automatically.",
+    "TikTok audit cleared") | Out-Null
+} catch {
+  # Headless or no desktop session - the marker file and the log still carry it.
+}
+
+exit 0

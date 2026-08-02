@@ -15,7 +15,7 @@ const ADD_OPTION = "__add__";
 
 /** The connected profile behind an account, whichever platform minted it. */
 function profileOf(account: SocialAccountView) {
-  return account.youtube ?? account.tiktok;
+  return account.profile ?? account.youtube ?? account.tiktok;
 }
 
 /**

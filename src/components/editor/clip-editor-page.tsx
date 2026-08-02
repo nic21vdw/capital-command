@@ -6,6 +6,7 @@ import { Clapperboard, Film, Loader2, Plus, Trash2 } from "lucide-react";
 import { useAppData } from "@/components/providers/app-provider";
 import { ClipFrame } from "@/components/clips/clip-frame";
 import { chunkWords, windowSegments } from "@/lib/clipping/captions";
+import { loadJobCaptions } from "@/lib/clipping/captions-client";
 import { generateClipTitle, makeClipProject, makeTitleOverlay } from "@/lib/clipping/editor";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -16,7 +17,7 @@ import { Select } from "@/components/ui/select";
 import { ClipEditor } from "@/components/editor/clip-editor";
 import { clearDraftProject, readDraftProject, writeDraftProject } from "@/components/editor/drafts";
 import { EditorExportsProvider } from "@/components/editor/exports-provider";
-import type { ClipProject } from "@/types/domain";
+import type { CaptionSegment, ClipProject } from "@/types/domain";
 import type { ClipCandidate, ClipJob } from "@/lib/clipping/types";
 
 function formatDate(value?: string) {
@@ -28,7 +29,13 @@ function sourceLabel(job: ClipJob | null, fallbackJobId: string) {
   return job?.fileName || `Job ${fallbackJobId}`;
 }
 
-function projectFromClip(job: ClipJob, clip: ClipCandidate, index: number, sourceFile = clip.file): ClipProject | null {
+function projectFromClip(
+  job: ClipJob,
+  clip: ClipCandidate,
+  index: number,
+  captions: CaptionSegment[],
+  sourceFile = clip.file
+): ClipProject | null {
   if (!sourceFile) return null;
   const project = makeClipProject({
     jobId: job.id,
@@ -39,7 +46,7 @@ function projectFromClip(job: ClipJob, clip: ClipCandidate, index: number, sourc
     clipStart: clip.start,
     clipEnd: clip.end
   });
-  const windowed = windowSegments(job.sourceCaptions ?? [], clip.start, clip.end);
+  const windowed = windowSegments(captions, clip.start, clip.end);
   const words = windowed.flatMap((segment) => segment.words);
   project.captions = words.length ? chunkWords(words, project.captionStyle.maxWordsPerCaption) : windowed;
   project.title = clip.title || generateClipTitle(project.captions, `Clip ${index + 1}`);
@@ -148,7 +155,7 @@ export function ClipEditorPage() {
         : job.clips.findIndex((clip) => clip.file === sourceFile || clip.variants?.some((variant) => variant.file === sourceFile));
       const clip = job.clips[clipIndex];
       if (!clip) return;
-      const project = projectFromClip(job, clip, clipIndex, sourceFile);
+      const project = projectFromClip(job, clip, clipIndex, job.sourceCaptions ?? [], sourceFile);
       if (!project || cancelled) return;
       project.id = openId;
       writeDraftProject(project);
@@ -190,7 +197,7 @@ export function ClipEditorPage() {
   }, [loadJobs]);
 
   const createFromClip = async (job: ClipJob, clip: ClipCandidate, index: number) => {
-    const project = projectFromClip(job, clip, index);
+    const project = projectFromClip(job, clip, index, await loadJobCaptions(job.id));
     if (!project) return;
     writeDraftProject(project);
     await mutate("upsertClipProject", project, { successMessage: "Clip project created." });

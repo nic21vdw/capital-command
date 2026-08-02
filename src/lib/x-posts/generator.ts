@@ -1,11 +1,12 @@
 import { aiConfigured, runAi } from "@/lib/ai";
 import { POST_LIBRARY, REPLY_LIBRARY } from "@/lib/x-posts/library";
+import { humanize } from "@/lib/x-posts/voice";
 import { xDailyPackSchema } from "@/lib/storage/schemas";
 import type { XDailyPack, XPostFormat, XSuggestedPost, XSuggestedReply } from "@/types/domain";
 
 /**
- * Server-side generation of the X/Threads pack: 24 fresh original posts (each
- * with a reworded Threads variant) spread across the waking day with human
+ * Server-side generation of the Threads pack: 24 fresh original posts (each
+ * written twice, punchy and warm) spread across the waking day with human
  * jitter, plus 20 evergreen replies. Every press of Generate writes a brand
  * new pack. Prefers Claude (fresh writing against the positioning brief,
  * avoiding topics from recent packs); degrades to the built-in idea library
@@ -15,6 +16,20 @@ import type { XDailyPack, XPostFormat, XSuggestedPost, XSuggestedReply } from "@
 
 export const POSTS_PER_PACK = 24;
 export const REPLIES_PER_PACK = 20;
+
+/**
+ * Both versions of an idea post to Threads, so both get Threads' 500 characters
+ * — the old 270 was X's limit, kept long after X stopped being a destination.
+ * The punchy one stays tight and the warm one is given room, because the point
+ * of writing each idea twice is that two feeds don't read as duplicates: length
+ * is the most visible way they differ.
+ */
+const THREADS_LIMIT = 500;
+const PUNCHY_MIN = 150;
+const PUNCHY_MAX = 260;
+const PUNCHY_CEILING = 300;
+const WARM_MIN = 300;
+const WARM_MAX = 450;
 
 export function plannerConfigured() {
   return aiConfigured();
@@ -30,19 +45,48 @@ function hash32(input: string): number {
   return hash >>> 0;
 }
 
+/** "HH:MM" as minutes past local midnight, or null when it isn't one. */
+function clockMinutes(value: string | undefined): number | null {
+  const match = value?.trim().match(/^(\d{1,2}):(\d{2})$/);
+  if (!match) return null;
+  const minutes = Number(match[1]) * 60 + Number(match[2]);
+  return minutes >= 0 && minutes < 1440 ? minutes : null;
+}
+
 /**
- * Posting slots spread evenly from ~7:15 to ~22:15 local across however many
- * posts the pack carries. Each slot gets ±10 minutes of date-seeded jitter so
- * the schedule never looks machine-regular (exactly-on-the-hour posting every
- * day is a classic automation fingerprint).
+ * The window the day's slots are spread across, as minutes past midnight.
+ *
+ * The default is the whole clock — a pack of 24 lands one post an hour, around
+ * the clock, which is what the autopilot is for. Threads allows 250 API posts
+ * per profile per 24 hours, so the ceiling here is what a feed will tolerate,
+ * not what the API will accept.
+ *
+ * Pull it back to waking hours with THREADS_DAY_START / THREADS_DAY_END
+ * ("HH:MM" each) if the overnight posts aren't earning their place.
+ */
+export function scheduleWindow(): { start: number; span: number } {
+  const start = clockMinutes(process.env.THREADS_DAY_START) ?? 20;
+  const end = clockMinutes(process.env.THREADS_DAY_END) ?? 23 * 60 + 20;
+  // A window that ends before it starts wraps midnight, which would put the
+  // day's later slots on the next calendar day — so it is read as a full day.
+  const span = end > start ? end - start : 1440 - start;
+  return { start, span };
+}
+
+/**
+ * Posting slots spread evenly across the day's window (by default the whole
+ * clock — see `scheduleWindow`). Each slot gets ±10 minutes of date-seeded
+ * jitter so the schedule never looks machine-regular (exactly-on-the-hour
+ * posting every day is a classic automation fingerprint).
  */
 export function scheduleTimes(date: string, count = POSTS_PER_PACK): string[] {
-  const startMinutes = 7 * 60 + 15;
-  const spanMinutes = 15 * 60; // ~7:15 → ~22:15
+  const { start: startMinutes, span: spanMinutes } = scheduleWindow();
   const gap = count > 1 ? spanMinutes / (count - 1) : 0;
   return Array.from({ length: count }, (_, index) => {
     const jitter = (hash32(`${date}:${index}`) % 21) - 10;
-    const total = Math.round(startMinutes + index * gap + jitter);
+    // Clamped inside the day: jitter on a slot near midnight would otherwise
+    // run off either end of the clock and render as a nonsense time.
+    const total = Math.min(1439, Math.max(0, Math.round(startMinutes + index * gap + jitter)));
     const hours = Math.floor(total / 60) % 24;
     const minutes = total % 60;
     return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}`;
@@ -87,13 +131,16 @@ function buildPack(input: {
       time: times[index],
       format: post.format,
       topic: post.topic,
-      text: post.text,
-      threadsVariant: post.threadsVariant
+      // Both versions go through the voice pass: the dash removal is what makes
+      // "no em dashes" true rather than merely requested, and each version gets
+      // its own seed so one slip never lands on both at once.
+      text: humanize(post.text, `${input.date}:${index}:text`),
+      threadsVariant: humanize(post.threadsVariant, `${input.date}:${index}:variant`)
     })),
-    replies: input.replies.map((reply): XSuggestedReply => ({
+    replies: input.replies.map((reply, index): XSuggestedReply => ({
       id: `xreply-${crypto.randomUUID()}`,
       scenario: reply.scenario,
-      text: reply.text
+      text: humanize(reply.text, `${input.date}:reply:${index}`)
     })),
     requestedAt: input.requestedAt,
     createdAt: new Date().toISOString()
@@ -143,7 +190,7 @@ export async function generateDailyPack(input: {
   const avoid = recentTopics.length ? recentTopics.join("; ") : "(none yet)";
   const focusLine = focus.trim() || "(open — no specific focus today)";
 
-  const userPrompt = `Here is my X/Threads positioning brief:
+  const userPrompt = `Here is my Threads positioning brief:
 
 ${brief}
 
@@ -154,7 +201,22 @@ Today's optional focus topic: ${focusLine}
 
 Write today's content pack:
 
-1. Exactly ${POSTS_PER_PACK} ORIGINAL standalone posts. Each must be a specific, insightful, non-generic thought in my voice (see voice rules in the brief). Every single post must take a DIFFERENT angle — no two posts in the set may circle the same idea. Vary the formats across the set: insight, contrarian, story, question, framework, observation. At most 4 of the ${POSTS_PER_PACK} may touch CoLateral, and only obliquely — the rest build the personal brand (verification, judgment, agentic engineering, vertical AI, professional workflows). Keep each under 270 characters. For each post also write "threadsVariant": the same idea rephrased for Threads (slightly warmer/more conversational, different wording so the two feeds are not duplicates).
+1. Exactly ${POSTS_PER_PACK} ORIGINAL standalone posts. Each must be a specific, insightful, non-generic thought in my voice (see voice rules in the brief). Every single post must take a DIFFERENT angle — no two posts in the set may circle the same idea. Vary the formats across the set: insight, contrarian, story, question, framework, observation. At most 4 of the ${POSTS_PER_PACK} may touch CoLateral, and only obliquely — the rest build the personal brand (verification, judgment, agentic engineering, vertical AI, professional workflows).
+
+HOW IT MUST SOUND. These posts go out on a personal feed, so they have to read like a person typed them, not like copy that was drafted:
+
+- NEVER use an em dash or an en dash. Not one, anywhere. Use a comma, a full stop, or start a new line. This is the single clearest sign a post was written by a model.
+- No "it's not X, it's Y" seesaws, no "here's the thing", no rule-of-three lists where every item is the same length. Those are cadences, and the cadence is the tell.
+- Vary the sentence length hard. A long thought, then three words. Some posts should be one line; some should run four short lines. Do not make them all the same shape.
+- Plain words over impressive ones. "use" not "leverage", "start" not "embark", "so" not "thus". No "delve", "robust", "seamless", "landscape", "testament", "crucial".
+- Contractions throughout. Start a sentence with And or But when it reads better. Trailing thoughts are fine.
+- Say the specific thing. A real number, a real hour of the day, a thing that actually broke. Vague authority reads as generated; a small concrete detail reads as lived.
+- No hashtags, no emoji, no "Thoughts?" sign-off begging for replies.
+
+Write every post twice, both for Threads, which allows ${THREADS_LIMIT} characters:
+- "text" is the punchy version: tight and quotable, ${PUNCHY_MIN}-${PUNCHY_MAX} characters, never over ${PUNCHY_CEILING}.
+- "threadsVariant" is the same idea told warmer and more conversational — room to give the thought a second beat or a concrete detail. ${WARM_MIN}-${WARM_MAX} characters, always clearly longer than the punchy version, and reworded throughout so the two never read as duplicates.
+Neither version may exceed ${THREADS_LIMIT} characters.
 
 2. Exactly ${REPLIES_PER_PACK} evergreen REPLIES I can adapt when engaging with typical conversations in my space. For each, give "scenario" (one line describing the kind of post it answers, e.g. "Someone ships an impressive AI demo") and "text" (the reply, 2-4 sentences, adds a genuine engineering/professional-workflow perspective, never salesy).
 
@@ -170,7 +232,7 @@ Respond with ONLY valid JSON, no commentary, in exactly this shape:
       // skips a doomed first attempt that costs a minute and a half.
       maxTokens: 32000,
       system:
-        "You are a sharp ghostwriter for a structural engineer who builds AI tooling (CoLateral AI). You write specific, credible, non-generic social posts in his voice. You never fabricate facts, projects, or numbers. You output strict JSON when asked.",
+        "You are a sharp ghostwriter for a structural engineer who builds AI tooling (CoLateral AI). You write specific, credible, non-generic social posts in his voice. You write like a person typing on their phone, not like polished marketing copy: plain words, varied sentence length, contractions, and NEVER an em dash or en dash. You never fabricate facts, projects, or numbers. You output strict JSON when asked.",
       messages: [{ role: "user", content: userPrompt }]
     });
 

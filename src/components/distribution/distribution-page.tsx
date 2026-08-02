@@ -145,7 +145,7 @@ const SOURCES: Array<{
     icon: PenLine,
     tagline: "A written post — no audio or video yet.",
     startHref: "/x-posts",
-    startCta: "Open X / Threads",
+    startCta: "Open Threads",
   },
   {
     key: "idea",

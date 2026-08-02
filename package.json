@@ -17,6 +17,8 @@
     "publish:run": "tsx src/lib/publisher/cli.ts run-due",
     "publish:scheduler": "tsx src/lib/publisher/cli.ts scheduler",
     "publish:register": "powershell -NoProfile -ExecutionPolicy Bypass -File .\\scripts\\register-publish-task.ps1",
+    "tiktok:audit": "tsx src/lib/publisher/auditCheck.ts",
+    "tiktok:watch:register": "powershell -NoProfile -ExecutionPolicy Bypass -File .\\scripts\\register-tiktok-audit-task.ps1",
     "publish:list": "tsx src/lib/publisher/cli.ts list",
     "publish:enqueue": "tsx src/lib/publisher/cli.ts enqueue",
     "publish:buffer": "tsx src/lib/publisher/cli.ts buffer sync",
@@ -36,7 +38,9 @@
     "ingest:dry": "tsx src/lib/ingest/cli.ts scan --dry-run",
     "ingest:ledger": "tsx src/lib/ingest/cli.ts ledger",
     "remotion:preview": "remotion studio",
-    "remotion:render": "remotion render"
+    "remotion:render": "remotion render",
+    "publish:mirror": "tsx src/lib/publisher/cli.ts mirror",
+    "publish:retitle": "tsx src/lib/publisher/cli.ts retitle"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.104.1",

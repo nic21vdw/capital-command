@@ -16,7 +16,15 @@ import { jsonResponse, mockFetchRoutes, testConfig } from "@/lib/publisher/test-
 const APP = { appId: "app-1", appSecret: "secret-1", userToken: "short-lived" };
 const NOW = new Date("2026-07-27T12:00:00.000Z");
 
-const SCOPES = ["instagram_basic", "instagram_content_publish", "pages_show_list", "pages_read_engagement"];
+// A fully granted token: both halves of the Meta connection, Instagram
+// publishing and the Page permission Facebook Reels needs.
+const SCOPES = [
+  "instagram_basic",
+  "instagram_content_publish",
+  "pages_show_list",
+  "pages_read_engagement",
+  "pages_manage_posts"
+];
 
 function routes(
   overrides: {
@@ -79,7 +87,21 @@ describe("connectInstagram", () => {
   it("reports the permissions the token is missing instead of failing later at publish time", async () => {
     routes({ scopes: ["instagram_basic", "pages_show_list"] });
     const connection = await connectInstagram({ ...APP, graphApiVersion: "v23.0" }, NOW);
-    expect(connection.missingScopes).toEqual(["instagram_content_publish", "pages_read_engagement"]);
+    expect(connection.missingScopes).toEqual([
+      "instagram_content_publish",
+      "pages_read_engagement",
+      "pages_manage_posts"
+    ]);
+  });
+
+  // The exact shape of the real connection before this was caught: everything
+  // Instagram needs, and nothing Facebook Reels needs.
+  it("flags pages_manage_posts on a token that can publish to Instagram but not the Page", async () => {
+    routes({
+      scopes: ["instagram_basic", "instagram_content_publish", "pages_show_list", "pages_read_engagement"]
+    });
+    const connection = await connectInstagram({ ...APP, graphApiVersion: "v23.0" }, NOW);
+    expect(connection.missingScopes).toEqual(["pages_manage_posts"]);
   });
 
   it("points at --ig-user-id when no Page reports a linked Instagram account", async () => {

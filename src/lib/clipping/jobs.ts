@@ -27,6 +27,7 @@ import type { ClipCandidate, ClipJob } from "@/lib/clipping/types";
 const clipsRoot = path.join(process.cwd(), "data", "clips");
 const jobsFile = path.join(clipsRoot, "jobs.json");
 let persistQueue = Promise.resolve();
+let queuedPersist: Promise<void> | null = null;
 
 const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -49,11 +50,12 @@ async function loadJobs() {
   if (g.__clipJobsLoaded) return;
   g.__clipJobsLoaded = true;
   try {
-    let raw = "";
+    let parsed: ClipJob[] = [];
     for (let attempt = 0; attempt < 3; attempt += 1) {
       try {
-        raw = await readFile(jobsFile, "utf8");
-        JSON.parse(raw);
+        // Parsing this file is seconds of blocked event loop, so it happens
+        // once — never a second time just to validate the read.
+        parsed = JSON.parse(await readFile(jobsFile, "utf8")) as ClipJob[];
         break;
       } catch (error) {
         if ((error as NodeJS.ErrnoException).code === "ENOENT") return;
@@ -61,7 +63,7 @@ async function loadJobs() {
         await new Promise((resolve) => setTimeout(resolve, 40));
       }
     }
-    for (const job of JSON.parse(raw) as ClipJob[]) {
+    for (const job of parsed) {
       // Anything mid-flight when the server stopped can't resume.
       if (job.status === "processing" || job.status === "queued") {
         job.status = "error";
@@ -74,38 +76,67 @@ async function loadJobs() {
   }
 }
 
-async function persistJobs() {
-  const write = async () => {
-    await mkdir(clipsRoot, { recursive: true });
-    const list = [...jobs.values()].sort((a, b) => b.createdAt.localeCompare(a.createdAt)).slice(0, 50);
-    const payload = JSON.stringify(list, null, 2);
-    const tmpPath = `${jobsFile}.${process.pid}.${Date.now()}.tmp`;
-    await writeFile(tmpPath, payload, "utf8");
-    for (let attempt = 0; attempt < 5; attempt += 1) {
-      try {
-        await rename(tmpPath, jobsFile);
-        return;
-      } catch (error) {
-        if (!isTransientReplaceError(error) || attempt === 4) {
-          if (isTransientReplaceError(error)) {
-            await writeFile(jobsFile, payload, "utf8");
-            await unlink(tmpPath).catch(() => undefined);
-            return;
-          }
+async function writeJobs() {
+  // Serialising every job is ~half a second of blocked event loop, which
+  // freezes every other page in the app. Snapshot and release the coalescing
+  // slot in the same tick, so anything mutated after this point queues its own
+  // write rather than being silently folded into this one. Not pretty-printed:
+  // indentation doubles the file, and nothing reads it by hand.
+  const payload = JSON.stringify(
+    [...jobs.values()].sort((a, b) => b.createdAt.localeCompare(a.createdAt)).slice(0, 50)
+  );
+  queuedPersist = null;
+
+  await mkdir(clipsRoot, { recursive: true });
+  const tmpPath = `${jobsFile}.${process.pid}.${Date.now()}.tmp`;
+  await writeFile(tmpPath, payload, "utf8");
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    try {
+      await rename(tmpPath, jobsFile);
+      return;
+    } catch (error) {
+      if (!isTransientReplaceError(error) || attempt === 4) {
+        if (isTransientReplaceError(error)) {
+          await writeFile(jobsFile, payload, "utf8");
           await unlink(tmpPath).catch(() => undefined);
-          throw error;
+          return;
         }
-        await wait(100 * (attempt + 1));
+        await unlink(tmpPath).catch(() => undefined);
+        throw error;
       }
+      await wait(100 * (attempt + 1));
     }
-  };
-  persistQueue = persistQueue.then(write, write);
-  await persistQueue;
+  }
+}
+
+/**
+ * A queued write snapshots the job map at the moment it starts, so it already
+ * covers every change made while it was waiting. Callers that arrive before it
+ * starts share it instead of queueing another full serialisation — that is what
+ * keeps a burst of render progress updates from pegging the event loop.
+ */
+async function persistJobs() {
+  if (queuedPersist) return queuedPersist;
+  const run = persistQueue.then(writeJobs, writeJobs);
+  queuedPersist = run;
+  persistQueue = run;
+  await run;
 }
 
 export async function listJobs(): Promise<ClipJob[]> {
   await loadJobs();
   return [...jobs.values()].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+}
+
+/**
+ * A job without its source captions. The word-level transcript of a multi-hour
+ * stream is ~98% of a job's weight, so any listing that isn't rendering a
+ * transcript sheds it here rather than serialising megabytes nobody reads.
+ */
+export function jobWithoutCaptions(job: ClipJob): ClipJob {
+  const light = { ...job };
+  delete light.sourceCaptions;
+  return light;
 }
 
 export async function getJob(id: string): Promise<ClipJob | undefined> {

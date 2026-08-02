@@ -45,6 +45,26 @@ export type PublisherConfig = {
   /** A platform claimed longer ago than this is considered abandoned and retried. */
   claimTimeoutMinutes: number;
 
+  /**
+   * One schedule for every platform. The calendar is built on the lead
+   * platform (YouTube) and each runner tick copies its upcoming slots onto the
+   * others, so a clip scheduled once goes out everywhere at that instant
+   * without anyone maintaining a second calendar. On by default; set
+   * PUBLISH_MIRROR=false to schedule each platform by hand again.
+   */
+  mirror: {
+    enabled: boolean;
+    lead: PlatformId;
+    /** Platforms that follow the lead — only the configured ones are touched. */
+    targets: PlatformId[];
+    /**
+     * "match"   the same clip at the same instant on every platform.
+     * "shuffle" the same slots, but each platform plays the clips in its own
+     *           order so the feeds don't read as carbon copies.
+     */
+    mode: "match" | "shuffle";
+  };
+
   youtube: {
     clientId: string | null;
     clientSecret: string | null;
@@ -133,6 +153,17 @@ function cachedRefreshToken(key: string): string | null {
   }
 }
 
+/** Reads a comma-separated platform list, falling back when unset or all junk. */
+function platformList(name: string, fallback: PlatformId[]): PlatformId[] {
+  const raw = str(name);
+  if (!raw) return fallback;
+  const parsed = raw
+    .split(",")
+    .map((p) => p.trim().toLowerCase())
+    .filter((p): p is PlatformId => (ALL_PLATFORMS as string[]).includes(p));
+  return parsed.length > 0 ? parsed : fallback;
+}
+
 export function publisherConfig(): PublisherConfig {
   const platformsRaw = str("PUBLISH_PLATFORMS");
   const platforms = platformsRaw
@@ -157,6 +188,14 @@ export function publisherConfig(): PublisherConfig {
     backoffBaseMinutes: num("PUBLISH_BACKOFF_BASE_MINUTES", 2),
     backoffCapMinutes: num("PUBLISH_BACKOFF_CAP_MINUTES", 120),
     claimTimeoutMinutes: num("PUBLISH_CLAIM_TIMEOUT_MINUTES", 15),
+    mirror: {
+      enabled: flag("PUBLISH_MIRROR", true),
+      lead: platformList("PUBLISH_MIRROR_LEAD", ["youtube"])[0] ?? "youtube",
+      // TikTok is left out until its app clears audit — an unaudited client
+      // can only drop clips in the creator's inbox, which is not a schedule.
+      targets: platformList("PUBLISH_MIRROR_TARGETS", ["instagram", "facebook"]),
+      mode: str("PUBLISH_MIRROR_MODE")?.toLowerCase() === "shuffle" ? "shuffle" : "match"
+    },
     youtube: {
       clientId: str("YOUTUBE_CLIENT_ID"),
       clientSecret: str("YOUTUBE_CLIENT_SECRET"),
