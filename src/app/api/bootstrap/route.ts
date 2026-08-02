@@ -1,10 +1,13 @@
 import { NextResponse } from "next/server";
+import { repairAppDataOverlays } from "@/lib/clipping/overlay-images";
 import { derivePortfolioSummary } from "@/lib/derive";
 import { ensureExecution } from "@/lib/execution/server";
 import { readAppData, writeAppData } from "@/lib/storage/store";
 
 export async function GET() {
-  const stored = await readAppData();
+  // This is the payload the whole dashboard mounts from, so it is also where
+  // an inline overlay picture hurts most - see repairAppDataOverlays.
+  const stored = await repairAppDataOverlays(await readAppData());
 
   // Seed default execution goals and reconcile any ended weeks into debt before
   // the dashboard renders, persisting the result so reconciliation is durable.
