@@ -1,11 +1,23 @@
 import { createHash } from "node:crypto";
-import { existsSync, lstatSync, mkdirSync, readdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, lstatSync, mkdirSync, readdirSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { basename, join } from "node:path";
 
 const nextDir = join(process.cwd(), ".next");
 const projectNodeModules = join(process.cwd(), "node_modules");
-const cacheRoot =
+
+/**
+ * Only a checkout inside the synced folder needs .next moved out of it —
+ * OneDrive locking build output mid-write is the whole reason this exists. A
+ * sandbox worktree under %USERPROFILE% has no such problem, and relocating its
+ * build output is not free: emitted files then resolve `react` from wherever
+ * the temp folder's parents lead, which is how a build ended up with two
+ * copies of React and died prerendering /404.
+ */
+const insideSyncedFolder = /[\\/]onedrive[\\/]/i.test(process.cwd());
+
+/** Everything this checkout keeps outside the synced folder, in one place. */
+const checkoutCache =
   process.env.CAPITAL_COMMAND_NEXT_CACHE_DIR ||
   join(
     process.env.TEMP || process.env.TMP || tmpdir() || process.env.LOCALAPPDATA || join(homedir(), "AppData", "Local"),
@@ -13,7 +25,17 @@ const cacheRoot =
     "next-dev-cache",
     `${basename(process.cwd())}-${createHash("sha1").update(process.cwd()).digest("hex").slice(0, 8)}`
   );
-const cacheNodeModules = join(cacheRoot, "..", "node_modules");
+const cacheRoot = join(checkoutCache, ".next");
+// A sibling of the relocated .next, inside this checkout's own folder. It has
+// to be a sibling rather than a child because `next build` empties .next
+// before it starts, and it has to be per-checkout because the old shared link
+// one level up was repointed by whichever checkout ran this script last —
+// every other one then resolved React through a stranger's node_modules. Two
+// Reacts in a bundle prerenders as "Cannot read properties of null (reading
+// 'useContext')", and a build that survives it serves a page whose client
+// never hydrates: every button dead.
+const cacheNodeModules = join(checkoutCache, "node_modules");
+const legacySharedNodeModules = join(checkoutCache, "..", "node_modules");
 const routesManifest = join(nextDir, "routes-manifest.json");
 const fallbackRoutesManifest = {
   version: 3,
@@ -61,8 +83,24 @@ function isLinkedPath(filePath) {
   }
 }
 
+function pointsAtThisCheckout(link) {
+  try {
+    return realpathSync(link) === realpathSync(projectNodeModules);
+  } catch {
+    return false;
+  }
+}
+
 function ensureDependencyLookup() {
-  if (!existsSync(projectNodeModules) || isLinkedPath(cacheNodeModules)) return;
+  if (!existsSync(projectNodeModules)) return;
+
+  // Whatever another checkout left behind. Removing it is the point: while it
+  // exists, module resolution from this cache folder can still climb into it.
+  if (isLinkedPath(legacySharedNodeModules)) {
+    rmSync(legacySharedNodeModules, { recursive: true, force: true });
+  }
+
+  if (isLinkedPath(cacheNodeModules) && pointsAtThisCheckout(cacheNodeModules)) return;
   if (existsSync(cacheNodeModules)) {
     rmSync(cacheNodeModules, { recursive: true, force: true });
   }
@@ -88,6 +126,16 @@ function linkNextCache() {
 }
 
 try {
+  if (!insideSyncedFolder) {
+    // Leave a relocated cache from an earlier run behind rather than building
+    // half in and half out of it.
+    if (isLinkedCache()) rmSync(nextDir, { recursive: true, force: true });
+    if (isLinkedPath(legacySharedNodeModules)) {
+      rmSync(legacySharedNodeModules, { recursive: true, force: true });
+    }
+    console.log("Building in place: this checkout is not in a synced folder.");
+    process.exit(0);
+  }
   linkNextCache();
 } catch (error) {
   const message = error instanceof Error ? error.message : String(error);

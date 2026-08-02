@@ -1,5 +1,4 @@
 import { readFileSync } from "node:fs";
-import path from "node:path";
 import { ALL_PLATFORMS, type PlatformId, type Visibility } from "@/lib/publisher/types";
 import { dataPath } from "@/lib/paths";
 

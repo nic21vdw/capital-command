@@ -6,7 +6,6 @@
  * fallback (no key configured -> clear error, never a thrown exception).
  */
 
-import path from "node:path";
 import { dataPath } from "@/lib/paths";
 
 const ELEVENLABS_API_BASE = "https://api.elevenlabs.io/v1";
