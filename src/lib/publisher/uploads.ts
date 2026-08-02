@@ -3,11 +3,12 @@ import { mkdir, rm } from "node:fs/promises";
 import path from "node:path";
 import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
+import { dataPath } from "@/lib/paths";
 
 // Videos dropped straight onto a schedule slot (bypassing the clip generator)
 // live under data/uploads/<id>/ — one folder per upload, so the derived
 // vertical render the publisher may cache next to the file stays contained.
-const uploadsRoot = path.join(process.cwd(), "data", "uploads");
+const uploadsRoot = dataPath("uploads");
 
 export function uploadDir(id: string) {
   return path.join(uploadsRoot, id);

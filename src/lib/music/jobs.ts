@@ -1,5 +1,6 @@
 import { mkdir, readFile, rename, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { dataPath } from "@/lib/paths";
 import { saveTrackFromUrl } from "@/lib/longform/music";
 import { heuristicSongBrief } from "@/lib/music/brief";
 import { checkFalJob, falConfigured, submitFalJob } from "@/lib/music/fal";
@@ -18,7 +19,7 @@ import { buildModelInput, getMusicModel, readModelAudio, type MusicModel, type S
  * importing this module and getting a second copy of the map.
  */
 
-const jobsFile = path.join(process.cwd(), "data", "longform", "music", "jobs.json");
+const jobsFile = dataPath("longform", "music", "jobs.json");
 
 export type MusicJobRecord = {
   requestId: string;

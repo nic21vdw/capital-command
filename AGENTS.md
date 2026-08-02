@@ -65,3 +65,26 @@ work that never made it into a pull request.
 - Don't run publishing CLIs (`publish:run`, `threads:tick`, `ingest:scan`)
   in the sandbox against real tokens. The sandbox has no queues by design —
   keep it that way.
+
+## Tests
+
+`npm test` is the suite (`vitest run`). It used to be a PowerShell script that
+compiled and ran a single file, which is how a green `npm test` sat next to a
+dozen failures for so long.
+
+It is hermetic, and has to stay that way — it used to read the live tokens
+of whichever checkout it ran in, and asserted against a real YouTube refresh
+token. `vitest.setup.ts` holds the three seams:
+
+- **Data.** Every path into `data\` goes through `dataPath()` /
+  `dataRoot()` (`src/lib/paths.ts`), which the setup points at a fresh temp
+  directory. New code that touches `data\` must use that helper, not
+  `path.join(process.cwd(), "data", …)`. Miss it and the test reads the
+  running app's queues; `dataRoot()` throws under vitest if the override is
+  ever lost, so the failure is loud rather than silent.
+- **Environment.** Every app-owned variable (`YOUTUBE_*`, `TIKTOK_*`, `IG_*`,
+  `FB_*`, `THREADS_*`, `PUBLISH_*`, `S3_*`, model keys …) is deleted before
+  the suite runs. A test that needs one sets it with `vi.stubEnv`.
+- **Timezone.** Pinned to `America/Toronto`. The Execution dashboard works in
+  local dates, so a fixture written as midnight UTC lands on the previous day
+  here. Write fixture timestamps at midday.

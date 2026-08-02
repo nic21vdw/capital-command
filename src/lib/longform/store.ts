@@ -1,5 +1,6 @@
 import { mkdir, readFile, rename, rm, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { dataPath } from "@/lib/paths";
 import { detectSilences } from "@/lib/clipping/analysis";
 import { probeDuration, runFfmpeg } from "@/lib/clipping/ffmpeg";
 import { listJobs } from "@/lib/clipping/jobs";
@@ -11,7 +12,7 @@ import type { LongformPace, LongformProject } from "@/lib/longform/types";
 import { defaultSfxSettings } from "@/lib/sfx/types";
 import type { CaptionSegment } from "@/types/domain";
 
-const longformRoot = path.join(process.cwd(), "data", "longform");
+const longformRoot = dataPath("longform");
 const projectsFile = path.join(longformRoot, "projects.json");
 let persistQueue = Promise.resolve();
 

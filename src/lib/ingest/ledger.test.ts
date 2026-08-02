@@ -20,19 +20,17 @@ import type { IngestLedger, IngestRecord } from "@/lib/ingest/types";
  */
 
 let dir: string;
-let cwd: string;
 
 beforeEach(async () => {
   dir = await mkdtemp(path.join(os.tmpdir(), "ingest-ledger-"));
-  cwd = process.cwd();
-  // The ledger path is derived from cwd, matching the other JSON stores.
-  vi.spyOn(process, "cwd").mockReturnValue(dir);
+  // The ledger lives in the data folder, which every store resolves through
+  // dataRoot() — so a test gets its own by pointing that at a temp directory.
+  vi.stubEnv("CAPITAL_COMMAND_DATA_DIR", dir);
 });
 
 afterEach(async () => {
-  vi.restoreAllMocks();
+  vi.unstubAllEnvs();
   await rm(dir, { recursive: true, force: true });
-  expect(process.cwd()).toBe(cwd);
 });
 
 function record(overrides: Partial<IngestRecord> = {}): IngestRecord {
@@ -58,7 +56,7 @@ describe("readLedger", () => {
     await writeLedger(ledger);
     expect(await readLedger()).toEqual(ledger);
     // Written as readable JSON, like the other stores in data/.
-    const raw = await readFile(path.join(dir, "data", "channel-ingest.json"), "utf8");
+    const raw = await readFile(path.join(dir, "channel-ingest.json"), "utf8");
     expect(raw).toContain("\n  ");
   });
 
@@ -66,13 +64,13 @@ describe("readLedger", () => {
   // corrupt ledger has to be loud rather than convenient.
   it("throws on a corrupt ledger instead of quietly resetting", async () => {
     await writeLedger({ lastScanAt: null, records: [] });
-    await writeFile(path.join(dir, "data", "channel-ingest.json"), "{ not json", "utf8");
+    await writeFile(path.join(dir, "channel-ingest.json"), "{ not json", "utf8");
     await expect(readLedger()).rejects.toThrow(/Could not read the ingest ledger/);
   });
 
   it("tolerates a ledger missing its fields", async () => {
     await writeLedger({ lastScanAt: null, records: [] });
-    await writeFile(path.join(dir, "data", "channel-ingest.json"), "{}", "utf8");
+    await writeFile(path.join(dir, "channel-ingest.json"), "{}", "utf8");
     expect(await readLedger()).toEqual({ lastScanAt: null, records: [] });
   });
 });

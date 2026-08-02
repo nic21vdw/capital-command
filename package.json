@@ -15,7 +15,7 @@
     "start": "next start --port 3000",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
-    "test": "powershell -NoProfile -ExecutionPolicy Bypass -File .\\scripts\\run-tests.ps1",
+    "test": "vitest run",
     "format": "prettier --write .",
     "publish:dry": "tsx src/lib/publisher/cli.ts run-due --dry-run",
     "publish:run": "tsx src/lib/publisher/cli.ts run-due",

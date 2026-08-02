@@ -1,5 +1,6 @@
 import { mkdir, readFile, rename, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { dataPath } from "@/lib/paths";
 
 /**
  * Queue persistence. The queue itself is a single JSON document (matching the
@@ -21,7 +22,7 @@ export interface QueueStore {
 }
 
 export class FileQueueStore implements QueueStore {
-  constructor(private readonly filePath = path.join(process.cwd(), "data", "publish-queue.json")) {}
+  constructor(private readonly filePath = dataPath("publish-queue.json")) {}
 
   describe(): string {
     return this.filePath;

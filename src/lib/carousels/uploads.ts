@@ -1,6 +1,7 @@
 import { mkdir, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { CarouselImage } from "@/lib/carousels/imageSlides";
+import { dataPath } from "@/lib/paths";
 
 /**
  * Storage for photos uploaded as carousel slide material.
@@ -12,7 +13,7 @@ import type { CarouselImage } from "@/lib/carousels/imageSlides";
  * same-origin, so `canvas.toBlob()` still works when the slides export.
  */
 
-const imagesRoot = path.join(process.cwd(), "data", "carousel-images");
+const imagesRoot = dataPath("carousel-images");
 
 const EXTENSION_BY_TYPE: Record<string, string> = {
   "image/png": "png",

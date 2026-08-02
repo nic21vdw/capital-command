@@ -4,11 +4,12 @@ import { mkdirSync } from "node:fs";
 import { chmod, mkdir, readdir, rename, rm, stat } from "node:fs/promises";
 import path from "node:path";
 import { Readable } from "node:stream";
+import { dataPath } from "@/lib/paths";
 import { resolveFfmpeg } from "@/lib/clipping/ffmpeg";
 
 // yt-dlp ships a single self-contained binary per platform, so we can fetch and
 // cache it on first use instead of asking the user to install anything.
-const binDir = path.join(process.cwd(), "data", "clips", "bin");
+const binDir = dataPath("clips", "bin");
 const pyInstallerTempDir = path.join(binDir, "pyi-temp");
 
 function binaryName() {

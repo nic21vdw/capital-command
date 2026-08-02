@@ -1,5 +1,6 @@
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { dataPath } from "@/lib/paths";
 import { defaultOutlierStore, outlierStoreSchema, type OutlierStore } from "@/lib/youtube/outliers";
 
 /**
@@ -8,7 +9,7 @@ import { defaultOutlierStore, outlierStoreSchema, type OutlierStore } from "@/li
  * schema, and the frozen publisher files stay untouched.
  */
 
-const dataFilePath = path.join(process.cwd(), "data", "youtube-outliers.json");
+const dataFilePath = dataPath("youtube-outliers.json");
 let writeQueue = Promise.resolve();
 
 export async function readOutlierStore(): Promise<OutlierStore> {

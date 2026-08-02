@@ -1,28 +1,28 @@
-import assert from "node:assert/strict";
+import { describe, expect, it } from "vitest";
 import { appleEmojiUrl, emojiCodepoints } from "./emoji";
 
-// Single-codepoint emoji map to their lowercase hex codepoint.
-{
-  assert.equal(emojiCodepoints("🔥"), "1f525");
-  assert.equal(emojiCodepoints("🚀"), "1f680");
-  assert.equal(emojiCodepoints("✅"), "2705");
-  assert.equal(emojiCodepoints("❌"), "274c");
-  assert.equal(emojiCodepoints("⚡"), "26a1");
-}
+describe("emojiCodepoints", () => {
+  it("maps a single-codepoint emoji to its lowercase hex codepoint", () => {
+    expect(emojiCodepoints("🔥")).toBe("1f525");
+    expect(emojiCodepoints("🚀")).toBe("1f680");
+    expect(emojiCodepoints("✅")).toBe("2705");
+    expect(emojiCodepoints("❌")).toBe("274c");
+    expect(emojiCodepoints("⚡")).toBe("26a1");
+  });
 
-// The U+FE0F variation selector is dropped so it matches the Apple image keys.
-{
-  assert.equal(emojiCodepoints("✅️"), "2705");
-}
+  it("drops the U+FE0F variation selector so it matches the Apple image keys", () => {
+    expect(emojiCodepoints("✅️")).toBe("2705");
+  });
 
-// Multi-codepoint sequences are hyphen-joined.
-{
-  assert.equal(emojiCodepoints("👨‍🚀"), "1f468-200d-1f680");
-}
+  it("hyphen-joins multi-codepoint sequences", () => {
+    expect(emojiCodepoints("👨‍🚀")).toBe("1f468-200d-1f680");
+  });
+});
 
-// The CDN URL is built from the codepoints.
-{
-  assert.equal(appleEmojiUrl("🔥"), "https://cdn.jsdelivr.net/gh/iamcal/emoji-data@master/img-apple-64/1f525.png");
-}
-
-console.log("emoji.test.ts passed");
+describe("appleEmojiUrl", () => {
+  it("builds the CDN URL from the codepoints", () => {
+    expect(appleEmojiUrl("🔥")).toBe(
+      "https://cdn.jsdelivr.net/gh/iamcal/emoji-data@master/img-apple-64/1f525.png"
+    );
+  });
+});

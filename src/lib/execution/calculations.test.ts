@@ -13,6 +13,12 @@ const NOW = "2026-06-15T12:00:00.000Z";
 // it (Jun 8–14, Jun 1–7, ...) has fully ended and is eligible for reconciliation.
 const TODAY = "2026-06-15";
 
+// Every `createdAt` below is midday UTC, not midnight. A goal's creation week
+// comes from its timestamp read as a LOCAL date (goalCreatedDate), so a
+// midnight-UTC fixture lands on the previous day west of Greenwich and drags
+// the goal back into the week before — which showed up as one extra missed
+// week of debt in every assertion here.
+
 function makeGoal(overrides: Partial<ExecutionGoal> = {}): ExecutionGoal {
   return {
     id: overrides.id ?? "g-stream",
@@ -25,8 +31,8 @@ function makeGoal(overrides: Partial<ExecutionGoal> = {}): ExecutionGoal {
     icon: overrides.icon ?? "Radio",
     displayOrder: overrides.displayOrder ?? 0,
     active: overrides.active ?? true,
-    createdAt: overrides.createdAt ?? "2026-05-01T00:00:00.000Z",
-    updatedAt: overrides.updatedAt ?? "2026-05-01T00:00:00.000Z",
+    createdAt: overrides.createdAt ?? "2026-05-01T12:00:00.000Z",
+    updatedAt: overrides.updatedAt ?? "2026-05-01T12:00:00.000Z",
     archivedAt: overrides.archivedAt
   };
 }
@@ -75,7 +81,7 @@ describe("computeWeekBreakdown", () => {
 
 describe("reconcileExecution", () => {
   it("1. a fully completed week creates no debt", () => {
-    const goal = makeGoal({ weeklyTarget: 5, createdAt: "2026-06-08T00:00:00.000Z" });
+    const goal = makeGoal({ weeklyTarget: 5, createdAt: "2026-06-08T12:00:00.000Z" });
     const ws = weekStart("2026-06-08");
     const result = reconcileExecution({
       goals: [goal],
@@ -92,7 +98,7 @@ describe("reconcileExecution", () => {
   });
 
   it("2. a partially completed week creates the correct debt", () => {
-    const goal = makeGoal({ weeklyTarget: 5, createdAt: "2026-06-08T00:00:00.000Z" });
+    const goal = makeGoal({ weeklyTarget: 5, createdAt: "2026-06-08T12:00:00.000Z" });
     const ws = weekStart("2026-06-08");
     const result = reconcileExecution({
       goals: [goal],
@@ -106,7 +112,7 @@ describe("reconcileExecution", () => {
   });
 
   it("3. multiple missed weeks accumulate debt", () => {
-    const goal = makeGoal({ weeklyTarget: 5, createdAt: "2026-05-01T00:00:00.000Z" });
+    const goal = makeGoal({ weeklyTarget: 5, createdAt: "2026-05-01T12:00:00.000Z" });
     // Three fully-missed ended weeks: May 25, Jun 1, Jun 8.
     const result = reconcileExecution({
       goals: [goal],
@@ -123,7 +129,7 @@ describe("reconcileExecution", () => {
   });
 
   it("4. extra work repays the oldest debt first", () => {
-    const goal = makeGoal({ weeklyTarget: 5, createdAt: "2026-06-01T00:00:00.000Z" });
+    const goal = makeGoal({ weeklyTarget: 5, createdAt: "2026-06-01T12:00:00.000Z" });
     // Week Jun 1: 0 done → 5 debt. Week Jun 8: 7 done → 5 baseline + 2 to debt.
     const completions = completionsForWeek(goal.id, weekStart("2026-06-08"), 7);
     const result = reconcileExecution({
@@ -141,7 +147,7 @@ describe("reconcileExecution", () => {
   });
 
   it("5. extra work beyond all debt is recorded as overachievement", () => {
-    const goal = makeGoal({ weeklyTarget: 5, createdAt: "2026-06-08T00:00:00.000Z" });
+    const goal = makeGoal({ weeklyTarget: 5, createdAt: "2026-06-08T12:00:00.000Z" });
     // Single week, 8 done, no prior debt → 3 overachievement, 0 debt.
     const result = reconcileExecution({
       goals: [goal],
@@ -157,7 +163,7 @@ describe("reconcileExecution", () => {
   });
 
   it("6. debt never exceeds 10× the weekly target", () => {
-    const goal = makeGoal({ weeklyTarget: 5, createdAt: "2024-01-01T00:00:00.000Z" });
+    const goal = makeGoal({ weeklyTarget: 5, createdAt: "2024-01-01T12:00:00.000Z" });
     // A year+ of fully-missed weeks would be 250+ of debt uncapped.
     const result = reconcileExecution({
       goals: [goal],
@@ -171,7 +177,7 @@ describe("reconcileExecution", () => {
   });
 
   it("7. reconciliation can run twice without duplicate debt", () => {
-    const goal = makeGoal({ weeklyTarget: 5, createdAt: "2026-06-01T00:00:00.000Z" });
+    const goal = makeGoal({ weeklyTarget: 5, createdAt: "2026-06-01T12:00:00.000Z" });
     const input = {
       goals: [goal],
       completions: completionsForWeek(goal.id, weekStart("2026-06-08"), 2),
@@ -188,7 +194,7 @@ describe("reconcileExecution", () => {
   });
 
   it("8. removing a completion recalculates the correct totals", () => {
-    const goal = makeGoal({ weeklyTarget: 5, createdAt: "2026-06-08T00:00:00.000Z" });
+    const goal = makeGoal({ weeklyTarget: 5, createdAt: "2026-06-08T12:00:00.000Z" });
     const all = completionsForWeek(goal.id, weekStart("2026-06-08"), 5);
     const withAll = reconcileExecution({
       goals: [goal],
@@ -221,7 +227,7 @@ describe("reconcileExecution", () => {
       frequency: "daily",
       dailyTarget: 1,
       weeklyTarget: 7,
-      createdAt: "2026-06-08T00:00:00.000Z"
+      createdAt: "2026-06-08T12:00:00.000Z"
     });
     const ws = weekStart("2026-06-08");
     const completions = [0, 1, 2, 3, 4].map((offset) => mkCompletion(goal.id, addDays(ws, offset)));
@@ -238,7 +244,7 @@ describe("reconcileExecution", () => {
   });
 
   it("10. goal target changes do not alter finalized historical weeks", () => {
-    const goal = makeGoal({ weeklyTarget: 5, createdAt: "2026-06-08T00:00:00.000Z" });
+    const goal = makeGoal({ weeklyTarget: 5, createdAt: "2026-06-08T12:00:00.000Z" });
     const completions = completionsForWeek(goal.id, weekStart("2026-06-08"), 2);
     const first = reconcileExecution({
       goals: [goal],
@@ -291,7 +297,7 @@ describe("perfectDayStreak", () => {
       frequency: "daily",
       dailyTarget: 2,
       weeklyTarget: 14,
-      createdAt: "2026-06-10T00:00:00.000Z"
+      createdAt: "2026-06-10T12:00:00.000Z"
     });
     const completions = [
       mkCompletion(goal.id, "2026-06-13", 2),

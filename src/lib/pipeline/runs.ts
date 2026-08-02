@@ -1,5 +1,6 @@
 import { mkdir, readFile, rename, stat, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { dataPath } from "@/lib/paths";
 import { runFfmpeg } from "@/lib/clipping/ffmpeg";
 import { createJobFromUpload, getJob } from "@/lib/clipping/jobs";
 import { readSourceMeta, saveSourceFromUrl } from "@/lib/clipping/sources";
@@ -26,7 +27,7 @@ import { DEFAULT_SLIDE_COUNT, generateCarousel } from "@/lib/studio/carousel";
 // source. Same persistence pattern as those stores: a globalThis map (Next
 // dev gives each route its own module graph) flushed to one JSON file.
 
-const pipelineRoot = path.join(process.cwd(), "data", "pipeline");
+const pipelineRoot = dataPath("pipeline");
 const runsFile = path.join(pipelineRoot, "runs.json");
 const MAX_RUNS = 30;
 let persistQueue = Promise.resolve();

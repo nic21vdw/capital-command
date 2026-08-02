@@ -1,10 +1,11 @@
 import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { dataPath } from "@/lib/paths";
 import { seedData } from "@/lib/mockData/seed";
 import { appDataSchema } from "@/lib/storage/schemas";
 import type { AppData } from "@/types/domain";
 
-const dataFilePath = path.join(process.cwd(), "data", "capital-command.json");
+const dataFilePath = dataPath("capital-command.json");
 let writeQueue = Promise.resolve();
 
 async function ensureStore() {

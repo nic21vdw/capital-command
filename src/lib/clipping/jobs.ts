@@ -9,6 +9,7 @@ import {
   selectCandidates
 } from "@/lib/clipping/analysis";
 import { buildAss, buildClipTitleDialogue, chunkWords, windowSegments } from "@/lib/clipping/captions";
+import { dataPath } from "@/lib/paths";
 import { generateClipTitle } from "@/lib/clipping/editor";
 import { generateViralTitles } from "@/lib/clipping/titles";
 import { copyClipsToDrive, driveDir } from "@/lib/clipping/drive";
@@ -24,7 +25,7 @@ import { refineClipVirality, viralityRefinementConfigured } from "@/lib/clipping
 import { transcribeMedia } from "@/lib/clipping/whisper";
 import type { ClipCandidate, ClipJob } from "@/lib/clipping/types";
 
-const clipsRoot = path.join(process.cwd(), "data", "clips");
+const clipsRoot = dataPath("clips");
 const jobsFile = path.join(clipsRoot, "jobs.json");
 let persistQueue = Promise.resolve();
 let queuedPersist: Promise<void> | null = null;

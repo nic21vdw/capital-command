@@ -7,12 +7,13 @@
  */
 
 import path from "node:path";
+import { dataPath } from "@/lib/paths";
 
 const ELEVENLABS_API_BASE = "https://api.elevenlabs.io/v1";
 const DEFAULT_MODEL_ID = "eleven_multilingual_v2";
 
 export function voiceoverDir() {
-  return path.join(process.cwd(), "data", "voiceover");
+  return dataPath("voiceover");
 }
 
 export function voiceoverConfigured() {
