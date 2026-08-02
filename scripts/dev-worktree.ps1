@@ -28,6 +28,29 @@ function Step($message) {
   Write-Host "==> $message" -ForegroundColor Cyan
 }
 
+# The sandbox needs the settings, not the ability to post. Access tokens are
+# commented out and the two kill switches are turned off, so a stray CLI or a
+# button clicked while testing cannot reach a real account. Client ids and
+# secrets stay: they only matter for connect flows, which write to the
+# sandbox's own token file.
+function Get-SandboxEnv($file) {
+  $muted = "IG_ACCESS_TOKEN", "FB_PAGE_ACCESS_TOKEN", "THREADS_ACCESS_TOKEN"
+  $off = @{ "PUBLISH_ENABLED" = "false"; "THREADS_ENABLED" = "false" }
+
+  $lines = foreach ($line in Get-Content $file) {
+    $key = if ($line -match "^([A-Z0-9_]+)=") { $Matches[1] } else { $null }
+    if ($key -and $muted -contains $key) {
+      "# sandbox: disarmed`n# $line"
+    } elseif ($key -and $off.ContainsKey($key)) {
+      "$key=$($off[$key])"
+    } else {
+      $line
+    }
+  }
+
+  @("# Sandbox copy - posting credentials disarmed by scripts\dev-worktree.ps1.", "") + $lines
+}
+
 Step "Preparing the $Branch branch"
 git fetch origin --quiet
 
@@ -51,8 +74,8 @@ Step "Copying settings the sandbox needs"
 $envFile = Join-Path $root ".env"
 $devEnv = Join-Path $Path ".env"
 if ((Test-Path $envFile) -and -not (Test-Path $devEnv)) {
-  Copy-Item $envFile $devEnv
-  Write-Host "Copied .env"
+  Set-Content -Path $devEnv -Value (Get-SandboxEnv $envFile) -Encoding utf8
+  Write-Host "Copied .env with the posting credentials and kill switches disarmed"
 } else {
   Write-Host ".env already in place (or none to copy)"
 }
