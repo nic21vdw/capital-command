@@ -69,7 +69,7 @@ export const LAUNCH_PLAYBOOK: LaunchTaskTemplate[] = [
     id: "ph-content-plan",
     label: "Plan the launch as a content event",
     detail:
-      "The launch is a story for the channel: a build-in-public video, the clips off it, a carousel, and the Threads posts. Put them on the Master Calendar now.",
+      "The launch is a story for the channel: a build-in-public video, the clips off it, a carousel, and the X/Threads posts. Put them on the Master Calendar now.",
     phase: "prep",
     offsetDays: -7
   },
