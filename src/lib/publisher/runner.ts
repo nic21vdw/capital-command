@@ -8,7 +8,7 @@ import { tiktokAdapter } from "@/lib/publisher/adapters/tiktok";
 import { youtubeAdapter } from "@/lib/publisher/adapters/youtube";
 import { type BufferOutcome, syncDueToBuffer, validateBufferAuth } from "@/lib/publisher/buffer";
 import { bufferConfigured, publisherConfig, type PublisherConfig } from "@/lib/publisher/config";
-import { mediaHost } from "@/lib/publisher/hosting";
+import { hostMedia, mediaHost } from "@/lib/publisher/hosting";
 import { PermanentError, StillProcessingError, isTransient } from "@/lib/publisher/http";
 import { PublishQueue, isTerminalStatus, publishQueue } from "@/lib/publisher/queue";
 import { formatInTimezone } from "@/lib/publisher/time";
@@ -78,6 +78,9 @@ export const defaultAdapters: Record<PlatformId, PlatformAdapter> = {
   tiktok: tiktokAdapter,
   facebook: facebookAdapter
 };
+
+/** Platforms whose APIs pull the video from a public URL rather than an upload. */
+const PLATFORMS_NEEDING_PUBLIC_URL = new Set<PlatformId>(["instagram", "facebook"]);
 
 /** Finds the clip bytes: the local file when present, else the hosted copy. */
 async function resolveLocalMedia(item: QueueItem, config: PublisherConfig): Promise<string> {
@@ -243,8 +246,17 @@ export async function runDue(now: Date = new Date(), options: RunDueOptions = {}
           await queue.claim(item, platform, now);
           // Resolve media lazily and once per item, not per platform.
           localPath ??= await resolveLocalMedia(item, config);
-          if (item.mediaKey && publicUrl === undefined) {
-            publicUrl = (await mediaHost(config)?.publicUrl(item.mediaKey)) ?? undefined;
+          if (publicUrl === undefined) {
+            // An item queued before hosting was configured has no mediaKey, and
+            // Instagram/Facebook cannot post without one. Upload it now rather
+            // than failing forever on a clip that is sitting right here.
+            if (!item.mediaKey && PLATFORMS_NEEDING_PUBLIC_URL.has(platform) && mediaHost(config)) {
+              item.mediaKey = (await hostMedia(localPath, item.id)).key;
+              await queue.save();
+            }
+            if (item.mediaKey) {
+              publicUrl = (await mediaHost(config)?.publicUrl(item.mediaKey)) ?? undefined;
+            }
           }
           const input: PublishInput = { item, localPath, publicUrl };
           result = await adapter.publish(input);
