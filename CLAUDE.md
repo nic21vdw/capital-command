@@ -1,5 +1,10 @@
 # capital-command
 
+Read `AGENTS.md` first. It covers how a change reaches the running app —
+the production checkout stays on `main` and is never edited; work happens
+in the sandbox worktree on `dev`. The rest of this file is subsystem
+conventions.
+
 ## Stream Pipeline (`/pipeline`)
 
 One stream in (VOD link or uploaded file) → every format out, ready to
