@@ -5,6 +5,7 @@ import {
   adCanvasSize,
   fitCover,
   realisticImagePrompt,
+  speechWordCount,
   visualMomentFromClips
 } from "@/lib/pipeline/visual-brief";
 
@@ -53,6 +54,43 @@ describe("visualMomentFromClips", () => {
       [caption("a", 0, 10, "this is the exact point where the whole workflow finally clicked for me.")]
     );
     expect(moment?.headline).toBe("this is the exact point where the whole");
+  });
+
+  it("returns null when the transcript is nothing but Whisper's non-speech tags", () => {
+    // 25 seconds of a sine tone transcribed to "(bells ringing)" and the
+    // pipeline built a whole content pack around it.
+    const moment = visualMomentFromClips(
+      [clip("clip-1", 40, 0, 20)],
+      [caption("a", 0, 20, "(bells ringing)")]
+    );
+    expect(moment).toBeNull();
+  });
+
+  it("returns null when there is neither transcript nor hook quote", () => {
+    expect(visualMomentFromClips([clip("clip-1", 40, 0, 20)], [])).toBeNull();
+  });
+
+  it("ignores clips and captions stamped past the end of the media", () => {
+    const moment = visualMomentFromClips(
+      [clip("late", 95, 28, 34, "Stamped Past The End"), clip("real", 60, 2, 12, "Actually In Shot")],
+      [
+        caption("a", 2, 12, "This one genuinely happened during the recording."),
+        caption("b", 28, 34, "(bells ringing)")
+      ],
+      25
+    );
+    expect(moment?.headline).toBe("Actually In Shot");
+  });
+});
+
+describe("speechWordCount", () => {
+  it("counts spoken words and ignores bracketed sound tags", () => {
+    expect(speechWordCount("(bells ringing) [MUSIC]")).toBe(0);
+    expect(speechWordCount("(music) so anyway I shipped it [applause]")).toBe(5);
+  });
+
+  it("treats an empty transcript as no speech", () => {
+    expect(speechWordCount("")).toBe(0);
   });
 });
 

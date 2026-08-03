@@ -71,6 +71,9 @@ function requestTimeoutMs(maxTokens: number): number {
   return Math.min(240_000, Math.max(60_000, maxTokens * 10));
 }
 
+/** How long the whole escalation ladder may run before a call stops retrying. */
+const RETRY_DEADLINE_MS = 150_000;
+
 function env(name: string): string | undefined {
   const value = process.env[name];
   return value && value.trim() ? value.trim() : undefined;
@@ -192,6 +195,7 @@ async function callDeepSeek(req: AiRequest, maxTokens: number): Promise<DeepSeek
  */
 async function runDeepSeek(req: AiRequest): Promise<AiResult | null> {
   let budget = aiMaxTokens(req.maxTokens);
+  const startedAt = Date.now();
 
   for (;;) {
     const attempt = await callDeepSeek(req, budget);
@@ -200,6 +204,14 @@ async function runDeepSeek(req: AiRequest): Promise<AiResult | null> {
     // A refusal is a real answer: the caller decides what to do about it.
     if (attempt.refused) return { text: "", refused: true };
     if (!attempt.outOfRoom || budget >= HARD_MAX_TOKENS) return null;
+    // Each escalation also doubles the timeout, so an unbounded ladder could
+    // sit on one stage for eight minutes before giving up. Stop starting new
+    // attempts once the call has already had a fair share of the wall clock —
+    // the caller's offline fallback beats another four-minute wait.
+    if (Date.now() - startedAt > RETRY_DEADLINE_MS) {
+      console.warn(`[ai] deepseek spent ${Math.round((Date.now() - startedAt) / 1000)}s without answering — giving up.`);
+      return null;
+    }
 
     const raised = Math.min(HARD_MAX_TOKENS, budget * 2);
     if (raised <= budget) return null;

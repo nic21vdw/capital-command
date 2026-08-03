@@ -451,6 +451,11 @@ export function PipelinePage() {
   const run = active?.run;
   const stages = active?.stages ?? (launching ? LAUNCHING_STAGES : null);
   const schedulable = active?.schedulable;
+  // A count of zero means one of two very different things. "segments pending"
+  // next to a Skipped segments stage read as a contradiction — a stage that
+  // gave up is never going to deliver anything.
+  const pendingLabel = (key: PipelineStageKey, noun: string) =>
+    stages?.[key].status === "skipped" || stages?.[key].status === "error" ? `no ${noun}` : `${noun} pending`;
   const longformHref = run?.longformProjectId ? `/longform?open=${run.longformProjectId}` : "/longform";
   const audioHref =
     run?.longformProjectId && run.longformExportId
@@ -587,7 +592,17 @@ export function PipelinePage() {
           <p className="mt-3 text-center text-xs text-[var(--muted-foreground)]">
             One stream in — long-form edit, shorts, MP3, carousel, and posts come back out.
           </p>
-          {loaded && runList()}
+          {loaded ? (
+            runList()
+          ) : (
+            // Never render this screen as a bare "no runs" state. The first
+            // fetch can be slow (or blocked behind heavy work), and an empty
+            // landing page made a run that was mid-flight look like it had
+            // never existed.
+            <p className="mt-8 text-center text-xs text-[var(--muted-foreground)]">
+              Checking for runs already in flight…
+            </p>
+          )}
         </div>
         {fileInput}
       </div>
@@ -733,11 +748,15 @@ export function PipelinePage() {
         <div className="mt-3 space-y-3">
           <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-[var(--muted-foreground)]">
             <span>{schedulable.clipsReady} shorts</span>
-            <span>{schedulable.longformReady ? "1 long-form video" : "long-form pending"}</span>
-            <span>{schedulable.segments > 0 ? `${schedulable.segments} topic segments` : "segments pending"}</span>
-            <span>{schedulable.audioReady ? "1 MP3" : "MP3 pending"}</span>
-            <span>{schedulable.carouselSlides > 0 ? `${schedulable.carouselSlides} slides` : "slides pending"}</span>
-            <span>{schedulable.visualAdReady ? "visual ad ready" : "visual ad pending"}</span>
+            <span>{schedulable.longformReady ? "1 long-form video" : pendingLabel("longform", "long-form")}</span>
+            <span>
+              {schedulable.segments > 0 ? `${schedulable.segments} topic segments` : pendingLabel("segments", "segments")}
+            </span>
+            <span>{schedulable.audioReady ? "1 MP3" : pendingLabel("audio", "MP3")}</span>
+            <span>
+              {schedulable.carouselSlides > 0 ? `${schedulable.carouselSlides} slides` : pendingLabel("images", "slides")}
+            </span>
+            <span>{schedulable.visualAdReady ? "visual ad ready" : pendingLabel("visuals", "visual ad")}</span>
             <span>{schedulable.posts} posts</span>
             {schedulable.queued > 0 && <span className="text-emerald-300">{schedulable.queued} queued</span>}
           </div>

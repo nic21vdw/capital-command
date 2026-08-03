@@ -30,32 +30,102 @@ type Transcriber = (
   options: Record<string, unknown>
 ) => Promise<{ text: string; chunks?: WordChunk[] }>;
 
+/** Turns one window of PCM into word chunks, wherever the model happens to run. */
+type ChunkRunner = (audio: Float32Array) => Promise<WordChunk[]>;
+
+const TRANSCRIBE_OPTIONS = { chunk_length_s: 30, stride_length_s: 5, return_timestamps: "word" };
+
 // The pipeline is expensive to build (loads ~150 MB of weights), so it is
 // created once and shared. globalThis survives Next dev's per-route module
 // graphs, mirroring how job state is stored.
-type WhisperGlobal = typeof globalThis & { __whisperPipeline?: Promise<Transcriber>; __whisperModelId?: string };
+type WhisperGlobal = typeof globalThis & { __whisperRunner?: Promise<ChunkRunner>; __whisperModelId?: string };
 const g = globalThis as WhisperGlobal;
 
-async function getTranscriber(): Promise<Transcriber> {
-  const id = modelId();
-  if (!g.__whisperPipeline || g.__whisperModelId !== id) {
-    g.__whisperModelId = id;
-    g.__whisperPipeline = (async () => {
-      const { env, pipeline } = await import("@huggingface/transformers");
-      await mkdir(MODEL_CACHE_DIR, { recursive: true });
-      env.cacheDir = MODEL_CACHE_DIR;
-      const transcriber = await pipeline("automatic-speech-recognition", id, { dtype: "q8" });
-      return transcriber as unknown as Transcriber;
-    })();
-    // A failed load (offline, bad model id) must not poison later attempts.
-    g.__whisperPipeline.catch(() => {
+const workerPath = path.join(process.cwd(), "src", "lib", "clipping", "whisper-worker.mjs");
+
+/**
+ * ONNX inference is synchronous and pins the thread for as long as it runs — a
+ * half-hour stream used to leave the whole Next server unable to answer a
+ * request for fifteen minutes, so `/pipeline` rendered as an empty app while a
+ * run was mid-flight. Off-thread is therefore the normal path; a machine where
+ * the worker can't start (no worker file in a packaged build, a spawn failure)
+ * falls back to the old in-process runner rather than losing transcription.
+ */
+async function startWorkerRunner(id: string): Promise<ChunkRunner | null> {
+  try {
+    const { Worker } = await import("node:worker_threads");
+    const worker = new Worker(workerPath, { workerData: { modelId: id, cacheDir: MODEL_CACHE_DIR } });
+    const pending = new Map<number, { resolve: (chunks: WordChunk[]) => void; reject: (error: Error) => void }>();
+    let seq = 0;
+
+    const fail = (error: Error) => {
+      for (const entry of pending.values()) entry.reject(error);
+      pending.clear();
       if (g.__whisperModelId === id) {
-        g.__whisperPipeline = undefined;
+        g.__whisperRunner = undefined;
+        g.__whisperModelId = undefined;
+      }
+    };
+
+    worker.on("message", (message: { id?: number; chunks?: WordChunk[]; error?: string }) => {
+      if (message.id == null) return;
+      const entry = pending.get(message.id);
+      if (!entry) return;
+      pending.delete(message.id);
+      if (message.error) entry.reject(new Error(message.error));
+      else entry.resolve(message.chunks ?? []);
+    });
+    worker.on("error", fail);
+    worker.on("exit", () => fail(new Error("The transcription worker stopped before it answered.")));
+    // The worker must never be what keeps a CLI process alive.
+    worker.unref();
+
+    const ready = await new Promise<{ ready: boolean; error?: string }>((resolve, reject) => {
+      worker.once("message", (message: { ready: boolean; error?: string }) => resolve(message));
+      worker.once("error", reject);
+    });
+    if (!ready.ready) {
+      await worker.terminate();
+      return null;
+    }
+
+    return (audio) => {
+      const messageId = (seq += 1);
+      // The buffer is transferred, so hand the worker a copy the caller no
+      // longer needs rather than detaching the caller's own array.
+      const copy = audio.slice();
+      return new Promise<WordChunk[]>((resolve, reject) => {
+        pending.set(messageId, { resolve, reject });
+        worker.postMessage({ id: messageId, pcm: copy.buffer }, [copy.buffer]);
+      });
+    };
+  } catch {
+    return null;
+  }
+}
+
+async function inProcessRunner(id: string): Promise<ChunkRunner> {
+  const { env, pipeline } = await import("@huggingface/transformers");
+  await mkdir(MODEL_CACHE_DIR, { recursive: true });
+  env.cacheDir = MODEL_CACHE_DIR;
+  const transcriber = (await pipeline("automatic-speech-recognition", id, { dtype: "q8" })) as unknown as Transcriber;
+  return async (audio) => (await transcriber(audio, TRANSCRIBE_OPTIONS)).chunks ?? [];
+}
+
+async function getRunner(): Promise<ChunkRunner> {
+  const id = modelId();
+  if (!g.__whisperRunner || g.__whisperModelId !== id) {
+    g.__whisperModelId = id;
+    g.__whisperRunner = (async () => (await startWorkerRunner(id)) ?? (await inProcessRunner(id)))();
+    // A failed load (offline, bad model id) must not poison later attempts.
+    g.__whisperRunner.catch(() => {
+      if (g.__whisperModelId === id) {
+        g.__whisperRunner = undefined;
         g.__whisperModelId = undefined;
       }
     });
   }
-  return g.__whisperPipeline;
+  return g.__whisperRunner;
 }
 
 const PCM_RATE = 16000;
@@ -105,6 +175,16 @@ export function wordsFromChunks(chunks: WordChunk[]): CaptionWord[] {
     if (!text) continue;
     const rawStart = chunk.timestamp?.[0];
     const rawEnd = chunk.timestamp?.[1];
+    // The model splits hyphenated and contracted words into separate tokens
+    // ("push", "-ups"), and every downstream consumer re-joins tokens with a
+    // space — which burned "push -ups" into finished captions. A token that
+    // opens with a hyphen or apostrophe is the tail of the word before it.
+    const previous = entries[entries.length - 1];
+    if (previous && /^[-']/.test(text)) {
+      previous.text += text;
+      if (rawEnd != null && Number.isFinite(rawEnd)) previous.end = rawEnd;
+      continue;
+    }
     entries.push({
       text,
       start: rawStart != null && Number.isFinite(rawStart) ? rawStart : null,
@@ -163,6 +243,22 @@ export function wordsFromChunks(chunks: WordChunk[]): CaptionWord[] {
   return words;
 }
 
+/**
+ * Drops words stamped past the end of the media and trims the one that
+ * straddles it. A word may legitimately end a hair after the probed duration
+ * (VBR headers round), so only clearly-past stamps are discarded.
+ */
+export function clampWordsToDuration(words: CaptionWord[], durationSec: number): CaptionWord[] {
+  if (!Number.isFinite(durationSec) || durationSec <= 0) return words;
+  const limit = durationSec + 0.5;
+  const kept: CaptionWord[] = [];
+  for (const word of words) {
+    if (word.start >= limit) continue;
+    kept.push(word.end > limit ? { ...word, end: Math.max(word.start + 0.02, limit) } : word);
+  }
+  return kept;
+}
+
 // Long recordings are decoded and transcribed in windows this long. 10 minutes
 // of 16 kHz f32 PCM is ~38 MB — bounded no matter how long the source is; a
 // single-array decode of a multi-hour stream (~230 MB/hour) would OOM.
@@ -199,22 +295,15 @@ export async function transcribeMedia(
   workDir: string,
   options: TranscribeOptions = {}
 ): Promise<CaptionSegment[]> {
-  let transcriber: Transcriber;
+  let transcribe: ChunkRunner;
   try {
-    transcriber = await getTranscriber();
+    transcribe = await getRunner();
   } catch (error) {
     throw new Error(
       `The local transcription model could not be loaded (${error instanceof Error ? error.message.slice(0, 160) : String(error)}). ` +
         "The first run needs internet access to download the Whisper model; captions can still be added manually in the editor."
     );
   }
-
-  const transcribe = (audio: Float32Array) =>
-    transcriber(audio, {
-      chunk_length_s: 30,
-      stride_length_s: 5,
-      return_timestamps: "word"
-    });
 
   // The window plan needs the media duration; when the probe fails, fall back
   // to a single whole-file decode (short/odd files, exactly the old behavior).
@@ -235,8 +324,7 @@ export async function transcribeMedia(
       const audio = await decodePcm(mediaPath, workDir, { startSec: offset, durationSec: windowSec });
       decodedSamples += audio.length;
       if (audio.length >= PCM_RATE * 0.25) {
-        const result = await transcribe(audio);
-        allChunks.push(...offsetWordChunks(result.chunks ?? [], offset));
+        allChunks.push(...offsetWordChunks(await transcribe(audio), offset));
       }
       // The probed duration can overshoot the real audio (VBR headers); a
       // short decode means the stream actually ended inside this window.
@@ -246,15 +334,18 @@ export async function transcribeMedia(
     const audio = await decodePcm(mediaPath, workDir, targetSec !== null ? { durationSec: targetSec } : {});
     decodedSamples = audio.length;
     if (audio.length >= PCM_RATE * 0.25) {
-      const result = await transcribe(audio);
-      allChunks.push(...(result.chunks ?? []));
+      allChunks.push(...(await transcribe(audio)));
     }
   }
 
   if (decodedSamples < PCM_RATE * 0.5) {
     throw new Error("The audio track is too short to transcribe.");
   }
-  const words = wordsFromChunks(allChunks);
+  // Whisper stamps within its own 30s decode chunk, so the tail of a short
+  // recording can be stamped past the end of the media — a 25s video came back
+  // with a word at 29.9s, which then read as a "moment" nothing could show.
+  const decodedSec = decodedSamples / PCM_RATE;
+  const words = clampWordsToDuration(wordsFromChunks(allChunks), targetSec ?? decodedSec);
   if (words.length === 0) {
     throw new Error("No speech was detected in this video. You can still add caption segments manually in the editor.");
   }

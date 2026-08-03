@@ -22,7 +22,7 @@ import { ensureClipThumbnail } from "@/lib/clipping/thumbnails";
 import { fetchSourceCaptions } from "@/lib/clipping/transcription";
 import { selectByTranscript } from "@/lib/clipping/transcript-select";
 import { refineClipVirality, viralityRefinementConfigured } from "@/lib/clipping/virality";
-import { transcribeMedia } from "@/lib/clipping/whisper";
+import { transcribeSource } from "@/lib/clipping/source-transcript";
 import type { ClipCandidate, ClipJob } from "@/lib/clipping/types";
 
 const clipsRoot = dataPath("clips");
@@ -228,7 +228,7 @@ export async function fetchJobCaptions(id: string, force = false): Promise<ClipJ
       const meta = await readSourceMeta(job.sourceId);
       if (!meta) throw new Error("The uploaded source file for this job is gone. Upload the video again.");
       if (!meta.hasAudio) throw new Error("This video has no audio track, so there is nothing to transcribe.");
-      segments = await transcribeMedia(sourceFilePath(meta), workDir(id));
+      segments = await transcribeSource(job.sourceId, sourceFilePath(meta), workDir(id));
     } else {
       // Reuse the audio the pipeline downloaded when it still exists;
       // fetchSourceCaptions re-downloads it otherwise.
@@ -431,7 +431,7 @@ async function runLocalPipeline(job: ClipJob, meta: SourceMeta) {
   let transcript: ClipJob["sourceCaptions"] = [];
   if (audioPath) {
     try {
-      transcript = await transcribeMedia(audioPath, workDir(job.id));
+      transcript = await transcribeSource(job.sourceId, audioPath, workDir(job.id));
       if (transcript.length > 0) {
         await update(job, {
           sourceCaptions: transcript,
@@ -795,7 +795,16 @@ async function renderClipIndexes(job: ClipJob, indexes: number[]) {
           await renderCaptionedVertical(produced, downloadPath, null, true);
         }
         clip.downloadFile = downloadName;
+        // The preview only exists to give the card something to show before the
+        // ready render lands. Now that it has, the preview is a third copy of
+        // the same clip on disk for nothing — ClipFrame prefers `downloadFile`
+        // whenever it is set, so drop the file AND the reference together.
+        const stalePreview = clip.previewFile;
+        clip.previewFile = undefined;
         await persistJobs();
+        if (stalePreview) {
+          await unlink(path.join(outputDir(job.id), stalePreview)).catch(() => undefined);
+        }
       } catch {
         // Even the plain vertical render failed (ffmpeg trouble); the UI
         // falls back to the master and publishing re-renders on demand.

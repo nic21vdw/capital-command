@@ -11,6 +11,20 @@ committed. The release moves that block under a dated heading.
 
 ## Unreleased
 
+- **The Stream Pipeline stops stalling, inventing and paying twice.** A run
+  with no audio track, no whole-recording transcript, or a settled job with no
+  moment used to sit "running" forever — one had been reading a transcript for
+  five days. Those now settle or skip. A silent or music-only stream no longer
+  produces six confident, schedulable posts about a stream that never happened:
+  posts, carousels and visual moments require real spoken words. The same audio
+  was being transcribed TWICE per run, concurrently — the most expensive thing a
+  run does, doubled — and now the long-form project and the clip job share one
+  transcript per source. Whisper moved off the main thread, so a half-hour
+  stream no longer leaves the whole app answering nothing for fifteen minutes,
+  and /pipeline responds in ~36ms warm instead of up to 6.6s. Plus loudness
+  normalisation on the final mix, the hook anchored to first speech rather than
+  second zero, and the redundant third copy of every clip deleted.
+
 - **Sourceflow can now run a coordinated AI team by voice or text.** The new
   Sourceflow Agents screen sends a goal to Strategy, Research, Production and
   Operations agents through ChatGPT or Grok, combines their work into one plan,

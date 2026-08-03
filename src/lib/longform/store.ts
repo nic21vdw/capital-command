@@ -5,7 +5,7 @@ import { detectSilences } from "@/lib/clipping/analysis";
 import { probeDuration, runFfmpeg } from "@/lib/clipping/ffmpeg";
 import { listJobs } from "@/lib/clipping/jobs";
 import { readSourceMeta, saveSourceFromUrl, sourceFilePath } from "@/lib/clipping/sources";
-import { transcribeMedia } from "@/lib/clipping/whisper";
+import { readSourceTranscript, transcribeSource } from "@/lib/clipping/source-transcript";
 import { DEFAULT_PACE, buildSegments, hookCaptions, planCaptions, planHook } from "@/lib/longform/plan";
 import { buildTopics, type TopicPlanOptions } from "@/lib/longform/topics";
 import type { LongformPace, LongformProject } from "@/lib/longform/types";
@@ -353,6 +353,8 @@ async function fullSourceTranscript(project: LongformProject): Promise<CaptionSe
     return project.transcript;
   }
   if (!project.sourceId) return null;
+  const shared = await readSourceTranscript(project.sourceId);
+  if (shared && transcriptCoverage(shared, project.durationSec) >= TOPIC_COVERAGE) return shared;
   try {
     const jobs = await listJobs();
     for (const job of jobs) {
@@ -376,6 +378,22 @@ const NO_TRANSCRIPT_NOTE =
  * can still succeed once the clips subsystem has transcribed the source.
  */
 export async function planProjectTopics(
+  id: string,
+  options?: TopicPlanOptions
+): Promise<LongformProject | undefined> {
+  // Analysis fires this the moment a project turns ready, and the Stream
+  // Pipeline fires it again as soon as the full transcript lands. Both can be
+  // in flight at once, and `buildTopics` is a model call — share the first.
+  const running = topicPlans.get(id);
+  if (running) return running;
+  const plan = planTopicsNow(id, options).finally(() => topicPlans.delete(id));
+  topicPlans.set(id, plan);
+  return plan;
+}
+
+const topicPlans = new Map<string, Promise<LongformProject | undefined>>();
+
+async function planTopicsNow(
   id: string,
   options?: TopicPlanOptions
 ): Promise<LongformProject | undefined> {
@@ -452,7 +470,8 @@ async function runAnalysis(project: LongformProject) {
   if (audioPath) {
     try {
       const isLongSource = durationSec > FULL_TRANSCRIBE_MAX_SEC;
-      transcript = await transcribeMedia(
+      transcript = await transcribeSource(
+        project.sourceId,
         audioPath,
         projectWorkDir(project.id),
         isLongSource ? { maxSeconds: LONG_SOURCE_TRANSCRIBE_SEC } : {}

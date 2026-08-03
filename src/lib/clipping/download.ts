@@ -207,8 +207,20 @@ export function cleanYtDlpError(error: unknown) {
   if (/playlist_type\/DVR|\/itag\/|googlevideo|\/keepalive\/|\/sparams\//i.test(message)) {
     return "This source only offered a live/DVR video stream that can't be cut into a clip right now. Retrying with alternate players didn't find a downloadable format — this usually clears up once the stream finishes processing into a regular VOD, so try again later.";
   }
+  // A network failure arrives as a multi-line Python traceback
+  // ("HTTPSConnectionPool(host=…): Max retries exceeded…"), which read as a
+  // wall of noise where the source stage shows its error.
+  if (
+    /HTTPSConnection|HTTPConnection|Max retries exceeded|NewConnectionError|getaddrinfo|Failed to resolve|name resolution|Connection refused|Connection reset|urlopen error|timed out/i.test(
+      message
+    )
+  ) {
+    return "Could not reach that URL — the network request failed. Check the link and your connection, then try again.";
+  }
   return message
     .replace(/https?:\/\/\S+/g, "[media URL]")
+    .replace(/\s+/g, " ")
+    .trim()
     .slice(0, 280);
 }
 

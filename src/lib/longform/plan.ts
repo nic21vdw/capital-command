@@ -102,10 +102,10 @@ export function buildSegments(durationSec: number, silences: SilenceRange[], pac
  * Picks where the hook should end: as close to ~7 seconds as possible while
  * landing on a completed thought (never mid-sentence), clamped to 4-10s.
  */
-export function planHookEnd(transcript: CaptionSegment[], durationSec: number): number {
-  const maxEnd = Math.min(HOOK_MAX_SEC, Math.max(1, durationSec));
-  const minEnd = Math.min(HOOK_MIN_SEC, maxEnd);
-  const target = Math.min(HOOK_TARGET_SEC, maxEnd);
+export function planHookEnd(transcript: CaptionSegment[], durationSec: number, startSec = 0): number {
+  const maxEnd = Math.min(startSec + HOOK_MAX_SEC, Math.max(1, durationSec));
+  const minEnd = Math.min(startSec + HOOK_MIN_SEC, maxEnd);
+  const target = Math.min(startSec + HOOK_TARGET_SEC, maxEnd);
   if (transcript.length === 0) return round3(target);
   const resolved = resolveThoughtEnd(transcript, target, {
     minEnd,
@@ -157,19 +157,36 @@ export const VIRAL_HOOK_CAPTION_STYLE: CaptionStyle = {
   uppercase: true
 };
 
+/**
+ * Where speech actually begins. A stream that opens on a title card, music, or
+ * dead air leaves the first seconds untranscribed — anchoring the hook at 0
+ * then produced a hook window with no words in it at all, which is how a
+ * fully-transcribed stream still exported a caption-less hook.
+ */
+function firstSpeechStart(transcript: CaptionSegment[], durationSec: number): number {
+  const first = transcript.find((segment) => segment.text.trim().length > 0);
+  if (!first) return 0;
+  return Math.min(Math.max(0, first.start), Math.max(0, durationSec - HOOK_MIN_SEC));
+}
+
 /** Builds the default hook plan for a freshly analyzed project. */
 export function planHook(transcript: CaptionSegment[], durationSec: number): LongformHook {
-  const end = planHookEnd(transcript, durationSec);
+  const start = firstSpeechStart(transcript, durationSec);
+  const end = planHookEnd(transcript, durationSec, start);
   return {
     enabled: true,
-    start: 0,
+    start,
     end,
-    zoom: 1.3,
+    // A gentle push-in reads as energy without cropping. The old 1.3x at 0.35
+    // assumed a face in the upper third and sliced the edges off any stream
+    // that is mostly screen-share — sidebars, editor gutters and the webcam
+    // inset all live exactly where that crop landed.
+    zoom: 1.12,
     focusX: 0.5,
-    focusY: 0.35,
+    focusY: 0.45,
     captionsEnabled: true,
     highlightCurrentWord: true,
-    captions: hookCaptions(transcript, 0, end),
+    captions: hookCaptions(transcript, start, end),
     captionStyle: { ...VIRAL_HOOK_CAPTION_STYLE }
   };
 }

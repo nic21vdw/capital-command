@@ -21,6 +21,23 @@ function clean(value: string | undefined) {
   return (value ?? "").replace(/\s+/g, " ").trim();
 }
 
+// Whisper narrates non-speech audio as bracketed tags — "(bells ringing)",
+// "[MUSIC]". A tone, a music bed or a silent room transcribes to nothing but
+// these, which every downstream writer then treated as a stream worth writing
+// about: 25 seconds of a sine wave produced six confident, schedulable social
+// posts describing a conversation that never happened.
+const SOUND_TAG = /[([][^)\]]*[)\]]/g;
+
+/** Words actually spoken, ignoring Whisper's non-speech annotations. */
+export function speechWordCount(text: string): number {
+  return clean(text.replace(SOUND_TAG, " "))
+    .split(" ")
+    .filter((word) => /[a-z0-9]/i.test(word)).length;
+}
+
+/** Below this, a transcript is noise annotation rather than material to write from. */
+export const MIN_SPEECH_WORDS = 25;
+
 function fallbackHeadline(transcript: string) {
   const words = transcript.replace(/[.!?].*$/, "").split(/\s+/).filter(Boolean).slice(0, 8);
   const line = words.join(" ").replace(/^[,.:;\-]+|[,.:;\-]+$/g, "");
@@ -29,25 +46,32 @@ function fallbackHeadline(transcript: string) {
 
 export function visualMomentFromClips(
   clips: ClipCandidate[],
-  captions: CaptionSegment[] = []
+  captions: CaptionSegment[] = [],
+  durationSec?: number
 ): VisualMoment | null {
+  const limit = durationSec && durationSec > 0 ? durationSec : Infinity;
   const ranked = [...clips]
-    .filter((clip) => clip.end > clip.start)
+    .filter((clip) => clip.end > clip.start && clip.start < limit)
     .sort((a, b) => b.score - a.score);
   const clip = ranked[0];
   if (!clip) return null;
 
   const transcript = clean(
     captions
-      .filter((segment) => segment.end >= clip.start && segment.start <= clip.end)
+      .filter((segment) => segment.end >= clip.start && segment.start <= clip.end && segment.start < limit)
       .map((segment) => segment.text)
       .join(" ")
   );
   const hook = clean(clip.hookQuote);
+  const spoken = transcript || hook;
+  // Nothing anyone can build an ad around. Reporting a moment here is how a
+  // silent video ended up with a placeholder headline over an empty quote and
+  // still counted itself "ready to schedule".
+  if (speechWordCount(spoken) === 0) return null;
 
   return {
-    headline: clean(clip.title) || fallbackHeadline(transcript || hook),
-    transcript: transcript || hook,
+    headline: clean(clip.title) || fallbackHeadline(spoken),
+    transcript: spoken,
     start: clip.start,
     end: clip.end
   };

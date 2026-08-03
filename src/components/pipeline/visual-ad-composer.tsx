@@ -178,10 +178,13 @@ export function VisualAdComposer({
           <div className="overflow-hidden rounded-xl border border-[var(--border)] bg-black">
             <video
               ref={videoRef}
-              src={`/api/clips/sources/${encodeURIComponent(sourceId)}/stream`}
+              // The media fragment lands the browser on the moment with a range
+              // request instead of pulling the file from the top and seeking
+              // afterwards — the master here is routinely well over 100 MB.
+              src={`/api/clips/sources/${encodeURIComponent(sourceId)}/stream#t=${moment.start.toFixed(2)}`}
               controls
               preload="metadata"
-              className="aspect-video w-full"
+              className="max-h-[440px] w-full object-contain"
               onLoadedMetadata={(event) => {
                 event.currentTarget.currentTime = Math.min(moment.start, Math.max(0, event.currentTarget.duration - 0.2));
               }}
@@ -267,7 +270,7 @@ export function VisualAdComposer({
                 alt="Photorealistic livestream advertising reference"
                 width={1120}
                 height={1400}
-                className="block max-h-[440px] w-full object-cover"
+                className="block max-h-[440px] w-full object-contain"
               />
               <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black via-black/75 to-transparent p-4 pt-16">
                 <div className="flex items-center gap-2 text-xs font-semibold text-violet-200">

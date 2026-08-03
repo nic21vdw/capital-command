@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { FFMPEG_MISSING_MESSAGE, resolveFfmpeg } from "@/lib/clipping/ffmpeg";
-import { createRunFromSource, createRunFromUrl, listRuns, runOverview } from "@/lib/pipeline/runs";
+import { createRunFromSource, createRunFromUrl, listRuns, overviewContext, runOverview } from "@/lib/pipeline/runs";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -11,7 +11,9 @@ export const dynamic = "force-dynamic";
  */
 export async function GET() {
   const runs = await listRuns();
-  const overviews = await Promise.all(runs.map((run) => runOverview(run)));
+  // One app-data read and one queue read for the whole poll, not one per run.
+  const context = overviewContext();
+  const overviews = await Promise.all(runs.map((run) => runOverview(run, context)));
   return NextResponse.json({ runs: overviews });
 }
 
