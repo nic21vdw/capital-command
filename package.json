@@ -9,6 +9,8 @@
     "dev:sandbox": "next dev --port 3100",
     "dev:worktree": "powershell -NoProfile -ExecutionPolicy Bypass -File .\\scripts\\dev-worktree.ps1",
     "app:update": "powershell -NoProfile -ExecutionPolicy Bypass -File .\\scripts\\update-app.ps1",
+    "app:open": "powershell -NoProfile -ExecutionPolicy Bypass -File .\\scripts\\open-app.ps1",
+    "app:shortcut": "powershell -NoProfile -ExecutionPolicy Bypass -File .\\scripts\\install-shortcut.ps1",
     "prebuild": "node scripts/prepare-dev-cache.mjs",
     "build": "next build",
     "postbuild": "node scripts/stamp-build-commit.mjs",

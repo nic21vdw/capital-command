@@ -66,6 +66,37 @@ work that never made it into a pull request.
   in the sandbox against real tokens. The sandbox has no queues by design —
   keep it that way.
 
+## Opening production as a desktop app
+
+`Capital Command.bat` in the production folder starts the server if it isn't
+up and opens the app in a windowed browser — no tabs, no address bar, its own
+taskbar entry. `npm run app:shortcut` puts it on the Desktop and Start Menu
+with the icon; Chrome will also offer "Install Capital Command" because
+`src/app/manifest.ts` declares it installable.
+
+Closing the window does NOT stop the server, and must not: the publish runner
+and the Threads autopilot post through it all day whether or not anything is
+on screen.
+
+Run `app:shortcut` from the PRODUCTION folder only. Like the scheduled-task
+registrations, it points at whatever checkout it runs in — from the sandbox it
+would put a shortcut to port 3000 on your desktop that starts the wrong copy.
+
+## Never relocate the build cache outside a synced folder
+
+`scripts/prepare-dev-cache.mjs` moves `.next` out of OneDrive, because
+OneDrive locks build output mid-write. It does that ONLY for checkouts inside
+OneDrive, and that restriction is load-bearing: code emitted under the temp
+cache resolves its dependencies from that folder's parents, so a shared
+`node_modules` link there puts two copies of React in one bundle. That
+prerenders as `Cannot read properties of null (reading 'useContext')` on
+`/404`, and a build that survives it serves a page whose client never
+hydrates — the app renders and no button works.
+
+If you touch that script: the dependency link must stay per-checkout, and a
+sibling of the relocated `.next` rather than a child, because `next build`
+empties `.next` before it starts.
+
 ## Tests
 
 `npm test` is the suite (`vitest run`). It used to be a PowerShell script that
