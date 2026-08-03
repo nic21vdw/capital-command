@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import {
   AtSign,
+  Bot,
   CalendarRange,
   ChevronLeft,
   ChevronRight,
@@ -94,6 +95,7 @@ const PIPELINE_STAGES: PipelineStage[] = [
 
 /** Supporting tools that feed the pipeline but sit outside the main flow. */
 const STUDIO_ITEMS: NavItem[] = [
+  { href: "/agents", label: "Sourceflow Agents", icon: Bot },
   { href: "/ideas", label: "Idea Lab", icon: Lightbulb },
   { href: "/scripts", label: "Scripts", icon: FileText },
   { href: "/outliers", label: "Outlier Radar", icon: Radar },

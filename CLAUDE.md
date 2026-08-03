@@ -5,6 +5,24 @@ the production checkout stays on `main` and is never edited; work happens
 in the sandbox worktree on `dev`. The rest of this file is subsystem
 conventions.
 
+## Sourceflow Agents (`/agents`, `src/lib/agents`)
+
+The agent command centre runs a bounded team of specialist model calls in
+parallel, then asks an orchestrator to reconcile their work. Agent transcripts,
+steps and approvals live in `data/agents/runs.json` through `dataPath()` and do
+not belong in the main app-data document.
+
+- OpenAI and xAI credentials stay server-side in `.env`; API responses expose
+  only configured booleans and model labels.
+- Model output never changes app state directly. It can only propose an action
+  from the allowlist in `actions.ts`, and a user must approve that exact action
+  before its validated executor runs.
+- Publishing, token changes, deletes and scheduled-task registration are not
+  agent tools. Do not add them without a separate fail-closed approval design.
+- Keep provider transport behind `provider.ts`, team behavior behind
+  `orchestrator.ts`, and durable history behind `store.ts` so the UI and model
+  cannot bypass the safety boundary.
+
 ## Stream Pipeline (`/pipeline`)
 
 One stream in (VOD link or uploaded file) → every format out, ready to

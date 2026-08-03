@@ -11,6 +11,13 @@ committed. The release moves that block under a dated heading.
 
 ## Unreleased
 
+- **Sourceflow can now run a coordinated AI team by voice or text.** The new
+  Sourceflow Agents screen sends a goal to Strategy, Research, Production and
+  Operations agents through ChatGPT or Grok, combines their work into one plan,
+  speaks the answer aloud, queues follow-up prompts, and keeps a durable run
+  history. Agents can inspect the content workspace, but any idea save or new
+  pipeline run waits in an approval inbox until Nic explicitly approves it.
+
 - **A release actually replaces the running app.** Two bugs stopped it: the
   release script read the current branch into a variable that PowerShell treats
   as the same one as its own -Branch parameter, so it released main into main;

@@ -43,6 +43,7 @@ const APP_PREFIXES = [
   "S3_",
   "THREADS_",
   "TIKTOK_",
+  "XAI_",
   "YOUTUBE_"
 ];
 
