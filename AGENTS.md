@@ -46,8 +46,10 @@ Create or refresh it with `npm run dev:worktree`.
 4. Commit and push `dev`. Nothing on `dev` touches the running app.
 5. The running app notices. A banner appears at the top of every screen
    saying an update is ready, listing those changelog lines, and its **Update
-   now** button runs the same release — `update-capital-command.bat` still
-   works and does exactly the same thing.
+   now** button runs the same release. **Check for updates** in the sidebar,
+   above Settings, asks the same question on demand and installs from the same
+   button — and `update-capital-command.bat` still works and does exactly the
+   same thing.
 
 `update-app.ps1` dates the Unreleased block as part of releasing and pushes
 `main` to `origin/dev`, so after a release the sandbox's baseline is what is

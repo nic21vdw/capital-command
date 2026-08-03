@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { parsePendingCommits, parseUnreleased, shouldShowBanner } from "./shared";
+import {
+  parsePendingCommits,
+  parseUnreleased,
+  shouldShowBanner,
+  updateCheckState
+} from "./shared";
 
 const CHANGELOG = `# Changelog
 
@@ -93,5 +98,33 @@ describe("parsePendingCommits", () => {
   it("reads no commits as nothing pending, not as one blank commit", () => {
     expect(parsePendingCommits("")).toEqual([]);
     expect(parsePendingCommits("\n\n")).toEqual([]);
+  });
+});
+
+describe("updateCheckState", () => {
+  const releasable = { releasable: true, pending: [{ commit: "a1b2c3d", subject: "A change" }] };
+
+  it("says nothing until a check has come back", () => {
+    expect(updateCheckState(null, "idle")).toBe("unknown");
+  });
+
+  it("separates up to date from an update waiting", () => {
+    expect(updateCheckState(releasable, "idle")).toBe("available");
+    expect(updateCheckState({ ...releasable, pending: [] }, "idle")).toBe("up-to-date");
+  });
+
+  it("never claims a sandbox is up to date", () => {
+    expect(updateCheckState({ releasable: false, pending: [] }, "idle")).toBe("elsewhere");
+    expect(updateCheckState({ ...releasable, releasable: false }, "idle")).toBe("elsewhere");
+  });
+
+  it("shows the release running whatever the last poll said was pending", () => {
+    expect(updateCheckState({ ...releasable, pending: [] }, "starting")).toBe("updating");
+    expect(updateCheckState({ ...releasable, pending: [] }, "updating")).toBe("updating");
+    expect(updateCheckState(null, "updating")).toBe("updating");
+  });
+
+  it("reports a check in flight over whatever it is about to replace", () => {
+    expect(updateCheckState(releasable, "checking")).toBe("checking");
   });
 });

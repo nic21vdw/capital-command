@@ -22,6 +22,14 @@ already shipped.
   a sandbox worktree can't release — and the release itself is still one
   deliberate click.
 
+- **"Check for updates" sits above Settings in the sidebar, and you can ask it
+  whenever you like.** It says which of the two answers it has — "Up to date"
+  with the build you are running, or "Update available" with the count — and
+  clicking it when something is waiting opens what's new with an "Install and
+  restart" button. The banner only speaks up when the app happens to notice a
+  release on its own; this answers the question on demand. Both read the same
+  check, so they can never disagree on screen or fetch twice.
+
 ## 2026-08-02
 
 - **An update actually replaces the running app.** Stopping the server only

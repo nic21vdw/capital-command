@@ -31,7 +31,9 @@ import {
   type LucideIcon
 } from "lucide-react";
 import { AppFooter } from "@/components/layout/app-footer";
+import { ReleaseProvider } from "@/components/layout/release-provider";
 import { UpdateBanner } from "@/components/layout/update-banner";
+import { UpdateCheckButton } from "@/components/layout/update-check";
 import { useAppData } from "@/components/providers/app-provider";
 import { cn } from "@/lib/utils";
 
@@ -610,6 +612,14 @@ function ProfileFooter({ collapsed = false }: { collapsed?: boolean }) {
 }
 
 export function AppShell({ children }: { children: React.ReactNode }) {
+  return (
+    <ReleaseProvider>
+      <AppChrome>{children}</AppChrome>
+    </ReleaseProvider>
+  );
+}
+
+function AppChrome({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const settingsActive = pathname === "/settings";
   // Read the stored preference after mount: reading localStorage inside the
@@ -712,6 +722,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           </nav>
 
           <div className="mt-4 space-y-3 border-t border-[var(--border)] pt-4">
+            <UpdateCheckButton collapsed={sidebarCollapsed} />
             <NavLink
               item={{ href: "/settings", label: "Settings", icon: Settings }}
               active={settingsActive}

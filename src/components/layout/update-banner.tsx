@@ -1,14 +1,11 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { ArrowDownToLine, ChevronDown, Loader2, X } from "lucide-react";
-import { shouldShowBanner, type ReleaseStatus } from "@/lib/release/shared";
+import { useRelease } from "@/components/layout/release-provider";
+import { shouldShowBanner } from "@/lib/release/shared";
 import { cn } from "@/lib/utils";
 
-type Status = ReleaseStatus & { updating?: boolean };
-
-const POLL_MS = 15 * 60 * 1000;
-const RESTART_POLL_MS = 4000;
 const DISMISSED_KEY = "cc.update.dismissed";
 
 /**
@@ -23,24 +20,9 @@ const DISMISSED_KEY = "cc.update.dismissed";
  * remembering to go looking.
  */
 export function UpdateBanner() {
-  const [status, setStatus] = useState<Status | null>(null);
+  const { status, busy, error, install } = useRelease();
   const [dismissed, setDismissed] = useState<string | null>(null);
   const [expanded, setExpanded] = useState(false);
-  const [phase, setPhase] = useState<"idle" | "starting" | "updating">("idle");
-  const [error, setError] = useState<string | null>(null);
-  const wentDown = useRef(false);
-
-  const load = useCallback(async () => {
-    try {
-      const response = await fetch("/api/update", { cache: "no-store" });
-      if (!response.ok) return null;
-      const next = (await response.json()) as Status;
-      setStatus(next);
-      return next;
-    } catch {
-      return null;
-    }
-  }, []);
 
   useEffect(() => {
     queueMicrotask(() => {
@@ -50,46 +32,7 @@ export function UpdateBanner() {
         // Non-critical preference read.
       }
     });
-    queueMicrotask(() => void load());
-    const timer = setInterval(() => void load(), POLL_MS);
-    return () => clearInterval(timer);
-  }, [load]);
-
-  // While a release runs the server is stopped, rebuilt and started again, so
-  // polling is expected to FAIL for a while and then succeed. Waiting for it
-  // to go down first is what stops the first poll — answered by the old server
-  // still shutting down — from reading as "done, nothing changed".
-  useEffect(() => {
-    if (phase !== "updating") return;
-    const timer = setInterval(async () => {
-      const next = await load();
-      if (!next) {
-        wentDown.current = true;
-        return;
-      }
-      if (wentDown.current && !next.pending.length) window.location.reload();
-    }, RESTART_POLL_MS);
-    return () => clearInterval(timer);
-  }, [phase, load]);
-
-  const update = async () => {
-    setError(null);
-    setPhase("starting");
-    try {
-      const response = await fetch("/api/update", { method: "POST" });
-      if (!response.ok) {
-        const body = (await response.json().catch(() => null)) as { error?: string } | null;
-        setError(body?.error ?? "Could not start the update.");
-        setPhase("idle");
-        return;
-      }
-      setPhase("updating");
-    } catch {
-      // The release can kill the server before the response comes back, which
-      // is a successful start, not a failure.
-      setPhase("updating");
-    }
-  };
+  }, []);
 
   const dismiss = () => {
     if (!status?.latest) return;
@@ -101,7 +44,6 @@ export function UpdateBanner() {
     }
   };
 
-  const busy = phase !== "idle";
   if (!status || !shouldShowBanner(status, { dismissed, busy })) return null;
 
   const count = status.pending.length;
@@ -140,7 +82,7 @@ export function UpdateBanner() {
             )}
             <button
               type="button"
-              onClick={update}
+              onClick={() => void install()}
               className="rounded-lg bg-[var(--accent)] px-3 py-1.5 text-sm font-semibold text-[var(--accent-contrast)] transition hover:opacity-90"
             >
               Update now

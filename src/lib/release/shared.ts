@@ -113,3 +113,32 @@ export function shouldShowBanner(
   // Dismissal lasts until the next commit lands, not forever.
   return !(dismissed && dismissed === status.latest);
 }
+
+/**
+ * What the sidebar's "Check for updates" button is currently saying.
+ *
+ * Same reasoning as `shouldShowBanner`: a button that answers "am I on the
+ * latest?" is only worth having if the answer is right, and the two ways of
+ * being wrong are both quiet. Claiming "up to date" before any check has come
+ * back reassures Nic about a question nothing has asked yet, and claiming it
+ * in a sandbox — which cannot compare itself to a release and cannot perform
+ * one — reassures him about the wrong checkout entirely.
+ */
+export type UpdateCheckState =
+  | "unknown"
+  | "checking"
+  | "updating"
+  | "available"
+  | "up-to-date"
+  | "elsewhere";
+
+export function updateCheckState(
+  status: Pick<ReleaseStatus, "releasable" | "pending"> | null,
+  phase: "idle" | "checking" | "starting" | "updating"
+): UpdateCheckState {
+  if (phase === "starting" || phase === "updating") return "updating";
+  if (phase === "checking") return "checking";
+  if (!status) return "unknown";
+  if (!status.releasable) return "elsewhere";
+  return status.pending.length ? "available" : "up-to-date";
+}

@@ -5,6 +5,32 @@ the production checkout stays on `main` and is never edited; work happens
 in the sandbox worktree on `dev`. The rest of this file is subsystem
 conventions.
 
+## Updating the app from inside it (`src/lib/release`)
+
+The banner and the sidebar's "Check for updates" (above Settings) both offer
+the release that `update-capital-command.bat` runs. `/api/update` reads the
+status and starts the script; it never merges, rebuilds or restarts anything
+itself.
+
+- "There is an update" means THE RUNNING BUILD is behind `origin/dev`, not the
+  checkout: `next start` serves `.next`, so a merge that never rebuilt is still
+  stale. `status.ts` compares `.next/BUILD_COMMIT`, not `HEAD`.
+- Only the production checkout on `main` may release, and `POST /api/update`
+  re-checks that itself — the UI hiding a button is not the gate.
+- No validation is duplicated in TypeScript. `update-app.ps1` refuses a dirty
+  or ahead checkout and backs out a conflicting merge; a second copy of those
+  rules here would only go stale.
+- The release kills the server running the request, so it is spawned
+  `detached` with its output going to `update-app.log` — there is no pipe left
+  to read by the time anything fails.
+- One `ReleaseProvider` holds the status for the whole shell. Every check costs
+  a `git fetch`, and two components polling separately would disagree on
+  screen. Any new surface reads `useRelease()`.
+- Decisions about what a surface SAYS live in `shared.ts`
+  (`shouldShowBanner`, `updateCheckState`) and are tested there — every way of
+  getting them wrong is silent, and that file is also the only half of the
+  module the client bundle may import.
+
 ## Sourceflow Agents (`/agents`, `src/lib/agents`)
 
 The agent command centre runs a bounded team of specialist model calls in
