@@ -7,7 +7,9 @@ A "release" is one run of `update-capital-command.bat`: it merges `dev` into
 reached the app you use — that is the whole point of the split.
 
 Every change made in the sandbox adds a line under **Unreleased** before it is
-committed. The release moves that block under a dated heading.
+committed. The release moves that block under a dated heading — `update-app.ps1`
+does that itself, so this file can never claim something is waiting that has
+already shipped.
 
 ## Unreleased
 
@@ -15,17 +17,24 @@ committed. The release moves that block under a dated heading.
   its justification more room, with clearer spacing, more readable type, and a
   two-line title editor instead of squeezing the text into one line.
 
-- **You can talk to Capital Command.** `/agents` opens a live speech-to-speech
-  session on OpenAI Realtime or Grok Voice. Say "check my channel" and it reads
-  the channel and tells you what is new; say "take it in" and it puts every new
-  stream through the whole Stream Pipeline while you listen — long-form edit,
-  clips, podcast MP3, carousel, text posts, stopping at ready to schedule. The
-  API key never reaches the browser, and publishing, scheduling, deletes and
-  tokens are not tools it has.
+- **The app tells you when there is an update, and installs it.** A banner
+  appears at the top of every screen when `dev` has work the running build does
+  not, listing what is in it, with one button that runs the release and reloads
+  the page when the app comes back. Until now the only way to know was to read
+  this file and remember to double-click a .bat, which is why four releases'
+  worth of finished work sat unshipped. It only ever appears in the real app —
+  a sandbox worktree can't release — and the release itself is still one
+  deliberate click.
 
-- **Channel ingest has a button and an API.** The scan that used to be a
-  scheduled task only now runs inside the app too: a Channel ingest panel on
-  `/agents` with a live log, and `GET`/`POST /api/ingest` behind it.
+- **"Check for updates" sits above Settings in the sidebar, and you can ask it
+  whenever you like.** It says which of the two answers it has — "Up to date"
+  with the build you are running, or "Update available" with the count — and
+  clicking it when something is waiting opens what's new with an "Install and
+  restart" button. The banner only speaks up when the app happens to notice a
+  release on its own; this answers the question on demand. Both read the same
+  check, so they can never disagree on screen or fetch twice.
+
+## 2026-08-02
 
 - **An update actually replaces the running app.** Stopping the server only
   killed the process this repo had started, so a server the publish runner had

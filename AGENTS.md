@@ -41,10 +41,19 @@ Create or refresh it with `npm run dev:worktree`.
 2. Verify it: `npm run typecheck`, `npm test`.
 3. Add a line to **`CHANGELOG.md`** under _Unreleased_ saying what changed in
    the terms Nic cares about — what he can now do, or what stopped being
-   broken. That file is what he reads before deciding to update.
+   broken. That line is what the app shows him when it offers the update, so
+   write it for him and not for a commit log.
 4. Commit and push `dev`. Nothing on `dev` touches the running app.
-5. Nic double-clicks **`update-capital-command.bat`** when he wants it. That
-   merges `dev` into `main`, pushes it, installs, rebuilds and restarts.
+5. The running app notices. A banner appears at the top of every screen
+   saying an update is ready, listing those changelog lines, and its **Update
+   now** button runs the same release. **Check for updates** in the sidebar,
+   above Settings, asks the same question on demand and installs from the same
+   button — and `update-capital-command.bat` still works and does exactly the
+   same thing.
+
+`update-app.ps1` dates the Unreleased block as part of releasing and pushes
+`main` to `origin/dev`, so after a release the sandbox's baseline is what is
+running. Don't hand-move the Unreleased block; it will be moved for you.
 
 **There are no pull requests in this loop.** They bought nothing here — one
 person, no reviewers — and a fix sitting in an open PR is a fix he does not
