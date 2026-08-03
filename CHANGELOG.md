@@ -11,6 +11,18 @@ committed. The release moves that block under a dated heading.
 
 ## Unreleased
 
+- **You can talk to Capital Command.** `/agents` opens a live speech-to-speech
+  session on OpenAI Realtime or Grok Voice. Say "check my channel" and it reads
+  the channel and tells you what is new; say "take it in" and it puts every new
+  stream through the whole Stream Pipeline while you listen — long-form edit,
+  clips, podcast MP3, carousel, text posts, stopping at ready to schedule. The
+  API key never reaches the browser, and publishing, scheduling, deletes and
+  tokens are not tools it has.
+
+- **Channel ingest has a button and an API.** The scan that used to be a
+  scheduled task only now runs inside the app too: a Channel ingest panel on
+  `/agents` with a live log, and `GET`/`POST /api/ingest` behind it.
+
 - **An update actually replaces the running app.** Stopping the server only
   killed the process this repo had started, so a server the publish runner had
   launched kept port 3000 and carried on serving the old build — the update

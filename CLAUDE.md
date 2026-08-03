@@ -23,6 +23,36 @@ not belong in the main app-data document.
   `orchestrator.ts`, and durable history behind `store.ts` so the UI and model
   cannot bypass the safety boundary.
 
+## Live voice (`/agents`, `src/lib/voice`)
+
+A speech-to-speech session (OpenAI Realtime or Grok Voice) that can call app
+tools while you talk. Read `src/lib/voice/README.md`.
+
+- The API key NEVER reaches the browser. `/api/voice/session` exchanges it for a
+  short-lived vendor session secret and builds the whole `session.update`
+  payload server-side, so provider quirks stay testable in Node.
+- `tools.ts` is the allowlist and it is enforced twice: the action tools are not
+  loaded into the session unless it is armed, and `/api/voice/tool` re-checks
+  against a server-held grant. Publishing, scheduling, deletes, token changes
+  and scheduled-task registration are not tools at all — same line as the agent
+  team. Every action tool stops at "ready to schedule".
+- A voice turn cannot wait on a four-hour fan-out: long tools start work, return
+  an id and are polled.
+
+## Channel ingest from inside the app (`/api/ingest`)
+
+The daily scan can now also be driven from the app — the voice console and the
+Channel ingest panel both do it — as a background job in a `globalThis` map
+(`src/lib/ingest/service.ts`), one scan at a time.
+
+- The in-app scan talks to ITSELF, not to `APP_BASE_URL`: the route calls
+  `setAppBaseUrl(request.nextUrl.origin)` first. Without that, a sandbox
+  worktree on port 3100 would inherit `APP_BASE_URL=http://localhost:3000` from
+  the copied `.env` and drive the PRODUCTION app's pipeline. Keep that call on
+  any new entrypoint that starts a scan in-process.
+- The CLI (`npm run ingest:scan`) is unchanged and still goes over HTTP, because
+  it is a separate process and the pipeline's run map has one owner.
+
 ## Stream Pipeline (`/pipeline`)
 
 One stream in (VOD link or uploaded file) → every format out, ready to

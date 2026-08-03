@@ -37,6 +37,18 @@ npm run ingest:scan:all # streams and ordinary long-form uploads
 npm run ingest:ledger   # what has already been taken in
 ```
 
+## From inside the app
+
+The same scan runs on demand from the Channel ingest panel on `/agents`, and
+from a live voice session ("check my channel", "take it in"). Both go through
+`POST /api/ingest`, which starts it as a background job — one at a time — and
+`GET /api/ingest` reports the ledger plus the running job's log.
+
+That in-app path sets the base URL to the server's own origin before it starts
+(`setAppBaseUrl`), rather than reading `APP_BASE_URL`. A sandbox worktree copies
+`.env` verbatim, so a scan started on port 3100 would otherwise hand its streams
+to the production app on port 3000.
+
 Scheduled daily via `scripts/daily-channel-scan.ps1` (Windows Task Scheduler —
 registration command is in the file's header). It runs locally rather than in
 GitHub Actions because ingest needs yt-dlp, ffmpeg and the local `data/`

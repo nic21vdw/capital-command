@@ -25,6 +25,8 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { PageHeader } from "@/components/ui/page-header";
 import { Textarea } from "@/components/ui/textarea";
+import { ChannelIngestPanel } from "@/components/agents/channel-ingest-panel";
+import { VoiceConsole } from "@/components/agents/voice-console";
 import { cn } from "@/lib/utils";
 import type { AgentAction, AgentProviderId, AgentRoleId, AgentRun } from "@/lib/agents/types";
 
@@ -230,7 +232,7 @@ export function AgentCommandPage() {
       <PageHeader
         eyebrow="Agentic command centre"
         title="Sourceflow Agents"
-        description="Give a goal to a coordinated team, watch each specialist work, and approve any change before it reaches your pipeline. Use the mic for an editable voice command and choose ChatGPT or Grok as the team brain."
+        description="Talk to Capital Command out loud, or give a goal to a coordinated team and approve any change before it reaches your pipeline. The live voice session can check the channel and put a new stream through the whole pipeline while you watch."
         actions={
           <div className="flex items-center gap-2">
             <Button variant="secondary" onClick={() => setSpeakReplies((value) => !value)} title="Toggle spoken replies">
@@ -313,6 +315,8 @@ export function AgentCommandPage() {
         </aside>
 
         <main className="min-w-0 space-y-4">
+          <VoiceConsole onWorkStarted={() => void load().catch(() => {})} />
+
           <Card className={cn("relative overflow-hidden", running && "border-[var(--accent)]/50")}>
             {running ? <div className="absolute inset-x-0 top-0 h-0.5 animate-pulse bg-[var(--accent)]" /> : null}
             <div className="mb-3 flex items-center justify-between gap-3">
@@ -405,6 +409,8 @@ export function AgentCommandPage() {
         </main>
 
         <aside className="space-y-4">
+          <ChannelIngestPanel />
+
           <Card>
             <h2 className="mb-3 font-semibold text-white">Live workforce</h2>
             {activeRun ? (
