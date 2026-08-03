@@ -60,9 +60,15 @@ function writeRoutesManifest() {
   console.log("Repaired missing Next.js routes manifest.");
 }
 
+// A link left by an older version of this script points somewhere else, and
+// reusing it silently is worse than not linking at all: the build writes to
+// the old location while the dependency link is created beside the new one, and
+// the server starts up unable to find react/jsx-runtime. So the target has to
+// match, not merely exist.
 function isLinkedCache() {
   try {
-    return existsSync(nextDir) && lstatSync(nextDir).isSymbolicLink();
+    if (!existsSync(nextDir) || !lstatSync(nextDir).isSymbolicLink()) return false;
+    return realpathSync(nextDir) === realpathSync(cacheRoot);
   } catch {
     return false;
   }
@@ -128,8 +134,8 @@ function linkNextCache() {
 try {
   if (!insideSyncedFolder) {
     // Leave a relocated cache from an earlier run behind rather than building
-    // half in and half out of it.
-    if (isLinkedCache()) rmSync(nextDir, { recursive: true, force: true });
+    // half in and half out of it - wherever that older link happens to point.
+    if (isLinkedPath(nextDir)) rmSync(nextDir, { recursive: true, force: true });
     if (isLinkedPath(legacySharedNodeModules)) {
       rmSync(legacySharedNodeModules, { recursive: true, force: true });
     }

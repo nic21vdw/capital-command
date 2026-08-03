@@ -11,6 +11,13 @@ committed. The release moves that block under a dated heading.
 
 ## Unreleased
 
+- **A release actually replaces the running app.** Two bugs stopped it: the
+  release script read the current branch into a variable that PowerShell treats
+  as the same one as its own -Branch parameter, so it released main into main;
+  and a .next link left by an older layout was reused without checking where it
+  pointed, so the build wrote to one folder while its dependency link was made
+  beside another and the server came up unable to find react/jsx-runtime.
+
 - **Instagram and Facebook post clips queued before hosting was set up.** An
   item with no hosted copy could never satisfy the two platforms that pull the
   video from a URL, so it failed forever on a clip sitting right there on
