@@ -31,6 +31,32 @@ async function readBootstrap(): Promise<BootstrapPayload> {
   return response.json();
 }
 
+/** "upsertHolding" -> "upsert holding", so a toast names what actually failed. */
+function describeAction(action: string): string {
+  return action
+    .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+    .toLowerCase()
+    .trim();
+}
+
+/**
+ * What went wrong, in the server's own words. The route answers a rejected
+ * action with `{ error }`; an unhandled throw comes back as Next's HTML error
+ * page, which is worth nothing in a toast, so that falls back to the status.
+ */
+async function describeFailure(response: Response, action: string): Promise<string> {
+  try {
+    const body = await response.text();
+    const parsed = body.trimStart().startsWith("{") ? (JSON.parse(body) as { error?: unknown }) : null;
+    if (typeof parsed?.error === "string" && parsed.error) {
+      return parsed.error;
+    }
+  } catch {
+    // Unreadable body - the status line is still worth reporting.
+  }
+  return `the server answered ${response.status} for "${action}"`;
+}
+
 export function AppProvider({ children }: { children: React.ReactNode }) {
   const [payload, setPayload] = useState<BootstrapPayload | null>(null);
   const [loading, setLoading] = useState(true);
@@ -71,7 +97,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       });
 
       if (!response.ok) {
-        throw new Error("mutation failed");
+        throw new Error(await describeFailure(response, action));
       }
 
       const json = (await response.json()) as Partial<BootstrapPayload> & { duplicates?: string[] };
@@ -90,8 +116,17 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       if (options?.successMessage) {
         toast.success(options.successMessage);
       }
-    } catch {
-      toast.error("That action could not be completed.");
+    } catch (error) {
+      console.error(`[capital-command] ${action} failed`, error);
+      // A TypeError here is fetch itself failing: the local server is down or
+      // still rebuilding. Saying so beats blaming the action.
+      const reason =
+        error instanceof TypeError
+          ? "the app server is not responding - is it still rebuilding?"
+          : error instanceof Error
+            ? error.message
+            : "";
+      toast.error(reason ? `Could not ${describeAction(action)}: ${reason}` : `Could not ${describeAction(action)}.`);
     }
   }, []);
 

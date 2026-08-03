@@ -97,6 +97,46 @@ Run `app:shortcut` from the PRODUCTION folder only. Like the scheduled-task
 registrations, it points at whatever checkout it runs in — from the sandbox it
 would put a shortcut to port 3000 on your desktop that starts the wrong copy.
 
+## The app you use is always a production build, never `next dev`
+
+Every launcher — `Capital Command.bat`, the Desktop shortcut,
+`start-capital-command.bat`, `update-app.ps1` — goes through
+`scripts\start-server.ps1`, which runs `next build` and then `next start`.
+Keep it that way. A dev server serving port 3000 looks identical but compiles
+each screen the first time it is opened: measured on this app, a sidebar link
+takes **1–4 seconds** under `next dev` against **8–32 ms** under `next start`.
+"The app got slow" almost always means something started it in dev mode, or
+production is down and you are looking at a sandbox on another port.
+
+Check which is which before optimizing anything:
+
+```
+netstat -ano | findstr ":3000 .*LISTENING"    # nothing here means production is DOWN
+```
+
+`start-server.ps1` builds in the FOREGROUND and only reports success once
+port 3000 answers. It has to: it used to launch a detached
+`build && next start` chain whose `1>` redirect bound only to `next start`, so
+build output went nowhere, the pid file recorded the `cmd.exe` wrapper, and a
+failed build left `.next` with no `BUILD_ID` and the app simply down — while
+`update-app.ps1` waited five minutes and pointed at a `server.err.log` that was
+never written. If you touch that script, keep all three guards: the build's
+output is teed to `build.log`, `BUILD_ID` is checked before the server is
+launched, and the port is polled before it claims to be up.
+
+The build runs with `$ErrorActionPreference = "Continue"`. `next build` writes
+warnings to stderr, and under `Stop` PowerShell promotes each of those lines to
+a terminating error — a green build would abort the script.
+
+## `next build` lints stricter than `npm run lint`
+
+`next build` treats some `react-hooks` rules as errors that a standalone lint
+run only warns about — `react-hooks/set-state-in-effect` is the one that has
+bitten this repo (#290). A clean `npm run lint` and a clean `npx tsc --noEmit`
+are NOT evidence that a release will build. Run `npm run build` before merging
+anything that touches a component, or the next `update-capital-command.bat`
+fails at the type-checking stage and leaves production with no server.
+
 ## Never relocate the build cache outside a synced folder
 
 `scripts/prepare-dev-cache.mjs` moves `.next` out of OneDrive, because

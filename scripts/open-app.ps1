@@ -36,17 +36,22 @@ if (Test-App) {
   Write-Host "Capital Command is already running."
 } else {
   Write-Host "Starting Capital Command..."
+  # start-server.ps1 builds in the foreground and only returns 0 once the port
+  # answers, so its exit code is the answer. It has already explained any
+  # failure, on screen and in a dialog - opening a window at a dead port on top
+  # of that is how a broken release looks like a broken app.
   & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot "start-server.ps1")
+  if ($LASTEXITCODE -ne 0) { exit 1 }
 
-  $deadline = (Get-Date).AddMinutes(5)
+  $deadline = (Get-Date).AddMinutes(2)
   while ((Get-Date) -lt $deadline -and -not (Test-App)) {
-    Start-Sleep -Seconds 3
+    Start-Sleep -Seconds 1
   }
 
   if (-not (Test-App)) {
     Write-Host ""
-    Write-Host "It did not come up within five minutes." -ForegroundColor Red
-    Write-Host "Check server.err.log in $root - a first build after an update takes a while."
+    Write-Host "The server is listening but did not answer." -ForegroundColor Red
+    Write-Host "Check server.err.log and build.log in $root."
     exit 1
   }
   Write-Host "Ready."

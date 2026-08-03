@@ -133,7 +133,12 @@ Step "Stopping the running app"
 & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot "stop-server.ps1")
 
 Step "Building and starting the new version"
-& powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot "start-server.ps1")
+& powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot "start-server.ps1") -Quiet
+if ($LASTEXITCODE -ne 0) {
+  # It has already printed the reason and the tail of the log it failed in.
+  # Waiting five minutes for a server that was never started only buries that.
+  Fail "The release did not start. The app is still down - see build.log in $root."
+}
 
 Step "Waiting for the app to answer"
 & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot "wait-for-url.ps1") -Url "http://127.0.0.1:3000" -TimeoutSeconds 300
