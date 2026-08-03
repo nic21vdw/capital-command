@@ -41,6 +41,84 @@ function Fail($message) {
   exit 1
 }
 
+# Moves the CHANGELOG's Unreleased block under today's date, because a human
+# doing it by hand does not: four releases' worth of shipped work sat under
+# "Unreleased" reading as though it were still waiting, in the one file that is
+# meant to answer "is there anything new?".
+#
+# Never fatal. A changelog that failed to rotate is untidy; an app that refused
+# to update because of it would be broken.
+function Publish-Changelog {
+  $path = Join-Path $root "CHANGELOG.md"
+  if (-not (Test-Path $path)) {
+    Write-Host "No CHANGELOG.md to date."
+    return
+  }
+
+  # .NET file IO, not Get-Content/Set-Content: Windows PowerShell reads UTF-8
+  # as ANSI unless told otherwise and writes a BOM when told to write UTF-8,
+  # and this file is full of em dashes. Round-tripping it through the cmdlets
+  # turns every one of them into mojibake and prepends a BOM - on every
+  # release, compounding.
+  $lines = @([System.IO.File]::ReadAllLines($path, [System.Text.UTF8Encoding]::new($false)))
+  $heading = $null
+  for ($i = 0; $i -lt $lines.Count; $i++) {
+    if ($lines[$i] -match '^##\s+Unreleased\s*$') { $heading = $i; break }
+  }
+  if ($null -eq $heading) {
+    Write-Host "No Unreleased heading - leaving CHANGELOG.md alone."
+    return
+  }
+
+  # Only a block with entries in it is worth dating. An empty Unreleased means
+  # this release carried commits nobody wrote a line for, and stamping a date
+  # on nothing would just add an empty section per release.
+  $hasEntries = $false
+  for ($i = $heading + 1; $i -lt $lines.Count; $i++) {
+    if ($lines[$i] -match '^##\s') { break }
+    if ($lines[$i] -match '^\s*[-*]\s+\S') { $hasEntries = $true; break }
+  }
+  if (-not $hasEntries) {
+    Write-Host "Nothing under Unreleased to date."
+    return
+  }
+
+  $today = (Get-Date).ToString("yyyy-MM-dd")
+  # The heading stays and a dated one is inserted under it, so the next change
+  # made in the sandbox still has an Unreleased block to write into.
+  $updated = @()
+  $updated += $lines[0..$heading]
+  $updated += ""
+  $updated += "## $today"
+  if ($heading + 1 -lt $lines.Count) { $updated += $lines[($heading + 1)..($lines.Count - 1)] }
+
+  [System.IO.File]::WriteAllLines($path, $updated, [System.Text.UTF8Encoding]::new($false))
+
+  git add CHANGELOG.md
+  git commit --quiet -m "Date the changelog for the $today release"
+  if ($LASTEXITCODE -ne 0) {
+    Write-Host "Could not commit the dated changelog - releasing anyway." -ForegroundColor Yellow
+    return
+  }
+  Write-Host "Unreleased is now $today."
+}
+
+# Carries the release branch up to what was just released, so the changelog
+# commit above cannot come back as a conflict next time.
+function Sync-ReleaseBranch {
+  git push origin "main:$Branch" --quiet
+  if ($LASTEXITCODE -ne 0) {
+    Write-Host "Could not fast-forward origin/$Branch to this release." -ForegroundColor Yellow
+    return
+  }
+  # The local branch too, unless a sandbox has it checked out - git refuses
+  # there, and rightly: that folder may have uncommitted work sitting on it.
+  git branch -f $Branch main 2>$null
+  if ($LASTEXITCODE -ne 0) {
+    Write-Host "origin/$Branch is up to date; the sandbox copy will catch up on its next pull."
+  }
+}
+
 Step "Checking this checkout"
 
 # Not $branch: PowerShell variable names are case-insensitive, so that would be
@@ -79,7 +157,10 @@ branch) before updating. Use -Force to throw it away.
 
 Step "What this update brings"
 
-$incoming = git log --oneline "origin/main..origin/$Branch"
+# Against HEAD, not origin/main: work now lands on main through pull requests,
+# so origin/main..origin/main is always empty and this would report "nothing
+# new" while the running checkout sat six releases behind.
+$incoming = git log --oneline "HEAD..origin/$Branch"
 if (-not $incoming) {
   Write-Host "Nothing new on $Branch - the app is already running the latest."
   if ($Check -or -not $Force) { exit 0 }
@@ -112,12 +193,22 @@ still running the version it was. Resolve it in the sandbox, then run this again
 "@
 }
 
+Step "Dating the changelog"
+Publish-Changelog
+
 # Keep GitHub in step. Best effort: a release that only exists locally still
 # runs, and failing here would leave the app half-updated for no good reason.
 git push origin main --quiet
 if ($LASTEXITCODE -ne 0) {
   Write-Host "Could not push main to GitHub - the release is applied locally anyway." -ForegroundColor Yellow
 }
+
+# Dating the changelog is a commit main has and dev does not, and the next
+# release would meet it as a conflict in the one file every change touches.
+# Carrying dev up to the release removes the divergence at the source: after a
+# release the sandbox's baseline IS what is running, which is what it should
+# have been anyway.
+Sync-ReleaseBranch
 
 Step "Installing dependencies"
 & npm.cmd install
