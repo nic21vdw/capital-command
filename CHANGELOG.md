@@ -13,6 +13,16 @@ already shipped.
 
 ## Unreleased
 
+- **The Uploading Center stops re-reading everything every minute.** Its
+  once-a-minute refresh made five requests one after another — the clip
+  library, the queue, the calendar, your connected accounts and the YouTube
+  channel — and paging the calendar a fortnight repeated all five. Now the four
+  that can actually change go out together, paging costs one request instead of
+  five, and who each platform posts as is read once when the page opens rather
+  than asked of four social networks every minute. The calendar endpoint no
+  longer contacts any social network at all: it was reporting the same four
+  profiles a second time, and nothing on screen had read them for a while.
+
 - **Scheduling a Short from the editor stops making you wait.** The Schedule
   Short menu used to sit on "Finding open slots…" while it read all four social
   accounts, the quota meter and the whole YouTube channel — none of which it
