@@ -11,7 +11,10 @@ committed. The release moves that block under a dated heading.
 
 ## Unreleased
 
-_Nothing yet._
+- **Instagram and Facebook post clips queued before hosting was set up.** An
+  item with no hosted copy could never satisfy the two platforms that pull the
+  video from a URL, so it failed forever on a clip sitting right there on
+  disk. It uploads the clip at post time instead.
 
 ## 2026-08-02
 
