@@ -2,6 +2,7 @@ import { REALTIME_SAMPLE_RATE } from "@/lib/voice/pcm";
 import { buildSubprotocols, getVoiceProvider, realtimeSocketUrl, voiceApiKey, voiceModel } from "@/lib/voice/providers";
 import type { VoiceProvider } from "@/lib/voice/providers";
 import { voiceToolDefinitions } from "@/lib/voice/tools";
+import { getValidXaiAccessToken } from "@/lib/voice/xaiAuth";
 
 export type VoiceGrant = {
   id: string;
@@ -107,10 +108,29 @@ export function explainMintFailure(status: number, detail: string, provider: Voi
   return `Could not start ${provider.label} (HTTP ${status}). ${message.slice(0, 200)}`;
 }
 
+/**
+ * The credential the vendor's client-secret endpoint is called with. For xAI
+ * that is preferably a SuperGrok / X Premium OAuth token, because a secret
+ * minted with it is billed against the subscription rather than console
+ * top-ups. An API key is the fallback, not the plan.
+ */
+export async function voiceBearer(provider: VoiceProvider): Promise<{ token: string; via: "subscription" | "api-key" }> {
+  if (provider.id === "xai") {
+    const subscription = await getValidXaiAccessToken().catch(() => "");
+    if (subscription) return { token: subscription, via: "subscription" };
+  }
+  const key = voiceApiKey(provider);
+  if (key) return { token: key, via: "api-key" };
+  throw new Error(
+    provider.id === "xai"
+      ? "Grok Voice is not connected. Connect your SuperGrok / X Premium sign-in in the voice console (no API key needed), or add XAI_API_KEY to .env."
+      : `${provider.label} is not configured. Add ${provider.keyEnv} to .env. OpenAI has no subscription route — ChatGPT Plus does not cover the realtime API.`
+  );
+}
+
 export async function mintVoiceSecret(providerId: string, model: string): Promise<string> {
   const provider = getVoiceProvider(providerId);
-  const key = voiceApiKey(provider);
-  if (!key) throw new Error(`${provider.label} is not configured. Add ${provider.keyEnv} to .env.`);
+  const { token: key } = await voiceBearer(provider);
   const body =
     provider.id === "openai"
       ? { session: { type: "realtime", model } }

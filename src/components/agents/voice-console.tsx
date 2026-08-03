@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { AudioLines, Mic, PhoneOff, Radio, Send, ShieldCheck, Unlock, Wrench } from "lucide-react";
+import { AudioLines, BadgeCheck, LogIn, Mic, PhoneOff, Radio, Send, ShieldCheck, Unlock, Wrench } from "lucide-react";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -12,7 +12,18 @@ import type { MicCapture, PlaybackQueue } from "@/lib/voice/audio";
 import { createVoiceClient } from "@/lib/voice/client";
 import type { VoiceSessionPayload, VoiceStatus } from "@/lib/voice/client";
 
-type ProviderInfo = { id: string; label: string; model: string; voices: string[]; defaultVoice: string; configured: boolean };
+type SubscriptionStatus = { signedIn: boolean; email: string; via: string; message: string };
+type ProviderInfo = {
+  id: string;
+  label: string;
+  model: string;
+  voices: string[];
+  defaultVoice: string;
+  configured: boolean;
+  billing: "subscription" | "api-key" | "none";
+  subscription: SubscriptionStatus | null;
+};
+type DeviceLogin = { deviceCode: string; userCode: string; verificationUriComplete: string; interval: number };
 type Line = { id: string; role: "user" | "assistant"; text: string };
 type ToolLine = { id: string; name: string; ok: boolean; detail: string };
 
@@ -45,6 +56,8 @@ export function VoiceConsole({ onWorkStarted }: { onWorkStarted?: () => void }) 
   const [toolLines, setToolLines] = useState<ToolLine[]>([]);
   const [typed, setTyped] = useState("");
   const [starting, setStarting] = useState(false);
+  const [connecting, setConnecting] = useState(false);
+  const [deviceLogin, setDeviceLogin] = useState<DeviceLogin | null>(null);
   const [session, setSession] = useState<VoiceSessionPayload | null>(null);
 
   const clientRef = useRef<VoiceClient | null>(null);
@@ -52,20 +65,82 @@ export function VoiceConsole({ onWorkStarted }: { onWorkStarted?: () => void }) 
   const playbackRef = useRef<PlaybackQueue | null>(null);
   const partialRef = useRef<{ user: string | null; assistant: string | null }>({ user: null, assistant: null });
 
-  useEffect(() => {
-    void fetch("/api/voice/session", { cache: "no-store" })
-      .then((response) => response.json())
-      .then((data: { providers?: ProviderInfo[] }) => {
-        const list = data.providers ?? [];
-        setProviders(list);
-        const preferred = list.find((item) => item.configured) ?? list[0];
-        if (preferred) {
-          setProviderId(preferred.id);
-          setVoice(preferred.defaultVoice);
-        }
-      })
-      .catch(() => setProviders([]));
+  const loadProviders = useCallback(async () => {
+    const response = await fetch("/api/voice/session", { cache: "no-store" });
+    const data = (await response.json()) as { providers?: ProviderInfo[] };
+    const list = data.providers ?? [];
+    setProviders(list);
+    const preferred =
+      list.find((item) => item.billing === "subscription") ?? list.find((item) => item.configured) ?? list[0];
+    if (preferred) {
+      setProviderId(preferred.id);
+      setVoice(preferred.defaultVoice);
+    }
+    return list;
   }, []);
+
+  useEffect(() => {
+    queueMicrotask(() => void loadProviders().catch(() => setProviders([])));
+  }, [loadProviders]);
+
+  async function connectSubscription(action: "import" | "start") {
+    setConnecting(true);
+    try {
+      const response = await fetch("/api/voice/xai-auth", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action })
+      });
+      const data = (await response.json()) as Partial<DeviceLogin> & { error?: string };
+      if (!response.ok) throw new Error(data.error ?? "Could not connect the Grok subscription.");
+      if (action === "import") {
+        await loadProviders();
+        toast.success("Grok subscription connected.");
+        return;
+      }
+      const login = data as DeviceLogin;
+      setDeviceLogin(login);
+      window.open(login.verificationUriComplete, "_blank", "noopener");
+      void pollSubscription(login);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Could not connect the Grok subscription.");
+    } finally {
+      setConnecting(false);
+    }
+  }
+
+  async function pollSubscription(login: DeviceLogin) {
+    const deadline = Date.now() + 30 * 60 * 1000;
+    let wait = Math.max(2, login.interval) * 1000;
+    while (Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, wait));
+      const response = await fetch("/api/voice/xai-auth", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "poll", deviceCode: login.deviceCode })
+      });
+      const data = (await response.json()) as { pending?: boolean; slowDown?: boolean; error?: string };
+      if (!response.ok) {
+        setDeviceLogin(null);
+        toast.error(data.error ?? "The sign-in failed.");
+        return;
+      }
+      if (!data.pending) {
+        setDeviceLogin(null);
+        await loadProviders();
+        toast.success("Grok subscription connected. Voice runs on it now.");
+        return;
+      }
+      if (data.slowDown) wait += 5000;
+    }
+    setDeviceLogin(null);
+    toast.error("The sign-in timed out. Start it again.");
+  }
+
+  async function disconnectSubscription() {
+    await fetch("/api/voice/xai-auth", { method: "DELETE" }).catch(() => {});
+    await loadProviders().catch(() => {});
+  }
 
   const stop = useCallback(() => {
     micRef.current?.stop();
@@ -140,6 +215,7 @@ export function VoiceConsole({ onWorkStarted }: { onWorkStarted?: () => void }) 
   }
 
   const currentProvider = providers.find((item) => item.id === providerId);
+  const subscription = providers.find((item) => item.id === "xai")?.subscription ?? null;
   const live = Boolean(session);
 
   return (
@@ -219,9 +295,52 @@ export function VoiceConsole({ onWorkStarted }: { onWorkStarted?: () => void }) 
                   : "It can read the workspace and report. The tools that start work are not loaded into the session."}
               </span>
             </button>
-            {!currentProvider?.configured ? (
+            {providerId === "xai" ? (
+              <div
+                className={cn(
+                  "rounded-lg border p-3",
+                  subscription?.signedIn ? "border-emerald-400/30 bg-emerald-400/10" : "border-[var(--border)] bg-white/[0.03]"
+                )}
+              >
+                <span className="flex items-center gap-1.5 text-sm font-medium text-white">
+                  <BadgeCheck className={cn("h-4 w-4", subscription?.signedIn ? "text-emerald-300" : "text-[var(--muted-foreground)]")} />
+                  SuperGrok / X Premium
+                </span>
+                <p className="mt-1 text-xs leading-relaxed text-[var(--muted-foreground)]">
+                  {subscription?.message ?? "Checking…"}
+                </p>
+                {deviceLogin ? (
+                  <div className="mt-2 rounded-lg border border-[var(--accent)]/30 bg-[var(--accent)]/10 p-2.5">
+                    <p className="text-xs text-[var(--muted-foreground)]">Approve this code at accounts.x.ai, then come back — it connects itself.</p>
+                    <p className="mt-1 font-mono text-lg tracking-widest text-white">{deviceLogin.userCode}</p>
+                    <a href={deviceLogin.verificationUriComplete} target="_blank" rel="noreferrer" className="mt-1 inline-block text-xs text-[var(--accent)] underline">
+                      Open the approval page
+                    </a>
+                  </div>
+                ) : (
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    {subscription?.signedIn ? (
+                      <Button variant="ghost" className="px-3 py-1.5 text-xs" onClick={() => void disconnectSubscription()}>
+                        Disconnect
+                      </Button>
+                    ) : (
+                      <>
+                        <Button className="px-3 py-1.5 text-xs" disabled={connecting} onClick={() => void connectSubscription("start")}>
+                          <LogIn className="mr-1.5 h-3.5 w-3.5" /> Sign in with SuperGrok
+                        </Button>
+                        {subscription?.via === "cli-available" ? (
+                          <Button variant="secondary" className="px-3 py-1.5 text-xs" disabled={connecting} onClick={() => void connectSubscription("import")}>
+                            Use my Grok CLI sign-in
+                          </Button>
+                        ) : null}
+                      </>
+                    )}
+                  </div>
+                )}
+              </div>
+            ) : !currentProvider?.configured ? (
               <p className="rounded-lg border border-amber-400/20 bg-amber-400/10 p-2.5 text-xs text-amber-100">
-                Add {providerId === "xai" ? "XAI_API_KEY" : "OPENAI_API_KEY"} to the local .env file. The key stays on the server — the browser only ever gets a short-lived session secret.
+                OpenAI has no subscription route — ChatGPT Plus does not cover the realtime API, so this one needs pay-as-you-go credit and `OPENAI_API_KEY` in .env. Use Grok Voice to run on a subscription instead.
               </p>
             ) : null}
           </div>

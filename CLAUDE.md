@@ -28,6 +28,12 @@ not belong in the main app-data document.
 A speech-to-speech session (OpenAI Realtime or Grok Voice) that can call app
 tools while you talk. Read `src/lib/voice/README.md`.
 
+- SUBSCRIPTION FIRST. Grok Voice runs on a SuperGrok / X Premium OAuth sign-in
+  (`xaiAuth.ts`, device code against `auth.x.ai`, tokens in
+  `data/voice/xai-oauth.json`), because a client secret minted with that token
+  is billed against the subscription. `XAI_API_KEY` is the fallback, not the
+  plan. OpenAI has no such route — ChatGPT Plus does not cover the realtime API
+  — so it stays the second option. Do not make an API key the happy path again.
 - The API key NEVER reaches the browser. `/api/voice/session` exchanges it for a
   short-lived vendor session secret and builds the whole `session.update`
   payload server-side, so provider quirks stay testable in Node.

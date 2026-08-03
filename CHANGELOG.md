@@ -11,6 +11,13 @@ committed. The release moves that block under a dated heading.
 
 ## Unreleased
 
+- **Grok voice runs on your SuperGrok subscription, not an API bill.** The voice
+  console signs in with SuperGrok / X Premium (a code you approve at
+  accounts.x.ai, or one click to adopt the Grok CLI sign-in already on this
+  machine) and the session is billed against that subscription. An API key is
+  only the fallback now. OpenAI has no equivalent — ChatGPT Plus does not cover
+  its realtime API — so Grok is the default.
+
 ## 2026-08-03
 
 - **You can talk to Capital Command.** `/agents` opens a live speech-to-speech
