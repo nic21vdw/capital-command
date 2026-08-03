@@ -11,6 +11,12 @@ committed. The release moves that block under a dated heading.
 
 ## Unreleased
 
+- **An update actually replaces the running app.** Stopping the server only
+  killed the process this repo had started, so a server the publish runner had
+  launched kept port 3000 and carried on serving the old build — the update
+  looked like it worked and changed nothing. It now stops whatever holds the
+  port.
+
 - **Two agents can no longer trip over each other in the same folder.**
   `npm run dev:worktree -- -Name <name>` gives each session its own checkout
   and branch, and it refuses to hand over one that someone is already editing.
