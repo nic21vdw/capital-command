@@ -5,6 +5,31 @@ OpenAI Realtime or Grok Voice, and the model can call a small set of app tools
 while you are talking — the one that matters is "is there a new stream on my
 channel, and if so put it through the pipeline".
 
+## Subscription first, API key second
+
+Grok Voice runs on a **SuperGrok / X Premium sign-in**, not on API top-ups.
+`xaiAuth.ts` holds the OAuth device-code flow against `auth.x.ai` (client id
+`b1a00492-…`, scope includes `api:access`), stores the tokens in
+`data/voice/xai-oauth.json`, and refreshes them. A client secret minted with
+that access token is billed against the subscription. `XAI_API_KEY` is only the
+fallback when nobody is signed in.
+
+Two ways in, both server-side because `auth.x.ai` sends no CORS headers — in
+CoLateral that needed a Local Bridge; here the Next server *is* the bridge:
+
+- **Import the Grok CLI's session.** If `~/.grok/auth.json` holds a sign-in for
+  the same issuer and client id, one click adopts it. It is refreshed before
+  being stored — a CLI session whose refresh token has since rotated would
+  otherwise import cleanly and fail at the first mint, which reads as "the voice
+  feature is broken" rather than "sign in again".
+- **Device code.** The console shows a code, `accounts.x.ai` takes the approval,
+  and the app polls until it lands.
+
+OpenAI has no equivalent: ChatGPT Plus does not cover the realtime API, so that
+provider is genuinely pay-as-you-go and needs `OPENAI_API_KEY`. It is kept as a
+second option, not the default — the console prefers whichever provider is on a
+subscription.
+
 ## The key never reaches the browser
 
 A browser cannot set an `Authorization` header on a websocket, so both vendors

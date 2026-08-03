@@ -14,7 +14,7 @@ const requestSchema = z.object({
 });
 
 export async function GET() {
-  return NextResponse.json({ providers: voiceProviderStatus() });
+  return NextResponse.json({ providers: await voiceProviderStatus() });
 }
 
 export async function POST(request: NextRequest) {

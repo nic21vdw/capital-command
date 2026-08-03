@@ -1,3 +1,5 @@
+import { describeXaiAuth } from "@/lib/voice/xaiAuth";
+
 export type VoiceProviderId = "openai" | "xai";
 
 export type VoiceProvider = {
@@ -70,16 +72,21 @@ export function buildSubprotocols(provider: VoiceProvider, secret: string): stri
   return [...provider.extraSubprotocols, provider.subprotocolPrefix + value];
 }
 
-export function voiceProviderStatus() {
+export async function voiceProviderStatus() {
+  const subscription = await describeXaiAuth();
   return (Object.keys(VOICE_PROVIDERS) as VoiceProviderId[]).map((id) => {
     const provider = VOICE_PROVIDERS[id];
+    const hasKey = Boolean(voiceApiKey(provider));
+    const onSubscription = id === "xai" && subscription.signedIn;
     return {
       id,
       label: provider.label,
       model: voiceModel(provider),
       voices: provider.voices,
       defaultVoice: provider.defaultVoice,
-      configured: Boolean(voiceApiKey(provider))
+      configured: onSubscription || hasKey,
+      billing: onSubscription ? ("subscription" as const) : hasKey ? ("api-key" as const) : ("none" as const),
+      subscription: id === "xai" ? subscription : null
     };
   });
 }
