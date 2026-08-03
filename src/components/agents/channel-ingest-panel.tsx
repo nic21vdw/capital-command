@@ -24,7 +24,7 @@ export function ChannelIngestPanel() {
   }, []);
 
   useEffect(() => {
-    void load();
+    queueMicrotask(() => void load());
   }, [load]);
 
   useEffect(() => {
