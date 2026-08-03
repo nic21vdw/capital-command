@@ -43,8 +43,11 @@ function Fail($message) {
 
 Step "Checking this checkout"
 
-$branch = (git rev-parse --abbrev-ref HEAD).Trim()
-Write-Host "Branch: $branch"
+# Not $branch: PowerShell variable names are case-insensitive, so that would be
+# the same variable as the -Branch parameter and this would quietly release
+# main into main.
+$current = (git rev-parse --abbrev-ref HEAD).Trim()
+Write-Host "On: $current, releasing: $Branch"
 
 git fetch origin --quiet
 
