@@ -14,7 +14,7 @@
     "prebuild": "node scripts/prepare-dev-cache.mjs",
     "build": "next build",
     "postbuild": "node scripts/stamp-build-commit.mjs",
-    "start": "next start --port 3000",
+    "start": "next start --hostname 127.0.0.1 --port 3000",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
