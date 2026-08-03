@@ -1,0 +1,115 @@
+/**
+ * The half of the release check that the banner needs and the browser can
+ * have. It is a separate file because it has to be: `status.ts` reads git and
+ * the filesystem, and importing so much as a type from it drags `node:util`
+ * into the client bundle and fails the production build.
+ */
+
+export type ReleaseStatus = {
+  /** The commit the code answering this request was built from. */
+  running: string | null;
+  runningShort: string | null;
+  builtAt: string | null;
+  /** What `git rev-parse HEAD` says — the checkout, which a build can lag. */
+  head: string | null;
+  /** The tip of the branch releases come from. */
+  latest: string | null;
+  latestShort: string | null;
+  branch: string | null;
+  /** Only the production checkout may release, and only it should be asked to. */
+  releasable: boolean;
+  /** Commits on the release branch that the running build does not have. */
+  pending: PendingCommit[];
+  /** The Unreleased bullets from the release branch's CHANGELOG. */
+  notes: string[];
+  error: string | null;
+};
+
+export type PendingCommit = { commit: string; subject: string };
+
+export const RELEASE_BRANCH = "dev";
+export const PRODUCTION_BRANCH = "main";
+
+/**
+ * The Unreleased block of a CHANGELOG, as one line per entry.
+ *
+ * The file's bullets wrap over several lines and lead with a bolded sentence
+ * that says what changed in the terms Nic reads for; that sentence is the
+ * whole value, so each bullet collapses to a single line and the rest of its
+ * prose is left in the file.
+ */
+export function parseUnreleased(changelog: string): string[] {
+  const lines = changelog.split(/\r?\n/);
+  const start = lines.findIndex((line) => /^##\s+Unreleased\s*$/i.test(line));
+  if (start === -1) return [];
+
+  const notes: string[] = [];
+  let current: string[] = [];
+
+  const flush = () => {
+    if (!current.length) return;
+    const text = current.join(" ").replace(/\s+/g, " ").trim();
+    if (text) notes.push(text);
+    current = [];
+  };
+
+  for (const line of lines.slice(start + 1)) {
+    if (/^##\s/.test(line)) break;
+    const bullet = line.match(/^\s*[-*]\s+(.*)$/);
+    if (bullet) {
+      flush();
+      current.push(bullet[1]);
+      continue;
+    }
+    if (!line.trim()) {
+      flush();
+      continue;
+    }
+    if (current.length) current.push(line.trim());
+  }
+  flush();
+
+  return notes.map(headlineOf);
+}
+
+/**
+ * `**A sentence.** the details…` → `A sentence.` A bullet with no bolded lead
+ * keeps its first sentence, so nothing is dropped for want of formatting.
+ */
+function headlineOf(entry: string): string {
+  const bold = entry.match(/^\*\*(.+?)\*\*/);
+  if (bold) return bold[1].trim();
+  const sentence = entry.match(/^(.+?[.!?])(\s|$)/);
+  return (sentence ? sentence[1] : entry).replace(/\*\*/g, "").trim();
+}
+
+export function parsePendingCommits(log: string): PendingCommit[] {
+  return log
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => {
+      const [commit, ...rest] = line.split(" ");
+      return { commit, subject: rest.join(" ") };
+    });
+}
+
+/**
+ * Whether the banner belongs on screen. Kept out of the component because
+ * every way of getting this wrong is silent: a banner in the sandbox invites a
+ * release from the wrong checkout, one that outlives its own release nags
+ * about work already running, and one that respects a stale dismissal hides
+ * the next release forever.
+ */
+export function shouldShowBanner(
+  status: Pick<ReleaseStatus, "releasable" | "pending" | "latest"> | null,
+  { dismissed, busy }: { dismissed?: string | null; busy?: boolean } = {}
+): boolean {
+  if (!status?.releasable) return false;
+  // Mid-release the banner IS the progress indicator, so it stays regardless
+  // of what the last poll said was pending.
+  if (busy) return true;
+  if (!status.pending.length) return false;
+  // Dismissal lasts until the next commit lands, not forever.
+  return !(dismissed && dismissed === status.latest);
+}

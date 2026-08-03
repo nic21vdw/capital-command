@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parsePendingCommits, parseUnreleased } from "./status";
+import { parsePendingCommits, parseUnreleased, shouldShowBanner } from "./shared";
 
 const CHANGELOG = `# Changelog
 
@@ -45,6 +45,40 @@ describe("parseUnreleased", () => {
       "The app tells you when there is an update.",
       "Instagram posts clips queued before hosting was set up."
     ]);
+  });
+});
+
+describe("shouldShowBanner", () => {
+  const waiting = {
+    releasable: true,
+    latest: "b39dc4f",
+    pending: [{ commit: "b39dc4f", subject: "Reschedule from the calendar" }]
+  };
+
+  it("shows when the production checkout is behind the release branch", () => {
+    expect(shouldShowBanner(waiting)).toBe(true);
+  });
+
+  it("stays silent in a sandbox worktree, however far behind it is", () => {
+    expect(shouldShowBanner({ ...waiting, releasable: false })).toBe(false);
+  });
+
+  it("stays silent when the running build is already the latest", () => {
+    expect(shouldShowBanner({ ...waiting, pending: [] })).toBe(false);
+  });
+
+  it("stays silent before the first poll has answered", () => {
+    expect(shouldShowBanner(null)).toBe(false);
+  });
+
+  it("honours a dismissal only until the next commit lands", () => {
+    expect(shouldShowBanner(waiting, { dismissed: "b39dc4f" })).toBe(false);
+    expect(shouldShowBanner(waiting, { dismissed: "0000000" })).toBe(true);
+  });
+
+  it("stays up while the release runs, even once nothing is pending", () => {
+    expect(shouldShowBanner({ ...waiting, pending: [] }, { busy: true })).toBe(true);
+    expect(shouldShowBanner(waiting, { dismissed: "b39dc4f", busy: true })).toBe(true);
   });
 });
 

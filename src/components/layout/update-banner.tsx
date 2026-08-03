@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ArrowDownToLine, ChevronDown, Loader2, X } from "lucide-react";
-import type { ReleaseStatus } from "@/lib/release/status";
+import { shouldShowBanner, type ReleaseStatus } from "@/lib/release/shared";
 import { cn } from "@/lib/utils";
 
 type Status = ReleaseStatus & { updating?: boolean };
@@ -101,14 +101,10 @@ export function UpdateBanner() {
     }
   };
 
-  if (!status?.releasable) return null;
-  if (phase === "idle" && !status.pending.length) return null;
-  // Dismissal lasts until the next commit lands, not forever — a new release
-  // is new news.
-  if (phase === "idle" && dismissed && dismissed === status.latest) return null;
+  const busy = phase !== "idle";
+  if (!status || !shouldShowBanner(status, { dismissed, busy })) return null;
 
   const count = status.pending.length;
-  const busy = phase !== "idle";
 
   return (
     <div className="mb-4 overflow-hidden rounded-xl border border-[var(--accent)]/40 bg-[color-mix(in_srgb,var(--accent)_12%,var(--panel))]">

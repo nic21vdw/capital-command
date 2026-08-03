@@ -2,33 +2,15 @@ import { execFile } from "node:child_process";
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { promisify } from "node:util";
+import {
+  PRODUCTION_BRANCH,
+  RELEASE_BRANCH,
+  parsePendingCommits,
+  parseUnreleased,
+  type ReleaseStatus
+} from "@/lib/release/shared";
 
 const run = promisify(execFile);
-
-export type ReleaseStatus = {
-  /** The commit the code answering this request was built from. */
-  running: string | null;
-  runningShort: string | null;
-  builtAt: string | null;
-  /** What `git rev-parse HEAD` says — the checkout, which a build can lag. */
-  head: string | null;
-  /** The tip of the branch releases come from. */
-  latest: string | null;
-  latestShort: string | null;
-  branch: string | null;
-  /** Only the production checkout may release, and only it should be asked to. */
-  releasable: boolean;
-  /** Commits on the release branch that the running build does not have. */
-  pending: PendingCommit[];
-  /** The Unreleased bullets from the release branch's CHANGELOG. */
-  notes: string[];
-  error: string | null;
-};
-
-export type PendingCommit = { commit: string; subject: string };
-
-export const RELEASE_BRANCH = "dev";
-export const PRODUCTION_BRANCH = "main";
 
 /**
  * A running build is not the same thing as a checkout. `next start` serves
@@ -53,70 +35,6 @@ function readRunningCommit(root: string): { commit: string | null; builtAt: stri
 async function git(root: string, args: string[], timeout = 15_000) {
   const { stdout } = await run("git", ["-C", root, ...args], { timeout, windowsHide: true });
   return stdout.trim();
-}
-
-/**
- * The Unreleased block of a CHANGELOG, as one line per entry.
- *
- * The file's bullets wrap over several lines and lead with a bolded sentence
- * that says what changed in the terms Nic reads for; that sentence is the
- * whole value, so each bullet collapses to a single line and the rest of its
- * prose is left in the file.
- */
-export function parseUnreleased(changelog: string): string[] {
-  const lines = changelog.split(/\r?\n/);
-  const start = lines.findIndex((line) => /^##\s+Unreleased\s*$/i.test(line));
-  if (start === -1) return [];
-
-  const notes: string[] = [];
-  let current: string[] = [];
-
-  const flush = () => {
-    if (!current.length) return;
-    const text = current.join(" ").replace(/\s+/g, " ").trim();
-    if (text) notes.push(text);
-    current = [];
-  };
-
-  for (const line of lines.slice(start + 1)) {
-    if (/^##\s/.test(line)) break;
-    const bullet = line.match(/^\s*[-*]\s+(.*)$/);
-    if (bullet) {
-      flush();
-      current.push(bullet[1]);
-      continue;
-    }
-    if (!line.trim()) {
-      flush();
-      continue;
-    }
-    if (current.length) current.push(line.trim());
-  }
-  flush();
-
-  return notes.map(headlineOf);
-}
-
-/**
- * `**A sentence.** the details…` → `A sentence.` A bullet with no bolded lead
- * keeps its first sentence, so nothing is dropped for want of formatting.
- */
-function headlineOf(entry: string): string {
-  const bold = entry.match(/^\*\*(.+?)\*\*/);
-  if (bold) return bold[1].trim();
-  const sentence = entry.match(/^(.+?[.!?])(\s|$)/);
-  return (sentence ? sentence[1] : entry).replace(/\*\*/g, "").trim();
-}
-
-export function parsePendingCommits(log: string): PendingCommit[] {
-  return log
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter(Boolean)
-    .map((line) => {
-      const [commit, ...rest] = line.split(" ");
-      return { commit, subject: rest.join(" ") };
-    });
 }
 
 export async function readReleaseStatus(root = process.cwd()): Promise<ReleaseStatus> {
