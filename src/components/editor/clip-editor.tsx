@@ -65,6 +65,13 @@ const SLOT_WINDOW_DAYS = 14;
 // How far the dropdown can page ahead, matching the server's offsetDays ceiling
 // in src/app/api/publish/overview (ten years of daily slots).
 const MAX_SLOT_OFFSET_DAYS = 3650;
+// Everything already booked, for filtering any window: this app's queue plus
+// the videos the channel itself holds. Window-independent, so it is fetched
+// once per editor rather than once per window.
+type Occupancy = { taken: Set<string>; channelVideos: ChannelSchedule["videos"] };
+// How long that read stays good for. Short enough that a slot taken elsewhere
+// shows up quickly, long enough that paging windows costs nothing.
+const OCCUPANCY_TTL_MS = 60_000;
 
 const TABS = [
   { id: "layout", label: "Layout", icon: LayoutTemplate },
@@ -789,55 +796,102 @@ export function ClipEditor({
   // that time (e.g. scheduled by hand in YouTube Studio). Without the channel
   // check the dropdown would offer a slot the Uploading Center already shows as
   // occupied, so quick-scheduling there would double-book it.
-  const loadSlots = useCallback(async (offsetDays = 0) => {
-    const target = Math.min(MAX_SLOT_OFFSET_DAYS, Math.max(0, offsetDays));
-    setSlotsLoading(true);
-    setSlotOffsetDays(target);
-    try {
-      const [overviewRes, queueRes, channelRes] = await Promise.all([
-        fetch(`/api/publish/overview?days=${SLOT_WINDOW_DAYS}&offsetDays=${target}`, { cache: "no-store" }),
+  //
+  // What's booked doesn't depend on which window is on screen, so the queue and
+  // the channel schedule are fetched once and reused while paging — only the
+  // grid itself is refetched per window. `force` re-reads them after this editor
+  // schedules something.
+  const occupancyRef = useRef<{ at: number; value: Promise<Occupancy> } | null>(null);
+  const loadOccupancy = useCallback((force = false) => {
+    const cached = occupancyRef.current;
+    if (!force && cached && Date.now() - cached.at < OCCUPANCY_TTL_MS) return cached.value;
+    const value = (async (): Promise<Occupancy> => {
+      const [queueRes, channelRes] = await Promise.all([
         fetch("/api/publish", { cache: "no-store" }),
         fetch("/api/publish/youtube-channel", { cache: "no-store" })
       ]);
-      const overview = overviewRes.ok
-        ? ((await overviewRes.json()) as { enabled: boolean; timezone: string; slots: ScheduleSlot[] })
-        : null;
-      if (!overview?.enabled) {
-        setPublishEnabled(false);
+      const queue = queueRes.ok ? ((await queueRes.json()) as { items?: Array<{ publishAt: string }> }) : {};
+      const channel = channelRes.ok ? ((await channelRes.json()) as ChannelSchedule) : null;
+      return {
+        taken: new Set((queue.items ?? []).map((item) => new Date(item.publishAt).toISOString())),
+        channelVideos: channel?.videos ?? []
+      };
+    })();
+    value.catch(() => {
+      if (occupancyRef.current?.value === value) occupancyRef.current = null;
+    });
+    occupancyRef.current = { at: Date.now(), value };
+    return value;
+  }, []);
+
+  // Guards against an older window's response landing after a newer one and
+  // repainting the menu with the wrong fortnight.
+  const slotRequestRef = useRef(0);
+  // The window the visible slots belong to. Refreshing that same window leaves
+  // them on screen (a prefetched menu opens filled, not spinning); paging to a
+  // different one clears them, so no fortnight is ever shown under another's
+  // dates.
+  const loadedOffsetRef = useRef<number | null>(null);
+
+  const loadSlots = useCallback(
+    async (offsetDays = 0, options: { force?: boolean } = {}) => {
+      const target = Math.min(MAX_SLOT_OFFSET_DAYS, Math.max(0, offsetDays));
+      const request = ++slotRequestRef.current;
+      if (loadedOffsetRef.current !== target) {
+        setSlotOptions(null);
+        setSlotWindowLabel(null);
+      }
+      setSlotsLoading(true);
+      setSlotOffsetDays(target);
+      try {
+        const [overviewRes, occupancy] = await Promise.all([
+          // slotsOnly: the menu needs the grid, not the platform accounts or the
+          // quota meter the full overview stops to read from four social APIs.
+          fetch(`/api/publish/overview?days=${SLOT_WINDOW_DAYS}&offsetDays=${target}&slotsOnly=1`, { cache: "no-store" }),
+          loadOccupancy(options.force)
+        ]);
+        if (slotRequestRef.current !== request) return;
+        const overview = overviewRes.ok
+          ? ((await overviewRes.json()) as { enabled: boolean; timezone: string; slots: ScheduleSlot[] })
+          : null;
+        if (!overview?.enabled) {
+          setPublishEnabled(false);
+          setSlotOptions([]);
+          setSlotWindowLabel(null);
+          return;
+        }
+        setPublishEnabled(true);
+        // Label the window by its first and last calendar day (before filtering)
+        // so the header shows which fortnight these slots cover.
+        const first = overview.slots[0]?.dateLabel;
+        const last = overview.slots[overview.slots.length - 1]?.dateLabel;
+        setSlotWindowLabel(first && last ? (first === last ? first : `${first} – ${last}`) : null);
+        // Place the channel's real schedule onto the grid with the same helper the
+        // Uploading Center uses, so occupancy is computed identically on both sides.
+        const channelBySlot = placeChannelVideos({
+          videos: occupancy.channelVideos,
+          slots: overview.slots,
+          isSlotOccupied: (slotUtc) => occupancy.taken.has(slotUtc),
+          timeZone: overview.timezone ?? "UTC"
+        }).bySlotUtc;
+        // Show every open time in the window (not just the soonest handful) so the
+        // menu is a full picker you can page through as far ahead as you like.
+        const open = overview.slots
+          .filter((slot) => !slot.past && !occupancy.taken.has(slot.utc) && !channelBySlot.has(slot.utc))
+          .map((slot) => ({ utc: slot.utc, label: `${slot.dateLabel} · ${slot.time}`, today: slot.today }));
+        loadedOffsetRef.current = target;
+        setSlotOptions(open);
+      } catch {
+        if (slotRequestRef.current !== request) return;
+        loadedOffsetRef.current = null;
         setSlotOptions([]);
         setSlotWindowLabel(null);
-        return;
+      } finally {
+        if (slotRequestRef.current === request) setSlotsLoading(false);
       }
-      setPublishEnabled(true);
-      // Label the window by its first and last calendar day (before filtering)
-      // so the header shows which fortnight these slots cover.
-      const first = overview.slots[0]?.dateLabel;
-      const last = overview.slots[overview.slots.length - 1]?.dateLabel;
-      setSlotWindowLabel(first && last ? (first === last ? first : `${first} – ${last}`) : null);
-      const queue = queueRes.ok ? ((await queueRes.json()) as { items?: Array<{ publishAt: string }> }) : {};
-      const taken = new Set((queue.items ?? []).map((item) => new Date(item.publishAt).toISOString()));
-      // Place the channel's real schedule onto the grid with the same helper the
-      // Uploading Center uses, so occupancy is computed identically on both sides.
-      const channel = channelRes.ok ? ((await channelRes.json()) as ChannelSchedule) : null;
-      const channelBySlot = placeChannelVideos({
-        videos: channel?.videos ?? [],
-        slots: overview.slots,
-        isSlotOccupied: (slotUtc) => taken.has(slotUtc),
-        timeZone: overview.timezone ?? "UTC"
-      }).bySlotUtc;
-      // Show every open time in the window (not just the soonest handful) so the
-      // menu is a full picker you can page through as far ahead as you like.
-      const open = overview.slots
-        .filter((slot) => !slot.past && !taken.has(slot.utc) && !channelBySlot.has(slot.utc))
-        .map((slot) => ({ utc: slot.utc, label: `${slot.dateLabel} · ${slot.time}`, today: slot.today }));
-      setSlotOptions(open);
-    } catch {
-      setSlotOptions([]);
-      setSlotWindowLabel(null);
-    } finally {
-      setSlotsLoading(false);
-    }
-  }, []);
+    },
+    [loadOccupancy]
+  );
 
   // Schedule the freshly rendered export straight to YouTube at `slotUtc`. The
   // publish API uploads it private with a go-live time, so it shows as Scheduled
@@ -874,7 +928,7 @@ export function ClipEditor({
         // it cannot be offered again, then reconcile against the full queue to
         // pull in anything scheduled from another tab while this upload ran.
         setSlotOptions((current) => current?.filter((slot) => slot.utc !== slotUtc) ?? current);
-        void loadSlots(slotOffsetDays);
+        void loadSlots(slotOffsetDays, { force: true });
 
         const outcome = data.report?.outcomes.find((entry) => entry.platform === "youtube");
         if (outcome?.outcome === "scheduled") {
@@ -1070,6 +1124,9 @@ export function ClipEditor({
           canGoPrev={slotOffsetDays > 0}
           canGoNext={slotOffsetDays + SLOT_WINDOW_DAYS <= MAX_SLOT_OFFSET_DAYS}
           onOpen={() => loadSlots(0)}
+          onPrefetch={() => {
+            if (slotOptions === null && !slotsLoading) void loadSlots(0);
+          }}
           onPrevWindow={() => loadSlots(slotOffsetDays - SLOT_WINDOW_DAYS)}
           onNextWindow={() => loadSlots(slotOffsetDays + SLOT_WINDOW_DAYS)}
           onPickSlot={(slot) => runSchedule({ type: "slot", slotUtc: slot.utc, label: slot.label })}
@@ -1282,6 +1339,7 @@ function ScheduleShortMenu({
   canGoPrev,
   canGoNext,
   onOpen,
+  onPrefetch,
   onPrevWindow,
   onNextWindow,
   onPickSlot,
@@ -1297,6 +1355,7 @@ function ScheduleShortMenu({
   canGoPrev: boolean;
   canGoNext: boolean;
   onOpen: () => void;
+  onPrefetch: () => void;
   onPrevWindow: () => void;
   onNextWindow: () => void;
   onPickSlot: (slot: QuickSlot) => void;
@@ -1332,6 +1391,8 @@ function ScheduleShortMenu({
     <div ref={ref} className="relative">
       <Button
         onClick={toggle}
+        onPointerEnter={onPrefetch}
+        onFocus={onPrefetch}
         disabled={pending || submitting}
         aria-haspopup="menu"
         aria-expanded={open}
@@ -1393,7 +1454,7 @@ function ScheduleShortMenu({
                   </button>
                 </div>
               </div>
-              {slotsLoading ? (
+              {slotsLoading && !slots ? (
                 <div className="flex items-center gap-2 px-2 py-3 text-xs text-[var(--muted-foreground)]">
                   <Loader2 className="h-3.5 w-3.5 animate-spin" /> Finding open slots…
                 </div>

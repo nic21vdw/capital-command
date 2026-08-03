@@ -11,6 +11,15 @@ committed. The release moves that block under a dated heading.
 
 ## Unreleased
 
+- **Scheduling a Short from the editor stops making you wait.** The Schedule
+  Short menu used to sit on "Finding open slots…" while it read all four social
+  accounts, the quota meter and the whole YouTube channel — none of which it
+  shows. It now asks for the slot grid alone, starts loading the moment your
+  pointer reaches the button so the menu opens already filled, keeps what is
+  already booked instead of re-reading it every time you page a fortnight, and
+  serves a few-minute-old channel schedule while it refreshes behind you rather
+  than making you wait for three round trips to YouTube.
+
 - **You can talk to Capital Command.** `/agents` opens a live speech-to-speech
   session on OpenAI Realtime or Grok Voice. Say "check my channel" and it reads
   the channel and tells you what is new; say "take it in" and it puts every new
