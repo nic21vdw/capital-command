@@ -11,6 +11,10 @@ committed. The release moves that block under a dated heading.
 
 ## Unreleased
 
+- **Clip titles are easier to review and edit.** Clip cards give the title and
+  its justification more room, with clearer spacing, more readable type, and a
+  two-line title editor instead of squeezing the text into one line.
+
 - **You can talk to Capital Command.** `/agents` opens a live speech-to-speech
   session on OpenAI Realtime or Grok Voice. Say "check my channel" and it reads
   the channel and tells you what is new; say "take it in" and it puts every new

@@ -667,6 +667,7 @@ function EditableTitle({
   as: Tag = "h2",
   className,
   inputClassName,
+  multiline = false,
   ariaLabel
 }: {
   text: string;
@@ -674,19 +675,21 @@ function EditableTitle({
   as?: "h2" | "h3";
   className?: string;
   inputClassName?: string;
+  multiline?: boolean;
   ariaLabel: string;
 }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(text);
   const inputRef = useRef<HTMLInputElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
     if (editing) {
-      const el = inputRef.current;
+      const el = multiline ? textareaRef.current : inputRef.current;
       el?.focus();
       el?.select();
     }
-  }, [editing]);
+  }, [editing, multiline]);
 
   const commit = () => {
     setEditing(false);
@@ -695,6 +698,29 @@ function EditableTitle({
   };
 
   if (editing) {
+    if (multiline) {
+      return (
+        <textarea
+          ref={textareaRef}
+          rows={2}
+          value={draft}
+          aria-label={ariaLabel}
+          onChange={(event) => setDraft(event.target.value)}
+          onBlur={commit}
+          onKeyDown={(event) => {
+            if (event.key === "Enter") {
+              event.preventDefault();
+              commit();
+            } else if (event.key === "Escape") {
+              event.preventDefault();
+              setEditing(false);
+            }
+          }}
+          className={inputClassName}
+        />
+      );
+    }
+
     return (
       <input
         ref={inputRef}
@@ -853,17 +879,18 @@ function ClipCard({
             #{index + 1}
           </Badge>
         </div>
-        <div className="flex min-w-0 flex-col gap-3 p-4">
+        <div className="flex min-w-0 flex-col gap-5 p-5 lg:p-6">
           <div className="min-w-0">
             <EditableTitle
               as="h3"
               text={clipHeadline(clip, index)}
               onCommit={onRename}
               ariaLabel={`Clip ${index + 1} title`}
-              className="line-clamp-2 text-base font-semibold text-white"
-              inputClassName="w-full rounded-md border border-[var(--accent)]/50 bg-[var(--well-deep)] px-2 py-1 text-base font-semibold text-white outline-none"
+              multiline
+              className="line-clamp-3 text-lg font-semibold leading-7 text-white"
+              inputClassName="min-h-20 w-full resize-none rounded-lg border border-[var(--accent)]/50 bg-[var(--well-deep)] px-3 py-2.5 text-lg font-semibold leading-7 text-white outline-none"
             />
-            <div className="mt-2 flex flex-wrap gap-1.5">
+            <div className="mt-4 flex flex-wrap gap-2">
               <Badge>
                 {formatTimestamp(clip.start)} - {formatTimestamp(clip.end)}
               </Badge>
@@ -879,7 +906,12 @@ function ClipCard({
             </div>
           </div>
 
-          <p className="line-clamp-2 text-xs leading-5 text-[var(--muted-foreground)]">{clip.rationale}</p>
+          <div className="border-t border-white/8 pt-4">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-[var(--muted-foreground)]">
+              Why this clip
+            </p>
+            <p className="mt-2 line-clamp-3 text-sm leading-6 text-[var(--muted-foreground)]">{clip.rationale}</p>
+          </div>
 
           {!clip.file && (
             <div className="mt-auto flex items-center gap-2 pt-1 text-xs text-[var(--muted-foreground)]">
