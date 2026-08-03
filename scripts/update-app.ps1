@@ -55,7 +55,12 @@ function Publish-Changelog {
     return
   }
 
-  $lines = @(Get-Content $path)
+  # .NET file IO, not Get-Content/Set-Content: Windows PowerShell reads UTF-8
+  # as ANSI unless told otherwise and writes a BOM when told to write UTF-8,
+  # and this file is full of em dashes. Round-tripping it through the cmdlets
+  # turns every one of them into mojibake and prepends a BOM - on every
+  # release, compounding.
+  $lines = @([System.IO.File]::ReadAllLines($path, [System.Text.UTF8Encoding]::new($false)))
   $heading = $null
   for ($i = 0; $i -lt $lines.Count; $i++) {
     if ($lines[$i] -match '^##\s+Unreleased\s*$') { $heading = $i; break }
@@ -87,7 +92,7 @@ function Publish-Changelog {
   $updated += "## $today"
   if ($heading + 1 -lt $lines.Count) { $updated += $lines[($heading + 1)..($lines.Count - 1)] }
 
-  Set-Content -Path $path -Value $updated -Encoding utf8
+  [System.IO.File]::WriteAllLines($path, $updated, [System.Text.UTF8Encoding]::new($false))
 
   git add CHANGELOG.md
   git commit --quiet -m "Date the changelog for the $today release"
