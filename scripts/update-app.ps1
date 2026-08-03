@@ -157,7 +157,10 @@ branch) before updating. Use -Force to throw it away.
 
 Step "What this update brings"
 
-$incoming = git log --oneline "origin/main..origin/$Branch"
+# Against HEAD, not origin/main: work now lands on main through pull requests,
+# so origin/main..origin/main is always empty and this would report "nothing
+# new" while the running checkout sat six releases behind.
+$incoming = git log --oneline "HEAD..origin/$Branch"
 if (-not $incoming) {
   Write-Host "Nothing new on $Branch - the app is already running the latest."
   if ($Check -or -not $Force) { exit 0 }

@@ -1,6 +1,7 @@
 import { spawn } from "node:child_process";
 import { openSync } from "node:fs";
 import { join } from "node:path";
+import { RELEASE_BRANCH } from "@/lib/release/shared";
 
 export const UPDATE_LOG = "update-app.log";
 
@@ -26,7 +27,7 @@ export function startRelease(root = process.cwd()): { started: boolean; reason?:
 
   const child = spawn(
     "powershell.exe",
-    ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", script],
+    ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", script, "-Branch", RELEASE_BRANCH],
     { cwd: root, detached: true, windowsHide: true, stdio: ["ignore", log, log] }
   );
 

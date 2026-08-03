@@ -27,7 +27,13 @@ export type ReleaseStatus = {
 
 export type PendingCommit = { commit: string; subject: string };
 
-export const RELEASE_BRANCH = "dev";
+/**
+ * Where finished work waits. Agent sessions open pull requests against `main`
+ * and merge them there, so `main` — not `dev` — is what the running build is
+ * behind. Watching `dev` meant the banner stayed silent through six releases'
+ * worth of shipped work.
+ */
+export const RELEASE_BRANCH = "main";
 export const PRODUCTION_BRANCH = "main";
 
 /**

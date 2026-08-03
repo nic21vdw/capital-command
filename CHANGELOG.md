@@ -30,7 +30,6 @@ already shipped.
   release on its own; this answers the question on demand. Both read the same
   check, so they can never disagree on screen or fetch twice.
 
-## 2026-08-02
 
 - **You can talk to Capital Command for nothing.** A "Talk to it" card on
   `/agents`: click the mic, say "check my channel for anything new", and it
