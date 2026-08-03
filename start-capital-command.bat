@@ -131,28 +131,34 @@ if errorlevel 1 (
   exit /b 1
 )
 
-REM --- Free port 3000 if a previous run is still using it ------
-for /f "tokens=5" %%P in ('netstat -ano ^| findstr /R /C:":3000 .*LISTENING"') do (
-  echo Stopping a previous instance still using port 3000 (PID %%P)...
-  taskkill /F /PID %%P >nul 2>nul
+REM  A copy already serving port 3000 is reused rather than killed: open-app.ps1
+REM  checks the port first, so a second double-click just opens another window
+REM  instead of forcing a fresh few-minute rebuild.
+
+REM --- 4/4: Build the app, start it, and open it ---------------
+REM  This used to run "npm run dev", which serves the app straight from a
+REM  development server: every screen is compiled the first time you click it,
+REM  so the sidebar takes seconds per link. open-app.ps1 makes a real
+REM  production build instead - slower to start the first time, then instant to
+REM  use - and reports what went wrong if the build fails, rather than leaving
+REM  nothing on port 3000.
+echo [4/4] Building and starting the app (the first build takes a few minutes)...
+echo.
+echo   The app will open at http://localhost:3000 in its own window.
+echo   It keeps running after this window closes, so scheduled posting works.
+echo.
+
+powershell -NoProfile -ExecutionPolicy Bypass -File "scripts\open-app.ps1"
+if errorlevel 1 (
+  echo.
+  echo [ERROR] The app did not start. See build.log in this folder.
+  echo.
+  pause
+  exit /b 1
 )
 
-REM --- 4/4: Start the app and open the browser ----------------
-echo [4/4] Starting the app...
 echo.
-echo   The app will open at http://localhost:3000
-echo   Keep THIS window open while you use the app.
-echo   Close it (or press Ctrl+C) to stop the local server.
-echo.
-
-REM Open the browser shortly after the server has had time to boot.
-start "" cmd /c "timeout /t 6 >nul & start "" http://localhost:3000"
-
-REM Run the dev server in this window, pinned to port 3000 so the URL above
-REM always matches. This blocks until you close the window.
-call npm run dev -- -p 3000
-
-echo.
-echo The local server has stopped.
+echo Capital Command is running at http://localhost:3000
+echo To stop it: scripts\stop-server.ps1
 pause
 endlocal
