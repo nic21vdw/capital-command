@@ -128,6 +128,37 @@ The build runs with `$ErrorActionPreference = "Continue"`. `next build` writes
 warnings to stderr, and under `Stop` PowerShell promotes each of those lines to
 a terminating error — a green build would abort the script.
 
+## Two servers can hold port 3000 at once, and the wrong one wins
+
+This cost a day. `start-server.ps1` runs `next start --hostname 127.0.0.1`,
+which binds ONLY `127.0.0.1:3000`. A second `next start` without a hostname
+binds the wildcard — `0.0.0.0:3000` AND `[::]:3000` — and Windows lets both
+listen, because one bind is specific and the other is not.
+
+Windows resolves `localhost` to `::1` first, and only the wildcard server is
+there. So the app window, which opens `http://localhost:3000`, talks to the
+STRAY server while the tracked one sits unused on `127.0.0.1`. Measured while
+this was happening: `localhost:3000` took 3.6–6.8 s a request, `127.0.0.1:3000`
+took 0.06 s. It reads as "the app got slow" with nothing in the logs.
+
+`server.pid` only ever knows about the server `start-server.ps1` launched, so
+`stop-server.ps1` cannot stop the stray and `update-app.ps1` restarts around it.
+Both processes also write `data\capital-command.json`, and the write queue in
+`src/lib/storage/store.ts` is per-process — two of them interleave, which is a
+corrupted publish queue waiting to happen, not just a slow app.
+
+`npm start` used to create exactly this (it had no `--hostname`); it now matches
+the launcher. Never start a second server in the production folder by hand.
+When production feels slow, check for a duplicate FIRST:
+
+```
+netstat -ano | findstr ":3000 .*LISTENING"
+```
+
+One line is healthy. Two — a `127.0.0.1` and a `0.0.0.0`/`[::]` — is this bug;
+kill the wildcard one. `start-server.ps1` now refuses to start when the port
+already answers, so it will not add a second itself.
+
 ## `next build` lints stricter than `npm run lint`
 
 `next build` treats some `react-hooks` rules as errors that a standalone lint
