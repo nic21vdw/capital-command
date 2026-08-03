@@ -11,6 +11,8 @@ committed. The release moves that block under a dated heading.
 
 ## Unreleased
 
+## 2026-08-03
+
 - **You can talk to Capital Command.** `/agents` opens a live speech-to-speech
   session on OpenAI Realtime or Grok Voice. Say "check my channel" and it reads
   the channel and tells you what is new; say "take it in" and it puts every new
