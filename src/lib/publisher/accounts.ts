@@ -1,6 +1,7 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { configuredPlatforms, publisherConfig } from "@/lib/publisher/config";
+import { dataPath } from "@/lib/paths";
 import { mediaHost } from "@/lib/publisher/hosting";
 import { getCachedToken } from "@/lib/publisher/tokens";
 import { ALL_PLATFORMS, type PlatformId, type QueueItem } from "@/lib/publisher/types";
@@ -32,7 +33,7 @@ export type SocialAccount = {
   createdAt: string;
 };
 
-const FILE_PATH = path.join(process.cwd(), "data", "social-accounts.json");
+const FILE_PATH = dataPath("social-accounts.json");
 const R2_KEY = "publisher/social-accounts.json";
 
 export function primaryAccountId(platform: PlatformId): string {

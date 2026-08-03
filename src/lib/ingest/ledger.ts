@@ -1,6 +1,7 @@
 import { mkdir, readFile, rename, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { IngestLedger, IngestRecord } from "@/lib/ingest/types";
+import { dataPath } from "@/lib/paths";
 
 /**
  * What the scan has already taken in.
@@ -18,7 +19,7 @@ import type { IngestLedger, IngestRecord } from "@/lib/ingest/types";
 const EMPTY: IngestLedger = { lastScanAt: null, records: [] };
 
 export function ledgerPath(): string {
-  return path.join(process.cwd(), "data", "channel-ingest.json");
+  return dataPath("channel-ingest.json");
 }
 
 export async function readLedger(): Promise<IngestLedger> {

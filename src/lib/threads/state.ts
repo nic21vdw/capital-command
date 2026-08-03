@@ -1,5 +1,6 @@
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { dataPath } from "@/lib/paths";
 
 /**
  * The autopilot's heartbeat.
@@ -10,7 +11,7 @@ import path from "node:path";
  * glance — "is this thing actually running?" — instead of implying it is.
  */
 
-const FILE_PATH = path.join(process.cwd(), "data", "threads-state.json");
+const FILE_PATH = dataPath("threads-state.json");
 
 export type ThreadsState = {
   /** When a tick last ran, whether or not it had anything to do. */

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { formatISO } from "date-fns";
+import { externalizeProjectOverlays, repairAppDataOverlays } from "@/lib/clipping/overlay-images";
 import { derivePortfolioSummary } from "@/lib/derive";
 import { ensureExecution } from "@/lib/execution/server";
 import { todayLocal } from "@/lib/execution/dates";
@@ -80,7 +81,7 @@ async function refreshPrices(data: AppData) {
 }
 
 export async function GET(request: NextRequest) {
-  const data = await readAppData();
+  const data = await repairAppDataOverlays(await readAppData());
   const format = request.nextUrl.searchParams.get("format");
 
   if (format === "json") {
@@ -244,7 +245,8 @@ export async function POST(request: NextRequest) {
       break;
     }
     case "upsertClipProject": {
-      const parsed = clipProjectSchema.parse(payload);
+      // Straight to disk: an overlay picture must never enter the JSON store.
+      const parsed = await externalizeProjectOverlays(clipProjectSchema.parse(payload));
       const exists = data.clipProjects.some((item) => item.id === parsed.id);
       data = {
         ...data,

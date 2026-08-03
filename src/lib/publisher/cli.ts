@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
+import { dataPath } from "@/lib/paths";
 
 /**
  * Publisher CLI — the three ways to drive the queue from a terminal:
@@ -439,10 +440,10 @@ async function main() {
     const now = Date.now();
     const upcoming = items.filter((i) => new Date(i.publishAt).getTime() > now);
 
-    const jobs = JSON.parse(await readFile(path.join(process.cwd(), "data", "clips", "jobs.json"), "utf8"));
+    const jobs = JSON.parse(await readFile(dataPath("clips", "jobs.json"), "utf8"));
     // Clip Editor exports resolve through their project, not their file name.
     const appData = JSON.parse(
-      await readFile(path.join(process.cwd(), "data", "capital-command.json"), "utf8").catch(() => "{}")
+      await readFile(dataPath("capital-command.json"), "utf8").catch(() => "{}")
     );
     const { targets, unresolved } = collectRetitleTargets(upcoming, jobs, appData.clipProjects ?? []);
     console.log(`[publisher] ${targets.length} upcoming clips have a transcript; ${unresolved.length} do not.`);

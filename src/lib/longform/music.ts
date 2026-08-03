@@ -3,6 +3,7 @@ import { mkdir, readFile, rename, rm, stat, unlink, writeFile } from "node:fs/pr
 import path from "node:path";
 import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
+import { dataPath } from "@/lib/paths";
 import { hasAudioStream, hasVideoStream, probeDuration, runFfmpeg } from "@/lib/clipping/ffmpeg";
 import type { MusicTrack, MusicTrackOrigin } from "@/lib/longform/types";
 
@@ -10,7 +11,7 @@ import type { MusicTrack, MusicTrackOrigin } from "@/lib/longform/types";
 // across every long-form project. Files live on disk next to a small JSON
 // index — the same storage shape as the clips sources.
 
-const musicRoot = path.join(process.cwd(), "data", "longform", "music");
+const musicRoot = dataPath("longform", "music");
 const libraryFile = path.join(musicRoot, "library.json");
 let libraryQueue = Promise.resolve();
 

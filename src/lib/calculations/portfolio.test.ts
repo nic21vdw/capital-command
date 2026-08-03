@@ -1,4 +1,4 @@
-import assert from "node:assert/strict";
+import { describe, expect, it } from "vitest";
 import {
   getCostBasis,
   getGainLoss,
@@ -8,19 +8,29 @@ import {
   getPortfolioWeight
 } from "./portfolio";
 
-assert.equal(getMarketValue(10, 25.5), 255);
-assert.equal(getCostBasis(8, 12.25), 98);
-assert.equal(getGainLoss(255, 200), 55);
-assert.equal(getGainLossPercent(55, 200), 27.5);
-assert.equal(getPortfolioWeight(250, 1000), 25);
-assert.ok(
-  getMonthlyContributionRequired({
-    id: "goal-1",
-    goalName: "Emergency fund",
-    targetAmount: 24000,
-    currentAmount: 12000,
-    targetDate: "2027-05-01"
-  }) > 0
-);
+describe("portfolio calculations", () => {
+  it("values a holding and its cost basis", () => {
+    expect(getMarketValue(10, 25.5)).toBe(255);
+    expect(getCostBasis(8, 12.25)).toBe(98);
+  });
 
-console.log("portfolio calculation tests passed");
+  it("reports gain in currency and percent", () => {
+    expect(getGainLoss(255, 200)).toBe(55);
+    expect(getGainLossPercent(55, 200)).toBe(27.5);
+  });
+
+  it("weights a holding against the portfolio", () => {
+    expect(getPortfolioWeight(250, 1000)).toBe(25);
+  });
+
+  it("asks for a positive monthly contribution while a goal is unmet", () => {
+    const required = getMonthlyContributionRequired({
+      id: "goal-1",
+      goalName: "Emergency fund",
+      targetAmount: 24000,
+      currentAmount: 12000,
+      targetDate: "2027-05-01"
+    });
+    expect(required).toBeGreaterThan(0);
+  });
+});

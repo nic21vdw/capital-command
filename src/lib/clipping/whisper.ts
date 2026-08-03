@@ -1,6 +1,7 @@
 import { mkdir, readFile, rm } from "node:fs/promises";
 import path from "node:path";
 import { chunkWords } from "@/lib/clipping/captions";
+import { dataPath } from "@/lib/paths";
 import { probeDuration, runFfmpeg } from "@/lib/clipping/ffmpeg";
 import type { CaptionSegment, CaptionWord } from "@/types/domain";
 
@@ -17,7 +18,7 @@ import type { CaptionSegment, CaptionWord } from "@/types/domain";
  */
 
 const DEFAULT_MODEL = "Xenova/whisper-base.en";
-const MODEL_CACHE_DIR = path.join(process.cwd(), "data", "clips", "bin", "whisper-models");
+const MODEL_CACHE_DIR = dataPath("clips", "bin", "whisper-models");
 
 function modelId(): string {
   return process.env.CLIPS_WHISPER_MODEL?.trim() || DEFAULT_MODEL;

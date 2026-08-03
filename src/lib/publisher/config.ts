@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
-import path from "node:path";
 import { ALL_PLATFORMS, type PlatformId, type Visibility } from "@/lib/publisher/types";
+import { dataPath } from "@/lib/paths";
 
 /**
  * All publisher configuration comes from environment variables (.env locally,
@@ -145,7 +145,7 @@ export type PublisherConfig = {
  */
 function cachedRefreshToken(key: string): string | null {
   try {
-    const raw = readFileSync(path.join(process.cwd(), "data", "publisher-tokens.json"), "utf8");
+    const raw = readFileSync(dataPath("publisher-tokens.json"), "utf8");
     const value = (JSON.parse(raw) as Record<string, unknown>)[key];
     return typeof value === "string" && value ? value : null;
   } catch {

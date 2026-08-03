@@ -1,5 +1,6 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { dataPath } from "@/lib/paths";
 import { publisherConfig } from "@/lib/publisher/config";
 import { mediaHost } from "@/lib/publisher/hosting";
 
@@ -13,7 +14,7 @@ import { mediaHost } from "@/lib/publisher/hosting";
  * .env values act as the initial seed; a cached value always wins after that.
  */
 
-const FILE_PATH = path.join(process.cwd(), "data", "publisher-tokens.json");
+const FILE_PATH = dataPath("publisher-tokens.json");
 const R2_KEY = "publisher/tokens.json";
 
 async function readAll(): Promise<Record<string, string>> {

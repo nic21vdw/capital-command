@@ -2,6 +2,7 @@ import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { THREADS_TEXT_LIMIT, threadsConfig, type ThreadsConfig } from "@/lib/threads/config";
 import type { ThreadsBatchSummary, ThreadsQueueItem } from "@/lib/threads/types";
+import { dataPath } from "@/lib/paths";
 
 /**
  * The Threads autopilot queue: one JSON file of scheduled posts.
@@ -14,7 +15,7 @@ import type { ThreadsBatchSummary, ThreadsQueueItem } from "@/lib/threads/types"
  * Pipeline had to be redesigned around.
  */
 
-const FILE_PATH = path.join(process.cwd(), "data", "threads-queue.json");
+const FILE_PATH = dataPath("threads-queue.json");
 
 /** Serializes writes made by this process; the rename makes each one atomic. */
 let writeChain: Promise<unknown> = Promise.resolve();

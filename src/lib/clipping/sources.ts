@@ -4,12 +4,13 @@ import { mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
+import { dataPath } from "@/lib/paths";
 import { downloadFullVideo, fetchVideoMeta } from "@/lib/clipping/download";
 import { hasAudioStream, probeDuration, resolveFfmpeg, runFfmpeg } from "@/lib/clipping/ffmpeg";
 
 // Sources live under data/clips/sources/<id>/ — the source file is stored once
 // and referenced by any number of projects, so large videos are never copied.
-const sourcesRoot = path.join(process.cwd(), "data", "clips", "sources");
+const sourcesRoot = dataPath("clips", "sources");
 
 export type SourceMeta = {
   id: string;

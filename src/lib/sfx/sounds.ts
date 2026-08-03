@@ -3,6 +3,7 @@ import { mkdir, readFile, rename, rm, stat, unlink, writeFile } from "node:fs/pr
 import path from "node:path";
 import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
+import { dataPath } from "@/lib/paths";
 import { hasAudioStream, hasVideoStream, probeDuration, runFfmpeg } from "@/lib/clipping/ffmpeg";
 import { SFX_SOUND_IDS, isSfxSoundId } from "@/lib/sfx/types";
 import type { SfxSoundId } from "@/types/domain";
@@ -13,7 +14,7 @@ import type { SfxSoundId } from "@/types/domain";
 // data/sfx/defaults/. The synthesized sounds only sketch the real memes —
 // uploading the actual MP3s is the intended path to the authentic effects.
 
-const sfxRoot = path.join(process.cwd(), "data", "sfx");
+const sfxRoot = dataPath("sfx");
 const indexFile = path.join(sfxRoot, "library.json");
 let indexQueue = Promise.resolve();
 

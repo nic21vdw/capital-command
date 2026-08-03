@@ -37,3 +37,4 @@ data/carousel-images/
 
 .env.bak-*
 data/publish-queue.backup-*
+data/overlay-images/
