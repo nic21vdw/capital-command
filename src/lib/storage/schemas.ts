@@ -435,6 +435,7 @@ export const carouselSlideSchema = z.object({
   headingColor: z.string().optional(),
   bodyColor: z.string().optional(),
   hideBaseText: z.boolean().optional(),
+  scrim: z.number().min(0).max(1).optional(),
   textBand: z.object({ top: z.number(), bottom: z.number() }).optional(),
   layers: z.array(slideLayerSchema).optional()
 });

@@ -215,3 +215,40 @@ describe("photo batches", () => {
     expect(fallbackCarousel({ ...input, slideCount: 12 }).slides).toHaveLength(12);
   });
 });
+
+describe("video stills", () => {
+  it("tells the model the stills are the video in order, and not to describe them", async () => {
+    const { buildCarouselPrompt } = await import("@/lib/studio/carousel");
+    const prompt = buildCarouselPrompt({
+      title: "Stream",
+      sourceText: "text",
+      slideCount: 8,
+      imageCount: 8,
+      imageMode: "backdrop"
+    });
+    expect(prompt).toContain("still taken from the video itself");
+    expect(prompt).toContain("in the order it happened");
+    expect(prompt).toContain("you have not seen them");
+    expect(prompt).not.toContain("caption for its own photo");
+  });
+
+  it("keeps the uploaded-photo wording when the pictures are photos", async () => {
+    const { buildCarouselPrompt } = await import("@/lib/studio/carousel");
+    const prompt = buildCarouselPrompt({ title: "Stream", sourceText: "text", slideCount: 8, imageCount: 2 });
+    expect(prompt).toContain("caption for its own photo");
+  });
+
+  it("lays stills behind the copy rather than across the top", async () => {
+    const { toCarouselRecord } = await import("@/lib/studio/carousel");
+    const carousel = toCarouselRecord({
+      title: "Stream",
+      slides: [{ heading: "A", body: "" }],
+      sourceType: "longform",
+      imageMode: "backdrop",
+      images: [{ id: "f.jpg", url: "/api/studio/carousels/images/f.jpg" }]
+    });
+    const layer = carousel.slides[0].layers?.[0];
+    expect(layer?.type === "image" && layer.height).toBe(1);
+    expect(carousel.slides[0].scrim).toBeGreaterThan(0);
+  });
+});

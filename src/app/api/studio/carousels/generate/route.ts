@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import type { CarouselImage } from "@/lib/carousels/imageSlides";
 import { carouselImageExists, carouselImageUrl, MAX_BATCH_IMAGES, parseCarouselImageId } from "@/lib/carousels/uploads";
+import { framesForSource } from "@/lib/carousels/videoFrames";
 import { getJob } from "@/lib/clipping/jobs";
 import { clipCarouselSource } from "@/lib/studio/carousel";
 import { getProject } from "@/lib/longform/store";
@@ -10,7 +11,9 @@ import {
   carouselGenerationConfigured,
   clampBatchCount,
   DEFAULT_SLIDE_COUNT,
-  generateCarouselBatches
+  generateCarouselBatches,
+  resolveSlideCount,
+  type CarouselImageMode
 } from "@/lib/studio/carousel";
 import { scriptFullText } from "@/lib/studio/scripts";
 import type { Carousel } from "@/types/domain";
@@ -78,6 +81,10 @@ export async function POST(request: NextRequest) {
   let sourceTitle = title;
   let sourceType: Carousel["sourceType"] = "custom";
   let sourceId: string | undefined;
+  // Uploaded photos are the subject and sit on top; stills lifted from the
+  // recording are the setting and go behind the copy.
+  let imageMode: CarouselImageMode = "photo";
+  let imageNote: string | null = null;
 
   if (scriptId) {
     const script = studio.scripts.find((entry) => entry.id === scriptId);
@@ -95,6 +102,16 @@ export async function POST(request: NextRequest) {
     sourceId = project.id;
     if (!sourceText.trim()) {
       return NextResponse.json({ error: "That project has no transcript to work from." }, { status: 409 });
+    }
+    // No photos were chosen by hand, so illustrate the deck with the video's
+    // own frames — the same slides the Stream Pipeline writes unattended.
+    if (images.length === 0 && project.sourceId) {
+      const frames = await framesForSource(project.sourceId, resolveSlideCount({ slideCount })).catch(() => null);
+      if (frames?.images.length) {
+        images.push(...frames.images);
+        imageMode = "backdrop";
+      }
+      imageNote = frames?.note ?? null;
     }
   } else if (clipJobId) {
     const job = await getJob(clipJobId);
@@ -136,6 +153,7 @@ export async function POST(request: NextRequest) {
     sourceType,
     sourceId,
     images,
+    imageMode,
     imageNotes
   });
 
@@ -145,5 +163,9 @@ export async function POST(request: NextRequest) {
 
   // Batch 1 lands at the top of the list, its siblings directly under it.
   await writeAppData({ ...data, videoStudio: { ...studio, carousels: [...carousels, ...studio.carousels] } });
-  return NextResponse.json({ carousels, reason, configured: carouselGenerationConfigured() });
+  return NextResponse.json({
+    carousels,
+    reason: [reason, imageNote].filter(Boolean).join(" ") || null,
+    configured: carouselGenerationConfigured()
+  });
 }

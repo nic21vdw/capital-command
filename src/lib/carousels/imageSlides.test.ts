@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { attachSlideImages, IMAGE_SLIDE_LAYOUT } from "@/lib/carousels/imageSlides";
+import { attachSlideBackdrops, attachSlideImages, BACKDROP_SLIDE_LAYOUT, IMAGE_SLIDE_LAYOUT } from "@/lib/carousels/imageSlides";
 import type { CarouselSlide } from "@/types/domain";
 
 function deck(count: number): CarouselSlide[] {
@@ -49,5 +49,33 @@ describe("attachSlideImages", () => {
     const [slide] = attachSlideImages([existing], photos);
     expect(slide.layers).toHaveLength(2);
     expect(slide.layers?.[1].id).toBe("text-1");
+  });
+});
+
+describe("attachSlideBackdrops", () => {
+  it("lays each still behind the whole slide, in order", () => {
+    const slides = attachSlideBackdrops(deck(3), photos);
+    expect(slides[0].layers?.[0]).toMatchObject({ type: "image", src: photos[0].url, x: 0, y: 0, width: 1, height: 1, fit: "cover" });
+    expect(slides[1].layers?.[0]).toMatchObject({ type: "image", src: photos[1].url });
+    expect(slides[2].layers).toBeUndefined();
+  });
+
+  it("veils the still and sets the copy light so it reads over any frame", () => {
+    const [first] = attachSlideBackdrops(deck(1), photos);
+    expect(first.scrim).toBe(BACKDROP_SLIDE_LAYOUT.scrim);
+    expect(first.headingColor).toBe(BACKDROP_SLIDE_LAYOUT.headingColor);
+    expect(first.bodyColor).toBe(BACKDROP_SLIDE_LAYOUT.bodyColor);
+    expect(first.textBand).toEqual(BACKDROP_SLIDE_LAYOUT.band);
+  });
+
+  it("leaves colours chosen in the editor alone", () => {
+    const edited = [{ id: "s", heading: "H", body: "B", headingColor: "#ff0000" }];
+    expect(attachSlideBackdrops(edited, photos)[0].headingColor).toBe("#ff0000");
+  });
+
+  it("keeps the copy in heading/body so it wraps at every aspect ratio", () => {
+    const [first] = attachSlideBackdrops(deck(1), photos);
+    expect(first.heading).toBe("Heading 0");
+    expect(first.hideBaseText).toBeUndefined();
   });
 });

@@ -250,6 +250,17 @@ the picker can promise what the server will do.
   angle from `CAROUSEL_ANGLES` and they run concurrently; a single batch is
   asked for with no angle and no batch record, which is what keeps the
   pipeline's unattended carousel exactly as it was.
+- Every slide is set in Arial (`SLIDE_FONT_STACK` in `src/lib/carousels/render.ts`,
+  with metric-compatible fallbacks behind it). The canvas renderer and the
+  editor's live text overlay both read that one constant — change it there, not
+  per call site, or what you drag stops matching what exports.
+- A carousel written from a RECORDING is illustrated with the recording:
+  `src/lib/carousels/videoFrames.ts` takes one still per slide, spread across
+  the video in order, and `attachSlideBackdrops` lays it behind the copy under a
+  scrim with white text. Stills are CHOSEN, not grabbed — several candidates per
+  slide are scored on exposure, detail and sharpness, near-duplicates are pushed
+  down, and a slot with only black/blurred candidates gets no picture rather
+  than a bad one. Never seek to a fixed offset and take whatever is there.
 - Uploaded photos land on disk (`data/carousel-images`, served by
   `/api/studio/carousels/images/<id>`), never inline as data URLs — a batch of
   base64 photos in `data/capital-command.json` would be re-read and rewritten

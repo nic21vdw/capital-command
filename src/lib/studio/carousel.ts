@@ -1,6 +1,6 @@
 import { aiConfigured, runAi } from "@/lib/ai";
 import { carouselAngle, clampBatchCount, MAX_SLIDES, resolveSlideCount } from "@/lib/carousels/deck";
-import { attachSlideImages, type CarouselImage } from "@/lib/carousels/imageSlides";
+import { attachSlideBackdrops, attachSlideImages, type CarouselImage } from "@/lib/carousels/imageSlides";
 import { CHANNEL_KEYWORDS } from "@/lib/clipping/keywords";
 import type { ClipCandidate, ClipJob } from "@/lib/clipping/types";
 import { carouselSchema } from "@/lib/storage/schemas";
@@ -31,6 +31,13 @@ export {
   MIN_SLIDES,
   resolveSlideCount
 } from "@/lib/carousels/deck";
+
+/**
+ * Where a slide's picture goes. An uploaded photo is the subject and takes the
+ * top of the slide; a still lifted out of the video is the setting and goes
+ * behind the copy.
+ */
+export type CarouselImageMode = "photo" | "backdrop";
 
 export function carouselGenerationConfigured() {
   return aiConfigured();
@@ -77,8 +84,10 @@ export function buildCarouselPrompt(input: {
   angle?: string;
   batchIndex?: number;
   batchTotal?: number;
-  /** How many leading slides already carry an uploaded photo. */
+  /** How many leading slides already carry a picture. */
   imageCount?: number;
+  /** Whether those pictures sit above the copy or behind it. */
+  imageMode?: CarouselImageMode;
   /** What the photos show / how they should be used, in the user's words. */
   imageNotes?: string;
 }): string {
@@ -98,10 +107,17 @@ export function buildCarouselPrompt(input: {
   lines.push(`Video: ${input.title}`, "");
   if (input.imageCount && input.imageCount > 0) {
     const plural = input.imageCount === 1 ? "" : "s";
-    lines.push(
-      `The first ${input.imageCount} slide${plural} already carr${input.imageCount === 1 ? "ies" : "y"} a supplied photo across the top, in the order listed below. Write each of those slides as the caption for its own photo — the copy and the photo have to make sense together — and never describe a photo that was not described to you.`,
-      ""
-    );
+    if (input.imageMode === "backdrop") {
+      lines.push(
+        `The first ${input.imageCount} slide${plural} sit${input.imageCount === 1 ? "s" : ""} on a still taken from the video itself, in order: slide 1 shows an early moment, each following slide a later one. Write the deck so it walks through the video in the order it happened — the copy on a slide should be about roughly that part of it. Never describe what is visible in a still; you have not seen them.`,
+        ""
+      );
+    } else {
+      lines.push(
+        `The first ${input.imageCount} slide${plural} already carr${input.imageCount === 1 ? "ies" : "y"} a supplied photo across the top, in the order listed below. Write each of those slides as the caption for its own photo — the copy and the photo have to make sense together — and never describe a photo that was not described to you.`,
+        ""
+      );
+    }
   }
   if (input.imageNotes?.trim()) {
     lines.push("The photos, in order, and how they should be used:", input.imageNotes.trim().slice(0, 2000), "");
@@ -177,6 +193,7 @@ export function toCarouselRecord(input: {
   sourceType: Carousel["sourceType"];
   sourceId?: string;
   images?: CarouselImage[];
+  imageMode?: CarouselImageMode;
   batch?: CarouselBatch;
 }): Carousel {
   const slides: CarouselSlide[] = input.slides.map((slide) => ({
@@ -188,7 +205,11 @@ export function toCarouselRecord(input: {
     title: input.title,
     sourceType: input.sourceType,
     sourceId: input.sourceId,
-    slides: input.images?.length ? attachSlideImages(slides, input.images) : slides,
+    slides: input.images?.length
+      ? input.imageMode === "backdrop"
+        ? attachSlideBackdrops(slides, input.images)
+        : attachSlideImages(slides, input.images)
+      : slides,
     batch: input.batch,
     createdAt: new Date().toISOString()
   }) as Carousel;
@@ -231,8 +252,14 @@ export type CarouselGenerationInput = {
   sourceId?: string;
   /** The brief for this batch — see CAROUSEL_ANGLES. */
   angle?: string;
-  /** Photos to sit on the leading slides, in order. */
+  /** Pictures to sit on the leading slides, in order. */
   images?: CarouselImage[];
+  /**
+   * How those pictures are laid in. "photo" puts an uploaded photo across the
+   * top with the copy underneath; "backdrop" lays a still from the video the
+   * copy was written from behind the whole slide, under a veil.
+   */
+  imageMode?: CarouselImageMode;
   /** What those photos show, in the user's words. */
   imageNotes?: string;
   batch?: CarouselBatch;
@@ -263,6 +290,7 @@ export async function generateCarousel(
         sourceType: input.sourceType,
         sourceId: input.sourceId,
         images,
+        imageMode: input.imageMode,
         batch: input.batch
       }),
       reason
@@ -281,6 +309,7 @@ export async function generateCarousel(
     batchIndex: input.batch?.index,
     batchTotal: input.batch?.total,
     imageCount: images.length,
+    imageMode: input.imageMode,
     imageNotes: input.imageNotes
   });
 
@@ -305,6 +334,7 @@ export async function generateCarousel(
               sourceType: input.sourceType,
               sourceId: input.sourceId,
               images,
+              imageMode: input.imageMode,
               batch: input.batch
             }),
             reason: padded.missing
