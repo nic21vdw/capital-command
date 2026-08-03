@@ -47,16 +47,19 @@ $branch = (git rev-parse --abbrev-ref HEAD).Trim()
 Write-Host "Branch: $branch"
 
 git fetch origin --quiet
-$ahead = (git rev-list --count "origin/main..HEAD").Trim()
 
-if ($ahead -ne "0" -and -not $Force) {
+# Commits that exist ONLY here - not on main, not on the branch about to be
+# released. Anything already on dev is not stranded, it is just early: this
+# checkout following a branch that dev was cut from is normal and fine.
+$stranded = git rev-list HEAD --not "origin/main" "origin/$Branch"
+
+if ($stranded -and -not $Force) {
   Write-Host ""
-  Write-Host "This copy has $ahead commit(s) that are not on main:" -ForegroundColor Yellow
-  git log --oneline "origin/main..HEAD"
+  Write-Host "This copy has commits that exist nowhere else:" -ForegroundColor Yellow
+  git log --oneline HEAD --not "origin/main" "origin/$Branch"
   Fail @"
-Production is meant to follow main, never lead it. Get that work onto $Branch
-first, then run this again. Use -Force only if you are certain those commits
-can be discarded.
+Releasing would strand that work. Get it onto $Branch from the sandbox first,
+then run this again. Use -Force only if you are certain it can be discarded.
 "@
 }
 
