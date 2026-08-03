@@ -11,6 +11,11 @@ committed. The release moves that block under a dated heading.
 
 ## Unreleased
 
+- **Two agents can no longer trip over each other in the same folder.**
+  `npm run dev:worktree -- -Name <name>` gives each session its own checkout
+  and branch, and it refuses to hand over one that someone is already editing.
+  (Developer-facing only — nothing changes in the app.)
+
 - **The Stream Pipeline stops stalling, inventing and paying twice.** A run
   with no audio track, no whole-recording transcript, or a settled job with no
   moment used to sit "running" forever — one had been reading a transcript for

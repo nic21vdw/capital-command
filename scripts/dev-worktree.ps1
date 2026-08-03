@@ -13,10 +13,24 @@
 # once: the real one on 3000, the one you are changing on 3100.
 
 param(
-  [string]$Path = (Join-Path $env:USERPROFILE "capital-command-dev"),
-  [string]$Branch = "dev",
+  # One session per checkout. Pass -Name to get your own: two sessions sharing
+  # a working tree means one `git add -A` sweeps up the other's half-finished
+  # files, and neither notices until it is committed and pushed.
+  [string]$Name,
+  [string]$Path,
+  [string]$Branch,
   [switch]$SkipInstall
 )
+
+if ($Name) {
+  $slug = ($Name -replace "[^A-Za-z0-9-]", "-").Trim("-").ToLower()
+  if (-not $slug) { throw "-Name needs at least one letter or number." }
+  if (-not $Path) { $Path = Join-Path $env:USERPROFILE "capital-command-$slug" }
+  if (-not $Branch) { $Branch = "claude/$slug" }
+} else {
+  if (-not $Path) { $Path = Join-Path $env:USERPROFILE "capital-command-dev" }
+  if (-not $Branch) { $Branch = "dev" }
+}
 
 $ErrorActionPreference = "Stop"
 
@@ -55,6 +69,21 @@ Step "Preparing the $Branch branch"
 git fetch origin --quiet
 
 if (Test-Path (Join-Path $Path ".git")) {
+  # Someone is mid-edit in there. Handing the same checkout to a second session
+  # is how one session's `git add -A` ends up committing another's work.
+  $busy = git -C $Path status --porcelain --untracked-files=no
+  if ($busy) {
+    Write-Host ""
+    Write-Host "$Path has uncommitted changes:" -ForegroundColor Yellow
+    Write-Host $busy
+    throw @"
+Another session is working in that checkout. Take your own instead:
+
+    npm run dev:worktree -- -Name <something-short>
+
+which creates %USERPROFILE%\capital-command-<name> on its own branch.
+"@
+  }
   Write-Host "Sandbox already exists at $Path"
 } else {
   $exists = git branch --list $Branch

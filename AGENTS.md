@@ -62,8 +62,15 @@ was.
 
 - **Never edit, commit, checkout or rebuild inside the production folder.**
   Its only job is to sit on `main` and run. If a session starts there, move
-  to the sandbox (`%USERPROFILE%\capital-command-dev`) or a fresh worktree
-  before touching a file.
+  to your own worktree before touching a file.
+- **One session per checkout.** Two sessions sharing a working tree is how one
+  session's `git add -A` sweeps up the other's half-finished files and commits
+  them — it happened on 2026-08-02, when a pipeline merge and an unrelated
+  agents feature landed on `dev` minutes apart from the same folder. Take your
+  own with `npm run dev:worktree -- -Name <short-name>`, which creates
+  `%USERPROFILE%\capital-command-<name>` on `claude/<name>` off `dev`. The
+  script refuses to hand you a checkout that already has uncommitted changes,
+  and a SessionStart hook warns when you land in one.
 - **Never commit or push to `main`.** `main` only ever moves through the
   release script, on Nic's say-so. Push `dev`; leave `main` alone.
 - **Don't register scheduled tasks from the sandbox.** `npm run
