@@ -101,7 +101,9 @@ export function explainMintFailure(status: number, detail: string, provider: Voi
     message = detail;
   }
   if (/run out of credits|spending[- ]limit|need a Grok subscription/i.test(message)) {
-    return `${provider.label} has no allowance left on this account. Top up the ${provider.id === "xai" ? "xAI" : "OpenAI"} account and try again.`;
+    return provider.id === "xai"
+      ? "You are signed in, but xAI says this account has no Grok allowance left, so the voice session cannot start. Check usage at https://grok.com/?_s=usage or upgrade at https://grok.com/supergrok, then start it again — the sign-in stays connected."
+      : `${provider.label} has no allowance left on this account. Top the account up and try again.`;
   }
   if (status === 401) return `${provider.label} rejected ${provider.keyEnv}. Check the key in .env.`;
   if (status === 429) return `${provider.label} is rate limited right now. Wait a moment and start the session again.`;
