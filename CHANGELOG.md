@@ -13,6 +13,13 @@ already shipped.
 
 ## Unreleased
 
+- **The Long-Form Editor's project list is 100× lighter.** Opening `/longform`
+  pulled down every project in full — transcript, silence ranges, segment plan
+  and caption track for all 25 of them, 6.4 MB — to draw a row of cards that
+  show a name, a status and a runtime. The list now carries the cards' own
+  fields plus that runtime as a number, and the project you open is fetched
+  whole on its own. On a real project the list row went from 139 KB to 3.4 KB.
+
 - **The Clip Generator stops shipping a megabyte and a half every two
   seconds.** While a stream is being clipped, the page asks for the job list
   every 2.5 seconds — and 83% of that answer was the raw silence ranges
