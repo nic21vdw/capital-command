@@ -26,6 +26,7 @@ import { Card } from "@/components/ui/card";
 import { PageHeader } from "@/components/ui/page-header";
 import { Textarea } from "@/components/ui/textarea";
 import { ChannelIngestPanel } from "@/components/agents/channel-ingest-panel";
+import { FreeVoicePanel } from "@/components/agents/free-voice-panel";
 import { VoiceConsole } from "@/components/agents/voice-console";
 import { cn } from "@/lib/utils";
 import type { AgentAction, AgentProviderId, AgentRoleId, AgentRun } from "@/lib/agents/types";
@@ -315,6 +316,8 @@ export function AgentCommandPage() {
         </aside>
 
         <main className="min-w-0 space-y-4">
+          <FreeVoicePanel onWorkStarted={() => void load().catch(() => {})} />
+
           <VoiceConsole onWorkStarted={() => void load().catch(() => {})} />
 
           <Card className={cn("relative overflow-hidden", running && "border-[var(--accent)]/50")}>
