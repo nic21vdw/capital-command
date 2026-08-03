@@ -27,7 +27,7 @@ import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { MAX_CLIP_COUNT, TARGET_CLIP_COUNT } from "@/lib/clipping/clip-count";
 import { chunkWords, windowSegments } from "@/lib/clipping/captions";
-import { loadJobCaptions } from "@/lib/clipping/captions-client";
+import { loadJobCaptions, loadJobSilences } from "@/lib/clipping/captions-client";
 import { generateClipTitle, makeClipProject, makeTitleOverlay } from "@/lib/clipping/editor";
 import { buildClipSegments, buildClipSegmentsFromSilences } from "@/lib/clipping/segments";
 import { writeDraftProject } from "@/components/editor/drafts";
@@ -265,10 +265,11 @@ export function ClipGeneratorPage() {
         clipStart: clip.start,
         clipEnd: clip.end
       });
-      const windowed = windowSegments(await loadJobCaptions(job.id), clip.start, clip.end);
+      const [captions, silences] = await Promise.all([loadJobCaptions(job.id), loadJobSilences(job.id)]);
+      const windowed = windowSegments(captions, clip.start, clip.end);
       const words = windowed.flatMap((segment) => segment.words);
       project.captions = words.length ? chunkWords(words, project.captionStyle.maxWordsPerCaption) : windowed;
-      const localSilences = (job.silences ?? [])
+      const localSilences = silences
         .filter((silence) => silence.end > clip.start && silence.start < clip.end)
         .map((silence) => ({
           start: Math.max(0, silence.start - clip.start),

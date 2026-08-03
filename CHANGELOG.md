@@ -13,6 +13,14 @@ already shipped.
 
 ## Unreleased
 
+- **The Clip Generator stops shipping a megabyte and a half every two
+  seconds.** While a stream is being clipped, the page asks for the job list
+  every 2.5 seconds — and 83% of that answer was the raw silence ranges
+  detected in every stream you have ever clipped, which no list on screen
+  draws. They now come with the clip you actually open, alongside its
+  transcript, the same way transcripts were already handled. The list drops
+  from about 1.6 MB to 0.3 MB a poll.
+
 - **The Uploading Center stops re-reading everything every minute.** Its
   once-a-minute refresh made five requests one after another — the clip
   library, the queue, the calendar, your connected accounts and the YouTube
