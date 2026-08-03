@@ -31,6 +31,48 @@ export type CarouselImage = {
  * deck so a photo is never dropped, and extras here are ignored rather than
  * stacked two-to-a-slide.
  */
+/**
+ * How a still from the video is laid behind the copy: full bleed, with a veil
+ * over it dark enough that white text reads over any frame, and the copy set in
+ * the lower half where a talking head is least likely to be.
+ */
+export const BACKDROP_SLIDE_LAYOUT = {
+  scrim: 0.52,
+  band: { top: 0.42, bottom: 0.9 },
+  headingColor: "#ffffff",
+  bodyColor: "rgba(255,255,255,0.86)"
+} as const;
+
+/**
+ * Puts a video still behind each slide's copy, in order. Used for carousels
+ * written from a recording: slide 1 shows an early moment, the last slide a
+ * late one, so the deck reads as the video it came from.
+ */
+export function attachSlideBackdrops(slides: CarouselSlide[], images: CarouselImage[]): CarouselSlide[] {
+  return slides.map((slide, index) => {
+    const image = images[index];
+    if (!image) return slide;
+    const layer: SlideLayer = {
+      id: `layer-${image.id}`,
+      type: "image",
+      src: image.url,
+      x: 0,
+      y: 0,
+      width: 1,
+      height: 1,
+      fit: "cover"
+    };
+    return {
+      ...slide,
+      scrim: BACKDROP_SLIDE_LAYOUT.scrim,
+      textBand: { ...BACKDROP_SLIDE_LAYOUT.band },
+      headingColor: slide.headingColor ?? BACKDROP_SLIDE_LAYOUT.headingColor,
+      bodyColor: slide.bodyColor ?? BACKDROP_SLIDE_LAYOUT.bodyColor,
+      layers: [layer, ...(slide.layers ?? [])]
+    };
+  });
+}
+
 export function attachSlideImages(slides: CarouselSlide[], images: CarouselImage[]): CarouselSlide[] {
   return slides.map((slide, index) => {
     const image = images[index];

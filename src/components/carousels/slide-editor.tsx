@@ -16,7 +16,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
-import { aspectSpec, COLATERAL_THEME, loadImage, renderSlideCanvas } from "@/lib/carousels/render";
+import { aspectSpec, COLATERAL_THEME, loadImage, renderSlideCanvas, SLIDE_FONT_STACK } from "@/lib/carousels/render";
 import { cn } from "@/lib/utils";
 import type { CarouselAspectRatio, CarouselSlide, SlideLayer } from "@/types/domain";
 
@@ -417,6 +417,7 @@ function EditStage({
 
   // Base-chrome canvas (transparent) — sits above image layers, below text.
   const chromeDeps = JSON.stringify({
+    scrim: slide.scrim,
     hc: slide.headingColor,
     bc: slide.bodyColor,
     h: slide.heading,
@@ -634,7 +635,7 @@ function EditStage({
             lineHeight: 1.18,
             textAlign: layer.align,
             transform: layer.rotation ? `rotate(${layer.rotation}deg)` : undefined,
-            fontFamily: "system-ui, -apple-system, sans-serif"
+            fontFamily: SLIDE_FONT_STACK
           }}
         >
           {layer.text || " "}

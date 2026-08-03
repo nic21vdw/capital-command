@@ -30,6 +30,14 @@ export const ASPECT_RATIOS: Record<CarouselAspectRatio, AspectRatioSpec> = {
 
 export const ASPECT_RATIO_LIST: AspectRatioSpec[] = Object.values(ASPECT_RATIOS);
 
+/**
+ * The typeface every slide is set in. Arial by name, with the metric-compatible
+ * substitutes behind it so a machine without Arial still lays the copy out the
+ * same width. The editor's live-editing overlay uses the same stack, so what is
+ * dragged is what exports.
+ */
+export const SLIDE_FONT_STACK = "Arial, Helvetica, 'Liberation Sans', Arimo, sans-serif";
+
 export const DEFAULT_ASPECT_RATIO: CarouselAspectRatio = "portrait";
 
 export function aspectSpec(ratio: CarouselAspectRatio | undefined): AspectRatioSpec {
@@ -152,7 +160,7 @@ function drawImageLayer(ctx: CanvasRenderingContext2D, layer: Extract<SlideLayer
 
 function drawTextLayer(ctx: CanvasRenderingContext2D, layer: Extract<SlideLayer, { type: "text" }>, w: number, h: number) {
   const fontPx = layer.fontSize * h;
-  const font = `${layer.weight} ${fontPx}px system-ui, -apple-system, sans-serif`;
+  const font = `${layer.weight} ${fontPx}px ${SLIDE_FONT_STACK}`;
   const maxWidth = layer.width * w;
   const lines = wrapText(ctx, layer.text || "", font, maxWidth);
   const lineHeight = fontPx * 1.18;
@@ -177,6 +185,22 @@ function drawTextLayer(ctx: CanvasRenderingContext2D, layer: Extract<SlideLayer,
   ctx.restore();
 }
 
+/**
+ * Darkens a slide's pictures so light copy reads over them. Flat across the
+ * slide, deepening towards the bottom where the copy sits — a still from a
+ * stream can be any brightness, and a fixed veil is the only thing that makes
+ * the text legible without knowing which frame turned up.
+ */
+function paintScrim(ctx: CanvasRenderingContext2D, strength: number, w: number, h: number) {
+  const veil = Math.max(0, Math.min(1, strength));
+  const gradient = ctx.createLinearGradient(0, 0, 0, h);
+  gradient.addColorStop(0, `rgba(2,6,23,${(veil * 0.72).toFixed(3)})`);
+  gradient.addColorStop(0.35, `rgba(2,6,23,${(veil * 0.86).toFixed(3)})`);
+  gradient.addColorStop(1, `rgba(2,6,23,${Math.min(1, veil * 1.25).toFixed(3)})`);
+  ctx.fillStyle = gradient;
+  ctx.fillRect(0, 0, w, h);
+}
+
 /** Draws the channel base chrome (counter, heading, body, accent bar). */
 function drawBaseText(ctx: CanvasRenderingContext2D, slide: CarouselSlide, index: number, total: number, w: number, h: number) {
   const scale = w / 1080;
@@ -191,7 +215,7 @@ function drawBaseText(ctx: CanvasRenderingContext2D, slide: CarouselSlide, index
   // into the copy band instead, it ends up shoulder to shoulder with the
   // heading, and a heading one word longer runs straight into it.
   const counter = `${index + 1}/${total}`;
-  ctx.font = `600 ${34 * scale}px system-ui, -apple-system, sans-serif`;
+  ctx.font = `600 ${34 * scale}px ${SLIDE_FONT_STACK}`;
   ctx.textAlign = "right";
   if (slide.textBand) {
     const padX = 22 * scale;
@@ -208,8 +232,8 @@ function drawBaseText(ctx: CanvasRenderingContext2D, slide: CarouselSlide, index
   }
 
   const isHook = index === 0;
-  const headingFont = `800 ${(isHook ? 92 : 72) * scale}px system-ui, -apple-system, sans-serif`;
-  const bodyFont = `400 ${44 * scale}px system-ui, -apple-system, sans-serif`;
+  const headingFont = `800 ${(isHook ? 92 : 72) * scale}px ${SLIDE_FONT_STACK}`;
+  const bodyFont = `400 ${44 * scale}px ${SLIDE_FONT_STACK}`;
   const maxWidth = w - margin * 2;
 
   const headingLines = slide.heading ? wrapText(ctx, slide.heading, headingFont, maxWidth) : [];
@@ -305,6 +329,11 @@ export async function renderSlideCanvas(
       if (img) drawImageLayer(ctx, layer, img, width, height);
     }
   }
+
+  // The veil goes on with the chrome, not with the pictures: in the editor the
+  // image layers are live DOM under this canvas, so painting it here is what
+  // keeps the stacked preview in the same z-order as the export.
+  if (!options.skipBaseText && slide.scrim) paintScrim(ctx, slide.scrim, width, height);
 
   if (!options.skipBaseText && !slide.hideBaseText) drawBaseText(ctx, slide, index, total, width, height);
 

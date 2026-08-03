@@ -905,6 +905,12 @@ export interface CarouselSlide {
   /** Whether the base heading/body/counter/handle chrome is drawn. */
   hideBaseText?: boolean;
   /**
+   * Opacity (0..1) of the dark veil painted over the image layers, under the
+   * copy. What makes white text readable over a video still whose brightness
+   * nobody chose.
+   */
+  scrim?: number;
+  /**
    * Vertical band (fractions of the slide height) the base heading/body/counter
    * are laid out inside. Defaults to the whole slide; a photo slide sets it to
    * the strip below the photo so the copy still wraps and centers itself at
