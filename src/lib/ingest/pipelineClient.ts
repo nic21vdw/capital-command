@@ -16,8 +16,21 @@ import type { PipelineRunOverview } from "@/lib/pipeline/types";
  * drives the fan-out — the same mechanism the pipeline page uses.
  */
 
+/**
+ * When the scan runs *inside* the app (the voice console and `/api/ingest` both
+ * do), it must talk to the server it is running in, not to whatever
+ * `APP_BASE_URL` points at — in a sandbox worktree on port 3100 that env value
+ * still reads `localhost:3000`, and the scan would drive the production app's
+ * pipeline instead of its own.
+ */
+let baseUrlOverride: string | null = null;
+
+export function setAppBaseUrl(url: string | null): void {
+  baseUrlOverride = url ? url.replace(/\/+$/, "") : null;
+}
+
 export function appBaseUrl(): string {
-  return (process.env.APP_BASE_URL || "http://localhost:3000").replace(/\/+$/, "");
+  return baseUrlOverride ?? (process.env.APP_BASE_URL || "http://localhost:3000").replace(/\/+$/, "");
 }
 
 export class AppUnreachableError extends Error {

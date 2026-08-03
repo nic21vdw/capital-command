@@ -7,10 +7,15 @@ import type { AgentAction, AgentProviderId, AgentRoleId, AgentRun, AgentStep, Wo
 
 const SAFETY_PROMPT = `You are an agent working inside Sourceflow, Nic's private content operations system. You may inspect the supplied snapshot and prepare useful work. You must never claim that you published, scheduled, deleted, or changed anything. State-changing work must be proposed for human approval. Do not expose secrets or ask for tokens. Do not invent workspace facts.`;
 
+export function newAgentRunId(): string {
+  return `agent-run-${crypto.randomUUID()}`;
+}
+
 export async function runAgentTeam(input: {
   goal: string;
   provider: AgentProviderId;
   agentIds: AgentRoleId[];
+  runId?: string;
 }): Promise<AgentRun> {
   const goal = input.goal.trim();
   if (!goal) throw new Error("Describe what the agent team should achieve.");
@@ -19,7 +24,7 @@ export async function runAgentTeam(input: {
   const now = new Date().toISOString();
   const config = providerConfig(input.provider);
   let run: AgentRun = {
-    id: `agent-run-${crypto.randomUUID()}`,
+    id: input.runId ?? newAgentRunId(),
     goal,
     provider: input.provider,
     model: config.model,
