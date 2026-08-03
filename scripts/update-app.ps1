@@ -1,19 +1,25 @@
-# Ships whatever has landed on `main` into the copy of Capital Command that
-# actually runs the social media workflow.
+# Releases the work waiting on `dev` into the copy of Capital Command that
+# actually runs the social media workflow. This is the whole release: it merges
+# dev into main, pushes it, rebuilds and restarts the app.
 #
 # This checkout is PRODUCTION: the scheduled tasks, the .env and the whole
-# data\ folder live here, and it stays on `main`. New work happens in the dev
-# worktree (scripts\dev-worktree.ps1) on the `dev` branch and reaches this copy
-# only when you run this script - which is the point, so a half-finished change
-# can never interrupt a day of posting.
+# data\ folder live here, and it stays on `main`. New work happens in the
+# sandbox (scripts\dev-worktree.ps1) on `dev` and reaches this copy only when
+# you run this - which is the point, so a half-finished change can never
+# interrupt a day of posting.
 #
-#   .\scripts\update-app.ps1          # fetch main, rebuild, restart the server
-#   .\scripts\update-app.ps1 -Check   # say what would happen, change nothing
+#   .\scripts\update-app.ps1          # release dev, rebuild, restart
+#   .\scripts\update-app.ps1 -Check   # list what would ship, change nothing
 #
-# Refuses to run if this checkout has commits that main does not, so an update
-# can't quietly throw away work that never made it into a pull request.
+# There is no pull request in this loop and no approval to wait on. The gate is
+# this script: nothing reaches the running app until it is run. It refuses if
+# this checkout has commits main does not, and backs the merge out untouched if
+# dev does not merge cleanly.
+#
+# See CHANGELOG.md for what each release brought.
 
 param(
+  [string]$Branch = "dev",
   [switch]$Check,
   [switch]$Force,
   [switch]$NoRestart
@@ -40,8 +46,7 @@ Step "Checking this checkout"
 $branch = (git rev-parse --abbrev-ref HEAD).Trim()
 Write-Host "Branch: $branch"
 
-git fetch origin main --quiet
-$behind = (git rev-list --count "HEAD..origin/main").Trim()
+git fetch origin --quiet
 $ahead = (git rev-list --count "origin/main..HEAD").Trim()
 
 if ($ahead -ne "0" -and -not $Force) {
@@ -49,9 +54,9 @@ if ($ahead -ne "0" -and -not $Force) {
   Write-Host "This copy has $ahead commit(s) that are not on main:" -ForegroundColor Yellow
   git log --oneline "origin/main..HEAD"
   Fail @"
-Production is meant to follow main, never lead it. Get that work onto main
-first (push the branch and merge its pull request), then run this again.
-Use -Force only if you are certain those commits can be discarded.
+Production is meant to follow main, never lead it. Get that work onto $Branch
+first, then run this again. Use -Force only if you are certain those commits
+can be discarded.
 "@
 }
 
@@ -61,17 +66,19 @@ if ($dirty -and -not $Force) {
   Write-Host "Uncommitted changes in the production checkout:" -ForegroundColor Yellow
   Write-Host $dirty
   Fail @"
-Edit code in the dev worktree, not here. Move this work over (or commit it on
-a branch) before updating. Use -Force to throw it away.
+Edit code in the sandbox, not here. Move this work over (or commit it on a
+branch) before updating. Use -Force to throw it away.
 "@
 }
 
-if ($behind -eq "0" -and $branch -eq "main") {
-  Write-Host "Already up to date with origin/main."
-  if ($Check) { exit 0 }
+Step "What this update brings"
+
+$incoming = git log --oneline "origin/main..origin/$Branch"
+if (-not $incoming) {
+  Write-Host "Nothing new on $Branch - the app is already running the latest."
+  if ($Check -or -not $Force) { exit 0 }
 } else {
-  Write-Host "$behind new commit(s) on main:"
-  git log --oneline "HEAD..origin/main"
+  Write-Host $incoming
 }
 
 if ($Check) {
@@ -80,9 +87,31 @@ if ($Check) {
   exit 0
 }
 
-Step "Switching to main"
+Step "Releasing $Branch"
+
 git checkout main
+if ($LASTEXITCODE -ne 0) { Fail "Could not switch to main." }
 git merge --ff-only origin/main
+if ($LASTEXITCODE -ne 0) { Fail "main and origin/main have diverged - sort that out before releasing." }
+
+# The release itself. A conflict here means main and the sandbox changed the
+# same lines, which is not something to resolve by guessing at 11pm with the
+# queue waiting: back the merge out and leave the app exactly as it was.
+git merge --no-edit "origin/$Branch"
+if ($LASTEXITCODE -ne 0) {
+  git merge --abort
+  Fail @"
+$Branch does not merge cleanly into main, so nothing was changed and the app is
+still running the version it was. Resolve it in the sandbox, then run this again.
+"@
+}
+
+# Keep GitHub in step. Best effort: a release that only exists locally still
+# runs, and failing here would leave the app half-updated for no good reason.
+git push origin main --quiet
+if ($LASTEXITCODE -ne 0) {
+  Write-Host "Could not push main to GitHub - the release is applied locally anyway." -ForegroundColor Yellow
+}
 
 Step "Installing dependencies"
 & npm.cmd install

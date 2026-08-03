@@ -35,20 +35,28 @@ Create or refresh it with `npm run dev:worktree`.
 
 ## The loop
 
-1. Branch off `dev` in the sandbox: `claude/<short-kebab-slug>`.
-2. Make the change, verify it (`npm run typecheck`, `npm test`), open a PR
-   **into `dev`**, merge it.
-3. `dev` accumulates the day's work. Nothing on it touches the running app.
-4. When a batch is ready to use for real, open a PR from `dev` into `main`
-   and merge it. That is the release.
-5. In the production folder, double-click **`update-capital-command.bat`**
-   (or `npm run app:update`). It fetches `main`, installs, rebuilds and
-   restarts the server. That — and only that — is when the running app
-   changes.
+1. Work on `dev` in the sandbox (or a short-lived branch merged straight
+   back into it — nobody reviews these, so a branch is only for keeping a
+   half-finished idea out of the way).
+2. Verify it: `npm run typecheck`, `npm test`.
+3. Add a line to **`CHANGELOG.md`** under _Unreleased_ saying what changed in
+   the terms Nic cares about — what he can now do, or what stopped being
+   broken. That file is what he reads before deciding to update.
+4. Commit and push `dev`. Nothing on `dev` touches the running app.
+5. Nic double-clicks **`update-capital-command.bat`** when he wants it. That
+   merges `dev` into `main`, pushes it, installs, rebuilds and restarts.
 
-`update-app.ps1` refuses to run if the production checkout is ahead of
-`main` or has uncommitted edits, so an update can never silently discard
-work that never made it into a pull request.
+**There are no pull requests in this loop.** They bought nothing here — one
+person, no reviewers — and a fix sitting in an open PR is a fix he does not
+have. The gate is the release step on his machine, not an approval.
+
+The release is his to run, never yours. Merging `dev` and pushing it is
+yours; deciding when the running app changes is his.
+
+`update-app.ps1` refuses if the production checkout is ahead of `main` or has
+uncommitted edits, and backs the merge out untouched if `dev` does not merge
+cleanly — a release either happens completely or leaves the app exactly as it
+was.
 
 ## Rules for agents
 
@@ -56,8 +64,8 @@ work that never made it into a pull request.
   Its only job is to sit on `main` and run. If a session starts there, move
   to the sandbox (`%USERPROFILE%\capital-command-dev`) or a fresh worktree
   before touching a file.
-- **PRs target `dev`, not `main`.** The only PR into `main` is the release
-  PR from `dev`.
+- **Never commit or push to `main`.** `main` only ever moves through the
+  release script, on Nic's say-so. Push `dev`; leave `main` alone.
 - **Don't register scheduled tasks from the sandbox.** `npm run
   publish:register`, `threads:register` and `tiktok:watch:register` point
   Task Scheduler at whatever folder they run in; run them in production
