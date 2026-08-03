@@ -7,9 +7,22 @@ A "release" is one run of `update-capital-command.bat`: it merges `dev` into
 reached the app you use — that is the whole point of the split.
 
 Every change made in the sandbox adds a line under **Unreleased** before it is
-committed. The release moves that block under a dated heading.
+committed. The release moves that block under a dated heading — `update-app.ps1`
+does that itself, so this file can never claim something is waiting that has
+already shipped.
 
 ## Unreleased
+
+- **The app tells you when there is an update, and installs it.** A banner
+  appears at the top of every screen when `dev` has work the running build does
+  not, listing what is in it, with one button that runs the release and reloads
+  the page when the app comes back. Until now the only way to know was to read
+  this file and remember to double-click a .bat, which is why four releases'
+  worth of finished work sat unshipped. It only ever appears in the real app —
+  a sandbox worktree can't release — and the release itself is still one
+  deliberate click.
+
+## 2026-08-02
 
 - **An update actually replaces the running app.** Stopping the server only
   killed the process this repo had started, so a server the publish runner had
