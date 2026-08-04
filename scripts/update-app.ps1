@@ -169,10 +169,23 @@ branch) before updating. Use -Force to throw it away.
 
 Step "What this update brings"
 
-# Against HEAD, not origin/main: work now lands on main through pull requests,
-# so origin/main..origin/main is always empty and this would report "nothing
-# new" while the running checkout sat six releases behind.
-$incoming = git log --oneline "HEAD..origin/$Branch"
+# Against the RUNNING BUILD, not HEAD and not origin/main.
+#
+# origin/main..origin/main is always empty now that work lands on main through
+# pull requests. HEAD is closer but still wrong: `next start` serves `.next`, so
+# a checkout that fast-forwarded and then failed before rebuilding is current in
+# git and stale in the browser - which is exactly the state a half-finished
+# release leaves behind, and it would report "nothing new" forever after.
+$buildCommitFile = Join-Path $root ".next\BUILD_COMMIT"
+$from = "HEAD"
+if (Test-Path $buildCommitFile) {
+  $built = (Get-Content $buildCommitFile -ErrorAction SilentlyContinue | Select-Object -First 1)
+  if ($built) {
+    git cat-file -e "$built^{commit}" 2>$null
+    if ($LASTEXITCODE -eq 0) { $from = $built }
+  }
+}
+$incoming = git log --oneline "$from..origin/$Branch"
 if (-not $incoming) {
   Write-Host "Nothing new on $Branch - the app is already running the latest."
   if ($Check -or -not $Force) { exit 0 }
