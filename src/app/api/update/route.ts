@@ -1,13 +1,14 @@
 import { NextResponse } from "next/server";
 import { readReleaseStatus } from "@/lib/release/status";
 import { isReleaseInFlight, startRelease } from "@/lib/release/run";
+import { readReleaseProgress } from "@/lib/release/progress";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function GET() {
-  const status = await readReleaseStatus();
-  return NextResponse.json({ ...status, updating: isReleaseInFlight() });
+  const [status, progress] = await Promise.all([readReleaseStatus(), readReleaseProgress()]);
+  return NextResponse.json({ ...status, updating: isReleaseInFlight(), progress });
 }
 
 export async function POST() {
