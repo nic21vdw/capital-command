@@ -5,6 +5,7 @@ import { AGENT_REGISTRY } from "@/lib/agents/registry";
 import { getAgentRun, listAgentRuns } from "@/lib/agents/store";
 import { ingestOverview, startIngestScan } from "@/lib/ingest/service";
 import { createRunFromUrl, getRun, listRuns, overviewContext, runOverview } from "@/lib/pipeline/runs";
+import { SCREENS, findScreen, screenHref } from "@/lib/voice/screens";
 
 export type VoiceToolDefinition = {
   name: string;
@@ -16,6 +17,22 @@ export type VoiceToolDefinition = {
 const NO_ARGS = { type: "object", properties: {}, additionalProperties: false } as const;
 
 export const VOICE_TOOLS: VoiceToolDefinition[] = [
+  {
+    name: "open_screen",
+    description: `Take Nic to a screen — this is how you SHOW him something rather than describing it. Call it whenever he says show me, take me to, pull up, open, or go to. Screens: ${SCREENS.map(
+      (screen) => `${screen.id} (${screen.purpose})`
+    ).join("; ")}. Pass runId with target pipeline to open one run.`,
+    parameters: {
+      type: "object",
+      properties: {
+        target: { type: "string", description: "Which screen, by id." },
+        runId: { type: "string", description: "Optional pipeline run id to open." }
+      },
+      required: ["target"],
+      additionalProperties: false
+    },
+    action: false
+  },
   {
     name: "sourceflow_state",
     description: "Read the current Capital Command snapshot: content by status, recent items, recent pipeline runs, studio counts.",
@@ -157,6 +174,22 @@ export async function runVoiceTool(
   }
 
   switch (tool.name) {
+    case "open_screen": {
+      // A small model names this argument whatever it feels like — screen,
+      // page, to. Refusing on the key rather than the value would make
+      // navigation flaky for no reason.
+      const named = args as Record<string, unknown>;
+      const target = String(named.target ?? named.screen ?? named.page ?? named.name ?? named.to ?? "");
+      const screen = findScreen(target);
+      if (!screen) {
+        return { ok: false, error: `There is no screen called ${target}. Try one of: ${SCREENS.map((item) => item.id).join(", ")}.` };
+      }
+      const runId = typeof (args as { runId?: unknown }).runId === "string" ? (args as { runId: string }).runId : undefined;
+      // The href is what the command bar navigates to — the tool cannot move
+      // the browser itself, it can only say where to go.
+      return { ok: true, href: screenHref(screen, runId), label: screen.label, opened: screen.id };
+    }
+
     case "sourceflow_state":
       return { ok: true, state: JSON.parse(await sourceflowContext()) as unknown };
 
