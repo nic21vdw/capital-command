@@ -63,7 +63,7 @@ export function UpdateBanner() {
           </p>
           <p className="truncate text-xs text-[var(--muted-foreground)]">
             {busy
-              ? "Rebuilding and restarting. This page reloads itself when it comes back — it can take a few minutes."
+              ? `${status.progress?.step ?? "Starting"} — this page reloads itself when the app comes back.`
               : `Running ${status.runningShort ?? "an unstamped build"} · latest ${status.latestShort ?? "unknown"}`}
           </p>
         </div>

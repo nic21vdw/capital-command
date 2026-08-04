@@ -5,7 +5,17 @@ import type { ReleaseStatus } from "@/lib/release/shared";
 
 export type ReleasePhase = "idle" | "checking" | "starting" | "updating";
 
-export type ReleaseStatusWithProgress = ReleaseStatus & { updating?: boolean };
+export type ReleaseProgress = {
+  step: string | null;
+  failed: string | null;
+  quietFor: number | null;
+  tail: string[];
+};
+
+export type ReleaseStatusWithProgress = ReleaseStatus & {
+  updating?: boolean;
+  progress?: ReleaseProgress;
+};
 
 type ReleaseContextValue = {
   status: ReleaseStatusWithProgress | null;
@@ -67,6 +77,15 @@ export function ReleaseProvider({ children }: { children: React.ReactNode }) {
       const next = await load();
       if (!next) {
         wentDown.current = true;
+        return;
+      }
+      // The release script can die without ever stopping the server — a git
+      // refusal, a failed npm install. Nothing goes down, nothing reloads, and
+      // the banner spins forever. Its log is the only witness, so a logged
+      // ERROR ends the wait here instead.
+      if (next.progress?.failed) {
+        setError(next.progress.failed);
+        setPhase("idle");
         return;
       }
       if (wentDown.current && !next.pending.length) window.location.reload();

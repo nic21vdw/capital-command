@@ -31,13 +31,13 @@ $root = Split-Path -Parent $PSScriptRoot
 Set-Location $root
 
 function Step($message) {
-  Write-Host ""
-  Write-Host "==> $message" -ForegroundColor Cyan
+  Write-Output ""
+  Write-Output "==> $message"
 }
 
 function Fail($message) {
-  Write-Host ""
-  Write-Host "ERROR: $message" -ForegroundColor Red
+  Write-Output ""
+  Write-Output "ERROR: $message"
   exit 1
 }
 
@@ -106,6 +106,12 @@ function Publish-Changelog {
 # Carries the release branch up to what was just released, so the changelog
 # commit above cannot come back as a conflict next time.
 function Sync-ReleaseBranch {
+  # Releasing main into main: there is no separate branch to carry up, and
+  # forcing a branch that is checked out is a fatal error git refuses -
+  # which killed the whole release, after the merge and before the rebuild,
+  # every time the banner's button ran it.
+  if ($Branch -eq "main") { return }
+
   git push origin "main:$Branch" --quiet
   if ($LASTEXITCODE -ne 0) {
     Write-Host "Could not fast-forward origin/$Branch to this release." -ForegroundColor Yellow
@@ -113,7 +119,13 @@ function Sync-ReleaseBranch {
   }
   # The local branch too, unless a sandbox has it checked out - git refuses
   # there, and rightly: that folder may have uncommitted work sitting on it.
+  # $ErrorActionPreference is relaxed around it because a native command
+  # that writes to stderr is a TERMINATING error under "Stop", and 2>$null
+  # does not stop that - the redirect hides the text and the script dies.
+  $previous = $ErrorActionPreference
+  $ErrorActionPreference = "Continue"
   git branch -f $Branch main 2>$null
+  $ErrorActionPreference = $previous
   if ($LASTEXITCODE -ne 0) {
     Write-Host "origin/$Branch is up to date; the sandbox copy will catch up on its next pull."
   }
@@ -135,7 +147,7 @@ git fetch origin --quiet
 $stranded = git rev-list HEAD --not "origin/main" "origin/$Branch"
 
 if ($stranded -and -not $Force) {
-  Write-Host ""
+  Write-Output ""
   Write-Host "This copy has commits that exist nowhere else:" -ForegroundColor Yellow
   git log --oneline HEAD --not "origin/main" "origin/$Branch"
   Fail @"
@@ -146,7 +158,7 @@ then run this again. Use -Force only if you are certain it can be discarded.
 
 $dirty = git status --porcelain --untracked-files=no
 if ($dirty -and -not $Force) {
-  Write-Host ""
+  Write-Output ""
   Write-Host "Uncommitted changes in the production checkout:" -ForegroundColor Yellow
   Write-Host $dirty
   Fail @"
@@ -169,7 +181,7 @@ if (-not $incoming) {
 }
 
 if ($Check) {
-  Write-Host ""
+  Write-Output ""
   Write-Host "-Check only: nothing was changed." -ForegroundColor Yellow
   exit 0
 }
@@ -215,7 +227,7 @@ Step "Installing dependencies"
 if ($LASTEXITCODE -ne 0) { Fail "npm install failed." }
 
 if ($NoRestart) {
-  Write-Host ""
+  Write-Output ""
   Write-Host "-NoRestart: leaving the running server alone. It is still on the old build." -ForegroundColor Yellow
   exit 0
 }
@@ -237,6 +249,6 @@ if ($LASTEXITCODE -ne 0) {
   Fail "The app did not come up. Check server.err.log in $root."
 }
 
-Write-Host ""
+Write-Output ""
 Write-Host "Capital Command is updated and running at http://localhost:3000" -ForegroundColor Green
 Write-Host "Now on: $((git log --oneline -1))"
