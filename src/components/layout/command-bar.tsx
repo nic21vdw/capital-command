@@ -1,11 +1,26 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ChevronDown, Loader2, Mic, MicOff, Radio, SendHorizonal, ShieldCheck, Sparkles, Unlock, Volume2, VolumeX } from "lucide-react";
+import { useRouter } from "next/navigation";
+import {
+  ChevronDown,
+  CornerDownLeft,
+  Loader2,
+  Mic,
+  Radio,
+  SendHorizonal,
+  ShieldCheck,
+  Sparkles,
+  Square,
+  Unlock,
+  Volume2,
+  VolumeX
+} from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 
-type Line = { id: string; role: "user" | "assistant"; text: string; tools: string[] };
+type Line = { id: string; role: "user" | "assistant"; text: string; tools: string[]; opened?: string };
+type ToolRun = { name: string; result: { ok?: boolean; href?: string; label?: string } };
 
 type SpeechRecognitionEventLike = Event & {
   results: ArrayLike<{ isFinal: boolean; 0: { transcript: string } }>;
@@ -34,19 +49,16 @@ function speechRecognitionConstructor(): SpeechRecognitionConstructor | null {
   return scope.SpeechRecognition ?? scope.webkitSpeechRecognition ?? null;
 }
 
-const EXAMPLES = [
-  "check my channel for anything new",
-  "take the newest stream through the pipeline",
-  "what is my pipeline working on?"
-];
-
 /**
  * The orchestrator, on every screen. Type or say what you want done; it runs
- * the same allowlisted tools the voice console does and answers here.
+ * the same allowlisted tools the agents page does, and when it opens a screen
+ * this is what actually moves the browser — a tool can only say where to go.
  */
 export function CommandBar() {
+  const router = useRouter();
   const [value, setValue] = useState("");
   const [lines, setLines] = useState<Line[]>([]);
+  const [queued, setQueued] = useState<string[]>([]);
   const [open, setOpen] = useState(false);
   const [thinking, setThinking] = useState(false);
   const [listening, setListening] = useState(false);
@@ -56,6 +68,7 @@ export function CommandBar() {
 
   const inputRef = useRef<HTMLInputElement | null>(null);
   const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
+  const abortRef = useRef<AbortController | null>(null);
   const historyRef = useRef<Array<{ role: "user" | "assistant"; content: string }>>([]);
 
   useEffect(() => {
@@ -69,6 +82,7 @@ export function CommandBar() {
     return () => {
       window.removeEventListener("keydown", onKey);
       recognitionRef.current?.abort();
+      abortRef.current?.abort();
       window.speechSynthesis?.cancel();
     };
   }, []);
@@ -86,23 +100,30 @@ export function CommandBar() {
   const send = useCallback(
     async (utterance: string) => {
       const text = utterance.trim();
-      if (!text || thinking) return;
+      if (!text) return;
       setValue("");
       setOpen(true);
-      setLines((current) => [...current, { id: crypto.randomUUID(), role: "user" as const, text, tools: [] }].slice(-20));
+      setLines((current) => [...current, { id: crypto.randomUUID(), role: "user" as const, text, tools: [] }].slice(-30));
       setThinking(true);
+      const controller = new AbortController();
+      abortRef.current = controller;
       try {
         const response = await fetch("/api/voice/ask", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
+          signal: controller.signal,
           body: JSON.stringify({ utterance: text, grantId: grantId ?? undefined, history: historyRef.current.slice(-6) })
         });
-        const data = (await response.json()) as {
-          reply?: string;
-          toolRuns?: Array<{ name: string }>;
-          error?: string;
-        };
+        const data = (await response.json()) as { reply?: string; toolRuns?: ToolRun[]; error?: string };
         if (!response.ok || !data.reply) throw new Error(data.error ?? "No answer came back.");
+
+        const runs = data.toolRuns ?? [];
+        // A tool can only name a destination; moving the browser is the bar's
+        // job, and doing it here is what makes "show me the carousels" open the
+        // carousels instead of describing them.
+        const trip = runs.find((run) => run.result?.ok && typeof run.result.href === "string");
+        if (trip?.result.href) router.push(trip.result.href);
+
         setLines((current) =>
           [
             ...current,
@@ -110,9 +131,10 @@ export function CommandBar() {
               id: crypto.randomUUID(),
               role: "assistant" as const,
               text: data.reply!,
-              tools: (data.toolRuns ?? []).map((run) => run.name)
+              tools: runs.map((run) => run.name),
+              opened: trip?.result.label
             }
-          ].slice(-20)
+          ].slice(-30)
         );
         historyRef.current = [
           ...historyRef.current,
@@ -121,13 +143,45 @@ export function CommandBar() {
         ].slice(-6);
         speak(data.reply);
       } catch (error) {
-        toast.error(error instanceof Error ? error.message : "That command failed.");
+        if ((error as Error).name === "AbortError") {
+          setLines((current) => [...current, { id: crypto.randomUUID(), role: "assistant" as const, text: "Stopped.", tools: [] }].slice(-30));
+        } else {
+          toast.error(error instanceof Error ? error.message : "That command failed.");
+        }
       } finally {
+        abortRef.current = null;
         setThinking(false);
       }
     },
-    [grantId, speak, thinking]
+    [grantId, router, speak]
   );
+
+  // A queued line goes the moment the current one lands, so you can keep
+  // talking while it works instead of waiting for the reply.
+  useEffect(() => {
+    if (thinking || !queued.length) return;
+    queueMicrotask(() => {
+      setQueued((current) => current.slice(1));
+      void send(queued[0]);
+    });
+  }, [thinking, queued, send]);
+
+  const submit = (text: string) => {
+    const trimmed = text.trim();
+    if (!trimmed) return;
+    if (thinking) {
+      setQueued((current) => [...current, trimmed]);
+      setValue("");
+      return;
+    }
+    void send(trimmed);
+  };
+
+  const stop = () => {
+    abortRef.current?.abort();
+    window.speechSynthesis?.cancel();
+    setQueued([]);
+  };
 
   const toggleListening = () => {
     if (listening) {
@@ -156,7 +210,7 @@ export function CommandBar() {
     };
     recognition.onend = () => {
       setListening(false);
-      if (final.trim()) void send(final);
+      if (final.trim()) submit(final);
     };
     recognition.onerror = () => setListening(false);
     recognitionRef.current = recognition;
@@ -206,8 +260,13 @@ export function CommandBar() {
                   >
                     {line.text}
                   </div>
-                  {line.tools.length ? (
-                    <div className="mt-1 flex flex-wrap gap-1.5 px-1">
+                  {line.opened || line.tools.length ? (
+                    <div className="mt-1 flex flex-wrap items-center gap-2 px-1">
+                      {line.opened ? (
+                        <span className="rounded bg-[var(--accent)]/15 px-1.5 py-0.5 text-[11px] text-[var(--accent)]">
+                          opened {line.opened}
+                        </span>
+                      ) : null}
                       {line.tools.map((tool, index) => (
                         <span key={`${line.id}-${index}`} className="flex items-center gap-1 text-[11px] text-[var(--muted-foreground)]">
                           <Radio className="h-3 w-3 text-emerald-300" />
@@ -218,6 +277,19 @@ export function CommandBar() {
                   ) : null}
                 </div>
               ))}
+              {queued.map((text, index) => (
+                <div key={`queued-${index}`} className="flex items-center gap-2 rounded-lg border border-dashed border-[var(--border)] px-3 py-2 text-sm text-[var(--muted-foreground)]">
+                  <CornerDownLeft className="h-3.5 w-3.5 shrink-0" />
+                  <span className="min-w-0 flex-1 truncate">{text}</span>
+                  <button
+                    type="button"
+                    onClick={() => setQueued((current) => current.filter((_, spot) => spot !== index))}
+                    className="text-xs hover:text-white"
+                  >
+                    remove
+                  </button>
+                </div>
+              ))}
             </div>
           </div>
         ) : null}
@@ -225,10 +297,16 @@ export function CommandBar() {
         <div
           className={cn(
             "flex items-center gap-2 rounded-2xl border bg-[var(--panel)]/95 px-3 py-2 shadow-2xl backdrop-blur transition",
-            listening ? "border-[var(--accent)]" : "border-[var(--border)]"
+            listening ? "border-red-400/60" : "border-[var(--border)]"
           )}
         >
-          <Sparkles className="h-4 w-4 shrink-0 text-[var(--accent)]" />
+          {listening ? (
+            <span className="flex h-4 w-4 shrink-0 items-center justify-center">
+              <span className="h-2.5 w-2.5 animate-pulse rounded-full bg-red-400" />
+            </span>
+          ) : (
+            <Sparkles className="h-4 w-4 shrink-0 text-[var(--accent)]" />
+          )}
           <input
             ref={inputRef}
             value={value}
@@ -237,57 +315,85 @@ export function CommandBar() {
             onKeyDown={(event) => {
               if (event.key === "Enter") {
                 event.preventDefault();
-                void send(value);
+                submit(value);
               }
             }}
-            placeholder={listening ? "Listening…" : `Tell it what to do — ${EXAMPLES[0]}`}
+            placeholder={
+              listening
+                ? "Listening — speak now"
+                : thinking
+                  ? "Working — type to queue the next one"
+                  : "Tell it what to do — show me the carousels"
+            }
             className="min-w-0 flex-1 bg-transparent text-sm text-white outline-none placeholder:text-[var(--muted-foreground)]"
           />
 
           <button
             type="button"
             onClick={() => void toggleActions()}
-            title={allowActions ? "Actions armed — it can start work" : "Read-only — click to let it start work"}
+            title={allowActions ? "It can start work. Click for read-only." : "It can look but not act. Click to let it act."}
             className={cn(
-              "flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border transition",
+              "flex shrink-0 items-center gap-1.5 rounded-lg border px-2 py-1.5 text-xs transition",
               allowActions
-                ? "border-amber-400/40 bg-amber-400/10 text-amber-300"
+                ? "border-amber-400/40 bg-amber-400/10 text-amber-200"
                 : "border-[var(--border)] text-[var(--muted-foreground)] hover:text-white"
             )}
           >
-            {allowActions ? <Unlock className="h-4 w-4" /> : <ShieldCheck className="h-4 w-4" />}
+            {allowActions ? <Unlock className="h-3.5 w-3.5" /> : <ShieldCheck className="h-3.5 w-3.5" />}
+            {allowActions ? "Can act" : "Read-only"}
           </button>
 
           <button
             type="button"
             onClick={() => setSpeakReplies((current) => !current)}
-            title={speakReplies ? "Answers are spoken" : "Answers are silent"}
+            title={speakReplies ? "Answers are read out loud" : "Answers are silent"}
             className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-[var(--border)] text-[var(--muted-foreground)] transition hover:text-white"
           >
-            {speakReplies ? <Volume2 className="h-4 w-4" /> : <VolumeX className="h-4 w-4" />}
+            {speakReplies ? <Volume2 className="h-4 w-4 text-[var(--accent)]" /> : <VolumeX className="h-4 w-4" />}
           </button>
 
           <button
             type="button"
             onClick={toggleListening}
-            title="Speak a command"
+            title={listening ? "Listening — click to stop" : "Speak a command"}
             className={cn(
-              "flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border transition",
-              listening ? "border-red-400/40 bg-red-400/10 text-red-300" : "border-[var(--border)] text-[var(--muted-foreground)] hover:text-white"
+              "flex shrink-0 items-center gap-1.5 rounded-lg border px-2 py-1.5 text-xs transition",
+              listening
+                ? "border-red-400/60 bg-red-400/15 text-red-200"
+                : "border-[var(--border)] text-[var(--muted-foreground)] hover:text-white"
             )}
           >
-            {listening ? <MicOff className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
+            <Mic className={cn("h-3.5 w-3.5", listening && "animate-pulse")} />
+            {listening ? "Listening" : "Speak"}
           </button>
 
-          <button
-            type="button"
-            onClick={() => void send(value)}
-            disabled={!value.trim() || thinking}
-            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-[var(--accent)] text-[var(--accent-contrast)] transition disabled:opacity-40"
-          >
-            {thinking ? <Loader2 className="h-4 w-4 animate-spin" /> : <SendHorizonal className="h-4 w-4" />}
-          </button>
+          {thinking ? (
+            <button
+              type="button"
+              onClick={stop}
+              title="Stop"
+              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-red-400/40 bg-red-400/10 text-red-200 transition hover:bg-red-400/20"
+            >
+              <Square className="h-3.5 w-3.5 fill-current" />
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={() => submit(value)}
+              disabled={!value.trim()}
+              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-[var(--accent)] text-[var(--accent-contrast)] transition disabled:opacity-40"
+            >
+              <SendHorizonal className="h-4 w-4" />
+            </button>
+          )}
         </div>
+
+        {thinking ? (
+          <p className="mt-1 flex items-center gap-1.5 px-2 text-[11px] text-[var(--muted-foreground)]">
+            <Loader2 className="h-3 w-3 animate-spin" />
+            Working{queued.length ? ` · ${queued.length} queued` : ""} — press stop to cancel
+          </p>
+        ) : null}
       </div>
     </div>
   );

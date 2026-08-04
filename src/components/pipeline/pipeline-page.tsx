@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import {
   ArrowUp,
   AtSign,
@@ -271,12 +272,15 @@ function StageRow({
 }
 
 export function PipelinePage() {
+  // ?run=<id> is how the command bar opens one run: "pull up the Day 13 run"
+  // has to land on that run, not on the list with it buried in it.
+  const requestedRunId = useSearchParams().get("run");
   const [overviews, setOverviews] = useState<PipelineRunOverview[]>([]);
   const [loaded, setLoaded] = useState(false);
-  const [activeRunId, setActiveRunId] = useState<string | null>(null);
+  const [activeRunId, setActiveRunId] = useState<string | null>(requestedRunId);
   // The app opens on the bare search bar; the flow only exists once a stream has
   // been sent through it (or a past run is picked up again).
-  const [showFlow, setShowFlow] = useState(false);
+  const [showFlow, setShowFlow] = useState(Boolean(requestedRunId));
   const [launching, setLaunching] = useState(false);
   const [url, setUrl] = useState("");
   const [submitting, setSubmitting] = useState(false);
