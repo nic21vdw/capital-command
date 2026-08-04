@@ -26,7 +26,6 @@ import { Card } from "@/components/ui/card";
 import { PageHeader } from "@/components/ui/page-header";
 import { Textarea } from "@/components/ui/textarea";
 import { ChannelIngestPanel } from "@/components/agents/channel-ingest-panel";
-import { FreeVoicePanel } from "@/components/agents/free-voice-panel";
 import { VoiceConsole } from "@/components/agents/voice-console";
 import { cn } from "@/lib/utils";
 import type { AgentAction, AgentProviderId, AgentRoleId, AgentRun } from "@/lib/agents/types";
@@ -233,7 +232,7 @@ export function AgentCommandPage() {
       <PageHeader
         eyebrow="Agentic command centre"
         title="Sourceflow Agents"
-        description="Talk to Capital Command out loud, or give a goal to a coordinated team and approve any change before it reaches your pipeline. The live voice session can check the channel and put a new stream through the whole pipeline while you watch."
+        description="Where the agent team is configured and its work is reviewed. For a one-off instruction, use the command bar at the bottom of any screen — this page is for choosing the brain, picking the specialists, and approving anything they want to change."
         actions={
           <div className="flex items-center gap-2">
             <Button variant="secondary" onClick={() => setSpeakReplies((value) => !value)} title="Toggle spoken replies">
@@ -316,8 +315,6 @@ export function AgentCommandPage() {
         </aside>
 
         <main className="min-w-0 space-y-4">
-          <FreeVoicePanel onWorkStarted={() => void load().catch(() => {})} />
-
           <VoiceConsole onWorkStarted={() => void load().catch(() => {})} />
 
           <Card className={cn("relative overflow-hidden", running && "border-[var(--accent)]/50")}>

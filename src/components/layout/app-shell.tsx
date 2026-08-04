@@ -31,6 +31,7 @@ import {
   type LucideIcon
 } from "lucide-react";
 import { AppFooter } from "@/components/layout/app-footer";
+import { CommandBar } from "@/components/layout/command-bar";
 import { ReleaseProvider } from "@/components/layout/release-provider";
 import { UpdateBanner } from "@/components/layout/update-banner";
 import { UpdateCheckButton } from "@/components/layout/update-check";
@@ -778,7 +779,10 @@ function AppChrome({ children }: { children: React.ReactNode }) {
           {children}
         </div>
         <AppFooter />
+        {/* Room for the command bar, which floats over everything. */}
+        <div className="h-20" />
       </main>
+      <CommandBar />
     </div>
   );
 }
