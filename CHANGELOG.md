@@ -13,6 +13,8 @@ already shipped.
 
 ## Unreleased
 
+## 2026-08-03
+
 - **The app tells you when there is an update, and installs it.** A banner
   appears at the top of every screen when `dev` has work the running build does
   not, listing what is in it, with one button that runs the release and reloads
