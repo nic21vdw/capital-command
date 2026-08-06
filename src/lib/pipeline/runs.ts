@@ -9,6 +9,7 @@ import { startLongformExport } from "@/lib/longform/render";
 import { createProject, getProject, planProjectTopics, projectOutputDir, updateProject } from "@/lib/longform/store";
 import type { LongformProject } from "@/lib/longform/types";
 import { generatePipelinePosts } from "@/lib/pipeline/posts";
+import { podcastConfigured, publishEpisode } from "@/lib/podcast/publish";
 import {
   MIN_SPEECH_WORDS,
   realisticImagePrompt,
@@ -329,6 +330,37 @@ export async function advanceRun(run: PipelineRun): Promise<void> {
     }
   }
 
+  // MP3 cut → push it to the podcast RSS feed Spotify reads. Spotify has no
+  // upload API, so the feed IS the delivery: adding the episode here is the
+  // whole automation, and Spotify pulls it on its next read of the feed.
+  if (project && exportRecord?.audioFile && !run.podcastEpisodeId && !run.podcastNote) {
+    if (!podcastConfigured()) {
+      await update(run, {
+        podcastNote:
+          "The podcast feed has nowhere public to live yet — give the R2 bucket a public URL and set S3_PUBLIC_BASE_URL. The MP3 is still on disk."
+      });
+    } else {
+      void step(run, "podcast", async () => {
+        const { episode } = await publishEpisode({
+          filePath: path.join(projectOutputDir(project.id), exportRecord.audioFile!),
+          title: exportRecord.title ?? project.metadata?.titles[0] ?? run.name,
+          description: project.metadata?.description ?? run.name,
+          durationSec: exportRecord.durationSec ?? run.durationSec ?? 0,
+          runId: run.id,
+          projectId: project.id,
+          exportId: exportRecord.id,
+          link: run.sourceUrl
+        });
+        await update(run, { podcastEpisodeId: episode.id });
+      }, async () => {
+        // One shot, same as the extraction above: a feed push that fails on a
+        // 2.5s poll would republish the notice forever. The episode can still
+        // be added by hand from the Podcast page.
+        await update(run, { podcastNote: "The episode could not be added to the podcast feed. Add it from the Podcast page." });
+      });
+    }
+  }
+
   // The long-form analysis only transcribes the opening of a long stream (the
   // hook is all it needs), while the clip job transcribes the whole thing.
   // Once that full transcript exists, plan the stream's topic segments from
@@ -541,6 +573,17 @@ function audioStage(run: PipelineRun, project: LongformProject | undefined): Pip
   return stage("skipped", "Needs the long-form edit, which failed.");
 }
 
+function podcastStage(run: PipelineRun, project: LongformProject | undefined): PipelineStage {
+  if (run.status !== "running") return stage("waiting", "Waiting for the source.");
+  if (run.podcastEpisodeId) return stage("ready", "In the podcast feed — Spotify picks it up on its next read");
+  if (run.podcastNote) return stage("skipped", run.podcastNote);
+  if (run.audioNote) return stage("skipped", "No MP3 to publish.");
+  const record = project?.exports.find((item) => item.id === run.longformExportId);
+  if (record?.audioFile) return stage("running", "Adding the episode to the feed…");
+  if (project?.status === "error") return stage("skipped", "Needs the long-form edit, which failed.");
+  return stage("waiting", "Published to the feed once the MP3 is cut.");
+}
+
 function imagesStage(run: PipelineRun, project: LongformProject | undefined, slideCount: number): PipelineStage {
   if (run.status !== "running") return stage("waiting", "Waiting for the source.");
   if (run.carouselId) {
@@ -667,6 +710,7 @@ export async function runOverview(run: PipelineRun, context?: OverviewContext): 
     segments: segmentsStage(run, project, segmentsRendered, job),
     clips: clipsStage(run, job),
     audio: audioStage(run, project),
+    podcast: podcastStage(run, project),
     images: imagesStage(run, project, slideCount),
     visuals: visualsStage(run, job, Boolean(visualMoment)),
     posts: postsStage(run),
@@ -681,7 +725,7 @@ export async function runOverview(run: PipelineRun, context?: OverviewContext): 
     (visualMoment ? 1 : 0) +
     posts +
     segmentsRendered;
-  const upstreamSettled = (["longform", "segments", "clips", "audio", "images", "visuals", "posts"] as const).every(
+  const upstreamSettled = (["longform", "segments", "clips", "audio", "podcast", "images", "visuals", "posts"] as const).every(
     (key) => stages[key].status !== "running" && stages[key].status !== "waiting"
   );
   if (run.status === "error") {
@@ -691,7 +735,11 @@ export async function runOverview(run: PipelineRun, context?: OverviewContext): 
   } else {
     stages.schedule = stage(
       upstreamSettled ? "ready" : "running",
-      `${readyItems} output${readyItems === 1 ? "" : "s"} ready to schedule${queued > 0 ? ` · ${queued} already queued` : ""}`
+      // The podcast episode is reported separately because it is not waiting on
+      // anyone: it is already in the feed, and nothing about it gets scheduled.
+      `${readyItems} output${readyItems === 1 ? "" : "s"} ready to schedule${queued > 0 ? ` · ${queued} already queued` : ""}${
+        run.podcastEpisodeId ? " · podcast episode published" : ""
+      }`
     );
   }
 
@@ -704,6 +752,7 @@ export async function runOverview(run: PipelineRun, context?: OverviewContext): 
       longformReady,
       segments: topics.length,
       audioReady,
+      podcastPublished: Boolean(run.podcastEpisodeId),
       carouselSlides: slideCount,
       visualAdReady: Boolean(visualMoment),
       posts,

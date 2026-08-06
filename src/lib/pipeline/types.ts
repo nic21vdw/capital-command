@@ -47,6 +47,10 @@ export type PipelineRun = {
   segmentsPlanned?: boolean;
   /** Why no podcast MP3 was cut — doubles as the "don't try again" marker. */
   audioNote?: string;
+  /** Episode added to the Spotify RSS feed from this run's MP3. */
+  podcastEpisodeId?: string;
+  /** Why the episode never reached the feed — also the "don't retry" marker. */
+  podcastNote?: string;
   /** Carousel written from the transcript, once available. */
   carouselId?: string;
   carouselNote?: string;
@@ -65,6 +69,7 @@ export type PipelineStageKey =
   | "segments"
   | "clips"
   | "audio"
+  | "podcast"
   | "images"
   | "visuals"
   | "posts"
@@ -97,6 +102,8 @@ export type PipelineRunOverview = {
     /** Topic segments found in the stream, each publishable on its own. */
     segments: number;
     audioReady: boolean;
+    /** The MP3 is in the podcast feed — Spotify picks it up on its next read. */
+    podcastPublished: boolean;
     carouselSlides: number;
     visualAdReady: boolean;
     posts: number;
