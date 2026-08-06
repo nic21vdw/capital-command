@@ -14,6 +14,13 @@ import { fetchJson } from "@/lib/publisher/http";
 
 const API = "https://www.googleapis.com/youtube/v3";
 const CACHE_TTL_MS = 5 * 60 * 1000;
+/**
+ * How stale an answer may be before a caller has to wait for a fresh read.
+ * Between CACHE_TTL_MS and here the cached schedule is served immediately and
+ * refreshed in the background, so a menu that opens six minutes after the last
+ * read doesn't pay for three round trips to YouTube. Past this the read blocks.
+ */
+const STALE_WHILE_REVALIDATE_MS = 15 * 60 * 1000;
 /** Public videos older than this are history, not schedule — leave them out. */
 const PUBLISHED_LOOKBACK_DAYS = 30;
 /** Newest uploads only; one playlist page covers a 50-video window. */
@@ -59,6 +66,10 @@ type VideoResource = {
 // One cached schedule per account, so switching accounts in the Uploading
 // Center never shows one channel's videos on another channel's calendar.
 const cache = new Map<string, { at: number; schedule: ChannelSchedule }>();
+// A read in progress, so two surfaces asking at once (the editor's schedule
+// menu and the Uploading Center's poll) share one trip to YouTube instead of
+// racing two.
+const inFlight = new Map<string, Promise<ChannelSchedule>>();
 
 export async function youtubeChannelSchedule(
   options: { force?: boolean; now?: Date; accountId?: string } = {}
@@ -71,8 +82,32 @@ export async function youtubeChannelSchedule(
     return { configured: false, needsReconnect: false, fetchedAt: null, channelId: null, videos: [], error: null };
   }
   const cached = cache.get(accountId);
-  if (!options.force && cached && now.getTime() - cached.at < CACHE_TTL_MS) return cached.schedule;
+  const age = cached ? now.getTime() - cached.at : Infinity;
+  if (!options.force && age < CACHE_TTL_MS) return cached!.schedule;
 
+  const refresh = inFlight.get(accountId) ?? startRead(now, accountId, cached);
+  if (!options.force && cached && age < STALE_WHILE_REVALIDATE_MS) {
+    void refresh.catch(() => {});
+    return cached.schedule;
+  }
+  return refresh;
+}
+
+function startRead(
+  now: Date,
+  accountId: string,
+  cached: { at: number; schedule: ChannelSchedule } | undefined
+): Promise<ChannelSchedule> {
+  const read = readSchedule(now, accountId, cached).finally(() => inFlight.delete(accountId));
+  inFlight.set(accountId, read);
+  return read;
+}
+
+async function readSchedule(
+  now: Date,
+  accountId: string,
+  cached: { at: number; schedule: ChannelSchedule } | undefined
+): Promise<ChannelSchedule> {
   let schedule: ChannelSchedule;
   try {
     const { channelId, videos } = await fetchChannelVideos(now, accountId);

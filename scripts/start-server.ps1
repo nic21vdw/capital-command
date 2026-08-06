@@ -81,22 +81,42 @@ if (Test-Path $pidFile) {
 
 Remove-Item $stdout, $stderr, $buildLog -ErrorAction SilentlyContinue
 
-Write-Host "Building Capital Command (a few minutes)..."
+function Invoke-Build($append) {
+  # `next build` writes progress and warnings to stderr. Under the Stop
+  # preference PowerShell promotes each of those lines to a terminating error,
+  # so a perfectly good build would abort here and a failed one would never
+  # reach the report below.
+  $previousPreference = $ErrorActionPreference
+  $ErrorActionPreference = "Continue"
+  & cmd.exe /c "cd /d `"$root`" && `"$node`" scripts\prepare-dev-cache.mjs && npm.cmd run build" 2>&1 |
+    ForEach-Object { $_.ToString() } |
+    Tee-Object -FilePath $buildLog -Append:$append
+  $exit = $LASTEXITCODE
+  $ErrorActionPreference = $previousPreference
+  return $exit
+}
 
-# `next build` writes progress and warnings to stderr. Under the Stop
-# preference PowerShell promotes each of those lines to a terminating error, so
-# a perfectly good build would abort here and a failed one would never reach
-# the report below.
-$previousPreference = $ErrorActionPreference
-$ErrorActionPreference = "Continue"
-& cmd.exe /c "cd /d `"$root`" && `"$node`" scripts\prepare-dev-cache.mjs && npm.cmd run build" 2>&1 |
-  ForEach-Object { $_.ToString() } |
-  Tee-Object -FilePath $buildLog
-$buildExit = $LASTEXITCODE
-$ErrorActionPreference = $previousPreference
+Write-Host "Building Capital Command (a few minutes)..."
+$buildExit = Invoke-Build $false
+
+# A build that fails on a warm .next is usually the cache, not the code: the
+# webpack runtime comes back half-written and prerendering dies on "Cannot read
+# properties of undefined (reading 'call')" in a tree that builds perfectly
+# from cold. That is worth one automatic retry, because the release has already
+# stopped the server by this point - the alternative is the app staying down
+# over a cache file.
+if ($buildExit -ne 0) {
+  Write-Host "The build failed. Clearing the build cache and trying once more..."
+  $nextDir = Join-Path $root ".next"
+  # .next is a junction to a folder outside OneDrive in the production
+  # checkout, so its CONTENTS go, not the link itself.
+  Get-ChildItem -Path $nextDir -Force -ErrorAction SilentlyContinue |
+    Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
+  $buildExit = Invoke-Build $true
+}
 
 if ($buildExit -ne 0) {
-  Show-Failure "The build failed (exit $buildExit), so the app was not started." $buildLog
+  Show-Failure "The build failed twice (exit $buildExit), so the app was not started." $buildLog
   exit 1
 }
 

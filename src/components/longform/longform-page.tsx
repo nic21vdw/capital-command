@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter, useSearchParams } from "next/navigation";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Clapperboard, Film, Loader2, Music4, Scissors, Trash2, UploadCloud, Zap } from "lucide-react";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
@@ -11,7 +11,7 @@ import { PageHeader } from "@/components/ui/page-header";
 import { Progress } from "@/components/ui/progress";
 import { LongformEditor } from "@/components/longform/longform-editor";
 import { formatClock } from "@/lib/clipping/editor";
-import { editedDurationSec } from "@/lib/longform/plan";
+import type { LongformProjectSummary } from "@/lib/longform/summary";
 import type { LongformProject } from "@/lib/longform/types";
 import { cn } from "@/lib/utils";
 
@@ -33,7 +33,11 @@ export function LongformStudioPage() {
   const searchParams = useSearchParams();
   const openId = searchParams.get("open");
 
-  const [projects, setProjects] = useState<LongformProject[]>([]);
+  const [projects, setProjects] = useState<LongformProjectSummary[]>([]);
+  // The full project behind `openId`. The list carries summaries — a project's
+  // transcript, silences, segment plan and captions are almost all of its
+  // weight — so the one being edited is fetched whole on its own.
+  const [openProject, setOpenProject] = useState<LongformProject | null>(null);
   const [loading, setLoading] = useState(true);
   const [uploadPct, setUploadPct] = useState<number | null>(null);
   const [creating, setCreating] = useState(false);
@@ -49,7 +53,7 @@ export function LongformStudioPage() {
     try {
       const response = await fetch("/api/longform/projects", { cache: "no-store" });
       if (!response.ok) return;
-      const { projects: list } = (await response.json()) as { projects: LongformProject[] };
+      const { projects: list } = (await response.json()) as { projects: LongformProjectSummary[] };
       setProjects(list);
     } finally {
       setLoading(false);
@@ -68,7 +72,24 @@ export function LongformStudioPage() {
     return () => clearInterval(timer);
   }, [anyProcessing, refresh]);
 
-  const openProject = useMemo(() => projects.find((project) => project.id === openId) ?? null, [projects, openId]);
+  // Only a ready project opens in the editor, so wait for the summary to say so
+  // before pulling the whole thing down. A project loaded for a previous
+  // `openId` is left where it is — the editor below only renders the one whose
+  // id matches, so it is never shown.
+  const openIsReady = projects.some((project) => project.id === openId && project.status === "ready");
+  useEffect(() => {
+    if (!openId || !openIsReady) return;
+    let cancelled = false;
+    void fetch(`/api/longform/projects/${encodeURIComponent(openId)}`, { cache: "no-store" })
+      .then((response) => (response.ok ? response.json() : null))
+      .then((data: { project?: LongformProject } | null) => {
+        if (!cancelled && data?.project) setOpenProject(data.project);
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [openId, openIsReady]);
 
   const setOpen = useCallback(
     (id: string | null) => {
@@ -178,7 +199,7 @@ export function LongformStudioPage() {
     }
   }, [url, refresh, setOpen]);
 
-  const startRename = useCallback((project: LongformProject) => {
+  const startRename = useCallback((project: LongformProjectSummary) => {
     setEditingId(project.id);
     setDraftName(project.name);
   }, []);
@@ -189,7 +210,7 @@ export function LongformStudioPage() {
   }, []);
 
   const commitRename = useCallback(
-    async (project: LongformProject) => {
+    async (project: LongformProjectSummary) => {
       const name = draftName.trim();
       setEditingId(null);
       setDraftName("");
@@ -216,7 +237,7 @@ export function LongformStudioPage() {
   );
 
   const deleteProject = useCallback(
-    async (project: LongformProject) => {
+    async (project: LongformProjectSummary) => {
       if (!window.confirm(`Delete “${project.name}”? Its exports are removed too.`)) return;
       const response = await fetch(`/api/longform/projects/${project.id}`, { method: "DELETE" });
       if (response.ok) {
@@ -231,7 +252,7 @@ export function LongformStudioPage() {
   );
 
   // Editor view for a ready project.
-  if (openProject && openProject.status === "ready") {
+  if (openProject && openProject.id === openId && openProject.status === "ready") {
     return (
       <LongformEditor
         key={openProject.id}
@@ -437,7 +458,7 @@ export function LongformStudioPage() {
           )}
           <div className="grid gap-3 sm:grid-cols-2">
             {projects.map((project) => {
-              const editedSec = project.status === "ready" ? editedDurationSec(project.segments, project.hook) : null;
+              const editedSec = project.editedDurationSec;
               return (
                 <Card key={project.id} className="animate-in flex flex-col gap-3 p-4">
                   <div className="flex items-start justify-between gap-2">

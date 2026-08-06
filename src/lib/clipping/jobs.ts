@@ -130,13 +130,19 @@ export async function listJobs(): Promise<ClipJob[]> {
 }
 
 /**
- * A job without its source captions. The word-level transcript of a multi-hour
- * stream is ~98% of a job's weight, so any listing that isn't rendering a
- * transcript sheds it here rather than serialising megabytes nobody reads.
+ * A job stripped of the two fields nothing in a listing renders: the word-level
+ * transcript of a multi-hour stream, and the silence ranges its cut plan was
+ * built from. Together they are almost the whole weight of a job — 50 jobs come
+ * to 62 MB on disk and 0.3 MB once both are gone — and the Clip Generator and
+ * Long-Form pages poll this list every couple of seconds.
+ *
+ * A page that needs either asks for the single job it is working on:
+ * `/api/clips/<jobId>/captions`, `/api/clips/<jobId>/silences`.
  */
 export function jobWithoutCaptions(job: ClipJob): ClipJob {
   const light = { ...job };
   delete light.sourceCaptions;
+  delete light.silences;
   return light;
 }
 

@@ -51,7 +51,6 @@ export function primaryAccountIdFor(platform: PlatformId): string {
 export type Overview = {
   enabled: boolean;
   timezone: string;
-  platforms: Record<PlatformId, { configured: boolean; account?: ConnectedProfile | null }>;
   quota: YoutubeQuota;
   /** Which window the slots below belong to, in days after today. */
   slotOffsetDays: number;
@@ -320,35 +319,84 @@ export function useUploadingCenter(clipProjects: ClipProject[] = []) {
   const [slotOffsetDays, setSlotOffsetDays] = useState(DEFAULT_SLOT_OFFSET_DAYS);
 
   const activeYoutubeAccountId = activeAccountIds.youtube;
-  const refresh = useCallback(async (options?: { channelRefresh?: boolean }) => {
-    // Sequential local fetches; a failure keeps the last good data and the
-    // 60s tick tries again.
+
+  // The window and account the poll should read, without `refresh` changing
+  // identity every time either moves — that identity is what the page's 60s
+  // timer is keyed on, and rebuilding it on every page of the calendar
+  // restarted the timer and refetched everything the calendar doesn't own.
+  const slotOffsetRef = useRef(slotOffsetDays);
+  const youtubeAccountRef = useRef(activeYoutubeAccountId);
+  useEffect(() => {
+    slotOffsetRef.current = slotOffsetDays;
+  }, [slotOffsetDays]);
+  useEffect(() => {
+    youtubeAccountRef.current = activeYoutubeAccountId;
+  }, [activeYoutubeAccountId]);
+
+  /**
+   * The slot grid for one two-week window. Pure local computation server-side
+   * (config + the queue file), so paging the calendar costs one cheap request
+   * rather than re-reading the clip library and the YouTube channel with it.
+   */
+  const refreshSlots = useCallback(async (offsetDays = slotOffsetRef.current) => {
+    const res = await fetch(`/api/publish/overview?days=${SLOT_WINDOW_DAYS}&offsetDays=${offsetDays}`, {
+      cache: "no-store"
+    });
+    if (res.ok) setOverview((await res.json()) as Overview);
+  }, []);
+
+  /**
+   * Who each platform posts as. Only changes when an account is added, removed
+   * or reconnected, so it is read on mount and after those actions rather than
+   * on every tick — each account's view costs a profile lookup at its platform.
+   */
+  const refreshAccounts = useCallback(async () => {
     try {
-      const jobsRes = await fetch("/api/clips", { cache: "no-store" });
-      if (jobsRes.ok) setJobs(((await jobsRes.json()) as { jobs: ClipJob[] }).jobs);
-      const queueRes = await fetch("/api/publish", { cache: "no-store" });
-      if (queueRes.ok) setQueueItems(((await queueRes.json()) as { items?: QueueItem[] }).items ?? []);
-      const overviewRes = await fetch(`/api/publish/overview?days=${SLOT_WINDOW_DAYS}&offsetDays=${slotOffsetDays}`, {
-        cache: "no-store"
-      });
-      if (overviewRes.ok) setOverview((await overviewRes.json()) as Overview);
-      const accountsRes = await fetch("/api/publish/accounts", { cache: "no-store" });
-      if (accountsRes.ok) setAccounts(((await accountsRes.json()) as { accounts?: SocialAccountView[] }).accounts ?? []);
-      // The channel schedule is cached 5 minutes server-side per account;
-      // channelRefresh bypasses that right after a publish so the new video
-      // appears at once. Reads the YouTube account selected on the tab.
-      const channelParams = new URLSearchParams({ account: activeYoutubeAccountId });
-      if (options?.channelRefresh) channelParams.set("refresh", "1");
-      const channelRes = await fetch(`/api/publish/youtube-channel?${channelParams.toString()}`, {
-        cache: "no-store"
-      });
-      if (channelRes.ok) setChannel((await channelRes.json()) as ChannelSchedule);
+      const res = await fetch("/api/publish/accounts", { cache: "no-store" });
+      if (res.ok) setAccounts(((await res.json()) as { accounts?: SocialAccountView[] }).accounts ?? []);
     } catch {
-      // Offline or malformed payload — retry on the next tick.
-    } finally {
-      setLoaded(true);
+      // Offline — the accounts already on screen stay.
     }
-  }, [activeYoutubeAccountId, slotOffsetDays]);
+  }, []);
+
+  /**
+   * The real YouTube schedule for the account the tab is showing. `force`
+   * bypasses the server-side cache right after a publish so the new video
+   * appears at once.
+   */
+  const refreshChannel = useCallback(async (options?: { force?: boolean; accountId?: string }) => {
+    const params = new URLSearchParams({ account: options?.accountId ?? youtubeAccountRef.current });
+    if (options?.force) params.set("refresh", "1");
+    const res = await fetch(`/api/publish/youtube-channel?${params.toString()}`, { cache: "no-store" });
+    if (res.ok) setChannel((await res.json()) as ChannelSchedule);
+  }, []);
+
+  /**
+   * Everything the 60-second tick watches: the clip library, the queue, the
+   * slot grid and the channel schedule. All four are independent, so they go
+   * out together; a failure keeps the last good data and the next tick retries.
+   */
+  const refresh = useCallback(
+    async (options?: { channelRefresh?: boolean }) => {
+      try {
+        await Promise.all([
+          fetch("/api/clips", { cache: "no-store" }).then(async (res) => {
+            if (res.ok) setJobs(((await res.json()) as { jobs: ClipJob[] }).jobs);
+          }),
+          fetch("/api/publish", { cache: "no-store" }).then(async (res) => {
+            if (res.ok) setQueueItems(((await res.json()) as { items?: QueueItem[] }).items ?? []);
+          }),
+          refreshSlots(),
+          refreshChannel({ force: options?.channelRefresh })
+        ]);
+      } catch {
+        // Offline or malformed payload — retry on the next tick.
+      } finally {
+        setLoaded(true);
+      }
+    },
+    [refreshChannel, refreshSlots]
+  );
 
   // NOTE: the initial fetch + 60s poll effect lives in UploadingCenterPage —
   // react-hooks/set-state-in-effect flags `void refresh()` inside a custom
@@ -1008,13 +1056,13 @@ export function useUploadingCenter(clipProjects: ClipProject[] = []) {
         setAccounts((current) => [...current, account]);
         setActiveAccount(platform, account.id);
         toast.success(`Added ${PLATFORM_LABELS[platform]} account "${account.label}".`);
-        await refresh();
+        await Promise.all([refreshAccounts(), refresh()]);
         return true;
       } finally {
         setBusy(null);
       }
     },
-    [refresh, setActiveAccount]
+    [refresh, refreshAccounts, setActiveAccount]
   );
 
   const removeAccount = useCallback(
@@ -1028,13 +1076,13 @@ export function useUploadingCenter(clipProjects: ClipProject[] = []) {
         }
         setActiveAccount(account.platform, primaryAccountIdFor(account.platform));
         toast.success(`Removed account "${account.label}".`);
-        await refresh();
+        await Promise.all([refreshAccounts(), refresh()]);
         return true;
       } finally {
         setBusy(null);
       }
     },
-    [refresh, setActiveAccount]
+    [refresh, refreshAccounts, setActiveAccount]
   );
 
   return {
@@ -1078,6 +1126,9 @@ export function useUploadingCenter(clipProjects: ClipProject[] = []) {
     autoAssign,
     publishNow,
     remove,
-    refresh
+    refresh,
+    refreshSlots,
+    refreshAccounts,
+    refreshChannel
   };
 }

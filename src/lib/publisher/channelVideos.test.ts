@@ -153,18 +153,77 @@ describe("youtubeChannelSchedule", () => {
     expect(schedule.error).toBeNull();
   });
 
+  it("serves a merely stale schedule at once and refreshes it behind the caller", async () => {
+    happyRoutes();
+    const { youtubeChannelSchedule } = await loadModule();
+    await youtubeChannelSchedule({ now: NOW });
+
+    // From here the channel answers with one video instead of two, so which
+    // read a caller got is visible in the result.
+    vi.unstubAllGlobals();
+    mockFetchRoutes([
+      { match: "oauth2.googleapis.com/token", respond: () => jsonResponse({ access_token: "at-2", expires_in: 3600 }) },
+      {
+        match: "youtube/v3/channels",
+        respond: () => jsonResponse({ items: [{ id: "UCabc", contentDetails: { relatedPlaylists: { uploads: "UUabc" } } }] })
+      },
+      {
+        match: "youtube/v3/playlistItems",
+        respond: () => jsonResponse({ items: [{ contentDetails: { videoId: "sched-1" } }] })
+      },
+      {
+        match: "youtube/v3/videos",
+        respond: () =>
+          jsonResponse({
+            items: [
+              {
+                id: "sched-1",
+                snippet: { title: "Scheduled short", thumbnails: {} },
+                status: { privacyStatus: "private", publishAt: "2026-07-06T11:30:00Z" }
+              }
+            ]
+          })
+      }
+    ]);
+
+    // Six minutes on the cache is stale, but not stale enough to wait for: this
+    // caller is answered with the last good schedule, two videos and all.
+    const later = new Date(NOW.getTime() + 6 * 60_000);
+    const stale = await youtubeChannelSchedule({ now: later });
+    expect(stale.videos).toHaveLength(2);
+    expect(stale.error).toBeNull();
+
+    // The refresh it kicked off lands behind it, so the next caller sees one.
+    await vi.waitFor(async () => {
+      expect((await youtubeChannelSchedule({ now: later })).videos).toHaveLength(1);
+    });
+  });
+
+  it("shares one read between callers that arrive together", async () => {
+    const requests = happyRoutes();
+    const { youtubeChannelSchedule } = await loadModule();
+
+    const [a, b] = await Promise.all([youtubeChannelSchedule({ now: NOW }), youtubeChannelSchedule({ now: NOW })]);
+
+    expect(a.videos).toHaveLength(2);
+    expect(b.videos).toHaveLength(2);
+    // One token refresh plus the three Data API reads — not two of each.
+    expect(requests.length).toBe(4);
+  });
+
   it("keeps the last good data and reports the error on a transient failure", async () => {
     const requests = happyRoutes();
     const { youtubeChannelSchedule } = await loadModule();
     await youtubeChannelSchedule({ now: NOW });
 
-    // Past the TTL, the refetch blows up at the channels call.
+    // Past the point where stale data may be served, the refetch the caller has
+    // to wait for blows up at the channels call.
     vi.unstubAllGlobals();
     mockFetchRoutes([
       { match: "oauth2.googleapis.com/token", respond: () => jsonResponse({ access_token: "at-2", expires_in: 3600 }) },
       { match: "youtube/v3/channels", respond: () => new Response("boom", { status: 500 }) }
     ]);
-    const later = new Date(NOW.getTime() + 6 * 60_000);
+    const later = new Date(NOW.getTime() + 20 * 60_000);
 
     const schedule = await youtubeChannelSchedule({ now: later });
 

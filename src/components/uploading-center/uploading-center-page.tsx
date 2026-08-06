@@ -74,6 +74,7 @@ export function UploadingCenterPage() {
     channelVideos,
     channelVideosBySlot,
     itemsByPlatform,
+    activeAccountIds,
     accountsFor,
     activeAccountFor,
     setActiveAccount,
@@ -99,11 +100,42 @@ export function UploadingCenterPage() {
     publishNow,
     remove,
     refresh,
+    refreshSlots,
+    refreshAccounts,
+    refreshChannel,
   } = useUploadingCenter(clipProjects);
+  const activeYoutubeAccountId = activeAccountIds.youtube;
 
   useEffect(() => {
     void refresh();
   }, [refresh]);
+
+  // Who each platform posts as doesn't change on its own — read it once rather
+  // than asking four platforms for the same profiles every minute.
+  useEffect(() => {
+    void refreshAccounts();
+  }, [refreshAccounts]);
+
+  // Paging the calendar only moves the grid, so only the grid is refetched.
+  // The first render is already covered by the full refresh above.
+  const pagedRef = useRef(false);
+  useEffect(() => {
+    if (!pagedRef.current) {
+      pagedRef.current = true;
+      return;
+    }
+    void refreshSlots(slotOffsetDays);
+  }, [refreshSlots, slotOffsetDays]);
+
+  // Switching a platform's account switches whose channel the calendar shows.
+  const switchedAccountRef = useRef(false);
+  useEffect(() => {
+    if (!switchedAccountRef.current) {
+      switchedAccountRef.current = true;
+      return;
+    }
+    void refreshChannel({ accountId: activeYoutubeAccountId });
+  }, [activeYoutubeAccountId, refreshChannel]);
 
   // The 60-second poll doubles as the TikTok/Instagram manual-reminder tick
   // (YouTube self-publishes); it's a no-op when nothing changed.
