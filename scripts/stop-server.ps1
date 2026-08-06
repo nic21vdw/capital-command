@@ -2,14 +2,19 @@
 #
 # The PID file only knows about servers this repo's start-server.ps1 launched.
 # The publish runner starts the app too (`npm run start`, when a tick finds
-# nothing listening), and so does a hand-run `next start` — neither writes the
+# nothing listening), and so does a hand-run `next start` - neither writes the
 # file. Stopping only the recorded PID left that server holding port 3000, the
 # rebuilt one failed to bind, and the release looked like it had worked while
 # the app carried on serving the old build. So: kill the PID file's process if
 # it is alive, then whatever still holds the port.
 
+# The port is 3000 unless CAPITAL_COMMAND_PORT says otherwise. That is not a
+# knob anyone needs day to day - it exists so a copy of the app can be started,
+# released and restarted end to end without stopping the one that runs the
+# workflow, because stop-server kills whatever holds the port and "whatever"
+# would otherwise be the real app.
 param(
-  [int]$Port = 3000
+  [int]$Port = $(if ($env:CAPITAL_COMMAND_PORT) { [int]$env:CAPITAL_COMMAND_PORT } else { 3000 })
 )
 
 $ErrorActionPreference = "Stop"

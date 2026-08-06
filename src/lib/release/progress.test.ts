@@ -61,6 +61,6 @@ describe("readReleaseProgress", () => {
   it("says nothing when no release has ever run here", async () => {
     const progress = await readReleaseProgress(mkdtempSync(join(tmpdir(), "release-progress-")));
 
-    expect(progress).toEqual({ step: null, failed: null, quietFor: null, tail: [] });
+    expect(progress).toEqual({ step: null, failed: null, finished: false, quietFor: null, tail: [] });
   });
 });
