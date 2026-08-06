@@ -38,6 +38,11 @@ After that, nothing about a new episode is manual.
   things Spotify would reject. All of it is tested without a network.
 - `store.ts` owns `data/podcast/show.json` (the show details plus every episode
   record). `addEpisode` is idempotent by export id.
+- `artwork.ts` reads the width and height straight out of the PNG/JPEG header —
+  no image library — so a cover that Spotify would reject is caught before it is
+  uploaded rather than by an email days after the show was submitted. The page
+  takes the image itself and hosts it; asking a person to go find a public URL
+  for a JPEG was work the app could do.
 - `publish.ts` uploads the MP3 and rewrites the feed. It needs
   `S3_PUBLIC_BASE_URL` as well as the other `S3_*` variables: an RSS feed cannot
   point at a presigned URL, because those expire and Spotify reads the feed for

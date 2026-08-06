@@ -28,6 +28,8 @@ export interface MediaHost {
   download(key: string, destPath: string): Promise<void>;
   getObjectText(key: string): Promise<string | null>;
   putObjectText(key: string, text: string, contentType?: string): Promise<void>;
+  /** Uploads bytes already in memory, for content that never touched disk. */
+  putObjectBytes(key: string, bytes: Uint8Array, contentType: string): Promise<void>;
   describe(): string;
 }
 
@@ -102,6 +104,18 @@ export class S3MediaHost implements MediaHost {
       if (name === "NoSuchKey" || name === "NotFound") return null;
       throw error;
     }
+  }
+
+  async putObjectBytes(key: string, bytes: Uint8Array, contentType: string): Promise<void> {
+    await this.client.send(
+      new PutObjectCommand({
+        Bucket: this.bucket,
+        Key: key,
+        Body: bytes,
+        ContentLength: bytes.byteLength,
+        ContentType: contentType
+      })
+    );
   }
 
   async putObjectText(key: string, text: string, contentType = "application/json"): Promise<void> {
