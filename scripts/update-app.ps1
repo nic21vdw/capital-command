@@ -84,14 +84,81 @@ function Invoke-Logged {
   }
 }
 
+# Runs one of the sibling scripts and returns its exit code.
+#
+# NOT through Invoke-Logged: a pipeline reads a child's output until the pipe
+# CLOSES, and start-server.ps1 leaves a server behind that inherited that same
+# handle. The release therefore hung at the restart step forever - the app came
+# back up, but the release never wrote another line, so the banner sat on
+# "Building and starting the new version" while the thing was already running.
+# Start-Process -Wait waits on the process, not on end-of-output.
+function Invoke-Script {
+  param([string]$Name, [string[]]$Arguments = @())
+
+  $log = Join-Path $env:TEMP ("cc-release-" + [System.Guid]::NewGuid().ToString("N") + ".log")
+  $script = Join-Path $PSScriptRoot $Name
+  $quoted = ($Arguments | ForEach-Object { '"' + $_ + '"' }) -join " "
+  $command = "powershell.exe -NoProfile -ExecutionPolicy Bypass -File `"$script`" $quoted 1>`"$log`" 2>&1"
+
+  # cmd with file redirection, waited on by handle. Every other way of doing
+  # this waits for the wrong thing: a PIPELINE reads until end-of-output and
+  # `Start-Process -Wait` waits for DESCENDANTS - and start-server.ps1 leaves a
+  # server running on purpose, so both of them wait for the app to be shut down
+  # again. The release then never wrote its last step and the banner sat on
+  # "Building and starting the new version" while the app was already back.
+  $psi = New-Object System.Diagnostics.ProcessStartInfo
+  $psi.FileName = "C:\Windows\System32\cmd.exe"
+  $psi.Arguments = "/c `"$command`""
+  $psi.UseShellExecute = $false
+  $child = [System.Diagnostics.Process]::Start($psi)
+  $child.WaitForExit()
+
+  # Shared read, and neither the read nor the delete may be fatal: the server
+  # start-server.ps1 leaves behind INHERITED this file's handle and holds it for
+  # as long as the app runs. ReadAllLines throws on that, and the exception
+  # ended the release one step from the finish - after the app was already back
+  # up, so the banner was left saying it was still building forever.
+  try {
+    $stream = New-Object System.IO.FileStream($log, [System.IO.FileMode]::Open, [System.IO.FileAccess]::Read, [System.IO.FileShare]::ReadWrite)
+    try {
+      $reader = New-Object System.IO.StreamReader($stream)
+      while ($null -ne ($line = $reader.ReadLine())) {
+        if ($line.Trim()) { Write-Log $line }
+      }
+      $reader.Dispose()
+    } finally {
+      $stream.Dispose()
+    }
+  } catch {
+    Write-Log "(could not read $Name's output: $($_.Exception.Message))"
+  }
+  Remove-Item $log -Force -ErrorAction SilentlyContinue
+
+  return $child.ExitCode
+}
+
 function Step($message) {
   Write-Log ""
   Write-Log "==> $message"
 }
 
+# Nothing may die quietly. Under "Stop" any unhandled error ends the script
+# where it stands, and the only thing watching is a banner reading the log - so
+# a release that hit one simply stopped mid-step and left the app saying it was
+# still building. Every terminating error now writes the same ERROR line a
+# deliberate failure does.
+trap {
+  Write-Log ""
+  Write-Log ("ERROR: The update stopped unexpectedly - " + (($_.Exception.Message -split "\r?\n") -join " ").Trim())
+  exit 1
+}
+
 function Fail($message) {
   Write-Log ""
-  Write-Log "ERROR: $message"
+  # One line. The banner shows the ERROR line and nothing after it, so a reason
+  # written across three lines reached the screen cut off mid-word - and the
+  # reason is the whole point of showing it.
+  Write-Log ("ERROR: " + (($message -split "\r?\n") -join " ").Trim())
   exit 1
 }
 
@@ -340,7 +407,11 @@ if (Test-Path $stamp) {
 if ($lockHash -and $installedHash -eq $lockHash -and (Test-Path (Join-Path $root "node_modules"))) {
   Write-Log "package-lock.json has not changed - skipping npm install."
 } else {
-  if ((Invoke-Logged { & npm.cmd install }) -ne 0) { Fail "npm install failed." }
+  # --include=dev because the app starts this: `next start` runs with
+  # NODE_ENV=production, the release inherits it, and npm then treats
+  # devDependencies as extraneous and REMOVES them - 331 packages in a
+  # measured run, leaving the build to run without the tools it needs.
+  if ((Invoke-Logged { & npm.cmd install --include=dev }) -ne 0) { Fail "npm install failed." }
   if ($lockHash) { Set-Content -Path $stamp -Value $lockHash }
 }
 
@@ -351,20 +422,21 @@ if ($NoRestart) {
 }
 
 Step "Stopping the running app ($(Elapsed) in)"
-Invoke-Logged { & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot "stop-server.ps1") } | Out-Null
+Invoke-Script "stop-server.ps1" | Out-Null
 
 Step "Building and starting the new version ($(Elapsed) in, takes a few minutes)"
-if ((Invoke-Logged { & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot "start-server.ps1") -Quiet }) -ne 0) {
+if ((Invoke-Script "start-server.ps1" @("-Quiet")) -ne 0) {
   # It has already printed the reason and the tail of the log it failed in.
   # Waiting five minutes for a server that was never started only buries that.
   Fail "The release did not start. The app is still down - see build.log in $root."
 }
 
 Step "Waiting for the app to answer ($(Elapsed) in)"
-if ((Invoke-Logged { & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot "wait-for-url.ps1") -Url "http://127.0.0.1:3000" -TimeoutSeconds 300 }) -ne 0) {
+$port = if ($env:CAPITAL_COMMAND_PORT) { $env:CAPITAL_COMMAND_PORT } else { "3000" }
+if ((Invoke-Script "wait-for-url.ps1" @("-Url", "http://127.0.0.1:$port", "-TimeoutSeconds", "300")) -ne 0) {
   Fail "The app did not come up. Check server.err.log in $root."
 }
 
 Write-Log ""
-Write-Log "Capital Command is updated and running at http://localhost:3000 (took $(Elapsed))"
+Write-Log "Capital Command is updated and running at http://localhost:$port (took $(Elapsed))"
 Write-Log "Now on: $((git log --oneline -1))"

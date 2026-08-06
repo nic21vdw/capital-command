@@ -3,7 +3,9 @@ import {
   parsePendingCommits,
   parseUnreleased,
   shouldShowBanner,
-  updateCheckState
+  updateCheckState,
+  releaseStillRunning,
+  RELEASE_ABANDONED_AFTER_SECONDS
 } from "./shared";
 
 const CHANGELOG = `# Changelog
@@ -126,5 +128,31 @@ describe("updateCheckState", () => {
 
   it("reports a check in flight over whatever it is about to replace", () => {
     expect(updateCheckState(releasable, "checking")).toBe("checking");
+  });
+});
+
+describe("releaseStillRunning", () => {
+  const running = { failed: null, finished: false, quietFor: 5 };
+
+  it("is running while the log is moving and says nothing final", () => {
+    expect(releaseStillRunning(true, running)).toBe(true);
+  });
+
+  it("is over once it has written why it stopped", () => {
+    expect(releaseStillRunning(true, { ...running, failed: "npm install failed." })).toBe(false);
+  });
+
+  it("is over once it reports a running app", () => {
+    expect(releaseStillRunning(true, { ...running, finished: true })).toBe(false);
+  });
+
+  // The failure mode this whole function exists for: without it the flag stays
+  // set for the life of the server and every retry is refused.
+  it("is over once it has gone quiet for longer than any step takes", () => {
+    expect(releaseStillRunning(true, { ...running, quietFor: RELEASE_ABANDONED_AFTER_SECONDS + 1 })).toBe(false);
+  });
+
+  it("is not running if this process never started one", () => {
+    expect(releaseStillRunning(false, running)).toBe(false);
   });
 });

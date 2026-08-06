@@ -14,6 +14,25 @@ already shipped.
 
 ## Unreleased
 
+- **The update really does update now, and it says so the whole way through.**
+  Driving it end to end on a real copy of the app turned up four more ways it
+  could stop dead: a successful build reported as a failure (so the app was
+  left down after a build that worked), `npm install` stripping out the tools
+  the build needs, the release hanging at the last step with the app already
+  back up, and any unexpected error killing it silently mid-step. A release now
+  runs merge -> changelog -> install -> stop -> build -> start -> answer, shows
+  the step it is on with how long it has taken, and finishes by saying the app
+  is running. A warm one takes about a minute and a half.
+
+- **A failed update can be tried again.** The app used to refuse every retry
+  with "an update is already running" for as long as it stayed up, because the
+  flag saying so was only ever cleared by the update restarting the server -
+  which is exactly what a failed one does not do.
+
+- **When an update stops, it tells you why in a whole sentence.** The reason
+  was being cut off at its first line, mid-word.
+
+
 - **The update button actually updates now.** "Install and restart" has been
   starting nothing at all: the way the app launched the release script meant
   PowerShell exited immediately without running a line of it, so the app said

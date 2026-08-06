@@ -5,6 +5,10 @@
  * into the client bundle and fails the production build.
  */
 
+// Type-only, so nothing from the server half is emitted into the client
+// bundle - the whole reason this file is separate.
+import type { ReleaseProgress } from "@/lib/release/progress";
+
 export type ReleaseStatus = {
   /** The commit the code answering this request was built from. */
   running: string | null;
@@ -147,4 +151,30 @@ export function updateCheckState(
   if (!status) return "unknown";
   if (!status.releasable) return "elsewhere";
   return status.pending.length ? "available" : "up-to-date";
+}
+
+/**
+ * Whether a release is still going, from what it has written down.
+ *
+ * A boolean held in the server process is not enough on its own, and getting
+ * this wrong is not cosmetic: the flag is set when a release starts and only
+ * ever cleared by the release killing the server. A release that stopped on an
+ * error never kills it, so the app went on saying "updating" and answering
+ * every retry with "an update is already running" — for as long as it stayed
+ * up, with no way back except restarting it by hand.
+ *
+ * So a release that has written a reason it stopped, or the line it ends a
+ * good run with, is over. So is one that has gone quiet for longer than any
+ * step legitimately takes.
+ */
+export const RELEASE_ABANDONED_AFTER_SECONDS = 900;
+
+export function releaseStillRunning(
+  startedHere: boolean,
+  progress: Pick<ReleaseProgress, "failed" | "finished" | "quietFor">
+): boolean {
+  if (!startedHere) return false;
+  if (progress.failed || progress.finished) return false;
+  if (progress.quietFor !== null && progress.quietFor > RELEASE_ABANDONED_AFTER_SECONDS) return false;
+  return true;
 }

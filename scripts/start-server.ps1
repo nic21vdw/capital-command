@@ -1,4 +1,4 @@
-# Builds Capital Command and starts the production server on port 3000.
+# Builds Capital Command and starts the production server.
 #
 # The build runs in the foreground so a failure is caught here, with its output
 # in build.log, rather than disappearing into a detached console. That is not
@@ -19,7 +19,7 @@ $stdout = Join-Path $root "server.out.log"
 $stderr = Join-Path $root "server.err.log"
 $buildLog = Join-Path $root "build.log"
 $pidFile = Join-Path $root "server.pid"
-$port = 3000
+$port = if ($env:CAPITAL_COMMAND_PORT) { [int]$env:CAPITAL_COMMAND_PORT } else { 3000 }
 
 function Test-Port {
   $client = New-Object System.Net.Sockets.TcpClient
@@ -88,9 +88,15 @@ function Invoke-Build($append) {
   # reach the report below.
   $previousPreference = $ErrorActionPreference
   $ErrorActionPreference = "Continue"
+  # Write-Host at the end, not a bare pipeline: anything left in the success
+  # stream becomes part of this function's RETURN VALUE, and a successful build
+  # then comes back as [all 200 lines of output, 0] - which is not -eq 0, so the
+  # release rebuilt from cold and then declared a build that had worked a
+  # failure, leaving the app down.
   & cmd.exe /c "cd /d `"$root`" && `"$node`" scripts\prepare-dev-cache.mjs && npm.cmd run build" 2>&1 |
     ForEach-Object { $_.ToString() } |
-    Tee-Object -FilePath $buildLog -Append:$append
+    Tee-Object -FilePath $buildLog -Append:$append |
+    ForEach-Object { Write-Host $_ }
   $exit = $LASTEXITCODE
   $ErrorActionPreference = $previousPreference
   return $exit

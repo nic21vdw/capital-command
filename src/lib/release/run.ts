@@ -29,8 +29,16 @@ export const UPDATE_LOG = "update-app.log";
  * of main and backs out a merge that conflicts — and duplicating those checks
  * in TypeScript would just be a second, staler copy of them.
  */
-export function startRelease(root = process.cwd()): { started: boolean; reason?: string } {
-  if (releaseInFlight) return { started: false, reason: "An update is already running." };
+export function startRelease(
+  root = process.cwd(),
+  // The route decides whether a previous release is really still going - it
+  // can see the log, this cannot. The flag here only stops two clicks landing
+  // together in one process.
+  { afterFailure = false }: { afterFailure?: boolean } = {}
+): { started: boolean; reason?: string } {
+  if (releaseInFlight && !afterFailure) {
+    return { started: false, reason: "An update is already running." };
+  }
 
   const script = join(root, "scripts", "update-app.ps1");
   const logPath = join(root, UPDATE_LOG);
