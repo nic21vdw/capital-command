@@ -13,6 +13,40 @@ already shipped.
 
 ## Unreleased
 
+- **The Long-Form Editor's project list is 100× lighter.** Opening `/longform`
+  pulled down every project in full — transcript, silence ranges, segment plan
+  and caption track for all 25 of them, 6.4 MB — to draw a row of cards that
+  show a name, a status and a runtime. The list now carries the cards' own
+  fields plus that runtime as a number, and the project you open is fetched
+  whole on its own. On a real project the list row went from 139 KB to 3.4 KB.
+
+- **The Clip Generator stops shipping a megabyte and a half every two
+  seconds.** While a stream is being clipped, the page asks for the job list
+  every 2.5 seconds — and 83% of that answer was the raw silence ranges
+  detected in every stream you have ever clipped, which no list on screen
+  draws. They now come with the clip you actually open, alongside its
+  transcript, the same way transcripts were already handled. The list drops
+  from about 1.6 MB to 0.3 MB a poll.
+
+- **The Uploading Center stops re-reading everything every minute.** Its
+  once-a-minute refresh made five requests one after another — the clip
+  library, the queue, the calendar, your connected accounts and the YouTube
+  channel — and paging the calendar a fortnight repeated all five. Now the four
+  that can actually change go out together, paging costs one request instead of
+  five, and who each platform posts as is read once when the page opens rather
+  than asked of four social networks every minute. The calendar endpoint no
+  longer contacts any social network at all: it was reporting the same four
+  profiles a second time, and nothing on screen had read them for a while.
+
+- **Scheduling a Short from the editor stops making you wait.** The Schedule
+  Short menu used to sit on "Finding open slots…" while it read all four social
+  accounts, the quota meter and the whole YouTube channel — none of which it
+  shows. It now asks for the slot grid alone, starts loading the moment your
+  pointer reaches the button so the menu opens already filled, keeps what is
+  already booked instead of re-reading it every time you page a fortnight, and
+  serves a few-minute-old channel schedule while it refreshes behind you rather
+  than making you wait for three round trips to YouTube.
+
 ## 2026-08-03
 
 - **The app tells you when there is an update, and installs it.** A banner
@@ -57,9 +91,28 @@ already shipped.
   API key never reaches the browser, and publishing, scheduling, deletes and
   tokens are not tools it has.
 
-- **Channel ingest has a button and an API.** The scan that used to be a
-  scheduled task only now runs inside the app too: a Channel ingest panel on
-  `/agents` with a live log, and `GET`/`POST /api/ingest` behind it.
+- **Clip titles are easier to review and edit.** Clip cards give the title and
+  its justification more room, with clearer spacing, more readable type, and a
+  two-line title editor instead of squeezing the text into one line.
+
+- **The app tells you when there is an update, and installs it.** A banner
+  appears at the top of every screen when `dev` has work the running build does
+  not, listing what is in it, with one button that runs the release and reloads
+  the page when the app comes back. Until now the only way to know was to read
+  this file and remember to double-click a .bat, which is why four releases'
+  worth of finished work sat unshipped. It only ever appears in the real app —
+  a sandbox worktree can't release — and the release itself is still one
+  deliberate click.
+
+- **"Check for updates" sits above Settings in the sidebar, and you can ask it
+  whenever you like.** It says which of the two answers it has — "Up to date"
+  with the build you are running, or "Update available" with the count — and
+  clicking it when something is waiting opens what's new with an "Install and
+  restart" button. The banner only speaks up when the app happens to notice a
+  release on its own; this answers the question on demand. Both read the same
+  check, so they can never disagree on screen or fetch twice.
+
+## 2026-08-02
 
 - **An update actually replaces the running app.** Stopping the server only
   killed the process this repo had started, so a server the publish runner had
