@@ -13,7 +13,6 @@ import {
   Facebook,
   FileText,
   Images,
-  Instagram,
   Lightbulb,
   Megaphone,
   Mic,
@@ -27,7 +26,6 @@ import {
   UploadCloud,
   Wand2,
   Workflow,
-  Youtube,
   type LucideIcon
 } from "lucide-react";
 import { AppFooter } from "@/components/layout/app-footer";
@@ -36,6 +34,7 @@ import { ReleaseProvider } from "@/components/layout/release-provider";
 import { UpdateBanner } from "@/components/layout/update-banner";
 import { UpdateCheckButton } from "@/components/layout/update-check";
 import { useAppData } from "@/components/providers/app-provider";
+import { PlatformIcon, PLATFORM_LABEL, type PlatformIconKey } from "@/components/ui/platform-icon";
 import { cn } from "@/lib/utils";
 
 type NavItem = { href: string; label: string; icon: LucideIcon };
@@ -209,16 +208,37 @@ type AccountRow = {
   tiktok?: Profile | null;
 };
 
-type PlatformKey = "youtube" | "instagram" | "tiktok" | "facebook";
+type PlatformKey = PlatformIconKey;
 
 const OTHER_PLATFORMS: PlatformKey[] = ["instagram", "tiktok", "facebook"];
 
-const PLATFORM_STYLE: Record<PlatformKey, { label: string; icon: LucideIcon; tint: string; background: string }> = {
-  youtube: { label: "YouTube", icon: Youtube, tint: "text-[#ff4d4d]", background: "bg-[#ff0000]/15" },
-  instagram: { label: "Instagram", icon: Instagram, tint: "text-[#e1306c]", background: "bg-[#e1306c]/15" },
-  tiktok: { label: "TikTok", icon: Music4, tint: "text-[#25f4ee]", background: "bg-[#25f4ee]/12" },
-  facebook: { label: "Facebook", icon: Facebook, tint: "text-[#4267b2]", background: "bg-[#4267b2]/20" }
+const PLATFORM_STYLE: Record<PlatformKey, { label: string; tint: string; background: string }> = {
+  youtube: { label: PLATFORM_LABEL.youtube, tint: "text-[#ff4d4d]", background: "bg-[#ff0000]/15" },
+  instagram: { label: PLATFORM_LABEL.instagram, tint: "text-[#f0629b]", background: "bg-[#e1306c]/15" },
+  tiktok: { label: PLATFORM_LABEL.tiktok, tint: "text-[#25f4ee]", background: "bg-[#25f4ee]/12" },
+  facebook: { label: PLATFORM_LABEL.facebook, tint: "text-[#4f9bff]", background: "bg-[#1877f2]/20" }
 };
+
+/**
+ * The corner mark that says which network an account belongs to. A profile
+ * photo is the same round picture on every platform, so without this a list of
+ * connected accounts is a column of faces with no way to tell YouTube from
+ * TikTok. A row with no photo shows the mark full size instead, so the badge
+ * only rides on top of a picture.
+ */
+function PlatformBadge({ platform, className }: { platform: PlatformKey; className?: string }) {
+  return (
+    <span
+      className={cn(
+        "absolute -bottom-0.5 -right-0.5 flex h-4 w-4 items-center justify-center rounded-full border border-[var(--panel)] bg-[#12121a]",
+        PLATFORM_STYLE[platform].tint,
+        className
+      )}
+    >
+      <PlatformIcon platform={platform} className="h-2.5 w-2.5" />
+    </span>
+  );
+}
 
 const CHANNEL_CACHE_KEY = "capital-command:connected-accounts";
 const CHANNEL_CACHE_TTL_MS = 60_000;
@@ -329,18 +349,16 @@ function useConnections(): Connections {
 /** The channel avatar circle, shared by the sidebar card and the mobile bar. */
 function ChannelAvatar({ channel, className }: { channel: ChannelSummary; className?: string }) {
   return (
-    <span
-      className={cn(
-        "relative flex shrink-0 items-center justify-center overflow-hidden rounded-full bg-white/10 ring-2 ring-[#ff0000]/60",
-        className
-      )}
-    >
-      {channel.thumbnail ? (
-        // eslint-disable-next-line @next/next/no-img-element -- remote avatar host isn't in next.config images
-        <img src={channel.thumbnail} alt="" className="h-full w-full object-cover" />
-      ) : (
-        <Youtube className="h-1/2 w-1/2 text-[#ff0000]" />
-      )}
+    <span className={cn("relative shrink-0", className)}>
+      <span className="flex h-full w-full items-center justify-center overflow-hidden rounded-full bg-white/10 ring-2 ring-[#ff0000]/60">
+        {channel.thumbnail ? (
+          // eslint-disable-next-line @next/next/no-img-element -- remote avatar host isn't in next.config images
+          <img src={channel.thumbnail} alt="" className="h-full w-full object-cover" />
+        ) : (
+          <PlatformIcon platform="youtube" className="h-1/2 w-1/2 text-[#ff0000]" />
+        )}
+      </span>
+      {channel.thumbnail && <PlatformBadge platform="youtube" />}
     </span>
   );
 }
@@ -402,7 +420,7 @@ function ChannelCard({ collapsed = false }: { collapsed?: boolean }) {
           )}
         >
           <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[#ff0000]/15 text-[#ff4d4d] transition group-hover:bg-[#ff0000]/25">
-            <Youtube className="h-4.5 w-4.5" />
+            <PlatformIcon platform="youtube" />
           </span>
           <span className={cn("flex min-w-0 flex-1 flex-col leading-tight", collapsed && "hidden")}>
             <span className="text-sm font-semibold text-white">Sign in with YouTube</span>
@@ -431,7 +449,6 @@ function ConnectionRows({ state, collapsed }: { state: Connections; collapsed: b
     <div className={cn("flex gap-1.5", collapsed ? "flex-col items-center" : "flex-col")}>
       {state.others.map((row) => {
         const style = PLATFORM_STYLE[row.platform];
-        const Icon = style.icon;
         const connected = row.connected > 0;
         const held = connected && Boolean(row.blocker);
         const detail = connected ? handleLabel(row.profile, style.label) : `${style.label} · not connected`;
@@ -447,24 +464,26 @@ function ConnectionRows({ state, collapsed }: { state: Connections; collapsed: b
               collapsed && "justify-center px-2"
             )}
           >
-            <span
-              className={cn(
-                "relative flex h-6 w-6 shrink-0 items-center justify-center overflow-hidden rounded-full",
-                style.background,
-                style.tint,
-                !connected && "opacity-50"
-              )}
-            >
-              {row.profile?.thumbnail ? (
-                // eslint-disable-next-line @next/next/no-img-element -- remote avatar host isn't in next.config images
-                <img src={row.profile.thumbnail} alt="" className="h-full w-full object-cover" />
-              ) : (
-                <Icon className="h-3.5 w-3.5" />
-              )}
+            <span className={cn("relative h-6 w-6 shrink-0", !connected && "opacity-50")}>
+              <span
+                className={cn(
+                  "flex h-full w-full items-center justify-center overflow-hidden rounded-full",
+                  style.background,
+                  style.tint
+                )}
+              >
+                {row.profile?.thumbnail ? (
+                  // eslint-disable-next-line @next/next/no-img-element -- remote avatar host isn't in next.config images
+                  <img src={row.profile.thumbnail} alt="" className="h-full w-full object-cover" />
+                ) : (
+                  <PlatformIcon platform={row.platform} className="h-3.5 w-3.5" />
+                )}
+              </span>
+              {row.profile?.thumbnail && <PlatformBadge platform={row.platform} className="h-3.5 w-3.5" />}
               {collapsed && connected && (
                 <span
                   className={cn(
-                    "absolute -bottom-0.5 -right-0.5 h-2 w-2 rounded-full border border-[var(--panel)]",
+                    "absolute -right-0.5 -top-0.5 h-2 w-2 rounded-full border border-[var(--panel)]",
                     held ? "bg-amber-400" : "bg-emerald-400"
                   )}
                 />
@@ -811,12 +830,11 @@ function MobileChannelChip() {
           title="Sign in with YouTube"
           className="flex h-9 w-9 items-center justify-center rounded-full bg-[#ff0000]/15 text-[#ff4d4d] transition hover:bg-[#ff0000]/25"
         >
-          <Youtube className="h-4 w-4" />
+          <PlatformIcon platform="youtube" />
         </a>
       )}
       {others.map((row) => {
         const style = PLATFORM_STYLE[row.platform];
-        const Icon = style.icon;
         const label = `${style.label} — ${row.blocker ?? handleLabel(row.profile, style.label)}`;
         return (
           <Link
@@ -824,18 +842,23 @@ function MobileChannelChip() {
             href="/uploading-center"
             aria-label={label}
             title={label}
-            className={cn(
-              "flex h-7 w-7 items-center justify-center overflow-hidden rounded-full",
-              style.background,
-              style.tint
-            )}
+            className="relative block h-7 w-7 shrink-0"
           >
-            {row.profile?.thumbnail ? (
-              // eslint-disable-next-line @next/next/no-img-element -- remote avatar host isn't in next.config images
-              <img src={row.profile.thumbnail} alt="" className="h-full w-full object-cover" />
-            ) : (
-              <Icon className="h-3.5 w-3.5" />
-            )}
+            <span
+              className={cn(
+                "flex h-full w-full items-center justify-center overflow-hidden rounded-full",
+                style.background,
+                style.tint
+              )}
+            >
+              {row.profile?.thumbnail ? (
+                // eslint-disable-next-line @next/next/no-img-element -- remote avatar host isn't in next.config images
+                <img src={row.profile.thumbnail} alt="" className="h-full w-full object-cover" />
+              ) : (
+                <PlatformIcon platform={row.platform} className="h-3.5 w-3.5" />
+              )}
+            </span>
+            {row.profile?.thumbnail && <PlatformBadge platform={row.platform} className="h-3.5 w-3.5" />}
           </Link>
         );
       })}
