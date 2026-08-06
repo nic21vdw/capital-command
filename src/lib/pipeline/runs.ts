@@ -25,8 +25,7 @@ import { publisherConfig } from "@/lib/publisher/config";
 import { publishQueue } from "@/lib/publisher/queue";
 import { defaultVideoStudio } from "@/lib/storage/schemas";
 import { readAppData, writeAppData } from "@/lib/storage/store";
-import { framesForSource } from "@/lib/carousels/videoFrames";
-import { DEFAULT_SLIDE_COUNT, generateCarousel } from "@/lib/studio/carousel";
+import { DEFAULT_SLIDE_COUNT, generateCarousel, illustrateFromRecording } from "@/lib/studio/carousel";
 
 // A run is a thin coordination record over the existing subsystems — the
 // media itself lives with the long-form project, the clip job, and the shared
@@ -353,21 +352,14 @@ export async function advanceRun(run: PipelineRun): Promise<void> {
       }
     } else {
     void step(run, "carousel", async () => {
-      // The slides are illustrated with stills from the stream itself, one per
-      // slide and in order, so the deck reads as the video it was written from
-      // rather than eight gradients. Failing to take them is not a reason to
-      // skip the carousel — the copy still stands on its own.
-      const frames = project.sourceId
-        ? await framesForSource(project.sourceId, DEFAULT_SLIDE_COUNT).catch(() => ({ images: [], note: null }))
-        : { images: [], note: null };
-      const { carousel, reason } = await generateCarousel({
+      const { carousel, drafts, reason } = await generateCarousel({
         title: run.name,
         sourceText: transcriptText,
         slideCount: DEFAULT_SLIDE_COUNT,
         sourceType: "longform",
         sourceId: project.id,
-        images: frames.images,
         imageMode: "backdrop",
+        transcript: project.sourceId ? project.transcript : undefined,
         // Nobody is watching this one. Transcript-sliced slides would be
         // counted as "ready to schedule" and could reach a queue unread.
         requireModel: true
@@ -376,12 +368,27 @@ export async function advanceRun(run: PipelineRun): Promise<void> {
         await update(run, { carouselNote: reason ?? "No carousel slides were written." });
         return;
       }
+      // The slides are then illustrated with stills from the stream itself,
+      // each cut at the moment its copy is about, so the deck reads as the
+      // video it was written from rather than eight gradients. Failing to take
+      // them is not a reason to skip the carousel — the copy still stands.
+      const illustrated = project.sourceId
+        ? await illustrateFromRecording({
+            carousel,
+            drafts,
+            sourceId: project.sourceId,
+            transcript: project.transcript
+          }).catch(() => ({ carousel, note: null }))
+        : { carousel, note: null };
       const data = await readAppData();
       const studio = data.videoStudio ?? defaultVideoStudio;
-      await writeAppData({ ...data, videoStudio: { ...studio, carousels: [carousel, ...studio.carousels] } });
+      await writeAppData({
+        ...data,
+        videoStudio: { ...studio, carousels: [illustrated.carousel, ...studio.carousels] }
+      });
       await update(run, {
         carouselId: carousel.id,
-        carouselNote: [reason, frames.note].filter(Boolean).join(" ") || undefined
+        carouselNote: [reason, illustrated.note].filter(Boolean).join(" ") || undefined
       });
     });
     }

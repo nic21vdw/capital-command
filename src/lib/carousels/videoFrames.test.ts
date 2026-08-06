@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  CANDIDATES_PER_SLIDE,
   candidateTimes,
   frameScore,
   frameSignature,
@@ -101,7 +102,9 @@ describe("candidateTimes", () => {
   it("looks around the target, nearest first", () => {
     const times = candidateTimes(120, 600);
     expect(times[0]).toBe(120);
-    expect(times).toHaveLength(3);
+    expect(times).toHaveLength(CANDIDATES_PER_SLIDE);
+    // Short window: a screen-share is a different application ten seconds away.
+    expect(Math.max(...times.map((time) => Math.abs(time - 120)))).toBeLessThanOrEqual(5);
   });
 
   it("never seeks past the end of the video or before the start", () => {
@@ -128,6 +131,30 @@ describe("pickCandidate", () => {
       []
     );
     expect(pick?.seconds).toBe(11);
+  });
+
+  it("stays on the anchor when a slightly better frame is seconds away", () => {
+    const pick = pickCandidate(
+      [
+        { seconds: 100, score: 0.6, signature: signature(0.2) },
+        { seconds: 104, score: 0.7, signature: signature(0.5) }
+      ],
+      [],
+      100
+    );
+    expect(pick?.seconds).toBe(100);
+  });
+
+  it("still leaves the anchor when the frame there is much worse", () => {
+    const pick = pickCandidate(
+      [
+        { seconds: 100, score: 0.1, signature: signature(0.2) },
+        { seconds: 104, score: 0.9, signature: signature(0.5) }
+      ],
+      [],
+      100
+    );
+    expect(pick?.seconds).toBe(104);
   });
 
   it("passes over a frame that looks like one already used", () => {

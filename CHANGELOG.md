@@ -13,6 +13,17 @@ already shipped.
 
 ## Unreleased
 
+- **Carousel slides now sit on the bit of the stream they are actually about.**
+  The stills used to be taken at fixed intervals, so a slide about the agent
+  terminal could land on a YouTube analytics page. The copy is now written
+  first, from a timestamped transcript of the whole recording, and each slide
+  says which second it came from — the still is cut there.
+- **And the still is checked before it is used.** Each candidate is shown to a
+  vision model with the slide's words; if nothing near that moment actually
+  shows what the slide says, the slide is left plain rather than given a picture
+  that contradicts it. This uses your existing `FAL_KEY` and costs a fraction of
+  a cent per slide; without a key the stills are still anchored, just unchecked.
+
 ## 2026-08-03
 
 - **The app tells you when there is an update, and installs it.** A banner

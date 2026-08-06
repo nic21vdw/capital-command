@@ -53,6 +53,18 @@ describe("attachSlideImages", () => {
 });
 
 describe("attachSlideBackdrops", () => {
+  it("leaves a slide plain where its still was rejected, without shifting the rest", () => {
+    const images = [{ id: "a", url: "/a" }, null, { id: "c", url: "/c" }];
+    const slides = attachSlideBackdrops(deck(3), images);
+    const source = (index: number) => {
+      const layer = slides[index].layers?.[0];
+      return layer && layer.type === "image" ? layer.src : null;
+    };
+    expect(source(0)).toBe("/a");
+    expect(slides[1].layers ?? []).toHaveLength(0);
+    expect(source(2)).toBe("/c");
+  });
+
   it("lays each still behind the whole slide, in order", () => {
     const slides = attachSlideBackdrops(deck(3), photos);
     expect(slides[0].layers?.[0]).toMatchObject({ type: "image", src: photos[0].url, x: 0, y: 0, width: 1, height: 1, fit: "cover" });
