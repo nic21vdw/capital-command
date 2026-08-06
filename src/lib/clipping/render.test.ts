@@ -134,6 +134,44 @@ describe("renderCaptionedVertical", () => {
     expect(filter).toContain("ass='/tmp/caps.ass'[vout]");
   });
 
+  it("fills the frame with the speaker when the clip was auto-framed", async () => {
+    runFfmpeg.mockClear();
+    await renderCaptionedVertical("in.mp4", "out.mp4", "/tmp/caps.ass", true, {
+      framing: {
+        mode: "subject-fill",
+        crop: { w: 0.32, h: 1 },
+        keyframes: [
+          { t: 0, x: 0.5, y: 0 },
+          { t: 4, x: 0.6, y: 0 }
+        ],
+        confidence: 1,
+        reason: ""
+      },
+      target: { sourceW: 1920, sourceH: 1080, targetW: 1080, targetH: 1920 }
+    });
+    const filter = filterOf(runFfmpeg.mock.calls);
+    // A tracked crop that fills the frame — no blurred fill, no letterbox.
+    expect(filter).toContain("[0:v]crop=614:1080:x='if(lt(t,4.00)");
+    expect(filter).not.toContain("boxblur");
+    expect(filter).toContain("ass='/tmp/caps.ass'[vout]");
+  });
+
+  it("leads with the detected camera when the speaker is an overlay", async () => {
+    runFfmpeg.mockClear();
+    await renderCaptionedVertical("in.mp4", "out.mp4", null, true, {
+      framing: {
+        mode: "speaker-stack",
+        faceSource: { x: 0.7, y: 0.6, w: 0.24, h: 0.34 },
+        confidence: 0.8,
+        reason: ""
+      },
+      target: { sourceW: 1920, sourceH: 1080, targetW: 1080, targetH: 1920 }
+    });
+    const filter = filterOf(runFfmpeg.mock.calls);
+    expect(filter).toContain("crop=iw*0.2400:ih*0.3400:iw*0.7000:ih*0.6000");
+    expect(filter).toContain("[vc]null[vout]");
+  });
+
   it("skips the ass filter when there is nothing to burn in", async () => {
     runFfmpeg.mockClear();
     await renderCaptionedVertical("in.mp4", "out.mp4", null, false);

@@ -384,6 +384,7 @@ export const StylePanel = memo(function StylePanel({ api }: { api: EditorApi }) 
 
 export const LayoutPanel = memo(function LayoutPanel({ api }: { api: EditorApi }) {
   const { project } = api;
+  const [framing, setFraming] = useState<{ busy: boolean; note?: string }>({ busy: false });
   const r = project.reframe;
   const dims = aspectDimensions(project.aspectRatio);
   const aspectPreset: Record<Exclude<AspectRatioId, "custom">, ExportPresetId> = {
@@ -421,6 +422,39 @@ export const LayoutPanel = memo(function LayoutPanel({ api }: { api: EditorApi }
     }
   };
 
+  const runAutoFrame = async () => {
+    setFraming({ busy: true });
+    try {
+      const dimensions = aspectDimensions(project.aspectRatio);
+      const res = await fetch(`/api/clips/${project.jobId}/autoframe`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ file: project.sourceFile, width: dimensions.w, height: dimensions.h })
+      });
+      const data = (await res.json()) as {
+        error?: string;
+        mode?: string;
+        reason?: string;
+        compositionMode?: ClipCompositionMode;
+        reframe?: { scale: number; offsetX: number; offsetY: number };
+        faceSource?: { x: number; y: number; w: number; h: number };
+      };
+      if (!res.ok || !data.compositionMode) {
+        setFraming({ busy: false, note: data.error ?? data.reason ?? "No speaker was found in this clip." });
+        return;
+      }
+      api.setCropEditing(null);
+      api.patch({
+        compositionMode: data.compositionMode,
+        ...(data.reframe ? { reframe: data.reframe } : {}),
+        ...(data.faceSource ? { faceSource: data.faceSource } : {})
+      });
+      setFraming({ busy: false, note: data.reason });
+    } catch {
+      setFraming({ busy: false, note: "The speaker could not be found — the clip file may be gone." });
+    }
+  };
+
   const showReframe = project.compositionMode === "center-blur" || project.compositionMode === "crop-fill";
   const activeLayout = LAYOUT_MODE_PRESETS[project.compositionMode];
   const hasFaceLayer = activeLayout ? CLIP_LAYOUTS[activeLayout].layers.some((l) => l.kind === "face") : false;
@@ -445,6 +479,20 @@ export const LayoutPanel = memo(function LayoutPanel({ api }: { api: EditorApi }
 
   return (
     <div className="space-y-4">
+      <Group label="Auto-frame">
+        <Button
+          variant="secondary"
+          className="w-full"
+          onClick={() => void runAutoFrame()}
+          disabled={framing.busy}
+        >
+          {framing.busy ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Sparkles className="mr-2 h-4 w-4" />}
+          Frame on the speaker
+        </Button>
+        <p className="mt-1.5 text-[11px] leading-4 text-[var(--muted-foreground)]">
+          {framing.note ?? "Finds you in the clip and fills the frame with you instead of shrinking the whole recording into a blur."}
+        </p>
+      </Group>
       <Group label="Layout">
         <div className="space-y-1.5">
           {LAYOUT_PRESETS.map((preset) => (

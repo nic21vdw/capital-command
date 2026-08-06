@@ -1,6 +1,15 @@
 import { runFfmpeg } from "@/lib/clipping/ffmpeg";
+import {
+  SPEAKER_STACK_LAYOUT,
+  subjectFillChain,
+  type ClipFraming,
+  type FramingTarget
+} from "@/lib/clipping/framing";
 import { DEFAULT_CLIP_LAYOUT, resolveClipLayout, withLayerSources, type LayoutLayer, type Rect } from "@/lib/clipping/layouts";
 import type { ClipLayoutOverrides, ClipLayoutPreset } from "@/lib/clipping/types";
+
+/** An auto-framing decision plus the geometry it was planned against. */
+export type ClipFramingSpec = { framing: ClipFraming; target: FramingTarget };
 
 const FRAME_W = 1080;
 const FRAME_H = 1920;
@@ -231,23 +240,46 @@ function escapeFilterPath(p: string): string {
 }
 
 /**
+ * The 9:16 composition for a clip: the speaker-framed one when the clip was
+ * auto-framed, and the neutral centered-over-blur fill otherwise. Produces
+ * `[vc]`.
+ */
+export function verticalCompositionChain(framing?: ClipFramingSpec): string {
+  if (framing?.framing.mode === "subject-fill") {
+    return subjectFillChain(framing.framing, framing.target, "0:v", "vc");
+  }
+  if (framing?.framing.mode === "speaker-stack") {
+    return stackedLayoutChain(
+      SPEAKER_STACK_LAYOUT,
+      undefined,
+      framing.target.targetW,
+      framing.target.targetH,
+      framing.framing.faceSource
+    ).replace(/\[vout\]$/, "[vc]");
+  }
+  return (
+    "[0:v]split=2[bg][fg];" +
+    "[bg]scale=540:960:force_original_aspect_ratio=increase,crop=540:960,boxblur=12:2,eq=brightness=-0.08,scale=1080:1920[bgb];" +
+    "[fg]scale=1080:-2[fgs];" +
+    "[bgb][fgs]overlay=(W-w)/2:(H-h)/2,setsar=1[vc]"
+  );
+}
+
+/**
  * Renders the ready-to-post download clip the Clip Generator hands back by
- * default: a 9:16 vertical centered over a blurred, dimmed fill of itself
- * (nothing cropped away), with an optional burned-in ASS overlay carrying the
- * word-synced captions and the CoLateral watermark. `assPath` is a subtitle
- * document to burn in; pass null to render the composition alone.
+ * default: a 9:16 vertical framed on the speaker when `framing` says one was
+ * found, and centered over a blurred, dimmed fill of itself otherwise. An
+ * optional burned-in ASS overlay carries the word-synced captions and the
+ * title; pass null to render the composition alone.
  */
 export async function renderCaptionedVertical(
   inputPath: string,
   outputPath: string,
   assPath: string | null,
-  audioPresent: boolean
+  audioPresent: boolean,
+  framing?: ClipFramingSpec
 ) {
-  const composition =
-    "[0:v]split=2[bg][fg];" +
-    "[bg]scale=540:960:force_original_aspect_ratio=increase,crop=540:960,boxblur=12:2,eq=brightness=-0.08,scale=1080:1920[bgb];" +
-    "[fg]scale=1080:-2[fgs];" +
-    "[bgb][fgs]overlay=(W-w)/2:(H-h)/2,setsar=1[vc]";
+  const composition = verticalCompositionChain(framing);
   const filter = assPath
     ? `${composition};[vc]ass='${escapeFilterPath(assPath)}'[vout]`
     : `${composition};[vc]null[vout]`;
