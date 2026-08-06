@@ -91,6 +91,7 @@ export function ClipGeneratorPage() {
   const [url, setUrl] = useState("");
   const [brief, setBrief] = useState("");
   const [clipCount, setClipCount] = useState(TARGET_CLIP_COUNT);
+  const [autoFrame, setAutoFrame] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [retryingJobId, setRetryingJobId] = useState<string | null>(null);
@@ -134,7 +135,7 @@ export function ClipGeneratorPage() {
   }, [jobs, refresh]);
 
   const startJob = useCallback(
-    async (body: { url?: string; sourceId?: string; topic?: string; clipCount?: number }) => {
+    async (body: { url?: string; sourceId?: string; topic?: string; clipCount?: number; autoFrame?: boolean }) => {
       const response = await fetch("/api/clips", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -162,13 +163,13 @@ export function ClipGeneratorPage() {
     }
     setSubmitting(true);
     try {
-      await startJob({ url: trimmed, topic: brief.trim() || undefined, clipCount });
+      await startJob({ url: trimmed, topic: brief.trim() || undefined, clipCount, autoFrame });
     } catch {
       toast.error("Request failed. Is the dev server still running?");
     } finally {
       setSubmitting(false);
     }
-  }, [brief, clipCount, startJob, url]);
+  }, [autoFrame, brief, clipCount, startJob, url]);
 
   const uploadFile = useCallback(
     async (file: File) => {
@@ -184,14 +185,14 @@ export function ClipGeneratorPage() {
           toast.error(data.error ?? "Upload failed.");
           return;
         }
-        await startJob({ sourceId: data.source.id, topic: brief.trim() || undefined, clipCount });
+        await startJob({ sourceId: data.source.id, topic: brief.trim() || undefined, clipCount, autoFrame });
       } catch {
         toast.error("Upload failed. Is the dev server still running?");
       } finally {
         setUploading(false);
       }
     },
-    [brief, clipCount, startJob]
+    [autoFrame, brief, clipCount, startJob]
   );
 
   const onDrop = useCallback(
@@ -412,6 +413,22 @@ export function ClipGeneratorPage() {
                   Longer streams have more clippable moments — pick more for a multi-hour VOD (up to {MAX_CLIP_COUNT}).
                 </p>
               </div>
+              <label className="flex cursor-pointer items-start gap-2.5 rounded-lg border border-[var(--border)] px-3 py-2.5">
+                <input
+                  type="checkbox"
+                  checked={autoFrame}
+                  onChange={(event) => setAutoFrame(event.target.checked)}
+                  disabled={busy}
+                  className="mt-0.5 h-4 w-4 accent-[var(--accent)]"
+                />
+                <span className="min-w-0">
+                  <span className="block text-xs font-medium text-white">Frame on the speaker</span>
+                  <span className="mt-0.5 block text-[11px] leading-4 text-[var(--muted-foreground)]">
+                    Finds you in the shot and fills the whole vertical frame with you, tracking as you move.
+                    Off renders the old centered-over-blur crop.
+                  </span>
+                </span>
+              </label>
               <Button onClick={() => void submitUrl()} disabled={busy || !url.trim()} className="w-full">
                 {submitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <LinkIcon className="mr-2 h-4 w-4" />}
                 Find clips
@@ -902,6 +919,14 @@ function ClipCard({
                   title={clip.rationale}
                 >
                   Score {clip.score}
+                </Badge>
+              )}
+              {clip.framing && clip.framing.mode !== "center-blur" && (
+                <Badge
+                  className="border-sky-400/30 bg-sky-400/10 text-sky-200"
+                  title={clip.framing.reason}
+                >
+                  {clip.framing.mode === "subject-fill" ? "Framed on speaker" : "Camera lead"}
                 </Badge>
               )}
             </div>

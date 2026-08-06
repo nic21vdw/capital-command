@@ -84,6 +84,32 @@ tools while you talk. Read `src/lib/voice/README.md`.
 - A voice turn cannot wait on a four-hour fan-out: long tools start work, return
   an id and are polled.
 
+## Podcast / Spotify (`/podcast`, `src/lib/podcast`)
+
+Every long-form edit also goes out as a podcast episode. Spotify has NO write
+API for creators — the Web API is read-only and the Distribution API is open
+only to licensed hosts — so the app IS the podcast host: it writes an RSS feed
+to the same R2 bucket the publisher uses and Spotify pulls from it.
+
+- Do not replace this with a headless-browser upload into Spotify for Creators.
+  The feed is the sanctioned route, it is less work, and a scripted upload
+  breaks on every UI change.
+- ONE manual step, ever: submitting the feed URL once and clicking the link in
+  Spotify's verification email. That is why a valid owner email is a hard
+  requirement in `feedProblems` — a feed nobody can be emailed cannot be
+  claimed, and it only fails after submission.
+- The feed needs `S3_PUBLIC_BASE_URL`, not just the other `S3_*` variables. An
+  RSS enclosure cannot be a presigned URL: those expire and Spotify re-reads the
+  feed for the life of the show.
+- `feed.ts` is pure and holds every rule Spotify judges the feed on (tags,
+  ordering, escaping, `feedProblems`), tested without a network. `publish.ts`
+  does the upload; `store.ts` owns `data/podcast/show.json`.
+- The pipeline's `podcast` stage publishes as soon as the MP3 is cut, ONE
+  attempt only — `podcastNote` is the "do not retry" marker, same rule as the
+  extraction step above it, because a 2.5s poll drives both.
+- Shorts never become episodes.
+- See `src/lib/podcast/README.md`.
+
 ## Channel ingest from inside the app (`/api/ingest`)
 
 The daily scan can now also be driven from the app — the voice console and the
@@ -270,13 +296,51 @@ copy of the same footage.
   nothing is cut off. Use `aspect="16/9"` only when the subject genuinely is a
   widescreen master (e.g. an editor project's source).
 
-The render side already defaults to center + blur and should stay that way:
-`compositionMode` defaults to `"center-blur"` both at project creation
-(`editor.ts`) and on load (`schemas.ts`), and the Clip Generator's ready render
-goes through `renderCaptionedVertical` unconditionally. `DEFAULT_CLIP_LAYOUT`
-in `layouts.ts` is `"restream-stack"`, but that is only a parameter fallback
-for the opt-in layout-variant helpers — it is NOT a shipped default, so don't
-"fix" it into `center` and change what the variants mean.
+Center + blur is the FALLBACK composition, not the target one — see
+auto-framing below. It is still what `ClipFrame` must be able to show, because
+a clip whose speaker could not be found is composed exactly that way, and
+because the preview has to look right for a 16:9 master too. `compositionMode`
+still defaults to `"center-blur"` at project creation (`editor.ts`) and on load
+(`schemas.ts`). `DEFAULT_CLIP_LAYOUT` in `layouts.ts` is `"restream-stack"`,
+but that is only a parameter fallback for the opt-in layout-variant helpers —
+it is NOT a shipped default, so don't "fix" it into `center` and change what
+the variants mean.
+
+## Auto-framing a clip on the speaker (`subject.ts`, `framing.ts`)
+
+A short that shrinks a whole widescreen recording into the middle of a 9:16
+frame reads as a downscaled desktop. The ready-to-post render instead gives
+the frame to whoever is talking: `planClipFraming` (`autoframe.ts`) locates
+the speaker and picks one of three compositions, and `renderCaptionedVertical`
+takes the result.
+
+- Detection is dependency-free and offline: ffmpeg decodes the section once
+  into a 192x108 raw RGB strip and `subject.ts` works on a cell grid over it.
+- What separates a person from a screenshare is NOT skin tone — warm syntax
+  highlighting, a beige sidebar and a photo on a web page all pass a skin
+  test. It is skin tone that MOVES CONTINUOUSLY, accumulated across the whole
+  clip (`speakerMap`). Text changes in bursts, a photo never changes at all.
+  Measured on real streams, that product leaves the camera as the brightest
+  thing in the frame. Don't "simplify" it back to a per-frame skin search.
+- Per-frame tracking only searches INSIDE the region the clip-wide map found,
+  so a face on the screen can never pull the crop across the frame.
+- Three modes, and the fallback is load-bearing: `subject-fill` (crop 9:16
+  around the speaker, fill the frame, pan with them), `speaker-stack` (a small
+  camera on a screenshare — lead with the DETECTED camera region instead of
+  the hardcoded corner guess, screen kept as a banner), and `center-blur` when
+  confidence is low. Detection failure must always land on the last one:
+  `planClipFraming` never throws.
+- Only crop's `x`/`y` may vary with time. Its `w`/`h` are evaluated once at
+  graph-config time where `t` is NaN, so the window SIZE is fixed per clip and
+  only its position is keyframed (`keyframeExpression`).
+- The burned title has no letterbox to sit above once a clip is full-bleed —
+  `framingVideoTopFrac` is what tells `writeClipDownloadAss` where the footage
+  starts under each mode.
+- The Clip Editor reaches the same decision through
+  `POST /api/clips/<jobId>/autoframe`, which answers in the editor's OWN
+  settings (`framingToReframe` → `crop-fill` scale/offset, or the camera-lead
+  layout plus a `faceSource`). That is deliberate: the live preview and the
+  export already render those, so auto-framing needs no second code path.
 ## Carousels (`/carousels`)
 
 Slide copy is written by `src/lib/studio/carousel.ts` from a script, a

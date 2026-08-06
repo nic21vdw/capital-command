@@ -32,6 +32,7 @@ export async function POST(request: NextRequest) {
     topic?: unknown;
     sourceId?: unknown;
     clipCount?: unknown;
+    autoFrame?: unknown;
   };
   try {
     body = (await request.json()) as typeof body;
@@ -45,10 +46,13 @@ export async function POST(request: NextRequest) {
   // The creator-chosen number of clips; clamped into the supported range by the
   // job layer, so out-of-range or missing values fall back to the default.
   const clipCount = typeof body.clipCount === "number" ? body.clipCount : undefined;
+  // Framing the clip on the speaker is the default; only an explicit false
+  // asks for the old centered-over-blur composition.
+  const autoFrame = body.autoFrame !== false;
 
   if (sourceId) {
     try {
-      const job = await createJobFromUpload(sourceId, topic || undefined, clipCount);
+      const job = await createJobFromUpload(sourceId, topic || undefined, clipCount, autoFrame);
       return NextResponse.json({ job }, { status: 201 });
     } catch (error) {
       return NextResponse.json(
@@ -62,6 +66,6 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Enter a valid http(s) video/VOD URL." }, { status: 400 });
   }
 
-  const job = await createJobFromUrl(url, topic || undefined, clipCount);
+  const job = await createJobFromUrl(url, topic || undefined, clipCount, autoFrame);
   return NextResponse.json({ job }, { status: 201 });
 }

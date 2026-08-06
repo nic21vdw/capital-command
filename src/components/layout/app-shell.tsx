@@ -17,6 +17,7 @@ import {
   Megaphone,
   Mic,
   Music4,
+  Podcast,
   Presentation,
   Radar,
   Rocket,
@@ -68,6 +69,8 @@ const PIPELINE_STAGES: PipelineStage[] = [
       { href: "/clips", label: "Short Clips", icon: Wand2 },
       { href: "/editor", label: "Clip Editor", icon: Scissors },
       { href: "/carousels", label: "Carousels & Images", icon: Images },
+      // The long-form edit again as audio, delivered to Spotify by RSS.
+      { href: "/podcast", label: "Podcast / Spotify", icon: Podcast },
       { href: "/x-posts", label: "X / Threads Posts", icon: AtSign },
       // Thread-format content engine for Facebook/Instagram (hook post +
       // numbered comment thread + CTA comment).
@@ -799,7 +802,7 @@ function AppChrome({ children }: { children: React.ReactNode }) {
         </div>
         <AppFooter />
         {/* Room for the command bar, which floats over everything. */}
-        <div className="h-20" />
+        <div className="h-32" />
       </main>
       <CommandBar />
     </div>

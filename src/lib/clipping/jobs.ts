@@ -15,7 +15,9 @@ import { generateViralTitles } from "@/lib/clipping/titles";
 import { copyClipsToDrive, driveDir } from "@/lib/clipping/drive";
 import { downloadAudio, downloadSection, fetchVideoMeta } from "@/lib/clipping/download";
 import { hasAudioStream, probeDimensions, probeDuration, runFfmpeg } from "@/lib/clipping/ffmpeg";
-import { renderCaptionedVertical, renderPreviewAssets, renderSourceClip } from "@/lib/clipping/render";
+import { DOWNLOAD_FRAME_H, DOWNLOAD_FRAME_W, planClipFraming } from "@/lib/clipping/autoframe";
+import { framingVideoTopFrac } from "@/lib/clipping/framing";
+import { renderCaptionedVertical, renderPreviewAssets, renderSourceClip, type ClipFramingSpec } from "@/lib/clipping/render";
 import { readSourceMeta, sourceFilePath, type SourceMeta } from "@/lib/clipping/sources";
 import { defaultCaptionStyle } from "@/lib/storage/schemas";
 import { ensureClipThumbnail } from "@/lib/clipping/thumbnails";
@@ -342,7 +344,8 @@ async function assignClipTitles(job: ClipJob) {
 export async function createJobFromUrl(
   url: string,
   topic: string | undefined,
-  clipCount?: number
+  clipCount?: number,
+  autoFrame?: boolean
 ): Promise<ClipJob> {
   await loadJobs();
   const id = crypto.randomUUID().slice(0, 8);
@@ -351,6 +354,7 @@ export async function createJobFromUrl(
     fileName: url,
     topic: topic || undefined,
     clipCount: clampClipCount(clipCount),
+    autoFrame: autoFrame !== false,
     sourceUrl: url,
     status: "queued",
     stage: "downloading",
@@ -373,7 +377,8 @@ export async function createJobFromUrl(
 export async function createJobFromUpload(
   sourceId: string,
   topic: string | undefined,
-  clipCount?: number
+  clipCount?: number,
+  autoFrame?: boolean
 ): Promise<ClipJob> {
   await loadJobs();
   const meta = await readSourceMeta(sourceId);
@@ -384,6 +389,7 @@ export async function createJobFromUpload(
     fileName: meta.fileName,
     topic: topic || undefined,
     clipCount: clampClipCount(clipCount),
+    autoFrame: autoFrame !== false,
     sourceUrl: `upload://${sourceId}`,
     sourceId,
     status: "queued",
@@ -621,10 +627,6 @@ async function runPipeline(job: ClipJob, url: string) {
   await update(job, { status: "done", stage: "finished", progress: 100 });
 }
 
-// The ready-to-post download clip is composed at 9:16 (1080x1920), matching a
-// fresh editor project's default vertical export.
-const DOWNLOAD_FRAME_W = 1080;
-const DOWNLOAD_FRAME_H = 1920;
 
 /**
  * Writes the ASS document burned into a clip's ready-to-post download render:
@@ -639,7 +641,8 @@ async function writeClipDownloadAss(
   job: ClipJob,
   clip: ClipCandidate,
   index: number,
-  sourceDims?: { width: number; height: number }
+  sourceDims?: { width: number; height: number },
+  framing?: ClipFramingSpec
 ): Promise<string> {
   const style = defaultCaptionStyle;
   // Window the source captions into clip-local time, then re-chunk the words the
@@ -655,7 +658,11 @@ async function writeClipDownloadAss(
   const srcW = sourceDims?.width || 16;
   const srcH = sourceDims?.height || 9;
   const videoHeightFrac = Math.min(1, (DOWNLOAD_FRAME_W * (srcH / Math.max(1, srcW))) / DOWNLOAD_FRAME_H);
-  const videoTopFrac = (1 - videoHeightFrac) / 2;
+  // An auto-framed clip has no letterbox to sit above — the framing says where
+  // the title clears the footage instead.
+  const videoTopFrac = framing
+    ? framingVideoTopFrac(framing.framing, framing.target)
+    : (1 - videoHeightFrac) / 2;
   const title = clip.title?.trim() || generateClipTitle(windowed, "");
   const titleLine = title
     ? `${buildClipTitleDialogue(title, DOWNLOAD_FRAME_W, DOWNLOAD_FRAME_H, 0, Math.max(0.1, clip.end - clip.start), videoTopFrac)}\n`
@@ -723,11 +730,12 @@ export async function ensureVerticalClipFile(jobId: string, fileName: string): P
     const audio = await hasAudioStream(filePath).catch(() => false);
     // Only the neutral master gets captions burned in; edited exports and
     // ready renders already carry theirs, and double-burning looks broken.
+    const framing = (await planClipFraming(filePath)) ?? undefined;
     let assPath: string | null = null;
     if (job && clip && isMaster) {
-      assPath = await writeClipDownloadAss(job, clip, job.clips.indexOf(clip), dims).catch(() => null);
+      assPath = await writeClipDownloadAss(job, clip, job.clips.indexOf(clip), dims, framing).catch(() => null);
     }
-    await renderCaptionedVertical(filePath, verticalPath, assPath, audio);
+    await renderCaptionedVertical(filePath, verticalPath, assPath, audio, framing);
   }
   if (job && clip && isMaster && !clip.downloadFile) {
     clip.downloadFile = verticalName;
@@ -793,12 +801,22 @@ async function renderClipIndexes(job: ClipJob, indexes: number[]) {
       try {
         const downloadName = `${baseName}-ready.mp4`;
         const downloadPath = path.join(outputDir(job.id), downloadName);
+        // Where the speaker is decides the whole composition, so it is planned
+        // once here and shared by the burned title and the render itself.
+        const framing = job.autoFrame === false ? undefined : ((await planClipFraming(produced)) ?? undefined);
+        if (framing) {
+          clip.framing = {
+            mode: framing.framing.mode,
+            confidence: Number(framing.framing.confidence.toFixed(3)),
+            reason: framing.framing.reason
+          };
+        }
         try {
           const dims = await probeDimensions(produced).catch(() => undefined);
-          const assPath = await writeClipDownloadAss(job, clip, i, dims);
-          await renderCaptionedVertical(produced, downloadPath, assPath, true);
+          const assPath = await writeClipDownloadAss(job, clip, i, dims, framing);
+          await renderCaptionedVertical(produced, downloadPath, assPath, true, framing);
         } catch {
-          await renderCaptionedVertical(produced, downloadPath, null, true);
+          await renderCaptionedVertical(produced, downloadPath, null, true, framing);
         }
         clip.downloadFile = downloadName;
         // The preview only exists to give the card something to show before the

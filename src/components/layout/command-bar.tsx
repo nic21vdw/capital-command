@@ -236,7 +236,7 @@ export function CommandBar() {
   }
 
   return (
-    <div className="pointer-events-none fixed inset-x-0 bottom-0 z-40 flex justify-center px-3 pb-3">
+    <div className="pointer-events-none fixed inset-x-0 bottom-0 z-40 flex justify-center px-3 pb-[max(1.5rem,env(safe-area-inset-bottom))]">
       <div className="pointer-events-auto w-full max-w-3xl">
         {open && lines.length ? (
           <div className="mb-2 max-h-[45vh] overflow-y-auto rounded-2xl border border-[var(--border)] bg-[var(--panel)]/95 p-3 shadow-2xl backdrop-blur">

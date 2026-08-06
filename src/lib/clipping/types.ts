@@ -77,6 +77,15 @@ export type ClipCandidate = {
   previewFile?: string;
   /** Poster frame filename, so players paint a frame instantly instead of black. */
   posterFile?: string;
+  /**
+   * How the ready-to-post render was composed: which framing the speaker
+   * detection chose, and why. Absent on clips rendered before auto-framing.
+   */
+  framing?: {
+    mode: import("@/lib/clipping/framing").ClipFramingMode;
+    confidence: number;
+    reason: string;
+  };
   /** Legacy layout used by older rendered files. New files are neutral source masters. */
   layoutPreset?: ClipLayoutPreset;
   /** Legacy alternate compositions rendered from the same moment. */
@@ -101,6 +110,12 @@ export type ClipJob = {
    * upload time (defaults to TARGET_CLIP_COUNT) and drives every selection pass.
    */
   clipCount?: number;
+  /**
+   * Whether the ready-to-post renders are framed on the speaker. On unless the
+   * creator turned it off, in which case every clip is composed the neutral
+   * centered-over-blur way.
+   */
+  autoFrame?: boolean;
   renderLayout?: ClipLayoutPreset;
   renderVariants?: boolean;
   layoutOverrides?: ClipLayoutOverrides;
