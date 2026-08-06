@@ -53,8 +53,13 @@ if ($LogPath) {
 # One line to the console and, when the caller asked for a log, to the file.
 # Appending line by line rather than transcribing the session keeps the file
 # to what the release actually said, so the banner's tail is readable.
+#
+# Write-Host, not Write-Output: this is a message, not a value. Written to the
+# success stream it would join the return value of whatever function is running
+# - which is how a healthy `git merge` printing "Fast-forward" came back as a
+# non-zero exit code and aborted a release that had already worked.
 function Write-Log($message) {
-  Write-Output $message
+  Write-Host $message
   if (-not $LogPath) { return }
   try {
     [System.IO.File]::AppendAllText($LogPath, "$message`r`n", [System.Text.UTF8Encoding]::new($false))
@@ -63,15 +68,16 @@ function Write-Log($message) {
 }
 
 # Runs a child process, sending everything it prints to the console and the
-# log. $ErrorActionPreference is relaxed around it because a native command
-# writing to stderr is a TERMINATING error under "Stop" - which is how a
-# perfectly healthy `npm install` or `git fetch` could kill a release outright.
+# log, and returning ONLY its exit code. $ErrorActionPreference is relaxed
+# around it because a native command writing to stderr is a TERMINATING error
+# under "Stop" - which is how a perfectly healthy `npm install` or an
+# unreachable `git fetch` could kill a release outright.
 function Invoke-Logged {
   param([scriptblock]$Command)
   $previous = $ErrorActionPreference
   $ErrorActionPreference = "Continue"
   try {
-    & $Command 2>&1 | ForEach-Object { Write-Log $_.ToString() }
+    & $Command 2>&1 | ForEach-Object { Write-Log $_.ToString() } | Out-Null
     return $LASTEXITCODE
   } finally {
     $ErrorActionPreference = $previous
