@@ -1,6 +1,8 @@
 import { aiConfigured, runAi } from "@/lib/ai";
+import { parseAtSeconds, timecode, transcriptDigest, type TranscriptSegment } from "@/lib/carousels/anchors";
 import { carouselAngle, clampBatchCount, MAX_SLIDES, resolveSlideCount } from "@/lib/carousels/deck";
 import { attachSlideBackdrops, attachSlideImages, type CarouselImage } from "@/lib/carousels/imageSlides";
+import { framesForSlides } from "@/lib/carousels/videoFrames";
 import { CHANNEL_KEYWORDS } from "@/lib/clipping/keywords";
 import type { ClipCandidate, ClipJob } from "@/lib/clipping/types";
 import { carouselSchema } from "@/lib/storage/schemas";
@@ -38,6 +40,13 @@ export {
  * behind the copy.
  */
 export type CarouselImageMode = "photo" | "backdrop";
+
+/**
+ * A slide as the model wrote it, before it is given an id and a picture.
+ * `atSeconds` is the moment in the recording the copy was drawn from — the
+ * second its still is cut at. Null for sources that are not a recording.
+ */
+export type SlideDraft = Pick<CarouselSlide, "heading" | "body"> & { atSeconds?: number | null };
 
 export function carouselGenerationConfigured() {
   return aiConfigured();
@@ -90,7 +99,15 @@ export function buildCarouselPrompt(input: {
   imageMode?: CarouselImageMode;
   /** What the photos show / how they should be used, in the user's words. */
   imageNotes?: string;
+  /**
+   * The recording this is written from, stamped. Present only when the deck
+   * will be illustrated with stills from it — the model is then asked which
+   * second each slide is drawn from, and that answer is where the still is cut.
+   */
+  transcript?: TranscriptSegment[];
 }): string {
+  const digest = input.transcript?.length ? transcriptDigest(input.transcript) : "";
+  const lastStamp = timecode(input.transcript?.at(-1)?.end ?? 0);
   const lines = [
     `Turn this video content into a carousel of exactly ${input.slideCount} slides (for Instagram, Facebook, and TikTok).`,
     ""
@@ -105,6 +122,20 @@ export function buildCarouselPrompt(input: {
     lines.push(`Angle for this carousel: ${input.angle.trim()}`, "");
   }
   lines.push(`Video: ${input.title}`, "");
+  if (digest) {
+    lines.push(
+      "EVERY slide will sit on a still cut from this recording at the second you name in \"atSeconds\", so that second is what the reader SEES behind the words — and a slide whose words do not match its moment reads as a mistake. The transcript below is stamped [mm:ss].",
+      "- Write each slide about ONE moment that is really in the recording, and set \"atSeconds\" to the second it was happening (mm:ss -> seconds, so [12:30] is 750).",
+      "- The words and the moment must be the same thing. Say what was being done, shown or worked out AT that second — not a general claim about the product, the channel or the journey. \"Claude runs inside the terminal\" belongs on the second the terminal is being used; it does not belong on a second where he is only talking about the plan.",
+      "- This includes the hook and the last slide. A closing slide still has to be a real moment — what he was doing as he wrapped up, what shipped, what is next — with its own atSeconds, and the invitation to follow is one short line on top of it.",
+      "- Pick moments a viewer could recognise: a tool open and being used, a thing being built or fixed, a result appearing, a number going up, something going wrong. Skip stretches where nothing is happening, and skip a screen that has just been opened and is still empty — pick the second it has something on it.",
+      "- NEVER promise a picture. No \"here's a preview\", no \"this is X\", no \"look at this\" unless the transcript at that exact second has him opening, showing or pointing at that thing. A slide that announces something the still does not contain is worse than a plain one — write what he was DOING at that second instead.",
+      "- A recording often covers more than one project. Name the one he is actually in at that second and never move a feature from one to another: if the thing on screen belongs to a different project than the one you are pitching, either say the right name or pick a different moment.",
+      `- Use the WHOLE recording. It runs to [${lastStamp}]. Walk the deck through it in the order it happened, spreading the moments across the full length — roughly a third of the slides from the first third, a third from the middle, a third from the last third, and the closing slide from near the end. Do not write the whole deck out of the opening minutes.`,
+      "- Never describe what is visible in a still; you have not seen them.",
+      ""
+    );
+  }
   if (input.imageCount && input.imageCount > 0) {
     const plural = input.imageCount === 1 ? "" : "s";
     if (input.imageMode === "backdrop") {
@@ -124,15 +155,17 @@ export function buildCarouselPrompt(input: {
   }
   lines.push(
     "Content:",
-    input.sourceText.slice(0, 9000),
+    digest || input.sourceText.slice(0, 9000),
     "",
-    'Respond with ONLY valid JSON: {"title":"short internal name for this carousel","slides":[{"heading":"...","body":"..."}]}'
+    digest
+      ? 'Respond with ONLY valid JSON: {"title":"short internal name for this carousel","slides":[{"heading":"...","body":"...","atSeconds":0}]}'
+      : 'Respond with ONLY valid JSON: {"title":"short internal name for this carousel","slides":[{"heading":"...","body":"..."}]}'
   );
   return lines.join("\n");
 }
 
 /** Parses slides out of the model reply. */
-export function parseCarousel(text: string): { title: string; slides: Array<Pick<CarouselSlide, "heading" | "body">> } | null {
+export function parseCarousel(text: string): { title: string; slides: SlideDraft[] } | null {
   const fenced = text.match(/```(?:json)?\s*([\s\S]*?)```/);
   const body = fenced ? fenced[1] : text;
   const start = body.indexOf("{");
@@ -144,7 +177,8 @@ export function parseCarousel(text: string): { title: string; slides: Array<Pick
     const slides = parsed.slides
       .map((slide) => ({
         heading: typeof slide.heading === "string" ? slide.heading.trim() : "",
-        body: typeof slide.body === "string" ? slide.body.trim() : ""
+        body: typeof slide.body === "string" ? slide.body.trim() : "",
+        atSeconds: parseAtSeconds(slide.atSeconds, 0)
       }))
       .filter((slide) => slide.heading || slide.body)
       .slice(0, MAX_SLIDES);
@@ -158,7 +192,7 @@ export function parseCarousel(text: string): { title: string; slides: Array<Pick
 /** Offline fallback: split the source text into simple slides. */
 export function fallbackCarousel(input: { title: string; sourceText: string; slideCount: number }): {
   title: string;
-  slides: Array<Pick<CarouselSlide, "heading" | "body">>;
+  slides: SlideDraft[];
 } {
   const sentences = input.sourceText
     .replace(/\s+/g, " ")
@@ -189,7 +223,7 @@ export function fallbackCarousel(input: { title: string; sourceText: string; sli
  */
 export function toCarouselRecord(input: {
   title: string;
-  slides: Array<Pick<CarouselSlide, "heading" | "body">>;
+  slides: SlideDraft[];
   sourceType: Carousel["sourceType"];
   sourceId?: string;
   images?: CarouselImage[];
@@ -198,7 +232,8 @@ export function toCarouselRecord(input: {
 }): Carousel {
   const slides: CarouselSlide[] = input.slides.map((slide) => ({
     id: `slide-${crypto.randomUUID().slice(0, 8)}`,
-    ...slide
+    heading: slide.heading,
+    body: slide.body
   }));
   return carouselSchema.parse({
     id: `carousel-${crypto.randomUUID()}`,
@@ -221,10 +256,7 @@ export function toCarouselRecord(input: {
  * would simply vanish, so it gets a blank slide to sit on instead and the
  * shortfall is reported.
  */
-function padForImages(
-  slides: Array<Pick<CarouselSlide, "heading" | "body">>,
-  imageCount: number
-): { slides: Array<Pick<CarouselSlide, "heading" | "body">>; missing: number } {
+function padForImages(slides: SlideDraft[], imageCount: number): { slides: SlideDraft[]; missing: number } {
   const missing = Math.max(0, imageCount - slides.length);
   if (missing === 0) return { slides, missing };
   return {
@@ -244,6 +276,17 @@ function padForImages(
  */
 const CAROUSEL_ATTEMPTS = 3;
 
+/**
+ * The written deck plus the drafts it came from. The drafts carry `atSeconds`,
+ * which is what a caller illustrating from the recording cuts its stills at —
+ * the record itself keeps only what a slide is, not where it came from.
+ */
+export type CarouselGeneration = {
+  carousel: Carousel | null;
+  drafts: SlideDraft[];
+  reason: string | null;
+};
+
 export type CarouselGenerationInput = {
   title: string;
   sourceText: string;
@@ -262,6 +305,12 @@ export type CarouselGenerationInput = {
   imageMode?: CarouselImageMode;
   /** What those photos show, in the user's words. */
   imageNotes?: string;
+  /**
+   * The recording, stamped, when the deck will be illustrated from it. The
+   * model then says which second each slide is drawn from and the caller cuts
+   * the stills there — see `framesForSlides`.
+   */
+  transcript?: TranscriptSegment[];
   batch?: CarouselBatch;
   /**
    * Return `carousel: null` instead of transcript-derived slides when the model
@@ -279,20 +328,22 @@ export type CarouselGenerationInput = {
 
 export async function generateCarousel(
   input: CarouselGenerationInput
-): Promise<{ carousel: Carousel | null; reason: string | null }> {
+): Promise<CarouselGeneration> {
   const images = input.images ?? [];
   const slideCount = resolveSlideCount({ slideCount: input.slideCount, imageCount: images.length });
-  const give = (reason: string): { carousel: Carousel | null; reason: string } => {
-    if (input.requireModel) return { carousel: null, reason };
+  const give = (reason: string): CarouselGeneration => {
+    if (input.requireModel) return { carousel: null, drafts: [], reason };
+    const fallback = fallbackCarousel({ ...input, slideCount });
     return {
       carousel: toCarouselRecord({
-        ...fallbackCarousel({ ...input, slideCount }),
+        ...fallback,
         sourceType: input.sourceType,
         sourceId: input.sourceId,
         images,
         imageMode: input.imageMode,
         batch: input.batch
       }),
+      drafts: fallback.slides,
       reason
     };
   };
@@ -310,7 +361,8 @@ export async function generateCarousel(
     batchTotal: input.batch?.total,
     imageCount: images.length,
     imageMode: input.imageMode,
-    imageNotes: input.imageNotes
+    imageNotes: input.imageNotes,
+    transcript: input.transcript
   });
 
   let last = "The model was unavailable or declined.";
@@ -337,6 +389,7 @@ export async function generateCarousel(
               imageMode: input.imageMode,
               batch: input.batch
             }),
+            drafts: padded.slides,
             reason: padded.missing
               ? `${padded.missing} photo${padded.missing === 1 ? "" : "s"} got a slide with no copy written for it — add the words in the editor.`
               : null
@@ -357,6 +410,33 @@ export async function generateCarousel(
 }
 
 /**
+ * Lays a still from the recording behind each slide of a deck that has already
+ * been written. Illustrating happens AFTER the copy, never before: the still is
+ * cut at the second the model says that slide is about, so a slide about the
+ * agent terminal shows the agent terminal.
+ *
+ * A recording that can't be read gives the deck back untouched with a note —
+ * copy with no pictures is still a carousel.
+ */
+export async function illustrateFromRecording(input: {
+  carousel: Carousel;
+  drafts: SlideDraft[];
+  sourceId: string;
+  transcript: TranscriptSegment[];
+}): Promise<{ carousel: Carousel; note: string | null }> {
+  const frames = await framesForSlides({
+    sourceId: input.sourceId,
+    slides: input.drafts,
+    segments: input.transcript
+  }).catch(() => null);
+  if (!frames?.images.some(Boolean)) return { carousel: input.carousel, note: frames?.note ?? null };
+  return {
+    carousel: { ...input.carousel, slides: attachSlideBackdrops(input.carousel.slides, frames.images) },
+    note: frames.note
+  };
+}
+
+/**
  * Writes several carousels from one source in a single pass — "3 batches of 8
  * slides from this stream".
  *
@@ -367,21 +447,40 @@ export async function generateCarousel(
  * did not.
  */
 export async function generateCarouselBatches(
-  input: Omit<CarouselGenerationInput, "angle" | "batch"> & { batchCount?: number }
+  input: Omit<CarouselGenerationInput, "angle" | "batch"> & {
+    batchCount?: number;
+    /** Illustrate each batch with stills from this recording, per slide. */
+    recordingId?: string;
+  }
 ): Promise<{ carousels: Carousel[]; reason: string | null }> {
   const total = clampBatchCount(input.batchCount);
   const groupId = crypto.randomUUID().slice(0, 8);
 
   const results = await Promise.all(
-    Array.from({ length: total }, (_, index) => {
+    Array.from({ length: total }, async (_, index) => {
       const angle = carouselAngle(index);
-      return generateCarousel({
+      const written = await generateCarousel({
         ...input,
         // A single carousel is asked for exactly as it always was — no angle, no
         // batch record — so the Stream Pipeline's slides do not change shape.
         angle: total > 1 ? angle.instruction : undefined,
         batch: total > 1 ? { groupId, index: index + 1, total, angle: angle.label } : undefined
       });
+      // Each batch is written on its own angle, so each is about its own
+      // moments and gets its own stills — one shared set would put the same
+      // eight pictures behind three different stories.
+      if (!written.carousel || !input.recordingId || !input.transcript?.length) return written;
+      const illustrated = await illustrateFromRecording({
+        carousel: written.carousel,
+        drafts: written.drafts,
+        sourceId: input.recordingId,
+        transcript: input.transcript
+      });
+      return {
+        ...written,
+        carousel: illustrated.carousel,
+        reason: [written.reason, illustrated.note].filter(Boolean).join(" ") || null
+      };
     })
   );
 

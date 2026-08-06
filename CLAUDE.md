@@ -293,13 +293,44 @@ the picker can promise what the server will do.
   with metric-compatible fallbacks behind it). The canvas renderer and the
   editor's live text overlay both read that one constant — change it there, not
   per call site, or what you drag stops matching what exports.
-- A carousel written from a RECORDING is illustrated with the recording:
-  `src/lib/carousels/videoFrames.ts` takes one still per slide, spread across
-  the video in order, and `attachSlideBackdrops` lays it behind the copy under a
-  scrim with white text. Stills are CHOSEN, not grabbed — several candidates per
-  slide are scored on exposure, detail and sharpness, near-duplicates are pushed
-  down, and a slot with only black/blurred candidates gets no picture rather
-  than a bad one. Never seek to a fixed offset and take whatever is there.
+- A carousel written from a RECORDING is illustrated with the recording, and
+  the COPY IS WRITTEN FIRST. The model is given a timestamped transcript of the
+  whole stream (`transcriptDigest` thins it, never truncates — a 9k-character
+  slice meant eight slides were written out of the first thirteen minutes) and
+  returns an `atSeconds` per slide; `anchorSlides` in
+  `src/lib/carousels/anchors.ts` turns those into the seconds the stills are cut
+  at, falling back to matching the slide's own words against the transcript and
+  then to an even spread. Never illustrate before the copy exists: spreading
+  stills evenly puts the agent-terminal slide on whatever was on screen at
+  minute 32, which measured 4.8/10 for relevance against 8.6/10 anchored.
+- Stills are still CHOSEN, not grabbed — several candidates around the anchor
+  are scored on exposure, detail and sharpness, near-duplicates are pushed down,
+  and a slot with only black/blurred candidates gets no picture rather than a
+  bad one. `attachSlideBackdrops` lays the winner behind the copy under a scrim.
+  The candidate window is deliberately NARROW (`CANDIDATE_SPREAD_SEC`): a
+  screen-share is a different application ten seconds away, so wandering to find
+  a prettier frame breaks the anchor — widening it to ±10s took a slide from 9
+  to 2.
+- Then the still is LOOKED AT. `relevance.ts` shows the top candidates to a
+  vision model with the slide's words and takes the BEST-rated one if it clears
+  8/10; if none do, that slide gets no picture. Best-rated, not first-to-pass:
+  the candidates are seconds apart and differ only in the instant caught, so
+  that comparison is what steps off a blink or a hand across the face. Anchoring alone cannot tell a crossfade, a
+  blink, or "the transcript is right there" sitting on a music generator — every
+  failure left after anchoring was a question about what is IN the frame. It
+  runs on `FAL_KEY` (the free text gateway refuses images) and fails OPEN: no
+  key, or a dead endpoint, and the looks-only pick is used exactly as before.
+- `ExtractedFrames.images` is POSITIONAL and may contain nulls. A rejected slide
+  must keep its place — pushing the next slide's picture back onto it is how one
+  bad frame becomes eight wrong ones.
+- `scripts/eval-carousel-frames.ts` is how that number is checked: it runs the
+  real path over a stored source and writes each slide's copy next to its still,
+  for a person (or an agent) to score. Re-run it after touching the prompt or
+  the picker rather than guessing — this pipeline is stochastic, one deck is not
+  evidence, and two changes made on intuition here each made it measurably
+  worse. `scripts/calibrate-relevance.ts` is the matching check for the gate:
+  it re-rates frames whose true score is already known, which is the only way to
+  tell a gate that works from one that passes everything.
 - Uploaded photos land on disk (`data/carousel-images`, served by
   `/api/studio/carousels/images/<id>`), never inline as data URLs — a batch of
   base64 photos in `data/capital-command.json` would be re-read and rewritten

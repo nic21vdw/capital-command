@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import type { CarouselImage } from "@/lib/carousels/imageSlides";
 import { carouselImageExists, carouselImageUrl, MAX_BATCH_IMAGES, parseCarouselImageId } from "@/lib/carousels/uploads";
-import { framesForSource } from "@/lib/carousels/videoFrames";
+import type { TranscriptSegment } from "@/lib/carousels/anchors";
 import { getJob } from "@/lib/clipping/jobs";
 import { clipCarouselSource } from "@/lib/studio/carousel";
 import { getProject } from "@/lib/longform/store";
@@ -85,6 +85,8 @@ export async function POST(request: NextRequest) {
   // recording are the setting and go behind the copy.
   let imageMode: CarouselImageMode = "photo";
   let imageNote: string | null = null;
+  let transcript: TranscriptSegment[] | undefined;
+  let recordingId: string | undefined;
 
   if (scriptId) {
     const script = studio.scripts.find((entry) => entry.id === scriptId);
@@ -104,14 +106,12 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "That project has no transcript to work from." }, { status: 409 });
     }
     // No photos were chosen by hand, so illustrate the deck with the video's
-    // own frames — the same slides the Stream Pipeline writes unattended.
+    // own frames — the same slides the Stream Pipeline writes unattended. The
+    // stills are cut AFTER the copy, at the moment each slide is about.
     if (images.length === 0 && project.sourceId) {
-      const frames = await framesForSource(project.sourceId, resolveSlideCount({ slideCount })).catch(() => null);
-      if (frames?.images.length) {
-        images.push(...frames.images);
-        imageMode = "backdrop";
-      }
-      imageNote = frames?.note ?? null;
+      transcript = project.transcript;
+      recordingId = project.sourceId;
+      imageMode = "backdrop";
     }
   } else if (clipJobId) {
     const job = await getJob(clipJobId);
@@ -154,7 +154,9 @@ export async function POST(request: NextRequest) {
     sourceId,
     images,
     imageMode,
-    imageNotes
+    imageNotes,
+    transcript,
+    recordingId
   });
 
   if (carousels.length === 0) {

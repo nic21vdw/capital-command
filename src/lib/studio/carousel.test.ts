@@ -232,6 +232,42 @@ describe("video stills", () => {
     expect(prompt).not.toContain("caption for its own photo");
   });
 
+  it("asks which second each slide is drawn from, and shows the transcript stamped", async () => {
+    const { buildCarouselPrompt } = await import("@/lib/studio/carousel");
+    const prompt = buildCarouselPrompt({
+      title: "Stream",
+      sourceText: "flat text that must not be used",
+      slideCount: 8,
+      transcript: [
+        { start: 0, end: 12, text: "opening the agent terminal" },
+        { start: 3600, end: 3612, text: "wrapping up for the night" }
+      ]
+    });
+    expect(prompt).toContain("atSeconds");
+    expect(prompt).toContain("[00:00] opening the agent terminal");
+    // The whole recording, so the deck cannot be written out of the opening.
+    expect(prompt).toContain("[60:00] wrapping up for the night");
+    expect(prompt).toContain("It runs to [60:12]");
+    expect(prompt).not.toContain("flat text that must not be used");
+  });
+
+  it("does not ask for a second when there is no recording behind the slides", async () => {
+    const { buildCarouselPrompt } = await import("@/lib/studio/carousel");
+    const prompt = buildCarouselPrompt({ title: "Script", sourceText: "some script", slideCount: 6 });
+    expect(prompt).not.toContain("atSeconds");
+    expect(prompt).toContain("some script");
+  });
+
+  it("reads the second the model gave back for each slide", async () => {
+    const { parseCarousel } = await import("@/lib/studio/carousel");
+    const parsed = parseCarousel(
+      '{"title":"T","slides":[{"heading":"A","body":"b","atSeconds":750},{"heading":"B","body":"b"}]}'
+    );
+    expect(parsed?.slides[0].atSeconds).toBe(750);
+    // A slide with no second must stay unstamped, not silently become second 0.
+    expect(parsed?.slides[1].atSeconds).toBeNull();
+  });
+
   it("keeps the uploaded-photo wording when the pictures are photos", async () => {
     const { buildCarouselPrompt } = await import("@/lib/studio/carousel");
     const prompt = buildCarouselPrompt({ title: "Stream", sourceText: "text", slideCount: 8, imageCount: 2 });

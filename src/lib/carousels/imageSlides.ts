@@ -48,7 +48,12 @@ export const BACKDROP_SLIDE_LAYOUT = {
  * written from a recording: slide 1 shows an early moment, the last slide a
  * late one, so the deck reads as the video it came from.
  */
-export function attachSlideBackdrops(slides: CarouselSlide[], images: CarouselImage[]): CarouselSlide[] {
+export function attachSlideBackdrops(
+  slides: CarouselSlide[],
+  // Positional, and a hole is meaningful: a slide whose stills all failed keeps
+  // its place rather than pulling the next slide's picture back onto itself.
+  images: Array<CarouselImage | null>
+): CarouselSlide[] {
   return slides.map((slide, index) => {
     const image = images[index];
     if (!image) return slide;
