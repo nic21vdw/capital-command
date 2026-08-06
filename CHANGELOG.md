@@ -42,6 +42,20 @@ already shipped.
 - **When an update stops, it tells you why in a whole sentence.** The reason
   was being cut off at its first line, mid-word.
 
+- **Clips are framed on you now, not shrunk into a blur.** Every generated
+  short used to be the whole widescreen recording squeezed into the middle of
+  a 9:16 frame with a blurred fill around it — a small screenshot on a phone.
+  The Clip Generator now finds you in each clip and fills the frame with you:
+  when you carry the shot it crops in on you full-bleed and pans as you move,
+  and when you are a small camera on a screenshare it leads with the camera —
+  blown up and centred on where you actually are — keeping the screen as a
+  banner above it. Clips that get this say so on the card. "Frame on the
+  speaker" on the upload panel turns it off if you ever want the old crop.
+
+- **"Frame on the speaker" in the Clip Editor.** One button in the Layout
+  panel finds you in the clip you have open and sets the crop and zoom to
+  match, so the preview and the export show the same framing the generator
+  would have picked.
 
 - **The update button actually updates now.** "Install and restart" has been
   starting nothing at all: the way the app launched the release script meant

@@ -16,6 +16,7 @@ import {
   Loader2,
   Plus,
   Podcast,
+  Radio,
   Scissors,
   Sparkles,
   Trash2,
@@ -67,6 +68,7 @@ const LAUNCHING_STAGES: Record<PipelineStageKey, PipelineStage> = {
   segments: { status: "waiting", detail: "Waiting for the full transcript." },
   clips: { status: "waiting", detail: "Waiting for the source." },
   audio: { status: "waiting", detail: "Waiting for the long-form export." },
+  podcast: { status: "waiting", detail: "Waiting for the MP3." },
   images: { status: "waiting", detail: "Waiting for the transcript." },
   visuals: { status: "waiting", detail: "Waiting for a moment worth shooting." },
   posts: { status: "waiting", detail: "Waiting for the transcript." },
@@ -679,6 +681,20 @@ export function PipelinePage() {
         ) : null
     },
     {
+      key: "podcast",
+      icon: Radio,
+      title: "Spotify episode",
+      children: (
+        <div className="mt-3">
+          <Link href="/podcast">
+            <Button variant="secondary" className="px-3 py-1.5 text-xs">
+              Open the podcast feed
+            </Button>
+          </Link>
+        </div>
+      )
+    },
+    {
       key: "images",
       icon: Images,
       title: "Carousel images",
@@ -757,6 +773,9 @@ export function PipelinePage() {
               {schedulable.segments > 0 ? `${schedulable.segments} topic segments` : pendingLabel("segments", "segments")}
             </span>
             <span>{schedulable.audioReady ? "1 MP3" : pendingLabel("audio", "MP3")}</span>
+            <span className={schedulable.podcastPublished ? "text-emerald-300" : undefined}>
+              {schedulable.podcastPublished ? "podcast episode published" : pendingLabel("podcast", "Spotify episode")}
+            </span>
             <span>
               {schedulable.carouselSlides > 0 ? `${schedulable.carouselSlides} slides` : pendingLabel("images", "slides")}
             </span>
