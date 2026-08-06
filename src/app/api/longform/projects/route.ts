@@ -1,13 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import { FFMPEG_MISSING_MESSAGE, resolveFfmpeg, runFfmpeg } from "@/lib/clipping/ffmpeg";
 import { longformCreateSchema } from "@/lib/longform/schemas";
+import { projectSummary } from "@/lib/longform/summary";
 import { createProject, createProjectFromUrl, listProjects } from "@/lib/longform/store";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function GET() {
-  return NextResponse.json({ projects: await listProjects() });
+  return NextResponse.json({ projects: (await listProjects()).map(projectSummary) });
 }
 
 export async function POST(request: NextRequest) {

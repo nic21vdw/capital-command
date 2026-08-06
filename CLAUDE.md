@@ -2,8 +2,8 @@
 
 Read `AGENTS.md` first. It covers how a change reaches the running app —
 the production checkout stays on `main` and is never edited; work happens
-in the sandbox worktree on `dev`. The rest of this file is subsystem
-conventions.
+in a sandbox worktree on a branch cut from `main`. The rest of this file is
+subsystem conventions.
 
 ## Updating the app from inside it (`src/lib/release`)
 
@@ -12,7 +12,7 @@ the release that `update-capital-command.bat` runs. `/api/update` reads the
 status and starts the script; it never merges, rebuilds or restarts anything
 itself.
 
-- "There is an update" means THE RUNNING BUILD is behind `origin/dev`, not the
+- "There is an update" means THE RUNNING BUILD is behind `main`, not the
   checkout: `next start` serves `.next`, so a merge that never rebuilt is still
   stale. `status.ts` compares `.next/BUILD_COMMIT`, not `HEAD`.
 - Only the production checkout on `main` may release, and `POST /api/update`
@@ -20,9 +20,22 @@ itself.
 - No validation is duplicated in TypeScript. `update-app.ps1` refuses a dirty
   or ahead checkout and backs out a conflicting merge; a second copy of those
   rules here would only go stale.
-- The release kills the server running the request, so it is spawned
-  `detached` with its output going to `update-app.log` — there is no pipe left
-  to read by the time anything fails.
+- The release kills the server running the request, so it must outlive it AND
+  survive a tree kill: `run.ts` launches it through `Start-Process`, which
+  gives it its own hidden console and an immediate orphan. Do NOT go back to
+  `spawn(..., { detached: true })` — on Windows that PowerShell child exits 0
+  without executing a line, which is how "Install and restart" appeared to
+  work for weeks while doing nothing at all. `run.test.ts` guards it.
+- The script writes `update-app.log` itself, given `-LogPath`. Redirecting the
+  child's stdio cannot work once it has its own console, and an empty log is
+  invisible: the banner shows the last `==> ` step and any `ERROR:` line, so a
+  release that dies mid-way says so instead of spinning forever.
+- GITHUB IS OPTIONAL on both sides. `status.ts` falls back from `origin/main`
+  to the local `main`, and `update-app.ps1` fetches and pushes best effort —
+  a worktree shares the repository, so the commits are already local. Never
+  let a network call become fatal: under `$ErrorActionPreference = "Stop"` a
+  native command writing to stderr is a TERMINATING error, which is how an
+  unreachable remote used to kill a release before it printed a word.
 - One `ReleaseProvider` holds the status for the whole shell. Every check costs
   a `git fetch`, and two components polling separately would disagree on
   screen. Any new surface reads `useRelease()`.

@@ -68,7 +68,7 @@ export type RecordedRequest = {
  * request so tests can assert the exact outgoing shape. Returns the record.
  */
 export function mockFetchRoutes(
-  routes: Array<{ match: string; respond: (request: RecordedRequest) => Response }>
+  routes: Array<{ match: string; respond: (request: RecordedRequest) => Response | Promise<Response> }>
 ): RecordedRequest[] {
   const requests: RecordedRequest[] = [];
   vi.stubGlobal(

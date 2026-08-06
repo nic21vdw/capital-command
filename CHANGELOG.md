@@ -2,7 +2,8 @@
 
 What each release brought into the running app. Newest first.
 
-A "release" is one run of `update-capital-command.bat`: it merges `dev` into
+A "release" is one run of `update-capital-command.bat` (or the app's own
+**Install and restart**): it brings the running app up to what has landed on
 `main`, rebuilds, and restarts the server. Until you run it, nothing here has
 reached the app you use — that is the whole point of the split.
 
@@ -23,6 +24,85 @@ already shipped.
   shows what the slide says, the slide is left plain rather than given a picture
   that contradicts it. This uses your existing `FAL_KEY` and costs a fraction of
   a cent per slide; without a key the stills are still anchored, just unchecked.
+- **The update really does update now, and it says so the whole way through.**
+  Driving it end to end on a real copy of the app turned up four more ways it
+  could stop dead: a successful build reported as a failure (so the app was
+  left down after a build that worked), `npm install` stripping out the tools
+  the build needs, the release hanging at the last step with the app already
+  back up, and any unexpected error killing it silently mid-step. A release now
+  runs merge -> changelog -> install -> stop -> build -> start -> answer, shows
+  the step it is on with how long it has taken, and finishes by saying the app
+  is running. A warm one takes about a minute and a half.
+
+- **A failed update can be tried again.** The app used to refuse every retry
+  with "an update is already running" for as long as it stayed up, because the
+  flag saying so was only ever cleared by the update restarting the server -
+  which is exactly what a failed one does not do.
+
+- **When an update stops, it tells you why in a whole sentence.** The reason
+  was being cut off at its first line, mid-word.
+
+
+- **The update button actually updates now.** "Install and restart" has been
+  starting nothing at all: the way the app launched the release script meant
+  PowerShell exited immediately without running a line of it, so the app said
+  it was updating, the log file stayed empty, and nothing ever changed. It is
+  launched a different way, it writes a real log, and the banner shows the step
+  it is on — merging, installing, building, waiting for the app — plus the
+  reason in plain words if it stops.
+
+- **Double-clicking `update-capital-command.bat` releases what is actually
+  waiting.** It was still releasing the old `dev` branch, which has been behind
+  for six releases and no longer merges cleanly, so a double-click ended in
+  "does not merge cleanly" and changed nothing. It releases `main` — where work
+  now lands — and simply rebuilds when there is nothing to merge.
+
+- **An update no longer needs GitHub.** Fetching and uploading are best effort
+  from end to end: the app compares the running build against the copy of
+  `main` on this machine when GitHub can't be reached, and the release runs to
+  the end with the network unplugged. A branch that never uploaded can be
+  released straight from the sandbox with
+  `.\scripts\update-app.ps1 -Branch claude/<name>`.
+
+- **Updates are quicker, and a bad build no longer leaves the app down.**
+  `npm install` is skipped when nothing in `package-lock.json` moved (it ran
+  every time, with the app stopped, to do nothing), and a build that fails on a
+  stale cache is retried once from cold — the failure that used to end a
+  release with the server never coming back up.
+
+- **The Long-Form Editor's project list is 100× lighter.** Opening `/longform`
+  pulled down every project in full — transcript, silence ranges, segment plan
+  and caption track for all 25 of them, 6.4 MB — to draw a row of cards that
+  show a name, a status and a runtime. The list now carries the cards' own
+  fields plus that runtime as a number, and the project you open is fetched
+  whole on its own. On a real project the list row went from 139 KB to 3.4 KB.
+
+- **The Clip Generator stops shipping a megabyte and a half every two
+  seconds.** While a stream is being clipped, the page asks for the job list
+  every 2.5 seconds — and 83% of that answer was the raw silence ranges
+  detected in every stream you have ever clipped, which no list on screen
+  draws. They now come with the clip you actually open, alongside its
+  transcript, the same way transcripts were already handled. The list drops
+  from about 1.6 MB to 0.3 MB a poll.
+
+- **The Uploading Center stops re-reading everything every minute.** Its
+  once-a-minute refresh made five requests one after another — the clip
+  library, the queue, the calendar, your connected accounts and the YouTube
+  channel — and paging the calendar a fortnight repeated all five. Now the four
+  that can actually change go out together, paging costs one request instead of
+  five, and who each platform posts as is read once when the page opens rather
+  than asked of four social networks every minute. The calendar endpoint no
+  longer contacts any social network at all: it was reporting the same four
+  profiles a second time, and nothing on screen had read them for a while.
+
+- **Scheduling a Short from the editor stops making you wait.** The Schedule
+  Short menu used to sit on "Finding open slots…" while it read all four social
+  accounts, the quota meter and the whole YouTube channel — none of which it
+  shows. It now asks for the slot grid alone, starts loading the moment your
+  pointer reaches the button so the menu opens already filled, keeps what is
+  already booked instead of re-reading it every time you page a fortnight, and
+  serves a few-minute-old channel schedule while it refreshes behind you rather
+  than making you wait for three round trips to YouTube.
 
 ## 2026-08-03
 
@@ -68,9 +148,28 @@ already shipped.
   API key never reaches the browser, and publishing, scheduling, deletes and
   tokens are not tools it has.
 
-- **Channel ingest has a button and an API.** The scan that used to be a
-  scheduled task only now runs inside the app too: a Channel ingest panel on
-  `/agents` with a live log, and `GET`/`POST /api/ingest` behind it.
+- **Clip titles are easier to review and edit.** Clip cards give the title and
+  its justification more room, with clearer spacing, more readable type, and a
+  two-line title editor instead of squeezing the text into one line.
+
+- **The app tells you when there is an update, and installs it.** A banner
+  appears at the top of every screen when `dev` has work the running build does
+  not, listing what is in it, with one button that runs the release and reloads
+  the page when the app comes back. Until now the only way to know was to read
+  this file and remember to double-click a .bat, which is why four releases'
+  worth of finished work sat unshipped. It only ever appears in the real app —
+  a sandbox worktree can't release — and the release itself is still one
+  deliberate click.
+
+- **"Check for updates" sits above Settings in the sidebar, and you can ask it
+  whenever you like.** It says which of the two answers it has — "Up to date"
+  with the build you are running, or "Update available" with the count — and
+  clicking it when something is waiting opens what's new with an "Install and
+  restart" button. The banner only speaks up when the app happens to notice a
+  release on its own; this answers the question on demand. Both read the same
+  check, so they can never disagree on screen or fetch twice.
+
+## 2026-08-02
 
 - **An update actually replaces the running app.** Stopping the server only
   killed the process this repo had started, so a server the publish runner had

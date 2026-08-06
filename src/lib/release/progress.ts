@@ -2,11 +2,16 @@ import { readFile, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { UPDATE_LOG } from "@/lib/release/run";
 
+/** The line update-app.ps1 ends a good release with. */
+const RELEASE_DONE = "Capital Command is updated and running";
+
 export type ReleaseProgress = {
   /** The last thing the release said it was doing, for the banner. */
   step: string | null;
   /** Set when the release stopped on an error rather than finishing. */
   failed: string | null;
+  /** Set when the release got all the way to a running app. */
+  finished: boolean;
   /** How long since the log last moved, in seconds. Null when there is no log. */
   quietFor: number | null;
   tail: string[];
@@ -28,7 +33,7 @@ export async function readReleaseProgress(root = process.cwd()): Promise<Release
     text = file;
     quietFor = Math.max(0, Math.round((Date.now() - info.mtimeMs) / 1000));
   } catch {
-    return { step: null, failed: null, quietFor: null, tail: [] };
+    return { step: null, failed: null, finished: false, quietFor: null, tail: [] };
   }
 
   const lines = text.split(/\r?\n/).filter((line) => line.trim());
@@ -37,6 +42,7 @@ export async function readReleaseProgress(root = process.cwd()): Promise<Release
   return {
     step: steps.length ? steps[steps.length - 1].slice(4) : null,
     failed: failure ? failure.slice(7) : null,
+    finished: lines.some((line) => line.startsWith(RELEASE_DONE)),
     quietFor,
     tail: lines.slice(-12)
   };
