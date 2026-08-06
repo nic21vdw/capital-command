@@ -799,7 +799,7 @@ function AppChrome({ children }: { children: React.ReactNode }) {
         </div>
         <AppFooter />
         {/* Room for the command bar, which floats over everything. */}
-        <div className="h-20" />
+        <div className="h-32" />
       </main>
       <CommandBar />
     </div>
