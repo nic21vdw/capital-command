@@ -14,6 +14,8 @@ already shipped.
 
 ## Unreleased
 
+## 2026-08-06
+
 - **Carousel slides now sit on the bit of the stream they are actually about.**
   The stills used to be taken at fixed intervals, so a slide about the agent
   terminal could land on a YouTube analytics page. The copy is now written
