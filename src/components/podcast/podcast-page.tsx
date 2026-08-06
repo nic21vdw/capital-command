@@ -24,7 +24,7 @@ const FIELDS: { key: keyof PodcastShow; label: string; hint?: string; long?: boo
   { key: "author", label: "Author" },
   { key: "email", label: "Owner email", hint: "Spotify emails this address to verify you own the show." },
   { key: "link", label: "Show link", hint: "Your YouTube channel is a fine answer." },
-  { key: "artworkUrl", label: "Cover art URL", hint: "Square JPEG/PNG, 1400-3000px, on a public HTTPS URL." },
+  { key: "artworkUrl", label: "Cover art URL", hint: "Square JPEG/PNG, 1400-3000px. Upload one below and this fills itself in." },
   { key: "category", label: "Category" },
   { key: "language", label: "Language" },
   { key: "copyright", label: "Copyright" },
@@ -68,6 +68,24 @@ export function PodcastPage() {
     } catch (error) {
       toast.error(error instanceof Error ? error.message : String(error));
       return false;
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function uploadArtwork(file: File) {
+    setBusy("artwork");
+    try {
+      const body = new FormData();
+      body.append("file", file);
+      const response = await fetch("/api/podcast/artwork", { method: "POST", body });
+      const json = await response.json();
+      if (!response.ok) throw new Error(json.error ?? "That image could not be used.");
+      toast.success(`Cover art set — ${json.width}×${json.height}`);
+      const refreshed = await fetch("/api/podcast").then((res) => res.json());
+      apply(refreshed as PodcastResponse);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : String(error));
     } finally {
       setBusy(null);
     }
@@ -190,6 +208,25 @@ export function PodcastPage() {
                 {field.hint ? <p className="mt-1 text-xs text-[var(--muted-foreground)]">{field.hint}</p> : null}
               </div>
             ))}
+            <div>
+              <label className="text-xs font-medium uppercase tracking-wider text-[var(--muted-foreground)]">
+                Upload cover art
+              </label>
+              <input
+                type="file"
+                accept="image/png,image/jpeg"
+                disabled={!state.configured || busy !== null}
+                className="mt-1.5 block w-full text-sm text-[var(--muted-foreground)] file:mr-3 file:rounded-lg file:border file:border-[var(--border)] file:bg-white/5 file:px-3 file:py-2 file:text-sm file:text-white hover:file:bg-white/10 disabled:opacity-50"
+                onChange={(event) => {
+                  const file = event.target.files?.[0];
+                  event.target.value = "";
+                  if (file) void uploadArtwork(file);
+                }}
+              />
+              <p className="mt-1 text-xs text-[var(--muted-foreground)]">
+                {busy === "artwork" ? "Uploading…" : "Checked for square and size before it goes anywhere."}
+              </p>
+            </div>
             <label className="flex items-center gap-2 text-sm text-white">
               <input
                 type="checkbox"
