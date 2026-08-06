@@ -84,6 +84,32 @@ tools while you talk. Read `src/lib/voice/README.md`.
 - A voice turn cannot wait on a four-hour fan-out: long tools start work, return
   an id and are polled.
 
+## Podcast / Spotify (`/podcast`, `src/lib/podcast`)
+
+Every long-form edit also goes out as a podcast episode. Spotify has NO write
+API for creators — the Web API is read-only and the Distribution API is open
+only to licensed hosts — so the app IS the podcast host: it writes an RSS feed
+to the same R2 bucket the publisher uses and Spotify pulls from it.
+
+- Do not replace this with a headless-browser upload into Spotify for Creators.
+  The feed is the sanctioned route, it is less work, and a scripted upload
+  breaks on every UI change.
+- ONE manual step, ever: submitting the feed URL once and clicking the link in
+  Spotify's verification email. That is why a valid owner email is a hard
+  requirement in `feedProblems` — a feed nobody can be emailed cannot be
+  claimed, and it only fails after submission.
+- The feed needs `S3_PUBLIC_BASE_URL`, not just the other `S3_*` variables. An
+  RSS enclosure cannot be a presigned URL: those expire and Spotify re-reads the
+  feed for the life of the show.
+- `feed.ts` is pure and holds every rule Spotify judges the feed on (tags,
+  ordering, escaping, `feedProblems`), tested without a network. `publish.ts`
+  does the upload; `store.ts` owns `data/podcast/show.json`.
+- The pipeline's `podcast` stage publishes as soon as the MP3 is cut, ONE
+  attempt only — `podcastNote` is the "do not retry" marker, same rule as the
+  extraction step above it, because a 2.5s poll drives both.
+- Shorts never become episodes.
+- See `src/lib/podcast/README.md`.
+
 ## Channel ingest from inside the app (`/api/ingest`)
 
 The daily scan can now also be driven from the app — the voice console and the

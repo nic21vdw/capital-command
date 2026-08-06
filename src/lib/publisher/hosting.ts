@@ -27,7 +27,9 @@ export interface MediaHost {
   /** Downloads the object to a local path (used by the GitHub Actions runner). */
   download(key: string, destPath: string): Promise<void>;
   getObjectText(key: string): Promise<string | null>;
-  putObjectText(key: string, text: string): Promise<void>;
+  putObjectText(key: string, text: string, contentType?: string): Promise<void>;
+  /** Uploads bytes already in memory, for content that never touched disk. */
+  putObjectBytes(key: string, bytes: Uint8Array, contentType: string): Promise<void>;
   describe(): string;
 }
 
@@ -35,6 +37,7 @@ const CONTENT_TYPES: Record<string, string> = {
   ".mp4": "video/mp4",
   ".mov": "video/quicktime",
   ".webm": "video/webm",
+  ".mp3": "audio/mpeg",
   ".json": "application/json"
 };
 
@@ -103,13 +106,25 @@ export class S3MediaHost implements MediaHost {
     }
   }
 
-  async putObjectText(key: string, text: string): Promise<void> {
+  async putObjectBytes(key: string, bytes: Uint8Array, contentType: string): Promise<void> {
+    await this.client.send(
+      new PutObjectCommand({
+        Bucket: this.bucket,
+        Key: key,
+        Body: bytes,
+        ContentLength: bytes.byteLength,
+        ContentType: contentType
+      })
+    );
+  }
+
+  async putObjectText(key: string, text: string, contentType = "application/json"): Promise<void> {
     await this.client.send(
       new PutObjectCommand({
         Bucket: this.bucket,
         Key: key,
         Body: text,
-        ContentType: "application/json"
+        ContentType: contentType
       })
     );
   }
