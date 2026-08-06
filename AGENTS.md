@@ -18,8 +18,8 @@ running app.
 
 | | Production | Sandbox |
 |---|---|---|
-| Folder | `…\OneDrive\Documents\GitHub\capital-command` | `%USERPROFILE%\capital-command-dev` |
-| Branch | `main`, always | `dev` |
+| Folder | `…\OneDrive\Documents\GitHub\capital-command` | `%USERPROFILE%\capital-command-<name>` |
+| Branch | `main`, always | `claude/<name>`, cut from `main` |
 | Port | 3000 | 3100 (`npm run dev:sandbox`) |
 | Data | the real queues, tokens and clips | its own empty `data\` + a snapshot of app data |
 | Scheduled tasks | publish runner, Threads autopilot, channel scan, TikTok audit watch | none |
@@ -35,37 +35,55 @@ Create or refresh it with `npm run dev:worktree`.
 
 ## The loop
 
-1. Work on `dev` in the sandbox (or a short-lived branch merged straight
-   back into it — nobody reviews these, so a branch is only for keeping a
-   half-finished idea out of the way).
+1. Work in your own sandbox worktree, on a branch cut from `main`.
 2. Verify it: `npm run typecheck`, `npm test`.
 3. Add a line to **`CHANGELOG.md`** under _Unreleased_ saying what changed in
    the terms Nic cares about — what he can now do, or what stopped being
    broken. That line is what the app shows him when it offers the update, so
    write it for him and not for a commit log.
-4. Commit and push `dev`. Nothing on `dev` touches the running app.
-5. The running app notices. A banner appears at the top of every screen
-   saying an update is ready, listing those changelog lines, and its **Update
-   now** button runs the same release. **Check for updates** in the sidebar,
+4. Land it on `main` — a pull request you open and merge yourself. Landing on
+   `main` does not change the running app; a release does, and that is his.
+5. The running app notices. A banner appears at the top of every screen saying
+   an update is ready, listing those changelog lines, and its **Install and
+   restart** button runs the release. **Check for updates** in the sidebar,
    above Settings, asks the same question on demand and installs from the same
-   button — and `update-capital-command.bat` still works and does exactly the
-   same thing.
+   button — and `update-capital-command.bat` does exactly the same thing.
 
-`update-app.ps1` dates the Unreleased block as part of releasing and pushes
-`main` to `origin/dev`, so after a release the sandbox's baseline is what is
-running. Don't hand-move the Unreleased block; it will be moved for you.
+`update-app.ps1` dates the Unreleased block as part of releasing, so don't
+hand-move it; it will be moved for you.
 
-**There are no pull requests in this loop.** They bought nothing here — one
-person, no reviewers — and a fix sitting in an open PR is a fix he does not
-have. The gate is the release step on his machine, not an approval.
+**`main` is where finished work waits, not what is running.** The two are
+different things and the app is careful about which it means: `next start`
+serves `.next`, so the check compares the RUNNING BUILD (`.next/BUILD_COMMIT`)
+against `main`. A merge that never rebuilt is still an update waiting.
 
-The release is his to run, never yours. Merging `dev` and pushing it is
-yours; deciding when the running app changes is his.
+**The release is his to run, never yours.** Landing work on `main` is yours;
+deciding when the running app changes is his. Never run `update-app.ps1`,
+`update-capital-command.bat` or `POST /api/update`.
 
-`update-app.ps1` refuses if the production checkout is ahead of `main` or has
-uncommitted edits, and backs the merge out untouched if `dev` does not merge
-cleanly — a release either happens completely or leaves the app exactly as it
-was.
+`update-app.ps1` refuses if the production checkout has commits nothing else
+does or has uncommitted edits, and backs the merge out untouched if it does not
+merge cleanly — a release either happens completely or leaves the app exactly
+as it was.
+
+## GitHub is a copy, not the source
+
+Every sandbox worktree shares the production repository. Work merged in one is
+in that `.git` before anything is uploaded, and the release builds from what is
+there — so **a broken or unreachable GitHub cannot stop a release**, and does
+not stop the app from noticing one either. Fetching and pushing are best effort
+throughout: `update-app.ps1` and `dev-worktree.ps1` carry on without them, and
+the app's update check falls back from `origin/main` to the local `main`.
+
+When GitHub is refusing uploads and work is stuck on a branch that only exists
+here, it can still be released directly:
+
+```
+.\scripts\update-app.ps1 -Branch claude/<name>
+```
+
+That merges the local branch into `main`, rebuilds and restarts, exactly as a
+normal release does, and pushes later if it can.
 
 ## Rules for agents
 
@@ -77,11 +95,12 @@ was.
   them — it happened on 2026-08-02, when a pipeline merge and an unrelated
   agents feature landed on `dev` minutes apart from the same folder. Take your
   own with `npm run dev:worktree -- -Name <short-name>`, which creates
-  `%USERPROFILE%\capital-command-<name>` on `claude/<name>` off `dev`. The
+  `%USERPROFILE%\capital-command-<name>` on `claude/<name>` off `main`. The
   script refuses to hand you a checkout that already has uncommitted changes,
   and a SessionStart hook warns when you land in one.
-- **Never commit or push to `main`.** `main` only ever moves through the
-  release script, on Nic's say-so. Push `dev`; leave `main` alone.
+- **Never commit or push DIRECTLY to `main`.** Work reaches it through a
+  pull request you open and merge, never a push to the branch itself — and
+  never from inside the production checkout.
 - **Don't register scheduled tasks from the sandbox.** `npm run
   publish:register`, `threads:register` and `tiktok:watch:register` point
   Task Scheduler at whatever folder they run in; run them in production

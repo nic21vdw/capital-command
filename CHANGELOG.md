@@ -2,7 +2,8 @@
 
 What each release brought into the running app. Newest first.
 
-A "release" is one run of `update-capital-command.bat`: it merges `dev` into
+A "release" is one run of `update-capital-command.bat` (or the app's own
+**Install and restart**): it brings the running app up to what has landed on
 `main`, rebuilds, and restarts the server. Until you run it, nothing here has
 reached the app you use — that is the whole point of the split.
 
@@ -12,6 +13,33 @@ does that itself, so this file can never claim something is waiting that has
 already shipped.
 
 ## Unreleased
+
+- **The update button actually updates now.** "Install and restart" has been
+  starting nothing at all: the way the app launched the release script meant
+  PowerShell exited immediately without running a line of it, so the app said
+  it was updating, the log file stayed empty, and nothing ever changed. It is
+  launched a different way, it writes a real log, and the banner shows the step
+  it is on — merging, installing, building, waiting for the app — plus the
+  reason in plain words if it stops.
+
+- **Double-clicking `update-capital-command.bat` releases what is actually
+  waiting.** It was still releasing the old `dev` branch, which has been behind
+  for six releases and no longer merges cleanly, so a double-click ended in
+  "does not merge cleanly" and changed nothing. It releases `main` — where work
+  now lands — and simply rebuilds when there is nothing to merge.
+
+- **An update no longer needs GitHub.** Fetching and uploading are best effort
+  from end to end: the app compares the running build against the copy of
+  `main` on this machine when GitHub can't be reached, and the release runs to
+  the end with the network unplugged. A branch that never uploaded can be
+  released straight from the sandbox with
+  `.\scripts\update-app.ps1 -Branch claude/<name>`.
+
+- **Updates are quicker, and a bad build no longer leaves the app down.**
+  `npm install` is skipped when nothing in `package-lock.json` moved (it ran
+  every time, with the app stopped, to do nothing), and a build that fails on a
+  stale cache is retried once from cold — the failure that used to end a
+  release with the server never coming back up.
 
 - **The Long-Form Editor's project list is 100× lighter.** Opening `/longform`
   pulled down every project in full — transcript, silence ranges, segment plan

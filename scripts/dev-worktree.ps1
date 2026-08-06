@@ -88,12 +88,19 @@ which creates %USERPROFILE%\capital-command-<name> on its own branch.
 } else {
   $exists = git branch --list $Branch
   if (-not $exists) {
-    $remote = git ls-remote --heads origin $Branch
-    if ($remote) {
-      git branch $Branch "origin/$Branch"
-    } else {
-      git branch $Branch "origin/main"
-    }
+    # Local refs first, and no network call at all. `git ls-remote` writes to
+    # stderr when GitHub cannot be reached, which under "Stop" is a TERMINATING
+    # error - so an offline machine could not even open a sandbox to work in.
+    $base = @("origin/$Branch", "main", "origin/main") | Where-Object {
+      $previous = $ErrorActionPreference
+      $ErrorActionPreference = "Continue"
+      git rev-parse --verify --quiet "$_^{commit}" | Out-Null
+      $found = $LASTEXITCODE -eq 0
+      $ErrorActionPreference = $previous
+      $found
+    } | Select-Object -First 1
+    if (-not $base) { throw "No branch to base $Branch on - this checkout has neither $Branch nor main." }
+    git branch $Branch $base
   }
   Step "Creating the sandbox at $Path"
   git worktree add $Path $Branch
@@ -133,5 +140,9 @@ Write-Host "Sandbox ready: $Path (branch $Branch)" -ForegroundColor Green
 Write-Host "  cd `"$Path`""
 Write-Host "  npm run dev:sandbox     # http://localhost:3100"
 Write-Host ""
-Write-Host "Work there, merge dev into main when a day's changes are ready, then run"
+Write-Host "Work there, land it on main when a day's changes are ready, then run"
 Write-Host "update-capital-command.bat in the production folder."
+Write-Host ""
+Write-Host "No GitHub? This worktree shares the production repository, so the branch is"
+Write-Host "already there. Release it directly:"
+Write-Host "  .\scripts\update-app.ps1 -Branch $Branch"

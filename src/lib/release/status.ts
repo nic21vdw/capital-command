@@ -37,6 +37,42 @@ async function git(root: string, args: string[], timeout = 15_000) {
   return stdout.trim();
 }
 
+async function resolves(root: string, ref: string): Promise<boolean> {
+  try {
+    await git(root, ["rev-parse", "--verify", "--quiet", `${ref}^{commit}`]);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * What the running build is measured against.
+ *
+ * GitHub is a copy, not the source. Sandbox worktrees share this repository,
+ * so work merged in one is in this .git before anything is uploaded — and
+ * `update-app.ps1` will build exactly that. Watching only `origin/main` meant a
+ * merge the app could already see and release reported as "up to date" for as
+ * long as the upload was failing, which is precisely when someone is staring at
+ * the banner wondering whether the update works at all.
+ *
+ * So: the remote ref when it is ahead, the local branch when it is.
+ */
+async function resolveLatestRef(root: string): Promise<string | null> {
+  const remote = `origin/${RELEASE_BRANCH}`;
+  const [hasRemote, hasLocal] = await Promise.all([resolves(root, remote), resolves(root, RELEASE_BRANCH)]);
+
+  if (!hasRemote) return hasLocal ? RELEASE_BRANCH : null;
+  if (!hasLocal) return remote;
+
+  try {
+    const ahead = await git(root, ["rev-list", "--count", `${remote}..${RELEASE_BRANCH}`]);
+    return Number(ahead) > 0 ? RELEASE_BRANCH : remote;
+  } catch {
+    return remote;
+  }
+}
+
 export async function readReleaseStatus(root = process.cwd()): Promise<ReleaseStatus> {
   const { commit: running, builtAt } = readRunningCommit(root);
   const status: ReleaseStatus = {
@@ -72,14 +108,18 @@ export async function readReleaseStatus(root = process.cwd()): Promise<ReleaseSt
 
   // Best effort: an offline machine should report "up to date as far as it can
   // tell" rather than an error banner, so a failed fetch falls through to the
-  // last-known remote ref.
+  // refs already here.
   try {
     await git(root, ["fetch", "origin", RELEASE_BRANCH, "--quiet"], 25_000);
   } catch {
-    // Keep going with whatever origin/dev was last known to be.
+    // Keep going with whatever origin/main was last known to be.
   }
 
-  const ref = `origin/${RELEASE_BRANCH}`;
+  const ref = await resolveLatestRef(root);
+  if (!ref) {
+    status.error = `There is no ${RELEASE_BRANCH} branch here to compare against.`;
+    return status;
+  }
   try {
     status.latest = await git(root, ["rev-parse", ref]);
     status.latestShort = status.latest.slice(0, 7);
