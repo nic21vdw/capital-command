@@ -1,4 +1,5 @@
 import { advanceMusicJob, listMusicJobs } from "@/lib/music/jobs";
+import { queueReadyOutputs, stopQueueingWhenSettled } from "@/lib/pipeline/queueOutputs";
 import { listRuns, overviewContext, runOverview } from "@/lib/pipeline/runs";
 
 // Polling the overview is what advances a run, and until now the only thing
@@ -33,8 +34,12 @@ export async function advancePipelineOnce(): Promise<number> {
   if (live.length === 0) return 0;
   const context = overviewContext();
   for (const run of live) {
-    await runOverview(run, context).catch(() => undefined);
+    const overview = await runOverview(run, context).catch(() => undefined);
+    if (overview) await stopQueueingWhenSettled(run.id, overview.settled).catch(() => undefined);
   }
+  // After advancing, not before: an export that finished on this tick is
+  // bookable on this tick.
+  await queueReadyOutputs().catch(() => undefined);
   return live.length;
 }
 

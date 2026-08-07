@@ -14,6 +14,11 @@ already shipped.
 
 ## Unreleased
 
+- **Scheduling a run keeps scheduling it.** The topic segments render for hours
+  after you press "Schedule everything from this run", and the long-form export
+  often lands after the shorts — those are now booked as they finish, with the
+  app closed, instead of needing another trip back to the run.
+
 - **The sidebar count actually appears now.** The badge that says how many runs
   need you was gated on the wrong address and never rendered once; the window
   title also lost its count the moment you changed screen. Both fixed.
