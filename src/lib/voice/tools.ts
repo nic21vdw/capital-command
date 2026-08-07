@@ -3,7 +3,10 @@ import { sourceflowContext } from "@/lib/agents/context";
 import { newAgentRunId, runAgentTeam } from "@/lib/agents/orchestrator";
 import { AGENT_REGISTRY } from "@/lib/agents/registry";
 import { getAgentRun, listAgentRuns } from "@/lib/agents/store";
-import { ingestOverview, startIngestScan } from "@/lib/ingest/service";
+import { explainDecision } from "@/lib/ingest/classify";
+import { ingestOverview, listIngestJobs, startIngestScan } from "@/lib/ingest/service";
+import type { IngestJob } from "@/lib/ingest/service";
+import type { ScanCandidate } from "@/lib/ingest/types";
 import { renderNextSegment, repairRun } from "@/lib/pipeline/repair";
 import { REPAIRABLE_STAGES } from "@/lib/pipeline/repairable";
 import { createRunFromUrl, getRun, listRuns, runOverview } from "@/lib/pipeline/runs";
@@ -64,7 +67,7 @@ export const VOICE_TOOLS: VoiceToolDefinition[] = [
   },
   {
     name: "channel_check",
-    description: "Look at the YouTube channel and report which recent uploads are new to the pipeline and which are skipped and why. Takes nothing in — this is the dry run.",
+    description: "Look at the YouTube channel and report which recent uploads are new to the pipeline and which are skipped and why. This is the dry run — it changes nothing. Read the result with ingest_status: every skipped upload comes back with its URL and an overridable flag, and an overridable one can be taken in on the spot by calling start_pipeline with that URL. Offer that instead of leaving him with a list.",
     parameters: {
       type: "object",
       properties: {
@@ -77,7 +80,7 @@ export const VOICE_TOOLS: VoiceToolDefinition[] = [
   },
   {
     name: "ingest_status",
-    description: "Report the channel ingest ledger — what has already been taken in — plus any scan running right now and its log.",
+    description: "Report the channel ingest ledger — what has already been taken in — plus the most recent scan or check: its log, what it found new, and every upload it skipped with the reason, the URL and whether that skip is one a person can override.",
     parameters: NO_ARGS,
     action: false
   },
@@ -135,7 +138,7 @@ export const VOICE_TOOLS: VoiceToolDefinition[] = [
   },
   {
     name: "start_pipeline",
-    description: "Put one explicit http(s) video URL through the Stream Pipeline. Use this when the user names a link; use start_channel_ingest when they mean 'whatever is new on my channel'.",
+    description: "Put one explicit http(s) video URL through the Stream Pipeline. Use this when the user names a link, and also to take in a single upload the channel check skipped — the URL is in the check's report. Use start_channel_ingest when they mean 'whatever is new on my channel'.",
     parameters: {
       type: "object",
       properties: {
@@ -197,13 +200,82 @@ export function runReferenceFrom(args: Record<string, unknown>): RunReference {
 }
 
 /**
- * Starting work on a run also says where to watch it. Same `href`/`label`
- * contract `open_screen` uses, so the command bar takes Nic to the run it just
- * put back to work without a second tool call.
+ * Starting work also says where to watch it. Same `href`/`label` contract
+ * `open_screen` uses, so the command bar takes Nic to the thing it just started
+ * without a second tool call — a tool that hands back only an id leaves him on
+ * whatever screen he was already on.
  */
+export function toolDestination(screenId: string, runId?: string): { href: string; label: string } {
+  const screen = findScreen(screenId);
+  if (!screen) return { href: "/", label: "Dashboard" };
+  return { href: screenHref(screen, runId), label: screen.label };
+}
+
 function runHref(runId: string): { href: string; label: string } {
-  const screen = findScreen("pipeline");
-  return { href: screen ? screenHref(screen, runId) : `/pipeline?run=${encodeURIComponent(runId)}`, label: "Stream Pipeline" };
+  return toolDestination("pipeline", runId);
+}
+
+/**
+ * Skips a person can reasonably overturn. The scan holds these back because it
+ * is unattended and cautious, not because the video is wrong — so the report
+ * hands back the URL and the orchestrator can offer to run it through
+ * start_pipeline. The other skips stay dead ends on purpose: this app's own
+ * uploads are the tail-eating bug the scan exists to prevent, a private video
+ * is a draft, and a vertical Short is a Short.
+ */
+export const OVERRIDABLE_SKIPS = new Set([
+  "not-a-live-stream",
+  "probable-short-unknown-aspect",
+  "already-ingested",
+  "already-in-the-pipeline"
+]);
+
+export type SkippedUpload = {
+  videoId: string;
+  title: string;
+  url: string;
+  reason: string;
+  overridable: boolean;
+};
+
+export function describeSkips(candidates: readonly ScanCandidate[]): SkippedUpload[] {
+  return candidates
+    .filter((candidate) => candidate.decision.action === "skip")
+    .map((candidate) => ({
+      videoId: candidate.upload.videoId,
+      title: candidate.upload.title,
+      url: candidate.upload.url,
+      reason: explainDecision(candidate.decision),
+      overridable: OVERRIDABLE_SKIPS.has(candidate.decision.reason)
+    }));
+}
+
+/**
+ * The scan report as the orchestrator needs it. `ingestOverview` only carries a
+ * report while the job is RUNNING, so a dry run that finished a second ago had
+ * nothing left to report — the check was a dead end even before the skips were.
+ */
+export function describeScanJob(job: IngestJob | null) {
+  if (!job) return null;
+  const report = job.report;
+  return {
+    id: job.id,
+    status: job.status,
+    dryRun: job.dryRun,
+    finishedAt: job.finishedAt,
+    error: job.error,
+    log: job.log.slice(-20),
+    newToThePipeline:
+      report?.candidates
+        .filter((candidate) => candidate.decision.action === "ingest")
+        .map((candidate) => ({
+          videoId: candidate.upload.videoId,
+          title: candidate.upload.title,
+          url: candidate.upload.url,
+          reason: explainDecision(candidate.decision)
+        })) ?? [],
+    skipped: report ? describeSkips(report.candidates) : []
+  };
 }
 
 /**
@@ -357,11 +429,16 @@ export async function runVoiceTool(
     case "channel_check": {
       const input = scanSchema.parse(args);
       const job = startIngestScan({ ...input, dryRun: true, baseUrl: options.baseUrl });
-      return { ok: true, started: job.id, note: "The channel check is running. Call ingest_status in a few seconds for the report." };
+      return {
+        ok: true,
+        started: job.id,
+        note: "The channel check is running. Call ingest_status in a few seconds for the report — it lists every skipped upload with its URL, and the ones marked overridable can be taken in with start_pipeline on that URL.",
+        ...toolDestination("agents")
+      };
     }
 
     case "ingest_status":
-      return { ok: true, ingest: await ingestOverview() };
+      return { ok: true, ingest: await ingestOverview(), lastScan: describeScanJob(listIngestJobs()[0] ?? null) };
 
     case "agent_run_status": {
       const { runId } = optionalRunIdSchema.parse(args);
@@ -387,14 +464,15 @@ export async function runVoiceTool(
       return {
         ok: true,
         started: job.id,
-        note: "The scan is running in the app. It fans every new stream out into clips, the long-form edit, the podcast MP3, the carousel and the text posts, and stops at ready to schedule. Nothing is published. Poll ingest_status."
+        note: "The scan is running in the app. It fans every new stream out into clips, the long-form edit, the podcast MP3, the carousel and the text posts, and stops at ready to schedule. Nothing is published. Poll ingest_status.",
+        ...toolDestination("agents")
       };
     }
 
     case "start_pipeline": {
       const input = urlSchema.parse(args);
       const run = await createRunFromUrl(input.url, input.name);
-      return { ok: true, runId: run.id, note: "The pipeline run started. Poll pipeline_run_status." };
+      return { ok: true, runId: run.id, note: "The pipeline run started. Poll pipeline_run_status.", ...runHref(run.id) };
     }
 
     case "run_agent_team": {
@@ -406,7 +484,12 @@ export async function runVoiceTool(
         provider: input.provider ?? "chatgpt",
         agentIds: input.agentIds ?? AGENT_REGISTRY.map((agent) => agent.id)
       }).catch(() => {});
-      return { ok: true, runId, note: "The agent team is working. Poll agent_run_status. Anything it wants to change waits in the approval inbox." };
+      return {
+        ok: true,
+        runId,
+        note: "The agent team is working. Poll agent_run_status. Anything it wants to change waits in the approval inbox.",
+        ...toolDestination("agents")
+      };
     }
 
     default:
