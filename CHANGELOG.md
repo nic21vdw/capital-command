@@ -14,6 +14,12 @@ already shipped.
 
 ## Unreleased
 
+- **Every stuck stage now has a Try this again button, right on the row.**
+  A run that broke also gets one line at the top saying what stopped short and
+  a single "Try them all again". The Topic segments button used to be a link to
+  the editor that rendered nothing — it now renders the next segment and says
+  how many are done. Same repairs the command bar performs, so the button and
+  the answer can never disagree.
 - **An update takes about a minute and a half again, not nine.** Every release
   was a cold build: the step that moves the build output out of the OneDrive
   folder was also deleting Next's incremental compile cache, so nothing was

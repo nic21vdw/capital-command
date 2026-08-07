@@ -84,9 +84,25 @@ export type PipelineStage = {
   progress?: number;
 };
 
+/**
+ * A stage that can be started again, with the reason it needs it. Only the keys
+ * in `REPAIRABLE_STAGES` (`repairable.ts`) ever appear.
+ */
+export type StageRepair = {
+  stage: PipelineStageKey;
+  status: PipelineStageStatus;
+  detail: string;
+};
+
 export type PipelineRunOverview = {
   run: PipelineRun;
   stages: Record<PipelineStageKey, PipelineStage>;
+  /**
+   * Stages that failed or gave up and can be run again — what the page puts a
+   * Retry button on and what the orchestrator is allowed to retry. Computed with
+   * the overview so both read the same answer.
+   */
+  retryable: StageRepair[];
   /** Strongest transcript-grounded moment for screenshot and AI ad creation. */
   visualMoment?: {
     headline: string;
@@ -101,6 +117,8 @@ export type PipelineRunOverview = {
     longformReady: boolean;
     /** Topic segments found in the stream, each publishable on its own. */
     segments: number;
+    /** How many of those segments have a finished video behind them. */
+    segmentsRendered: number;
     audioReady: boolean;
     /** The MP3 is in the podcast feed — Spotify picks it up on its next read. */
     podcastPublished: boolean;

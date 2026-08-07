@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { REPAIRABLE_STAGES, isRepairableStage, repairableStages } from "@/lib/pipeline/repair";
+import { REPAIRABLE_STAGES, isRepairableStage, repairableStages } from "@/lib/pipeline/repairable";
 import type { PipelineStage, PipelineStageKey } from "@/lib/pipeline/types";
 
 const stages = (overrides: Partial<Record<PipelineStageKey, PipelineStage>>): Record<PipelineStageKey, PipelineStage> => ({

@@ -97,6 +97,11 @@ tools while you talk. Read `src/lib/voice/README.md`.
   `pipeline_run_status` returns `retryableStages`, which is what tells it what
   it may fix. When a new way of un-sticking a run appears in the UI, give it a
   tool too or the answer goes back to being advice.
+- WHAT CAN BE RETRIED IS DECIDED ONCE. `repairable.ts` is a leaf (no store
+  imports) and `runOverview` puts its answer on every overview as `retryable`,
+  so the Retry buttons on the pipeline page, `POST /api/pipeline/<runId>` and
+  the orchestrator all offer exactly the same set. Never re-derive it in a
+  component.
 - Repairs live in `src/lib/pipeline/repair.ts`, not in the tool layer. Every
   stage in `advanceRun` is guarded by a marker ("already tried and gave up"), so
   a repair CLEARS that marker and lets the run advance itself; the only special
