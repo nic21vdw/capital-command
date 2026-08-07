@@ -178,6 +178,23 @@ idempotent behind an id check.
   gives it a second copy of that Map and the two clobber each other's
   `runs.json`.
 
+## What a stage says about itself (`runs.ts`, `repairable.ts`, `status.ts`)
+
+- A SKIP BY DESIGN IS NOT A FAILURE. `stage("skipped", …)` means nothing to work
+  from (no speech, one continuous topic, no audio track) and offers no retry;
+  `gaveUp(…)` means it tried and failed, and that is what puts a Retry button on
+  the row. Getting this wrong is a permanent amber banner and model calls that
+  land back on the same skip.
+- A step that fails `GIVE_UP_AFTER` times in a row stops being retried by
+  `advanceRun` and reports as an error the user can act on (`run.failures`).
+  Without it a deleted source left the stage saying "Creating the long-form
+  project…" forever.
+- `runListStatus` decides how a run reads in a list, and it is tested. A run
+  with broken stages must never read as "Finished".
+- The server advances runs on its own (`heartbeat.ts`, wired in
+  `src/instrumentation.ts`). Polling from a page still works and still advances;
+  the heartbeat is what covers a closed tab.
+
 ## Automatic channel ingest (`src/lib/ingest`)
 
 A daily scan reads the YouTube channel and runs each NEW LIVE STREAM through

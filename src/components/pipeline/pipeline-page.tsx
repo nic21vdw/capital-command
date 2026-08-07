@@ -29,6 +29,7 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { VisualAdComposer } from "@/components/pipeline/visual-ad-composer";
+import { runListStatus, type RunTone } from "@/lib/pipeline/status";
 import { cn } from "@/lib/utils";
 import type {
   PipelinePost,
@@ -70,6 +71,18 @@ const STAGE_TITLES: Record<PipelineStageKey, string> = {
   schedule: "Scheduler"
 };
 
+const RUN_TONE_DOT: Record<RunTone, string> = {
+  attention: "bg-amber-400",
+  working: "bg-sky-400 animate-pulse",
+  done: "bg-emerald-400"
+};
+
+const RUN_TONE_TEXT: Record<RunTone, string> = {
+  attention: "text-amber-300/90",
+  working: "text-[var(--muted-foreground)]",
+  done: "text-[var(--muted-foreground)]"
+};
+
 const POST_PLATFORM_LABELS: Record<PipelinePost["platform"], string> = {
   x: "X",
   threads: "Threads",
@@ -90,12 +103,6 @@ const LAUNCHING_STAGES: Record<PipelineStageKey, PipelineStage> = {
   posts: { status: "waiting", detail: "Waiting for the transcript." },
   schedule: { status: "waiting", detail: "Waiting for the first output." }
 };
-
-function runStatusLabel(entry: PipelineRunOverview) {
-  if (entry.run.status === "error") return "Needs attention";
-  if (entry.settled) return "Finished";
-  return "Running";
-}
 
 function formatStartedAt(iso: string) {
   const started = new Date(iso);
@@ -591,6 +598,7 @@ export function PipelinePage() {
         >
           {listed.map((entry) => {
             const isActive = showFlow && entry.run.id === (run?.id ?? "");
+            const status = runListStatus(entry);
             return (
               <div
                 key={entry.run.id}
@@ -607,16 +615,7 @@ export function PipelinePage() {
                   className="flex min-w-0 flex-1 items-start gap-2 text-left"
                   title={`Open ${entry.run.name}`}
                 >
-                  <span
-                    className={cn(
-                      "mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full",
-                      entry.run.status === "error"
-                        ? "bg-red-400"
-                        : entry.settled
-                          ? "bg-emerald-400"
-                          : "bg-sky-400 animate-pulse"
-                    )}
-                  />
+                  <span className={cn("mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full", RUN_TONE_DOT[status.tone])} />
                   <span className="min-w-0 flex-1">
                     <span
                       className={cn(
@@ -626,8 +625,8 @@ export function PipelinePage() {
                     >
                       {entry.run.name}
                     </span>
-                    <span className="mt-0.5 block text-[11px] text-[var(--muted-foreground)]">
-                      {runStatusLabel(entry)} · {formatStartedAt(entry.run.createdAt)}
+                    <span className={cn("mt-0.5 block text-[11px]", RUN_TONE_TEXT[status.tone])}>
+                      {status.label} · {formatStartedAt(entry.run.createdAt)}
                     </span>
                   </span>
                 </button>

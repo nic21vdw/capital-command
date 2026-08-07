@@ -21,7 +21,7 @@ describe("pipeline repair", () => {
     const found = repairableStages(
       stages({
         longform: { status: "error", detail: "The export failed." },
-        audio: { status: "skipped", detail: "The podcast MP3 could not be cut." }
+        audio: { status: "skipped", detail: "The podcast MP3 could not be cut.", retryable: true }
       })
     );
     expect(found.map((item) => item.stage)).toEqual(["longform", "audio"]);
@@ -46,5 +46,33 @@ describe("pipeline repair", () => {
     expect(repairableStages(stages({ podcast: { status: "error", detail: "The feed rejected it." } }))).toEqual([]);
     expect(isRepairableStage("podcast")).toBe(false);
     expect(isRepairableStage("longform")).toBe(true);
+  });
+});
+
+describe("skipped by design vs gave up", () => {
+  it("offers no retry for a stage that had nothing to work from", () => {
+    const found = repairableStages(
+      stages({
+        posts: { status: "skipped", detail: "No speech was transcribed from this stream to write posts from." },
+        segments: { status: "skipped", detail: "This recording reads as one continuous topic." }
+      })
+    );
+    expect(found).toEqual([]);
+  });
+
+  it("offers one for a stage that tried and gave up", () => {
+    const found = repairableStages(
+      stages({
+        images: { status: "skipped", detail: "No carousel slides were written.", retryable: true }
+      })
+    );
+    expect(found.map((item) => item.stage)).toEqual(["images"]);
+  });
+
+  it("lets a failed stage opt out of a retry that cannot help", () => {
+    const found = repairableStages(
+      stages({ clips: { status: "error", detail: "The clip job is gone.", retryable: false } })
+    );
+    expect(found).toEqual([]);
   });
 });

@@ -31,7 +31,13 @@ export function repairableStages(
   for (const stage of REPAIRABLE_STAGES) {
     const current = stages[stage];
     if (!current) continue;
-    if (current.status === "error" || current.status === "skipped") {
+    // A skip BY DESIGN is not a failure: a recording with no speech has no
+    // posts to write and no slides to fill, and putting a Retry button there
+    // means a permanent amber banner and model calls that reach the same
+    // answer. The stage itself says which kind of skip it was.
+    const gaveUp = current.status === "skipped" && current.retryable === true;
+    const failed = current.status === "error" && current.retryable !== false;
+    if (gaveUp || failed) {
       repairs.push({ stage, status: current.status, detail: current.detail });
     } else if (stage === "longform" && options.longformStalled === true) {
       repairs.push({ stage, status: "error", detail: "The export stopped when the server restarted." });
