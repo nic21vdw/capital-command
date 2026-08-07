@@ -62,6 +62,17 @@ export type IngestOutputs = {
   podcastPublished: boolean;
   carouselSlides: number;
   posts: number;
+  /**
+   * The run had standing permission to book its own outputs — overnight
+   * scheduling was on when the scan handed it over. Without this the report
+   * ends every line with "ready to schedule" for runs that already booked
+   * themselves, which is the one thing the report exists to say.
+   */
+  bookedItself?: boolean;
+  /** How many of them it could not book, when something stopped it. */
+  unbooked?: number;
+  /** True when the booking was refused outright, so none of them landed. */
+  nothingBooked?: boolean;
 };
 
 /** One entry in the ledger of what the scan has already taken in. */

@@ -1,4 +1,4 @@
-import type { PipelineRunOverview } from "@/lib/pipeline/types";
+import { WHOLE_RUN_FAILURE, type PipelineRunOverview } from "@/lib/pipeline/types";
 
 // What a run looks like in a list. A run whose stages broke used to read as a
 // green "Finished" — an errored stage settles the run, so the only thing that
@@ -14,9 +14,13 @@ export function runListStatus(entry: Pick<PipelineRunOverview, "run" | "retryabl
   // An output the app promised to book and could not is a real, unfixed
   // problem — it must never read as green "Finished", which is the whole point
   // of this function.
-  const unbooked = entry.run.queueFailures?.length ?? 0;
-  if (unbooked > 0) {
-    return { tone: "attention", label: `${unbooked} not scheduled` };
+  const failures = entry.run.queueFailures ?? [];
+  if (failures.length > 0) {
+    // The whole-run row is the plan being refused, so counting it as one output
+    // reads as "one of them missed" for a run where none of them landed.
+    return failures.some((failure) => failure.title === WHOLE_RUN_FAILURE)
+      ? { tone: "attention", label: "Nothing scheduled" }
+      : { tone: "attention", label: `${failures.length} not scheduled` };
   }
   const stuck = entry.retryable?.length ?? 0;
   if (stuck > 0) {

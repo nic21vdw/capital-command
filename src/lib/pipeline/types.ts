@@ -111,6 +111,14 @@ export type PipelineRun = {
   updatedAt: string;
 };
 
+/**
+ * The title a failure carries when NOTHING on the run could be booked — the
+ * plan itself was refused, so there is no one output to name. It lives here
+ * because the recorder, the wording and the screen all have to agree on it and
+ * `runs.ts` cannot import the recorder without a cycle.
+ */
+export const WHOLE_RUN_FAILURE = "Everything";
+
 export type PipelineStageStatus = "waiting" | "running" | "ready" | "error" | "skipped";
 
 export type PipelineStageKey =

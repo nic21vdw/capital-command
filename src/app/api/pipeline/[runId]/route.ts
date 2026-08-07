@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { planRunOutputs, queueRunOutputs } from "@/lib/pipeline/queueOutputs";
+import { dismissQueueFailures, planRunOutputs, queueRunOutputs } from "@/lib/pipeline/queueOutputs";
 import { queueRunPosts } from "@/lib/pipeline/queuePosts";
 import { renderNextSegment, repairRun } from "@/lib/pipeline/repair";
 import { isRepairableStage } from "@/lib/pipeline/repairable";
@@ -62,6 +62,20 @@ export async function POST(request: NextRequest, { params }: Params) {
         { status: 409 }
       );
     }
+  }
+
+  // A booking that will never work — a deck he is not going to rebuild, a slot
+  // that is never coming free — is his to put down, so the alarm does not
+  // outlive his decision about it.
+  if (action === "dismiss-failures") {
+    const dismissed = await dismissQueueFailures(runId);
+    if (!dismissed) {
+      return NextResponse.json({ error: "Nothing on this run is flagged as unbooked." }, { status: 409 });
+    }
+    return NextResponse.json({
+      detail: "Cleared. Anything that fails again is flagged again.",
+      overview: await runOverview(run)
+    });
   }
 
   // The standing instruction is his to end, from the row it runs on.

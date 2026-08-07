@@ -19,11 +19,12 @@ import {
   speechWordCount,
   visualMomentFromClips
 } from "@/lib/pipeline/visual-brief";
-import type {
-  PipelineRun,
-  PipelineRunOverview,
-  PipelineStage,
-  PipelineStageStatus
+import {
+  WHOLE_RUN_FAILURE,
+  type PipelineRun,
+  type PipelineRunOverview,
+  type PipelineStage,
+  type PipelineStageStatus
 } from "@/lib/pipeline/types";
 import { publisherConfig } from "@/lib/publisher/config";
 import { MAX_IMAGES_PER_POST } from "@/lib/publisher/images";
@@ -873,12 +874,18 @@ export async function runOverview(run: PipelineRun, context?: OverviewContext): 
   if (run.status === "error") {
     stages.schedule = stage("error", "Nothing reached the scheduler — the source never ingested.");
   } else if (bookingTrouble > 0) {
+    // One entry titled "Everything" is the plan itself being refused, not one
+    // output failing — "1 output could not be booked" for a run where none of
+    // them could is the sentence that sends him looking for the other outputs.
+    const wholeRun = run.queueFailures!.find((failure) => failure.title === WHOLE_RUN_FAILURE);
     stages.schedule = {
       ...stage(
         "error",
-        `${bookingTrouble} output${bookingTrouble === 1 ? "" : "s"} could not be booked — ${
-          run.queueFailures![0].error
-        }`
+        wholeRun
+          ? `Nothing on this run could be booked — ${wholeRun.error}`
+          : `${bookingTrouble} output${bookingTrouble === 1 ? "" : "s"} could not be booked — ${
+              run.queueFailures![0].error
+            }`
       ),
       retryable: false
     };

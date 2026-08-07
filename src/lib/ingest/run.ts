@@ -16,7 +16,8 @@ import {
   startPipelineRun,
   waitForPipelineRun
 } from "@/lib/ingest/pipelineClient";
-import type { IngestLedger, IngestRecord, ScanCandidate } from "@/lib/ingest/types";
+import type { IngestLedger, IngestOutputs, IngestRecord, ScanCandidate } from "@/lib/ingest/types";
+import { WHOLE_RUN_FAILURE } from "@/lib/pipeline/types";
 import { publishQueue } from "@/lib/publisher/queue";
 
 /**
@@ -259,6 +260,7 @@ async function runScan(options: RunOptions = {}): Promise<ScanReport> {
       const result = await waitForPipelineRun(runId, timeoutMs, pollMs, (line) => log(`    ${line}`));
 
       const schedulable = result.overview?.schedulable;
+      const bookingFailures = result.overview?.run.queueFailures ?? [];
       record = {
         videoId: upload.videoId,
         title: upload.title,
@@ -277,7 +279,14 @@ async function runScan(options: RunOptions = {}): Promise<ScanReport> {
                 audioReady: schedulable.audioReady,
                 podcastPublished: schedulable.podcastPublished,
                 carouselSlides: schedulable.carouselSlides,
-                posts: schedulable.posts
+                posts: schedulable.posts,
+                bookedItself: result.overview?.run.unattended === true,
+                ...(bookingFailures.length > 0
+                  ? {
+                      unbooked: bookingFailures.length,
+                      nothingBooked: bookingFailures.some((failure) => failure.title === WHOLE_RUN_FAILURE)
+                    }
+                  : {})
               }
             }
           : {}),
@@ -356,7 +365,22 @@ export function summarizeOutputs(record: IngestRecord): string {
     outputs.posts > 0 ? `${outputs.posts} text post${outputs.posts === 1 ? "" : "s"}` : null
   ].filter(Boolean);
   if (parts.length === 0) return `run ${record.runId ?? "?"} settled with no outputs`;
-  return `run ${record.runId ?? "?"}: ${parts.join(", ")} ready to schedule`;
+  return `run ${record.runId ?? "?"}: ${parts.join(", ")} ${bookingOutcome(outputs)}`;
+}
+
+/**
+ * What became of the outputs, which is not the same question in both modes:
+ * with overnight scheduling off they are waiting for a click, and with it on
+ * the run has already booked them — an overnight report that says "ready to
+ * schedule" for both is wrong for one of them every night.
+ */
+function bookingOutcome(outputs: IngestOutputs): string {
+  if (!outputs.bookedItself) return "ready to schedule";
+  if (outputs.nothingBooked) return "— none of it could be booked";
+  if (outputs.unbooked) {
+    return `booked into the publish queue, except ${outputs.unbooked} that could not be`;
+  }
+  return "booked into the publish queue";
 }
 
 /** Ledger shape for callers that only want to read it (e.g. a dashboard panel). */

@@ -14,6 +14,25 @@ already shipped.
 
 ## Unreleased
 
+- **A booking alarm now goes out on its own once you have fixed the cause.**
+  Turn publishing back on, or free up a slot, and the next heartbeat books the
+  outputs and clears the badge, the "not scheduled" label and the amber
+  Scheduler row without you touching anything. They used to stay lit forever,
+  and the only button offered answered "nothing on this run is waiting".
+- **A failure you have decided to live with can be put down.** Every flagged
+  run has a **Dismiss** next to the retry. It clears the flag; if the same
+  thing fails again on the next pass it is flagged again.
+- **A run where NOTHING could be booked now says "Nothing on this run could be
+  booked" rather than "1 output could not be booked"** — it was sending you
+  looking for the other outputs that were supposedly fine.
+- **One booking button instead of two identical ones.** "Book these now" and
+  "Schedule everything from this run" opened the same sheet side by side.
+- **The blocker in the booking sheet now links to Settings**, like the
+  Scheduler row does — you could read why nothing could be booked with no way
+  out of it.
+- **The overnight scan report says what actually happened.** It used to end
+  every line with "ready to schedule" even for runs that had already booked
+  themselves into the publish queue.
 - **A run that could book NOTHING at all now says so.** An unattended stream
   that finished while publishing was off used to read green and quietly book
   nothing — it now raises the same amber badge and "not scheduled" label as a
