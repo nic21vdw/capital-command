@@ -83,6 +83,23 @@ tools while you talk. Read `src/lib/voice/README.md`.
   team. Every action tool stops at "ready to schedule".
 - A voice turn cannot wait on a four-hour fan-out: long tools start work, return
   an id and are polled.
+- THE ORCHESTRATOR DOES THE WORK. Its failure mode is narrating — reporting a
+  broken run back instead of fixing it — so every capability it describes must
+  exist as a tool: `open_screen` puts a screen on the display, and
+  `retry_pipeline_stage` / `render_topic_segment` start real work.
+  `pipeline_run_status` returns `retryableStages`, which is what tells it what
+  it may fix. When a new way of un-sticking a run appears in the UI, give it a
+  tool too or the answer goes back to being advice.
+- Repairs live in `src/lib/pipeline/repair.ts`, not in the tool layer. Every
+  stage in `advanceRun` is guarded by a marker ("already tried and gave up"), so
+  a repair CLEARS that marker and lets the run advance itself; the only special
+  case is a long-form export left `processing` by a restart, which is retired
+  first (`isExportRendering` is how a stalled render is told from a live one).
+  The `podcast` stage is deliberately not repairable — retrying it would
+  publish, and the orchestrator does not publish.
+- Nic names streams, not ids. Pipeline tools take `runName` and resolve it
+  themselves (`runReferenceFrom` tolerates whatever the model calls the
+  argument); an ambiguous name comes back as a question, never a guess.
 
 ## Podcast / Spotify (`/podcast`, `src/lib/podcast`)
 

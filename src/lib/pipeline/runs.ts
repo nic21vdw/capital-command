@@ -125,6 +125,11 @@ async function update(run: PipelineRun, patch: Partial<PipelineRun>) {
   await persistRuns();
 }
 
+/** Patches a run and flushes it. Exported for `repair.ts`, which un-sticks stages. */
+export async function updateRun(run: PipelineRun, patch: Partial<PipelineRun>) {
+  await update(run, patch);
+}
+
 export async function listRuns(): Promise<PipelineRun[]> {
   await loadRuns();
   return [...runs.values()].sort((a, b) => b.createdAt.localeCompare(a.createdAt));

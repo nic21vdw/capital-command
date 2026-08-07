@@ -3,7 +3,8 @@ import type { AiMessage } from "@/lib/ai";
 import { voiceInstructions } from "@/lib/voice/prompt";
 import { VOICE_TOOLS, runVoiceTool } from "@/lib/voice/tools";
 
-const MAX_ROUNDS = 3;
+const MAX_ROUNDS = 6;
+const MAX_CALLS_PER_ROUND = 4;
 const FENCE = "capital";
 
 export type VoiceToolRun = { name: string; args: Record<string, unknown>; result: unknown };
@@ -53,14 +54,15 @@ function protocolPrompt(allowActions: boolean): string {
     "```" + FENCE,
     `{"tool":"channel_check","args":{}}`,
     "```",
-    `One JSON object per line, at most two calls per turn. Available tools: ${names.join(", ")}.`,
-    `The block is stripped before anything is spoken, so put what you want said in the prose above it. When a tool result comes back, answer from it — do not call the same tool again unless the answer needs it.`
+    `One JSON object per line, up to ${MAX_CALLS_PER_ROUND} calls per message. Available tools: ${names.join(", ")}.`,
+    `The block is stripped before anything is spoken, so put what you want said in the prose above it. Keep calling tools until the job Nic asked for is actually done — a look is not a job. Only answer with no block once there is nothing left to do, and never call the same tool with the same arguments twice.`
   ].join("\n");
 }
 
 function describeResults(runs: VoiceToolRun[]): string {
   return runs.map((run) => `${run.name} returned: ${JSON.stringify(run.result).slice(0, 4000)}`).join("\n\n");
 }
+
 
 /**
  * One spoken turn: dictated text in, prose to speak out, with any allowed tools
@@ -94,7 +96,7 @@ export async function runVoiceTurn(input: {
     if (!calls.length) break;
 
     const runs: VoiceToolRun[] = [];
-    for (const call of calls.slice(0, 2)) {
+    for (const call of calls.slice(0, MAX_CALLS_PER_ROUND)) {
       const value = await runVoiceTool(call.name, call.args, {
         allowActions: input.allowActions,
         baseUrl: input.baseUrl
@@ -106,7 +108,13 @@ export async function runVoiceTurn(input: {
     }
     toolRuns.push(...runs);
     messages.push({ role: "assistant", content: result.text });
-    messages.push({ role: "user", content: `Tool results:\n${describeResults(runs)}\n\nNow answer me out loud.` });
+    const last = round === MAX_ROUNDS - 1;
+    messages.push({
+      role: "user",
+      content: last
+        ? `Tool results:\n${describeResults(runs)}\n\nNo more tools this turn. Tell me what you did and what is still outstanding.`
+        : `Tool results:\n${describeResults(runs)}\n\nIf anything I asked for is still not done, call the next tool now. Only answer out loud once it is.`
+    });
   }
 
   return { reply: spoken || "Done.", toolRuns };
