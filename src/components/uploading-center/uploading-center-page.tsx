@@ -20,7 +20,6 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { chunkWords, windowSegments } from "@/lib/clipping/captions";
-import { PUBLISHING_OFF_MESSAGE } from "@/lib/publisher/enabledMessage";
 import { generateClipTitle, makeClipProject, makeTitleOverlay } from "@/lib/clipping/editor";
 import { writeDraftProject } from "@/components/editor/drafts";
 import { useAppData } from "@/components/providers/app-provider";
@@ -750,7 +749,7 @@ export function UploadingCenterPage() {
             <AlertTriangle className="h-4 w-4" /> Publishing is switched off
           </p>
           <p className="text-sm text-[var(--muted-foreground)]">
-            {PUBLISHING_OFF_MESSAGE}{" "}
+            Nothing is scheduled or posted until you turn it back on.{" "}
             <Link href="/settings" className="underline">
               Open Settings
             </Link>

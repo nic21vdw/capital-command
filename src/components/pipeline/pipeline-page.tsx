@@ -502,7 +502,21 @@ export function PipelinePage() {
    * the fresh overview, so the row updates now instead of on the next poll.
    */
   const startAgain = useCallback(
-    async (runId: string, body: { stage: string } | { action: "segment" | "segments-all" | "retry-all" | "queue-posts" | "stop-queueing" }, pendingKey: string) => {
+    async (
+      runId: string,
+      body:
+        | { stage: string }
+        | {
+            action:
+              | "segment"
+              | "segments-all"
+              | "retry-all"
+              | "queue-posts"
+              | "stop-queueing"
+              | "dismiss-failures";
+          },
+      pendingKey: string
+    ) => {
       setWorking(pendingKey);
       try {
         const response = await fetch(`/api/pipeline/${runId}`, {
@@ -682,6 +696,9 @@ export function PipelinePage() {
   const run = active?.run;
   const stages = active?.stages ?? (launching ? LAUNCHING_STAGES : null);
   const schedulable = active?.schedulable;
+  // The posts go to the Threads queue, not the video booking sheet, so the
+  // retry offered has to be the one that matches what failed.
+  const bookingFailure = Boolean(run?.queueFailures?.length) && run?.queueFailures?.[0].title !== "Text posts";
   // A count of zero means one of two very different things. "segments pending"
   // next to a Skipped segments stage read as a contradiction — a stage that
   // gave up is never going to deliver anything.
@@ -1104,7 +1121,12 @@ export function PipelinePage() {
           {run && plan ? (
             <div className="rounded-lg border border-[var(--border)] bg-white/3 p-3">
               {plan.problem ? (
-                <p className="text-xs text-amber-300/90">{plan.problem}</p>
+                <p className="text-xs text-amber-300/90">
+                  {plan.problem}{" "}
+                  <Link href="/settings" className="underline">
+                    Open Settings
+                  </Link>
+                </p>
               ) : plan.candidates.length === 0 ? (
                 <p className="text-xs text-[var(--muted-foreground)]">
                   Nothing here is waiting to be scheduled
@@ -1243,19 +1265,8 @@ export function PipelinePage() {
               )}
             </span>
           ) : null}
-          {/* The posts go to the Threads queue, not the video booking sheet, so
-              the retry has to be the one that matches what failed. */}
           {run?.queueFailures?.length ? (
-              run.queueFailures[0].title === "Text posts" ? (
-                <Button
-                  disabled={working === "queue-posts"}
-                  onClick={() => void startAgain(run.id, { action: "queue-posts" }, "queue-posts")}
-                  className="px-3 py-1.5 text-xs"
-                >
-                  {working === "queue-posts" ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : null}
-                  Schedule the Threads posts
-                </Button>
-              ) : (
+              bookingFailure ? (
                 <Button
                   disabled={working === "plan"}
                   onClick={() => void loadPlan(run.id)}
@@ -1264,9 +1275,36 @@ export function PipelinePage() {
                   {working === "plan" ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : null}
                   Book these now
                 </Button>
+              ) : (
+                <Button
+                  disabled={working === "queue-posts"}
+                  onClick={() => void startAgain(run.id, { action: "queue-posts" }, "queue-posts")}
+                  className="px-3 py-1.5 text-xs"
+                >
+                  {working === "queue-posts" ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : null}
+                  Schedule the Threads posts
+                </Button>
               )
             ) : null}
-            {run && !plan ? (
+            {/* Something that will never book — a deck he is not rebuilding, a
+                slot that is not coming free — has to be dismissable, or the
+                badge and the amber row stay lit forever. */}
+            {run?.queueFailures?.length ? (
+              <Button
+                variant="secondary"
+                disabled={working === "dismiss-failures"}
+                onClick={() => void startAgain(run.id, { action: "dismiss-failures" }, "dismiss-failures")}
+                className="px-3 py-1.5 text-xs"
+              >
+                {working === "dismiss-failures" ? (
+                  <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+                ) : null}
+                Dismiss
+              </Button>
+            ) : null}
+            {/* "Book these now" already opens this exact sheet, so the generic
+                button next to it was the same click twice. */}
+            {run && !plan && !bookingFailure ? (
               <Button
                 disabled={working === "plan"}
                 onClick={() => void loadPlan(run.id)}

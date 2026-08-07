@@ -4,7 +4,7 @@ import { getJob, outputDir } from "@/lib/clipping/jobs";
 import { getProject, projectOutputDir } from "@/lib/longform/store";
 import { deckIsPostable, deckRatio } from "@/lib/carousels/deckFiles";
 import { getRun, listRuns, updateRun } from "@/lib/pipeline/runs";
-import type { PipelineRun } from "@/lib/pipeline/types";
+import { WHOLE_RUN_FAILURE, type PipelineRun } from "@/lib/pipeline/types";
 import { readAppData } from "@/lib/storage/store";
 import { publisherConfig } from "@/lib/publisher/config";
 import { PUBLISHING_OFF_MESSAGE } from "@/lib/publisher/enabledMessage";
@@ -405,7 +405,10 @@ export async function queueRunOutputs(
       queueBooked: [...alreadyBooked, ...bookedIds],
       queueHeldBack: [...heldBack, ...droppedNow],
       // He is dealing with them now, so the old complaint goes; anything that
-      // fails again is recorded again on the next drain.
+      // fails again is recorded again on the next drain. The standing drain
+      // clears its own resolved rows in `clearResolvedFailures` instead — it
+      // books a few outputs at a time and must not throw away a complaint about
+      // one it did not touch.
       ...(options.standing ? {} : { queueFailures: failed.length > 0 ? failed : undefined })
     });
   }
@@ -427,6 +430,9 @@ export async function queueReadyOutputs(): Promise<number> {
   const waiting = runs.filter((run) => run.queueWhenReady && run.status === "running");
   let booked = 0;
   for (const run of waiting) {
+    // A drain that gets as far as choosing candidates has proved the plan is no
+    // longer refused, whether or not it found anything left to book.
+    let planAccepted = true;
     // "Nothing waiting" is the normal case between one output finishing and the
     // next, and it throws — that is the caller's contract for a button press,
     // not a reason to log anything here. Anything ELSE that throws blocked the
@@ -434,10 +440,17 @@ export async function queueReadyOutputs(): Promise<number> {
     // against the run rather than dropped.
     const result = await queueRunOutputs(run.id, undefined, { standing: true }).catch(async (error) => {
       if (error instanceof NothingWaitingError) return null;
-      await recordQueueFailure(run.id, "Everything", error instanceof Error ? error.message : String(error));
+      planAccepted = false;
+      await recordQueueFailure(run.id, WHOLE_RUN_FAILURE, error instanceof Error ? error.message : String(error));
       return null;
     });
     booked += result?.queued.length ?? 0;
+    // Cleared BEFORE the new failures are written, so anything that failed
+    // again this time is recorded again rather than cleared by its own retry.
+    await clearResolvedFailures(run.id, {
+      wholeRun: planAccepted,
+      titles: (result?.queued ?? []).map((item) => item.title)
+    });
     // A booking that FAILED is different: nobody was watching, and dropping it
     // left the row promising an output the app had quietly given up on.
     for (const failure of result?.failed ?? []) {
@@ -445,6 +458,39 @@ export async function queueReadyOutputs(): Promise<number> {
     }
   }
   return booked;
+}
+
+/**
+ * Drops the complaints this drain has just answered. Without it the alarm
+ * outlives its cause: he turns publishing back on, the next heartbeat books
+ * everything, and the badge, the run list and the Scheduler row all still say
+ * it failed — while the only button offered answers "nothing is waiting".
+ */
+export async function clearResolvedFailures(
+  runId: string,
+  resolved: { wholeRun: boolean; titles: string[] }
+): Promise<void> {
+  const run = await getRun(runId);
+  const failures = run?.queueFailures;
+  if (!run || !failures?.length) return;
+  const booked = new Set(resolved.titles);
+  const kept = failures.filter((failure) =>
+    failure.title === WHOLE_RUN_FAILURE ? !resolved.wholeRun : !booked.has(failure.title)
+  );
+  if (kept.length === failures.length) return;
+  await updateRun(run, { queueFailures: kept.length > 0 ? kept : undefined });
+}
+
+/**
+ * Puts down a failure he has decided to live with. It is a plain delete, not a
+ * suppression: something that fails again on the next drain is recorded again,
+ * because an alarm for a problem that is still happening is not noise.
+ */
+export async function dismissQueueFailures(runId: string): Promise<boolean> {
+  const run = await getRun(runId);
+  if (!run?.queueFailures?.length) return false;
+  await updateRun(run, { queueFailures: undefined });
+  return true;
 }
 
 /** Stops the standing instruction — a settled run has nothing more coming. */
