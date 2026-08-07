@@ -1,6 +1,7 @@
 import { open, stat } from "node:fs/promises";
 import { publisherConfig } from "@/lib/publisher/config";
 import { PermanentError, StillProcessingError, fetchJson, fetchRaw } from "@/lib/publisher/http";
+import { IMAGE_REFUSALS, isImagePost } from "@/lib/publisher/images";
 import { composeCaption } from "@/lib/publisher/metadata";
 import { getCachedToken, setCachedToken } from "@/lib/publisher/tokens";
 import { formatInTimezone, toRfc3339Utc } from "@/lib/publisher/time";
@@ -261,6 +262,7 @@ export const tiktokAdapter: PlatformAdapter = {
   },
 
   async publish(input: PublishInput): Promise<PostResult> {
+    if (isImagePost(input.item)) throw new PermanentError(IMAGE_REFUSALS.tiktok!);
     const token = await accessToken();
 
     // Resume: if a previous run already initialized/uploaded, just poll.

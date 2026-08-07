@@ -8,7 +8,8 @@ import { tiktokAdapter } from "@/lib/publisher/adapters/tiktok";
 import { youtubeAdapter } from "@/lib/publisher/adapters/youtube";
 import { type BufferOutcome, syncDueToBuffer, validateBufferAuth } from "@/lib/publisher/buffer";
 import { bufferConfigured, configuredPlatforms, publisherConfig, type PublisherConfig } from "@/lib/publisher/config";
-import { hostMedia, mediaHost } from "@/lib/publisher/hosting";
+import { hostImages, hostMedia, mediaHost } from "@/lib/publisher/hosting";
+import { imagePathsOf, isImagePost } from "@/lib/publisher/images";
 import { describeMirrorPlan, planMirror } from "@/lib/publisher/mirror";
 import { PermanentError, StillProcessingError, isTransient } from "@/lib/publisher/http";
 import { PublishQueue, isTerminalStatus, newPlatformState, publishQueue } from "@/lib/publisher/queue";
@@ -102,6 +103,48 @@ async function resolveLocalMedia(item: QueueItem, config: PublisherConfig): Prom
   throw new PermanentError(
     `Clip file ${item.clipPath} is not on this machine and no hosted copy exists — re-enqueue the clip where the file lives.`
   );
+}
+
+/**
+ * Finds an image post's pictures and their public URLs. Both picture platforms
+ * pull from a URL, so an item queued before hosting existed is hosted here
+ * rather than failing forever on files that are sitting right there.
+ */
+async function resolveImageMedia(
+  item: QueueItem,
+  config: PublisherConfig,
+  queue: PublishQueue
+): Promise<{ localPaths: string[]; publicUrls: string[] }> {
+  const relative = imagePathsOf(item);
+  const localPaths: string[] = [];
+  for (const entry of relative) {
+    const absolute = path.isAbsolute(entry) ? entry : path.join(process.cwd(), entry);
+    const exists = await stat(absolute)
+      .then((info) => info.size > 0)
+      .catch(() => false);
+    if (exists) localPaths.push(absolute);
+  }
+
+  const host = mediaHost(config);
+  if (!item.imageKeys?.length && localPaths.length === relative.length && host) {
+    item.imageKeys = await hostImages(localPaths, item.id);
+    item.mediaKey ??= item.imageKeys[0];
+    await queue.save();
+  }
+
+  const keys = item.imageKeys ?? [];
+  if (keys.length !== relative.length || !host) {
+    throw new PermanentError(
+      `The pictures for this post are not hosted and ${localPaths.length === relative.length ? "media hosting is not configured" : "the files are not on this machine"} — re-schedule it where the images live, with the S3_* variables set.`
+    );
+  }
+
+  const publicUrls: string[] = [];
+  for (const key of keys) publicUrls.push(await host.publicUrl(key));
+
+  // When the bytes are not local, the download step of the video path has no
+  // equivalent need here: nothing reads image bytes, only the hosted URLs.
+  return { localPaths: localPaths.length === relative.length ? localPaths : [], publicUrls };
 }
 
 export async function runDue(now: Date = new Date(), options: RunDueOptions = {}): Promise<RunReport> {
@@ -267,6 +310,7 @@ export async function runDue(now: Date = new Date(), options: RunDueOptions = {}
   for (const { item, platforms } of due) {
     let localPath: string | null = null;
     let publicUrl: string | undefined;
+    let images: PublishInput["images"];
     for (const platform of platforms) {
       const adapter = adapters[platform];
       const record = (outcome: RunOutcome["outcome"], detail: string) => {
@@ -297,8 +341,14 @@ export async function runDue(now: Date = new Date(), options: RunDueOptions = {}
         } else {
           await queue.claim(item, platform, now);
           // Resolve media lazily and once per item, not per platform.
-          localPath ??= await resolveLocalMedia(item, config);
-          if (publicUrl === undefined) {
+          if (isImagePost(item)) {
+            images ??= await resolveImageMedia(item, config, queue);
+            localPath ??= images.localPaths[0] ?? item.clipPath;
+            publicUrl ??= images.publicUrls[0];
+          } else {
+            localPath ??= await resolveLocalMedia(item, config);
+          }
+          if (!isImagePost(item) && publicUrl === undefined) {
             // An item queued before hosting was configured has no mediaKey, and
             // Instagram/Facebook cannot post without one. Upload it now rather
             // than failing forever on a clip that is sitting right here.
@@ -310,7 +360,7 @@ export async function runDue(now: Date = new Date(), options: RunDueOptions = {}
               publicUrl = (await mediaHost(config)?.publicUrl(item.mediaKey)) ?? undefined;
             }
           }
-          const input: PublishInput = { item, localPath, publicUrl };
+          const input: PublishInput = { item, localPath, publicUrl, images };
           result = await adapter.publish(input);
         }
         await queue.recordSuccess(item, platform, result, now);

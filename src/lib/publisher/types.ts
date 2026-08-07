@@ -39,6 +39,13 @@ export type PlatformState = {
   postId?: string;
   /** Mid-flight handle: IG creation container id or TikTok publish_id. */
   containerId?: string;
+  /**
+   * Mid-flight handles for the parts of a multi-image post — the IG carousel's
+   * child containers, or the Facebook photos uploaded unpublished before the
+   * feed post is made. Kept so a retry resumes the deck it already uploaded
+   * instead of uploading every picture a second time. Image posts only.
+   */
+  childContainerIds?: string[];
   error?: string;
   attempts: number;
   /** Backoff gate — the runner skips this platform until this instant. */
@@ -89,8 +96,21 @@ export type BufferState = {
 
 export type QueueItem = {
   id: string;
-  /** Repo-relative path to the clip file (e.g. data/clips/outputs/<job>/export-x.mp4). */
+  /**
+   * Repo-relative path to the clip file (e.g. data/clips/outputs/<job>/export-x.mp4).
+   * On an image post this is the FIRST image, so every path-based lookup in the
+   * app keeps seeing the item (see images.ts).
+   */
   clipPath: string;
+  /**
+   * "image" marks a picture post — one image, or an ordered deck. Absent means
+   * video, which is what every item stored before image posts existed is.
+   */
+  mediaKind?: "image";
+  /** An image post's pictures in posting order, repo-relative. */
+  imagePaths?: string[];
+  /** Hosted object key per image, index-aligned with imagePaths. */
+  imageKeys?: string[];
   /** Original source render when clipPath is a derived vertical version of it. */
   sourceClipPath?: string;
   /** Object key in the media host bucket once uploaded (needed for Instagram). */
@@ -133,6 +153,8 @@ export type PostResult = {
   status: Extract<PlatformStatus, "uploaded" | "scheduled" | "published">;
   postId?: string;
   containerId?: string;
+  /** The parts a multi-image post was assembled from — what it actually posted. */
+  childContainerIds?: string[];
   /** Human-readable note for the log (e.g. "scheduled via status.publishAt"). */
   detail?: string;
 };
@@ -154,6 +176,15 @@ export type PublishInput = {
   localPath: string;
   /** Fresh public HTTPS URL for pull-based platforms, when hosting is configured. */
   publicUrl?: string;
+  /**
+   * Image posts only: every picture of the post in order, resolved the same way
+   * `localPath`/`publicUrl` are. `localPath` mirrors the first entry so an
+   * adapter that only knows about video still has something coherent to read.
+   */
+  images?: {
+    localPaths: string[];
+    publicUrls: string[];
+  };
 };
 
 export interface PlatformAdapter {
