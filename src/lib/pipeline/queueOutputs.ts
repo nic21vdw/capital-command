@@ -1,7 +1,7 @@
 import path from "node:path";
 import { getJob, outputDir } from "@/lib/clipping/jobs";
 import { getProject, projectOutputDir } from "@/lib/longform/store";
-import { getRun } from "@/lib/pipeline/runs";
+import { getRun, listRuns, updateRun } from "@/lib/pipeline/runs";
 import type { PipelineRun } from "@/lib/pipeline/types";
 import { publisherConfig } from "@/lib/publisher/config";
 import { enqueue } from "@/lib/publisher/enqueue";
@@ -66,14 +66,15 @@ function queuedPaths(items: QueueItem[]): Set<string> {
   return paths;
 }
 
+/**
+ * The live queue, or a thrown error. An empty list on a failed read would empty
+ * `alreadyQueued` and make every output look unscheduled — one unlucky read and
+ * the button books the whole run a second time.
+ */
 async function readQueue(): Promise<QueueItem[]> {
   const config = publisherConfig();
   if (!config.enabled) return [];
-  try {
-    return await publishQueue(config).list();
-  } catch {
-    return [];
-  }
+  return publishQueue(config).list();
 }
 
 /** Everything this run made that could be posted, minus what is already booked. */
@@ -235,4 +236,35 @@ export async function queueRunOutputs(runId: string, ids?: string[]): Promise<Qu
     }
   }
   return { queued, failed };
+}
+
+/**
+ * Books whatever has become ready on the runs that asked to keep booking. The
+ * click that schedules a run's outputs happens while its topic segments are
+ * still rendering, so without this he has to come back for each one — and the
+ * long-form export often lands after the shorts do.
+ *
+ * Runs from the server heartbeat, so it works with the app closed. Every book
+ * is deduped by file path against the live queue, so a run that already had
+ * everything queued costs one queue read and nothing else.
+ */
+export async function queueReadyOutputs(): Promise<number> {
+  const runs = await listRuns();
+  const waiting = runs.filter((run) => run.queueWhenReady && run.status === "running");
+  let booked = 0;
+  for (const run of waiting) {
+    // "Nothing waiting" is the normal case between one output finishing and the
+    // next, and it throws — that is the caller's contract for a button press,
+    // not a reason to log anything here.
+    const result = await queueRunOutputs(run.id).catch(() => null);
+    booked += result?.queued.length ?? 0;
+  }
+  return booked;
+}
+
+/** Stops the standing instruction — a settled run has nothing more coming. */
+export async function stopQueueingWhenSettled(runId: string, settled: boolean): Promise<void> {
+  if (!settled) return;
+  const run = await getRun(runId);
+  if (run?.queueWhenReady) await updateRun(run, { queueWhenReady: undefined });
 }

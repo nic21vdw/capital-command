@@ -124,6 +124,15 @@ function isActivePath(pathname: string, href: string): boolean {
   return pathname === href || (href === "/" && pathname === "/pipeline");
 }
 
+/**
+ * The Stream Pipeline nav item, whichever of its two hrefs it was written with.
+ * The attention count used to be gated on "/pipeline" while the item is "/",
+ * which meant the badge this exists for never rendered once.
+ */
+function isPipelineHref(href: string): boolean {
+  return href === "/" || href === "/pipeline";
+}
+
 function initialsFrom(name: string) {
   const parts = name.trim().split(/\s+/).filter(Boolean);
   if (parts.length === 0) return "";
@@ -513,7 +522,7 @@ function NavLink({ item, active, collapsed = false }: { item: NavItem; active: b
   // A stage that broke overnight has to be visible from wherever he is, not
   // only from the run he would have to think to open.
   const { needsAttention } = usePipelineAttention();
-  const attention = item.href === "/pipeline" ? needsAttention : 0;
+  const attention = isPipelineHref(item.href) ? needsAttention : 0;
   return (
     <Link
       href={item.href}

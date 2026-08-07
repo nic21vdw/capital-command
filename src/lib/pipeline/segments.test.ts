@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { nextSegmentToRender, segmentsRemaining } from "@/lib/pipeline/segments";
+import { nextSegmentToRender, segmentsRemaining, segmentsRenderable } from "@/lib/pipeline/segments";
 import type { LongformExportRecord, LongformTopic } from "@/lib/longform/types";
 
 const topic = (id: string): LongformTopic => ({
@@ -54,5 +54,33 @@ describe("draining the topic segments", () => {
     };
     expect(nextSegmentToRender(project)).toBeNull();
     expect(segmentsRemaining(project)).toBe(0);
+  });
+});
+
+describe("giving up on a segment that cannot render", () => {
+  const failed = (topicId: string, id: string) => record({ id, topicId, status: "error" });
+
+  it("moves past a segment that has failed twice", () => {
+    const project = {
+      topics: [topic("a"), topic("b")],
+      exports: [failed("a", "e1"), failed("a", "e2")]
+    };
+    expect(nextSegmentToRender(project)?.id).toBe("b");
+  });
+
+  it("still retries one that has only failed once — a render dies for passing reasons too", () => {
+    const project = { topics: [topic("a")], exports: [failed("a", "e1")] };
+    expect(nextSegmentToRender(project)?.id).toBe("a");
+  });
+
+  it("reports nothing renderable so the standing instruction can end", () => {
+    const project = {
+      topics: [topic("a")],
+      exports: [failed("a", "e1"), failed("a", "e2")]
+    };
+    expect(nextSegmentToRender(project)).toBeNull();
+    expect(segmentsRenderable(project)).toBe(0);
+    // Still outstanding as far as the count goes — it just cannot be rendered.
+    expect(segmentsRemaining(project)).toBe(1);
   });
 });

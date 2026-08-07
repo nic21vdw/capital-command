@@ -2,7 +2,7 @@ import { retryMissingRenders } from "@/lib/clipping/jobs";
 import { isExportRendering, startLongformExport } from "@/lib/longform/render";
 import { getProject, updateProject } from "@/lib/longform/store";
 import { advanceRun, getRun, updateRun } from "@/lib/pipeline/runs";
-import { nextSegmentToRender, segmentsRemaining } from "@/lib/pipeline/segments";
+import { nextSegmentToRender, segmentsRemaining, segmentsRenderable } from "@/lib/pipeline/segments";
 import type { RepairableStage } from "@/lib/pipeline/repairable";
 import type { PipelineRun } from "@/lib/pipeline/types";
 
@@ -118,7 +118,13 @@ export async function repairRun(runId: string, stage: RepairableStage): Promise<
       break;
   }
 
-  if (result.ok) await advanceRun(run);
+  if (result.ok) {
+    // The amber lines above the rows are what went wrong. They only ever
+    // accumulated, so a repaired stage went green with its own failure still
+    // printed over it. Starting work again clears the record it is retrying.
+    if (run.notices.length > 0) await updateRun(run, { notices: [] });
+    await advanceRun(run);
+  }
   return result;
 }
 
@@ -140,6 +146,9 @@ export async function renderNextSegment(
   if (topics.length === 0) return { ok: false, error: "This stream has no topic segments planned." };
   const remaining = segmentsRemaining(project);
   if (remaining === 0) return { ok: false, error: "Every topic segment has already been rendered." };
+  if (segmentsRenderable(project) === 0) {
+    return { ok: false, error: "The segments that are left have failed to render twice — open the Long-Form Editor." };
+  }
 
   // "All of them" is a standing instruction on the run, not a batch this
   // request waits on: the export engine renders one at a time, and the advance
@@ -148,7 +157,9 @@ export async function renderNextSegment(
 
   const next = nextSegmentToRender(project);
   if (!next) {
-    if (all) return { ok: true, title: "the rest of the segments", remaining: remaining - 1, queued: true };
+    // Nothing started, so nothing came off the count — saying otherwise was a
+    // number that did not match what the row showed a second later.
+    if (all) return { ok: true, title: "the rest of the segments", remaining, queued: true };
     return { ok: false, error: "Another export is already rendering — segments render one at a time." };
   }
   await startLongformExport(project, { topicId: next.id });
