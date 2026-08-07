@@ -313,7 +313,7 @@ export async function advanceRun(run: PipelineRun): Promise<void> {
     );
     if (existing) {
       await update(run, { longformExportId: existing.id });
-    } else {
+    } else if (!stuck(run, "export")) {
       void step(run, "export", async () => {
         const record = await startLongformExport(project);
         await update(run, { longformExportId: record.id });
@@ -406,7 +406,14 @@ export async function advanceRun(run: PipelineRun): Promise<void> {
   // it — the long-form project picks it up automatically because both sides
   // work from the same source id. One attempt is enough: the clip job writes
   // its transcript once.
-  if (project && project.status === "ready" && !project.topics && !run.segmentsPlanned && job?.sourceCaptions?.length) {
+  if (
+    project &&
+    project.status === "ready" &&
+    !project.topics &&
+    !run.segmentsPlanned &&
+    !stuck(run, "segments") &&
+    job?.sourceCaptions?.length
+  ) {
     void step(run, "segments", async () => {
       await planProjectTopics(project.id);
       await update(run, { segmentsPlanned: true });
@@ -445,7 +452,7 @@ export async function advanceRun(run: PipelineRun): Promise<void> {
           carouselGaveUp: false
         });
       }
-    } else {
+    } else if (!stuck(run, "carousel")) {
     void step(run, "carousel", async () => {
       const { carousel, drafts, reason } = await generateCarousel({
         title: run.name,
@@ -510,7 +517,7 @@ export async function advanceRun(run: PipelineRun): Promise<void> {
       postsGaveUp: false
     });
   }
-  if (!run.posts && longformSettled && clipsSettled && hasMaterial && (project || job)) {
+  if (!run.posts && longformSettled && clipsSettled && hasMaterial && (project || job) && !stuck(run, "posts")) {
     void step(run, "posts", async () => {
       const { posts, reason } = await generatePipelinePosts({
         streamTitle: run.name,
@@ -582,7 +589,12 @@ function longformStage(run: PipelineRun, project: LongformProject | undefined): 
     return stage("running", labels[project.stage] ?? "Analyzing…", project.progress);
   }
   const record = project.exports.find((item) => item.id === run.longformExportId);
-  if (!record) return stage("running", "Edit planned — starting the export…");
+  if (!record) {
+    if (stuck(run, "export")) {
+      return { ...stage("error", run.notices[run.notices.length - 1] ?? "The export could not be started."), retryable: true };
+    }
+    return stage("running", "Edit planned — starting the export…");
+  }
   if (record.status === "processing") return stage("running", "Rendering the edited video…", record.progress);
   if (record.status === "done" && record.file) {
     const length = record.durationSec ? ` · ${formatDuration(record.durationSec)}` : "";
@@ -619,6 +631,9 @@ function segmentsStage(
         "skipped",
         project.topicsNote ?? "No whole-recording transcript came out of this stream to split into subjects."
       );
+    }
+    if (stuck(run, "segments")) {
+      return { ...stage("error", "The stream could not be split into subjects."), retryable: true };
     }
     return stage("running", project.topicsNote ? "Waiting on the full transcript…" : "Reading the transcript for subjects…");
   }
@@ -714,7 +729,12 @@ function imagesStage(run: PipelineRun, project: LongformProject | undefined, sli
   if (project?.status === "ready" && project.transcript.length === 0) {
     return stage("skipped", "No transcript came out of this stream to write slides from.");
   }
-  if (project?.status === "ready") return stage("running", "Writing carousel slides from the transcript…");
+  if (project?.status === "ready") {
+    if (stuck(run, "carousel")) {
+      return { ...stage("error", "The carousel could not be written."), retryable: true };
+    }
+    return stage("running", "Writing carousel slides from the transcript…");
+  }
   return stage("waiting", "Written from the transcript once analysis finishes.");
 }
 
@@ -739,6 +759,9 @@ function postsStage(run: PipelineRun): PipelineStage {
   if (run.posts) {
     const note = run.postsNote ?? "Nothing to write from.";
     return run.postsGaveUp ? gaveUp(note) : stage("skipped", note);
+  }
+  if (stuck(run, "posts")) {
+    return { ...stage("error", "The text posts could not be written."), retryable: true };
   }
   return stage("waiting", "Written from the transcript and clip titles once they exist.");
 }
