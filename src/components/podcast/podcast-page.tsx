@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Check, Copy, ExternalLink, Loader2, RefreshCw, Trash2, TriangleAlert } from "lucide-react";
+import { Check, Copy, ExternalLink, Loader2, RefreshCw, Trash2, TriangleAlert, Upload } from "lucide-react";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -9,6 +9,8 @@ import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { PageHeader } from "@/components/ui/page-header";
 import { Textarea } from "@/components/ui/textarea";
+import type { EpisodeCandidate } from "@/lib/podcast/candidates";
+import type { FeedBlocker } from "@/lib/podcast/feed";
 import type { PodcastEpisode, PodcastShow } from "@/lib/podcast/types";
 
 type PodcastResponse = {
@@ -16,7 +18,8 @@ type PodcastResponse = {
   episodes: PodcastEpisode[];
   configured: boolean;
   feedUrl: string | null;
-  problems: string[];
+  blockers: FeedBlocker[];
+  candidates: EpisodeCandidate[];
 };
 
 const FIELDS: { key: keyof PodcastShow; label: string; hint?: string; long?: boolean }[] = [
@@ -40,6 +43,7 @@ export function PodcastPage() {
   const [state, setState] = useState<PodcastResponse | null>(null);
   const [draft, setDraft] = useState<PodcastShow | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
+  const [picked, setPicked] = useState("");
 
   const apply = useCallback((next: PodcastResponse) => {
     setState(next);
@@ -91,6 +95,28 @@ export function PodcastPage() {
     }
   }
 
+  async function publishCandidate(candidate: EpisodeCandidate) {
+    if (!candidate.hasAudio) {
+      setBusy("publish-export");
+      try {
+        const response = await fetch(
+          `/api/longform/projects/${candidate.projectId}/export/${candidate.exportId}/audio`,
+          { method: "POST" }
+        );
+        if (!response.ok) {
+          const json = await response.json().catch(() => ({}));
+          throw new Error(json.error ?? "The MP3 could not be cut from that export.");
+        }
+      } catch (error) {
+        toast.error(error instanceof Error ? error.message : String(error));
+        setBusy(null);
+        return;
+      }
+    }
+    const ok = await send("publish-export", { projectId: candidate.projectId, exportId: candidate.exportId });
+    if (ok) toast.success("Episode added to the feed");
+  }
+
   if (!state || !draft) {
     return (
       <div className="flex items-center gap-2 text-sm text-[var(--muted-foreground)]">
@@ -99,7 +125,9 @@ export function PodcastPage() {
     );
   }
 
-  const ready = state.configured && state.problems.length === 0;
+  const ready = state.blockers.length === 0;
+  const unpublished = state.candidates.filter((candidate) => !candidate.published);
+  const selected = state.candidates.find((candidate) => `${candidate.projectId}:${candidate.exportId}` === picked);
 
   return (
     <div>
@@ -156,10 +184,13 @@ export function PodcastPage() {
           </div>
         </div>
 
-        {state.problems.length > 0 ? (
-          <ul className="mt-4 space-y-1.5 border-t border-[var(--border)] pt-4 text-sm text-amber-200">
-            {state.problems.map((problem) => (
-              <li key={problem}>· {problem}</li>
+        {state.blockers.length > 0 ? (
+          <ul className="mt-4 space-y-3 border-t border-[var(--border)] pt-4 text-sm">
+            {state.blockers.map((blocker) => (
+              <li key={blocker.code}>
+                <p className="text-amber-200">{blocker.problem}</p>
+                <p className="mt-0.5 text-xs text-[var(--muted-foreground)]">{blocker.fix}</p>
+              </li>
             ))}
           </ul>
         ) : (
@@ -253,6 +284,61 @@ export function PodcastPage() {
           <p className="mt-1 text-xs text-[var(--muted-foreground)]">
             One per long-form edit. Shorts never come here — they are not episodes.
           </p>
+
+          <div className="mt-4 rounded-lg border border-[var(--border)] bg-[var(--surface-2)] p-3">
+            <p className="text-xs font-medium uppercase tracking-wider text-[var(--muted-foreground)]">
+              Publish an episode
+            </p>
+            <p className="mt-1 text-xs text-[var(--muted-foreground)]">
+              The pipeline adds each finished edit on its own. Use this when it could not — or for an older edit it never
+              saw.
+            </p>
+            {state.candidates.length === 0 ? (
+              <p className="mt-3 text-sm text-[var(--muted-foreground)]">
+                No finished long-form export to publish yet. Export an edit in the Long-form editor first.
+              </p>
+            ) : (
+              <>
+                <select
+                  className="mt-3 w-full rounded-lg border border-[var(--border)] bg-[var(--surface-1)] px-3 py-2 text-sm text-white"
+                  value={picked}
+                  onChange={(event) => setPicked(event.target.value)}
+                >
+                  <option value="">
+                    {unpublished.length > 0 ? "Choose a finished export…" : "Every export is already in the feed"}
+                  </option>
+                  {state.candidates.map((candidate) => (
+                    <option
+                      key={`${candidate.projectId}:${candidate.exportId}`}
+                      value={`${candidate.projectId}:${candidate.exportId}`}
+                      disabled={candidate.published}
+                    >
+                      {candidate.title} · {minutes(candidate.durationSec)}
+                      {candidate.published ? " · already an episode" : candidate.hasAudio ? "" : " · MP3 not cut yet"}
+                    </option>
+                  ))}
+                </select>
+                <Button
+                  className="mt-3"
+                  disabled={busy !== null || !selected || selected.published || !state.configured}
+                  onClick={() => selected && void publishCandidate(selected)}
+                >
+                  {busy === "publish-export" ? (
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  ) : (
+                    <Upload className="mr-2 h-4 w-4" />
+                  )}
+                  {selected && !selected.hasAudio ? "Cut the MP3 and publish" : "Publish to the feed"}
+                </Button>
+                {!state.configured ? (
+                  <p className="mt-2 text-xs text-amber-200">
+                    Nothing can be published until the feed has a permanent public URL — see the reasons above.
+                  </p>
+                ) : null}
+              </>
+            )}
+          </div>
+
           {state.episodes.length === 0 ? (
             <p className="mt-6 text-sm text-[var(--muted-foreground)]">
               Nothing published yet. The next stream the pipeline finishes lands here on its own.

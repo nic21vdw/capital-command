@@ -32,6 +32,63 @@ already shipped.
   can overrule — so you can say "run that one anyway" and it goes straight
   through the pipeline. Its report also survives the check finishing, which it
   didn't before.
+- **The text posts a stream produced can be scheduled from the run.** They used
+  to leave the app only by being copied out one at a time. The Threads ones now
+  go on the same queue the autopilot drains, spaced out and from one account
+  (two accounts posting identical words reads as mirrored spam); the X and
+  Facebook versions stay there to copy. The day's own pack is unaffected — the
+  autopilot cannot see these when it decides whether a day is planned.
+
+- **"Render all segments" is one click, not one per segment.** The run keeps
+  rendering the next topic segment as each one finishes — with the app closed —
+  instead of waiting for you to come back and press it again.
+- **The overnight report counts the topic segments.** It said "ready to
+  schedule" while five ten-minute videos still needed a click; it now says how
+  many of them are rendered, and whether the podcast episode went out.
+- **Podcast episodes get real show notes.** The unattended pipeline published
+  the episode described by the raw stream name; it now writes the description
+  first, and falls back to the name only if that fails.
+
+- **You can add an episode to the podcast feed yourself.** The Podcast page now
+  lists every finished long-form export and publishes the one you pick — cutting
+  the MP3 first if it hasn't been cut, and writing real show notes instead of the
+  raw stream name. When the feed can't take anything yet, it says which thing is
+  missing and exactly what to do about it, instead of a bare warning.
+- **A channel scan that failed says so.** The Channel ingest panel used to read
+  "Nothing taken in yet" whatever happened; it now shows the failure and its
+  reason, tells you when YouTube needs reconnecting (with a link to do it), and
+  lists the streams it skipped for review or gave up on.
+- **One button schedules everything a stream produced.** The Scheduler step of a
+  run now lists every output that is ready — the long-form video, each rendered
+  topic segment and every short — and books them into the publish queue, one per
+  free slot, longest first. Anything already scheduled is left alone and says so.
+  The long-form video and the segments had no route into the queue at all before
+  this; they were downloaded and uploaded by hand.
+- **"Open the Uploading Center" opens on the right run**, instead of leaving you
+  to guess which job in the dropdown was the one you were just looking at.
+
+- **A post that failed no longer disappears — you can see why and retry it.**
+  A scheduled post whose every platform permanently failed used to be deleted
+  the next time the calendar loaded: the slot emptied, the clip went back to
+  Draft, and the reason only ever reached a console log. Failures now stay on
+  the board with the reason under them and a Retry button that puts the post
+  back in the queue and sends it. Same on the Threads day view — a failed post
+  keeps its copy and gets a **Retry now** button instead of needing to be typed
+  out again. A post blocked as "manual" because an account wasn't connected can
+  be retried the same way once it is, and old failures are only swept 30 days
+  after you have actually seen them.
+- **A run that broke stops pretending it finished.** The pipeline list showed a
+  green "Finished" for a run whose stages had failed — the sidebar now carries a
+  count of runs needing attention, and the row says which and how many.
+- **A skip that was never going to work stops asking to be retried.** A stream
+  with no speech, no second topic or no audio track is a skip by design; only a
+  stage that actually tried and gave up offers "Try this again".
+- **A run whose source went missing no longer says "Working…" forever.** After
+  three failed attempts it says what went wrong and offers a retry, instead of
+  re-trying the same doomed call every two seconds with no way to act on it.
+- **The pipeline keeps moving with the app closed.** Runs only advanced while a
+  browser tab was polling, so a stream started at 11pm froze when the tab shut;
+  the server now ticks them along itself.
 
 ## 2026-08-06
 

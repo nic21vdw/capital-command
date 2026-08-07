@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildFeedXml, feedProblems, formatDuration, rfc2822 } from "@/lib/podcast/feed";
+import { buildFeedXml, feedBlockers, feedProblems, formatDuration, rfc2822 } from "@/lib/podcast/feed";
 import type { PodcastEpisode, PodcastShow } from "@/lib/podcast/types";
 
 const show: PodcastShow = {
@@ -104,5 +104,27 @@ describe("feedProblems", () => {
   it("flags an episode whose audio is not publicly reachable", () => {
     const problems = feedProblems(show, [episode({ audioUrl: "file:///C:/clips/ep-1.mp3" })]);
     expect(problems.join(" ")).toContain("not on a public HTTPS URL");
+  });
+});
+
+describe("feedBlockers", () => {
+  it("leads with hosting when there is no permanent public URL, and says what to set", () => {
+    const blockers = feedBlockers(show, [episode()], { hosted: false });
+    expect(blockers[0].code).toBe("hosting");
+    expect(blockers[0].fix).toContain("S3_PUBLIC_BASE_URL");
+  });
+
+  it("is empty for a hosted, complete show", () => {
+    expect(feedBlockers(show, [episode()], { hosted: true })).toEqual([]);
+  });
+
+  it("pairs every problem with something to do about it", () => {
+    const blockers = feedBlockers({ ...show, title: "", artworkUrl: "" }, [], { hosted: true });
+    expect(blockers.map((blocker) => blocker.code)).toEqual(["title", "artwork", "episodes"]);
+    for (const blocker of blockers) expect(blocker.fix.length).toBeGreaterThan(0);
+  });
+
+  it("keeps feedProblems as the plain sentences, hosting aside", () => {
+    expect(feedProblems({ ...show, category: "" }, [episode()])).toEqual(["The show needs a category."]);
   });
 });

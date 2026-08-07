@@ -1,7 +1,7 @@
 import { localCalendarParts, zonedToUtc } from "@/lib/publisher/time";
 import { threadsBlockedReason, threadsConfig, type ThreadsConfig } from "@/lib/threads/config";
 import { endOfLocalDay, planBatch } from "@/lib/threads/plan";
-import { itemsForDate, mutateQueue, pruneOld, readQueue } from "@/lib/threads/queue";
+import { autopilotItemsForDate, isAutopilotItem, itemsForDate, mutateQueue, pruneOld, readQueue } from "@/lib/threads/queue";
 import { runDue } from "@/lib/threads/runner";
 import { readThreadsState, recordThreadsState } from "@/lib/threads/state";
 import type { ThreadsPlanResult, ThreadsRunReport } from "@/lib/threads/types";
@@ -53,11 +53,13 @@ export async function planTodaysBatch(
 
   const before = await mutateQueue((items) => {
     const kept = pruneOld(items, now, config);
-    if (!replace) return { items: kept, result: itemsForDate(kept, date) };
+    if (!replace) return { items: kept, result: autopilotItemsForDate(kept, date) };
     // A forced replan clears only what has not gone out yet — anything already
     // published stays on the record.
-    const cleared = kept.filter((item) => item.batchDate !== date || item.status !== "pending");
-    return { items: cleared, result: itemsForDate(cleared, date) };
+    const cleared = kept.filter(
+      (item) => item.batchDate !== date || item.status !== "pending" || !isAutopilotItem(item)
+    );
+    return { items: cleared, result: autopilotItemsForDate(cleared, date) };
   });
   if (!replace && before.length > 0) {
     return { date, created: 0, droppedPastSlots: 0, skipped: "Today's batch is already scheduled." };
@@ -106,7 +108,7 @@ export async function planTodaysBatch(
   // writes first: if today grew an item this call did not start with, the loser
   // throws its work away rather than doubling the feed.
   const added = await mutateQueue((current) => {
-    const raced = itemsForDate(current, date).some((item) => !alreadySeen.has(item.id));
+    const raced = autopilotItemsForDate(current, date).some((item) => !alreadySeen.has(item.id));
     if (raced) return { items: current, result: false };
     return { items: [...current, ...items], result: true };
   });
@@ -174,7 +176,7 @@ export async function planTomorrow(
  * scheduled because the day was planned late — is a hole in the day.
  */
 export async function slotsStillStanding(date: string, now: Date): Promise<Set<number>> {
-  const items = itemsForDate(await readQueue(), date);
+  const items = autopilotItemsForDate(await readQueue(), date);
   return new Set(
     items
       .filter(

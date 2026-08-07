@@ -178,6 +178,42 @@ idempotent behind an id check.
   gives it a second copy of that Map and the two clobber each other's
   `runs.json`.
 
+## What a stage says about itself (`runs.ts`, `repairable.ts`, `status.ts`)
+
+- A SKIP BY DESIGN IS NOT A FAILURE. `stage("skipped", …)` means nothing to work
+  from (no speech, one continuous topic, no audio track) and offers no retry;
+  `gaveUp(…)` means it tried and failed, and that is what puts a Retry button on
+  the row. Getting this wrong is a permanent amber banner and model calls that
+  land back on the same skip.
+- A step that fails `GIVE_UP_AFTER` times in a row stops being retried by
+  `advanceRun` and reports as an error the user can act on (`run.failures`).
+  Without it a deleted source left the stage saying "Creating the long-form
+  project…" forever.
+- `runListStatus` decides how a run reads in a list, and it is tested. A run
+  with broken stages must never read as "Finished".
+- The server advances runs on its own (`heartbeat.ts`, wired in
+  `src/instrumentation.ts`). Polling from a page still works and still advances;
+  the heartbeat is what covers a closed tab.
+
+## The last mile (`queueOutputs.ts`)
+
+"Ready to schedule" used to mean a person still had to schedule it, one clip at
+a time, and the long-form video and its topic segments could not be scheduled at
+all. `planRunOutputs` collects everything a run produced that has a file and is
+not already in the publish queue; `queueRunOutputs` books them.
+
+- Long video goes to `LONG_VIDEO_PLATFORMS` only. A ten-minute segment posted as
+  a Reel or a TikTok is a rejection, not a post.
+- ONE OUTPUT PER SLOT (`assignSlots`, tested). The Uploading Center treats a
+  taken slot as taken; double-booking is how one day posts twice and the next
+  posts nothing.
+- Dedupe is by resolved file path against the live queue, so pressing the button
+  twice cannot queue the same video twice.
+- One failure never stops the rest, and every failure is named back to the user
+  — a silent gap here is a day with nothing posted.
+- Nothing here publishes. It writes the same queue the Uploading Center writes,
+  at a future slot, for the publish runner.
+
 ## Automatic channel ingest (`src/lib/ingest`)
 
 A daily scan reads the YouTube channel and runs each NEW LIVE STREAM through
@@ -215,6 +251,11 @@ both. Two accounts posting the same wording would read as mirrored spam.
   ticks each see an empty day and every slot gets posted twice.
 - Never put a token in an API response or a log line — the route exposes only
   each account's id, label, version and offset.
+- A post that did NOT come from the daily pack is marked `origin: "pipeline"`,
+  and every autopilot decision reads `autopilotItemsForDate`, never
+  `itemsForDate`. Counting an ad-hoc post as the day's batch would make the
+  planner skip writing the pack — the one thing this module exists to do. UI
+  surfaces keep using `itemsForDate`, so the post is still visible.
 - See `src/lib/threads/README.md`.
 
 ## Launch Pad (`src/lib/launch`)

@@ -45,29 +45,74 @@ function cdata(value: string): string {
   return `<![CDATA[${value.replace(/]]>/g, "]]&gt;")}]]>`;
 }
 
+/** One thing standing between the show and a feed Spotify will take, and the move that clears it. */
+export type FeedBlocker = { code: string; problem: string; fix: string };
+
+const SHOW_DETAILS_FIX = "Fill it in under Show details, then Save show details.";
+
 /**
  * What Spotify will reject the feed for, in the words the person fixing it
- * needs. Empty means the feed is submittable — not that Spotify has accepted
- * it, only that nothing here is knowably wrong.
+ * needs, each paired with what to do about it. Empty means the feed is
+ * submittable — not that Spotify has accepted it, only that nothing here is
+ * knowably wrong.
+ *
+ * `hosted` is the one blocker that isn't about the show's own details: without
+ * a permanent public URL nothing can be uploaded at all, so it comes first.
  */
-export function feedProblems(show: PodcastShow, episodes: PodcastEpisode[]): string[] {
-  const problems: string[] = [];
-  if (!show.title.trim()) problems.push("The show needs a title.");
-  if (!show.description.trim()) problems.push("The show needs a description.");
-  if (!show.author.trim()) problems.push("The show needs an author name.");
+export function feedBlockers(
+  show: PodcastShow,
+  episodes: PodcastEpisode[],
+  options: { hosted?: boolean } = {}
+): FeedBlocker[] {
+  const blockers: FeedBlocker[] = [];
+  if (options.hosted === false) {
+    blockers.push({
+      code: "hosting",
+      problem: "The feed has nowhere permanent to live, so nothing can be published yet.",
+      fix: "Turn on the R2 bucket's Public Development URL (Cloudflare dashboard → R2 → the bucket → Settings), or attach a custom domain, then put that address in S3_PUBLIC_BASE_URL and restart the app."
+    });
+  }
+  if (!show.title.trim()) blockers.push({ code: "title", problem: "The show needs a title.", fix: SHOW_DETAILS_FIX });
+  if (!show.description.trim()) {
+    blockers.push({ code: "description", problem: "The show needs a description.", fix: SHOW_DETAILS_FIX });
+  }
+  if (!show.author.trim()) blockers.push({ code: "author", problem: "The show needs an author name.", fix: SHOW_DETAILS_FIX });
   if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(show.email.trim())) {
-    problems.push("The show needs a valid email address — Spotify sends the ownership verification there.");
+    blockers.push({
+      code: "email",
+      problem: "The show needs a valid email address — Spotify sends the ownership verification there.",
+      fix: "Put an address you can open under Show details — Spotify's verification link is the only way the listing goes live."
+    });
   }
   if (!/^https:\/\//i.test(show.artworkUrl.trim())) {
-    problems.push("Cover art must be a public HTTPS URL to a square image between 1400px and 3000px.");
+    blockers.push({
+      code: "artwork",
+      problem: "Cover art must be a public HTTPS URL to a square image between 1400px and 3000px.",
+      fix: "Upload a square PNG or JPEG under Upload cover art — the URL fills itself in."
+    });
   }
-  if (!show.category.trim()) problems.push("The show needs a category.");
-  if (episodes.length === 0) problems.push("Spotify will not accept a feed with no published episodes yet.");
+  if (!show.category.trim()) blockers.push({ code: "category", problem: "The show needs a category.", fix: SHOW_DETAILS_FIX });
+  if (episodes.length === 0) {
+    blockers.push({
+      code: "episodes",
+      problem: "Spotify will not accept a feed with no published episodes yet.",
+      fix: "Add one under Publish an episode — any finished long-form edit will do."
+    });
+  }
   const offHost = episodes.filter((episode) => !/^https:\/\//i.test(episode.audioUrl));
   if (offHost.length > 0) {
-    problems.push(`${offHost.length} episode file${offHost.length === 1 ? " is" : "s are"} not on a public HTTPS URL.`);
+    blockers.push({
+      code: "off-host",
+      problem: `${offHost.length} episode file${offHost.length === 1 ? " is" : "s are"} not on a public HTTPS URL.`,
+      fix: "Those were uploaded before hosting was public. Remove them below and publish the same exports again."
+    });
   }
-  return problems;
+  return blockers;
+}
+
+/** The blockers as plain sentences, for callers that only report them. */
+export function feedProblems(show: PodcastShow, episodes: PodcastEpisode[]): string[] {
+  return feedBlockers(show, episodes).map((blocker) => blocker.problem);
 }
 
 export function buildFeedXml(show: PodcastShow, episodes: PodcastEpisode[], feedUrl: string): string {

@@ -242,7 +242,10 @@ export async function runDailyScan(options: RunOptions = {}): Promise<ScanReport
               outputs: {
                 clipsReady: schedulable.clipsReady,
                 longformReady: schedulable.longformReady,
+                segments: schedulable.segments,
+                segmentsRendered: schedulable.segmentsRendered,
                 audioReady: schedulable.audioReady,
+                podcastPublished: schedulable.podcastPublished,
                 carouselSlides: schedulable.carouselSlides,
                 posts: schedulable.posts
               }
@@ -307,10 +310,18 @@ export async function runDailyScan(options: RunOptions = {}): Promise<ScanReport
 export function summarizeOutputs(record: IngestRecord): string {
   const outputs = record.outputs;
   if (!outputs) return `run ${record.runId ?? "?"}`;
+  // Segments are counted rendered/planned on purpose: an overnight report that
+  // said "ready to schedule" while five ten-minute videos still needed a click
+  // was the report being wrong about the only thing it exists to say.
+  const segments = outputs.segments ?? 0;
   const parts = [
     outputs.longformReady ? "long-form edit" : null,
     outputs.clipsReady > 0 ? `${outputs.clipsReady} clip${outputs.clipsReady === 1 ? "" : "s"}` : null,
+    segments > 0
+      ? `${outputs.segmentsRendered ?? 0} of ${segments} topic segment${segments === 1 ? "" : "s"} rendered`
+      : null,
     outputs.audioReady ? "podcast MP3" : null,
+    outputs.podcastPublished ? "podcast episode published" : null,
     outputs.carouselSlides > 0 ? `${outputs.carouselSlides}-slide carousel` : null,
     outputs.posts > 0 ? `${outputs.posts} text post${outputs.posts === 1 ? "" : "s"}` : null
   ].filter(Boolean);

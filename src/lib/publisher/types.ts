@@ -27,7 +27,9 @@ export type Visibility = "public" | "private" | "unlisted";
  *   failed    → permanently failed; the error field says why
  *   manual    → the platform had no credentials when the post was created, so
  *               it is tracked as a reminder to post by hand. Terminal for the
- *               runner; connecting the platform later does not retro-fire it.
+ *               runner, but not for good: connecting that account re-arms the
+ *               post back to pending (see rearm.ts), and so does the board's
+ *               Retry button.
  */
 export type PlatformStatus = "pending" | "uploaded" | "scheduled" | "published" | "failed" | "manual";
 
@@ -118,6 +120,13 @@ export type QueueItem = {
    * those are untouched by the Buffer pass.
    */
   buffer?: BufferState;
+  /**
+   * When this post first showed on the board with every platform permanently
+   * failed. Stamped by the board's own read, so the retention sweep can only
+   * ever drop a failure that has been on screen — a post that failed while
+   * nothing was watching is never swept before it is seen.
+   */
+  failedSeenAt?: string;
 };
 
 export type PostResult = {

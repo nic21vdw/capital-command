@@ -252,6 +252,17 @@ export function UploadingCenterPage() {
   const placementConsumed = useRef(false);
   const scheduleJobParam = searchParams.get("scheduleJob");
   const scheduleClipParam = searchParams.get("scheduleClip");
+  // ?job=… opens on that run's clips. The Stream Pipeline used to link here
+  // with nothing at all, so a run's outputs had to be found by guessing which
+  // job in the dropdown was the right one.
+  const jobParam = searchParams.get("job");
+  const jobParamConsumed = useRef(false);
+  useEffect(() => {
+    if (!jobParam || jobParamConsumed.current) return;
+    jobParamConsumed.current = true;
+    setActiveJobId(jobParam);
+    router.replace("/uploading-center");
+  }, [jobParam, router, setActiveJobId]);
   useEffect(() => {
     if (
       placementConsumed.current ||
