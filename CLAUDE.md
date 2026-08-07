@@ -195,6 +195,25 @@ idempotent behind an id check.
   `src/instrumentation.ts`). Polling from a page still works and still advances;
   the heartbeat is what covers a closed tab.
 
+## The last mile (`queueOutputs.ts`)
+
+"Ready to schedule" used to mean a person still had to schedule it, one clip at
+a time, and the long-form video and its topic segments could not be scheduled at
+all. `planRunOutputs` collects everything a run produced that has a file and is
+not already in the publish queue; `queueRunOutputs` books them.
+
+- Long video goes to `LONG_VIDEO_PLATFORMS` only. A ten-minute segment posted as
+  a Reel or a TikTok is a rejection, not a post.
+- ONE OUTPUT PER SLOT (`assignSlots`, tested). The Uploading Center treats a
+  taken slot as taken; double-booking is how one day posts twice and the next
+  posts nothing.
+- Dedupe is by resolved file path against the live queue, so pressing the button
+  twice cannot queue the same video twice.
+- One failure never stops the rest, and every failure is named back to the user
+  — a silent gap here is a day with nothing posted.
+- Nothing here publishes. It writes the same queue the Uploading Center writes,
+  at a future slot, for the publish runner.
+
 ## Automatic channel ingest (`src/lib/ingest`)
 
 A daily scan reads the YouTube channel and runs each NEW LIVE STREAM through

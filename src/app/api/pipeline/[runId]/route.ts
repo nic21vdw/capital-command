@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { planRunOutputs, queueRunOutputs } from "@/lib/pipeline/queueOutputs";
 import { renderNextSegment, repairRun } from "@/lib/pipeline/repair";
 import { isRepairableStage } from "@/lib/pipeline/repairable";
 import { deleteRun, getRun, runOverview } from "@/lib/pipeline/runs";
@@ -31,6 +32,31 @@ export async function POST(request: NextRequest, { params }: Params) {
   const body = (await request.json().catch(() => null)) as { stage?: unknown; action?: unknown } | null;
   const stage = typeof body?.stage === "string" ? body.stage : "";
   const action = typeof body?.action === "string" ? body.action : "";
+
+  // What would be booked, and what is already booked — read before confirming.
+  if (action === "plan-queue") {
+    const plan = await planRunOutputs(runId);
+    if (!plan) return NextResponse.json({ error: "Run not found." }, { status: 404 });
+    return NextResponse.json({ plan });
+  }
+
+  if (action === "queue-all") {
+    const ids = Array.isArray((body as { ids?: unknown })?.ids)
+      ? ((body as { ids: unknown[] }).ids.filter((id) => typeof id === "string") as string[])
+      : undefined;
+    try {
+      const result = await queueRunOutputs(runId, ids);
+      const detail = `${result.queued.length} scheduled${
+        result.failed.length > 0 ? ` · ${result.failed.length} could not be` : ""
+      }.`;
+      return NextResponse.json({ detail, ...result, overview: await runOverview(run) });
+    } catch (error) {
+      return NextResponse.json(
+        { error: error instanceof Error ? error.message : "Nothing could be scheduled." },
+        { status: 409 }
+      );
+    }
+  }
 
   if (action === "segment") {
     const result = await renderNextSegment(runId);
