@@ -21,6 +21,13 @@ already shipped.
   stream whose episode got skipped for "nowhere public to live" can then be
   added under **Publish an episode**, and **Change address** is there if the
   bucket ever moves.
+- **An output you held back can be booked later.** The sheet listed it, ticked
+  it, and then refused with "nothing is waiting to be scheduled" — the only way
+  out was editing a file. It is now listed unticked and says why; ticking it
+  books it.
+- **The last thing a run makes gets booked too.** The tick that finished a run
+  turned the automatic booking off before it had booked that final segment.
+
 - **"Schedule everything from this run" now includes the carousel.** The deck is
   painted to real PNG slides on disk and booked as one picture post alongside
   the shorts and the long-form video — same tick box, same free slot, nothing

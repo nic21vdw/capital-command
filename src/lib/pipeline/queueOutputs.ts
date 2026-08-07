@@ -40,6 +40,14 @@ export type QueueCandidate = {
   platforms: PlatformId[];
   /** Why this one is not offered, when it is not. */
   blocked?: string;
+  /**
+   * Present when he already decided about this one: `"unticked"` when he held
+   * it back at the sheet, `"removed"` when it was booked and has since left the
+   * queue. It is still LISTED — offering nothing at all is how the sheet ended
+   * up showing an output it would then refuse to book — but it starts unticked,
+   * and ticking it is what clears the decision.
+   */
+  heldBack?: "unticked" | "removed";
 };
 
 export type QueuePlan = {
@@ -101,6 +109,16 @@ export async function planRunOutputs(runId: string): Promise<QueuePlan | null> {
   await collectClips(run, alreadyQueued, candidates, skipped);
   await collectLongform(run, alreadyQueued, candidates, skipped);
   await collectCarousel(run, alreadyQueued, candidates, skipped);
+
+  // What he has already decided about stays on the list, marked. The plan used
+  // to say nothing about it while the booker refused it, so the sheet listed an
+  // output, ticked it, and then answered "nothing is waiting to be scheduled".
+  const heldBack = new Set(run.queueHeldBack ?? []);
+  const booked = new Set(run.queueBooked ?? []);
+  for (const candidate of candidates) {
+    if (heldBack.has(candidate.id)) candidate.heldBack = "unticked";
+    else if (booked.has(candidate.id)) candidate.heldBack = "removed";
+  }
 
   const taken = new Set(existing.map((item) => item.publishAt));
   const openSlots = generateSlots({ timeZone: config.timezone, days: 21 })
@@ -290,17 +308,24 @@ export async function queueRunOutputs(
   // queue, since the only other dedupe is by file path.
   const heldBack = new Set(run.queueHeldBack ?? []);
   const alreadyBooked = new Set(run.queueBooked ?? []);
-  const eligible = plan.candidates.filter(
-    (item) => !heldBack.has(item.id) && !alreadyBooked.has(item.id)
-  );
-  const chosen = ids?.length ? eligible.filter((item) => ids.includes(item.id)) : eligible;
+  // Asking for one by id overrides an earlier decision — that is what ticking a
+  // held-back row means. The standing drain never asks by id, so it can only
+  // ever book what he has not decided against.
+  const eligible = ids?.length
+    ? plan.candidates.filter((item) => ids.includes(item.id))
+    : plan.candidates.filter((item) => !heldBack.has(item.id) && !alreadyBooked.has(item.id));
+  const chosen = eligible;
   if (chosen.length === 0) throw new Error("Nothing on this run is waiting to be scheduled.");
+  for (const item of chosen) {
+    heldBack.delete(item.id);
+    alreadyBooked.delete(item.id);
+  }
 
   // Only a person unticking something creates a held-back id. The drain has no
   // opinion about what it did not book.
   const droppedNow =
     !options.standing && ids
-      ? eligible.filter((item) => !ids.includes(item.id)).map((item) => item.id)
+      ? plan.candidates.filter((item) => !ids.includes(item.id) && !item.heldBack).map((item) => item.id)
       : [];
 
   const slots = plan.openSlots.length
