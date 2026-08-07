@@ -74,9 +74,18 @@ function isLinkedCache() {
   }
 }
 
+// Everything except `cache`, which is Next's incremental compile cache and the
+// difference between a release that takes a minute and a half and one that
+// takes nine. `next build` empties the rest of .next itself and deliberately
+// keeps this folder; wiping it here made every single release a cold build.
+//
+// A release that slow is not just tedious - the app is DOWN for all of it,
+// which is long enough for a scheduled task to find nothing on port 3000 and
+// start a second server against the .next this build is still writing.
 function removeCacheContents() {
   mkdirSync(cacheRoot, { recursive: true });
   for (const entry of readdirSync(cacheRoot)) {
+    if (entry === "cache") continue;
     rmSync(join(cacheRoot, entry), { recursive: true, force: true });
   }
 }
