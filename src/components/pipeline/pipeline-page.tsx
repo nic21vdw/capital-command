@@ -31,6 +31,7 @@ import { Progress } from "@/components/ui/progress";
 import { VisualAdComposer } from "@/components/pipeline/visual-ad-composer";
 import type { QueuePlan } from "@/lib/pipeline/queueOutputs";
 import { runListStatus, type RunTone } from "@/lib/pipeline/status";
+import { MAX_IMAGES_PER_POST } from "@/lib/publisher/images";
 import { cn } from "@/lib/utils";
 import type {
   PipelinePost,
@@ -1063,6 +1064,11 @@ export function PipelinePage() {
                             {candidate.kind === "clip" ? "short" : candidate.kind}
                           </span>
                           {candidate.title}
+                          {candidate.imagePaths ? (
+                            <span className="ml-1.5 text-[var(--muted-foreground)]">
+                              {candidate.imagePaths.length} slides
+                            </span>
+                          ) : null}
                         </span>
                       </label>
                     ))}
@@ -1112,9 +1118,15 @@ export function PipelinePage() {
               {schedulable.podcastPublished ? "podcast episode published" : pendingLabel("podcast", "Spotify episode")}
             </span>
             <span>
-              {schedulable.carouselSlides > 0 ? `${schedulable.carouselSlides} slides` : pendingLabel("images", "slides")}
+              {schedulable.carouselSlides > 0
+                ? schedulable.carouselSlides <= MAX_IMAGES_PER_POST
+                  ? `${schedulable.carouselSlides} slides ready to book`
+                  : `${schedulable.carouselSlides} slides — split by hand`
+                : pendingLabel("images", "slides")}
             </span>
-            <span>{schedulable.visualAdReady ? "visual ad ready" : pendingLabel("visuals", "visual ad")}</span>
+            <span>
+              {schedulable.visualAdReady ? "visual ad ready to compose" : pendingLabel("visuals", "visual ad")}
+            </span>
             <span>{schedulable.posts} posts</span>
             {schedulable.queued > 0 && <span className="text-emerald-300">{schedulable.queued} queued</span>}
           </div>

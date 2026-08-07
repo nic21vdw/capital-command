@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { assignSlots, type QueueCandidate } from "@/lib/pipeline/queueOutputs";
+import { assignSlots, carouselCandidate, type QueueCandidate } from "@/lib/pipeline/queueOutputs";
+import { MAX_IMAGES_PER_POST } from "@/lib/publisher/images";
+import type { Carousel } from "@/types/domain";
 
 const candidate = (kind: QueueCandidate["kind"], title: string): QueueCandidate => ({
   id: `${kind}:${title}`,
@@ -32,5 +34,63 @@ describe("booking a run's outputs", () => {
     const booked = assignSlots([candidate("clip", "a"), candidate("clip", "b")], [slots[0]]);
     expect(booked[0].publishAt).toBe(slots[0]);
     expect(booked[1].publishAt).toBeUndefined();
+  });
+});
+
+const carousel = (slides: number): Pick<Carousel, "id" | "title" | "slides"> => ({
+  id: "deck-1",
+  title: "What one stream produces",
+  slides: Array.from({ length: slides }, (_, index) => ({ id: `s${index}`, heading: `H${index}`, body: "" }))
+});
+
+const files = (count: number) =>
+  Array.from({ length: count }, (_, index) => `C:/data/carousels/deck-1/slide-0${index + 1}.png`);
+
+describe("booking a run's carousel", () => {
+  it("offers the whole deck as one picture post, in slide order", () => {
+    const { candidate } = carouselCandidate({ carousel: carousel(3), files: files(3), alreadyQueued: new Set() });
+    expect(candidate?.id).toBe("carousel:deck-1");
+    expect(candidate?.imagePaths).toEqual(files(3));
+    // The first slide is also the path the queue dedupes on.
+    expect(candidate?.filePath).toBe(files(3)[0]);
+    expect(candidate?.platforms).toEqual([]);
+  });
+
+  it("does not offer a deck that is already booked", () => {
+    const result = carouselCandidate({
+      carousel: carousel(3),
+      files: files(3),
+      alreadyQueued: new Set([files(3)[0].toLowerCase()])
+    });
+    expect(result.candidate).toBeUndefined();
+    expect(result.skipped?.reason).toBe("Already scheduled.");
+  });
+
+  it("says so rather than booking a deck past the picture-post ceiling", () => {
+    const tooLong = MAX_IMAGES_PER_POST + 1;
+    const result = carouselCandidate({ carousel: carousel(tooLong), files: files(tooLong), alreadyQueued: new Set() });
+    expect(result.candidate).toBeUndefined();
+    expect(result.skipped?.reason).toContain(String(tooLong));
+  });
+
+  it("says so when nothing has been rendered yet", () => {
+    const result = carouselCandidate({ carousel: carousel(3), files: [], alreadyQueued: new Set() });
+    expect(result.skipped?.reason).toBe("No rendered slides yet.");
+  });
+
+  it("has nothing to say about an empty deck", () => {
+    expect(carouselCandidate({ carousel: carousel(0), files: [], alreadyQueued: new Set() })).toEqual({});
+  });
+
+  it("books the deck after the videos it came from", () => {
+    const booked = assignSlots(
+      [
+        { id: "carousel:deck-1", kind: "carousel", title: "deck", filePath: "a.png", platforms: [] },
+        candidate("clip", "short one"),
+        candidate("longform", "the stream")
+      ],
+      slots
+    );
+    expect(booked.map((entry) => entry.candidate.kind)).toEqual(["longform", "clip", "carousel"]);
   });
 });

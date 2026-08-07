@@ -17,7 +17,15 @@ const nextConfig: NextConfig = {
   // Next can (or should) bundle. The Segment Deck MP4 export route
   // (/api/presentation/render) runs them directly from node_modules in the
   // Node.js runtime.
-  serverExternalPackages: ["ffmpeg-static", "@huggingface/transformers", "@remotion/bundler", "@remotion/renderer"],
+  // @napi-rs/canvas loads a prebuilt Skia `.node` binary, which webpack has no
+  // loader for. It is what renders carousel slides to PNGs server-side.
+  serverExternalPackages: [
+    "ffmpeg-static",
+    "@huggingface/transformers",
+    "@remotion/bundler",
+    "@remotion/renderer",
+    "@napi-rs/canvas"
+  ],
   // Keep the ONNX runtimes (~250 MB across platforms) out of serverless
   // bundles: they blow past Vercel's function size limit. Local dev and
   // `next start` (where clipping actually runs) load them from node_modules

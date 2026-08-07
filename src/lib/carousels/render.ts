@@ -31,6 +31,39 @@ export const ASPECT_RATIOS: Record<CarouselAspectRatio, AspectRatioSpec> = {
 export const ASPECT_RATIO_LIST: AspectRatioSpec[] = Object.values(ASPECT_RATIOS);
 
 /**
+ * The slice of a 2D context the slide painter uses. Structural rather than
+ * `CanvasRenderingContext2D` so the same painting code runs against the
+ * browser's canvas and the server's — the deck the pipeline books has to be the
+ * deck the editor shows, and two copies of this layout would drift apart.
+ */
+type SlideGradient = { addColorStop(offset: number, color: string): void };
+
+export interface SlideContext {
+  font: string;
+  fillStyle: unknown;
+  textAlign: unknown;
+  save(): void;
+  restore(): void;
+  translate(x: number, y: number): void;
+  rotate(angle: number): void;
+  beginPath(): void;
+  moveTo(x: number, y: number): void;
+  arcTo(x1: number, y1: number, x2: number, y2: number, radius: number): void;
+  closePath(): void;
+  clip(): void;
+  fill(): void;
+  fillRect(x: number, y: number, w: number, h: number): void;
+  fillText(text: string, x: number, y: number): void;
+  measureText(text: string): { width: number };
+  drawImage(image: unknown, dx: number, dy: number, dw: number, dh: number): void;
+  createLinearGradient(x0: number, y0: number, x1: number, y1: number): SlideGradient;
+  createRadialGradient(x0: number, y0: number, r0: number, x1: number, y1: number, r1: number): SlideGradient;
+}
+
+/** A decoded picture, whatever decoded it. */
+export type SlideImage = { width: number; height: number };
+
+/**
  * The typeface every slide is set in. Arial by name, with the metric-compatible
  * substitutes behind it so a machine without Arial still lays the copy out the
  * same width. The editor's live-editing overlay uses the same stack, so what is
@@ -65,7 +98,7 @@ export const COLATERAL_THEME = {
 } as const;
 
 /** The brand gradient background used when a slide has no override. */
-export function paintDefaultBackground(ctx: CanvasRenderingContext2D, w: number, h: number) {
+export function paintDefaultBackground(ctx: SlideContext, w: number, h: number) {
   const bg = ctx.createLinearGradient(0, 0, w, h);
   bg.addColorStop(0, COLATERAL_THEME.bgFrom);
   bg.addColorStop(1, COLATERAL_THEME.bgTo);
@@ -78,7 +111,7 @@ export function paintDefaultBackground(ctx: CanvasRenderingContext2D, w: number,
   ctx.fillRect(0, 0, w, h);
 }
 
-function wrapText(ctx: CanvasRenderingContext2D, text: string, font: string, maxWidth: number): string[] {
+function wrapText(ctx: SlideContext, text: string, font: string, maxWidth: number): string[] {
   ctx.font = font;
   const words = text.split(/\s+/).filter(Boolean);
   const lines: string[] = [];
@@ -122,7 +155,7 @@ export function loadImage(src: string): Promise<HTMLImageElement> {
   return pending;
 }
 
-function roundedRectPath(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) {
+function roundedRectPath(ctx: SlideContext, x: number, y: number, w: number, h: number, r: number) {
   const radius = Math.min(r, w / 2, h / 2);
   ctx.beginPath();
   ctx.moveTo(x + radius, y);
@@ -133,7 +166,7 @@ function roundedRectPath(ctx: CanvasRenderingContext2D, x: number, y: number, w:
   ctx.closePath();
 }
 
-function drawImageLayer(ctx: CanvasRenderingContext2D, layer: Extract<SlideLayer, { type: "image" }>, img: HTMLImageElement, w: number, h: number) {
+function drawImageLayer(ctx: SlideContext, layer: Extract<SlideLayer, { type: "image" }>, img: SlideImage, w: number, h: number) {
   const lx = layer.x * w;
   const ly = layer.y * h;
   const lw = layer.width * w;
@@ -158,7 +191,7 @@ function drawImageLayer(ctx: CanvasRenderingContext2D, layer: Extract<SlideLayer
   ctx.restore();
 }
 
-function drawTextLayer(ctx: CanvasRenderingContext2D, layer: Extract<SlideLayer, { type: "text" }>, w: number, h: number) {
+function drawTextLayer(ctx: SlideContext, layer: Extract<SlideLayer, { type: "text" }>, w: number, h: number) {
   const fontPx = layer.fontSize * h;
   const font = `${layer.weight} ${fontPx}px ${SLIDE_FONT_STACK}`;
   const maxWidth = layer.width * w;
@@ -191,7 +224,7 @@ function drawTextLayer(ctx: CanvasRenderingContext2D, layer: Extract<SlideLayer,
  * stream can be any brightness, and a fixed veil is the only thing that makes
  * the text legible without knowing which frame turned up.
  */
-function paintScrim(ctx: CanvasRenderingContext2D, strength: number, w: number, h: number) {
+function paintScrim(ctx: SlideContext, strength: number, w: number, h: number) {
   const veil = Math.max(0, Math.min(1, strength));
   const gradient = ctx.createLinearGradient(0, 0, 0, h);
   gradient.addColorStop(0, `rgba(2,6,23,${(veil * 0.72).toFixed(3)})`);
@@ -202,7 +235,7 @@ function paintScrim(ctx: CanvasRenderingContext2D, strength: number, w: number, 
 }
 
 /** Draws the channel base chrome (counter, heading, body, accent bar). */
-function drawBaseText(ctx: CanvasRenderingContext2D, slide: CarouselSlide, index: number, total: number, w: number, h: number) {
+function drawBaseText(ctx: SlideContext, slide: CarouselSlide, index: number, total: number, w: number, h: number) {
   const scale = w / 1080;
   const margin = 80 * scale;
 
@@ -289,25 +322,39 @@ export type RenderSlideOptions = {
   width?: number;
 };
 
-/**
- * Renders one slide into a fresh canvas at the given aspect ratio's full
- * resolution, or at `options.width`. Async because image layers must decode
- * first.
- */
-export async function renderSlideCanvas(
-  slide: CarouselSlide,
-  index: number,
-  total: number,
-  ratio: CarouselAspectRatio,
-  options: RenderSlideOptions = {}
-): Promise<HTMLCanvasElement> {
+/** The pixel size a slide renders at, honoring an explicit width. */
+export function slidePixelSize(ratio: CarouselAspectRatio, width?: number) {
   const spec = aspectSpec(ratio);
-  const width = options.width ? Math.max(1, Math.round(options.width)) : spec.width;
-  const height = Math.max(1, Math.round((width * spec.height) / spec.width));
-  const canvas = document.createElement("canvas");
-  canvas.width = width;
-  canvas.height = height;
-  const ctx = canvas.getContext("2d")!;
+  const w = width ? Math.max(1, Math.round(width)) : spec.width;
+  return { width: w, height: Math.max(1, Math.round((w * spec.height) / spec.width)) };
+}
+
+export function slideImageLayers(slide: CarouselSlide): Extract<SlideLayer, { type: "image" }>[] {
+  return (slide.layers ?? []).filter((l): l is Extract<SlideLayer, { type: "image" }> => l.type === "image");
+}
+
+/**
+ * Paints one slide into an already-sized 2D context. Every measurement is a
+ * fraction of the slide, so this is the whole layout — the browser export, the
+ * editor preview and the server's PNG all come through here, with only the
+ * canvas and the picture decoder differing.
+ *
+ * `images` is keyed by layer `src`; a missing or failed picture is simply not
+ * drawn, which is what keeps a deck exportable when one photo has gone.
+ */
+export function paintSlide(
+  ctx: SlideContext,
+  input: {
+    slide: CarouselSlide;
+    index: number;
+    total: number;
+    width: number;
+    height: number;
+    images?: Map<string, SlideImage | null>;
+  },
+  options: RenderSlideOptions = {}
+) {
+  const { slide, index, total, width, height } = input;
 
   // Background: solid/gradient override or the brand default.
   if (!options.skipBackground) {
@@ -321,11 +368,8 @@ export async function renderSlideCanvas(
 
   // Image layers render under the base copy; text layers over it.
   if (!options.skipImageLayers) {
-    const imageLayers = (slide.layers ?? []).filter((l): l is Extract<SlideLayer, { type: "image" }> => l.type === "image");
-    const images = await Promise.all(
-      imageLayers.map(async (layer) => ({ layer, img: await loadImage(layer.src).catch(() => null) }))
-    );
-    for (const { layer, img } of images) {
+    for (const layer of slideImageLayers(slide)) {
+      const img = input.images?.get(layer.src);
       if (img) drawImageLayer(ctx, layer, img, width, height);
     }
   }
@@ -342,7 +386,36 @@ export async function renderSlideCanvas(
       if (layer.type === "text") drawTextLayer(ctx, layer, width, height);
     }
   }
+}
 
+/**
+ * Renders one slide into a fresh canvas at the given aspect ratio's full
+ * resolution, or at `options.width`. Async because image layers must decode
+ * first.
+ */
+export async function renderSlideCanvas(
+  slide: CarouselSlide,
+  index: number,
+  total: number,
+  ratio: CarouselAspectRatio,
+  options: RenderSlideOptions = {}
+): Promise<HTMLCanvasElement> {
+  const { width, height } = slidePixelSize(ratio, options.width);
+  const canvas = document.createElement("canvas");
+  canvas.width = width;
+  canvas.height = height;
+  const ctx = canvas.getContext("2d")!;
+
+  const images = new Map<string, SlideImage | null>();
+  if (!options.skipImageLayers) {
+    await Promise.all(
+      slideImageLayers(slide).map(async (layer) => {
+        images.set(layer.src, await loadImage(layer.src).catch(() => null));
+      })
+    );
+  }
+
+  paintSlide(ctx, { slide, index, total, width, height, images }, options);
   return canvas;
 }
 

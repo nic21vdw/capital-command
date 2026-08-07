@@ -26,6 +26,7 @@ import type {
   PipelineStageStatus
 } from "@/lib/pipeline/types";
 import { publisherConfig } from "@/lib/publisher/config";
+import { MAX_IMAGES_PER_POST } from "@/lib/publisher/images";
 import { publishQueue } from "@/lib/publisher/queue";
 import { defaultVideoStudio } from "@/lib/storage/schemas";
 import { readAppData, writeAppData } from "@/lib/storage/store";
@@ -854,14 +855,16 @@ export async function runOverview(run: PipelineRun, context?: OverviewContext): 
     schedule: stage("waiting", "")
   };
 
-  // What the Schedule button can actually book, and what it cannot. Counting a
-  // carousel among "outputs ready to schedule" made the row promise something
-  // no button on the page could do — the publish queue has no concept of an
-  // image post, so the deck and the visual ad are posted by hand.
+  // What the Schedule button can actually book, and what it cannot. The deck is
+  // one of them now — its slides are rendered to PNGs and booked as a picture
+  // post — but only up to the picture-post ceiling; a longer deck still has to
+  // be split by hand. The visual ad is composed in the browser from a frame
+  // nobody has chosen yet, so it has no file to book.
   // Exactly what "Schedule everything from this run" books — the text posts have
   // their own button, and counting them here made the sentence overstate by N.
-  const bookable = clipsReady + (longformReady ? 1 : 0) + segmentsRendered;
-  const byHand = (slideCount > 0 ? 1 : 0) + (visualMoment ? 1 : 0);
+  const carouselBookable = slideCount > 0 && slideCount <= MAX_IMAGES_PER_POST;
+  const bookable = clipsReady + (longformReady ? 1 : 0) + segmentsRendered + (carouselBookable ? 1 : 0);
+  const byHand = (slideCount > 0 && !carouselBookable ? 1 : 0) + (visualMoment ? 1 : 0);
   const readyItems = bookable + byHand + (audioReady ? 1 : 0);
   const upstreamSettled = (["longform", "segments", "clips", "audio", "podcast", "images", "visuals", "posts"] as const).every(
     (key) => stages[key].status !== "running" && stages[key].status !== "waiting"
@@ -878,9 +881,9 @@ export async function runOverview(run: PipelineRun, context?: OverviewContext): 
       [
         `${bookable} output${bookable === 1 ? "" : "s"} ready to schedule`,
         posts > 0 ? `${posts} text post${posts === 1 ? "" : "s"}` : "",
-        byHand > 0 ? `${slideCount > 0 ? "carousel" : ""}${slideCount > 0 && visualMoment ? " and " : ""}${
-          visualMoment ? "visual ad" : ""
-        } to post by hand` : "",
+        byHand > 0 ? `${!carouselBookable && slideCount > 0 ? `${slideCount}-slide carousel` : ""}${
+          !carouselBookable && slideCount > 0 && visualMoment ? " and " : ""
+        }${visualMoment ? "visual ad" : ""} to post by hand` : "",
         queued > 0 ? `${queued} already queued` : "",
         run.podcastEpisodeId ? "podcast episode published" : ""
       ]

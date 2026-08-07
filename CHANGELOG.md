@@ -14,6 +14,16 @@ already shipped.
 
 ## Unreleased
 
+- **"Schedule everything from this run" now includes the carousel.** The deck is
+  painted to real PNG slides on disk and booked as one picture post alongside
+  the shorts and the long-form video — same tick box, same free slot, nothing
+  posted early. It only paints what changed, so re-opening the plan sheet or
+  leaving the standing instruction running costs nothing.
+- **The Scheduler row stopped saying "carousel to post by hand"**, because it
+  isn't any more. It says how many slides are ready to book, and only calls a
+  deck out as handwork when it is longer than the ten pictures one post can
+  carry. The visual ad is still yours to compose — it is a prompt and a frame
+  you choose, not a file the app has made.
 - **Pictures can be scheduled now, not just video.** The publish queue takes an
   image post — one picture or a whole carousel deck, in order — and posts it to
   Instagram and Facebook at its slot, the same way a clip goes out. A deck lands
