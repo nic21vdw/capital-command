@@ -44,6 +44,22 @@ export const MAX_IMAGES_PER_POST = 10;
 export const IMAGE_POST_MIN_WIDTH = 320;
 export const IMAGE_POST_MAX_WIDTH = 1440;
 
+/**
+ * And the shapes it accepts: 4:5 (0.8) to 1.91:1. A story-shaped deck is 0.5625
+ * — well outside — so a 9:16 deck booked at a slot is another post that can only
+ * fail hours later. Same reason the widths live here: whatever renders a deck
+ * has to know before anything is booked.
+ */
+export const IMAGE_POST_MIN_ASPECT = 0.8;
+export const IMAGE_POST_MAX_ASPECT = 1.91;
+
+export function imagePostAspectAllowed(width: number, height: number): boolean {
+  if (!(width > 0) || !(height > 0)) return false;
+  const ratio = width / height;
+  // A hair of tolerance: 1080x1350 is 0.8 exactly in decimal but not in floats.
+  return ratio >= IMAGE_POST_MIN_ASPECT - 0.001 && ratio <= IMAGE_POST_MAX_ASPECT + 0.001;
+}
+
 /** The nearest width to `natural` that a picture post is allowed to be. */
 export function imagePostWidth(natural: number): number {
   return Math.min(IMAGE_POST_MAX_WIDTH, Math.max(IMAGE_POST_MIN_WIDTH, Math.round(natural)));
