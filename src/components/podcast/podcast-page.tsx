@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Check, Copy, ExternalLink, Loader2, RefreshCw, Trash2, TriangleAlert, Upload } from "lucide-react";
+import { Check, Copy, ExternalLink, Loader2, Pencil, RefreshCw, Trash2, TriangleAlert, Upload } from "lucide-react";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -18,8 +18,11 @@ type PodcastResponse = {
   episodes: PodcastEpisode[];
   configured: boolean;
   feedUrl: string | null;
+  publicBaseUrl: string | null;
+  bucketConnected: boolean;
   blockers: FeedBlocker[];
   candidates: EpisodeCandidate[];
+  feedWarning?: string;
 };
 
 const FIELDS: { key: keyof PodcastShow; label: string; hint?: string; long?: boolean }[] = [
@@ -44,6 +47,8 @@ export function PodcastPage() {
   const [draft, setDraft] = useState<PodcastShow | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [picked, setPicked] = useState("");
+  const [hostDraft, setHostDraft] = useState("");
+  const [changingHost, setChangingHost] = useState(false);
 
   const apply = useCallback((next: PodcastResponse) => {
     setState(next);
@@ -68,6 +73,7 @@ export function PodcastPage() {
       const json = await response.json();
       if (!response.ok) throw new Error(json.error ?? "That did not work.");
       apply(json as PodcastResponse);
+      if ((json as PodcastResponse).feedWarning) toast.error((json as PodcastResponse).feedWarning!);
       return true;
     } catch (error) {
       toast.error(error instanceof Error ? error.message : String(error));
@@ -92,6 +98,15 @@ export function PodcastPage() {
       toast.error(error instanceof Error ? error.message : String(error));
     } finally {
       setBusy(null);
+    }
+  }
+
+  async function savePublicBaseUrl() {
+    const ok = await send("set-public-url", { url: hostDraft });
+    if (ok) {
+      setChangingHost(false);
+      setHostDraft("");
+      toast.success("Feed address saved and in use — nothing to restart");
     }
   }
 
@@ -152,8 +167,7 @@ export function PodcastPage() {
           <div>
             <p className="text-xs font-medium uppercase tracking-wider text-[var(--muted-foreground)]">Feed URL</p>
             <p className="mt-1 break-all text-sm text-white">
-              {state.feedUrl ??
-                "Not hosted yet. The R2 bucket is connected but private: turn on its Public Development URL (or attach a custom domain) in the Cloudflare dashboard, then put that address in S3_PUBLIC_BASE_URL."}
+              {state.feedUrl ?? "Not hosted yet — give the bucket its public address below and the feed gets a home."}
             </p>
           </div>
           <div className="flex items-center gap-2">
@@ -181,8 +195,53 @@ export function PodcastPage() {
                 <Copy className="mr-2 h-4 w-4" /> Copy
               </Button>
             ) : null}
+            {state.publicBaseUrl && !changingHost ? (
+              <Button
+                variant="ghost"
+                onClick={() => {
+                  setHostDraft(state.publicBaseUrl ?? "");
+                  setChangingHost(true);
+                }}
+              >
+                <Pencil className="mr-2 h-4 w-4" /> Change address
+              </Button>
+            ) : null}
           </div>
         </div>
+
+        {state.bucketConnected && (!state.publicBaseUrl || changingHost) ? (
+          <div className="mt-4 border-t border-[var(--border)] pt-4">
+            <label className="text-xs font-medium uppercase tracking-wider text-[var(--muted-foreground)]">
+              Public address of the bucket
+            </label>
+            <div className="mt-1.5 flex flex-wrap items-center gap-2">
+              <Input
+                className="min-w-[16rem] flex-1"
+                placeholder="https://pub-xxxxxxxxxxxx.r2.dev"
+                value={hostDraft}
+                spellCheck={false}
+                onChange={(event) => setHostDraft(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" && busy === null) void savePublicBaseUrl();
+                }}
+              />
+              <Button disabled={busy !== null} onClick={() => void savePublicBaseUrl()}>
+                {busy === "set-public-url" ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                Save and use it
+              </Button>
+              {changingHost ? (
+                <Button variant="ghost" disabled={busy !== null} onClick={() => setChangingHost(false)}>
+                  Cancel
+                </Button>
+              ) : null}
+            </div>
+            <p className="mt-2 text-xs text-[var(--muted-foreground)]">
+              Cloudflare dashboard → R2 → your bucket → Settings → Public Development URL, or the custom domain you
+              attached. Saved here it is used immediately and kept for next time — the app does not need restarting, and
+              any stream whose episode was skipped for this can be published under Publish an episode.
+            </p>
+          </div>
+        ) : null}
 
         {state.blockers.length > 0 ? (
           <ul className="mt-4 space-y-3 border-t border-[var(--border)] pt-4 text-sm">

@@ -53,6 +53,9 @@ export function PipelineAttentionProvider({ children }: { children: React.ReactN
     if (typeof document === "undefined") return;
     const apply = () => {
       const base = document.title.replace(/^\(\d+\)\s*/, "");
+      // Before the route's own title lands there is nothing to prefix, and
+      // writing "(1)" alone would leave the window with no name at all.
+      if (!base) return;
       const wanted = attention.needsAttention > 0 ? `(${attention.needsAttention}) ${base}` : base;
       if (document.title !== wanted) document.title = wanted;
     };

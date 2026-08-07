@@ -108,10 +108,16 @@ describe("feedProblems", () => {
 });
 
 describe("feedBlockers", () => {
-  it("leads with hosting when there is no permanent public URL, and says what to set", () => {
-    const blockers = feedBlockers(show, [episode()], { hosted: false });
+  it("leads with hosting when there is no permanent public URL, and points at the control that sets it", () => {
+    const blockers = feedBlockers(show, [episode()], { hosted: false, bucketConnected: true });
     expect(blockers[0].code).toBe("hosting");
-    expect(blockers[0].fix).toContain("S3_PUBLIC_BASE_URL");
+    expect(blockers[0].fix).toContain("Public address of the bucket");
+  });
+
+  it("asks for the bucket's credentials instead when nothing is connected at all", () => {
+    const blockers = feedBlockers(show, [episode()], { hosted: false, bucketConnected: false });
+    expect(blockers.map((blocker) => blocker.code)).toEqual(["bucket"]);
+    expect(blockers[0].fix).toContain("S3_ENDPOINT");
   });
 
   it("is empty for a hosted, complete show", () => {

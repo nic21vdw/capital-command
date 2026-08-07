@@ -33,13 +33,18 @@ export async function advancePipelineOnce(): Promise<number> {
   const live = runs.filter((run) => run.status === "running" || run.status === "ingesting");
   if (live.length === 0) return 0;
   const context = overviewContext();
+  const settledNow: string[] = [];
   for (const run of live) {
     const overview = await runOverview(run, context).catch(() => undefined);
-    if (overview) await stopQueueingWhenSettled(run.id, overview.settled).catch(() => undefined);
+    if (overview?.settled) settledNow.push(run.id);
   }
-  // After advancing, not before: an export that finished on this tick is
-  // bookable on this tick.
+  // Drain BEFORE ending the standing instruction. The tick that settles a run
+  // is the tick its last export finished on — stopping first meant the final
+  // segment was the one output never booked.
   await queueReadyOutputs().catch(() => undefined);
+  for (const runId of settledNow) {
+    await stopQueueingWhenSettled(runId, true).catch(() => undefined);
+  }
   return live.length;
 }
 
