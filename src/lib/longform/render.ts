@@ -99,6 +99,16 @@ type RenderGlobal = typeof globalThis & { __longformExportControllers?: Map<stri
 const rg = globalThis as RenderGlobal;
 const controllers = (rg.__longformExportControllers ??= new Map<string, AbortController>());
 
+/**
+ * Whether this process is actually rendering that export right now. A record
+ * left `processing` by a server that stopped mid-render has no controller, so
+ * it will never finish and never fail — that pair is how a stalled export is
+ * told apart from a slow one.
+ */
+export function isExportRendering(recordId: string): boolean {
+  return controllers.has(recordId);
+}
+
 async function patchRecord(projectId: string, recordId: string, patch: Partial<LongformExportRecord>) {
   const project = await getProject(projectId);
   if (!project) return;

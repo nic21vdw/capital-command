@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { base64FromBuffer, bufferFromBase64, encodeCaptureChunk, floatToPcm16, pcm16ToFloat, peakLevel, resampleMono } from "@/lib/voice/pcm";
 import { buildSubprotocols, getVoiceProvider, realtimeSocketUrl } from "@/lib/voice/providers";
 import { buildSessionUpdate, issueGrant, readGrant, readMintedSecret, revokeGrant } from "@/lib/voice/session";
-import { VOICE_TOOLS, runVoiceTool, voiceToolDefinitions } from "@/lib/voice/tools";
+import { VOICE_TOOLS, runReferenceFrom, runVoiceTool, voiceToolDefinitions } from "@/lib/voice/tools";
 import { jwtExpiryMs, normalizeXaiSession, xaiSessionUsable } from "@/lib/voice/xaiAuth";
 
 describe("pcm", () => {
@@ -90,6 +90,21 @@ describe("voice tools", () => {
   it("refuses an action tool when the session is read-only", async () => {
     const result = await runVoiceTool("start_channel_ingest", {}, { allowActions: false });
     expect(result.ok).toBe(false);
+  });
+
+  it("keeps the tools that fix a run behind the same arming as the rest", async () => {
+    expect(voiceToolDefinitions(false).map((tool) => tool.name)).not.toContain("retry_pipeline_stage");
+    expect(voiceToolDefinitions(true).map((tool) => tool.name)).toContain("retry_pipeline_stage");
+    expect((await runVoiceTool("retry_pipeline_stage", { stage: "longform" }, { allowActions: false })).ok).toBe(false);
+    expect((await runVoiceTool("render_topic_segment", {}, { allowActions: false })).ok).toBe(false);
+  });
+
+  it("finds the run whichever way the model spells the argument", () => {
+    expect(runReferenceFrom({ runName: "Day 28" }).name).toBe("Day 28");
+    expect(runReferenceFrom({ name: "Day 28" }).name).toBe("Day 28");
+    expect(runReferenceFrom({ title: " Day 28 " }).name).toBe("Day 28");
+    expect(runReferenceFrom({ runId: "abc123" })).toEqual({ runId: "abc123", name: undefined });
+    expect(runReferenceFrom({ runName: "" }).name).toBeUndefined();
   });
 
   it("refuses a tool it does not have", async () => {

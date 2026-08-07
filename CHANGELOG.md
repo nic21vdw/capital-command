@@ -14,6 +14,15 @@ already shipped.
 
 ## Unreleased
 
+- **The command bar fixes a stuck run instead of telling you it is stuck.**
+  Say "go back to Day 28 and finish it" and it finds the run by name, sees which
+  stages failed or were abandoned by a restart, and starts them again — the
+  long-form export, the podcast MP3, the topic split, missing clips, the
+  carousel, the text posts. A long-form export that died mid-render is retired
+  and re-rendered rather than sitting at "Rendering the edited video…" forever.
+  It can also render a topic segment on request. It still never publishes,
+  schedules or deletes anything.
+
 ## 2026-08-06
 
 - **Carousel slides now sit on the bit of the stream they are actually about.**
