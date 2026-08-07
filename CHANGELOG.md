@@ -23,6 +23,16 @@ already shipped.
   "Nothing taken in yet" whatever happened; it now shows the failure and its
   reason, tells you when YouTube needs reconnecting (with a link to do it), and
   lists the streams it skipped for review or gave up on.
+- **A post that failed no longer disappears — you can see why and retry it.**
+  A scheduled post whose every platform permanently failed used to be deleted
+  the next time the calendar loaded: the slot emptied, the clip went back to
+  Draft, and the reason only ever reached a console log. Failures now stay on
+  the board with the reason under them and a Retry button that puts the post
+  back in the queue and sends it. Same on the Threads day view — a failed post
+  keeps its copy and gets a **Retry now** button instead of needing to be typed
+  out again. A post blocked as "manual" because an account wasn't connected can
+  be retried the same way once it is, and old failures are only swept 30 days
+  after you have actually seen them.
 - **A run that broke stops pretending it finished.** The pipeline list showed a
   green "Finished" for a run whose stages had failed — the sidebar now carries a
   count of runs needing attention, and the row says which and how many.

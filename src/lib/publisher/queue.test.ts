@@ -121,24 +121,39 @@ describe("publish queue state machine", () => {
     expect(queue.duePlatforms(item, new Date(DUE.getTime() + 60_000))).toEqual(["tiktok"]);
   });
 
-  it("purgeFailed drops posts whose every platform failed, freeing the slot", async () => {
+  it("a failed post stays on the board and is only stamped as seen", async () => {
     const { queue } = makeQueue();
-    const failed = testItem({ id: "gone", publishAt: PUBLISH_AT, platformIds: ["youtube"] });
-    const scheduled = testItem({ id: "stays", publishAt: PUBLISH_AT, platformIds: ["youtube"] });
+    const failed = testItem({ id: "failed", publishAt: PUBLISH_AT, platformIds: ["youtube"] });
     await queue.add(failed);
-    await queue.add(scheduled);
-
     await queue.recordFailure(failed, "youtube", { message: "quota exceeded", transient: false }, DUE);
-    await queue.recordSuccess(scheduled, "youtube", { status: "scheduled", postId: "vid999" }, BEFORE);
 
-    const removed = await queue.purgeFailed();
-    expect(removed.map((item) => item.id)).toEqual(["gone"]);
+    await queue.markFailedSeen(DUE);
+    expect(await queue.purgeFailed(DUE)).toEqual([]);
 
     const items = await queue.list();
-    expect(items.map((item) => item.id)).toEqual(["stays"]);
+    expect(items.map((item) => item.id)).toEqual(["failed"]);
+    expect(items[0].failedSeenAt).toBe(DUE.toISOString());
+    expect(items[0].platforms.youtube?.error).toBe("quota exceeded");
   });
 
-  it("purgeFailed keeps multi-platform posts where any platform still succeeded", async () => {
+  it("sweeps a failed post only once it has been seen for the whole retention window", async () => {
+    const { queue } = makeQueue();
+    const item = testItem({ id: "old", publishAt: PUBLISH_AT, platformIds: ["youtube"] });
+    await queue.add(item);
+    await queue.recordFailure(item, "youtube", { message: "quota exceeded", transient: false }, DUE);
+
+    const muchLater = new Date(DUE.getTime() + 40 * 86_400_000);
+    // Never shown: age alone must not drop it.
+    expect(await queue.purgeFailed(muchLater)).toEqual([]);
+
+    await queue.markFailedSeen(DUE);
+    // Seen, but not for long enough yet.
+    expect(await queue.purgeFailed(new Date(DUE.getTime() + 29 * 86_400_000))).toEqual([]);
+    expect((await queue.purgeFailed(muchLater)).map((entry) => entry.id)).toEqual(["old"]);
+    expect(await queue.list()).toEqual([]);
+  });
+
+  it("keeps multi-platform posts where any platform still succeeded", async () => {
     const { queue } = makeQueue();
     const item = testItem({ id: "mixed", publishAt: PUBLISH_AT, platformIds: ["youtube", "tiktok"] });
     await queue.add(item);
@@ -146,19 +161,36 @@ describe("publish queue state machine", () => {
     await queue.recordSuccess(item, "youtube", { status: "published", postId: "vid123" }, DUE);
     await queue.recordFailure(item, "tiktok", { message: "bad request", transient: false }, DUE);
 
-    const removed = await queue.purgeFailed();
-    expect(removed).toEqual([]);
+    await queue.markFailedSeen(DUE);
+    expect((await queue.list())[0].failedSeenAt).toBeUndefined();
+    expect(await queue.purgeFailed(new Date(DUE.getTime() + 400 * 86_400_000))).toEqual([]);
     expect((await queue.list()).map((i) => i.id)).toEqual(["mixed"]);
   });
 
-  it("purgeFailed saves only when something was removed", async () => {
+  it("markFailedSeen and purgeFailed save only when something changed", async () => {
     const { store, queue } = makeQueue();
     const item = testItem({ id: "pending", publishAt: PUBLISH_AT, platformIds: ["youtube"] });
     await queue.add(item);
     const savesBefore = store.saves;
 
-    expect(await queue.purgeFailed()).toEqual([]);
+    expect(await queue.markFailedSeen(DUE)).toEqual([]);
+    expect(await queue.purgeFailed(DUE)).toEqual([]);
     expect(store.saves).toBe(savesBefore);
+  });
+
+  it("a retried post is due again, and its failure clock is cleared", async () => {
+    const { queue } = makeQueue();
+    const item = testItem({ id: "retry", publishAt: PUBLISH_AT, platformIds: ["youtube"] });
+    await queue.add(item);
+    await queue.recordFailure(item, "youtube", { message: "quota exceeded", transient: false }, DUE);
+    await queue.markFailedSeen(DUE);
+
+    expect(await queue.rearm(item)).toEqual(["youtube"]);
+    expect(item.platforms.youtube?.status).toBe("pending");
+    expect(item.platforms.youtube?.error).toBeUndefined();
+    expect(item.failedSeenAt).toBeUndefined();
+    expect(queue.duePlatforms(item, DUE)).toEqual(["youtube"]);
+    expect(await queue.purgeFailed(new Date(DUE.getTime() + 400 * 86_400_000))).toEqual([]);
   });
 
   it("persists through the store and reloads identically", async () => {

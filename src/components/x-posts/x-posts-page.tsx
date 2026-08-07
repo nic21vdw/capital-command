@@ -11,6 +11,7 @@ import {
   MessageSquare,
   MessagesSquare,
   RefreshCw,
+  RotateCcw,
   ShieldCheck,
   Sparkles
 } from "lucide-react";
@@ -55,7 +56,7 @@ interface AutopilotActionResponse {
   error?: string;
   checks?: Array<{ accountId: string; label: string; ok: boolean; username?: string | null; error?: string }>;
   plan?: { created: number; skipped?: string; startedAt?: string; gapMinutes?: number; droppedPastSlots?: number };
-  run?: { published: number; skipped: number; note?: string };
+  run?: { published: number; failed?: number; skipped: number; note?: string };
   moved?: number;
 }
 
@@ -643,9 +644,52 @@ function AutopilotTab({ status, busy, send }: AutopilotProps) {
             <p className="whitespace-pre-wrap text-sm text-[var(--foreground)]">{item.text}</p>
           )}
 
-          {item.error ? <p className="text-xs text-rose-200">{item.error}</p> : null}
+          {item.error ? (
+            <p className="text-xs text-rose-200">
+              {item.status === "failed" ? "Didn't post — " : null}
+              {item.error}
+            </p>
+          ) : null}
           {item.note && item.status !== "pending" ? (
             <p className="text-xs text-[var(--muted-foreground)]">{item.note}</p>
+          ) : null}
+
+          {(item.status === "failed" || item.status === "skipped") && editing !== item.id ? (
+            // The copy was already written and approved; recovering it should
+            // never mean typing it again.
+            <div className="flex flex-wrap gap-2">
+              <Button
+                onClick={() =>
+                  send({ action: "retry", id: item.id }, `retry-${item.id}`, (json) =>
+                    json.run?.published
+                      ? "Posted."
+                      : json.run?.failed
+                        ? "It failed again — the reason is on the post."
+                        : "Back in the queue for the next tick."
+                  )
+                }
+                disabled={busy !== null}
+              >
+                <RotateCcw className="mr-2 h-4 w-4" />
+                Retry now
+              </Button>
+              <Button
+                onClick={() => {
+                  setEditing(item.id);
+                  setDraft(item.text);
+                }}
+                disabled={busy !== null}
+              >
+                <MessageSquare className="mr-2 h-4 w-4" />
+                Edit copy
+              </Button>
+              <Button
+                onClick={() => send({ action: "remove", id: item.id }, `remove-${item.id}`, () => "Removed.")}
+                disabled={busy !== null}
+              >
+                Remove
+              </Button>
+            </div>
           ) : null}
 
           {item.status === "pending" && editing !== item.id ? (

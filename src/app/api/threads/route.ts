@@ -8,6 +8,7 @@ import {
   mutateQueue,
   readQueue,
   rescheduleItem,
+  retryItem,
   shiftBatch,
   summarizeBatch,
   summarizeBatches
@@ -69,6 +70,7 @@ const actionSchema = z.object({
     "run-due",
     "check",
     "skip",
+    "retry",
     "remove",
     "reschedule",
     "shift",
@@ -100,6 +102,8 @@ const actionSchema = z.object({
  *   run-due  post what's due only; `dryRun` reports without posting
  *   check    validate the Threads token without posting
  *   skip       take one queued post out of the running
+ *   retry      put a failed or skipped post back in the running, at this
+ *              moment, and post what is due — recovery without retyping it
  *   remove     delete one queued post outright
  *   reschedule move one queued post to a new time
  *   shift      move a whole day's pending posts by N minutes
@@ -176,6 +180,19 @@ export async function POST(request: NextRequest) {
       });
       if (outcome.error) return NextResponse.json({ error: outcome.error }, { status: 400 });
       return NextResponse.json({ ok: true });
+    }
+
+    if (action === "retry") {
+      const now = new Date();
+      const outcome = await mutateQueue((items) => {
+        const result = retryItem(items, id, now);
+        return { items: result.items, result };
+      });
+      if (outcome.error) return NextResponse.json({ error: outcome.error }, { status: 400 });
+      // Re-queued at this moment, so post it now rather than leaving it to sit
+      // until the scheduled task's next tick.
+      const run = await runDue(new Date(), { config });
+      return NextResponse.json({ ok: true, run });
     }
 
     if (action === "skip") {

@@ -4,7 +4,8 @@ import { z } from "zod";
 import { ensureVerticalClipFile, outputDir } from "@/lib/clipping/jobs";
 import { publisherConfig } from "@/lib/publisher/config";
 import { enqueue } from "@/lib/publisher/enqueue";
-import { publishQueue } from "@/lib/publisher/queue";
+import { FAILED_RETENTION_DAYS, publishQueue } from "@/lib/publisher/queue";
+import { rearmItems } from "@/lib/publisher/rearm";
 import { runDue, type RunReport } from "@/lib/publisher/runner";
 
 export const runtime = "nodejs";
@@ -18,19 +19,40 @@ export async function GET() {
   if (!config.enabled) {
     return NextResponse.json({ enabled: false, items: [] });
   }
-  // Clear out permanently-failed posts on load so their schedule slots free up
-  // for a fresh clip — a failed post can never publish, so it shouldn't keep
-  // occupying the board.
+  // A permanently-failed post STAYS on the board with its reason, so the
+  // failure is something you see and can retry rather than something that
+  // silently emptied its slot. Reading the board is what stamps the failure as
+  // seen; only a seen failure older than the retention window is swept.
   const queue = publishQueue(config);
-  const purged = await queue.purgeFailed();
+  const now = new Date();
+  await queue.markFailedSeen(now);
+  const purged = await queue.purgeFailed(now);
   if (purged.length > 0) {
     console.log(
-      `[publisher] purged ${purged.length} failed post(s) from the schedule: ${purged.map((item) => item.id).join(", ")}`
+      `[publisher] swept ${purged.length} failed post(s) older than ${FAILED_RETENTION_DAYS} days: ${purged
+        .map((item) => item.id)
+        .join(", ")}`
     );
   }
   const items = await queue.list();
   return NextResponse.json({ enabled: true, items });
 }
+
+/**
+ * The non-enqueue things POST does.
+ *
+ *   retry  put one post's failed/manual platforms back to pending, so the
+ *          board's Publish now (or the next scheduler pass) acts on it again
+ *   rearm  the same across the queue for one platform+account — what a connect
+ *          flow calls once credentials exist, so work blocked as "manual" or
+ *          by a dead token comes back instead of needing to be re-scheduled
+ */
+const actionSchema = z.object({
+  action: z.enum(["retry", "rearm"]),
+  itemId: z.string().min(1).optional(),
+  platform: z.enum(["youtube", "instagram", "tiktok", "facebook"]).optional(),
+  accountId: z.string().min(1).optional()
+});
 
 const enqueueSchema = z.object({
   // Either a jobId + file (a clip rendered/exported by the clipper) …
@@ -62,9 +84,19 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Publishing is disabled. Set PUBLISH_ENABLED=true in .env." }, { status: 400 });
   }
 
+  let raw: unknown;
+  try {
+    raw = await request.json();
+  } catch {
+    return NextResponse.json({ error: "Invalid enqueue request." }, { status: 400 });
+  }
+
+  const action = actionSchema.safeParse(raw);
+  if (action.success) return handleAction(action.data, config);
+
   let body;
   try {
-    body = enqueueSchema.parse(await request.json());
+    body = enqueueSchema.parse(raw);
   } catch {
     return NextResponse.json({ error: "Invalid enqueue request." }, { status: 400 });
   }
@@ -126,4 +158,31 @@ export async function POST(request: NextRequest) {
   // Re-read so the response carries the post-upload platform states.
   const saved = await publishQueue(config).get(item.id);
   return NextResponse.json({ item: saved ?? item, report }, { status: 201 });
+}
+
+async function handleAction(
+  { action, itemId, platform, accountId }: z.infer<typeof actionSchema>,
+  config: ReturnType<typeof publisherConfig>
+) {
+  const queue = publishQueue(config);
+
+  if (action === "retry") {
+    if (!itemId) return NextResponse.json({ error: '"retry" needs the id of a scheduled post.' }, { status: 400 });
+    const item = await queue.get(itemId);
+    if (!item) return NextResponse.json({ error: "No such scheduled post." }, { status: 404 });
+    const platforms = await queue.rearm(item, { platform });
+    if (platforms.length === 0) {
+      return NextResponse.json({ error: "Nothing on that post is waiting to be retried." }, { status: 400 });
+    }
+    return NextResponse.json({ ok: true, item: await queue.get(itemId), platforms });
+  }
+
+  if (!platform) return NextResponse.json({ error: '"rearm" needs a platform.' }, { status: 400 });
+  const changed = rearmItems(await queue.list(), { platform, accountId });
+  if (changed.length > 0) await queue.save();
+  return NextResponse.json({
+    ok: true,
+    recovered: changed.length,
+    itemIds: changed.map((entry) => entry.item.id)
+  });
 }
