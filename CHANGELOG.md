@@ -14,6 +14,8 @@ already shipped.
 
 ## Unreleased
 
+## 2026-08-06
+
 - **The app notices work the moment it lands, instead of when a backup runs.**
   This machine keeps two copies of the code — GitHub, where finished work is
   merged, and a local backup repository that syncs down from it on a schedule —
