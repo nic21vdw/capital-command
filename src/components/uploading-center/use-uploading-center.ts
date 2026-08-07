@@ -282,6 +282,11 @@ export type UploadSuccess = {
   postId?: string;
 };
 
+/** Either the platform-ready caption, or why it couldn't be written. */
+export type TailoredCaption =
+  | { ok: true; caption: string; bestTime?: string; note?: string }
+  | { ok: false; error: string };
+
 async function readError(response: Response): Promise<string> {
   try {
     const data = (await response.json()) as { error?: string };
@@ -310,6 +315,8 @@ export function useUploadingCenter(clipProjects: ClipProject[] = []) {
   const [busy, setBusy] = useState<string | null>(null);
   /** Set right after a YouTube upload succeeds; drives the confirmation dialog. */
   const [uploadSuccess, setUploadSuccess] = useState<UploadSuccess | null>(null);
+  /** How far a bulk caption pass has got, or null when none is running. */
+  const [captionProgress, setCaptionProgress] = useState<{ done: number; total: number } | null>(null);
   const remindedRef = useRef(new Set<string>());
   /**
    * Which two-week window the schedule grid shows, in days after today
@@ -748,13 +755,8 @@ export function useUploadingCenter(clipProjects: ClipProject[] = []) {
    * caption (hashtags appended) plus a best-time hint, or null on failure. The
    * caller writes the returned caption into the draft — this never mutates it.
    */
-  const tailorCaption = useCallback(
-    async (
-      clip: ReadyClip,
-      platform: PlatformId,
-      title: string
-    ): Promise<{ caption: string; bestTime?: string; note?: string } | null> => {
-      setBusy(`tailor:${clip.key}`);
+  const fetchTailoredCaption = useCallback(
+    async (clip: ReadyClip, platform: PlatformId, title: string): Promise<TailoredCaption> => {
       try {
         const response = await fetch("/api/publish/ai-copy", {
           method: "POST",
@@ -766,23 +768,83 @@ export function useUploadingCenter(clipProjects: ClipProject[] = []) {
             title: title.trim() || undefined
           })
         });
-        if (!response.ok) {
-          toast.error(await readError(response));
-          return null;
-        }
+        if (!response.ok) return { ok: false, error: await readError(response) };
         const { copy } = (await response.json()) as {
           copy: { caption: string; hashtags: string[]; bestTime?: string; note?: string };
         };
         const caption = copy.hashtags.length ? `${copy.caption}\n\n${copy.hashtags.join(" ")}` : copy.caption;
-        return { caption, bestTime: copy.bestTime, note: copy.note };
+        return { ok: true, caption, bestTime: copy.bestTime, note: copy.note };
       } catch {
-        toast.error("Couldn't tailor the caption — try again.");
-        return null;
+        return { ok: false, error: "Couldn't tailor the caption — try again." };
+      }
+    },
+    []
+  );
+
+  const tailorCaption = useCallback(
+    async (
+      clip: ReadyClip,
+      platform: PlatformId,
+      title: string
+    ): Promise<{ caption: string; bestTime?: string; note?: string } | null> => {
+      setBusy(`tailor:${clip.key}`);
+      try {
+        const result = await fetchTailoredCaption(clip, platform, title);
+        if (!result.ok) {
+          toast.error(result.error);
+          return null;
+        }
+        return result;
       } finally {
         setBusy(null);
       }
     },
-    []
+    [fetchTailoredCaption]
+  );
+
+  /**
+   * Writes a caption for every clip handed in, one after another, reporting
+   * progress as it goes. A clip whose copy fails is counted and skipped — one
+   * bad call must not cost the eleven captions behind it — and each caption is
+   * handed back the moment it lands, so the run can be watched filling in.
+   */
+  const tailorCaptionsForAll = useCallback(
+    async (
+      targets: Array<{ clip: ReadyClip; platform: PlatformId; title: string }>,
+      onCaption: (clip: ReadyClip, caption: string) => void
+    ): Promise<{ filled: number; failed: number }> => {
+      if (targets.length === 0) return { filled: 0, failed: 0 };
+      setBusy("captions-all");
+      setCaptionProgress({ done: 0, total: targets.length });
+      let filled = 0;
+      let failed = 0;
+      let firstError: string | null = null;
+      try {
+        for (const [index, target] of targets.entries()) {
+          const result = await fetchTailoredCaption(target.clip, target.platform, target.title);
+          if (!result.ok) {
+            failed += 1;
+            firstError ??= result.error;
+          } else {
+            filled += 1;
+            onCaption(target.clip, result.caption);
+          }
+          setCaptionProgress({ done: index + 1, total: targets.length });
+        }
+        if (failed === 0) {
+          toast.success(`Wrote ${filled} caption${filled === 1 ? "" : "s"}.`);
+        } else if (filled > 0) {
+          toast.warning(`Wrote ${filled} of ${targets.length} captions${firstError ? ` — ${firstError}` : "."}`);
+        } else {
+          toast.error(firstError ?? "Couldn't write any captions.");
+        }
+        return { filled, failed };
+      } finally {
+        setCaptionProgress(null);
+        setBusy(null);
+      }
+    },
+    [fetchTailoredCaption]
   );
 
   const schedule = useCallback(
@@ -1121,6 +1183,8 @@ export function useUploadingCenter(clipProjects: ClipProject[] = []) {
     renameClip,
     renameQueueItem,
     tailorCaption,
+    tailorCaptionsForAll,
+    captionProgress,
     schedule,
     uploadToSlot,
     autoAssign,
