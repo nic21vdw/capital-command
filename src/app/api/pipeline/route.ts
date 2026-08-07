@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { FFMPEG_MISSING_MESSAGE, resolveFfmpeg } from "@/lib/clipping/ffmpeg";
 import { ingestOverview } from "@/lib/ingest/service";
+import { readAppData } from "@/lib/storage/store";
 import { createRunFromSource, createRunFromUrl, listRuns, overviewContext, runOverview, updateRun } from "@/lib/pipeline/runs";
 
 export const runtime = "nodejs";
@@ -38,6 +39,20 @@ export async function GET(request: NextRequest) {
   return NextResponse.json({ runs: overviews });
 }
 
+/**
+ * The one gate on unattended booking. Read here rather than trusted from the
+ * caller: the scan is a separate process and asks for it every time.
+ */
+async function autoScheduleAllowed(): Promise<boolean> {
+  try {
+    const data = await readAppData();
+    return data.settings.autoScheduleOvernight === true;
+  } catch {
+    // Cannot read the answer — assume no. Publishing is the expensive mistake.
+    return false;
+  }
+}
+
 /** POST /api/pipeline — start a run from a VOD `url` or an uploaded `sourceId`. */
 export async function POST(request: NextRequest) {
   if (!resolveFfmpeg()) {
@@ -54,10 +69,12 @@ export async function POST(request: NextRequest) {
   const url = typeof body.url === "string" ? body.url.trim() : "";
   const sourceId = typeof body.sourceId === "string" ? body.sourceId.trim() : "";
   const name = typeof body.name === "string" ? body.name.trim() : "";
-  // An unattended run books itself. The nightly scan runs while he is asleep,
-  // so waiting for two button presses is the app doing the first nine tenths of
-  // the work and stopping. It stays opt-out from the run's Scheduler row.
-  const queueWhenReady = body.queueWhenReady === true;
+  // An unattended run can book itself — but only if he has said so. The scan
+  // asks for it on every run it starts; the answer lives in his settings, not in
+  // the request, because booking means AI-written titles and posts reaching his
+  // channel without him having read them. Off unless switched on.
+  const asked = body.queueWhenReady === true;
+  const queueWhenReady = asked && (await autoScheduleAllowed());
 
   try {
     if (sourceId) {

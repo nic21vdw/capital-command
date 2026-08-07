@@ -238,7 +238,13 @@ not already in the publish queue; `queueRunOutputs` books them.
 
 A daily scan reads the YouTube channel and runs each NEW LIVE STREAM through
 the whole Stream Pipeline unattended, stopping at "ready to schedule" — it
-never publishes. Live streams only by default (`--all` widens it to ordinary
+never publishes, UNLESS `settings.autoScheduleOvernight` is on. That one
+setting is the only thing that lets an unattended run book its outputs into
+the publish and Threads queues (which do post, at their slots, with copy he
+has not read), it is OFF unless he sets it, and the decision is made
+server-side in `POST /api/pipeline` — never taken from the request, because
+the scan asks for it every time. Any single run can still be stopped from its
+Scheduler row. Live streams only by default (`--all` widens it to ordinary
 long-form uploads). Two guards stop it re-ingesting the app's own output:
 exact provenance (`platforms.youtube.postId` in the publish queue) and a
 Shorts shape heuristic. The ledger (`data/channel-ingest.json`) records what

@@ -12,7 +12,9 @@ import path from "node:path";
  * scripts/daily-channel-scan.ps1). It reads the channel, skips anything this app
  * published, and hands each new live stream to the Stream Pipeline — which fans
  * it out into the long-form edit, clips, a podcast MP3, a carousel and text
- * posts, then stops at "ready to schedule". It never publishes.
+ * posts, then stops at "ready to schedule" — unless "Schedule what an overnight
+ * stream produces" is on in Settings, which lets the run book its own outputs
+ * into the queues that do post. Off unless set.
  *
  * The pipeline lives in the running app, so the app has to be up (see
  * pipelineClient.ts for why the scan drives it over HTTP instead of importing

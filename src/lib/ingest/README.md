@@ -6,8 +6,18 @@ Once a day it reads your own YouTube channel, finds any new live stream, and
 runs it through the Stream Pipeline — the long-form edit, clips, the podcast
 MP3, the carousel and the text posts, all of it — without being asked.
 
-**It stops at "ready to schedule".** Nothing here publishes: every output lands
-in the app for you to look at, and nothing goes out to a channel unreviewed.
+**By default it stops at "ready to schedule".** Nothing here publishes: every
+output lands in the app for you to look at, and nothing goes out to a channel
+unreviewed.
+
+**Unless you turn on "Schedule what an overnight stream produces" in Settings.**
+Then a run the scan takes in also books its videos and carousel into the upload
+queue and its Threads posts onto the autopilot queue, at future slots — and the
+publish runner posts them when those slots come, with titles and copy written by
+AI you have not read. That switch is off unless you set it, the scan asks for it
+on every run and the SERVER decides (`POST /api/pipeline` reads the setting, it
+is not taken from the request), and any single run can be stopped from its own
+Scheduler row.
 
 By default only **live streams** are taken in. That is what the scheduled run is
 for, and a stream is the thing worth fanning out into every format unattended.

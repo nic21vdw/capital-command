@@ -24,9 +24,11 @@ import { publishQueue } from "@/lib/publisher/queue";
  * Stream Pipeline and wait for it to fan out.
  *
  * The scan takes a stream all the way through the pipeline — long-form edit,
- * clips, podcast MP3, carousel, text posts — and stops at "ready to schedule".
- * It never publishes: every output lands in the app for you to look at, and
- * nothing goes out to a channel unreviewed.
+ * clips, podcast MP3, carousel, text posts — and stops at "ready to schedule"
+ * unless `settings.autoScheduleOvernight` is on, in which case the run also
+ * books its outputs into the publish and Threads queues at future slots. The
+ * scan asks for that on every run; `POST /api/pipeline` decides from the
+ * setting, so the answer is never taken from a request.
  */
 
 /**
