@@ -24,8 +24,12 @@
 
 export type RefExists = (ref: string) => Promise<boolean>;
 
-/** How many commits `to` has that `from` does not. */
-export type AheadCount = (from: string, to: string) => Promise<number>;
+/**
+ * How the two refs stand relative to each other, in one measurement:
+ * `ahead` is what `to` has that `from` does not, `behind` is the reverse.
+ * `git rev-list --left-right --count from...to` answers both at once.
+ */
+export type AheadBehind = (from: string, to: string) => Promise<{ ahead: number; behind: number }>;
 
 /**
  * Every ref worth comparing, remotes first.
@@ -49,18 +53,24 @@ export function releaseRefCandidates(remotes: string[], branch: string): string[
 }
 
 /**
- * The candidate that contains the most, or null when none of them resolve.
+ * The candidate that carries the most work, or null when none of them resolve.
  *
- * A candidate only displaces the current best when it is STRICTLY ahead of it,
- * so equal refs keep the earlier one and the order above decides ties. A
- * comparison that cannot be made — unrelated histories, a ref that vanished
- * between resolving and counting — leaves the best where it is rather than
- * taking the newcomer on faith.
+ * "Ahead" alone is not the test, and getting that wrong is not theoretical: the
+ * two remotes here DIVERGE routinely — GitHub collects merged pull requests
+ * while the release pushes its changelog commit to the backup — so both sides
+ * hold commits the other lacks. A rule that swapped on any unique commit
+ * picked whichever was compared last, and the app reported "up to date" with
+ * five merged pull requests sitting on GitHub.
+ *
+ * So a candidate must carry MORE unique work than the best so far. That one
+ * comparison covers every case: strictly ahead wins, strictly behind loses,
+ * equal keeps the earlier candidate, and a genuine fork goes to whichever side
+ * has more on it.
  */
 export async function pickMostAdvanced(
   candidates: string[],
   exists: RefExists,
-  aheadCount: AheadCount
+  compare: AheadBehind
 ): Promise<string | null> {
   let best: string | null = null;
 
@@ -71,9 +81,11 @@ export async function pickMostAdvanced(
       continue;
     }
     try {
-      if ((await aheadCount(best, candidate)) > 0) best = candidate;
+      const { ahead, behind } = await compare(best, candidate);
+      if (ahead > behind) best = candidate;
     } catch {
-      // Keep what we have.
+      // A comparison that cannot be made leaves the best where it is, rather
+      // than taking the newcomer on faith.
     }
   }
 

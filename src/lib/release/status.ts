@@ -83,7 +83,13 @@ async function resolveLatestRef(root: string, remotes: string[]): Promise<string
   return pickMostAdvanced(
     releaseRefCandidates(remotes, RELEASE_BRANCH),
     (ref) => resolves(root, ref),
-    async (from, to) => Number(await git(root, ["rev-list", "--count", `${from}..${to}`]))
+    async (from, to) => {
+      // One measurement, both directions: --left-right prints "<behind>	<ahead>"
+      // for from...to, which is what tells a fast-forward from a genuine fork.
+      const out = await git(root, ["rev-list", "--left-right", "--count", `${from}...${to}`]);
+      const [behind, ahead] = out.split(/\s+/).map(Number);
+      return { ahead: ahead || 0, behind: behind || 0 };
+    }
   );
 }
 
