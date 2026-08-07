@@ -135,6 +135,12 @@ export interface UserProfile {
 
 export interface Settings {
   currency: "CAD" | "USD";
+  /**
+   * Let a stream the nightly scan takes in book itself into the publish queue
+   * and the Threads queue unattended. Off unless he turns it on — see
+   * `src/lib/ingest/README.md`.
+   */
+  autoScheduleOvernight?: boolean;
   /** Active full theme preset (sets background, surfaces, text, and accent together). */
   themePreset?: ThemePreset;
   profile?: UserProfile;

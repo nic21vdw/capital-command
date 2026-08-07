@@ -14,6 +14,12 @@ already shipped.
 
 ## Unreleased
 
+- **Overnight scheduling is now yours to switch on, and it is off.** A stream
+  taken in overnight was booking itself into the upload and Threads queues —
+  which post at their slots, with titles and copy written by AI you had not
+  read. Settings has one switch for it; with it off the scan does everything
+  else and leaves the scheduling to you, which is what the docs always said.
+
 - **A channel scan that fails overnight finally tells you.** The nightly scan
   runs as its own process, so nothing it did survived into the app — a failed
   scan, a disconnected channel or a token that needs reconnecting was silent

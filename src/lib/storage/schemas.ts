@@ -87,6 +87,14 @@ export const defaultBrandAssets = brandAssetsSchema.parse({});
 
 export const settingsSchema = z.object({
   currency: z.enum(["CAD", "USD"]),
+  /**
+   * Whether a stream the nightly scan takes in may book itself into the publish
+   * queue and the Threads queue while nobody is watching. OFF unless he says
+   * otherwise: everything else in this app stops at "ready to schedule", and
+   * booking a run means AI-written titles and posts can reach his channel
+   * without him having read them.
+   */
+  autoScheduleOvernight: z.coerce.boolean().optional(),
   // Unknown/legacy values (e.g. old accent ids) gracefully fall back to undefined,
   // and the UI resolves that to the default preset at runtime.
   themePreset: z.enum(["slate", "midnight", "graphite", "forest", "dracula", "paper", "arctic"]).optional().catch(undefined),

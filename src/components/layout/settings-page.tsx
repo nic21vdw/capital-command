@@ -42,6 +42,38 @@ export function SettingsPage() {
           </div>
         </Card>
         <Card>
+          <h2 className="text-lg font-semibold text-white">Overnight posting</h2>
+          <p className="mt-2 text-sm text-[var(--muted-foreground)]">
+            The nightly channel scan turns every new stream into clips, a long-form edit, a podcast episode, a carousel
+            and text posts on its own. This decides whether it also SCHEDULES them — into the upload queue and the
+            Threads queue — while you are asleep, with titles and copy written by AI that you have not read yet.
+          </p>
+          <label className="mt-4 flex items-start gap-2.5 text-sm text-white/90">
+            <input
+              type="checkbox"
+              checked={data.settings.autoScheduleOvernight === true}
+              onChange={(event) =>
+                void mutate(
+                  "updateSettings",
+                  { ...data.settings, autoScheduleOvernight: event.target.checked },
+                  {
+                    successMessage: event.target.checked
+                      ? "Overnight runs will schedule themselves."
+                      : "Overnight runs will stop at ready to schedule."
+                  }
+                )
+              }
+              className="mt-0.5 h-4 w-4 shrink-0 accent-[var(--accent)]"
+            />
+            <span>
+              Schedule what an overnight stream produces
+              <span className="mt-1 block text-xs text-[var(--muted-foreground)]">
+                Off: everything is made and waits for you on the Stream Pipeline. Nothing reaches a channel unread.
+              </span>
+            </span>
+          </label>
+        </Card>
+        <Card>
           <h2 className="text-lg font-semibold text-white">Market data</h2>
           <div className="mt-4 space-y-4">
             <div className="flex items-center justify-between rounded-lg border border-[var(--border)] bg-[var(--surface-2)] p-4">
