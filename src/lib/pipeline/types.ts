@@ -46,6 +46,12 @@ export type PipelineRun = {
   /** Whether the topic-segment plan has been attempted from the full transcript. */
   segmentsPlanned?: boolean;
   /**
+   * Render every planned topic segment, not just the one asked for. The export
+   * engine takes one render at a time, so this is a standing instruction the
+   * advance loop drains rather than a batch anyone waits on.
+   */
+  renderAllSegments?: boolean;
+  /**
    * Consecutive failures per advance step, so a step that can never succeed
    * (a source that is gone) stops reading as "working…" forever.
    */

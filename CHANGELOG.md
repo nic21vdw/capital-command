@@ -14,6 +14,16 @@ already shipped.
 
 ## Unreleased
 
+- **"Render all segments" is one click, not one per segment.** The run keeps
+  rendering the next topic segment as each one finishes — with the app closed —
+  instead of waiting for you to come back and press it again.
+- **The overnight report counts the topic segments.** It said "ready to
+  schedule" while five ten-minute videos still needed a click; it now says how
+  many of them are rendered, and whether the podcast episode went out.
+- **Podcast episodes get real show notes.** The unattended pipeline published
+  the episode described by the raw stream name; it now writes the description
+  first, and falls back to the name only if that fails.
+
 - **You can add an episode to the podcast feed yourself.** The Podcast page now
   lists every finished long-form export and publishes the one you pick — cutting
   the MP3 first if it hasn't been cut, and writing real show notes instead of the

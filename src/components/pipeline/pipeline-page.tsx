@@ -497,7 +497,7 @@ export function PipelinePage() {
    * the fresh overview, so the row updates now instead of on the next poll.
    */
   const startAgain = useCallback(
-    async (runId: string, body: { stage: string } | { action: "segment" | "retry-all" }, pendingKey: string) => {
+    async (runId: string, body: { stage: string } | { action: "segment" | "segments-all" | "retry-all" }, pendingKey: string) => {
       setWorking(pendingKey);
       try {
         const response = await fetch(`/api/pipeline/${runId}`, {
@@ -781,19 +781,34 @@ export function PipelinePage() {
       children: (
         <div className="mt-3 flex flex-wrap items-center gap-2">
           {run && segmentsPending > 0 ? (
-            <Button
-              variant="secondary"
-              disabled={working === "segment"}
-              onClick={() => void startAgain(run.id, { action: "segment" }, "segment")}
-              className="px-3 py-1.5 text-xs"
-            >
-              {working === "segment" ? (
-                <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
-              ) : (
-                <Layers className="mr-1.5 h-3.5 w-3.5" />
-              )}
-              Render next segment
-            </Button>
+            <>
+              {/* Rendering five ten-minute videos is hours of encoding, so it
+                  stays opt-in — but it should be ONE opt-in, not one per
+                  segment with a wait in between. */}
+              <Button
+                disabled={working === "segments-all" || run.renderAllSegments === true}
+                onClick={() => void startAgain(run.id, { action: "segments-all" }, "segments-all")}
+                className="px-3 py-1.5 text-xs"
+              >
+                {working === "segments-all" ? (
+                  <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <Layers className="mr-1.5 h-3.5 w-3.5" />
+                )}
+                {run.renderAllSegments
+                  ? `Rendering all ${segmentsPending} — one at a time`
+                  : `Render all ${segmentsPending} segments`}
+              </Button>
+              <Button
+                variant="secondary"
+                disabled={working === "segment"}
+                onClick={() => void startAgain(run.id, { action: "segment" }, "segment")}
+                className="px-3 py-1.5 text-xs"
+              >
+                {working === "segment" ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : null}
+                Just the next one
+              </Button>
+            </>
           ) : null}
           <Link href={longformHref}>
             <Button variant="secondary" className="px-3 py-1.5 text-xs">

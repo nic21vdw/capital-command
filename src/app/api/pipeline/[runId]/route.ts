@@ -58,11 +58,14 @@ export async function POST(request: NextRequest, { params }: Params) {
     }
   }
 
-  if (action === "segment") {
-    const result = await renderNextSegment(runId);
+  if (action === "segment" || action === "segments-all") {
+    const all = action === "segments-all";
+    const result = await renderNextSegment(runId, all);
     if (!result.ok) return NextResponse.json({ error: result.error }, { status: 409 });
     return NextResponse.json({
-      detail: `Rendering "${result.title}"${result.remaining > 0 ? ` · ${result.remaining} still to render` : ""}.`,
+      detail: all
+        ? `Rendering all of them, one at a time — ${result.remaining + 1} to go.`
+        : `Rendering "${result.title}"${result.remaining > 0 ? ` · ${result.remaining} still to render` : ""}.`,
       overview: await runOverview(run)
     });
   }

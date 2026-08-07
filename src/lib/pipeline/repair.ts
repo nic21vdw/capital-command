@@ -2,6 +2,7 @@ import { retryMissingRenders } from "@/lib/clipping/jobs";
 import { isExportRendering, startLongformExport } from "@/lib/longform/render";
 import { getProject, updateProject } from "@/lib/longform/store";
 import { advanceRun, getRun, updateRun } from "@/lib/pipeline/runs";
+import { nextSegmentToRender, segmentsRemaining } from "@/lib/pipeline/segments";
 import type { RepairableStage } from "@/lib/pipeline/repairable";
 import type { PipelineRun } from "@/lib/pipeline/types";
 
@@ -127,8 +128,9 @@ export async function repairRun(runId: string, stage: RepairableStage): Promise<
  * render at a time, so this is deliberately one call per segment.
  */
 export async function renderNextSegment(
-  runId: string
-): Promise<{ ok: true; title: string; remaining: number } | { ok: false; error: string }> {
+  runId: string,
+  all = false
+): Promise<{ ok: true; title: string; remaining: number; queued?: boolean } | { ok: false; error: string }> {
   const run = await getRun(runId);
   if (!run) return { ok: false, error: `No pipeline run called ${runId}.` };
   if (!run.longformProjectId) return { ok: false, error: "This run has no long-form project." };
@@ -136,17 +138,20 @@ export async function renderNextSegment(
   if (!project) return { ok: false, error: "The long-form project is gone — it may have been deleted." };
   const topics = project.topics ?? [];
   if (topics.length === 0) return { ok: false, error: "This stream has no topic segments planned." };
-  if (project.exports.some((record) => record.status === "processing")) {
+  const remaining = segmentsRemaining(project);
+  if (remaining === 0) return { ok: false, error: "Every topic segment has already been rendered." };
+
+  // "All of them" is a standing instruction on the run, not a batch this
+  // request waits on: the export engine renders one at a time, and the advance
+  // loop starts the next one as each finishes — with the app closed if need be.
+  if (all) await updateRun(run, { renderAllSegments: true });
+
+  const next = nextSegmentToRender(project);
+  if (!next) {
+    if (all) return { ok: true, title: "the rest of the segments", remaining: remaining - 1, queued: true };
     return { ok: false, error: "Another export is already rendering — segments render one at a time." };
   }
-
-  const pending = topics.filter(
-    (topic) => !project.exports.some((record) => record.topicId === topic.id && record.status === "done" && record.file)
-  );
-  if (pending.length === 0) return { ok: false, error: "Every topic segment has already been rendered." };
-
-  const next = pending[0];
   await startLongformExport(project, { topicId: next.id });
-  return { ok: true, title: next.title, remaining: pending.length - 1 };
+  return { ok: true, title: next.title, remaining: remaining - 1, queued: all };
 }
 

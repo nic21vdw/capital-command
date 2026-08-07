@@ -8,8 +8,10 @@ import type { ClipJob } from "@/lib/clipping/types";
 import { isExportRendering, startLongformExport } from "@/lib/longform/render";
 import { createProject, getProject, planProjectTopics, projectOutputDir, updateProject } from "@/lib/longform/store";
 import type { LongformProject } from "@/lib/longform/types";
+import { generateLongformMetadata, longformMetadataConfigured } from "@/lib/longform/metadata";
 import { generatePipelinePosts } from "@/lib/pipeline/posts";
 import { repairableStages } from "@/lib/pipeline/repairable";
+import { nextSegmentToRender, segmentsRemaining } from "@/lib/pipeline/segments";
 import { podcastConfigured, publishEpisode } from "@/lib/podcast/publish";
 import {
   MIN_SPEECH_WORDS,
@@ -363,10 +365,25 @@ export async function advanceRun(run: PipelineRun): Promise<void> {
       });
     } else {
       void step(run, "podcast", async () => {
+        // Show notes, before the episode goes in the feed. Publishing first and
+        // describing later is why episodes shipped described by the raw stream
+        // name — a feed is read once and cached, so the description has to be
+        // right the first time. A failure here is not a reason to skip the
+        // episode: it falls back to the name, exactly as before.
+        const metadata =
+          project.metadata ??
+          (longformMetadataConfigured()
+            ? await generateLongformMetadata(project)
+                .then(async (written) => {
+                  await updateProject(project.id, { metadata: written });
+                  return written;
+                })
+                .catch(() => undefined)
+            : undefined);
         const { episode } = await publishEpisode({
           filePath: path.join(projectOutputDir(project.id), exportRecord.audioFile!),
-          title: exportRecord.title ?? project.metadata?.titles[0] ?? run.name,
-          description: project.metadata?.description ?? run.name,
+          title: exportRecord.title ?? metadata?.titles[0] ?? run.name,
+          description: metadata?.description ?? run.name,
           durationSec: exportRecord.durationSec ?? run.durationSec ?? 0,
           runId: run.id,
           projectId: project.id,
@@ -394,6 +411,23 @@ export async function advanceRun(run: PipelineRun): Promise<void> {
       await planProjectTopics(project.id);
       await update(run, { segmentsPlanned: true });
     });
+  }
+
+  // "Render them all" is drained here rather than by whoever pressed the
+  // button: the export engine takes one render at a time, so each finished
+  // segment lets the next one start on the next poll, with the app closed or
+  // open. The flag clears itself when there is nothing left.
+  if (project && run.renderAllSegments) {
+    if (segmentsRemaining(project) === 0) {
+      await update(run, { renderAllSegments: undefined });
+    } else {
+      const next = nextSegmentToRender(project);
+      if (next) {
+        void step(run, `segment:${next.id}`, async () => {
+          await startLongformExport(project, { topicId: next.id });
+        });
+      }
+    }
   }
 
   // Transcript ready → write the carousel images copy from it. `carouselNote`
