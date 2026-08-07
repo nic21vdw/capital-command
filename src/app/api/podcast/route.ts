@@ -6,22 +6,33 @@ import type { LongformProject } from "@/lib/longform/types";
 import { episodeCandidates } from "@/lib/podcast/candidates";
 import { feedBlockers } from "@/lib/podcast/feed";
 import { feedUrl, podcastConfigured, publishEpisode, refreshFeed } from "@/lib/podcast/publish";
+import { checkPublicBaseUrl, writePublicBaseUrl } from "@/lib/podcast/publicUrl";
 import { readPodcastState, removeEpisode, updateShow } from "@/lib/podcast/store";
 import type { PodcastShow } from "@/lib/podcast/types";
+import { hostingConfigured, publisherConfig } from "@/lib/publisher/config";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-async function payload() {
+async function payload(feedWarning?: string) {
   const state = await readPodcastState();
-  const configured = podcastConfigured();
+  const config = publisherConfig();
+  const configured = podcastConfigured(config);
   return NextResponse.json({
     show: state.show,
     episodes: state.episodes,
     configured,
-    feedUrl: feedUrl(),
-    blockers: feedBlockers(state.show, state.episodes, { hosted: configured }),
-    candidates: episodeCandidates(await listProjects(), state.episodes)
+    feedUrl: feedUrl(config),
+    // A public bucket address, never a credential — it is printed in the feed
+    // every listener reads.
+    publicBaseUrl: config.s3.publicBaseUrl,
+    bucketConnected: hostingConfigured(config),
+    blockers: feedBlockers(state.show, state.episodes, {
+      hosted: configured,
+      bucketConnected: hostingConfigured(config)
+    }),
+    candidates: episodeCandidates(await listProjects(), state.episodes),
+    feedWarning
   });
 }
 
@@ -74,6 +85,25 @@ export async function POST(request: NextRequest) {
       // hosting is set up should still keep the details.
       if (podcastConfigured()) await refreshFeed(state);
       return payload();
+    }
+
+    if (action === "set-public-url") {
+      const check = checkPublicBaseUrl(String(body.url ?? ""));
+      if (!check.ok) return NextResponse.json({ error: check.problem }, { status: 400 });
+      await writePublicBaseUrl(check.url);
+      // The address is stored either way; a bucket that rejects the write is a
+      // separate thing to fix and is reported rather than losing the setting.
+      let warning: string | undefined;
+      if (podcastConfigured()) {
+        try {
+          await refreshFeed();
+        } catch (error) {
+          warning = `The address was saved, but the feed could not be written to the bucket: ${
+            error instanceof Error ? error.message : String(error)
+          }`;
+        }
+      }
+      return payload(warning);
     }
 
     if (action === "refresh") {
