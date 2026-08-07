@@ -10,6 +10,7 @@ import {
   Radio,
   SendHorizonal,
   ShieldCheck,
+  ShieldAlert,
   Sparkles,
   Square,
   Unlock,
@@ -17,9 +18,11 @@ import {
   VolumeX
 } from "lucide-react";
 import { toast } from "sonner";
+import { BAR_STORAGE_KEY, READ_ONLY_GRANT, packBar, shieldView, unpackBar } from "@/lib/voice/bar";
+import type { GrantView, SavedBar, TranscriptLine, TranscriptMessage } from "@/lib/voice/bar";
 import { cn } from "@/lib/utils";
 
-type Line = { id: string; role: "user" | "assistant"; text: string; tools: string[]; opened?: string };
+type Line = TranscriptLine;
 type ToolRun = { name: string; result: { ok?: boolean; href?: string; label?: string } };
 
 type SpeechRecognitionEventLike = Event & {
@@ -50,26 +53,94 @@ function speechRecognitionConstructor(): SpeechRecognitionConstructor | null {
 }
 
 /**
+ * Read on the client only. An update lands and `release-provider` reloads the
+ * page under him mid-conversation, so what was said is kept out of component
+ * state; the server is still asked whether the grant it names is real.
+ */
+function restoreBar(): SavedBar {
+  if (typeof window === "undefined") return { lines: [], history: [], grantId: null };
+  try {
+    return unpackBar(window.sessionStorage.getItem(BAR_STORAGE_KEY));
+  } catch {
+    return { lines: [], history: [], grantId: null };
+  }
+}
+
+/**
  * The orchestrator, on every screen. Type or say what you want done; it runs
  * the same allowlisted tools the agents page does, and when it opens a screen
  * this is what actually moves the browser — a tool can only say where to go.
  */
 export function CommandBar() {
   const router = useRouter();
+  const [restored] = useState(restoreBar);
   const [value, setValue] = useState("");
-  const [lines, setLines] = useState<Line[]>([]);
+  const [lines, setLines] = useState<Line[]>(restored.lines);
   const [queued, setQueued] = useState<string[]>([]);
   const [open, setOpen] = useState(false);
   const [thinking, setThinking] = useState(false);
   const [listening, setListening] = useState(false);
   const [speakReplies, setSpeakReplies] = useState(false);
-  const [allowActions, setAllowActions] = useState(false);
-  const [grantId, setGrantId] = useState<string | null>(null);
+  const [grant, setGrant] = useState<GrantView>(READ_ONLY_GRANT);
+  const [grantId, setGrantId] = useState<string | null>(restored.grantId);
 
   const inputRef = useRef<HTMLInputElement | null>(null);
   const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
   const abortRef = useRef<AbortController | null>(null);
-  const historyRef = useRef<Array<{ role: "user" | "assistant"; content: string }>>([]);
+  const historyRef = useRef<TranscriptMessage[]>(restored.history);
+
+  const shield = shieldView(grant);
+
+  // The grant the tools actually check lives on the server and lapses after an
+  // hour. Anything that hears back from the server says so here, so the bar
+  // never claims a power it no longer has.
+  const applyGrant = useCallback((view: GrantView | undefined) => {
+    if (!view) return;
+    setGrant(view);
+    if (!view.armed) setGrantId(null);
+  }, []);
+
+  const checkGrant = useCallback(async () => {
+    if (!grantId) return;
+    try {
+      const response = await fetch(`/api/voice/ask?grantId=${encodeURIComponent(grantId)}`);
+      const data = (await response.json()) as { grant?: GrantView };
+      applyGrant(data.grant);
+    } catch {
+      // A failed check is not evidence the grant lapsed; leave the bar as it is.
+    }
+  }, [applyGrant, grantId]);
+
+  useEffect(() => {
+    queueMicrotask(() => void checkGrant());
+    const onFocus = () => void checkGrant();
+    const onVisible = () => document.visibilityState === "visible" && void checkGrant();
+    window.addEventListener("focus", onFocus);
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      window.removeEventListener("focus", onFocus);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
+  }, [checkGrant]);
+
+  // Nothing has to be in focus for an hour to pass, so the bar expires itself
+  // on the server's clock rather than waiting to be asked.
+  useEffect(() => {
+    if (!grant.armed || !grant.expiresAt) return;
+    const timer = window.setTimeout(
+      () => setGrant({ armed: false, expired: true, expiresAt: null }),
+      Math.max(0, grant.expiresAt - Date.now())
+    );
+    return () => window.clearTimeout(timer);
+  }, [grant.armed, grant.expiresAt]);
+
+  useEffect(() => {
+    try {
+      window.sessionStorage.setItem(BAR_STORAGE_KEY, packBar({ lines, history: historyRef.current, grantId }));
+    } catch {
+      // Private mode or a full quota — losing the transcript is not worth a throw.
+    }
+  }, [lines, grantId]);
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
@@ -114,7 +185,11 @@ export function CommandBar() {
           signal: controller.signal,
           body: JSON.stringify({ utterance: text, grantId: grantId ?? undefined, history: historyRef.current.slice(-6) })
         });
-        const data = (await response.json()) as { reply?: string; toolRuns?: ToolRun[]; error?: string };
+        const data = (await response.json()) as { reply?: string; toolRuns?: ToolRun[]; error?: string; grant?: GrantView };
+        if (data.grant) {
+          applyGrant(data.grant);
+          if (data.grant.expired) toast.warning("Arming had lapsed, so that ran read-only. Click Arming expired to arm it again.");
+        }
         if (!response.ok || !data.reply) throw new Error(data.error ?? "No answer came back.");
 
         const runs = data.toolRuns ?? [];
@@ -153,7 +228,7 @@ export function CommandBar() {
         setThinking(false);
       }
     },
-    [grantId, router, speak]
+    [applyGrant, grantId, router, speak]
   );
 
   // A queued line goes the moment the current one lands, so you can keep
@@ -220,19 +295,19 @@ export function CommandBar() {
   };
 
   async function toggleActions() {
-    if (allowActions) {
-      setAllowActions(false);
+    if (grant.armed) {
+      setGrant(READ_ONLY_GRANT);
       setGrantId(null);
       return;
     }
     const response = await fetch("/api/voice/ask", { method: "PUT" });
-    const data = (await response.json()) as { grantId?: string };
+    const data = (await response.json()) as { grantId?: string; expiresAt?: number };
     if (!data.grantId) {
       toast.error("Could not arm actions.");
       return;
     }
     setGrantId(data.grantId);
-    setAllowActions(true);
+    setGrant({ armed: true, expired: false, expiresAt: data.expiresAt ?? null });
   }
 
   return (
@@ -331,16 +406,22 @@ export function CommandBar() {
           <button
             type="button"
             onClick={() => void toggleActions()}
-            title={allowActions ? "It can start work. Click for read-only." : "It can look but not act. Click to let it act."}
+            title={shield.title}
             className={cn(
               "flex shrink-0 items-center gap-1.5 rounded-lg border px-2 py-1.5 text-xs transition",
-              allowActions
-                ? "border-amber-400/40 bg-amber-400/10 text-amber-200"
-                : "border-[var(--border)] text-[var(--muted-foreground)] hover:text-white"
+              shield.tone === "armed" && "border-amber-400/40 bg-amber-400/10 text-amber-200",
+              shield.tone === "expired" && "border-red-400/50 bg-red-400/10 text-red-200 hover:bg-red-400/20",
+              shield.tone === "read-only" && "border-[var(--border)] text-[var(--muted-foreground)] hover:text-white"
             )}
           >
-            {allowActions ? <Unlock className="h-3.5 w-3.5" /> : <ShieldCheck className="h-3.5 w-3.5" />}
-            {allowActions ? "Can act" : "Read-only"}
+            {shield.tone === "armed" ? (
+              <Unlock className="h-3.5 w-3.5" />
+            ) : shield.tone === "expired" ? (
+              <ShieldAlert className="h-3.5 w-3.5" />
+            ) : (
+              <ShieldCheck className="h-3.5 w-3.5" />
+            )}
+            {shield.label}
           </button>
 
           <button
