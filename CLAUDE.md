@@ -17,13 +17,14 @@ itself.
   stale. `status.ts` compares `.next/BUILD_COMMIT`, not `HEAD`.
 - Only the production checkout on `main` may release, and `POST /api/update`
   re-checks that itself — the UI hiding a button is not the gate.
-- KEEP `.next/cache`. `prepare-dev-cache.mjs` relocates the build out of the
-  OneDrive folder and clears it, but it must skip `cache` — that is Next's
-  incremental compile cache, and wiping it made every release a cold nine
-  minute build instead of about ninety seconds. The app is down for the whole
-  build, and nine minutes is long enough for a scheduled task to find nothing
-  on port 3000, start a second server, and leave two builds writing the same
-  `.next` — which fails with `Cannot find module './<chunk>.js'`.
+- CLEAR `.next/cache` with the rest. Keeping Next's incremental compile cache
+  looks like free speed — a warm build is ninety seconds against nine minutes
+  cold — but a warm build against the RELOCATED `.next` (reached through a
+  junction, because OneDrive locks build output) fails in `Collecting page
+  data` with `Cannot find module for page: /_document` or a missing webpack
+  chunk. `start-server.ps1` then clears it and rebuilds cold anyway, so keeping
+  it buys a failed build on top of the cold one. Measured twice. A sandbox
+  worktree is not evidence here — it is outside OneDrive and builds in place.
 - No validation is duplicated in TypeScript. `update-app.ps1` refuses a dirty
   or ahead checkout and backs out a conflicting merge; a second copy of those
   rules here would only go stale.
