@@ -55,7 +55,11 @@ export type ScanCandidate = {
 export type IngestOutputs = {
   clipsReady: number;
   longformReady: boolean;
+  /** Subjects the stream split into. Each is a separate video, rendered on demand. */
+  segments: number;
+  segmentsRendered: number;
   audioReady: boolean;
+  podcastPublished: boolean;
   carouselSlides: number;
   posts: number;
 };

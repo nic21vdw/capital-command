@@ -1,4 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
+import { planRunOutputs, queueRunOutputs } from "@/lib/pipeline/queueOutputs";
+import { queueRunPosts } from "@/lib/pipeline/queuePosts";
 import { renderNextSegment, repairRun } from "@/lib/pipeline/repair";
 import { isRepairableStage } from "@/lib/pipeline/repairable";
 import { deleteRun, getRun, runOverview } from "@/lib/pipeline/runs";
@@ -32,11 +34,56 @@ export async function POST(request: NextRequest, { params }: Params) {
   const stage = typeof body?.stage === "string" ? body.stage : "";
   const action = typeof body?.action === "string" ? body.action : "";
 
-  if (action === "segment") {
-    const result = await renderNextSegment(runId);
+  // What would be booked, and what is already booked — read before confirming.
+  if (action === "plan-queue") {
+    const plan = await planRunOutputs(runId);
+    if (!plan) return NextResponse.json({ error: "Run not found." }, { status: 404 });
+    return NextResponse.json({ plan });
+  }
+
+  if (action === "queue-all") {
+    const ids = Array.isArray((body as { ids?: unknown })?.ids)
+      ? ((body as { ids: unknown[] }).ids.filter((id) => typeof id === "string") as string[])
+      : undefined;
+    try {
+      const result = await queueRunOutputs(runId, ids);
+      const detail = `${result.queued.length} scheduled${
+        result.failed.length > 0 ? ` · ${result.failed.length} could not be` : ""
+      }.`;
+      return NextResponse.json({ detail, ...result, overview: await runOverview(run) });
+    } catch (error) {
+      return NextResponse.json(
+        { error: error instanceof Error ? error.message : "Nothing could be scheduled." },
+        { status: 409 }
+      );
+    }
+  }
+
+  if (action === "queue-posts") {
+    try {
+      const result = await queueRunPosts(runId);
+      return NextResponse.json({
+        detail: `${result.scheduled} post${result.scheduled === 1 ? "" : "s"} scheduled${
+          result.note ? ` · ${result.note}` : ""
+        }.`,
+        overview: await runOverview(run)
+      });
+    } catch (error) {
+      return NextResponse.json(
+        { error: error instanceof Error ? error.message : "Those posts could not be scheduled." },
+        { status: 409 }
+      );
+    }
+  }
+
+  if (action === "segment" || action === "segments-all") {
+    const all = action === "segments-all";
+    const result = await renderNextSegment(runId, all);
     if (!result.ok) return NextResponse.json({ error: result.error }, { status: 409 });
     return NextResponse.json({
-      detail: `Rendering "${result.title}"${result.remaining > 0 ? ` · ${result.remaining} still to render` : ""}.`,
+      detail: all
+        ? `Rendering all of them, one at a time — ${result.remaining + 1} to go.`
+        : `Rendering "${result.title}"${result.remaining > 0 ? ` · ${result.remaining} still to render` : ""}.`,
       overview: await runOverview(run)
     });
   }

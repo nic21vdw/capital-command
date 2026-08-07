@@ -2,6 +2,7 @@ import { execFile } from "node:child_process";
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { promisify } from "node:util";
+import { pickMostAdvanced, releaseRefCandidates } from "@/lib/release/refs";
 import {
   PRODUCTION_BRANCH,
   RELEASE_BRANCH,
@@ -46,31 +47,50 @@ async function resolves(root: string, ref: string): Promise<boolean> {
   }
 }
 
-/**
- * What the running build is measured against.
- *
- * GitHub is a copy, not the source. Sandbox worktrees share this repository,
- * so work merged in one is in this .git before anything is uploaded — and
- * `update-app.ps1` will build exactly that. Watching only `origin/main` meant a
- * merge the app could already see and release reported as "up to date" for as
- * long as the upload was failing, which is precisely when someone is staring at
- * the banner wondering whether the update works at all.
- *
- * So: the remote ref when it is ahead, the local branch when it is.
- */
-async function resolveLatestRef(root: string): Promise<string | null> {
-  const remote = `origin/${RELEASE_BRANCH}`;
-  const [hasRemote, hasLocal] = await Promise.all([resolves(root, remote), resolves(root, RELEASE_BRANCH)]);
-
-  if (!hasRemote) return hasLocal ? RELEASE_BRANCH : null;
-  if (!hasLocal) return remote;
-
+/** Every remote this checkout has, in the order git lists them. */
+async function listRemotes(root: string): Promise<string[]> {
   try {
-    const ahead = await git(root, ["rev-list", "--count", `${remote}..${RELEASE_BRANCH}`]);
-    return Number(ahead) > 0 ? RELEASE_BRANCH : remote;
+    const out = await git(root, ["remote"]);
+    return out
+      .split("\n")
+      .map((line) => line.trim())
+      .filter(Boolean);
   } catch {
-    return remote;
+    return [];
   }
+}
+
+/**
+ * Bring every remote's copy of the release branch up to date, best effort.
+ *
+ * They are fetched together because one of them is a folder on this disk and
+ * the other is over the network — waiting for the slow one to start the fast
+ * one would double the cost of a check that already runs on a timer. None of
+ * them may fail the check: an offline machine reports "up to date as far as it
+ * can tell", which is the honest answer.
+ */
+async function fetchAll(root: string, remotes: string[]): Promise<void> {
+  await Promise.allSettled(
+    remotes.map((remote) => git(root, ["fetch", remote, RELEASE_BRANCH, "--quiet"], 25_000))
+  );
+}
+
+/**
+ * What the running build is measured against: whichever copy of the release
+ * branch contains the most. See `refs.ts` for why there is more than one.
+ */
+async function resolveLatestRef(root: string, remotes: string[]): Promise<string | null> {
+  return pickMostAdvanced(
+    releaseRefCandidates(remotes, RELEASE_BRANCH),
+    (ref) => resolves(root, ref),
+    async (from, to) => {
+      // One measurement, both directions: --left-right prints "<behind>	<ahead>"
+      // for from...to, which is what tells a fast-forward from a genuine fork.
+      const out = await git(root, ["rev-list", "--left-right", "--count", `${from}...${to}`]);
+      const [behind, ahead] = out.split(/\s+/).map(Number);
+      return { ahead: ahead || 0, behind: behind || 0 };
+    }
+  );
 }
 
 export async function readReleaseStatus(root = process.cwd()): Promise<ReleaseStatus> {
@@ -106,16 +126,10 @@ export async function readReleaseStatus(root = process.cwd()): Promise<ReleaseSt
 
   if (!status.releasable) return status;
 
-  // Best effort: an offline machine should report "up to date as far as it can
-  // tell" rather than an error banner, so a failed fetch falls through to the
-  // refs already here.
-  try {
-    await git(root, ["fetch", "origin", RELEASE_BRANCH, "--quiet"], 25_000);
-  } catch {
-    // Keep going with whatever origin/main was last known to be.
-  }
+  const remotes = await listRemotes(root);
+  await fetchAll(root, remotes);
 
-  const ref = await resolveLatestRef(root);
+  const ref = await resolveLatestRef(root, remotes);
   if (!ref) {
     status.error = `There is no ${RELEASE_BRANCH} branch here to compare against.`;
     return status;

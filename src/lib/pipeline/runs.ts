@@ -8,8 +8,10 @@ import type { ClipJob } from "@/lib/clipping/types";
 import { isExportRendering, startLongformExport } from "@/lib/longform/render";
 import { createProject, getProject, planProjectTopics, projectOutputDir, updateProject } from "@/lib/longform/store";
 import type { LongformProject } from "@/lib/longform/types";
+import { generateLongformMetadata, longformMetadataConfigured } from "@/lib/longform/metadata";
 import { generatePipelinePosts } from "@/lib/pipeline/posts";
 import { repairableStages } from "@/lib/pipeline/repairable";
+import { nextSegmentToRender, segmentsRemaining } from "@/lib/pipeline/segments";
 import { podcastConfigured, publishEpisode } from "@/lib/podcast/publish";
 import {
   MIN_SPEECH_WORDS,
@@ -243,17 +245,32 @@ async function step(
   inflight.add(guard);
   try {
     await work();
+    // A step that finally worked is not a stuck one. Clearing the count here
+    // (rather than in each caller) keeps the marker honest for free.
+    if (run.failures?.[key]) {
+      const { [key]: _cleared, ...rest } = run.failures;
+      run.failures = rest;
+      await persistRuns();
+    }
   } catch (error) {
     const message = noticeText(error instanceof Error ? error.message : String(error));
     if (!run.notices.includes(message)) {
       run.notices.push(message);
       if (run.notices.length > MAX_NOTICES) run.notices.splice(0, run.notices.length - MAX_NOTICES);
     }
+    run.failures = { ...run.failures, [key]: (run.failures?.[key] ?? 0) + 1 };
     if (onError) await onError(message);
     await persistRuns();
   } finally {
     inflight.delete(guard);
   }
+}
+
+/** A step that has failed this many times in a row is not going to work. */
+const GIVE_UP_AFTER = 3;
+
+function stuck(run: PipelineRun, key: string): boolean {
+  return (run.failures?.[key] ?? 0) >= GIVE_UP_AFTER;
 }
 
 /**
@@ -268,13 +285,15 @@ export async function advanceRun(run: PipelineRun): Promise<void> {
 
   // Fan out both editors from the shared source. Cheap (they background their
   // own work), so these are awaited to get ids into the run record early.
-  if (!run.longformProjectId) {
+  // Stop hammering a step that has failed the same way three times — the stage
+  // reports it as broken and a retry clears the count.
+  if (!run.longformProjectId && !stuck(run, "longform")) {
     await step(run, "longform", async () => {
       const project = await createProject(sourceId, run.name);
       await update(run, { longformProjectId: project.id });
     });
   }
-  if (!run.clipJobId) {
+  if (!run.clipJobId && !stuck(run, "clips")) {
     await step(run, "clips", async () => {
       const job = await createJobFromUpload(sourceId, undefined);
       await update(run, { clipJobId: job.id });
@@ -346,10 +365,25 @@ export async function advanceRun(run: PipelineRun): Promise<void> {
       });
     } else {
       void step(run, "podcast", async () => {
+        // Show notes, before the episode goes in the feed. Publishing first and
+        // describing later is why episodes shipped described by the raw stream
+        // name — a feed is read once and cached, so the description has to be
+        // right the first time. A failure here is not a reason to skip the
+        // episode: it falls back to the name, exactly as before.
+        const metadata =
+          project.metadata ??
+          (longformMetadataConfigured()
+            ? await generateLongformMetadata(project)
+                .then(async (written) => {
+                  await updateProject(project.id, { metadata: written });
+                  return written;
+                })
+                .catch(() => undefined)
+            : undefined);
         const { episode } = await publishEpisode({
           filePath: path.join(projectOutputDir(project.id), exportRecord.audioFile!),
-          title: exportRecord.title ?? project.metadata?.titles[0] ?? run.name,
-          description: project.metadata?.description ?? run.name,
+          title: exportRecord.title ?? metadata?.titles[0] ?? run.name,
+          description: metadata?.description ?? run.name,
           durationSec: exportRecord.durationSec ?? run.durationSec ?? 0,
           runId: run.id,
           projectId: project.id,
@@ -377,6 +411,23 @@ export async function advanceRun(run: PipelineRun): Promise<void> {
       await planProjectTopics(project.id);
       await update(run, { segmentsPlanned: true });
     });
+  }
+
+  // "Render them all" is drained here rather than by whoever pressed the
+  // button: the export engine takes one render at a time, so each finished
+  // segment lets the next one start on the next poll, with the app closed or
+  // open. The flag clears itself when there is nothing left.
+  if (project && run.renderAllSegments) {
+    if (segmentsRemaining(project) === 0) {
+      await update(run, { renderAllSegments: undefined });
+    } else {
+      const next = nextSegmentToRender(project);
+      if (next) {
+        void step(run, `segment:${next.id}`, async () => {
+          await startLongformExport(project, { topicId: next.id });
+        });
+      }
+    }
   }
 
   // Transcript ready → write the carousel images copy from it. `carouselNote`
@@ -469,6 +520,15 @@ function stage(status: PipelineStageStatus, detail: string, progress?: number): 
   return { status, detail, progress };
 }
 
+/**
+ * A stage that tried and gave up. Distinct from `stage("skipped", …)`, which is
+ * a skip BY DESIGN — nothing to write from, nothing to split, no audio track —
+ * where a retry only spends model calls to reach the same answer.
+ */
+function gaveUp(detail: string): PipelineStage {
+  return { status: "skipped", detail, retryable: true };
+}
+
 function formatDuration(seconds: number) {
   const h = Math.floor(seconds / 3600);
   const m = Math.floor((seconds % 3600) / 60);
@@ -486,7 +546,16 @@ function sourceStage(run: PipelineRun): PipelineStage {
 
 function longformStage(run: PipelineRun, project: LongformProject | undefined): PipelineStage {
   if (run.status !== "running") return stage("waiting", "Waiting for the source.");
-  if (!project) return stage(run.longformProjectId ? "error" : "running", run.longformProjectId ? "The long-form project is gone — it may have been deleted." : "Creating the long-form project…");
+  if (!project) {
+    if (run.longformProjectId) return stage("error", "The long-form project is gone — it may have been deleted.");
+    // Without this a source that has been deleted under a run left the stage
+    // saying "Creating the long-form project…" for good, retrying the same
+    // doomed call every couple of seconds with no way to act on it.
+    if (stuck(run, "longform")) {
+      return { ...stage("error", run.notices[run.notices.length - 1] ?? "The long-form project could not be created."), retryable: true };
+    }
+    return stage("running", "Creating the long-form project…");
+  }
   if (project.status === "error") return stage("error", project.error ?? "Analysis failed.");
   if (project.status === "processing") {
     const labels: Record<string, string> = {
@@ -551,7 +620,13 @@ const WEAK_CLIP_SCORE = 25;
 
 function clipsStage(run: PipelineRun, job: ClipJob | undefined): PipelineStage {
   if (run.status !== "running") return stage("waiting", "Waiting for the source.");
-  if (!job) return stage(run.clipJobId ? "error" : "running", run.clipJobId ? "The clip job is gone — it may have been deleted." : "Creating the clip job…");
+  if (!job) {
+    if (run.clipJobId) return stage("error", "The clip job is gone — it may have been deleted.");
+    if (stuck(run, "clips")) {
+      return { ...stage("error", run.notices[run.notices.length - 1] ?? "The clip job could not be created."), retryable: true };
+    }
+    return stage("running", "Creating the clip job…");
+  }
   const ready = job.clips.filter((clip) => clip.editedFile || clip.downloadFile || clip.file).length;
   if (job.status === "error") return stage("error", job.error ?? "Clipping failed.");
   if (job.status === "done") {
@@ -581,7 +656,9 @@ function audioStage(run: PipelineRun, project: LongformProject | undefined): Pip
   if (project?.status === "error") return stage("skipped", "Needs the long-form edit, which failed.");
   if (!record || record.status === "processing") return stage("waiting", "Cut from the edited video once it renders.");
   if (record.status === "done" && record.audioFile) return stage("ready", "Podcast MP3 extracted from the edit");
-  if (run.audioNote) return stage("skipped", run.audioNote);
+  // `hasAudio === false` is a recording with no sound at all: there is no MP3
+  // to cut and never will be. Anything else means the extraction itself failed.
+  if (run.audioNote) return project?.hasAudio === false ? stage("skipped", run.audioNote) : gaveUp(run.audioNote);
   if (record.status === "done") return stage("running", "Extracting the MP3…");
   return stage("skipped", "Needs the long-form edit, which failed.");
 }
@@ -610,8 +687,12 @@ function imagesStage(run: PipelineRun, project: LongformProject | undefined, sli
     return stage("ready", `${slideCount} carousel slides written${note}`);
   }
   // Attempted and gave up: a note with no carousel. Reported as skipped, never
-  // as ready — there is nothing here anyone should schedule.
-  if (run.carouselNote) return stage("skipped", run.carouselNote);
+  // as ready — there is nothing here anyone should schedule. Worth retrying
+  // only when there was something to write from in the first place.
+  if (run.carouselNote) {
+    const words = speechWordCount((project?.transcript ?? []).map((segment) => segment.text).join(" "));
+    return words >= MIN_SPEECH_WORDS ? gaveUp(run.carouselNote) : stage("skipped", run.carouselNote);
+  }
   if (project?.status === "error") return stage("skipped", "Needs the transcript, and analysis failed.");
   if (project?.status === "ready" && project.transcript.length === 0) {
     return stage("skipped", "No transcript came out of this stream to write slides from.");
@@ -632,13 +713,16 @@ function visualsStage(run: PipelineRun, job: ClipJob | undefined, ready: boolean
   return stage("waiting", "Choosing the strongest transcript moment and frame.");
 }
 
-function postsStage(run: PipelineRun): PipelineStage {
+function postsStage(run: PipelineRun, hasMaterial: boolean): PipelineStage {
   if (run.status !== "running") return stage("waiting", "Waiting for the source.");
   if (run.posts && run.posts.length > 0) {
     const note = run.postsNote ? ` (${run.postsNote})` : "";
     return stage("ready", `${run.posts.length} text posts written${note}`);
   }
-  if (run.posts) return stage("skipped", run.postsNote ?? "Nothing to write from.");
+  if (run.posts) {
+    const note = run.postsNote ?? "Nothing to write from.";
+    return hasMaterial ? gaveUp(note) : stage("skipped", note);
+  }
   return stage("waiting", "Written from the transcript and clip titles once they exist.");
 }
 
@@ -717,6 +801,12 @@ export async function runOverview(run: PipelineRun, context?: OverviewContext): 
     project?.exports.some((item) => item.topicId === topic.id && item.status === "done" && item.file)
   ).length;
 
+  // Was there anything to write posts from? The same test `advanceRun` used
+  // before it gave up, so the row can say whether a retry is worth a click.
+  const postMaterial =
+    speechWordCount((project?.transcript ?? []).map((segment) => segment.text).join(" ")) >= MIN_SPEECH_WORDS ||
+    speechWordCount((job?.sourceCaptions ?? []).map((segment) => segment.text).join(" ")) >= MIN_SPEECH_WORDS;
+
   const stages = {
     source: sourceStage(run),
     longform: longformStage(run, project),
@@ -726,7 +816,7 @@ export async function runOverview(run: PipelineRun, context?: OverviewContext): 
     podcast: podcastStage(run, project),
     images: imagesStage(run, project, slideCount),
     visuals: visualsStage(run, job, Boolean(visualMoment)),
-    posts: postsStage(run),
+    posts: postsStage(run, postMaterial),
     schedule: stage("waiting", "")
   };
 

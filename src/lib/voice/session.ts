@@ -44,6 +44,20 @@ export function revokeGrant(id: string | undefined): void {
   if (id) grants().delete(id);
 }
 
+/**
+ * What a caller is told about its own grant. The id is never echoed back — a
+ * client that holds one already knows it, and a client that does not must not
+ * learn one. Asking with an id and getting nothing means it lapsed.
+ */
+export function describeGrant(id: string | undefined, grant: VoiceGrant | null): {
+  armed: boolean;
+  expired: boolean;
+  expiresAt: number | null;
+} {
+  if (grant?.allowActions) return { armed: true, expired: false, expiresAt: grant.expiresAt };
+  return { armed: false, expired: Boolean(id) && !grant, expiresAt: null };
+}
+
 export function buildSessionUpdate(input: {
   provider: VoiceProvider;
   instructions: string;

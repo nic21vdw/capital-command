@@ -34,6 +34,104 @@ already shipped.
 
 ## 2026-08-06
 
+- **A music generation is no longer lost by closing the tab.** The track was
+  paid for at submission but only imported by whichever poll first saw it
+  finish, so a closed tab stranded it; the server now checks the pending ones
+  itself.
+
+- **The command bar stops claiming it can act when it can't.** Arming lasts an
+  hour on the server, and the bar used to keep saying "Can act" long after it
+  lapsed — every command then quietly ran read-only and the orchestrator just
+  said it couldn't do things. It now re-checks whenever you come back to the
+  tab and on every send, turns red saying **Arming expired**, and one click on
+  that arms it again.
+- **A reload no longer wipes the conversation.** Installing an update restarts
+  the app under you; the command bar now remembers the last twenty lines and
+  what it was talking about, so you pick up where you left off.
+- **"Start that" now takes you to where it's happening.** Starting a pipeline
+  run, a channel scan or the agent team used to leave you on whatever screen
+  you were on holding an id. All three now open the screen that shows the work,
+  the way retrying a stage already did.
+- **The channel check is no longer a dead end.** It lists what it skipped and
+  why, and now hands back each video's link and whether that skip is one you
+  can overrule — so you can say "run that one anyway" and it goes straight
+  through the pipeline. Its report also survives the check finishing, which it
+  didn't before.
+## 2026-08-06
+
+- **The app notices work the moment it lands, instead of when a backup runs.**
+  This machine keeps two copies of the code — GitHub, where finished work is
+  merged, and a local backup repository that syncs down from it on a schedule —
+  and the app was only ever looking at the backup. Anything merged in the last
+  day was invisible to "Check for updates", while the release's own changelog
+  commit went the other way and reached only the backup, so the two drifted
+  apart and had to be put back together by hand. Everything that reads or
+  writes the code now uses both, and takes whichever one is genuinely further
+  ahead.
+- **The window title carries what needs you.** When a run breaks, the taskbar
+  window reads "(1) Capital Command" — so a stage that failed while the app sat
+  behind something else is visible without opening it.
+
+- **The text posts a stream produced can be scheduled from the run.** They used
+  to leave the app only by being copied out one at a time. The Threads ones now
+  go on the same queue the autopilot drains, spaced out and from one account
+  (two accounts posting identical words reads as mirrored spam); the X and
+  Facebook versions stay there to copy. The day's own pack is unaffected — the
+  autopilot cannot see these when it decides whether a day is planned.
+
+- **"Render all segments" is one click, not one per segment.** The run keeps
+  rendering the next topic segment as each one finishes — with the app closed —
+  instead of waiting for you to come back and press it again.
+- **The overnight report counts the topic segments.** It said "ready to
+  schedule" while five ten-minute videos still needed a click; it now says how
+  many of them are rendered, and whether the podcast episode went out.
+- **Podcast episodes get real show notes.** The unattended pipeline published
+  the episode described by the raw stream name; it now writes the description
+  first, and falls back to the name only if that fails.
+
+- **You can add an episode to the podcast feed yourself.** The Podcast page now
+  lists every finished long-form export and publishes the one you pick — cutting
+  the MP3 first if it hasn't been cut, and writing real show notes instead of the
+  raw stream name. When the feed can't take anything yet, it says which thing is
+  missing and exactly what to do about it, instead of a bare warning.
+- **A channel scan that failed says so.** The Channel ingest panel used to read
+  "Nothing taken in yet" whatever happened; it now shows the failure and its
+  reason, tells you when YouTube needs reconnecting (with a link to do it), and
+  lists the streams it skipped for review or gave up on.
+- **One button schedules everything a stream produced.** The Scheduler step of a
+  run now lists every output that is ready — the long-form video, each rendered
+  topic segment and every short — and books them into the publish queue, one per
+  free slot, longest first. Anything already scheduled is left alone and says so.
+  The long-form video and the segments had no route into the queue at all before
+  this; they were downloaded and uploaded by hand.
+- **"Open the Uploading Center" opens on the right run**, instead of leaving you
+  to guess which job in the dropdown was the one you were just looking at.
+
+- **A post that failed no longer disappears — you can see why and retry it.**
+  A scheduled post whose every platform permanently failed used to be deleted
+  the next time the calendar loaded: the slot emptied, the clip went back to
+  Draft, and the reason only ever reached a console log. Failures now stay on
+  the board with the reason under them and a Retry button that puts the post
+  back in the queue and sends it. Same on the Threads day view — a failed post
+  keeps its copy and gets a **Retry now** button instead of needing to be typed
+  out again. A post blocked as "manual" because an account wasn't connected can
+  be retried the same way once it is, and old failures are only swept 30 days
+  after you have actually seen them.
+- **A run that broke stops pretending it finished.** The pipeline list showed a
+  green "Finished" for a run whose stages had failed — the sidebar now carries a
+  count of runs needing attention, and the row says which and how many.
+- **A skip that was never going to work stops asking to be retried.** A stream
+  with no speech, no second topic or no audio track is a skip by design; only a
+  stage that actually tried and gave up offers "Try this again".
+- **A run whose source went missing no longer says "Working…" forever.** After
+  three failed attempts it says what went wrong and offers a retry, instead of
+  re-trying the same doomed call every two seconds with no way to act on it.
+- **The pipeline keeps moving with the app closed.** Runs only advanced while a
+  browser tab was polling, so a stream started at 11pm froze when the tab shut;
+  the server now ticks them along itself.
+
+## 2026-08-06
+
 - **Every stuck stage now has a Try this again button, right on the row.**
   A run that broke also gets one line at the top saying what stopped short and
   a single "Try them all again". The Topic segments button used to be a link to

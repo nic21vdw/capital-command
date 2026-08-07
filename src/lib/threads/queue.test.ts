@@ -5,6 +5,7 @@ import {
   hasBatch,
   pruneOld,
   rescheduleItem,
+  retryItem,
   shiftBatch,
   summarizeBatch,
   summarizeBatches
@@ -186,5 +187,46 @@ describe("editItemText", () => {
   it("refuses an empty post or one that already went out", () => {
     expect(editItemText([item()], "item-1", "   ").error).toContain("can't be empty");
     expect(editItemText([item({ status: "published" })], "item-1", "new").error).toContain("already published");
+  });
+
+  it("still opens the copy of a failed post, which is on its way to a retry", () => {
+    const items = [item({ status: "failed", error: "token expired" })];
+    expect(editItemText(items, "item-1", "fixed line").changed).toBe(1);
+    expect(items[0].text).toBe("fixed line");
+  });
+});
+
+describe("retryItem", () => {
+  const now = new Date("2026-07-22T09:00:00.000Z");
+
+  it("puts a failed post back in the running at this moment, without its failure", () => {
+    const items = [
+      item({ status: "failed", error: "Threads rejected it", attempts: 3, nextAttemptAt: "x", claimedAt: "y" })
+    ];
+
+    expect(retryItem(items, "item-1", now).changed).toBe(1);
+    expect(items[0].status).toBe("pending");
+    expect(items[0].attempts).toBe(0);
+    expect(items[0].error).toBeUndefined();
+    expect(items[0].nextAttemptAt).toBeUndefined();
+    expect(items[0].claimedAt).toBeUndefined();
+    // Its old slot is long past, and the runner skips anything that late.
+    expect(items[0].publishAt).toBe(now.toISOString());
+  });
+
+  it("recovers a skipped post too, and keeps a slot that is still ahead", () => {
+    const later = "2026-07-22T19:30:00.000Z";
+    const items = [item({ status: "skipped", note: "missed its slot", publishAt: later })];
+
+    expect(retryItem(items, "item-1", now).changed).toBe(1);
+    expect(items[0].status).toBe("pending");
+    expect(items[0].note).toBeUndefined();
+    expect(items[0].publishAt).toBe(later);
+  });
+
+  it("refuses a post that is published or already queued", () => {
+    expect(retryItem([item({ status: "published" })], "item-1", now).error).toContain("published");
+    expect(retryItem([item()], "item-1", now).error).toContain("pending");
+    expect(retryItem([item()], "nope", now).error).toContain("No such");
   });
 });

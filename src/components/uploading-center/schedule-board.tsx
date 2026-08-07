@@ -1,7 +1,7 @@
 "use client";
 
 import { useRef, useState } from "react";
-import { Clapperboard, ExternalLink, Loader2, Pencil, Send, Trash2, Upload } from "lucide-react";
+import { Clapperboard, ExternalLink, Loader2, Pencil, RotateCcw, Send, Trash2, Upload } from "lucide-react";
 import { toast } from "sonner";
 import { StatusChip } from "@/components/uploading-center/status-chip";
 import { CLIP_DRAG_TYPE } from "@/components/uploading-center/clip-card";
@@ -226,8 +226,38 @@ function QueueEntryCard({
   const state = item.platforms[platform] as PlatformState;
   const url = remoteUrlFor(platform, state.postId);
   const thumbnailUrl = thumbnailForItem(item);
-  const actionable = state.status === "pending" || state.status === "uploaded" || state.status === "failed";
+  // "failed" and "manual" are terminal until something un-blocks them, so the
+  // send button re-arms the post first; the rest go straight out.
+  const blocked = state.status === "failed" || state.status === "manual";
+  const actionable = state.status === "pending" || state.status === "uploaded" || blocked;
   const working = busy === `publish:${item.id}` || busy === `remove:${item.id}`;
+  const [retrying, setRetrying] = useState(false);
+
+  const send = async () => {
+    if (!blocked) {
+      onPublishNow(item);
+      return;
+    }
+    setRetrying(true);
+    try {
+      const response = await fetch("/api/publish", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "retry", itemId: item.id, platform })
+      });
+      if (!response.ok) {
+        const detail = (await response.json().catch(() => null)) as { error?: string } | null;
+        toast.error(detail?.error ?? "Could not put that post back in the queue.");
+        return;
+      }
+    } catch {
+      toast.error("Network error while retrying that post.");
+      return;
+    } finally {
+      setRetrying(false);
+    }
+    onPublishNow(item);
+  };
   return (
     <div
       className={cn(
@@ -277,19 +307,22 @@ function QueueEntryCard({
             </a>
           ) : null}
           <span className="flex-1" />
-          {working ? (
+          {working || retrying ? (
             <Loader2 className="h-3.5 w-3.5 animate-spin text-[var(--muted-foreground)]" />
           ) : (
             <>
               {actionable ? (
                 <button
                   type="button"
-                  onClick={() => onPublishNow(item)}
-                  aria-label="Publish now"
-                  title="Publish now"
-                  className="text-[var(--muted-foreground)] transition hover:text-white"
+                  onClick={() => void send()}
+                  aria-label={blocked ? "Retry this post" : "Publish now"}
+                  title={blocked ? "Retry this post" : "Publish now"}
+                  className={cn(
+                    "text-[var(--muted-foreground)] transition hover:text-white",
+                    blocked && "text-rose-300 hover:text-rose-200"
+                  )}
                 >
-                  <Send className="h-3.5 w-3.5" />
+                  {blocked ? <RotateCcw className="h-3.5 w-3.5" /> : <Send className="h-3.5 w-3.5" />}
                 </button>
               ) : null}
               <button
@@ -304,6 +337,16 @@ function QueueEntryCard({
             </>
           )}
         </div>
+        {blocked ? (
+          <p
+            className={cn(
+              "mt-1 line-clamp-2 text-[10px] leading-snug",
+              state.status === "failed" ? "text-rose-300" : "text-amber-200"
+            )}
+          >
+            {state.error ?? state.note ?? "This post did not go out."}
+          </p>
+        ) : null}
       </div>
     </div>
   );

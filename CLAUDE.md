@@ -38,12 +38,27 @@ itself.
   child's stdio cannot work once it has its own console, and an empty log is
   invisible: the banner shows the last `==> ` step and any `ERROR:` line, so a
   release that dies mid-way says so instead of spinning forever.
-- GITHUB IS OPTIONAL on both sides. `status.ts` falls back from `origin/main`
-  to the local `main`, and `update-app.ps1` fetches and pushes best effort —
-  a worktree shares the repository, so the commits are already local. Never
-  let a network call become fatal: under `$ErrorActionPreference = "Stop"` a
-  native command writing to stderr is a TERMINATING error, which is how an
-  unreachable remote used to kill a release before it printed a word.
+- THIS REPO HAS TWO REMOTES AND THEY ARE NOT THE SAME THING. `github` is where
+  work lands — agent sessions merge pull requests there. `origin` is a local
+  bare repository under `C:\Users\nic21\GitOrigin`, the backup hub for every
+  one of Nic's repos, which `backup-to-github.ps1` syncs DOWN from GitHub on a
+  schedule. Watching one of them is wrong in both directions: only `origin` and
+  a merged pull request is invisible until the nightly backup, only `github`
+  and a release made offline looks like it never happened. So `status.ts`,
+  `update-app.ps1`, `dev-worktree.ps1` and `start-capital-command.bat` all
+  enumerate `git remote` and take whichever copy CONTAINS THE MOST, by
+  ancestry — never by date. The choice is `pickMostAdvanced` in `refs.ts`,
+  tested there.
+- THE RELEASE PUSHES TO EVERY REMOTE. Dating the changelog is a commit the
+  release makes itself, and pushing it to only one remote is what made the two
+  drift apart in the first place — `main` on GitHub and `main` in the backup
+  each held commits the other did not, and every later release met them as a
+  conflict in the one file every change touches.
+- GITHUB IS OPTIONAL, still. Every fetch and push is best effort: a worktree
+  shares this repository, so the commits are already local. Never let a network
+  call become fatal — under `$ErrorActionPreference = "Stop"` a native command
+  writing to stderr is a TERMINATING error, which is how an unreachable remote
+  used to kill a release before it printed a word.
 - One `ReleaseProvider` holds the status for the whole shell. Every check costs
   a `git fetch`, and two components polling separately would disagree on
   screen. Any new surface reads `useRelease()`.
@@ -178,6 +193,42 @@ idempotent behind an id check.
   gives it a second copy of that Map and the two clobber each other's
   `runs.json`.
 
+## What a stage says about itself (`runs.ts`, `repairable.ts`, `status.ts`)
+
+- A SKIP BY DESIGN IS NOT A FAILURE. `stage("skipped", …)` means nothing to work
+  from (no speech, one continuous topic, no audio track) and offers no retry;
+  `gaveUp(…)` means it tried and failed, and that is what puts a Retry button on
+  the row. Getting this wrong is a permanent amber banner and model calls that
+  land back on the same skip.
+- A step that fails `GIVE_UP_AFTER` times in a row stops being retried by
+  `advanceRun` and reports as an error the user can act on (`run.failures`).
+  Without it a deleted source left the stage saying "Creating the long-form
+  project…" forever.
+- `runListStatus` decides how a run reads in a list, and it is tested. A run
+  with broken stages must never read as "Finished".
+- The server advances runs on its own (`heartbeat.ts`, wired in
+  `src/instrumentation.ts`). Polling from a page still works and still advances;
+  the heartbeat is what covers a closed tab.
+
+## The last mile (`queueOutputs.ts`)
+
+"Ready to schedule" used to mean a person still had to schedule it, one clip at
+a time, and the long-form video and its topic segments could not be scheduled at
+all. `planRunOutputs` collects everything a run produced that has a file and is
+not already in the publish queue; `queueRunOutputs` books them.
+
+- Long video goes to `LONG_VIDEO_PLATFORMS` only. A ten-minute segment posted as
+  a Reel or a TikTok is a rejection, not a post.
+- ONE OUTPUT PER SLOT (`assignSlots`, tested). The Uploading Center treats a
+  taken slot as taken; double-booking is how one day posts twice and the next
+  posts nothing.
+- Dedupe is by resolved file path against the live queue, so pressing the button
+  twice cannot queue the same video twice.
+- One failure never stops the rest, and every failure is named back to the user
+  — a silent gap here is a day with nothing posted.
+- Nothing here publishes. It writes the same queue the Uploading Center writes,
+  at a future slot, for the publish runner.
+
 ## Automatic channel ingest (`src/lib/ingest`)
 
 A daily scan reads the YouTube channel and runs each NEW LIVE STREAM through
@@ -215,6 +266,11 @@ both. Two accounts posting the same wording would read as mirrored spam.
   ticks each see an empty day and every slot gets posted twice.
 - Never put a token in an API response or a log line — the route exposes only
   each account's id, label, version and offset.
+- A post that did NOT come from the daily pack is marked `origin: "pipeline"`,
+  and every autopilot decision reads `autopilotItemsForDate`, never
+  `itemsForDate`. Counting an ad-hoc post as the day's batch would make the
+  planner skip writing the pack — the one thing this module exists to do. UI
+  surfaces keep using `itemsForDate`, so the post is still visible.
 - See `src/lib/threads/README.md`.
 
 ## Launch Pad (`src/lib/launch`)
