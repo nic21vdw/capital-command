@@ -66,7 +66,18 @@ function Get-SandboxEnv($file) {
 }
 
 Step "Preparing the $Branch branch"
-git fetch origin --quiet
+
+# Every remote, not just one. `github` is where pull requests merge and
+# `origin` is the local backup hub that follows it on a schedule, so fetching
+# only one can hand a sandbox a base that is days behind. Never fatal - an
+# offline machine must still be able to open a sandbox to work in.
+$remotes = @(git remote | ForEach-Object { $_.Trim() } | Where-Object { $_ })
+foreach ($remote in $remotes) {
+  $previous = $ErrorActionPreference
+  $ErrorActionPreference = "Continue"
+  git fetch $remote --quiet 2>$null
+  $ErrorActionPreference = $previous
+}
 
 if (Test-Path (Join-Path $Path ".git")) {
   # Someone is mid-edit in there. Handing the same checkout to a second session
@@ -91,7 +102,11 @@ which creates %USERPROFILE%\capital-command-<name> on its own branch.
     # Local refs first, and no network call at all. `git ls-remote` writes to
     # stderr when GitHub cannot be reached, which under "Stop" is a TERMINATING
     # error - so an offline machine could not even open a sandbox to work in.
-    $base = @("origin/$Branch", "main", "origin/main") | Where-Object {
+    $candidates = @()
+    foreach ($remote in $remotes) { $candidates += "$remote/$Branch" }
+    $candidates += "main"
+    foreach ($remote in $remotes) { $candidates += "$remote/main" }
+    $base = $candidates | Where-Object {
       $previous = $ErrorActionPreference
       $ErrorActionPreference = "Continue"
       git rev-parse --verify --quiet "$_^{commit}" | Out-Null

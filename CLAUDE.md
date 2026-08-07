@@ -38,12 +38,27 @@ itself.
   child's stdio cannot work once it has its own console, and an empty log is
   invisible: the banner shows the last `==> ` step and any `ERROR:` line, so a
   release that dies mid-way says so instead of spinning forever.
-- GITHUB IS OPTIONAL on both sides. `status.ts` falls back from `origin/main`
-  to the local `main`, and `update-app.ps1` fetches and pushes best effort —
-  a worktree shares the repository, so the commits are already local. Never
-  let a network call become fatal: under `$ErrorActionPreference = "Stop"` a
-  native command writing to stderr is a TERMINATING error, which is how an
-  unreachable remote used to kill a release before it printed a word.
+- THIS REPO HAS TWO REMOTES AND THEY ARE NOT THE SAME THING. `github` is where
+  work lands — agent sessions merge pull requests there. `origin` is a local
+  bare repository under `C:\Users\nic21\GitOrigin`, the backup hub for every
+  one of Nic's repos, which `backup-to-github.ps1` syncs DOWN from GitHub on a
+  schedule. Watching one of them is wrong in both directions: only `origin` and
+  a merged pull request is invisible until the nightly backup, only `github`
+  and a release made offline looks like it never happened. So `status.ts`,
+  `update-app.ps1`, `dev-worktree.ps1` and `start-capital-command.bat` all
+  enumerate `git remote` and take whichever copy CONTAINS THE MOST, by
+  ancestry — never by date. The choice is `pickMostAdvanced` in `refs.ts`,
+  tested there.
+- THE RELEASE PUSHES TO EVERY REMOTE. Dating the changelog is a commit the
+  release makes itself, and pushing it to only one remote is what made the two
+  drift apart in the first place — `main` on GitHub and `main` in the backup
+  each held commits the other did not, and every later release met them as a
+  conflict in the one file every change touches.
+- GITHUB IS OPTIONAL, still. Every fetch and push is best effort: a worktree
+  shares this repository, so the commits are already local. Never let a network
+  call become fatal — under `$ErrorActionPreference = "Stop"` a native command
+  writing to stderr is a TERMINATING error, which is how an unreachable remote
+  used to kill a release before it printed a word.
 - One `ReleaseProvider` holds the status for the whole shell. Every check costs
   a `git fetch`, and two components polling separately would disagree on
   screen. Any new surface reads `useRelease()`.
