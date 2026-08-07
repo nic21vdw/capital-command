@@ -14,6 +14,11 @@ already shipped.
 
 ## Unreleased
 
+- **A story-shaped deck says so instead of failing at its slot.** Instagram only
+  takes pictures between 4:5 and 1.91:1, so a 9:16 carousel could be booked and
+  then rejected hours later; it is now left out of the booking with the reason
+  and the frames that would work.
+
 - **A booked carousel is now a deck Instagram will actually accept.** The slides
   were being painted as PNGs — the one format Instagram refuses — so every
   carousel the pipeline booked could only fail at its slot, hours after you

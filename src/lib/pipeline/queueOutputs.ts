@@ -2,6 +2,7 @@ import path from "node:path";
 import { renderCarouselDeck } from "@/lib/carousels/renderDeck";
 import { getJob, outputDir } from "@/lib/clipping/jobs";
 import { getProject, projectOutputDir } from "@/lib/longform/store";
+import { deckIsPostable, deckRatio } from "@/lib/carousels/deckFiles";
 import { getRun, listRuns, updateRun } from "@/lib/pipeline/runs";
 import type { PipelineRun } from "@/lib/pipeline/types";
 import { readAppData } from "@/lib/storage/store";
@@ -208,13 +209,25 @@ async function collectLongform(
  * are checkable on their own.
  */
 export function carouselCandidate(input: {
-  carousel: Pick<Carousel, "id" | "title" | "slides">;
+  carousel: Pick<Carousel, "id" | "title" | "slides" | "aspectRatio">;
   files: string[];
   alreadyQueued: Set<string>;
 }): { candidate?: QueueCandidate; skipped?: { title: string; reason: string } } {
   const { carousel, files, alreadyQueued } = input;
   const title = carousel.title || "Carousel";
   if (carousel.slides.length === 0) return {};
+  // A story-shaped deck is a shape no picture post carries. Refusing it here is
+  // the whole point of planning: the alternative is a post that fails at its
+  // slot, hours after anyone could have picked a different frame.
+  const ratio = deckRatio(carousel);
+  if (!deckIsPostable(ratio)) {
+    return {
+      skipped: {
+        title,
+        reason: `A ${ratio} deck is the wrong shape for a picture post — rebuild it as portrait, square or landscape to book it.`
+      }
+    };
+  }
   if (carousel.slides.length > MAX_IMAGES_PER_POST) {
     return {
       skipped: {

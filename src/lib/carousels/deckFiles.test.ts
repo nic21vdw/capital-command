@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  deckIsPostable,
   deckPixelSize,
   planDeckRender,
   slideFileName,
@@ -129,5 +130,17 @@ describe("the frame a booked deck renders at", () => {
       expect(width).toBeGreaterThanOrEqual(IMAGE_POST_MIN_WIDTH);
       expect(width).toBeLessThanOrEqual(IMAGE_POST_MAX_WIDTH);
     }
+  });
+});
+
+describe("what shape a picture post can carry", () => {
+  it("takes the frames Instagram accepts", () => {
+    expect(deckIsPostable("portrait")).toBe(true);
+    expect(deckIsPostable("square")).toBe(true);
+    expect(deckIsPostable("landscape")).toBe(true);
+  });
+
+  it("refuses a story-shaped deck rather than booking a post that can only fail", () => {
+    expect(deckIsPostable("story")).toBe(false);
   });
 });

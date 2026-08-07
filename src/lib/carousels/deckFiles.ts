@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import path from "node:path";
 import { DEFAULT_ASPECT_RATIO, aspectSpec, slidePixelSize } from "@/lib/carousels/render";
 import { dataPath } from "@/lib/paths";
-import { imagePostWidth } from "@/lib/publisher/images";
+import { imagePostAspectAllowed, imagePostWidth } from "@/lib/publisher/images";
 import type { Carousel, CarouselAspectRatio, CarouselSlide } from "@/types/domain";
 
 /**
@@ -48,6 +48,12 @@ export function deckRatio(carousel: Pick<Carousel, "aspectRatio">): CarouselAspe
  */
 export function deckPixelSize(ratio: CarouselAspectRatio): { width: number; height: number } {
   return slidePixelSize(ratio, imagePostWidth(aspectSpec(ratio).width));
+}
+
+/** Whether a deck in this frame is a shape a picture post can carry at all. */
+export function deckIsPostable(ratio: CarouselAspectRatio): boolean {
+  const { width, height } = deckPixelSize(ratio);
+  return imagePostAspectAllowed(width, height);
 }
 
 /** Key order is what a hash of an object actually hashes, so fix it. */
