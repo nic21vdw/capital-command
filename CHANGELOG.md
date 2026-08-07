@@ -14,6 +14,20 @@ already shipped.
 
 ## Unreleased
 
+- **A clip whose AI caption failed is no longer scheduled behind a green
+  toast.** The Uploading Center now names the clips it couldn't write copy for,
+  marks those cards amber, and offers "Retry the N that failed" above the run.
+  Auto Assign leaves them unscheduled instead of posting fallback copy, and says
+  so — the only success message you get now is one where nothing failed.
+- **The nightly channel scan can finally be registered.** `npm run
+  ingest:register` sets up the 6am Windows task the way the publish runner and
+  the Threads autopilot do — run it from the production folder only. Until now
+  the registration command sat in a comment and the scan was never scheduled.
+- **A stream the scan gave up on can be handed back from the screen.** Channel
+  ingest's "Given up after 3 tries" list now has a "Try this one again" button
+  that clears the video's attempts so the next scan takes it in — no more
+  editing `data/channel-ingest.json` by hand. Each taken-in stream also links
+  straight to its pipeline run.
 - **Retry can no longer put the same video on your channel twice.** A post
   that reached YouTube and only failed afterwards kept its video id, but
   nothing looked at it before uploading — so one press of Retry (or one

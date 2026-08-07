@@ -30,32 +30,58 @@ export function clipsNeedingCaption({ clips, draftFor, isScheduled }: BulkContex
   return clips.filter((clip) => !isScheduled(clip) && !draftFor(clip).caption.trim());
 }
 
+/**
+ * Names clips in a sentence — “A”, “B” and 2 more — so a failure says which
+ * clips it happened to rather than just how many. Beyond three it counts, or a
+ * twelve-clip run produces a toast nobody reads.
+ */
+export function nameClips(headlines: string[], limit = 3): string {
+  const shown = headlines.slice(0, limit).map((headline) => `“${headline}”`);
+  const rest = headlines.length - shown.length;
+  if (rest > 0) shown.push(`${rest} more`);
+  if (shown.length <= 1) return shown[0] ?? "";
+  return `${shown.slice(0, -1).join(", ")} and ${shown[shown.length - 1]}`;
+}
+
 export type AutoAssignPlan = {
   assignments: Array<{ clip: ReadyClip; draft: ClipDraft }>;
   /** Clips with nowhere to go because the window ran out of free slots. */
   unslotted: number;
+  /** Clips deliberately left alone — their AI caption failed. */
+  heldBack: ReadyClip[];
 };
 
 /**
  * Pairs every unscheduled clip with the next slot that is open on all of its
  * target platforms. Slots taken inside this batch are tracked as they are
  * handed out, so two clips can never land on the same time.
+ *
+ * `skipKeys` holds clips back rather than scheduling them: a clip whose AI
+ * caption failed would otherwise go out with fallback copy, and the caller has
+ * no way to tell that apart from a clip that was captioned properly.
  */
 export function planAutoAssign({
   clips,
   draftFor,
   isScheduled,
   slots,
-  isTargetSlotTaken
+  isTargetSlotTaken,
+  skipKeys
 }: BulkContext & {
   slots: ScheduleSlot[];
   isTargetSlotTaken: (target: PlatformTarget, slotUtc: string) => boolean;
+  skipKeys?: ReadonlySet<string>;
 }): AutoAssignPlan {
   const consumed = new Set<string>();
   const assignments: AutoAssignPlan["assignments"] = [];
+  const heldBack: ReadyClip[] = [];
   let unslotted = 0;
   for (const clip of clips) {
     if (isScheduled(clip)) continue;
+    if (skipKeys?.has(clip.key)) {
+      heldBack.push(clip);
+      continue;
+    }
     const draft = draftFor(clip);
     const platforms: PlatformId[] = targetPlatforms(draft.platform);
     const slot = slots.find(
@@ -71,5 +97,5 @@ export function planAutoAssign({
     for (const platform of platforms) consumed.add(`${platform}:${slot.utc}`);
     assignments.push({ clip, draft: { ...draft, slotUtc: slot.utc } });
   }
-  return { assignments, unslotted };
+  return { assignments, unslotted, heldBack };
 }

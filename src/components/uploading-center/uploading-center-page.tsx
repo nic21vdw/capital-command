@@ -30,7 +30,7 @@ import { PageHeader } from "@/components/ui/page-header";
 import { Tabs } from "@/components/ui/tabs";
 import { AccountSwitcher } from "@/components/uploading-center/account-switcher";
 import { ClipQueue } from "@/components/uploading-center/clip-queue";
-import { clipsNeedingCaption, planAutoAssign } from "@/components/uploading-center/bulk";
+import { clipsNeedingCaption, nameClips, planAutoAssign } from "@/components/uploading-center/bulk";
 import {
   DEFAULT_RUN_DEFAULTS,
   draftWithDefaults,
@@ -108,6 +108,7 @@ export function UploadingCenterPage() {
     tailorCaption,
     tailorCaptionsForAll,
     captionProgress,
+    captionFailures,
     schedule,
     uploadToSlot,
     autoAssign,
@@ -487,7 +488,7 @@ export function UploadingCenterPage() {
         const draft = latestDraftFor(clip);
         return { clip, platform: copyPlatformFor(draft.platform), title: draft.title };
       });
-      await tailorCaptionsForAll(targets, (clip, caption) => {
+      return tailorCaptionsForAll(targets, (clip, caption) => {
         putDraft(clip, { ...latestDraftFor(clip), caption });
       });
     },
@@ -502,20 +503,46 @@ export function UploadingCenterPage() {
     void fillCaptions(missing);
   }, [fillCaptions, isScheduled, latestDraftFor, readyClips]);
 
+  // The clips whose AI caption failed, in card order — what the retry button
+  // runs again. A clip the user then captioned by hand drops off the list: it
+  // has copy now, and the next pass would skip it anyway.
+  const failedCaptionClips = useMemo(
+    () =>
+      readyClips.filter(
+        (clip) => Boolean(captionFailures[clip.key]) && !draftFor(clip).caption.trim(),
+      ),
+    [captionFailures, draftFor, readyClips],
+  );
+  const handleRetryCaptions = useCallback(() => {
+    if (failedCaptionClips.length === 0) return;
+    void fillCaptions(failedCaptionClips);
+  }, [failedCaptionClips, fillCaptions]);
+
   // Auto Assign: post every not-yet-scheduled clip in this run the way it would
   // have been posted by hand — the run's platform and hashtags, an AI caption
   // for anything still blank, then the next open slot for each card's platform.
   const handleAutoAssign = useCallback(async () => {
     const missing = clipsNeedingCaption({ clips: readyClips, draftFor: latestDraftFor, isScheduled });
-    if (missing.length > 0) await fillCaptions(missing);
-    const { assignments, unslotted } = planAutoAssign({
+    const pass = missing.length > 0 ? await fillCaptions(missing) : null;
+    // A clip whose caption failed is NOT scheduled. Posting it anyway would send
+    // fallback copy under a success toast, which is indistinguishable from a
+    // clip that was captioned properly — the retry button is the way back.
+    const skipKeys = new Set((pass?.failed ?? []).map((failure) => failure.clip.key));
+    const { assignments, unslotted, heldBack } = planAutoAssign({
       clips: readyClips,
       draftFor: latestDraftFor,
       isScheduled,
       slots,
       isTargetSlotTaken,
+      skipKeys,
     });
     if (assignments.length === 0) {
+      if (heldBack.length > 0) {
+        toast.error(
+          `Nothing scheduled — no AI caption for ${nameClips(heldBack.map((clip) => clip.headline))}. Retry the captions, or write them yourself.`,
+        );
+        return;
+      }
       toast.info(
         unslotted > 0
           ? "No open slots left on the schedule."
@@ -528,7 +555,7 @@ export function UploadingCenterPage() {
         `${unslotted} clip${unslotted === 1 ? "" : "s"} left unassigned — the schedule ran out of open slots.`,
       );
     }
-    await autoAssign(assignments);
+    await autoAssign(assignments, heldBack);
   }, [
     autoAssign,
     fillCaptions,
@@ -757,6 +784,9 @@ export function UploadingCenterPage() {
               onCaptionsForAll={handleCaptionsForAll}
               captionsMissing={captionsMissing}
               captionProgress={captionProgress}
+              captionFailures={captionFailures}
+              failedCaptionCount={failedCaptionClips.length}
+              onRetryCaptions={handleRetryCaptions}
             />
             <div className="min-w-0">
               <Tabs tabs={tabs} paramKey="platform" />

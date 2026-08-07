@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import { Loader2, RefreshCw, TriangleAlert, Youtube } from "lucide-react";
+import { ExternalLink, Loader2, RefreshCw, RotateCcw, TriangleAlert, Youtube } from "lucide-react";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -33,6 +33,8 @@ type Overview = {
 export function ChannelIngestPanel() {
   const [overview, setOverview] = useState<Overview | null>(null);
   const [busy, setBusy] = useState(false);
+  /** Video id whose attempts are being reset, so only its own button spins. */
+  const [retrying, setRetrying] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     const response = await fetch("/api/ingest", { cache: "no-store" });
@@ -65,6 +67,26 @@ export function ChannelIngestPanel() {
       toast.error(error instanceof Error ? error.message : "Could not start the channel scan.");
     } finally {
       setBusy(false);
+    }
+  }
+
+  async function retry(videoId: string, title: string) {
+    setRetrying(videoId);
+    try {
+      const response = await fetch("/api/ingest", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ retryVideoId: videoId })
+      });
+      if (!response.ok) throw new Error("Could not reset that video.");
+      const { cleared } = (await response.json()) as { cleared: boolean };
+      if (cleared) toast.success(`“${title}” goes back in — the next scan will take it in again.`);
+      else toast.info("Nothing to reset on that video.");
+      await load();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Could not reset that video.");
+    } finally {
+      setRetrying(null);
     }
   }
 
@@ -175,6 +197,19 @@ export function ChannelIngestPanel() {
                 <Badge>{record.outcome}</Badge>
                 <span className="min-w-0 flex-1 truncate text-[11px] text-[var(--muted-foreground)]">{record.summary}</span>
               </span>
+              <Button
+                variant="secondary"
+                className="mt-1.5 px-2 py-1 text-[11px]"
+                disabled={retrying === record.videoId || Boolean(running)}
+                onClick={() => void retry(record.videoId, record.title)}
+              >
+                {retrying === record.videoId ? (
+                  <Loader2 className="mr-1.5 h-3 w-3 animate-spin" />
+                ) : (
+                  <RotateCcw className="mr-1.5 h-3 w-3" />
+                )}
+                Try this one again
+              </Button>
             </div>
           ))}
         </div>
@@ -190,6 +225,14 @@ export function ChannelIngestPanel() {
                 <Badge>{record.outcome}</Badge>
                 <span className="min-w-0 flex-1 truncate text-[11px] text-[var(--muted-foreground)]">{record.summary}</span>
               </span>
+              {record.runId ? (
+                <Link
+                  href={`/pipeline?run=${encodeURIComponent(record.runId)}`}
+                  className="mt-1 inline-flex items-center gap-1 text-[11px] text-[var(--accent)] hover:underline"
+                >
+                  Open its pipeline run <ExternalLink className="h-3 w-3" />
+                </Link>
+              ) : null}
             </div>
           ))}
         </div>

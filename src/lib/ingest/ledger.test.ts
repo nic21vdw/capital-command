@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   abandonedRecords,
   attemptsFor,
+  clearAttempts,
   MAX_INGEST_ATTEMPTS,
   readLedger,
   settledVideoIds,
@@ -133,6 +134,36 @@ describe("settledVideoIds", () => {
       records: [record({ outcome: "ready", attempts: MAX_INGEST_ATTEMPTS })]
     };
     expect(abandonedRecords(ledger)).toEqual([]);
+  });
+});
+
+describe("clearAttempts", () => {
+  // Given up is not permanent: the panel's retry has to make the next scan look
+  // at the video again, and settledVideoIds is the thing that has to change.
+  it("puts an abandoned video back in the scan's reach", () => {
+    const ledger: IngestLedger = {
+      lastScanAt: null,
+      records: [record({ outcome: "error", attempts: MAX_INGEST_ATTEMPTS })]
+    };
+    const next = clearAttempts(ledger, "vid-1");
+    expect(next.records[0].attempts).toBe(0);
+    expect(settledVideoIds(next).has("vid-1")).toBe(false);
+    expect(abandonedRecords(next)).toEqual([]);
+  });
+
+  // Re-ingesting a stream the pipeline already finished is never what the
+  // button means, so a finished record is left exactly as it is.
+  it("leaves a finished ingest alone", () => {
+    const ledger: IngestLedger = {
+      lastScanAt: null,
+      records: [record({ outcome: "ready", attempts: 2 })]
+    };
+    expect(clearAttempts(ledger, "vid-1")).toEqual(ledger);
+  });
+
+  it("touches nothing when the video is not in the ledger", () => {
+    const ledger: IngestLedger = { lastScanAt: null, records: [record({ outcome: "error", attempts: 3 })] };
+    expect(clearAttempts(ledger, "other")).toEqual(ledger);
   });
 });
 

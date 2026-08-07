@@ -8,13 +8,9 @@
 # The pipeline runs inside the app, so Capital Command has to be up. This script
 # starts it if nothing is listening, and leaves it running afterwards.
 #
-# Register it to run once a day (adjust the time to suit):
+# Register it to run once a day, from the production folder:
 #
-#   $action = New-ScheduledTaskAction -Execute "powershell.exe" `
-#     -Argument "-NoProfile -ExecutionPolicy Bypass -File `"$PWD\scripts\daily-channel-scan.ps1`""
-#   $trigger = New-ScheduledTaskTrigger -Daily -At 6am
-#   Register-ScheduledTask -TaskName "Capital Command channel scan" -Action $action -Trigger $trigger `
-#     -Description "Run new YouTube live streams through the content pipeline"
+#   npm run ingest:register            # or -At to move it off 6am
 #
 # A missed run is not a problem: the scan looks back several days and the ledger
 # keeps it from taking the same stream twice.

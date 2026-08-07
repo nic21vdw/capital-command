@@ -49,8 +49,9 @@ That in-app path sets the base URL to the server's own origin before it starts
 `.env` verbatim, so a scan started on port 3100 would otherwise hand its streams
 to the production app on port 3000.
 
-Scheduled daily via `scripts/daily-channel-scan.ps1` (Windows Task Scheduler —
-registration command is in the file's header). It runs locally rather than in
+Scheduled daily via `scripts/daily-channel-scan.ps1` (Windows Task Scheduler).
+Register it with `npm run ingest:register` — from the production checkout only,
+because that is the folder Task Scheduler will then run it in. It runs locally rather than in
 GitHub Actions because ingest needs yt-dlp, ffmpeg and the local `data/`
 directory, and a multi-hour stream VOD is not something an Actions runner can
 realistically pull.
@@ -134,6 +135,12 @@ running, not just the long-form project. A failed or timed-out run stays
 unsettled and is retried on the next scan, up to `MAX_INGEST_ATTEMPTS` (3), after
 which it is reported under "Given up on" and left for you. That stops one broken
 three-hour download from consuming every scheduled run forever.
+
+Given up is not permanent: "Try this one again" in the Channel ingest panel
+(`POST /api/ingest` with `retryVideoId`, `clearAttempts` in `ledger.ts`) spends
+that video's attempts back to zero, so the next scan takes it in again. A video
+whose run finished is settled by its outcome and is left alone — that button
+never re-ingests something already done.
 
 A timeout is not a cancellation. The scan waits up to 4 hours for a stream to
 fan out; past that it stops watching, but the app keeps working on the run and

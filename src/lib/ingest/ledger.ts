@@ -96,6 +96,22 @@ export function abandonedRecords(ledger: IngestLedger): IngestRecord[] {
 }
 
 /**
+ * Puts a video the scan gave up on back in the queue by spending its attempts
+ * back down to zero — `settledVideoIds` stops counting it, so the next scan
+ * takes it in again. Anything already `ready` is left exactly as it is: it is
+ * settled by its outcome, not by its attempt count, and re-ingesting a stream
+ * the pipeline already finished is never what this button means.
+ */
+export function clearAttempts(ledger: IngestLedger, videoId: string): IngestLedger {
+  return {
+    ...ledger,
+    records: ledger.records.map((record) =>
+      record.videoId === videoId && record.outcome !== "ready" ? { ...record, attempts: 0 } : record
+    )
+  };
+}
+
+/**
  * Adds (or replaces) a record. Replacing matters on a re-run after a failure:
  * the video keeps one row that reflects its latest outcome rather than
  * accumulating one row per attempt.
