@@ -284,12 +284,23 @@ function Resolve-Best($branch) {
 
     $previous = $ErrorActionPreference
     $ErrorActionPreference = "Continue"
-    $ahead = (git rev-list --count "$best..$candidate" 2>$null)
+    # One measurement, both directions. --left-right prints "<behind> <ahead>"
+    # for best...candidate, which is what tells a fast-forward from a genuine
+    # fork - and these two remotes fork routinely, because GitHub collects
+    # merged pull requests while the release pushes the changelog commit to the
+    # backup. Swapping on "ahead > 0" alone picked whichever was compared last.
+    $counts = (git rev-list --left-right --count "$best...$candidate" 2>$null)
     $ok = $LASTEXITCODE -eq 0
     $ErrorActionPreference = $previous
-    # A comparison that cannot be made leaves the best where it is rather than
-    # taking the newcomer on faith.
-    if ($ok -and $ahead -and [int]$ahead -gt 0) { $best = $candidate }
+    if ($ok -and $counts) {
+      $parts = @($counts -split '\s+' | Where-Object { $_ })
+      if ($parts.Count -eq 2) {
+        $behind = [int]$parts[0]
+        $ahead = [int]$parts[1]
+        # A candidate must carry MORE unique work than the best so far.
+        if ($ahead -gt $behind) { $best = $candidate }
+      }
+    }
   }
   return $best
 }
