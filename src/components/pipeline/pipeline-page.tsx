@@ -497,7 +497,7 @@ export function PipelinePage() {
    * the fresh overview, so the row updates now instead of on the next poll.
    */
   const startAgain = useCallback(
-    async (runId: string, body: { stage: string } | { action: "segment" | "segments-all" | "retry-all" }, pendingKey: string) => {
+    async (runId: string, body: { stage: string } | { action: "segment" | "segments-all" | "retry-all" | "queue-posts" }, pendingKey: string) => {
       setWorking(pendingKey);
       try {
         const response = await fetch(`/api/pipeline/${runId}`, {
@@ -910,13 +910,27 @@ export function PipelinePage() {
       children:
         run?.posts && run.posts.length > 0 ? (
           <div className="mt-3 space-y-2">
-            <button
-              type="button"
-              onClick={() => setPostsOpen((open) => !open)}
-              className="text-xs font-medium text-[var(--accent)] transition hover:opacity-80"
-            >
-              {postsOpen ? "Hide posts" : `Show ${run.posts.length} posts`}
-            </button>
+            <div className="flex flex-wrap items-center gap-3">
+              <button
+                type="button"
+                onClick={() => setPostsOpen((open) => !open)}
+                className="text-xs font-medium text-[var(--accent)] transition hover:opacity-80"
+              >
+                {postsOpen ? "Hide posts" : `Show ${run.posts.length} posts`}
+              </button>
+              {/* Copying four posts into three apps by hand was the only way
+                  these ever left the app. The Threads ones go on the same queue
+                  the autopilot drains; the rest stay here to copy. */}
+              <Button
+                variant="secondary"
+                disabled={working === "queue-posts" || Boolean(run.postsQueuedAt)}
+                onClick={() => void startAgain(run.id, { action: "queue-posts" }, "queue-posts")}
+                className="px-3 py-1.5 text-xs"
+              >
+                {working === "queue-posts" ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : null}
+                {run.postsQueuedAt ? "Posts scheduled" : "Schedule the Threads posts"}
+              </Button>
+            </div>
             {postsOpen &&
               run.posts.map((post) => (
                 <div

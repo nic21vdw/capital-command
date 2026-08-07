@@ -47,6 +47,16 @@ export type ThreadsQueueItem = {
   error?: string;
   /** Human note for the UI/log (e.g. why an item was skipped). Not an error. */
   note?: string;
+  /**
+   * Who put this on the queue. The autopilot plans one batch a day and decides
+   * whether a day is already planned by looking at the queue — so a post added
+   * from anywhere else has to be invisible to that decision, or the day's pack
+   * silently never gets written. Absent means autopilot (every item written
+   * before this existed).
+   */
+  origin?: "autopilot" | "pipeline";
+  /** The pipeline run whose stream this post was written from. */
+  sourceRunId?: string;
   attempts: number;
   /** Backoff gate — the runner ignores this item until this instant. */
   nextAttemptAt?: string;

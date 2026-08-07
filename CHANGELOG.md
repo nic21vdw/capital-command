@@ -23,6 +23,16 @@ already shipped.
   apart and had to be put back together by hand. Everything that reads or
   writes the code now uses both, and takes whichever one is genuinely further
   ahead.
+- **The window title carries what needs you.** When a run breaks, the taskbar
+  window reads "(1) Capital Command" — so a stage that failed while the app sat
+  behind something else is visible without opening it.
+
+- **The text posts a stream produced can be scheduled from the run.** They used
+  to leave the app only by being copied out one at a time. The Threads ones now
+  go on the same queue the autopilot drains, spaced out and from one account
+  (two accounts posting identical words reads as mirrored spam); the X and
+  Facebook versions stay there to copy. The day's own pack is unaffected — the
+  autopilot cannot see these when it decides whether a day is planned.
 
 - **"Render all segments" is one click, not one per segment.** The run keeps
   rendering the next topic segment as each one finishes — with the app closed —

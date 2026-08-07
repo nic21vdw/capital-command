@@ -266,6 +266,11 @@ both. Two accounts posting the same wording would read as mirrored spam.
   ticks each see an empty day and every slot gets posted twice.
 - Never put a token in an API response or a log line — the route exposes only
   each account's id, label, version and offset.
+- A post that did NOT come from the daily pack is marked `origin: "pipeline"`,
+  and every autopilot decision reads `autopilotItemsForDate`, never
+  `itemsForDate`. Counting an ad-hoc post as the day's batch would make the
+  planner skip writing the pack — the one thing this module exists to do. UI
+  surfaces keep using `itemsForDate`, so the post is still visible.
 - See `src/lib/threads/README.md`.
 
 ## Launch Pad (`src/lib/launch`)
