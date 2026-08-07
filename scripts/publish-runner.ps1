@@ -26,6 +26,7 @@ param(
 $ErrorActionPreference = "Stop"
 
 $root = Split-Path -Parent $PSScriptRoot
+. (Join-Path $PSScriptRoot "build-lock.ps1")
 $log = Join-Path $root "publish-runner.log"
 $baseUrl = if ($env:APP_BASE_URL) { $env:APP_BASE_URL } else { "http://localhost:3000" }
 
@@ -57,6 +58,18 @@ function Test-App {
 }
 
 if (-not (Test-App)) {
+  # A release is rebuilding, and the app is down for all of it. Starting a
+  # second server now would serve a half-written `.next` and take port 3000
+  # from the build that is about to want it. The tick is skipped, not delayed:
+  # the next one is minutes away and the release will be finished by then.
+  if (Test-BuildInProgress) {
+    Add-Content -Path $log -Value "A build is in progress - leaving it alone this tick." -Encoding utf8
+    exit 0
+  }
+  if (-not (Test-BuildPresent)) {
+    Add-Content -Path $log -Value "There is no build to serve (.next\BUILD_ID is missing) - not starting a server." -Encoding utf8
+    exit 0
+  }
   Add-Content -Path $log -Value "App not running at $baseUrl - starting it." -Encoding utf8
   Start-Process -FilePath "npm.cmd" -ArgumentList "run", "start" -WorkingDirectory $root -WindowStyle Hidden
 
