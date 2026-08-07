@@ -1,4 +1,4 @@
-import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { copyFile, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { dataPath } from "@/lib/paths";
 import { seedData } from "@/lib/mockData/seed";
@@ -12,6 +12,27 @@ async function ensureStore() {
   await mkdir(path.dirname(dataFilePath), { recursive: true });
 }
 
+/** A read that could not be trusted. The file is left exactly as it was. */
+export class AppDataUnreadableError extends Error {
+  constructor(
+    message: string,
+    readonly copyPath: string | null
+  ) {
+    super(message);
+    this.name = "AppDataUnreadableError";
+  }
+}
+
+/**
+ * The document, or an error — never a fresh start.
+ *
+ * A file that exists but will not parse used to be answered with `seedData`,
+ * AND WRITTEN BACK: one unrecognised field turned every carousel, holding and
+ * content item into demo data, silently, with no copy kept. A file that is
+ * there and unreadable is a reason to stop, not to replace — the pipeline store
+ * has always worked this way (`readRunsFile` leaves itself unloaded). Only a
+ * file that genuinely does not exist gets the seed.
+ */
 export async function readAppData(): Promise<AppData> {
   await ensureStore();
 
@@ -25,15 +46,31 @@ export async function readAppData(): Promise<AppData> {
         return seedData;
       }
       if (attempt < 2) {
+        // A read can land mid-write; the retry is for that, not for damage.
         await new Promise((resolve) => setTimeout(resolve, 40));
         continue;
       }
-      await writeAppData(seedData);
-      return seedData;
+      const copyPath = await keepCorruptCopy();
+      throw new AppDataUnreadableError(
+        `The app data file could not be read${copyPath ? ` — a copy is at ${path.basename(copyPath)}` : ""}. Nothing has been changed.`,
+        copyPath
+      );
     }
   }
 
-  return seedData;
+  throw new AppDataUnreadableError("The app data file could not be read. Nothing has been changed.", null);
+}
+
+/** Best effort: a copy to look at later. Failing to copy must not hide the read failure. */
+async function keepCorruptCopy(): Promise<string | null> {
+  const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+  const copyPath = `${dataFilePath}.unreadable-${stamp}`;
+  try {
+    await copyFile(dataFilePath, copyPath);
+    return copyPath;
+  } catch {
+    return null;
+  }
 }
 
 async function commitTmpFile(tmpPath: string) {

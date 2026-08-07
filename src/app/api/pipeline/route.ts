@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { FFMPEG_MISSING_MESSAGE, resolveFfmpeg } from "@/lib/clipping/ffmpeg";
-import { createRunFromSource, createRunFromUrl, listRuns, overviewContext, runOverview } from "@/lib/pipeline/runs";
+import { ingestOverview } from "@/lib/ingest/service";
+import { createRunFromSource, createRunFromUrl, listRuns, overviewContext, runOverview, updateRun } from "@/lib/pipeline/runs";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -17,8 +18,16 @@ export async function GET(request: NextRequest) {
   // `?summary=1` is what the sidebar badge polls: the same advance, a few bytes
   // back instead of every stage of every run.
   if (request.nextUrl.searchParams.has("summary")) {
+    // A scan that failed before it created any run has no run to count — and it
+    // is the failure most likely to happen overnight, so it has to reach the
+    // same badge rather than only the panel on /agents.
+    const scan = await ingestOverview().catch(() => null);
+    const scanFailed = scan?.lastScan?.status === "failed" || Boolean(scan?.lastScan?.needsReconnect);
     return NextResponse.json({
-      needsAttention: overviews.filter((entry) => entry.run.status === "error" || entry.retryable.length > 0).length,
+      needsAttention:
+        overviews.filter((entry) => entry.run.status === "error" || entry.retryable.length > 0).length +
+        (scanFailed ? 1 : 0),
+      scanFailed,
       working: overviews.filter((entry) => entry.run.status !== "error" && !entry.settled).length
     });
   }
@@ -31,7 +40,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: FFMPEG_MISSING_MESSAGE }, { status: 500 });
   }
 
-  let body: { url?: unknown; sourceId?: unknown; name?: unknown };
+  let body: { url?: unknown; sourceId?: unknown; name?: unknown; queueWhenReady?: unknown };
   try {
     body = (await request.json()) as typeof body;
   } catch {
@@ -41,16 +50,22 @@ export async function POST(request: NextRequest) {
   const url = typeof body.url === "string" ? body.url.trim() : "";
   const sourceId = typeof body.sourceId === "string" ? body.sourceId.trim() : "";
   const name = typeof body.name === "string" ? body.name.trim() : "";
+  // An unattended run books itself. The nightly scan runs while he is asleep,
+  // so waiting for two button presses is the app doing the first nine tenths of
+  // the work and stopping. It stays opt-out from the run's Scheduler row.
+  const queueWhenReady = body.queueWhenReady === true;
 
   try {
     if (sourceId) {
       const run = await createRunFromSource(sourceId, name || undefined);
+      if (queueWhenReady) await updateRun(run, { queueWhenReady: true });
       return NextResponse.json({ run }, { status: 201 });
     }
     if (!/^https?:\/\/\S+$/i.test(url)) {
       return NextResponse.json({ error: "Enter a valid http(s) stream/VOD URL, or upload a file." }, { status: 400 });
     }
     const run = await createRunFromUrl(url, name || undefined);
+    if (queueWhenReady) await updateRun(run, { queueWhenReady: true });
     return NextResponse.json({ run }, { status: 201 });
   } catch (error) {
     return NextResponse.json(

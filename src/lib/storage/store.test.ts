@@ -1,0 +1,47 @@
+import { mkdtempSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+// The store resolves its path through `dataPath()`, so pointing the data dir at
+// a throwaway folder keeps this away from any real document.
+let root = "";
+let previousDataDir: string | undefined;
+
+beforeEach(() => {
+  root = mkdtempSync(path.join(tmpdir(), "cc-store-"));
+  previousDataDir = process.env.CAPITAL_COMMAND_DATA_DIR;
+  process.env.CAPITAL_COMMAND_DATA_DIR = path.join(root, "data");
+  vi.resetModules();
+});
+
+afterEach(() => {
+  if (previousDataDir === undefined) delete process.env.CAPITAL_COMMAND_DATA_DIR;
+  else process.env.CAPITAL_COMMAND_DATA_DIR = previousDataDir;
+  vi.restoreAllMocks();
+});
+
+const dataFile = () => path.join(root, "data", "capital-command.json");
+
+describe("reading a data file that cannot be parsed", () => {
+  it("refuses rather than replacing it with demo data", async () => {
+    const { readAppData, AppDataUnreadableError } = await import("@/lib/storage/store");
+    const { mkdirSync } = await import("node:fs");
+    mkdirSync(path.dirname(dataFile()), { recursive: true });
+    const broken = '{"contentItems": [ this is not json';
+    writeFileSync(dataFile(), broken, "utf8");
+
+    await expect(readAppData()).rejects.toBeInstanceOf(AppDataUnreadableError);
+    // The document is exactly as it was — this is the whole point.
+    expect(readFileSync(dataFile(), "utf8")).toBe(broken);
+    // And a copy is kept to look at.
+    expect(readdirSync(path.dirname(dataFile())).some((name) => name.includes("unreadable"))).toBe(true);
+  });
+
+  it("still seeds a file that genuinely does not exist", async () => {
+    const { readAppData } = await import("@/lib/storage/store");
+    const data = await readAppData();
+    expect(Array.isArray(data.contentItems)).toBe(true);
+    expect(readFileSync(dataFile(), "utf8").length).toBeGreaterThan(0);
+  });
+});

@@ -40,8 +40,8 @@ describe("what a booked queue item reads as on the calendar", () => {
         platforms: { instagram: { status: "scheduled", attempts: 0 } }
       } as Partial<QueueItem>)
     ]);
-    expect(event.source).toBe("carousels");
-    expect(event.id.startsWith("carousels:")).toBe(true);
+    expect(event.source).toBe("queued-carousels");
+    expect(event.id.startsWith("queued-carousels:")).toBe(true);
   });
 
   it("leaves a video where it was", () => {

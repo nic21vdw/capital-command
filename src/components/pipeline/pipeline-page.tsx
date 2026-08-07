@@ -545,7 +545,10 @@ export function PipelinePage() {
         toast.error(data.error ?? "Could not work out what is ready.");
         return;
       }
-      setDropped([]);
+      // A row the server marked as decided opens UNTICKED. Clearing this was
+      // the sheet re-ticking exactly what he had held back, under a label
+      // telling him to tick it.
+      setDropped(data.plan.candidates.filter((item) => item.heldBack).map((item) => item.id));
       setPlan(data.plan);
     } catch {
       toast.error("Request failed. Is the server still running?");

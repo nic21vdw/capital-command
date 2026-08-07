@@ -48,7 +48,11 @@ function Step($message) {
 # secrets stay: they only matter for connect flows, which write to the
 # sandbox's own token file.
 function Get-SandboxEnv($file) {
-  $muted = "IG_ACCESS_TOKEN", "FB_PAGE_ACCESS_TOKEN", "THREADS_ACCESS_TOKEN"
+  # The bucket keys are muted too: the Podcast page can now set the public
+  # address, and with real credentials that one click writes a feed into the
+  # LIVE bucket from a sandbox.
+  $muted = "IG_ACCESS_TOKEN", "FB_PAGE_ACCESS_TOKEN", "THREADS_ACCESS_TOKEN",
+    "S3_ACCESS_KEY_ID", "S3_SECRET_ACCESS_KEY"
   $off = @{ "PUBLISH_ENABLED" = "false"; "THREADS_ENABLED" = "false" }
 
   $lines = foreach ($line in Get-Content $file) {

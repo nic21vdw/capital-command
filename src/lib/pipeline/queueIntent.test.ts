@@ -113,3 +113,18 @@ describe("what the sheet says about a decision he already made", () => {
     expect(plan?.candidates.find((item) => item.id === "clip:job1:keep")?.heldBack).toBe("removed");
   });
 });
+
+describe("what the sheet ticks when it opens", () => {
+  it("opens a decided row unticked, so pressing Schedule cannot undo the decision", async () => {
+    await queueRunOutputs("run1", ["clip:job1:keep"]);
+    const { planRunOutputs } = await import("@/lib/pipeline/queueOutputs");
+    const plan = await planRunOutputs("run1");
+    // This is the exact expression the sheet seeds its unticked set from; the
+    // sheet cleared it instead, so a held-back row came back ticked under a
+    // label telling him to tick it.
+    const unticked = plan!.candidates.filter((item) => item.heldBack).map((item) => item.id);
+    expect(unticked).toContain("clip:job1:drop");
+    expect(unticked).toContain("clip:job1:keep");
+    expect(plan!.candidates.filter((item) => !unticked.includes(item.id))).toEqual([]);
+  });
+});

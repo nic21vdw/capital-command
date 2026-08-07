@@ -88,7 +88,12 @@ export async function appReachable(): Promise<boolean> {
 
 /** Starts a run from a VOD link. Returns the new run's id. */
 export async function startPipelineRun(url: string, name: string): Promise<string> {
-  const body = await call("/api/pipeline", { method: "POST", body: JSON.stringify({ url, name }) });
+  // Taken in while he was asleep, so it books its own outputs as they finish —
+  // he reviews a scheduled run instead of starting the scheduling himself.
+  const body = await call("/api/pipeline", {
+    method: "POST",
+    body: JSON.stringify({ url, name, queueWhenReady: true })
+  });
   const id = (body as { run?: { id?: unknown } } | undefined)?.run?.id;
   if (typeof id !== "string" || !id) {
     throw new Error("The pipeline accepted the stream but returned no run id.");
