@@ -14,6 +14,20 @@ already shipped.
 
 ## Unreleased
 
+- **Publishing is a switch in Settings now, not a line in a file.** Turning the
+  app's posting on or off — and seeing why an overnight run would book nothing
+  — no longer means editing `.env` and restarting.
+- **An output that could not be scheduled can no longer read as "Finished".**
+  It counts in the sidebar and the run says how many were not scheduled.
+- **A stream taken in overnight renders its topic segments whichever way the
+  scheduling switch is set.** They are videos you already own; only the
+  scheduling waits for your say-so.
+- **A Threads post the app failed to schedule overnight is reported**, instead
+  of failing silently every few minutes forever.
+- **The Agents panel and the Stream Pipeline agree about the nightly scan.**
+  The panel could say "nothing taken in yet" while the pipeline said the task
+  had not run for days.
+
 - **A nightly scan that never ran is now visible.** A scheduled task switched
   off, or a machine asleep, used to look exactly like a healthy scan: the last
   success sat there forever while nothing came in. After a day and a half with

@@ -36,3 +36,24 @@ describe("how a run reads in a list", () => {
     });
   });
 });
+
+describe("a booking the app promised and could not do", () => {
+  it("never reads as finished", () => {
+    const status = runListStatus({
+      run: { status: "running", queueFailures: [{ title: "the stream", error: "No free slot." }] } as PipelineRun,
+      retryable: [],
+      settled: true
+    });
+    expect(status.tone).toBe("attention");
+    expect(status.label).toBe("1 not scheduled");
+  });
+
+  it("still leads with a failed ingest", () => {
+    const status = runListStatus({
+      run: { status: "error", queueFailures: [{ title: "x", error: "y" }] } as PipelineRun,
+      retryable: [],
+      settled: true
+    });
+    expect(status.label).toBe("Needs attention");
+  });
+});

@@ -1229,6 +1229,20 @@ export function PipelinePage() {
           ) : null}
           <div className="flex flex-wrap gap-2">
             {run?.queueFailures?.length ? (
+            <span className="w-full text-xs text-amber-300/90">
+              {run.queueFailures[0].error.includes("switched off") ? (
+                <>
+                  {run.queueFailures[0].error}{" "}
+                  <Link href="/settings" className="underline">
+                    Open Settings
+                  </Link>
+                </>
+              ) : (
+                run.queueFailures[0].error
+              )}
+            </span>
+          ) : null}
+          {run?.queueFailures?.length ? (
               <Button
                 disabled={working === "plan"}
                 onClick={() => void loadPlan(run.id)}

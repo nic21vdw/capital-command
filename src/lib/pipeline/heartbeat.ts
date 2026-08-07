@@ -1,5 +1,6 @@
 import { advanceMusicJob, listMusicJobs } from "@/lib/music/jobs";
 import { queueReadyOutputs, stopQueueingWhenSettled } from "@/lib/pipeline/queueOutputs";
+import { recordQueueFailure } from "@/lib/pipeline/queueOutputs";
 import { queueRunPosts } from "@/lib/pipeline/queuePosts";
 import { listRuns, overviewContext, runOverview } from "@/lib/pipeline/runs";
 
@@ -58,7 +59,13 @@ export async function advancePipelineOnce(): Promise<number> {
 async function queueUnattendedPosts(runs: { id: string; unattended?: boolean; posts?: unknown[]; postsQueuedAt?: string }[]) {
   for (const run of runs) {
     if (!run.unattended || run.postsQueuedAt || !(run.posts?.length ?? 0)) continue;
-    await queueRunPosts(run.id).catch(() => undefined);
+    try {
+      await queueRunPosts(run.id);
+    } catch (error) {
+      // Swallowing this retried the same impossible call every tick forever and
+      // told him nothing — the same hole the video booking had.
+      await recordQueueFailure(run.id, "Text posts", error instanceof Error ? error.message : String(error));
+    }
   }
 }
 

@@ -29,8 +29,12 @@ export async function GET(request: NextRequest) {
     const scanFailed = Boolean(outcome && outcome.status !== "ok");
     return NextResponse.json({
       needsAttention:
-        overviews.filter((entry) => entry.run.status === "error" || entry.retryable.length > 0).length +
-        (scanFailed ? 1 : 0),
+        overviews.filter(
+          (entry) =>
+            entry.run.status === "error" ||
+            entry.retryable.length > 0 ||
+            (entry.run.queueFailures?.length ?? 0) > 0
+        ).length + (scanFailed ? 1 : 0),
       scanFailed,
       scan: outcome,
       working: overviews.filter((entry) => entry.run.status !== "error" && !entry.settled).length
@@ -79,14 +83,19 @@ export async function POST(request: NextRequest) {
   try {
     if (sourceId) {
       const run = await createRunFromSource(sourceId, name || undefined);
-      if (queueWhenReady) await updateRun(run, { queueWhenReady: true, unattended: true, renderAllSegments: true });
+      if (asked) await updateRun(run, { renderAllSegments: true });
+      if (queueWhenReady) await updateRun(run, { queueWhenReady: true, unattended: true });
       return NextResponse.json({ run }, { status: 201 });
     }
     if (!/^https?:\/\/\S+$/i.test(url)) {
       return NextResponse.json({ error: "Enter a valid http(s) stream/VOD URL, or upload a file." }, { status: 400 });
     }
     const run = await createRunFromUrl(url, name || undefined);
-    if (queueWhenReady) await updateRun(run, { queueWhenReady: true, unattended: true, renderAllSegments: true });
+    // Rendering the segments is not what the consent gate is about — they are
+    // videos he already owns, and leaving them unrendered made the DEFAULT
+    // configuration stop short of "ready to schedule".
+    if (asked) await updateRun(run, { renderAllSegments: true });
+    if (queueWhenReady) await updateRun(run, { queueWhenReady: true, unattended: true });
     return NextResponse.json({ run }, { status: 201 });
   } catch (error) {
     return NextResponse.json(

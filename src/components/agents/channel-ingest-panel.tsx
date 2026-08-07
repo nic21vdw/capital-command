@@ -21,7 +21,16 @@ type ScanSummary = {
   needsReview?: Array<{ videoId: string; title: string; reason: string }>;
 };
 
+type ScanOutcome = {
+  at: string;
+  status: "ok" | "failed" | "not-connected" | "needs-reconnect" | "stale";
+  error?: string;
+};
+
 type Overview = {
+  /** How the last scan ended, from the ledger — the only record a scan run by
+   *  the scheduled task (its own process) leaves behind. */
+  lastScanOutcome?: ScanOutcome | null;
   lastScanAt: string | null;
   taken: Array<{ videoId: string; title: string; runId: string | null; outcome: string; summary: string }>;
   running: ScanSummary | null;
@@ -136,6 +145,22 @@ export function ChannelIngestPanel() {
         </div>
       ) : null}
 
+      {/* A scan run by the SCHEDULED TASK leaves nothing in this process, so the
+          panel used to read "nothing taken in yet" for a scan that failed
+          overnight — while the Stream Pipeline said the opposite. */}
+      {!running && overview?.lastScanOutcome && overview.lastScanOutcome.status !== "ok" ? (
+        <div className="mt-3 rounded-lg border border-amber-400/25 bg-amber-400/[0.06] p-3">
+          <p className="text-xs text-amber-100/90">
+            {overview.lastScanOutcome.status === "stale"
+              ? "The channel has not been scanned lately — the nightly task may not be running."
+              : overview.lastScanOutcome.status === "not-connected"
+                ? "YouTube is not connected, so the nightly scan has nothing to look at."
+                : overview.lastScanOutcome.status === "needs-reconnect"
+                  ? "The nightly scan cannot read the channel any more — reconnect YouTube."
+                  : `The last scan failed${overview.lastScanOutcome.error ? ` — ${overview.lastScanOutcome.error}` : "."}`}
+          </p>
+        </div>
+      ) : null}
       {lastScan?.status === "failed" ? (
         <div className="mt-3 rounded-lg border border-red-400/30 bg-red-400/10 p-3">
           <span className="flex items-center gap-2 text-xs font-medium text-red-200">

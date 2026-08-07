@@ -12,6 +12,9 @@ interface BootstrapPayload {
   summary: ReturnType<typeof derivePortfolioSummary>;
   apiStatus: {
     hasAlphaVantageKey: boolean;
+    publishingEnabled?: boolean;
+    /** Why an unattended run would book nothing, if anything would stop it. */
+    bookingBlockers?: string[];
   };
 }
 
@@ -329,7 +332,9 @@ const payloadFallback: BootstrapPayload = {
   data: emptyAppData,
   summary: derivePortfolioSummary(emptyAppData),
   apiStatus: {
-    hasAlphaVantageKey: false
+    hasAlphaVantageKey: false,
+    publishingEnabled: false,
+    bookingBlockers: []
   }
 };
 

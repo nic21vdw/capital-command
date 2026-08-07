@@ -2,7 +2,7 @@
 #
 # Reads the YouTube channel and hands every new live stream to the Stream
 # Pipeline, which fans it out into the long-form edit, clips, a podcast MP3, a
-# carousel and text posts, and stops at "ready to schedule". It never publishes:
+# carousel and text posts, and stops at "ready to schedule". It stops at "ready to schedule" unless overnight scheduling is on in Settings:
 # nothing goes out to a channel unreviewed.
 #
 # The pipeline runs inside the app, so Capital Command has to be up. This script
