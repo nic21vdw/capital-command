@@ -14,6 +14,11 @@ already shipped.
 
 ## Unreleased
 
+- **A music generation is no longer lost by closing the tab.** The track was
+  paid for at submission but only imported by whichever poll first saw it
+  finish, so a closed tab stranded it; the server now checks the pending ones
+  itself.
+
 - **The command bar stops claiming it can act when it can't.** Arming lasts an
   hour on the server, and the bar used to keep saying "Can act" long after it
   lapsed — every command then quietly ran read-only and the orchestrator just
