@@ -14,6 +14,7 @@ param(
 $ErrorActionPreference = "Stop"
 
 $root = Split-Path -Parent $PSScriptRoot
+. (Join-Path $PSScriptRoot "build-lock.ps1")
 $node = if ($env:node) { $env:node } else { "node" }
 $stdout = Join-Path $root "server.out.log"
 $stderr = Join-Path $root "server.err.log"
@@ -103,6 +104,7 @@ function Invoke-Build($append) {
 }
 
 Write-Host "Building Capital Command (a few minutes)..."
+Set-BuildLock
 $buildExit = Invoke-Build $false
 
 # A build that fails on a warm .next is usually the cache, not the code: the
@@ -120,6 +122,8 @@ if ($buildExit -ne 0) {
     Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
   $buildExit = Invoke-Build $true
 }
+
+Clear-BuildLock
 
 if ($buildExit -ne 0) {
   Show-Failure "The build failed twice (exit $buildExit), so the app was not started." $buildLog

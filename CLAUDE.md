@@ -17,6 +17,13 @@ itself.
   stale. `status.ts` compares `.next/BUILD_COMMIT`, not `HEAD`.
 - Only the production checkout on `main` may release, and `POST /api/update`
   re-checks that itself — the UI hiding a button is not the gate.
+- KEEP `.next/cache`. `prepare-dev-cache.mjs` relocates the build out of the
+  OneDrive folder and clears it, but it must skip `cache` — that is Next's
+  incremental compile cache, and wiping it made every release a cold nine
+  minute build instead of about ninety seconds. The app is down for the whole
+  build, and nine minutes is long enough for a scheduled task to find nothing
+  on port 3000, start a second server, and leave two builds writing the same
+  `.next` — which fails with `Cannot find module './<chunk>.js'`.
 - No validation is duplicated in TypeScript. `update-app.ps1` refuses a dirty
   or ahead checkout and backs out a conflicting merge; a second copy of those
   rules here would only go stale.

@@ -20,6 +20,22 @@ already shipped.
   the editor that rendered nothing — it now renders the next segment and says
   how many are done. Same repairs the command bar performs, so the button and
   the answer can never disagree.
+- **An update takes about a minute and a half again, not nine.** Every release
+  was a cold build: the step that moves the build output out of the OneDrive
+  folder was also deleting Next's incremental compile cache, so nothing was
+  ever reused. It keeps that one folder now. This is not only about waiting —
+  the app is down for the whole build, and nine minutes was long enough for a
+  scheduled task to find nothing on port 3000, start a second server, and leave
+  two builds writing the same folder. That is what made a release fail with
+  "Cannot find module" and left the app down.
+- **A scheduled task can no longer start a second server into a running
+  build.** The publish runner and the threads autopilot start the app when
+  nothing answers on port 3000, which during a release meant serving a
+  half-written build, taking the port from the build that wanted it, and two
+  builds writing the same folder. They now leave a build alone and skip the
+  tick.
+
+## 2026-08-06
 
 - **The command bar fixes a stuck run instead of telling you it is stuck.**
   Say "go back to Day 28 and finish it" and it finds the run by name, sees which
