@@ -195,13 +195,35 @@ export function assignSlots(
  * it. One failure never stops the rest — a run with twelve outputs would
  * otherwise be all-or-nothing on whichever file the hosting bucket choked on.
  */
-export async function queueRunOutputs(runId: string, ids?: string[]): Promise<QueueResult> {
+export async function queueRunOutputs(
+  runId: string,
+  ids?: string[],
+  options: { standing?: boolean } = {}
+): Promise<QueueResult> {
+  const run = await getRun(runId);
+  if (!run) throw new Error(`No pipeline run called ${runId}.`);
   const plan = await planRunOutputs(runId);
   if (!plan) throw new Error(`No pipeline run called ${runId}.`);
   if (plan.problem) throw new Error(plan.problem);
 
-  const chosen = ids?.length ? plan.candidates.filter((item) => ids.includes(item.id)) : plan.candidates;
+  // A person's choice is remembered, not re-derived. The standing instruction
+  // re-plans from scratch every couple of minutes, so without this it books the
+  // outputs he unticked — and re-books anything he later deleted from the
+  // queue, since the only other dedupe is by file path.
+  const heldBack = new Set(run.queueHeldBack ?? []);
+  const alreadyBooked = new Set(run.queueBooked ?? []);
+  const eligible = plan.candidates.filter(
+    (item) => !heldBack.has(item.id) && !alreadyBooked.has(item.id)
+  );
+  const chosen = ids?.length ? eligible.filter((item) => ids.includes(item.id)) : eligible;
   if (chosen.length === 0) throw new Error("Nothing on this run is waiting to be scheduled.");
+
+  // Only a person unticking something creates a held-back id. The drain has no
+  // opinion about what it did not book.
+  const droppedNow =
+    !options.standing && ids
+      ? eligible.filter((item) => !ids.includes(item.id)).map((item) => item.id)
+      : [];
 
   const slots = plan.openSlots.length
     ? plan.openSlots
@@ -211,6 +233,7 @@ export async function queueRunOutputs(runId: string, ids?: string[]): Promise<Qu
 
   const queued: QueueResult["queued"] = [];
   const failed: QueueResult["failed"] = [];
+  const bookedIds: string[] = [];
   for (const { candidate, publishAt } of assignSlots(chosen, slots)) {
     if (!publishAt) {
       failed.push({ title: candidate.title, error: "No free slot in the next three weeks." });
@@ -231,9 +254,16 @@ export async function queueRunOutputs(runId: string, ids?: string[]): Promise<Qu
         publishAt: item.publishAt,
         platforms: Object.keys(item.platforms) as PlatformId[]
       });
+      bookedIds.push(candidate.id);
     } catch (error) {
       failed.push({ title: candidate.title, error: error instanceof Error ? error.message : String(error) });
     }
+  }
+  if (bookedIds.length > 0 || droppedNow.length > 0) {
+    await updateRun(run, {
+      queueBooked: [...alreadyBooked, ...bookedIds],
+      queueHeldBack: [...heldBack, ...droppedNow]
+    });
   }
   return { queued, failed };
 }
@@ -256,7 +286,7 @@ export async function queueReadyOutputs(): Promise<number> {
     // "Nothing waiting" is the normal case between one output finishing and the
     // next, and it throws — that is the caller's contract for a button press,
     // not a reason to log anything here.
-    const result = await queueRunOutputs(run.id).catch(() => null);
+    const result = await queueRunOutputs(run.id, undefined, { standing: true }).catch(() => null);
     booked += result?.queued.length ?? 0;
   }
   return booked;

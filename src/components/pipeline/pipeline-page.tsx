@@ -497,7 +497,7 @@ export function PipelinePage() {
    * the fresh overview, so the row updates now instead of on the next poll.
    */
   const startAgain = useCallback(
-    async (runId: string, body: { stage: string } | { action: "segment" | "segments-all" | "retry-all" | "queue-posts" }, pendingKey: string) => {
+    async (runId: string, body: { stage: string } | { action: "segment" | "segments-all" | "retry-all" | "queue-posts" | "stop-queueing" }, pendingKey: string) => {
       setWorking(pendingKey);
       try {
         const response = await fetch(`/api/pipeline/${runId}`, {
@@ -1118,6 +1118,25 @@ export function PipelinePage() {
             <span>{schedulable.posts} posts</span>
             {schedulable.queued > 0 && <span className="text-emerald-300">{schedulable.queued} queued</span>}
           </div>
+          {/* The standing instruction is invisible once the sheet closes unless
+              it says so here — and it has to be his to stop without editing a
+              file. */}
+          {run?.queueWhenReady ? (
+            <div className="flex flex-wrap items-center gap-2 rounded-lg border border-emerald-400/20 bg-emerald-400/[0.06] px-3 py-2">
+              <span className="min-w-0 flex-1 text-xs text-emerald-100/90">
+                Anything still rendering is booked as it lands. Nothing you unticked will be.
+              </span>
+              <Button
+                variant="secondary"
+                disabled={working === "stop-queueing"}
+                onClick={() => void startAgain(run.id, { action: "stop-queueing" }, "stop-queueing")}
+                className="shrink-0 px-3 py-1.5 text-xs"
+              >
+                {working === "stop-queueing" ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : null}
+                Stop booking automatically
+              </Button>
+            </div>
+          ) : null}
           <div className="flex flex-wrap gap-2">
             {run && !plan ? (
               <Button

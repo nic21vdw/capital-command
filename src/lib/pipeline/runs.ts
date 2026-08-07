@@ -557,7 +557,11 @@ function sourceStage(run: PipelineRun): PipelineStage {
 function longformStage(run: PipelineRun, project: LongformProject | undefined): PipelineStage {
   if (run.status !== "running") return stage("waiting", "Waiting for the source.");
   if (!project) {
-    if (run.longformProjectId) return stage("error", "The long-form project is gone — it may have been deleted.");
+    if (run.longformProjectId) {
+      // Deleted, not broken. A Retry can only ever answer "it is gone", so the
+      // row says what to do instead of offering a button that always refuses.
+      return { ...stage("error", "The long-form project is gone — remove this run, or start the stream again."), retryable: false };
+    }
     // Without this a source that has been deleted under a run left the stage
     // saying "Creating the long-form project…" for good, retrying the same
     // doomed call every couple of seconds with no way to act on it.
@@ -631,7 +635,9 @@ const WEAK_CLIP_SCORE = 25;
 function clipsStage(run: PipelineRun, job: ClipJob | undefined): PipelineStage {
   if (run.status !== "running") return stage("waiting", "Waiting for the source.");
   if (!job) {
-    if (run.clipJobId) return stage("error", "The clip job is gone — it may have been deleted.");
+    if (run.clipJobId) {
+      return { ...stage("error", "The clip job is gone — remove this run, or start the stream again."), retryable: false };
+    }
     if (stuck(run, "clips")) {
       return { ...stage("error", run.notices[run.notices.length - 1] ?? "The clip job could not be created."), retryable: true };
     }
@@ -692,7 +698,9 @@ function imagesStage(run: PipelineRun, project: LongformProject | undefined, sli
     // for a carousel that no longer exists — the same phrasing the clips stage
     // uses for a missing job, since the count is best-effort and a failed read
     // looks identical to a deletion.
-    if (slideCount === 0) return stage("error", "The carousel is gone — it may have been deleted.");
+    if (slideCount === 0) {
+      return { ...stage("error", "The carousel is gone — it was deleted from the Studio."), retryable: false };
+    }
     const note = run.carouselNote ? ` (${run.carouselNote})` : "";
     return stage("ready", `${slideCount} carousel slides written${note}`);
   }
@@ -827,7 +835,9 @@ export async function runOverview(run: PipelineRun, context?: OverviewContext): 
   // carousel among "outputs ready to schedule" made the row promise something
   // no button on the page could do — the publish queue has no concept of an
   // image post, so the deck and the visual ad are posted by hand.
-  const bookable = clipsReady + (longformReady ? 1 : 0) + segmentsRendered + posts;
+  // Exactly what "Schedule everything from this run" books — the text posts have
+  // their own button, and counting them here made the sentence overstate by N.
+  const bookable = clipsReady + (longformReady ? 1 : 0) + segmentsRendered;
   const byHand = (slideCount > 0 ? 1 : 0) + (visualMoment ? 1 : 0);
   const readyItems = bookable + byHand + (audioReady ? 1 : 0);
   const upstreamSettled = (["longform", "segments", "clips", "audio", "podcast", "images", "visuals", "posts"] as const).every(
@@ -844,6 +854,7 @@ export async function runOverview(run: PipelineRun, context?: OverviewContext): 
       // anyone: it is already in the feed, and nothing about it gets scheduled.
       [
         `${bookable} output${bookable === 1 ? "" : "s"} ready to schedule`,
+        posts > 0 ? `${posts} text post${posts === 1 ? "" : "s"}` : "",
         byHand > 0 ? `${slideCount > 0 ? "carousel" : ""}${slideCount > 0 && visualMoment ? " and " : ""}${
           visualMoment ? "visual ad" : ""
         } to post by hand` : "",

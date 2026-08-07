@@ -84,6 +84,17 @@ export type PipelineRun = {
    * without this he has to come back and press it again for each one.
    */
   queueWhenReady?: boolean;
+  /**
+   * Candidate ids he unticked when he confirmed the booking. The standing
+   * instruction must never book these: re-planning from scratch would undo the
+   * one decision the sheet asked him to make.
+   */
+  queueHeldBack?: string[];
+  /**
+   * Candidate ids already booked. Dedupe by file path alone would re-book
+   * anything he later deleted from the publish queue.
+   */
+  queueBooked?: string[];
   createdAt: string;
   updatedAt: string;
 };
