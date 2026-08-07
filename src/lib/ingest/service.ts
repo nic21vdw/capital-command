@@ -2,6 +2,7 @@ import { setAppBaseUrl } from "@/lib/ingest/pipelineClient";
 import { ingestLedger, runDailyScan, summarizeOutputs } from "@/lib/ingest/run";
 import type { ScanReport } from "@/lib/ingest/run";
 import { explainDecision } from "@/lib/ingest/classify";
+import { abandonedRecords, MAX_INGEST_ATTEMPTS } from "@/lib/ingest/ledger";
 
 export type IngestJob = {
   id: string;
@@ -140,11 +141,30 @@ export function summarizeJob(job: IngestJob) {
   };
 }
 
+/**
+ * The most recent scan that is over. A failed scan leaves nothing in
+ * `running`, which is how a scan that blew up read on screen as "nothing taken
+ * in yet" — the outcome has to outlive the job.
+ */
+function lastFinishedJob(): IngestJob | null {
+  return listIngestJobs().find((job) => job.status !== "running") ?? null;
+}
+
 export async function ingestOverview() {
   const ledger = await ingestLedger();
   const running = activeIngestJob();
+  const finished = lastFinishedJob();
   return {
     lastScanAt: ledger.lastScanAt,
+    lastScan: finished ? summarizeJob(finished) : null,
+    abandoned: abandonedRecords(ledger).map((record) => ({
+      videoId: record.videoId,
+      title: record.title,
+      attempts: record.attempts,
+      outcome: record.outcome,
+      summary: summarizeOutputs(record)
+    })),
+    maxAttempts: MAX_INGEST_ATTEMPTS,
     taken: ledger.records.slice(0, 15).map((record) => ({
       videoId: record.videoId,
       title: record.title,

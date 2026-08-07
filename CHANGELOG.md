@@ -14,6 +14,16 @@ already shipped.
 
 ## Unreleased
 
+- **You can add an episode to the podcast feed yourself.** The Podcast page now
+  lists every finished long-form export and publishes the one you pick — cutting
+  the MP3 first if it hasn't been cut, and writing real show notes instead of the
+  raw stream name. When the feed can't take anything yet, it says which thing is
+  missing and exactly what to do about it, instead of a bare warning.
+- **A channel scan that failed says so.** The Channel ingest panel used to read
+  "Nothing taken in yet" whatever happened; it now shows the failure and its
+  reason, tells you when YouTube needs reconnecting (with a link to do it), and
+  lists the streams it skipped for review or gave up on.
+
 ## 2026-08-06
 
 - **An update takes about a minute and a half again, not nine.** Every release
