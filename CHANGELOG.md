@@ -14,6 +14,11 @@ already shipped.
 
 ## Unreleased
 
+- **A music generation is no longer lost by closing the tab.** The track was
+  paid for at submission but only imported by whichever poll first saw it
+  finish, so a closed tab stranded it; the server now checks the pending ones
+  itself.
+
 - **The app notices work the moment it lands, instead of when a backup runs.**
   This machine keeps two copies of the code — GitHub, where finished work is
   merged, and a local backup repository that syncs down from it on a schedule —
