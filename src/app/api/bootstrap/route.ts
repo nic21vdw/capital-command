@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { repairAppDataOverlays } from "@/lib/clipping/overlay-images";
 import { derivePortfolioSummary } from "@/lib/derive";
 import { ensureExecution } from "@/lib/execution/server";
-import { AppDataUnreadableError, readAppData, writeAppData } from "@/lib/storage/store";
+import { AppDataUnreadableError, latestGoodSnapshot, readAppData, writeAppData } from "@/lib/storage/store";
 
 export async function GET() {
   // This is the payload the whole dashboard mounts from, so it is also where
@@ -15,7 +15,18 @@ export async function GET() {
     stored = await repairAppDataOverlays(await readAppData());
   } catch (error) {
     if (error instanceof AppDataUnreadableError) {
-      return NextResponse.json({ error: error.message, unreadable: true }, { status: 503 });
+      // The offer to restore rides along with the refusal, so the dead-end
+      // screen can show a way out instead of only a "try again".
+      const snapshot = await latestGoodSnapshot();
+      return NextResponse.json(
+        {
+          error: error.message,
+          unreadable: true,
+          copyName: error.copyPath ? error.copyPath.split(/[\\/]/).pop() : null,
+          snapshot: snapshot ? { savedAt: snapshot.savedAt, bytes: snapshot.bytes } : null
+        },
+        { status: 503 }
+      );
     }
     throw error;
   }

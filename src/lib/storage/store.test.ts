@@ -61,4 +61,80 @@ describe("how many copies a corrupt file gets", () => {
     const copies = readdirSync(path.dirname(dataFile())).filter((name) => name.includes("unreadable"));
     expect(copies).toHaveLength(1);
   });
+
+  it("gives a second, different corruption its own copy", async () => {
+    const { readAppData } = await import("@/lib/storage/store");
+    const { mkdirSync } = await import("node:fs");
+    mkdirSync(path.dirname(dataFile()), { recursive: true });
+
+    writeFileSync(dataFile(), "{not json", "utf8");
+    await readAppData().catch(() => undefined);
+
+    // A later, different corruption used to get nothing at all, because the
+    // dedupe was "any copy in this folder" rather than "a copy of THIS file".
+    writeFileSync(dataFile(), "{a completely different mess", "utf8");
+    await readAppData().catch(() => undefined);
+
+    const copies = readdirSync(path.dirname(dataFile())).filter((name) => name.includes("unreadable"));
+    expect(copies).toHaveLength(2);
+    const contents = copies.map((name) => readFileSync(path.join(path.dirname(dataFile()), name), "utf8"));
+    expect(new Set(contents).size).toBe(2);
+  });
+});
+
+const snapshotDir = () => path.join(root, "data", "snapshots");
+const snapshots = () => readdirSync(snapshotDir()).filter((name) => name.endsWith(".json"));
+
+// The snapshot deliberately does not hold up the save that triggered it, so a
+// test that wants to see it has to wait for the copy carrying its own marker.
+async function waitForSnapshotOf(marker: string) {
+  const { latestGoodSnapshot } = await import("@/lib/storage/store");
+  await vi.waitFor(async () => {
+    const good = await latestGoodSnapshot();
+    expect(good).not.toBeNull();
+    expect(JSON.parse(readFileSync(good!.path, "utf8")).executionSeededAt).toBe(marker);
+  });
+}
+
+describe("the last-known-good snapshot", () => {
+  it("is written after a successful save", async () => {
+    const { readAppData, writeAppData, latestGoodSnapshot } = await import("@/lib/storage/store");
+    const data = await readAppData();
+    await writeAppData({ ...data, executionSeededAt: "saved once", holdings: [] });
+    await waitForSnapshotOf("saved once");
+
+    const good = await latestGoodSnapshot();
+    expect(JSON.parse(readFileSync(good!.path, "utf8")).holdings).toEqual([]);
+  });
+
+  it("puts a parseable document back when a restore is asked for", async () => {
+    const { readAppData, writeAppData, restoreLastGoodSnapshot, AppDataUnreadableError } = await import(
+      "@/lib/storage/store"
+    );
+    const data = await readAppData();
+    await writeAppData({ ...data, executionSeededAt: "saved once", holdings: [] });
+    await waitForSnapshotOf("saved once");
+
+    writeFileSync(dataFile(), "{ruined", "utf8");
+    await expect(readAppData()).rejects.toBeInstanceOf(AppDataUnreadableError);
+
+    const restored = await restoreLastGoodSnapshot();
+    expect(restored.snapshot.savedAt).toEqual(expect.any(String));
+    // The document on disk is real data again, not the seed and not the mess.
+    const onDisk = JSON.parse(readFileSync(dataFile(), "utf8"));
+    expect(onDisk.holdings).toEqual([]);
+    expect(Array.isArray(onDisk.contentItems)).toBe(true);
+    await expect(readAppData()).resolves.toBeTruthy();
+    // And the document it replaced was kept as evidence first.
+    expect(readdirSync(path.dirname(dataFile())).filter((name) => name.includes("unreadable"))).toHaveLength(1);
+  });
+
+  it("refuses to offer a copy that does not parse", async () => {
+    const { readAppData, writeAppData, latestGoodSnapshot } = await import("@/lib/storage/store");
+    await writeAppData(await readAppData());
+    await vi.waitFor(() => expect(snapshots().length).toBeGreaterThan(0));
+
+    for (const name of snapshots()) writeFileSync(path.join(snapshotDir(), name), "{broken", "utf8");
+    expect(await latestGoodSnapshot()).toBeNull();
+  });
 });

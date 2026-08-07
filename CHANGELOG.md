@@ -22,6 +22,18 @@ already shipped.
   again** and a link to reconnect.
 - **A stream taken in overnight renders its segments and schedules its Threads
   posts too**, not just its videos — the two clicks that were left.
+- **A corrupt data file is now one button to recover from.** Every save keeps a
+  verified copy of your document (the last three, in `data\snapshots`), so when
+  the app cannot read `capital-command.json` the screen that says so offers
+  **Restore the last good copy** — it tells you what it is about to replace and
+  when the copy is from, and puts your holdings, carousels, content and settings
+  straight back. No more remembering to run `backup-to-drive.bat`.
+- **The wording no longer points you at the broken file.** The
+  `.unreadable-…` copy saved beside your document is a copy of the DAMAGED file
+  — evidence to look at, not a backup to restore — and the screen now says that.
+- **A second corruption gets its own copy.** Whatever went wrong the first time,
+  the next incident used to get no copy at all and the message named the old
+  one's file.
 - **An unreadable data file says so instead of looking like a brand-new app.**
   Every screen used to render empty, down to a "set up your profile" prompt.
   And only one copy of a corrupt file is kept, not one per page load.

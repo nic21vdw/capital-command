@@ -7,7 +7,7 @@ import { todayLocal } from "@/lib/execution/dates";
 import { getMarketDataProvider } from "@/lib/marketData";
 import { seedData } from "@/lib/mockData/seed";
 import { appDataSchema, brandAssetsSchema, clipProjectSchema, contentItemSchema, creatorProfileSchema, defaultCreatorProfile, defaultFbStrategy, executionCompletionSchema, executionGoalSchema, expenseSchema, fbPostSchema, fbStrategySchema, goalSchema, holdingSchema, importHoldingSchema, productLaunchSchema, researchNoteSchema, savedThumbnailSchema, settingsSchema, videoProjectSchema, watchlistSchema, xActivitySchema, xStrategySchema } from "@/lib/storage/schemas";
-import { AppDataUnreadableError, readAppData, resetAppData, writeAppData } from "@/lib/storage/store";
+import { AppDataUnreadableError, latestGoodSnapshot, readAppData, resetAppData, restoreLastGoodSnapshot, writeAppData } from "@/lib/storage/store";
 import type { AppData, ExecutionGoal, Holding } from "@/types/domain";
 
 function success(data: AppData) {
@@ -85,8 +85,17 @@ async function refreshPrices(data: AppData) {
  * handed demo data (and the file overwritten with it). 503 with the reason is
  * what lets the shell say so instead of showing someone else's portfolio.
  */
-function unreadable(error: AppDataUnreadableError) {
-  return NextResponse.json({ error: error.message, unreadable: true }, { status: 503 });
+async function unreadable(error: AppDataUnreadableError) {
+  const snapshot = await latestGoodSnapshot();
+  return NextResponse.json(
+    {
+      error: error.message,
+      unreadable: true,
+      copyName: error.copyPath ? error.copyPath.split(/[\\/]/).pop() : null,
+      snapshot: snapshot ? { savedAt: snapshot.savedAt, bytes: snapshot.bytes } : null
+    },
+    { status: 503 }
+  );
 }
 
 export async function GET(request: NextRequest) {
@@ -94,7 +103,7 @@ export async function GET(request: NextRequest) {
   try {
     data = await repairAppDataOverlays(await readAppData());
   } catch (error) {
-    if (error instanceof AppDataUnreadableError) return unreadable(error);
+    if (error instanceof AppDataUnreadableError) return await unreadable(error);
     throw error;
   }
   const format = request.nextUrl.searchParams.get("format");
@@ -122,7 +131,29 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   const { action, payload } = (await request.json()) as { action: string; payload?: unknown };
-  let data = await readAppData();
+
+  // Ahead of the read on purpose: this is the action for a document that
+  // cannot be read, so reading it first would refuse the only way out.
+  if (action === "restoreLastGoodSnapshot") {
+    try {
+      const restored = await restoreLastGoodSnapshot();
+      return NextResponse.json({
+        restoredFrom: restored.snapshot.savedAt,
+        data: restored.data,
+        summary: derivePortfolioSummary(restored.data)
+      });
+    } catch (error) {
+      return NextResponse.json({ error: error instanceof Error ? error.message : "Restore failed." }, { status: 409 });
+    }
+  }
+
+  let data: AppData;
+  try {
+    data = await readAppData();
+  } catch (error) {
+    if (error instanceof AppDataUnreadableError) return await unreadable(error);
+    throw error;
+  }
 
   switch (action) {
     case "upsertHolding": {

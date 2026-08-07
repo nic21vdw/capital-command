@@ -23,19 +23,49 @@ interface AppContextValue extends BootstrapPayload {
 
 const AppContext = createContext<AppContextValue | null>(null);
 
+interface GoodSnapshot {
+  savedAt: string;
+  bytes: number;
+}
+
 /** A data file the server refused to read, with what it said about it. */
-export class DataUnreadable extends Error {}
+export class DataUnreadable extends Error {
+  constructor(
+    message: string,
+    readonly copyName: string | null,
+    readonly snapshot: GoodSnapshot | null
+  ) {
+    super(message);
+  }
+}
 
 async function readBootstrap(): Promise<BootstrapPayload> {
   const response = await fetch("/api/bootstrap", { cache: "no-store" });
   if (!response.ok) {
     if (response.status === 503) {
-      const body = (await response.json().catch(() => null)) as { error?: string; unreadable?: boolean } | null;
-      if (body?.unreadable) throw new DataUnreadable(body.error ?? "The app data file could not be read.");
+      const body = (await response.json().catch(() => null)) as
+        | { error?: string; unreadable?: boolean; copyName?: string | null; snapshot?: GoodSnapshot | null }
+        | null;
+      if (body?.unreadable) {
+        throw new DataUnreadable(
+          body.error ?? "The app data file could not be read.",
+          body.copyName ?? null,
+          body.snapshot ?? null
+        );
+      }
     }
     throw new Error("Unable to load app data");
   }
   return response.json();
+}
+
+function describeSnapshotAge(savedAt: string): string {
+  const when = new Date(savedAt);
+  if (Number.isNaN(when.getTime())) return "an earlier save";
+  const minutes = Math.max(0, Math.round((Date.now() - when.getTime()) / 60000));
+  const ago =
+    minutes < 1 ? "just now" : minutes < 60 ? `${minutes} min ago` : minutes < 1440 ? `${Math.round(minutes / 60)} h ago` : `${Math.round(minutes / 1440)} days ago`;
+  return `${when.toLocaleString()} — ${ago}`;
 }
 
 /** "upsertHolding" -> "upsert holding", so a toast names what actually failed. */
@@ -64,10 +94,107 @@ async function describeFailure(response: Response, action: string): Promise<stri
   return `the server answered ${response.status} for "${action}"`;
 }
 
+function UnreadableScreen({ problem, onRetry }: { problem: DataUnreadable; onRetry: () => Promise<void> }) {
+  const [confirming, setConfirming] = useState(false);
+  const [restoring, setRestoring] = useState(false);
+  const [failure, setFailure] = useState<string | null>(null);
+  const snapshot = problem.snapshot;
+
+  const restore = async () => {
+    setRestoring(true);
+    setFailure(null);
+    try {
+      const response = await fetch("/api/data", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "restoreLastGoodSnapshot" })
+      });
+      if (!response.ok) {
+        const body = (await response.json().catch(() => null)) as { error?: string } | null;
+        throw new Error(body?.error ?? `The server answered ${response.status}.`);
+      }
+      window.location.reload();
+    } catch (error) {
+      setFailure(error instanceof Error ? error.message : "The restore did not finish.");
+      setRestoring(false);
+    }
+  };
+
+  return (
+    <div className="flex min-h-screen items-center justify-center px-6">
+      <div className="max-w-lg rounded-2xl border border-amber-400/30 bg-amber-400/[0.06] p-6">
+        <h1 className="text-lg font-semibold text-white">Your data file could not be read</h1>
+        <p className="mt-2 text-sm text-amber-100/90">{problem.message}</p>
+        <p className="mt-2 text-sm text-[var(--muted-foreground)]">
+          The damaged file is still at <code>data\capital-command.json</code>, exactly as it was.
+          {problem.copyName ? (
+            <> The <code>.unreadable-…</code> copy beside it is a copy of the DAMAGED file — evidence to look at, not a backup to restore.</>
+          ) : null}
+        </p>
+
+        {snapshot ? (
+          confirming ? (
+            <div className="mt-4 rounded-xl border border-white/10 bg-black/20 p-4">
+              <p className="text-sm text-white">This replaces the file the app cannot read.</p>
+              <ul className="mt-2 space-y-1 text-sm text-[var(--muted-foreground)]">
+                <li>
+                  Replacing: <code>data\capital-command.json</code> (unreadable)
+                </li>
+                <li>With the copy saved {describeSnapshotAge(snapshot.savedAt)}</li>
+                <li>Anything saved after that copy is not in it.</li>
+              </ul>
+              <div className="mt-3 flex gap-2">
+                <button
+                  type="button"
+                  disabled={restoring}
+                  onClick={() => void restore()}
+                  className="rounded-lg bg-[var(--accent)] px-3 py-1.5 text-sm text-[var(--accent-contrast)] transition hover:opacity-90 disabled:opacity-60"
+                >
+                  {restoring ? "Restoring…" : "Yes, restore it"}
+                </button>
+                <button
+                  type="button"
+                  disabled={restoring}
+                  onClick={() => setConfirming(false)}
+                  className="rounded-lg border border-white/15 px-3 py-1.5 text-sm text-white/80 transition hover:bg-white/5"
+                >
+                  Cancel
+                </button>
+              </div>
+              {failure ? <p className="mt-2 text-sm text-rose-300">{failure}</p> : null}
+            </div>
+          ) : (
+            <button
+              type="button"
+              onClick={() => setConfirming(true)}
+              className="mt-4 block rounded-lg bg-[var(--accent)] px-3 py-1.5 text-sm text-[var(--accent-contrast)] transition hover:opacity-90"
+            >
+              Restore the last good copy (saved {describeSnapshotAge(snapshot.savedAt)})
+            </button>
+          )
+        ) : (
+          <p className="mt-4 text-sm text-[var(--muted-foreground)]">
+            There is no verified copy to restore from yet. Restore your own backup over{" "}
+            <code>data\capital-command.json</code>, then try again.
+          </p>
+        )}
+
+        <button
+          type="button"
+          onClick={() => void onRetry()}
+          className="mt-4 rounded-lg border border-white/15 px-3 py-1.5 text-sm text-white/80 transition hover:bg-white/5"
+        >
+          Try again
+        </button>
+      </div>
+    </div>
+  );
+}
+
 export function AppProvider({ children }: { children: React.ReactNode }) {
   const [payload, setPayload] = useState<BootstrapPayload | null>(null);
   const [loading, setLoading] = useState(true);
-  const [unreadable, setUnreadable] = useState<string | null>(null);
+  const [unreadable, setUnreadable] = useState<DataUnreadable | null>(null);
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -86,7 +213,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       // screen from defaults made a corrupt document look like a brand-new
       // install, down to a "set up your profile" prompt.
       if (error instanceof DataUnreadable) {
-        setUnreadable(error.message);
+        setUnreadable(error);
         setLoading(false);
         return;
       }
@@ -148,25 +275,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   if (unreadable) {
-    return (
-      <div className="flex min-h-screen items-center justify-center px-6">
-        <div className="max-w-lg rounded-2xl border border-amber-400/30 bg-amber-400/[0.06] p-6">
-          <h1 className="text-lg font-semibold text-white">Your data file could not be read</h1>
-          <p className="mt-2 text-sm text-amber-100/90">{unreadable}</p>
-          <p className="mt-2 text-sm text-[var(--muted-foreground)]">
-            Nothing has been changed. The file is still in <code>data\capital-command.json</code>, and a copy of it was
-            saved beside it. Fix or restore that file, then try again.
-          </p>
-          <button
-            type="button"
-            onClick={() => void refresh()}
-            className="mt-4 rounded-lg bg-[var(--accent)] px-3 py-1.5 text-sm text-[var(--accent-contrast)] transition hover:opacity-90"
-          >
-            Try again
-          </button>
-        </div>
-      </div>
-    );
+    return <UnreadableScreen problem={unreadable} onRetry={refresh} />;
   }
 
   if (!payload) {
