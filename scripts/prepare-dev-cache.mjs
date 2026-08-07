@@ -74,18 +74,19 @@ function isLinkedCache() {
   }
 }
 
-// Everything except `cache`, which is Next's incremental compile cache and the
-// difference between a release that takes a minute and a half and one that
-// takes nine. `next build` empties the rest of .next itself and deliberately
-// keeps this folder; wiping it here made every single release a cold build.
-//
-// A release that slow is not just tedious - the app is DOWN for all of it,
-// which is long enough for a scheduled task to find nothing on port 3000 and
-// start a second server against the .next this build is still writing.
+// Everything, INCLUDING `cache`. Keeping Next's incremental compile cache
+// here looks like an easy win - it is the difference between a ninety second
+// build and a nine minute one - but it is not safe in THIS checkout. The
+// relocated .next is reached through a junction, and a warm build against it
+// fails in `Collecting page data` with "Cannot find module for page:
+// /_document" or a missing webpack chunk. start-server.ps1 then clears the
+// cache and rebuilds from cold anyway, so keeping it costs a failed build on
+// top of the cold one rather than saving anything. Measured on this machine,
+// twice. Do not "optimise" this back without checking a warm release end to
+// end.
 function removeCacheContents() {
   mkdirSync(cacheRoot, { recursive: true });
   for (const entry of readdirSync(cacheRoot)) {
-    if (entry === "cache") continue;
     rmSync(join(cacheRoot, entry), { recursive: true, force: true });
   }
 }

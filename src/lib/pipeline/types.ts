@@ -45,6 +45,11 @@ export type PipelineRun = {
   clipJobId?: string;
   /** Whether the topic-segment plan has been attempted from the full transcript. */
   segmentsPlanned?: boolean;
+  /**
+   * Consecutive failures per advance step, so a step that can never succeed
+   * (a source that is gone) stops reading as "working…" forever.
+   */
+  failures?: Record<string, number>;
   /** Why no podcast MP3 was cut — doubles as the "don't try again" marker. */
   audioNote?: string;
   /** Episode added to the Spotify RSS feed from this run's MP3. */
@@ -82,11 +87,35 @@ export type PipelineStage = {
   detail: string;
   /** 0-100 while `running`, when the underlying job reports progress. */
   progress?: number;
+  /**
+   * Whether running this stage again could change anything. A stage that was
+   * skipped BY DESIGN (no speech to write posts from, one continuous topic, a
+   * recording with no audio track) leaves this false: offering a retry there is
+   * an amber row and three model calls that land back on the same skip. A stage
+   * that TRIED AND GAVE UP sets it true.
+   */
+  retryable?: boolean;
+};
+
+/**
+ * A stage that can be started again, with the reason it needs it. Only the keys
+ * in `REPAIRABLE_STAGES` (`repairable.ts`) ever appear.
+ */
+export type StageRepair = {
+  stage: PipelineStageKey;
+  status: PipelineStageStatus;
+  detail: string;
 };
 
 export type PipelineRunOverview = {
   run: PipelineRun;
   stages: Record<PipelineStageKey, PipelineStage>;
+  /**
+   * Stages that failed or gave up and can be run again — what the page puts a
+   * Retry button on and what the orchestrator is allowed to retry. Computed with
+   * the overview so both read the same answer.
+   */
+  retryable: StageRepair[];
   /** Strongest transcript-grounded moment for screenshot and AI ad creation. */
   visualMoment?: {
     headline: string;
@@ -101,6 +130,8 @@ export type PipelineRunOverview = {
     longformReady: boolean;
     /** Topic segments found in the stream, each publishable on its own. */
     segments: number;
+    /** How many of those segments have a finished video behind them. */
+    segmentsRendered: number;
     audioReady: boolean;
     /** The MP3 is in the podcast feed — Spotify picks it up on its next read. */
     podcastPublished: boolean;

@@ -4,8 +4,9 @@ import { newAgentRunId, runAgentTeam } from "@/lib/agents/orchestrator";
 import { AGENT_REGISTRY } from "@/lib/agents/registry";
 import { getAgentRun, listAgentRuns } from "@/lib/agents/store";
 import { ingestOverview, startIngestScan } from "@/lib/ingest/service";
-import { REPAIRABLE_STAGES, renderNextSegment, repairRun, runDiagnosis } from "@/lib/pipeline/repair";
-import { createRunFromUrl, getRun, listRuns } from "@/lib/pipeline/runs";
+import { renderNextSegment, repairRun } from "@/lib/pipeline/repair";
+import { REPAIRABLE_STAGES } from "@/lib/pipeline/repairable";
+import { createRunFromUrl, getRun, listRuns, runOverview } from "@/lib/pipeline/runs";
 import type { PipelineRun } from "@/lib/pipeline/types";
 import { SCREENS, findScreen, screenHref } from "@/lib/voice/screens";
 
@@ -314,15 +315,14 @@ export async function runVoiceTool(
     case "pipeline_run_status": {
       const found = await resolvePipelineRun(runReferenceFrom(args));
       if (!found.ok) return found;
-      const diagnosis = await runDiagnosis(found.run.id);
-      if (!diagnosis) return { ok: false, error: `No pipeline run called ${found.run.id}.` };
+      const overview = await runOverview(found.run);
       return {
         ok: true,
         run: { id: found.run.id, name: found.run.name, status: found.run.status },
-        stages: diagnosis.overview.stages,
-        schedulable: diagnosis.overview.schedulable,
-        settled: diagnosis.overview.settled,
-        retryableStages: diagnosis.repairs
+        stages: overview.stages,
+        schedulable: overview.schedulable,
+        settled: overview.settled,
+        retryableStages: overview.retryable
       };
     }
 
