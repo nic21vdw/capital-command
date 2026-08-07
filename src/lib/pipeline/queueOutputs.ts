@@ -1,13 +1,17 @@
 import path from "node:path";
+import { renderCarouselDeck } from "@/lib/carousels/renderDeck";
 import { getJob, outputDir } from "@/lib/clipping/jobs";
 import { getProject, projectOutputDir } from "@/lib/longform/store";
 import { getRun, listRuns, updateRun } from "@/lib/pipeline/runs";
 import type { PipelineRun } from "@/lib/pipeline/types";
+import { readAppData } from "@/lib/storage/store";
 import { publisherConfig } from "@/lib/publisher/config";
-import { enqueue } from "@/lib/publisher/enqueue";
+import { enqueue, enqueueImagePost } from "@/lib/publisher/enqueue";
+import { MAX_IMAGES_PER_POST } from "@/lib/publisher/images";
 import { publishQueue } from "@/lib/publisher/queue";
 import { generateSlots } from "@/lib/publisher/slots";
 import type { PlatformId, QueueItem } from "@/lib/publisher/types";
+import type { Carousel } from "@/types/domain";
 
 // The last mile. A run that finished left every output sitting in a tool of its
 // own: the clips had to be scheduled one at a time in the Uploading Center, and
@@ -18,7 +22,7 @@ import type { PlatformId, QueueItem } from "@/lib/publisher/types";
 // Nothing here publishes. Every item lands in the same queue the Uploading
 // Center writes to, at a future slot, for the publish runner to post.
 
-export type QueueOutputKind = "clip" | "longform" | "segment";
+export type QueueOutputKind = "clip" | "longform" | "segment" | "carousel";
 
 export type QueueCandidate = {
   /** Stable across a plan and its confirmation, so a row can be opted out. */
@@ -27,6 +31,12 @@ export type QueueCandidate = {
   title: string;
   /** Absolute path of the file that would be posted. */
   filePath: string;
+  /**
+   * Every picture of an image post, in slide order. `filePath` is the first of
+   * them, which is also what the queue item records as its `clipPath` — so the
+   * "already scheduled" check works on a deck exactly as it does on a video.
+   */
+  imagePaths?: string[];
   platforms: PlatformId[];
   /** Why this one is not offered, when it is not. */
   blocked?: string;
@@ -59,7 +69,7 @@ const LONG_VIDEO_PLATFORMS: PlatformId[] = ["youtube"];
 function queuedPaths(items: QueueItem[]): Set<string> {
   const paths = new Set<string>();
   for (const item of items) {
-    for (const value of [item.clipPath, item.sourceClipPath]) {
+    for (const value of [item.clipPath, item.sourceClipPath, ...(item.imagePaths ?? [])]) {
       if (value) paths.add(path.resolve(process.cwd(), value).toLowerCase());
     }
   }
@@ -90,6 +100,7 @@ export async function planRunOutputs(runId: string): Promise<QueuePlan | null> {
 
   await collectClips(run, alreadyQueued, candidates, skipped);
   await collectLongform(run, alreadyQueued, candidates, skipped);
+  await collectCarousel(run, alreadyQueued, candidates, skipped);
 
   const taken = new Set(existing.map((item) => item.publishAt));
   const openSlots = generateSlots({ timeZone: config.timezone, days: 21 })
@@ -173,7 +184,74 @@ async function collectLongform(
   }
 }
 
-const BOOKING_ORDER: Record<QueueOutputKind, number> = { longform: 0, segment: 1, clip: 2 };
+/**
+ * Whether the run's deck can be booked, given the slide files that were
+ * rendered for it. Split out from the disk work so the ceiling and the dedupe
+ * are checkable on their own.
+ */
+export function carouselCandidate(input: {
+  carousel: Pick<Carousel, "id" | "title" | "slides">;
+  files: string[];
+  alreadyQueued: Set<string>;
+}): { candidate?: QueueCandidate; skipped?: { title: string; reason: string } } {
+  const { carousel, files, alreadyQueued } = input;
+  const title = carousel.title || "Carousel";
+  if (carousel.slides.length === 0) return {};
+  if (carousel.slides.length > MAX_IMAGES_PER_POST) {
+    return {
+      skipped: {
+        title,
+        reason: `A picture post carries at most ${MAX_IMAGES_PER_POST} slides — this deck has ${carousel.slides.length}.`
+      }
+    };
+  }
+  if (files.length === 0) return { skipped: { title, reason: "No rendered slides yet." } };
+  if (alreadyQueued.has(files[0].toLowerCase())) return { skipped: { title, reason: "Already scheduled." } };
+  return {
+    candidate: {
+      id: `carousel:${carousel.id}`,
+      kind: "carousel",
+      title,
+      filePath: files[0],
+      imagePaths: files,
+      // Left empty so the booking falls back to whichever switched-on platforms
+      // can carry a picture; naming them here would make YouTube an error.
+      platforms: []
+    }
+  };
+}
+
+async function collectCarousel(
+  run: PipelineRun,
+  alreadyQueued: Set<string>,
+  candidates: QueueCandidate[],
+  skipped: { title: string; reason: string }[]
+) {
+  if (!run.carouselId) return;
+  const data = await readAppData().catch(() => null);
+  const carousel = data?.videoStudio?.carousels.find((entry) => entry.id === run.carouselId);
+  if (!carousel) return;
+
+  // Rendering is what makes the deck postable at all — nothing else in the app
+  // writes a slide to disk. It is idempotent, so the standing instruction
+  // re-planning every couple of minutes repaints nothing.
+  let files: string[];
+  try {
+    files = await renderCarouselDeck(carousel);
+  } catch (error) {
+    skipped.push({
+      title: carousel.title || "Carousel",
+      reason: `Could not render the slides — ${error instanceof Error ? error.message : String(error)}`
+    });
+    return;
+  }
+
+  const result = carouselCandidate({ carousel, files, alreadyQueued });
+  if (result.candidate) candidates.push(result.candidate);
+  if (result.skipped) skipped.push(result.skipped);
+}
+
+const BOOKING_ORDER: Record<QueueOutputKind, number> = { longform: 0, segment: 1, clip: 2, carousel: 3 };
 
 /**
  * One output per free slot, longest video first so the long-form edit lands
@@ -240,15 +318,25 @@ export async function queueRunOutputs(
       continue;
     }
     try {
-      const item = await enqueue({
-        clipPath: candidate.filePath,
-        publishAt,
-        title: candidate.title,
-        platforms: candidate.platforms.length ? candidate.platforms : undefined,
-        visibility: "public",
-        jobId: candidate.kind === "clip" ? candidate.id.split(":")[1] : undefined,
-        metadataSource: { streamTitle: plan.runName }
-      });
+      const item =
+        candidate.kind === "carousel"
+          ? await enqueueImagePost({
+              imagePaths: candidate.imagePaths ?? [candidate.filePath],
+              publishAt,
+              title: candidate.title,
+              platforms: candidate.platforms.length ? candidate.platforms : undefined,
+              visibility: "public",
+              metadataSource: { streamTitle: plan.runName }
+            })
+          : await enqueue({
+              clipPath: candidate.filePath,
+              publishAt,
+              title: candidate.title,
+              platforms: candidate.platforms.length ? candidate.platforms : undefined,
+              visibility: "public",
+              jobId: candidate.kind === "clip" ? candidate.id.split(":")[1] : undefined,
+              metadataSource: { streamTitle: plan.runName }
+            });
       queued.push({
         title: candidate.title,
         publishAt: item.publishAt,
