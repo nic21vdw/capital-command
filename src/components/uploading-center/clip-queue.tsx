@@ -1,6 +1,6 @@
 "use client";
 
-import { Film, Loader2, Sparkles, Wand2 } from "lucide-react";
+import { Film, Loader2, RotateCcw, Sparkles, TriangleAlert, Wand2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Select } from "@/components/ui/select";
@@ -44,7 +44,10 @@ export function ClipQueue({
   onRunDefaultsChange,
   onCaptionsForAll,
   captionsMissing,
-  captionProgress
+  captionProgress,
+  captionFailures,
+  failedCaptionCount,
+  onRetryCaptions
 }: {
   jobs: ClipJob[];
   activeJob: ClipJob | null;
@@ -72,6 +75,11 @@ export function ClipQueue({
   onCaptionsForAll: () => void;
   captionsMissing: number;
   captionProgress: { done: number; total: number } | null;
+  /** Clip key → why its AI caption failed. Marks the card and drives the retry. */
+  captionFailures: Record<string, string>;
+  failedCaptionCount: number;
+  /** Write the failed clips' captions again — nothing else is touched. */
+  onRetryCaptions: () => void;
 }) {
   const autoAssigning = busy === "auto-assign";
   const writingCaptions = busy === "captions-all";
@@ -179,6 +187,28 @@ export function ClipQueue({
             Every clip in this run posts to {PLATFORM_TARGET_LABELS[runDefaults.platform]} with these hashtags on its
             title. Changing them here updates the cards below.
           </p>
+          {failedCaptionCount > 0 ? (
+            <div className="flex flex-wrap items-center gap-2 rounded-lg border border-amber-400/25 bg-amber-400/8 px-2.5 py-2">
+              <TriangleAlert className="h-3.5 w-3.5 shrink-0 text-amber-300" />
+              <span className="min-w-0 flex-1 text-[11px] text-amber-100">
+                {failedCaptionCount} clip{failedCaptionCount === 1 ? " has" : "s have"} no AI caption — Auto Assign
+                leaves {failedCaptionCount === 1 ? "it" : "them"} unscheduled until this is fixed.
+              </span>
+              <Button
+                variant="secondary"
+                className="h-8 px-3 text-xs"
+                onClick={onRetryCaptions}
+                disabled={bulkBusy}
+              >
+                {writingCaptions ? (
+                  <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <RotateCcw className="mr-1.5 h-3.5 w-3.5" />
+                )}
+                Retry the {failedCaptionCount} that failed
+              </Button>
+            </div>
+          ) : null}
         </div>
       ) : null}
 
@@ -206,6 +236,7 @@ export function ClipQueue({
               onEditClip={() => onEditClip(clip)}
               onTailorCaption={() => onTailorCaption(clip)}
               tailoring={busy === `tailor:${clip.key}` || writingCaptions}
+              captionError={captionFailures[clip.key]}
             />
           ))}
         </div>

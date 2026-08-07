@@ -43,6 +43,7 @@
     "ingest:scan:all": "tsx src/lib/ingest/cli.ts scan --all",
     "ingest:dry": "tsx src/lib/ingest/cli.ts scan --dry-run",
     "ingest:ledger": "tsx src/lib/ingest/cli.ts ledger",
+    "ingest:register": "powershell -NoProfile -ExecutionPolicy Bypass -File .\\scripts\\register-channel-scan-task.ps1",
     "remotion:preview": "remotion studio",
     "remotion:render": "remotion render",
     "publish:mirror": "tsx src/lib/publisher/cli.ts mirror",

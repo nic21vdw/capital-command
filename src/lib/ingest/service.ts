@@ -2,7 +2,7 @@ import { setAppBaseUrl } from "@/lib/ingest/pipelineClient";
 import { ingestLedger, runDailyScan, summarizeOutputs } from "@/lib/ingest/run";
 import type { ScanReport } from "@/lib/ingest/run";
 import { explainDecision } from "@/lib/ingest/classify";
-import { abandonedRecords, MAX_INGEST_ATTEMPTS } from "@/lib/ingest/ledger";
+import { abandonedRecords, clearAttempts, MAX_INGEST_ATTEMPTS, readLedger, writeLedger } from "@/lib/ingest/ledger";
 
 export type IngestJob = {
   id: string;
@@ -99,6 +99,20 @@ export function startIngestScan(options: StartScanOptions = {}): IngestJob {
     });
 
   return job;
+}
+
+/**
+ * Hands a given-up video back to the scan. Returns false when the ledger has
+ * nothing to reset, so the screen can say "nothing changed" instead of
+ * promising a retry that will never come.
+ */
+export async function retryAbandonedIngest(videoId: string): Promise<boolean> {
+  const ledger = await readLedger();
+  const next = clearAttempts(ledger, videoId);
+  const changed = next.records.some((record, index) => record.attempts !== ledger.records[index]?.attempts);
+  if (!changed) return false;
+  await writeLedger(next);
+  return true;
 }
 
 export function summarizeJob(job: IngestJob) {

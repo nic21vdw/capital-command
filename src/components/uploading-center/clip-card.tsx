@@ -1,7 +1,16 @@
 "use client";
 
 import { useRef } from "react";
-import { CalendarClock, CheckCircle2, ExternalLink, GripVertical, Loader2, Scissors, Sparkles } from "lucide-react";
+import {
+  CalendarClock,
+  CheckCircle2,
+  ExternalLink,
+  GripVertical,
+  Loader2,
+  Scissors,
+  Sparkles,
+  TriangleAlert
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
@@ -137,7 +146,8 @@ export function ClipCard({
   onSchedule,
   onEditClip,
   onTailorCaption,
-  tailoring = false
+  tailoring = false,
+  captionError
 }: {
   clip: ReadyClip;
   draft: ClipDraft;
@@ -159,6 +169,8 @@ export function ClipCard({
   onTailorCaption?: () => void;
   /** True while the AI caption is being generated. */
   tailoring?: boolean;
+  /** Why this clip's AI caption failed, when it did. */
+  captionError?: string;
 }) {
   const titleRef = useRef<HTMLTextAreaElement>(null);
   const openSlots = slots.filter((slot) => !slot.past && !isSlotTaken(draft.platform, slot.utc));
@@ -169,6 +181,9 @@ export function ClipCard({
   // fine — scheduling renders the trimmed cut first, then posts it — so the note
   // below is informational, not a block.
   const needsRerender = clip.needsRerender;
+  // Only while the caption is still empty: once there is copy in the box, typed
+  // or retried, the clip is no longer the one that quietly went out uncaptioned.
+  const captionFailed = Boolean(captionError) && !draft.caption.trim();
 
   return (
     <div
@@ -179,6 +194,7 @@ export function ClipCard({
       }}
       className={cn(
         "rounded-xl border border-[var(--border)] bg-[var(--surface-2)] p-3 transition hover:border-[var(--border-strong)]",
+        captionFailed && "border-amber-400/50",
         highlighted && "border-[var(--accent)] ring-1 ring-[var(--accent)]/50"
       )}
     >
@@ -251,8 +267,17 @@ export function ClipCard({
             value={draft.caption}
             onChange={(event) => onDraftChange({ ...draft, caption: event.target.value })}
             placeholder="Caption — leave empty to auto-generate on schedule"
-            className="min-h-16 py-2"
+            className={cn("min-h-16 py-2", captionFailed && "border-amber-400/40")}
           />
+          {captionFailed ? (
+            <p className="flex items-start gap-2 rounded-lg border border-amber-400/25 bg-amber-400/8 px-3 py-2 text-xs text-amber-200">
+              <TriangleAlert className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+              <span>
+                No AI caption for this clip — {captionError?.replace(/\s*[.!]+$/, "")}. Auto Assign leaves it
+                unscheduled; retry above, or write the caption yourself.
+              </span>
+            </p>
+          ) : null}
           <div className="flex flex-wrap items-center gap-2">
             <Select
               value={draft.platform}

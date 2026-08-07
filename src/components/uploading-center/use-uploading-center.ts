@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
+import { nameClips } from "@/components/uploading-center/bulk";
 import { windowSegments } from "@/lib/clipping/captions";
 import { loadJobCaptions } from "@/lib/clipping/captions-client";
 import { leadingSilenceSec } from "@/lib/clipping/editor";
@@ -287,6 +288,11 @@ export type TailoredCaption =
   | { ok: true; caption: string; bestTime?: string; note?: string }
   | { ok: false; error: string };
 
+/** One clip a bulk caption pass could not write copy for, and why. */
+export type CaptionFailure = { clip: ReadyClip; error: string };
+
+export type CaptionPassResult = { filled: number; failed: CaptionFailure[] };
+
 async function readError(response: Response): Promise<string> {
   try {
     const data = (await response.json()) as { error?: string };
@@ -317,6 +323,12 @@ export function useUploadingCenter(clipProjects: ClipProject[] = []) {
   const [uploadSuccess, setUploadSuccess] = useState<UploadSuccess | null>(null);
   /** How far a bulk caption pass has got, or null when none is running. */
   const [captionProgress, setCaptionProgress] = useState<{ done: number; total: number } | null>(null);
+  /**
+   * Clips whose AI caption failed, by clip key, with the reason. This is what
+   * stops a failure being invisible: the card is marked, the run offers a retry,
+   * and Auto Assign refuses to schedule them behind a green toast.
+   */
+  const [captionFailures, setCaptionFailures] = useState<Record<string, string>>({});
   const remindedRef = useRef(new Set<string>());
   /**
    * Which two-week window the schedule grid shows, in days after today
@@ -792,8 +804,14 @@ export function useUploadingCenter(clipProjects: ClipProject[] = []) {
         const result = await fetchTailoredCaption(clip, platform, title);
         if (!result.ok) {
           toast.error(result.error);
+          setCaptionFailures((current) => ({ ...current, [clip.key]: result.error }));
           return null;
         }
+        setCaptionFailures((current) => {
+          if (!(clip.key in current)) return current;
+          const { [clip.key]: _cleared, ...rest } = current;
+          return rest;
+        });
         return result;
       } finally {
         setBusy(null);
@@ -804,39 +822,49 @@ export function useUploadingCenter(clipProjects: ClipProject[] = []) {
 
   /**
    * Writes a caption for every clip handed in, one after another, reporting
-   * progress as it goes. A clip whose copy fails is counted and skipped — one
-   * bad call must not cost the eleven captions behind it — and each caption is
+   * progress as it goes. A clip whose copy fails is named and skipped — one bad
+   * call must not cost the eleven captions behind it — and each caption is
    * handed back the moment it lands, so the run can be watched filling in.
+   *
+   * The failures come back as clips, not a count: the caller marks those cards,
+   * offers a retry, and keeps them out of anything that would schedule them.
    */
   const tailorCaptionsForAll = useCallback(
     async (
       targets: Array<{ clip: ReadyClip; platform: PlatformId; title: string }>,
       onCaption: (clip: ReadyClip, caption: string) => void
-    ): Promise<{ filled: number; failed: number }> => {
-      if (targets.length === 0) return { filled: 0, failed: 0 };
+    ): Promise<CaptionPassResult> => {
+      if (targets.length === 0) return { filled: 0, failed: [] };
       setBusy("captions-all");
       setCaptionProgress({ done: 0, total: targets.length });
       let filled = 0;
-      let failed = 0;
-      let firstError: string | null = null;
+      const failed: CaptionFailure[] = [];
       try {
         for (const [index, target] of targets.entries()) {
           const result = await fetchTailoredCaption(target.clip, target.platform, target.title);
           if (!result.ok) {
-            failed += 1;
-            firstError ??= result.error;
+            failed.push({ clip: target.clip, error: result.error });
           } else {
             filled += 1;
             onCaption(target.clip, result.caption);
           }
           setCaptionProgress({ done: index + 1, total: targets.length });
         }
-        if (failed === 0) {
+        setCaptionFailures((current) => {
+          const next = { ...current };
+          for (const target of targets) delete next[target.clip.key];
+          for (const failure of failed) next[failure.clip.key] = failure.error;
+          return next;
+        });
+        const names = nameClips(failed.map((failure) => failure.clip.headline));
+        if (failed.length === 0) {
           toast.success(`Wrote ${filled} caption${filled === 1 ? "" : "s"}.`);
         } else if (filled > 0) {
-          toast.warning(`Wrote ${filled} of ${targets.length} captions${firstError ? ` — ${firstError}` : "."}`);
+          toast.warning(
+            `Wrote ${filled} of ${targets.length} captions. No caption for ${names} — ${failed[0].error}`
+          );
         } else {
-          toast.error(firstError ?? "Couldn't write any captions.");
+          toast.error(`Couldn't write a caption for ${names} — ${failed[0].error}`);
         }
         return { filled, failed };
       } finally {
@@ -976,9 +1004,14 @@ export function useUploadingCenter(clipProjects: ClipProject[] = []) {
    * Batch form of `schedule` for the Auto Assign button: each clip arrives
    * pre-paired with a free slot. Posts sequentially (the queue store isn't
    * safe under concurrent writes), summarizes in one toast, refreshes once.
+   *
+   * `heldBack` are clips the caller deliberately did not schedule (their AI
+   * caption failed). They are named in the summary and the summary stops being
+   * green — a success toast over a partial failure is how a clip went out with
+   * fallback copy and nobody knew.
    */
   const autoAssign = useCallback(
-    async (assignments: Array<{ clip: ReadyClip; draft: ClipDraft }>) => {
+    async (assignments: Array<{ clip: ReadyClip; draft: ClipDraft }>, heldBack: ReadyClip[] = []) => {
       if (assignments.length === 0) return;
       setBusy("auto-assign");
       // Counted in posts, not clips: a clip aimed at "All platforms" is four.
@@ -1027,12 +1060,19 @@ export function useUploadingCenter(clipProjects: ClipProject[] = []) {
             }
           }
         }
-        if (scheduled === total) {
+        const held = heldBack.length
+          ? ` ${heldBack.length} clip${heldBack.length === 1 ? "" : "s"} left unscheduled — no AI caption for ${nameClips(
+              heldBack.map((clip) => clip.headline)
+            )}.`
+          : "";
+        if (scheduled === total && !held) {
           toast.success(`Auto-assigned ${scheduled} post${scheduled === 1 ? "" : "s"} to the next open slots.`);
+        } else if (scheduled === total) {
+          toast.warning(`Auto-assigned ${scheduled} post${scheduled === 1 ? "" : "s"}.${held}`);
         } else if (scheduled > 0) {
-          toast.warning(`Auto-assigned ${scheduled} of ${total} posts${firstError ? ` — ${firstError}` : "."}`);
+          toast.warning(`Auto-assigned ${scheduled} of ${total} posts${firstError ? ` — ${firstError}` : "."}${held}`);
         } else {
-          toast.error(firstError ?? "Auto assign failed.");
+          toast.error(`${firstError ?? "Auto assign failed."}${held}`);
         }
         await refresh();
       } finally {
@@ -1185,6 +1225,8 @@ export function useUploadingCenter(clipProjects: ClipProject[] = []) {
     tailorCaption,
     tailorCaptionsForAll,
     captionProgress,
+    /** Clip key → why its AI caption failed, for the cards and the retry. */
+    captionFailures,
     schedule,
     uploadToSlot,
     autoAssign,
