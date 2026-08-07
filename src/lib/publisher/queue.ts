@@ -179,6 +179,7 @@ export class PublishQueue {
     state.status = result.status;
     if (result.postId) state.postId = result.postId;
     if (result.containerId) state.containerId = result.containerId;
+    if (result.childContainerIds?.length) state.childContainerIds = result.childContainerIds;
     if (result.status === "published") state.publishedAt = now.toISOString();
     // Any success means the platform accepted the bytes; the first stamp wins
     // so the quota meter counts each upload once.

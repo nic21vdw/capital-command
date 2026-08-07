@@ -14,6 +14,21 @@ already shipped.
 
 ## Unreleased
 
+- **Pictures can be scheduled now, not just video.** The publish queue takes an
+  image post — one picture or a whole carousel deck, in order — and posts it to
+  Instagram and Facebook at its slot, the same way a clip goes out. A deck lands
+  as a real Instagram carousel and as one Facebook post with every photo
+  attached, so the carousels and visual ads no longer have to be exported,
+  downloaded and posted by hand.
+- **A picture post that a network can't take is refused when you book it**, with
+  the reason — YouTube has no API for picture posts at all, and TikTok's photo
+  mode needs an approval this app doesn't have. It never sits in the queue all
+  week to fail at its slot.
+- **The schedule board shows what a picture post is**: an image tile with the
+  number of pictures and an "Image" or "Carousel · N" badge instead of an empty
+  video thumbnail. Every clip already in the queue looks and posts exactly as
+  before.
+
 - **A clip whose AI caption failed is no longer scheduled behind a green
   toast.** The Uploading Center now names the clips it couldn't write copy for,
   marks those cards amber, and offers "Retry the N that failed" above the run.

@@ -3,7 +3,13 @@ import path from "node:path";
 import { getJob } from "@/lib/clipping/jobs";
 import { accountIdConfigured, getAccount, isPrimaryAccountId, primaryAccountId } from "@/lib/publisher/accounts";
 import { configuredPlatforms, hostingConfigured, publisherConfig } from "@/lib/publisher/config";
-import { hostMedia } from "@/lib/publisher/hosting";
+import { hostImages, hostMedia } from "@/lib/publisher/hosting";
+import {
+  MAX_IMAGES_PER_POST,
+  isSupportedImagePath,
+  splitImagePlatforms,
+  SUPPORTED_IMAGE_EXTENSIONS
+} from "@/lib/publisher/images";
 import { generateClipMetadata } from "@/lib/publisher/metadata";
 import { newPlatformState, publishQueue } from "@/lib/publisher/queue";
 import { finalizeTitle } from "@/lib/title/finalize";
@@ -56,6 +62,41 @@ export type EnqueueOptions = {
   metadataSource?: { streamTitle?: string; topic?: string; spokenText?: string };
 };
 
+/**
+ * Resolves the target account. A primary id normalizes back to "no account" so
+ * items keep the legacy shape; a non-primary account must exist and can only
+ * take posts for its own platform.
+ */
+async function resolveAccountId(requested: string | undefined, platforms: PlatformId[]): Promise<string | undefined> {
+  let accountId = requested;
+  if (accountId && isPrimaryAccountId(accountId)) accountId = undefined;
+  if (!accountId) return undefined;
+  const account = await getAccount(accountId);
+  if (!account) throw new Error("That account no longer exists — pick another one in the Uploading Center.");
+  if (platforms.some((p) => p !== account.platform)) {
+    throw new Error(`Account "${account.label}" is a ${account.platform} account — it cannot take ${platforms.join("/")} posts.`);
+  }
+  return accountId;
+}
+
+/**
+ * Platforms without credentials still save — as "manual" reminders — so
+ * assigning a post to TikTok/Instagram before those APIs are connected never
+ * errors. Configuring credentials is all it takes for the same platforms to
+ * publish automatically.
+ */
+async function configuredPlatformSet(
+  platforms: PlatformId[],
+  accountId: string | undefined,
+  config: ReturnType<typeof publisherConfig>
+): Promise<Set<PlatformId>> {
+  const configured = new Set<PlatformId>();
+  for (const platform of platforms) {
+    if (await accountIdConfigured(platform, accountId ?? primaryAccountId(platform), config)) configured.add(platform);
+  }
+  return configured;
+}
+
 export async function enqueue(options: EnqueueOptions): Promise<QueueItem> {
   const config = publisherConfig();
   if (!config.enabled) {
@@ -72,27 +113,8 @@ export async function enqueue(options: EnqueueOptions): Promise<QueueItem> {
   );
   if (platforms.length === 0) throw new Error("No platforms selected (check PUBLISH_PLATFORMS).");
 
-  // Resolve the target account. A primary id normalizes back to "no account"
-  // so items keep the legacy shape; a non-primary account must exist and can
-  // only take posts for its own platform.
-  let accountId = options.accountId;
-  if (accountId && isPrimaryAccountId(accountId)) accountId = undefined;
-  if (accountId) {
-    const account = await getAccount(accountId);
-    if (!account) throw new Error("That account no longer exists — pick another one in the Uploading Center.");
-    if (platforms.some((p) => p !== account.platform)) {
-      throw new Error(`Account "${account.label}" is a ${account.platform} account — it cannot take ${platforms.join("/")} posts.`);
-    }
-  }
-
-  // Platforms without credentials still save — as "manual" reminders — so
-  // assigning a clip to TikTok/Instagram before those APIs are connected
-  // never errors. When a unified posting API lands, configuring credentials
-  // is all it takes for the same platforms to publish automatically.
-  const configured = new Set<PlatformId>();
-  for (const platform of platforms) {
-    if (await accountIdConfigured(platform, accountId ?? primaryAccountId(platform), config)) configured.add(platform);
-  }
+  const accountId = await resolveAccountId(options.accountId, platforms);
+  const configured = await configuredPlatformSet(platforms, accountId, config);
   const igAutomated = platforms.includes("instagram") && configured.has("instagram");
 
   const needsHosting =
@@ -159,6 +181,131 @@ export async function enqueue(options: EnqueueOptions): Promise<QueueItem> {
   if (needsHosting && hostingConfigured(config)) {
     const hosted = await hostMedia(prepared.path, id);
     item.mediaKey = hosted.key;
+  }
+
+  await publishQueue(config).add(item);
+  return item;
+}
+
+export type EnqueueImageOptions = {
+  /** Absolute or repo-relative image files, in the order they should appear. */
+  imagePaths: string[];
+  /** "YYYY-MM-DDTHH:mm" in PUBLISH_TIMEZONE, or full ISO-8601 with offset. */
+  publishAt: string | Date;
+  caption?: string;
+  title?: string;
+  hashtags?: string[];
+  /** Defaults to the image-capable platforms among PUBLISH_PLATFORMS. */
+  platforms?: PlatformId[];
+  visibility?: Visibility;
+  jobId?: string;
+  accountId?: string;
+  metadataSource?: { streamTitle?: string; topic?: string; spokenText?: string };
+};
+
+/**
+ * enqueueImagePost(image_paths, caption, publish_at, platforms) — the picture
+ * twin of enqueue(). One image posts as a single picture; several post as an
+ * ordered carousel. Nothing is sent here: the item lands at its slot for the
+ * publish runner, exactly like a video.
+ *
+ * Platforms that cannot carry a picture post are refused NOW, with the reason,
+ * rather than queued to fail at their slot.
+ */
+export async function enqueueImagePost(options: EnqueueImageOptions): Promise<QueueItem> {
+  const config = publisherConfig();
+  if (!config.enabled) {
+    throw new Error("Publishing is disabled. Set PUBLISH_ENABLED=true in .env to turn it on.");
+  }
+
+  const requested = options.imagePaths.filter((entry) => entry.trim().length > 0);
+  if (requested.length === 0) throw new Error("An image post needs at least one picture.");
+  if (requested.length > MAX_IMAGES_PER_POST) {
+    throw new Error(
+      `An image post can carry at most ${MAX_IMAGES_PER_POST} pictures — this one has ${requested.length}. Split the deck.`
+    );
+  }
+
+  const absolutePaths = requested.map((entry) => (path.isAbsolute(entry) ? entry : path.join(process.cwd(), entry)));
+  for (const absolute of absolutePaths) {
+    if (!isSupportedImagePath(absolute)) {
+      throw new Error(
+        `${path.basename(absolute)} is not a supported picture (${SUPPORTED_IMAGE_EXTENSIONS.join(", ")}).`
+      );
+    }
+    await stat(absolute).catch(() => {
+      throw new Error(`Image file not found: ${absolute}`);
+    });
+  }
+
+  const asked = (options.platforms?.length ? options.platforms : config.platforms).filter(
+    (p, i, list) => list.indexOf(p) === i
+  );
+  if (asked.length === 0) throw new Error("No platforms selected (check PUBLISH_PLATFORMS).");
+
+  const { supported, refused } = splitImagePlatforms(asked);
+  // An explicit ask for a platform that cannot do this is an error, not a
+  // silent drop; falling back to PUBLISH_PLATFORMS just filters.
+  if (options.platforms?.length && refused.length > 0) {
+    throw new Error(refused.map((entry) => entry.reason).join(" "));
+  }
+  if (supported.length === 0) {
+    throw new Error(
+      `None of the switched-on platforms can post pictures. ${refused.map((entry) => entry.reason).join(" ")}`.trim()
+    );
+  }
+
+  const accountId = await resolveAccountId(options.accountId, supported);
+  const configured = await configuredPlatformSet(supported, accountId, config);
+
+  // Both picture platforms pull the file from a public HTTPS URL, so an
+  // automated image post cannot exist without hosting. Say so now.
+  const needsHosting = configured.size > 0 || config.queueBackend === "r2";
+  if (configured.size > 0 && !hostingConfigured(config)) {
+    throw new Error(
+      "Instagram and Facebook download pictures from a public HTTPS URL. Configure S3_ENDPOINT/S3_BUCKET/S3_ACCESS_KEY_ID/S3_SECRET_ACCESS_KEY (Cloudflare R2 free tier) before scheduling picture posts."
+    );
+  }
+
+  const publishAtDate =
+    options.publishAt instanceof Date ? options.publishAt : resolvePublishAt(options.publishAt, config.timezone);
+
+  let { title, caption, hashtags } = options;
+  if (!title || !caption || !hashtags?.length) {
+    const generated = await generateClipMetadata(
+      options.metadataSource ?? { streamTitle: path.basename(absolutePaths[0]) }
+    );
+    title ??= generated.title;
+    caption ??= generated.description;
+    hashtags = hashtags?.length ? hashtags : generated.hashtags;
+  }
+
+  const id = crypto.randomUUID().slice(0, 8);
+  const relativePaths = absolutePaths.map((absolute) => path.relative(process.cwd(), absolute));
+
+  const item: QueueItem = {
+    id,
+    mediaKind: "image",
+    imagePaths: relativePaths,
+    // The first picture also fills clipPath, so the pipeline's "already
+    // scheduled" check and the calendar keep seeing this post (see images.ts).
+    clipPath: relativePaths[0],
+    title,
+    caption,
+    hashtags,
+    publishAt: publishAtDate.toISOString(),
+    visibility: options.visibility ?? config.defaultVisibility,
+    createdAt: new Date().toISOString(),
+    jobId: options.jobId,
+    ...(accountId ? { accountId } : {}),
+    platforms: Object.fromEntries(
+      supported.map((p) => [p, configured.has(p) ? newPlatformState() : manualPlatformState(p)])
+    )
+  };
+
+  if (needsHosting && hostingConfigured(config)) {
+    item.imageKeys = await hostImages(absolutePaths, id);
+    item.mediaKey = item.imageKeys[0];
   }
 
   await publishQueue(config).add(item);

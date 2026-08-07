@@ -5,6 +5,7 @@ import path from "node:path";
 import { GetObjectCommand, PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { hostingConfigured, publisherConfig, type PublisherConfig } from "@/lib/publisher/config";
+import { IMAGE_CONTENT_TYPES } from "@/lib/publisher/images";
 
 /**
  * Media hosting behind a small interface so the provider can be swapped.
@@ -38,7 +39,8 @@ const CONTENT_TYPES: Record<string, string> = {
   ".mov": "video/quicktime",
   ".webm": "video/webm",
   ".mp3": "audio/mpeg",
-  ".json": "application/json"
+  ".json": "application/json",
+  ...IMAGE_CONTENT_TYPES
 };
 
 export class S3MediaHost implements MediaHost {
@@ -158,4 +160,29 @@ export async function hostMedia(clipPath: string, itemId: string): Promise<{ key
   const key = await host.upload(clipPath, mediaKeyFor(itemId, clipPath));
   const url = await host.publicUrl(key);
   return { key, url };
+}
+
+/**
+ * Object key for one picture of an image post. The position is in the key
+ * because a deck is often built from files that share a basename
+ * (`slide.png` per folder), and two of those would otherwise overwrite each
+ * other in the bucket and post the same picture twice.
+ */
+export function imageMediaKeyFor(itemId: string, index: number, imagePath: string): string {
+  return `publisher/media/${itemId}/${String(index + 1).padStart(2, "0")}-${path.basename(imagePath)}`;
+}
+
+/** Uploads every picture of an image post, in order, and returns their keys. */
+export async function hostImages(imagePaths: string[], itemId: string): Promise<string[]> {
+  const host = mediaHost();
+  if (!host) {
+    throw new Error(
+      "Instagram and Facebook download pictures from a public URL, but media hosting is not configured. Set the S3_* variables (Cloudflare R2 free tier works)."
+    );
+  }
+  const keys: string[] = [];
+  for (const [index, imagePath] of imagePaths.entries()) {
+    keys.push(await host.upload(imagePath, imageMediaKeyFor(itemId, index, imagePath)));
+  }
+  return keys;
 }

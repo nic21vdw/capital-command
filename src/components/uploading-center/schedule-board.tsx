@@ -1,13 +1,14 @@
 "use client";
 
 import { useRef, useState } from "react";
-import { Clapperboard, ExternalLink, Loader2, Pencil, Plug, RotateCcw, Send, Trash2, Upload } from "lucide-react";
+import { Clapperboard, ExternalLink, Images, Image as ImageIcon, Loader2, Pencil, Plug, RotateCcw, Send, Trash2, Upload } from "lucide-react";
 import { toast } from "sonner";
 import { StatusChip } from "@/components/uploading-center/status-chip";
 import { CLIP_DRAG_TYPE } from "@/components/uploading-center/clip-card";
 import { primaryAccountIdFor, remoteUrlFor, studioVideoUrl } from "@/components/uploading-center/use-uploading-center";
 import { cn } from "@/lib/utils";
 import { describeFailure } from "@/lib/publisher/failure";
+import { imagePathsOf, isImagePost } from "@/lib/publisher/images";
 import type { AgendaDay, AgendaEntry } from "@/lib/publisher/agenda";
 import type { ScheduleSlot } from "@/lib/publisher/slots";
 import type { PlatformId, PlatformState, QueueItem } from "@/lib/publisher/types";
@@ -234,6 +235,9 @@ function QueueEntryCard({
   const actionable =
     state.status === "pending" || state.status === "uploaded" || (blocked && advice?.action !== "none");
   const working = busy === `publish:${item.id}` || busy === `remove:${item.id}`;
+  // A picture post has no poster frame to show — say what it is instead, so a
+  // carousel booked from a run doesn't read as a video that lost its thumbnail.
+  const pictures = isImagePost(item) ? imagePathsOf(item).length : 0;
   const [retrying, setRetrying] = useState(false);
   const [showRaw, setShowRaw] = useState(false);
 
@@ -270,7 +274,12 @@ function QueueEntryCard({
       )}
       title={advice?.headline ?? item.title}
     >
-      {thumbnailUrl ? (
+      {pictures > 0 ? (
+        <div className="flex h-14 w-8 shrink-0 flex-col items-center justify-center gap-0.5 rounded-md border border-[var(--border)] bg-white/5 text-[var(--muted-foreground)]">
+          {pictures > 1 ? <Images className="h-3.5 w-3.5" /> : <ImageIcon className="h-3.5 w-3.5" />}
+          <span className="text-[9px] font-semibold">{pictures}</span>
+        </div>
+      ) : thumbnailUrl ? (
         // eslint-disable-next-line @next/next/no-img-element -- local clip frame, not a remote asset in next.config images
         <img
           src={thumbnailUrl}
@@ -286,6 +295,11 @@ function QueueEntryCard({
         </div>
         <div className="mt-1.5 flex items-center gap-1.5">
           <StatusChip status={state.status} />
+          {pictures > 0 ? (
+            <span className="rounded-full bg-white/10 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-[var(--muted-foreground)]">
+              {pictures > 1 ? `Carousel · ${pictures}` : "Image"}
+            </span>
+          ) : null}
           {url ? (
             <a
               href={url}

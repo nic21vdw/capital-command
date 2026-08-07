@@ -1,5 +1,6 @@
 import { publisherConfig } from "@/lib/publisher/config";
 import { PermanentError, StillProcessingError, TransientError, fetchJson } from "@/lib/publisher/http";
+import { MAX_IMAGES_PER_POST, isCarouselPost, isImagePost } from "@/lib/publisher/images";
 import { composeCaption } from "@/lib/publisher/metadata";
 import { formatInTimezone, toRfc3339Utc } from "@/lib/publisher/time";
 import type { PlatformAdapter, PostResult, PublishInput, PublishPlan } from "@/lib/publisher/types";
@@ -57,6 +58,96 @@ async function publishContainer(containerId: string, creds: { userId: string; ac
   return { status: "published", postId: data.id, containerId, detail: "container published" };
 }
 
+/** Refuses to start a post when the account is already at the 24h ceiling. */
+async function assertQuota(creds: { userId: string; accessToken: string }): Promise<void> {
+  const quota = await fetchJson<{ data?: Array<{ quota_usage?: number }> }>(
+    `${graphBase()}/${creds.userId}/content_publishing_limit?fields=quota_usage&access_token=${encodeURIComponent(creds.accessToken)}`,
+    { label: "Instagram publishing quota", method: "GET" }
+  ).catch(() => null);
+  const usage = quota?.data?.[0]?.quota_usage;
+  if (typeof usage === "number" && usage >= 50) {
+    throw new TransientError(`Instagram publishing quota reached (${usage}/50 in 24h) — retrying later.`);
+  }
+}
+
+async function createImageContainer(
+  creds: { userId: string; accessToken: string },
+  fields: Record<string, string>
+): Promise<string> {
+  const created = await fetchJson<{ id?: string }>(`${graphBase()}/${creds.userId}/media`, {
+    label: "Instagram image container create",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({ ...fields, access_token: creds.accessToken })
+  });
+  if (!created.id) throw new PermanentError("Instagram image container create returned no id.");
+  return created.id;
+}
+
+/**
+ * A single picture, or a carousel of them.
+ *
+ * Single: POST /media (image_url, caption) → poll → media_publish.
+ * Carousel: one child container per picture (is_carousel_item=true), then a
+ * parent container (media_type=CAROUSEL, children=…) → poll → media_publish.
+ *
+ * A retry that already has the PARENT container resumes it, so nothing is
+ * created twice once the post has a handle. A retry that never got that far
+ * makes fresh child containers — an unpublished container is not a post, it
+ * costs nothing and expires in 24 hours.
+ */
+async function publishImagePost(input: PublishInput, creds: { userId: string; accessToken: string }): Promise<PostResult> {
+  const urls = input.images?.publicUrls ?? [];
+  if (urls.length === 0) {
+    throw new PermanentError(
+      "Instagram needs a public HTTPS URL per picture. Configure the S3_* variables so images are hosted (Cloudflare R2 free tier works)."
+    );
+  }
+  if (urls.length > MAX_IMAGES_PER_POST) {
+    throw new PermanentError(`Instagram carousels hold at most ${MAX_IMAGES_PER_POST} pictures — this post has ${urls.length}.`);
+  }
+  const carousel = isCarouselPost(input.item);
+  const caption = composeCaption(input.item).slice(0, 2200);
+
+  let containerId = input.item.platforms.instagram?.containerId;
+  let childIds: string[] | undefined;
+
+  if (!containerId) {
+    await assertQuota(creds);
+    if (!carousel) {
+      containerId = await createImageContainer(creds, { image_url: urls[0], caption });
+    } else {
+      childIds = [];
+      for (const url of urls) {
+        childIds.push(await createImageContainer(creds, { image_url: url, is_carousel_item: "true" }));
+      }
+      containerId = await createImageContainer(creds, {
+        media_type: "CAROUSEL",
+        children: childIds.join(","),
+        caption
+      });
+    }
+  }
+
+  for (let poll = 0; poll < MAX_POLLS_PER_RUN; poll += 1) {
+    const status = await containerStatus(containerId, creds.accessToken);
+    if (status === "FINISHED") {
+      const result = await publishContainer(containerId, creds);
+      return { ...result, ...(childIds ? { childContainerIds: childIds } : {}), detail: carousel ? "carousel published" : "image published" };
+    }
+    if (status === "PUBLISHED") return { status: "published", postId: containerId, containerId, detail: "already published" };
+    if (status === "ERROR") {
+      throw new PermanentError(
+        "Instagram could not process the picture(s) (container status ERROR). Instagram takes JPEG at 320–1440px wide, aspect 4:5 to 1.91:1."
+      );
+    }
+    if (status === "EXPIRED") {
+      throw new TransientError("Instagram container expired before publishing — a new one will be created on retry.");
+    }
+    await wait(POLL_INTERVAL_MS);
+  }
+  throw new StillProcessingError(containerId, "Instagram is still processing the picture(s) — will resume on the next run.");
+}
+
 export const instagramAdapter: PlatformAdapter = {
   id: "instagram",
 
@@ -77,6 +168,26 @@ export const instagramAdapter: PlatformAdapter = {
   buildPlan(input: PublishInput): PublishPlan {
     const config = publisherConfig();
     const publishAt = new Date(input.item.publishAt);
+    if (isImagePost(input.item)) {
+      const count = input.images?.publicUrls.length ?? input.item.imagePaths?.length ?? 1;
+      return {
+        platform: "instagram",
+        endpoint: `${graphBase()}/{ig-user-id}/media → /{ig-user-id}/media_publish`,
+        payload: {
+          media_type: count > 1 ? "CAROUSEL" : "IMAGE",
+          images: count,
+          image_url: input.images?.publicUrls[0] ?? "<hosted URL minted at publish time>",
+          caption: composeCaption(input.item).slice(0, 2200)
+        },
+        publishAtUtc: toRfc3339Utc(publishAt),
+        publishAtLocal: formatInTimezone(publishAt, config.timezone),
+        notes: [
+          "No native scheduling — the runner fires this at the target time.",
+          count > 1 ? "One child container per picture, then a CAROUSEL parent." : "One image container.",
+          "Counts toward the ~50 API posts per 24h limit."
+        ]
+      };
+    }
     return {
       platform: "instagram",
       endpoint: `${graphBase()}/{ig-user-id}/media → /{ig-user-id}/media_publish`,
@@ -105,6 +216,8 @@ export const instagramAdapter: PlatformAdapter = {
       );
     }
 
+    if (isImagePost(input.item)) return publishImagePost(input, creds);
+
     // Resume a container from a previous run instead of creating a duplicate.
     let containerId = input.item.platforms.instagram?.containerId;
 
@@ -115,14 +228,7 @@ export const instagramAdapter: PlatformAdapter = {
         );
       }
       // Stay under the rolling 24h publishing limit rather than burning a post.
-      const quota = await fetchJson<{ data?: Array<{ quota_usage?: number }> }>(
-        `${graphBase()}/${creds.userId}/content_publishing_limit?fields=quota_usage&access_token=${encodeURIComponent(creds.accessToken)}`,
-        { label: "Instagram publishing quota", method: "GET" }
-      ).catch(() => null);
-      const usage = quota?.data?.[0]?.quota_usage;
-      if (typeof usage === "number" && usage >= 50) {
-        throw new TransientError(`Instagram publishing quota reached (${usage}/50 in 24h) — retrying later.`);
-      }
+      await assertQuota(creds);
 
       const created = await fetchJson<{ id?: string }>(`${graphBase()}/${creds.userId}/media`, {
         label: "Instagram container create",

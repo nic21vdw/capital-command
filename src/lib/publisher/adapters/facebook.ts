@@ -1,5 +1,6 @@
 import { publisherConfig } from "@/lib/publisher/config";
 import { PermanentError, StillProcessingError, TransientError, fetchJson } from "@/lib/publisher/http";
+import { MAX_IMAGES_PER_POST, isCarouselPost, isImagePost } from "@/lib/publisher/images";
 import { composeCaption } from "@/lib/publisher/metadata";
 import { formatInTimezone, toRfc3339Utc } from "@/lib/publisher/time";
 import type { PlatformAdapter, PostResult, PublishInput, PublishPlan } from "@/lib/publisher/types";
@@ -70,6 +71,70 @@ async function finishUpload(
   return { status: "published", postId: videoId, containerId: videoId, detail: "reel published" };
 }
 
+async function uploadPhoto(
+  creds: { pageId: string; accessToken: string },
+  fields: Record<string, string>
+): Promise<string> {
+  const data = await fetchJson<{ id?: string; post_id?: string }>(`${graphBase()}/${creds.pageId}/photos`, {
+    label: "Facebook photo upload",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({ ...fields, access_token: creds.accessToken })
+  });
+  if (!data.id) throw new PermanentError("Facebook photo upload returned no id.");
+  return data.id;
+}
+
+/**
+ * A picture post on the Page.
+ *
+ * One picture: POST /{page-id}/photos (url, caption, published=true) — the
+ * photo IS the post, so there is nothing to poll and nothing to finish.
+ * Several: each picture is uploaded with published=false, then one feed post
+ * attaches them all — that is the only way the Graph API makes a multi-photo
+ * post, and the unpublished photos never show on the Page on their own.
+ *
+ * A retry after the feed post landed is stopped by the recorded postId in the
+ * runner, so nothing here can post twice. A retry BEFORE it landed re-uploads
+ * the unpublished photos; those are not posts and Facebook drops them.
+ */
+async function publishImagePost(input: PublishInput, creds: { pageId: string; accessToken: string }): Promise<PostResult> {
+  const urls = input.images?.publicUrls ?? [];
+  if (urls.length === 0) {
+    throw new PermanentError(
+      "Facebook needs a public HTTPS URL per picture. Configure the S3_* variables so images are hosted (Cloudflare R2 free tier works)."
+    );
+  }
+  if (urls.length > MAX_IMAGES_PER_POST) {
+    throw new PermanentError(`A Facebook picture post carries at most ${MAX_IMAGES_PER_POST} photos — this one has ${urls.length}.`);
+  }
+  const caption = composeCaption(input.item);
+
+  if (!isCarouselPost(input.item)) {
+    const photoId = await uploadPhoto(creds, { url: urls[0], caption, published: "true" });
+    return { status: "published", postId: photoId, detail: "photo published" };
+  }
+
+  const existing = input.item.platforms.facebook?.childContainerIds ?? [];
+  const photoIds =
+    existing.length === urls.length
+      ? existing
+      : await urls.reduce<Promise<string[]>>(async (chain, url) => {
+          const ids = await chain;
+          ids.push(await uploadPhoto(creds, { url, published: "false" }));
+          return ids;
+        }, Promise.resolve([]));
+
+  const body = new URLSearchParams({ message: caption, access_token: creds.accessToken });
+  photoIds.forEach((id, index) => body.append(`attached_media[${index}]`, JSON.stringify({ media_fbid: id })));
+  const post = await fetchJson<{ id?: string }>(`${graphBase()}/${creds.pageId}/feed`, {
+    label: "Facebook multi-photo feed post",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body
+  });
+  if (!post.id) throw new PermanentError("Facebook feed post returned no id.");
+  return { status: "published", postId: post.id, childContainerIds: photoIds, detail: `${photoIds.length} photos published` };
+}
+
 export const facebookAdapter: PlatformAdapter = {
   id: "facebook",
 
@@ -90,6 +155,28 @@ export const facebookAdapter: PlatformAdapter = {
   buildPlan(input: PublishInput): PublishPlan {
     const config = publisherConfig();
     const publishAt = new Date(input.item.publishAt);
+    if (isImagePost(input.item)) {
+      const count = input.images?.publicUrls.length ?? input.item.imagePaths?.length ?? 1;
+      return {
+        platform: "facebook",
+        endpoint:
+          count > 1
+            ? `${graphBase()}/{page-id}/photos (published=false) → /{page-id}/feed`
+            : `${graphBase()}/{page-id}/photos`,
+        payload: {
+          photos: count,
+          url: input.images?.publicUrls[0] ?? "<hosted URL minted at publish time>",
+          message: composeCaption(input.item)
+        },
+        publishAtUtc: toRfc3339Utc(publishAt),
+        publishAtLocal: formatInTimezone(publishAt, config.timezone),
+        notes: [
+          "No native scheduling — the runner fires this at the target time.",
+          "Requires a Page access token (not a user token) with pages_manage_posts.",
+          count > 1 ? "Each photo is uploaded unpublished, then one feed post attaches them all." : "The photo is the post."
+        ]
+      };
+    }
     return {
       platform: "facebook",
       endpoint: `${graphBase()}/{page-id}/video_reels (start → finish)`,
@@ -116,6 +203,8 @@ export const facebookAdapter: PlatformAdapter = {
           "Set this item's visibility to public (or point FB_PAGE_ID/FB_PAGE_ACCESS_TOKEN at a test Page) and re-enqueue."
       );
     }
+
+    if (isImagePost(input.item)) return publishImagePost(input, creds);
 
     const caption = composeCaption(input.item);
 

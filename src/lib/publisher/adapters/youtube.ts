@@ -9,6 +9,7 @@ import {
   YOUTUBE_RECONNECT_REQUIRED
 } from "@/lib/publisher/googleAuth";
 import { PermanentError, fetchJson, fetchRaw } from "@/lib/publisher/http";
+import { IMAGE_REFUSALS, isImagePost } from "@/lib/publisher/images";
 import { bareTags, composeDescription } from "@/lib/publisher/metadata";
 import { formatInTimezone, toRfc3339Utc } from "@/lib/publisher/time";
 import type { PlatformAdapter, PlatformState, PostResult, PublishInput, PublishPlan, QueueItem } from "@/lib/publisher/types";
@@ -212,6 +213,7 @@ export const youtubeAdapter: PlatformAdapter = {
   },
 
   async publish(input: PublishInput): Promise<PostResult> {
+    if (isImagePost(input.item)) throw new PermanentError(IMAGE_REFUSALS.youtube!);
     const state = input.item.platforms.youtube;
     // The video is already on the channel — a retry that re-uploaded here would
     // leave two copies of the same clip. Finish that one instead.
