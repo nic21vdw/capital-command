@@ -14,6 +14,24 @@ already shipped.
 
 ## Unreleased
 
+- **A data file that cannot be read is never replaced any more.** One field the
+  app did not recognise used to hand it demo data AND write that over your
+  document — every carousel, holding and content item gone, silently. It now
+  refuses to serve, keeps the file exactly as it is, saves a copy next to it and
+  says so.
+- **A stream taken in overnight schedules itself.** The nightly scan's runs now
+  book their outputs as each one finishes, so you review a scheduled run instead
+  of starting the scheduling. The Scheduler row still has the button to stop it.
+- **An output you held back opens unticked, and stays held back.** The sheet
+  said "tick it to book it" next to a box that was already ticked, so pressing
+  Schedule re-booked exactly what you had kept back.
+- **A failed overnight channel scan now shows up in the count**, instead of only
+  on the Agents screen.
+- **A scheduled carousel links to the Uploading Center**, where its retry,
+  remove and slide files actually are.
+- **A sandbox can no longer write to the live storage bucket.** The bucket keys
+  are stripped from a sandbox's settings, like the posting tokens already were.
+
 - **A story-shaped deck says so instead of failing at its slot.** Instagram only
   takes pictures between 4:5 and 1.91:1, so a 9:16 carousel could be booked and
   then rejected hours later; it is now left out of the booking with the reason

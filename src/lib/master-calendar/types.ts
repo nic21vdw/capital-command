@@ -6,7 +6,7 @@
  * side by side and link back to the calendar that owns each item.
  */
 
-export type CalendarSourceId = "shorts" | "carousels" | "x" | "fb" | "content";
+export type CalendarSourceId = "shorts" | "carousels" | "queued-carousels" | "x" | "fb" | "content";
 
 export type MasterCalendarEvent = {
   /** Unique across the whole calendar (source-prefixed). */
@@ -58,6 +58,17 @@ export const CALENDAR_SOURCES: CalendarSource[] = [
     color: "#e1306c",
     href: "/carousels",
     hrefLabel: "Carousels"
+  },
+  {
+    // A deck already BOOKED into the publish queue is not a carousel schedule:
+    // the retry, the remove and the slide files are in the Uploading Center, so
+    // it must not send him to the Carousels studio.
+    id: "queued-carousels",
+    label: "Scheduled carousel posts",
+    shortLabel: "Carousel posts",
+    color: "#e1306c",
+    href: "/uploading-center",
+    hrefLabel: "Uploading Center"
   },
   {
     id: "x",

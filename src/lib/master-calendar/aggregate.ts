@@ -98,8 +98,8 @@ function shortsEvents(
     // for it.
     const picture = isImagePost(item);
     events.push({
-      id: `${picture ? "carousels" : "shorts"}:${item.id}`,
-      source: picture ? "carousels" : "shorts",
+      id: `${picture ? "queued-carousels" : "shorts"}:${item.id}`,
+      source: picture ? "queued-carousels" : "shorts",
       dateKey,
       time,
       title: truncate(

@@ -48,6 +48,7 @@ function ThreadsLogo({ className, style }: { className?: string; style?: CSSProp
 const SOURCE_ICONS: Record<CalendarSourceId, IconComponent> = {
   shorts: Youtube,
   carousels: Instagram,
+  "queued-carousels": Instagram,
   x: ThreadsLogo,
   fb: Facebook,
   content: Clapperboard
