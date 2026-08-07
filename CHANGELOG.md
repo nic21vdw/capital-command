@@ -37,6 +37,8 @@ already shipped.
   can overrule — so you can say "run that one anyway" and it goes straight
   through the pipeline. Its report also survives the check finishing, which it
   didn't before.
+## 2026-08-06
+
 - **The app notices work the moment it lands, instead of when a backup runs.**
   This machine keeps two copies of the code — GitHub, where finished work is
   merged, and a local backup repository that syncs down from it on a schedule —
