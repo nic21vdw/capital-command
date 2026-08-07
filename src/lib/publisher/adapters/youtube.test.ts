@@ -248,6 +248,43 @@ describe("youtube adapter", () => {
       ).rejects.toThrow(/Reconnect YouTube/);
     });
 
+    it("verifies instead of uploading when publish() is called on a video that already exists", async () => {
+      const requests = mockFetchRoutes([
+        { match: "oauth2.googleapis.com/token", respond: () => jsonResponse({ access_token: "at-1", expires_in: 3600 }) },
+        {
+          match: "id=vid-123",
+          respond: () => jsonResponse({ items: [{ status: { privacyStatus: "public" } }] })
+        }
+      ]);
+      const adapter = await loadAdapter();
+      const retried = input({ visibility: "public" });
+      retried.item.platforms.youtube = { status: "pending", attempts: 0, postId: "vid-123" };
+
+      const result = await adapter.publish(retried);
+
+      expect(result.postId).toBe("vid-123");
+      // Token refresh + status read. No resumable init, no second upload.
+      expect(requests).toHaveLength(2);
+      expect(requests.some((request) => request.url.includes("uploadType=resumable"))).toBe(false);
+    });
+
+    it("leaves a re-armed post scheduled rather than publishing it before its slot", async () => {
+      mockFetchRoutes([
+        { match: "oauth2.googleapis.com/token", respond: () => jsonResponse({ access_token: "at-1", expires_in: 3600 }) },
+        {
+          match: "id=vid-waiting",
+          respond: () => jsonResponse({ items: [{ status: { privacyStatus: "private", publishAt: FUTURE } }] })
+        }
+      ]);
+      const adapter = await loadAdapter();
+      const item = testItem({ publishAt: FUTURE, visibility: "public", platformIds: ["youtube"] });
+
+      const result = await adapter.finalize!(item, { status: "failed", attempts: 3, postId: "vid-waiting" });
+
+      expect(result.status).toBe("scheduled");
+      expect(result.postId).toBe("vid-waiting");
+    });
+
     it("fails permanently when the video no longer exists", async () => {
       mockFetchRoutes([
         { match: "oauth2.googleapis.com/token", respond: () => jsonResponse({ access_token: "at-1", expires_in: 3600 }) },

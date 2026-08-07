@@ -281,12 +281,19 @@ export async function runDue(now: Date = new Date(), options: RunDueOptions = {}
         }
         const state = item.platforms[platform];
         let result: PostResult;
-        if (state?.status === "scheduled") {
-          // Already uploaded with native scheduling; verify the platform made
-          // it public at the slot time and force it if not. No media needed.
-          if (!adapter.finalize) continue;
-          await queue.claim(item, platform, now);
-          result = await adapter.finalize(item, state);
+        // A recorded postId means the post EXISTS on the platform, whatever the
+        // status says now — a retry keeps that id, and a failure recorded after
+        // the upload landed (or after the slot flip) would otherwise upload a
+        // second copy of the same video. Resume, never re-create.
+        if (state && (state.status === "scheduled" || state.postId)) {
+          if (adapter.finalize) {
+            await queue.claim(item, platform, now);
+            result = await adapter.finalize(item, state);
+          } else if (state.status === "scheduled") {
+            continue;
+          } else {
+            result = { status: "published", postId: state.postId, detail: "already on the platform — not uploaded again" };
+          }
         } else {
           await queue.claim(item, platform, now);
           // Resolve media lazily and once per item, not per platform.

@@ -83,6 +83,20 @@ export async function runDue(
   for (const item of items) {
     if (item.status !== "pending") continue;
 
+    // Already has a Threads post id: it went live and the queue never got to
+    // record it (a write that failed after the post landed). Reconcile the
+    // record rather than posting the same text a second time.
+    if (item.postId) {
+      item.status = "published";
+      item.publishedAt ??= now.toISOString();
+      item.error = undefined;
+      delete item.nextAttemptAt;
+      delete item.claimedAt;
+      if (!dryRun) await deps.write(items);
+      record(item, "published", `Already on Threads as ${item.postId} — recorded instead of posting it again.`);
+      continue;
+    }
+
     const dueAt = new Date(item.publishAt).getTime();
     if (dueAt > now.getTime()) continue;
 

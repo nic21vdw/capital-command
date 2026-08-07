@@ -1,14 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
-import {
-  isPrimaryAccountId,
-  itemBelongsToAccount,
-  primaryAccountId
-} from "@/lib/publisher/accounts";
-import {
-  exchangeGoogleCode,
-  isYoutubeReconnectRequired
-} from "@/lib/publisher/googleAuth";
+import { isPrimaryAccountId, primaryAccountId } from "@/lib/publisher/accounts";
+import { exchangeGoogleCode } from "@/lib/publisher/googleAuth";
 import { publishQueue } from "@/lib/publisher/queue";
+import { connectRearmScope, rearmItems } from "@/lib/publisher/rearm";
 import { runDue } from "@/lib/publisher/runner";
 
 export const runtime = "nodejs";
@@ -34,26 +28,13 @@ export async function GET(request: NextRequest) {
     await exchangeGoogleCode(code, `${request.nextUrl.origin}/api/auth/google/callback`, accountId);
 
     // A revoked refresh token is permanent until the user reconnects. Once a
-    // fresh token is stored, revive only the uploads that failed for that exact
-    // reason/account, then retry them immediately. Other permanent failures
-    // remain untouched.
+    // fresh token is stored, revive only this account's uploads that were
+    // waiting on the connection, then retry them immediately. Other permanent
+    // failures remain untouched.
     const queue = publishQueue();
-    const retryIds: string[] = [];
-    for (const item of await queue.list()) {
-      const state = item.platforms.youtube;
-      if (
-        state?.status === "failed" &&
-        isYoutubeReconnectRequired(state.error) &&
-        itemBelongsToAccount(item, "youtube", accountId)
-      ) {
-        state.status = "pending";
-        state.attempts = 0;
-        state.error = undefined;
-        state.nextAttemptAt = undefined;
-        state.claimedAt = undefined;
-        retryIds.push(item.id);
-      }
-    }
+    const retryIds = rearmItems(await queue.list(), connectRearmScope("youtube", accountId)).map(
+      (entry) => entry.item.id
+    );
     if (retryIds.length > 0) {
       await queue.save();
       for (const itemId of retryIds) {
