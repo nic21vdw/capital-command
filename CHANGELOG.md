@@ -14,6 +14,18 @@ already shipped.
 
 ## Unreleased
 
+- **A channel scan that fails overnight finally tells you.** The nightly scan
+  runs as its own process, so nothing it did survived into the app — a failed
+  scan, a disconnected channel or a token that needs reconnecting was silent
+  until you noticed nothing had come in for days. The outcome is written down
+  now, counted in the sidebar, and said on the Stream Pipeline with **Scan
+  again** and a link to reconnect.
+- **A stream taken in overnight renders its segments and schedules its Threads
+  posts too**, not just its videos — the two clicks that were left.
+- **An unreadable data file says so instead of looking like a brand-new app.**
+  Every screen used to render empty, down to a "set up your profile" prompt.
+  And only one copy of a corrupt file is kept, not one per page load.
+
 - **A data file that cannot be read is never replaced any more.** One field the
   app did not recognise used to hand it demo data AND write that over your
   document — every carousel, holding and content item gone, silently. It now

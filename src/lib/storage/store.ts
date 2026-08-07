@@ -1,4 +1,4 @@
-import { copyFile, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { copyFile, mkdir, readFile, readdir, rename, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { dataPath } from "@/lib/paths";
 import { seedData } from "@/lib/mockData/seed";
@@ -61,11 +61,19 @@ export async function readAppData(): Promise<AppData> {
   throw new AppDataUnreadableError("The app data file could not be read. Nothing has been changed.", null);
 }
 
-/** Best effort: a copy to look at later. Failing to copy must not hide the read failure. */
+/**
+ * Best effort: ONE copy to look at later. Every screen and the sidebar's poll
+ * read app data, so copying per failed read wrote thousands of copies of a
+ * multi-megabyte file in a day. Failing to copy must not hide the read failure.
+ */
 async function keepCorruptCopy(): Promise<string | null> {
   const stamp = new Date().toISOString().replace(/[:.]/g, "-");
   const copyPath = `${dataFilePath}.unreadable-${stamp}`;
   try {
+    const existing = (await readdir(path.dirname(dataFilePath))).filter((name) =>
+      name.startsWith(`${path.basename(dataFilePath)}.unreadable-`)
+    );
+    if (existing.length > 0) return path.join(path.dirname(dataFilePath), existing[existing.length - 1]);
     await copyFile(dataFilePath, copyPath);
     return copyPath;
   } catch {

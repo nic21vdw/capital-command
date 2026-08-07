@@ -94,6 +94,7 @@ function mockLedger() {
   vi.doMock("@/lib/ingest/ledger", () => ({
     readLedger: vi.fn(async () => ({ lastScanAt: null, records: [] })),
     writeLedger: vi.fn(async () => undefined),
+    recordScanOutcome: vi.fn(async () => undefined),
     settledVideoIds: () => new Set<string>(),
     attemptsFor: () => 0,
     abandonedRecords: () => [],

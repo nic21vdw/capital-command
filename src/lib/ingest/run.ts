@@ -3,6 +3,7 @@ import { scanChannelUploads } from "@/lib/ingest/channelScan";
 import {
   attemptsFor,
   readLedger,
+  recordScanOutcome,
   settledVideoIds,
   upsertRecord,
   writeLedger,
@@ -100,7 +101,34 @@ export type RunOptions = {
   log?: (message: string) => void;
 };
 
+/**
+ * Every scan writes how it ended into the ledger before it returns. The nightly
+ * one runs as its own process, so this file is the only place its outcome can
+ * survive — without it, a scan that failed at 6am was invisible until someone
+ * noticed nothing had been ingested for days.
+ */
 export async function runDailyScan(options: RunOptions = {}): Promise<ScanReport> {
+  const startedAt = new Date().toISOString();
+  try {
+    const report = await runScan(options);
+    await recordScanOutcome({
+      at: startedAt,
+      status: report.configured ? (report.needsReconnect ? "needs-reconnect" : "ok") : "not-connected",
+      ingested: report.ingested.length,
+      dryRun: report.dryRun
+    });
+    return report;
+  } catch (error) {
+    await recordScanOutcome({
+      at: startedAt,
+      status: "failed",
+      error: error instanceof Error ? error.message : String(error)
+    });
+    throw error;
+  }
+}
+
+async function runScan(options: RunOptions = {}): Promise<ScanReport> {
   const log = options.log ?? (() => {});
   const dryRun = options.dryRun ?? false;
   const limit = options.limit ?? 3;
