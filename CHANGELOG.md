@@ -23,6 +23,15 @@ already shipped.
   "Nothing taken in yet" whatever happened; it now shows the failure and its
   reason, tells you when YouTube needs reconnecting (with a link to do it), and
   lists the streams it skipped for review or gave up on.
+- **One button schedules everything a stream produced.** The Scheduler step of a
+  run now lists every output that is ready — the long-form video, each rendered
+  topic segment and every short — and books them into the publish queue, one per
+  free slot, longest first. Anything already scheduled is left alone and says so.
+  The long-form video and the segments had no route into the queue at all before
+  this; they were downloaded and uploaded by hand.
+- **"Open the Uploading Center" opens on the right run**, instead of leaving you
+  to guess which job in the dropdown was the one you were just looking at.
+
 - **A post that failed no longer disappears — you can see why and retry it.**
   A scheduled post whose every platform permanently failed used to be deleted
   the next time the calendar loaded: the slot emptied, the clip went back to
