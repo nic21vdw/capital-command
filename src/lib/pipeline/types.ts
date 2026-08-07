@@ -68,6 +68,8 @@ export type PipelineRun = {
   /** Text-only posts written from the transcript + clip highlights. */
   posts?: PipelinePost[];
   postsNote?: string;
+  /** When the text posts were put on the Threads queue, so they cannot be queued twice. */
+  postsQueuedAt?: string;
   createdAt: string;
   updatedAt: string;
 };

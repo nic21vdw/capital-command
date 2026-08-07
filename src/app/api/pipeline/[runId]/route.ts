@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { planRunOutputs, queueRunOutputs } from "@/lib/pipeline/queueOutputs";
+import { queueRunPosts } from "@/lib/pipeline/queuePosts";
 import { renderNextSegment, repairRun } from "@/lib/pipeline/repair";
 import { isRepairableStage } from "@/lib/pipeline/repairable";
 import { deleteRun, getRun, runOverview } from "@/lib/pipeline/runs";
@@ -53,6 +54,23 @@ export async function POST(request: NextRequest, { params }: Params) {
     } catch (error) {
       return NextResponse.json(
         { error: error instanceof Error ? error.message : "Nothing could be scheduled." },
+        { status: 409 }
+      );
+    }
+  }
+
+  if (action === "queue-posts") {
+    try {
+      const result = await queueRunPosts(runId);
+      return NextResponse.json({
+        detail: `${result.scheduled} post${result.scheduled === 1 ? "" : "s"} scheduled${
+          result.note ? ` · ${result.note}` : ""
+        }.`,
+        overview: await runOverview(run)
+      });
+    } catch (error) {
+      return NextResponse.json(
+        { error: error instanceof Error ? error.message : "Those posts could not be scheduled." },
         { status: 409 }
       );
     }

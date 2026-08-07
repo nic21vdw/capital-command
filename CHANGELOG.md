@@ -14,6 +14,13 @@ already shipped.
 
 ## Unreleased
 
+- **The text posts a stream produced can be scheduled from the run.** They used
+  to leave the app only by being copied out one at a time. The Threads ones now
+  go on the same queue the autopilot drains, spaced out and from one account
+  (two accounts posting identical words reads as mirrored spam); the X and
+  Facebook versions stay there to copy. The day's own pack is unaffected — the
+  autopilot cannot see these when it decides whether a day is planned.
+
 - **"Render all segments" is one click, not one per segment.** The run keeps
   rendering the next topic segment as each one finishes — with the app closed —
   instead of waiting for you to come back and press it again.
