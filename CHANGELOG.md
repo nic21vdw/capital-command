@@ -14,6 +14,15 @@ already shipped.
 
 ## Unreleased
 
+- **An update takes about a minute and a half again, not nine.** Every release
+  was a cold build: the step that moves the build output out of the OneDrive
+  folder was also deleting Next's incremental compile cache, so nothing was
+  ever reused. It keeps that one folder now. This is not only about waiting —
+  the app is down for the whole build, and nine minutes was long enough for a
+  scheduled task to find nothing on port 3000, start a second server, and leave
+  two builds writing the same folder. That is what made a release fail with
+  "Cannot find module" and left the app down.
+
 - **The command bar fixes a stuck run instead of telling you it is stuck.**
   Say "go back to Day 28 and finish it" and it finds the run by name, sees which
   stages failed or were abandoned by a restart, and starts them again — the
