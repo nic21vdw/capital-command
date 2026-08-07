@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { repairAppDataOverlays } from "@/lib/clipping/overlay-images";
 import { derivePortfolioSummary } from "@/lib/derive";
 import { ensureExecution } from "@/lib/execution/server";
-import { bookingBlockers, publishingEnabled } from "@/lib/publisher/enabled";
+import { readApiStatus } from "@/lib/apiStatus";
 import { AppDataUnreadableError, latestGoodSnapshot, readAppData, writeAppData } from "@/lib/storage/store";
 
 export async function GET() {
@@ -43,12 +43,6 @@ export async function GET() {
   return NextResponse.json({
     data,
     summary: derivePortfolioSummary(data),
-    apiStatus: {
-      hasAlphaVantageKey: Boolean(process.env.ALPHA_VANTAGE_API_KEY),
-      // Settings needs to show this as a switch rather than tell him to edit a
-      // file; it is an on/off, not a credential.
-      publishingEnabled: publishingEnabled(),
-      bookingBlockers: bookingBlockers()
-    }
+    apiStatus: readApiStatus()
   });
 }

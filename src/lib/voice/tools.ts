@@ -464,7 +464,7 @@ export async function runVoiceTool(
       return {
         ok: true,
         started: job.id,
-        note: "The scan is running in the app. It fans every new stream out into clips, the long-form edit, the podcast MP3, the carousel and the text posts, and stops at ready to schedule. Nothing is published. Poll ingest_status.",
+        note: "The scan is running in the app. It fans every new stream out into clips, the long-form edit, the podcast MP3, the carousel and the text posts. It stops at ready to schedule unless overnight scheduling is on in Settings, in which case the run books its own outputs into the queues that post. Poll ingest_status.",
         ...toolDestination("agents")
       };
     }

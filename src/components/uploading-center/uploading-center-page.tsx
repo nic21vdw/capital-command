@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
   AlertTriangle,
@@ -19,6 +20,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { chunkWords, windowSegments } from "@/lib/clipping/captions";
+import { PUBLISHING_OFF_MESSAGE } from "@/lib/publisher/enabledMessage";
 import { generateClipTitle, makeClipProject, makeTitleOverlay } from "@/lib/clipping/editor";
 import { writeDraftProject } from "@/components/editor/drafts";
 import { useAppData } from "@/components/providers/app-provider";
@@ -748,15 +750,10 @@ export function UploadingCenterPage() {
             <AlertTriangle className="h-4 w-4" /> Publishing is switched off
           </p>
           <p className="text-sm text-[var(--muted-foreground)]">
-            Add{" "}
-            <code className="rounded bg-white/10 px-1.5 py-0.5 text-xs">
-              PUBLISH_ENABLED=true
-            </code>{" "}
-            to your{" "}
-            <code className="rounded bg-white/10 px-1.5 py-0.5 text-xs">
-              .env
-            </code>{" "}
-            and restart the app to use the Uploading Center.
+            {PUBLISHING_OFF_MESSAGE}{" "}
+            <Link href="/settings" className="underline">
+              Open Settings
+            </Link>
           </p>
         </Card>
       ) : (

@@ -7,6 +7,7 @@ import { getRun, listRuns, updateRun } from "@/lib/pipeline/runs";
 import type { PipelineRun } from "@/lib/pipeline/types";
 import { readAppData } from "@/lib/storage/store";
 import { publisherConfig } from "@/lib/publisher/config";
+import { PUBLISHING_OFF_MESSAGE } from "@/lib/publisher/enabledMessage";
 import { enqueue, enqueueImagePost } from "@/lib/publisher/enqueue";
 import { MAX_IMAGES_PER_POST } from "@/lib/publisher/images";
 import { publishQueue } from "@/lib/publisher/queue";
@@ -62,6 +63,20 @@ export type QueuePlan = {
   /** Why nothing can be booked at all (publishing switched off, no platforms). */
   problem?: string;
 };
+
+/**
+ * There is nothing left to book on this run — the normal state between one
+ * output finishing and the next. It is its own type because the standing drain
+ * has to tell it apart from a run that could book NOTHING AT ALL: both arrive
+ * as a throw, and treating them the same is what let "publishing is off" pass
+ * silently while the run still read as finished.
+ */
+export class NothingWaitingError extends Error {
+  constructor() {
+    super("Nothing on this run is waiting to be scheduled.");
+    this.name = "NothingWaitingError";
+  }
+}
 
 export type QueueResult = {
   queued: { title: string; publishAt: string; platforms: PlatformId[] }[];
@@ -136,7 +151,7 @@ export async function planRunOutputs(runId: string): Promise<QueuePlan | null> {
       ? config.platforms.length === 0
         ? "No platforms are switched on — choose them in Settings before booking anything."
         : undefined
-      : "Publishing is switched off — turn it on in Settings, then book these."
+      : PUBLISHING_OFF_MESSAGE
   };
 }
 
@@ -328,7 +343,7 @@ export async function queueRunOutputs(
     ? plan.candidates.filter((item) => ids.includes(item.id))
     : plan.candidates.filter((item) => !heldBack.has(item.id) && !alreadyBooked.has(item.id));
   const chosen = eligible;
-  if (chosen.length === 0) throw new Error("Nothing on this run is waiting to be scheduled.");
+  if (chosen.length === 0) throw new NothingWaitingError();
   for (const item of chosen) {
     heldBack.delete(item.id);
     alreadyBooked.delete(item.id);
@@ -414,8 +429,14 @@ export async function queueReadyOutputs(): Promise<number> {
   for (const run of waiting) {
     // "Nothing waiting" is the normal case between one output finishing and the
     // next, and it throws — that is the caller's contract for a button press,
-    // not a reason to log anything here.
-    const result = await queueRunOutputs(run.id, undefined, { standing: true }).catch(() => null);
+    // not a reason to log anything here. Anything ELSE that throws blocked the
+    // whole run before a single failure could be collected, so it is recorded
+    // against the run rather than dropped.
+    const result = await queueRunOutputs(run.id, undefined, { standing: true }).catch(async (error) => {
+      if (error instanceof NothingWaitingError) return null;
+      await recordQueueFailure(run.id, "Everything", error instanceof Error ? error.message : String(error));
+      return null;
+    });
     booked += result?.queued.length ?? 0;
     // A booking that FAILED is different: nobody was watching, and dropping it
     // left the row promising an output the app had quietly given up on.

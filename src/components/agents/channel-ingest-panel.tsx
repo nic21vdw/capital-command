@@ -117,7 +117,8 @@ export function ChannelIngestPanel() {
       </div>
 
       <p className="text-xs leading-relaxed text-[var(--muted-foreground)]">
-        New streams on your channel go through the whole Stream Pipeline and stop at ready to schedule. Nothing is published.
+        New streams on your channel go through the whole Stream Pipeline and stop at ready to schedule — unless overnight
+        scheduling is on in Settings, in which case the run books its own outputs into the queues that post.
       </p>
 
       <div className="mt-3 flex gap-2">

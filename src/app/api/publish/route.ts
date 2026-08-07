@@ -3,6 +3,7 @@ import path from "node:path";
 import { z } from "zod";
 import { ensureVerticalClipFile, outputDir } from "@/lib/clipping/jobs";
 import { publisherConfig } from "@/lib/publisher/config";
+import { PUBLISHING_OFF_MESSAGE } from "@/lib/publisher/enabled";
 import { enqueue } from "@/lib/publisher/enqueue";
 import { FAILED_RETENTION_DAYS, publishQueue } from "@/lib/publisher/queue";
 import { connectRearmScope, rearmItems } from "@/lib/publisher/rearm";
@@ -81,7 +82,7 @@ const enqueueSchema = z.object({
 export async function POST(request: NextRequest) {
   const config = publisherConfig();
   if (!config.enabled) {
-    return NextResponse.json({ error: "Publishing is disabled. Set PUBLISH_ENABLED=true in .env." }, { status: 400 });
+    return NextResponse.json({ error: PUBLISHING_OFF_MESSAGE }, { status: 400 });
   }
 
   let raw: unknown;

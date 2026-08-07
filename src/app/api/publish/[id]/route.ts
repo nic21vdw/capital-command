@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { updateYoutubeVideoTitle } from "@/lib/publisher/adapters/youtube";
 import { publisherConfig } from "@/lib/publisher/config";
+import { PUBLISHING_OFF_MESSAGE } from "@/lib/publisher/enabled";
 import { publishQueue } from "@/lib/publisher/queue";
 
 export const runtime = "nodejs";
@@ -16,7 +17,7 @@ export const dynamic = "force-dynamic";
 export async function PATCH(request: Request, { params }: { params: Promise<{ id: string }> }) {
   const config = publisherConfig();
   if (!config.enabled) {
-    return NextResponse.json({ error: "Publishing is disabled. Set PUBLISH_ENABLED=true in .env." }, { status: 400 });
+    return NextResponse.json({ error: PUBLISHING_OFF_MESSAGE }, { status: 400 });
   }
   let body: { title?: unknown };
   try {
@@ -53,7 +54,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
 export async function DELETE(_request: Request, { params }: { params: Promise<{ id: string }> }) {
   const config = publisherConfig();
   if (!config.enabled) {
-    return NextResponse.json({ error: "Publishing is disabled. Set PUBLISH_ENABLED=true in .env." }, { status: 400 });
+    return NextResponse.json({ error: PUBLISHING_OFF_MESSAGE }, { status: 400 });
   }
   const { id } = await params;
   const removed = await publishQueue(config).remove(id);

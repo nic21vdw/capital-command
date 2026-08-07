@@ -14,6 +14,22 @@ already shipped.
 
 ## Unreleased
 
+- **A run that could book NOTHING at all now says so.** An unattended stream
+  that finished while publishing was off used to read green and quietly book
+  nothing — it now raises the same amber badge and "not scheduled" label as a
+  single failed output, with the reason and a link straight to Settings.
+- **The publishing switch in Settings takes effect on screen the moment you
+  click it.** It used to spring back to its old position, and the warning about
+  why nothing could be booked never appeared until the next reload.
+- **Nothing tells you to edit `.env` and restart any more.** Every screen and
+  error that used to say "set PUBLISH_ENABLED=true in .env" now says publishing
+  is switched off and links to Settings.
+- **A Threads post the app could not schedule offers to schedule the posts**,
+  rather than opening the video booking sheet that cannot fix it.
+- **The nightly scan no longer claims nothing is published.** The scan script,
+  the voice assistant and the Channel ingest panel all say it stops at "ready to
+  schedule" unless overnight scheduling is on, in which case the run books its
+  own outputs.
 - **Publishing is a switch in Settings now, not a line in a file.** Turning the
   app's posting on or off — and seeing why an overnight run would book nothing
   — no longer means editing `.env` and restarting.

@@ -7,6 +7,7 @@ import { todayLocal } from "@/lib/execution/dates";
 import { getMarketDataProvider } from "@/lib/marketData";
 import { seedData } from "@/lib/mockData/seed";
 import { appDataSchema, brandAssetsSchema, clipProjectSchema, contentItemSchema, creatorProfileSchema, defaultCreatorProfile, defaultFbStrategy, executionCompletionSchema, executionGoalSchema, expenseSchema, fbPostSchema, fbStrategySchema, goalSchema, holdingSchema, importHoldingSchema, productLaunchSchema, researchNoteSchema, savedThumbnailSchema, settingsSchema, videoProjectSchema, watchlistSchema, xActivitySchema, xStrategySchema } from "@/lib/storage/schemas";
+import { readApiStatus } from "@/lib/apiStatus";
 import { setPublishingEnabled } from "@/lib/publisher/enabled";
 import { AppDataUnreadableError, latestGoodSnapshot, readAppData, resetAppData, restoreLastGoodSnapshot, writeAppData } from "@/lib/storage/store";
 import type { AppData, ExecutionGoal, Holding } from "@/types/domain";
@@ -14,7 +15,11 @@ import type { AppData, ExecutionGoal, Holding } from "@/types/domain";
 function success(data: AppData) {
   return NextResponse.json({
     data,
-    summary: derivePortfolioSummary(data)
+    summary: derivePortfolioSummary(data),
+    // `updateSettings` can flip publishing on or off, so the answer carries the
+    // server's own state back — without it the switch redrew from the payload
+    // the shell mounted with and sprang straight back.
+    apiStatus: readApiStatus()
   });
 }
 

@@ -9,6 +9,8 @@ import { publisherConfig } from "@/lib/publisher/config";
 // address is, using the same careful rewrite (BOM, CRLF, comments and `export`
 // prefixes preserved) and `process.env` so nothing has to be restarted.
 
+export { PUBLISHING_OFF_MESSAGE } from "@/lib/publisher/enabledMessage";
+
 const KEY = "PUBLISH_ENABLED";
 
 export function publishingEnabled(): boolean {

@@ -3,6 +3,7 @@ import path from "node:path";
 import { getJob } from "@/lib/clipping/jobs";
 import { accountIdConfigured, getAccount, isPrimaryAccountId, primaryAccountId } from "@/lib/publisher/accounts";
 import { configuredPlatforms, hostingConfigured, publisherConfig } from "@/lib/publisher/config";
+import { PUBLISHING_OFF_MESSAGE } from "@/lib/publisher/enabledMessage";
 import { hostImages, hostMedia } from "@/lib/publisher/hosting";
 import {
   MAX_IMAGES_PER_POST,
@@ -115,7 +116,7 @@ async function configuredPlatformSet(
 export async function enqueue(options: EnqueueOptions): Promise<QueueItem> {
   const config = publisherConfig();
   if (!config.enabled) {
-    throw new Error("Publishing is disabled. Set PUBLISH_ENABLED=true in .env to turn it on.");
+    throw new Error(PUBLISHING_OFF_MESSAGE);
   }
 
   const absolute = path.isAbsolute(options.clipPath) ? options.clipPath : path.join(process.cwd(), options.clipPath);
@@ -230,7 +231,7 @@ export type EnqueueImageOptions = {
 export async function enqueueImagePost(options: EnqueueImageOptions): Promise<QueueItem> {
   const config = publisherConfig();
   if (!config.enabled) {
-    throw new Error("Publishing is disabled. Set PUBLISH_ENABLED=true in .env to turn it on.");
+    throw new Error(PUBLISHING_OFF_MESSAGE);
   }
 
   const requested = options.imagePaths.filter((entry) => entry.trim().length > 0);
