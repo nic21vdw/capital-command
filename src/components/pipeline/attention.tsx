@@ -37,6 +37,15 @@ export function PipelineAttentionProvider({ children }: { children: React.ReactN
     };
   }, []);
 
+  // The window is usually behind something else — this app runs as its own
+  // taskbar window all day. Putting the count in the title is the one signal
+  // that reaches him without asking for notification permission.
+  useEffect(() => {
+    if (typeof document === "undefined") return;
+    const base = document.title.replace(/^\(\d+\)\s*/, "");
+    document.title = attention.needsAttention > 0 ? `(${attention.needsAttention}) ${base}` : base;
+  }, [attention.needsAttention]);
+
   return <PipelineAttentionContext.Provider value={attention}>{children}</PipelineAttentionContext.Provider>;
 }
 
