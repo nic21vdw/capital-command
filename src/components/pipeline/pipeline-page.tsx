@@ -1093,6 +1093,11 @@ export function PipelinePage() {
                     {plan.skipped.length} left out — {plan.skipped[0].reason.toLowerCase()}
                   </span>
                 ) : null}
+                {run.queueWhenReady ? (
+                  <span className="text-[11px] text-emerald-300/90">
+                    Anything still rendering is booked as it lands.
+                  </span>
+                ) : null}
               </div>
             </div>
           ) : null}

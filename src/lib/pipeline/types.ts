@@ -78,6 +78,12 @@ export type PipelineRun = {
   postsGaveUp?: boolean;
   /** When the text posts were put on the Threads queue, so they cannot be queued twice. */
   postsQueuedAt?: string;
+  /**
+   * Keep booking this run's outputs as they finish. Set by "Schedule everything
+   * from this run": a stream's segments render for hours after that click, and
+   * without this he has to come back and press it again for each one.
+   */
+  queueWhenReady?: boolean;
   createdAt: string;
   updatedAt: string;
 };
