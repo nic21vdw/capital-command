@@ -14,6 +14,8 @@ already shipped.
 
 ## Unreleased
 
+## 2026-08-06
+
 - **Pick the platform and the hashtags once for a whole run of clips, not once
   per card.** The Uploading Center now has a "For this run" bar above the
   clips: a platform and a set of hashtag chips that every clip follows, and
