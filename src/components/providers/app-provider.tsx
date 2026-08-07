@@ -252,7 +252,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         setPayload((current) => ({
           data: json.data ?? current?.data ?? payloadFallback.data,
           summary: json.summary ?? current?.summary ?? payloadFallback.summary,
-          apiStatus: current?.apiStatus ?? payloadFallback.apiStatus
+          apiStatus: json.apiStatus ?? current?.apiStatus ?? payloadFallback.apiStatus
         }))
       );
 

@@ -2,6 +2,7 @@ import { mkdtemp, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { PUBLISHING_OFF_MESSAGE } from "@/lib/publisher/enabledMessage";
 
 /**
  * enqueueImagePost — the picture twin of enqueue(). Nothing here posts: it
@@ -145,6 +146,6 @@ describe("enqueueImagePost", () => {
     vi.stubEnv("PUBLISH_ENABLED", "false");
     vi.resetModules();
     const { enqueueImagePost } = await load();
-    await expect(enqueueImagePost({ ...BASE, imagePaths: images })).rejects.toThrow(/Publishing is disabled/);
+    await expect(enqueueImagePost({ ...BASE, imagePaths: images })).rejects.toThrow(PUBLISHING_OFF_MESSAGE);
   });
 });

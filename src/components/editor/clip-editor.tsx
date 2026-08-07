@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
   ArrowLeft,
@@ -50,6 +51,7 @@ import {
 import { writeDraftProject } from "@/components/editor/drafts";
 import { useEditorExports } from "@/components/editor/exports-provider";
 import { placeChannelVideos } from "@/lib/publisher/channelPlacement";
+import { PUBLISHING_OFF_MESSAGE } from "@/lib/publisher/enabledMessage";
 import { cn, safeFilename } from "@/lib/utils";
 import type { CaptionSegment, ClipProject, CropTarget, Overlay, OverlayKind } from "@/types/domain";
 import type { ClipCandidate, ClipJob } from "@/lib/clipping/types";
@@ -1417,8 +1419,10 @@ function ScheduleShortMenu({
         >
           {!publishEnabled ? (
             <p className="px-2 py-3 text-xs text-[var(--muted-foreground)]">
-              Publishing is switched off. Set <code className="rounded bg-white/10 px-1 py-0.5">PUBLISH_ENABLED=true</code> to
-              schedule Shorts directly.
+              {PUBLISHING_OFF_MESSAGE}{" "}
+              <Link href="/settings" className="underline">
+                Open Settings
+              </Link>
             </p>
           ) : (
             <>

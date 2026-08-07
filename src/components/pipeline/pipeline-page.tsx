@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
+import { PUBLISHING_OFF_MESSAGE } from "@/lib/publisher/enabledMessage";
 import { useSearchParams } from "next/navigation";
 import {
   ArrowUp,
@@ -1230,7 +1231,7 @@ export function PipelinePage() {
           <div className="flex flex-wrap gap-2">
             {run?.queueFailures?.length ? (
             <span className="w-full text-xs text-amber-300/90">
-              {run.queueFailures[0].error.includes("switched off") ? (
+              {run.queueFailures[0].error.includes(PUBLISHING_OFF_MESSAGE) ? (
                 <>
                   {run.queueFailures[0].error}{" "}
                   <Link href="/settings" className="underline">
@@ -1242,15 +1243,28 @@ export function PipelinePage() {
               )}
             </span>
           ) : null}
+          {/* The posts go to the Threads queue, not the video booking sheet, so
+              the retry has to be the one that matches what failed. */}
           {run?.queueFailures?.length ? (
-              <Button
-                disabled={working === "plan"}
-                onClick={() => void loadPlan(run.id)}
-                className="px-3 py-1.5 text-xs"
-              >
-                {working === "plan" ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : null}
-                Book these now
-              </Button>
+              run.queueFailures[0].title === "Text posts" ? (
+                <Button
+                  disabled={working === "queue-posts"}
+                  onClick={() => void startAgain(run.id, { action: "queue-posts" }, "queue-posts")}
+                  className="px-3 py-1.5 text-xs"
+                >
+                  {working === "queue-posts" ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : null}
+                  Schedule the Threads posts
+                </Button>
+              ) : (
+                <Button
+                  disabled={working === "plan"}
+                  onClick={() => void loadPlan(run.id)}
+                  className="px-3 py-1.5 text-xs"
+                >
+                  {working === "plan" ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : null}
+                  Book these now
+                </Button>
+              )
             ) : null}
             {run && !plan ? (
               <Button

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { publisherConfig } from "@/lib/publisher/config";
+import { PUBLISHING_OFF_MESSAGE } from "@/lib/publisher/enabled";
 import { enqueue } from "@/lib/publisher/enqueue";
 import { publishQueue } from "@/lib/publisher/queue";
 import { runDue, type RunReport } from "@/lib/publisher/runner";
@@ -28,7 +29,7 @@ const paramsSchema = z.object({
 export async function POST(request: NextRequest) {
   const config = publisherConfig();
   if (!config.enabled) {
-    return NextResponse.json({ error: "Publishing is disabled. Set PUBLISH_ENABLED=true in .env." }, { status: 400 });
+    return NextResponse.json({ error: PUBLISHING_OFF_MESSAGE }, { status: 400 });
   }
   if (!request.body) {
     return NextResponse.json({ error: "No file body received." }, { status: 400 });

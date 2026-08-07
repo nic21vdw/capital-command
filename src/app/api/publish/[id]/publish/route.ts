@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { publisherConfig } from "@/lib/publisher/config";
+import { PUBLISHING_OFF_MESSAGE } from "@/lib/publisher/enabled";
 import { publishQueue } from "@/lib/publisher/queue";
 import { runDue } from "@/lib/publisher/runner";
 
@@ -16,7 +17,7 @@ export const maxDuration = 300;
 export async function POST(_request: Request, { params }: { params: Promise<{ id: string }> }) {
   const config = publisherConfig();
   if (!config.enabled) {
-    return NextResponse.json({ error: "Publishing is disabled. Set PUBLISH_ENABLED=true in .env." }, { status: 400 });
+    return NextResponse.json({ error: PUBLISHING_OFF_MESSAGE }, { status: 400 });
   }
   const { id } = await params;
   const queue = publishQueue(config);
