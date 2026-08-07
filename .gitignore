@@ -12,6 +12,8 @@ dist
 server.pid
 tsconfig.tsbuildinfo
 data/capital-command.json
+data/capital-command.json.unreadable-*
+data/snapshots/
 data/channel-ingest.json
 data/clips/
 data/longform/
