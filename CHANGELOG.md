@@ -22,6 +22,14 @@ already shipped.
   scheduled task to find nothing on port 3000, start a second server, and leave
   two builds writing the same folder. That is what made a release fail with
   "Cannot find module" and left the app down.
+- **A scheduled task can no longer start a second server into a running
+  build.** The publish runner and the threads autopilot start the app when
+  nothing answers on port 3000, which during a release meant serving a
+  half-written build, taking the port from the build that wanted it, and two
+  builds writing the same folder. They now leave a build alone and skip the
+  tick.
+
+## 2026-08-06
 
 - **The command bar fixes a stuck run instead of telling you it is stuck.**
   Say "go back to Day 28 and finish it" and it finds the run by name, sees which
