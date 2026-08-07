@@ -362,7 +362,7 @@ export async function advanceRun(run: PipelineRun): Promise<void> {
     if (!podcastConfigured()) {
       await update(run, {
         podcastNote:
-          "The podcast feed has nowhere public to live yet — give the R2 bucket a public URL and set S3_PUBLIC_BASE_URL. The MP3 is still on disk."
+          "The podcast feed has nowhere public to live yet — set the bucket's public address on the Podcast page, then publish this episode from there. The MP3 is on disk either way."
       });
     } else {
       void step(run, "podcast", async () => {
