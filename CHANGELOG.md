@@ -14,6 +14,8 @@ already shipped.
 
 ## Unreleased
 
+## 2026-08-06
+
 - **The command bar fixes a stuck run instead of telling you it is stuck.**
   Say "go back to Day 28 and finish it" and it finds the run by name, sees which
   stages failed or were abandoned by a restart, and starts them again — the
