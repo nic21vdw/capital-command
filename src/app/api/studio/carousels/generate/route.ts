@@ -84,7 +84,7 @@ export async function POST(request: NextRequest) {
   // Uploaded photos are the subject and sit on top; stills lifted from the
   // recording are the setting and go behind the copy.
   let imageMode: CarouselImageMode = "photo";
-  let imageNote: string | null = null;
+  const imageNote: string | null = null;
   let transcript: TranscriptSegment[] | undefined;
   let recordingId: string | undefined;
 
