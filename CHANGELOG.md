@@ -14,6 +14,17 @@ already shipped.
 
 ## Unreleased
 
+- **A post that failed no longer disappears — you can see why and retry it.**
+  A scheduled post whose every platform permanently failed used to be deleted
+  the next time the calendar loaded: the slot emptied, the clip went back to
+  Draft, and the reason only ever reached a console log. Failures now stay on
+  the board with the reason under them and a Retry button that puts the post
+  back in the queue and sends it. Same on the Threads day view — a failed post
+  keeps its copy and gets a **Retry now** button instead of needing to be typed
+  out again. A post blocked as "manual" because an account wasn't connected can
+  be retried the same way once it is, and old failures are only swept 30 days
+  after you have actually seen them.
+
 ## 2026-08-06
 
 - **An update takes about a minute and a half again, not nine.** Every release
