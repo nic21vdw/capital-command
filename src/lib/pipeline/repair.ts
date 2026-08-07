@@ -12,10 +12,20 @@ import type { PipelineRun } from "@/lib/pipeline/types";
 // run advance itself; nothing here renders anything. What MAY be repaired is
 // decided in `repairable.ts` and rides on every overview.
 
+function withoutFailure(run: PipelineRun, key: string): Record<string, number> {
+  const { [key]: _cleared, ...rest } = run.failures ?? {};
+  return rest;
+}
+
 export type RepairResult = { ok: true; stage: RepairableStage; detail: string } | { ok: false; error: string };
 
 async function repairLongform(run: PipelineRun): Promise<RepairResult> {
-  if (!run.longformProjectId) return { ok: false, error: "This run has no long-form project to re-export." };
+  // Nothing was ever created — the run gave up trying. Clearing the failure
+  // count is the repair; `advanceRun` creates the project on the way out.
+  if (!run.longformProjectId) {
+    await updateRun(run, { failures: withoutFailure(run, "longform") });
+    return { ok: true, stage: "longform", detail: "Making the long-form project again." };
+  }
   const project = await getProject(run.longformProjectId);
   if (!project) return { ok: false, error: "The long-form project is gone — it may have been deleted." };
   if (project.status === "processing") {
@@ -62,7 +72,10 @@ async function repairSegments(run: PipelineRun): Promise<RepairResult> {
 }
 
 async function repairClips(run: PipelineRun): Promise<RepairResult> {
-  if (!run.clipJobId) return { ok: false, error: "This run has no clip job to retry." };
+  if (!run.clipJobId) {
+    await updateRun(run, { failures: withoutFailure(run, "clips") });
+    return { ok: true, stage: "clips", detail: "Making the clip job again." };
+  }
   const job = await retryMissingRenders(run.clipJobId);
   if (!job) return { ok: false, error: "The clip job is gone — it may have been deleted." };
   return { ok: true, stage: "clips", detail: "The clips that never rendered are rendering again." };

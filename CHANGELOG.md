@@ -14,6 +14,19 @@ already shipped.
 
 ## Unreleased
 
+- **A run that broke stops pretending it finished.** The pipeline list showed a
+  green "Finished" for a run whose stages had failed — the sidebar now carries a
+  count of runs needing attention, and the row says which and how many.
+- **A skip that was never going to work stops asking to be retried.** A stream
+  with no speech, no second topic or no audio track is a skip by design; only a
+  stage that actually tried and gave up offers "Try this again".
+- **A run whose source went missing no longer says "Working…" forever.** After
+  three failed attempts it says what went wrong and offers a retry, instead of
+  re-trying the same doomed call every two seconds with no way to act on it.
+- **The pipeline keeps moving with the app closed.** Runs only advanced while a
+  browser tab was polling, so a stream started at 11pm froze when the tab shut;
+  the server now ticks them along itself.
+
 - **Every stuck stage now has a Try this again button, right on the row.**
   A run that broke also gets one line at the top saying what stopped short and
   a single "Try them all again". The Topic segments button used to be a link to

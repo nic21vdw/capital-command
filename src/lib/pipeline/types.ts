@@ -45,6 +45,11 @@ export type PipelineRun = {
   clipJobId?: string;
   /** Whether the topic-segment plan has been attempted from the full transcript. */
   segmentsPlanned?: boolean;
+  /**
+   * Consecutive failures per advance step, so a step that can never succeed
+   * (a source that is gone) stops reading as "working…" forever.
+   */
+  failures?: Record<string, number>;
   /** Why no podcast MP3 was cut — doubles as the "don't try again" marker. */
   audioNote?: string;
   /** Episode added to the Spotify RSS feed from this run's MP3. */
@@ -82,6 +87,14 @@ export type PipelineStage = {
   detail: string;
   /** 0-100 while `running`, when the underlying job reports progress. */
   progress?: number;
+  /**
+   * Whether running this stage again could change anything. A stage that was
+   * skipped BY DESIGN (no speech to write posts from, one continuous topic, a
+   * recording with no audio track) leaves this false: offering a retry there is
+   * an amber row and three model calls that land back on the same skip. A stage
+   * that TRIED AND GAVE UP sets it true.
+   */
+  retryable?: boolean;
 };
 
 /**
