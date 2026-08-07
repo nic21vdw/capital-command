@@ -1,4 +1,5 @@
 import { itemBelongsToAccount } from "@/lib/publisher/accounts";
+import { isConnectionFailure } from "@/lib/publisher/failure";
 import type { PlatformId, PlatformState, PlatformStatus, QueueItem } from "@/lib/publisher/types";
 
 /**
@@ -11,8 +12,14 @@ import type { PlatformId, PlatformState, PlatformStatus, QueueItem } from "@/lib
  * connected, and neither should cost a re-scheduled clip.
  *
  * The transitions live here, pure over the item, so the rules are tested
- * without a queue file: the queue, the API's retry action and every connect
- * callback re-arm through this one function instead of hand-rolling the reset.
+ * without a queue file: the queue, the API's retry action and the YouTube
+ * connect callback re-arm through this one function instead of hand-rolling
+ * the reset.
+ *
+ * A re-arm deliberately keeps `postId`. That id is the proof the post already
+ * exists on the platform, and the runner reads it before it uploads anything —
+ * so a retry on a post that DID reach the platform resumes it (verify/flip
+ * public) instead of uploading a second copy of the same video.
  */
 
 /** Terminal-for-now states a re-arm may put back to pending. */
@@ -33,6 +40,15 @@ export type RearmScope = {
    */
   where?: (state: PlatformState, platform: PlatformId) => boolean;
 };
+
+/**
+ * The scope a connect/reconnect flow re-arms with: this account's posts on this
+ * platform, but only the ones that were waiting on the connection. A video the
+ * platform itself rejected is just as rejected after a reconnect.
+ */
+export function connectRearmScope(platform: PlatformId, accountId?: string): RearmScope {
+  return { platform, accountId, where: (state) => isConnectionFailure(state) };
+}
 
 function isRearmable(status: PlatformStatus, statuses: RearmableStatus[]): status is RearmableStatus {
   return (statuses as PlatformStatus[]).includes(status);

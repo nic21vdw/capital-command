@@ -65,11 +65,25 @@ export type PipelineRun = {
   /** Carousel written from the transcript, once available. */
   carouselId?: string;
   carouselNote?: string;
+  /**
+   * Whether the stage that wrote that note TRIED and failed, as opposed to
+   * having nothing to work from. Recorded when it happens: deciding it later
+   * from the transcript got it wrong for a run whose project had gone.
+   */
+  carouselGaveUp?: boolean;
   /** Text-only posts written from the transcript + clip highlights. */
   posts?: PipelinePost[];
   postsNote?: string;
+  /** As `carouselGaveUp`, for the text posts. */
+  postsGaveUp?: boolean;
   /** When the text posts were put on the Threads queue, so they cannot be queued twice. */
   postsQueuedAt?: string;
+  /**
+   * Keep booking this run's outputs as they finish. Set by "Schedule everything
+   * from this run": a stream's segments render for hours after that click, and
+   * without this he has to come back and press it again for each one.
+   */
+  queueWhenReady?: boolean;
   createdAt: string;
   updatedAt: string;
 };

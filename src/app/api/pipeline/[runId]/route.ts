@@ -3,7 +3,7 @@ import { planRunOutputs, queueRunOutputs } from "@/lib/pipeline/queueOutputs";
 import { queueRunPosts } from "@/lib/pipeline/queuePosts";
 import { renderNextSegment, repairRun } from "@/lib/pipeline/repair";
 import { isRepairableStage } from "@/lib/pipeline/repairable";
-import { deleteRun, getRun, runOverview } from "@/lib/pipeline/runs";
+import { deleteRun, getRun, runOverview, updateRun } from "@/lib/pipeline/runs";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -47,9 +47,14 @@ export async function POST(request: NextRequest, { params }: Params) {
       : undefined;
     try {
       const result = await queueRunOutputs(runId, ids);
+      // Everything he ticked, plus whatever this run has not finished yet: the
+      // segments render for hours after this click and the long-form export
+      // often lands after the shorts.
+      const keepGoing = (body as { keepGoing?: unknown })?.keepGoing !== false;
+      if (keepGoing && result.queued.length > 0) await updateRun(run, { queueWhenReady: true });
       const detail = `${result.queued.length} scheduled${
         result.failed.length > 0 ? ` · ${result.failed.length} could not be` : ""
-      }.`;
+      }${keepGoing ? " · anything still rendering is booked as it lands" : ""}.`;
       return NextResponse.json({ detail, ...result, overview: await runOverview(run) });
     } catch (error) {
       return NextResponse.json(

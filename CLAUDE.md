@@ -228,6 +228,11 @@ not already in the publish queue; `queueRunOutputs` books them.
   — a silent gap here is a day with nothing posted.
 - Nothing here publishes. It writes the same queue the Uploading Center writes,
   at a future slot, for the publish runner.
+- `queueWhenReady` is a STANDING instruction set by the button, drained by the
+  heartbeat (`queueReadyOutputs`) and cleared when the run settles. It exists
+  because the click happens while segments are still rendering. It can only
+  book what the same plan would have booked, deduped by file path, so it can
+  never queue something twice or something he unticked in a later plan.
 
 ## Automatic channel ingest (`src/lib/ingest`)
 

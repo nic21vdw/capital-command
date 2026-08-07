@@ -28,6 +28,47 @@ already shipped.
   that clears the video's attempts so the next scan takes it in — no more
   editing `data/channel-ingest.json` by hand. Each taken-in stream also links
   straight to its pipeline run.
+- **Retry can no longer put the same video on your channel twice.** A post
+  that reached YouTube and only failed afterwards kept its video id, but
+  nothing looked at it before uploading — so one press of Retry (or one
+  reconnect re-arming a batch) could upload a second copy of the same clip.
+  A post that already exists is now resumed instead: it gets checked and
+  flipped public if its slot has passed, and left alone until then. Threads
+  works the same way: a post that already went out is recorded as published
+  rather than sent again.
+- **A reconnect only revives what the reconnect fixes.** Re-arming after
+  connecting an account used to put every failed post on that platform back in
+  the queue, including the ones the platform itself rejected. Now it revives
+  the posts that were waiting on the connection and leaves a rejected video
+  rejected.
+- **A failed post says what went wrong in English.** The card used to show a
+  wall of raw provider JSON. It now shows one sentence and the button that
+  fixes it — Reconnect YouTube when the connection is dead, Retry when it is
+  worth another go, nothing when the clip file has gone missing — with the
+  provider's own text tucked behind "Details".
+- **Scheduling a run keeps scheduling it.** The topic segments render for hours
+  after you press "Schedule everything from this run", and the long-form export
+  often lands after the shorts — those are now booked as they finish, with the
+  app closed, instead of needing another trip back to the run.
+
+- **The sidebar count actually appears now.** The badge that says how many runs
+  need you was gated on the wrong address and never rendered once; the window
+  title also lost its count the moment you changed screen. Both fixed.
+- **A stream whose download died has a button.** "Start this stream again" runs
+  the same link through the pipeline and clears the dead run, instead of
+  copy-paste-delete-start.
+- **"Render all segments" can stop.** A segment that fails to render twice is
+  given up on rather than restarted every couple of seconds — which, left
+  alone, eventually pushed the run's own long-form export off its list.
+- **Retrying a stage clears the red text above it.** The failure notices only
+  ever piled up, so a fixed stage sat under its own old error.
+- **The Scheduler stops promising what it cannot do.** Carousel slides and the
+  visual ad are counted as "to post by hand", not as outputs the Schedule
+  button will book — and a booking where nothing was scheduled no longer
+  reports success.
+- **A stage that gave up is told apart from one that had nothing to do** by what
+  actually happened, not by re-reading the transcript afterwards — which got it
+  wrong for a run whose project had been deleted.
 
 ## 2026-08-06
 

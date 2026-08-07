@@ -232,6 +232,50 @@ describe("runDue", () => {
     expect(finalizeCalls).toHaveLength(1);
   });
 
+  // The retry a failed card offers keeps the post id on purpose. If the runner
+  // ignored it, a post that reached YouTube and failed afterwards would go up
+  // a second time — two copies of the same clip on the channel.
+  it("never re-uploads a retried post that already has a post id", async () => {
+    const { config, queue, log } = setup();
+    const item = testItem({ clipPath, publishAt: "2026-07-10T22:30:00.000Z", platformIds: ["youtube"] });
+    item.platforms.youtube = { status: "failed", attempts: 3, postId: "vid1", error: "went private past its slot" };
+    await queue.add(item);
+    await queue.rearm(item);
+    expect(item.platforms.youtube?.status).toBe("pending");
+
+    const finalizeCalls: string[] = [];
+    const youtube = fakeAdapter(
+      "youtube",
+      async () => ({ status: "scheduled", postId: "vid-second-copy" }),
+      async (_item, state) => {
+        finalizeCalls.push(state.postId!);
+        return { status: "published", postId: state.postId, detail: "set public" };
+      }
+    );
+
+    const report = await runDue(DUE, { config, queue, log, adapters: { youtube } });
+
+    expect(youtube.calls).toHaveLength(0);
+    expect(finalizeCalls).toEqual(["vid1"]);
+    expect(report.outcomes.map((o) => o.outcome)).toEqual(["published"]);
+    expect(item.platforms.youtube?.postId).toBe("vid1");
+  });
+
+  it("records a retried post as published when its platform has no finalize step", async () => {
+    const { config, queue, log } = setup();
+    const item = testItem({ clipPath, publishAt: "2026-07-10T22:30:00.000Z", platformIds: ["tiktok"] });
+    item.platforms.tiktok = { status: "failed", attempts: 3, postId: "tt1", error: "network died after the post landed" };
+    await queue.add(item);
+    await queue.rearm(item);
+
+    const tiktok = fakeAdapter("tiktok", async () => ({ status: "published", postId: "tt-second-copy" }));
+    const report = await runDue(DUE, { config, queue, log, adapters: { tiktok } });
+
+    expect(tiktok.calls).toHaveLength(0);
+    expect(report.outcomes.map((o) => o.outcome)).toEqual(["published"]);
+    expect(item.platforms.tiktok).toMatchObject({ status: "published", postId: "tt1" });
+  });
+
   it("records still-processing uploads and resumes them with the container id", async () => {
     const { config, queue, log } = setup();
     const item = testItem({ clipPath, publishAt: "2026-07-10T22:30:00.000Z", platformIds: ["tiktok"] });

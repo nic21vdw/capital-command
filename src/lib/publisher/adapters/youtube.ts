@@ -128,6 +128,58 @@ export async function updateYoutubeVideoTitle(videoId: string, title: string, ac
   });
 }
 
+/**
+ * Called by the runner once a scheduled post's slot time has passed, and by
+ * publish() when the item already carries a video id.
+ * YouTube normally flips the video public itself via status.publishAt, but
+ * that is not guaranteed (notably, API projects that haven't completed
+ * Google's audit get uploads locked private and publishAt is ignored) — so
+ * verify, and force privacyStatus "public" with videos.update if needed.
+ */
+async function finalizeYoutube(item: QueueItem, state: PlatformState): Promise<PostResult> {
+  if (!state.postId) {
+    throw new PermanentError(`YouTube post for ${item.clipPath} has no video id recorded — cannot verify it went public.`);
+  }
+  const token = await youtubeAccessToken(item.accountId);
+  const current = await fetchJson<{ items?: Array<{ status?: Record<string, unknown> }> }>(
+    `${VIDEOS_URL}?part=status&id=${encodeURIComponent(state.postId)}`,
+    { label: "YouTube video status check", method: "GET", headers: { Authorization: `Bearer ${token}` } }
+  );
+  const status = current.items?.[0]?.status;
+  if (!status) {
+    throw new PermanentError(`YouTube video ${state.postId} was not found — it may have been deleted from the channel.`);
+  }
+  if (status.privacyStatus === "public") {
+    return { status: "published", postId: state.postId, detail: "went public on schedule (YouTube honored status.publishAt)" };
+  }
+  // Reached from publish() on a retry, this can run BEFORE the slot: the video
+  // is sitting private with its publishAt ahead of it, exactly as intended, and
+  // forcing it public here would post it early.
+  if (new Date(item.publishAt).getTime() > Date.now()) {
+    return { status: "scheduled", postId: state.postId, detail: "already uploaded and waiting for its slot on YouTube" };
+  }
+  // Keep the rest of the status part intact; drop publishAt (it has passed
+  // and must not be resent with a non-private video) and set it public.
+  const nextStatus: Record<string, unknown> = { ...status, privacyStatus: "public" };
+  delete nextStatus.publishAt;
+  try {
+    await fetchJson(`${VIDEOS_URL}?part=status`, {
+      label: "YouTube privacy update",
+      method: "PUT",
+      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json; charset=UTF-8" },
+      body: JSON.stringify({ id: state.postId, status: nextStatus })
+    });
+  } catch (error) {
+    if (isYoutubeScopeInsufficient(error)) throw new PermanentError(YOUTUBE_RECONNECT_FOR_SCOPE);
+    throw error;
+  }
+  return {
+    status: "published",
+    postId: state.postId,
+    detail: "YouTube left the video private past its slot time — set it public via videos.update"
+  };
+}
+
 export const youtubeAdapter: PlatformAdapter = {
   id: "youtube",
 
@@ -160,6 +212,10 @@ export const youtubeAdapter: PlatformAdapter = {
   },
 
   async publish(input: PublishInput): Promise<PostResult> {
+    const state = input.item.platforms.youtube;
+    // The video is already on the channel — a retry that re-uploaded here would
+    // leave two copies of the same clip. Finish that one instead.
+    if (state?.postId) return finalizeYoutube(input.item, state);
     const token = await youtubeAccessToken(input.item.accountId);
     const { body, scheduled } = buildBody(input);
     const media = await readFile(input.localPath);
@@ -201,48 +257,5 @@ export const youtubeAdapter: PlatformAdapter = {
     };
   },
 
-  /**
-   * Called by the runner once a scheduled post's slot time has passed.
-   * YouTube normally flips the video public itself via status.publishAt, but
-   * that is not guaranteed (notably, API projects that haven't completed
-   * Google's audit get uploads locked private and publishAt is ignored) — so
-   * verify, and force privacyStatus "public" with videos.update if needed.
-   */
-  async finalize(item: QueueItem, state: PlatformState): Promise<PostResult> {
-    if (!state.postId) {
-      throw new PermanentError(`YouTube post for ${item.clipPath} has no video id recorded — cannot verify it went public.`);
-    }
-    const token = await youtubeAccessToken(item.accountId);
-    const current = await fetchJson<{ items?: Array<{ status?: Record<string, unknown> }> }>(
-      `${VIDEOS_URL}?part=status&id=${encodeURIComponent(state.postId)}`,
-      { label: "YouTube video status check", method: "GET", headers: { Authorization: `Bearer ${token}` } }
-    );
-    const status = current.items?.[0]?.status;
-    if (!status) {
-      throw new PermanentError(`YouTube video ${state.postId} was not found — it may have been deleted from the channel.`);
-    }
-    if (status.privacyStatus === "public") {
-      return { status: "published", postId: state.postId, detail: "went public on schedule (YouTube honored status.publishAt)" };
-    }
-    // Keep the rest of the status part intact; drop publishAt (it has passed
-    // and must not be resent with a non-private video) and set it public.
-    const nextStatus: Record<string, unknown> = { ...status, privacyStatus: "public" };
-    delete nextStatus.publishAt;
-    try {
-      await fetchJson(`${VIDEOS_URL}?part=status`, {
-        label: "YouTube privacy update",
-        method: "PUT",
-        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json; charset=UTF-8" },
-        body: JSON.stringify({ id: state.postId, status: nextStatus })
-      });
-    } catch (error) {
-      if (isYoutubeScopeInsufficient(error)) throw new PermanentError(YOUTUBE_RECONNECT_FOR_SCOPE);
-      throw error;
-    }
-    return {
-      status: "published",
-      postId: state.postId,
-      detail: "YouTube left the video private past its slot time — set it public via videos.update"
-    };
-  }
+  finalize: finalizeYoutube
 };

@@ -1,12 +1,13 @@
 "use client";
 
 import { useRef, useState } from "react";
-import { Clapperboard, ExternalLink, Loader2, Pencil, RotateCcw, Send, Trash2, Upload } from "lucide-react";
+import { Clapperboard, ExternalLink, Loader2, Pencil, Plug, RotateCcw, Send, Trash2, Upload } from "lucide-react";
 import { toast } from "sonner";
 import { StatusChip } from "@/components/uploading-center/status-chip";
 import { CLIP_DRAG_TYPE } from "@/components/uploading-center/clip-card";
-import { remoteUrlFor, studioVideoUrl } from "@/components/uploading-center/use-uploading-center";
+import { primaryAccountIdFor, remoteUrlFor, studioVideoUrl } from "@/components/uploading-center/use-uploading-center";
 import { cn } from "@/lib/utils";
+import { describeFailure } from "@/lib/publisher/failure";
 import type { AgendaDay, AgendaEntry } from "@/lib/publisher/agenda";
 import type { ScheduleSlot } from "@/lib/publisher/slots";
 import type { PlatformId, PlatformState, QueueItem } from "@/lib/publisher/types";
@@ -229,9 +230,12 @@ function QueueEntryCard({
   // "failed" and "manual" are terminal until something un-blocks them, so the
   // send button re-arms the post first; the rest go straight out.
   const blocked = state.status === "failed" || state.status === "manual";
-  const actionable = state.status === "pending" || state.status === "uploaded" || blocked;
+  const advice = blocked ? describeFailure(state, platform) : null;
+  const actionable =
+    state.status === "pending" || state.status === "uploaded" || (blocked && advice?.action !== "none");
   const working = busy === `publish:${item.id}` || busy === `remove:${item.id}`;
   const [retrying, setRetrying] = useState(false);
+  const [showRaw, setShowRaw] = useState(false);
 
   const send = async () => {
     if (!blocked) {
@@ -264,7 +268,7 @@ function QueueEntryCard({
         "flex min-h-16 gap-2 rounded-lg border border-[var(--border-strong)] bg-white/6 p-2",
         today && "border-[var(--accent)]/40"
       )}
-      title={state.note ?? state.error ?? item.title}
+      title={advice?.headline ?? item.title}
     >
       {thumbnailUrl ? (
         // eslint-disable-next-line @next/next/no-img-element -- local clip frame, not a remote asset in next.config images
@@ -337,15 +341,41 @@ function QueueEntryCard({
             </>
           )}
         </div>
-        {blocked ? (
-          <p
-            className={cn(
-              "mt-1 line-clamp-2 text-[10px] leading-snug",
-              state.status === "failed" ? "text-rose-300" : "text-amber-200"
-            )}
-          >
-            {state.error ?? state.note ?? "This post did not go out."}
-          </p>
+        {advice ? (
+          <div className="mt-1 space-y-1">
+            <p
+              className={cn(
+                "text-[11px] leading-snug",
+                state.status === "failed" ? "text-rose-300" : "text-amber-200"
+              )}
+            >
+              {advice.headline}
+            </p>
+            <div className="flex flex-wrap items-center gap-2">
+              {advice.action === "reconnect" && platform === "youtube" ? (
+                <a
+                  href={`/api/auth/google?account=${encodeURIComponent(item.accountId ?? primaryAccountIdFor("youtube"))}`}
+                  className="inline-flex items-center gap-1 rounded-md border border-[var(--accent)]/50 px-1.5 py-0.5 text-[10px] font-medium text-[var(--accent)] transition hover:bg-[var(--accent)]/10"
+                >
+                  <Plug className="h-3 w-3" /> Reconnect YouTube
+                </a>
+              ) : null}
+              {advice.raw ? (
+                <button
+                  type="button"
+                  onClick={() => setShowRaw((shown) => !shown)}
+                  className="text-[10px] font-medium text-[var(--muted-foreground)] underline-offset-2 transition hover:text-white hover:underline"
+                >
+                  {showRaw ? "Hide details" : "Details"}
+                </button>
+              ) : null}
+            </div>
+            {showRaw && advice.raw ? (
+              <pre className="max-h-24 overflow-auto whitespace-pre-wrap break-words rounded-md bg-black/30 p-1.5 text-[10px] leading-snug text-[var(--muted-foreground)]">
+                {advice.raw}
+              </pre>
+            ) : null}
+          </div>
         ) : null}
       </div>
     </div>

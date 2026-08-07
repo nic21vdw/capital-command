@@ -76,6 +76,17 @@ describe("runDue", () => {
     expect(state.items[0]).toMatchObject({ status: "published", postId: "post-1" });
   });
 
+  it("never posts a pending item that already carries a Threads post id", async () => {
+    const { runDeps, state, posted } = deps([item({ postId: "post-1", error: "could not save the queue" })]);
+
+    const report = await runDue(new Date("2026-07-22T07:16:00.000Z"), { config: config(), deps: runDeps, log: silent });
+
+    expect(posted).toEqual([]);
+    expect(report.published).toBe(1);
+    expect(state.items[0]).toMatchObject({ status: "published", postId: "post-1" });
+    expect(state.items[0].error).toBeUndefined();
+  });
+
   it("posts each account's own version of a slot", async () => {
     const { runDeps, posted } = deps([
       item({ id: "a", accountId: "primary", text: "punchy" }),
