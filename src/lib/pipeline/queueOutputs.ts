@@ -134,9 +134,9 @@ export async function planRunOutputs(runId: string): Promise<QueuePlan | null> {
     enabled: config.enabled,
     problem: config.enabled
       ? config.platforms.length === 0
-        ? "No platforms are switched on — set PUBLISH_PLATFORMS in .env."
+        ? "No platforms are switched on — choose them in Settings before booking anything."
         : undefined
-      : "Publishing is switched off — set PUBLISH_ENABLED=true in .env."
+      : "Publishing is switched off — turn it on in Settings, then book these."
   };
 }
 
@@ -419,15 +419,8 @@ export async function queueReadyOutputs(): Promise<number> {
     booked += result?.queued.length ?? 0;
     // A booking that FAILED is different: nobody was watching, and dropping it
     // left the row promising an output the app had quietly given up on.
-    if (result?.failed.length) {
-      const current = await getRun(run.id);
-      if (current) {
-        const seen = new Set((current.queueFailures ?? []).map((item) => `${item.title}:${item.error}`));
-        const added = result.failed.filter((item) => !seen.has(`${item.title}:${item.error}`));
-        if (added.length > 0) {
-          await updateRun(current, { queueFailures: [...(current.queueFailures ?? []), ...added].slice(-10) });
-        }
-      }
+    for (const failure of result?.failed ?? []) {
+      await recordQueueFailure(run.id, failure.title, failure.error);
     }
   }
   return booked;
@@ -438,4 +431,13 @@ export async function stopQueueingWhenSettled(runId: string, settled: boolean): 
   if (!settled) return;
   const run = await getRun(runId);
   if (run?.queueWhenReady) await updateRun(run, { queueWhenReady: undefined });
+}
+
+/** One line about something that could not be booked, deduped so a tick cannot spam it. */
+export async function recordQueueFailure(runId: string, title: string, error: string): Promise<void> {
+  const run = await getRun(runId);
+  if (!run) return;
+  const seen = new Set((run.queueFailures ?? []).map((item) => `${item.title}:${item.error}`));
+  if (seen.has(`${title}:${error}`)) return;
+  await updateRun(run, { queueFailures: [...(run.queueFailures ?? []), { title, error }].slice(-10) });
 }

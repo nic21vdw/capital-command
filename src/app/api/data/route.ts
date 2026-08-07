@@ -7,6 +7,7 @@ import { todayLocal } from "@/lib/execution/dates";
 import { getMarketDataProvider } from "@/lib/marketData";
 import { seedData } from "@/lib/mockData/seed";
 import { appDataSchema, brandAssetsSchema, clipProjectSchema, contentItemSchema, creatorProfileSchema, defaultCreatorProfile, defaultFbStrategy, executionCompletionSchema, executionGoalSchema, expenseSchema, fbPostSchema, fbStrategySchema, goalSchema, holdingSchema, importHoldingSchema, productLaunchSchema, researchNoteSchema, savedThumbnailSchema, settingsSchema, videoProjectSchema, watchlistSchema, xActivitySchema, xStrategySchema } from "@/lib/storage/schemas";
+import { setPublishingEnabled } from "@/lib/publisher/enabled";
 import { AppDataUnreadableError, latestGoodSnapshot, readAppData, resetAppData, restoreLastGoodSnapshot, writeAppData } from "@/lib/storage/store";
 import type { AppData, ExecutionGoal, Holding } from "@/types/domain";
 
@@ -255,7 +256,14 @@ export async function POST(request: NextRequest) {
       break;
     }
     case "updateSettings": {
-      data = { ...data, settings: settingsSchema.parse(payload) };
+      const settings = settingsSchema.parse(payload);
+      // Publishing lives in `.env` because every process reads it there, but it
+      // is a plain on/off — so it is set from Settings rather than printed as
+      // "edit this file and restart" on whichever screen ran into it.
+      if (typeof (payload as { publishingEnabled?: unknown })?.publishingEnabled === "boolean") {
+        await setPublishingEnabled(Boolean((payload as { publishingEnabled: boolean }).publishingEnabled));
+      }
+      data = { ...data, settings };
       break;
     }
     case "upsertContentItem": {

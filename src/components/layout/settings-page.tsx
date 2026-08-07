@@ -51,6 +51,34 @@ export function SettingsPage() {
           <label className="mt-4 flex items-start gap-2.5 text-sm text-white/90">
             <input
               type="checkbox"
+              checked={apiStatus.publishingEnabled === true}
+              onChange={(event) =>
+                void mutate(
+                  "updateSettings",
+                  { ...data.settings, publishingEnabled: event.target.checked },
+                  {
+                    successMessage: event.target.checked
+                      ? "Publishing is on."
+                      : "Publishing is off — nothing will be posted."
+                  }
+                )
+              }
+              className="mt-0.5 h-4 w-4 shrink-0 accent-[var(--accent)]"
+            />
+            <span>
+              Let the app post at all
+              <span className="mt-1 block text-xs text-[var(--muted-foreground)]">
+                Off: everything can still be made and queued, but the publish runner posts nothing. This used to mean
+                editing <code>.env</code> and restarting.
+              </span>
+            </span>
+          </label>
+          {apiStatus.bookingBlockers?.length ? (
+            <p className="mt-3 text-xs text-amber-300/90">{apiStatus.bookingBlockers[0]}</p>
+          ) : null}
+          <label className="mt-4 flex items-start gap-2.5 text-sm text-white/90">
+            <input
+              type="checkbox"
               checked={data.settings.autoScheduleOvernight === true}
               onChange={(event) =>
                 void mutate(

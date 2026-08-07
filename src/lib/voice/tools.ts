@@ -124,7 +124,7 @@ export const VOICE_TOOLS: VoiceToolDefinition[] = [
   },
   {
     name: "start_channel_ingest",
-    description: "Scan the YouTube channel and put every new stream through the whole Stream Pipeline unattended, stopping at ready-to-schedule. Never publishes. Returns immediately; poll ingest_status for progress.",
+    description: "Scan the YouTube channel and put every new stream through the whole Stream Pipeline unattended, stopping at ready-to-schedule. It only schedules anything if Nic has turned on overnight scheduling in Settings; you never publish anything yourself. Returns immediately; poll ingest_status for progress.",
     parameters: {
       type: "object",
       properties: {
