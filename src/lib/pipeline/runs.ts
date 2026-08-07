@@ -5,10 +5,11 @@ import { runFfmpeg } from "@/lib/clipping/ffmpeg";
 import { createJobFromUpload, getJob } from "@/lib/clipping/jobs";
 import { readSourceMeta, saveSourceFromUrl } from "@/lib/clipping/sources";
 import type { ClipJob } from "@/lib/clipping/types";
-import { startLongformExport } from "@/lib/longform/render";
+import { isExportRendering, startLongformExport } from "@/lib/longform/render";
 import { createProject, getProject, planProjectTopics, projectOutputDir, updateProject } from "@/lib/longform/store";
 import type { LongformProject } from "@/lib/longform/types";
 import { generatePipelinePosts } from "@/lib/pipeline/posts";
+import { repairableStages } from "@/lib/pipeline/repairable";
 import { podcastConfigured, publishEpisode } from "@/lib/podcast/publish";
 import {
   MIN_SPEECH_WORDS,
@@ -755,14 +756,23 @@ export async function runOverview(run: PipelineRun, context?: OverviewContext): 
     );
   }
 
+  // An export record still marked `processing` in a process that is not
+  // rendering it was abandoned by a restart: it will never finish and never
+  // fail, so the stage says "Rendering…" forever unless someone is told.
+  const longformStalled = Boolean(
+    exportRecord && exportRecord.status === "processing" && !isExportRendering(exportRecord.id)
+  );
+
   return {
     run,
     stages,
+    retryable: run.status === "error" ? [] : repairableStages(stages, { longformStalled }),
     visualMoment,
     schedulable: {
       clipsReady,
       longformReady,
       segments: topics.length,
+      segmentsRendered,
       audioReady,
       podcastPublished: Boolean(run.podcastEpisodeId),
       carouselSlides: slideCount,

@@ -14,6 +14,13 @@ already shipped.
 
 ## Unreleased
 
+- **Every stuck stage now has a Try this again button, right on the row.**
+  A run that broke also gets one line at the top saying what stopped short and
+  a single "Try them all again". The Topic segments button used to be a link to
+  the editor that rendered nothing — it now renders the next segment and says
+  how many are done. Same repairs the command bar performs, so the button and
+  the answer can never disagree.
+
 - **The command bar fixes a stuck run instead of telling you it is stuck.**
   Say "go back to Day 28 and finish it" and it finds the run by name, sees which
   stages failed or were abandoned by a restart, and starts them again — the
