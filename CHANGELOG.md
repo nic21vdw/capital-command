@@ -14,6 +14,11 @@ already shipped.
 
 ## Unreleased
 
+- **Every step of a run can now give up and say so.** Only the first two were
+  guarded: a carousel, a topic split, a set of posts or an export that threw
+  was retried every couple of seconds forever while the row said "working".
+  After three tries it says what went wrong and offers a retry.
+
 - **What you untick stays unticked.** Scheduling a run kept booking as outputs
   landed — including the ones you had just held back, about a minute later. It
   now remembers exactly what you chose, never re-books something you deleted

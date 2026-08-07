@@ -59,7 +59,7 @@ async function repairLongform(run: PipelineRun): Promise<RepairResult> {
   const record = await startLongformExport(fresh);
   // The run pointed at the dead record; the audio step keys off the same id, so
   // clearing the note is what lets the MP3 be cut from the new file.
-  await updateRun(run, { longformExportId: record.id, audioNote: undefined });
+  await updateRun(run, { longformExportId: record.id, audioNote: undefined, failures: withoutFailure(run, "export") });
   return { ok: true, stage: "longform", detail: "The long-form export is rendering again." };
 }
 
@@ -68,7 +68,7 @@ async function repairSegments(run: PipelineRun): Promise<RepairResult> {
   const project = await getProject(run.longformProjectId);
   if (!project) return { ok: false, error: "The long-form project is gone — it may have been deleted." };
   await updateProject(project.id, { topics: undefined, topicsNote: undefined });
-  await updateRun(run, { segmentsPlanned: undefined });
+  await updateRun(run, { segmentsPlanned: undefined, failures: withoutFailure(run, "segments") });
   return { ok: true, stage: "segments", detail: "The stream will be split into topic segments again on the next poll." };
 }
 
@@ -105,15 +105,25 @@ export async function repairRun(runId: string, stage: RepairableStage): Promise<
       result = await repairClips(run);
       break;
     case "audio":
-      await updateRun(run, { audioNote: undefined });
+      await updateRun(run, { audioNote: undefined, failures: withoutFailure(run, "audio") });
       result = { ok: true, stage, detail: "The podcast MP3 will be cut from the edit again." };
       break;
     case "images":
-      await updateRun(run, { carouselId: undefined, carouselNote: undefined });
+      await updateRun(run, {
+        carouselId: undefined,
+        carouselNote: undefined,
+        carouselGaveUp: undefined,
+        failures: withoutFailure(run, "carousel")
+      });
       result = { ok: true, stage, detail: "The carousel will be written from the transcript again." };
       break;
     case "posts":
-      await updateRun(run, { posts: undefined, postsNote: undefined });
+      await updateRun(run, {
+        posts: undefined,
+        postsNote: undefined,
+        postsGaveUp: undefined,
+        failures: withoutFailure(run, "posts")
+      });
       result = { ok: true, stage, detail: "The text posts will be written again." };
       break;
   }
