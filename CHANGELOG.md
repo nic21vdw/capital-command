@@ -14,6 +14,16 @@ already shipped.
 
 ## Unreleased
 
+- **The app notices work the moment it lands, instead of when a backup runs.**
+  This machine keeps two copies of the code — GitHub, where finished work is
+  merged, and a local backup repository that syncs down from it on a schedule —
+  and the app was only ever looking at the backup. Anything merged in the last
+  day was invisible to "Check for updates", while the release's own changelog
+  commit went the other way and reached only the backup, so the two drifted
+  apart and had to be put back together by hand. Everything that reads or
+  writes the code now uses both, and takes whichever one is genuinely further
+  ahead.
+
 - **"Render all segments" is one click, not one per segment.** The run keeps
   rendering the next topic segment as each one finishes — with the app closed —
   instead of waiting for you to come back and press it again.

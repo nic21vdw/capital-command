@@ -234,14 +234,11 @@ function Sync-ReleaseBranch {
   # every time the banner's button ran it.
   if ($Branch -eq "main") { return }
 
-  if ((Invoke-Logged { git push origin "main:$Branch" --quiet }) -ne 0) {
-    Write-Log "Could not fast-forward origin/$Branch to this release."
-    return
-  }
+  Push-Everywhere "main:$Branch" $Branch
   # The local branch too, unless a sandbox has it checked out - git refuses
   # there, and rightly: that folder may have uncommitted work sitting on it.
   if ((Invoke-Logged { git branch -f $Branch main }) -ne 0) {
-    Write-Log "origin/$Branch is up to date; the sandbox copy will catch up on its next pull."
+    Write-Log "$Branch is checked out somewhere; that sandbox will catch up on its next pull."
   }
 }
 
@@ -256,6 +253,58 @@ function Resolve-Ref($ref) {
   $ErrorActionPreference = $previous
   if ($ok) { return $ref }
   return $null
+}
+
+# Every remote this checkout has. There is more than one and they are not the
+# same thing: `github` is where pull requests merge, and `origin` is the local
+# bare backup hub under GitOrigin that follows GitHub on a schedule - except
+# for the changelog commit below, which reaches it first. Releasing against one
+# of them means a merged pull request stays invisible until the nightly backup,
+# or a release made offline looks like it never happened.
+function Get-Remotes {
+  $previous = $ErrorActionPreference
+  $ErrorActionPreference = "Continue"
+  $remotes = @(git remote | ForEach-Object { $_.Trim() } | Where-Object { $_ })
+  $ErrorActionPreference = $previous
+  return $remotes
+}
+
+# The copy of $ref that contains the most, by ancestry - a clock is not
+# evidence of what contains what. Remotes are offered first so one that merely
+# EQUALS the local branch wins the tie.
+function Resolve-Best($branch) {
+  $candidates = @()
+  foreach ($remote in Get-Remotes) { $candidates += "$remote/$branch" }
+  $candidates += $branch
+
+  $best = $null
+  foreach ($candidate in $candidates) {
+    if (-not (Resolve-Ref $candidate)) { continue }
+    if (-not $best) { $best = $candidate; continue }
+
+    $previous = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
+    $ahead = (git rev-list --count "$best..$candidate" 2>$null)
+    $ok = $LASTEXITCODE -eq 0
+    $ErrorActionPreference = $previous
+    # A comparison that cannot be made leaves the best where it is rather than
+    # taking the newcomer on faith.
+    if ($ok -and $ahead -and [int]$ahead -gt 0) { $best = $candidate }
+  }
+  return $best
+}
+
+# Uploads to every remote, and is never fatal. A release that reached only the
+# backup is still released; one that reached neither still runs. What must not
+# happen is reaching one and calling it done - that is the drift this fixes.
+function Push-Everywhere($refspec, $what) {
+  $remotes = Get-Remotes
+  if (-not $remotes) { return }
+  foreach ($remote in $remotes) {
+    if ((Invoke-Logged { git push $remote $refspec --quiet }) -ne 0) {
+      Write-Log "Could not upload $what to $remote - carrying on."
+    }
+  }
 }
 
 $started = Get-Date
@@ -276,27 +325,21 @@ Write-Log "On: $current, releasing: $Branch"
 # so everything worth releasing is already here; GitHub only holds the backup
 # copy. Under "Stop" an unreachable remote used to be a terminating error that
 # ended the release before it printed a word.
-if ((Invoke-Logged { git fetch origin --quiet }) -ne 0) {
-  Write-Log "Could not reach GitHub - releasing what is already in this repository."
+foreach ($remote in Get-Remotes) {
+  if ((Invoke-Logged { git fetch $remote --quiet }) -ne 0) {
+    Write-Log "Could not reach $remote - releasing what is already in this repository."
+  }
 }
 
 # What is being released: the remote branch when it is there and ahead, the
 # local one otherwise. Either way the commits are already in this .git.
-$remoteRef = Resolve-Ref "origin/$Branch"
-$localRef = Resolve-Ref $Branch
-$source = $remoteRef
-if (-not $source) { $source = $localRef }
-if ($remoteRef -and $localRef -and (git rev-list --count "$remoteRef..$localRef") -ne "0") {
-  # The local branch has commits the remote does not - a release made while
-  # GitHub was unreachable, or a sandbox merge that was never uploaded. Build
-  # what is actually here.
-  $source = $localRef
-}
+$source = Resolve-Best $Branch
 if (-not $source) { Fail "There is no $Branch branch here to release." }
+Write-Log "Releasing from: $source"
 
 # Commits that exist ONLY here - not on what is being released, not on main.
 # Anything already on the release branch is not stranded, it is just early.
-$notOn = @($source, (Resolve-Ref "origin/main")) | Where-Object { $_ }
+$notOn = @($source, (Resolve-Best "main")) | Where-Object { $_ } | Select-Object -Unique
 $stranded = git rev-list HEAD --not @notOn
 
 if ($stranded -and -not $Force) {
@@ -377,11 +420,10 @@ still running the version it was. Resolve it in the sandbox, then run this again
 Step "Dating the changelog"
 Publish-Changelog
 
-# Keep GitHub in step. Best effort: a release that only exists locally still
-# runs, and failing here would leave the app half-updated for no good reason.
-if ((Invoke-Logged { git push origin main --quiet }) -ne 0) {
-  Write-Log "Could not upload main to GitHub - the release is applied locally anyway."
-}
+# Keep EVERY remote in step - GitHub, where the next pull request will be cut
+# from, and the backup hub. Best effort: a release that only exists locally
+# still runs, and failing here would leave the app half-updated for no reason.
+Push-Everywhere "main" "main"
 
 # Dating the changelog is a commit main has and the release branch does not,
 # and the next release would meet it as a conflict in the one file every change

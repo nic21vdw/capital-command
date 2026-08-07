@@ -81,17 +81,15 @@ if defined ISREPO (
 
 cd /d "!APP_DIR!"
 
-REM --- 1/4: Fetch the latest code from GitHub ------------------
-echo [1/4] Fetching the latest changes from GitHub...
-git fetch origin %BRANCH%
-if errorlevel 1 (
-  echo [ERROR] Could not reach GitHub. Check your internet connection
-  echo and that you are signed in to git, then try again.
-  echo.
-  pause
-  exit /b 1
+REM --- 1/4: Fetch the latest code from every remote ------------
+REM Both of them: `github` is where pull requests merge, `origin` is the local
+REM backup hub that follows it. Neither is fatal - the commits worth starting
+REM are already in this repository, and refusing to start the app because a
+REM remote was unreachable helps nobody.
+echo [1/4] Fetching the latest changes...
+for /f "delims=" %%R in ('git remote') do (
+  git fetch %%R %BRANCH% 2>nul
 )
-
 REM --- 2/4: Update local files when it is safe ----------------
 REM  Keep local edits intact. If files are modified, skip the update
 REM  instead of wiping local work.
@@ -104,9 +102,11 @@ if errorlevel 1 (
   if errorlevel 1 (
     echo [WARN] Local edits found. Skipping automatic update so your work is preserved.
   ) else (
-    git pull --ff-only origin %BRANCH%
-    if errorlevel 1 (
-      echo [WARN] Could not fast-forward from GitHub. Keeping your current files.
+    REM Fast-forward from whichever remote is furthest ahead. Order does not
+    REM matter: a remote that is behind is "Already up to date" and one that is
+    REM ahead fast-forwards, so looping lands on the most advanced either way.
+    for /f "delims=" %%R in ('git remote') do (
+      git merge --ff-only %%R/%BRANCH% >nul 2>nul
     )
   )
 )
