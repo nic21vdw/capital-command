@@ -32,6 +32,10 @@ already shipped.
   can overrule — so you can say "run that one anyway" and it goes straight
   through the pipeline. Its report also survives the check finishing, which it
   didn't before.
+- **The window title carries what needs you.** When a run breaks, the taskbar
+  window reads "(1) Capital Command" — so a stage that failed while the app sat
+  behind something else is visible without opening it.
+
 - **The text posts a stream produced can be scheduled from the run.** They used
   to leave the app only by being copied out one at a time. The Threads ones now
   go on the same queue the autopilot drains, spaced out and from one account
