@@ -128,6 +128,19 @@ describe("enqueueImagePost", () => {
     expect(item.platforms.facebook?.status).toBe("pending");
   });
 
+  it("tells you the slides are rendered rather than telling you to post a clip", async () => {
+    vi.stubEnv("IG_USER_ID", "");
+    vi.stubEnv("IG_ACCESS_TOKEN", "");
+    vi.resetModules();
+    const { enqueueImagePost } = await load();
+    const note = (await enqueueImagePost({ ...BASE, imagePaths: images })).platforms.instagram?.note ?? "";
+    expect(note).toContain("all 3 slides are rendered");
+    expect(note).not.toContain("clip");
+
+    const single = await enqueueImagePost({ ...BASE, imagePaths: [images[0]] });
+    expect(single.platforms.instagram?.note).toContain("the picture is rendered");
+  });
+
   it("does not book anything while publishing is switched off", async () => {
     vi.stubEnv("PUBLISH_ENABLED", "false");
     vi.resetModules();

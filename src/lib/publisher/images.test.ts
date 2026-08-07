@@ -1,5 +1,14 @@
 import { describe, expect, it } from "vitest";
-import { imagePathsOf, isCarouselPost, isImagePost, splitImagePlatforms } from "@/lib/publisher/images";
+import {
+  IMAGE_POST_MAX_WIDTH,
+  IMAGE_POST_MIN_WIDTH,
+  imagePathsOf,
+  imagePostUrl,
+  imagePostWidth,
+  isCarouselPost,
+  isImagePost,
+  splitImagePlatforms
+} from "@/lib/publisher/images";
 import { testItem } from "@/lib/publisher/test-helpers";
 
 describe("image posts vs the video posts already in the queue", () => {
@@ -32,5 +41,20 @@ describe("which platforms can carry a picture", () => {
     expect(supported).toEqual(["instagram", "facebook"]);
     expect(refused.map((entry) => entry.platform)).toEqual(["youtube", "tiktok"]);
     for (const entry of refused) expect(entry.reason.length).toBeGreaterThan(20);
+  });
+});
+
+describe("the size a picture post may be", () => {
+  it("pulls a frame that is too wide back to the widest allowed", () => {
+    expect(imagePostWidth(1920)).toBe(IMAGE_POST_MAX_WIDTH);
+    expect(imagePostWidth(64)).toBe(IMAGE_POST_MIN_WIDTH);
+    expect(imagePostWidth(1080)).toBe(1080);
+  });
+});
+
+describe("reaching a queued picture from the browser", () => {
+  it("addresses it by queue position, never by the path it sits at", () => {
+    expect(imagePostUrl("a1b2c3", 0)).toBe("/api/publish/a1b2c3/images/0");
+    expect(imagePostUrl("a1b2c3", 7, { download: true })).toBe("/api/publish/a1b2c3/images/7?download=1");
   });
 });
