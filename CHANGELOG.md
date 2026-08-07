@@ -14,6 +14,8 @@ already shipped.
 
 ## Unreleased
 
+## 2026-08-06
+
 - **An update takes about a minute and a half again, not nine.** Every release
   was a cold build: the step that moves the build output out of the OneDrive
   folder was also deleting Next's incremental compile cache, so nothing was
