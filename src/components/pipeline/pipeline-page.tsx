@@ -17,6 +17,7 @@ import {
   Plus,
   Podcast,
   Radio,
+  RotateCcw,
   Scissors,
   Sparkles,
   Trash2,
@@ -28,6 +29,7 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { VisualAdComposer } from "@/components/pipeline/visual-ad-composer";
+import { runListStatus, type RunTone } from "@/lib/pipeline/status";
 import { cn } from "@/lib/utils";
 import type {
   PipelinePost,
@@ -54,6 +56,33 @@ const STATUS_LABELS: Record<PipelineStageStatus, string> = {
   skipped: "Skipped"
 };
 
+// What each stage is called wherever it is named — the row heading and the
+// "these stopped short" summary must say the same word for the same thing.
+const STAGE_TITLES: Record<PipelineStageKey, string> = {
+  source: "Stream source",
+  longform: "Long-form edit",
+  segments: "Topic segments",
+  clips: "Short-form clips",
+  audio: "Podcast MP3",
+  podcast: "Spotify episode",
+  images: "Carousel images",
+  visuals: "Realistic visual ads",
+  posts: "Text-only posts",
+  schedule: "Scheduler"
+};
+
+const RUN_TONE_DOT: Record<RunTone, string> = {
+  attention: "bg-amber-400",
+  working: "bg-sky-400 animate-pulse",
+  done: "bg-emerald-400"
+};
+
+const RUN_TONE_TEXT: Record<RunTone, string> = {
+  attention: "text-amber-300/90",
+  working: "text-[var(--muted-foreground)]",
+  done: "text-[var(--muted-foreground)]"
+};
+
 const POST_PLATFORM_LABELS: Record<PipelinePost["platform"], string> = {
   x: "X",
   threads: "Threads",
@@ -74,12 +103,6 @@ const LAUNCHING_STAGES: Record<PipelineStageKey, PipelineStage> = {
   posts: { status: "waiting", detail: "Waiting for the transcript." },
   schedule: { status: "waiting", detail: "Waiting for the first output." }
 };
-
-function runStatusLabel(entry: PipelineRunOverview) {
-  if (entry.run.status === "error") return "Needs attention";
-  if (entry.settled) return "Finished";
-  return "Running";
-}
 
 function formatStartedAt(iso: string) {
   const started = new Date(iso);
@@ -214,6 +237,8 @@ function StageRow({
   index,
   last = false,
   flowing = false,
+  onRetry,
+  retrying = false,
   children
 }: {
   icon: LucideIcon;
@@ -222,6 +247,9 @@ function StageRow({
   index: number;
   last?: boolean;
   flowing?: boolean;
+  /** Present only when this stage can be run again — see `retryable`. */
+  onRetry?: () => void;
+  retrying?: boolean;
   children?: React.ReactNode;
 }) {
   const active = stage.status === "running";
@@ -266,6 +294,25 @@ function StageRow({
           {stage.status === "running" && typeof stage.progress === "number" && (
             <Progress value={stage.progress} className="mt-3" />
           )}
+          {/* A stage that failed or gave up is one click from running again —
+              the same repair the command bar performs, on the row that broke. */}
+          {onRetry && (
+            <div className="mt-3">
+              <Button
+                variant="secondary"
+                onClick={onRetry}
+                disabled={retrying}
+                className="border-amber-400/30 px-3 py-1.5 text-xs text-amber-200 hover:border-amber-400/50"
+              >
+                {retrying ? (
+                  <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <RotateCcw className="mr-1.5 h-3.5 w-3.5" />
+                )}
+                Try this again
+              </Button>
+            </div>
+          )}
           {children}
         </Card>
       </div>
@@ -288,6 +335,8 @@ export function PipelinePage() {
   const [submitting, setSubmitting] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [dragActive, setDragActive] = useState(false);
+  // Which stage's button is mid-request, so only that row spins.
+  const [working, setWorking] = useState<string | null>(null);
   const dragDepth = useRef(0);
   const uploadInputRef = useRef<HTMLInputElement>(null);
   const [postsOpen, setPostsOpen] = useState(false);
@@ -438,6 +487,38 @@ export function PipelinePage() {
     [activeRunId, overviews]
   );
 
+  /**
+   * The one place a stuck stage gets started again — the same repairs the
+   * command bar calls, so the button and the sentence agree. The reply carries
+   * the fresh overview, so the row updates now instead of on the next poll.
+   */
+  const startAgain = useCallback(
+    async (runId: string, body: { stage: string } | { action: "segment" | "retry-all" }, pendingKey: string) => {
+      setWorking(pendingKey);
+      try {
+        const response = await fetch(`/api/pipeline/${runId}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body)
+        });
+        const data = (await response.json()) as { detail?: string; error?: string; overview?: PipelineRunOverview };
+        if (!response.ok || !data.overview) {
+          toast.error(data.error ?? "That could not be started again.");
+          return;
+        }
+        setOverviews((current) =>
+          current.map((entry) => (entry.run.id === runId ? data.overview! : entry))
+        );
+        toast.success(data.detail ?? "Started again.");
+      } catch {
+        toast.error("Request failed. Is the server still running?");
+      } finally {
+        setWorking(null);
+      }
+    },
+    []
+  );
+
   // Opening a run scrolls back to the top of the page, not to the flow: the
   // picker stays in view, so it is obvious WHICH run is now open.
   const openRun = useCallback((runId: string) => {
@@ -463,6 +544,7 @@ export function PipelinePage() {
   const pendingLabel = (key: PipelineStageKey, noun: string) =>
     stages?.[key].status === "skipped" || stages?.[key].status === "error" ? `no ${noun}` : `${noun} pending`;
   const longformHref = run?.longformProjectId ? `/longform?open=${run.longformProjectId}` : "/longform";
+  const segmentsPending = schedulable ? schedulable.segments - schedulable.segmentsRendered : 0;
   const audioHref =
     run?.longformProjectId && run.longformExportId
       ? `/api/longform/projects/${run.longformProjectId}/export/${run.longformExportId}/audio?download=1`
@@ -516,6 +598,7 @@ export function PipelinePage() {
         >
           {listed.map((entry) => {
             const isActive = showFlow && entry.run.id === (run?.id ?? "");
+            const status = runListStatus(entry);
             return (
               <div
                 key={entry.run.id}
@@ -532,16 +615,7 @@ export function PipelinePage() {
                   className="flex min-w-0 flex-1 items-start gap-2 text-left"
                   title={`Open ${entry.run.name}`}
                 >
-                  <span
-                    className={cn(
-                      "mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full",
-                      entry.run.status === "error"
-                        ? "bg-red-400"
-                        : entry.settled
-                          ? "bg-emerald-400"
-                          : "bg-sky-400 animate-pulse"
-                    )}
-                  />
+                  <span className={cn("mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full", RUN_TONE_DOT[status.tone])} />
                   <span className="min-w-0 flex-1">
                     <span
                       className={cn(
@@ -551,8 +625,8 @@ export function PipelinePage() {
                     >
                       {entry.run.name}
                     </span>
-                    <span className="mt-0.5 block text-[11px] text-[var(--muted-foreground)]">
-                      {runStatusLabel(entry)} · {formatStartedAt(entry.run.createdAt)}
+                    <span className={cn("mt-0.5 block text-[11px]", RUN_TONE_TEXT[status.tone])}>
+                      {status.label} · {formatStartedAt(entry.run.createdAt)}
                     </span>
                   </span>
                 </button>
@@ -621,11 +695,11 @@ export function PipelinePage() {
     title: string;
     children?: React.ReactNode;
   }> = [
-    { key: "source", icon: UploadCloud, title: "Stream source" },
+    { key: "source", icon: UploadCloud, title: STAGE_TITLES.source },
     {
       key: "longform",
       icon: Clapperboard,
-      title: "Long-form edit",
+      title: STAGE_TITLES.longform,
       children: (
         <div className="mt-3">
           <Link href={longformHref}>
@@ -639,21 +713,43 @@ export function PipelinePage() {
     {
       key: "segments",
       icon: Layers,
-      title: "Topic segments",
+      title: STAGE_TITLES.segments,
+      // Segments are planned automatically and rendered on demand, one at a
+      // time. The button used to be a link to the editor — it now renders.
       children: (
-        <div className="mt-3">
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          {run && segmentsPending > 0 ? (
+            <Button
+              variant="secondary"
+              disabled={working === "segment"}
+              onClick={() => void startAgain(run.id, { action: "segment" }, "segment")}
+              className="px-3 py-1.5 text-xs"
+            >
+              {working === "segment" ? (
+                <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <Layers className="mr-1.5 h-3.5 w-3.5" />
+              )}
+              Render next segment
+            </Button>
+          ) : null}
           <Link href={longformHref}>
             <Button variant="secondary" className="px-3 py-1.5 text-xs">
-              Render segments
+              Open in Long-Form Editor
             </Button>
           </Link>
+          {schedulable && schedulable.segments > 0 ? (
+            <span className="text-xs text-[var(--muted-foreground)]">
+              {schedulable.segmentsRendered} of {schedulable.segments} rendered
+            </span>
+          ) : null}
         </div>
       )
     },
     {
       key: "clips",
       icon: Scissors,
-      title: "Short-form clips",
+      title: STAGE_TITLES.clips,
       children: (
         <div className="mt-3">
           <Link href="/clips">
@@ -667,7 +763,7 @@ export function PipelinePage() {
     {
       key: "audio",
       icon: Podcast,
-      title: "Podcast MP3",
+      title: STAGE_TITLES.audio,
       children:
         stages?.audio.status === "ready" && audioHref ? (
           <div className="mt-3">
@@ -683,7 +779,7 @@ export function PipelinePage() {
     {
       key: "podcast",
       icon: Radio,
-      title: "Spotify episode",
+      title: STAGE_TITLES.podcast,
       children: (
         <div className="mt-3">
           <Link href="/podcast">
@@ -697,7 +793,7 @@ export function PipelinePage() {
     {
       key: "images",
       icon: Images,
-      title: "Carousel images",
+      title: STAGE_TITLES.images,
       children:
         run?.carouselId || run?.longformProjectId ? (
           <div className="mt-3 flex flex-wrap gap-2">
@@ -724,7 +820,7 @@ export function PipelinePage() {
     {
       key: "visuals",
       icon: Sparkles,
-      title: "Realistic visual ads",
+      title: STAGE_TITLES.visuals,
       children:
         active?.visualMoment && run?.sourceId ? (
           <VisualAdComposer sourceId={run.sourceId} streamName={run.name} moment={active.visualMoment} />
@@ -733,7 +829,7 @@ export function PipelinePage() {
     {
       key: "posts",
       icon: AtSign,
-      title: "Text-only posts",
+      title: STAGE_TITLES.posts,
       children:
         run?.posts && run.posts.length > 0 ? (
           <div className="mt-3 space-y-2">
@@ -763,7 +859,7 @@ export function PipelinePage() {
     {
       key: "schedule",
       icon: CalendarClock,
-      title: "Scheduler",
+      title: STAGE_TITLES.schedule,
       children: schedulable ? (
         <div className="mt-3 space-y-3">
           <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-[var(--muted-foreground)]">
@@ -846,6 +942,30 @@ export function PipelinePage() {
                 {run?.sourceUrl ?? run?.fileName ?? "Reading the stream"}
               </span>
             </div>
+            {/* Everything that broke, and one button that starts all of it
+                again — a run that failed in three places is one click, not a
+                hunt down the flow for which rows went amber. */}
+            {run && active && active.retryable.length > 0 ? (
+              <Card className="mb-4 flex flex-wrap items-center justify-between gap-3 border-amber-400/25 bg-amber-400/[0.06] p-3">
+                <p className="min-w-0 text-sm text-amber-100/90">
+                  {active.retryable.length} stage{active.retryable.length === 1 ? "" : "s"} stopped short —{" "}
+                  {active.retryable.map((item) => STAGE_TITLES[item.stage]).join(", ")}.
+                </p>
+                <Button
+                  variant="secondary"
+                  disabled={working === "retry-all"}
+                  onClick={() => void startAgain(run.id, { action: "retry-all" }, "retry-all")}
+                  className="shrink-0 border-amber-400/30 px-3 py-1.5 text-xs text-amber-100 hover:border-amber-400/60"
+                >
+                  {working === "retry-all" ? (
+                    <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <RotateCcw className="mr-1.5 h-3.5 w-3.5" />
+                  )}
+                  Try them all again
+                </Button>
+              </Card>
+            ) : null}
             {run?.notices?.map((notice) => (
               <p key={notice} className="mb-2 text-xs text-amber-300/90">
                 {notice}
@@ -853,6 +973,8 @@ export function PipelinePage() {
             ))}
             {rows.map((row, index) => {
               const next = rows[index + 1];
+              // The server decides what can be run again; the row only draws it.
+              const repairable = active?.retryable.some((item) => item.stage === row.key);
               return (
                 <StageRow
                   key={row.key}
@@ -862,6 +984,10 @@ export function PipelinePage() {
                   index={index}
                   last={index === rows.length - 1}
                   flowing={Boolean(next && stages[next.key].status === "running")}
+                  onRetry={
+                    repairable && run ? () => void startAgain(run.id, { stage: row.key }, row.key) : undefined
+                  }
+                  retrying={working === row.key}
                 >
                   {row.children}
                 </StageRow>

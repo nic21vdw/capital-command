@@ -23,17 +23,28 @@ already shipped.
   "Nothing taken in yet" whatever happened; it now shows the failure and its
   reason, tells you when YouTube needs reconnecting (with a link to do it), and
   lists the streams it skipped for review or gave up on.
+- **A run that broke stops pretending it finished.** The pipeline list showed a
+  green "Finished" for a run whose stages had failed — the sidebar now carries a
+  count of runs needing attention, and the row says which and how many.
+- **A skip that was never going to work stops asking to be retried.** A stream
+  with no speech, no second topic or no audio track is a skip by design; only a
+  stage that actually tried and gave up offers "Try this again".
+- **A run whose source went missing no longer says "Working…" forever.** After
+  three failed attempts it says what went wrong and offers a retry, instead of
+  re-trying the same doomed call every two seconds with no way to act on it.
+- **The pipeline keeps moving with the app closed.** Runs only advanced while a
+  browser tab was polling, so a stream started at 11pm froze when the tab shut;
+  the server now ticks them along itself.
+
+- **Every stuck stage now has a Try this again button, right on the row.**
+  A run that broke also gets one line at the top saying what stopped short and
+  a single "Try them all again". The Topic segments button used to be a link to
+  the editor that rendered nothing — it now renders the next segment and says
+  how many are done. Same repairs the command bar performs, so the button and
+  the answer can never disagree.
 
 ## 2026-08-06
 
-- **An update takes about a minute and a half again, not nine.** Every release
-  was a cold build: the step that moves the build output out of the OneDrive
-  folder was also deleting Next's incremental compile cache, so nothing was
-  ever reused. It keeps that one folder now. This is not only about waiting —
-  the app is down for the whole build, and nine minutes was long enough for a
-  scheduled task to find nothing on port 3000, start a second server, and leave
-  two builds writing the same folder. That is what made a release fail with
-  "Cannot find module" and left the app down.
 - **A scheduled task can no longer start a second server into a running
   build.** The publish runner and the threads autopilot start the app when
   nothing answers on port 3000, which during a release meant serving a

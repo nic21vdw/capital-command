@@ -34,6 +34,7 @@ import { CommandBar } from "@/components/layout/command-bar";
 import { ReleaseProvider } from "@/components/layout/release-provider";
 import { UpdateBanner } from "@/components/layout/update-banner";
 import { UpdateCheckButton } from "@/components/layout/update-check";
+import { PipelineAttentionProvider, usePipelineAttention } from "@/components/pipeline/attention";
 import { useAppData } from "@/components/providers/app-provider";
 import { PlatformIcon, PLATFORM_LABEL, type PlatformIconKey } from "@/components/ui/platform-icon";
 import { cn } from "@/lib/utils";
@@ -509,10 +510,14 @@ function ConnectionRows({ state, collapsed }: { state: Connections; collapsed: b
 
 function NavLink({ item, active, collapsed = false }: { item: NavItem; active: boolean; collapsed?: boolean }) {
   const Icon = item.icon;
+  // A stage that broke overnight has to be visible from wherever he is, not
+  // only from the run he would have to think to open.
+  const { needsAttention } = usePipelineAttention();
+  const attention = item.href === "/pipeline" ? needsAttention : 0;
   return (
     <Link
       href={item.href}
-      title={collapsed ? item.label : undefined}
+      title={collapsed ? (attention > 0 ? `${item.label} — ${attention} needing attention` : item.label) : undefined}
       className={cn(
         "flex items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-sm transition",
         collapsed && "justify-center px-2 py-2",
@@ -521,8 +526,18 @@ function NavLink({ item, active, collapsed = false }: { item: NavItem; active: b
           : "text-[var(--muted-foreground)] hover:bg-white/5 hover:text-white"
       )}
     >
-      <Icon className={cn("h-4 w-4 shrink-0", active && "text-[var(--accent)]")} />
+      <span className="relative flex shrink-0 items-center">
+        <Icon className={cn("h-4 w-4 shrink-0", active && "text-[var(--accent)]")} />
+        {attention > 0 && collapsed && (
+          <span className="absolute -right-1 -top-1 h-2 w-2 rounded-full bg-amber-400" />
+        )}
+      </span>
       {!collapsed && <span className="truncate">{item.label}</span>}
+      {attention > 0 && !collapsed && (
+        <span className="ml-auto shrink-0 rounded-full bg-amber-400/15 px-1.5 py-0.5 text-[10px] font-semibold text-amber-300">
+          {attention}
+        </span>
+      )}
     </Link>
   );
 }
@@ -637,7 +652,9 @@ function ProfileFooter({ collapsed = false }: { collapsed?: boolean }) {
 export function AppShell({ children }: { children: React.ReactNode }) {
   return (
     <ReleaseProvider>
-      <AppChrome>{children}</AppChrome>
+      <PipelineAttentionProvider>
+        <AppChrome>{children}</AppChrome>
+      </PipelineAttentionProvider>
     </ReleaseProvider>
   );
 }

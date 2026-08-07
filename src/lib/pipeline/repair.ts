@@ -1,58 +1,31 @@
 import { retryMissingRenders } from "@/lib/clipping/jobs";
 import { isExportRendering, startLongformExport } from "@/lib/longform/render";
 import { getProject, updateProject } from "@/lib/longform/store";
-import { advanceRun, getRun, runOverview, updateRun } from "@/lib/pipeline/runs";
-import type { PipelineRun, PipelineStage, PipelineStageKey } from "@/lib/pipeline/types";
+import { advanceRun, getRun, updateRun } from "@/lib/pipeline/runs";
+import type { RepairableStage } from "@/lib/pipeline/repairable";
+import type { PipelineRun } from "@/lib/pipeline/types";
 
-// Un-sticking a run, from anywhere that can reach it. Every stage in
-// `advanceRun` guards itself with a marker ("already exported", "already tried
-// and gave up"), which is what stops a poll re-running expensive work forever —
-// and also what stops a failed stage ever being tried again. Repairing a stage
-// is clearing that marker and letting the run advance itself, never rendering
-// anything here.
+// Un-sticking a run. Every stage in `advanceRun` guards itself with a marker
+// ("already exported", "already tried and gave up"), which is what stops a poll
+// re-running expensive work forever — and also what stops a failed stage ever
+// being tried again. Repairing a stage is clearing that marker and letting the
+// run advance itself; nothing here renders anything. What MAY be repaired is
+// decided in `repairable.ts` and rides on every overview.
 
-// `podcast` is deliberately not repairable from here: that stage publishes the
-// episode to the feed, and publishing is not something the orchestrator does.
-
-export const REPAIRABLE_STAGES = ["longform", "segments", "clips", "audio", "images", "posts"] as const;
-
-export type RepairableStage = (typeof REPAIRABLE_STAGES)[number];
-
-export function isRepairableStage(value: string): value is RepairableStage {
-  return (REPAIRABLE_STAGES as readonly string[]).includes(value);
-}
-
-export type StageRepair = { stage: RepairableStage; status: PipelineStage["status"]; detail: string };
-
-/**
- * Which stages are worth another attempt, from the overview alone. A stage that
- * failed or gave up can be retried; one that is ready has nothing to fix, and
- * one still working must be left alone. `longformStalled` covers the case the
- * stage cannot see: an export record left `processing` by a server that stopped
- * mid-render reads as "Rendering the edited video…" forever.
- */
-export function repairableStages(
-  stages: Record<PipelineStageKey, PipelineStage>,
-  options: { longformStalled?: boolean } = {}
-): StageRepair[] {
-  const repairs: StageRepair[] = [];
-  for (const stage of REPAIRABLE_STAGES) {
-    const current = stages[stage];
-    if (!current) continue;
-    const stalled = stage === "longform" && options.longformStalled === true;
-    if (current.status === "error" || current.status === "skipped") {
-      repairs.push({ stage, status: current.status, detail: current.detail });
-    } else if (stalled) {
-      repairs.push({ stage, status: "error", detail: "The export stopped when the server restarted." });
-    }
-  }
-  return repairs;
+function withoutFailure(run: PipelineRun, key: string): Record<string, number> {
+  const { [key]: _cleared, ...rest } = run.failures ?? {};
+  return rest;
 }
 
 export type RepairResult = { ok: true; stage: RepairableStage; detail: string } | { ok: false; error: string };
 
 async function repairLongform(run: PipelineRun): Promise<RepairResult> {
-  if (!run.longformProjectId) return { ok: false, error: "This run has no long-form project to re-export." };
+  // Nothing was ever created — the run gave up trying. Clearing the failure
+  // count is the repair; `advanceRun` creates the project on the way out.
+  if (!run.longformProjectId) {
+    await updateRun(run, { failures: withoutFailure(run, "longform") });
+    return { ok: true, stage: "longform", detail: "Making the long-form project again." };
+  }
   const project = await getProject(run.longformProjectId);
   if (!project) return { ok: false, error: "The long-form project is gone — it may have been deleted." };
   if (project.status === "processing") {
@@ -99,7 +72,10 @@ async function repairSegments(run: PipelineRun): Promise<RepairResult> {
 }
 
 async function repairClips(run: PipelineRun): Promise<RepairResult> {
-  if (!run.clipJobId) return { ok: false, error: "This run has no clip job to retry." };
+  if (!run.clipJobId) {
+    await updateRun(run, { failures: withoutFailure(run, "clips") });
+    return { ok: true, stage: "clips", detail: "Making the clip job again." };
+  }
   const job = await retryMissingRenders(run.clipJobId);
   if (!job) return { ok: false, error: "The clip job is gone — it may have been deleted." };
   return { ok: true, stage: "clips", detail: "The clips that never rendered are rendering again." };
@@ -174,15 +150,3 @@ export async function renderNextSegment(
   return { ok: true, title: next.title, remaining: pending.length - 1 };
 }
 
-/** The overview plus what could be repaired on it — what a caller needs to fix a run. */
-export async function runDiagnosis(runId: string) {
-  const run = await getRun(runId);
-  if (!run) return null;
-  const overview = await runOverview(run);
-  const project = run.longformProjectId ? await getProject(run.longformProjectId) : undefined;
-  const exportRecord = project?.exports.find((record) => record.id === run.longformExportId);
-  const longformStalled = Boolean(
-    exportRecord && exportRecord.status === "processing" && !isExportRendering(exportRecord.id)
-  );
-  return { overview, repairs: repairableStages(overview.stages, { longformStalled }) };
-}

@@ -17,13 +17,14 @@ itself.
   stale. `status.ts` compares `.next/BUILD_COMMIT`, not `HEAD`.
 - Only the production checkout on `main` may release, and `POST /api/update`
   re-checks that itself — the UI hiding a button is not the gate.
-- KEEP `.next/cache`. `prepare-dev-cache.mjs` relocates the build out of the
-  OneDrive folder and clears it, but it must skip `cache` — that is Next's
-  incremental compile cache, and wiping it made every release a cold nine
-  minute build instead of about ninety seconds. The app is down for the whole
-  build, and nine minutes is long enough for a scheduled task to find nothing
-  on port 3000, start a second server, and leave two builds writing the same
-  `.next` — which fails with `Cannot find module './<chunk>.js'`.
+- CLEAR `.next/cache` with the rest. Keeping Next's incremental compile cache
+  looks like free speed — a warm build is ninety seconds against nine minutes
+  cold — but a warm build against the RELOCATED `.next` (reached through a
+  junction, because OneDrive locks build output) fails in `Collecting page
+  data` with `Cannot find module for page: /_document` or a missing webpack
+  chunk. `start-server.ps1` then clears it and rebuilds cold anyway, so keeping
+  it buys a failed build on top of the cold one. Measured twice. A sandbox
+  worktree is not evidence here — it is outside OneDrive and builds in place.
 - No validation is duplicated in TypeScript. `update-app.ps1` refuses a dirty
   or ahead checkout and backs out a conflicting merge; a second copy of those
   rules here would only go stale.
@@ -97,6 +98,11 @@ tools while you talk. Read `src/lib/voice/README.md`.
   `pipeline_run_status` returns `retryableStages`, which is what tells it what
   it may fix. When a new way of un-sticking a run appears in the UI, give it a
   tool too or the answer goes back to being advice.
+- WHAT CAN BE RETRIED IS DECIDED ONCE. `repairable.ts` is a leaf (no store
+  imports) and `runOverview` puts its answer on every overview as `retryable`,
+  so the Retry buttons on the pipeline page, `POST /api/pipeline/<runId>` and
+  the orchestrator all offer exactly the same set. Never re-derive it in a
+  component.
 - Repairs live in `src/lib/pipeline/repair.ts`, not in the tool layer. Every
   stage in `advanceRun` is guarded by a marker ("already tried and gave up"), so
   a repair CLEARS that marker and lets the run advance itself; the only special
@@ -171,6 +177,23 @@ idempotent behind an id check.
   `@/lib/pipeline/runs` from a separate process (a CLI, a scheduled task)
   gives it a second copy of that Map and the two clobber each other's
   `runs.json`.
+
+## What a stage says about itself (`runs.ts`, `repairable.ts`, `status.ts`)
+
+- A SKIP BY DESIGN IS NOT A FAILURE. `stage("skipped", …)` means nothing to work
+  from (no speech, one continuous topic, no audio track) and offers no retry;
+  `gaveUp(…)` means it tried and failed, and that is what puts a Retry button on
+  the row. Getting this wrong is a permanent amber banner and model calls that
+  land back on the same skip.
+- A step that fails `GIVE_UP_AFTER` times in a row stops being retried by
+  `advanceRun` and reports as an error the user can act on (`run.failures`).
+  Without it a deleted source left the stage saying "Creating the long-form
+  project…" forever.
+- `runListStatus` decides how a run reads in a list, and it is tested. A run
+  with broken stages must never read as "Finished".
+- The server advances runs on its own (`heartbeat.ts`, wired in
+  `src/instrumentation.ts`). Polling from a page still works and still advances;
+  the heartbeat is what covers a closed tab.
 
 ## Automatic channel ingest (`src/lib/ingest`)
 

@@ -9,11 +9,19 @@ export const dynamic = "force-dynamic";
  * GET /api/pipeline — every run joined with the live state of its long-form
  * project, clip job, and outputs. Polling this is what advances the runs.
  */
-export async function GET() {
+export async function GET(request: NextRequest) {
   const runs = await listRuns();
   // One app-data read and one queue read for the whole poll, not one per run.
   const context = overviewContext();
   const overviews = await Promise.all(runs.map((run) => runOverview(run, context)));
+  // `?summary=1` is what the sidebar badge polls: the same advance, a few bytes
+  // back instead of every stage of every run.
+  if (request.nextUrl.searchParams.has("summary")) {
+    return NextResponse.json({
+      needsAttention: overviews.filter((entry) => entry.run.status === "error" || entry.retryable.length > 0).length,
+      working: overviews.filter((entry) => entry.run.status !== "error" && !entry.settled).length
+    });
+  }
   return NextResponse.json({ runs: overviews });
 }
 
