@@ -11,7 +11,7 @@ import type { LongformProject } from "@/lib/longform/types";
 import { generateLongformMetadata, longformMetadataConfigured } from "@/lib/longform/metadata";
 import { generatePipelinePosts } from "@/lib/pipeline/posts";
 import { repairableStages } from "@/lib/pipeline/repairable";
-import { nextSegmentToRender, segmentsRemaining } from "@/lib/pipeline/segments";
+import { nextSegmentToRender, segmentsRenderable } from "@/lib/pipeline/segments";
 import { podcastConfigured, publishEpisode } from "@/lib/podcast/publish";
 import {
   MIN_SPEECH_WORDS,
@@ -418,7 +418,10 @@ export async function advanceRun(run: PipelineRun): Promise<void> {
   // segment lets the next one start on the next poll, with the app closed or
   // open. The flag clears itself when there is nothing left.
   if (project && run.renderAllSegments) {
-    if (segmentsRemaining(project) === 0) {
+    // Cleared when nothing is left that COULD render, not merely when nothing
+    // is left unrendered: a segment that fails twice is given up on, and the
+    // instruction has to end with it or the loop never stops.
+    if (segmentsRenderable(project) === 0) {
       await update(run, { renderAllSegments: undefined });
     } else {
       const next = nextSegmentToRender(project);
@@ -437,7 +440,10 @@ export async function advanceRun(run: PipelineRun): Promise<void> {
     const transcriptText = project.transcript.map((segment) => segment.text).join(" ");
     if (speechWordCount(transcriptText) < MIN_SPEECH_WORDS) {
       if (project.transcript.length > 0) {
-        await update(run, { carouselNote: "No speech was transcribed from this stream to write slides from." });
+        await update(run, {
+          carouselNote: "No speech was transcribed from this stream to write slides from.",
+          carouselGaveUp: false
+        });
       }
     } else {
     void step(run, "carousel", async () => {
@@ -454,7 +460,7 @@ export async function advanceRun(run: PipelineRun): Promise<void> {
         requireModel: true
       });
       if (!carousel) {
-        await update(run, { carouselNote: reason ?? "No carousel slides were written." });
+        await update(run, { carouselNote: reason ?? "No carousel slides were written.", carouselGaveUp: true });
         return;
       }
       // The slides are then illustrated with stills from the stream itself,
@@ -498,7 +504,11 @@ export async function advanceRun(run: PipelineRun): Promise<void> {
   if (!run.posts && longformSettled && clipsSettled && (project || job) && !hasMaterial) {
     // Both sides settled with nothing to write from — record the skip so the
     // stage (and the run) can finish instead of waiting forever.
-    await update(run, { posts: [], postsNote: "No speech was transcribed from this stream to write posts from." });
+    await update(run, {
+      posts: [],
+      postsNote: "No speech was transcribed from this stream to write posts from.",
+      postsGaveUp: false
+    });
   }
   if (!run.posts && longformSettled && clipsSettled && hasMaterial && (project || job)) {
     void step(run, "posts", async () => {
@@ -509,7 +519,7 @@ export async function advanceRun(run: PipelineRun): Promise<void> {
           .filter((clip) => clip.title)
           .map((clip) => ({ title: clip.title!, quote: clip.hookQuote }))
       });
-      await update(run, { posts, postsNote: reason ?? undefined });
+      await update(run, { posts, postsNote: reason ?? undefined, postsGaveUp: posts.length === 0 ? true : undefined });
     });
   }
 }
@@ -574,7 +584,7 @@ function longformStage(run: PipelineRun, project: LongformProject | undefined): 
     const length = record.durationSec ? ` · ${formatDuration(record.durationSec)}` : "";
     return stage("ready", `Edited video rendered${length}`);
   }
-  return stage("error", record.error ?? "The export failed. Open the Long-Form Editor to retry.");
+  return stage("error", record.error ?? "The export failed.");
 }
 
 /**
@@ -690,8 +700,7 @@ function imagesStage(run: PipelineRun, project: LongformProject | undefined, sli
   // as ready — there is nothing here anyone should schedule. Worth retrying
   // only when there was something to write from in the first place.
   if (run.carouselNote) {
-    const words = speechWordCount((project?.transcript ?? []).map((segment) => segment.text).join(" "));
-    return words >= MIN_SPEECH_WORDS ? gaveUp(run.carouselNote) : stage("skipped", run.carouselNote);
+    return run.carouselGaveUp ? gaveUp(run.carouselNote) : stage("skipped", run.carouselNote);
   }
   if (project?.status === "error") return stage("skipped", "Needs the transcript, and analysis failed.");
   if (project?.status === "ready" && project.transcript.length === 0) {
@@ -713,7 +722,7 @@ function visualsStage(run: PipelineRun, job: ClipJob | undefined, ready: boolean
   return stage("waiting", "Choosing the strongest transcript moment and frame.");
 }
 
-function postsStage(run: PipelineRun, hasMaterial: boolean): PipelineStage {
+function postsStage(run: PipelineRun): PipelineStage {
   if (run.status !== "running") return stage("waiting", "Waiting for the source.");
   if (run.posts && run.posts.length > 0) {
     const note = run.postsNote ? ` (${run.postsNote})` : "";
@@ -721,7 +730,7 @@ function postsStage(run: PipelineRun, hasMaterial: boolean): PipelineStage {
   }
   if (run.posts) {
     const note = run.postsNote ?? "Nothing to write from.";
-    return hasMaterial ? gaveUp(note) : stage("skipped", note);
+    return run.postsGaveUp ? gaveUp(note) : stage("skipped", note);
   }
   return stage("waiting", "Written from the transcript and clip titles once they exist.");
 }
@@ -801,12 +810,6 @@ export async function runOverview(run: PipelineRun, context?: OverviewContext): 
     project?.exports.some((item) => item.topicId === topic.id && item.status === "done" && item.file)
   ).length;
 
-  // Was there anything to write posts from? The same test `advanceRun` used
-  // before it gave up, so the row can say whether a retry is worth a click.
-  const postMaterial =
-    speechWordCount((project?.transcript ?? []).map((segment) => segment.text).join(" ")) >= MIN_SPEECH_WORDS ||
-    speechWordCount((job?.sourceCaptions ?? []).map((segment) => segment.text).join(" ")) >= MIN_SPEECH_WORDS;
-
   const stages = {
     source: sourceStage(run),
     longform: longformStage(run, project),
@@ -816,18 +819,17 @@ export async function runOverview(run: PipelineRun, context?: OverviewContext): 
     podcast: podcastStage(run, project),
     images: imagesStage(run, project, slideCount),
     visuals: visualsStage(run, job, Boolean(visualMoment)),
-    posts: postsStage(run, postMaterial),
+    posts: postsStage(run),
     schedule: stage("waiting", "")
   };
 
-  const readyItems =
-    clipsReady +
-    (longformReady ? 1 : 0) +
-    (audioReady ? 1 : 0) +
-    (slideCount > 0 ? 1 : 0) +
-    (visualMoment ? 1 : 0) +
-    posts +
-    segmentsRendered;
+  // What the Schedule button can actually book, and what it cannot. Counting a
+  // carousel among "outputs ready to schedule" made the row promise something
+  // no button on the page could do — the publish queue has no concept of an
+  // image post, so the deck and the visual ad are posted by hand.
+  const bookable = clipsReady + (longformReady ? 1 : 0) + segmentsRendered + posts;
+  const byHand = (slideCount > 0 ? 1 : 0) + (visualMoment ? 1 : 0);
+  const readyItems = bookable + byHand + (audioReady ? 1 : 0);
   const upstreamSettled = (["longform", "segments", "clips", "audio", "podcast", "images", "visuals", "posts"] as const).every(
     (key) => stages[key].status !== "running" && stages[key].status !== "waiting"
   );
@@ -840,9 +842,16 @@ export async function runOverview(run: PipelineRun, context?: OverviewContext): 
       upstreamSettled ? "ready" : "running",
       // The podcast episode is reported separately because it is not waiting on
       // anyone: it is already in the feed, and nothing about it gets scheduled.
-      `${readyItems} output${readyItems === 1 ? "" : "s"} ready to schedule${queued > 0 ? ` · ${queued} already queued` : ""}${
-        run.podcastEpisodeId ? " · podcast episode published" : ""
-      }`
+      [
+        `${bookable} output${bookable === 1 ? "" : "s"} ready to schedule`,
+        byHand > 0 ? `${slideCount > 0 ? "carousel" : ""}${slideCount > 0 && visualMoment ? " and " : ""}${
+          visualMoment ? "visual ad" : ""
+        } to post by hand` : "",
+        queued > 0 ? `${queued} already queued` : "",
+        run.podcastEpisodeId ? "podcast episode published" : ""
+      ]
+        .filter(Boolean)
+        .join(" · ")
     );
   }
 

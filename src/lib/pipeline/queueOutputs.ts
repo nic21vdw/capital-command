@@ -66,14 +66,15 @@ function queuedPaths(items: QueueItem[]): Set<string> {
   return paths;
 }
 
+/**
+ * The live queue, or a thrown error. An empty list on a failed read would empty
+ * `alreadyQueued` and make every output look unscheduled — one unlucky read and
+ * the button books the whole run a second time.
+ */
 async function readQueue(): Promise<QueueItem[]> {
   const config = publisherConfig();
   if (!config.enabled) return [];
-  try {
-    return await publishQueue(config).list();
-  } catch {
-    return [];
-  }
+  return publishQueue(config).list();
 }
 
 /** Everything this run made that could be posted, minus what is already booked. */

@@ -505,7 +505,12 @@ export function PipelinePage() {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(body)
         });
-        const data = (await response.json()) as { detail?: string; error?: string; overview?: PipelineRunOverview };
+        const data = (await response.json()) as {
+          detail?: string;
+          error?: string;
+          refused?: string[];
+          overview?: PipelineRunOverview;
+        };
         if (!response.ok || !data.overview) {
           toast.error(data.error ?? "That could not be started again.");
           return;
@@ -513,6 +518,9 @@ export function PipelinePage() {
         setOverviews((current) =>
           current.map((entry) => (entry.run.id === runId ? data.overview! : entry))
         );
+        // Naming what refused is the difference between "1 could not be" and
+        // knowing which row is still broken.
+        for (const refusal of data.refused ?? []) toast.error(refusal);
         toast.success(data.detail ?? "Started again.");
       } catch {
         toast.error("Request failed. Is the server still running?");
@@ -557,6 +565,7 @@ export function PipelinePage() {
         const data = (await response.json()) as {
           detail?: string;
           error?: string;
+          queued?: { title: string }[];
           failed?: { title: string; error: string }[];
           overview?: PipelineRunOverview;
         };
@@ -568,8 +577,15 @@ export function PipelinePage() {
           setOverviews((current) => current.map((entry) => (entry.run.id === runId ? data.overview! : entry)));
         }
         // A booking that half worked has to say which half — the queue is the
-        // one place a silent gap turns into a day with nothing posted.
+        // one place a silent gap turns into a day with nothing posted. Nothing
+        // scheduled is a failure, whatever the response code says, and the sheet
+        // stays open so the untouched list is still there to try again.
         for (const failure of data.failed ?? []) toast.error(`${failure.title}: ${failure.error}`);
+        const booked = data.queued?.length ?? 0;
+        if (booked === 0) {
+          toast.error(data.detail ?? "Nothing could be scheduled.");
+          return;
+        }
         toast.success(data.detail ?? "Scheduled.");
         setPlan(null);
       } catch {
@@ -579,6 +595,39 @@ export function PipelinePage() {
       }
     },
     []
+  );
+
+  /**
+   * Runs the same link through the pipeline again and drops the dead run, so a
+   * failed download is one button rather than a copy-paste and a delete.
+   */
+  const restartRun = useCallback(
+    async (runId: string, url: string, name: string) => {
+      setWorking("restart");
+      try {
+        const response = await fetch("/api/pipeline", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ url, name })
+        });
+        const data = (await response.json()) as { run?: PipelineRun; error?: string };
+        if (!response.ok || !data.run) {
+          toast.error(data.error ?? "Could not start it again.");
+          return;
+        }
+        // Only once the new run exists: losing the old one AND the new start
+        // would leave nothing on screen and the link gone with it.
+        await fetch(`/api/pipeline/${runId}`, { method: "DELETE" }).catch(() => undefined);
+        setActiveRunId(data.run.id);
+        toast.success("Downloading the stream again.");
+        await refresh();
+      } catch {
+        toast.error("Request failed. Is the server still running?");
+      } finally {
+        setWorking(null);
+      }
+    },
+    [refresh]
   );
 
   // Opening a run scrolls back to the top of the page, not to the flow: the
@@ -757,7 +806,30 @@ export function PipelinePage() {
     title: string;
     children?: React.ReactNode;
   }> = [
-    { key: "source", icon: UploadCloud, title: STAGE_TITLES.source },
+    {
+      key: "source",
+      icon: UploadCloud,
+      title: STAGE_TITLES.source,
+      // A run whose download failed had nothing to click at all: the link was
+      // printed as text, and the fix was select, copy, delete, paste, start.
+      children:
+        run?.status === "error" && run.sourceUrl ? (
+          <div className="mt-3">
+            <Button
+              disabled={working === "restart"}
+              onClick={() => void restartRun(run.id, run.sourceUrl!, run.name)}
+              className="px-3 py-1.5 text-xs"
+            >
+              {working === "restart" ? (
+                <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <RotateCcw className="mr-1.5 h-3.5 w-3.5" />
+              )}
+              Start this stream again
+            </Button>
+          </div>
+        ) : null
+    },
     {
       key: "longform",
       icon: Clapperboard,

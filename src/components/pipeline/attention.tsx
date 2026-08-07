@@ -1,5 +1,6 @@
 "use client";
 
+import { usePathname } from "next/navigation";
 import { createContext, useContext, useEffect, useState } from "react";
 
 // How many runs are asking for something. Nothing used to tell Nic a stage had
@@ -16,6 +17,10 @@ const POLL_MS = 60_000;
 
 export function PipelineAttentionProvider({ children }: { children: React.ReactNode }) {
   const [attention, setAttention] = useState<Attention>({ needsAttention: 0, working: 0 });
+  // Every route with its own `metadata.title` rewrites the title on arrival, so
+  // the count has to be re-applied per navigation — the provider itself never
+  // remounts.
+  const pathname = usePathname();
 
   useEffect(() => {
     let alive = true;
@@ -44,7 +49,7 @@ export function PipelineAttentionProvider({ children }: { children: React.ReactN
     if (typeof document === "undefined") return;
     const base = document.title.replace(/^\(\d+\)\s*/, "");
     document.title = attention.needsAttention > 0 ? `(${attention.needsAttention}) ${base}` : base;
-  }, [attention.needsAttention]);
+  }, [attention.needsAttention, pathname]);
 
   return <PipelineAttentionContext.Provider value={attention}>{children}</PipelineAttentionContext.Provider>;
 }
