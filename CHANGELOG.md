@@ -14,6 +14,8 @@ already shipped.
 
 ## Unreleased
 
+## 2026-08-06
+
 - **Every stuck stage now has a Try this again button, right on the row.**
   A run that broke also gets one line at the top saying what stopped short and
   a single "Try them all again". The Topic segments button used to be a link to
