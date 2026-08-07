@@ -388,7 +388,10 @@ export async function queueRunOutputs(
   if (bookedIds.length > 0 || droppedNow.length > 0) {
     await updateRun(run, {
       queueBooked: [...alreadyBooked, ...bookedIds],
-      queueHeldBack: [...heldBack, ...droppedNow]
+      queueHeldBack: [...heldBack, ...droppedNow],
+      // He is dealing with them now, so the old complaint goes; anything that
+      // fails again is recorded again on the next drain.
+      ...(options.standing ? {} : { queueFailures: failed.length > 0 ? failed : undefined })
     });
   }
   return { queued, failed };
@@ -414,6 +417,18 @@ export async function queueReadyOutputs(): Promise<number> {
     // not a reason to log anything here.
     const result = await queueRunOutputs(run.id, undefined, { standing: true }).catch(() => null);
     booked += result?.queued.length ?? 0;
+    // A booking that FAILED is different: nobody was watching, and dropping it
+    // left the row promising an output the app had quietly given up on.
+    if (result?.failed.length) {
+      const current = await getRun(run.id);
+      if (current) {
+        const seen = new Set((current.queueFailures ?? []).map((item) => `${item.title}:${item.error}`));
+        const added = result.failed.filter((item) => !seen.has(`${item.title}:${item.error}`));
+        if (added.length > 0) {
+          await updateRun(current, { queueFailures: [...(current.queueFailures ?? []), ...added].slice(-10) });
+        }
+      }
+    }
   }
   return booked;
 }
