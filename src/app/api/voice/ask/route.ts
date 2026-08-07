@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { aiProviderInfo } from "@/lib/ai";
-import { issueGrant, readGrant } from "@/lib/voice/session";
+import { describeGrant, issueGrant, readGrant } from "@/lib/voice/session";
 import { runVoiceTurn } from "@/lib/voice/textAgent";
 
 export const runtime = "nodejs";
@@ -17,9 +17,11 @@ const requestSchema = z.object({
     .optional()
 });
 
-export async function GET() {
+/** Also how the bar re-checks a grant it is still showing as armed. */
+export async function GET(request: NextRequest) {
   const info = aiProviderInfo();
-  return NextResponse.json({ ...info, mode: "push-to-talk" });
+  const grantId = request.nextUrl.searchParams.get("grantId") ?? undefined;
+  return NextResponse.json({ ...info, mode: "push-to-talk", grant: describeGrant(grantId, readGrant(grantId)) });
 }
 
 /** Arming happens here, not in the page: the grant the tools check is server-held. */
@@ -39,7 +41,9 @@ export async function POST(request: NextRequest) {
       allowActions: Boolean(grant?.allowActions),
       baseUrl: request.nextUrl.origin
     });
-    return NextResponse.json(turn);
+    // The turn carries the grant's real state back, so a bar that still says
+    // "Can act" corrects itself on the very send that would have degraded.
+    return NextResponse.json({ ...turn, grant: describeGrant(parsed.data.grantId, grant) });
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "The turn failed." }, { status: 502 });
   }

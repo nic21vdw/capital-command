@@ -14,6 +14,25 @@ already shipped.
 
 ## Unreleased
 
+- **The command bar stops claiming it can act when it can't.** Arming lasts an
+  hour on the server, and the bar used to keep saying "Can act" long after it
+  lapsed — every command then quietly ran read-only and the orchestrator just
+  said it couldn't do things. It now re-checks whenever you come back to the
+  tab and on every send, turns red saying **Arming expired**, and one click on
+  that arms it again.
+- **A reload no longer wipes the conversation.** Installing an update restarts
+  the app under you; the command bar now remembers the last twenty lines and
+  what it was talking about, so you pick up where you left off.
+- **"Start that" now takes you to where it's happening.** Starting a pipeline
+  run, a channel scan or the agent team used to leave you on whatever screen
+  you were on holding an id. All three now open the screen that shows the work,
+  the way retrying a stage already did.
+- **The channel check is no longer a dead end.** It lists what it skipped and
+  why, and now hands back each video's link and whether that skip is one you
+  can overrule — so you can say "run that one anyway" and it goes straight
+  through the pipeline. Its report also survives the check finishing, which it
+  didn't before.
+
 ## 2026-08-06
 
 - **Every stuck stage now has a Try this again button, right on the row.**

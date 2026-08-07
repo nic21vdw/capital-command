@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { base64FromBuffer, bufferFromBase64, encodeCaptureChunk, floatToPcm16, pcm16ToFloat, peakLevel, resampleMono } from "@/lib/voice/pcm";
 import { buildSubprotocols, getVoiceProvider, realtimeSocketUrl } from "@/lib/voice/providers";
-import { buildSessionUpdate, issueGrant, readGrant, readMintedSecret, revokeGrant } from "@/lib/voice/session";
-import { VOICE_TOOLS, runReferenceFrom, runVoiceTool, voiceToolDefinitions } from "@/lib/voice/tools";
+import { packBar, shieldView, unpackBar } from "@/lib/voice/bar";
+import { buildSessionUpdate, describeGrant, issueGrant, readGrant, readMintedSecret, revokeGrant } from "@/lib/voice/session";
+import { OVERRIDABLE_SKIPS, VOICE_TOOLS, describeSkips, runReferenceFrom, runVoiceTool, toolDestination, voiceToolDefinitions } from "@/lib/voice/tools";
+import type { ScanCandidate } from "@/lib/ingest/types";
 import { jwtExpiryMs, normalizeXaiSession, xaiSessionUsable } from "@/lib/voice/xaiAuth";
 
 describe("pcm", () => {
@@ -71,6 +73,58 @@ describe("session", () => {
     expect(readGrant(grant.id)).toBeNull();
     expect(readGrant(undefined)).toBeNull();
   });
+
+  it("calls a grant that was asked for and is gone expired, and never echoes the id", () => {
+    const grant = issueGrant(true);
+    const armed = describeGrant(grant.id, readGrant(grant.id));
+    expect(armed).toEqual({ armed: true, expired: false, expiresAt: grant.expiresAt });
+    expect(JSON.stringify(armed)).not.toContain(grant.id);
+
+    revokeGrant(grant.id);
+    expect(describeGrant(grant.id, readGrant(grant.id))).toEqual({ armed: false, expired: true, expiresAt: null });
+    expect(describeGrant(undefined, null)).toEqual({ armed: false, expired: false, expiresAt: null });
+
+    const readOnly = issueGrant(false);
+    expect(describeGrant(readOnly.id, readGrant(readOnly.id))).toEqual({ armed: false, expired: false, expiresAt: null });
+  });
+});
+
+describe("command bar state", () => {
+  it("shows expired arming as its own state, not as read-only and not as can act", () => {
+    expect(shieldView({ armed: true, expired: false }).label).toBe("Can act");
+    expect(shieldView({ armed: false, expired: false }).label).toBe("Read-only");
+    const expired = shieldView({ armed: false, expired: true });
+    expect(expired.tone).toBe("expired");
+    expect(expired.label).not.toBe("Read-only");
+  });
+
+  it("carries the transcript through a reload and survives a corrupt blob", () => {
+    const packed = packBar({
+      lines: [{ id: "a", role: "user", text: "start the pipeline", tools: [], opened: "Stream Pipeline" }],
+      history: [{ role: "user", content: "start the pipeline" }],
+      grantId: "voice-grant-1"
+    });
+    const restored = unpackBar(packed);
+    expect(restored.lines[0]).toEqual({ id: "a", role: "user", text: "start the pipeline", tools: [], opened: "Stream Pipeline" });
+    expect(restored.history).toEqual([{ role: "user", content: "start the pipeline" }]);
+    expect(restored.grantId).toBe("voice-grant-1");
+
+    expect(unpackBar("{not json").lines).toEqual([]);
+    expect(unpackBar(null)).toEqual({ lines: [], history: [], grantId: null });
+    expect(unpackBar(JSON.stringify({ lines: [{ role: "wizard", text: "x" }, null] })).lines).toEqual([]);
+  });
+
+  it("keeps only the last few lines so a long day does not grow without bound", () => {
+    const lines = Array.from({ length: 40 }, (_, index) => ({
+      id: `line-${index}`,
+      role: "user" as const,
+      text: `line ${index}`,
+      tools: []
+    }));
+    const restored = unpackBar(packBar({ lines, history: [], grantId: null }));
+    expect(restored.lines.length).toBeLessThan(lines.length);
+    expect(restored.lines[restored.lines.length - 1].text).toBe("line 39");
+  });
 });
 
 describe("voice tools", () => {
@@ -105,6 +159,40 @@ describe("voice tools", () => {
     expect(runReferenceFrom({ title: " Day 28 " }).name).toBe("Day 28");
     expect(runReferenceFrom({ runId: "abc123" })).toEqual({ runId: "abc123", name: undefined });
     expect(runReferenceFrom({ runName: "" }).name).toBeUndefined();
+  });
+
+  it("sends every started job to a screen that can show it", () => {
+    expect(toolDestination("pipeline", "run-7")).toEqual({ href: "/pipeline?run=run-7", label: "Stream Pipeline" });
+    expect(toolDestination("agents")).toEqual({ href: "/agents", label: "Sourceflow Agents" });
+    expect(toolDestination("nowhere-at-all").href).toBe("/");
+  });
+
+  it("hands a skipped upload back with its URL, and says which skips a person may overturn", () => {
+    const upload = {
+      videoId: "abc",
+      title: "Day 31",
+      publishedAt: "2026-08-05T12:00:00.000Z",
+      durationSec: 4000,
+      aspect: null,
+      wasLiveStream: false,
+      privacyStatus: "public",
+      url: "https://www.youtube.com/watch?v=abc"
+    };
+    const candidates: ScanCandidate[] = [
+      { upload, decision: { action: "skip", reason: "not-a-live-stream" } },
+      { upload: { ...upload, videoId: "own" }, decision: { action: "skip", reason: "published-by-distribution-centre" } },
+      { upload: { ...upload, videoId: "new" }, decision: { action: "ingest", reason: "live-stream" } }
+    ];
+    const skips = describeSkips(candidates);
+    expect(skips.map((skip) => skip.videoId)).toEqual(["abc", "own"]);
+    expect(skips[0]).toMatchObject({ url: "https://www.youtube.com/watch?v=abc", overridable: true });
+    expect(skips[1].overridable).toBe(false);
+  });
+
+  it("never offers to re-ingest this app's own uploads, its drafts or a real Short", () => {
+    expect(OVERRIDABLE_SKIPS.has("published-by-distribution-centre")).toBe(false);
+    expect(OVERRIDABLE_SKIPS.has("not-public")).toBe(false);
+    expect(OVERRIDABLE_SKIPS.has("short-vertical")).toBe(false);
   });
 
   it("refuses a tool it does not have", async () => {
