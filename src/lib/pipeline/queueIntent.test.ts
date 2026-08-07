@@ -87,3 +87,29 @@ describe("what the standing instruction is allowed to book", () => {
     expect(state.enqueued.map((path) => path.split(sep).join("/"))).toEqual(["C:/outputs/job1/late.mp4"]);
   });
 });
+
+describe("what the sheet says about a decision he already made", () => {
+  it("lists a held-back output unticked, and books it when he ticks it", async () => {
+    await queueRunOutputs("run1", ["clip:job1:keep"]);
+    expect(state.run.queueHeldBack).toContain("clip:job1:drop");
+
+    // The plan still SHOWS it — offering nothing at all is how the sheet ended
+    // up listing an output it would then refuse to book.
+    const { planRunOutputs } = await import("@/lib/pipeline/queueOutputs");
+    const plan = await planRunOutputs("run1");
+    const dropped = plan?.candidates.find((item) => item.id === "clip:job1:drop");
+    expect(dropped?.heldBack).toBe("unticked");
+
+    state.enqueued = [];
+    const booked = await queueRunOutputs("run1", ["clip:job1:drop"]);
+    expect(booked.queued.map((item) => item.title)).toEqual(["The one he unticked"]);
+    expect(state.run.queueHeldBack).not.toContain("clip:job1:drop");
+  });
+
+  it("marks one that was booked and has since left the queue", async () => {
+    await queueRunOutputs("run1", ["clip:job1:keep"]);
+    const { planRunOutputs } = await import("@/lib/pipeline/queueOutputs");
+    const plan = await planRunOutputs("run1");
+    expect(plan?.candidates.find((item) => item.id === "clip:job1:keep")?.heldBack).toBe("removed");
+  });
+});

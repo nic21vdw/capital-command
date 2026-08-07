@@ -1069,6 +1069,13 @@ export function PipelinePage() {
                               {candidate.imagePaths.length} slides
                             </span>
                           ) : null}
+                          {candidate.heldBack ? (
+                            <span className="ml-1.5 text-[11px] text-[var(--muted-foreground)]">
+                              {candidate.heldBack === "unticked"
+                                ? "— you held this back; tick it to book it"
+                                : "— booked before, then removed from the queue"}
+                            </span>
+                          ) : null}
                         </span>
                       </label>
                     ))}
