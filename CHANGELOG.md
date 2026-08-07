@@ -21,6 +21,9 @@ already shipped.
   stream whose episode got skipped for "nowhere public to live" can then be
   added under **Publish an episode**, and **Change address** is there if the
   bucket ever moves.
+- **A booked carousel shows up under Carousels on the Master Calendar**, not
+  under Shorts where you would never look for it.
+
 - **An output you held back can be booked later.** The sheet listed it, ticked
   it, and then refused with "nothing is waiting to be scheduled" — the only way
   out was editing a file. It is now listed unticked and says why; ticking it

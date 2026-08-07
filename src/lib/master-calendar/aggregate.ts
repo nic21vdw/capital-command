@@ -1,4 +1,5 @@
 import type { AppData, Carousel, ContentItem, FbPost, XDailyPack } from "@/types/domain";
+import { isImagePost } from "@/lib/publisher/images";
 import type { PlatformId, QueueItem } from "@/lib/publisher/types";
 import type { MasterCalendarEvent } from "@/lib/master-calendar/types";
 
@@ -92,12 +93,18 @@ function shortsEvents(
     if (Number.isNaN(instant.getTime())) continue;
     const { dateKey, time } = localDateTime(instant, timeZone);
     if (!inRange(dateKey, startKey, endKey)) continue;
+    // A picture post rides the same queue as the shorts but is not one — the
+    // calendar filed a booked carousel under Shorts, where he would never look
+    // for it.
+    const picture = isImagePost(item);
     events.push({
-      id: `shorts:${item.id}`,
-      source: "shorts",
+      id: `${picture ? "carousels" : "shorts"}:${item.id}`,
+      source: picture ? "carousels" : "shorts",
       dateKey,
       time,
-      title: truncate(item.title || item.clipPath.split("/").pop() || "Scheduled short"),
+      title: truncate(
+        item.title || item.clipPath.split("/").pop() || (picture ? "Scheduled carousel" : "Scheduled short")
+      ),
       platforms: (Object.keys(item.platforms) as PlatformId[]).map((platform) => PLATFORM_LABELS[platform]),
       status: queueItemStatus(item)
     });
