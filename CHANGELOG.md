@@ -23,14 +23,6 @@ already shipped.
 
 ## 2026-08-06
 
-- **An update takes about a minute and a half again, not nine.** Every release
-  was a cold build: the step that moves the build output out of the OneDrive
-  folder was also deleting Next's incremental compile cache, so nothing was
-  ever reused. It keeps that one folder now. This is not only about waiting —
-  the app is down for the whole build, and nine minutes was long enough for a
-  scheduled task to find nothing on port 3000, start a second server, and leave
-  two builds writing the same folder. That is what made a release fail with
-  "Cannot find module" and left the app down.
 - **A scheduled task can no longer start a second server into a running
   build.** The publish runner and the threads autopilot start the app when
   nothing answers on port 3000, which during a release meant serving a
