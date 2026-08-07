@@ -14,6 +14,8 @@ already shipped.
 
 ## Unreleased
 
+## 2026-08-06
+
 - **A music generation is no longer lost by closing the tab.** The track was
   paid for at submission but only imported by whichever poll first saw it
   finish, so a closed tab stranded it; the server now checks the pending ones
