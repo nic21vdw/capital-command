@@ -75,6 +75,20 @@ export function itemsForDate(items: ThreadsQueueItem[], date: string): ThreadsQu
   return items.filter((item) => item.batchDate === date);
 }
 
+/** Everything the autopilot itself planned — see `ThreadsQueueItem.origin`. */
+export function isAutopilotItem(item: ThreadsQueueItem): boolean {
+  return item.origin !== "pipeline";
+}
+
+/**
+ * What the autopilot must look at when it asks "is this day planned yet?".
+ * Counting a post added from a stream would make it skip the day's pack, and
+ * the whole point of the daily batch is that it always gets written.
+ */
+export function autopilotItemsForDate(items: ThreadsQueueItem[], date: string): ThreadsQueueItem[] {
+  return itemsForDate(items, date).filter(isAutopilotItem);
+}
+
 function tally(items: ThreadsQueueItem[]) {
   return {
     total: items.length,
