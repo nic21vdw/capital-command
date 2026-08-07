@@ -26,7 +26,7 @@ function requireHost() {
   const config = publisherConfig();
   if (!podcastConfigured(config)) {
     throw new Error(
-      "The podcast feed needs a permanent public URL. Turn on public access for the R2 bucket (Cloudflare dashboard → R2 → the bucket → Settings → Public Development URL, or attach a custom domain) and put that address in S3_PUBLIC_BASE_URL."
+      "The podcast feed needs a permanent public URL. Turn on public access for the R2 bucket (Cloudflare dashboard → R2 → the bucket → Settings → Public Development URL, or attach a custom domain) and paste that address into Public address of the bucket on the Podcast page."
     );
   }
   const host = mediaHost(config);

@@ -14,6 +14,13 @@ already shipped.
 
 ## Unreleased
 
+- **The podcast feed's public address is set on the Podcast page now, not in a
+  text editor.** The Feed URL card takes the bucket's public address, checks it
+  is something Spotify can actually fetch from (https, no login in the URL, not
+  localhost) and starts using it on the spot — no `.env`, no restart. Every
+  stream whose episode got skipped for "nowhere public to live" can then be
+  added under **Publish an episode**, and **Change address** is there if the
+  bucket ever moves.
 - **"Schedule everything from this run" now includes the carousel.** The deck is
   painted to real PNG slides on disk and booked as one picture post alongside
   the shorts and the long-form video — same tick box, same free slot, nothing

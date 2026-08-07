@@ -58,18 +58,26 @@ const SHOW_DETAILS_FIX = "Fill it in under Show details, then Save show details.
  *
  * `hosted` is the one blocker that isn't about the show's own details: without
  * a permanent public URL nothing can be uploaded at all, so it comes first.
+ * `bucketConnected` separates the two ways that can be true — the address is
+ * fixable on this page, the bucket's credentials are not.
  */
 export function feedBlockers(
   show: PodcastShow,
   episodes: PodcastEpisode[],
-  options: { hosted?: boolean } = {}
+  options: { hosted?: boolean; bucketConnected?: boolean } = {}
 ): FeedBlocker[] {
   const blockers: FeedBlocker[] = [];
-  if (options.hosted === false) {
+  if (options.hosted === false && options.bucketConnected === false) {
+    blockers.push({
+      code: "bucket",
+      problem: "The storage bucket the feed and its episode files live in is not connected yet.",
+      fix: "Set S3_ENDPOINT, S3_BUCKET, S3_ACCESS_KEY_ID and S3_SECRET_ACCESS_KEY in .env. Those are secrets, so they stay in the file."
+    });
+  } else if (options.hosted === false) {
     blockers.push({
       code: "hosting",
       problem: "The feed has nowhere permanent to live, so nothing can be published yet.",
-      fix: "Turn on the R2 bucket's Public Development URL (Cloudflare dashboard → R2 → the bucket → Settings), or attach a custom domain, then put that address in S3_PUBLIC_BASE_URL and restart the app."
+      fix: "Turn on the bucket's Public Development URL (Cloudflare dashboard → R2 → the bucket → Settings), or attach a custom domain, then paste that address into Public address of the bucket above. It takes effect straight away."
     });
   }
   if (!show.title.trim()) blockers.push({ code: "title", problem: "The show needs a title.", fix: SHOW_DETAILS_FIX });

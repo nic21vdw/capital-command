@@ -47,6 +47,20 @@ After that, nothing about a new episode is manual.
   `S3_PUBLIC_BASE_URL` as well as the other `S3_*` variables: an RSS feed cannot
   point at a presigned URL, because those expire and Spotify reads the feed for
   the life of the show.
+- `publicUrl.ts` is how that address gets set without a text editor. The Podcast
+  page writes it through `POST /api/podcast` (`set-public-url`), which is the
+  only setting the app changes in `.env` for itself. It lives there rather than
+  in a podcast settings file because every other process that builds a URL out
+  of the bucket — the publish runner, the CLIs, a GitHub Actions run — reads it
+  from `publisherConfig()` too, and a second store would mean two answers.
+  `checkPublicBaseUrl` and `applyEnvValue` are pure and tested: the first
+  refuses anything Spotify could not fetch (http, credentials, a query string,
+  localhost or a private address), the second rewrites exactly one assignment
+  and leaves every other line, comment, BOM and line ending in that
+  secret-carrying file untouched. `writePublicBaseUrl` also sets the value in
+  `process.env`, because `next start` reads `.env` once at boot — that is what
+  makes the change take effect with nothing to restart, and why `mediaHost()`
+  caches on the settings that shape a URL rather than forever.
 - The pipeline's `podcast` stage calls `publishEpisode` as soon as the MP3 is
   cut, one attempt only — `podcastNote` is the "do not retry" marker, same rule
   as the extraction step above it, because the stage is driven by a 2.5s poll.

@@ -17,7 +17,7 @@ export async function POST(request: NextRequest) {
   const config = publisherConfig();
   if (!podcastConfigured(config)) {
     return NextResponse.json(
-      { error: "There is nowhere public to put the cover art yet — the R2 bucket needs a public URL in S3_PUBLIC_BASE_URL." },
+      { error: "There is nowhere public to put the cover art yet — give the bucket its public address under Feed URL first." },
       { status: 409 }
     );
   }
