@@ -1,5 +1,6 @@
 import { publisherConfig, type PublisherConfig } from "@/lib/publisher/config";
 import { mediaHost } from "@/lib/publisher/hosting";
+import { rearmItem, type RearmScope } from "@/lib/publisher/rearm";
 import { FileQueueStore, R2QueueStore, type QueueStore } from "@/lib/publisher/store";
 import type { BufferState, PlatformId, PlatformState, PostResult, QueueItem } from "@/lib/publisher/types";
 
@@ -68,24 +69,60 @@ export class PublishQueue {
   }
 
   /**
-   * Drops every item whose platforms have all permanently failed. A fully
-   * failed post can never publish — it only holds its schedule slot hostage —
-   * so clearing it out (on the board's next load) frees the slot for a fresh
-   * clip. Items where any platform still succeeded, is pending, or is
-   * scheduled are kept, because removing them would erase a real post. Saves
-   * once when anything changed and returns the removed items.
+   * Stamps the moment a fully-failed post was first shown. The board calls
+   * this on every read, so `failedSeenAt` is the proof that the failure has
+   * been on screen — which is what the retention sweep below waits for.
+   * Returns the items newly stamped; saves once when anything changed.
    */
-  async purgeFailed(): Promise<QueueItem[]> {
+  async markFailedSeen(now: Date): Promise<QueueItem[]> {
+    await this.load();
+    const stamped: QueueItem[] = [];
+    for (const item of this.items.values()) {
+      if (isItemFullyFailed(item)) {
+        if (!item.failedSeenAt) {
+          item.failedSeenAt = now.toISOString();
+          stamped.push(item);
+        }
+      } else if (item.failedSeenAt) {
+        // Retried back to life — the next failure gets its own clock.
+        item.failedSeenAt = undefined;
+        stamped.push(item);
+      }
+    }
+    if (stamped.length > 0) await this.save();
+    return stamped;
+  }
+
+  /**
+   * Sweeps fully-failed posts that have been on the board, unretried, for
+   * longer than the retention window. Failures stay visible until then: the
+   * board is where a permanent failure is discovered, and a post that vanished
+   * on the next poll left nothing behind but a console line and a clip quietly
+   * back in Draft. Saves once when anything changed; returns what it removed.
+   */
+  async purgeFailed(now: Date, retentionDays = FAILED_RETENTION_DAYS): Promise<QueueItem[]> {
     await this.load();
     const removed: QueueItem[] = [];
     for (const [id, item] of this.items) {
-      if (isItemFullyFailed(item)) {
+      if (isFailedLongEnoughToPurge(item, now, retentionDays)) {
         this.items.delete(id);
         removed.push(item);
       }
     }
     if (removed.length > 0) await this.save();
     return removed;
+  }
+
+  /**
+   * Puts blocked platforms of an item back to pending so the runner will act
+   * on them again — the Retry button, and the re-arm a reconnect triggers.
+   * Returns the platforms it revived; saves once when anything changed.
+   */
+  async rearm(item: QueueItem, scope: RearmScope = {}): Promise<PlatformId[]> {
+    await this.load();
+    const revived = rearmItem(item, scope);
+    if (revived.length > 0) await this.save();
+    return revived;
   }
 
   /**
@@ -257,6 +294,24 @@ export function isItemFullyFailed(item: QueueItem): boolean {
   const states = Object.values(item.platforms);
   if (states.length === 0 || !states.every((state) => state?.status === "failed")) return false;
   return !item.buffer || item.buffer.status === "failed";
+}
+
+/** How long a seen, fully-failed post stays on the board before it is swept. */
+export const FAILED_RETENTION_DAYS = 30;
+
+/**
+ * True when a fully-failed post is safe to sweep: it has been shown on the
+ * board (`failedSeenAt`), and both that moment and its own slot are further
+ * back than the retention window. An unseen failure is never swept, whatever
+ * its age — that is the whole point of the stamp.
+ */
+export function isFailedLongEnoughToPurge(item: QueueItem, now: Date, retentionDays = FAILED_RETENTION_DAYS): boolean {
+  if (!isItemFullyFailed(item) || !item.failedSeenAt) return false;
+  const cutoff = now.getTime() - retentionDays * 86_400_000;
+  const seen = new Date(item.failedSeenAt).getTime();
+  const slot = new Date(item.publishAt).getTime();
+  if (!Number.isFinite(seen) || !Number.isFinite(slot)) return false;
+  return seen < cutoff && slot < cutoff;
 }
 
 export function newPlatformState(): PlatformState {

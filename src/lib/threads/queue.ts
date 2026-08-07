@@ -122,6 +122,15 @@ function editable(item: ThreadsQueueItem): boolean {
   return item.status === "pending";
 }
 
+/**
+ * Statuses a post can come back from. A published post is history, but a
+ * failed or skipped one never reached Threads, so its copy is still yours to
+ * fix and send.
+ */
+function recoverable(item: ThreadsQueueItem): boolean {
+  return item.status === "failed" || item.status === "skipped";
+}
+
 /** Moves one queued post to a new time. */
 export function rescheduleItem(items: ThreadsQueueItem[], id: string, publishAt: string): QueueEditResult {
   const target = items.find((item) => item.id === id);
@@ -153,13 +162,41 @@ export function shiftBatch(items: ThreadsQueueItem[], date: string, minutes: num
   return { items, changed: pending.length };
 }
 
+/**
+ * Puts a failed (or skipped) post back in the running. A post that never went
+ * out is the copy you already approved, so recovering it must not mean typing
+ * it again — but its slot has passed, and the runner skips anything more than
+ * the grace period late. So the retry lands it at `now`, which is exactly what
+ * "post this one now" means, and clears the state that failure left behind.
+ */
+export function retryItem(items: ThreadsQueueItem[], id: string, now: Date): QueueEditResult {
+  const target = items.find((item) => item.id === id);
+  if (!target) return { items, changed: 0, error: "No such queued post." };
+  if (!recoverable(target)) {
+    return { items, changed: 0, error: `That post is ${target.status} — there is nothing to retry.` };
+  }
+
+  target.status = "pending";
+  target.attempts = 0;
+  if (new Date(target.publishAt).getTime() < now.getTime()) target.publishAt = now.toISOString();
+  delete target.error;
+  delete target.note;
+  delete target.nextAttemptAt;
+  delete target.claimedAt;
+  return { items, changed: 1 };
+}
+
 /** Rewrites the copy of one queued post. */
 export function editItemText(items: ThreadsQueueItem[], id: string, text: string): QueueEditResult {
   const trimmed = text.trim();
   if (!trimmed) return { items, changed: 0, error: "A post can't be empty." };
   const target = items.find((item) => item.id === id);
   if (!target) return { items, changed: 0, error: "No such queued post." };
-  if (!editable(target)) return { items, changed: 0, error: `That post is already ${target.status}.` };
+  // A failed post is edited on the way to being retried, so its copy stays
+  // open even though it is out of the running until then.
+  if (!editable(target) && !recoverable(target)) {
+    return { items, changed: 0, error: `That post is already ${target.status}.` };
+  }
 
   target.text = trimmed.slice(0, THREADS_TEXT_LIMIT);
   return { items, changed: 1 };
