@@ -29,6 +29,7 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { VisualAdComposer } from "@/components/pipeline/visual-ad-composer";
+import type { QueuePlan } from "@/lib/pipeline/queueOutputs";
 import { runListStatus, type RunTone } from "@/lib/pipeline/status";
 import { cn } from "@/lib/utils";
 import type {
@@ -337,6 +338,9 @@ export function PipelinePage() {
   const [dragActive, setDragActive] = useState(false);
   // Which stage's button is mid-request, so only that row spins.
   const [working, setWorking] = useState<string | null>(null);
+  // The booking sheet: what would be scheduled, and what he has unticked.
+  const [plan, setPlan] = useState<QueuePlan | null>(null);
+  const [dropped, setDropped] = useState<string[]>([]);
   const dragDepth = useRef(0);
   const uploadInputRef = useRef<HTMLInputElement>(null);
   const [postsOpen, setPostsOpen] = useState(false);
@@ -510,6 +514,64 @@ export function PipelinePage() {
           current.map((entry) => (entry.run.id === runId ? data.overview! : entry))
         );
         toast.success(data.detail ?? "Started again.");
+      } catch {
+        toast.error("Request failed. Is the server still running?");
+      } finally {
+        setWorking(null);
+      }
+    },
+    []
+  );
+
+  const loadPlan = useCallback(async (runId: string) => {
+    setWorking("plan");
+    try {
+      const response = await fetch(`/api/pipeline/${runId}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "plan-queue" })
+      });
+      const data = (await response.json()) as { plan?: QueuePlan; error?: string };
+      if (!response.ok || !data.plan) {
+        toast.error(data.error ?? "Could not work out what is ready.");
+        return;
+      }
+      setDropped([]);
+      setPlan(data.plan);
+    } catch {
+      toast.error("Request failed. Is the server still running?");
+    } finally {
+      setWorking(null);
+    }
+  }, []);
+
+  const confirmQueue = useCallback(
+    async (runId: string, ids: string[]) => {
+      setWorking("queue");
+      try {
+        const response = await fetch(`/api/pipeline/${runId}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action: "queue-all", ids })
+        });
+        const data = (await response.json()) as {
+          detail?: string;
+          error?: string;
+          failed?: { title: string; error: string }[];
+          overview?: PipelineRunOverview;
+        };
+        if (!response.ok) {
+          toast.error(data.error ?? "Nothing could be scheduled.");
+          return;
+        }
+        if (data.overview) {
+          setOverviews((current) => current.map((entry) => (entry.run.id === runId ? data.overview! : entry)));
+        }
+        // A booking that half worked has to say which half — the queue is the
+        // one place a silent gap turns into a day with nothing posted.
+        for (const failure of data.failed ?? []) toast.error(`${failure.title}: ${failure.error}`);
+        toast.success(data.detail ?? "Scheduled.");
+        setPlan(null);
       } catch {
         toast.error("Request failed. Is the server still running?");
       } finally {
@@ -862,6 +924,77 @@ export function PipelinePage() {
       title: STAGE_TITLES.schedule,
       children: schedulable ? (
         <div className="mt-3 space-y-3">
+          {/* The last mile. Everything this run made goes into the publish
+              queue from here — the clips one at a time in the Uploading Center
+              was the longest chore in the app, and the long-form video and its
+              segments had no route into the queue at all. */}
+          {run && plan ? (
+            <div className="rounded-lg border border-[var(--border)] bg-white/3 p-3">
+              {plan.problem ? (
+                <p className="text-xs text-amber-300/90">{plan.problem}</p>
+              ) : plan.candidates.length === 0 ? (
+                <p className="text-xs text-[var(--muted-foreground)]">
+                  Nothing here is waiting to be scheduled
+                  {plan.skipped.length > 0 ? ` — ${plan.skipped.length} already are.` : "."}
+                </p>
+              ) : (
+                <>
+                  <p className="mb-2 text-xs text-[var(--muted-foreground)]">
+                    {plan.candidates.length} to schedule, one per free slot. Untick anything you would rather keep back.
+                  </p>
+                  <div className="max-h-56 space-y-1 overflow-y-auto pr-1">
+                    {plan.candidates.map((candidate) => (
+                      <label key={candidate.id} className="flex items-start gap-2 text-xs text-white/90">
+                        <input
+                          type="checkbox"
+                          checked={!dropped.includes(candidate.id)}
+                          onChange={() =>
+                            setDropped((current) =>
+                              current.includes(candidate.id)
+                                ? current.filter((id) => id !== candidate.id)
+                                : [...current, candidate.id]
+                            )
+                          }
+                          className="mt-0.5 h-3.5 w-3.5 shrink-0 accent-[var(--accent)]"
+                        />
+                        <span className="min-w-0 flex-1">
+                          <span className="mr-1.5 rounded bg-white/8 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-[var(--muted-foreground)]">
+                            {candidate.kind === "clip" ? "short" : candidate.kind}
+                          </span>
+                          {candidate.title}
+                        </span>
+                      </label>
+                    ))}
+                  </div>
+                </>
+              )}
+              <div className="mt-3 flex flex-wrap items-center gap-2">
+                <Button
+                  disabled={
+                    working === "queue" || Boolean(plan.problem) || plan.candidates.length === dropped.length
+                  }
+                  onClick={() =>
+                    void confirmQueue(
+                      run.id,
+                      plan.candidates.map((item) => item.id).filter((id) => !dropped.includes(id))
+                    )
+                  }
+                  className="px-3 py-1.5 text-xs"
+                >
+                  {working === "queue" ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : null}
+                  Schedule {plan.candidates.length - dropped.length} now
+                </Button>
+                <Button variant="secondary" onClick={() => setPlan(null)} className="px-3 py-1.5 text-xs">
+                  Cancel
+                </Button>
+                {plan.skipped.length > 0 ? (
+                  <span className="text-[11px] text-[var(--muted-foreground)]">
+                    {plan.skipped.length} left out — {plan.skipped[0].reason.toLowerCase()}
+                  </span>
+                ) : null}
+              </div>
+            </div>
+          ) : null}
           <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-[var(--muted-foreground)]">
             <span>{schedulable.clipsReady} shorts</span>
             <span>{schedulable.longformReady ? "1 long-form video" : pendingLabel("longform", "long-form")}</span>
@@ -880,8 +1013,24 @@ export function PipelinePage() {
             {schedulable.queued > 0 && <span className="text-emerald-300">{schedulable.queued} queued</span>}
           </div>
           <div className="flex flex-wrap gap-2">
-            <Link href="/uploading-center">
-              <Button className="px-3 py-1.5 text-xs">Schedule in Uploading Center</Button>
+            {run && !plan ? (
+              <Button
+                disabled={working === "plan"}
+                onClick={() => void loadPlan(run.id)}
+                className="px-3 py-1.5 text-xs"
+              >
+                {working === "plan" ? (
+                  <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <CalendarClock className="mr-1.5 h-3.5 w-3.5" />
+                )}
+                Schedule everything from this run
+              </Button>
+            ) : null}
+            <Link href={run?.clipJobId ? `/uploading-center?job=${run.clipJobId}` : "/uploading-center"}>
+              <Button variant="secondary" className="px-3 py-1.5 text-xs">
+                Open the Uploading Center
+              </Button>
             </Link>
             <Link href="/master-calendar">
               <Button variant="secondary" className="px-3 py-1.5 text-xs">
