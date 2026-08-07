@@ -1,6 +1,6 @@
 import { mkdir, readFile, rename, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
-import type { IngestLedger, IngestRecord } from "@/lib/ingest/types";
+import type { IngestLedger, IngestRecord, LedgerScan } from "@/lib/ingest/types";
 import { dataPath } from "@/lib/paths";
 
 /**
@@ -27,6 +27,7 @@ export async function readLedger(): Promise<IngestLedger> {
     const parsed = JSON.parse(await readFile(ledgerPath(), "utf8")) as Partial<IngestLedger>;
     return {
       lastScanAt: typeof parsed.lastScanAt === "string" ? parsed.lastScanAt : null,
+      ...(parsed.lastScan && typeof parsed.lastScan === "object" ? { lastScan: parsed.lastScan } : {}),
       records: Array.isArray(parsed.records) ? parsed.records : []
     };
   } catch (error) {
@@ -123,3 +124,17 @@ export function upsertRecord(ledger: IngestLedger, record: IngestRecord): Ingest
   return { ...ledger, records };
 }
 
+
+/**
+ * Records how a scan ended, from whichever process ran it. Best effort on
+ * purpose: failing to write the note must not turn a scan that worked into a
+ * scan that failed.
+ */
+export async function recordScanOutcome(scan: LedgerScan): Promise<void> {
+  try {
+    const ledger = await readLedger();
+    await writeLedger({ ...ledger, lastScan: scan, lastScanAt: scan.at });
+  } catch {
+    // The ledger's own read error is already loud where it matters.
+  }
+}

@@ -87,7 +87,24 @@ export type IngestRecord = {
   error?: string;
 };
 
+/**
+ * How the last scan ended, on disk rather than in memory. The nightly scan is a
+ * SEPARATE PROCESS from the app server, so an in-memory job record cannot
+ * survive it — which is how an overnight failure stayed invisible: the app had
+ * nothing to read.
+ */
+export type LedgerScan = {
+  at: string;
+  status: "ok" | "failed" | "not-connected" | "needs-reconnect";
+  /** What went wrong, when something did. */
+  error?: string;
+  ingested?: number;
+  dryRun?: boolean;
+};
+
 export type IngestLedger = {
   lastScanAt: string | null;
+  /** The outcome of the most recent scan, whichever process ran it. */
+  lastScan?: LedgerScan;
   records: IngestRecord[];
 };

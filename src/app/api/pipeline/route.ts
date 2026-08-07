@@ -22,12 +22,16 @@ export async function GET(request: NextRequest) {
     // is the failure most likely to happen overnight, so it has to reach the
     // same badge rather than only the panel on /agents.
     const scan = await ingestOverview().catch(() => null);
-    const scanFailed = scan?.lastScan?.status === "failed" || Boolean(scan?.lastScan?.needsReconnect);
+    const outcome = scan?.lastScanOutcome ?? null;
+    // "Not connected" counts: a scan that cannot see the channel is a scan that
+    // will never take anything in, which is the same nothing-happened morning.
+    const scanFailed = Boolean(outcome && outcome.status !== "ok");
     return NextResponse.json({
       needsAttention:
         overviews.filter((entry) => entry.run.status === "error" || entry.retryable.length > 0).length +
         (scanFailed ? 1 : 0),
       scanFailed,
+      scan: outcome,
       working: overviews.filter((entry) => entry.run.status !== "error" && !entry.settled).length
     });
   }
@@ -58,14 +62,14 @@ export async function POST(request: NextRequest) {
   try {
     if (sourceId) {
       const run = await createRunFromSource(sourceId, name || undefined);
-      if (queueWhenReady) await updateRun(run, { queueWhenReady: true });
+      if (queueWhenReady) await updateRun(run, { queueWhenReady: true, unattended: true, renderAllSegments: true });
       return NextResponse.json({ run }, { status: 201 });
     }
     if (!/^https?:\/\/\S+$/i.test(url)) {
       return NextResponse.json({ error: "Enter a valid http(s) stream/VOD URL, or upload a file." }, { status: 400 });
     }
     const run = await createRunFromUrl(url, name || undefined);
-    if (queueWhenReady) await updateRun(run, { queueWhenReady: true });
+    if (queueWhenReady) await updateRun(run, { queueWhenReady: true, unattended: true, renderAllSegments: true });
     return NextResponse.json({ run }, { status: 201 });
   } catch (error) {
     return NextResponse.json(

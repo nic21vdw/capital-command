@@ -45,3 +45,20 @@ describe("reading a data file that cannot be parsed", () => {
     expect(readFileSync(dataFile(), "utf8").length).toBeGreaterThan(0);
   });
 });
+
+describe("how many copies a corrupt file gets", () => {
+  it("keeps one, however many reads fail", async () => {
+    const { readAppData } = await import("@/lib/storage/store");
+    const { mkdirSync } = await import("node:fs");
+    mkdirSync(path.dirname(dataFile()), { recursive: true });
+    writeFileSync(dataFile(), "{not json", "utf8");
+
+    // Every screen and the sidebar's 60s poll read app data; a copy per failed
+    // read was thousands of copies of a multi-megabyte file in a day.
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      await readAppData().catch(() => undefined);
+    }
+    const copies = readdirSync(path.dirname(dataFile())).filter((name) => name.includes("unreadable"));
+    expect(copies).toHaveLength(1);
+  });
+});

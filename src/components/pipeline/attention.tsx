@@ -9,7 +9,14 @@ import { createContext, useContext, useEffect, useState } from "react";
 // release status: two components polling would disagree on screen, and every
 // poll also advances the runs server-side.
 
-type Attention = { needsAttention: number; working: number };
+export type ScanOutcome = {
+  at: string;
+  status: "ok" | "failed" | "not-connected" | "needs-reconnect";
+  error?: string;
+  ingested?: number;
+};
+
+type Attention = { needsAttention: number; working: number; scan?: ScanOutcome | null };
 
 const PipelineAttentionContext = createContext<Attention>({ needsAttention: 0, working: 0 });
 
@@ -29,7 +36,13 @@ export function PipelineAttentionProvider({ children }: { children: React.ReactN
         const response = await fetch("/api/pipeline?summary=1", { cache: "no-store" });
         if (!response.ok) return;
         const data = (await response.json()) as Attention;
-        if (alive) setAttention({ needsAttention: data.needsAttention ?? 0, working: data.working ?? 0 });
+        if (alive) {
+          setAttention({
+            needsAttention: data.needsAttention ?? 0,
+            working: data.working ?? 0,
+            scan: data.scan ?? null
+          });
+        }
       } catch {
         // Offline or mid-restart: keep the last count rather than clearing it.
       }

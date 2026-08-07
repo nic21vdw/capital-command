@@ -66,7 +66,7 @@ export async function POST(request: NextRequest, { params }: Params) {
 
   // The standing instruction is his to end, from the row it runs on.
   if (action === "stop-queueing") {
-    await updateRun(run, { queueWhenReady: undefined });
+    await updateRun(run, { queueWhenReady: undefined, unattended: undefined });
     return NextResponse.json({ detail: "Nothing more will be booked automatically.", overview: await runOverview(run) });
   }
 

@@ -30,6 +30,7 @@ import { Card } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { VisualAdComposer } from "@/components/pipeline/visual-ad-composer";
 import type { QueuePlan } from "@/lib/pipeline/queueOutputs";
+import { usePipelineAttention } from "@/components/pipeline/attention";
 import { runListStatus, type RunTone } from "@/lib/pipeline/status";
 import { MAX_IMAGES_PER_POST } from "@/lib/publisher/images";
 import { cn } from "@/lib/utils";
@@ -342,6 +343,7 @@ export function PipelinePage() {
   // The booking sheet: what would be scheduled, and what he has unticked.
   const [plan, setPlan] = useState<QueuePlan | null>(null);
   const [dropped, setDropped] = useState<string[]>([]);
+  const { scan } = usePipelineAttention();
   const dragDepth = useRef(0);
   const uploadInputRef = useRef<HTMLInputElement>(null);
   const [postsOpen, setPostsOpen] = useState(false);
@@ -605,6 +607,28 @@ export function PipelinePage() {
    * Runs the same link through the pipeline again and drops the dead run, so a
    * failed download is one button rather than a copy-paste and a delete.
    */
+  /** Runs the scan again from here, rather than sending him to another screen. */
+  const rescan = useCallback(async () => {
+    setWorking("scan");
+    try {
+      const response = await fetch("/api/ingest", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({})
+      });
+      const data = (await response.json()) as { error?: string };
+      if (!response.ok) {
+        toast.error(data.error ?? "The scan could not be started.");
+        return;
+      }
+      toast.success("Scanning the channel again.");
+    } catch {
+      toast.error("Request failed. Is the server still running?");
+    } finally {
+      setWorking(null);
+    }
+  }, []);
+
   const restartRun = useCallback(
     async (runId: string, url: string, name: string) => {
       setWorking("restart");
@@ -678,6 +702,40 @@ export function PipelinePage() {
     onDragOver: (event: React.DragEvent) => event.preventDefault(),
     onDrop
   };
+
+  // The nightly scan is what fills this page while he sleeps, so when it fails
+  // it has to say so HERE — the sidebar count that flags it points at this
+  // screen, and this screen had never heard of scanning.
+  const scanTrouble = scan && scan.status !== "ok" ? scan : null;
+  const scanNotice = scanTrouble ? (
+    <Card className="mb-4 flex flex-wrap items-center justify-between gap-3 border-amber-400/25 bg-amber-400/[0.06] p-3">
+      <p className="min-w-0 text-sm text-amber-100/90">
+        {scanTrouble.status === "not-connected"
+          ? "The nightly channel scan has nothing to look at — YouTube is not connected."
+          : scanTrouble.status === "needs-reconnect"
+            ? "The nightly channel scan cannot read the channel any more — YouTube needs reconnecting."
+            : `The last channel scan failed${scanTrouble.error ? ` — ${scanTrouble.error}` : "."}`}
+      </p>
+      <div className="flex shrink-0 flex-wrap gap-2">
+        {scanTrouble.status === "failed" ? (
+          <Button
+            variant="secondary"
+            disabled={working === "scan"}
+            onClick={() => void rescan()}
+            className="px-3 py-1.5 text-xs"
+          >
+            {working === "scan" ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : null}
+            Scan again
+          </Button>
+        ) : null}
+        <Link href="/uploading-center">
+          <Button variant="secondary" className="px-3 py-1.5 text-xs">
+            Connect the channel
+          </Button>
+        </Link>
+      </div>
+    </Card>
+  ) : null;
 
   const fileInput = (
     <input
@@ -772,6 +830,7 @@ export function PipelinePage() {
         )}
       >
         <div className="pipeline-hero-enter w-full max-w-2xl">
+          {scanNotice}
           <h1 className="text-center text-3xl font-semibold tracking-tight text-white sm:text-4xl">
             {dragActive ? "Drop it anywhere." : "Ready when you are."}
           </h1>
@@ -1147,6 +1206,7 @@ export function PipelinePage() {
             <div className="flex flex-wrap items-center gap-2 rounded-lg border border-emerald-400/20 bg-emerald-400/[0.06] px-3 py-2">
               <span className="min-w-0 flex-1 text-xs text-emerald-100/90">
                 Anything still rendering is booked as it lands. Nothing you unticked will be.
+                {run.unattended ? " Its segments render and its Threads posts are scheduled too." : ""}
               </span>
               <Button
                 variant="secondary"
@@ -1224,6 +1284,7 @@ export function PipelinePage() {
       </div>
 
       <div className="mx-auto mt-6 max-w-3xl">
+        {scanNotice}
         {!stages ? (
           loaded ? (
             <Card className="p-10 text-center text-sm text-[var(--muted-foreground)]">

@@ -85,6 +85,12 @@ export type PipelineRun = {
    */
   queueWhenReady?: boolean;
   /**
+   * Render every topic segment and schedule the Threads posts as they appear,
+   * without being asked again. Set on a run the nightly scan took in: it was
+   * doing the whole job while he slept and then waiting for two clicks.
+   */
+  unattended?: boolean;
+  /**
    * Candidate ids he unticked when he confirmed the booking. The standing
    * instruction must never book these: re-planning from scratch would undo the
    * one decision the sheet asked him to make.

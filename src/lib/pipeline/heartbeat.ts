@@ -1,5 +1,6 @@
 import { advanceMusicJob, listMusicJobs } from "@/lib/music/jobs";
 import { queueReadyOutputs, stopQueueingWhenSettled } from "@/lib/pipeline/queueOutputs";
+import { queueRunPosts } from "@/lib/pipeline/queuePosts";
 import { listRuns, overviewContext, runOverview } from "@/lib/pipeline/runs";
 
 // Polling the overview is what advances a run, and until now the only thing
@@ -42,10 +43,23 @@ export async function advancePipelineOnce(): Promise<number> {
   // is the tick its last export finished on — stopping first meant the final
   // segment was the one output never booked.
   await queueReadyOutputs().catch(() => undefined);
+  await queueUnattendedPosts(live).catch(() => undefined);
   for (const runId of settledNow) {
     await stopQueueingWhenSettled(runId, true).catch(() => undefined);
   }
   return live.length;
+}
+
+/**
+ * The text posts of a run nobody was watching. They are written hours after the
+ * scan started, so the same standing instruction that books the videos has to
+ * cover them — `postsQueuedAt` is what keeps it to once.
+ */
+async function queueUnattendedPosts(runs: { id: string; unattended?: boolean; posts?: unknown[]; postsQueuedAt?: string }[]) {
+  for (const run of runs) {
+    if (!run.unattended || run.postsQueuedAt || !(run.posts?.length ?? 0)) continue;
+    await queueRunPosts(run.id).catch(() => undefined);
+  }
 }
 
 /** Idempotent: a hot reload must not leave two timers ticking the same runs. */

@@ -23,9 +23,16 @@ interface AppContextValue extends BootstrapPayload {
 
 const AppContext = createContext<AppContextValue | null>(null);
 
+/** A data file the server refused to read, with what it said about it. */
+export class DataUnreadable extends Error {}
+
 async function readBootstrap(): Promise<BootstrapPayload> {
   const response = await fetch("/api/bootstrap", { cache: "no-store" });
   if (!response.ok) {
+    if (response.status === 503) {
+      const body = (await response.json().catch(() => null)) as { error?: string; unreadable?: boolean } | null;
+      if (body?.unreadable) throw new DataUnreadable(body.error ?? "The app data file could not be read.");
+    }
     throw new Error("Unable to load app data");
   }
   return response.json();
@@ -60,6 +67,7 @@ async function describeFailure(response: Response, action: string): Promise<stri
 export function AppProvider({ children }: { children: React.ReactNode }) {
   const [payload, setPayload] = useState<BootstrapPayload | null>(null);
   const [loading, setLoading] = useState(true);
+  const [unreadable, setUnreadable] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -70,9 +78,18 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       // stale data and could mount from local fallbacks (e.g. editor drafts).
       startTransition(() => {
         setPayload(next);
+        setUnreadable(null);
         setLoading(false);
       });
-    } catch {
+    } catch (error) {
+      // A file that could not be READ is not an empty app. Mounting every
+      // screen from defaults made a corrupt document look like a brand-new
+      // install, down to a "set up your profile" prompt.
+      if (error instanceof DataUnreadable) {
+        setUnreadable(error.message);
+        setLoading(false);
+        return;
+      }
       toast.error("Unable to load Nic Vandewetering data.");
       setLoading(false);
     }
@@ -129,6 +146,28 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       toast.error(reason ? `Could not ${describeAction(action)}: ${reason}` : `Could not ${describeAction(action)}.`);
     }
   }, []);
+
+  if (unreadable) {
+    return (
+      <div className="flex min-h-screen items-center justify-center px-6">
+        <div className="max-w-lg rounded-2xl border border-amber-400/30 bg-amber-400/[0.06] p-6">
+          <h1 className="text-lg font-semibold text-white">Your data file could not be read</h1>
+          <p className="mt-2 text-sm text-amber-100/90">{unreadable}</p>
+          <p className="mt-2 text-sm text-[var(--muted-foreground)]">
+            Nothing has been changed. The file is still in <code>data\capital-command.json</code>, and a copy of it was
+            saved beside it. Fix or restore that file, then try again.
+          </p>
+          <button
+            type="button"
+            onClick={() => void refresh()}
+            className="mt-4 rounded-lg bg-[var(--accent)] px-3 py-1.5 text-sm text-[var(--accent-contrast)] transition hover:opacity-90"
+          >
+            Try again
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   if (!payload) {
     return (
