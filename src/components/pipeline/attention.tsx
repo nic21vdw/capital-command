@@ -45,10 +45,22 @@ export function PipelineAttentionProvider({ children }: { children: React.ReactN
   // The window is usually behind something else — this app runs as its own
   // taskbar window all day. Putting the count in the title is the one signal
   // that reaches him without asking for notification permission.
+  //
+  // Next writes each route's own <title> AFTER hydration, so setting this once
+  // per value was silently undone on the first load — the case the count exists
+  // for. Watching the title element is what makes it stick.
   useEffect(() => {
     if (typeof document === "undefined") return;
-    const base = document.title.replace(/^\(\d+\)\s*/, "");
-    document.title = attention.needsAttention > 0 ? `(${attention.needsAttention}) ${base}` : base;
+    const apply = () => {
+      const base = document.title.replace(/^\(\d+\)\s*/, "");
+      const wanted = attention.needsAttention > 0 ? `(${attention.needsAttention}) ${base}` : base;
+      if (document.title !== wanted) document.title = wanted;
+    };
+    apply();
+    const head = document.querySelector("title")?.parentElement ?? document.head;
+    const observer = new MutationObserver(apply);
+    observer.observe(head, { subtree: true, childList: true, characterData: true });
+    return () => observer.disconnect();
   }, [attention.needsAttention, pathname]);
 
   return <PipelineAttentionContext.Provider value={attention}>{children}</PipelineAttentionContext.Provider>;
