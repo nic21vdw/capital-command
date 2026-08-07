@@ -102,10 +102,14 @@ which creates %USERPROFILE%\capital-command-<name> on its own branch.
     # Local refs first, and no network call at all. `git ls-remote` writes to
     # stderr when GitHub cannot be reached, which under "Stop" is a TERMINATING
     # error - so an offline machine could not even open a sandbox to work in.
+    # A REMOTE main outranks the local one. The fetch above has just brought the
+    # remotes up to date, while local `main` only moves when something checks it
+    # out - it was ten commits behind, and every sandbox opened from it started
+    # by silently reviewing yesterday's code.
     $candidates = @()
     foreach ($remote in $remotes) { $candidates += "$remote/$Branch" }
-    $candidates += "main"
     foreach ($remote in $remotes) { $candidates += "$remote/main" }
+    $candidates += "main"
     $base = $candidates | Where-Object {
       $previous = $ErrorActionPreference
       $ErrorActionPreference = "Continue"

@@ -313,7 +313,7 @@ export async function advanceRun(run: PipelineRun): Promise<void> {
     );
     if (existing) {
       await update(run, { longformExportId: existing.id });
-    } else {
+    } else if (!stuck(run, "export")) {
       void step(run, "export", async () => {
         const record = await startLongformExport(project);
         await update(run, { longformExportId: record.id });
@@ -406,7 +406,14 @@ export async function advanceRun(run: PipelineRun): Promise<void> {
   // it — the long-form project picks it up automatically because both sides
   // work from the same source id. One attempt is enough: the clip job writes
   // its transcript once.
-  if (project && project.status === "ready" && !project.topics && !run.segmentsPlanned && job?.sourceCaptions?.length) {
+  if (
+    project &&
+    project.status === "ready" &&
+    !project.topics &&
+    !run.segmentsPlanned &&
+    !stuck(run, "segments") &&
+    job?.sourceCaptions?.length
+  ) {
     void step(run, "segments", async () => {
       await planProjectTopics(project.id);
       await update(run, { segmentsPlanned: true });
@@ -445,7 +452,7 @@ export async function advanceRun(run: PipelineRun): Promise<void> {
           carouselGaveUp: false
         });
       }
-    } else {
+    } else if (!stuck(run, "carousel")) {
     void step(run, "carousel", async () => {
       const { carousel, drafts, reason } = await generateCarousel({
         title: run.name,
@@ -510,7 +517,7 @@ export async function advanceRun(run: PipelineRun): Promise<void> {
       postsGaveUp: false
     });
   }
-  if (!run.posts && longformSettled && clipsSettled && hasMaterial && (project || job)) {
+  if (!run.posts && longformSettled && clipsSettled && hasMaterial && (project || job) && !stuck(run, "posts")) {
     void step(run, "posts", async () => {
       const { posts, reason } = await generatePipelinePosts({
         streamTitle: run.name,
@@ -557,7 +564,11 @@ function sourceStage(run: PipelineRun): PipelineStage {
 function longformStage(run: PipelineRun, project: LongformProject | undefined): PipelineStage {
   if (run.status !== "running") return stage("waiting", "Waiting for the source.");
   if (!project) {
-    if (run.longformProjectId) return stage("error", "The long-form project is gone — it may have been deleted.");
+    if (run.longformProjectId) {
+      // Deleted, not broken. A Retry can only ever answer "it is gone", so the
+      // row says what to do instead of offering a button that always refuses.
+      return { ...stage("error", "The long-form project is gone — remove this run, or start the stream again."), retryable: false };
+    }
     // Without this a source that has been deleted under a run left the stage
     // saying "Creating the long-form project…" for good, retrying the same
     // doomed call every couple of seconds with no way to act on it.
@@ -578,7 +589,12 @@ function longformStage(run: PipelineRun, project: LongformProject | undefined): 
     return stage("running", labels[project.stage] ?? "Analyzing…", project.progress);
   }
   const record = project.exports.find((item) => item.id === run.longformExportId);
-  if (!record) return stage("running", "Edit planned — starting the export…");
+  if (!record) {
+    if (stuck(run, "export")) {
+      return { ...stage("error", run.notices[run.notices.length - 1] ?? "The export could not be started."), retryable: true };
+    }
+    return stage("running", "Edit planned — starting the export…");
+  }
   if (record.status === "processing") return stage("running", "Rendering the edited video…", record.progress);
   if (record.status === "done" && record.file) {
     const length = record.durationSec ? ` · ${formatDuration(record.durationSec)}` : "";
@@ -616,6 +632,9 @@ function segmentsStage(
         project.topicsNote ?? "No whole-recording transcript came out of this stream to split into subjects."
       );
     }
+    if (stuck(run, "segments")) {
+      return { ...stage("error", "The stream could not be split into subjects."), retryable: true };
+    }
     return stage("running", project.topicsNote ? "Waiting on the full transcript…" : "Reading the transcript for subjects…");
   }
   if (topics.length === 0) {
@@ -631,7 +650,9 @@ const WEAK_CLIP_SCORE = 25;
 function clipsStage(run: PipelineRun, job: ClipJob | undefined): PipelineStage {
   if (run.status !== "running") return stage("waiting", "Waiting for the source.");
   if (!job) {
-    if (run.clipJobId) return stage("error", "The clip job is gone — it may have been deleted.");
+    if (run.clipJobId) {
+      return { ...stage("error", "The clip job is gone — remove this run, or start the stream again."), retryable: false };
+    }
     if (stuck(run, "clips")) {
       return { ...stage("error", run.notices[run.notices.length - 1] ?? "The clip job could not be created."), retryable: true };
     }
@@ -692,7 +713,9 @@ function imagesStage(run: PipelineRun, project: LongformProject | undefined, sli
     // for a carousel that no longer exists — the same phrasing the clips stage
     // uses for a missing job, since the count is best-effort and a failed read
     // looks identical to a deletion.
-    if (slideCount === 0) return stage("error", "The carousel is gone — it may have been deleted.");
+    if (slideCount === 0) {
+      return { ...stage("error", "The carousel is gone — it was deleted from the Studio."), retryable: false };
+    }
     const note = run.carouselNote ? ` (${run.carouselNote})` : "";
     return stage("ready", `${slideCount} carousel slides written${note}`);
   }
@@ -706,7 +729,12 @@ function imagesStage(run: PipelineRun, project: LongformProject | undefined, sli
   if (project?.status === "ready" && project.transcript.length === 0) {
     return stage("skipped", "No transcript came out of this stream to write slides from.");
   }
-  if (project?.status === "ready") return stage("running", "Writing carousel slides from the transcript…");
+  if (project?.status === "ready") {
+    if (stuck(run, "carousel")) {
+      return { ...stage("error", "The carousel could not be written."), retryable: true };
+    }
+    return stage("running", "Writing carousel slides from the transcript…");
+  }
   return stage("waiting", "Written from the transcript once analysis finishes.");
 }
 
@@ -731,6 +759,9 @@ function postsStage(run: PipelineRun): PipelineStage {
   if (run.posts) {
     const note = run.postsNote ?? "Nothing to write from.";
     return run.postsGaveUp ? gaveUp(note) : stage("skipped", note);
+  }
+  if (stuck(run, "posts")) {
+    return { ...stage("error", "The text posts could not be written."), retryable: true };
   }
   return stage("waiting", "Written from the transcript and clip titles once they exist.");
 }
@@ -827,7 +858,9 @@ export async function runOverview(run: PipelineRun, context?: OverviewContext): 
   // carousel among "outputs ready to schedule" made the row promise something
   // no button on the page could do — the publish queue has no concept of an
   // image post, so the deck and the visual ad are posted by hand.
-  const bookable = clipsReady + (longformReady ? 1 : 0) + segmentsRendered + posts;
+  // Exactly what "Schedule everything from this run" books — the text posts have
+  // their own button, and counting them here made the sentence overstate by N.
+  const bookable = clipsReady + (longformReady ? 1 : 0) + segmentsRendered;
   const byHand = (slideCount > 0 ? 1 : 0) + (visualMoment ? 1 : 0);
   const readyItems = bookable + byHand + (audioReady ? 1 : 0);
   const upstreamSettled = (["longform", "segments", "clips", "audio", "podcast", "images", "visuals", "posts"] as const).every(
@@ -844,6 +877,7 @@ export async function runOverview(run: PipelineRun, context?: OverviewContext): 
       // anyone: it is already in the feed, and nothing about it gets scheduled.
       [
         `${bookable} output${bookable === 1 ? "" : "s"} ready to schedule`,
+        posts > 0 ? `${posts} text post${posts === 1 ? "" : "s"}` : "",
         byHand > 0 ? `${slideCount > 0 ? "carousel" : ""}${slideCount > 0 && visualMoment ? " and " : ""}${
           visualMoment ? "visual ad" : ""
         } to post by hand` : "",

@@ -28,6 +28,22 @@ already shipped.
   number of pictures and an "Image" or "Carousel · N" badge instead of an empty
   video thumbnail. Every clip already in the queue looks and posts exactly as
   before.
+- **Every step of a run can now give up and say so.** Only the first two were
+  guarded: a carousel, a topic split, a set of posts or an export that threw
+  was retried every couple of seconds forever while the row said "working".
+  After three tries it says what went wrong and offers a retry.
+
+- **What you untick stays unticked.** Scheduling a run kept booking as outputs
+  landed — including the ones you had just held back, about a minute later. It
+  now remembers exactly what you chose, never re-books something you deleted
+  from the queue, and still picks up anything that only finished afterwards.
+- **You can stop it booking.** The Scheduler row says when a run is still
+  booking automatically and has a button to stop, instead of that only being
+  visible inside a sheet that closed.
+- **The window title keeps the count on a fresh window**, not just after you
+  change screen — which was the case it existed for.
+- **A run whose project or clip job was deleted stops asking to be retried.**
+  It said "needs attention" forever and every retry answered "it is gone".
 
 - **A clip whose AI caption failed is no longer scheduled behind a green
   toast.** The Uploading Center now names the clips it couldn't write copy for,
