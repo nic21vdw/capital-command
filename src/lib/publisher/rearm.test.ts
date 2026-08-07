@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { primaryAccountId } from "@/lib/publisher/accounts";
-import { hasRearmablePlatform, rearmItem, rearmItems } from "@/lib/publisher/rearm";
+import { connectRearmScope, hasRearmablePlatform, rearmItem, rearmItems } from "@/lib/publisher/rearm";
+import { YOUTUBE_RECONNECT_REQUIRED } from "@/lib/publisher/googleAuth";
 import { testItem } from "@/lib/publisher/test-helpers";
 import type { QueueItem } from "@/lib/publisher/types";
 
@@ -74,5 +75,36 @@ describe("re-arming blocked posts", () => {
   it("reports whether anything on a post could be retried", () => {
     expect(hasRearmablePlatform(blocked())).toBe(true);
     expect(hasRearmablePlatform(testItem())).toBe(false);
+  });
+
+  it("keeps the post id, because that is what stops a retry uploading a second copy", () => {
+    const item = testItem({ platformIds: ["youtube"] });
+    item.platforms.youtube = { status: "failed", attempts: 1, postId: "vid1", error: "went private" };
+
+    expect(rearmItem(item)).toEqual(["youtube"]);
+    expect(item.platforms.youtube?.postId).toBe("vid1");
+  });
+});
+
+describe("what a reconnect re-arms", () => {
+  it("revives only the connection-blocked posts of that account", () => {
+    const revoked = testItem({ id: "revoked", platformIds: ["youtube"] });
+    revoked.platforms.youtube = { status: "failed", attempts: 3, error: YOUTUBE_RECONNECT_REQUIRED };
+    const rejected = testItem({ id: "rejected", platformIds: ["youtube"] });
+    rejected.platforms.youtube = { status: "failed", attempts: 3, error: "The video was rejected as a duplicate." };
+    const waiting = testItem({ id: "waiting", platformIds: ["youtube"] });
+    waiting.platforms.youtube = { status: "manual", attempts: 0, note: "YouTube isn't connected yet." };
+    const otherAccount = testItem({ id: "other-account", platformIds: ["youtube"], accountId: "youtube-second" });
+    otherAccount.platforms.youtube = { status: "failed", attempts: 3, error: YOUTUBE_RECONNECT_REQUIRED };
+
+    const changed = rearmItems(
+      [revoked, rejected, waiting, otherAccount],
+      connectRearmScope("youtube", primaryAccountId("youtube"))
+    );
+
+    expect(changed.map((entry) => entry.item.id).sort()).toEqual(["revoked", "waiting"]);
+    expect(rejected.platforms.youtube?.status).toBe("failed");
+    expect(otherAccount.platforms.youtube?.status).toBe("failed");
+    expect(waiting.platforms.youtube?.note).toBeUndefined();
   });
 });

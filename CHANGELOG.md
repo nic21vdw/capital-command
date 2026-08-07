@@ -14,6 +14,24 @@ already shipped.
 
 ## Unreleased
 
+- **Retry can no longer put the same video on your channel twice.** A post
+  that reached YouTube and only failed afterwards kept its video id, but
+  nothing looked at it before uploading — so one press of Retry (or one
+  reconnect re-arming a batch) could upload a second copy of the same clip.
+  A post that already exists is now resumed instead: it gets checked and
+  flipped public if its slot has passed, and left alone until then. Threads
+  works the same way: a post that already went out is recorded as published
+  rather than sent again.
+- **A reconnect only revives what the reconnect fixes.** Re-arming after
+  connecting an account used to put every failed post on that platform back in
+  the queue, including the ones the platform itself rejected. Now it revives
+  the posts that were waiting on the connection and leaves a rejected video
+  rejected.
+- **A failed post says what went wrong in English.** The card used to show a
+  wall of raw provider JSON. It now shows one sentence and the button that
+  fixes it — Reconnect YouTube when the connection is dead, Retry when it is
+  worth another go, nothing when the clip file has gone missing — with the
+  provider's own text tucked behind "Details".
 - **Scheduling a run keeps scheduling it.** The topic segments render for hours
   after you press "Schedule everything from this run", and the long-form export
   often lands after the shorts — those are now booked as they finish, with the

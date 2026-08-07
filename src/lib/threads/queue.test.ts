@@ -224,6 +224,18 @@ describe("retryItem", () => {
     expect(items[0].publishAt).toBe(later);
   });
 
+  // A write that failed after Threads accepted the post leaves the record
+  // "failed" with a post id on it. Retrying that would post the same text twice.
+  it("refuses a failed post that already reached Threads", () => {
+    const items = [item({ status: "failed", postId: "post-1", error: "could not save the queue" })];
+
+    const result = retryItem(items, "item-1", now);
+
+    expect(result.changed).toBe(0);
+    expect(result.error).toContain("already reached Threads");
+    expect(items[0].status).toBe("failed");
+  });
+
   it("refuses a post that is published or already queued", () => {
     expect(retryItem([item({ status: "published" })], "item-1", now).error).toContain("published");
     expect(retryItem([item()], "item-1", now).error).toContain("pending");

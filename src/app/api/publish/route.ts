@@ -5,7 +5,7 @@ import { ensureVerticalClipFile, outputDir } from "@/lib/clipping/jobs";
 import { publisherConfig } from "@/lib/publisher/config";
 import { enqueue } from "@/lib/publisher/enqueue";
 import { FAILED_RETENTION_DAYS, publishQueue } from "@/lib/publisher/queue";
-import { rearmItems } from "@/lib/publisher/rearm";
+import { connectRearmScope, rearmItems } from "@/lib/publisher/rearm";
 import { runDue, type RunReport } from "@/lib/publisher/runner";
 
 export const runtime = "nodejs";
@@ -178,7 +178,9 @@ async function handleAction(
   }
 
   if (!platform) return NextResponse.json({ error: '"rearm" needs a platform.' }, { status: 400 });
-  const changed = rearmItems(await queue.list(), { platform, accountId });
+  // Scoped to failures a connection fixes: a rejected video stays rejected, or
+  // one reconnect would march every dead post back into the queue.
+  const changed = rearmItems(await queue.list(), connectRearmScope(platform, accountId));
   if (changed.length > 0) await queue.save();
   return NextResponse.json({
     ok: true,

@@ -189,6 +189,11 @@ export function retryItem(items: ThreadsQueueItem[], id: string, now: Date): Que
   if (!recoverable(target)) {
     return { items, changed: 0, error: `That post is ${target.status} — there is nothing to retry.` };
   }
+  // It carries a Threads post id, so it went live even though the queue ended
+  // up recording a failure. Sending it again would post the same thing twice.
+  if (target.postId) {
+    return { items, changed: 0, error: "That post already reached Threads, so it won't be sent again." };
+  }
 
   target.status = "pending";
   target.attempts = 0;
