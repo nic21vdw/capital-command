@@ -3,20 +3,26 @@ import path from "node:path";
 import { createCanvas, loadImage } from "@napi-rs/canvas";
 import {
   DECK_MANIFEST_FILE,
+  DECK_SLIDE_QUALITY,
   deckDir,
+  deckPixelSize,
   deckRatio,
   planDeckRender,
   type DeckManifest
 } from "@/lib/carousels/deckFiles";
-import { paintSlide, slideImageLayers, slidePixelSize, type SlideImage } from "@/lib/carousels/render";
+import { paintSlide, slideImageLayers, type SlideImage } from "@/lib/carousels/render";
 import { carouselImagePath, parseCarouselImageId } from "@/lib/carousels/uploads";
 import type { Carousel } from "@/types/domain";
 
 /**
- * Renders a stored deck to real PNG files on disk, so a carousel can be booked
+ * Renders a stored deck to real JPEG files on disk, so a carousel can be booked
  * into the publish queue like any other output. Slides are drawn client-side
  * everywhere else in the app, which is why nothing server-side could hand the
  * publisher a picture until this existed.
+ *
+ * JPEG at a picture-post width, not PNG at the frame's own resolution: this is
+ * the file Instagram will be asked to download at the slot, and the format and
+ * the size band are the two things it refuses on.
  *
  * The layout is not repeated here: `paintSlide` is the same routine the editor
  * and the browser download go through, given a Node canvas instead of the
@@ -75,7 +81,7 @@ export async function renderCarouselDeck(carousel: Carousel): Promise<string[]> 
 
   if (plan.render.length > 0) {
     const ratio = deckRatio(carousel);
-    const { width, height } = slidePixelSize(ratio);
+    const { width, height } = deckPixelSize(ratio);
     const images = await decodeLayers(carousel);
     for (const index of plan.render) {
       const canvas = createCanvas(width, height);
@@ -87,7 +93,7 @@ export async function renderCarouselDeck(carousel: Carousel): Promise<string[]> 
         height,
         images
       });
-      await writeFile(path.join(dir, plan.files[index]), canvas.toBuffer("image/png"));
+      await writeFile(path.join(dir, plan.files[index]), canvas.toBuffer("image/jpeg", DECK_SLIDE_QUALITY));
     }
   }
 

@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { planDeckRender, slideFileName, slideFingerprint, type DeckManifest } from "@/lib/carousels/deckFiles";
+import {
+  deckPixelSize,
+  planDeckRender,
+  slideFileName,
+  slideFingerprint,
+  type DeckManifest
+} from "@/lib/carousels/deckFiles";
+import { IMAGE_POST_MAX_WIDTH, IMAGE_POST_MIN_WIDTH, isSupportedImagePath } from "@/lib/publisher/images";
 import type { CarouselSlide } from "@/types/domain";
 
 const slide = (id: string, heading: string): CarouselSlide => ({ id, heading, body: `${heading} body` });
@@ -78,5 +85,49 @@ describe("planning a deck render", () => {
     const plan = planDeckRender(deck(["one", "two"]), manifestFor(long), files);
     expect(plan.stale).toEqual([slideFileName(2)]);
     expect(plan.files).toHaveLength(2);
+  });
+
+  it("repaints a deck rendered at a width the size rule no longer allows", () => {
+    const carousel = deck(["one", "two"]);
+    const manifest = manifestFor(carousel);
+    const files = manifest.slides.map((entry) => entry.file);
+    const older: DeckManifest = { ...manifest, width: manifest.width! - 100 };
+    expect(planDeckRender(carousel, older, files).render).toEqual([0, 1]);
+  });
+
+  it("repaints and sweeps up a deck left behind as PNGs before the format changed", () => {
+    const carousel = deck(["one", "two"]);
+    const before: DeckManifest = {
+      ratio: "portrait",
+      slides: [
+        { file: "slide-01.png", hash: "a" },
+        { file: "slide-02.png", hash: "b" }
+      ]
+    };
+    const plan = planDeckRender(carousel, before, ["slide-01.png", "slide-02.png", "slides.json"]);
+    expect(plan.render).toEqual([0, 1]);
+    expect(plan.stale).toEqual(["slide-01.png", "slide-02.png"]);
+    expect(plan.files).toEqual([slideFileName(0), slideFileName(1)]);
+  });
+});
+
+describe("the frame a booked deck renders at", () => {
+  it("names slides as a picture post can carry them", () => {
+    expect(slideFileName(0)).toBe("slide-01.jpg");
+    expect(isSupportedImagePath(slideFileName(7))).toBe(true);
+  });
+
+  it("scales a frame wider than a picture post allows, keeping its shape", () => {
+    const landscape = deckPixelSize("landscape");
+    expect(landscape.width).toBe(IMAGE_POST_MAX_WIDTH);
+    expect(landscape.width / landscape.height).toBeCloseTo(16 / 9, 2);
+  });
+
+  it("leaves every frame inside the width Instagram accepts", () => {
+    for (const ratio of ["portrait", "square", "story", "landscape"] as const) {
+      const { width } = deckPixelSize(ratio);
+      expect(width).toBeGreaterThanOrEqual(IMAGE_POST_MIN_WIDTH);
+      expect(width).toBeLessThanOrEqual(IMAGE_POST_MAX_WIDTH);
+    }
   });
 });

@@ -1,15 +1,15 @@
-import { readFile, stat } from "node:fs/promises";
+import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { deckDir } from "@/lib/carousels/deckFiles";
-import { aspectSpec } from "@/lib/carousels/render";
+import { deckDir, deckPixelSize } from "@/lib/carousels/deckFiles";
 import { renderCarouselDeck } from "@/lib/carousels/renderDeck";
 import { readImageSize } from "@/lib/podcast/artwork";
+import { IMAGE_CONTENT_TYPES } from "@/lib/publisher/images";
 import type { Carousel } from "@/types/domain";
 
 /**
- * The half that could not be checked by geometry alone: real PNG files, at the
- * deck's frame, that a picture post can actually be booked from.
+ * The half that could not be checked by geometry alone: real JPEG files, at a
+ * size Instagram accepts, that a picture post can actually be booked from.
  */
 
 const deck = (id: string, headings: string[]): Carousel => ({
@@ -26,19 +26,39 @@ const deck = (id: string, headings: string[]): Carousel => ({
 });
 
 describe("rendering a stored deck", () => {
-  it("writes one real PNG per slide at the deck's frame", async () => {
+  it("writes one real JPEG per slide at a size a picture post can carry", async () => {
     const carousel = deck("deck-a", ["The failing test that cost me an hour", "What I changed"]);
     const files = await renderCarouselDeck(carousel);
 
     expect(files).toHaveLength(2);
-    expect(files[0]).toBe(path.join(deckDir("deck-a"), "slide-01.png"));
+    expect(files[0]).toBe(path.join(deckDir("deck-a"), "slide-01.jpg"));
 
-    const portrait = aspectSpec("portrait");
+    const frame = deckPixelSize("portrait");
     for (const file of files) {
       const bytes = await readFile(file);
       expect(bytes.byteLength).toBeGreaterThan(5_000);
-      expect(readImageSize(bytes)).toEqual({ width: portrait.width, height: portrait.height, format: "png" });
+      expect(readImageSize(bytes)).toEqual({ width: frame.width, height: frame.height, format: "jpeg" });
+      // The extension is what hosting.ts turns into the upload's content type,
+      // so a file that decodes as JPEG has to be NAMED one as well.
+      expect(IMAGE_CONTENT_TYPES[path.extname(file)]).toBe("image/jpeg");
     }
+  });
+
+  it("renders a landscape deck inside Instagram's width, not at 1920", async () => {
+    const carousel: Carousel = { ...deck("deck-wide", ["Wide"]), aspectRatio: "landscape" };
+    const [file] = await renderCarouselDeck(carousel);
+    expect(readImageSize(await readFile(file))).toEqual({ ...deckPixelSize("landscape"), format: "jpeg" });
+  });
+
+  it("sweeps up the PNGs a deck rendered before the format changed", async () => {
+    const carousel = deck("deck-legacy", ["One", "Two"]);
+    const dir = deckDir("deck-legacy");
+    await mkdir(dir, { recursive: true });
+    await writeFile(path.join(dir, "slide-01.png"), Buffer.alloc(16, 1));
+
+    const files = await renderCarouselDeck(carousel);
+    expect(files.every((file) => file.endsWith(".jpg"))).toBe(true);
+    await expect(stat(path.join(dir, "slide-01.png"))).rejects.toThrow();
   });
 
   it("leaves the files it already painted alone", async () => {

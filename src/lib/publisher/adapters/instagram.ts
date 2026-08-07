@@ -1,6 +1,12 @@
 import { publisherConfig } from "@/lib/publisher/config";
 import { PermanentError, StillProcessingError, TransientError, fetchJson } from "@/lib/publisher/http";
-import { MAX_IMAGES_PER_POST, isCarouselPost, isImagePost } from "@/lib/publisher/images";
+import {
+  IMAGE_POST_MAX_WIDTH,
+  IMAGE_POST_MIN_WIDTH,
+  MAX_IMAGES_PER_POST,
+  isCarouselPost,
+  isImagePost
+} from "@/lib/publisher/images";
 import { composeCaption } from "@/lib/publisher/metadata";
 import { formatInTimezone, toRfc3339Utc } from "@/lib/publisher/time";
 import type { PlatformAdapter, PostResult, PublishInput, PublishPlan } from "@/lib/publisher/types";
@@ -137,7 +143,7 @@ async function publishImagePost(input: PublishInput, creds: { userId: string; ac
     if (status === "PUBLISHED") return { status: "published", postId: containerId, containerId, detail: "already published" };
     if (status === "ERROR") {
       throw new PermanentError(
-        "Instagram could not process the picture(s) (container status ERROR). Instagram takes JPEG at 320–1440px wide, aspect 4:5 to 1.91:1."
+        `Instagram could not process the picture(s) (container status ERROR). Instagram takes JPEG at ${IMAGE_POST_MIN_WIDTH}–${IMAGE_POST_MAX_WIDTH}px wide, aspect 4:5 to 1.91:1.`
       );
     }
     if (status === "EXPIRED") {

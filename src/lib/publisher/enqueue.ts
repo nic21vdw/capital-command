@@ -33,6 +33,21 @@ function manualPlatformState(platform: PlatformId): PlatformState {
 }
 
 /**
+ * A picture post that can't publish itself is not a clip waiting to be dragged
+ * into an upload box — the slides are already rendered, and the only thing
+ * missing is knowing there are eight of them and where. The card links to them;
+ * this is what it says.
+ */
+function manualImagePlatformState(platform: PlatformId, pictures: number): PlatformState {
+  const what = pictures > 1 ? `all ${pictures} slides are` : "the picture is";
+  return {
+    status: "manual",
+    attempts: 0,
+    note: `${PLATFORM_LABELS[platform]} isn't connected for this account yet — ${what} rendered and ready to post by hand at the scheduled time (open them from this card), or connect the account so future posts publish automatically.`
+  };
+}
+
+/**
  * enqueue(clip_path, caption, publish_at, platforms) — the single entry point
  * the clipper (or you, via CLI/API) calls when a clip is finished. Missing
  * title/caption/hashtags are generated (Claude when ANTHROPIC_API_KEY is set,
@@ -299,7 +314,10 @@ export async function enqueueImagePost(options: EnqueueImageOptions): Promise<Qu
     jobId: options.jobId,
     ...(accountId ? { accountId } : {}),
     platforms: Object.fromEntries(
-      supported.map((p) => [p, configured.has(p) ? newPlatformState() : manualPlatformState(p)])
+      supported.map((p) => [
+        p,
+        configured.has(p) ? newPlatformState() : manualImagePlatformState(p, relativePaths.length)
+      ])
     )
   };
 

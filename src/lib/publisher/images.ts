@@ -34,6 +34,21 @@ export const IMAGE_REFUSALS: Partial<Record<PlatformId, string>> = {
  */
 export const MAX_IMAGES_PER_POST = 10;
 
+/**
+ * Instagram's Content Publishing API scales a picture into this band and
+ * refuses one outside it. The numbers live here rather than in the adapter
+ * because whatever RENDERS a deck has to obey them — a 1920px-wide landscape
+ * deck booked at a slot is a post that can only fail, hours after anyone could
+ * do anything about it.
+ */
+export const IMAGE_POST_MIN_WIDTH = 320;
+export const IMAGE_POST_MAX_WIDTH = 1440;
+
+/** The nearest width to `natural` that a picture post is allowed to be. */
+export function imagePostWidth(natural: number): number {
+  return Math.min(IMAGE_POST_MAX_WIDTH, Math.max(IMAGE_POST_MIN_WIDTH, Math.round(natural)));
+}
+
 export const SUPPORTED_IMAGE_EXTENSIONS = [".jpg", ".jpeg", ".png", ".webp"];
 
 export const IMAGE_CONTENT_TYPES: Record<string, string> = {
@@ -64,6 +79,15 @@ export function isCarouselPost(item: Pick<QueueItem, "mediaKind" | "imagePaths">
 export function imagePathsOf(item: Pick<QueueItem, "mediaKind" | "imagePaths" | "clipPath">): string[] {
   if (!isImagePost(item)) return [];
   return item.imagePaths?.length ? item.imagePaths : [item.clipPath];
+}
+
+/**
+ * Where the browser reads one picture of a queued image post. By position, not
+ * by path — the files live under `data/`, which is not served, and the queue is
+ * the only thing that gets to say which file a position means.
+ */
+export function imagePostUrl(itemId: string, index: number, options: { download?: boolean } = {}): string {
+  return `/api/publish/${encodeURIComponent(itemId)}/images/${index}${options.download ? "?download=1" : ""}`;
 }
 
 /**

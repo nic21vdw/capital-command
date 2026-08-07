@@ -14,8 +14,19 @@ already shipped.
 
 ## Unreleased
 
+- **A booked carousel is now a deck Instagram will actually accept.** The slides
+  were being painted as PNGs — the one format Instagram refuses — so every
+  carousel the pipeline booked could only fail at its slot, hours after you
+  could do anything about it. They are JPEGs now, and a landscape deck renders
+  at 1440px wide instead of 1920, which is the other thing Instagram turns down.
+  Decks painted the old way repaint themselves and their leftovers are cleaned up.
+- **A picture post with nothing connected is no longer a dead end.** The card in
+  the Uploading Center shows the first slide, says how many there are, and opens
+  or downloads any of them — so "post this by hand" means clicking a number,
+  not going looking under `data\` for files you were never told about. The
+  reminder itself stopped calling a carousel a clip.
 - **"Schedule everything from this run" now includes the carousel.** The deck is
-  painted to real PNG slides on disk and booked as one picture post alongside
+  painted to real slides on disk and booked as one picture post alongside
   the shorts and the long-form video — same tick box, same free slot, nothing
   posted early. It only paints what changed, so re-opening the plan sheet or
   leaving the standing instruction running costs nothing.

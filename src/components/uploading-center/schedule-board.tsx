@@ -8,7 +8,7 @@ import { CLIP_DRAG_TYPE } from "@/components/uploading-center/clip-card";
 import { primaryAccountIdFor, remoteUrlFor, studioVideoUrl } from "@/components/uploading-center/use-uploading-center";
 import { cn } from "@/lib/utils";
 import { describeFailure } from "@/lib/publisher/failure";
-import { imagePathsOf, isImagePost } from "@/lib/publisher/images";
+import { imagePathsOf, imagePostUrl, isImagePost } from "@/lib/publisher/images";
 import type { AgendaDay, AgendaEntry } from "@/lib/publisher/agenda";
 import type { ScheduleSlot } from "@/lib/publisher/slots";
 import type { PlatformId, PlatformState, QueueItem } from "@/lib/publisher/types";
@@ -235,9 +235,11 @@ function QueueEntryCard({
   const actionable =
     state.status === "pending" || state.status === "uploaded" || (blocked && advice?.action !== "none");
   const working = busy === `publish:${item.id}` || busy === `remove:${item.id}`;
-  // A picture post has no poster frame to show — say what it is instead, so a
-  // carousel booked from a run doesn't read as a video that lost its thumbnail.
+  // A picture post has no poster frame — its own first slide IS the thumbnail,
+  // served by position out of the queue so the card can reach files that live
+  // under data/ and never appear in a URL.
   const pictures = isImagePost(item) ? imagePathsOf(item).length : 0;
+  const [showSlides, setShowSlides] = useState(false);
   const [retrying, setRetrying] = useState(false);
   const [showRaw, setShowRaw] = useState(false);
 
@@ -275,10 +277,21 @@ function QueueEntryCard({
       title={advice?.headline ?? item.title}
     >
       {pictures > 0 ? (
-        <div className="flex h-14 w-8 shrink-0 flex-col items-center justify-center gap-0.5 rounded-md border border-[var(--border)] bg-white/5 text-[var(--muted-foreground)]">
-          {pictures > 1 ? <Images className="h-3.5 w-3.5" /> : <ImageIcon className="h-3.5 w-3.5" />}
-          <span className="text-[9px] font-semibold">{pictures}</span>
-        </div>
+        <a
+          href={imagePostUrl(item.id, 0)}
+          target="_blank"
+          rel="noreferrer"
+          title={pictures > 1 ? `Open slide 1 of ${pictures}` : "Open the picture"}
+          className="relative block h-14 w-8 shrink-0 overflow-hidden rounded-md border border-[var(--border)] bg-black/40"
+        >
+          {/* eslint-disable-next-line @next/next/no-img-element -- served by our own route, not a next/image loader */}
+          {/* Contain, not cover: a slide is copy, and a crop of it is unreadable. */}
+          <img src={imagePostUrl(item.id, 0)} alt="" loading="lazy" className="h-full w-full object-contain" />
+          <span className="absolute bottom-0 right-0 flex items-center gap-0.5 rounded-tl-md bg-black/70 px-1 py-0.5 text-[8px] font-semibold text-white">
+            {pictures > 1 ? <Images className="h-2.5 w-2.5" /> : <ImageIcon className="h-2.5 w-2.5" />}
+            {pictures}
+          </span>
+        </a>
       ) : thumbnailUrl ? (
         // eslint-disable-next-line @next/next/no-img-element -- local clip frame, not a remote asset in next.config images
         <img
@@ -296,9 +309,14 @@ function QueueEntryCard({
         <div className="mt-1.5 flex items-center gap-1.5">
           <StatusChip status={state.status} />
           {pictures > 0 ? (
-            <span className="rounded-full bg-white/10 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-[var(--muted-foreground)]">
+            <button
+              type="button"
+              onClick={() => setShowSlides((shown) => !shown)}
+              title={showSlides ? "Hide the files" : "Show every slide file"}
+              className="rounded-full bg-white/10 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-[var(--muted-foreground)] transition hover:bg-white/20 hover:text-white"
+            >
               {pictures > 1 ? `Carousel · ${pictures}` : "Image"}
-            </span>
+            </button>
           ) : null}
           {url ? (
             <a
@@ -355,6 +373,22 @@ function QueueEntryCard({
             </>
           )}
         </div>
+        {showSlides && pictures > 0 ? (
+          <div className="mt-1.5 flex flex-wrap items-center gap-1">
+            <span className="text-[10px] text-[var(--muted-foreground)]">Rendered and ready:</span>
+            {Array.from({ length: pictures }, (_, index) => (
+              <a
+                key={index}
+                href={imagePostUrl(item.id, index, { download: true })}
+                download
+                title={`Download slide ${index + 1}`}
+                className="rounded-md border border-[var(--border-strong)] px-1.5 py-0.5 text-[10px] font-medium text-[var(--accent)] transition hover:bg-[var(--accent)]/10"
+              >
+                {index + 1}
+              </a>
+            ))}
+          </div>
+        ) : null}
         {advice ? (
           <div className="mt-1 space-y-1">
             <p
