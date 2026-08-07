@@ -133,8 +133,39 @@ export function upsertRecord(ledger: IngestLedger, record: IngestRecord): Ingest
 export async function recordScanOutcome(scan: LedgerScan): Promise<void> {
   try {
     const ledger = await readLedger();
-    await writeLedger({ ...ledger, lastScan: scan, lastScanAt: scan.at });
+    // A DRY RUN proves nothing about the real path — it never hands a stream
+    // over — so it must not clear a real failure. And `lastScanAt` only ever
+    // moves forward: `scan.at` is when the scan STARTED, and the per-video
+    // writes during it are later than that.
+    if (scan.dryRun && ledger.lastScan && ledger.lastScan.status !== "ok" && !ledger.lastScan.dryRun) {
+      return;
+    }
+    const lastScanAt =
+      ledger.lastScanAt && ledger.lastScanAt > scan.at ? ledger.lastScanAt : scan.at;
+    await writeLedger({ ...ledger, lastScan: scan, lastScanAt });
   } catch {
     // The ledger's own read error is already loud where it matters.
   }
+}
+
+/** A scan older than this has not run — a disabled task, or a machine asleep. */
+export const SCAN_STALE_AFTER_MS = 36 * 60 * 60 * 1000;
+
+/**
+ * How the last scan ended, or `stale` when there has not been one lately. A
+ * scheduled task that was switched off looks exactly like a healthy "ok"
+ * otherwise: the last success sits there forever while nothing comes in.
+ */
+export function scanHealth(
+  ledger: Pick<IngestLedger, "lastScan" | "lastScanAt">,
+  now = new Date()
+): (LedgerScan & { staleSince?: string }) | null {
+  const last = ledger.lastScan ?? null;
+  const at = ledger.lastScanAt ?? last?.at ?? null;
+  if (!at) return null;
+  const age = now.getTime() - new Date(at).getTime();
+  if (Number.isFinite(age) && age > SCAN_STALE_AFTER_MS) {
+    return { at, status: "stale", staleSince: at, ...(last?.error ? { error: last.error } : {}) };
+  }
+  return last;
 }

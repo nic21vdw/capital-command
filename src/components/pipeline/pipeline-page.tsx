@@ -30,7 +30,7 @@ import { Card } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { VisualAdComposer } from "@/components/pipeline/visual-ad-composer";
 import type { QueuePlan } from "@/lib/pipeline/queueOutputs";
-import { usePipelineAttention } from "@/components/pipeline/attention";
+import { usePipelineAttention, useRefreshAttention } from "@/components/pipeline/attention";
 import { runListStatus, type RunTone } from "@/lib/pipeline/status";
 import { MAX_IMAGES_PER_POST } from "@/lib/publisher/images";
 import { cn } from "@/lib/utils";
@@ -344,6 +344,7 @@ export function PipelinePage() {
   const [plan, setPlan] = useState<QueuePlan | null>(null);
   const [dropped, setDropped] = useState<string[]>([]);
   const { scan } = usePipelineAttention();
+  const refreshAttention = useRefreshAttention();
   const dragDepth = useRef(0);
   const uploadInputRef = useRef<HTMLInputElement>(null);
   const [postsOpen, setPostsOpen] = useState(false);
@@ -622,12 +623,15 @@ export function PipelinePage() {
         return;
       }
       toast.success("Scanning the channel again.");
+      // The row he just acted on is driven by the 60s poll; without this it
+      // keeps showing the old failure for another minute.
+      refreshAttention();
     } catch {
       toast.error("Request failed. Is the server still running?");
     } finally {
       setWorking(null);
     }
-  }, []);
+  }, [refreshAttention]);
 
   const restartRun = useCallback(
     async (runId: string, url: string, name: string) => {
@@ -714,25 +718,29 @@ export function PipelinePage() {
           ? "The nightly channel scan has nothing to look at — YouTube is not connected."
           : scanTrouble.status === "needs-reconnect"
             ? "The nightly channel scan cannot read the channel any more — YouTube needs reconnecting."
-            : `The last channel scan failed${scanTrouble.error ? ` — ${scanTrouble.error}` : "."}`}
+            : scanTrouble.status === "stale"
+              ? `The channel has not been scanned since ${formatStartedAt(scanTrouble.at)} — the nightly task may not be running.`
+              : `The last channel scan failed${scanTrouble.error ? ` — ${scanTrouble.error}` : "."}`}
       </p>
       <div className="flex shrink-0 flex-wrap gap-2">
-        {scanTrouble.status === "failed" ? (
-          <Button
-            variant="secondary"
-            disabled={working === "scan"}
-            onClick={() => void rescan()}
-            className="px-3 py-1.5 text-xs"
-          >
-            {working === "scan" ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : null}
-            Scan again
-          </Button>
+        {/* Offered in every state: after reconnecting the channel this is what
+            clears the row, and waiting for tomorrow's scan is not an answer. */}
+        <Button
+          variant="secondary"
+          disabled={working === "scan"}
+          onClick={() => void rescan()}
+          className="px-3 py-1.5 text-xs"
+        >
+          {working === "scan" ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : null}
+          Scan now
+        </Button>
+        {scanTrouble.status === "not-connected" || scanTrouble.status === "needs-reconnect" ? (
+          <Link href="/uploading-center">
+            <Button variant="secondary" className="px-3 py-1.5 text-xs">
+              Connect the channel
+            </Button>
+          </Link>
         ) : null}
-        <Link href="/uploading-center">
-          <Button variant="secondary" className="px-3 py-1.5 text-xs">
-            Connect the channel
-          </Button>
-        </Link>
       </div>
     </Card>
   ) : null;
@@ -1220,6 +1228,16 @@ export function PipelinePage() {
             </div>
           ) : null}
           <div className="flex flex-wrap gap-2">
+            {run?.queueFailures?.length ? (
+              <Button
+                disabled={working === "plan"}
+                onClick={() => void loadPlan(run.id)}
+                className="px-3 py-1.5 text-xs"
+              >
+                {working === "plan" ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : null}
+                Book these now
+              </Button>
+            ) : null}
             {run && !plan ? (
               <Button
                 disabled={working === "plan"}

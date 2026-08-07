@@ -1,7 +1,7 @@
 "use client";
 
 import { usePathname } from "next/navigation";
-import { createContext, useContext, useEffect, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
 
 // How many runs are asking for something. Nothing used to tell Nic a stage had
 // broken unless he opened the Pipeline and read the flow — an overnight failure
@@ -11,7 +11,8 @@ import { createContext, useContext, useEffect, useState } from "react";
 
 export type ScanOutcome = {
   at: string;
-  status: "ok" | "failed" | "not-connected" | "needs-reconnect";
+  status: "ok" | "failed" | "not-connected" | "needs-reconnect" | "stale";
+  staleSince?: string;
   error?: string;
   ingested?: number;
 };
@@ -19,6 +20,7 @@ export type ScanOutcome = {
 type Attention = { needsAttention: number; working: number; scan?: ScanOutcome | null };
 
 const PipelineAttentionContext = createContext<Attention>({ needsAttention: 0, working: 0 });
+const RefreshAttentionContext = createContext<() => void>(() => {});
 
 const POLL_MS = 60_000;
 
@@ -28,6 +30,7 @@ export function PipelineAttentionProvider({ children }: { children: React.ReactN
   // the count has to be re-applied per navigation — the provider itself never
   // remounts.
   const pathname = usePathname();
+  const refreshRef = useRef<() => void>(() => {});
 
   useEffect(() => {
     let alive = true;
@@ -47,6 +50,7 @@ export function PipelineAttentionProvider({ children }: { children: React.ReactN
         // Offline or mid-restart: keep the last count rather than clearing it.
       }
     };
+    refreshRef.current = () => void read();
     void read();
     const timer = setInterval(read, POLL_MS);
     return () => {
@@ -79,9 +83,20 @@ export function PipelineAttentionProvider({ children }: { children: React.ReactN
     return () => observer.disconnect();
   }, [attention.needsAttention, pathname]);
 
-  return <PipelineAttentionContext.Provider value={attention}>{children}</PipelineAttentionContext.Provider>;
+  const refresh = useCallback(() => refreshRef.current(), []);
+
+  return (
+    <PipelineAttentionContext.Provider value={attention}>
+      <RefreshAttentionContext.Provider value={refresh}>{children}</RefreshAttentionContext.Provider>
+    </PipelineAttentionContext.Provider>
+  );
 }
 
 export function usePipelineAttention() {
   return useContext(PipelineAttentionContext);
+}
+
+/** Re-read the count now, rather than up to a minute after acting on it. */
+export function useRefreshAttention() {
+  return useContext(RefreshAttentionContext);
 }

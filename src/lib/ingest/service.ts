@@ -2,7 +2,8 @@ import { setAppBaseUrl } from "@/lib/ingest/pipelineClient";
 import { ingestLedger, runDailyScan, summarizeOutputs } from "@/lib/ingest/run";
 import type { ScanReport } from "@/lib/ingest/run";
 import { explainDecision } from "@/lib/ingest/classify";
-import { abandonedRecords, clearAttempts, MAX_INGEST_ATTEMPTS, readLedger, writeLedger } from "@/lib/ingest/ledger";
+import {
+  scanHealth, abandonedRecords, clearAttempts, MAX_INGEST_ATTEMPTS, readLedger, writeLedger } from "@/lib/ingest/ledger";
 
 export type IngestJob = {
   id: string;
@@ -173,7 +174,7 @@ export async function ingestOverview() {
     lastScan: finished ? summarizeJob(finished) : null,
     // From the ledger, so a scan the SCHEDULED TASK ran (its own process, its
     // own memory) is still reportable here.
-    lastScanOutcome: ledger.lastScan ?? null,
+    lastScanOutcome: scanHealth(ledger) ?? null,
     abandoned: abandonedRecords(ledger).map((record) => ({
       videoId: record.videoId,
       title: record.title,

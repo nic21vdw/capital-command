@@ -95,7 +95,7 @@ export type IngestRecord = {
  */
 export type LedgerScan = {
   at: string;
-  status: "ok" | "failed" | "not-connected" | "needs-reconnect";
+  status: "ok" | "failed" | "not-connected" | "needs-reconnect" | "stale";
   /** What went wrong, when something did. */
   error?: string;
   ingested?: number;

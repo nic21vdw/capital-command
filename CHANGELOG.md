@@ -14,6 +14,17 @@ already shipped.
 
 ## Unreleased
 
+- **A nightly scan that never ran is now visible.** A scheduled task switched
+  off, or a machine asleep, used to look exactly like a healthy scan: the last
+  success sat there forever while nothing came in. After a day and a half with
+  no scan the app says so and offers **Scan now** — which is also offered in
+  every other scan state, so reconnecting the channel clears the notice
+  immediately instead of tomorrow.
+- **An output the app failed to book no longer disappears.** The automatic
+  booking discarded its failures, so the Scheduler still said "ready to
+  schedule" for something it had quietly given up on; it now says what could not
+  be booked and why, with a button to try again.
+
 - **Overnight scheduling is now yours to switch on, and it is off.** A stream
   taken in overnight was booking itself into the upload and Threads queues —
   which post at their slots, with titles and copy written by AI you had not

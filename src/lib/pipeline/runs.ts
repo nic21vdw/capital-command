@@ -869,8 +869,19 @@ export async function runOverview(run: PipelineRun, context?: OverviewContext): 
   const upstreamSettled = (["longform", "segments", "clips", "audio", "podcast", "images", "visuals", "posts"] as const).every(
     (key) => stages[key].status !== "running" && stages[key].status !== "waiting"
   );
+  const bookingTrouble = run.queueFailures?.length ?? 0;
   if (run.status === "error") {
     stages.schedule = stage("error", "Nothing reached the scheduler — the source never ingested.");
+  } else if (bookingTrouble > 0) {
+    stages.schedule = {
+      ...stage(
+        "error",
+        `${bookingTrouble} output${bookingTrouble === 1 ? "" : "s"} could not be booked — ${
+          run.queueFailures![0].error
+        }`
+      ),
+      retryable: false
+    };
   } else if (readyItems === 0) {
     stages.schedule = stage("waiting", "Outputs land here as each one finishes.");
   } else {

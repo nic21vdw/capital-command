@@ -101,6 +101,12 @@ export type PipelineRun = {
    * anything he later deleted from the publish queue.
    */
   queueBooked?: string[];
+  /**
+   * Outputs the standing instruction could not book, with why. Swallowing these
+   * meant the row still said "ready to schedule" for something the app had
+   * promised to book and then dropped.
+   */
+  queueFailures?: { title: string; error: string }[];
   createdAt: string;
   updatedAt: string;
 };
