@@ -30,6 +30,18 @@ import { PageHeader } from "@/components/ui/page-header";
 import { Tabs } from "@/components/ui/tabs";
 import { AccountSwitcher } from "@/components/uploading-center/account-switcher";
 import { ClipQueue } from "@/components/uploading-center/clip-queue";
+import { clipsNeedingCaption, planAutoAssign } from "@/components/uploading-center/bulk";
+import {
+  DEFAULT_RUN_DEFAULTS,
+  draftWithDefaults,
+  hydrateDraft,
+  readClipDrafts,
+  readRunDefaults,
+  redraftWithDefaults,
+  writeClipDraft,
+  writeRunDefaults,
+  type RunDefaults,
+} from "@/components/uploading-center/run-defaults";
 import { QuotaMeter } from "@/components/uploading-center/quota-meter";
 import { ScheduleBoard } from "@/components/uploading-center/schedule-board";
 import { StatusChip } from "@/components/uploading-center/status-chip";
@@ -94,6 +106,8 @@ export function UploadingCenterPage() {
     renameClip,
     renameQueueItem,
     tailorCaption,
+    tailorCaptionsForAll,
+    captionProgress,
     schedule,
     uploadToSlot,
     autoAssign,
@@ -144,24 +158,85 @@ export function UploadingCenterPage() {
     return () => clearInterval(timer);
   }, [refresh]);
 
+  // The platform and hashtags this run of clips is aimed at, picked once for
+  // the whole job instead of on every card. Read after mount: localStorage in
+  // the useState initializer would make the first client render disagree with
+  // the server HTML.
+  const [runDefaults, setRunDefaults] = useState<RunDefaults>(DEFAULT_RUN_DEFAULTS);
+  useEffect(() => {
+    queueMicrotask(() => {
+      const stored = readRunDefaults();
+      if (stored) setRunDefaults(stored);
+    });
+  }, []);
+
   // One draft (title/caption/target/slot) per clip card, kept up here so a
   // drag-drop onto the board uses whatever was typed on the card. The title
-  // itself is persisted to the backend clip on commit (blur/Enter), so it
-  // survives navigating away — the draft only carries in-progress typing.
+  // itself is persisted to the backend clip on commit (blur/Enter); the caption
+  // and target are saved in the browser, because losing an AI-written caption
+  // to a reload or a job switch was the whole cost of this screen.
   const [drafts, setDrafts] = useState<Record<string, ClipDraft>>({});
+  const draftsRef = useRef(drafts);
+  useEffect(() => {
+    draftsRef.current = drafts;
+  }, [drafts]);
   const draftFor = useCallback(
-    (clip: ReadyClip): ClipDraft =>
-      drafts[clip.key] ?? {
-        title: clip.headline.slice(0, 100),
-        caption: "",
-        platform: "youtube",
-        slotUtc: "",
-      },
-    [drafts],
+    (clip: ReadyClip): ClipDraft => drafts[clip.key] ?? draftWithDefaults(clip, runDefaults),
+    [drafts, runDefaults],
   );
-  const onDraftChange = useCallback((clip: ReadyClip, draft: ClipDraft) => {
+  const putDraft = useCallback((clip: ReadyClip, draft: ClipDraft) => {
     setDrafts((current) => ({ ...current, [clip.key]: draft }));
+    writeClipDraft(clip.key, draft, clip.headline);
   }, []);
+
+  // Restore saved drafts for whichever run is on screen. Clips with nothing
+  // saved are left out of the map on purpose, so they keep following the run
+  // defaults as those change.
+  useEffect(() => {
+    if (readyClips.length === 0) return;
+    queueMicrotask(() => {
+      const stored = readClipDrafts();
+      setDrafts((current) => {
+        let next = current;
+        for (const clip of readyClips) {
+          if (next[clip.key] || !stored[clip.key]) continue;
+          if (next === current) next = { ...current };
+          next[clip.key] = hydrateDraft(
+            draftWithDefaults(clip, runDefaults),
+            stored[clip.key],
+            clip.headline,
+          );
+        }
+        return next;
+      });
+    });
+  }, [readyClips, runDefaults]);
+
+  // Changing the run defaults re-aims the cards already on screen, not just the
+  // ones drawn next — dropped hashtags leave every title, new ones join it.
+  const onRunDefaultsChange = useCallback(
+    (next: RunDefaults) => {
+      setRunDefaults(next);
+      writeRunDefaults(next);
+      const updated: Record<string, ClipDraft> = {};
+      for (const clip of readyClips) {
+        const existing = drafts[clip.key];
+        if (!existing) continue;
+        const redrafted = redraftWithDefaults(existing, runDefaults, next);
+        updated[clip.key] = redrafted;
+        writeClipDraft(clip.key, redrafted, clip.headline);
+      }
+      setDrafts((current) => ({ ...current, ...updated }));
+    },
+    [drafts, readyClips, runDefaults],
+  );
+
+  const onDraftChange = useCallback(
+    (clip: ReadyClip, draft: ClipDraft) => {
+      putDraft(clip, draft);
+    },
+    [putDraft],
+  );
   const onTitleCommit = useCallback(
     (clip: ReadyClip) => {
       const draft = drafts[clip.key];
@@ -178,10 +253,7 @@ export function UploadingCenterPage() {
       const draft = draftFor(clip);
       const result = await tailorCaption(clip, copyPlatformFor(draft.platform), draft.title);
       if (!result) return;
-      setDrafts((current) => ({
-        ...current,
-        [clip.key]: { ...(current[clip.key] ?? draft), caption: result.caption },
-      }));
+      putDraft(clip, { ...(draftsRef.current[clip.key] ?? draft), caption: result.caption });
       const label = draft.platform === "all" ? "all platforms" : draft.platform;
       if (result.bestTime) {
         toast.success(`Tailored for ${label}. Best time to post: ~${result.bestTime}.`);
@@ -189,7 +261,7 @@ export function UploadingCenterPage() {
         toast.success(`Caption tailored for ${label}.`);
       }
     },
-    [draftFor, tailorCaption],
+    [draftFor, putDraft, tailorCaption],
   );
 
   // Surface the OAuth redirect result exactly once.
@@ -381,31 +453,57 @@ export function UploadingCenterPage() {
 
   const slots = useMemo(() => overview?.slots ?? [], [overview]);
 
-  // Auto Assign: pair every not-yet-scheduled clip in this run with the next
-  // open slot for its card's platform (slots are ordered soonest-first).
-  // Slots consumed within the batch are tracked locally so two clips never
-  // land on the same time.
-  const handleAutoAssign = useCallback(() => {
-    const consumed = new Set<string>();
-    const assignments: Array<{ clip: ReadyClip; draft: ClipDraft }> = [];
-    let unslotted = 0;
-    for (const clip of readyClips) {
-      if (itemsForClip(clip).length > 0) continue;
-      const draft = draftFor(clip);
-      const platforms = targetPlatforms(draft.platform);
-      const slot = slots.find(
-        (candidate) =>
-          !candidate.past &&
-          !platforms.some((platform) => consumed.has(`${platform}:${candidate.utc}`)) &&
-          !isTargetSlotTaken(draft.platform, candidate.utc),
-      );
-      if (!slot) {
-        unslotted += 1;
-        continue;
-      }
-      for (const platform of platforms) consumed.add(`${platform}:${slot.utc}`);
-      assignments.push({ clip, draft: { ...draft, slotUtc: slot.utc } });
+  // Read through the ref, not through `drafts`: the bulk actions below await
+  // between clips, and each one has to see the captions the previous ones wrote.
+  const latestDraftFor = useCallback(
+    (clip: ReadyClip): ClipDraft => draftsRef.current[clip.key] ?? draftWithDefaults(clip, runDefaults),
+    [runDefaults],
+  );
+  const isScheduled = useCallback(
+    (clip: ReadyClip) => itemsForClip(clip).length > 0,
+    [itemsForClip],
+  );
+  const captionsMissing = useMemo(
+    () => clipsNeedingCaption({ clips: readyClips, draftFor, isScheduled }).length,
+    [draftFor, isScheduled, readyClips],
+  );
+
+  // "AI captions for all": write a caption for every unscheduled clip that
+  // hasn't got one, tailored to whatever platform each card targets.
+  const fillCaptions = useCallback(
+    async (clips: ReadyClip[]) => {
+      const targets = clips.map((clip) => {
+        const draft = latestDraftFor(clip);
+        return { clip, platform: copyPlatformFor(draft.platform), title: draft.title };
+      });
+      await tailorCaptionsForAll(targets, (clip, caption) => {
+        putDraft(clip, { ...latestDraftFor(clip), caption });
+      });
+    },
+    [latestDraftFor, putDraft, tailorCaptionsForAll],
+  );
+  const handleCaptionsForAll = useCallback(() => {
+    const missing = clipsNeedingCaption({ clips: readyClips, draftFor: latestDraftFor, isScheduled });
+    if (missing.length === 0) {
+      toast.info("Every unscheduled clip in this run already has a caption.");
+      return;
     }
+    void fillCaptions(missing);
+  }, [fillCaptions, isScheduled, latestDraftFor, readyClips]);
+
+  // Auto Assign: post every not-yet-scheduled clip in this run the way it would
+  // have been posted by hand — the run's platform and hashtags, an AI caption
+  // for anything still blank, then the next open slot for each card's platform.
+  const handleAutoAssign = useCallback(async () => {
+    const missing = clipsNeedingCaption({ clips: readyClips, draftFor: latestDraftFor, isScheduled });
+    if (missing.length > 0) await fillCaptions(missing);
+    const { assignments, unslotted } = planAutoAssign({
+      clips: readyClips,
+      draftFor: latestDraftFor,
+      isScheduled,
+      slots,
+      isTargetSlotTaken,
+    });
     if (assignments.length === 0) {
       toast.info(
         unslotted > 0
@@ -419,8 +517,16 @@ export function UploadingCenterPage() {
         `${unslotted} clip${unslotted === 1 ? "" : "s"} left unassigned — the schedule ran out of open slots.`,
       );
     }
-    void autoAssign(assignments);
-  }, [autoAssign, draftFor, isSlotTaken, itemsForClip, readyClips, slots]);
+    await autoAssign(assignments);
+  }, [
+    autoAssign,
+    fillCaptions,
+    isScheduled,
+    isTargetSlotTaken,
+    latestDraftFor,
+    readyClips,
+    slots,
+  ]);
 
   const tabs = PLATFORM_TABS.map(({ id, icon }) => {
     const activeAccount = activeAccountFor(id);
@@ -634,7 +740,12 @@ export function UploadingCenterPage() {
               onSchedule={(clip) => void handleSchedule(clip)}
               onEditClip={editClip}
               onTailorCaption={(clip) => void onTailorCaption(clip)}
-              onAutoAssign={handleAutoAssign}
+              onAutoAssign={() => void handleAutoAssign()}
+              runDefaults={runDefaults}
+              onRunDefaultsChange={onRunDefaultsChange}
+              onCaptionsForAll={handleCaptionsForAll}
+              captionsMissing={captionsMissing}
+              captionProgress={captionProgress}
             />
             <div className="min-w-0">
               <Tabs tabs={tabs} paramKey="platform" />

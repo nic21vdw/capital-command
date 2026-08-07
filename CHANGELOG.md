@@ -14,6 +14,24 @@ already shipped.
 
 ## Unreleased
 
+- **Pick the platform and the hashtags once for a whole run of clips, not once
+  per card.** The Uploading Center now has a "For this run" bar above the
+  clips: a platform and a set of hashtag chips that every clip follows, and
+  changing them re-aims the cards already on screen. The choice is remembered,
+  so the next run opens the way the last one ended instead of back on YouTube
+  with no hashtags.
+- **"AI captions for all" writes the whole run's captions in one click**,
+  counting up as it goes and skipping any clip that already has one. A clip
+  whose copy fails is reported and stepped over — it no longer costs you the
+  captions behind it.
+- **Auto Assign now posts what you would have posted by hand.** It uses the
+  run's platform and hashtags, writes a caption for anything still blank, and
+  only then books the next open slots — instead of filing everything to YouTube
+  with an empty caption.
+- **Captions survive a reload.** Anything typed or AI-written on a clip card is
+  saved in the browser with its platform, so reloading the page or switching to
+  another run no longer throws the copy away.
+
 ## 2026-08-06
 
 - **Every stuck stage now has a Try this again button, right on the row.**

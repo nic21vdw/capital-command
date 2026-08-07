@@ -44,7 +44,7 @@ export function appendHashtag(title: string, hashtag: string): string {
   return next.length <= TITLE_MAX_LENGTH ? next : title;
 }
 
-function hasHashtag(title: string, hashtag: string): boolean {
+export function hasHashtag(title: string, hashtag: string): boolean {
   return title.toLowerCase().includes(hashtag.toLowerCase());
 }
 
