@@ -14,6 +14,8 @@ already shipped.
 
 ## Unreleased
 
+## 2026-08-10
+
 - **A booking alarm now goes out on its own once you have fixed the cause.**
   Turn publishing back on, or free up a slot, and the next heartbeat books the
   outputs and clears the badge, the "not scheduled" label and the amber
