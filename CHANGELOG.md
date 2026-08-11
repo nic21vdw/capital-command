@@ -14,6 +14,14 @@ already shipped.
 
 ## Unreleased
 
+- **Booking a back catalogue no longer stops at a full three weeks.** Scheduling
+  a run only ever looked three weeks ahead, so once the queue was full — which a
+  handful of streams does on its own — every output came back "no free slot"
+  while months of empty calendar sat just past the edge. It now reaches four
+  months out. Nothing else changed: still one output per slot, still nothing on
+  the day it was booked, and a run that genuinely does not fit is still refused
+  rather than stacked on top of what is already there.
+
 ## 2026-08-11
 
 - **Every working screen now opens on one obvious action.** Short Clips, the

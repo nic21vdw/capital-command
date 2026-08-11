@@ -111,6 +111,16 @@ async function readQueue(): Promise<QueueItem[]> {
   return publishQueue(config).list();
 }
 
+/**
+ * How far ahead a booking may reach. Three weeks was the whole calendar, and a
+ * back catalogue fills that in one sitting: sixteen streams is about a hundred
+ * and seventy shorts against sixty-three slots, so every run after the second
+ * was refused with "no free slot" while months of empty calendar sat just past
+ * the edge. The overflow is still refused rather than stacked — this only
+ * decides how much calendar counts as the calendar.
+ */
+const BOOKING_HORIZON_DAYS = 120;
+
 /** Everything this run made that could be posted, minus what is already booked. */
 export async function planRunOutputs(runId: string): Promise<QueuePlan | null> {
   const run = await getRun(runId);
@@ -139,7 +149,7 @@ export async function planRunOutputs(runId: string): Promise<QueuePlan | null> {
   const taken = new Set(existing.map((item) => item.publishAt));
   // `bookable`, not `!past`: a run's whole output never lands on the day it was
   // booked, so the earliest slot offered is tomorrow's (see schedule.ts).
-  const openSlots = generateSlots({ timeZone: config.timezone, days: 21 })
+  const openSlots = generateSlots({ timeZone: config.timezone, days: BOOKING_HORIZON_DAYS })
     .filter((slot) => slot.bookable && !taken.has(slot.utc))
     .map((slot) => slot.utc);
 
@@ -373,7 +383,7 @@ export async function queueRunOutputs(
   const bookedIds: string[] = [];
   for (const { candidate, publishAt } of assignSlots(chosen, slots)) {
     if (!publishAt) {
-      failed.push({ title: candidate.title, error: "No free slot in the next three weeks." });
+      failed.push({ title: candidate.title, error: "Every slot in the next four months is taken." });
       continue;
     }
     try {
