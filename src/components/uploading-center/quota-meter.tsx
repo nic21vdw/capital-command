@@ -6,7 +6,8 @@ import type { YoutubeQuota } from "@/lib/publisher/quota";
  * Small YouTube quota meter: uploads used today against the self-imposed
  * budget (each upload ≈ 1,600 of the 10,000 default daily units). Turns
  * amber when today's uploads plus everything still queued would blow past
- * the budget.
+ * the budget — which no longer means anything will be REFUSED by YouTube: the
+ * runner stops at the budget and sends the rest after the quota resets.
  */
 export function QuotaMeter({ quota }: { quota: YoutubeQuota }) {
   const percent = Math.min(100, (quota.projectedUploads / Math.max(1, quota.budgetUploads)) * 100);
@@ -28,8 +29,8 @@ export function QuotaMeter({ quota }: { quota: YoutubeQuota }) {
       {quota.overBudget ? (
         <p className="mt-1.5 flex items-center gap-1.5 text-[11px] text-amber-300">
           <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
-          {quota.projectedUploads} uploads projected today — over the {quota.budgetUploads}/day budget; extras may hit
-          the API quota.
+          {quota.projectedUploads} uploads waiting — past the {quota.budgetUploads}/day budget, so the rest go up over
+          the following days rather than in one go.
         </p>
       ) : null}
     </div>

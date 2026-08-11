@@ -97,7 +97,9 @@ export function buildAgenda(options: {
     );
     const entryMs = entries.map((entry) => new Date(entry.utc).getTime());
     const openSlots = slotsForDay.filter((slot) => {
-      if (slot.past) return false;
+      // Not `past`: today's remaining slots are off limits too, so the board
+      // never offers a drop target that the booking would then refuse.
+      if (!slot.bookable) return false;
       const slotMs = new Date(slot.utc).getTime();
       return !entryMs.some((ms) => Math.abs(ms - slotMs) <= toleranceMs);
     });

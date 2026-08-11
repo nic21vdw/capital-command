@@ -30,7 +30,6 @@ export function testConfig(overrides: Partial<PublisherConfig> = {}): PublisherC
     platforms: ["youtube", "instagram", "tiktok"],
     timezone: "America/Toronto",
     defaultVisibility: "private",
-    autoEnqueueDelayMinutes: 60,
     queueBackend: "file",
     maxAttempts: 3,
     backoffBaseMinutes: 2,
@@ -39,7 +38,15 @@ export function testConfig(overrides: Partial<PublisherConfig> = {}): PublisherC
     // should not have the runner quietly add two more platforms to its items.
     mirror: { enabled: false, lead: "youtube", targets: ["instagram", "facebook"], mode: "match" },
     claimTimeoutMinutes: 15,
-    youtube: { clientId: "yt-id", clientSecret: "yt-secret", refreshToken: "yt-refresh", categoryId: null, dailyUploadBudget: 6 },
+    youtube: {
+      clientId: "yt-id",
+      clientSecret: "yt-secret",
+      refreshToken: "yt-refresh",
+      categoryId: null,
+      dailyUploadBudget: 6,
+      // Off unless a test is about it: the guard reads the live channel.
+      duplicateGuard: false
+    },
     instagram: {
       userId: "17840000000000000",
       accessToken: "ig-token",

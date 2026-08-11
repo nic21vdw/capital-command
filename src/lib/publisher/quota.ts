@@ -26,6 +26,20 @@ export type YoutubeQuota = {
   overBudget: boolean;
 };
 
+/**
+ * How many more videos may be uploaded to YouTube in the current quota day.
+ *
+ * The runner uploads a YouTube item as soon as it sees it — YouTube publishes it
+ * natively at its slot — so a batch booked across three weeks still sends every
+ * file TODAY. That is what emptied the daily allowance in one morning and locked
+ * the channel out of uploading. The runner asks this before each fresh upload
+ * and defers the rest to tomorrow; nothing is failed or lost.
+ */
+export function remainingYoutubeUploads(items: QueueItem[], now: Date, config: PublisherConfig): number {
+  const { uploadsUsed } = youtubeQuota(items, now, config);
+  return Math.max(0, config.youtube.dailyUploadBudget - uploadsUsed);
+}
+
 function quotaDate(instant: Date): string {
   return new Intl.DateTimeFormat("en-CA", {
     timeZone: QUOTA_RESET_TIMEZONE,

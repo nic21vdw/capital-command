@@ -195,7 +195,14 @@ function DayBand({
         ))}
         {empty ? (
           <div className="flex min-h-14 items-center rounded-lg border border-dashed border-[var(--border)] px-3 text-[11px] text-[var(--muted-foreground)] opacity-60">
-            {past ? "No posts this day" : "No open slots"}
+            {/* Today never offers a slot — nothing is scheduled for the day it
+                is booked (src/lib/publisher/schedule.ts) — so say that rather
+                than letting the day read as a full calendar. */}
+            {today
+              ? "Nothing books onto today — the earliest slot is tomorrow"
+              : past
+                ? "No posts this day"
+                : "No open slots"}
           </div>
         ) : null}
       </div>

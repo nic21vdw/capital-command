@@ -121,6 +121,19 @@ Everything lives in `src/lib/publisher/` and is **off by default**: with
   fallback; anything you pass explicitly wins.
 - All times you type are interpreted in `PUBLISH_TIMEZONE`
   (default `America/Toronto`).
+- **Nothing is scheduled for the day it is booked.** The earliest slot any
+  route offers — or accepts — is tomorrow, so a batch can never land on one day
+  and trip YouTube's daily upload limit. `enqueue --today` overrides it for a
+  single post from the CLI.
+- **Nothing is queued twice.** A clip whose file (or whose title, within the
+  same clip job) is already on the queue is refused rather than booked again,
+  and an upload is skipped when a video with that title is already on the
+  channel. `GET /api/publish/youtube-channel/duplicates` reports both, and
+  changes nothing.
+- **The day's uploads are capped.** A YouTube item uploads as soon as it is
+  queued, so the runner stops at `YOUTUBE_DAILY_UPLOAD_BUDGET` (default 6) per
+  quota day and sends the rest after the reset — they are deferred, never
+  failed. Set `YOUTUBE_DUPLICATE_GUARD=false` to switch the channel check off.
 
 ### Uploading Center (in-app)
 

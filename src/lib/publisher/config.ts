@@ -34,8 +34,6 @@ export type PublisherConfig = {
   platforms: PlatformId[];
   timezone: string;
   defaultVisibility: Visibility;
-  /** Auto-enqueued exports are scheduled this far in the future. */
-  autoEnqueueDelayMinutes: number;
   /** Queue persistence: local JSON file, or the same JSON object stored in R2/S3 (required for GitHub Actions). */
   queueBackend: "file" | "r2";
   maxAttempts: number;
@@ -71,8 +69,18 @@ export type PublisherConfig = {
     refreshToken: string | null;
     /** Optional YouTube category id for uploads (e.g. "22" People & Blogs, "20" Gaming). */
     categoryId: string | null;
-    /** Self-imposed uploads/day cap for the quota meter (~1600 units each of 10,000). */
+    /**
+     * Self-imposed uploads/day cap (~1600 quota units each of 10,000). It is not
+     * only the meter's number: the runner stops uploading when the day's count
+     * reaches it and sends the rest tomorrow, which is what keeps a batch from
+     * emptying the day's allowance in one pass.
+     */
     dailyUploadBudget: number;
+    /**
+     * Check the channel's own recent uploads for this title before posting, and
+     * refuse a video that is already up. On unless YOUTUBE_DUPLICATE_GUARD=false.
+     */
+    duplicateGuard: boolean;
   };
   instagram: {
     /** The Instagram professional account's user id (not the username). */
@@ -182,7 +190,6 @@ export function publisherConfig(): PublisherConfig {
     platforms,
     timezone: str("PUBLISH_TIMEZONE") ?? "America/Toronto",
     defaultVisibility,
-    autoEnqueueDelayMinutes: num("PUBLISH_AUTO_ENQUEUE_DELAY_MINUTES", 60),
     queueBackend: str("PUBLISH_QUEUE_BACKEND")?.toLowerCase() === "r2" ? "r2" : "file",
     maxAttempts: num("PUBLISH_MAX_ATTEMPTS", 5),
     backoffBaseMinutes: num("PUBLISH_BACKOFF_BASE_MINUTES", 2),
@@ -201,7 +208,8 @@ export function publisherConfig(): PublisherConfig {
       clientSecret: str("YOUTUBE_CLIENT_SECRET"),
       refreshToken: cachedRefreshToken("youtube.refreshToken") ?? str("YOUTUBE_REFRESH_TOKEN"),
       categoryId: str("YOUTUBE_CATEGORY_ID"),
-      dailyUploadBudget: num("YOUTUBE_DAILY_UPLOAD_BUDGET", 6)
+      dailyUploadBudget: num("YOUTUBE_DAILY_UPLOAD_BUDGET", 6),
+      duplicateGuard: flag("YOUTUBE_DUPLICATE_GUARD", true)
     },
     instagram: {
       userId: str("IG_USER_ID"),

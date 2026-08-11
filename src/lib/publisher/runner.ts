@@ -10,8 +10,10 @@ import { type BufferOutcome, syncDueToBuffer, validateBufferAuth } from "@/lib/p
 import { bufferConfigured, configuredPlatforms, publisherConfig, type PublisherConfig } from "@/lib/publisher/config";
 import { hostImages, hostMedia, mediaHost } from "@/lib/publisher/hosting";
 import { imagePathsOf, isImagePost } from "@/lib/publisher/images";
+import { channelDuplicateMessage, youtubeChannelDuplicate } from "@/lib/publisher/duplicateGuard";
 import { describeMirrorPlan, planMirror } from "@/lib/publisher/mirror";
 import { PermanentError, StillProcessingError, isTransient } from "@/lib/publisher/http";
+import { remainingYoutubeUploads } from "@/lib/publisher/quota";
 import { PublishQueue, isTerminalStatus, newPlatformState, publishQueue } from "@/lib/publisher/queue";
 import { formatInTimezone } from "@/lib/publisher/time";
 import type { PlatformAdapter, PlatformId, PlatformState, PostResult, PublishInput, PublishPlan, QueueItem } from "@/lib/publisher/types";
@@ -37,13 +39,28 @@ import type { PlatformAdapter, PlatformId, PlatformState, PostResult, PublishInp
  * on. Transient errors retry with exponential backoff; permanent errors mark
  * the platform failed with the reason. Terminal states are never reprocessed,
  * so re-running is idempotent.
+ *
+ * Two things bound what one run may send to YouTube, both only around a FRESH
+ * upload (never around resuming a post that already exists):
+ *  - the day's upload allowance (YOUTUBE_DAILY_UPLOAD_BUDGET). Uploading early
+ *    is what makes a schedule survive downtime, but it also means a whole
+ *    batch's bytes go up the moment they are booked — which is how the channel
+ *    got locked out of uploading for a day. Past the allowance an item is left
+ *    exactly as it is and reported as "deferred".
+ *  - the channel's own recent uploads: a video already up there is not posted
+ *    again (duplicateGuard.ts).
  */
 
 export type RunOutcome = {
   itemId: string;
   clip: string;
   platform: PlatformId;
-  outcome: "published" | "scheduled" | "uploaded" | "retrying" | "failed";
+  /**
+   * "deferred" is not a failure and not a retry: the day's YouTube upload
+   * allowance is spent, the item is untouched, and the next run after the quota
+   * resets sends it.
+   */
+  outcome: "published" | "scheduled" | "uploaded" | "retrying" | "failed" | "deferred";
   detail: string;
 };
 
@@ -307,6 +324,15 @@ export async function runDue(now: Date = new Date(), options: RunDueOptions = {}
     return report;
   }
 
+  // How many fresh YouTube uploads this run may still send. A YouTube item is
+  // due the moment it is queued — the upload happens now and YouTube publishes
+  // it at its slot — so without this a batch booked across three weeks sends
+  // every file today, empties the daily allowance and locks the channel out of
+  // uploading. `due` is ordered by slot, so what does go up is the soonest.
+  let youtubeUploadsLeft = options.force
+    ? Number.POSITIVE_INFINITY
+    : remainingYoutubeUploads(await queue.list(), now, config);
+
   for (const { item, platforms } of due) {
     let localPath: string | null = null;
     let publicUrl: string | undefined;
@@ -339,6 +365,22 @@ export async function runDue(now: Date = new Date(), options: RunDueOptions = {}
             result = { status: "published", postId: state.postId, detail: "already on the platform — not uploaded again" };
           }
         } else {
+          // Everything below sends bytes. The two protections that only apply to
+          // a FRESH upload go here, not around the resume branch above: resuming
+          // a post that already exists on the platform is not a new upload, and
+          // must never be stopped for looking like the video it IS.
+          if (platform === "youtube") {
+            if (youtubeUploadsLeft <= 0) {
+              record(
+                "deferred",
+                `YouTube's ${config.youtube.dailyUploadBudget} uploads for today are used — this one goes up on the next run after the quota resets.`
+              );
+              continue;
+            }
+            const duplicate = await youtubeChannelDuplicate(item, config, now);
+            if (duplicate) throw new PermanentError(channelDuplicateMessage(duplicate));
+            youtubeUploadsLeft -= 1;
+          }
           await queue.claim(item, platform, now);
           // Resolve media lazily and once per item, not per platform.
           if (isImagePost(item)) {

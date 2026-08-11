@@ -1,3 +1,4 @@
+import { EARLIEST_PUBLISH_DAY_OFFSET } from "@/lib/publisher/schedule";
 import { zonedToUtc } from "@/lib/publisher/time";
 
 /**
@@ -30,6 +31,13 @@ export type ScheduleSlot = {
   past: boolean;
   /** Falls on today's local calendar date (render highlighted). */
   today: boolean;
+  /**
+   * Something may actually be booked here: still to come AND not today. Every
+   * picker and the booking plan filter on this rather than on `past`, because
+   * today's remaining slots are off limits (see `schedule.ts`). Today's slots
+   * are still GENERATED — the board shows the day, and what is already on it.
+   */
+  bookable: boolean;
 };
 
 export type SlotOptions = {
@@ -93,16 +101,33 @@ export function generateSlots(options: SlotOptions): ScheduleSlot[] {
         minute,
         0
       );
+      const past = utc.getTime() <= now.getTime();
       slots.push({
         id: `${dateKey} ${time}`,
         dateKey,
         dateLabel,
         time,
         utc: utc.toISOString(),
-        past: utc.getTime() <= now.getTime(),
-        today: offset === 0
+        past,
+        today: offset === 0,
+        bookable: !past && offset >= EARLIEST_PUBLISH_DAY_OFFSET
       });
     }
   }
   return slots;
+}
+
+/**
+ * The soonest slot anything may be booked into — tomorrow's first, in practice.
+ * Callers that used to schedule "n minutes from now" (the export auto-enqueue)
+ * land here instead of being refused, so a finished render still gets a place.
+ */
+export function nextBookableSlot(options: Omit<SlotOptions, "days" | "startDayOffset">): ScheduleSlot {
+  const slots = generateSlots({ ...options, days: 8 }).filter((slot) => slot.bookable);
+  if (slots.length === 0) {
+    // Only reachable if a caller passes an empty `times` list; the grid always
+    // has slots on tomorrow otherwise.
+    throw new Error("No bookable slot in the next week — check the schedule slot times.");
+  }
+  return slots[0];
 }

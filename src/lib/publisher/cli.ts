@@ -107,7 +107,9 @@ async function main() {
     const clip = flagStr(args, "clip");
     const at = flagStr(args, "at");
     if (!clip || !at) {
-      console.error('Usage: enqueue --clip <path> --at "YYYY-MM-DDTHH:mm" [--title t] [--caption c] [--hashtags a,b] [--platforms youtube,instagram,tiktok] [--visibility public|private|unlisted]');
+      console.error('Usage: enqueue --clip <path> --at "YYYY-MM-DDTHH:mm" [--title t] [--caption c] [--hashtags a,b] [--platforms youtube,instagram,tiktok] [--visibility public|private|unlisted] [--today] [--duplicate]');
+      console.error("  --today      book a time today — refused otherwise, so a batch can never land on one day.");
+      console.error("  --duplicate  queue a clip the queue already carries — refused otherwise.");
       process.exitCode = 1;
       return;
     }
@@ -127,7 +129,11 @@ async function main() {
         .filter(Boolean),
       platforms,
       visibility:
-        visibilityRaw === "public" || visibilityRaw === "private" || visibilityRaw === "unlisted" ? visibilityRaw : undefined
+        visibilityRaw === "public" || visibilityRaw === "private" || visibilityRaw === "unlisted" ? visibilityRaw : undefined,
+      // A person at a terminal typing the flag is the only same-day/duplicate
+      // booking the app makes.
+      allowSameDay: args.flags.has("today"),
+      allowDuplicate: args.flags.has("duplicate")
     });
     console.log(`[publisher] enqueued ${item.id}: "${item.title}"`);
     console.log(`[publisher]   clip:      ${item.clipPath}`);

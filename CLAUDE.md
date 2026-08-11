@@ -253,7 +253,9 @@ not already in the publish queue; `queueRunOutputs` books them.
   taken slot as taken; double-booking is how one day posts twice and the next
   posts nothing.
 - Dedupe is by resolved file path against the live queue, so pressing the button
-  twice cannot queue the same video twice.
+  twice cannot queue the same video twice — and `enqueue()` refuses a duplicate
+  underneath it either way (see below).
+- The first slot offered is TOMORROW's, never one left in today.
 - One failure never stops the rest, and every failure is named back to the user
   — a silent gap here is a day with nothing posted.
 - Nothing here publishes. It writes the same queue the Uploading Center writes,
@@ -263,6 +265,40 @@ not already in the publish queue; `queueRunOutputs` books them.
   because the click happens while segments are still rendering. It can only
   book what the same plan would have booked, deduped by file path, so it can
   never queue something twice or something he unticked in a later plan.
+
+## Two things the publisher must never do (`schedule.ts`, `duplicates.ts`)
+
+A batch booking once put a run's whole output onto the channel inside one
+morning — the same shorts more than once — and YouTube locked the account out of
+uploading for the rest of the day. Both halves of that are now rules with a leaf
+module each, and BOTH are enforced at `enqueue()`, the one door every route into
+the queue goes through (Uploading Center, the editor's Schedule Short menu, the
+pipeline's booking sheet, the ingest scan, the CLI, `/api/publish`).
+
+- NOTHING IS SCHEDULED FOR THE DAY IT IS BOOKED. The earliest slot is TOMORROW
+  in `PUBLISH_TIMEZONE — `schedule.ts` says so, `generateSlots` marks a slot
+  `bookable`, and every picker, the auto-assign, the agenda board and
+  `planRunOutputs` filter on that field rather than on `past`. A picker can be
+  bypassed, so `enqueue()` refuses a same-day time outright; `allowSameDay` is
+  for a person typing it, never for anything automatic. The rule is about the
+  CALENDAR DAY, not a number of hours — "24 hours out" would still let two
+  batches land on one day.
+- NOTHING IS QUEUED TWICE. `duplicates.ts` asks whether the queue already
+  carries these bytes (the file, its pre-vertical original, every picture of a
+  deck) or the same clip retitled (same `jobId`, same normalized title). A
+  fully-failed post is not a duplicate — re-scheduling it is the point.
+- A YOUTUBE ITEM UPLOADS THE MOMENT IT IS QUEUED (`queue.duePlatforms` — that is
+  what makes the schedule survive downtime), so booking three weeks ahead still
+  sends every file today. The runner therefore stops at
+  `YOUTUBE_DAILY_UPLOAD_BUDGET` uploads per quota day and reports the rest as
+  `deferred`: untouched, unclaimed, no attempt counted, sent after the reset.
+  The cap counts FRESH uploads only — resuming or finalizing a video that is
+  already on the platform is not a new upload.
+- The channel itself is the last check (`duplicateGuard.ts`): a video whose
+  title is already up in the last 30 days is not uploaded again. It fails OPEN
+  — a 403, a timeout or an empty read must never stop a legitimate post. The
+  matching audit is `GET /api/publish/youtube-channel/duplicates`, which reports
+  repeated titles on the channel and repeats on the queue, and changes nothing.
 
 ## Automatic channel ingest (`src/lib/ingest`)
 
