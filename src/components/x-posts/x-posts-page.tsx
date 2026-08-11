@@ -196,7 +196,7 @@ export function XPostsPage() {
     <div>
       <PageHeader
         eyebrow="Step 2 · Formats"
-        title="Threads Engine"
+        title="X / Threads Posts"
         description="Two buttons: Generate 24 writes a fresh day of Threads posts against your positioning brief, and Schedule from now puts them on the queue starting the moment you press it. Everything after that posts itself."
         actions={
           <div className="flex flex-wrap items-center gap-2">

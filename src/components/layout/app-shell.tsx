@@ -34,8 +34,12 @@ import { CommandBar } from "@/components/layout/command-bar";
 import { ReleaseProvider } from "@/components/layout/release-provider";
 import { UpdateBanner } from "@/components/layout/update-banner";
 import { UpdateCheckButton } from "@/components/layout/update-check";
+import { StreamBanner } from "@/components/layout/stream-banner";
+import { StreamCard } from "@/components/layout/stream-card";
 import { PipelineAttentionProvider, usePipelineAttention } from "@/components/pipeline/attention";
 import { useAppData } from "@/components/providers/app-provider";
+import { StreamProvider, useStream } from "@/components/providers/stream-provider";
+import { streamHref } from "@/lib/pipeline/streams";
 import { PlatformIcon, PLATFORM_LABEL, type PlatformIconKey } from "@/components/ui/platform-icon";
 import { cn } from "@/lib/utils";
 
@@ -523,9 +527,14 @@ function NavLink({ item, active, collapsed = false }: { item: NavItem; active: b
   // only from the run he would have to think to open.
   const { needsAttention } = usePipelineAttention();
   const attention = isPipelineHref(item.href) ? needsAttention : 0;
+  // Walking down the flow keeps the stream you are working on. Every screen
+  // below used to open on everything the app had ever made, so following the
+  // sidebar meant hunting for your own recording on each one.
+  const { stream } = useStream();
+  const href = streamHref(item.href, stream);
   return (
     <Link
-      href={item.href}
+      href={href}
       title={collapsed ? (attention > 0 ? `${item.label} — ${attention} needing attention` : item.label) : undefined}
       className={cn(
         "flex items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-sm transition",
@@ -662,7 +671,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   return (
     <ReleaseProvider>
       <PipelineAttentionProvider>
-        <AppChrome>{children}</AppChrome>
+        <StreamProvider>
+          <AppChrome>{children}</AppChrome>
+        </StreamProvider>
       </PipelineAttentionProvider>
     </ReleaseProvider>
   );
@@ -717,8 +728,13 @@ function AppChrome({ children }: { children: React.ReactNode }) {
           </div>
 
           {/* Who this pipeline publishes as — front and centre. */}
-          <div className="pb-4">
+          <div className="pb-3">
             <ChannelCard collapsed={sidebarCollapsed} />
+          </div>
+
+          {/* …and WHICH recording the whole flow below is about. */}
+          <div className="pb-4">
+            <StreamCard collapsed={sidebarCollapsed} />
           </div>
 
           <nav className="flex-1 space-y-5 overflow-y-auto pr-0.5">
@@ -824,6 +840,9 @@ function AppChrome({ children }: { children: React.ReactNode }) {
             iOS-style transition. Query-param changes (e.g. tab switches) keep
             the same key and don't re-animate. */}
         <div key={pathname} className="page-enter">
+          {/* Which recording this screen is showing, on every screen that can
+              show one. Without it a Formats page is an undated pile of work. */}
+          <StreamBanner />
           {children}
         </div>
         <AppFooter />

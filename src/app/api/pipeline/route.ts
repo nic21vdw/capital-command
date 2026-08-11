@@ -3,6 +3,7 @@ import { FFMPEG_MISSING_MESSAGE, resolveFfmpeg } from "@/lib/clipping/ffmpeg";
 import { ingestOverview } from "@/lib/ingest/service";
 import { readAppData } from "@/lib/storage/store";
 import { createRunFromSource, createRunFromUrl, listRuns, overviewContext, runOverview, updateRun } from "@/lib/pipeline/runs";
+import { summarizeStream } from "@/lib/pipeline/streams";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -37,7 +38,11 @@ export async function GET(request: NextRequest) {
         ).length + (scanFailed ? 1 : 0),
       scanFailed,
       scan: outcome,
-      working: overviews.filter((entry) => entry.run.status !== "error" && !entry.settled).length
+      working: overviews.filter((entry) => entry.run.status !== "error" && !entry.settled).length,
+      // The shell needs to name the stream you are working on and point each
+      // Formats screen at its piece of it. That is a few bytes per run on a
+      // poll already being made, not a second request.
+      streams: overviews.map(summarizeStream)
     });
   }
   return NextResponse.json({ runs: overviews });

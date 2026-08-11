@@ -127,7 +127,7 @@ export function FacebookPage() {
     <div>
       <PageHeader
         eyebrow="Step 2 · Formats"
-        title="Thread Content Engine"
+        title="FB / IG Threads"
         description="The Professional-Mode playbook behind 1.4B organic views: text-only hooks (78.2% of views), image posts, and reels — with the real content continued as a numbered thread in the comments and the CTA as the final comment."
       />
 
