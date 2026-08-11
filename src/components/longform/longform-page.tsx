@@ -2,7 +2,7 @@
 
 import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Clapperboard, Film, Loader2, Music4, Scissors, Trash2, UploadCloud, Zap } from "lucide-react";
+import { Clapperboard, Film, Loader2, MonitorCheck, Music4, Scissors, Trash2, UploadCloud, Zap } from "lucide-react";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -440,6 +440,16 @@ export function LongformStudioPage() {
                 <span>
                   <span className="text-white">All-in-one</span> — export lands straight in the Clip Generator, ready
                   to become shorts.
+                </span>
+              </li>
+              {/* Shortening the upload blurb deleted the only place that said
+                  the recording never leaves the machine. That is a promise
+                  about his footage, not filler. */}
+              <li className="flex gap-3">
+                <MonitorCheck className="mt-0.5 h-4 w-4 shrink-0 text-[var(--accent)]" />
+                <span>
+                  <span className="text-white">Stays on this computer</span> — transcription, silence detection and
+                  hook planning all run locally.
                 </span>
               </li>
             </ul>

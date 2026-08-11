@@ -118,6 +118,9 @@ export function CarouselsPage() {
   // Text and photos carry no id, so they stand for themselves.
   const sourceValue = sourceId ? `${sourceType}:${sourceId}` : sourceType === "custom" || sourceType === "images" ? sourceType : "";
 
+  const presetMissing =
+    Boolean(presetLongform) && sourceType === "longform" && !projects.some((project) => project.id === presetLongform);
+
   const pickSource = (value: string) => {
     if (value === "" || value === "custom" || value === "images") {
       setSourceType(value === "" ? "script" : (value as SourceType));
@@ -303,6 +306,15 @@ export function CarouselsPage() {
                     {script.title}
                   </option>
                 ))}
+              </optgroup>
+            ) : null}
+            {/* The stream the sidebar handed this page may not be in the list:
+                that only holds FINISHED edits, and a run links here the moment
+                it has a project at all. Its own option keeps the picker saying
+                what you are working on instead of reading as nothing picked. */}
+            {presetMissing ? (
+              <optgroup label="This stream">
+                <option value={`longform:${presetLongform}`}>The stream you are working on</option>
               </optgroup>
             ) : null}
             {projects.length > 0 ? (

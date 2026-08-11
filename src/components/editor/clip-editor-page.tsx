@@ -138,10 +138,15 @@ export function ClipEditorPage() {
   );
 
   const showListOptions = sourceOptions.length > 1 || projects.length > 1;
+  // Only claim a filter when the control that clears it is actually rendered.
+  // With one source there is nothing to narrow, and a summary reading "Only
+  // <source>" over an unfiltered list sends you looking for a filter that isn't
+  // there.
+  const filterNarrows = activeFilter !== "all" && sourceOptions.length > 1;
   const listOptionsSummary = [
-    activeFilter === "all"
-      ? "All sources"
-      : `Only ${sourceOptions.find((option) => option.jobId === activeFilter)?.label ?? activeFilter}`,
+    filterNarrows
+      ? `Only ${sourceOptions.find((option) => option.jobId === activeFilter)?.label}`
+      : "All sources",
     sortMode === "date" ? "Newest first" : "A→Z"
   ].join(" · ");
 
