@@ -16,6 +16,7 @@ import { copyClipsToDrive, driveDir } from "@/lib/clipping/drive";
 import { downloadAudio, downloadSection, fetchVideoMeta } from "@/lib/clipping/download";
 import { hasAudioStream, probeDimensions, probeDuration, runFfmpeg } from "@/lib/clipping/ffmpeg";
 import { DOWNLOAD_FRAME_H, DOWNLOAD_FRAME_W, planClipFraming } from "@/lib/clipping/autoframe";
+import { centerBlurVideoTopFrac } from "@/lib/clipping/centerBlur";
 import { framingVideoTopFrac } from "@/lib/clipping/framing";
 import { renderCaptionedVertical, renderPreviewAssets, renderSourceClip, type ClipFramingSpec } from "@/lib/clipping/render";
 import { readSourceMeta, sourceFilePath, type SourceMeta } from "@/lib/clipping/sources";
@@ -657,12 +658,15 @@ async function writeClipDownloadAss(
   // on-frame height is frameW * (srcH/srcW), centered vertically.
   const srcW = sourceDims?.width || 16;
   const srcH = sourceDims?.height || 9;
-  const videoHeightFrac = Math.min(1, (DOWNLOAD_FRAME_W * (srcH / Math.max(1, srcW))) / DOWNLOAD_FRAME_H);
   // An auto-framed clip has no letterbox to sit above — the framing says where
-  // the title clears the footage instead.
+  // the title clears the footage instead. Both paths account for the center +
+  // blur punch-in, which is what decides how tall the video band actually is.
   const videoTopFrac = framing
     ? framingVideoTopFrac(framing.framing, framing.target)
-    : (1 - videoHeightFrac) / 2;
+    : centerBlurVideoTopFrac(
+        { width: srcW, height: srcH },
+        { width: DOWNLOAD_FRAME_W, height: DOWNLOAD_FRAME_H }
+      );
   const title = clip.title?.trim() || generateClipTitle(windowed, "");
   const titleLine = title
     ? `${buildClipTitleDialogue(title, DOWNLOAD_FRAME_W, DOWNLOAD_FRAME_H, 0, Math.max(0.1, clip.end - clip.start), videoTopFrac)}\n`

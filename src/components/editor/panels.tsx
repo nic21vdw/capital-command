@@ -23,6 +23,7 @@ import {
   Unlock
 } from "lucide-react";
 import { CAPTION_PRESETS } from "@/lib/clipping/captions";
+import { DEFAULT_CENTER_BLUR_ZOOM } from "@/lib/clipping/centerBlur";
 import {
   ASPECT_LABELS,
   EXPORT_PRESETS,
@@ -612,13 +613,30 @@ export const LayoutPanel = memo(function LayoutPanel({ api }: { api: EditorApi }
           <RangeField label="Zoom" value={Math.max(1, r.scale)} min={1} max={4} step={0.05} onChange={(v) => api.patch({ reframe: { ...r, scale: v } })} format={(v) => `${v.toFixed(2)}x`} />
           <RangeField label="Pan X" value={r.offsetX} min={-1} max={1} step={0.02} onChange={(v) => api.patch({ reframe: { ...r, offsetX: v } })} />
           <RangeField label="Pan Y" value={r.offsetY} min={-1} max={1} step={0.02} onChange={(v) => api.patch({ reframe: { ...r, offsetY: v } })} />
+          {project.compositionMode === "center-blur" && (
+            <p className="text-xs text-[var(--muted-foreground)]">
+              Centre + blur ships at {DEFAULT_CENTER_BLUR_ZOOM.toFixed(2)}x by default, so the video is bigger than
+              its blurred fill. Drop it to 1.00x to keep the full width of the source frame.
+            </p>
+          )}
           <p className="text-xs text-[var(--muted-foreground)]">Tip: drag the preview to pan; double-click it to re-center.</p>
           <div className="flex gap-2">
             <Button variant="secondary" onClick={() => api.patch({ reframe: { ...r, offsetX: 0, offsetY: 0 } })}>
               Center
             </Button>
-            <Button variant="ghost" onClick={() => api.patch({ reframe: { scale: 1, offsetX: 0, offsetY: 0 } })}>
-              Reset zoom & pan
+            <Button
+              variant="ghost"
+              onClick={() =>
+                api.patch({
+                  reframe: {
+                    scale: project.compositionMode === "center-blur" ? DEFAULT_CENTER_BLUR_ZOOM : 1,
+                    offsetX: 0,
+                    offsetY: 0
+                  }
+                })
+              }
+            >
+              Reset zoom &amp; pan
             </Button>
           </div>
         </>

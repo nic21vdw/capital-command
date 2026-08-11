@@ -1,4 +1,5 @@
 import { CAPTION_PRESETS } from "@/lib/clipping/captions";
+import { DEFAULT_CENTER_BLUR_ZOOM } from "@/lib/clipping/centerBlur";
 import { defaultSfxSettings } from "@/lib/sfx/types";
 import {
   defaultCaptionStyle,
@@ -359,7 +360,9 @@ export function makeClipProject(input: {
     title: "",
     aspectRatio: "9:16",
     compositionMode: "center-blur",
-    reframe: { scale: 1, offsetX: 0, offsetY: 0 },
+    // Centre + blur starts punched in, matching the ready-to-post render, so
+    // opening a clip in the editor doesn't zoom back out on its own.
+    reframe: { scale: DEFAULT_CENTER_BLUR_ZOOM, offsetX: 0, offsetY: 0 },
     captions: [],
     captionStyle: { ...defaultCaptionStyle },
     captionsVisible: true,
