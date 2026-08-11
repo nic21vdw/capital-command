@@ -37,8 +37,15 @@ const { queueRunOutputs } = await import("@/lib/pipeline/queueOutputs");
 
 /** Every slot the booker can reach, in the order it would fill them. */
 function horizon(): string[] {
+  return generateSlots({ timeZone: state.config.timezone, days: 120 })
+    .filter((slot) => slot.bookable)
+    .map((slot) => slot.utc);
+}
+
+/** The three weeks that used to be the whole calendar. */
+function firstThreeWeeks(): string[] {
   return generateSlots({ timeZone: state.config.timezone, days: 21 })
-    .filter((slot) => !slot.past)
+    .filter((slot) => slot.bookable)
     .map((slot) => slot.utc);
 }
 
@@ -65,7 +72,18 @@ describe("booking when the calendar is already full", () => {
 
     expect(result.queued).toHaveLength(0);
     expect(result.failed).toHaveLength(5);
-    expect(result.failed[0].error).toContain("No free slot");
+    expect(result.failed[0].error).toContain("four months");
+  });
+
+  it("reaches past the booked three weeks instead of refusing the whole run", async () => {
+    state.booked = firstThreeWeeks().map((publishAt) => ({ publishAt }));
+
+    const result = await queueRunOutputs("run1");
+
+    expect(result.queued).toHaveLength(5);
+    expect(result.failed).toHaveLength(0);
+    const taken = new Set(firstThreeWeeks());
+    expect(result.queued.every((item) => !taken.has(item.publishAt))).toBe(true);
   });
 
   it("books only what actually fits, one output per free slot", async () => {
