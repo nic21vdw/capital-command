@@ -29,7 +29,7 @@ describe("centerBlurVideoHeightFrac", () => {
     const plain = centerBlurVideoHeightFrac(widescreen, frame, 1);
     const zoomed = centerBlurVideoHeightFrac(widescreen, frame, DEFAULT_CENTER_BLUR_ZOOM);
     expect(plain).toBeCloseTo(0.316, 3);
-    expect(zoomed).toBeCloseTo(0.396, 3);
+    expect(zoomed).toBeCloseTo(0.421, 3);
     expect(zoomed).toBeGreaterThan(plain);
   });
 
@@ -42,7 +42,7 @@ describe("centerBlurVideoHeightFrac", () => {
 describe("centerBlurVideoTopFrac", () => {
   it("splits what is left of the frame evenly above and below the video", () => {
     expect(centerBlurVideoTopFrac(widescreen, frame, 1)).toBeCloseTo(0.342, 3);
-    expect(centerBlurVideoTopFrac(widescreen, frame)).toBeCloseTo(0.302, 3);
+    expect(centerBlurVideoTopFrac(widescreen, frame)).toBeCloseTo(0.29, 3);
   });
 });
 

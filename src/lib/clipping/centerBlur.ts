@@ -13,7 +13,7 @@
  */
 
 /** Zoom applied to the centred video when nothing else is specified. */
-export const DEFAULT_CENTER_BLUR_ZOOM = 1.25;
+export const DEFAULT_CENTER_BLUR_ZOOM = 1.33;
 
 /** Never below 1 — shrinking the video only grows the blur. */
 export const MIN_CENTER_BLUR_ZOOM = 1;

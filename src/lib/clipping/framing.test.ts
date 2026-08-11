@@ -152,8 +152,8 @@ describe("framingToReframe", () => {
 describe("framingVideoTopFrac", () => {
   it("puts the title over footage only where there is no letterbox to use", () => {
     expect(framingVideoTopFrac({ mode: "subject-fill", confidence: 1, reason: "" }, target)).toBe(0);
-    // 16:9 into 9:16, punched in 1.25x: a 0.396-tall band, so 0.302 above it.
-    expect(framingVideoTopFrac({ mode: "center-blur", confidence: 0, reason: "" }, target)).toBeCloseTo(0.302, 3);
+    // 16:9 into 9:16, punched in 1.33x: a 0.421-tall band, so 0.290 above it.
+    expect(framingVideoTopFrac({ mode: "center-blur", confidence: 0, reason: "" }, target)).toBeCloseTo(0.29, 3);
   });
 
   it("follows the centre + blur zoom, so the title never lands on the footage", () => {
