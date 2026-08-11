@@ -151,6 +151,9 @@ export function XPostsPage() {
 
   const activePack = pack ?? storedPack;
   const autopilot = useAutopilot();
+  // Until the status has loaded, claim nothing: an unarmed autopilot briefly
+  // promising to post is the wrong way round to be wrong.
+  const autopilotArmed = autopilot.status ? !autopilot.status.blockedReason : false;
 
   // Keep the "generated Xm ago" freshness read-out live so a stale, cached pack
   // is visibly old — the whole point is not to copy something from before.
@@ -198,7 +201,14 @@ export function XPostsPage() {
       <PageHeader
         eyebrow="Step 2 · Formats"
         title="X / Threads Posts"
-        description="Write a day of Threads posts and let them go out on their own — press Write today's posts and the app drafts 24 posts plus 20 replies from your positioning brief, then posts them for you one at a time through the day."
+        description={
+          // Promising that they post themselves is only true when autopilot is
+          // actually armed. Said unconditionally, the header contradicted the
+          // card right below it explaining why nothing was going out.
+          autopilotArmed
+            ? "Write a day of Threads posts and let them go out on their own — press Write today's posts and the app drafts 24 posts plus 20 replies from your positioning brief, then posts them for you one at a time through the day."
+            : "Press Write today's posts and the app drafts 24 posts plus 20 replies from your positioning brief. Connect an account below to have them go out on their own."
+        }
         actions={
           <Button onClick={() => generate(true)} disabled={generating || autopilot.busy !== null} className="shrink-0">
             <RefreshCw className={cn("mr-2 h-4 w-4", generating && "animate-spin")} />
@@ -217,7 +227,11 @@ export function XPostsPage() {
         <AdvancedOptions
           id="x-posts-manual"
           label="Take over by hand"
-          summary="Left alone, today's posts write and send themselves"
+          summary={
+            autopilotArmed
+              ? "Left alone, today's posts write and send themselves"
+              : "Nothing is sending on its own yet — these step in by hand"
+          }
         >
           <p className="text-xs text-[var(--muted-foreground)]">
             Every few minutes a background check writes the day&apos;s posts if they aren&apos;t written yet and sends
@@ -538,7 +552,8 @@ function AutopilotTab({ status, busy, send }: AutopilotProps) {
       <Card>
         <p className="mb-4 text-sm text-[var(--muted-foreground)]">
           What has gone out and what is still waiting. Edit the wording or the time of anything still to come — a post
-          whose time passes while the PC is off is skipped, never sent late.
+          that falls more than about three quarters of an hour behind is spread across the rest of the day instead, and
+          one the day ran out of time for is dropped rather than sent at the wrong hour.
         </p>
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="flex flex-wrap gap-2">

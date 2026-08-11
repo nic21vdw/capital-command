@@ -54,7 +54,7 @@ quietly delivers four posts instead of twenty-four, which misses the point of
 an autopilot.
 
 So `catchUpToday()` re-lays what is left across the time that remains: the
-dashboard's **Schedule from now** button, pressed automatically. It is fenced in
+dashboard's **Post these starting now** button, pressed automatically. It is fenced in
 on four sides so it can never become the burst it exists to avoid:
 
 - **A wide floor on the spacing.** Catch-up passes
@@ -171,8 +171,8 @@ always-on host; there is no local arrangement that gets both.
 
 The dashboard (`/x-posts`) is deliberately just two:
 
-- **Generate 24** writes a fresh day of posts against the positioning brief.
-- **Schedule from now** (`POST /api/threads {action:"schedule-now"}`) hands that
+- **Write today's posts** writes a fresh day of posts against the positioning brief.
+- **Post these starting now** (`POST /api/threads {action:"schedule-now"}`) hands that
   pack to the queue starting one minute after the press, keeping the pack's own
   rhythm but tightening it — never below `MIN_GAP_MINUTES` — so the last post
   still lands before midnight. Whatever won't fit is dropped rather than spilling
@@ -183,7 +183,7 @@ Two rules make that button safe to press at any hour, more than once:
 - It replaces only what is still **pending**. Slots that have already gone out
   keep their place in history and are left out of the new layout, so pressing it
   at noon can't put the morning's posts back through the feed.
-- It reuses today's pack. Only **Generate 24** pays for a new one.
+- It reuses today's pack. Only **Write today's posts** pays for a new one.
 
 The scheduled tick still plans an unattended day on its own; pressing the button
 just re-lays the rest of the day from now.

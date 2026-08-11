@@ -60,6 +60,26 @@ export type AutoAssignPlan = {
  * caption failed would otherwise go out with fallback copy, and the caller has
  * no way to tell that apart from a clip that was captioned properly.
  */
+/**
+ * How many clips pressing "schedule everything" would ACTUALLY book.
+ *
+ * The button used to count every unscheduled clip, which is the set the plan
+ * STARTS from, not the set it books: a clip whose caption failed is held back,
+ * and a clip with no free slot left is dropped. So the screen said "Schedule 6
+ * clips" directly above a warning that 2 of them would not be booked, and then
+ * booked 4. Counting through the real plan is the only way the label and the
+ * click cannot disagree.
+ */
+export function autoAssignableCount(
+  context: BulkContext & {
+    slots: ScheduleSlot[];
+    isTargetSlotTaken: (target: PlatformTarget, slotUtc: string) => boolean;
+    skipKeys?: ReadonlySet<string>;
+  }
+): number {
+  return planAutoAssign(context).assignments.length;
+}
+
 export function planAutoAssign({
   clips,
   draftFor,

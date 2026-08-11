@@ -5,6 +5,7 @@ import { AdvancedOptions } from "@/components/ui/advanced-options";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Select } from "@/components/ui/select";
+import { autoAssignableCount } from "@/components/uploading-center/bulk";
 import { ClipCard, SUGGESTED_HASHTAGS } from "@/components/uploading-center/clip-card";
 import type { RunDefaults } from "@/components/uploading-center/run-defaults";
 import {
@@ -94,6 +95,17 @@ export function ClipQueue({
     onRunDefaultsChange({ ...runDefaults, hashtags });
   };
   const unscheduled = clips.filter((clip) => itemsForClip(clip).length === 0).length;
+  // What the click will really book — see `autoAssignableCount`. Counted with
+  // the failures already known, so it agrees with the warning below it; a
+  // caption that fails during the run itself cannot be foreseen here.
+  const bookable = autoAssignableCount({
+    clips,
+    draftFor,
+    isScheduled: (clip) => itemsForClip(clip).length > 0,
+    slots,
+    isTargetSlotTaken: isSlotTaken,
+    skipKeys: new Set(Object.keys(captionFailures))
+  });
   const hashtagSummary =
     runDefaults.hashtags.length > 0 ? runDefaults.hashtags.join(" ") : "no hashtags";
   const captionSummary =
@@ -123,15 +135,20 @@ export function ClipQueue({
 
       {clips.length > 0 ? (
         <div className="space-y-2.5 rounded-xl border border-[var(--border)] bg-[var(--surface-2)] p-3">
-          <Button className="h-11 w-full" onClick={onAutoAssign} disabled={bulkBusy}>
+          {/* Disabled only when there is genuinely nothing left to book. When
+              clips are unscheduled but none can be booked, the press is what
+              explains why — a dead button would leave that unsaid. */}
+          <Button className="h-11 w-full" onClick={onAutoAssign} disabled={bulkBusy || unscheduled === 0}>
             {autoAssigning ? (
               <Loader2 className="mr-2 h-4 w-4 animate-spin" />
             ) : (
               <Wand2 className="mr-2 h-4 w-4" />
             )}
-            {unscheduled > 0
-              ? `Schedule ${unscheduled} clip${unscheduled === 1 ? "" : "s"} at the next free slots`
-              : "Schedule at the next free slots"}
+            {unscheduled === 0
+              ? "Every clip here is scheduled"
+              : bookable > 0
+                ? `Schedule ${bookable} clip${bookable === 1 ? "" : "s"} at the next free slots`
+                : "Schedule at the next free slots"}
           </Button>
           <p className="text-[11px] text-[var(--muted-foreground)]">
             Posts to {PLATFORM_TARGET_LABELS[runDefaults.platform]}
@@ -205,8 +222,14 @@ export function ClipQueue({
             <div className="flex flex-wrap items-center gap-2 rounded-lg border border-amber-400/25 bg-amber-400/8 px-2.5 py-2">
               <TriangleAlert className="h-3.5 w-3.5 shrink-0 text-amber-300" />
               <span className="min-w-0 flex-1 text-[11px] text-amber-100">
-                {failedCaptionCount} clip{failedCaptionCount === 1 ? " has" : "s have"} no AI caption — scheduling
-                leaves {failedCaptionCount === 1 ? "it" : "them"} unbooked until this is fixed.
+                {/* Naming the button matters: only the whole-run button holds
+                    these back. Scheduling a card on its own still posts it,
+                    with fallback wording — saying "scheduling" flatly told him
+                    a clip was protected when one route books it anyway. */}
+                {failedCaptionCount} clip{failedCaptionCount === 1 ? " has" : "s have"} no AI caption — the button
+                above leaves {failedCaptionCount === 1 ? "it" : "them"} out. Scheduling{" "}
+                {failedCaptionCount === 1 ? "that card" : "those cards"} one at a time still posts with fallback
+                wording.
               </span>
               <Button
                 variant="secondary"
