@@ -1,5 +1,8 @@
 import { createHash } from "node:crypto";
+import { access, readFile, rm } from "node:fs/promises";
+import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { dataPath } from "@/lib/paths";
 import { formBody, jsonResponse, mockFetchRoutes } from "@/lib/publisher/test-helpers";
 
 /**
@@ -19,21 +22,35 @@ vi.mock("@/lib/publisher/tokens", () => ({
 }));
 
 const REDIRECT = "http://localhost:3000/api/auth/tiktok/callback";
+const AVATAR_BYTES = Buffer.from("fake-tiktok-avatar-bytes");
 
-beforeEach(() => {
+async function clearAvatarMirror() {
+  await rm(dataPath("publisher"), { recursive: true, force: true });
+}
+
+beforeEach(async () => {
   cache.clear();
+  await clearAvatarMirror();
   vi.stubEnv("TIKTOK_CLIENT_KEY", "tt-key");
   vi.stubEnv("TIKTOK_CLIENT_SECRET", "tt-secret");
   vi.resetModules();
 });
 
-afterEach(() => {
+afterEach(async () => {
   vi.unstubAllEnvs();
   vi.unstubAllGlobals();
+  await clearAvatarMirror();
 });
 
 async function load() {
   return import("@/lib/publisher/tiktokAuth");
+}
+
+function avatarResponse() {
+  return new Response(AVATAR_BYTES, {
+    status: 200,
+    headers: { "Content-Type": "image/webp" }
+  });
 }
 
 describe("tiktokAuthUrl", () => {
@@ -74,9 +91,14 @@ describe("exchangeTiktokCode", () => {
           jsonResponse({
             data: { user: { display_name: "Nic", avatar_url: "https://cdn/a.jpg", username: "nicvandewetering" } }
           })
+      },
+      {
+        match: "https://cdn/a.jpg",
+        respond: () => avatarResponse()
       }
     ]);
-    const { tiktokAuthUrl, exchangeTiktokCode, tiktokCreatorInfo } = await load();
+    const { tiktokAuthUrl, exchangeTiktokCode, tiktokCreatorInfo, TIKTOK_AVATAR_URL, resolveTiktokAvatarFile } =
+      await load();
     await tiktokAuthUrl(REDIRECT);
     const verifier = cache.get("tiktok.codeVerifier")!;
 
@@ -95,9 +117,12 @@ describe("exchangeTiktokCode", () => {
     expect(cache.get("tiktok.codeVerifier")).toBe("");
     expect(await tiktokCreatorInfo()).toEqual({
       title: "Nic",
-      thumbnail: "https://cdn/a.jpg",
+      thumbnail: TIKTOK_AVATAR_URL,
       handle: "nicvandewetering"
     });
+    const mirrored = await resolveTiktokAvatarFile();
+    expect(mirrored).not.toBeNull();
+    expect(await readFile(mirrored!.path)).toEqual(AVATAR_BYTES);
   });
 
   // A grant made without user.info.basic 401s on the user lookup, which is the
@@ -122,16 +147,20 @@ describe("exchangeTiktokCode", () => {
               creator_avatar_url: "https://cdn/a.jpg"
             }
           })
+      },
+      {
+        match: "https://cdn/a.jpg",
+        respond: () => avatarResponse()
       }
     ]);
-    const { tiktokAuthUrl, exchangeTiktokCode, tiktokCreatorInfo } = await load();
+    const { tiktokAuthUrl, exchangeTiktokCode, tiktokCreatorInfo, TIKTOK_AVATAR_URL } = await load();
     await tiktokAuthUrl(REDIRECT);
 
     await exchangeTiktokCode("abc", REDIRECT);
 
     expect(await tiktokCreatorInfo()).toEqual({
       title: "Nic",
-      thumbnail: "https://cdn/a.jpg",
+      thumbnail: TIKTOK_AVATAR_URL,
       handle: "nicvandewetering"
     });
   });
@@ -179,6 +208,84 @@ describe("exchangeTiktokCode", () => {
 
     await expect(exchangeTiktokCode("abc", REDIRECT)).rejects.toThrow(/invalid_grant/);
     expect(cache.get("tiktok.refreshToken")).toBeUndefined();
+  });
+});
+
+describe("tiktokCreatorInfo avatar mirror", () => {
+  it("mirrors an expired remote thumbnail into a local URL on the next lookup", async () => {
+    cache.set(
+      "tiktok.creator",
+      JSON.stringify({
+        title: "Nic",
+        thumbnail: "https://cdn/expired.jpg",
+        handle: "nicvandewetering"
+      })
+    );
+    cache.set("tiktok.refreshToken", "tt-refresh");
+
+    mockFetchRoutes([
+      {
+        match: "https://cdn/expired.jpg",
+        respond: () => new Response("gone", { status: 403 })
+      },
+      {
+        match: "/v2/oauth/token/",
+        respond: () => jsonResponse({ access_token: "tt-at", refresh_token: "tt-refresh" })
+      },
+      {
+        match: "/v2/user/info/",
+        respond: () =>
+          jsonResponse({
+            data: {
+              user: {
+                display_name: "Nic",
+                avatar_url: "https://cdn/fresh.jpg",
+                username: "nicvandewetering"
+              }
+            }
+          })
+      },
+      {
+        match: "https://cdn/fresh.jpg",
+        respond: () => avatarResponse()
+      }
+    ]);
+
+    const { tiktokCreatorInfo, TIKTOK_AVATAR_URL, resolveTiktokAvatarFile } = await load();
+    const info = await tiktokCreatorInfo();
+    expect(info).toEqual({
+      title: "Nic",
+      thumbnail: TIKTOK_AVATAR_URL,
+      handle: "nicvandewetering"
+    });
+    const mirrored = await resolveTiktokAvatarFile();
+    expect(mirrored?.contentType).toBe("image/webp");
+    await access(path.join(dataPath("publisher"), "tiktok-avatar.webp"));
+  });
+
+  it("reuses a mirrored avatar without calling TikTok again", async () => {
+    const { TIKTOK_AVATAR_URL } = await load();
+    const dir = dataPath("publisher");
+    const { mkdir, writeFile } = await import("node:fs/promises");
+    await mkdir(dir, { recursive: true });
+    await writeFile(path.join(dir, "tiktok-avatar.webp"), AVATAR_BYTES);
+    cache.set(
+      "tiktok.creator",
+      JSON.stringify({
+        title: "Nic",
+        thumbnail: TIKTOK_AVATAR_URL,
+        handle: "nicvandewetering"
+      })
+    );
+
+    const requests = mockFetchRoutes([]);
+    const { tiktokCreatorInfo } = await load();
+    expect(await tiktokCreatorInfo()).toEqual({
+      title: "Nic",
+      thumbnail: TIKTOK_AVATAR_URL,
+      handle: "nicvandewetering"
+    });
+    expect(requests).toHaveLength(0);
   });
 });
 
