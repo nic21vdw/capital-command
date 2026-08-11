@@ -14,6 +14,8 @@ already shipped.
 
 ## Unreleased
 
+## 2026-08-11
+
 - **Booking a back catalogue no longer stops at a full three weeks.** Scheduling
   a run only ever looked three weeks ahead, so once the queue was full — which a
   handful of streams does on its own — every output came back "no free slot"
