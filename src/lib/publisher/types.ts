@@ -185,6 +185,14 @@ export type PublishInput = {
     localPaths: string[];
     publicUrls: string[];
   };
+  /**
+   * Persists a mid-flight handle to the queue immediately, before the adapter
+   * carries on. An adapter that is about to do something the platform cannot
+   * undo — sending video bytes — calls this with the handle that identifies
+   * that attempt, so a crash or network drop mid-upload leaves a trail the
+   * next run can resume instead of starting a second upload.
+   */
+  onHandle?: (handle: string) => Promise<void>;
 };
 
 export interface PlatformAdapter {

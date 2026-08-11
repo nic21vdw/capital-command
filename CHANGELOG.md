@@ -14,6 +14,17 @@ already shipped.
 
 ## Unreleased
 
+- **A shaky connection no longer posts the same clip to YouTube several times.**
+  On 10 August a network wobble turned one batch of clips into 14 public
+  Shorts, because every retry uploaded the video again from scratch. The
+  uploader now remembers the upload it started and picks that one back up, so a
+  dropped connection resumes instead of creating a second video. If two publish
+  runs ever overlap, the later one now stands down rather than posting
+  everything a second time.
+- **`npm run publish:reconcile` finds videos the app lost track of.** It lists
+  anything on the channel the queue has no record of — like the ones that burst
+  created — and `--write` records the matches it is sure about.
+
 - **TikTok shows its real profile picture again.** The Connect badge and the
   sidebar used to keep a signed CDN URL that dies after a couple of days, so
   the face went blank until you reconnected. The app now keeps a local copy

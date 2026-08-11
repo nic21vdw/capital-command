@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { publisherConfig } from "@/lib/publisher/config";
 import { PUBLISHING_OFF_MESSAGE } from "@/lib/publisher/enabled";
+import { withPublishRunLock } from "@/lib/publisher/runLock";
 import { runDue } from "@/lib/publisher/runner";
 
 export const runtime = "nodejs";
@@ -24,6 +25,13 @@ export async function POST(request: NextRequest) {
   } catch {
     // Empty body — a real run.
   }
-  const report = await runDue(new Date(), { dryRun });
+  // A dry run posts nothing, so it never needs to wait on a real one.
+  if (dryRun) {
+    return NextResponse.json({ report: await runDue(new Date(), { dryRun: true }) });
+  }
+  const report = await withPublishRunLock(() => runDue(new Date(), { dryRun: false }));
+  if (report === null) {
+    return NextResponse.json({ skipped: true, reason: "A publish run is already in progress - leaving it alone this tick." });
+  }
   return NextResponse.json({ report });
 }

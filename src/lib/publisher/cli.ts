@@ -486,6 +486,35 @@ async function main() {
     return;
   }
 
+  if (command === "reconcile") {
+    const { reconcileYoutube } = await import("@/lib/publisher/reconcileYoutube");
+    const report = await reconcileYoutube({
+      apply: args.flags.has("write"),
+      lookbackDays: Number(flagStr(args, "days") ?? 30)
+    });
+    if (!report.configured) {
+      console.error("[publisher] YouTube is not connected — nothing to reconcile.");
+      process.exitCode = 1;
+      return;
+    }
+    for (const match of report.matched) {
+      console.log(`[publisher] ${match.itemId} → ${match.videoId}  ${match.title}`);
+    }
+    for (const group of report.ambiguous) {
+      console.log(
+        `[publisher] ambiguous "${group.title}" — items ${group.itemIds.join(", ")} vs videos ${group.videoIds.join(", ")}`
+      );
+    }
+    for (const orphan of report.orphans) {
+      console.log(`[publisher] orphan ${orphan.videoId} (${orphan.privacyStatus}) ${orphan.publishedAt}  ${orphan.title}`);
+    }
+    console.log(
+      `[publisher] ${report.matched.length} matched, ${report.ambiguous.length} ambiguous, ${report.orphans.length} orphaned videos.`
+    );
+    if (!report.applied) console.log("[publisher] dry run — re-run with --write to record the matches.");
+    return;
+  }
+
   if (command === "remove") {
     const id = args.positional[1];
     if (!id) {
@@ -510,6 +539,7 @@ async function main() {
       "  retitle [--write] [--push]           rewrite upcoming clip titles via the channel style guide",
       "  instagram connect --token <t>        turn a Meta token into IG_USER_ID + IG_ACCESS_TOKEN (--write saves them)",
       "  instagram check                      confirm the saved Instagram credentials still work",
+      "  reconcile [--write] [--days <n>]      find videos on the channel the queue never recorded",
       "  remove <itemId>                      drop an item from the queue"
     ].join("\n")
   );
