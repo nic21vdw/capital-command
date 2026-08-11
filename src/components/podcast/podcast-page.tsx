@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { Check, Copy, ExternalLink, Loader2, Pencil, RefreshCw, Trash2, TriangleAlert, Upload } from "lucide-react";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
@@ -46,7 +47,10 @@ export function PodcastPage() {
   const [state, setState] = useState<PodcastResponse | null>(null);
   const [draft, setDraft] = useState<PodcastShow | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
-  const [picked, setPicked] = useState("");
+  // null means "not touched yet", which is what lets the stream's own episode
+  // be preselected while still allowing it to be cleared back to nothing.
+  const [picked, setPicked] = useState<string | null>(null);
+  const requestedProject = useSearchParams().get("project");
   const [hostDraft, setHostDraft] = useState("");
   const [changingHost, setChangingHost] = useState(false);
 
@@ -142,12 +146,20 @@ export function PodcastPage() {
 
   const ready = state.blockers.length === 0;
   const unpublished = state.candidates.filter((candidate) => !candidate.published);
-  const selected = state.candidates.find((candidate) => `${candidate.projectId}:${candidate.exportId}` === picked);
+  // `?project=` is the stream the sidebar handed this page. Pick its episode
+  // rather than making him find it among every recording ever cut.
+  const fromStream = requestedProject
+    ? state.candidates.find((candidate) => candidate.projectId === requestedProject)
+    : undefined;
+  const selected =
+    picked === null
+      ? fromStream
+      : state.candidates.find((candidate) => `${candidate.projectId}:${candidate.exportId}` === picked);
 
   return (
     <div>
       <PageHeader
-        eyebrow="Formats"
+        eyebrow="Step 2 · Formats"
         title="Podcast / Spotify"
         description="Spotify has no upload API, so the app publishes an RSS feed and Spotify pulls from it. Every long-form edit the pipeline finishes is added here automatically as an episode."
         actions={
@@ -360,7 +372,7 @@ export function PodcastPage() {
               <>
                 <select
                   className="mt-3 w-full rounded-lg border border-[var(--border)] bg-[var(--surface-1)] px-3 py-2 text-sm text-white"
-                  value={picked}
+                  value={selected ? `${selected.projectId}:${selected.exportId}` : ""}
                   onChange={(event) => setPicked(event.target.value)}
                 >
                   <option value="">

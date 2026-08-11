@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import {
   AlertTriangle,
   Download,
@@ -87,7 +87,18 @@ export function ClipGeneratorPage() {
   const clipProjects = data.clipProjects;
   const [jobs, setJobs] = useState<ClipJob[]>([]);
   const [loaded, setLoaded] = useState(false);
-  const [activeJobId, setActiveJobId] = useState<string | null>(null);
+  // `?job=` is how the sidebar and the Stream Pipeline hand this page the
+  // stream you are working on, instead of opening on whatever ran last.
+  const requestedJobId = useSearchParams().get("job");
+  const [pickedJobId, setActiveJobId] = useState<string | null>(null);
+  const [lastRequested, setLastRequested] = useState<string | null>(requestedJobId);
+  // Switching streams in the sidebar navigates the page you are already on, so
+  // a click made against the old stream must not survive the switch.
+  if (requestedJobId !== lastRequested) {
+    setLastRequested(requestedJobId);
+    setActiveJobId(null);
+  }
+  const activeJobId = pickedJobId ?? requestedJobId;
   const [url, setUrl] = useState("");
   const [brief, setBrief] = useState("");
   const [clipCount, setClipCount] = useState(TARGET_CLIP_COUNT);
@@ -355,7 +366,7 @@ export function ClipGeneratorPage() {
     <div className="space-y-5">
       <PageHeader
         eyebrow="Step 2 · Formats"
-        title="Clip Generator"
+        title="Short Clips"
         description="Turn a raw livestream or recording into short clips: every source is transcribed and captioned automatically, the best moments are picked and titled, and each clip opens in the editor ready to export for Shorts and Reels."
       />
 

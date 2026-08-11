@@ -275,7 +275,7 @@ export function LongformStudioPage() {
     <div className="space-y-6">
       <PageHeader
         eyebrow="Step 2 · Formats"
-        title="Long-Form Editor"
+        title="Long-Form Video"
         description="Throw in a raw recording — it punches in on your hook with viral captions, cuts every stretch of dead air, lays music under it, and hands the finished edit to the Clip Generator."
       />
 

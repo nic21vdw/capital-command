@@ -169,6 +169,36 @@ Channel ingest panel both do it — as a background job in a `globalThis` map
 - The CLI (`npm run ingest:scan`) is unchanged and still goes over HTTP, because
   it is a separate process and the pipeline's run map has one owner.
 
+## Which stream a screen is about (`streams.ts`, `StreamProvider`)
+
+Every Formats screen is a view of ONE recording, but each was a flat list of
+everything the app had ever made, and the open run lived in the Pipeline page's
+own state — so walking down the sidebar lost it and nothing on screen said what
+you were looking at. `StreamProvider` holds that selection above the routes.
+
+- `src/lib/pipeline/streams.ts` is the ONE place that maps a stream to each
+  screen's piece of it. `STREAM_LINKS` may only name a param the target page
+  ALREADY reads: a link carrying an id nobody reads is worse than no link,
+  because the sidebar then claims a filter that is silently not applied.
+- A stream with no piece on a screen yet gets the PLAIN href. `?longform=undefined`
+  filters to nothing, which reads as "this stream made no carousel" when the
+  truth is "not written yet".
+- The list rides the badge's existing `GET /api/pipeline?summary=1` poll — the
+  shell knowing what you are working on costs no extra request. The SELECTION
+  is localStorage; the list is cached in sessionStorage because each route
+  mounts its own `AppShell`, so the provider remounts on every navigation and
+  would otherwise blink the name out and back in.
+- Opening a run on the Pipeline page (`?run=`) IS choosing what you work on.
+- Only leaf components read the query string, each behind its own `Suspense`.
+  Putting `useSearchParams` in the provider prerenders EVERY page as an empty
+  fallback.
+- `next build` rejects `setState` inside an effect, so a screen syncing itself
+  to a param derives it during render (a "last param" state that resets the
+  manual pick) rather than an effect — see `clip-generator-page.tsx`.
+- The nav label and the page title are the same words. They drifted on five of
+  nine screens ("Short Clips" vs "Clip Generator"), which is most of why the
+  app felt scattered. Keep them equal when adding a screen.
+
 ## Stream Pipeline (`/pipeline`)
 
 One stream in (VOD link or uploaded file) → every format out, ready to

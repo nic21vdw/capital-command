@@ -260,7 +260,7 @@ export function CarouselsPage() {
     <div>
       <PageHeader
         eyebrow="Step 2 · Formats"
-        title="Carousels"
+        title="Carousels & Images"
         description="Turn a script, a finished video's transcript, a short-form video, a batch of photos, or pasted text into swipeable carousels — hook slide, value slides, CTA slide — distributable to Instagram, Facebook, and TikTok. Ask for several batches and each one takes a different angle on the same stream. Double-click a slide to preview or edit it, pick an aspect ratio, download, or schedule the upload."
       />
 

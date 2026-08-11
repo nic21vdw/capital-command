@@ -197,3 +197,25 @@ export type PipelineRunOverview = {
   /** True when no stage is still waiting or running. */
   settled: boolean;
 };
+
+/**
+ * One stream as the app shell knows it: enough to name it in the sidebar, say
+ * how far along it is, and point every Formats screen at the right subject.
+ * It rides the summary poll the badge already makes, so knowing which stream
+ * you are working on costs no extra request.
+ */
+export type StreamSummary = {
+  id: string;
+  name: string;
+  status: PipelineRunStatus;
+  settled: boolean;
+  needsAttention: boolean;
+  /** Stages finished, out of the ones this run will ever produce. */
+  ready: number;
+  total: number;
+  longformProjectId?: string;
+  clipJobId?: string;
+  carouselId?: string;
+  posts: number;
+  createdAt: string;
+};

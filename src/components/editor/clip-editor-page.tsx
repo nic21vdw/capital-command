@@ -68,7 +68,19 @@ export function ClipEditorPage() {
   const [jobs, setJobs] = useState<ClipJob[]>([]);
   const [loadingJobs, setLoadingJobs] = useState(false);
   const [draftProject, setDraftProject] = useState<ClipProject | null>(null);
-  const [filterJobId, setFilterJobId] = useState<string>("all");
+  // The source filter is URL-backed so the sidebar can hand this page the
+  // stream you are working on. `?job=` alone means "filter to it"; the
+  // rebuild-from-a-clip flow below needs `open` and `file` as well, so the two
+  // readings of the param cannot be mistaken for each other.
+  const [pickedFilter, setFilterJobId] = useState<string | null>(null);
+  const [lastJobParam, setLastJobParam] = useState<string | null>(sourceJobId);
+  // Switching streams in the sidebar navigates this same page, so a filter
+  // chosen against the old stream must not survive the switch.
+  if (sourceJobId !== lastJobParam) {
+    setLastJobParam(sourceJobId);
+    setFilterJobId(null);
+  }
+  const filterJobId = pickedFilter ?? sourceJobId ?? "all";
   // Newest-first by default; the user can switch to A→Z by project name.
   const [sortMode, setSortMode] = useState<"date" | "name">("date");
 
