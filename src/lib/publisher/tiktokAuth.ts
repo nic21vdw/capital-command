@@ -1,4 +1,7 @@
 import { createHash, randomBytes } from "node:crypto";
+import { access, mkdir, readdir, unlink, writeFile } from "node:fs/promises";
+import path from "node:path";
+import { dataPath } from "@/lib/paths";
 import { publisherConfig } from "@/lib/publisher/config";
 import { fetchJson } from "@/lib/publisher/http";
 import { getCachedToken, setCachedToken } from "@/lib/publisher/tokens";
@@ -20,6 +23,10 @@ import { getCachedToken, setCachedToken } from "@/lib/publisher/tokens";
  * The verifier has to survive the round trip to TikTok and back into a
  * separate callback request, so it is parked in the same server-side cache as
  * the tokens and consumed once.
+ *
+ * Avatar URLs from TikTok are short-lived signed CDN links (about two days).
+ * Caching that URL forever leaves a blank face in the UI once it expires, so
+ * the bytes are mirrored into data/publisher/ and served at TIKTOK_AVATAR_URL.
  */
 
 const AUTH_URL = "https://www.tiktok.com/v2/auth/authorize/";
@@ -33,9 +40,110 @@ const SCOPE = "user.info.basic,video.publish,video.upload";
 
 export const TIKTOK_REFRESH_TOKEN_CACHE_KEY = "tiktok.refreshToken";
 export const TIKTOK_CREATOR_CACHE_KEY = "tiktok.creator";
+export const TIKTOK_AVATAR_URL = "/api/publish/tiktok-avatar";
 const VERIFIER_CACHE_KEY = "tiktok.codeVerifier";
+const AVATAR_BASENAME = "tiktok-avatar";
+const AVATAR_EXTS = ["webp", "jpg", "jpeg", "png"] as const;
 
 export type TiktokCreatorInfo = { title: string; thumbnail: string | null; handle: string | null };
+
+function avatarDir(): string {
+  return dataPath("publisher");
+}
+
+function contentTypeToExt(contentType: string | null): (typeof AVATAR_EXTS)[number] {
+  const ct = (contentType ?? "").toLowerCase();
+  if (ct.includes("webp")) return "webp";
+  if (ct.includes("png")) return "png";
+  if (ct.includes("jpeg") || ct.includes("jpg")) return "jpg";
+  return "webp";
+}
+
+function extToContentType(ext: string): string {
+  if (ext === "webp") return "image/webp";
+  if (ext === "png") return "image/png";
+  return "image/jpeg";
+}
+
+function isLocalAvatarUrl(thumbnail: string | null | undefined): boolean {
+  return thumbnail === TIKTOK_AVATAR_URL || Boolean(thumbnail?.startsWith(`${TIKTOK_AVATAR_URL}?`));
+}
+
+/** The mirrored avatar file on disk, if a connect or refresh already wrote one. */
+export async function resolveTiktokAvatarFile(): Promise<{ path: string; contentType: string } | null> {
+  const dir = avatarDir();
+  let names: string[] = [];
+  try {
+    names = await readdir(dir);
+  } catch {
+    return null;
+  }
+  for (const ext of AVATAR_EXTS) {
+    const name = `${AVATAR_BASENAME}.${ext}`;
+    if (!names.includes(name)) continue;
+    const filePath = path.join(dir, name);
+    try {
+      await access(filePath);
+      return { path: filePath, contentType: extToContentType(ext) };
+    } catch {
+      // try the next extension
+    }
+  }
+  return null;
+}
+
+async function clearMirroredAvatars(): Promise<void> {
+  const dir = avatarDir();
+  let names: string[] = [];
+  try {
+    names = await readdir(dir);
+  } catch {
+    return;
+  }
+  await Promise.all(
+    AVATAR_EXTS.map(async (ext) => {
+      const name = `${AVATAR_BASENAME}.${ext}`;
+      if (!names.includes(name)) return;
+      await unlink(path.join(dir, name)).catch(() => undefined);
+    })
+  );
+}
+
+/** Pulls a signed CDN avatar into data/publisher so the UI never depends on it. */
+async function mirrorAvatar(remoteUrl: string): Promise<boolean> {
+  try {
+    const response = await fetch(remoteUrl);
+    if (!response.ok) return false;
+    const buffer = Buffer.from(await response.arrayBuffer());
+    if (buffer.length === 0) return false;
+    const ext = contentTypeToExt(response.headers.get("content-type"));
+    const dir = avatarDir();
+    await mkdir(dir, { recursive: true });
+    await clearMirroredAvatars();
+    await writeFile(path.join(dir, `${AVATAR_BASENAME}.${ext}`), buffer);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Prefer a durable local avatar URL over TikTok's short-lived CDN link. When
+ * the remote is already expired, returns the profile with a null thumbnail so
+ * the caller can refresh for a fresh URL.
+ */
+async function withLocalAvatar(info: TiktokCreatorInfo): Promise<TiktokCreatorInfo> {
+  if (!info.thumbnail) {
+    if (await resolveTiktokAvatarFile()) return { ...info, thumbnail: TIKTOK_AVATAR_URL };
+    return info;
+  }
+  if (isLocalAvatarUrl(info.thumbnail)) {
+    if (await resolveTiktokAvatarFile()) return { ...info, thumbnail: TIKTOK_AVATAR_URL };
+    return { ...info, thumbnail: null };
+  }
+  if (await mirrorAvatar(info.thumbnail)) return { ...info, thumbnail: TIKTOK_AVATAR_URL };
+  return info;
+}
 
 /**
  * Signed in and refreshing, but TikTok's audit gate still routes clips to the
@@ -121,7 +229,10 @@ export async function exchangeTiktokCode(code: string, redirectUri: string): Pro
   if (data.access_token) {
     try {
       const info = await fetchCreatorInfo(data.access_token);
-      if (info) await setCachedToken(TIKTOK_CREATOR_CACHE_KEY, JSON.stringify(info));
+      if (info) {
+        const localized = await withLocalAvatar(info);
+        await setCachedToken(TIKTOK_CREATOR_CACHE_KEY, JSON.stringify(localized));
+      }
     } catch {
       // The badge falls back to plain "TikTok connected"; the connection itself succeeded.
     }
@@ -192,27 +303,65 @@ async function accessTokenFromRefresh(): Promise<string | null> {
   return data?.access_token ?? null;
 }
 
-// One lookup per process for a connection cached before handles were read.
+// One network refresh per process — enough to recover an expired CDN avatar
+// without hammering TikTok on every sidebar poll.
 let creatorRefetched = false;
+
+async function readStoredCreator(): Promise<TiktokCreatorInfo | null> {
+  const cached = await getCachedToken(TIKTOK_CREATOR_CACHE_KEY);
+  if (!cached) return null;
+  try {
+    return JSON.parse(cached) as TiktokCreatorInfo;
+  } catch {
+    return null;
+  }
+}
+
+async function persistCreator(info: TiktokCreatorInfo): Promise<TiktokCreatorInfo> {
+  const localized = await withLocalAvatar(info);
+  await setCachedToken(TIKTOK_CREATOR_CACHE_KEY, JSON.stringify(localized));
+  return localized;
+}
+
+/**
+ * True when the cached profile still needs a TikTok round-trip: no handle,
+ * no local avatar on disk, or a remote CDN thumbnail that may already be dead.
+ */
+async function needsCreatorRefresh(stored: TiktokCreatorInfo | null): Promise<boolean> {
+  if (!stored?.handle) return true;
+  if (isLocalAvatarUrl(stored.thumbnail) && (await resolveTiktokAvatarFile())) return false;
+  if (stored.thumbnail?.startsWith("http")) {
+    if (await mirrorAvatar(stored.thumbnail)) {
+      stored.thumbnail = TIKTOK_AVATAR_URL;
+      await setCachedToken(TIKTOK_CREATOR_CACHE_KEY, JSON.stringify(stored));
+      return false;
+    }
+    return true;
+  }
+  return !(await resolveTiktokAvatarFile());
+}
 
 /** The connected account's display name, @handle and avatar, when known. */
 export async function tiktokCreatorInfo(): Promise<TiktokCreatorInfo | null> {
-  const cached = await getCachedToken(TIKTOK_CREATOR_CACHE_KEY);
-  let stored: TiktokCreatorInfo | null = null;
-  if (cached) {
-    try {
-      stored = JSON.parse(cached) as TiktokCreatorInfo;
-    } catch {
-      stored = null;
-    }
+  const stored = await readStoredCreator();
+  if (!(await needsCreatorRefresh(stored))) {
+    return stored ? { ...stored, thumbnail: TIKTOK_AVATAR_URL } : null;
   }
-  if (stored?.handle) return stored;
-  if (creatorRefetched) return stored;
+  if (creatorRefetched) {
+    if (!stored) return null;
+    const localized = await withLocalAvatar(stored);
+    return localized;
+  }
   creatorRefetched = true;
   const accessToken = await accessTokenFromRefresh();
-  if (!accessToken) return stored;
+  if (!accessToken) {
+    if (!stored) return null;
+    return withLocalAvatar(stored);
+  }
   const fresh = await fetchCreatorInfo(accessToken);
-  if (!fresh) return stored;
-  await setCachedToken(TIKTOK_CREATOR_CACHE_KEY, JSON.stringify(fresh));
-  return fresh;
+  if (!fresh) {
+    if (!stored) return null;
+    return withLocalAvatar(stored);
+  }
+  return persistCreator(fresh);
 }

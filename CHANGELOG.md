@@ -14,6 +14,11 @@ already shipped.
 
 ## Unreleased
 
+- **TikTok shows its real profile picture again.** The Connect badge and the
+  sidebar used to keep a signed CDN URL that dies after a couple of days, so
+  the face went blank until you reconnected. The app now keeps a local copy
+  of the photo and refreshes it on its own.
+
 ## 2026-08-10
 
 - **A booking alarm now goes out on its own once you have fixed the cause.**
