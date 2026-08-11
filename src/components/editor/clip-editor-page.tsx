@@ -14,6 +14,7 @@ import { Card } from "@/components/ui/card";
 import { Modal } from "@/components/ui/modal";
 import { PageHeader } from "@/components/ui/page-header";
 import { Select } from "@/components/ui/select";
+import { AdvancedOptions } from "@/components/ui/advanced-options";
 import { ClipEditor } from "@/components/editor/clip-editor";
 import { clearDraftProject, readDraftProject, writeDraftProject } from "@/components/editor/drafts";
 import { EditorExportsProvider } from "@/components/editor/exports-provider";
@@ -136,6 +137,14 @@ export function ClipEditorPage() {
     [activeFilter, sortedProjects]
   );
 
+  const showListOptions = sourceOptions.length > 1 || projects.length > 1;
+  const listOptionsSummary = [
+    activeFilter === "all"
+      ? "All sources"
+      : `Only ${sourceOptions.find((option) => option.jobId === activeFilter)?.label ?? activeFilter}`,
+    sortMode === "date" ? "Newest first" : "A→Z"
+  ].join(" · ");
+
   // Always load the draft alongside the stored copy so the freshest of the
   // two can be picked above — never let one silently mask the other.
   useEffect(() => {
@@ -252,9 +261,21 @@ export function ClipEditorPage() {
       <PageHeader
         eyebrow="Step 2 · Formats"
         title="Clip Editor"
-        description="Open a clip to trim it on the timeline, pick a short-form layout, and export. Edits are non-destructive and saved automatically."
+        description="Open a clip to trim it, caption it and export it."
         actions={
-          <div className="flex items-center gap-2">
+          <Button onClick={openPicker}>
+            <Plus className="mr-2 h-4 w-4" />
+            New project
+          </Button>
+        }
+      />
+
+      {/* The stream the sidebar handed this page arrives as `?job=`, so the
+          summary has to name the filter in force — closed must never hide that
+          the grid is showing one source out of several. */}
+      {showListOptions ? (
+        <AdvancedOptions id="editor-project-list" label="Filter & sort" summary={listOptionsSummary}>
+          <div className="flex flex-wrap items-center gap-2">
             {sourceOptions.length > 1 ? (
               <Select
                 value={activeFilter}
@@ -281,13 +302,9 @@ export function ClipEditorPage() {
                 <option value="name">Sort by name</option>
               </Select>
             ) : null}
-            <Button onClick={openPicker}>
-              <Plus className="mr-2 h-4 w-4" />
-              New project
-            </Button>
           </div>
-        }
-      />
+        </AdvancedOptions>
+      ) : null}
 
       {projects.length === 0 ? (
         <Card className="flex flex-col items-center gap-3 py-14 text-center">
