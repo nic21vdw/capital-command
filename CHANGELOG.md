@@ -22,6 +22,8 @@ already shipped.
   the day it was booked, and a run that genuinely does not fit is still refused
   rather than stacked on top of what is already there.
 
+## 2026-08-11
+
 - **Every working screen now opens on one obvious action.** Short Clips, the
   Uploading Center, Carousels, Long-Form, the Clip Editor and both posting
   screens used to greet you with a row of equally weighted buttons and half a
