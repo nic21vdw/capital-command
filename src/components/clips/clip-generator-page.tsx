@@ -25,6 +25,7 @@ import { PageHeader } from "@/components/ui/page-header";
 import { Progress } from "@/components/ui/progress";
 import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
+import { AdvancedOptions } from "@/components/ui/advanced-options";
 import { MAX_CLIP_COUNT, TARGET_CLIP_COUNT } from "@/lib/clipping/clip-count";
 import { chunkWords, windowSegments } from "@/lib/clipping/captions";
 import { loadJobCaptions, loadJobSilences } from "@/lib/clipping/captions-client";
@@ -361,13 +362,20 @@ export function ClipGeneratorPage() {
   };
 
   const busy = submitting || uploading;
+  const settingsSummary = [
+    `${clipCount} clip${clipCount === 1 ? "" : "s"}`,
+    autoFrame ? "framed on the speaker" : "centered over blur",
+    brief.trim() ? `focus: ${brief.trim()}` : null
+  ]
+    .filter(Boolean)
+    .join(" · ");
 
   return (
     <div className="space-y-5">
       <PageHeader
         eyebrow="Step 2 · Formats"
         title="Short Clips"
-        description="Turn a raw livestream or recording into short clips: every source is transcribed and captioned automatically, the best moments are picked and titled, and each clip opens in the editor ready to export for Shorts and Reels."
+        description="Turn a stream into short, captioned clips ready for Shorts and Reels."
       />
 
       <div className="grid gap-4 xl:grid-cols-[400px_minmax(0,1fr)]">
@@ -392,54 +400,6 @@ export function ClipGeneratorPage() {
                 }}
                 disabled={busy}
               />
-              <Textarea
-                placeholder="Optional focus: trading mistakes, best stories, spicy takes..."
-                value={brief}
-                onChange={(event) => setBrief(event.target.value)}
-                disabled={busy}
-                className="min-h-20"
-              />
-              <div className="space-y-1.5">
-                <label
-                  htmlFor="clip-count"
-                  className="block text-xs font-medium text-[var(--muted-foreground)]"
-                >
-                  Clips to generate
-                </label>
-                <Select
-                  id="clip-count"
-                  value={clipCount}
-                  onChange={(event) => setClipCount(Number(event.target.value))}
-                  disabled={busy}
-                  aria-label="Number of clips to generate"
-                >
-                  {CLIP_COUNT_OPTIONS.map((count) => (
-                    <option key={count} value={count}>
-                      {count} clip{count === 1 ? "" : "s"}
-                      {count === TARGET_CLIP_COUNT ? " (default)" : ""}
-                    </option>
-                  ))}
-                </Select>
-                <p className="text-[11px] leading-4 text-[var(--muted-foreground)]">
-                  Longer streams have more clippable moments — pick more for a multi-hour VOD (up to {MAX_CLIP_COUNT}).
-                </p>
-              </div>
-              <label className="flex cursor-pointer items-start gap-2.5 rounded-lg border border-[var(--border)] px-3 py-2.5">
-                <input
-                  type="checkbox"
-                  checked={autoFrame}
-                  onChange={(event) => setAutoFrame(event.target.checked)}
-                  disabled={busy}
-                  className="mt-0.5 h-4 w-4 accent-[var(--accent)]"
-                />
-                <span className="min-w-0">
-                  <span className="block text-xs font-medium text-white">Frame on the speaker</span>
-                  <span className="mt-0.5 block text-[11px] leading-4 text-[var(--muted-foreground)]">
-                    Finds you in the shot and fills the whole vertical frame with you, tracking as you move.
-                    Off renders the old centered-over-blur crop.
-                  </span>
-                </span>
-              </label>
               <Button onClick={() => void submitUrl()} disabled={busy || !url.trim()} className="w-full">
                 {submitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <LinkIcon className="mr-2 h-4 w-4" />}
                 Find clips
@@ -490,6 +450,65 @@ export function ClipGeneratorPage() {
                   {dragActive ? "Drop to upload" : uploading ? "Uploading..." : "Upload a video file"}
                 </Button>
               </div>
+              <AdvancedOptions id="clips-generate" summary={settingsSummary}>
+                <div className="space-y-1.5">
+                  <label htmlFor="clip-focus" className="block text-xs font-medium text-[var(--muted-foreground)]">
+                    Focus
+                  </label>
+                  <Textarea
+                    id="clip-focus"
+                    placeholder="Trading mistakes, best stories, spicy takes..."
+                    value={brief}
+                    onChange={(event) => setBrief(event.target.value)}
+                    disabled={busy}
+                    className="min-h-20"
+                  />
+                  <p className="text-[11px] leading-4 text-[var(--muted-foreground)]">
+                    Leave blank and the best moments are picked from the whole stream.
+                  </p>
+                </div>
+                <div className="space-y-1.5">
+                  <label
+                    htmlFor="clip-count"
+                    className="block text-xs font-medium text-[var(--muted-foreground)]"
+                  >
+                    Clips to generate
+                  </label>
+                  <Select
+                    id="clip-count"
+                    value={clipCount}
+                    onChange={(event) => setClipCount(Number(event.target.value))}
+                    disabled={busy}
+                    aria-label="Number of clips to generate"
+                  >
+                    {CLIP_COUNT_OPTIONS.map((count) => (
+                      <option key={count} value={count}>
+                        {count} clip{count === 1 ? "" : "s"}
+                        {count === TARGET_CLIP_COUNT ? " (default)" : ""}
+                      </option>
+                    ))}
+                  </Select>
+                  <p className="text-[11px] leading-4 text-[var(--muted-foreground)]">
+                    Longer streams have more clippable moments — pick more for a multi-hour VOD (up to {MAX_CLIP_COUNT}).
+                  </p>
+                </div>
+                <label className="flex cursor-pointer items-start gap-2.5 rounded-lg border border-[var(--border)] px-3 py-2.5">
+                  <input
+                    type="checkbox"
+                    checked={autoFrame}
+                    onChange={(event) => setAutoFrame(event.target.checked)}
+                    disabled={busy}
+                    className="mt-0.5 h-4 w-4 accent-[var(--accent)]"
+                  />
+                  <span className="min-w-0">
+                    <span className="block text-xs font-medium text-white">Frame on the speaker</span>
+                    <span className="mt-0.5 block text-[11px] leading-4 text-[var(--muted-foreground)]">
+                      Finds you in the shot and fills the whole vertical frame with you, tracking as you move.
+                      Off renders the old centered-over-blur crop.
+                    </span>
+                  </span>
+                </label>
+              </AdvancedOptions>
             </div>
           </Card>
 
