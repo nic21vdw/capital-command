@@ -686,7 +686,7 @@ export function UploadingCenterPage() {
       <PageHeader
         eyebrow="Step 3 · Schedule"
         title="Uploading Center"
-        description="Assign finished clips to a platform and a slot. Dropping a clip — or a video file straight from your computer — on a slot uploads it to YouTube immediately as a scheduled Short (landscape clips are re-rendered vertical automatically) — it appears under Scheduled in YouTube Studio and goes live at the slot time on its own. Connect TikTok on its tab and clips post there at the slot time too; Instagram and Facebook queue as manual reminders until their tokens are configured."
+        description="Book your finished clips onto the posting schedule — one button fills the next free slots, or drag a clip onto any slot yourself."
         actions={
           <div className="flex w-full max-w-sm flex-col gap-2">
             {activeYoutubeAccount?.connected ? (
