@@ -1,3 +1,4 @@
+import { clampCenterBlurZoom, DEFAULT_CENTER_BLUR_ZOOM } from "@/lib/clipping/centerBlur";
 import { runFfmpeg } from "@/lib/clipping/ffmpeg";
 import {
   SPEAKER_STACK_LAYOUT,
@@ -243,8 +244,17 @@ function escapeFilterPath(p: string): string {
  * The 9:16 composition for a clip: the speaker-framed one when the clip was
  * auto-framed, and the neutral centered-over-blur fill otherwise. Produces
  * `[vc]`.
+ *
+ * The centred copy is punched in by `zoom` (see `centerBlur.ts`) so the footage
+ * is bigger than the blurred fill around it. The overflow is clipped by the
+ * closing `overlay` — a foreground wider than the frame lands at a negative x —
+ * so no `crop` is needed and a source that is already taller than 9:16 keeps
+ * behaving exactly as it did.
  */
-export function verticalCompositionChain(framing?: ClipFramingSpec): string {
+export function verticalCompositionChain(
+  framing?: ClipFramingSpec,
+  zoom: number = DEFAULT_CENTER_BLUR_ZOOM
+): string {
   if (framing?.framing.mode === "subject-fill") {
     return subjectFillChain(framing.framing, framing.target, "0:v", "vc");
   }
@@ -257,10 +267,11 @@ export function verticalCompositionChain(framing?: ClipFramingSpec): string {
       framing.framing.faceSource
     ).replace(/\[vout\]$/, "[vc]");
   }
+  const z = clampCenterBlurZoom(zoom).toFixed(4);
   return (
     "[0:v]split=2[bg][fg];" +
     "[bg]scale=540:960:force_original_aspect_ratio=increase,crop=540:960,boxblur=12:2,eq=brightness=-0.08,scale=1080:1920[bgb];" +
-    "[fg]scale=1080:-2[fgs];" +
+    `[fg]scale=1080:1920:force_original_aspect_ratio=decrease,scale=iw*${z}:ih*${z}[fgs];` +
     "[bgb][fgs]overlay=(W-w)/2:(H-h)/2,setsar=1[vc]"
   );
 }
@@ -277,9 +288,10 @@ export async function renderCaptionedVertical(
   outputPath: string,
   assPath: string | null,
   audioPresent: boolean,
-  framing?: ClipFramingSpec
+  framing?: ClipFramingSpec,
+  zoom: number = DEFAULT_CENTER_BLUR_ZOOM
 ) {
-  const composition = verticalCompositionChain(framing);
+  const composition = verticalCompositionChain(framing, zoom);
   const filter = assPath
     ? `${composition};[vc]ass='${escapeFilterPath(assPath)}'[vout]`
     : `${composition};[vc]null[vout]`;

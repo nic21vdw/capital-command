@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { DEFAULT_CENTER_BLUR_ZOOM, MAX_CENTER_BLUR_ZOOM } from "./centerBlur";
 import { CLIP_LAYOUTS } from "./layouts";
 import { animatedReframeChain, reframeChain, renderCaptionedVertical, stackedLayoutChain } from "./render";
 
@@ -126,12 +127,28 @@ describe("renderCaptionedVertical", () => {
     runFfmpeg.mockClear();
     await renderCaptionedVertical("in.mp4", "out.mp4", "/tmp/caps.ass", true);
     const filter = filterOf(runFfmpeg.mock.calls);
-    // Centered vertical over a blurred, dimmed fill of itself (nothing cropped).
-    expect(filter).toContain("scale=1080:-2[fgs]");
+    // Contain-fit into the frame, then punched in so the video is bigger than
+    // the blurred fill around it; the overlay clips whatever hangs over.
+    expect(filter).toContain("[fg]scale=1080:1920:force_original_aspect_ratio=decrease");
+    expect(filter).toContain(`scale=iw*${DEFAULT_CENTER_BLUR_ZOOM.toFixed(4)}:ih*${DEFAULT_CENTER_BLUR_ZOOM.toFixed(4)}[fgs]`);
     expect(filter).toContain("boxblur=12:2");
     expect(filter).toContain("overlay=(W-w)/2:(H-h)/2");
     // Burns the caption/watermark document in.
     expect(filter).toContain("ass='/tmp/caps.ass'[vout]");
+  });
+
+  it("renders the whole width when the punch-in is turned off", async () => {
+    runFfmpeg.mockClear();
+    await renderCaptionedVertical("in.mp4", "out.mp4", null, true, undefined, 1);
+    const filter = filterOf(runFfmpeg.mock.calls);
+    expect(filter).toContain("scale=iw*1.0000:ih*1.0000[fgs]");
+  });
+
+  it("does not punch in past the ceiling, however hard it is asked to", async () => {
+    runFfmpeg.mockClear();
+    await renderCaptionedVertical("in.mp4", "out.mp4", null, true, undefined, 50);
+    const filter = filterOf(runFfmpeg.mock.calls);
+    expect(filter).toContain(`scale=iw*${MAX_CENTER_BLUR_ZOOM.toFixed(4)}:ih*${MAX_CENTER_BLUR_ZOOM.toFixed(4)}[fgs]`);
   });
 
   it("fills the frame with the speaker when the clip was auto-framed", async () => {

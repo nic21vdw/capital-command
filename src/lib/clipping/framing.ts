@@ -1,3 +1,4 @@
+import { centerBlurVideoTopFrac, DEFAULT_CENTER_BLUR_ZOOM } from "@/lib/clipping/centerBlur";
 import type { Rect } from "@/lib/clipping/layouts";
 import type { SubjectTrack } from "@/lib/clipping/subject";
 
@@ -237,12 +238,24 @@ export function framingToReframe(
   return { scale, offsetX: offset(x, visibleX), offsetY: offset(y, visibleY) };
 }
 
-/** Where the visible video starts, top-down, so the burned title clears it. */
-export function framingVideoTopFrac(framing: ClipFraming, target: FramingTarget): number {
+/**
+ * Where the visible video starts, top-down, so the burned title clears it.
+ *
+ * `zoom` is the center + blur punch-in, which grows the video band and so moves
+ * the title up with it; it is ignored by the modes that fill the frame.
+ */
+export function framingVideoTopFrac(
+  framing: ClipFraming,
+  target: FramingTarget,
+  zoom: number = DEFAULT_CENTER_BLUR_ZOOM
+): number {
   if (framing.mode === "subject-fill") return 0;
   // Face-lead puts the screen banner at the top and the camera below it — the
   // title belongs in the gap between them, not over either.
   if (framing.mode === "speaker-stack") return SPEAKER_STACK_FACE_TOP;
-  const videoHeight = Math.min(1, (target.targetW * (target.sourceH / Math.max(1, target.sourceW))) / target.targetH);
-  return (1 - videoHeight) / 2;
+  return centerBlurVideoTopFrac(
+    { width: target.sourceW, height: target.sourceH },
+    { width: target.targetW, height: target.targetH },
+    zoom
+  );
 }

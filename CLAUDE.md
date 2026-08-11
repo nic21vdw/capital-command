@@ -453,8 +453,22 @@ the center + blur composition `renderCaptionedVertical` burns into the
 ready-to-post file: the whole frame `object-contain` over a blurred, dimmed
 copy of the same footage.
 
-- NEVER `object-cover` on a clip — it crops footage out of shot, and the point
-  of a preview is to show what you are actually shipping.
+- CENTER + BLUR IS PUNCHED IN, and one constant says how far:
+  `DEFAULT_CENTER_BLUR_ZOOM` in `src/lib/clipping/centerBlur.ts` (a leaf, no
+  imports, tested). Dropping the whole widescreen frame into the middle of a
+  9:16 canvas left the footage as a thin band with blur taking the rest of the
+  height, so the centred copy is zoomed and the extreme left and right edges of
+  the source are given up ON PURPOSE. Everything reads that one number: the
+  ready-to-post render (`verticalCompositionChain`), the Clip Editor's export
+  and live preview through `reframe.scale` (which is why a new project is
+  created at that zoom, not 1), the burned title's position
+  (`centerBlurVideoTopFrac`, used by `framingVideoTopFrac` too), and `ClipFrame`.
+  It is an OPTION, not a law — the editor's Zoom slider goes back to 1.00x for
+  the full width of the source.
+- NEVER `object-cover` on a clip — it crops to the box's shape, throwing away
+  whatever the render kept. `ClipFrame` reproduces the punch-in with a plain
+  `scale()` over `object-contain`, capped at `centerBlurCoverScale` so a file
+  that is ALREADY the shipping 9:16 shape is not zoomed a second time.
 - NEVER let a clip letterbox onto the card background — black bars are the bug
   this exists to prevent. A tile has to look right whichever file is backing
   it: the finished 9:16 render (`downloadFile`), the instant 16:9 preview
