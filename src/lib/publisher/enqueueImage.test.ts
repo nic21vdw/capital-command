@@ -24,12 +24,15 @@ vi.mock("@/lib/publisher/hosting", async (importOriginal) => {
 
 let dir: string;
 let images: string[];
+/** A picture no test has booked yet — a post the queue carries is refused now. */
+let spare: string;
 
 beforeEach(async () => {
   hosted.length = 0;
   dir = await mkdtemp(path.join(os.tmpdir(), "image-post-"));
   images = [path.join(dir, "slide-1.png"), path.join(dir, "slide-2.png"), path.join(dir, "slide-3.png")];
-  for (const image of images) await writeFile(image, Buffer.alloc(64, 7));
+  spare = path.join(dir, "spare.png");
+  for (const image of [...images, spare]) await writeFile(image, Buffer.alloc(64, 7));
 
   vi.stubEnv("PUBLISH_ENABLED", "true");
   vi.stubEnv("PUBLISH_PLATFORMS", "youtube,instagram,tiktok,facebook");
@@ -55,8 +58,15 @@ async function load() {
   };
 }
 
+/**
+ * Three weeks out, computed rather than fixed: a booking must be in the future
+ * AND not on the day it is made (schedule.ts), so a hard-coded date would turn
+ * this suite red the moment it passed.
+ */
+const FUTURE_SLOT = `${new Date(Date.now() + 21 * 86_400_000).toISOString().slice(0, 10)}T12:30`;
+
 const BASE = {
-  publishAt: "2026-09-01T12:30",
+  publishAt: FUTURE_SLOT,
   title: "Five things that changed",
   caption: "The deck from today's stream",
   hashtags: ["#ai"]
@@ -138,7 +148,9 @@ describe("enqueueImagePost", () => {
     expect(note).toContain("all 3 slides are rendered");
     expect(note).not.toContain("clip");
 
-    const single = await enqueueImagePost({ ...BASE, imagePaths: [images[0]] });
+    // A picture the deck above did not carry: a post the queue already holds is
+    // refused now (duplicates.ts).
+    const single = await enqueueImagePost({ ...BASE, imagePaths: [spare] });
     expect(single.platforms.instagram?.note).toContain("the picture is rendered");
   });
 

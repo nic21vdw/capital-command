@@ -17,14 +17,15 @@ const clip = (id: string): ReadyClip => ({
   needsRerender: false
 });
 
-const slot = (utc: string, past = false): ScheduleSlot => ({
+const slot = (utc: string, past = false, today = false): ScheduleSlot => ({
   id: utc,
   dateKey: utc.slice(0, 10),
   dateLabel: utc.slice(0, 10),
   time: utc.slice(11, 16),
   utc,
   past,
-  today: false
+  today,
+  bookable: !past && !today
 });
 
 const draft = (over: Partial<ClipDraft> = {}): ClipDraft => ({
@@ -65,6 +66,21 @@ describe("planAutoAssign", () => {
     slot("2026-08-06T16:30:00.000Z"),
     slot("2026-08-06T23:30:00.000Z")
   ];
+
+  // Auto-assign is what filled a day with a whole batch of shorts, so a slot
+  // that is merely still-to-come today is not a target (schedule.ts).
+  it("never puts a clip on a slot today, even one still to come", () => {
+    const laterToday = slot("2026-08-06T23:30:00.000Z", false, true);
+    const { assignments, unslotted } = planAutoAssign({
+      clips: [clip("a")],
+      draftFor: () => draft(),
+      isScheduled: never,
+      slots: [slot("2026-08-05T11:30:00.000Z", true), laterToday],
+      isTargetSlotTaken: never
+    });
+    expect(assignments).toHaveLength(0);
+    expect(unslotted).toBe(1);
+  });
 
   it("gives each clip its own slot, soonest first, skipping past ones", () => {
     const { assignments, unslotted } = planAutoAssign({

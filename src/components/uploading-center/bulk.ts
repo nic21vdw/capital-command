@@ -106,7 +106,9 @@ export function planAutoAssign({
     const platforms: PlatformId[] = targetPlatforms(draft.platform);
     const slot = slots.find(
       (candidate) =>
-        !candidate.past &&
+        // `bookable`, not `!past`: auto-assign is exactly the button that used
+        // to fill the rest of today with a whole batch of shorts.
+        candidate.bookable &&
         !platforms.some((platform) => consumed.has(`${platform}:${candidate.utc}`)) &&
         !isTargetSlotTaken(draft.platform, candidate.utc)
     );

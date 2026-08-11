@@ -173,7 +173,9 @@ export function ClipCard({
   captionError?: string;
 }) {
   const titleRef = useRef<HTMLTextAreaElement>(null);
-  const openSlots = slots.filter((slot) => !slot.past && !isSlotTaken(draft.platform, slot.utc));
+  // `bookable` excludes today as well as the past: nothing is scheduled for the
+  // day it is booked (see src/lib/publisher/schedule.ts).
+  const openSlots = slots.filter((slot) => slot.bookable && !isSlotTaken(draft.platform, slot.utc));
   const everywhere = draft.platform === "all";
   const targetLabel =
     draft.platform === "all" ? "all platforms" : PLATFORM_LABELS[draft.platform];

@@ -60,7 +60,8 @@ import type { ScheduleSlot } from "@/lib/publisher/slots";
 import type { ChannelSchedule } from "@/lib/publisher/channelVideos";
 
 // One open slot offered in the Schedule Short dropdown for one-click scheduling.
-type QuickSlot = { utc: string; label: string; today: boolean };
+// It carries no "today" flag: today is never on offer.
+type QuickSlot = { utc: string; label: string };
 // The schedule grid shows one two-week window at a time (mirrors the Uploading
 // Center); the dropdown pages forward/back through consecutive windows.
 const SLOT_WINDOW_DAYS = 14;
@@ -879,8 +880,10 @@ export function ClipEditor({
         // Show every open time in the window (not just the soonest handful) so the
         // menu is a full picker you can page through as far ahead as you like.
         const open = overview.slots
-          .filter((slot) => !slot.past && !occupancy.taken.has(slot.utc) && !channelBySlot.has(slot.utc))
-          .map((slot) => ({ utc: slot.utc, label: `${slot.dateLabel} · ${slot.time}`, today: slot.today }));
+          // `bookable` also drops today's remaining slots — nothing is scheduled
+          // for the day it is booked (src/lib/publisher/schedule.ts).
+          .filter((slot) => slot.bookable && !occupancy.taken.has(slot.utc) && !channelBySlot.has(slot.utc))
+          .map((slot) => ({ utc: slot.utc, label: `${slot.dateLabel} · ${slot.time}` }));
         loadedOffsetRef.current = target;
         setSlotOptions(open);
       } catch {
@@ -1477,11 +1480,6 @@ function ScheduleShortMenu({
                     >
                       <Clock className="h-3.5 w-3.5 shrink-0 text-[var(--muted-foreground)]" />
                       <span className="min-w-0 flex-1 truncate">{slot.label}</span>
-                      {slot.today ? (
-                        <span className="shrink-0 rounded-full bg-[var(--accent)]/15 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-[var(--accent)]">
-                          Today
-                        </span>
-                      ) : null}
                     </button>
                   ))}
                 </div>

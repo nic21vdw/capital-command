@@ -11,8 +11,16 @@ import {
   splitImagePlatforms,
   SUPPORTED_IMAGE_EXTENSIONS
 } from "@/lib/publisher/images";
+import {
+  DuplicatePostError,
+  duplicateQueueMessage,
+  findDuplicateInQueue,
+  type DuplicateCandidate
+} from "@/lib/publisher/duplicates";
 import { generateClipMetadata } from "@/lib/publisher/metadata";
-import { newPlatformState, publishQueue } from "@/lib/publisher/queue";
+import { newPlatformState, publishQueue, type PublishQueue } from "@/lib/publisher/queue";
+import { assertBookable } from "@/lib/publisher/schedule";
+import { nextBookableSlot } from "@/lib/publisher/slots";
 import { finalizeTitle } from "@/lib/title/finalize";
 import { resolvePublishAt } from "@/lib/publisher/time";
 import { prepareVerticalMedia } from "@/lib/publisher/vertical";
@@ -76,6 +84,13 @@ export type EnqueueOptions = {
   accountId?: string;
   /** Extra context for metadata generation (stream title, topic, spoken text). */
   metadataSource?: { streamTitle?: string; topic?: string; spokenText?: string };
+  /**
+   * Books a time today. Only a person asking for it, never anything automatic —
+   * see `schedule.ts` for why the day a batch is booked is off limits.
+   */
+  allowSameDay?: boolean;
+  /** Queues a post the queue already carries. Only a person asking for it. */
+  allowDuplicate?: boolean;
 };
 
 /**
@@ -113,6 +128,27 @@ async function configuredPlatformSet(
   return configured;
 }
 
+/**
+ * The two rules every enqueue obeys, checked against the live queue right before
+ * the item is added: not today (`schedule.ts`), and not a second copy of
+ * something already scheduled (`duplicates.ts`). Both are checked HERE rather
+ * than at each call site because there are seven call sites and one of them is
+ * an HTTP route that will happily take any instant it is given.
+ */
+async function assertSchedulable(input: {
+  queue: PublishQueue;
+  publishAt: Date;
+  timeZone: string;
+  candidate: DuplicateCandidate;
+  allowSameDay?: boolean;
+  allowDuplicate?: boolean;
+}): Promise<void> {
+  assertBookable(input.publishAt, new Date(), input.timeZone, { allowSameDay: input.allowSameDay });
+  if (input.allowDuplicate) return;
+  const duplicate = findDuplicateInQueue(input.candidate, await input.queue.list());
+  if (duplicate) throw new DuplicatePostError(duplicateQueueMessage(duplicate), duplicate.item.id);
+}
+
 export async function enqueue(options: EnqueueOptions): Promise<QueueItem> {
   const config = publisherConfig();
   if (!config.enabled) {
@@ -143,6 +179,12 @@ export async function enqueue(options: EnqueueOptions): Promise<QueueItem> {
     );
   }
 
+  const publishAtDate =
+    options.publishAt instanceof Date ? options.publishAt : resolvePublishAt(options.publishAt, config.timezone);
+  // Checked before the vertical re-render below, which is minutes of ffmpeg: a
+  // post that is refused for its time should be refused straight away.
+  assertBookable(publishAtDate, new Date(), config.timezone, { allowSameDay: options.allowSameDay });
+
   // Everything this publisher posts is short-form vertical (Shorts / Reels /
   // TikTok). A landscape source is re-rendered vertical here — before hosting
   // and before the queue records the path — because YouTube classifies Shorts
@@ -153,8 +195,16 @@ export async function enqueue(options: EnqueueOptions): Promise<QueueItem> {
     console.log(`[publisher] ${path.basename(absolute)} is landscape — posting the 9:16 render ${path.basename(prepared.path)}`);
   }
 
-  const publishAtDate =
-    options.publishAt instanceof Date ? options.publishAt : resolvePublishAt(options.publishAt, config.timezone);
+  // Both the file that will be posted and the one it was rendered from, so a
+  // landscape master and its vertical render are one post, not two.
+  await assertSchedulable({
+    queue: publishQueue(config),
+    publishAt: publishAtDate,
+    timeZone: config.timezone,
+    candidate: { paths: [prepared.path, absolute], jobId: options.jobId, title: options.title },
+    allowSameDay: options.allowSameDay,
+    allowDuplicate: options.allowDuplicate
+  });
 
   let { title, caption, hashtags } = options;
   if (!title || !caption || !hashtags?.length) {
@@ -217,6 +267,9 @@ export type EnqueueImageOptions = {
   jobId?: string;
   accountId?: string;
   metadataSource?: { streamTitle?: string; topic?: string; spokenText?: string };
+  /** See EnqueueOptions — a person's override, never anything automatic. */
+  allowSameDay?: boolean;
+  allowDuplicate?: boolean;
 };
 
 /**
@@ -285,6 +338,14 @@ export async function enqueueImagePost(options: EnqueueImageOptions): Promise<Qu
 
   const publishAtDate =
     options.publishAt instanceof Date ? options.publishAt : resolvePublishAt(options.publishAt, config.timezone);
+  await assertSchedulable({
+    queue: publishQueue(config),
+    publishAt: publishAtDate,
+    timeZone: config.timezone,
+    candidate: { paths: absolutePaths, jobId: options.jobId, title: options.title },
+    allowSameDay: options.allowSameDay,
+    allowDuplicate: options.allowDuplicate
+  });
 
   let { title, caption, hashtags } = options;
   if (!title || !caption || !hashtags?.length) {
@@ -334,8 +395,13 @@ export async function enqueueImagePost(options: EnqueueImageOptions): Promise<Qu
 /**
  * Opt-in hook called by the clip export pipeline when an export finishes.
  * Does nothing unless PUBLISH_ENABLED and PUBLISH_AUTO_ENQUEUE are both true,
- * never throws (a publishing hiccup must not fail the export), and schedules
- * the post PUBLISH_AUTO_ENQUEUE_DELAY_MINUTES from now.
+ * and never throws (a publishing hiccup must not fail the export).
+ *
+ * It used to schedule the post PUBLISH_AUTO_ENQUEUE_DELAY_MINUTES from now,
+ * which is the same day — so every export of a batch queued itself for this
+ * afternoon. It takes the first bookable slot instead (tomorrow's earliest,
+ * free or not: `enqueue` refuses the duplicate, not the collision, and the
+ * Uploading Center is where a slot clash is resolved).
  */
 export async function maybeAutoEnqueueExport(input: {
   jobId: string;
@@ -348,7 +414,7 @@ export async function maybeAutoEnqueueExport(input: {
     const job = await getJob(input.jobId);
     const item = await enqueue({
       clipPath: input.exportPath,
-      publishAt: new Date(Date.now() + config.autoEnqueueDelayMinutes * 60_000),
+      publishAt: new Date(nextBookableSlot({ timeZone: config.timezone }).utc),
       jobId: input.jobId,
       platforms: configuredPlatforms(config),
       metadataSource: {

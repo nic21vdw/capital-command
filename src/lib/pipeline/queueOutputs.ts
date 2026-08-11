@@ -137,8 +137,10 @@ export async function planRunOutputs(runId: string): Promise<QueuePlan | null> {
   }
 
   const taken = new Set(existing.map((item) => item.publishAt));
+  // `bookable`, not `!past`: a run's whole output never lands on the day it was
+  // booked, so the earliest slot offered is tomorrow's (see schedule.ts).
   const openSlots = generateSlots({ timeZone: config.timezone, days: 21 })
-    .filter((slot) => !slot.past && !taken.has(slot.utc))
+    .filter((slot) => slot.bookable && !taken.has(slot.utc))
     .map((slot) => slot.utc);
 
   return {
