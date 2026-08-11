@@ -173,6 +173,18 @@ export class PublishQueue {
     await this.save();
   }
 
+  /**
+   * Stores a mid-flight handle the instant an adapter has one, without
+   * touching status or attempt counts. Called before bytes are sent, so a run
+   * that dies mid-upload still leaves the handle behind for the next one.
+   */
+  async recordHandle(item: QueueItem, platform: PlatformId, handle: string): Promise<void> {
+    const state = item.platforms[platform];
+    if (!state) return;
+    state.containerId = handle;
+    await this.save();
+  }
+
   async recordSuccess(item: QueueItem, platform: PlatformId, result: PostResult, now: Date): Promise<void> {
     const state = item.platforms[platform];
     if (!state) return;

@@ -360,7 +360,13 @@ export async function runDue(now: Date = new Date(), options: RunDueOptions = {}
               publicUrl = (await mediaHost(config)?.publicUrl(item.mediaKey)) ?? undefined;
             }
           }
-          const input: PublishInput = { item, localPath, publicUrl, images };
+          const input: PublishInput = {
+            item,
+            localPath,
+            publicUrl,
+            images,
+            onHandle: (handle) => queue.recordHandle(item, platform, handle)
+          };
           result = await adapter.publish(input);
         }
         await queue.recordSuccess(item, platform, result, now);

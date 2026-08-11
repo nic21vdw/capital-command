@@ -163,6 +163,143 @@ describe("youtube adapter", () => {
     expect(requests).toHaveLength(3);
   });
 
+  describe("resumable sessions (a retry must never upload a second copy)", () => {
+    it("records the session URL before sending any bytes", async () => {
+      const handles: string[] = [];
+      mockFetchRoutes([
+        { match: "oauth2.googleapis.com/token", respond: () => jsonResponse({ access_token: "at-1", expires_in: 3600 }) },
+        {
+          match: "uploadType=resumable",
+          respond: () => jsonResponse({}, { headers: { location: "https://upload.example/session-9" } })
+        },
+        {
+          match: "upload.example/session-9",
+          respond: () => {
+            // The handle has to be persisted BEFORE this point — if the bytes
+            // land and the response is lost, that record is the only trace.
+            expect(handles).toEqual(["https://upload.example/session-9"]);
+            return jsonResponse({ id: "vid-999" });
+          }
+        }
+      ]);
+      const adapter = await loadAdapter();
+      const request = input({ visibility: "private" });
+      request.onHandle = async (handle) => {
+        handles.push(handle);
+      };
+
+      const result = await adapter.publish(request);
+
+      expect(result.postId).toBe("vid-999");
+      expect(handles).toEqual(["https://upload.example/session-9"]);
+    });
+
+    it("adopts the video a lost attempt already created instead of re-uploading", async () => {
+      // The exact shape of the 2026-08-10 incident: bytes arrived, the response
+      // did not, so the item retried with only the session URL to go on.
+      const requests = mockFetchRoutes([
+        { match: "oauth2.googleapis.com/token", respond: () => jsonResponse({ access_token: "at-1", expires_in: 3600 }) },
+        { match: "upload.example/session-lost", respond: () => jsonResponse({ id: "vid-already-there" }) }
+      ]);
+      const adapter = await loadAdapter();
+      const retried = input({ visibility: "private" });
+      retried.item.platforms.youtube = {
+        status: "pending",
+        attempts: 1,
+        containerId: "https://upload.example/session-lost"
+      };
+
+      const result = await adapter.publish(retried);
+
+      expect(result.postId).toBe("vid-already-there");
+      // The session query is a zero-length PUT asking what arrived.
+      const query = requests[1];
+      expect(query.method).toBe("PUT");
+      expect(query.headers["Content-Range"]).toBe("bytes */2048");
+      expect(query.body).toBeUndefined();
+      // Crucially: no new resumable session, so no second video.
+      expect(requests.some((r) => r.url.includes("uploadType=resumable"))).toBe(false);
+      expect(requests).toHaveLength(2);
+    });
+
+    it("resumes a half-finished session from the byte it stopped at", async () => {
+      const requests = mockFetchRoutes([
+        { match: "oauth2.googleapis.com/token", respond: () => jsonResponse({ access_token: "at-1", expires_in: 3600 }) },
+        {
+          match: "upload.example/session-partial",
+          respond: (request) =>
+            request.headers["Content-Range"] === "bytes */2048"
+              ? new Response(null, { status: 308, headers: { range: "bytes=0-1023" } })
+              : jsonResponse({ id: "vid-resumed" })
+        }
+      ]);
+      const adapter = await loadAdapter();
+      const retried = input({ visibility: "private" });
+      retried.item.platforms.youtube = {
+        status: "pending",
+        attempts: 1,
+        containerId: "https://upload.example/session-partial"
+      };
+
+      const result = await adapter.publish(retried);
+
+      const resume = requests[2];
+      expect(resume.headers["Content-Range"]).toBe("bytes 1024-2047/2048");
+      expect(resume.headers["Content-Length"]).toBe("1024");
+      expect(result.postId).toBe("vid-resumed");
+      expect(requests.some((r) => r.url.includes("uploadType=resumable"))).toBe(false);
+    });
+
+    it("starts a fresh upload when the stored session has expired", async () => {
+      // Sessions last about a week. An expired one never produced a video, so
+      // starting over is correct rather than dangerous.
+      const requests = mockFetchRoutes([
+        { match: "oauth2.googleapis.com/token", respond: () => jsonResponse({ access_token: "at-1", expires_in: 3600 }) },
+        { match: "upload.example/session-stale", respond: () => new Response(null, { status: 404 }) },
+        {
+          match: "uploadType=resumable",
+          respond: () => jsonResponse({}, { headers: { location: "https://upload.example/session-new" } })
+        },
+        { match: "upload.example/session-new", respond: () => jsonResponse({ id: "vid-fresh" }) }
+      ]);
+      const adapter = await loadAdapter();
+      const retried = input({ visibility: "private" });
+      retried.item.platforms.youtube = {
+        status: "pending",
+        attempts: 2,
+        containerId: "https://upload.example/session-stale"
+      };
+
+      const result = await adapter.publish(retried);
+
+      expect(result.postId).toBe("vid-fresh");
+      expect(requests.some((r) => r.url.includes("uploadType=resumable"))).toBe(true);
+    });
+
+    it("treats a network drop during the session query as transient, not as nothing-uploaded", async () => {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async (url: string | URL) => {
+          if (String(url).includes("oauth2.googleapis.com/token")) {
+            return jsonResponse({ access_token: "at-1", expires_in: 3600 });
+          }
+          throw new TypeError("fetch failed");
+        })
+      );
+      const adapter = await loadAdapter();
+      const retried = input({ visibility: "private" });
+      retried.item.platforms.youtube = {
+        status: "pending",
+        attempts: 1,
+        containerId: "https://upload.example/session-flaky"
+      };
+
+      // It must surface as a retryable error rather than falling through to a
+      // fresh upload, which is exactly how duplicates got made.
+      await expect(adapter.publish(retried)).rejects.toThrow(/resumable session query network error/);
+    });
+  });
+
   describe("finalize (verify the public flip after the slot time)", () => {
     it("marks published without touching the video when YouTube already flipped it", async () => {
       const requests = mockFetchRoutes([

@@ -8,7 +8,7 @@ import {
   YOUTUBE_RECONNECT_FOR_SCOPE,
   YOUTUBE_RECONNECT_REQUIRED
 } from "@/lib/publisher/googleAuth";
-import { PermanentError, fetchJson, fetchRaw } from "@/lib/publisher/http";
+import { PermanentError, TransientError, fetchJson, fetchRaw } from "@/lib/publisher/http";
 import { IMAGE_REFUSALS, isImagePost } from "@/lib/publisher/images";
 import { bareTags, composeDescription } from "@/lib/publisher/metadata";
 import { formatInTimezone, toRfc3339Utc } from "@/lib/publisher/time";
@@ -181,6 +181,89 @@ async function finalizeYoutube(item: QueueItem, state: PlatformState): Promise<P
   };
 }
 
+type SessionState = {
+  /** The upload already completed and YouTube handed back this video. */
+  videoId?: string;
+  /** The session is alive and has this many bytes; undefined means it is gone. */
+  receivedBytes?: number;
+};
+
+/**
+ * Asks an existing resumable session what it received, using the zero-length
+ * "PUT with Content-Range: bytes * /<size>" query the protocol defines.
+ *
+ *  - 200/201 → the bytes all arrived and the video exists; the body is the
+ *    video resource, so the id can be adopted without uploading anything.
+ *  - 308 → the session is open and partially filled; Range gives the offset.
+ *  - 404/410 → the session expired (they last a week) and produced no video.
+ *
+ * Any other status is left to the caller's normal error handling.
+ */
+async function adoptResumableSession(sessionUrl: string, token: string, size: number): Promise<SessionState> {
+  let response: Response;
+  try {
+    response = await fetch(sessionUrl, {
+      method: "PUT",
+      headers: { Authorization: `Bearer ${token}`, "Content-Range": `bytes */${size}` }
+    });
+  } catch (error) {
+    throw new TransientError(
+      `YouTube resumable session query network error: ${error instanceof Error ? error.message : String(error)}`
+    );
+  }
+  if (response.status === 404 || response.status === 410) return {};
+  if (response.status === 308) {
+    // "bytes=0-524287" — the last byte received. No Range header at all means
+    // the session exists but has nothing in it yet.
+    const range = response.headers.get("range");
+    const end = range ? Number(range.split("-")[1]) : NaN;
+    return { receivedBytes: Number.isFinite(end) ? end + 1 : 0 };
+  }
+  if (response.ok) {
+    const text = await response.text().catch(() => "");
+    let id: string | undefined;
+    try {
+      id = (JSON.parse(text) as { id?: string }).id;
+    } catch {
+      id = undefined;
+    }
+    if (!id) {
+      throw new PermanentError(
+        `YouTube reported the resumable upload complete but returned no video id: ${text.slice(0, 200)}`
+      );
+    }
+    return { videoId: id };
+  }
+  const text = await response.text().catch(() => "");
+  throw response.status === 408 || response.status === 429 || response.status >= 500
+    ? new TransientError(`YouTube resumable session query failed (HTTP ${response.status}): ${text.slice(0, 500)}`)
+    : new PermanentError(`YouTube resumable session query failed (HTTP ${response.status}): ${text.slice(0, 500)}`);
+}
+
+/** Sends the remaining bytes of a resumable session and returns the video id. */
+async function sendResumableBytes(
+  sessionUrl: string,
+  token: string,
+  media: Buffer,
+  size: number,
+  from: number
+): Promise<string> {
+  const remaining = from > 0 ? media.subarray(from) : media;
+  const upload = await fetchJson<{ id?: string }>(sessionUrl, {
+    label: "YouTube video upload",
+    method: "PUT",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "video/mp4",
+      "Content-Length": String(remaining.length),
+      ...(from > 0 ? { "Content-Range": `bytes ${from}-${size - 1}/${size}` } : {})
+    },
+    body: remaining
+  });
+  if (!upload.id) throw new PermanentError("YouTube upload finished but returned no video id.");
+  return upload.id;
+}
+
 export const youtubeAdapter: PlatformAdapter = {
   id: "youtube",
 
@@ -218,10 +301,36 @@ export const youtubeAdapter: PlatformAdapter = {
     // The video is already on the channel — a retry that re-uploaded here would
     // leave two copies of the same clip. Finish that one instead.
     if (state?.postId) return finalizeYoutube(input.item, state);
+    // Everything up to here is safe to repeat: reading config, refreshing the
+    // token and loading the file put nothing on the channel. A failure in this
+    // stretch (the "token refresh network error" kind) can retry freely.
     const token = await youtubeAccessToken(input.item.accountId);
     const { body, scheduled } = buildBody(input);
     const media = await readFile(input.localPath);
     const size = (await stat(input.localPath)).size;
+    const describe = (id: string): PostResult => ({
+      status: scheduled ? "scheduled" : "published",
+      postId: id,
+      detail: scheduled
+        ? `scheduled via status.publishAt=${toRfc3339Utc(new Date(input.item.publishAt))}`
+        : `uploaded as ${body.status.privacyStatus}`
+    });
+
+    // A session URL left over from a previous attempt means bytes may already
+    // have reached YouTube. Ask that session what it got before assuming
+    // nothing did — this is the difference between resuming one upload and
+    // publishing the same clip twice.
+    const existing = state?.containerId;
+    if (existing) {
+      const resumed = await adoptResumableSession(existing, token, size);
+      if (resumed.videoId) return describe(resumed.videoId);
+      if (resumed.receivedBytes !== undefined) {
+        const id = await sendResumableBytes(existing, token, media, size, resumed.receivedBytes);
+        return describe(id);
+      }
+      // The session is gone (expired or unknown). Falling through starts a new
+      // one, which is safe: an expired session never produced a video.
+    }
 
     // Step 1: open a resumable session; the video's metadata goes here.
     const init = await fetchRaw(UPLOAD_URL, {
@@ -236,27 +345,14 @@ export const youtubeAdapter: PlatformAdapter = {
     });
     const sessionUrl = init.headers.get("location");
     if (!sessionUrl) throw new PermanentError("YouTube resumable init returned no session Location header.");
+    // Record the session BEFORE any bytes move. If the upload lands but the
+    // response never gets back to us, this is what stops the next run from
+    // creating a second video.
+    await input.onHandle?.(sessionUrl);
 
-    // Step 2: send the bytes. Clips are small, so a single PUT is fine — on a
-    // dropped connection the whole platform attempt retries with backoff.
-    const upload = await fetchJson<{ id?: string }>(sessionUrl, {
-      label: "YouTube video upload",
-      method: "PUT",
-      headers: {
-        Authorization: `Bearer ${token}`,
-        "Content-Type": "video/mp4",
-        "Content-Length": String(size)
-      },
-      body: media
-    });
-    if (!upload.id) throw new PermanentError("YouTube upload finished but returned no video id.");
-    return {
-      status: scheduled ? "scheduled" : "published",
-      postId: upload.id,
-      detail: scheduled
-        ? `scheduled via status.publishAt=${toRfc3339Utc(new Date(input.item.publishAt))}`
-        : `uploaded as ${body.status.privacyStatus}`
-    };
+    // Step 2: send the bytes. Clips are small, so a single PUT is fine.
+    const id = await sendResumableBytes(sessionUrl, token, media, size, 0);
+    return describe(id);
   },
 
   finalize: finalizeYoutube
