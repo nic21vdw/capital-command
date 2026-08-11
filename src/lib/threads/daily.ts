@@ -92,7 +92,7 @@ export async function planTodaysBatch(
       created: 0,
       droppedPastSlots,
       skipped: nothingLeft
-        ? "Every post in today's pack has already gone out — hit Generate 24 for a fresh day."
+        ? "Every post in today's pack has already gone out — press Write today's posts for a fresh day."
         : options.startNow
           ? "Too little of the day is left to schedule anything — try again tomorrow."
           : "Every slot for today has already passed — the next batch starts tomorrow morning.",

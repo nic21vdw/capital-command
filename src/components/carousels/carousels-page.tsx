@@ -25,6 +25,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { AdvancedOptions } from "@/components/ui/advanced-options";
 import { PageHeader } from "@/components/ui/page-header";
 import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
@@ -110,6 +111,32 @@ export function CarouselsPage() {
 
   // Photos claim a slide each, so they can push the deck past the picked count.
   const deckSlides = resolveSlideCount({ slideCount, imageCount: images.length });
+
+  // One picker instead of a source-kind select plus a picker that morphs behind
+  // it: every source is an option in the same list, so the first choice on the
+  // screen is "what am I turning into slides", not "which kind of thing is it".
+  // Text and photos carry no id, so they stand for themselves.
+  const sourceValue = sourceId ? `${sourceType}:${sourceId}` : sourceType === "custom" || sourceType === "images" ? sourceType : "";
+
+  const presetMissing =
+    Boolean(presetLongform) && sourceType === "longform" && !projects.some((project) => project.id === presetLongform);
+
+  const pickSource = (value: string) => {
+    if (value === "" || value === "custom" || value === "images") {
+      setSourceType(value === "" ? "script" : (value as SourceType));
+      setSourceId("");
+      return;
+    }
+    const split = value.indexOf(":");
+    setSourceType(value.slice(0, split) as SourceType);
+    setSourceId(value.slice(split + 1));
+  };
+
+  const summaryParts = [
+    `${deckSlides} slide${deckSlides === 1 ? "" : "s"}`,
+    `${batchCount} batch${batchCount === 1 ? "" : "es"}`
+  ];
+  if (images.length > 0) summaryParts.push(`${images.length} photo${images.length === 1 ? "" : "s"}`);
 
   useEffect(() => {
     void fetch("/api/longform/projects", { cache: "no-store" })
@@ -261,76 +288,57 @@ export function CarouselsPage() {
       <PageHeader
         eyebrow="Step 2 · Formats"
         title="Carousels & Images"
-        description="Turn a script, a finished video's transcript, a short-form video, a batch of photos, or pasted text into swipeable carousels — hook slide, value slides, CTA slide — distributable to Instagram, Facebook, and TikTok. Ask for several batches and each one takes a different angle on the same stream. Double-click a slide to preview or edit it, pick an aspect ratio, download, or schedule the upload."
+        description="Turn a script, a video, a batch of photos, or pasted text into a swipeable carousel you can edit, download, and schedule."
       />
 
       <Card className="mb-6 space-y-3">
-        <div className="grid gap-3 sm:grid-cols-[170px_1fr_130px_130px_auto]">
+        <div className="grid gap-3 sm:grid-cols-[1fr_auto]">
           <Select
-            value={sourceType}
-            onChange={(event) => {
-              setSourceType(event.target.value as SourceType);
-              setSourceId("");
-            }}
+            value={sourceValue}
+            onChange={(event) => pickSource(event.target.value)}
+            aria-label="What to turn into slides"
           >
-            <option value="script">From script</option>
-            <option value="longform">From video</option>
-            <option value="short">From short-form video</option>
-            <option value="images">From photos</option>
-            <option value="custom">From text</option>
-          </Select>
-
-          {sourceType === "script" ? (
-            <Select value={sourceId} onChange={(event) => setSourceId(event.target.value)}>
-              <option value="">Pick a script…</option>
-              {scripts.map((script) => (
-                <option key={script.id} value={script.id}>
-                  {script.title}
-                </option>
-              ))}
-            </Select>
-          ) : sourceType === "longform" ? (
-            <Select value={sourceId} onChange={(event) => setSourceId(event.target.value)}>
-              <option value="">Pick a long-form project…</option>
-              {projects.map((project) => (
-                <option key={project.id} value={project.id}>
-                  {project.name}
-                </option>
-              ))}
-            </Select>
-          ) : sourceType === "short" ? (
-            <Select value={sourceId} onChange={(event) => setSourceId(event.target.value)}>
-              <option value="">
-                {shorts.length === 0 ? "No finished short-form videos yet" : "Pick a short-form video…"}
-              </option>
-              {shorts.map((short) => (
-                <option key={`${short.jobId}::${short.clipId}`} value={`${short.jobId}::${short.clipId}`}>
-                  {short.label}
-                </option>
-              ))}
-            </Select>
-          ) : (
-            <Input placeholder="Carousel title" value={customTitle} onChange={(event) => setCustomTitle(event.target.value)} />
-          )}
-
-          <Select value={slideCount} onChange={(event) => setSlideCount(Number(event.target.value))} aria-label="Slides per carousel">
-            {SLIDE_COUNT_OPTIONS.map((count) => (
-              <option key={count} value={count}>
-                {count} slides
-              </option>
-            ))}
-          </Select>
-
-          <Select
-            value={batchCount}
-            onChange={(event) => setBatchCount(Number(event.target.value))}
-            aria-label="How many carousels to write"
-          >
-            {Array.from({ length: MAX_BATCH_COUNT }, (_, i) => i + 1).map((count) => (
-              <option key={count} value={count}>
-                {count} batch{count === 1 ? "" : "es"}
-              </option>
-            ))}
+            <option value="">Pick what to turn into slides…</option>
+            {scripts.length > 0 ? (
+              <optgroup label="Scripts">
+                {scripts.map((script) => (
+                  <option key={script.id} value={`script:${script.id}`}>
+                    {script.title}
+                  </option>
+                ))}
+              </optgroup>
+            ) : null}
+            {/* The stream the sidebar handed this page may not be in the list:
+                that only holds FINISHED edits, and a run links here the moment
+                it has a project at all. Its own option keeps the picker saying
+                what you are working on instead of reading as nothing picked. */}
+            {presetMissing ? (
+              <optgroup label="This stream">
+                <option value={`longform:${presetLongform}`}>The stream you are working on</option>
+              </optgroup>
+            ) : null}
+            {projects.length > 0 ? (
+              <optgroup label="Videos">
+                {projects.map((project) => (
+                  <option key={project.id} value={`longform:${project.id}`}>
+                    {project.name}
+                  </option>
+                ))}
+              </optgroup>
+            ) : null}
+            {shorts.length > 0 ? (
+              <optgroup label="Short-form videos">
+                {shorts.map((short) => (
+                  <option key={`${short.jobId}::${short.clipId}`} value={`short:${short.jobId}::${short.clipId}`}>
+                    {short.label}
+                  </option>
+                ))}
+              </optgroup>
+            ) : null}
+            <optgroup label="Something else">
+              <option value="custom">Pasted text…</option>
+              <option value="images">A batch of photos…</option>
+            </optgroup>
           </Select>
 
           <Button onClick={() => void generate()} disabled={generating} className="shrink-0">
@@ -339,22 +347,9 @@ export function CarouselsPage() {
           </Button>
         </div>
 
-        <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-[var(--muted-foreground)]">
-          <Layers className="h-3.5 w-3.5 text-[var(--accent)]" />
-          <span>
-            {batchCount === 1
-              ? `One carousel of ${deckSlides} slides`
-              : `${batchCount} carousels of ${deckSlides} slides — ${batchCount * deckSlides} in total`}
-          </span>
-          {batchCount > 1 ? (
-            <span className="text-white/70">
-              · {Array.from({ length: batchCount }, (_, i) => carouselAngle(i).label).join(" · ")}
-            </span>
-          ) : null}
-          {images.length > 0 && deckSlides > slideCount ? (
-            <span className="text-amber-300/90">· raised to {deckSlides} so every photo gets a slide</span>
-          ) : null}
-        </p>
+        {sourceType === "custom" || sourceType === "images" ? (
+          <Input placeholder="Carousel title" value={customTitle} onChange={(event) => setCustomTitle(event.target.value)} />
+        ) : null}
 
         {sourceType === "custom" ? (
           <Textarea
@@ -364,19 +359,80 @@ export function CarouselsPage() {
           />
         ) : null}
 
-        <ImageBatch
-          images={images}
-          notes={imageNotes}
-          uploading={uploading}
-          dragging={imageDrag}
-          required={sourceType === "images"}
-          inputRef={imageInputRef}
-          onPick={(files) => void addImages(files)}
-          onDraggingChange={setImageDrag}
-          onNotesChange={setImageNotes}
-          onRemove={(id) => setImages((current) => current.filter((image) => image.id !== id))}
-          onClear={() => setImages([])}
-        />
+        {/* The photo batch IS the source here, so it stays on the primary path;
+            for every other source it is an optional extra and lives below. */}
+        {sourceType === "images" ? (
+          <ImageBatch
+            images={images}
+            notes={imageNotes}
+            uploading={uploading}
+            dragging={imageDrag}
+            required
+            inputRef={imageInputRef}
+            onPick={(files) => void addImages(files)}
+            onDraggingChange={setImageDrag}
+            onNotesChange={setImageNotes}
+            onRemove={(id) => setImages((current) => current.filter((image) => image.id !== id))}
+            onClear={() => setImages([])}
+          />
+        ) : null}
+
+        <AdvancedOptions id="carousels-generate" summary={summaryParts.join(" · ")}>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <Select value={slideCount} onChange={(event) => setSlideCount(Number(event.target.value))} aria-label="Slides per carousel">
+              {SLIDE_COUNT_OPTIONS.map((count) => (
+                <option key={count} value={count}>
+                  {count} slides
+                </option>
+              ))}
+            </Select>
+
+            <Select
+              value={batchCount}
+              onChange={(event) => setBatchCount(Number(event.target.value))}
+              aria-label="How many carousels to write"
+            >
+              {Array.from({ length: MAX_BATCH_COUNT }, (_, i) => i + 1).map((count) => (
+                <option key={count} value={count}>
+                  {count} batch{count === 1 ? "" : "es"}
+                </option>
+              ))}
+            </Select>
+          </div>
+
+          <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-[var(--muted-foreground)]">
+            <Layers className="h-3.5 w-3.5 text-[var(--accent)]" />
+            <span>
+              {batchCount === 1
+                ? `One carousel of ${deckSlides} slides`
+                : `${batchCount} carousels of ${deckSlides} slides — ${batchCount * deckSlides} in total`}
+            </span>
+            {batchCount > 1 ? (
+              <span className="text-white/70">
+                · {Array.from({ length: batchCount }, (_, i) => carouselAngle(i).label).join(" · ")}
+              </span>
+            ) : null}
+            {images.length > 0 && deckSlides > slideCount ? (
+              <span className="text-amber-300/90">· raised to {deckSlides} so every photo gets a slide</span>
+            ) : null}
+          </p>
+
+          {sourceType !== "images" ? (
+            <ImageBatch
+              images={images}
+              notes={imageNotes}
+              uploading={uploading}
+              dragging={imageDrag}
+              required={false}
+              inputRef={imageInputRef}
+              onPick={(files) => void addImages(files)}
+              onDraggingChange={setImageDrag}
+              onNotesChange={setImageNotes}
+              onRemove={(id) => setImages((current) => current.filter((image) => image.id !== id))}
+              onClear={() => setImages([])}
+            />
+          ) : null}
+        </AdvancedOptions>
       </Card>
 
       {reason ? (

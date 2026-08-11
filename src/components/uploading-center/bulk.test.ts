@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { clipsNeedingCaption, nameClips, planAutoAssign } from "@/components/uploading-center/bulk";
+import { autoAssignableCount, clipsNeedingCaption, nameClips, planAutoAssign } from "@/components/uploading-center/bulk";
 import type { ClipDraft, ReadyClip } from "@/components/uploading-center/use-uploading-center";
 import type { ScheduleSlot } from "@/lib/publisher/slots";
 
@@ -209,5 +209,38 @@ describe("nameClips", () => {
 
   it("is empty when nothing failed", () => {
     expect(nameClips([])).toBe("");
+  });
+});
+
+describe("the number the schedule-everything button promises", () => {
+  const slots = [slot("2026-08-12T15:00:00.000Z"), slot("2026-08-13T15:00:00.000Z"), slot("2026-08-14T15:00:00.000Z")];
+  const context = {
+    clips,
+    draftFor: () => draft(),
+    isScheduled: never,
+    slots,
+    isTargetSlotTaken: never
+  };
+
+  it("counts what would be booked, not what is merely unscheduled", () => {
+    // The button used to count every unscheduled clip, so it said "Schedule 3
+    // clips" directly above a warning that one of them would be held back, and
+    // then booked 2.
+    expect(autoAssignableCount({ ...context, skipKeys: new Set([clip("b").key]) })).toBe(2);
+  });
+
+  it("agrees with the plan the press actually runs", () => {
+    const skipKeys = new Set([clip("a").key]);
+    expect(autoAssignableCount({ ...context, skipKeys })).toBe(
+      planAutoAssign({ ...context, skipKeys }).assignments.length
+    );
+  });
+
+  it("counts nothing when every slot is already taken", () => {
+    expect(autoAssignableCount({ ...context, isTargetSlotTaken: () => true })).toBe(0);
+  });
+
+  it("counts everything when nothing is in the way", () => {
+    expect(autoAssignableCount(context)).toBe(3);
   });
 });

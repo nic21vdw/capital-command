@@ -2,13 +2,14 @@
 
 import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Clapperboard, Film, Loader2, Music4, Scissors, Trash2, UploadCloud, Zap } from "lucide-react";
+import { Clapperboard, Film, Loader2, MonitorCheck, Music4, Scissors, Trash2, UploadCloud, Zap } from "lucide-react";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { PageHeader } from "@/components/ui/page-header";
 import { Progress } from "@/components/ui/progress";
+import { AdvancedOptions } from "@/components/ui/advanced-options";
 import { LongformEditor } from "@/components/longform/longform-editor";
 import { formatClock } from "@/lib/clipping/editor";
 import type { LongformProjectSummary } from "@/lib/longform/summary";
@@ -276,7 +277,7 @@ export function LongformStudioPage() {
       <PageHeader
         eyebrow="Step 2 · Formats"
         title="Long-Form Video"
-        description="Throw in a raw recording — it punches in on your hook with viral captions, cuts every stretch of dead air, lays music under it, and hands the finished edit to the Clip Generator."
+        description="Turn a raw recording into a finished long-form upload."
       />
 
       {/* Analyzing state for the opened project */}
@@ -318,11 +319,7 @@ export function LongformStudioPage() {
         {/* Upload */}
         <div className="space-y-4">
           <Card>
-            <h2 className="text-base font-semibold text-white">Upload a video</h2>
-            <p className="mt-1 text-sm text-[var(--muted-foreground)]">
-              A long, unedited recording is perfect — talking-head, tutorial, vlog. Analysis is local: transcription,
-              silence detection, hook planning.
-            </p>
+            <h2 className="text-base font-semibold text-white">Add a recording</h2>
             <input
               ref={fileRef}
               type="file"
@@ -382,37 +379,42 @@ export function LongformStudioPage() {
               {uploadPct !== null && <Progress value={uploadPct} className="w-full" />}
             </div>
 
-            <div className="mt-4 flex items-center gap-3">
-              <span className="h-px flex-1 bg-[var(--border)]" />
-              <span className="text-xs text-[var(--muted-foreground)]">or paste a link</span>
-              <span className="h-px flex-1 bg-[var(--border)]" />
-            </div>
-            <div className="mt-3 flex gap-2">
-              <input
-                type="url"
-                inputMode="url"
-                value={url}
-                onChange={(event) => setUrl(event.target.value)}
-                onKeyDown={(event) => {
-                  if (event.key === "Enter" && !busy) void importUrl();
-                }}
-                placeholder="https://youtube.com/watch?v=..."
-                disabled={busy}
-                className="h-10 min-w-0 flex-1 rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-3 text-sm text-white outline-none transition placeholder:text-[var(--muted-foreground)] focus:border-[var(--accent)] disabled:opacity-60"
-                aria-label="YouTube or VOD link"
-              />
-              <Button onClick={() => void importUrl()} disabled={busy || !url.trim()} className="shrink-0">
-                {importing ? <Loader2 className="h-4 w-4 animate-spin" /> : "Import"}
-              </Button>
-            </div>
-            <p className="mt-2 text-xs text-[var(--muted-foreground)]">
-              Paste a YouTube video link and we’ll pull down the full recording for you.
-            </p>
+            <AdvancedOptions
+              id="longform-source"
+              label="Import from a link"
+              summary="Or paste a YouTube / VOD link"
+              className="mt-4"
+            >
+              <div className="flex gap-2">
+                <input
+                  type="url"
+                  inputMode="url"
+                  value={url}
+                  onChange={(event) => setUrl(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter" && !busy) void importUrl();
+                  }}
+                  placeholder="https://youtube.com/watch?v=..."
+                  disabled={busy}
+                  className="h-10 min-w-0 flex-1 rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-3 text-sm text-white outline-none transition placeholder:text-[var(--muted-foreground)] focus:border-[var(--accent)] disabled:opacity-60"
+                  aria-label="YouTube or VOD link"
+                />
+                <Button onClick={() => void importUrl()} disabled={busy || !url.trim()} className="shrink-0">
+                  {importing ? <Loader2 className="h-4 w-4 animate-spin" /> : "Import"}
+                </Button>
+              </div>
+              <p className="text-xs text-[var(--muted-foreground)]">
+                We pull down the full recording and analyze it exactly like an upload.
+              </p>
+            </AdvancedOptions>
           </Card>
 
-          <Card>
-            <h2 className="text-base font-semibold text-white">What it does</h2>
-            <ul className="mt-3 space-y-3 text-sm text-[var(--muted-foreground)]">
+          <AdvancedOptions
+            id="longform-explainer"
+            label="What it does"
+            summary="Viral hook, dead air cut, music, into the Clip Generator"
+          >
+            <ul className="space-y-3 text-sm text-[var(--muted-foreground)]">
               <li className="flex gap-3">
                 <Zap className="mt-0.5 h-4 w-4 shrink-0 text-[var(--accent)]" />
                 <span>
@@ -440,8 +442,18 @@ export function LongformStudioPage() {
                   to become shorts.
                 </span>
               </li>
+              {/* Shortening the upload blurb deleted the only place that said
+                  the recording never leaves the machine. That is a promise
+                  about his footage, not filler. */}
+              <li className="flex gap-3">
+                <MonitorCheck className="mt-0.5 h-4 w-4 shrink-0 text-[var(--accent)]" />
+                <span>
+                  <span className="text-white">Stays on this computer</span> — transcription, silence detection and
+                  hook planning all run locally.
+                </span>
+              </li>
             </ul>
-          </Card>
+          </AdvancedOptions>
         </div>
 
         {/* Project list */}
@@ -490,6 +502,14 @@ export function LongformStudioPage() {
                         >
                           {project.name}
                         </h3>
+                      )}
+                      {/* Same "From <source>" line the Clip Editor's cards carry: a
+                          project is renamed freely, so the recording it was cut from
+                          is the only thing that says where it came from. */}
+                      {project.fileName && (
+                        <p className="mt-0.5 truncate text-xs text-[var(--muted-foreground)]">
+                          From {project.fileName}
+                        </p>
                       )}
                       <p className="mt-0.5 text-xs text-[var(--muted-foreground)]">
                         {formatClock(project.durationSec)}

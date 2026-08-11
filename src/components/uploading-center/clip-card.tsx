@@ -273,8 +273,8 @@ export function ClipCard({
             <p className="flex items-start gap-2 rounded-lg border border-amber-400/25 bg-amber-400/8 px-3 py-2 text-xs text-amber-200">
               <TriangleAlert className="mt-0.5 h-3.5 w-3.5 shrink-0" />
               <span>
-                No AI caption for this clip — {captionError?.replace(/\s*[.!]+$/, "")}. Auto Assign leaves it
-                unscheduled; retry above, or write the caption yourself.
+                No AI caption for this clip — {captionError?.replace(/\s*[.!]+$/, "")}. Scheduling the whole run
+                leaves this one out; retry above, or write the caption yourself.
               </span>
             </p>
           ) : null}

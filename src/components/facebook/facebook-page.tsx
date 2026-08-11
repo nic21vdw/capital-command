@@ -26,6 +26,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { makeFbPost, useAppData } from "@/components/providers/app-provider";
+import { AdvancedOptions } from "@/components/ui/advanced-options";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -128,32 +129,32 @@ export function FacebookPage() {
       <PageHeader
         eyebrow="Step 2 · Formats"
         title="FB / IG Threads"
-        description="The Professional-Mode playbook behind 1.4B organic views: text-only hooks (78.2% of views), image posts, and reels — with the real content continued as a numbered thread in the comments and the CTA as the final comment."
+        description="Write a Facebook or Instagram post — a hook in the main post, the real content as numbered comments underneath — and Save this post files it in your library ready to paste up; nothing here posts for you."
       />
 
       <Tabs
         tabs={[
           {
-            id: "dashboard",
-            label: "Dashboard",
-            icon: LayoutDashboard,
-            content: <DashboardTab posts={posts} />
-          },
-          {
             id: "composer",
-            label: "Thread Composer",
+            label: "Write a post",
             icon: PenSquare,
             content: <ComposerTab onSave={savePost} />
           },
           {
             id: "library",
-            label: "Library",
+            label: "Saved posts",
             icon: Library,
             content: <LibraryTab posts={posts} onEdit={setEditing} savePost={savePost} deletePost={(id) => mutate("deleteFbPost", id, { successMessage: "Post deleted." })} />
           },
           {
+            id: "dashboard",
+            label: "Results",
+            icon: LayoutDashboard,
+            content: <DashboardTab posts={posts} />
+          },
+          {
             id: "playbook",
-            label: "Playbook",
+            label: "How this works",
             icon: BookOpen,
             content: <PlaybookTab brief={brief} onSaveBrief={(next) => mutate("updateFbBrief", { brief: next }, { successMessage: "Brief saved." })} />
           }
@@ -251,7 +252,7 @@ function DashboardTab({ posts }: { posts: FbPost[] }) {
         <h3 className="font-semibold text-white">Recent posts</h3>
         {recent.length === 0 ? (
           <p className="text-sm text-[var(--muted-foreground)]">
-            Nothing yet — build your first hook + comment thread in the Thread Composer tab.
+            Nothing yet — build your first hook + comment thread in the Write a post tab.
           </p>
         ) : (
           <div className="space-y-2">
@@ -299,8 +300,10 @@ function ComposerTab({ onSave }: { onSave: (post: FbPost, message: string) => Pr
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <p className="text-sm text-[var(--muted-foreground)]">
-          Hook in the main post, content in the comments. Facebook sorts comments by relevance — an engaged thread keeps the whole post resurfacing.
+        <p className="max-w-2xl text-sm text-[var(--muted-foreground)]">
+          The hook goes in the main post and the content goes in the comments — a thread, meaning your own numbered
+          comments read in order underneath. Facebook sorts comments by relevance, so an engaged thread keeps the whole
+          post resurfacing.
         </p>
         <Button
           variant="ghost"
@@ -316,7 +319,7 @@ function ComposerTab({ onSave }: { onSave: (post: FbPost, message: string) => Pr
       <PostForm
         key={formKey}
         initial={seed ? makeFbPost(seed) : undefined}
-        submitLabel="Save to library"
+        submitLabel="Save this post"
         onSubmit={async (post) => {
           await onSave(post, "Saved to library as a draft.");
           setSeed(undefined);
@@ -375,14 +378,20 @@ function PostForm({
   return (
     <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_minmax(0,420px)]">
       <Card className="space-y-4">
-        <div className="grid gap-3 sm:grid-cols-2">
-          <SegmentedControl label="Platform" options={PLATFORMS} value={platform} onChange={setPlatform} meta={PLATFORM_META} />
-          <SegmentedControl label="Format" options={FORMATS} value={format} onChange={setFormat} meta={FORMAT_META} />
-        </div>
+        <AdvancedOptions
+          id="fb-post-setup"
+          label="Where and what"
+          summary={`${PLATFORM_META[platform].label} · ${FORMAT_META[format].label} · ${date === localDateKey() ? "today" : date}`}
+        >
+          <div className="grid gap-3 sm:grid-cols-2">
+            <SegmentedControl label="Platform" options={PLATFORMS} value={platform} onChange={setPlatform} meta={PLATFORM_META} />
+            <SegmentedControl label="Format" options={FORMATS} value={format} onChange={setFormat} meta={FORMAT_META} />
+          </div>
 
-        <Field label="Target date">
-          <Input type="date" value={date} onChange={(event) => setDate(event.target.value)} className="sm:w-48" />
-        </Field>
+          <Field label="Target date" hint="The day you plan to put this up — it only sorts your library.">
+            <Input type="date" value={date} onChange={(event) => setDate(event.target.value)} className="sm:w-48" />
+          </Field>
+        </AdvancedOptions>
 
         <Field
           label="Hook (main post)"
@@ -850,7 +859,7 @@ function LibraryTab({
       {filtered.length === 0 ? (
         <Card>
           <p className="py-8 text-center text-sm text-[var(--muted-foreground)]">
-            {posts.length === 0 ? "No posts yet — build one in the Thread Composer." : "Nothing matches these filters."}
+            {posts.length === 0 ? "No posts yet — build one in the Write a post tab." : "Nothing matches these filters."}
           </p>
         </Card>
       ) : (

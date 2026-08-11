@@ -296,9 +296,14 @@ both. Two accounts posting the same wording would read as mirrored spam.
   (CLI, PowerShell task) must go through `/api/threads`, never import
   `@/lib/threads/queue` — a second in-process copy clobbers the app's writes,
   same trap as the Stream Pipeline.
-- A missed slot is SKIPPED, never fired late, and past slots are never
-  scheduled. Preserve that when touching `runner.ts` / `plan.ts`: the whole
-  point is that an offline morning can't dump a backlog into the feed.
+- A BADLY missed slot is skipped, and past slots are never scheduled. The whole
+  point is that an offline morning can't dump a backlog into the feed — but
+  "never fired late" is too strong, and stating it that way put a false promise
+  on screen once. Two things soften it, both on by default: `lateGraceMinutes`
+  (`THREADS_LATE_GRACE_MINUTES`, 45) still sends a slot that is merely late,
+  and `catchUpToday` (`THREADS_CATCHUP`) RE-LAYS a day that fell behind across
+  the hours left in it. Preserve the spirit when touching `runner.ts` /
+  `plan.ts`, and read the config before describing this in the UI.
 - A slot is past/future by its OWN time, never the per-account offset, so the
   accounts can never drift out of step at the edges of the day.
 - Planning is CHECK, generate (minutes), then APPEND — three steps, not one

@@ -17,6 +17,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { useAppData } from "@/components/providers/app-provider";
+import { AdvancedOptions } from "@/components/ui/advanced-options";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -150,6 +151,9 @@ export function XPostsPage() {
 
   const activePack = pack ?? storedPack;
   const autopilot = useAutopilot();
+  // Until the status has loaded, claim nothing: an unarmed autopilot briefly
+  // promising to post is the wrong way round to be wrong.
+  const autopilotArmed = autopilot.status ? !autopilot.status.blockedReason : false;
 
   // Keep the "generated Xm ago" freshness read-out live so a stale, cached pack
   // is visibly old — the whole point is not to copy something from before.
@@ -197,22 +201,19 @@ export function XPostsPage() {
       <PageHeader
         eyebrow="Step 2 · Formats"
         title="X / Threads Posts"
-        description="Two buttons: Generate 24 writes a fresh day of Threads posts against your positioning brief, and Schedule from now puts them on the queue starting the moment you press it. Everything after that posts itself."
+        description={
+          // Promising that they post themselves is only true when autopilot is
+          // actually armed. Said unconditionally, the header contradicted the
+          // card right below it explaining why nothing was going out.
+          autopilotArmed
+            ? "Write a day of Threads posts and let them go out on their own — press Write today's posts and the app drafts 24 posts plus 20 replies from your positioning brief, then posts them for you one at a time through the day."
+            : "Press Write today's posts and the app drafts 24 posts plus 20 replies from your positioning brief. Connect an account below to have them go out on their own."
+        }
         actions={
-          <div className="flex flex-wrap items-center gap-2">
-            <Button onClick={() => generate(true)} disabled={generating || autopilot.busy !== null} className="shrink-0">
-              <RefreshCw className={cn("mr-2 h-4 w-4", generating && "animate-spin")} />
-              {generating ? "Writing…" : "Generate 24"}
-            </Button>
-            <Button
-              onClick={() => autopilot.scheduleNow()}
-              disabled={generating || autopilot.busy !== null || !activePack}
-              className="shrink-0"
-            >
-              <CalendarClock className="mr-2 h-4 w-4" />
-              {autopilot.busy === "schedule-now" ? "Scheduling…" : "Schedule from now"}
-            </Button>
-          </div>
+          <Button onClick={() => generate(true)} disabled={generating || autopilot.busy !== null} className="shrink-0">
+            <RefreshCw className={cn("mr-2 h-4 w-4", generating && "animate-spin")} />
+            {generating ? "Writing…" : "Write today's posts"}
+          </Button>
         }
       />
 
@@ -223,7 +224,52 @@ export function XPostsPage() {
       {activePack ? <PackSummary pack={activePack} now={now} /> : null}
 
       <div className="mt-6">
-        <AutopilotCard {...autopilot} />
+        <AdvancedOptions
+          id="x-posts-manual"
+          label="Take over by hand"
+          summary={
+            autopilotArmed
+              ? "Left alone, today's posts write and send themselves"
+              : "Nothing is sending on its own yet — these step in by hand"
+          }
+        >
+          <p className="text-xs text-[var(--muted-foreground)]">
+            Every few minutes a background check writes the day&apos;s posts if they aren&apos;t written yet and sends
+            whichever one is due. Nothing here is needed for that — these are for stepping in.
+          </p>
+          <div className="flex flex-wrap gap-2">
+            <Button
+              onClick={() => autopilot.scheduleNow()}
+              disabled={generating || autopilot.busy !== null || !activePack}
+            >
+              <CalendarClock className="mr-2 h-4 w-4" />
+              {autopilot.busy === "schedule-now" ? "Scheduling…" : "Post these starting now"}
+            </Button>
+            <Button
+              variant="secondary"
+              onClick={() =>
+                autopilot.send(
+                  { action: "check" },
+                  "check",
+                  (json) =>
+                    `Connected: ${(json.checks ?? []).map((entry) => (entry.username ? `@${entry.username}` : entry.label)).join(", ")}.`
+                )
+              }
+              disabled={autopilot.busy !== null}
+            >
+              <ShieldCheck className="mr-2 h-4 w-4" />
+              {autopilot.busy === "check" ? "Checking…" : "Check the accounts are connected"}
+            </Button>
+          </div>
+          <p className="text-xs text-[var(--muted-foreground)]">
+            Post these starting now clears whatever is still waiting today and spreads the rest of the day&apos;s posts
+            out from the moment you press it.
+          </p>
+        </AdvancedOptions>
+      </div>
+
+      <div className="mt-6">
+        <AutopilotCard status={autopilot.status} />
       </div>
 
       <div className="mt-6">
@@ -238,25 +284,25 @@ export function XPostsPage() {
               },
               {
                 id: "autopilot",
-                label: "Autopilot schedule",
+                label: "Scheduled & sent",
                 icon: CalendarClock,
                 content: <AutopilotTab {...autopilot} />
               },
               {
-                id: "export",
-                label: "Export",
-                icon: Download,
-                content: <ExportTab pack={activePack} now={now} />
-              },
-              {
                 id: "replies",
-                label: "Reply bank",
+                label: "Replies to reuse",
                 icon: MessagesSquare,
                 content: <RepliesTab replies={activePack.replies} />
               },
               {
+                id: "export",
+                label: "Download a copy",
+                icon: Download,
+                content: <ExportTab pack={activePack} now={now} />
+              },
+              {
                 id: "playbook",
-                label: "Playbook",
+                label: "How this works",
                 icon: BookOpen,
                 content: <PlaybookTab />
               }
@@ -269,7 +315,7 @@ export function XPostsPage() {
               <p className="text-sm text-[var(--muted-foreground)]">
                 {generating || loading
                   ? "Writing 24 fresh posts and twenty replies…"
-                  : "No pack yet — hit Generate for 24 fresh posts."}
+                  : "Nothing written yet — press Write today's posts for a fresh day of 24."}
               </p>
             </div>
           </Card>
@@ -399,7 +445,7 @@ function versionLabel(version: "text" | "variant"): string {
   return version === "text" ? "punchy version" : "warm rewrite";
 }
 
-function AutopilotCard({ status, busy, send }: AutopilotProps) {
+function AutopilotCard({ status }: { status: AutopilotProps["status"] }) {
   if (!status) return null;
 
   const { today, settings, blockedReason, scheduler } = status;
@@ -420,6 +466,10 @@ function AutopilotCard({ status, busy, send }: AutopilotProps) {
           <h2 className="mt-1 text-xl font-semibold text-white">
             {today.published}/{today.total || expected} posted today
           </h2>
+          <p className="mt-1 text-xs text-[var(--muted-foreground)]">
+            The autopilot sends today&apos;s posts for you, one at each slot — a slot is one fixed posting time in the
+            day.
+          </p>
           <p className="mt-1 text-xs text-[var(--muted-foreground)]">
             {settings.postsPerDay} slots a day in {settings.timezone} ·{" "}
             {settings.accounts.map((account) => `${account.label} (${versionLabel(account.posts)})`).join(", ") ||
@@ -468,24 +518,6 @@ function AutopilotCard({ status, busy, send }: AutopilotProps) {
           day&apos;s pack is written and never used.
         </p>
       ) : null}
-
-      <div className="mt-4 flex flex-wrap gap-2">
-        <Button
-          variant="secondary"
-          onClick={() =>
-            send(
-              { action: "check" },
-              "check",
-              (json) =>
-                `Connected: ${(json.checks ?? []).map((entry) => (entry.username ? `@${entry.username}` : entry.label)).join(", ")}.`
-            )
-          }
-          disabled={busy !== null}
-        >
-          <ShieldCheck className="mr-2 h-4 w-4" />
-          {busy === "check" ? "Checking…" : "Check connection"}
-        </Button>
-      </div>
     </Card>
   );
 }
@@ -518,6 +550,11 @@ function AutopilotTab({ status, busy, send }: AutopilotProps) {
   return (
     <div className="space-y-4">
       <Card>
+        <p className="mb-4 text-sm text-[var(--muted-foreground)]">
+          What has gone out and what is still waiting. Edit the wording or the time of anything still to come — a post
+          that falls more than about three quarters of an hour behind is spread across the rest of the day instead, and
+          one the day ran out of time for is dropped rather than sent at the wrong hour.
+        </p>
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="flex flex-wrap gap-2">
             {dates.map((date) => (
@@ -741,6 +778,9 @@ function PackSummary({ pack, now }: { pack: XDailyPack; now: number }) {
           <h2 className="mt-1 text-xl font-semibold text-white">
             {pack.posts.length} posts · {pack.replies.length} replies
           </h2>
+          <p className="mt-1 text-xs text-[var(--muted-foreground)]">
+            A pack is one day&apos;s posts and replies, all written in a single run.
+          </p>
         </div>
         <div className="flex flex-wrap gap-2">
           {first && last ? (
@@ -773,7 +813,9 @@ function PackSummary({ pack, now }: { pack: XDailyPack; now: number }) {
           {pack.requestedAt ? ` · clicked ${formatStamp(pack.requestedAt)}` : ""}
           {took !== null ? ` · took ${took}s` : ""}
         </span>
-        {stale ? <span className="font-medium">This is an earlier batch — hit Generate for a fresh 24.</span> : null}
+        {stale ? (
+          <span className="font-medium">This is an earlier batch — press Write today&apos;s posts for a fresh 24.</span>
+        ) : null}
       </div>
     </Card>
   );
@@ -981,7 +1023,7 @@ const GUARDRAILS: Array<{ title: string; body: string }> = [
   },
   {
     title: "Mix broadcasting with conversation",
-    body: "Pure broadcast accounts get throttled. Use the reply bank between posting slots — a healthy ratio is roughly 2 replies for every original post that goes out, which is what the 20-reply bank is for."
+    body: "Pure broadcast accounts get throttled. Use the Replies to reuse tab between posting slots — a healthy ratio is roughly 2 replies for every original post that goes out, which is what those 20 replies are for."
   },
   {
     title: "No hashtags, no bait, few links",
@@ -1010,10 +1052,19 @@ function PlaybookTab() {
           <h3 className="font-semibold">The daily system</h3>
         </div>
         <ol className="list-decimal space-y-2 pl-5 text-sm text-[var(--muted-foreground)]">
-          <li>Generate 24 — a fresh day of posts plus 20 replies, written against your positioning brief.</li>
-          <li>Schedule from now — the batch goes on the queue starting at the press and posts itself from there.</li>
-          <li>Left alone, the scheduled tick does both of those on its own each morning; the buttons are for taking over.</li>
-          <li>Between posts, spend a few minutes scrolling and spend 2-3 replies from the bank, adapted to the actual post.</li>
+          <li>Write today&apos;s posts — a fresh day of posts plus 20 replies, written against your positioning brief.</li>
+          <li>
+            Each one is then sent at its own slot — a fixed posting time — and Scheduled &amp; sent shows what has gone
+            out.
+          </li>
+          <li>
+            Left alone, the background check does both of those on its own each morning; Take over by hand is for
+            stepping in.
+          </li>
+          <li>
+            Between posts, spend a few minutes scrolling and spend 2-3 of the Replies to reuse, adapted to the actual
+            post.
+          </li>
           <li>Every regeneration avoids the angles from your recent packs.</li>
         </ol>
         <p className="text-xs text-[var(--muted-foreground)]">
