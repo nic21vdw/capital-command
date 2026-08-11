@@ -14,6 +14,18 @@ already shipped.
 
 ## Unreleased
 
+- **Every working screen now opens on one obvious action.** Short Clips, the
+  Uploading Center, Carousels, Long-Form, the Clip Editor and both posting
+  screens used to greet you with a row of equally weighted buttons and half a
+  dozen questions before anything could happen. Each now leads with the one
+  thing you came to do — Find clips, Book this run, Write today's posts, add a
+  recording — and everything else sits behind **Customise**, closed, with a
+  summary line saying what is set so the defaults are never a surprise.
+  Nothing was removed and no scheduling, clipping or posting logic changed.
+- **Each screen says which stream it is about.** Open Carousels or the editor
+  from a pipeline run and the header names that recording and carries it down
+  the flow, instead of leaving you to recognise it from a filename.
+
 - **A shaky connection no longer posts the same clip to YouTube several times.**
   On 10 August a network wobble turned one batch of clips into 14 public
   Shorts, because every retry uploaded the video again from scratch. The
