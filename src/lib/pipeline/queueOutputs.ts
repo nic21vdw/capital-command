@@ -318,6 +318,14 @@ export function assignSlots(
  * video first so the long-form edit lands before the shorts that came out of
  * it. One failure never stops the rest — a run with twelve outputs would
  * otherwise be all-or-nothing on whichever file the hosting bucket choked on.
+ *
+ * The free slots come from the plan and nowhere else. There used to be a
+ * fallback that regenerated thirty days of slots whenever the plan's list came
+ * back empty, filtering only `past` and never `taken` — so once the calendar
+ * filled, every further booking restacked onto the same earliest slots. Eight
+ * clips landed on one 11:30 slot across four platforms each. An empty list is
+ * the calendar saying it is full: the overflow gets no slot and reports "No
+ * free slot", which is the honest answer.
  */
 export async function queueRunOutputs(
   runId: string,
@@ -356,11 +364,7 @@ export async function queueRunOutputs(
       ? plan.candidates.filter((item) => !ids.includes(item.id) && !item.heldBack).map((item) => item.id)
       : [];
 
-  const slots = plan.openSlots.length
-    ? plan.openSlots
-    : generateSlots({ timeZone: publisherConfig().timezone, days: 30 })
-        .filter((slot) => !slot.past)
-        .map((slot) => slot.utc);
+  const slots = plan.openSlots;
 
   const queued: QueueResult["queued"] = [];
   const failed: QueueResult["failed"] = [];
