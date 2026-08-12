@@ -22,6 +22,13 @@ already shipped.
   whatever their length and whatever shape they were rendered in; clips posted
   as Shorts are still held to the three-minute limit.
 
+- **A long-form video can be booked to a time you choose, not just the next
+  free slot.** Scheduling one straight through the publish API still refused it
+  on the Shorts length rule, because the API had no way to say "this is the
+  long video" — only the pipeline's own booking sheet could. It can now, so a
+  full-length edit can be placed on a specific day and time, in its own lane,
+  without competing with the shorts.
+
 - **Opening a stream on the pipeline page now follows you down the sidebar.**
   Clicking a past run set what was on screen but not what the app said you were
   working on, so every Formats screen kept naming the stream before it. Starting
