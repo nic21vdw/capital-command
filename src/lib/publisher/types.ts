@@ -193,6 +193,13 @@ export type PublishInput = {
    * next run can resume instead of starting a second upload.
    */
   onHandle?: (handle: string) => Promise<void>;
+  /**
+   * How long this adapter may spend waiting on the platform to finish
+   * processing before it gives the run back. The runner shares one budget
+   * across the items of a platform whose API is polled, so a queue full of
+   * slow posts cannot spend the whole run on one platform.
+   */
+  pollBudgetMs?: number;
 };
 
 export interface PlatformAdapter {

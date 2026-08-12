@@ -1,8 +1,8 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { beforeAll, describe, expect, it } from "vitest";
-import { PermanentError, StillProcessingError, TransientError } from "@/lib/publisher/http";
+import { beforeAll, describe, expect, it, vi } from "vitest";
+import { AbandonedUploadError, PermanentError, StillProcessingError, TransientError } from "@/lib/publisher/http";
 import { PublishQueue } from "@/lib/publisher/queue";
 import { runDue } from "@/lib/publisher/runner";
 import { MemoryQueueStore, testConfig, testItem } from "@/lib/publisher/test-helpers";
@@ -312,6 +312,50 @@ describe("runDue", () => {
     expect(report.outcomes[0].outcome).toBe("retrying");
     expect(item.platforms.instagram?.status).toBe("pending");
     expect(item.platforms.instagram?.nextAttemptAt).toBeTruthy();
+  });
+
+  it("an abandoned upload fails visibly and loses its handle, so the retry starts fresh", async () => {
+    const { queue, log } = setup();
+    const config = testConfig({ platforms: ["facebook"] });
+    const item = testItem({ clipPath, publishAt: "2026-07-10T22:30:00.000Z", visibility: "public", platformIds: ["facebook"] });
+    await queue.add(item);
+    item.platforms.facebook = { status: "uploaded", attempts: 0, containerId: "video-77", uploadedAt: "2026-07-04T00:00:00.000Z" };
+
+    const facebook = fakeAdapter("facebook", async () => {
+      throw new AbandonedUploadError("video-77", "Facebook never fetched the video");
+    });
+    const report = await runDue(DUE, { config, queue, log, adapters: { facebook } });
+
+    expect(report.outcomes[0].outcome).toBe("retrying");
+    expect(item.platforms.facebook?.attempts).toBe(1);
+    expect(item.platforms.facebook?.error).toMatch(/never fetched the video/);
+    expect(item.platforms.facebook?.containerId).toBeUndefined();
+    expect(item.platforms.facebook?.uploadedAt).toBeUndefined();
+  });
+
+  it("shares one Facebook polling budget across the run", async () => {
+    const { queue, log } = setup();
+    const config = testConfig({ platforms: ["facebook"] });
+    for (const id of ["fb1", "fb2", "fb3", "fb4"]) {
+      await queue.add(
+        testItem({ id, clipPath, publishAt: "2026-07-10T22:30:00.000Z", visibility: "public", platformIds: ["facebook"] })
+      );
+    }
+
+    const budgets: Array<number | undefined> = [];
+    const facebook = fakeAdapter("facebook", async (input) => {
+      budgets.push(input.pollBudgetMs);
+      vi.setSystemTime(new Date(Date.now() + (input.pollBudgetMs ?? 0)));
+      return { status: "published", postId: "fb-post" };
+    });
+
+    vi.useFakeTimers({ toFake: ["Date"] });
+    await runDue(DUE, { config, queue, log, adapters: { facebook } });
+    vi.useRealTimers();
+
+    // A minute each until the run's three minutes are gone; the rest wait for
+    // the next run rather than holding this one open.
+    expect(budgets).toEqual([60_000, 60_000, 60_000, 0]);
   });
 
   it("dry run validates auth and builds plans without posting or mutating state", async () => {

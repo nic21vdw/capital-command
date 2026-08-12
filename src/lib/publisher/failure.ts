@@ -55,6 +55,9 @@ const MISSING_MEDIA = /is not on this machine|no hosted copy|ENOENT|no such file
 /** Worth trying again later without touching anything. */
 const WORTH_RETRYING = /quota|rate limit|too many requests|timed out|timeout|temporarily|\b5\d\d\b/i;
 
+/** The platform opened an upload and then never took the video. */
+const ABANDONED_UPLOAD = /never fetched the video|upload expired before publishing/i;
+
 export function describeFailure(state: PlatformState, platform: PlatformId): FailureAdvice {
   const label = PLATFORM_LABELS[platform];
   const raw = state.error?.trim() || undefined;
@@ -79,6 +82,14 @@ export function describeFailure(state: PlatformState, platform: PlatformId): Fai
     return {
       headline: "The video file for this post isn't on this machine any more, so it can't be uploaded.",
       action: "none",
+      raw
+    };
+  }
+
+  if (raw && ABANDONED_UPLOAD.test(raw)) {
+    return {
+      headline: `${label} took the upload and then never fetched the video, so nothing was posted. Sending it again is the fix.`,
+      action: "retry",
       raw
     };
   }

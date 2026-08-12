@@ -185,6 +185,15 @@ export class PublishQueue {
     await this.save();
   }
 
+  async clearDeadUpload(item: QueueItem, platform: PlatformId): Promise<void> {
+    const state = item.platforms[platform];
+    if (!state) return;
+    state.containerId = undefined;
+    state.childContainerIds = undefined;
+    state.uploadedAt = undefined;
+    await this.save();
+  }
+
   async recordSuccess(item: QueueItem, platform: PlatformId, result: PostResult, now: Date): Promise<void> {
     const state = item.platforms[platform];
     if (!state) return;

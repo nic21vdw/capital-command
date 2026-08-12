@@ -26,6 +26,15 @@ export class StillProcessingError extends TransientError {
   }
 }
 
+export class AbandonedUploadError extends TransientError {
+  constructor(
+    readonly containerId: string,
+    message: string
+  ) {
+    super(message);
+  }
+}
+
 export function isTransient(error: unknown): boolean {
   if (error instanceof TransientError) return true;
   if (error instanceof PermanentError) return false;
