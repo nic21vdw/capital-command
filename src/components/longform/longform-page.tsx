@@ -382,7 +382,7 @@ export function LongformStudioPage() {
             <AdvancedOptions
               id="longform-source"
               label="Import from a link"
-              summary="Or paste a YouTube / VOD link"
+              summary={url.trim() ? `Link ready: ${url.trim()}` : "Or paste a YouTube / VOD link"}
               className="mt-4"
             >
               <div className="flex gap-2">

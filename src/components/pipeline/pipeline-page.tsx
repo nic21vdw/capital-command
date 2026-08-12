@@ -32,6 +32,7 @@ import { Progress } from "@/components/ui/progress";
 import { VisualAdComposer } from "@/components/pipeline/visual-ad-composer";
 import type { QueuePlan } from "@/lib/pipeline/queueOutputs";
 import { usePipelineAttention, useRefreshAttention } from "@/components/pipeline/attention";
+import { useStream } from "@/components/providers/stream-provider";
 import { runListStatus, type RunTone } from "@/lib/pipeline/status";
 import { MAX_IMAGES_PER_POST } from "@/lib/publisher/images";
 import { cn } from "@/lib/utils";
@@ -328,6 +329,7 @@ export function PipelinePage() {
   // ?run=<id> is how the command bar opens one run: "pull up the Day 13 run"
   // has to land on that run, not on the list with it buried in it.
   const requestedRunId = useSearchParams().get("run");
+  const { select: selectStream } = useStream();
   const [overviews, setOverviews] = useState<PipelineRunOverview[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [activeRunId, setActiveRunId] = useState<string | null>(requestedRunId);
@@ -397,6 +399,7 @@ export function PipelinePage() {
         setActiveRunId(data.run.id);
         setPostsOpen(false);
         setUrl("");
+        selectStream(data.run.id);
         toast.success("Pipeline started. Everything runs from here.");
         await refresh();
         setLaunching(false);
@@ -406,7 +409,7 @@ export function PipelinePage() {
         toast.error(data.error ?? "Could not start the pipeline.");
       }
     },
-    [overviews.length, refresh]
+    [overviews.length, refresh, selectStream]
   );
 
   const submitUrl = useCallback(async () => {
@@ -666,6 +669,7 @@ export function PipelinePage() {
         // would leave nothing on screen and the link gone with it.
         await fetch(`/api/pipeline/${runId}`, { method: "DELETE" }).catch(() => undefined);
         setActiveRunId(data.run.id);
+        selectStream(data.run.id);
         toast.success("Downloading the stream again.");
         await refresh();
       } catch {
@@ -674,17 +678,22 @@ export function PipelinePage() {
         setWorking(null);
       }
     },
-    [refresh]
+    [refresh, selectStream]
   );
 
   // Opening a run scrolls back to the top of the page, not to the flow: the
-  // picker stays in view, so it is obvious WHICH run is now open.
-  const openRun = useCallback((runId: string) => {
-    setActiveRunId(runId);
-    setPostsOpen(false);
-    setShowFlow(true);
-    requestAnimationFrame(() => window.scrollTo({ top: 0, behavior: "smooth" }));
-  }, []);
+  // picker stays in view, so it is obvious WHICH run is now open. Opening one
+  // IS choosing what you work on, so the shell is told at the same moment.
+  const openRun = useCallback(
+    (runId: string) => {
+      setActiveRunId(runId);
+      setPostsOpen(false);
+      setShowFlow(true);
+      selectStream(runId);
+      requestAnimationFrame(() => window.scrollTo({ top: 0, behavior: "smooth" }));
+    },
+    [selectStream]
+  );
 
   const backToSearch = useCallback(() => {
     setShowFlow(false);

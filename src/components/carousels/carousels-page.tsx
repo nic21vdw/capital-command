@@ -136,7 +136,10 @@ export function CarouselsPage() {
     `${deckSlides} slide${deckSlides === 1 ? "" : "s"}`,
     `${batchCount} batch${batchCount === 1 ? "" : "es"}`
   ];
-  if (images.length > 0) summaryParts.push(`${images.length} photo${images.length === 1 ? "" : "s"}`);
+  if (images.length > 0) {
+    summaryParts.push(`${images.length} photo${images.length === 1 ? "" : "s"}`);
+    summaryParts.push(imageNotes.trim() ? "described" : "no description");
+  }
 
   useEffect(() => {
     void fetch("/api/longform/projects", { cache: "no-store" })
