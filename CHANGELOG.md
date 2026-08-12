@@ -14,6 +14,19 @@ already shipped.
 
 ## Unreleased
 
+- **Facebook posts again, and it stops holding up everything else.** Nothing
+  has reached the Page since 5 July: the app was opening an upload with
+  Facebook and then never handing the video over, because the file was named in
+  the wrong step of Meta's flow — so fifteen Reels sat "uploading" for up to
+  eight days, and the publish runner spent about an hour of every run staring at
+  them while YouTube and Instagram waited behind it (yesterday's 11:30 Instagram
+  post went out at 22:50). The video is now transferred the way Meta's API
+  actually wants it, an upload that has gone nowhere for two hours is declared
+  dead — dropped and sent again from scratch instead of resumed forever — and no
+  single run may spend more than three minutes waiting on Facebook. A Facebook
+  upload that keeps failing now shows up on the board as a failed post with
+  "Facebook took the upload and then never fetched the video", not as silence.
+
 - **The long-form video of every stream can be scheduled again.** Booking a
   run's outputs refused the full-length edit with "this clip is 352s long — trim
   it below 3 minutes", because the Shorts length rule was being applied to it —

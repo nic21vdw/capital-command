@@ -12,7 +12,7 @@ import { hostImages, hostMedia, mediaHost } from "@/lib/publisher/hosting";
 import { imagePathsOf, isImagePost } from "@/lib/publisher/images";
 import { channelDuplicateMessage, youtubeChannelDuplicate } from "@/lib/publisher/duplicateGuard";
 import { describeMirrorPlan, planMirror } from "@/lib/publisher/mirror";
-import { PermanentError, StillProcessingError, isTransient } from "@/lib/publisher/http";
+import { AbandonedUploadError, PermanentError, StillProcessingError, isTransient } from "@/lib/publisher/http";
 import { remainingYoutubeUploads } from "@/lib/publisher/quota";
 import { PublishQueue, isTerminalStatus, newPlatformState, publishQueue } from "@/lib/publisher/queue";
 import { formatInTimezone } from "@/lib/publisher/time";
@@ -100,6 +100,9 @@ export const defaultAdapters: Record<PlatformId, PlatformAdapter> = {
 
 /** Platforms whose APIs pull the video from a public URL rather than an upload. */
 const PLATFORMS_NEEDING_PUBLIC_URL = new Set<PlatformId>(["instagram", "facebook"]);
+
+const FACEBOOK_POLL_BUDGET_MS_PER_RUN = 180_000;
+const FACEBOOK_POLL_BUDGET_MS_PER_ITEM = 60_000;
 
 /** Finds the clip bytes: the local file when present, else the hosted copy. */
 async function resolveLocalMedia(item: QueueItem, config: PublisherConfig): Promise<string> {
@@ -332,6 +335,7 @@ export async function runDue(now: Date = new Date(), options: RunDueOptions = {}
   let youtubeUploadsLeft = options.force
     ? Number.POSITIVE_INFINITY
     : remainingYoutubeUploads(await queue.list(), now, config);
+  let facebookPollMsLeft = FACEBOOK_POLL_BUDGET_MS_PER_RUN;
 
   for (const { item, platforms } of due) {
     let localPath: string | null = null;
@@ -407,9 +411,18 @@ export async function runDue(now: Date = new Date(), options: RunDueOptions = {}
             localPath,
             publicUrl,
             images,
-            onHandle: (handle) => queue.recordHandle(item, platform, handle)
+            onHandle: (handle) => queue.recordHandle(item, platform, handle),
+            pollBudgetMs:
+              platform === "facebook"
+                ? Math.max(0, Math.min(FACEBOOK_POLL_BUDGET_MS_PER_ITEM, facebookPollMsLeft))
+                : undefined
           };
-          result = await adapter.publish(input);
+          const startedAt = Date.now();
+          try {
+            result = await adapter.publish(input);
+          } finally {
+            if (platform === "facebook") facebookPollMsLeft -= Date.now() - startedAt;
+          }
         }
         await queue.recordSuccess(item, platform, result, now);
         record(result.status, result.detail ?? "");
@@ -422,6 +435,7 @@ export async function runDue(now: Date = new Date(), options: RunDueOptions = {}
           record("uploaded", message);
           continue;
         }
+        if (error instanceof AbandonedUploadError) await queue.clearDeadUpload(item, platform);
         const transient = isTransient(error);
         await queue.recordFailure(item, platform, { message, transient }, now);
         const state = item.platforms[platform];
