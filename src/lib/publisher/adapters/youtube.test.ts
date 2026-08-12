@@ -436,3 +436,26 @@ describe("youtube adapter", () => {
     });
   });
 });
+
+describe("updateYoutubeVideoPublishAt", () => {
+  it("rewrites status.publishAt while keeping the video private", async () => {
+    const requests = mockFetchRoutes([
+      { match: "oauth2.googleapis.com/token", respond: () => jsonResponse({ access_token: "at-1", expires_in: 3600 }) },
+      {
+        match: "part=status&id=vid-123",
+        respond: () => jsonResponse({ items: [{ status: { privacyStatus: "private", publishAt: FUTURE, embeddable: true } }] })
+      },
+      { match: "youtube/v3/videos?part=status", respond: () => jsonResponse({ id: "vid-123" }) }
+    ]);
+    const { updateYoutubeVideoPublishAt } = await import("@/lib/publisher/adapters/youtube");
+    const next = new Date("2027-02-01T15:00:00.000Z");
+    await updateYoutubeVideoPublishAt("vid-123", next);
+    const update = requests.find((request) => request.method === "PUT");
+    expect(update).toBeTruthy();
+    const body = JSON.parse(String(update?.body));
+    expect(body).toEqual({
+      id: "vid-123",
+      status: { privacyStatus: "private", publishAt: "2027-02-01T15:00:00Z", embeddable: true }
+    });
+  });
+});

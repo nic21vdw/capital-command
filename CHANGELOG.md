@@ -14,6 +14,13 @@ already shipped.
 
 ## Unreleased
 
+- **Scheduled shorts no longer come out in stream order.** Booking a run used
+  to dump that recording's clips into the next three time slots, so a week of
+  Shorts was the same stream three times a day. Upcoming posts are now mixed
+  across the slots they already occupy, and a new booking shuffles itself into
+  the pending queue instead of lining up behind the last clip from the same
+  recording. Already-uploaded YouTube schedules move with them when you run
+  `npm run publish:shuffle -- --write --push`.
 - **The long-form video of every stream can be scheduled again.** Booking a
   run's outputs refused the full-length edit with "this clip is 352s long — trim
   it below 3 minutes", because the Shorts length rule was being applied to it —

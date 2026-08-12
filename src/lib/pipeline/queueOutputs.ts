@@ -10,7 +10,9 @@ import { publisherConfig } from "@/lib/publisher/config";
 import { PUBLISHING_OFF_MESSAGE } from "@/lib/publisher/enabledMessage";
 import { enqueue, enqueueImagePost } from "@/lib/publisher/enqueue";
 import { MAX_IMAGES_PER_POST } from "@/lib/publisher/images";
+import { shuffled } from "@/lib/publisher/mirror";
 import { publishQueue } from "@/lib/publisher/queue";
+import { planScheduleShuffle } from "@/lib/publisher/scheduleShuffle";
 import { generateSlots } from "@/lib/publisher/slots";
 import type { PlatformId, QueueItem } from "@/lib/publisher/types";
 import type { Carousel } from "@/types/domain";
@@ -317,27 +319,26 @@ async function collectCarousel(
   if (result.skipped) skipped.push(result.skipped);
 }
 
-const BOOKING_ORDER: Record<QueueOutputKind, number> = { longform: 0, segment: 1, clip: 2, carousel: 3 };
-
 /**
- * One output per free slot, longest video first so the long-form edit lands
- * before the shorts cut out of it. Two outputs never share a slot: the
- * Uploading Center treats a taken slot as taken, and double-booking is how a
- * day ends up posting twice and another posts nothing.
+ * One output per free slot, in random order, so a run's shorts are not booked
+ * as three clips from the same stream in a row. Two outputs never share a
+ * slot: the Uploading Center treats a taken slot as taken, and double-booking
+ * is how a day ends up posting twice and another posts nothing.
  */
 export function assignSlots(
   candidates: QueueCandidate[],
-  slots: string[]
+  slots: string[],
+  seed: number = Date.now()
 ): { candidate: QueueCandidate; publishAt: string | undefined }[] {
-  const ordered = [...candidates].sort((a, b) => BOOKING_ORDER[a.kind] - BOOKING_ORDER[b.kind]);
+  const ordered = shuffled(candidates, seed);
   return ordered.map((candidate, index) => ({ candidate, publishAt: slots[index] }));
 }
 
 /**
- * Books the chosen outputs into the publish queue, one per free slot, longest
- * video first so the long-form edit lands before the shorts that came out of
- * it. One failure never stops the rest — a run with twelve outputs would
- * otherwise be all-or-nothing on whichever file the hosting bucket choked on.
+ * Books the chosen outputs into the publish queue, one per free slot, in
+ * random order so a run does not occupy a week as the same stream. One
+ * failure never stops the rest — a run with twelve outputs would otherwise
+ * be all-or-nothing on whichever file the hosting bucket choked on.
  *
  * The free slots come from the plan and nowhere else. There used to be a
  * fallback that regenerated thirty days of slots whenever the plan's list came
@@ -423,6 +424,15 @@ export async function queueRunOutputs(
       bookedIds.push(candidate.id);
     } catch (error) {
       failed.push({ title: candidate.title, error: error instanceof Error ? error.message : String(error) });
+    }
+  }
+  if (queued.length > 0) {
+    const config = publisherConfig();
+    const queue = publishQueue(config);
+    const upcoming = await queue.list();
+    const mix = planScheduleShuffle(upcoming, new Date(), { onlyPending: true });
+    if (mix.moves.length > 0) {
+      await queue.applyPublishTimes(mix.moves.map((move) => ({ id: move.id, publishAt: move.to })));
     }
   }
   if (bookedIds.length > 0 || droppedNow.length > 0) {

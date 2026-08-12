@@ -14,18 +14,21 @@ const candidate = (kind: QueueCandidate["kind"], title: string): QueueCandidate 
 const slots = ["2026-08-07T11:30:00.000Z", "2026-08-07T16:30:00.000Z", "2026-08-07T23:30:00.000Z"];
 
 describe("booking a run's outputs", () => {
-  it("leads with the long-form edit, then its segments, then the shorts", () => {
+  it("does not keep the clips in source order", () => {
     const booked = assignSlots(
       [candidate("clip", "short one"), candidate("segment", "part two"), candidate("longform", "the stream")],
-      slots
+      slots,
+      7
     );
-    expect(booked.map((entry) => entry.candidate.title)).toEqual(["the stream", "part two", "short one"]);
+    expect(booked.map((entry) => entry.candidate.title)).not.toEqual(["short one", "part two", "the stream"]);
+    expect(booked.map((entry) => entry.candidate.title).sort()).toEqual(["part two", "short one", "the stream"]);
   });
 
   it("never books two outputs into the same slot", () => {
     const booked = assignSlots(
       [candidate("clip", "a"), candidate("clip", "b"), candidate("clip", "c")],
-      slots
+      slots,
+      7
     );
     expect(new Set(booked.map((entry) => entry.publishAt)).size).toBe(3);
   });
@@ -82,15 +85,17 @@ describe("booking a run's carousel", () => {
     expect(carouselCandidate({ carousel: carousel(0), files: [], alreadyQueued: new Set() })).toEqual({});
   });
 
-  it("books the deck after the videos it came from", () => {
+  it("gives the deck its own slot among the videos it came from", () => {
     const booked = assignSlots(
       [
         { id: "carousel:deck-1", kind: "carousel", title: "deck", filePath: "a.png", platforms: [] },
         candidate("clip", "short one"),
         candidate("longform", "the stream")
       ],
-      slots
+      slots,
+      7
     );
-    expect(booked.map((entry) => entry.candidate.kind)).toEqual(["longform", "clip", "carousel"]);
+    expect(new Set(booked.map((entry) => entry.publishAt)).size).toBe(3);
+    expect(booked.map((entry) => entry.candidate.kind).sort()).toEqual(["carousel", "clip", "longform"]);
   });
 });
