@@ -90,6 +90,14 @@ export type QueueResult = {
  */
 const LONG_VIDEO_PLATFORMS: PlatformId[] = ["youtube"];
 
+/**
+ * And it is not a Short, so it is not measured as one. Booking these as
+ * short-form posts met the Shorts length rule in `vertical.ts` and refused
+ * every long-form edit the pipeline has ever made — a 352-second video is the
+ * point of a long-form upload, not a fault in it.
+ */
+const LONG_VIDEO_KINDS = new Set<QueueOutputKind>(["longform", "segment"]);
+
 function queuedPaths(items: QueueItem[]): Set<string> {
   const paths = new Set<string>();
   for (const item of items) {
@@ -401,6 +409,7 @@ export async function queueRunOutputs(
               clipPath: candidate.filePath,
               publishAt,
               title: candidate.title,
+              format: LONG_VIDEO_KINDS.has(candidate.kind) ? "long" : "short",
               platforms: candidate.platforms.length ? candidate.platforms : undefined,
               visibility: "public",
               jobId: candidate.kind === "clip" ? candidate.id.split(":")[1] : undefined,

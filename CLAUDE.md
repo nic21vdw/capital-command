@@ -249,6 +249,12 @@ not already in the publish queue; `queueRunOutputs` books them.
 
 - Long video goes to `LONG_VIDEO_PLATFORMS` only. A ten-minute segment posted as
   a Reel or a TikTok is a rejection, not a post.
+- AND IT IS NOT A SHORT. `enqueue({ format: "long" })` is what says so: the
+  Shorts gate in `vertical.ts` (three minutes, 9:16) belongs to short-form posts
+  and used to run on everything, which refused every long-form edit the pipeline
+  ever produced. `format` defaults to `"short"`, so only the pipeline's
+  `longform` / `segment` kinds opt out — and a long-form file is posted exactly
+  as rendered, never reshaped.
 - ONE OUTPUT PER SLOT (`assignSlots`, tested). The Uploading Center treats a
   taken slot as taken; double-booking is how one day posts twice and the next
   posts nothing.
