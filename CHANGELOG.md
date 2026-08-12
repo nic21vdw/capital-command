@@ -14,6 +14,19 @@ already shipped.
 
 ## Unreleased
 
+- **Opening a stream on the pipeline page now follows you down the sidebar.**
+  Clicking a past run set what was on screen but not what the app said you were
+  working on, so every Formats screen kept naming the stream before it. Starting
+  a stream, restarting one, and opening one all set it now.
+- **The Customise lines tell the truth about what is hidden.** A pasted import
+  link no longer disappears when the panel closes on Long-Form, the Carousels
+  line says whether your photos have a description, the Uploading Center stops
+  repeating itself above the panel and can no longer push "all captioned" off the
+  end behind a row of hashtags, and the X / Threads line says what the buttons
+  inside do instead of restating autopilot twice.
+- **The browser tab now says the same words as the sidebar** on X / Threads Posts
+  and FB / IG Threads.
+
 ## 2026-08-11
 
 - **Booking a back catalogue no longer stops at a full three weeks.** Scheduling

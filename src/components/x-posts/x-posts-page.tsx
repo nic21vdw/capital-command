@@ -227,11 +227,7 @@ export function XPostsPage() {
         <AdvancedOptions
           id="x-posts-manual"
           label="Take over by hand"
-          summary={
-            autopilotArmed
-              ? "Left alone, today's posts write and send themselves"
-              : "Nothing is sending on its own yet — these step in by hand"
-          }
+          summary="Post today's pack now, or check the accounts"
         >
           <p className="text-xs text-[var(--muted-foreground)]">
             Every few minutes a background check writes the day&apos;s posts if they aren&apos;t written yet and sends

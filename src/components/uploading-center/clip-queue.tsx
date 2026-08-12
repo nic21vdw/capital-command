@@ -106,13 +106,17 @@ export function ClipQueue({
     isTargetSlotTaken: isSlotTaken,
     skipKeys: new Set(Object.keys(captionFailures))
   });
+  const shownHashtags = runDefaults.hashtags.slice(0, 3);
+  const extraHashtags = runDefaults.hashtags.length - shownHashtags.length;
   const hashtagSummary =
-    runDefaults.hashtags.length > 0 ? runDefaults.hashtags.join(" ") : "no hashtags";
+    shownHashtags.length > 0
+      ? `${shownHashtags.join(" ")}${extraHashtags > 0 ? ` +${extraHashtags}` : ""}`
+      : "no hashtags";
   const captionSummary =
     captionsMissing > 0
       ? `AI writes ${captionsMissing} caption${captionsMissing === 1 ? "" : "s"}`
       : "all captioned";
-  const optionsSummary = `${PLATFORM_TARGET_LABELS[runDefaults.platform]} · ${hashtagSummary} · ${captionSummary}`;
+  const optionsSummary = `${PLATFORM_TARGET_LABELS[runDefaults.platform]} · ${captionSummary} · ${hashtagSummary}`;
   return (
     <Card className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -150,11 +154,6 @@ export function ClipQueue({
                 ? `Schedule ${bookable} clip${bookable === 1 ? "" : "s"} at the next free slots`
                 : "Schedule at the next free slots"}
           </Button>
-          <p className="text-[11px] text-[var(--muted-foreground)]">
-            Posts to {PLATFORM_TARGET_LABELS[runDefaults.platform]}
-            {runDefaults.hashtags.length > 0 ? ` with ${runDefaults.hashtags.join(" ")} on the title` : ""}, writing an
-            AI caption for anything still blank.
-          </p>
           <AdvancedOptions id="uploading-center-run" summary={optionsSummary}>
             <div className="flex flex-wrap items-center gap-2">
               <span className="text-[11px] font-medium uppercase tracking-wide text-[var(--muted-foreground)]">
