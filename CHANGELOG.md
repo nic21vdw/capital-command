@@ -14,6 +14,8 @@ already shipped.
 
 ## Unreleased
 
+## 2026-08-12
+
 - **Facebook posts again, and it stops holding up everything else.** Nothing
   has reached the Page since 5 July: the app was opening an upload with
   Facebook and then never handing the video over, because the file was named in
