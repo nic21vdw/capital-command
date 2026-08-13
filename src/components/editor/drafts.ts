@@ -22,6 +22,10 @@ export function readDraftProject(id: string): ClipProject | null {
 
 export function writeDraftProject(project: ClipProject) {
   if (typeof window === "undefined") return;
+  // A project from the app-data payload has no captions. Stored as a draft it
+  // would look like a complete, newer copy, win over the saved project on the
+  // next open (see openProject), and take the real captions down with it.
+  if (project.captionsOmitted) return;
   const raw = JSON.stringify(project);
   for (const storage of [sessionStorage, localStorage]) {
     try {

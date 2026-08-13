@@ -97,6 +97,44 @@ export function ClipEditorPage() {
         ? draftForOpen
         : storedProject
       : (storedProject ?? (loading ? null : draftForOpen));
+  // The project list arrives without captions (they are half the app-data
+  // payload), so the one being opened is fetched in full first. This fails
+  // CLOSED — the editor is never mounted on a project whose captions are
+  // missing, because its very first render derives the keep/cut segment plan
+  // from them and an autosave would then persist that plan over the real one.
+  //
+  // The fetched copy is stored WITH the id it belongs to and matched during
+  // render, rather than cleared by an effect: `next build` rejects a setState
+  // in an effect body, and a stale copy must never reach a different project.
+  const [loadedProject, setLoadedProject] = useState<{
+    id: string;
+    project: ClipProject | null;
+  } | null>(null);
+  const needsCaptions = Boolean(openProject?.captionsOmitted);
+  const openProjectId = openProject?.id ?? null;
+  const loadedForOpen = loadedProject && loadedProject.id === openProjectId ? loadedProject : null;
+  useEffect(() => {
+    if (!needsCaptions || !openProjectId) return;
+    let cancelled = false;
+    void (async () => {
+      let project: ClipProject | null = null;
+      try {
+        const response = await fetch(`/api/clip-projects/${openProjectId}`, { cache: "no-store" });
+        if (response.ok) {
+          project = ((await response.json()) as { project?: ClipProject }).project ?? null;
+        }
+      } catch {
+        // Offline or a bad answer — reported as a refusal to open, below.
+      }
+      if (!cancelled) setLoadedProject({ id: openProjectId, project });
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [needsCaptions, openProjectId]);
+  const editorProject = needsCaptions ? loadedForOpen?.project ?? null : openProject;
+  const captionsFailed = Boolean(needsCaptions && loadedForOpen && !loadedForOpen.project);
+
   const jobsById = useMemo(() => new Map(jobs.map((job) => [job.id, job])), [jobs]);
   const renderableJobs = useMemo(
     () =>
@@ -334,7 +372,7 @@ export function ClipEditorPage() {
                     From {sourceLabel(jobsById.get(project.jobId) ?? null, project.jobId)}
                   </p>
                   <p className="text-xs text-[var(--muted-foreground)]">
-                    {project.aspectRatio} · {project.captions.length} captions · {project.overlays.length} overlays
+                    {project.aspectRatio} · {project.captionCount ?? project.captions.length} captions · {project.overlays.length} overlays
                   </p>
                 </div>
                 <button
@@ -429,15 +467,40 @@ export function ClipEditorPage() {
   return (
     <EditorExportsProvider>
       {openProject ? (
-        <ClipEditor
-          key={openProject.id}
-          initialProject={openProject}
-          onClose={() => setOpenId(null)}
-          onOpenClip={switchToClip}
-        />
+        editorProject ? (
+          <ClipEditor
+            key={editorProject.id}
+            initialProject={editorProject}
+            onClose={() => setOpenId(null)}
+            onOpenClip={switchToClip}
+          />
+        ) : (
+          <OpeningProject failed={captionsFailed} onBack={() => setOpenId(null)} />
+        )
       ) : (
         projectList
       )}
     </EditorExportsProvider>
+  );
+}
+
+/** Shown while the opened project's captions are being fetched, or if that failed. */
+function OpeningProject({ failed, onBack }: { failed: boolean; onBack: () => void }) {
+  return (
+    <Card className="flex flex-col items-center gap-3 p-10 text-center">
+      {failed ? (
+        <>
+          <p className="text-sm text-[var(--muted-foreground)]">
+            Could not load this project&apos;s captions, so it wasn&apos;t opened — editing it
+            without them would overwrite the ones you have.
+          </p>
+          <Button variant="secondary" onClick={onBack}>
+            Back to projects
+          </Button>
+        </>
+      ) : (
+        <Loader2 className="h-5 w-5 animate-spin text-[var(--muted-foreground)]" />
+      )}
+    </Card>
   );
 }
