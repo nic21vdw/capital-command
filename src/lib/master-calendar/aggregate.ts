@@ -1,3 +1,4 @@
+import { dateTimeFormat } from "@/lib/publisher/intl";
 import type { AppData, Carousel, ContentItem, FbPost, XDailyPack } from "@/types/domain";
 import { isImagePost } from "@/lib/publisher/images";
 import type { PlatformId, QueueItem } from "@/lib/publisher/types";
@@ -36,13 +37,13 @@ function weekdayOfKey(key: string): number {
 
 /** Today's calendar date as observed in `timeZone`. en-CA renders YYYY-MM-DD. */
 export function todayKeyIn(timeZone: string, now = new Date()): string {
-  return new Intl.DateTimeFormat("en-CA", { timeZone, year: "numeric", month: "2-digit", day: "2-digit" }).format(now);
+  return dateTimeFormat("en-CA", { timeZone, year: "numeric", month: "2-digit", day: "2-digit" }).format(now);
 }
 
 /** A UTC instant's local calendar date + wall-clock time in `timeZone`. */
 function localDateTime(instant: Date, timeZone: string): { dateKey: string; time: string } {
   const parts: Record<string, string> = {};
-  for (const part of new Intl.DateTimeFormat("en-CA", {
+  for (const part of dateTimeFormat("en-CA", {
     timeZone,
     year: "numeric",
     month: "2-digit",

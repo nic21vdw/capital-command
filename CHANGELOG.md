@@ -36,6 +36,24 @@ already shipped.
   the pipeline but never recorded, so the runner could not see them and the
   calendar could book straight over them. Adopting one writes a record of what
   YouTube already holds; it never uploads or re-uploads anything.
+- **Scrolling through dates in the Uploading Center is instant.** Every arrow
+  click used to ask the server for the two weeks it was moving to and grey the
+  buttons out until the answer came back — behind whatever else the page had in
+  flight, since a browser only opens six connections at a time. The dates are
+  arithmetic, so the calendar works them out on the spot: measured at 1.4ms per
+  page turn against the real 406-post queue, where the round trip alone was over
+  230ms before it queued.
+- **The screen no longer waits on YouTube to draw itself.** The first paint was
+  gated on reading the live channel schedule, so a slow or unreachable YouTube
+  held the whole Uploading Center on a spinner with the local data already
+  loaded. The channel now fills in behind the page, and every outward call to a
+  platform gives up after 20 seconds instead of holding a connection open
+  forever.
+- **The app is quicker with dates everywhere.** Placing posts on the calendar
+  rebuilt a date formatter for every single post; it now reuses them, which is
+  about eight times faster, and the Uploading Center stops rebuilding all four
+  platforms' calendars on every keystroke. The sidebar's stream list and the
+  needs-attention badge also stop asking the same question twice per page.
 - **Scheduled shorts no longer come out in stream order.** Booking a run used
   to dump that recording's clips into the next three time slots, so a week of
   Shorts was the same stream three times a day. Upcoming posts are now mixed

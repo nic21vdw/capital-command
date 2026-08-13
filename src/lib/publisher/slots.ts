@@ -1,3 +1,4 @@
+import { dateTimeFormat } from "@/lib/publisher/intl";
 import { EARLIEST_PUBLISH_DAY_OFFSET } from "@/lib/publisher/schedule";
 import { zonedToUtc } from "@/lib/publisher/time";
 
@@ -53,7 +54,7 @@ export type SlotOptions = {
 /** Calendar date parts of `instant` as observed in `timeZone`. */
 function localDateParts(instant: Date, timeZone: string): { year: number; month: number; day: number } {
   const parts: Record<string, string> = {};
-  for (const part of new Intl.DateTimeFormat("en-CA", {
+  for (const part of dateTimeFormat("en-CA", {
     timeZone,
     year: "numeric",
     month: "2-digit",
@@ -83,7 +84,7 @@ export function generateSlots(options: SlotOptions): ScheduleSlot[] {
     const weekday = calendarDay.getUTCDay();
     const dayTimes = weekday === 0 || weekday === 6 ? weekendTimes : times;
     const dateKey = calendarDay.toISOString().slice(0, 10);
-    const dateLabel = new Intl.DateTimeFormat("en-US", {
+    const dateLabel = dateTimeFormat("en-US", {
       timeZone: "UTC",
       weekday: "short",
       month: "short",
