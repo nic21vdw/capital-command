@@ -34,7 +34,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
   const item = await queue.get(id);
   if (!item) return NextResponse.json({ error: "No such scheduled post." }, { status: 404 });
   item.title = title;
-  await queue.add(item);
+  await queue.add(item, "api-publish-rename");
 
   const postId = item.platforms.youtube?.postId;
   if (!postId) return NextResponse.json({ item, youtube: "local" });
@@ -57,7 +57,7 @@ export async function DELETE(_request: Request, { params }: { params: Promise<{ 
     return NextResponse.json({ error: PUBLISHING_OFF_MESSAGE }, { status: 400 });
   }
   const { id } = await params;
-  const removed = await publishQueue(config).remove(id);
+  const removed = await publishQueue(config).remove(id, "api-publish-delete");
   if (!removed) return NextResponse.json({ error: "No such scheduled post." }, { status: 404 });
   return NextResponse.json({ removed: true });
 }

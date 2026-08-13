@@ -23,6 +23,31 @@ already shipped.
   they look exactly the same.
 ## 2026-08-12
 
+- **Booking a run's outputs no longer re-shuffles your whole calendar.** It used
+  to re-deal every upcoming post the moment anything was booked — on your queue
+  that was 338 of 394 posts moved, one of them from August to November, and it
+  ran itself in the background every time a segment finished rendering. It now
+  slots the new posts in and leaves everything you had already read exactly
+  where it was, still splitting up a stream that lands next to itself.
+- **A post can no longer be scheduled against a folder.** The check that a clip
+  exists let a directory through, which is how 27 carousel posts ended up
+  pointing at `data\carousels\carousel-…` instead of a picture and quietly
+  failed one by one at their slots. A folder is refused when you book it, on
+  screen, instead of days later in silence.
+- **A long-form booking is checked for being a video at all.** Long-form was
+  exempted from the Shorts rules, which accidentally exempted it from every
+  check — so a broken render booked fine and failed at its slot. Its length and
+  its shape are still its own business.
+- **Every change to the publish queue is now written down.** `data\publish-queue.log`
+  records each post added, removed or moved, with the moment, the folder and the
+  thing that did it. When the schedule changes and nothing explains why, that
+  file now says who.
+- **A pipeline run records each booking as it makes it.** It used to write down
+  what it had booked only after the whole batch, so anything that interrupted it
+  left posts on the queue that no run admitted to.
+
+## 2026-08-12
+
 - **Double-clicking `update-capital-command.bat` works again.** Every release
   run with no arguments died on `unknown revision 'g'` before it changed a
   thing: releasing `main` into `main` left the script with one branch name

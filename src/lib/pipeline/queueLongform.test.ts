@@ -73,7 +73,6 @@ vi.mock("@/lib/publisher/metadata", () => ({
   generateClipMetadata: async () => ({ title: "Generated", description: "", hashtags: ["#ai"] })
 }));
 
-import { probeVideoStream } from "@/lib/clipping/ffmpeg";
 const { queueRunOutputs } = await import("@/lib/pipeline/queueOutputs");
 
 beforeEach(async () => {
@@ -100,9 +99,11 @@ describe("booking a run's long-form edit", () => {
     expect(result.queued.map((item) => item.title)).toEqual([
       "Day 10: Yapping Until I Can Buy a Nicer Car"
     ]);
-    // Posted exactly as it was rendered — no 9:16 re-render, not even a probe.
+    // Posted exactly as it was rendered — no 9:16 re-render. The probe still
+    // runs, but only to confirm the file holds a video at all; its 352 seconds
+    // and its 16:9 shape are read and ignored.
     expect(state.added[0].clipPath.endsWith("longform.mp4")).toBe(true);
-    expect(probeVideoStream).not.toHaveBeenCalled();
+    expect(state.added[0].clipPath.endsWith("-vertical.mp4")).toBe(false);
   });
 
   it("still refuses a Short over the length limit", async () => {

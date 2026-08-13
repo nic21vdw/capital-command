@@ -369,9 +369,9 @@ async function main() {
           const item = await queue.get(removal.itemId);
           if (!item) continue;
           delete item.platforms[removal.platform];
-          await queue.add(item);
+          await queue.add(item, "cli-mirror-reset");
         }
-        for (const orphan of orphans) await queue.remove(orphan.id);
+        for (const orphan of orphans) await queue.remove(orphan.id, "cli-mirror-reset");
         items = await queue.list();
       } else {
         // Plan against what the reset WOULD leave, so a dry run previews the
@@ -420,17 +420,20 @@ async function main() {
     for (const entry of plan.newItems) {
       const source = byId.get(entry.sourceItemId);
       if (!source) continue;
-      await queue.add({
-        ...source,
-        id: `${entry.platform.slice(0, 2)}-${entry.slotItemId}-${crypto.randomUUID().slice(0, 6)}`,
-        publishAt: entry.publishAt,
-        createdAt: new Date().toISOString(),
-        platforms: { [entry.platform]: newPlatformState() }
-      });
+      await queue.add(
+        {
+          ...source,
+          id: `${entry.platform.slice(0, 2)}-${entry.slotItemId}-${crypto.randomUUID().slice(0, 6)}`,
+          publishAt: entry.publishAt,
+          createdAt: new Date().toISOString(),
+          platforms: { [entry.platform]: newPlatformState() }
+        },
+        "cli-mirror"
+      );
     }
     for (const add of plan.additions) {
       const item = byId.get(add.itemId);
-      if (item) await queue.add(item);
+      if (item) await queue.add(item, "cli-mirror");
     }
     console.log(`[publisher] wrote ${plan.additions.length + plan.newItems.length} scheduled posts.`);
     return;
@@ -468,7 +471,7 @@ async function main() {
       console.log(`[publisher]   ${target.item.title}\n[publisher]     → ${title}`);
       if (args.flags.has("write")) {
         target.item.title = title;
-        await queue.add(target.item);
+        await queue.add(target.item, "cli-retitle");
       }
     }
 
@@ -562,7 +565,7 @@ async function main() {
       process.exitCode = 1;
       return;
     }
-    const removed = await publishQueue(config).remove(id);
+    const removed = await publishQueue(config).remove(id, "cli-remove");
     console.log(removed ? `[publisher] removed ${id}.` : `[publisher] no item ${id}.`);
     return;
   }
@@ -631,7 +634,10 @@ async function main() {
       );
       return;
     }
-    const changed = await queue.applyPublishTimes(plan.moves.map((move) => ({ id: move.id, publishAt: move.to })));
+    const changed = await queue.applyPublishTimes(
+      plan.moves.map((move) => ({ id: move.id, publishAt: move.to })),
+      "cli-shuffle"
+    );
     console.log(`[publisher] wrote ${changed} new time${changed === 1 ? "" : "s"} to the queue.`);
     if (!push) return;
     const byId = new Map((await queue.list()).map((item) => [item.id, item]));
