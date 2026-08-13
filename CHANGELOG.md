@@ -23,6 +23,8 @@ already shipped.
   rendered, and then never booked. The sheet now says what it actually showed
   you, and anything that lands after it opened is booked as it lands.
 
+## 2026-08-12
+
 - **The app downloads a third of what it used to on every screen.** Every clip
   project's captions - word by word, for all 139 projects - were sent to the
   browser on every page, when only the clip you actually open needs them. The
