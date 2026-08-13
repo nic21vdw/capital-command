@@ -11,7 +11,7 @@ import type { ClipCandidate, ClipJob } from "@/lib/clipping/types";
 import type { CaptionSegment, ClipProject } from "@/types/domain";
 import { placeChannelVideos, type ChannelPlacement } from "@/lib/publisher/channelPlacement";
 import type { ChannelSchedule, ChannelVideo } from "@/lib/publisher/channelVideos";
-import type { ScheduleSlot } from "@/lib/publisher/slots";
+import { generateSlots } from "@/lib/publisher/slots";
 import type { YoutubeQuota } from "@/lib/publisher/quota";
 import { ALL_PLATFORMS, type PlatformId, type QueueItem } from "@/lib/publisher/types";
 
@@ -53,9 +53,6 @@ export type Overview = {
   enabled: boolean;
   timezone: string;
   quota: YoutubeQuota;
-  /** Which window the slots below belong to, in days after today. */
-  slotOffsetDays: number;
-  slots: ScheduleSlot[];
 };
 
 /** The schedule grid always shows a two-week window. */
@@ -332,35 +329,41 @@ export function useUploadingCenter(clipProjects: ClipProject[] = []) {
   const remindedRef = useRef(new Set<string>());
   /**
    * Which two-week window the schedule grid shows, in days after today
-   * (0 = the current period, 14 = the next one, …). Changing it recreates
-   * `refresh`, and the page's fetch effect re-runs with the new window.
+   * (0 = the current period, 14 = the next one, …). Nothing is fetched when it
+   * moves — `slots` below is derived from it.
    */
   const [slotOffsetDays, setSlotOffsetDays] = useState(DEFAULT_SLOT_OFFSET_DAYS);
 
+  /**
+   * The schedule grid for the window on screen. Paging is arithmetic, not a
+   * request: `generateSlots` needs only the configured timezone and the offset,
+   * and it is the same function the server used to run for this.
+   */
+  const timezone = overview?.timezone ?? "UTC";
+  const slots = useMemo(
+    () => generateSlots({ timeZone: timezone, days: SLOT_WINDOW_DAYS, startDayOffset: slotOffsetDays }),
+    [timezone, slotOffsetDays]
+  );
+
   const activeYoutubeAccountId = activeAccountIds.youtube;
 
-  // The window and account the poll should read, without `refresh` changing
-  // identity every time either moves — that identity is what the page's 60s
-  // timer is keyed on, and rebuilding it on every page of the calendar
-  // restarted the timer and refetched everything the calendar doesn't own.
-  const slotOffsetRef = useRef(slotOffsetDays);
+  // The account the poll should read, without `refresh` changing identity every
+  // time it moves — that identity is what the page's 60s timer is keyed on, and
+  // rebuilding it restarted the timer and refetched everything again.
   const youtubeAccountRef = useRef(activeYoutubeAccountId);
-  useEffect(() => {
-    slotOffsetRef.current = slotOffsetDays;
-  }, [slotOffsetDays]);
   useEffect(() => {
     youtubeAccountRef.current = activeYoutubeAccountId;
   }, [activeYoutubeAccountId]);
 
   /**
-   * The slot grid for one two-week window. Pure local computation server-side
-   * (config + the queue file), so paging the calendar costs one cheap request
-   * rather than re-reading the clip library and the YouTube channel with it.
+   * Whether publishing is on, which timezone the schedule is kept in, and the
+   * YouTube quota meter. NOT the slot grid: `generateSlots` is pure arithmetic
+   * over the timezone and the offset, so the grid is built here instead — which
+   * is what makes paging the calendar a synchronous state change rather than a
+   * request that has to queue behind everything else the page is loading.
    */
-  const refreshSlots = useCallback(async (offsetDays = slotOffsetRef.current) => {
-    const res = await fetch(`/api/publish/overview?days=${SLOT_WINDOW_DAYS}&offsetDays=${offsetDays}`, {
-      cache: "no-store"
-    });
+  const refreshOverview = useCallback(async () => {
+    const res = await fetch("/api/publish/overview", { cache: "no-store" });
     if (res.ok) setOverview((await res.json()) as Overview);
   }, []);
 
@@ -386,17 +389,28 @@ export function useUploadingCenter(clipProjects: ClipProject[] = []) {
   const refreshChannel = useCallback(async (options?: { force?: boolean; accountId?: string }) => {
     const params = new URLSearchParams({ account: options?.accountId ?? youtubeAccountRef.current });
     if (options?.force) params.set("refresh", "1");
-    const res = await fetch(`/api/publish/youtube-channel?${params.toString()}`, { cache: "no-store" });
-    if (res.ok) setChannel((await res.json()) as ChannelSchedule);
+    try {
+      const res = await fetch(`/api/publish/youtube-channel?${params.toString()}`, { cache: "no-store" });
+      if (res.ok) setChannel((await res.json()) as ChannelSchedule);
+    } catch {
+      // Offline, or the channel read timed out — the last known schedule stays.
+    }
   }, []);
 
   /**
    * Everything the 60-second tick watches: the clip library, the queue, the
-   * slot grid and the channel schedule. All four are independent, so they go
-   * out together; a failure keeps the last good data and the next tick retries.
+   * quota meter and the channel schedule. A failure keeps the last good data
+   * and the next tick retries.
+   *
+   * The screen is NOT gated on the channel read. That one leaves the machine —
+   * an OAuth refresh plus three YouTube Data API calls — and awaiting it held
+   * the whole page on a spinner behind a browser that only opens six sockets
+   * per origin, so the local reads that had already finished stayed invisible.
+   * It fills the channel in behind the rendered page instead.
    */
   const refresh = useCallback(
     async (options?: { channelRefresh?: boolean }) => {
+      void refreshChannel({ force: options?.channelRefresh });
       try {
         await Promise.all([
           fetch("/api/clips", { cache: "no-store" }).then(async (res) => {
@@ -405,8 +419,7 @@ export function useUploadingCenter(clipProjects: ClipProject[] = []) {
           fetch("/api/publish", { cache: "no-store" }).then(async (res) => {
             if (res.ok) setQueueItems(((await res.json()) as { items?: QueueItem[] }).items ?? []);
           }),
-          refreshSlots(),
-          refreshChannel({ force: options?.channelRefresh })
+          refreshOverview()
         ]);
       } catch {
         // Offline or malformed payload — retry on the next tick.
@@ -414,7 +427,7 @@ export function useUploadingCenter(clipProjects: ClipProject[] = []) {
         setLoaded(true);
       }
     },
-    [refreshChannel, refreshSlots]
+    [refreshChannel, refreshOverview]
   );
 
   // NOTE: the initial fetch + 60s poll effect lives in UploadingCenterPage —
@@ -691,11 +704,11 @@ export function useUploadingCenter(clipProjects: ClipProject[] = []) {
     const youtubeItems = itemsByPlatformSlot.get("youtube");
     return placeChannelVideos({
       videos: channelVideos,
-      slots: overview?.slots ?? [],
+      slots,
       isSlotOccupied: (slotUtc) => Boolean(youtubeItems?.has(slotUtc)),
-      timeZone: overview?.timezone ?? "UTC"
+      timeZone: timezone
     });
-  }, [channelVideos, itemsByPlatformSlot, overview]);
+  }, [channelVideos, itemsByPlatformSlot, slots, timezone]);
 
   /**
    * Surfaces the result of a successful enqueue response (from /api/publish
@@ -1190,10 +1203,9 @@ export function useUploadingCenter(clipProjects: ClipProject[] = []) {
   return {
     loaded,
     overview,
+    slots,
     slotOffsetDays,
     setSlotOffsetDays,
-    /** True while the slots on screen still belong to the previous window. */
-    slotWindowLoading: overview !== null && (overview.slotOffsetDays ?? 0) !== slotOffsetDays,
     channel,
     channelVideos,
     channelVideosBySlot: channelPlacement.bySlotUtc,
@@ -1233,7 +1245,7 @@ export function useUploadingCenter(clipProjects: ClipProject[] = []) {
     publishNow,
     remove,
     refresh,
-    refreshSlots,
+    refreshOverview,
     refreshAccounts,
     refreshChannel
   };

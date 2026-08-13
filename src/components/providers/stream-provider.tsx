@@ -2,6 +2,7 @@
 
 import { usePathname, useSearchParams } from "next/navigation";
 import { createContext, Suspense, useCallback, useContext, useEffect, useMemo, useState } from "react";
+import { readPipelineSummary } from "@/lib/pipeline/summaryClient";
 import type { StreamSummary } from "@/lib/pipeline/types";
 
 /**
@@ -73,23 +74,17 @@ export function StreamProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     let alive = true;
     const read = async () => {
+      // Offline or mid-restart reads answer null: keep the last list rather
+      // than emptying the sidebar, which would read as "you have no streams".
+      const data = (await readPipelineSummary()) as { streams?: StreamSummary[] } | null;
+      if (!data || !alive) return;
+      const next = data.streams ?? [];
+      setStreams(next);
+      setLoaded(true);
       try {
-        const response = await fetch("/api/pipeline?summary=1", { cache: "no-store" });
-        if (!response.ok) return;
-        const data = (await response.json()) as { streams?: StreamSummary[] };
-        if (alive) {
-          const next = data.streams ?? [];
-          setStreams(next);
-          setLoaded(true);
-          try {
-            window.sessionStorage.setItem(CACHE_KEY, JSON.stringify(next));
-          } catch {
-            // Cache is an optimisation; a full quota is not a failure.
-          }
-        }
+        window.sessionStorage.setItem(CACHE_KEY, JSON.stringify(next));
       } catch {
-        // Offline or mid-restart: keep the last list rather than emptying the
-        // sidebar, which would read as "you have no streams".
+        // Cache is an optimisation; a full quota is not a failure.
       }
     };
     void read();

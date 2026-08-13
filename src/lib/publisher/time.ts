@@ -3,10 +3,11 @@
  * default America/Toronto) and stored/sent as UTC. Conversion uses the Intl
  * API so there is no timezone-database dependency to install.
  */
+import { dateTimeFormat } from "@/lib/publisher/intl";
 
 /** Offset (ms) of `timeZone` from UTC at the given UTC instant. */
 function tzOffsetMs(utcMs: number, timeZone: string): number {
-  const dtf = new Intl.DateTimeFormat("en-US", {
+  const dtf = dateTimeFormat("en-US", {
     timeZone,
     year: "numeric",
     month: "2-digit",
@@ -86,7 +87,7 @@ export function resolvePublishAt(input: string, timeZone: string): Date {
 export function localCalendarParts(instant: string | Date, timeZone: string): { dateKey: string; time: string } {
   const date = typeof instant === "string" ? new Date(instant) : instant;
   const parts: Record<string, string> = {};
-  for (const part of new Intl.DateTimeFormat("en-CA", {
+  for (const part of dateTimeFormat("en-CA", {
     timeZone,
     year: "numeric",
     month: "2-digit",
@@ -107,7 +108,7 @@ export function toRfc3339Utc(date: Date): string {
 
 /** Human-readable rendering in the configured timezone for logs and dry runs. */
 export function formatInTimezone(date: Date, timeZone: string): string {
-  return new Intl.DateTimeFormat("en-CA", {
+  return dateTimeFormat("en-CA", {
     timeZone,
     dateStyle: "medium",
     timeStyle: "short",

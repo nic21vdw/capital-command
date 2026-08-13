@@ -58,11 +58,22 @@ export type JsonRequest = {
   body?: string | URLSearchParams | Buffer;
   /** Label used in error messages, e.g. "YouTube resumable init". */
   label: string;
+  /** Deadline for a JSON call. `fetchRaw` (media bytes) is never bounded. */
+  timeoutMs?: number;
 };
+
+/**
+ * A platform that accepts a connection and then says nothing holds the socket
+ * open forever, and the browser only opens six per origin — one wedged profile
+ * lookup used to starve every other request the page was making. Every JSON
+ * call is small, so a deadline costs nothing and a hung one now fails as a
+ * transient error the caller already knows how to fall back from.
+ */
+const JSON_TIMEOUT_MS = 20_000;
 
 /** Performs a request and parses JSON, throwing classified errors. */
 export async function fetchJson<T = Record<string, unknown>>(url: string, request: JsonRequest): Promise<T> {
-  const response = await doFetch(url, request);
+  const response = await doFetch(url, { timeoutMs: JSON_TIMEOUT_MS, ...request });
   const text = await readBody(response);
   if (!response.ok) {
     throw classifyStatus(response.status, `${request.label} failed (HTTP ${response.status}): ${forMessage(text)}`);
@@ -90,7 +101,8 @@ async function doFetch(url: string, request: JsonRequest): Promise<Response> {
       method: request.method ?? "POST",
       headers: request.headers,
       // Buffer is a valid BodyInit in Node but the DOM lib types don't know it.
-      body: request.body as BodyInit | undefined
+      body: request.body as BodyInit | undefined,
+      signal: request.timeoutMs ? AbortSignal.timeout(request.timeoutMs) : undefined
     });
   } catch (error) {
     throw new TransientError(
