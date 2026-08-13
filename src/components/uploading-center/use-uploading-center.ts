@@ -7,10 +7,12 @@ import { windowSegments } from "@/lib/clipping/captions";
 import { loadJobCaptions } from "@/lib/clipping/captions-client";
 import { leadingSilenceSec } from "@/lib/clipping/editor";
 import { hasEditsBeyondAutoRender, renderSignature } from "@/lib/clipping/export-signature";
+import { indexProjectsBySource, newestProjectFor, type ClipProjectIndex } from "@/lib/clipping/project-index";
 import type { ClipCandidate, ClipJob } from "@/lib/clipping/types";
 import type { CaptionSegment, ClipProject } from "@/types/domain";
 import { placeChannelVideos, type ChannelPlacement } from "@/lib/publisher/channelPlacement";
 import type { ChannelSchedule, ChannelVideo } from "@/lib/publisher/channelVideos";
+import { indexQueueByClip } from "@/lib/publisher/clipQueueIndex";
 import { generateSlots } from "@/lib/publisher/slots";
 import type { YoutubeQuota } from "@/lib/publisher/quota";
 import { DEFAULT_SLOT_OFFSET_DAYS, SLOT_WINDOW_DAYS } from "@/lib/publisher/slotWindow";
@@ -140,11 +142,9 @@ async function bakeProject(project: ClipProject): Promise<string> {
  * project — i.e. the current trim/edits haven't been baked into a render yet,
  * so uploading now would post the wrong cut.
  */
-function computeNeedsRerender(clip: ClipCandidate, projects: ClipProject[]): boolean {
+function computeNeedsRerender(clip: ClipCandidate, jobId: string, projects: ClipProjectIndex): boolean {
   if (!clip.file) return false;
-  const project = projects
-    .filter((candidate) => candidate.sourceFile === clip.file)
-    .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))[0];
+  const project = newestProjectFor(projects, jobId, clip.file);
   if (!project) return false;
   if (clip.editedFile) {
     // A render exists — stale only if the project changed since it was made.
@@ -222,23 +222,8 @@ function clipHeadline(clip: ClipCandidate, index: number) {
   return quoted?.[1] ?? `Clip ${index + 1}`;
 }
 
-/**
- * The queue stores repo-relative paths (possibly with Windows separators).
- * When a landscape clip was re-rendered vertical at enqueue time, clipPath is
- * the derived render and sourceClipPath is the file the card knows about.
- * Matches against every file the clip was ever postable as (master, ready
- * render, editor export, on-demand vertical), so items scheduled before the
- * clip was edited still show on its card.
- */
-function itemMatchesClip(item: QueueItem, clip: ReadyClip): boolean {
-  return [item.clipPath, item.sourceClipPath].some((candidate) => {
-    if (!candidate) return false;
-    const normalized = candidate.replace(/\\/g, "/");
-    return clip.allFiles.some(
-      (file) => normalized.endsWith(`/${clip.jobId}/${file}`) || (item.jobId === clip.jobId && normalized.endsWith(`/${file}`))
-    );
-  });
-}
+/** Stable empty list, so a clip with no posts doesn't rebuild its card. */
+const NO_ITEMS: QueueItem[] = [];
 
 /** All postable file names for a backend clip, most-preferred first. */
 function clipFiles(clip: ClipCandidate): string[] {
@@ -479,9 +464,14 @@ export function useUploadingCenter(clipProjects: ClipProject[] = []) {
   const activeCaptions =
     loadedCaptions && loadedCaptions.jobId === captionsJobId ? loadedCaptions.captions : NO_CAPTIONS;
 
+  /**
+   * Job + source file → newest project, built once for the whole store rather
+   * than re-derived per clip card (see `project-index.ts`).
+   */
+  const projectIndex = useMemo(() => indexProjectsBySource(clipProjects), [clipProjects]);
+
   const readyClips = useMemo<ReadyClip[]>(() => {
     if (!activeJob) return [];
-    const projectsForJob = clipProjects.filter((project) => project.jobId === activeJob.id);
     return activeJob.clips.flatMap((clip, index) => {
       // Prefer the Clip Editor's export (the edited clip IS the clip), then
       // the ready-to-post vertical render; the master is a last resort and
@@ -510,18 +500,20 @@ export function useUploadingCenter(clipProjects: ClipProject[] = []) {
             : `/api/clips/${activeJob.id}/thumbnail/${encodeURIComponent(thumbSource)}`,
           previewUrl: `/api/clips/${activeJob.id}/files/${encodeURIComponent(file)}`,
           startSec,
-          needsRerender: computeNeedsRerender(clip, projectsForJob),
+          needsRerender: computeNeedsRerender(clip, activeJob.id, projectIndex),
           masterFile: clip.file
         }
       ];
     });
-  }, [activeCaptions, activeJob, clipProjects]);
+  }, [activeCaptions, activeJob, projectIndex]);
 
-  /** Queue items that came from a given clip card. */
-  const itemsForClip = useCallback(
-    (clip: ReadyClip) => queueItems.filter((item) => itemMatchesClip(item, clip)),
-    [queueItems]
-  );
+  /**
+   * Clip key → its posts on the queue, indexed once. Every card, the run
+   * summary and the auto-assign plan read this, so answering each of them with
+   * a fresh scan of the whole queue was the page's per-render cost.
+   */
+  const itemsByClipKey = useMemo(() => indexQueueByClip(queueItems, readyClips), [queueItems, readyClips]);
+  const itemsForClip = useCallback((clip: ReadyClip) => itemsByClipKey.get(clip.key) ?? NO_ITEMS, [itemsByClipKey]);
 
   /**
    * Poster-frame URL for a queue item, resolved through the clip job it came
@@ -761,15 +753,8 @@ export function useUploadingCenter(clipProjects: ClipProject[] = []) {
    * the key projects are saved against (see computeNeedsRerender).
    */
   const projectForClip = useCallback(
-    (clip: ReadyClip): ClipProject | null => {
-      if (!clip.masterFile) return null;
-      return (
-        clipProjects
-          .filter((project) => project.jobId === clip.jobId && project.sourceFile === clip.masterFile)
-          .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))[0] ?? null
-      );
-    },
-    [clipProjects]
+    (clip: ReadyClip): ClipProject | null => newestProjectFor(projectIndex, clip.jobId, clip.masterFile),
+    [projectIndex]
   );
 
   /**
