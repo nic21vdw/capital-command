@@ -14,6 +14,8 @@ already shipped.
 
 ## Unreleased
 
+## 2026-08-12
+
 - **Double-clicking `update-capital-command.bat` works again.** Every release
   run with no arguments died on `unknown revision 'g'` before it changed a
   thing: releasing `main` into `main` left the script with one branch name
