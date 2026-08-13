@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { formatISO } from "date-fns";
-import { externalizeProjectOverlays, repairAppDataOverlays } from "@/lib/clipping/overlay-images";
+import { externalizeAppDataImages, externalizeProjectOverlays, repairAppDataOverlays } from "@/lib/clipping/overlay-images";
 import { derivePortfolioSummary } from "@/lib/derive";
 import { ensureExecution } from "@/lib/execution/server";
 import { todayLocal } from "@/lib/execution/dates";
@@ -257,7 +257,9 @@ export async function POST(request: NextRequest) {
       break;
     }
     case "updateBrandAssets": {
-      data = { ...data, brandAssets: brandAssetsSchema.parse(payload) };
+      // Straight to disk: a watermark picked here is the original every overlay
+      // is copied from, and inline it is half a megabyte on every page load.
+      data = await externalizeAppDataImages({ ...data, brandAssets: brandAssetsSchema.parse(payload) });
       break;
     }
     case "updateSettings": {
@@ -268,7 +270,7 @@ export async function POST(request: NextRequest) {
       if (typeof (payload as { publishingEnabled?: unknown })?.publishingEnabled === "boolean") {
         await setPublishingEnabled(Boolean((payload as { publishingEnabled: boolean }).publishingEnabled));
       }
-      data = { ...data, settings };
+      data = await externalizeAppDataImages({ ...data, settings });
       break;
     }
     case "upsertContentItem": {

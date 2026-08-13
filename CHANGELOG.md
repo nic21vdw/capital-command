@@ -14,6 +14,13 @@ already shipped.
 
 ## Unreleased
 
+- **Every page of the app downloads half a megabyte less.** The brand watermark
+  and your profile photo were stored inside the app-data document as text, so
+  all 487KB of the watermark was sent to the browser on every screen you
+  opened and written back to disk on every change you saved. Pictures already
+  went to disk everywhere else in the app; these two were missed. They move
+  themselves across the first time the app reads them - nothing to press, and
+  they look exactly the same.
 ## 2026-08-12
 
 - **Double-clicking `update-capital-command.bat` works again.** Every release
