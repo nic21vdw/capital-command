@@ -14,14 +14,27 @@ const candidate = (kind: QueueCandidate["kind"], title: string): QueueCandidate 
 const slots = ["2026-08-07T11:30:00.000Z", "2026-08-07T16:30:00.000Z", "2026-08-07T23:30:00.000Z"];
 
 describe("booking a run's outputs", () => {
-  it("does not keep the clips in source order", () => {
-    const booked = assignSlots(
-      [candidate("clip", "short one"), candidate("segment", "part two"), candidate("longform", "the stream")],
-      slots,
-      7
-    );
-    expect(booked.map((entry) => entry.candidate.title)).not.toEqual(["short one", "part two", "the stream"]);
+  const outputs = () => [
+    candidate("clip", "short one"),
+    candidate("segment", "part two"),
+    candidate("longform", "the stream")
+  ];
+
+  it("books every output exactly once", () => {
+    const booked = assignSlots(outputs(), slots, 7);
     expect(booked.map((entry) => entry.candidate.title).sort()).toEqual(["part two", "short one", "the stream"]);
+  });
+
+  it("puts a different output first depending on the seed", () => {
+    const first = new Set(
+      Array.from({ length: 50 }, (_, seed) => assignSlots(outputs(), slots, seed + 1)[0].candidate.title)
+    );
+    expect(first.size).toBe(3);
+  });
+
+  it("deals the same order twice for one seed", () => {
+    const order = () => assignSlots(outputs(), slots, 12).map((entry) => entry.candidate.title);
+    expect(order()).toEqual(order());
   });
 
   it("never books two outputs into the same slot", () => {
@@ -86,16 +99,19 @@ describe("booking a run's carousel", () => {
   });
 
   it("gives the deck its own slot among the videos it came from", () => {
-    const booked = assignSlots(
-      [
-        { id: "carousel:deck-1", kind: "carousel", title: "deck", filePath: "a.png", platforms: [] },
-        candidate("clip", "short one"),
-        candidate("longform", "the stream")
-      ],
-      slots,
-      7
-    );
+    const deck = () => [
+      { id: "carousel:deck-1", kind: "carousel" as const, title: "deck", filePath: "a.png", platforms: [] },
+      candidate("clip", "short one"),
+      candidate("longform", "the stream")
+    ];
+    const booked = assignSlots(deck(), slots, 7);
     expect(new Set(booked.map((entry) => entry.publishAt)).size).toBe(3);
     expect(booked.map((entry) => entry.candidate.kind).sort()).toEqual(["carousel", "clip", "longform"]);
+    const positions = new Set(
+      Array.from({ length: 50 }, (_, seed) =>
+        assignSlots(deck(), slots, seed + 1).findIndex((entry) => entry.candidate.kind === "carousel")
+      )
+    );
+    expect(positions.size).toBe(3);
   });
 });
