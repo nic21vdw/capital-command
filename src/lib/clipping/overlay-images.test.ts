@@ -2,7 +2,12 @@ import { mkdtemp, readFile, readdir, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { externalizeAllOverlays, externalizeProjectOverlays, storeOverlayImage } from "@/lib/clipping/overlay-images";
+import {
+  externalizeAllOverlays,
+  externalizeAppDataImages,
+  externalizeProjectOverlays,
+  storeOverlayImage
+} from "@/lib/clipping/overlay-images";
 import type { ClipProject } from "@/types/domain";
 
 /**
@@ -101,5 +106,58 @@ describe("externalizeAllOverlays", () => {
     expect(repaired.changed).toBe(true);
     expect(JSON.stringify(repaired.projects)).not.toContain("data:image");
     expect(await readdir(path.join(dir, "overlay-images"))).toHaveLength(2);
+  });
+});
+
+/**
+ * The brand watermark is the ORIGINAL every overlay copy was made from, so
+ * externalizing only the copies left the single largest picture in the app-data
+ * document exactly where it was: a fifth of everything the browser downloads on
+ * every page, rewritten to disk on every save.
+ */
+describe("externalizeAppDataImages", () => {
+  const appData = (overrides: Record<string, unknown>) => overrides as never;
+
+  it("moves the brand logo and watermark out of the document", async () => {
+    const moved = await externalizeAppDataImages(
+      appData({ brandAssets: { logoSrc: PNG, watermarkSrc: OTHER } })
+    );
+
+    expect(moved.brandAssets?.logoSrc).toMatch(/^\/api\/clips\/overlay-images\//);
+    expect(moved.brandAssets?.watermarkSrc).toMatch(/^\/api\/clips\/overlay-images\//);
+    expect(moved.brandAssets?.logoSrc).not.toBe(moved.brandAssets?.watermarkSrc);
+    expect(JSON.stringify(moved)).not.toContain("data:image");
+  });
+
+  it("moves the profile avatar out and keeps the rest of settings", async () => {
+    const moved = await externalizeAppDataImages(
+      appData({ settings: { currency: "CAD", profile: { displayName: "Nic", avatar: PNG } } })
+    );
+
+    expect(moved.settings?.profile?.avatar).toMatch(/^\/api\/clips\/overlay-images\//);
+    expect(moved.settings?.profile?.displayName).toBe("Nic");
+    expect(moved.settings?.currency).toBe("CAD");
+  });
+
+  it("stores one file when the logo and the watermark are the same picture", async () => {
+    const moved = await externalizeAppDataImages(
+      appData({ brandAssets: { logoSrc: PNG, watermarkSrc: PNG } })
+    );
+
+    expect(moved.brandAssets?.logoSrc).toBe(moved.brandAssets?.watermarkSrc);
+    expect(await readdir(path.join(dir, "overlay-images"))).toHaveLength(1);
+  });
+
+  it("returns the same object when nothing is inline, so no write happens", async () => {
+    const already = appData({
+      brandAssets: { watermarkSrc: "/api/clips/overlay-images/abc.png" },
+      settings: { currency: "CAD" }
+    });
+    expect(await externalizeAppDataImages(already)).toBe(already);
+  });
+
+  it("copes with a document that has no pictures at all", async () => {
+    const bare = appData({ settings: { currency: "CAD" } });
+    expect(await externalizeAppDataImages(bare)).toBe(bare);
   });
 });
