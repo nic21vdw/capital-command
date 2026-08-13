@@ -28,6 +28,9 @@ already shipped.
   each. It reads the picture the nightly scan already took, so it costs no
   YouTube quota; it appears after the next scan, and offers a Scan button until
   then.
+
+## 2026-08-12
+
 - **Every page of the app downloads half a megabyte less.** The brand watermark
   and your profile photo were stored inside the app-data document as text, so
   all 487KB of the watermark was sent to the browser on every screen you
