@@ -850,6 +850,11 @@ export const clipProjectSchema = z.object({
       h: z.coerce.number().min(0.01).max(1).default(1)
     })
     .optional(),
+  // Whether a caller OMITTED captions is read off the raw request body in
+  // upsertClipProject, not from here: the payload ships projects without
+  // them, and a whole-object upsert that treated that as "empty" would wipe
+  // hand-split captions off the stored project. The default keeps every
+  // other reader (and AppData itself) free of an optional array.
   captions: z.array(captionSegmentSchema).default([]),
   captionStyle: captionStyleSchema.default(defaultCaptionStyle),
   captionsVisible: z.coerce.boolean().default(true),
@@ -860,7 +865,11 @@ export const clipProjectSchema = z.object({
   exportSettings: clipExportSettingsSchema.default(defaultClipExportSettings),
   suggestions: z.array(aiSuggestionSchema).default([]),
   createdAt: z.string(),
-  updatedAt: z.string()
+  updatedAt: z.string(),
+  // Derived server-side on write (see stampProjectSignature). Optional so every
+  // project saved before the field still parses; the stamp fills them in.
+  renderSignature: z.string().optional(),
+  captionCount: z.coerce.number().int().min(0).optional()
 });
 
 // ----- Video Clip Creator (non-destructive timeline editor) -----

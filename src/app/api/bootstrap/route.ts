@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { repairAppDataOverlays } from "@/lib/clipping/overlay-images";
+import { projectsWithoutCaptions, stampAppDataSignatures } from "@/lib/clipping/project-payload";
 import { derivePortfolioSummary } from "@/lib/derive";
 import { ensureExecution } from "@/lib/execution/server";
 import { readApiStatus } from "@/lib/apiStatus";
@@ -13,7 +14,7 @@ export async function GET() {
   // than saying it could not read the document.
   let stored;
   try {
-    stored = await repairAppDataOverlays(await readAppData());
+    stored = await stampAppDataSignatures(await repairAppDataOverlays(await readAppData()));
   } catch (error) {
     if (error instanceof AppDataUnreadableError) {
       // The offer to restore rides along with the refusal, so the dead-end
@@ -41,7 +42,10 @@ export async function GET() {
   }
 
   return NextResponse.json({
-    data,
+    // Every project's captions are ~8.4 KB and only the one being edited needs
+    // them; the signature stamped above is what the rest of the app read them
+    // for. See project-payload.ts.
+    data: { ...data, clipProjects: projectsWithoutCaptions(data.clipProjects ?? []) },
     summary: derivePortfolioSummary(data),
     apiStatus: readApiStatus()
   });
