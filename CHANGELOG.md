@@ -14,6 +14,28 @@ already shipped.
 
 ## Unreleased
 
+- **Mixing the schedule can no longer post twice at one instant.** The mixing
+  above moved posts by time alone, but several posts legitimately share a time —
+  one per platform — so it put two YouTube posts (and two Instagram, and two
+  TikTok) on the same instant, 123 times over. It now knows which platform and
+  account each post occupies and will not stack two on one lane, and it will not
+  put the same recording in two slots running either, instead of hoping a
+  shuffle happens to avoid it.
+- **`npm run publish:shuffle -- --repair` fixes a live schedule without
+  re-ordering it.** It lifts only the posts that are actually double-booked,
+  leaves everything else on the time you already read, and never touches a video
+  YouTube is already holding. Where it cannot separate them it says why — your
+  queue currently wants 339 Facebook posts across 305 instants, and no
+  re-ordering can fit 339 into 305.
+- **A plain `--write` no longer moves videos that are already on YouTube.**
+  Moving them in the queue without telling YouTube leaves the two disagreeing,
+  and YouTube wins. Only `--push` moves them, because only `--push` sends the
+  new time.
+- **`npm run publish:adopt` finds videos on the channel the app has never heard
+  of.** Thirteen had built up — seven scheduled, six already public — uploaded by
+  the pipeline but never recorded, so the runner could not see them and the
+  calendar could book straight over them. Adopting one writes a record of what
+  YouTube already holds; it never uploads or re-uploads anything.
 - **Scheduled shorts no longer come out in stream order.** Booking a run used
   to dump that recording's clips into the next three time slots, so a week of
   Shorts was the same stream three times a day. Upcoming posts are now mixed

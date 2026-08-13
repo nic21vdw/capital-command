@@ -521,6 +521,40 @@ async function main() {
     return;
   }
 
+  if (command === "adopt") {
+    const { adoptChannelVideos } = await import("@/lib/publisher/adoptChannelVideos");
+    const report = await adoptChannelVideos({ apply: args.flags.has("write") });
+    if (!report.configured) {
+      console.error("[publisher] YouTube is not connected — nothing to read.");
+      process.exitCode = 1;
+      return;
+    }
+    if (report.needsReconnect) {
+      console.error("[publisher] the saved YouTube token cannot read the channel — reconnect the account.");
+      process.exitCode = 1;
+      return;
+    }
+    if (report.error) {
+      console.error(`[publisher] could not read the channel: ${report.error}`);
+      process.exitCode = 1;
+      return;
+    }
+    for (const video of report.unknown) {
+      console.log(
+        `[publisher]   ${video.videoId}  ${video.status.padEnd(9)} ${formatInTimezone(new Date(video.publishAtUtc), config.timezone)}  ${video.title}`
+      );
+    }
+    console.log(
+      `[publisher] ${report.unknown.length} video${report.unknown.length === 1 ? "" : "s"} on the channel the queue has no record of.`
+    );
+    if (!report.applied) {
+      console.log("[publisher] dry run — re-run with --write to record them so the schedule can see them.");
+      return;
+    }
+    console.log(`[publisher] adopted ${report.adopted.length} into the queue. Nothing was uploaded or re-uploaded.`);
+    return;
+  }
+
   if (command === "remove") {
     const id = args.positional[1];
     if (!id) {
@@ -534,15 +568,24 @@ async function main() {
   }
 
   if (command === "shuffle") {
-    const { planScheduleShuffle, isYoutubeScheduled } = await import("@/lib/publisher/scheduleShuffle");
+    const { laneDemand, planScheduleRepair, planScheduleShuffle, isYoutubeScheduled } = await import(
+      "@/lib/publisher/scheduleShuffle"
+    );
     const { updateYoutubeVideoPublishAt } = await import("@/lib/publisher/adapters/youtube");
     const queue = publishQueue(config);
     const items = await queue.list();
     const seedRaw = Number(flagStr(args, "seed"));
     const seed = Number.isFinite(seedRaw) && seedRaw > 0 ? seedRaw : Date.now();
-    const plan = planScheduleShuffle(items, new Date(), { seed });
+    const repair = args.flags.has("repair");
+    // Moving a video YouTube already holds is only honest when the new time is
+    // sent to YouTube as well, so that is what --push means and nothing else
+    // touches them. A repair never moves them at all.
+    const push = args.flags.has("push");
+    const plan = repair
+      ? planScheduleRepair(items, new Date(), { seed })
+      : planScheduleShuffle(items, new Date(), { seed, onlyPending: !push });
     console.log(
-      `[publisher] ${plan.moves.length} post${plan.moves.length === 1 ? "" : "s"} would move, ${plan.unchanged} stay put (seed ${seed}).`
+      `[publisher] ${repair ? "repair" : "shuffle"}: ${plan.moves.length} post${plan.moves.length === 1 ? "" : "s"} would move, ${plan.unchanged} stay put (seed ${seed}).`
     );
     for (const move of plan.moves.slice(0, 40)) {
       console.log(
@@ -550,13 +593,36 @@ async function main() {
       );
     }
     if (plan.moves.length > 40) console.log(`[publisher]   …and ${plan.moves.length - 40} more.`);
+    for (const clash of plan.collisions) {
+      console.log(
+        `[publisher]   UNRESOLVED ${formatInTimezone(new Date(clash.publishAt), config.timezone)} ${clash.occupant} — ${clash.itemIds.join(", ")}`
+      );
+    }
+    for (const repeat of plan.repeats) {
+      console.log(
+        `[publisher]   BACK-TO-BACK ${formatInTimezone(new Date(repeat.publishAt), config.timezone)} ${repeat.source} — ${repeat.itemIds.join(", ")}`
+      );
+    }
+    if (plan.collisions.length === 0) {
+      console.log("[publisher] no slot would carry one platform twice.");
+    } else {
+      const demand = laneDemand(items, new Date());
+      console.log(`[publisher] ${plan.collisions.length} left over. ${demand.instants} instants on the calendar:`);
+      for (const lane of demand.lanes) {
+        console.log(
+          `[publisher]   ${lane.lane} wants ${lane.wanted}${lane.over > 0 ? `  — ${lane.over} more posts than there are instants, so no re-ordering can separate them` : ""}`
+        );
+      }
+    }
     if (!args.flags.has("write")) {
-      console.log("[publisher] dry run — re-run with --write to save the new order, --push to move YouTube times too.");
+      console.log(
+        "[publisher] dry run — re-run with --write to save it. --repair only fixes conflicts; --push also moves the times YouTube is holding."
+      );
       return;
     }
     const changed = await queue.applyPublishTimes(plan.moves.map((move) => ({ id: move.id, publishAt: move.to })));
     console.log(`[publisher] wrote ${changed} new time${changed === 1 ? "" : "s"} to the queue.`);
-    if (!args.flags.has("push")) return;
+    if (!push) return;
     const byId = new Map((await queue.list()).map((item) => [item.id, item]));
     let pushed = 0;
     let failed = 0;
@@ -591,8 +657,9 @@ async function main() {
       "  retitle [--write] [--push]           rewrite upcoming clip titles via the channel style guide",
       "  instagram connect --token <t>        turn a Meta token into IG_USER_ID + IG_ACCESS_TOKEN (--write saves them)",
       "  instagram check                      confirm the saved Instagram credentials still work",
-      "  reconcile [--write] [--days <n>]      find videos on the channel the queue never recorded",
-      "  shuffle [--write] [--push]           mix upcoming posts across their existing slots",
+      "  reconcile [--write] [--days <n>]      match uploads back to the queue items that lost their id",
+      "  adopt [--write]                      record channel videos the queue has never heard of",
+      "  shuffle [--repair] [--write] [--push] mix upcoming posts across their existing slots",
       "  remove <itemId>                      drop an item from the queue"
     ].join("\n")
   );

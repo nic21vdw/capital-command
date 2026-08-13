@@ -388,11 +388,13 @@ export async function queueRunOutputs(
   const slots = plan.openSlots;
 
   const queued: QueueResult["queued"] = [];
-  const failed: QueueResult["failed"] = [];
+  // Keyed by candidate so the complaint reads in the order he ticked them,
+  // whatever random order the slots were dealt in.
+  const problems = new Map<string, QueueResult["failed"][number]>();
   const bookedIds: string[] = [];
   for (const { candidate, publishAt } of assignSlots(chosen, slots)) {
     if (!publishAt) {
-      failed.push({ title: candidate.title, error: "Every slot in the next four months is taken." });
+      problems.set(candidate.id, { title: candidate.title, error: "Every slot in the next four months is taken." });
       continue;
     }
     try {
@@ -423,9 +425,13 @@ export async function queueRunOutputs(
       });
       bookedIds.push(candidate.id);
     } catch (error) {
-      failed.push({ title: candidate.title, error: error instanceof Error ? error.message : String(error) });
+      problems.set(candidate.id, {
+        title: candidate.title,
+        error: error instanceof Error ? error.message : String(error)
+      });
     }
   }
+  const failed = chosen.map((candidate) => problems.get(candidate.id)).filter((entry) => entry !== undefined);
   if (queued.length > 0) {
     const config = publisherConfig();
     const queue = publishQueue(config);

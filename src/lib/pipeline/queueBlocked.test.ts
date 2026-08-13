@@ -107,7 +107,7 @@ describe("a failure that has been dealt with", () => {
     ];
     state.refuse = ["Keeper", "Bad"];
     await queueReadyOutputs();
-    expect(state.run.queueFailures?.map((item) => item.title).sort()).toEqual(["Bad", "Keeper"]);
+    expect(state.run.queueFailures?.map((item) => item.title)).toEqual(["Keeper", "Bad"]);
 
     state.refuse = ["Bad"];
     await queueReadyOutputs();
