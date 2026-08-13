@@ -88,6 +88,40 @@ describe("what the standing instruction is allowed to book", () => {
   });
 });
 
+// The failure this cost 26 rendered decks to find: the sheet is planned when it
+// opens and the run is re-planned when it is confirmed, so an output that became
+// bookable in between was never on screen to be unticked. Recorded as one, it is
+// held back forever — the standing drain skips a held-back id by design.
+describe("an output that appeared while the sheet was open", () => {
+  it("is left undecided rather than recorded as unticked", async () => {
+    const seen = ["clip:job1:keep", "clip:job1:drop"];
+    state.candidates.push({ id: "late", title: "The deck, written after he opened the sheet", filePath: "late.mp4" });
+
+    await queueRunOutputs("run1", ["clip:job1:keep"], { seen });
+
+    expect(state.run.queueHeldBack).toContain("clip:job1:drop");
+    expect(state.run.queueHeldBack).not.toContain("clip:job1:late");
+  });
+
+  it("is booked by the standing instruction as it lands", async () => {
+    const seen = ["clip:job1:keep", "clip:job1:drop"];
+    state.candidates.push({ id: "late", title: "The deck", filePath: "late.mp4" });
+
+    await queueRunOutputs("run1", ["clip:job1:keep"], { seen });
+    state.enqueued = [];
+    await queueReadyOutputs();
+
+    expect(state.enqueued.map((path) => path.split(sep).join("/"))).toEqual(["C:/outputs/job1/late.mp4"]);
+  });
+
+  // Without `seen` there is nothing to tell a late arrival from a real untick,
+  // so the old, stricter reading stands rather than silently booking something.
+  it("still honours an untick when the caller does not say what it showed", async () => {
+    await queueRunOutputs("run1", ["clip:job1:keep"]);
+    expect(state.run.queueHeldBack).toContain("clip:job1:drop");
+  });
+});
+
 describe("what the sheet says about a decision he already made", () => {
   it("lists a held-back output unticked, and books it when he ticks it", async () => {
     await queueRunOutputs("run1", ["clip:job1:keep"]);

@@ -14,6 +14,15 @@ already shipped.
 
 ## Unreleased
 
+- **Your carousels stopped being silently held back.** Confirming the booking
+  sheet marked every output that was not ticked as one you had deliberately
+  kept back — including the ones that only became bookable while the sheet was
+  open. The deck is written from the transcript minutes after the shorts
+  finish, so on 17 streams in a row it was recorded as an untick you never
+  made, and a held-back output is skipped forever: 26 rendered decks were made,
+  rendered, and then never booked. The sheet now says what it actually showed
+  you, and anything that lands after it opened is booked as it lands.
+
 ## 2026-08-12
 
 - **The home screen says how each stream is doing, not just whether it
