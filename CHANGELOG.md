@@ -24,9 +24,11 @@ already shipped.
 - **`npm run publish:shuffle -- --repair` fixes a live schedule without
   re-ordering it.** It lifts only the posts that are actually double-booked,
   leaves everything else on the time you already read, and never touches a video
-  YouTube is already holding. Where it cannot separate them it says why — your
-  queue currently wants 339 Facebook posts across 305 instants, and no
-  re-ordering can fit 339 into 305.
+  YouTube is already holding. A post with nowhere left to go gets a slot further
+  out — the schedule grid runs three slots a day for as long as it is asked
+  (`--days`, two years by default), so a platform carrying more posts than the
+  days they are booked across is a reason to reach forward, never a reason to
+  stack two on one day.
 - **A plain `--write` no longer moves videos that are already on YouTube.**
   Moving them in the queue without telling YouTube leaves the two disagreeing,
   and YouTube wins. Only `--push` moves them, because only `--push` sends the

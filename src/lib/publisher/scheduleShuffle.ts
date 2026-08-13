@@ -62,6 +62,14 @@ export type ShuffleOptions = {
   seed?: number;
   /** Leave videos already uploaded to YouTube on the time YouTube itself holds. */
   onlyPending?: boolean;
+  /**
+   * Instants the plan may move a post ONTO that the queue is not using yet,
+   * earliest first — the schedule grid, generated as far ahead as the caller
+   * cares to look. Without these a repair can only permute what is already
+   * booked, and a platform with more posts than instants then reads as
+   * impossible when the answer is simply a later slot.
+   */
+  openSlots?: string[];
 };
 
 export function isUpcomingItem(item: QueueItem, now: Date): boolean {
@@ -336,6 +344,45 @@ function move(
   lanes.set(publishAt, at);
 }
 
+/**
+ * Gives a post that still cannot fit anywhere in the existing schedule a slot
+ * of its own, earliest one first.
+ *
+ * A permutation cannot help here and saying so is not an answer: when 312
+ * Facebook posts are spread over 278 instants, 34 of them have nowhere to be
+ * until the schedule reaches further forward. It always can — the grid is three
+ * slots a day for as long as the caller asks — so the overflow moves out rather
+ * than stacking on a day that already posts.
+ */
+function relocate(placed: Placed[], lanes: Map<string, Map<string, number>>, openSlots: string[]): Placed[] {
+  const candidates = [...new Set([...placed.map((entry) => entry.publishAt), ...openSlots])].sort((a, b) =>
+    a.localeCompare(b)
+  );
+  if (candidates.length === 0) return placed;
+
+  for (let index = 0; index < placed.length; index += 1) {
+    const entry = placed[index];
+    if (entry.fixed) continue;
+    const at = lanes.get(entry.publishAt);
+    const occupancy = occupancyOf(entry.item);
+    if (!occupancy.some((lane) => (at?.get(lane) ?? 0) > 1)) continue;
+
+    const target = candidates.find(
+      (publishAt) =>
+        publishAt !== entry.publishAt && occupancy.every((lane) => (lanes.get(publishAt)?.get(lane) ?? 0) === 0)
+    );
+    if (!target) continue;
+
+    for (const lane of occupancy) at!.set(lane, (at!.get(lane) ?? 0) - 1);
+    const moved = lanes.get(target) ?? new Map<string, number>();
+    for (const lane of occupancy) moved.set(lane, (moved.get(lane) ?? 0) + 1);
+    lanes.set(target, moved);
+    placed[index] = { ...entry, publishAt: target };
+  }
+
+  return placed.sort((a, b) => a.publishAt.localeCompare(b.publishAt) || (a.fixed ? 0 : 1) - (b.fixed ? 0 : 1));
+}
+
 /** Positions taking part in a collision or a back-to-back pair. */
 function troubled(placed: Placed[], lanes: Map<string, Map<string, number>>): number[] {
   const indexes: number[] = [];
@@ -442,7 +489,9 @@ export function planScheduleRepair(items: QueueItem[], now: Date, options: Shuff
   const pinned = new Set(upcoming.filter(isYoutubeScheduled).map((item) => item.id));
   const pool = upcoming.filter((item) => !pinned.has(item.id));
   if (pool.length === 0) return emptyPlan();
-  const placed = separate(park(upcoming, pinned, shuffled(pool, options.seed ?? Date.now())), 1);
+  const parked = separate(park(upcoming, pinned, shuffled(pool, options.seed ?? Date.now())), 1);
+  const spread = relocate(parked, laneCounts(parked), options.openSlots ?? []);
+  const placed = separate(spread, 1);
   return { ...movesFrom(placed, new Set(pool.map((item) => item.id))), ...report(placed) };
 }
 

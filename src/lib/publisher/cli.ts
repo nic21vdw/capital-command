@@ -571,6 +571,7 @@ async function main() {
     const { laneDemand, planScheduleRepair, planScheduleShuffle, isYoutubeScheduled } = await import(
       "@/lib/publisher/scheduleShuffle"
     );
+    const { generateSlots } = await import("@/lib/publisher/slots");
     const { updateYoutubeVideoPublishAt } = await import("@/lib/publisher/adapters/youtube");
     const queue = publishQueue(config);
     const items = await queue.list();
@@ -581,9 +582,17 @@ async function main() {
     // sent to YouTube as well, so that is what --push means and nothing else
     // touches them. A repair never moves them at all.
     const push = args.flags.has("push");
+    // A repair may reach past the end of what is booked. The grid is three slots
+    // a day for as long as we ask, so "the calendar is full" is never the
+    // answer — a post with nowhere to go this month goes next month.
+    const now = new Date();
+    const horizon = Number(flagStr(args, "days") ?? 730);
+    const openSlots = generateSlots({ timeZone: config.timezone, days: horizon, now })
+      .filter((slot) => slot.bookable)
+      .map((slot) => slot.utc);
     const plan = repair
-      ? planScheduleRepair(items, new Date(), { seed })
-      : planScheduleShuffle(items, new Date(), { seed, onlyPending: !push });
+      ? planScheduleRepair(items, now, { seed, openSlots })
+      : planScheduleShuffle(items, now, { seed, onlyPending: !push });
     console.log(
       `[publisher] ${repair ? "repair" : "shuffle"}: ${plan.moves.length} post${plan.moves.length === 1 ? "" : "s"} would move, ${plan.unchanged} stay put (seed ${seed}).`
     );
@@ -606,11 +615,13 @@ async function main() {
     if (plan.collisions.length === 0) {
       console.log("[publisher] no slot would carry one platform twice.");
     } else {
-      const demand = laneDemand(items, new Date());
-      console.log(`[publisher] ${plan.collisions.length} left over. ${demand.instants} instants on the calendar:`);
+      const demand = laneDemand(items, now);
+      console.log(
+        `[publisher] ${plan.collisions.length} left over across ${demand.instants} booked instants — widen the window with --days:`
+      );
       for (const lane of demand.lanes) {
         console.log(
-          `[publisher]   ${lane.lane} wants ${lane.wanted}${lane.over > 0 ? `  — ${lane.over} more posts than there are instants, so no re-ordering can separate them` : ""}`
+          `[publisher]   ${lane.lane} wants ${lane.wanted}${lane.over > 0 ? `  — ${lane.over} more than the booked instants, so ${lane.over} of them need a later slot` : ""}`
         );
       }
     }
@@ -659,7 +670,8 @@ async function main() {
       "  instagram check                      confirm the saved Instagram credentials still work",
       "  reconcile [--write] [--days <n>]      match uploads back to the queue items that lost their id",
       "  adopt [--write]                      record channel videos the queue has never heard of",
-      "  shuffle [--repair] [--write] [--push] mix upcoming posts across their existing slots",
+      "  shuffle [--repair] [--write] [--push] [--days <n>]",
+      "                                       mix upcoming posts; --repair only unstacks double-booked slots",
       "  remove <itemId>                      drop an item from the queue"
     ].join("\n")
   );
