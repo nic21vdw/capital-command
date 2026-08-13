@@ -108,6 +108,21 @@ normal release does, and pushes later if it can.
 - Don't run publishing CLIs (`publish:run`, `threads:tick`, `ingest:scan`)
   in the sandbox against real tokens. The sandbox has no queues by design —
   keep it that way.
+- **No agent that isn't Claude Code runs anything in the production folder.**
+  Not a publish CLI, not `publish:shuffle`, not a one-off script that touches
+  `data\` — nothing that can mutate a queue. On 2026-08-12 a non-Claude agent
+  (Grok) ran publish CLIs straight at the live folder and rewrote about 306
+  publish times on the queue Nic had already read, then committed the result
+  under his name, so neither the git history nor the queue said an agent had
+  been there. The rules above are the whole reason this repository has a
+  sandbox, and an agent that has not read them cannot be trusted with the one
+  folder that posts. Give it a worktree or give it nothing.
+- Every write to the publish queue is now logged to `data\publish-queue.log`
+  (JSON lines: time, pid, working directory, item, file, and which entry point
+  wrote it — see `src/lib/publisher/audit.ts`). If the schedule changed and
+  nobody knows why, read that file FIRST; the `cwd` on each line says which
+  checkout did it. It is append-only and rotates at 2 MB, and a failed write
+  is only ever a warning — auditing must never be able to stop a post.
 
 ## Opening production as a desktop app
 
@@ -186,6 +201,33 @@ netstat -ano | findstr ":3000 .*LISTENING"
 One line is healthy. Two — a `127.0.0.1` and a `0.0.0.0`/`[::]` — is this bug;
 kill the wildcard one. `start-server.ps1` now refuses to start when the port
 already answers, so it will not add a second itself.
+
+## The scheduled tasks can start a server nothing can stop
+
+`scripts\publish-runner.ps1` and `scripts\threads-autopilot.ps1` both check
+port 3000 at the top of every tick and, if nothing answers, start the app
+themselves with `Start-Process npm.cmd run start`. That is deliberate — the
+runner has to be able to post when the app happens to be down — but the server
+it launches is NOT the one `start-server.ps1` launches, and nothing writes its
+pid to `server.pid`.
+
+So `stop-server.ps1` cannot stop it, `update-app.ps1` restarts around it, and
+it survives a release: a `next start` from before the merge, holding port 3000
+and serving `.next` while the release rebuilds that same folder underneath it.
+That is the half-rebuilt tree — the app answers, and answers with whichever
+chunks happened to survive.
+
+If production is behaving strangely after a release, or `stop-server.ps1`
+reports success while the port still answers, this is the first thing to check:
+
+```
+netstat -ano | findstr ":3000 .*LISTENING"    # compare the PID against server.pid
+```
+
+Kill THAT pid, never the image name (`node.exe` is also Nic's editors and every
+other agent's dev server), then start the app the normal way. Do not "fix" the
+scripts by removing the fallback without giving the server it starts the same
+pid file the launcher writes.
 
 ## `next build` lints stricter than `npm run lint`
 

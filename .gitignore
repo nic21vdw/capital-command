@@ -24,6 +24,7 @@ data/voiceover/
 data/*.tmp
 data/uploads/
 data/publish-queue.json
+data/publish-queue.log*
 data/threads-queue.json
 data/publisher-tokens.json
 data/social-accounts.json

@@ -101,6 +101,14 @@ describe("prepareVerticalMedia", () => {
     expect(render).not.toHaveBeenCalled();
   });
 
+  it("still confirms a long-form post is a video", async () => {
+    probe.mockRejectedValue(new Error("Could not read the video dimensions"));
+
+    await expect(prepareVerticalMedia(clipPath, ["youtube"], "long")).rejects.toThrow(/no video stream/i);
+    expect(probe).toHaveBeenCalledWith(clipPath);
+    expect(render).not.toHaveBeenCalled();
+  });
+
   it("does not apply the Shorts duration limit to non-YouTube posts", async () => {
     probe.mockResolvedValue({ width: 1080, height: 1920, durationSec: 200 });
 

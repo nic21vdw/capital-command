@@ -282,20 +282,23 @@ export async function runDue(now: Date = new Date(), options: RunDueOptions = {}
           const item = await queue.get(add.itemId);
           if (!item || item.platforms[add.platform]) continue;
           item.platforms[add.platform] = newPlatformState();
-          await queue.add(item);
+          await queue.add(item, "runner-mirror");
         }
         // Shuffled slots hold a different clip per platform, which one item
         // cannot express, so each gets its own.
         for (const entry of plan.newItems) {
           const source = await queue.get(entry.sourceItemId);
           if (!source) continue;
-          await queue.add({
-            ...source,
-            id: crypto.randomUUID().slice(0, 8),
-            publishAt: entry.publishAt,
-            createdAt: new Date().toISOString(),
-            platforms: { [entry.platform]: newPlatformState() }
-          });
+          await queue.add(
+            {
+              ...source,
+              id: crypto.randomUUID().slice(0, 8),
+              publishAt: entry.publishAt,
+              createdAt: new Date().toISOString(),
+              platforms: { [entry.platform]: newPlatformState() }
+            },
+            "runner-mirror"
+          );
         }
         if (plan.additions.length + plan.newItems.length > 0) {
           log(`[publisher] mirrored ${config.mirror.lead} → ${describeMirrorPlan(plan)}`);
