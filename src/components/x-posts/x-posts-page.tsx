@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import {
   BookOpen,
   CalendarClock,
@@ -137,10 +138,12 @@ function useCopy() {
 export function XPostsPage() {
   const { data, loading, refresh } = useAppData();
   const today = localDateKey();
+  const dateParam = useSearchParams().get("date");
+  const wantedDate = dateParam && /^\d{4}-\d{2}-\d{2}$/.test(dateParam) ? dateParam : today;
 
   const storedPack = useMemo(
-    () => data.xPlanner?.packs.find((pack) => pack.date === today) ?? null,
-    [data.xPlanner, today]
+    () => data.xPlanner?.packs.find((pack) => pack.date === wantedDate) ?? null,
+    [data.xPlanner, wantedDate]
   );
 
   const [pack, setPack] = useState<XDailyPack | null>(null);
