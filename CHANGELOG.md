@@ -14,6 +14,14 @@ already shipped.
 
 ## Unreleased
 
+- **Facebook Reels actually publish now.** The previous release got the video
+  to Facebook for the first time — the page had never received a single byte —
+  but the last step still did not fire: the adapter waited for Facebook to say
+  `ready`, and a transferred file reports `upload_complete` and sits there,
+  because processing only starts once we ask it to publish. So every clip
+  uploaded, waited, gave up and uploaded again. It now treats a finished
+  transfer as finished and posts it.
+
 ## 2026-08-12
 
 - **Facebook posts again, and it stops holding up everything else.** Nothing

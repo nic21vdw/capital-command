@@ -133,6 +133,31 @@ describe("facebook adapter", () => {
     expect(result.postId).toBe("video-77");
   });
 
+  it.each(["upload_complete", "processing_complete", "READY"])(
+    "finishes a transfer Facebook reports as %s",
+    async (videoStatus) => {
+      const requests = mockFetchRoutes([
+        { match: "/video-77?fields=status", respond: () => jsonResponse({ status: { video_status: videoStatus } }) },
+        {
+          match: "/video_reels",
+          respond: (request) => {
+            expect(formBody(request).upload_phase).toBe("finish");
+            return jsonResponse({ success: true });
+          }
+        }
+      ]);
+      const adapter = await loadAdapter();
+
+      const resumed = input();
+      resumed.item.platforms.facebook = { status: "uploaded", attempts: 1, containerId: "video-77" };
+      const result = await adapter.publish(resumed);
+
+      expect(result.status).toBe("published");
+      expect(result.postId).toBe("video-77");
+      expect(requests.filter((r) => r.url.includes("/video_reels"))).toHaveLength(1);
+    }
+  );
+
   it("gives up on an upload Facebook never fetched, and drops the dead handle", async () => {
     const { requests, request } = wedged(new Date(Date.now() - 8 * 60 * 60 * 1000).toISOString());
     const { adapter, http } = await loadAdapterAndErrors();
