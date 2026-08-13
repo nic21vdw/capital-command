@@ -27,7 +27,12 @@ vi.mock("@/lib/clipping/jobs", () => ({
 
 vi.mock("@/lib/longform/store", () => ({ getProject: async () => undefined, projectOutputDir: () => "" }));
 vi.mock("@/lib/publisher/config", () => ({ publisherConfig: () => state.config }));
-vi.mock("@/lib/publisher/queue", () => ({ publishQueue: () => ({ list: async () => state.booked }) }));
+vi.mock("@/lib/publisher/queue", () => ({
+  publishQueue: () => ({
+    list: async () => state.booked,
+    applyPublishTimes: async () => 0
+  })
+}));
 vi.mock("@/lib/publisher/enqueue", () => ({
   enqueue: async ({ publishAt }: { publishAt: string }) => ({ publishAt, platforms: { youtube: {} } }),
   enqueueImagePost: async ({ publishAt }: { publishAt: string }) => ({ publishAt, platforms: { youtube: {} } })

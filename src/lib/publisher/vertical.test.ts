@@ -83,6 +83,24 @@ describe("prepareVerticalMedia", () => {
     expect(render).not.toHaveBeenCalled();
   });
 
+  it("does not apply the Shorts duration limit to a long-form post", async () => {
+    probe.mockResolvedValue({ width: 1920, height: 1080, durationSec: 352 });
+
+    const prepared = await prepareVerticalMedia(clipPath, ["youtube"], "long");
+
+    expect(prepared).toEqual({ path: clipPath, converted: false });
+    expect(render).not.toHaveBeenCalled();
+  });
+
+  it("does not reshape a long-form post to 9:16", async () => {
+    probe.mockResolvedValue({ width: 1920, height: 1080, durationSec: 30 });
+
+    const prepared = await prepareVerticalMedia(clipPath, ["youtube"], "long");
+
+    expect(prepared.converted).toBe(false);
+    expect(render).not.toHaveBeenCalled();
+  });
+
   it("does not apply the Shorts duration limit to non-YouTube posts", async () => {
     probe.mockResolvedValue({ width: 1080, height: 1920, durationSec: 200 });
 

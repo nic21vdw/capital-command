@@ -48,7 +48,8 @@
     "remotion:render": "remotion render",
     "publish:mirror": "tsx src/lib/publisher/cli.ts mirror",
     "publish:retitle": "tsx src/lib/publisher/cli.ts retitle",
-    "publish:reconcile": "tsx src/lib/publisher/cli.ts reconcile"
+    "publish:reconcile": "tsx src/lib/publisher/cli.ts reconcile",
+    "publish:shuffle": "tsx src/lib/publisher/cli.ts shuffle"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.104.1",

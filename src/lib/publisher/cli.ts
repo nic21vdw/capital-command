@@ -533,6 +533,52 @@ async function main() {
     return;
   }
 
+  if (command === "shuffle") {
+    const { planScheduleShuffle, isYoutubeScheduled } = await import("@/lib/publisher/scheduleShuffle");
+    const { updateYoutubeVideoPublishAt } = await import("@/lib/publisher/adapters/youtube");
+    const queue = publishQueue(config);
+    const items = await queue.list();
+    const seedRaw = Number(flagStr(args, "seed"));
+    const seed = Number.isFinite(seedRaw) && seedRaw > 0 ? seedRaw : Date.now();
+    const plan = planScheduleShuffle(items, new Date(), { seed });
+    console.log(
+      `[publisher] ${plan.moves.length} post${plan.moves.length === 1 ? "" : "s"} would move, ${plan.unchanged} stay put (seed ${seed}).`
+    );
+    for (const move of plan.moves.slice(0, 40)) {
+      console.log(
+        `[publisher]   ${move.id}  ${formatInTimezone(new Date(move.from), config.timezone)} → ${formatInTimezone(new Date(move.to), config.timezone)}  ${move.title}`
+      );
+    }
+    if (plan.moves.length > 40) console.log(`[publisher]   …and ${plan.moves.length - 40} more.`);
+    if (!args.flags.has("write")) {
+      console.log("[publisher] dry run — re-run with --write to save the new order, --push to move YouTube times too.");
+      return;
+    }
+    const changed = await queue.applyPublishTimes(plan.moves.map((move) => ({ id: move.id, publishAt: move.to })));
+    console.log(`[publisher] wrote ${changed} new time${changed === 1 ? "" : "s"} to the queue.`);
+    if (!args.flags.has("push")) return;
+    const byId = new Map((await queue.list()).map((item) => [item.id, item]));
+    let pushed = 0;
+    let failed = 0;
+    for (const move of plan.moves) {
+      const item = byId.get(move.id);
+      if (!item || !isYoutubeScheduled(item)) continue;
+      try {
+        await updateYoutubeVideoPublishAt(item.platforms.youtube!.postId!, new Date(move.to), item.accountId);
+        pushed += 1;
+        console.log(`[publisher]   youtube ${item.platforms.youtube?.postId} → ${move.to}`);
+      } catch (error) {
+        failed += 1;
+        console.error(
+          `[publisher]   youtube ${item.platforms.youtube?.postId} failed: ${error instanceof Error ? error.message : String(error)}`
+        );
+      }
+    }
+    console.log(`[publisher] pushed ${pushed} YouTube schedule${pushed === 1 ? "" : "s"}${failed ? `, ${failed} failed` : ""}.`);
+    if (failed > 0) process.exitCode = 1;
+    return;
+  }
+
   console.log(
     [
       "Publisher commands:",
@@ -546,6 +592,7 @@ async function main() {
       "  instagram connect --token <t>        turn a Meta token into IG_USER_ID + IG_ACCESS_TOKEN (--write saves them)",
       "  instagram check                      confirm the saved Instagram credentials still work",
       "  reconcile [--write] [--days <n>]      find videos on the channel the queue never recorded",
+      "  shuffle [--write] [--push]           mix upcoming posts across their existing slots",
       "  remove <itemId>                      drop an item from the queue"
     ].join("\n")
   );

@@ -61,6 +61,19 @@ export class PublishQueue {
     await this.save();
   }
 
+  async applyPublishTimes(updates: Array<{ id: string; publishAt: string }>): Promise<number> {
+    await this.load();
+    let changed = 0;
+    for (const update of updates) {
+      const item = this.items.get(update.id);
+      if (!item || item.publishAt === update.publishAt) continue;
+      item.publishAt = update.publishAt;
+      changed += 1;
+    }
+    if (changed > 0) await this.save();
+    return changed;
+  }
+
   async remove(id: string): Promise<boolean> {
     await this.load();
     const existed = this.items.delete(id);

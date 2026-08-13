@@ -23,7 +23,7 @@ import { assertBookable } from "@/lib/publisher/schedule";
 import { nextBookableSlot } from "@/lib/publisher/slots";
 import { finalizeTitle } from "@/lib/title/finalize";
 import { resolvePublishAt } from "@/lib/publisher/time";
-import { prepareVerticalMedia } from "@/lib/publisher/vertical";
+import { prepareVerticalMedia, type PostFormat } from "@/lib/publisher/vertical";
 import type { PlatformId, PlatformState, QueueItem, Visibility } from "@/lib/publisher/types";
 
 const PLATFORM_LABELS: Record<PlatformId, string> = {
@@ -76,6 +76,12 @@ export type EnqueueOptions = {
   platforms?: PlatformId[];
   visibility?: Visibility;
   jobId?: string;
+  /**
+   * What this file is being posted AS. `"short"` (the default) is the vertical
+   * Shorts/Reels/TikTok path, reshaped and refused above three minutes;
+   * `"long"` is a full-length YouTube upload, posted as it is.
+   */
+  format?: PostFormat;
   /**
    * The social account (accounts.ts) the post belongs to. Omitted or a
    * platform's primary id → the platform's primary account (today's .env
@@ -185,12 +191,14 @@ export async function enqueue(options: EnqueueOptions): Promise<QueueItem> {
   // post that is refused for its time should be refused straight away.
   assertBookable(publishAtDate, new Date(), config.timezone, { allowSameDay: options.allowSameDay });
 
-  // Everything this publisher posts is short-form vertical (Shorts / Reels /
-  // TikTok). A landscape source is re-rendered vertical here — before hosting
-  // and before the queue records the path — because YouTube classifies Shorts
-  // purely by the file's aspect ratio and duration; a landscape upload would
-  // land as a long-form video.
-  const prepared = await prepareVerticalMedia(absolute, platforms);
+  // A short-form post is vertical (Shorts / Reels / TikTok), so a landscape
+  // source is re-rendered vertical here — before hosting and before the queue
+  // records the path — because YouTube classifies Shorts purely by the file's
+  // aspect ratio and duration; a landscape upload would land as a long-form
+  // video. A long-form post is meant to land exactly that way and passes
+  // through untouched.
+  const format: PostFormat = options.format ?? "short";
+  const prepared = await prepareVerticalMedia(absolute, platforms, format);
   if (prepared.converted) {
     console.log(`[publisher] ${path.basename(absolute)} is landscape — posting the 9:16 render ${path.basename(prepared.path)}`);
   }
@@ -223,7 +231,7 @@ export async function enqueue(options: EnqueueOptions): Promise<QueueItem> {
   const finalized = await finalizeTitle({
     baseTitle: title,
     category: options.metadataSource?.topic,
-    pipelineType: "short",
+    pipelineType: format,
     videoId: id
   });
   title = finalized.title;

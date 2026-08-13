@@ -32,6 +32,21 @@ already shipped.
   about eight times faster, and the Uploading Center stops rebuilding all four
   platforms' calendars on every keystroke. The sidebar's stream list and the
   needs-attention badge also stop asking the same question twice per page.
+- **Scheduled shorts no longer come out in stream order.** Booking a run used
+  to dump that recording's clips into the next three time slots, so a week of
+  Shorts was the same stream three times a day. Upcoming posts are now mixed
+  across the slots they already occupy, and a new booking shuffles itself into
+  the pending queue instead of lining up behind the last clip from the same
+  recording. Already-uploaded YouTube schedules move with them when you run
+  `npm run publish:shuffle -- --write --push`.
+- **The long-form video of every stream can be scheduled again.** Booking a
+  run's outputs refused the full-length edit with "this clip is 352s long — trim
+  it below 3 minutes", because the Shorts length rule was being applied to it —
+  a rule about Shorts, checked against a video that was never going to be one.
+  Long-form edits and topic segments now book as ordinary YouTube uploads,
+  whatever their length and whatever shape they were rendered in; clips posted
+  as Shorts are still held to the three-minute limit.
+
 - **Opening a stream on the pipeline page now follows you down the sidebar.**
   Clicking a past run set what was on screen but not what the app said you were
   working on, so every Formats screen kept naming the stream before it. Starting
