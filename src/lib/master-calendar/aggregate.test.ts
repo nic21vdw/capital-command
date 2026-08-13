@@ -42,10 +42,34 @@ describe("what a booked queue item reads as on the calendar", () => {
     ]);
     expect(event.source).toBe("queued-carousels");
     expect(event.id.startsWith("queued-carousels:")).toBe(true);
+    expect(event.href).toBe("/carousels?open=deck-1");
   });
 
-  it("leaves a video where it was", () => {
+  it("opens that queued short, not a job dropdown", () => {
     const [event] = events([item({})]);
     expect(event.source).toBe("shorts");
+    expect(event.href).toBe("/uploading-center?item=q1&platform=youtube");
+  });
+
+  it("still names the short when it came from a clip job", () => {
+    const [event] = events([item({ jobId: "job-9" })]);
+    expect(event.href).toBe("/uploading-center?item=q1&platform=youtube");
+  });
+});
+
+describe("sourceHrefForDay", () => {
+  it("pages the uploading center to that calendar day", async () => {
+    const { sourceHrefForDay } = await import("@/lib/master-calendar/aggregate");
+    expect(sourceHrefForDay("shorts", "2026-08-14")).toBe("/uploading-center?day=2026-08-14");
+    expect(sourceHrefForDay("x", "2026-08-14")).toBe("/x-posts?date=2026-08-14");
+    expect(sourceHrefForDay("queued-carousels", "2026-08-14")).toBe("/carousels");
+  });
+});
+
+describe("carouselIdFromQueuePath", () => {
+  it("reads the deck id out of a queued slide path", async () => {
+    const { carouselIdFromQueuePath } = await import("@/lib/master-calendar/aggregate");
+    expect(carouselIdFromQueuePath("data/carousels/carousel-abc/slide-01.jpg")).toBe("carousel-abc");
+    expect(carouselIdFromQueuePath("C:\\data\\carousels\\carousel-abc\\slide-01.jpg")).toBe("carousel-abc");
   });
 });

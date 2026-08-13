@@ -1,6 +1,7 @@
 "use client";
 
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import {
   BookOpen,
   Check,
@@ -116,6 +117,9 @@ export function FacebookPage() {
   const posts = useMemo(() => data.fbStrategy?.posts ?? [], [data.fbStrategy]);
   const brief = data.fbStrategy?.brief ?? "";
   const [editing, setEditing] = useState<FbPost | null>(null);
+  const searchParams = useSearchParams();
+  const openPostId = searchParams.get("open");
+  const dateParam = searchParams.get("date");
 
   const savePost = useCallback(
     async (post: FbPost, message: string) => {
@@ -144,7 +148,16 @@ export function FacebookPage() {
             id: "library",
             label: "Saved posts",
             icon: Library,
-            content: <LibraryTab posts={posts} onEdit={setEditing} savePost={savePost} deletePost={(id) => mutate("deleteFbPost", id, { successMessage: "Post deleted." })} />
+            content: (
+              <LibraryTab
+                posts={posts}
+                onEdit={setEditing}
+                savePost={savePost}
+                deletePost={(id) => mutate("deleteFbPost", id, { successMessage: "Post deleted." })}
+                highlightedId={openPostId}
+                dateKey={dateParam}
+              />
+            )
           },
           {
             id: "dashboard",
@@ -812,12 +825,16 @@ function LibraryTab({
   posts,
   onEdit,
   savePost,
-  deletePost
+  deletePost,
+  highlightedId,
+  dateKey
 }: {
   posts: FbPost[];
   onEdit: (post: FbPost) => void;
   savePost: (post: FbPost, message: string) => Promise<void>;
   deletePost: (id: string) => void;
+  highlightedId?: string | null;
+  dateKey?: string | null;
 }) {
   const [platformFilter, setPlatformFilter] = useState<"all" | FbPlatform>("all");
   const [formatFilter, setFormatFilter] = useState<"all" | FbPostFormat>("all");
@@ -827,8 +844,14 @@ function LibraryTab({
     (post) =>
       (platformFilter === "all" || post.platform === platformFilter) &&
       (formatFilter === "all" || post.format === formatFilter) &&
-      (statusFilter === "all" || post.status === statusFilter)
+      (statusFilter === "all" || post.status === statusFilter) &&
+      (!dateKey || post.date === dateKey)
   );
+
+  useEffect(() => {
+    if (!highlightedId) return;
+    document.getElementById(`fb-post-${highlightedId}`)?.scrollIntoView({ behavior: "smooth", block: "center" });
+  }, [highlightedId, filtered.length]);
 
   return (
     <div className="space-y-4">
@@ -865,7 +888,14 @@ function LibraryTab({
       ) : (
         <div className="space-y-4">
           {filtered.map((post) => (
-            <LibraryCard key={post.id} post={post} onEdit={onEdit} savePost={savePost} deletePost={deletePost} />
+            <LibraryCard
+              key={post.id}
+              post={post}
+              onEdit={onEdit}
+              savePost={savePost}
+              deletePost={deletePost}
+              highlighted={highlightedId === post.id}
+            />
           ))}
         </div>
       )}
@@ -877,12 +907,14 @@ function LibraryCard({
   post,
   onEdit,
   savePost,
-  deletePost
+  deletePost,
+  highlighted
 }: {
   post: FbPost;
   onEdit: (post: FbPost) => void;
   savePost: (post: FbPost, message: string) => Promise<void>;
   deletePost: (id: string) => void;
+  highlighted?: boolean;
 }) {
   const { copiedId, copy } = useCopy();
   const [expanded, setExpanded] = useState(false);
@@ -903,7 +935,10 @@ function LibraryCard({
   };
 
   return (
-    <Card className="space-y-3">
+    <Card
+      id={`fb-post-${post.id}`}
+      className={cn("space-y-3", highlighted && "ring-2 ring-[var(--accent)] ring-offset-2 ring-offset-[var(--background)]")}
+    >
       <div className="flex flex-wrap items-center gap-2">
         <span className={cn("rounded-full border px-2.5 py-0.5 text-[11px] font-medium", platform.chip)}>{platform.label}</span>
         <span className={cn("rounded-full border px-2.5 py-0.5 text-[11px] font-medium", format.chip)}>{format.label}</span>

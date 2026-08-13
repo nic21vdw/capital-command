@@ -23,12 +23,14 @@ import { PageHeader } from "@/components/ui/page-header";
 import {
   CALENDAR_SOURCES,
   CALENDAR_SOURCE_BY_ID,
+  eventHref,
   type CalendarSource,
   type CalendarSourceId,
   type MasterCalendarEvent,
   type MasterCalendarResponse
 } from "@/lib/master-calendar/types";
 import type { CalendarPlan } from "@/lib/master-calendar/planner";
+import { sourceHrefForDay } from "@/lib/master-calendar/aggregate";
 import { cn } from "@/lib/utils";
 
 /** Icon components accept the same className/style lucide icons do. */
@@ -125,7 +127,7 @@ function EventChip({ event }: { event: MasterCalendarEvent }) {
   const source = CALENDAR_SOURCE_BY_ID[event.source];
   return (
     <Link
-      href={source.href}
+      href={eventHref(event)}
       title={`${event.time ? `${event.time} · ` : ""}${event.title} — open ${source.hrefLabel}`}
       className="flex items-center gap-1.5 rounded-md border-l-2 bg-white/5 px-1.5 py-1 text-[11px] leading-tight transition hover:translate-x-0.5 hover:bg-white/10"
       style={{ borderLeftColor: source.color }}
@@ -149,18 +151,28 @@ function SourceGroupChip({ source, events }: { source: CalendarSource; events: M
   if (events.length === 1) return <EventChip event={events[0]} />;
   return (
     <div>
-      <button
-        type="button"
-        onClick={() => setOpen((value) => !value)}
-        title={open ? `Collapse ${source.shortLabel}` : `Show ${events.length} ${source.shortLabel}`}
-        className="flex w-full items-center gap-1.5 rounded-md border-l-2 bg-white/5 px-1.5 py-1 text-[11px] leading-tight transition hover:bg-white/10"
+      <div
+        className="flex w-full items-center gap-1.5 rounded-md border-l-2 bg-white/5 text-[11px] leading-tight"
         style={{ borderLeftColor: source.color }}
       >
-        <SourceIcon source={source.id} className="h-3 w-3" />
-        <span className="shrink-0 font-semibold text-white">{events.length}</span>
-        <span className="min-w-0 truncate text-[var(--muted-foreground)]">{source.shortLabel}</span>
-        <ChevronRight className={cn("ml-auto h-3 w-3 shrink-0 text-[var(--muted-foreground)] transition", open && "rotate-90")} />
-      </button>
+        <Link
+          href={sourceHrefForDay(source.id, events[0].dateKey)}
+          title={`Open ${source.hrefLabel}`}
+          className="flex min-w-0 flex-1 items-center gap-1.5 px-1.5 py-1 transition hover:bg-white/10"
+        >
+          <SourceIcon source={source.id} className="h-3 w-3" />
+          <span className="shrink-0 font-semibold text-white">{events.length}</span>
+          <span className="min-w-0 truncate text-[var(--muted-foreground)]">{source.shortLabel}</span>
+        </Link>
+        <button
+          type="button"
+          onClick={() => setOpen((value) => !value)}
+          title={open ? `Collapse ${source.shortLabel}` : `Show ${events.length} ${source.shortLabel}`}
+          className="shrink-0 px-1 py-1 text-[var(--muted-foreground)] transition hover:text-white"
+        >
+          <ChevronRight className={cn("h-3 w-3 transition", open && "rotate-90")} />
+        </button>
+      </div>
       {open ? (
         <div className="mt-1 space-y-1 border-l border-[var(--border)] pl-1.5">
           {events.map((event) => (
@@ -177,7 +189,7 @@ function EventCard({ event }: { event: MasterCalendarEvent }) {
   const source = CALENDAR_SOURCE_BY_ID[event.source];
   return (
     <Link
-      href={source.href}
+      href={eventHref(event)}
       className="group flex items-center gap-3 rounded-lg border border-[var(--border)] border-l-2 bg-white/5 px-3 py-2.5 transition hover:border-[var(--border-strong)] hover:bg-white/10"
       style={{ borderLeftColor: source.color }}
     >
@@ -203,23 +215,32 @@ function SourceGroupCard({ source, events }: { source: CalendarSource; events: M
   if (events.length === 1) return <EventCard event={events[0]} />;
   return (
     <div className="rounded-lg border border-[var(--border)] bg-white/5">
-      <button
-        type="button"
-        onClick={() => setOpen((value) => !value)}
-        title={open ? `Collapse ${source.label}` : `Show all ${events.length}`}
-        className="flex w-full items-center gap-3 px-3 py-2.5 text-left transition hover:bg-white/10"
-      >
-        <SourceIcon source={source.id} className="h-4 w-4" />
-        <span className="min-w-0 flex-1">
-          <span className="block text-sm font-medium text-white">
-            {events.length} {source.label}
+      <div className="flex items-center">
+        <Link
+          href={sourceHrefForDay(source.id, events[0].dateKey)}
+          title={`Open ${source.hrefLabel}`}
+          className="flex min-w-0 flex-1 items-center gap-3 px-3 py-2.5 text-left transition hover:bg-white/10"
+        >
+          <SourceIcon source={source.id} className="h-4 w-4" />
+          <span className="min-w-0 flex-1">
+            <span className="block text-sm font-medium text-white">
+              {events.length} {source.label}
+            </span>
+            <span className="mt-0.5 block text-xs text-[var(--muted-foreground)]">
+              Open {source.hrefLabel} to manage them
+            </span>
           </span>
-          <span className="mt-0.5 block text-xs text-[var(--muted-foreground)]">
-            Batch of {events.length} — tap to {open ? "hide" : "review"}
-          </span>
-        </span>
-        <ChevronRight className={cn("h-4 w-4 shrink-0 text-[var(--muted-foreground)] transition", open && "rotate-90")} />
-      </button>
+          <ArrowUpRight className="h-3.5 w-3.5 shrink-0 text-[var(--muted-foreground)]" />
+        </Link>
+        <button
+          type="button"
+          onClick={() => setOpen((value) => !value)}
+          title={open ? `Collapse ${source.label}` : `Show all ${events.length}`}
+          className="shrink-0 px-3 py-2.5 text-[var(--muted-foreground)] transition hover:text-white"
+        >
+          <ChevronRight className={cn("h-4 w-4 transition", open && "rotate-90")} />
+        </button>
+      </div>
       {open ? (
         <div className="space-y-1.5 border-t border-[var(--border)] p-1.5">
           {events.map((event) => (

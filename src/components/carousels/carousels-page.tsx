@@ -91,7 +91,9 @@ export function CarouselsPage() {
 
   // Arriving from the Stream Pipeline's carousel row: the stream's transcript is
   // already the source, so the photos and the batch count are all that's left.
-  const presetLongform = useSearchParams().get("longform");
+  const searchParams = useSearchParams();
+  const presetLongform = searchParams.get("longform");
+  const openCarouselId = searchParams.get("open");
 
   const [projects, setProjects] = useState<LongformListItem[]>([]);
   const [shorts, setShorts] = useState<ShortOption[]>([]);
@@ -457,7 +459,12 @@ export function CarouselsPage() {
         <div className="space-y-6">
           <ScheduleCalendar carousels={carousels} onUnschedule={unschedule} onPrepare={prepare} />
           {carousels.map((carousel) => (
-            <CarouselCard key={carousel.id} carousel={carousel} refresh={refresh} />
+            <CarouselCard
+              key={carousel.id}
+              carousel={carousel}
+              refresh={refresh}
+              highlighted={openCarouselId === carousel.id}
+            />
           ))}
         </div>
       )}
@@ -588,7 +595,15 @@ function ImageBatch({
   );
 }
 
-function CarouselCard({ carousel, refresh }: { carousel: Carousel; refresh: () => Promise<void> | void }) {
+function CarouselCard({
+  carousel,
+  refresh,
+  highlighted = false
+}: {
+  carousel: Carousel;
+  refresh: () => Promise<void> | void;
+  highlighted?: boolean;
+}) {
   const [ratio, setRatio] = useState<CarouselAspectRatio>(carousel.aspectRatio ?? DEFAULT_ASPECT_RATIO);
   const [downloading, setDownloading] = useState(false);
   const [downloadMenu, setDownloadMenu] = useState(false);
@@ -599,6 +614,11 @@ function CarouselCard({ carousel, refresh }: { carousel: Carousel; refresh: () =
 
   const spec = aspectSpec(ratio);
   const slides = carousel.slides;
+
+  useEffect(() => {
+    if (!highlighted) return;
+    document.getElementById(`carousel-${carousel.id}`)?.scrollIntoView({ behavior: "smooth", block: "center" });
+  }, [highlighted, carousel.id]);
 
   // Preview cards: fixed height, width follows the aspect ratio.
   const previewHeight = 260;
@@ -701,7 +721,10 @@ function CarouselCard({ carousel, refresh }: { carousel: Carousel; refresh: () =
 
 
   return (
-    <Card className="space-y-3">
+    <Card
+      id={`carousel-${carousel.id}`}
+      className={cn("space-y-3", highlighted && "ring-2 ring-[var(--accent)] ring-offset-2 ring-offset-[var(--background)]")}
+    >
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <div className="flex flex-wrap items-center gap-2">

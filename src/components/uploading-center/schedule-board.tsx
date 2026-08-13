@@ -40,7 +40,8 @@ export function ScheduleBoard({
   onPublishNow,
   onRemove,
   onRename,
-  busy
+  busy,
+  highlightedItemId
 }: {
   platform: PlatformId;
   /** The visible window, one entry per day, already placed and sorted. */
@@ -55,6 +56,7 @@ export function ScheduleBoard({
   onRemove: (item: QueueItem) => void;
   onRename: (item: QueueItem, title: string) => void;
   busy: string | null;
+  highlightedItemId?: string | null;
 }) {
   const [dragOverSlot, setDragOverSlot] = useState<string | null>(null);
 
@@ -101,6 +103,7 @@ export function ScheduleBoard({
           onRemove={onRemove}
           onRename={onRename}
           busy={busy}
+          highlightedItemId={highlightedItemId}
         />
       ))}
     </div>
@@ -121,7 +124,8 @@ function DayBand({
   onPublishNow,
   onRemove,
   onRename,
-  busy
+  busy,
+  highlightedItemId
 }: {
   platform: PlatformId;
   day: AgendaDay;
@@ -136,11 +140,13 @@ function DayBand({
   onRemove: (item: QueueItem) => void;
   onRename: (item: QueueItem, title: string) => void;
   busy: string | null;
+  highlightedItemId?: string | null;
 }) {
   const { today, past, entries, openSlots } = day;
   const empty = entries.length === 0 && openSlots.length === 0;
   return (
     <div
+      id={`agenda-day-${day.dateKey}`}
       className={cn(
         "grid grid-cols-[6.5rem_minmax(0,1fr)] gap-3 rounded-xl border p-2.5",
         today ? "border-[var(--accent)]/40 bg-[var(--accent)]/5" : "border-[var(--border)]",
@@ -174,6 +180,7 @@ function DayBand({
               onRemove={onRemove}
               onRename={onRename}
               busy={busy}
+              highlighted={highlightedItemId === entry.item.id}
             />
           ) : (
             <ChannelEntryCard key={`c:${entry.video.videoId}`} time={entry.time} entry={entry} today={today} />
@@ -221,7 +228,8 @@ function QueueEntryCard({
   onPublishNow,
   onRemove,
   onRename,
-  busy
+  busy,
+  highlighted
 }: {
   platform: PlatformId;
   time: string;
@@ -232,6 +240,7 @@ function QueueEntryCard({
   onRemove: (item: QueueItem) => void;
   onRename: (item: QueueItem, title: string) => void;
   busy: string | null;
+  highlighted?: boolean;
 }) {
   const state = item.platforms[platform] as PlatformState;
   const url = remoteUrlFor(platform, state.postId);
@@ -278,9 +287,11 @@ function QueueEntryCard({
   };
   return (
     <div
+      id={`queue-item-${item.id}`}
       className={cn(
         "flex min-h-16 gap-2 rounded-lg border border-[var(--border-strong)] bg-white/6 p-2",
-        today && "border-[var(--accent)]/40"
+        today && "border-[var(--accent)]/40",
+        highlighted && "ring-2 ring-[var(--accent)] ring-offset-2 ring-offset-[var(--background)]"
       )}
       title={advice?.headline ?? item.title}
     >
