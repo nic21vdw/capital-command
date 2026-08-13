@@ -81,6 +81,7 @@ function mockPipeline(
 
 function mockScan(uploads: unknown[]) {
   vi.doMock("@/lib/ingest/channelScan", () => ({
+    DEFAULT_LOOKBACK_DAYS: 7,
     scanChannelUploads: vi.fn(async () => ({
       configured: true,
       needsReconnect: false,
@@ -95,6 +96,7 @@ function mockLedger() {
     readLedger: vi.fn(async () => ({ lastScanAt: null, records: [] })),
     writeLedger: vi.fn(async () => undefined),
     recordScanOutcome: vi.fn(async () => undefined),
+    recordChannelSnapshot: vi.fn(async () => undefined),
     settledVideoIds: () => new Set<string>(),
     attemptsFor: () => 0,
     abandonedRecords: () => [],

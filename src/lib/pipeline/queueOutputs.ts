@@ -406,6 +406,7 @@ export async function queueRunOutputs(
               title: candidate.title,
               platforms: candidate.platforms.length ? candidate.platforms : undefined,
               visibility: "public",
+              runId: run.id,
               metadataSource: { streamTitle: plan.runName }
             })
           : await enqueue({
@@ -416,6 +417,7 @@ export async function queueRunOutputs(
               platforms: candidate.platforms.length ? candidate.platforms : undefined,
               visibility: "public",
               jobId: candidate.kind === "clip" ? candidate.id.split(":")[1] : undefined,
+              runId: run.id,
               metadataSource: { streamTitle: plan.runName }
             });
       queued.push({

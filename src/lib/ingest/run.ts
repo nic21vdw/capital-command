@@ -1,8 +1,10 @@
 import { decideUpload, explainDecision } from "@/lib/ingest/classify";
-import { scanChannelUploads } from "@/lib/ingest/channelScan";
+import { DEFAULT_LOOKBACK_DAYS, scanChannelUploads } from "@/lib/ingest/channelScan";
+import { snapshotFromCandidates } from "@/lib/ingest/coverage";
 import {
   attemptsFor,
   readLedger,
+  recordChannelSnapshot,
   recordScanOutcome,
   settledVideoIds,
   upsertRecord,
@@ -206,6 +208,13 @@ async function runScan(options: RunOptions = {}): Promise<ScanReport> {
     upload,
     decision: decideUpload(upload, seen, { liveOnly })
   }));
+
+  // The picture of the channel outlives the scan: it is what lets the app say
+  // how far behind the pipeline is without spending a quota unit per page load.
+  // A dry run writes it too — looking is exactly what a dry run does.
+  await recordChannelSnapshot(
+    snapshotFromCandidates(candidates, now.toISOString(), options.lookbackDays ?? DEFAULT_LOOKBACK_DAYS)
+  );
 
   log(
     `Found ${candidates.length} upload(s) in the lookback window` +

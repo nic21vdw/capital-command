@@ -113,9 +113,35 @@ export type LedgerScan = {
   dryRun?: boolean;
 };
 
+/**
+ * One video from the last scan's picture of the channel, kept so the app can
+ * say how far behind the pipeline is without spending YouTube quota on every
+ * page load. Only content Nic made is in here — the app's own posts and Shorts
+ * are dropped at scan time, because "caught up" is a question about the videos
+ * that still have work in them.
+ */
+export type ChannelVideo = {
+  videoId: string;
+  title: string;
+  publishedAt: string;
+  /** A live broadcast's VOD, or an ordinary upload (the car recordings). */
+  kind: "stream" | "upload";
+  url: string;
+};
+
+/** What the channel held the last time a scan looked at it. */
+export type ChannelSnapshot = {
+  at: string;
+  /** How far back that scan looked, so the screen can say what it is counting. */
+  lookbackDays: number;
+  videos: ChannelVideo[];
+};
+
 export type IngestLedger = {
   lastScanAt: string | null;
   /** The outcome of the most recent scan, whichever process ran it. */
   lastScan?: LedgerScan;
+  /** The channel as the last scan saw it — see `coverage.ts`. */
+  channel?: ChannelSnapshot;
   records: IngestRecord[];
 };

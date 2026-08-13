@@ -1,6 +1,6 @@
 import { mkdir, readFile, rename, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
-import type { IngestLedger, IngestRecord, LedgerScan } from "@/lib/ingest/types";
+import type { ChannelSnapshot, IngestLedger, IngestRecord, LedgerScan } from "@/lib/ingest/types";
 import { dataPath } from "@/lib/paths";
 
 /**
@@ -28,6 +28,7 @@ export async function readLedger(): Promise<IngestLedger> {
     return {
       lastScanAt: typeof parsed.lastScanAt === "string" ? parsed.lastScanAt : null,
       ...(parsed.lastScan && typeof parsed.lastScan === "object" ? { lastScan: parsed.lastScan } : {}),
+      ...(parsed.channel && Array.isArray(parsed.channel.videos) ? { channel: parsed.channel } : {}),
       records: Array.isArray(parsed.records) ? parsed.records : []
     };
   } catch (error) {
@@ -143,6 +144,20 @@ export async function recordScanOutcome(scan: LedgerScan): Promise<void> {
     const lastScanAt =
       ledger.lastScanAt && ledger.lastScanAt > scan.at ? ledger.lastScanAt : scan.at;
     await writeLedger({ ...ledger, lastScan: scan, lastScanAt });
+  } catch {
+    // The ledger's own read error is already loud where it matters.
+  }
+}
+
+/**
+ * Stores the channel as this scan saw it. Best effort, like the outcome above:
+ * the snapshot only feeds a progress panel, and failing to write it must never
+ * turn a scan that worked into a scan that failed.
+ */
+export async function recordChannelSnapshot(snapshot: ChannelSnapshot): Promise<void> {
+  try {
+    const ledger = await readLedger();
+    await writeLedger({ ...ledger, channel: snapshot });
   } catch {
     // The ledger's own read error is already loud where it matters.
   }

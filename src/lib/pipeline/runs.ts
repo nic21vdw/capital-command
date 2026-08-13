@@ -9,6 +9,7 @@ import { isExportRendering, startLongformExport } from "@/lib/longform/render";
 import { createProject, getProject, planProjectTopics, projectOutputDir, updateProject } from "@/lib/longform/store";
 import type { LongformProject } from "@/lib/longform/types";
 import { generateLongformMetadata, longformMetadataConfigured } from "@/lib/longform/metadata";
+import { deliveryByRun, emptyDelivery } from "@/lib/pipeline/delivery";
 import { generatePipelinePosts } from "@/lib/pipeline/posts";
 import { repairableStages } from "@/lib/pipeline/repairable";
 import { nextSegmentToRender, segmentsRenderable } from "@/lib/pipeline/segments";
@@ -29,6 +30,7 @@ import {
 import { publisherConfig } from "@/lib/publisher/config";
 import { MAX_IMAGES_PER_POST } from "@/lib/publisher/images";
 import { publishQueue } from "@/lib/publisher/queue";
+import type { QueueItem } from "@/lib/publisher/types";
 import { defaultVideoStudio } from "@/lib/storage/schemas";
 import { readAppData, writeAppData } from "@/lib/storage/store";
 import { DEFAULT_SLIDE_COUNT, generateCarousel, illustrateFromRecording } from "@/lib/studio/carousel";
@@ -776,30 +778,28 @@ function postsStage(run: PipelineRun): PipelineStage {
  */
 export type OverviewContext = {
   carousels: () => Promise<{ id: string; slides: unknown[] }[]>;
-  queuedByJob: () => Promise<Map<string, number>>;
+  queue: () => Promise<QueueItem[]>;
 };
 
 export function overviewContext(): OverviewContext {
   let carousels: Promise<{ id: string; slides: unknown[] }[]> | undefined;
-  let queued: Promise<Map<string, number>> | undefined;
+  let queue: Promise<QueueItem[]> | undefined;
   return {
     carousels: () =>
       (carousels ??= readAppData()
         .then((data) => (data.videoStudio ?? defaultVideoStudio).carousels)
         .catch(() => [])),
-    queuedByJob: () =>
-      (queued ??= (async () => {
-        const counts = new Map<string, number>();
+    queue: () =>
+      (queue ??= (async () => {
         const config = publisherConfig();
-        if (!config.enabled) return counts;
+        if (!config.enabled) return [];
         try {
-          for (const item of await publishQueue(config).list()) {
-            if (item.jobId) counts.set(item.jobId, (counts.get(item.jobId) ?? 0) + 1);
-          }
+          return await publishQueue(config).list();
         } catch {
-          // Best-effort count.
+          // Best-effort: a queue that cannot be read reports nothing booked
+          // rather than taking the whole poll down.
+          return [];
         }
-        return counts;
       })())
   };
 }
@@ -823,11 +823,12 @@ export async function runOverview(run: PipelineRun, context?: OverviewContext): 
     slideCount = carousels.find((c) => c.id === run.carouselId)?.slides.length ?? 0;
   }
 
-  // Best-effort: how many publish-queue items already came from this clip job.
-  let queued = 0;
-  if (run.clipJobId) {
-    queued = (await ctx.queuedByJob()).get(run.clipJobId) ?? 0;
-  }
+  // Everything this run put in the publish queue, and how far each post got.
+  const queueItems = await ctx.queue();
+  const delivery =
+    deliveryByRun(queueItems, run.clipJobId ? new Map([[run.clipJobId, run.id]]) : new Map()).get(run.id) ??
+    emptyDelivery();
+  const queued = delivery.booked;
 
   const clipsReady = (job?.clips ?? []).filter((clip) => clip.editedFile || clip.downloadFile || clip.file).length;
   const longformReady = Boolean(exportRecord?.status === "done" && exportRecord.file);
@@ -922,6 +923,7 @@ export async function runOverview(run: PipelineRun, context?: OverviewContext): 
     stages,
     retryable: run.status === "error" ? [] : repairableStages(stages, { longformStalled }),
     visualMoment,
+    delivery,
     schedulable: {
       clipsReady,
       longformReady,

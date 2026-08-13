@@ -1,3 +1,5 @@
+import type { RunDelivery } from "@/lib/pipeline/delivery";
+
 // ----- Stream Pipeline -----
 // A pipeline run takes ONE stream (a VOD link or an uploaded file) and fans it
 // out into every publishable format: the long-form edit, short-form clips, a
@@ -177,6 +179,8 @@ export type PipelineRunOverview = {
     end: number;
     prompt: string;
   };
+  /** How much of this run has been booked, and how much of that is live. */
+  delivery: RunDelivery;
   /** Counts the schedule stage summarizes. */
   schedulable: {
     clipsReady: number;
@@ -191,7 +195,7 @@ export type PipelineRunOverview = {
     carouselSlides: number;
     visualAdReady: boolean;
     posts: number;
-    /** Publish-queue items already created from this run's clip job. */
+    /** Publish-queue items already created from this run. */
     queued: number;
   };
   /** True when no stage is still waiting or running. */

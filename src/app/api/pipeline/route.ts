@@ -1,6 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { FFMPEG_MISSING_MESSAGE, resolveFfmpeg } from "@/lib/clipping/ffmpeg";
 import { ingestOverview } from "@/lib/ingest/service";
+import { channelCoverage, type RunState } from "@/lib/ingest/coverage";
+import { ingestLedger } from "@/lib/ingest/run";
+import { videoIdFromUrl } from "@/lib/ingest/pipelineClient";
+import { runListStatus } from "@/lib/pipeline/status";
 import { readAppData } from "@/lib/storage/store";
 import { createRunFromSource, createRunFromUrl, listRuns, overviewContext, runOverview, updateRun } from "@/lib/pipeline/runs";
 import { summarizeStream } from "@/lib/pipeline/streams";
@@ -45,7 +49,18 @@ export async function GET(request: NextRequest) {
       streams: overviews.map(summarizeStream)
     });
   }
-  return NextResponse.json({ runs: overviews });
+  // How far behind the channel the pipeline is. Read from the last scan's
+  // snapshot and the runs already in hand, so the home screen costs no YouTube
+  // quota and no second request.
+  const runStates: RunState = new Map();
+  for (const entry of overviews) {
+    const videoId = videoIdFromUrl(entry.run.sourceUrl);
+    if (videoId) runStates.set(videoId, runListStatus(entry).tone);
+  }
+  const coverage = await ingestLedger()
+    .then((ledger) => channelCoverage(ledger, runStates))
+    .catch(() => null);
+  return NextResponse.json({ runs: overviews, coverage });
 }
 
 /**

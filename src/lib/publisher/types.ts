@@ -129,6 +129,14 @@ export type QueueItem = {
   /** Optional provenance for the UI/logs. */
   jobId?: string;
   /**
+   * The pipeline run this post came out of. `jobId` only ever covers clips, so
+   * without this a run's long-form edit, its topic segments and its carousel
+   * are invisible to anything asking "how much of this stream actually went
+   * out?". Absent on posts scheduled by hand and on everything queued before
+   * this field existed.
+   */
+  runId?: string;
+  /**
    * The social account this post belongs to (see accounts.ts). Absent on
    * posts scheduled before multi-account support — those belong to the
    * platform's primary account.

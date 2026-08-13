@@ -85,6 +85,9 @@ function toUpload(resource: VideoResource): ChannelUpload | null {
   };
 }
 
+/** A daily scan needs a couple of days of slack for a missed run. */
+export const DEFAULT_LOOKBACK_DAYS = 7;
+
 /**
  * @param options.lookbackDays only uploads published within this window are
  *   returned. A daily scan needs a couple of days of slack for a missed run.
@@ -93,7 +96,7 @@ export async function scanChannelUploads(
   options: { now?: Date; accountId?: string; lookbackDays?: number } = {}
 ): Promise<ChannelScan> {
   const now = options.now ?? new Date();
-  const lookbackDays = options.lookbackDays ?? 7;
+  const lookbackDays = options.lookbackDays ?? DEFAULT_LOOKBACK_DAYS;
   const accountId = options.accountId ?? primaryAccountId("youtube");
   const { youtube } = publisherConfig();
   const refreshToken = await youtubeRefreshTokenFor(accountId);

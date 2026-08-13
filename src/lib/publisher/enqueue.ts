@@ -76,6 +76,8 @@ export type EnqueueOptions = {
   platforms?: PlatformId[];
   visibility?: Visibility;
   jobId?: string;
+  /** The pipeline run this output belongs to (see QueueItem.runId). */
+  runId?: string;
   /**
    * What this file is being posted AS. `"short"` (the default) is the vertical
    * Shorts/Reels/TikTok path, reshaped and refused above three minutes;
@@ -246,6 +248,7 @@ export async function enqueue(options: EnqueueOptions): Promise<QueueItem> {
     visibility: options.visibility ?? config.defaultVisibility,
     createdAt: new Date().toISOString(),
     jobId: options.jobId,
+    ...(options.runId ? { runId: options.runId } : {}),
     ...(accountId ? { accountId } : {}),
     platforms: Object.fromEntries(
       platforms.map((p) => [p, configured.has(p) ? newPlatformState() : manualPlatformState(p)])
@@ -273,6 +276,8 @@ export type EnqueueImageOptions = {
   platforms?: PlatformId[];
   visibility?: Visibility;
   jobId?: string;
+  /** The pipeline run this output belongs to (see QueueItem.runId). */
+  runId?: string;
   accountId?: string;
   metadataSource?: { streamTitle?: string; topic?: string; spokenText?: string };
   /** See EnqueueOptions — a person's override, never anything automatic. */
@@ -382,6 +387,7 @@ export async function enqueueImagePost(options: EnqueueImageOptions): Promise<Qu
     visibility: options.visibility ?? config.defaultVisibility,
     createdAt: new Date().toISOString(),
     jobId: options.jobId,
+    ...(options.runId ? { runId: options.runId } : {}),
     ...(accountId ? { accountId } : {}),
     platforms: Object.fromEntries(
       supported.map((p) => [

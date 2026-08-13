@@ -14,6 +14,20 @@ already shipped.
 
 ## Unreleased
 
+- **The home screen says how each stream is doing, not just whether it
+  finished.** Every past pipeline in the list now carries a progress bar, what
+  it actually produced (shorts, segments, MP3 or podcast, carousel slides,
+  posts), and what happened to those outputs on the way out — "10 scheduled ·
+  10 uploaded", or "Nothing scheduled yet" on a run that made something and
+  booked none of it. Long-form edits, segments and carousels count towards that
+  now too: only clips used to be traceable back to the run they came from.
+- **And how far behind YouTube it is.** A panel above the list says, per kind of
+  video, how much of the last week's channel has been through the pipeline —
+  live streams on one line, recorded uploads (the car recordings) on another —
+  with the ones that never started listed underneath and a Run it button next to
+  each. It reads the picture the nightly scan already took, so it costs no
+  YouTube quota; it appears after the next scan, and offers a Scan button until
+  then.
 - **Double-clicking `update-capital-command.bat` works again.** Every release
   run with no arguments died on `unknown revision 'g'` before it changed a
   thing: releasing `main` into `main` left the script with one branch name

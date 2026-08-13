@@ -34,6 +34,9 @@ import type { QueuePlan } from "@/lib/pipeline/queueOutputs";
 import { usePipelineAttention, useRefreshAttention } from "@/components/pipeline/attention";
 import { useStream } from "@/components/providers/stream-provider";
 import { runListStatus, type RunTone } from "@/lib/pipeline/status";
+import { runProgress } from "@/lib/pipeline/progress";
+import { ChannelCoverageCard } from "@/components/pipeline/channel-coverage";
+import type { ChannelCoverage } from "@/lib/ingest/coverage";
 import { MAX_IMAGES_PER_POST } from "@/lib/publisher/images";
 import { cn } from "@/lib/utils";
 import type {
@@ -331,6 +334,7 @@ export function PipelinePage() {
   const requestedRunId = useSearchParams().get("run");
   const { select: selectStream } = useStream();
   const [overviews, setOverviews] = useState<PipelineRunOverview[]>([]);
+  const [coverage, setCoverage] = useState<ChannelCoverage | null>(null);
   const [loaded, setLoaded] = useState(false);
   const [activeRunId, setActiveRunId] = useState<string | null>(requestedRunId);
   // The app opens on the bare search bar; the flow only exists once a stream has
@@ -365,8 +369,9 @@ export function PipelinePage() {
     try {
       const response = await fetch("/api/pipeline", { cache: "no-store" });
       if (!response.ok) return;
-      const data = (await response.json()) as { runs: PipelineRunOverview[] };
+      const data = (await response.json()) as { runs: PipelineRunOverview[]; coverage?: ChannelCoverage | null };
       setOverviews(data.runs);
+      setCoverage(data.coverage ?? null);
     } finally {
       setLoaded(true);
     }
@@ -807,6 +812,7 @@ export function PipelinePage() {
           {listed.map((entry) => {
             const isActive = showFlow && entry.run.id === (run?.id ?? "");
             const status = runListStatus(entry);
+            const progress = runProgress(entry);
             return (
               <div
                 key={entry.run.id}
@@ -836,6 +842,37 @@ export function PipelinePage() {
                     <span className={cn("mt-0.5 block text-[11px]", RUN_TONE_TEXT[status.tone])}>
                       {status.label} · {formatStartedAt(entry.run.createdAt)}
                     </span>
+                    {/* What the run made and where it got to. The list used to
+                        say only whether it had finished, so ten shorts nobody
+                        had booked looked exactly like a stream fully posted. */}
+                    <span className="mt-1.5 block h-1 overflow-hidden rounded-full bg-white/8">
+                      <span
+                        className={cn(
+                          "block h-full rounded-full transition-all",
+                          status.tone === "attention"
+                            ? "bg-red-400/60"
+                            : progress.percent === 100
+                              ? "bg-emerald-400/60"
+                              : "bg-sky-400/60"
+                        )}
+                        style={{ width: `${progress.percent}%` }}
+                      />
+                    </span>
+                    {progress.outputs.length > 0 && (
+                      <span className="mt-1 block text-[11px] text-[var(--muted-foreground)]">
+                        {progress.outputs.join(" · ")}
+                      </span>
+                    )}
+                    {progress.delivery && (
+                      <span
+                        className={cn(
+                          "mt-0.5 block text-[11px]",
+                          entry.delivery.posted > 0 ? "text-emerald-300/80" : "text-[var(--muted-foreground)]"
+                        )}
+                      >
+                        {progress.delivery}
+                      </span>
+                    )}
                   </span>
                 </button>
                 <button
@@ -881,6 +918,15 @@ export function PipelinePage() {
           <p className="mt-3 text-center text-xs text-[var(--muted-foreground)]">
             One stream in — long-form edit, shorts, MP3, carousel, and posts come back out.
           </p>
+          {loaded ? (
+            <ChannelCoverageCard
+              coverage={coverage}
+              onRun={(link) => void startRun({ url: link })}
+              starting={busy || launching}
+              rescanning={working === "scan"}
+              onRescan={() => void rescan()}
+            />
+          ) : null}
           {loaded ? (
             runList()
           ) : (
