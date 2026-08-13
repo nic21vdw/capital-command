@@ -14,6 +14,8 @@ already shipped.
 
 ## Unreleased
 
+## 2026-08-12
+
 - **The app downloads a third of what it used to on every screen.** Every clip
   project's captions - word by word, for all 139 projects - were sent to the
   browser on every page, when only the clip you actually open needs them. The
