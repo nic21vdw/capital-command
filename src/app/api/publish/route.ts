@@ -67,7 +67,8 @@ const enqueueSchema = z.object({
   hashtags: z.array(z.string()).optional(),
   platforms: z.array(z.enum(["youtube", "instagram", "tiktok", "facebook"])).optional(),
   visibility: z.enum(["public", "private", "unlisted"]).optional(),
-  accountId: z.string().min(1).optional()
+  accountId: z.string().min(1).optional(),
+  format: z.enum(["short", "long"]).optional()
 });
 
 /**
@@ -142,7 +143,8 @@ export async function POST(request: NextRequest) {
       platforms: body.platforms,
       visibility: body.visibility,
       jobId: body.jobId,
-      accountId: body.accountId
+      accountId: body.accountId,
+      format: body.format
     });
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : String(error) }, { status: 400 });

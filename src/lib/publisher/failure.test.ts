@@ -49,6 +49,20 @@ describe("what a blocked post says on the board", () => {
     expect(quota.headline).toContain("worth another go");
   });
 
+  it("says so when the platform took the upload and never fetched the video", () => {
+    const advice = describeFailure(
+      {
+        status: "failed",
+        attempts: 3,
+        error: 'Facebook never fetched the video — this upload has been stuck at "uploading" for 8h.'
+      },
+      "facebook"
+    );
+
+    expect(advice.action).toBe("retry");
+    expect(advice.headline).toContain("never fetched the video");
+  });
+
   it("offers nothing when the video file itself is gone", () => {
     const advice = describeFailure(
       { status: "failed", attempts: 1, error: "Clip file data/clips/a.mp4 is not on this machine and no hosted copy exists" },

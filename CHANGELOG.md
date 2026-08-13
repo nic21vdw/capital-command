@@ -39,6 +39,12 @@ already shipped.
   the pending queue instead of lining up behind the last clip from the same
   recording. Already-uploaded YouTube schedules move with them when you run
   `npm run publish:shuffle -- --write --push`.
+- **Clicking a row on the Master Calendar opens the screen that owns it.**
+  Carousel posts used to dump you in the Uploading Center, which only shows
+  Shorts. They now open Carousels — and a specific deck when the calendar
+  knows which one. Shorts still go to the Uploading Center, Threads to
+  Threads, Facebook threads to FB / IG, long-form to Long-Form. The count
+  chip ("3 Carousel posts") is the same jump, not just an expand.
 - **The long-form video of every stream can be scheduled again.** Booking a
   run's outputs refused the full-length edit with "this clip is 352s long — trim
   it below 3 minutes", because the Shorts length rule was being applied to it —
@@ -46,6 +52,13 @@ already shipped.
   Long-form edits and topic segments now book as ordinary YouTube uploads,
   whatever their length and whatever shape they were rendered in; clips posted
   as Shorts are still held to the three-minute limit.
+
+- **A long-form video can be booked to a time you choose, not just the next
+  free slot.** Scheduling one straight through the publish API still refused it
+  on the Shorts length rule, because the API had no way to say "this is the
+  long video" — only the pipeline's own booking sheet could. It can now, so a
+  full-length edit can be placed on a specific day and time, in its own lane,
+  without competing with the shorts.
 
 - **Opening a stream on the pipeline page now follows you down the sidebar.**
   Clicking a past run set what was on screen but not what the app said you were
@@ -59,6 +72,31 @@ already shipped.
   inside do instead of restating autopilot twice.
 - **The browser tab now says the same words as the sidebar** on X / Threads Posts
   and FB / IG Threads.
+
+## 2026-08-12
+
+- **Facebook Reels actually publish now.** The previous release got the video
+  to Facebook for the first time — the page had never received a single byte —
+  but the last step still did not fire: the adapter waited for Facebook to say
+  `ready`, and a transferred file reports `upload_complete` and sits there,
+  because processing only starts once we ask it to publish. So every clip
+  uploaded, waited, gave up and uploaded again. It now treats a finished
+  transfer as finished and posts it.
+
+## 2026-08-12
+
+- **Facebook posts again, and it stops holding up everything else.** Nothing
+  has reached the Page since 5 July: the app was opening an upload with
+  Facebook and then never handing the video over, because the file was named in
+  the wrong step of Meta's flow — so fifteen Reels sat "uploading" for up to
+  eight days, and the publish runner spent about an hour of every run staring at
+  them while YouTube and Instagram waited behind it (yesterday's 11:30 Instagram
+  post went out at 22:50). The video is now transferred the way Meta's API
+  actually wants it, an upload that has gone nowhere for two hours is declared
+  dead — dropped and sent again from scratch instead of resumed forever — and no
+  single run may spend more than three minutes waiting on Facebook. A Facebook
+  upload that keeps failing now shows up on the board as a failed post with
+  "Facebook took the upload and then never fetched the video", not as silence.
 
 ## 2026-08-11
 

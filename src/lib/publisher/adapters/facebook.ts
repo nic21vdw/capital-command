@@ -1,5 +1,5 @@
 import { publisherConfig } from "@/lib/publisher/config";
-import { PermanentError, StillProcessingError, TransientError, fetchJson } from "@/lib/publisher/http";
+import { AbandonedUploadError, PermanentError, StillProcessingError, TransientError, fetchJson } from "@/lib/publisher/http";
 import { MAX_IMAGES_PER_POST, isCarouselPost, isImagePost } from "@/lib/publisher/images";
 import { composeCaption } from "@/lib/publisher/metadata";
 import { formatInTimezone, toRfc3339Utc } from "@/lib/publisher/time";
@@ -12,20 +12,37 @@ import type { PlatformAdapter, PostResult, PublishInput, PublishPlan } from "@/l
  * the pages_manage_posts / pages_read_engagement permissions.
  *
  * Publishing is the documented three-phase flow:
- *   1. POST /{page-id}/video_reels?upload_phase=start&file_url=...
- *      → { video_id, upload_url }. Passing file_url lets Facebook pull the
- *      clip from the public HTTPS URL directly, so no binary upload step is
- *      needed here (clips are hosted (R2) before this call, same as IG).
- *   2. Poll  GET /{video-id}?fields=status until video_status is "ready".
- *   3. POST /{page-id}/video_reels?upload_phase=finish&video_id=...
+ *   1. POST /{page-id}/video_reels?upload_phase=start → { video_id, upload_url }.
+ *      The start call opens a session ONLY. It takes no file_url: passing one
+ *      here is accepted and then ignored, which is exactly how this adapter
+ *      spent a month opening sessions Facebook never fetched a byte for.
+ *   2. POST the upload_url on rupload.facebook.com with an `Authorization:
+ *      OAuth <token>` header and a `file_url:` HEADER naming the hosted clip.
+ *      That is the hosted-file variant of the transfer phase; the local-file
+ *      variant sends the bytes with offset/file_size headers instead.
+ *   3. Poll  GET /{video-id}?fields=status until the transfer is done, then
+ *      POST /{page-id}/video_reels?upload_phase=finish&video_id=...
  *      &video_state=PUBLISHED → published Reel.
+ *
+ *      "Done" is READY_TO_FINISH, not the literal "ready" the reference names.
+ *      A hosted-file transfer settles on "upload_complete" and stays there:
+ *      processing does not start until the finish call, so waiting for "ready"
+ *      waits for a state that only a finished video reaches. Matching one
+ *      spelling is what left the first real transfers polling to their age
+ *      limit and re-uploading the same clip on a loop.
  *
  * Like Instagram, there is no server-side scheduling for this API, so the
  * runner only invokes this adapter once publishAt is due.
+ *
+ * A session that never leaves "uploading" is dead, not slow: past
+ * ABANDON_AFTER_MS from the first upload it fails for real, the handle is
+ * dropped and the post is sent again from scratch.
  */
 
 const POLL_INTERVAL_MS = 10_000;
-const MAX_POLLS_PER_RUN = 24; // ~4 minutes; longer processing resumes next run
+const DEFAULT_POLL_BUDGET_MS = 60_000;
+const READY_TO_FINISH = new Set(["ready", "upload_complete", "processing_complete"]);
+const ABANDON_AFTER_MS = 2 * 60 * 60 * 1000;
 
 function graphBase(): string {
   return `https://graph.facebook.com/${publisherConfig().facebook.graphApiVersion}`;
@@ -49,6 +66,28 @@ async function videoStatus(videoId: string, accessToken: string): Promise<string
     { label: "Facebook video status", method: "GET" }
   );
   return data.status?.video_status ?? "UNKNOWN";
+}
+
+function ruploadUrl(videoId: string): string {
+  return `https://rupload.facebook.com/video-upload/${publisherConfig().facebook.graphApiVersion}/${videoId}`;
+}
+
+async function transferHostedFile(uploadUrl: string, fileUrl: string, accessToken: string): Promise<void> {
+  const data = await fetchJson<{ success?: boolean }>(uploadUrl, {
+    label: "Facebook video_reels hosted file transfer",
+    headers: { Authorization: `OAuth ${accessToken}`, file_url: fileUrl }
+  });
+  if (data.success === false) {
+    throw new TransientError("Facebook did not accept the hosted video URL for this upload session.");
+  }
+}
+
+function abandonedFor(uploadedAt: string | undefined, now: number): number | null {
+  if (!uploadedAt) return null;
+  const started = new Date(uploadedAt).getTime();
+  if (!Number.isFinite(started)) return null;
+  const age = now - started;
+  return age >= ABANDON_AFTER_MS ? age : null;
 }
 
 async function finishUpload(
@@ -217,22 +256,24 @@ export const facebookAdapter: PlatformAdapter = {
           "Facebook needs a public HTTPS video URL. Configure the S3_* variables so clips are hosted (Cloudflare R2 free tier works)."
         );
       }
-      const started = await fetchJson<{ video_id?: string }>(`${graphBase()}/${creds.pageId}/video_reels`, {
+      const started = await fetchJson<{ video_id?: string; upload_url?: string }>(`${graphBase()}/${creds.pageId}/video_reels`, {
         label: "Facebook video_reels start",
         headers: { "Content-Type": "application/x-www-form-urlencoded" },
         body: new URLSearchParams({
           upload_phase: "start",
-          file_url: input.publicUrl,
           access_token: creds.accessToken
         })
       });
       if (!started.video_id) throw new PermanentError("Facebook video_reels start returned no video_id.");
       videoId = started.video_id;
+      await transferHostedFile(started.upload_url ?? ruploadUrl(videoId), input.publicUrl, creds.accessToken);
     }
 
-    for (let poll = 0; poll < MAX_POLLS_PER_RUN; poll += 1) {
+    const uploadedAt = input.item.platforms.facebook?.uploadedAt;
+    const pollUntil = Date.now() + Math.max(0, input.pollBudgetMs ?? DEFAULT_POLL_BUDGET_MS);
+    for (;;) {
       const status = await videoStatus(videoId, creds.accessToken);
-      if (status === "ready" || status === "READY") return finishUpload(videoId, caption, creds);
+      if (READY_TO_FINISH.has(status.toLowerCase())) return finishUpload(videoId, caption, creds);
       if (status === "published" || status === "PUBLISHED") {
         return { status: "published", postId: videoId, containerId: videoId, detail: "already published" };
       }
@@ -241,8 +282,17 @@ export const facebookAdapter: PlatformAdapter = {
       }
       if (status === "expired" || status === "EXPIRED") {
         // Uploads expire before finishing; a fresh attempt will start a new one.
-        throw new TransientError("Facebook video upload expired before publishing — a new upload will be started on retry.");
+        throw new AbandonedUploadError(videoId, "Facebook video upload expired before publishing — a new upload will be started on retry.");
       }
+      const abandonedMs = abandonedFor(uploadedAt, Date.now());
+      if (abandonedMs !== null) {
+        throw new AbandonedUploadError(
+          videoId,
+          `Facebook never fetched the video — this upload has been stuck at "${status}" for ${Math.round(abandonedMs / 3_600_000)}h. ` +
+            "The dead upload was dropped and the whole post will be sent again from scratch."
+        );
+      }
+      if (Date.now() + POLL_INTERVAL_MS >= pollUntil) break;
       await wait(POLL_INTERVAL_MS);
     }
     // Still processing: keep the video id so the next run resumes it instead
