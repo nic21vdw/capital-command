@@ -93,7 +93,7 @@ export async function adoptChannelVideos(
   const unknown = unknownChannelVideos(schedule.videos, await queue.list());
   const adopted = unknown.map((video) => adoptedItem(video, now, accountId));
   if (options.apply) {
-    for (const item of adopted) await queue.add(item);
+    for (const item of adopted) await queue.add(item, "adopt-channel-videos");
   }
 
   return {

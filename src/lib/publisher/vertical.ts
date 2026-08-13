@@ -17,6 +17,12 @@ import type { PlatformId } from "@/lib/publisher/types";
  * full-length YouTube videos, so they keep their own shape and their own length
  * — applying the Shorts rules to them refused every one of them, which is
  * exactly what this format flag exists to prevent.
+ *
+ * It is still PROBED, though. Exempting long-form from the Shorts rules used to
+ * exempt it from looking at the file at all, so a long-form booking was the one
+ * route into the queue that never asked whether the path even held a video. A
+ * folder, a zero-byte render or a stray .txt sailed through and only failed at
+ * its slot, days later, with nothing on screen until then.
  */
 
 export const SHORTS_MAX_SECONDS = 180;
@@ -31,6 +37,23 @@ export type PreparedMedia = {
   converted: boolean;
 };
 
+/**
+ * The one check a long-form post still owes: ffmpeg can find a video stream in
+ * the file. No shape rule, no length rule — those are the Shorts gate below and
+ * were deliberately lifted off long-form. This only refuses what could never
+ * upload at all, and it names the file, because the caller only knows the path
+ * it was handed.
+ */
+async function assertPlayableVideo(absolutePath: string): Promise<void> {
+  try {
+    await probeVideoStream(absolutePath);
+  } catch {
+    throw new Error(
+      `${path.basename(absolutePath)} has no video stream ffmpeg can read — it is not a video file, so it cannot be posted.`
+    );
+  }
+}
+
 /** Sibling path the derived vertical render is cached at. */
 export function verticalRenderPath(absolutePath: string): string {
   const parsed = path.parse(absolutePath);
@@ -44,14 +67,18 @@ export function verticalRenderPath(absolutePath: string): string {
  * when a SHORT-FORM YouTube post can't possibly be a Short (longer than three
  * minutes) — the boundary is strict, so even 180.0s files classify as
  * long-form. A `"long"` post is left exactly as it is: neither reshaped nor
- * length-checked.
+ * length-checked — but it is still confirmed to be a video, because a path that
+ * holds no video stream is a post that cannot happen and should say so now.
  */
 export async function prepareVerticalMedia(
   absolutePath: string,
   platforms: PlatformId[],
   format: PostFormat = "short"
 ): Promise<PreparedMedia> {
-  if (format === "long") return { path: absolutePath, converted: false };
+  if (format === "long") {
+    await assertPlayableVideo(absolutePath);
+    return { path: absolutePath, converted: false };
+  }
 
   const info = await probeVideoStream(absolutePath);
   if (platforms.includes("youtube") && info.durationSec !== null && info.durationSec > SHORTS_MAX_SECONDS - 1) {
