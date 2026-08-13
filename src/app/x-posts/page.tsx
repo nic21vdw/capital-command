@@ -1,3 +1,4 @@
+import { Suspense } from "react";
 import { AppShell } from "@/components/layout/app-shell";
 import { XPostsPage } from "@/components/x-posts/x-posts-page";
 
@@ -9,7 +10,9 @@ export const metadata = {
 export default function Page() {
   return (
     <AppShell>
-      <XPostsPage />
+      <Suspense fallback={null}>
+        <XPostsPage />
+      </Suspense>
     </AppShell>
   );
 }

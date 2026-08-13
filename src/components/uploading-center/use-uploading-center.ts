@@ -13,7 +13,10 @@ import { placeChannelVideos, type ChannelPlacement } from "@/lib/publisher/chann
 import type { ChannelSchedule, ChannelVideo } from "@/lib/publisher/channelVideos";
 import { generateSlots } from "@/lib/publisher/slots";
 import type { YoutubeQuota } from "@/lib/publisher/quota";
+import { DEFAULT_SLOT_OFFSET_DAYS, SLOT_WINDOW_DAYS } from "@/lib/publisher/slotWindow";
 import { ALL_PLATFORMS, type PlatformId, type QueueItem } from "@/lib/publisher/types";
+
+export { DEFAULT_SLOT_OFFSET_DAYS, SLOT_WINDOW_DAYS };
 
 /**
  * Data layer for the Uploading Center. The front end only ever talks to the
@@ -54,17 +57,6 @@ export type Overview = {
   timezone: string;
   quota: YoutubeQuota;
 };
-
-/** The schedule grid always shows a two-week window. */
-export const SLOT_WINDOW_DAYS = 14;
-
-/**
- * Where the default window starts, in days before today, so the calendar opens
- * on roughly the last week plus the next week — recent uploads and history land
- * on their days right away instead of hiding in a list, and today sits near the
- * middle. Paging steps by SLOT_WINDOW_DAYS from here in either direction.
- */
-export const DEFAULT_SLOT_OFFSET_DAYS = -7;
 
 export type ReadyClip = {
   /** Stable key: jobId + the exact output file that would be posted. */

@@ -4,7 +4,7 @@ import { UploadingCenterPage } from "@/components/uploading-center/uploading-cen
 
 export default function Page() {
   return (
-    <AppShell>
+    <AppShell frame>
       <Suspense fallback={null}>
         <UploadingCenterPage />
       </Suspense>

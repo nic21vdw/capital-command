@@ -1,3 +1,4 @@
+import { Suspense } from "react";
 import { AppShell } from "@/components/layout/app-shell";
 import { FacebookPage } from "@/components/facebook/facebook-page";
 
@@ -9,7 +10,9 @@ export const metadata = {
 export default function Page() {
   return (
     <AppShell>
-      <FacebookPage />
+      <Suspense fallback={null}>
+        <FacebookPage />
+      </Suspense>
     </AppShell>
   );
 }
