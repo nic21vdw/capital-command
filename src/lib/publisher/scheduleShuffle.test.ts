@@ -208,17 +208,43 @@ describe("planScheduleRepair", () => {
     }
   });
 
-  it("says so when a platform wants more posts than there are instants", () => {
-    const items = [
+  /** Three Facebook posts, two instants — no permutation can separate them. */
+  function oversubscribed(): QueueItem[] {
+    return [
       item("a", "2026-08-13T11:30:00.000Z", { jobId: "one", ...on(["facebook"]) }),
       item("b", "2026-08-13T11:30:00.000Z", { jobId: "two", ...on(["facebook"]) }),
       item("c", "2026-08-14T11:30:00.000Z", { jobId: "three", ...on(["facebook"]) })
     ];
-    const plan = planScheduleRepair(items, NOW, { seed: 6 });
-    expect(plan.collisions).toHaveLength(1);
-    const demand = laneDemand(items, NOW);
+  }
+
+  it("counts a lane wanting more posts than the instants it is booked across", () => {
+    const demand = laneDemand(oversubscribed(), NOW);
     expect(demand.instants).toBe(2);
     expect(demand.lanes).toEqual([{ lane: "facebook@", wanted: 3, over: 1 }]);
+  });
+
+  it("gives the overflow a later slot instead of calling it impossible", () => {
+    const items = oversubscribed();
+    const plan = planScheduleRepair(items, NOW, {
+      seed: 6,
+      openSlots: ["2026-08-15T11:30:00.000Z", "2026-08-16T11:30:00.000Z"]
+    });
+    expect(plan.collisions).toEqual([]);
+    const next = applyScheduleShuffle(items, plan);
+    expect(doubleBooked(next)).toEqual([]);
+    expect(next.map((entry) => entry.publishAt)).toContain("2026-08-15T11:30:00.000Z");
+  });
+
+  it("takes the earliest free instant it is offered, not the furthest", () => {
+    const plan = planScheduleRepair(oversubscribed(), NOW, {
+      seed: 6,
+      openSlots: ["2026-08-20T11:30:00.000Z", "2026-08-15T11:30:00.000Z"]
+    });
+    expect(plan.moves.map((move) => move.to)).toContain("2026-08-15T11:30:00.000Z");
+  });
+
+  it("only reports a conflict when it was given nowhere to put the overflow", () => {
+    expect(planScheduleRepair(oversubscribed(), NOW, { seed: 6 }).collisions).toHaveLength(1);
   });
 
   it("leaves a schedule that is already clean alone", () => {
