@@ -14,6 +14,8 @@ already shipped.
 
 ## Unreleased
 
+## 2026-08-12
+
 - **Booking a run's outputs no longer re-shuffles your whole calendar.** It used
   to re-deal every upcoming post the moment anything was booked — on your queue
   that was 338 of 394 posts moved, one of them from August to November, and it
