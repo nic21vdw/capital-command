@@ -12,7 +12,7 @@ import { enqueue, enqueueImagePost } from "@/lib/publisher/enqueue";
 import { MAX_IMAGES_PER_POST } from "@/lib/publisher/images";
 import { shuffled } from "@/lib/publisher/mirror";
 import { publishQueue } from "@/lib/publisher/queue";
-import { planScheduleShuffle } from "@/lib/publisher/scheduleShuffle";
+import { planScheduleRepair } from "@/lib/publisher/scheduleShuffle";
 import { generateSlots } from "@/lib/publisher/slots";
 import type { PlatformId, QueueItem } from "@/lib/publisher/types";
 import type { Carousel } from "@/types/domain";
@@ -335,6 +335,49 @@ export function assignSlots(
 }
 
 /**
+ * Settles the calendar around what was just booked: clears any slot that would
+ * now post one platform twice, and breaks up a stream that landed next to
+ * itself. Nothing else moves.
+ *
+ * This is `planScheduleRepair`, deliberately, and NOT `planScheduleShuffle`.
+ * The two planners differ by one number — `moveCost`, 1 against 0 — and on a
+ * live calendar that number is everything. A shuffle pays nothing to displace a
+ * post, so it is a whole-schedule re-deal: measured against the real 492-item
+ * queue it moved 338 of 394 upcoming posts across 88 days, the worst of them
+ * from August to November, and it did it with a `Date.now()` seed so no two
+ * runs agreed. It also RAN ITSELF — `queueReadyOutputs` reaches this line from
+ * the heartbeat every time a segment finishes rendering — and it left 123
+ * colliding platform-instants on a queue that had none before it.
+ *
+ * A repair pays for every post it disturbs, so everything already fine stays
+ * exactly where he last read it, and the videos YouTube is already holding a
+ * time for are pinned rather than merely deprioritized. It still does what this
+ * call was added for: a back-to-back repeat scores 100 against a move cost of
+ * 1, so a run's outputs are still separated — with the fewest moves that does
+ * it, instead of the most.
+ *
+ * The open slots are the same grid the booking dealt from, so an overflowing
+ * platform gets a later slot rather than stacking onto a day that already
+ * posts. `relocate` only ever moves onto an instant whose lane is empty, so a
+ * slot this booking just filled cannot be handed out twice.
+ */
+async function settleSchedule(): Promise<void> {
+  const config = publisherConfig();
+  const queue = publishQueue(config);
+  const now = new Date();
+  const upcoming = await queue.list();
+  const openSlots = generateSlots({ timeZone: config.timezone, days: BOOKING_HORIZON_DAYS, now })
+    .filter((slot) => slot.bookable)
+    .map((slot) => slot.utc);
+  const fix = planScheduleRepair(upcoming, now, { openSlots });
+  if (fix.moves.length === 0) return;
+  await queue.applyPublishTimes(
+    fix.moves.map((move) => ({ id: move.id, publishAt: move.to })),
+    "pipeline-queue-outputs"
+  );
+}
+
+/**
  * Books the chosen outputs into the publish queue, one per free slot, in
  * random order so a run does not occupy a week as the same stream. One
  * failure never stops the rest — a run with twelve outputs would otherwise
@@ -407,7 +450,8 @@ export async function queueRunOutputs(
               platforms: candidate.platforms.length ? candidate.platforms : undefined,
               visibility: "public",
               runId: run.id,
-              metadataSource: { streamTitle: plan.runName }
+              metadataSource: { streamTitle: plan.runName },
+              by: "pipeline-queue-outputs"
             })
           : await enqueue({
               clipPath: candidate.filePath,
@@ -418,7 +462,8 @@ export async function queueRunOutputs(
               visibility: "public",
               jobId: candidate.kind === "clip" ? candidate.id.split(":")[1] : undefined,
               runId: run.id,
-              metadataSource: { streamTitle: plan.runName }
+              metadataSource: { streamTitle: plan.runName },
+              by: "pipeline-queue-outputs"
             });
       queued.push({
         title: candidate.title,
@@ -431,18 +476,23 @@ export async function queueRunOutputs(
         title: candidate.title,
         error: error instanceof Error ? error.message : String(error)
       });
+      continue;
     }
+    // Written HERE, one booking at a time, not once after the loop. The run's
+    // record of what it booked used to be persisted only at the end, so a
+    // process that died mid-loop — a restart, a release, a killed CLI — left
+    // items on the live queue that no run admitted to putting there. That is
+    // exactly the state nobody could explain on 2026-08-12, and it cannot be
+    // investigated after the fact: the queue says what is scheduled and the run
+    // says it booked nothing. A flush per item costs one small write and buys a
+    // record that is true at every instant.
+    //
+    // Outside the try on purpose — a failed flush is not a failed booking, and
+    // reporting it as one would put the same output in both lists.
+    await updateRun(run, { queueBooked: [...alreadyBooked, ...bookedIds] });
   }
   const failed = chosen.map((candidate) => problems.get(candidate.id)).filter((entry) => entry !== undefined);
-  if (queued.length > 0) {
-    const config = publisherConfig();
-    const queue = publishQueue(config);
-    const upcoming = await queue.list();
-    const mix = planScheduleShuffle(upcoming, new Date(), { onlyPending: true });
-    if (mix.moves.length > 0) {
-      await queue.applyPublishTimes(mix.moves.map((move) => ({ id: move.id, publishAt: move.to })));
-    }
-  }
+  if (queued.length > 0) await settleSchedule();
   if (bookedIds.length > 0 || droppedNow.length > 0) {
     await updateRun(run, {
       queueBooked: [...alreadyBooked, ...bookedIds],

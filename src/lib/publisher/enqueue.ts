@@ -18,6 +18,7 @@ import {
   type DuplicateCandidate
 } from "@/lib/publisher/duplicates";
 import { generateClipMetadata } from "@/lib/publisher/metadata";
+import type { QueueWriter } from "@/lib/publisher/audit";
 import { newPlatformState, publishQueue, type PublishQueue } from "@/lib/publisher/queue";
 import { assertBookable } from "@/lib/publisher/schedule";
 import { nextBookableSlot } from "@/lib/publisher/slots";
@@ -99,7 +100,32 @@ export type EnqueueOptions = {
   allowSameDay?: boolean;
   /** Queues a post the queue already carries. Only a person asking for it. */
   allowDuplicate?: boolean;
+  /**
+   * Which entry point asked for this post, recorded in the queue's audit log
+   * (`audit.ts`). `enqueue` is the one door into the queue, so without this
+   * every booking would read the same and the log could not tell the pipeline's
+   * unattended run from a person on the Uploading Center.
+   */
+  by?: QueueWriter;
 };
+
+/**
+ * A queue item's path must be a FILE. `stat()` alone is not that check — a
+ * directory passes it happily, which is how 27 carousel items came to sit on
+ * the live queue pointing at `data\carousels\carousel-<uuid>`, the folder,
+ * instead of a picture inside it. Nothing noticed until each one failed at its
+ * own slot, silently, days apart. The queue is the wrong place to discover
+ * this: refuse it at the door.
+ */
+async function assertRegularFile(absolute: string, missingMessage: string): Promise<void> {
+  const info = await stat(absolute).catch(() => null);
+  if (!info) throw new Error(missingMessage);
+  if (!info.isFile()) {
+    throw new Error(
+      `${absolute} is a folder, not a file — a scheduled post needs the file itself, not the directory holding it.`
+    );
+  }
+}
 
 /**
  * Resolves the target account. A primary id normalizes back to "no account" so
@@ -164,9 +190,7 @@ export async function enqueue(options: EnqueueOptions): Promise<QueueItem> {
   }
 
   const absolute = path.isAbsolute(options.clipPath) ? options.clipPath : path.join(process.cwd(), options.clipPath);
-  await stat(absolute).catch(() => {
-    throw new Error(`Clip file not found: ${options.clipPath}`);
-  });
+  await assertRegularFile(absolute, `Clip file not found: ${options.clipPath}`);
 
   const platforms = (options.platforms?.length ? options.platforms : config.platforms).filter(
     (p, i, list) => list.indexOf(p) === i
@@ -260,7 +284,7 @@ export async function enqueue(options: EnqueueOptions): Promise<QueueItem> {
     item.mediaKey = hosted.key;
   }
 
-  await publishQueue(config).add(item);
+  await publishQueue(config).add(item, options.by ?? "enqueue");
   return item;
 }
 
@@ -283,6 +307,8 @@ export type EnqueueImageOptions = {
   /** See EnqueueOptions — a person's override, never anything automatic. */
   allowSameDay?: boolean;
   allowDuplicate?: boolean;
+  /** See EnqueueOptions. */
+  by?: QueueWriter;
 };
 
 /**
@@ -315,9 +341,7 @@ export async function enqueueImagePost(options: EnqueueImageOptions): Promise<Qu
         `${path.basename(absolute)} is not a supported picture (${SUPPORTED_IMAGE_EXTENSIONS.join(", ")}).`
       );
     }
-    await stat(absolute).catch(() => {
-      throw new Error(`Image file not found: ${absolute}`);
-    });
+    await assertRegularFile(absolute, `Image file not found: ${absolute}`);
   }
 
   const asked = (options.platforms?.length ? options.platforms : config.platforms).filter(
@@ -402,7 +426,7 @@ export async function enqueueImagePost(options: EnqueueImageOptions): Promise<Qu
     item.mediaKey = item.imageKeys[0];
   }
 
-  await publishQueue(config).add(item);
+  await publishQueue(config).add(item, options.by ?? "enqueue-image");
   return item;
 }
 

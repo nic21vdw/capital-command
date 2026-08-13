@@ -1,3 +1,4 @@
+import { recordQueueMutations, type QueueWriter } from "@/lib/publisher/audit";
 import { publisherConfig, type PublisherConfig } from "@/lib/publisher/config";
 import { mediaHost } from "@/lib/publisher/hosting";
 import { rearmItem, type RearmScope } from "@/lib/publisher/rearm";
@@ -17,6 +18,15 @@ import type { BufferState, PlatformId, PlatformState, PostResult, QueueItem } fr
  * ever finalizes (verify/flip visibility, never a re-upload), so re-runs of
  * the runner can never double-post. Transient errors keep the platform in
  * its current state and only bump attempts/nextAttemptAt.
+ *
+ * Every mutation of WHAT is on the queue — an item arriving, leaving, or being
+ * moved to another slot — is also written to `data/publish-queue.log` with the
+ * process and the entry point that did it (`audit.ts`). The per-platform state
+ * machine below is not: a claim, an attempt count and a retry backoff are the
+ * runner talking to itself, and logging them would bury the writes a person
+ * actually needs to find. Each of these methods takes the caller's label; a
+ * write that does not pass one is logged as `unattributed`, which is a finding
+ * in itself rather than a silent gap.
  */
 
 export class PublishQueue {
@@ -55,29 +65,52 @@ export class PublishQueue {
     return this.items.get(id);
   }
 
-  async add(item: QueueItem): Promise<void> {
+  async add(item: QueueItem, writer: QueueWriter = "unattributed"): Promise<void> {
     await this.load();
     this.items.set(item.id, item);
     await this.save();
+    await recordQueueMutations([
+      { action: "add", writer, id: item.id, clipPath: item.clipPath, publishAt: item.publishAt }
+    ]);
   }
 
-  async applyPublishTimes(updates: Array<{ id: string; publishAt: string }>): Promise<number> {
+  async applyPublishTimes(
+    updates: Array<{ id: string; publishAt: string }>,
+    writer: QueueWriter = "unattributed"
+  ): Promise<number> {
     await this.load();
-    let changed = 0;
+    const moved: QueueItem[] = [];
     for (const update of updates) {
       const item = this.items.get(update.id);
       if (!item || item.publishAt === update.publishAt) continue;
       item.publishAt = update.publishAt;
-      changed += 1;
+      moved.push(item);
     }
-    if (changed > 0) await this.save();
-    return changed;
+    if (moved.length > 0) {
+      await this.save();
+      await recordQueueMutations(
+        moved.map((item) => ({
+          action: "publish-time" as const,
+          writer,
+          id: item.id,
+          clipPath: item.clipPath,
+          publishAt: item.publishAt
+        }))
+      );
+    }
+    return moved.length;
   }
 
-  async remove(id: string): Promise<boolean> {
+  async remove(id: string, writer: QueueWriter = "unattributed"): Promise<boolean> {
     await this.load();
+    const item = this.items.get(id);
     const existed = this.items.delete(id);
-    if (existed) await this.save();
+    if (existed) {
+      await this.save();
+      await recordQueueMutations([
+        { action: "remove", writer, id, clipPath: item?.clipPath, publishAt: item?.publishAt }
+      ]);
+    }
     return existed;
   }
 
@@ -113,7 +146,11 @@ export class PublishQueue {
    * on the next poll left nothing behind but a console line and a clip quietly
    * back in Draft. Saves once when anything changed; returns what it removed.
    */
-  async purgeFailed(now: Date, retentionDays = FAILED_RETENTION_DAYS): Promise<QueueItem[]> {
+  async purgeFailed(
+    now: Date,
+    retentionDays = FAILED_RETENTION_DAYS,
+    writer: QueueWriter = "api-publish-purge"
+  ): Promise<QueueItem[]> {
     await this.load();
     const removed: QueueItem[] = [];
     for (const [id, item] of this.items) {
@@ -122,7 +159,18 @@ export class PublishQueue {
         removed.push(item);
       }
     }
-    if (removed.length > 0) await this.save();
+    if (removed.length > 0) {
+      await this.save();
+      await recordQueueMutations(
+        removed.map((item) => ({
+          action: "purge" as const,
+          writer,
+          id: item.id,
+          clipPath: item.clipPath,
+          publishAt: item.publishAt
+        }))
+      );
+    }
     return removed;
   }
 

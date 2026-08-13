@@ -94,11 +94,46 @@ export async function externalizeProjectOverlays(project: ClipProject): Promise<
  */
 export async function repairAppDataOverlays(data: AppData): Promise<AppData> {
   const { projects, changed } = await externalizeAllOverlays(data.clipProjects ?? []);
-  if (!changed) return data;
+  const withImages = await externalizeAppDataImages(changed ? { ...data, clipProjects: projects } : data);
+  if (!changed && withImages === data) return data;
 
-  const repaired = { ...data, clipProjects: projects };
+  const repaired = changed ? { ...withImages, clipProjects: projects } : withImages;
   await writeAppData(repaired);
   return repaired;
+}
+
+/**
+ * The same treatment for the pictures that are not overlays: the brand logo and
+ * watermark a project starts from, and the profile avatar. They were the
+ * ORIGINALS the overlays were copied from, and externalizing only the copies
+ * left the biggest one behind — the watermark alone was 487 KB of base64, a
+ * fifth of everything the browser downloads and parses on every page, and it
+ * was rewritten to disk on every keystroke that saved app data.
+ *
+ * Returns the same object when there was nothing to move, so a read that
+ * repairs old data only writes when it actually found something.
+ */
+export async function externalizeAppDataImages(data: AppData): Promise<AppData> {
+  const brand = data.brandAssets;
+  const avatar = data.settings?.profile?.avatar;
+  const inlineBrand = isDataUrl(brand?.logoSrc) || isDataUrl(brand?.watermarkSrc);
+  if (!inlineBrand && !isDataUrl(avatar)) return data;
+
+  const next = { ...data };
+  if (inlineBrand && brand) {
+    next.brandAssets = {
+      ...brand,
+      ...(isDataUrl(brand.logoSrc) ? { logoSrc: await storeOverlayImage(brand.logoSrc) } : {}),
+      ...(isDataUrl(brand.watermarkSrc) ? { watermarkSrc: await storeOverlayImage(brand.watermarkSrc) } : {})
+    };
+  }
+  if (isDataUrl(avatar) && data.settings) {
+    next.settings = {
+      ...data.settings,
+      profile: { ...data.settings.profile, avatar: await storeOverlayImage(avatar) }
+    };
+  }
+  return next;
 }
 
 export async function externalizeAllOverlays(
