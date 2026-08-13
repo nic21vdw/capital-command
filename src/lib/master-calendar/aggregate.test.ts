@@ -42,10 +42,25 @@ describe("what a booked queue item reads as on the calendar", () => {
     ]);
     expect(event.source).toBe("queued-carousels");
     expect(event.id.startsWith("queued-carousels:")).toBe(true);
+    expect(event.href).toBe("/carousels?open=deck-1");
   });
 
   it("leaves a video where it was", () => {
     const [event] = events([item({})]);
     expect(event.source).toBe("shorts");
+    expect(event.href).toBe("/uploading-center");
+  });
+
+  it("opens the clip's job when a short has one", () => {
+    const [event] = events([item({ jobId: "job-9" })]);
+    expect(event.href).toBe("/uploading-center?job=job-9");
+  });
+});
+
+describe("carouselIdFromQueuePath", () => {
+  it("reads the deck id out of a queued slide path", async () => {
+    const { carouselIdFromQueuePath } = await import("@/lib/master-calendar/aggregate");
+    expect(carouselIdFromQueuePath("data/carousels/carousel-abc/slide-01.jpg")).toBe("carousel-abc");
+    expect(carouselIdFromQueuePath("C:\\data\\carousels\\carousel-abc\\slide-01.jpg")).toBe("carousel-abc");
   });
 });

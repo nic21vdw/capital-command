@@ -68,6 +68,11 @@ function truncate(text: string, max = 80): string {
   return trimmed.length > max ? `${trimmed.slice(0, max - 1)}…` : trimmed;
 }
 
+export function carouselIdFromQueuePath(filePath: string): string | undefined {
+  const match = filePath.replace(/\\/g, "/").match(/(?:^|\/)carousels\/([^/]+)(?:\/|$)/);
+  return match?.[1];
+}
+
 /**
  * One overall status for a queue item across its per-platform states:
  * everything landed → published, everything dead → failed, anything already
@@ -97,6 +102,7 @@ function shortsEvents(
     // calendar filed a booked carousel under Shorts, where he would never look
     // for it.
     const picture = isImagePost(item);
+    const carouselId = picture ? carouselIdFromQueuePath(item.clipPath) : undefined;
     events.push({
       id: `${picture ? "queued-carousels" : "shorts"}:${item.id}`,
       source: picture ? "queued-carousels" : "shorts",
@@ -106,7 +112,14 @@ function shortsEvents(
         item.title || item.clipPath.split("/").pop() || (picture ? "Scheduled carousel" : "Scheduled short")
       ),
       platforms: (Object.keys(item.platforms) as PlatformId[]).map((platform) => PLATFORM_LABELS[platform]),
-      status: queueItemStatus(item)
+      status: queueItemStatus(item),
+      href: picture
+        ? carouselId
+          ? `/carousels?open=${encodeURIComponent(carouselId)}`
+          : "/carousels"
+        : item.jobId
+          ? `/uploading-center?job=${encodeURIComponent(item.jobId)}`
+          : "/uploading-center"
     });
   }
   return events;
@@ -141,7 +154,8 @@ function carouselEvents(carousels: Carousel[], startKey: string, endKey: string,
         time: schedule.time,
         title: truncate(carousel.title || "Carousel"),
         platforms,
-        status: "scheduled"
+        status: "scheduled",
+        href: `/carousels?open=${encodeURIComponent(carousel.id)}`
       };
       const recurrence = schedule.recurrence ?? "once";
       if (recurrence === "once") {
@@ -174,7 +188,8 @@ function xEvents(packs: XDailyPack[], startKey: string, endKey: string): MasterC
         time: post.time,
         title: truncate(post.topic || post.text),
         platforms: ["X", "Threads"],
-        status: "suggested"
+        status: "suggested",
+        href: "/x-posts"
       });
     }
   }
@@ -190,7 +205,8 @@ function fbEvents(posts: FbPost[], startKey: string, endKey: string): MasterCale
       dateKey: post.date,
       title: truncate(post.hook || post.body),
       platforms: [post.platform === "facebook" ? "Facebook" : "Instagram"],
-      status: post.status
+      status: post.status,
+      href: "/facebook"
     }));
 }
 
@@ -207,7 +223,8 @@ function contentEvents(items: ContentItem[], startKey: string, endKey: string): 
       time,
       title: truncate(item.title),
       platforms: [item.platform],
-      status: item.status.toLowerCase()
+      status: item.status.toLowerCase(),
+      href: "/longform"
     });
   }
   return events;
