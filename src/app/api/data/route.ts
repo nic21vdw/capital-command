@@ -10,11 +10,14 @@ import { appDataSchema, brandAssetsSchema, clipProjectSchema, contentItemSchema,
 import { readApiStatus } from "@/lib/apiStatus";
 import { setPublishingEnabled } from "@/lib/publisher/enabled";
 import { AppDataUnreadableError, latestGoodSnapshot, readAppData, resetAppData, restoreLastGoodSnapshot, writeAppData } from "@/lib/storage/store";
-import type { AppData, ExecutionGoal, Holding } from "@/types/domain";
+import { projectsWithoutCaptions, stampProjectSignature } from "@/lib/clipping/project-payload";
+import type { AppData, ClipProject, ExecutionGoal, Holding } from "@/types/domain";
 
 function success(data: AppData) {
   return NextResponse.json({
-    data,
+    // Captions never ride in a payload — see project-payload.ts. They stay on
+    // disk in `data`; only what the browser is handed drops them.
+    data: { ...data, clipProjects: projectsWithoutCaptions(data.clipProjects ?? []) },
     summary: derivePortfolioSummary(data),
     // `updateSettings` can flip publishing on or off, so the answer carries the
     // server's own state back — without it the switch redrew from the payload
@@ -307,11 +310,24 @@ export async function POST(request: NextRequest) {
     }
     case "upsertClipProject": {
       // Straight to disk: an overlay picture must never enter the JSON store.
-      const parsed = await externalizeProjectOverlays(clipProjectSchema.parse(payload));
-      const exists = data.clipProjects.some((item) => item.id === parsed.id);
+      const incoming = await externalizeProjectOverlays(
+        clipProjectSchema.parse(payload) as unknown as ClipProject
+      );
+      const stored = data.clipProjects.find((item) => item.id === incoming.id);
+      // Captions are the one field a caller may legitimately not have: the
+      // app-data payload ships projects without them, flagged `captionsOmitted`
+      // and carrying an empty array. Either signal means "leave what is stored
+      // alone" — writing an empty array over hand-split, re-timed captions
+      // would destroy work that exists nowhere else. An explicit empty array on
+      // a copy that was never stripped is still honoured, so deleting every
+      // caption in the editor works.
+      const body = payload as { captions?: unknown; captionsOmitted?: unknown };
+      const omitted = body?.captions === undefined || body?.captionsOmitted === true;
+      const captions = omitted ? stored?.captions ?? [] : incoming.captions ?? [];
+      const parsed = stampProjectSignature({ ...incoming, captions, captionsOmitted: undefined });
       data = {
         ...data,
-        clipProjects: exists
+        clipProjects: stored
           ? data.clipProjects.map((item) => (item.id === parsed.id ? parsed : item))
           : [parsed, ...data.clipProjects]
       };

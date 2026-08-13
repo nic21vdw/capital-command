@@ -150,7 +150,13 @@ function computeNeedsRerender(clip: ClipCandidate, projects: ClipProject[]): boo
     // A render exists — stale only if the project changed since it was made.
     // Legacy renders carry no signature; leave those alone to avoid false alarms.
     if (!clip.editedSignature) return false;
-    return renderSignature({ ...project, settings: project.exportSettings }) !== clip.editedSignature;
+    // The project's own signature, stamped server-side on every write. It is
+    // read rather than recomputed because the signature hashes the captions and
+    // the payload no longer carries them — and a project too old to have been
+    // stamped is left alone for the same reason a legacy render is.
+    const signature = project.renderSignature;
+    if (!signature) return false;
+    return signature !== clip.editedSignature;
   }
   // No render at all: flag only edits the auto render can't already contain
   // (a real trim, added overlays, a watermark).

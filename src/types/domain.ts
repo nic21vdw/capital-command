@@ -692,6 +692,28 @@ export interface ClipProject {
   suggestions: AISuggestion[];
   createdAt: string;
   updatedAt: string;
+  /**
+   * `renderSignature` of this project, computed and stored server-side on every
+   * write. The Uploading Center compares it with the clip's `editedSignature`
+   * to tell a stale render from a current one, and reading it here is what lets
+   * the app-data payload ship a project WITHOUT its captions — the signature
+   * hashes them, so recomputing it in the browser needed all 1.2 MB of them.
+   * Absent only on a project last written before this field existed.
+   */
+  renderSignature?: string;
+  /**
+   * How many captions the stored project has, so a list can say so without
+   * carrying them. Set alongside `renderSignature`.
+   */
+  captionCount?: number;
+  /**
+   * True when this copy came from a list that omitted `captions` to keep the
+   * payload small. Nothing may SAVE a project carrying this flag — the editor
+   * loads the whole project first (see `GET /api/clip-projects/<id>`), because
+   * captions can be hand-split and re-timed and are not reproducible from the
+   * transcript alone.
+   */
+  captionsOmitted?: boolean;
 }
 
 // ---------------------------------------------------------------------------

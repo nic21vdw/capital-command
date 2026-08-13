@@ -14,6 +14,14 @@ already shipped.
 
 ## Unreleased
 
+- **The app downloads a third of what it used to on every screen.** Every clip
+  project's captions - word by word, for all 139 projects - were sent to the
+  browser on every page, when only the clip you actually open needs them. The
+  Clip Editor now fetches them for the project you open, and refuses to open a
+  project whose captions it could not load rather than risk saving over them.
+  Nothing else changes: the project list still shows each clip's caption
+  count, and captions you have split or re-timed by hand are untouched. The
+  page payload went from 2.4MB to 725KB across today's two changes.
 ## 2026-08-12
 
 - **The home screen says how each stream is doing, not just whether it
