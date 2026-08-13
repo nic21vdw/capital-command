@@ -70,6 +70,20 @@ already shipped.
   the pending queue instead of lining up behind the last clip from the same
   recording. Already-uploaded YouTube schedules move with them when you run
   `npm run publish:shuffle -- --write --push`.
+- **The Uploading Center title stays put while you scroll.** The top of the
+  screen — "Uploading Center", the channel you're connected as and the quota
+  meter — is now a frozen pane, and only the clips for the run and the
+  calendars move underneath it. Scrolling to the far end of the calendar no
+  longer loses the header, and the calendar's own inner scrollbar is gone, so
+  there's one scroll on the screen instead of two fighting each other. On a
+  short window (under 720px tall) it scrolls the old way, because a pinned
+  header there would cost more room than it saves.
+- **A calendar short opens that short, not today's leftover project.** Clicking
+  a scheduled Short used to switch the Uploading Center to a job — often the
+  newest one — and dump you at the top of today. It now opens the queue item
+  you clicked: the right platform tab, the two-week window that actually
+  contains that day, and the card ringed and scrolled into view. Threads
+  packs open that day's pack; Facebook rows open that saved post.
 - **Clicking a row on the Master Calendar opens the screen that owns it.**
   Carousel posts used to dump you in the Uploading Center, which only shows
   Shorts. They now open Carousels — and a specific deck when the calendar

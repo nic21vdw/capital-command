@@ -667,19 +667,19 @@ function ProfileFooter({ collapsed = false }: { collapsed?: boolean }) {
   );
 }
 
-export function AppShell({ children }: { children: React.ReactNode }) {
+export function AppShell({ children, frame = false }: { children: React.ReactNode; frame?: boolean }) {
   return (
     <ReleaseProvider>
       <PipelineAttentionProvider>
         <StreamProvider>
-          <AppChrome>{children}</AppChrome>
+          <AppChrome frame={frame}>{children}</AppChrome>
         </StreamProvider>
       </PipelineAttentionProvider>
     </ReleaseProvider>
   );
 }
 
-function AppChrome({ children }: { children: React.ReactNode }) {
+function AppChrome({ children, frame }: { children: React.ReactNode; frame: boolean }) {
   const pathname = usePathname();
   const settingsActive = pathname === "/settings";
   // Read the stored preference after mount: reading localStorage inside the
@@ -709,7 +709,7 @@ function AppChrome({ children }: { children: React.ReactNode }) {
   };
 
   return (
-    <div className="flex min-h-screen gap-6 px-4 py-4 lg:px-6">
+    <div className={cn("flex min-h-screen gap-6 px-4 py-4 lg:px-6", frame && "app-frame")}>
       <aside className={cn("hidden shrink-0 transition-[width] duration-300 lg:block", sidebarCollapsed ? "w-20" : "w-72")}>
         <div className="sticky top-4 flex h-[calc(100vh-2rem)] flex-col rounded-xl border border-[var(--border)] bg-[var(--panel)] p-4">
           {/* When collapsed the rail is too narrow for the brand and the toggle
@@ -797,7 +797,7 @@ function AppChrome({ children }: { children: React.ReactNode }) {
           </div>
         </div>
       </aside>
-      <main className="min-w-0 flex-1">
+      <main className={cn("min-w-0 flex-1", frame && "app-frame-pane")}>
         {/* Above everything, on every page: a release waiting on `dev` is the
             one thing worth interrupting whatever is on screen for. */}
         <UpdateBanner />
@@ -839,15 +839,17 @@ function AppChrome({ children }: { children: React.ReactNode }) {
         {/* Keyed on the route so each navigation pushes the new page in with an
             iOS-style transition. Query-param changes (e.g. tab switches) keep
             the same key and don't re-animate. */}
-        <div key={pathname} className="page-enter">
+        <div key={pathname} className={cn("page-enter", frame && "app-frame-pane")}>
           {/* Which recording this screen is showing, on every screen that can
               show one. Without it a Formats page is an undated pile of work. */}
           <StreamBanner />
           {children}
         </div>
-        <AppFooter />
-        {/* Room for the command bar, which floats over everything. */}
-        <div className="h-32" />
+        <div className={cn(frame && "app-frame-hide")}>
+          <AppFooter />
+          {/* Room for the command bar, which floats over everything. */}
+          <div className="h-32" />
+        </div>
       </main>
       <CommandBar />
     </div>

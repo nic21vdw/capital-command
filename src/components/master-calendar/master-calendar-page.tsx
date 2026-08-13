@@ -30,6 +30,7 @@ import {
   type MasterCalendarResponse
 } from "@/lib/master-calendar/types";
 import type { CalendarPlan } from "@/lib/master-calendar/planner";
+import { sourceHrefForDay } from "@/lib/master-calendar/aggregate";
 import { cn } from "@/lib/utils";
 
 /** Icon components accept the same className/style lucide icons do. */
@@ -155,7 +156,7 @@ function SourceGroupChip({ source, events }: { source: CalendarSource; events: M
         style={{ borderLeftColor: source.color }}
       >
         <Link
-          href={source.href}
+          href={sourceHrefForDay(source.id, events[0].dateKey)}
           title={`Open ${source.hrefLabel}`}
           className="flex min-w-0 flex-1 items-center gap-1.5 px-1.5 py-1 transition hover:bg-white/10"
         >
@@ -216,7 +217,7 @@ function SourceGroupCard({ source, events }: { source: CalendarSource; events: M
     <div className="rounded-lg border border-[var(--border)] bg-white/5">
       <div className="flex items-center">
         <Link
-          href={source.href}
+          href={sourceHrefForDay(source.id, events[0].dateKey)}
           title={`Open ${source.hrefLabel}`}
           className="flex min-w-0 flex-1 items-center gap-3 px-3 py-2.5 text-left transition hover:bg-white/10"
         >
