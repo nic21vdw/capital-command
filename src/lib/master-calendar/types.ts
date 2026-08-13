@@ -27,6 +27,8 @@ export type MasterCalendarEvent = {
   status: string;
   /** True for occurrences expanded from a repeating carousel schedule. */
   recurring?: boolean;
+  /** Deep link into the screen that owns this item. Falls back to the source href. */
+  href?: string;
 };
 
 export type CalendarSource = {
@@ -60,15 +62,12 @@ export const CALENDAR_SOURCES: CalendarSource[] = [
     hrefLabel: "Carousels"
   },
   {
-    // A deck already BOOKED into the publish queue is not a carousel schedule:
-    // the retry, the remove and the slide files are in the Uploading Center, so
-    // it must not send him to the Carousels studio.
     id: "queued-carousels",
     label: "Scheduled carousel posts",
     shortLabel: "Carousel posts",
     color: "#e1306c",
-    href: "/uploading-center",
-    hrefLabel: "Uploading Center"
+    href: "/carousels",
+    hrefLabel: "Carousels"
   },
   {
     id: "x",
@@ -99,6 +98,10 @@ export const CALENDAR_SOURCES: CalendarSource[] = [
 export const CALENDAR_SOURCE_BY_ID: Record<CalendarSourceId, CalendarSource> = Object.fromEntries(
   CALENDAR_SOURCES.map((source) => [source.id, source])
 ) as Record<CalendarSourceId, CalendarSource>;
+
+export function eventHref(event: Pick<MasterCalendarEvent, "source" | "href">): string {
+  return event.href || CALENDAR_SOURCE_BY_ID[event.source].href;
+}
 
 export type MasterCalendarResponse = {
   timezone: string;
