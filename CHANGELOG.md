@@ -14,6 +14,8 @@ already shipped.
 
 ## Unreleased
 
+## 2026-08-12
+
 - **Your carousels stopped being silently held back.** Confirming the booking
   sheet marked every output that was not ticked as one you had deliberately
   kept back — including the ones that only became bookable while the sheet was
