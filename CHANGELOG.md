@@ -14,6 +14,8 @@ already shipped.
 
 ## Unreleased
 
+## 2026-08-12
+
 - **Mixing the schedule can no longer post twice at one instant.** The mixing
   above moved posts by time alone, but several posts legitimately share a time —
   one per platform — so it put two YouTube posts (and two Instagram, and two
