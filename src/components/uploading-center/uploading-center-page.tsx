@@ -61,8 +61,10 @@ import {
   type UploadSuccess,
 } from "@/components/uploading-center/use-uploading-center";
 import { buildAgenda } from "@/lib/publisher/agenda";
+import { slotOffsetForDateKey } from "@/lib/publisher/slotWindow";
 import type { ScheduleSlot } from "@/lib/publisher/slots";
-import type { PlatformId } from "@/lib/publisher/types";
+import { localCalendarParts } from "@/lib/publisher/time";
+import type { PlatformId, QueueItem } from "@/lib/publisher/types";
 
 const PLATFORM_TABS: Array<{ id: PlatformId; icon: typeof Youtube }> = [
   { id: "youtube", icon: Youtube },
@@ -330,13 +332,59 @@ export function UploadingCenterPage() {
   // with nothing at all, so a run's outputs had to be found by guessing which
   // job in the dropdown was the right one.
   const jobParam = searchParams.get("job");
+  const itemParam = searchParams.get("item");
+  const dayParam = searchParams.get("day");
   const jobParamConsumed = useRef(false);
+  const focusKeyRef = useRef<string | null>(null);
   useEffect(() => {
+    if (itemParam || dayParam) return;
     if (!jobParam || jobParamConsumed.current) return;
     jobParamConsumed.current = true;
     setActiveJobId(jobParam);
-    router.replace("/uploading-center");
-  }, [jobParam, router, setActiveJobId]);
+    const params = new URLSearchParams(searchParams.toString());
+    params.delete("job");
+    const next = params.toString();
+    router.replace(next ? `/uploading-center?${next}` : "/uploading-center");
+  }, [dayParam, itemParam, jobParam, router, searchParams, setActiveJobId]);
+
+  useEffect(() => {
+    if (!loaded) return;
+    const focusKey = `${itemParam ?? ""}:${dayParam ?? ""}`;
+    if (focusKey === ":" || focusKeyRef.current === focusKey) return;
+
+    const queued = [...itemsByPlatform.values()].flat();
+    const item: QueueItem | undefined = itemParam ? queued.find((entry) => entry.id === itemParam) : undefined;
+    if (itemParam && !item) return;
+
+    if (item?.jobId) setActiveJobId(item.jobId);
+
+    const timeZone = overview?.timezone ?? "America/Toronto";
+    const dateKey = item ? localCalendarParts(item.publishAt, timeZone).dateKey : dayParam;
+    if (!dateKey) return;
+    const todayKey = localCalendarParts(new Date(), timeZone).dateKey;
+    const offset = slotOffsetForDateKey(dateKey, todayKey);
+    if (offset !== slotOffsetDays) {
+      setSlotOffsetDays(offset);
+      return;
+    }
+    if (slotWindowLoading) return;
+
+    const targetId = itemParam ? `queue-item-${itemParam}` : `agenda-day-${dateKey}`;
+    const target = document.getElementById(targetId);
+    if (!target) return;
+    focusKeyRef.current = focusKey;
+    target.scrollIntoView({ behavior: "smooth", block: "center" });
+  }, [
+    dayParam,
+    itemParam,
+    itemsByPlatform,
+    loaded,
+    overview?.timezone,
+    setActiveJobId,
+    setSlotOffsetDays,
+    slotOffsetDays,
+    slotWindowLoading
+  ]);
   useEffect(() => {
     if (
       placementConsumed.current ||
@@ -666,6 +714,7 @@ export function UploadingCenterPage() {
             onRemove={(item) => void remove(item)}
             onRename={(item, title) => void renameQueueItem(item, title)}
             busy={busy}
+            highlightedItemId={itemParam}
           />
           {id === "youtube" && channel?.error ? (
             <p

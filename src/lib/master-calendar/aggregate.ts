@@ -1,7 +1,7 @@
 import type { AppData, Carousel, ContentItem, FbPost, XDailyPack } from "@/types/domain";
 import { isImagePost } from "@/lib/publisher/images";
 import type { PlatformId, QueueItem } from "@/lib/publisher/types";
-import type { MasterCalendarEvent } from "@/lib/master-calendar/types";
+import type { CalendarSourceId, MasterCalendarEvent } from "@/lib/master-calendar/types";
 
 /**
  * Flattens every distribution surface into MasterCalendarEvents for a
@@ -73,6 +73,22 @@ export function carouselIdFromQueuePath(filePath: string): string | undefined {
   return match?.[1];
 }
 
+function uploadingCenterHref(item: QueueItem): string {
+  const params = new URLSearchParams();
+  params.set("item", item.id);
+  const platform = (["youtube", "instagram", "tiktok", "facebook"] as PlatformId[]).find((id) => item.platforms[id]);
+  if (platform) params.set("platform", platform);
+  return `/uploading-center?${params.toString()}`;
+}
+
+export function sourceHrefForDay(source: CalendarSourceId, dateKey: string): string {
+  if (source === "shorts") return `/uploading-center?day=${encodeURIComponent(dateKey)}`;
+  if (source === "x") return `/x-posts?date=${encodeURIComponent(dateKey)}`;
+  if (source === "fb") return `/facebook?tab=library&date=${encodeURIComponent(dateKey)}`;
+  if (source === "content") return "/longform";
+  return "/carousels";
+}
+
 /**
  * One overall status for a queue item across its per-platform states:
  * everything landed → published, everything dead → failed, anything already
@@ -117,9 +133,7 @@ function shortsEvents(
         ? carouselId
           ? `/carousels?open=${encodeURIComponent(carouselId)}`
           : "/carousels"
-        : item.jobId
-          ? `/uploading-center?job=${encodeURIComponent(item.jobId)}`
-          : "/uploading-center"
+        : uploadingCenterHref(item)
     });
   }
   return events;
@@ -189,7 +203,7 @@ function xEvents(packs: XDailyPack[], startKey: string, endKey: string): MasterC
         title: truncate(post.topic || post.text),
         platforms: ["X", "Threads"],
         status: "suggested",
-        href: "/x-posts"
+        href: `/x-posts?date=${encodeURIComponent(pack.date)}`
       });
     }
   }
@@ -206,7 +220,7 @@ function fbEvents(posts: FbPost[], startKey: string, endKey: string): MasterCale
       title: truncate(post.hook || post.body),
       platforms: [post.platform === "facebook" ? "Facebook" : "Instagram"],
       status: post.status,
-      href: "/facebook"
+      href: `/facebook?tab=library&open=${encodeURIComponent(post.id)}`
     }));
 }
 

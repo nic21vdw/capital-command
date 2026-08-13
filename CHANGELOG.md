@@ -14,6 +14,12 @@ already shipped.
 
 ## Unreleased
 
+- **A calendar short opens that short, not today's leftover project.** Clicking
+  a scheduled Short used to switch the Uploading Center to a job — often the
+  newest one — and dump you at the top of today. It now opens the queue item
+  you clicked: the right platform tab, the two-week window that actually
+  contains that day, and the card ringed and scrolled into view. Threads
+  packs open that day's pack; Facebook rows open that saved post.
 - **Clicking a row on the Master Calendar opens the screen that owns it.**
   Carousel posts used to dump you in the Uploading Center, which only shows
   Shorts. They now open Carousels — and a specific deck when the calendar
