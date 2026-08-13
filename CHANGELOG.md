@@ -14,6 +14,8 @@ already shipped.
 
 ## Unreleased
 
+## 2026-08-12
+
 - **Facebook Reels actually publish now.** The previous release got the video
   to Facebook for the first time — the page had never received a single byte —
   but the last step still did not fire: the adapter waited for Facebook to say
