@@ -14,6 +14,62 @@ already shipped.
 
 ## Unreleased
 
+- **Double-clicking `update-capital-command.bat` works again.** Every release
+  run with no arguments died on `unknown revision 'g'` before it changed a
+  thing: releasing `main` into `main` left the script with one branch name
+  where it expected a list, and PowerShell handed git that name one letter at
+  a time. Releases had to be run as `-Branch dev` to get past it.
+## 2026-08-12
+
+- **Mixing the schedule can no longer post twice at one instant.** The mixing
+  above moved posts by time alone, but several posts legitimately share a time —
+  one per platform — so it put two YouTube posts (and two Instagram, and two
+  TikTok) on the same instant, 123 times over. It now knows which platform and
+  account each post occupies and will not stack two on one lane, and it will not
+  put the same recording in two slots running either, instead of hoping a
+  shuffle happens to avoid it.
+- **`npm run publish:shuffle -- --repair` fixes a live schedule without
+  re-ordering it.** It lifts only the posts that are actually double-booked,
+  leaves everything else on the time you already read, and never touches a video
+  YouTube is already holding. A post with nowhere left to go gets a slot further
+  out — the schedule grid runs three slots a day for as long as it is asked
+  (`--days`, two years by default), so a platform carrying more posts than the
+  days they are booked across is a reason to reach forward, never a reason to
+  stack two on one day.
+- **A plain `--write` no longer moves videos that are already on YouTube.**
+  Moving them in the queue without telling YouTube leaves the two disagreeing,
+  and YouTube wins. Only `--push` moves them, because only `--push` sends the
+  new time.
+- **`npm run publish:adopt` finds videos on the channel the app has never heard
+  of.** Thirteen had built up — seven scheduled, six already public — uploaded by
+  the pipeline but never recorded, so the runner could not see them and the
+  calendar could book straight over them. Adopting one writes a record of what
+  YouTube already holds; it never uploads or re-uploads anything.
+- **Scrolling through dates in the Uploading Center is instant.** Every arrow
+  click used to ask the server for the two weeks it was moving to and grey the
+  buttons out until the answer came back — behind whatever else the page had in
+  flight, since a browser only opens six connections at a time. The dates are
+  arithmetic, so the calendar works them out on the spot: measured at 1.4ms per
+  page turn against the real 406-post queue, where the round trip alone was over
+  230ms before it queued.
+- **The screen no longer waits on YouTube to draw itself.** The first paint was
+  gated on reading the live channel schedule, so a slow or unreachable YouTube
+  held the whole Uploading Center on a spinner with the local data already
+  loaded. The channel now fills in behind the page, and every outward call to a
+  platform gives up after 20 seconds instead of holding a connection open
+  forever.
+- **The app is quicker with dates everywhere.** Placing posts on the calendar
+  rebuilt a date formatter for every single post; it now reuses them, which is
+  about eight times faster, and the Uploading Center stops rebuilding all four
+  platforms' calendars on every keystroke. The sidebar's stream list and the
+  needs-attention badge also stop asking the same question twice per page.
+- **Scheduled shorts no longer come out in stream order.** Booking a run used
+  to dump that recording's clips into the next three time slots, so a week of
+  Shorts was the same stream three times a day. Upcoming posts are now mixed
+  across the slots they already occupy, and a new booking shuffles itself into
+  the pending queue instead of lining up behind the last clip from the same
+  recording. Already-uploaded YouTube schedules move with them when you run
+  `npm run publish:shuffle -- --write --push`.
 - **The Uploading Center title stays put while you scroll.** The top of the
   screen — "Uploading Center", the channel you're connected as and the quota
   meter — is now a frozen pane, and only the clips for the run and the
@@ -34,32 +90,6 @@ already shipped.
   knows which one. Shorts still go to the Uploading Center, Threads to
   Threads, Facebook threads to FB / IG, long-form to Long-Form. The count
   chip ("3 Carousel posts") is the same jump, not just an expand.
-
-## 2026-08-12
-
-- **Facebook Reels actually publish now.** The previous release got the video
-  to Facebook for the first time — the page had never received a single byte —
-  but the last step still did not fire: the adapter waited for Facebook to say
-  `ready`, and a transferred file reports `upload_complete` and sits there,
-  because processing only starts once we ask it to publish. So every clip
-  uploaded, waited, gave up and uploaded again. It now treats a finished
-  transfer as finished and posts it.
-
-## 2026-08-12
-
-- **Facebook posts again, and it stops holding up everything else.** Nothing
-  has reached the Page since 5 July: the app was opening an upload with
-  Facebook and then never handing the video over, because the file was named in
-  the wrong step of Meta's flow — so fifteen Reels sat "uploading" for up to
-  eight days, and the publish runner spent about an hour of every run staring at
-  them while YouTube and Instagram waited behind it (yesterday's 11:30 Instagram
-  post went out at 22:50). The video is now transferred the way Meta's API
-  actually wants it, an upload that has gone nowhere for two hours is declared
-  dead — dropped and sent again from scratch instead of resumed forever — and no
-  single run may spend more than three minutes waiting on Facebook. A Facebook
-  upload that keeps failing now shows up on the board as a failed post with
-  "Facebook took the upload and then never fetched the video", not as silence.
-
 - **The long-form video of every stream can be scheduled again.** Booking a
   run's outputs refused the full-length edit with "this clip is 352s long — trim
   it below 3 minutes", because the Shorts length rule was being applied to it —
@@ -87,6 +117,31 @@ already shipped.
   inside do instead of restating autopilot twice.
 - **The browser tab now says the same words as the sidebar** on X / Threads Posts
   and FB / IG Threads.
+
+## 2026-08-12
+
+- **Facebook Reels actually publish now.** The previous release got the video
+  to Facebook for the first time — the page had never received a single byte —
+  but the last step still did not fire: the adapter waited for Facebook to say
+  `ready`, and a transferred file reports `upload_complete` and sits there,
+  because processing only starts once we ask it to publish. So every clip
+  uploaded, waited, gave up and uploaded again. It now treats a finished
+  transfer as finished and posts it.
+
+## 2026-08-12
+
+- **Facebook posts again, and it stops holding up everything else.** Nothing
+  has reached the Page since 5 July: the app was opening an upload with
+  Facebook and then never handing the video over, because the file was named in
+  the wrong step of Meta's flow — so fifteen Reels sat "uploading" for up to
+  eight days, and the publish runner spent about an hour of every run staring at
+  them while YouTube and Instagram waited behind it (yesterday's 11:30 Instagram
+  post went out at 22:50). The video is now transferred the way Meta's API
+  actually wants it, an upload that has gone nowhere for two hours is declared
+  dead — dropped and sent again from scratch instead of resumed forever — and no
+  single run may spend more than three minutes waiting on Facebook. A Facebook
+  upload that keeps failing now shows up on the board as a failed post with
+  "Facebook took the upload and then never fetched the video", not as silence.
 
 ## 2026-08-11
 

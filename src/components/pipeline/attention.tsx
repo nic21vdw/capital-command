@@ -2,6 +2,7 @@
 
 import { usePathname } from "next/navigation";
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
+import { readPipelineSummary } from "@/lib/pipeline/summaryClient";
 
 // How many runs are asking for something. Nothing used to tell Nic a stage had
 // broken unless he opened the Pipeline and read the flow — an overnight failure
@@ -35,20 +36,15 @@ export function PipelineAttentionProvider({ children }: { children: React.ReactN
   useEffect(() => {
     let alive = true;
     const read = async () => {
-      try {
-        const response = await fetch("/api/pipeline?summary=1", { cache: "no-store" });
-        if (!response.ok) return;
-        const data = (await response.json()) as Attention;
-        if (alive) {
-          setAttention({
-            needsAttention: data.needsAttention ?? 0,
-            working: data.working ?? 0,
-            scan: data.scan ?? null
-          });
-        }
-      } catch {
-        // Offline or mid-restart: keep the last count rather than clearing it.
-      }
+      // Offline or mid-restart reads answer null: keep the last count rather
+      // than clearing it.
+      const data = (await readPipelineSummary()) as Attention | null;
+      if (!data || !alive) return;
+      setAttention({
+        needsAttention: data.needsAttention ?? 0,
+        working: data.working ?? 0,
+        scan: data.scan ?? null
+      });
     };
     refreshRef.current = () => void read();
     void read();

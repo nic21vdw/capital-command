@@ -350,7 +350,12 @@ Write-Log "Releasing from: $source"
 
 # Commits that exist ONLY here - not on what is being released, not on main.
 # Anything already on the release branch is not stranded, it is just early.
-$notOn = @($source, (Resolve-Best "main")) | Where-Object { $_ } | Select-Object -Unique
+#
+# The outer @() is load-bearing. Releasing main into main - the DEFAULT - makes
+# both entries the same ref, Select-Object -Unique then returns a bare string,
+# and splatting a string spreads it one character per argument: every release
+# died on `unknown revision 'g'`, the first letter of "github/main".
+$notOn = @(@($source, (Resolve-Best "main")) | Where-Object { $_ } | Select-Object -Unique)
 $stranded = git rev-list HEAD --not @notOn
 
 if ($stranded -and -not $Force) {

@@ -1,3 +1,4 @@
+import { dateTimeFormat } from "@/lib/publisher/intl";
 import type { PublisherConfig } from "@/lib/publisher/config";
 import type { QueueItem } from "@/lib/publisher/types";
 
@@ -41,7 +42,7 @@ export function remainingYoutubeUploads(items: QueueItem[], now: Date, config: P
 }
 
 function quotaDate(instant: Date): string {
-  return new Intl.DateTimeFormat("en-CA", {
+  return dateTimeFormat("en-CA", {
     timeZone: QUOTA_RESET_TIMEZONE,
     year: "numeric",
     month: "2-digit",

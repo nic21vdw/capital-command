@@ -111,6 +111,41 @@ function buildBody(input: PublishInput): { body: YoutubeBody; scheduled: boolean
  * required on snippet updates and must be preserved. Works under the existing
  * youtube.upload scope for videos this app uploaded.
  */
+export async function updateYoutubeVideoPublishAt(
+  videoId: string,
+  publishAt: Date,
+  accountId?: string
+): Promise<void> {
+  if (publishAt.getTime() <= Date.now()) {
+    throw new PermanentError(`Cannot move YouTube video ${videoId} to a time that has already passed.`);
+  }
+  const token = await youtubeAccessToken(accountId);
+  const current = await fetchJson<{ items?: Array<{ status?: Record<string, unknown> }> }>(
+    `${VIDEOS_URL}?part=status&id=${encodeURIComponent(videoId)}`,
+    { label: "YouTube video status read", method: "GET", headers: { Authorization: `Bearer ${token}` } }
+  );
+  const status = current.items?.[0]?.status;
+  if (!status) {
+    throw new PermanentError(`YouTube video ${videoId} was not found — it may have been deleted from the channel.`);
+  }
+  const nextStatus: Record<string, unknown> = {
+    ...status,
+    privacyStatus: "private",
+    publishAt: toRfc3339Utc(publishAt)
+  };
+  try {
+    await fetchJson(`${VIDEOS_URL}?part=status`, {
+      label: "YouTube schedule update",
+      method: "PUT",
+      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json; charset=UTF-8" },
+      body: JSON.stringify({ id: videoId, status: nextStatus })
+    });
+  } catch (error) {
+    if (isYoutubeScopeInsufficient(error)) throw new PermanentError(YOUTUBE_RECONNECT_FOR_SCOPE);
+    throw error;
+  }
+}
+
 export async function updateYoutubeVideoTitle(videoId: string, title: string, accountId?: string): Promise<void> {
   const token = await youtubeAccessToken(accountId);
   const current = await fetchJson<{ items?: Array<{ snippet?: Record<string, unknown> }> }>(

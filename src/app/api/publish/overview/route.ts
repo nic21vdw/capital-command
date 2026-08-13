@@ -23,9 +23,11 @@ const MAX_OFFSET_DAYS = 3650;
  * to report the same profiles again from four live API calls that the whole
  * app then ignored.
  *
- * `slotsOnly=1` answers with just the grid, skipping the queue read behind the
- * quota meter — for callers that only want somewhere to put a video (the
- * editor's Schedule Short menu).
+ * `slotsOnly=1` answers with just the grid — for callers that only want
+ * somewhere to put a video (the editor's Schedule Short menu). The Uploading
+ * Center is NOT one of them: `generateSlots` is pure arithmetic over the
+ * timezone and the offset, so its calendar builds the grid in the browser and
+ * paging costs no request at all.
  */
 export async function GET(request: NextRequest) {
   const config = publisherConfig();
@@ -37,9 +39,9 @@ export async function GET(request: NextRequest) {
     : 0;
 
   const now = new Date();
-  const slots = generateSlots({ timeZone: config.timezone, days, startDayOffset: offsetDays, now });
 
   if (request.nextUrl.searchParams.get("slotsOnly") === "1") {
+    const slots = generateSlots({ timeZone: config.timezone, days, startDayOffset: offsetDays, now });
     return NextResponse.json({ enabled: config.enabled, timezone: config.timezone, slotOffsetDays: offsetDays, slots });
   }
 
@@ -48,10 +50,6 @@ export async function GET(request: NextRequest) {
   return NextResponse.json({
     enabled: config.enabled,
     timezone: config.timezone,
-    quota: youtubeQuota(items, now, config),
-    // Echoed back so the client can tell which window the slots belong to
-    // while a page-forward/-back fetch is still in flight.
-    slotOffsetDays: offsetDays,
-    slots
+    quota: youtubeQuota(items, now, config)
   });
 }

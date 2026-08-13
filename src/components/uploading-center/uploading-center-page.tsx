@@ -61,6 +61,7 @@ import {
   type UploadSuccess,
 } from "@/components/uploading-center/use-uploading-center";
 import { buildAgenda } from "@/lib/publisher/agenda";
+import { dateTimeFormat } from "@/lib/publisher/intl";
 import { slotOffsetForDateKey } from "@/lib/publisher/slotWindow";
 import type { ScheduleSlot } from "@/lib/publisher/slots";
 import { localCalendarParts } from "@/lib/publisher/time";
@@ -82,9 +83,9 @@ export function UploadingCenterPage() {
   const {
     loaded,
     overview,
+    slots,
     slotOffsetDays,
     setSlotOffsetDays,
-    slotWindowLoading,
     channel,
     channelVideos,
     channelVideosBySlot,
@@ -118,7 +119,6 @@ export function UploadingCenterPage() {
     publishNow,
     remove,
     refresh,
-    refreshSlots,
     refreshAccounts,
     refreshChannel,
   } = useUploadingCenter(clipProjects);
@@ -133,17 +133,6 @@ export function UploadingCenterPage() {
   useEffect(() => {
     void refreshAccounts();
   }, [refreshAccounts]);
-
-  // Paging the calendar only moves the grid, so only the grid is refetched.
-  // The first render is already covered by the full refresh above.
-  const pagedRef = useRef(false);
-  useEffect(() => {
-    if (!pagedRef.current) {
-      pagedRef.current = true;
-      return;
-    }
-    void refreshSlots(slotOffsetDays);
-  }, [refreshSlots, slotOffsetDays]);
 
   // Switching a platform's account switches whose channel the calendar shows.
   const switchedAccountRef = useRef(false);
@@ -367,8 +356,8 @@ export function UploadingCenterPage() {
       setSlotOffsetDays(offset);
       return;
     }
-    if (slotWindowLoading) return;
-
+    // No wait for the window to arrive: the grid is built from the offset, so
+    // by the time this runs again the day being scrolled to is already drawn.
     const targetId = itemParam ? `queue-item-${itemParam}` : `agenda-day-${dateKey}`;
     const target = document.getElementById(targetId);
     if (!target) return;
@@ -382,8 +371,7 @@ export function UploadingCenterPage() {
     overview?.timezone,
     setActiveJobId,
     setSlotOffsetDays,
-    slotOffsetDays,
-    slotWindowLoading
+    slotOffsetDays
   ]);
   useEffect(() => {
     if (
@@ -512,8 +500,6 @@ export function UploadingCenterPage() {
 
   const activeYoutubeAccount = activeAccountFor("youtube");
 
-  const slots = useMemo(() => overview?.slots ?? [], [overview]);
-
   // Read through the ref, not through `drafts`: the bulk actions below await
   // between clips, and each one has to see the captions the previous ones wrote.
   const latestDraftFor = useCallback(
@@ -615,20 +601,32 @@ export function UploadingCenterPage() {
     slots,
   ]);
 
+  // The whole calendar for each platform: every queued post and every video
+  // already on the channel, each placed on the day it goes live at its real
+  // time — plus the open slots that day. Nothing is left to float in a list.
+  // Memoized on the four things it reads, because the tab list is rebuilt on
+  // every render — including every keystroke in a caption box.
+  const agendas = useMemo(() => {
+    const timeZone = overview?.timezone ?? "UTC";
+    return new Map(
+      PLATFORM_TABS.map(({ id }) => [
+        id,
+        buildAgenda({
+          slots,
+          queueItems: itemsByPlatform.get(id) ?? [],
+          channelVideos: id === "youtube" ? channelVideos : [],
+          timeZone,
+        }),
+      ]),
+    );
+  }, [channelVideos, itemsByPlatform, overview?.timezone, slots]);
+
   const tabs = PLATFORM_TABS.map(({ id, icon }) => {
     const activeAccount = activeAccountFor(id);
     // Connection status follows the account the tab is showing, not the
     // platform as a whole — each account connects on its own.
     const configured = activeAccount?.connected ?? false;
-    // The whole calendar for this platform: every queued post and every video
-    // already on the channel, each placed on the day it goes live at its real
-    // time — plus the open slots that day. Nothing is left to float in a list.
-    const days = buildAgenda({
-      slots,
-      queueItems: itemsByPlatform.get(id) ?? [],
-      channelVideos: id === "youtube" ? channelVideos : [],
-      timeZone: overview?.timezone ?? "UTC",
-    });
+    const days = agendas.get(id) ?? [];
     return {
       id,
       label: PLATFORM_LABELS[id],
@@ -694,7 +692,6 @@ export function UploadingCenterPage() {
           <SchedulePeriodNav
             offsetDays={slotOffsetDays}
             slots={slots}
-            loading={slotWindowLoading}
             onChange={setSlotOffsetDays}
           />
           <ScheduleBoard
@@ -880,7 +877,7 @@ function UploadSuccessDialog({
 }) {
   if (!success) return null;
   const scheduled = success.status === "scheduled";
-  const goLive = new Intl.DateTimeFormat("en-US", {
+  const goLive = dateTimeFormat("en-US", {
     ...(timezone ? { timeZone: timezone } : {}),
     weekday: "short",
     month: "short",
@@ -949,19 +946,17 @@ function UploadSuccessDialog({
 /**
  * Calendar paging for the schedule window: step back through past two-week
  * periods (as far as the channel's history reaches) and forward through future
- * ones, or jump straight back to the default window around today. While a new
- * window is being fetched the buttons disable and the label shows a spinner —
- * the previous window's days stay on screen until the new ones arrive.
+ * ones, or jump straight back to the default window around today. The window is
+ * arithmetic over the timezone and the offset, not a request, so a page turn
+ * lands immediately and there is nothing to wait for.
  */
 function SchedulePeriodNav({
   offsetDays,
   slots,
-  loading,
   onChange,
 }: {
   offsetDays: number;
   slots: ScheduleSlot[];
-  loading: boolean;
   onChange: (offsetDays: number) => void;
 }) {
   const first = slots[0];
@@ -974,7 +969,6 @@ function SchedulePeriodNav({
         className="h-8 px-2.5"
         aria-label={`Previous ${SLOT_WINDOW_DAYS} days`}
         title={`Previous ${SLOT_WINDOW_DAYS} days`}
-        disabled={loading}
         onClick={() => onChange(offsetDays - SLOT_WINDOW_DAYS)}
       >
         <ChevronLeft className="h-4 w-4" />
@@ -984,18 +978,14 @@ function SchedulePeriodNav({
         className="h-8 px-2.5"
         aria-label={`Next ${SLOT_WINDOW_DAYS} days`}
         title={`Next ${SLOT_WINDOW_DAYS} days`}
-        disabled={loading}
         onClick={() => onChange(offsetDays + SLOT_WINDOW_DAYS)}
       >
         <ChevronRight className="h-4 w-4" />
       </Button>
       <span className="ml-1 flex items-center gap-2 text-sm font-medium text-white">
-        {loading ? (
-          <Loader2 className="h-4 w-4 animate-spin text-[var(--muted-foreground)]" />
-        ) : null}
         {first && last ? `${first.dateLabel} – ${last.dateLabel}` : ""}
       </span>
-      {atDefault && !loading ? (
+      {atDefault ? (
         <Badge className="border-[var(--border)] bg-white/5 text-[var(--muted-foreground)]">
           This period
         </Badge>
@@ -1005,7 +995,6 @@ function SchedulePeriodNav({
         <Button
           variant="ghost"
           className="h-8 px-3 text-xs"
-          disabled={loading}
           onClick={() => onChange(DEFAULT_SLOT_OFFSET_DAYS)}
         >
           <CalendarDays className="mr-1.5 h-3.5 w-3.5" /> Jump to today
