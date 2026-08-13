@@ -731,7 +731,10 @@ export function UploadingCenterPage() {
   });
 
   return (
-    <div>
+    // The header is a frozen pane and everything under it scrolls: the calendar
+    // runs to months of days, and losing the channel and the quota meter on the
+    // way down is how you end up scrolling back to check which one you are on.
+    <div className="app-frame-pane">
       <PageHeader
         eyebrow="Step 3 · Schedule"
         title="Uploading Center"
@@ -788,64 +791,66 @@ export function UploadingCenterPage() {
         </div>
       ) : null}
 
-      {!loaded ? (
-        <Card className="flex items-center justify-center py-16">
-          <Loader2 className="h-5 w-5 animate-spin text-[var(--muted-foreground)]" />
-        </Card>
-      ) : overview && !overview.enabled ? (
-        <Card className="space-y-2 border-amber-400/25">
-          <p className="flex items-center gap-2 text-sm font-medium text-amber-200">
-            <AlertTriangle className="h-4 w-4" /> Publishing is switched off
-          </p>
-          <p className="text-sm text-[var(--muted-foreground)]">
-            Nothing is scheduled or posted until you turn it back on.{" "}
-            <Link href="/settings" className="underline">
-              Open Settings
-            </Link>
-          </p>
-        </Card>
-      ) : (
-        <>
-          <div className="grid gap-6 xl:grid-cols-[minmax(22rem,1fr)_minmax(0,2.3fr)]">
-            <ClipQueue
-              jobs={jobsWithClips}
-              activeJob={activeJob}
-              onSelectJob={setActiveJobId}
-              clips={readyClips}
-              slots={slots}
-              draftFor={draftFor}
-              onDraftChange={onDraftChange}
-              onTitleCommit={onTitleCommit}
-              isSlotTaken={isTargetSlotTaken}
-              itemsForClip={itemsForClip}
-              busy={busy}
-              highlightedKey={placingKey}
-              onSchedule={(clip) => void handleSchedule(clip)}
-              onEditClip={editClip}
-              onTailorCaption={(clip) => void onTailorCaption(clip)}
-              onAutoAssign={() => void handleAutoAssign()}
-              runDefaults={runDefaults}
-              onRunDefaultsChange={onRunDefaultsChange}
-              onCaptionsForAll={handleCaptionsForAll}
-              captionsMissing={captionsMissing}
-              captionProgress={captionProgress}
-              captionFailures={captionFailures}
-              failedCaptionCount={failedCaptionClips.length}
-              onRetryCaptions={handleRetryCaptions}
-            />
-            <div className="min-w-0">
-              <Tabs tabs={tabs} paramKey="platform" />
-              {overview ? (
-                <p className="mt-3 text-xs text-[var(--muted-foreground)]">
-                  Every scheduled post and channel video shows on its day above.
-                  Suggested slots: weekdays 07:30, 12:30 and 19:30; weekends
-                  10:00, 13:00 and 19:00 ({overview.timezone}); stored in UTC.
-                </p>
-              ) : null}
+      <div className="app-frame-scroll">
+        {!loaded ? (
+          <Card className="flex items-center justify-center py-16">
+            <Loader2 className="h-5 w-5 animate-spin text-[var(--muted-foreground)]" />
+          </Card>
+        ) : overview && !overview.enabled ? (
+          <Card className="space-y-2 border-amber-400/25">
+            <p className="flex items-center gap-2 text-sm font-medium text-amber-200">
+              <AlertTriangle className="h-4 w-4" /> Publishing is switched off
+            </p>
+            <p className="text-sm text-[var(--muted-foreground)]">
+              Nothing is scheduled or posted until you turn it back on.{" "}
+              <Link href="/settings" className="underline">
+                Open Settings
+              </Link>
+            </p>
+          </Card>
+        ) : (
+          <>
+            <div className="grid gap-6 xl:grid-cols-[minmax(22rem,1fr)_minmax(0,2.3fr)]">
+              <ClipQueue
+                jobs={jobsWithClips}
+                activeJob={activeJob}
+                onSelectJob={setActiveJobId}
+                clips={readyClips}
+                slots={slots}
+                draftFor={draftFor}
+                onDraftChange={onDraftChange}
+                onTitleCommit={onTitleCommit}
+                isSlotTaken={isTargetSlotTaken}
+                itemsForClip={itemsForClip}
+                busy={busy}
+                highlightedKey={placingKey}
+                onSchedule={(clip) => void handleSchedule(clip)}
+                onEditClip={editClip}
+                onTailorCaption={(clip) => void onTailorCaption(clip)}
+                onAutoAssign={() => void handleAutoAssign()}
+                runDefaults={runDefaults}
+                onRunDefaultsChange={onRunDefaultsChange}
+                onCaptionsForAll={handleCaptionsForAll}
+                captionsMissing={captionsMissing}
+                captionProgress={captionProgress}
+                captionFailures={captionFailures}
+                failedCaptionCount={failedCaptionClips.length}
+                onRetryCaptions={handleRetryCaptions}
+              />
+              <div className="min-w-0">
+                <Tabs tabs={tabs} paramKey="platform" />
+                {overview ? (
+                  <p className="mt-3 text-xs text-[var(--muted-foreground)]">
+                    Every scheduled post and channel video shows on its day above.
+                    Suggested slots: weekdays 07:30, 12:30 and 19:30; weekends
+                    10:00, 13:00 and 19:00 ({overview.timezone}); stored in UTC.
+                  </p>
+                ) : null}
+              </div>
             </div>
-          </div>
-        </>
-      )}
+          </>
+        )}
+      </div>
 
       <UploadSuccessDialog
         success={uploadSuccess}

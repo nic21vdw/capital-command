@@ -384,6 +384,31 @@ a {
   }
 }
 
+@media (min-height: 720px) {
+  .app-frame {
+    height: 100dvh;
+    overflow: hidden;
+  }
+
+  .app-frame-pane {
+    display: flex;
+    min-height: 0;
+    flex: 1 1 0%;
+    flex-direction: column;
+  }
+
+  .app-frame-scroll {
+    min-height: 0;
+    flex: 1 1 0%;
+    overflow-y: auto;
+    padding-bottom: 7rem;
+  }
+
+  .app-frame-hide {
+    display: none;
+  }
+}
+
 table {
   border-collapse: collapse;
 }

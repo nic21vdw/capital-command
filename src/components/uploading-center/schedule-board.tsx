@@ -70,9 +70,10 @@ export function ScheduleBoard({
   };
 
   return (
-    // Bounded, scrollable pane so the calendar can grow tall without pushing the
-    // rest of the page down; days scroll inside it.
-    <div className="max-h-[calc(100vh-7rem)] space-y-2 overflow-auto pr-1">
+    // The calendar grows as tall as it likes and the page's own scroller takes
+    // it. It used to bound itself and scroll inside, which put a second
+    // scrollbar next to the page's and left the two fighting over the wheel.
+    <div className="space-y-2 pr-1">
       <input
         ref={fileInputRef}
         type="file"
