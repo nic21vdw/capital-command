@@ -14,6 +14,11 @@ already shipped.
 
 ## Unreleased
 
+- **Double-clicking `update-capital-command.bat` works again.** Every release
+  run with no arguments died on `unknown revision 'g'` before it changed a
+  thing: releasing `main` into `main` left the script with one branch name
+  where it expected a list, and PowerShell handed git that name one letter at
+  a time. Releases had to be run as `-Branch dev` to get past it.
 ## 2026-08-12
 
 - **Mixing the schedule can no longer post twice at one instant.** The mixing
