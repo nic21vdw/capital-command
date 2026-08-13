@@ -14,6 +14,8 @@ already shipped.
 
 ## Unreleased
 
+## 2026-08-12
+
 - **The home screen says how each stream is doing, not just whether it
   finished.** Every past pipeline in the list now carries a progress bar, what
   it actually produced (shorts, segments, MP3 or podcast, carousel slides,
