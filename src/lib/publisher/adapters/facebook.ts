@@ -20,9 +20,16 @@ import type { PlatformAdapter, PostResult, PublishInput, PublishPlan } from "@/l
  *      OAuth <token>` header and a `file_url:` HEADER naming the hosted clip.
  *      That is the hosted-file variant of the transfer phase; the local-file
  *      variant sends the bytes with offset/file_size headers instead.
- *   3. Poll  GET /{video-id}?fields=status until video_status is "ready", then
+ *   3. Poll  GET /{video-id}?fields=status until the transfer is done, then
  *      POST /{page-id}/video_reels?upload_phase=finish&video_id=...
  *      &video_state=PUBLISHED → published Reel.
+ *
+ *      "Done" is READY_TO_FINISH, not the literal "ready" the reference names.
+ *      A hosted-file transfer settles on "upload_complete" and stays there:
+ *      processing does not start until the finish call, so waiting for "ready"
+ *      waits for a state that only a finished video reaches. Matching one
+ *      spelling is what left the first real transfers polling to their age
+ *      limit and re-uploading the same clip on a loop.
  *
  * Like Instagram, there is no server-side scheduling for this API, so the
  * runner only invokes this adapter once publishAt is due.
@@ -34,6 +41,7 @@ import type { PlatformAdapter, PostResult, PublishInput, PublishPlan } from "@/l
 
 const POLL_INTERVAL_MS = 10_000;
 const DEFAULT_POLL_BUDGET_MS = 60_000;
+const READY_TO_FINISH = new Set(["ready", "upload_complete", "processing_complete"]);
 const ABANDON_AFTER_MS = 2 * 60 * 60 * 1000;
 
 function graphBase(): string {
@@ -265,7 +273,7 @@ export const facebookAdapter: PlatformAdapter = {
     const pollUntil = Date.now() + Math.max(0, input.pollBudgetMs ?? DEFAULT_POLL_BUDGET_MS);
     for (;;) {
       const status = await videoStatus(videoId, creds.accessToken);
-      if (status === "ready" || status === "READY") return finishUpload(videoId, caption, creds);
+      if (READY_TO_FINISH.has(status.toLowerCase())) return finishUpload(videoId, caption, creds);
       if (status === "published" || status === "PUBLISHED") {
         return { status: "published", postId: videoId, containerId: videoId, detail: "already published" };
       }
