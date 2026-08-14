@@ -71,10 +71,20 @@ function canonical(value: unknown): unknown {
 }
 
 /**
+ * Bumped whenever the PAINTER changes what identical copy looks like, so decks
+ * rendered under the old rules are repainted rather than served from disk. A
+ * slide's own content is unchanged by a fix like that, and without this the
+ * files already sitting in `data/carousel-decks` are what gets posted.
+ *
+ * 2: emoji are drawn as Apple pictures instead of typed as glyphs.
+ */
+const PAINTER_VERSION = 2;
+
+/**
  * Everything that changes what a slide looks like: its own content, its
- * position in the deck (the counter reads "3/8") and the frame it is painted
- * in. Editing slide two must not re-render the other seven, and adding a ninth
- * slide must re-render all nine.
+ * position in the deck (the counter reads "3/8"), the frame it is painted
+ * in and the painter that paints it. Editing slide two must not re-render the
+ * other seven, and adding a ninth slide must re-render all nine.
  */
 export function slideFingerprint(input: {
   slide: CarouselSlide;
@@ -86,7 +96,8 @@ export function slideFingerprint(input: {
     slide: input.slide,
     index: input.index,
     total: input.total,
-    ratio: input.ratio
+    ratio: input.ratio,
+    painter: PAINTER_VERSION
   });
   return createHash("sha1").update(JSON.stringify(payload)).digest("hex").slice(0, 16);
 }

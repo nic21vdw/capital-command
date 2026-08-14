@@ -918,8 +918,10 @@ export type SlideLayer =
       radius?: number;
       rotation?: number;
       /** How the source fills its box. "contain" shows the whole image
-       *  (right for logos/transparent PNGs); "cover" crops to fill. */
-      fit?: "cover" | "contain";
+       *  (right for logos/transparent PNGs); "cover" crops to fill; "frame"
+       *  shows the whole image over a blurred, filled copy of itself, which is
+       *  how a widescreen still keeps everything that was in shot. */
+      fit?: "cover" | "contain" | "frame";
     };
 
 export interface CarouselSlide {

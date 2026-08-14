@@ -23,6 +23,9 @@ data/voiceover/
 .codex-worktrees/
 data/*.tmp
 data/uploads/
+data/emoji-apple/
+data/carousel-decks/
+data/carousel-images/
 data/publish-queue.json
 data/publish-queue.log*
 data/threads-queue.json

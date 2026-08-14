@@ -50,7 +50,8 @@
     "publish:retitle": "tsx src/lib/publisher/cli.ts retitle",
     "publish:reconcile": "tsx src/lib/publisher/cli.ts reconcile",
     "publish:shuffle": "tsx src/lib/publisher/cli.ts shuffle",
-    "publish:adopt": "tsx src/lib/publisher/cli.ts adopt"
+    "publish:adopt": "tsx src/lib/publisher/cli.ts adopt",
+    "carousel:proof": "tsx scripts/proof-carousel.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.104.1",

@@ -601,13 +601,28 @@ function EditStage({
             transform: layer.rotation ? `rotate(${layer.rotation}deg)` : undefined
           }}
         >
+          {/* A framed still is the whole picture over a blurred fill of itself,
+              which the export paints in one pass and the DOM needs two for. */}
+          {layer.fit === "frame" ? (
+            /* eslint-disable-next-line @next/next/no-img-element */
+            <img
+              src={layer.src}
+              alt=""
+              draggable={false}
+              aria-hidden
+              className="absolute inset-0 h-full w-full scale-110 object-cover blur-xl"
+            />
+          ) : null}
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
             src={layer.src}
             alt=""
             draggable={false}
-            className="h-full w-full"
-            style={{ objectFit: layer.fit ?? "contain", borderRadius: `${Math.min(50, (layer.radius ?? 0) * 100)}%` }}
+            className="relative h-full w-full"
+            style={{
+              objectFit: layer.fit === "frame" ? "contain" : layer.fit ?? "contain",
+              borderRadius: `${Math.min(50, (layer.radius ?? 0) * 100)}%`
+            }}
           />
           {selectedLayer === layer.id ? cornerHandles(layer) : null}
         </div>

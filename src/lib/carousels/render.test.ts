@@ -151,3 +151,102 @@ describe("photo slide geometry", () => {
     }
   });
 });
+
+/**
+ * Emoji are the one thing on a slide that is not drawn with the slide's font.
+ * The server has no emoji font at all, so a glyph left to `fillText` there is
+ * simply absent — these check that the copy is cut into pieces and the picture
+ * is drawn in the gap.
+ */
+describe("emoji in slide copy", () => {
+  const withEmoji: CarouselSlide = {
+    id: "slide-emoji",
+    heading: "🚀 Ship it",
+    body: "Momentum beats planning 🔥"
+  };
+
+  it("draws each emoji as a picture and never as text", async () => {
+    await renderSlideCanvas(withEmoji, 0, 4, "portrait");
+    expect(drawnText.map((line) => line.text).join(" ")).not.toMatch(/[🚀🔥]/u);
+    // One per glyph, square, and sized off the line it sits on.
+    expect(drawnImages).toHaveLength(2);
+    for (const picture of drawnImages) expect(picture.w).toBeCloseTo(picture.h, 5);
+    const [heading, body] = drawnImages;
+    expect(heading.w).toBeGreaterThan(body.w);
+  });
+
+  it("keeps the words either side of the emoji", async () => {
+    await renderSlideCanvas(withEmoji, 0, 4, "portrait");
+    const copyLines = drawnText.filter((line) => !/^\d+\/\d+$/.test(line.text));
+    expect(copyLines.map((line) => line.text).join("")).toContain("Ship it");
+    expect(copyLines.map((line) => line.text).join("")).toContain("Momentum beats planning");
+  });
+
+  it("starts the picture where the text before it ended", async () => {
+    await renderSlideCanvas({ id: "s", heading: "Go 🚀", body: "" }, 0, 4, "portrait");
+    const [picture] = drawnImages;
+    const before = drawnText.find((line) => line.text.startsWith("Go"))!;
+    // measureText in this stub is 24px a character, and "Go " is three.
+    expect(picture.x).toBeCloseTo(before.x + 3 * 24, 5);
+  });
+
+  it("leaves the line's other pictures alone when one cannot be fetched", async () => {
+    Object.assign(globalThis, {
+      Image: class {
+        width = 64;
+        height = 64;
+        onload: (() => void) | null = null;
+        onerror: (() => void) | null = null;
+        set src(_value: string) {
+          setTimeout(() => this.onerror?.(), 0);
+        }
+      }
+    });
+    await renderSlideCanvas({ id: "s", heading: "Growth 📈", body: "" }, 0, 4, "portrait");
+    expect(drawnImages).toHaveLength(0);
+    // Falls back to writing the glyph rather than dropping the word with it.
+    expect(drawnText.some((line) => line.text === "📈")).toBe(true);
+    expect(drawnText.some((line) => line.text.includes("Growth"))).toBe(true);
+  });
+});
+
+/**
+ * A still from a stream is the whole frame or it is not worth having: the face
+ * and the editor and the terminal are all in shot together, and cropping to the
+ * slide's shape is what threw the face away.
+ */
+describe("a framed still", () => {
+  const framed: CarouselSlide = {
+    id: "framed",
+    heading: "Whole frame",
+    body: "",
+    scrim: 0.52,
+    textBand: { top: 0.6, bottom: 0.88 },
+    layers: [{ id: "l", type: "image", src: "/frame.jpg", x: 0, y: 0, width: 1, height: 1, fit: "frame" }]
+  };
+
+  it("draws the whole picture, and a bed behind it that does fill the slide", async () => {
+    await renderSlideCanvas(framed, 0, 6, "portrait");
+    expect(drawnImages).toHaveLength(2);
+    const [bed, picture] = drawnImages;
+    // The stub image is 1200x800; contained in 1080 wide that is 1080x720.
+    expect(picture.w).toBeCloseTo(1080, 5);
+    expect(picture.h).toBeCloseTo(720, 5);
+    // The bed overfills, so a blur cannot fade the slide's own edges out.
+    expect(bed.w).toBeGreaterThan(1080);
+    expect(bed.h).toBeGreaterThan(1350);
+  });
+
+  it("sits the picture above centre, clear of the copy band", async () => {
+    await renderSlideCanvas(framed, 0, 6, "portrait");
+    const [, picture] = drawnImages;
+    expect(picture.y + picture.h).toBeLessThanOrEqual(0.6 * 1350);
+  });
+
+  it("still crops when a layer asks to cover", async () => {
+    const covered = { ...framed, layers: [{ ...framed.layers![0], fit: "cover" as const }] };
+    await renderSlideCanvas(covered, 0, 6, "portrait");
+    expect(drawnImages).toHaveLength(1);
+    expect(drawnImages[0].h).toBeCloseTo(1350, 5);
+  });
+});

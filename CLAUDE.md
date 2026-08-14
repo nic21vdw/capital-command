@@ -545,6 +545,34 @@ the picker can promise what the server will do.
   with metric-compatible fallbacks behind it). The canvas renderer and the
   editor's live text overlay both read that one constant — change it there, not
   per call site, or what you drag stops matching what exports.
+- EMOJI ARE PICTURES, NOT GLYPHS. No font in that stack has an emoji in it, and
+  the SERVER has no emoji font at all — a deck booked into the publish queue is
+  painted by `@napi-rs/canvas`, so every emoji the copy asked for came out as
+  empty space while the browser preview looked fine. `src/lib/emoji/apple.ts`
+  splits a line into text and emoji runs and names the Apple image for each;
+  `render.ts` measures and paints those runs itself (which is also why wrapping
+  cannot go back to a plain `measureText` on the whole string), the browser
+  loads them `crossOrigin="anonymous"` so the export can still make a blob, and
+  the server reads them from `data/emoji-apple` through
+  `src/lib/carousels/emojiFiles.ts`. Two filenames are tried, not one:
+  `emoji-data` keeps U+FE0F for some glyphs (🛠️ is `1f6e0-fe0f.png`) and drops
+  it for others, with no rule to derive.
+- A CHANGE TO THE PAINTER MUST BUMP `PAINTER_VERSION` in `deckFiles.ts`. Decks
+  already rendered to `data/carousel-decks` are served from disk and their
+  slides are unchanged by a fix to how they are drawn, so without the bump the
+  old pictures are what gets posted.
+- A still is FRAMED, never cropped (`fit: "frame"`, `attachSlideBackdrops`).
+  Cropping a 16:9 frame to fill a 4:5 slide throws away 55% of its width from
+  the middle out — which is the half the webcam is in, so the deck became a zoom
+  into the middle of a screen share with Nic's face sliced off the edge. The
+  whole frame sits above centre over a blurred fill of itself, with the copy
+  band under it, so the face AND the editor AND the terminal are all in shot.
+  Same rule as clips: never `cover` footage.
+- LOOK AT A DECK BEFORE IT GOES OUT. `npm run carousel:proof` renders a stored
+  carousel to the exact files the publisher would post and prints their paths
+  with each slide's copy. Both defects above shipped for weeks because nothing
+  ever opened the picture — a passing `npm test` says the geometry is right, not
+  that the slide has words on it.
 - A carousel written from a RECORDING is illustrated with the recording, and
   the COPY IS WRITTEN FIRST. The model is given a timestamped transcript of the
   whole stream (`transcriptDigest` thins it, never truncates — a 9k-character
