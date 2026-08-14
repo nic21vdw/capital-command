@@ -14,6 +14,16 @@ already shipped.
 
 ## Unreleased
 
+- **Clip titles stop hiding under the phone's top bar.** A title that wrapped
+  onto two lines burned its first line up against the status bar and the
+  Shorts back/search row — the placement clamped where the text block ended
+  instead of where it started, so the taller the title, the higher it climbed.
+  Titles now sit below a safe band reserved for platform chrome no matter how
+  many lines they take, and a title too long for three lines shrinks to fit
+  rather than growing back into it. The editor's title overlay starts in the
+  same place, so the preview matches what gets posted. Clips already rendered
+  keep the old placement; this applies to everything rendered from now on.
+
 ## 2026-08-12
 
 - **Your carousels stopped being silently held back.** Confirming the booking

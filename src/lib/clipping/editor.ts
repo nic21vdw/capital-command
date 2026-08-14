@@ -1,4 +1,4 @@
-import { CAPTION_PRESETS } from "@/lib/clipping/captions";
+import { CAPTION_PRESETS, TITLE_TOP_SAFE_FRAC } from "@/lib/clipping/captions";
 import { DEFAULT_CENTER_BLUR_ZOOM } from "@/lib/clipping/centerBlur";
 import { defaultSfxSettings } from "@/lib/sfx/types";
 import {
@@ -302,8 +302,10 @@ export function makeTitleOverlay(project: ClipProject): Overlay {
   const videoHeightFrac = videoAspect >= frameAspect ? frameAspect / videoAspect : 1;
   const videoTop = (1 - videoHeightFrac) / 2;
   // Park the block's center a step above the video edge so even a two-line
-  // title clears it, but never leave the 5% safe area when the video is tall.
-  const y = Math.min(0.9, Math.max(0.08, videoTop - 0.07));
+  // title clears it. The floor keeps it below the platform chrome: overlays
+  // burn from a CENTER anchor at 0.05 of frame height, so a two-line block is
+  // ~0.12 tall and its center has to sit half a block below the safe line.
+  const y = Math.min(0.9, Math.max(TITLE_TOP_SAFE_FRAC + 0.06, videoTop - 0.07));
   return {
     id: `ov-title-${crypto.randomUUID()}`,
     kind: "text",

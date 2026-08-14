@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { TITLE_TOP_SAFE_FRAC } from "@/lib/clipping/captions";
 import {
   applyCaptionPreset,
   aspectDimensions,
@@ -76,13 +77,15 @@ describe("makeTitleOverlay", () => {
     expect(overlay.y).toBeGreaterThan(0.05); // inside the safe area
   });
 
-  it("clamps into the safe area when the source already fills the frame", () => {
+  it("clamps below the platform chrome when the source already fills the frame", () => {
     const p = baseProject();
     p.title = "Tall";
     p.baseWidth = 1080;
     p.baseHeight = 1920; // vertical source: no letterbox band above the video
     const overlay = makeTitleOverlay(p);
-    expect(overlay.y).toBeCloseTo(0.08);
+    // Center anchor, so half a two-line block (~0.06) has to clear the chrome
+    // band — otherwise the first line lands under the status bar on mobile.
+    expect(overlay.y - 0.06).toBeGreaterThanOrEqual(TITLE_TOP_SAFE_FRAC);
   });
 
   it("falls back to the project name when no title was generated", () => {

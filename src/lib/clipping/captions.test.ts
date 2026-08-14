@@ -10,6 +10,7 @@ import {
   parseSubtitleWords,
   parseSubtitles,
   parseTimestamp,
+  TITLE_TOP_SAFE_FRAC,
   retimeWords,
   serializeSrt,
   serializeVtt,
@@ -345,10 +346,46 @@ describe("buildClipTitleDialogue", () => {
     expect(line).toContain("\\N");
   });
 
-  it("clamps into a safe top band when the source already fills the frame", () => {
+  // The block's top edge is what a phone crops against, and \an2 anchors its
+  // bottom — so every placement assertion below measures top, not the anchor.
+  const blockTop = (line: string, height = 1920) => {
+    const y = Number(line.match(/\\pos\(\d+,(\d+)\)/)![1]);
+    const fontSize = Number(line.match(/\\fs(\d+)/)![1]);
+    const lines = line.slice(line.indexOf("}") + 1).split("\\N").length;
+    return y - lines * Math.round(fontSize * 1.2);
+  };
+  const safeLine = Math.round(1920 * TITLE_TOP_SAFE_FRAC);
+
+  it("keeps a single-line title below the platform chrome on a full-frame source", () => {
     const line = buildClipTitleDialogue("Full Frame Source Title", 1080, 1920, 0, 20, 0);
-    const pos = line.match(/\\pos\(\d+,(\d+)\)/);
-    expect(Number(pos![1])).toBe(Math.round(1920 * 0.1));
+    expect(line).not.toContain("\\N");
+    expect(blockTop(line)).toBeGreaterThanOrEqual(safeLine);
+  });
+
+  it("keeps a WRAPPED title's first line below the platform chrome", () => {
+    // The regression: clamping the \an2 anchor to a flat 10% floor let the
+    // second line sit legally while the first rode up into the status bar.
+    const line = buildClipTitleDialogue("I'd Rather You Buy My Merch Than Donate", 1080, 1920, 0, 20, 0);
+    expect(line).toContain("\\N");
+    expect(blockTop(line)).toBeGreaterThanOrEqual(safeLine);
+  });
+
+  it("shrinks rather than overflowing when the title is at the titler's length cap", () => {
+    const maxLength = "How Vibe Coding Completely Changed My Entire Engineering Business Forever Ok";
+    expect(maxLength.length).toBeGreaterThanOrEqual(75);
+    const line = buildClipTitleDialogue(maxLength, 1080, 1920, 0, 20, 0);
+    expect(line.slice(line.indexOf("}") + 1).split("\\N").length).toBeLessThanOrEqual(3);
+    expect(Number(line.match(/\\fs(\d+)/)![1])).toBeLessThan(Math.round(1920 * 0.034));
+    expect(blockTop(line)).toBeGreaterThanOrEqual(safeLine);
+  });
+
+  it("still parks the title on the blurred fill when the video band leaves room", () => {
+    const videoTop = (1 - (1080 * (9 / 16)) / 1920) / 2;
+    const line = buildClipTitleDialogue("Vibe Coding a SaaS With Claude", 1080, 1920, 0, 20, videoTop);
+    const y = Number(line.match(/\\pos\(\d+,(\d+)\)/)![1]);
+    // The safe-area floor must not drag a letterboxed title down over footage.
+    expect(y).toBeLessThanOrEqual(Math.round(videoTop * 1920));
+    expect(y).toBeGreaterThan(Math.round(1920 * TITLE_TOP_SAFE_FRAC));
   });
 
   it("is backed by a white bold Title style in the ASS header", () => {
