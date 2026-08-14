@@ -35,10 +35,16 @@ export type CarouselImage = {
  * How a still from the video is laid behind the copy: full bleed, with a veil
  * over it dark enough that white text reads over any frame, and the copy set in
  * the lower half where a talking head is least likely to be.
+ *
+ * The still is FRAMED, never cropped. A 16:9 frame cropped to fill a 4:5 slide
+ * throws away 55% of its width from the middle out, which is exactly the half
+ * the webcam sits in — so the picture became a zoom into the middle of a screen
+ * share with Nic's face sliced off at the edge. `fit: "frame"` keeps the whole
+ * frame, face and editor and terminal together, over a blurred fill of itself.
  */
 export const BACKDROP_SLIDE_LAYOUT = {
   scrim: 0.52,
-  band: { top: 0.42, bottom: 0.9 },
+  band: { top: 0.6, bottom: 0.9 },
   headingColor: "#ffffff",
   bodyColor: "rgba(255,255,255,0.86)"
 } as const;
@@ -65,7 +71,7 @@ export function attachSlideBackdrops(
       y: 0,
       width: 1,
       height: 1,
-      fit: "cover"
+      fit: "frame"
     };
     return {
       ...slide,

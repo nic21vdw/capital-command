@@ -1,3 +1,4 @@
+import { appleEmojiUrls, emojiImageKey, emojiIn, splitRuns } from "@/lib/emoji/apple";
 import type { CarouselAspectRatio, CarouselSlide, SlideLayer } from "@/types/domain";
 
 /**
@@ -42,6 +43,7 @@ export interface SlideContext {
   font: string;
   fillStyle: unknown;
   textAlign: unknown;
+  filter?: string;
   save(): void;
   restore(): void;
   translate(x: number, y: number): void;
@@ -111,14 +113,67 @@ export function paintDefaultBackground(ctx: SlideContext, w: number, h: number) 
   ctx.fillRect(0, 0, w, h);
 }
 
-function wrapText(ctx: SlideContext, text: string, font: string, maxWidth: number): string[] {
+/**
+ * How wide an emoji picture is drawn, and how it sits on the line, as fractions
+ * of the font size. Square at roughly cap height, dropped so its middle lands
+ * where the middle of a capital does — an emoji aligned on the baseline reads as
+ * a character that has fallen off the line.
+ */
+const EMOJI_SIZE = 1.02;
+const EMOJI_BASELINE_DROP = 0.8;
+/** A hair of air after the picture, which the PNG's own bounds do not carry. */
+const EMOJI_ADVANCE = EMOJI_SIZE * 1.06;
+
+/**
+ * How wide a piece of copy is once its emoji are pictures rather than glyphs.
+ * `measureText` answers for a glyph nothing will draw, so asking it about the
+ * whole string is how a heading full of emoji wrapped a word early on Nic's
+ * machine and not at all on the server.
+ */
+function measureRuns(ctx: SlideContext, text: string, fontPx: number): number {
+  let width = 0;
+  for (const run of splitRuns(text)) {
+    width += run.emoji ? fontPx * EMOJI_ADVANCE : ctx.measureText(run.text).width;
+  }
+  return width;
+}
+
+/**
+ * Draws copy from `x` rightwards, swapping each emoji for its Apple picture.
+ * Falls back to `fillText` for a glyph whose picture never arrived, so a slide
+ * is never held up by a missing download.
+ */
+function fillRuns(
+  ctx: SlideContext,
+  text: string,
+  x: number,
+  y: number,
+  fontPx: number,
+  images: Map<string, SlideImage | null> | undefined
+) {
+  const size = fontPx * EMOJI_SIZE;
+  let cursor = x;
+  for (const run of splitRuns(text)) {
+    if (!run.emoji) {
+      ctx.fillText(run.text, cursor, y);
+      cursor += ctx.measureText(run.text).width;
+      continue;
+    }
+    const picture = images?.get(emojiImageKey(run.text));
+    if (picture) ctx.drawImage(picture, cursor, y - size * EMOJI_BASELINE_DROP, size, size);
+    else ctx.fillText(run.text, cursor, y);
+    cursor += fontPx * EMOJI_ADVANCE;
+  }
+}
+
+function wrapText(ctx: SlideContext, text: string, font: string, maxWidth: number, fontPx: number): string[] {
   ctx.font = font;
   const words = text.split(/\s+/).filter(Boolean);
   const lines: string[] = [];
   let line = "";
   for (const word of words) {
     const candidate = line ? `${line} ${word}` : word;
-    if (ctx.measureText(candidate).width > maxWidth && line) {
+    if (measureRuns(ctx, candidate, fontPx) > maxWidth && line) {
       lines.push(line);
       line = word;
     } else {
@@ -127,6 +182,17 @@ function wrapText(ctx: SlideContext, text: string, font: string, maxWidth: numbe
   }
   if (line) lines.push(line);
   return lines;
+}
+
+/**
+ * Where a line starts, given where the block is anchored. Emoji are painted one
+ * piece at a time from a left edge, so an aligned line has to be measured and
+ * placed rather than handed to `textAlign`.
+ */
+function lineStart(ctx: SlideContext, text: string, fontPx: number, align: string, left: number, width: number): number {
+  if (align === "left") return left;
+  const run = measureRuns(ctx, text, fontPx);
+  return align === "right" ? left + width - run : left + (width - run) / 2;
 }
 
 /**
@@ -153,6 +219,50 @@ export function loadImage(src: string): Promise<HTMLImageElement> {
   if (decoded.size >= DECODED_LIMIT) decoded.delete(decoded.keys().next().value!);
   decoded.set(src, pending);
   return pending;
+}
+
+/**
+ * Emoji URLs that are not there. An ordinary picture forgets a failure so a
+ * transient error can retry, but an emoji URL is content-addressed and its 404
+ * is permanent — and most glyphs miss their first candidate name by design. The
+ * editor repaints on every keystroke and every drag frame, so without this an
+ * editing session fires two 404s per affected glyph per repaint.
+ */
+const missingEmoji = new Set<string>();
+
+function fetchEmojiImage(url: string): Promise<HTMLImageElement> {
+  if (missingEmoji.has(url)) return Promise.reject(new Error("emoji not in the set"));
+  const cached = decoded.get(url);
+  if (cached) return cached;
+  const pending = new Promise<HTMLImageElement>((resolve, reject) => {
+    const image = new Image();
+    // Without this the export silently stops being able to produce a blob at
+    // all: one tainted canvas and `toBlob` returns null for the whole slide.
+    image.crossOrigin = "anonymous";
+    image.onload = () => resolve(image);
+    image.onerror = () => reject(new Error("emoji failed to load"));
+    image.src = url;
+  });
+  pending.catch(() => {
+    decoded.delete(url);
+    // An offline moment is not a missing file, and remembering it as one would
+    // blank that emoji for the rest of the session.
+    if (navigator.onLine !== false) missingEmoji.add(url);
+  });
+  decoded.set(url, pending);
+  return pending;
+}
+
+/**
+ * An Apple emoji picture for the browser canvas, or null if neither name the
+ * image set might file it under could be fetched.
+ */
+async function loadEmojiImage(glyph: string): Promise<HTMLImageElement | null> {
+  for (const url of appleEmojiUrls(glyph)) {
+    const image = await fetchEmojiImage(url).catch(() => null);
+    if (image) return image;
+  }
+  return null;
 }
 
 function roundedRectPath(ctx: SlideContext, x: number, y: number, w: number, h: number, r: number) {
@@ -182,20 +292,82 @@ function drawImageLayer(ctx: SlideContext, layer: Extract<SlideLayer, { type: "i
     ctx.clip();
   }
   // "contain" shows the whole image (letterboxed — right for logos + PNGs with
-  // transparency); "cover" fills the box, cropping overflow (right for photos).
+  // transparency); "cover" fills the box, cropping overflow (right for photos);
+  // "frame" is both — the whole picture over a blurred fill of itself.
   const fit = layer.fit ?? "cover";
-  const scale = fit === "contain" ? Math.min(lw / img.width, lh / img.height) : Math.max(lw / img.width, lh / img.height);
-  const dw = img.width * scale;
-  const dh = img.height * scale;
-  ctx.drawImage(img, lx + (lw - dw) / 2, ly + (lh - dh) / 2, dw, dh);
+  if (fit === "frame") {
+    paintCover(ctx, img, lx, ly, lw, lh, BACKDROP_BLUR_PX * Math.min(lw, lh));
+    paintContain(ctx, img, lx, ly, lw, lh, FRAME_POSITION);
+  } else if (fit === "contain") {
+    paintContain(ctx, img, lx, ly, lw, lh);
+  } else {
+    paintCover(ctx, img, lx, ly, lw, lh);
+  }
   ctx.restore();
 }
 
-function drawTextLayer(ctx: SlideContext, layer: Extract<SlideLayer, { type: "text" }>, w: number, h: number) {
+/** Blur radius of the bed a framed still sits on, as a fraction of the box. */
+const BACKDROP_BLUR_PX = 0.055;
+
+/**
+ * Where a framed still sits in its box, read exactly as CSS `object-position`
+ * reads it: the fraction of the LEFTOVER space that goes above the picture. High
+ * up, because the copy is set underneath — and low enough a number that the
+ * picture clears the copy band at 4:5, 1:1 and 9:16 alike, which is the whole
+ * reason one layout can serve every ratio.
+ *
+ * The editor's DOM overlay is given the same number as an `object-position`, so
+ * what is dragged is still what exports. Anything cleverer here (centre the
+ * picture at a fraction of the slide) has no CSS equivalent and the two drift.
+ */
+export const FRAME_POSITION = 0.08;
+
+function paintContain(ctx: SlideContext, img: SlideImage, lx: number, ly: number, lw: number, lh: number, position = 0.5) {
+  const scale = Math.min(lw / img.width, lh / img.height);
+  const dw = img.width * scale;
+  const dh = img.height * scale;
+  ctx.drawImage(img, lx + (lw - dw) / 2, ly + (lh - dh) * position, dw, dh);
+}
+
+/**
+ * Fills the box, cropping the overflow. `blur` paints it as a bed for something
+ * else: the picture is also drawn PROUD of the box by the blur radius, because a
+ * blur samples outside the source and would otherwise fade the slide's own edges
+ * out to nothing.
+ */
+function paintCover(ctx: SlideContext, img: SlideImage, lx: number, ly: number, lw: number, lh: number, blur = 0) {
+  const bleed = blur * 2;
+  const bw = lw + bleed * 2;
+  const bh = lh + bleed * 2;
+  const scale = Math.max(bw / img.width, bh / img.height);
+  const dw = img.width * scale;
+  const dh = img.height * scale;
+  if (blur) {
+    ctx.save();
+    ctx.beginPath();
+    ctx.moveTo(lx, ly);
+    ctx.arcTo(lx + lw, ly, lx + lw, ly + lh, 0);
+    ctx.arcTo(lx + lw, ly + lh, lx, ly + lh, 0);
+    ctx.arcTo(lx, ly + lh, lx, ly, 0);
+    ctx.closePath();
+    ctx.clip();
+    ctx.filter = `blur(${blur.toFixed(2)}px)`;
+  }
+  ctx.drawImage(img, lx - bleed + (bw - dw) / 2, ly - bleed + (bh - dh) / 2, dw, dh);
+  if (blur) ctx.restore();
+}
+
+function drawTextLayer(
+  ctx: SlideContext,
+  layer: Extract<SlideLayer, { type: "text" }>,
+  w: number,
+  h: number,
+  images: Map<string, SlideImage | null> | undefined
+) {
   const fontPx = layer.fontSize * h;
   const font = `${layer.weight} ${fontPx}px ${SLIDE_FONT_STACK}`;
   const maxWidth = layer.width * w;
-  const lines = wrapText(ctx, layer.text || "", font, maxWidth);
+  const lines = wrapText(ctx, layer.text || "", font, maxWidth, fontPx);
   const lineHeight = fontPx * 1.18;
   const lx = layer.x * w;
   let ly = layer.y * h + fontPx;
@@ -209,10 +381,9 @@ function drawTextLayer(ctx: SlideContext, layer: Extract<SlideLayer, { type: "te
   }
   ctx.font = font;
   ctx.fillStyle = layer.color;
-  ctx.textAlign = layer.align;
-  const anchorX = layer.align === "left" ? lx : layer.align === "right" ? lx + maxWidth : lx + maxWidth / 2;
+  ctx.textAlign = "left";
   for (const line of lines) {
-    ctx.fillText(line, anchorX, ly);
+    fillRuns(ctx, line, lineStart(ctx, line, fontPx, layer.align, lx, maxWidth), ly, fontPx, images);
     ly += lineHeight;
   }
   ctx.restore();
@@ -234,8 +405,61 @@ function paintScrim(ctx: SlideContext, strength: number, w: number, h: number) {
   ctx.fillRect(0, 0, w, h);
 }
 
+/**
+ * How far the copy is allowed to be shrunk to fit its band. Below this the
+ * slide is unreadable at a thumb's distance and there is nothing left to save.
+ */
+const MIN_COPY_SCALE = 0.62;
+
+/**
+ * Sets the heading and body at the largest size whose wrapped block still fits
+ * the band it has to sit in.
+ *
+ * A photo slide's band is the strip UNDER the picture, and the generator is
+ * allowed a 220-character body — comfortably more lines than that strip holds.
+ * Left at a fixed size the block was simply drawn past both ends of the band:
+ * the heading landed on the picture and the last line of body ran through the
+ * accent bar. Wrapping changes the line count, so the size is re-measured after
+ * each step down rather than solved once.
+ */
+function fitCopy(
+  ctx: SlideContext,
+  slide: CarouselSlide,
+  isHook: boolean,
+  scale: number,
+  maxWidth: number,
+  bandH: number
+) {
+  let shrink = 1;
+  for (let attempt = 0; ; attempt += 1) {
+    const headingPx = (isHook ? 92 : 72) * scale * shrink;
+    const bodyPx = 44 * scale * shrink;
+    const headingFont = `800 ${headingPx}px ${SLIDE_FONT_STACK}`;
+    const bodyFont = `400 ${bodyPx}px ${SLIDE_FONT_STACK}`;
+    const headingLines = slide.heading ? wrapText(ctx, slide.heading, headingFont, maxWidth, headingPx) : [];
+    const bodyLines = slide.body ? wrapText(ctx, slide.body, bodyFont, maxWidth, bodyPx) : [];
+    const headingLineH = (isHook ? 108 : 86) * scale * shrink;
+    const bodyLineH = 62 * scale * shrink;
+    const gap = 40 * scale * shrink;
+    const lead = (isHook ? 70 : 50) * scale * shrink;
+    const blockH = headingLines.length * headingLineH + (bodyLines.length ? gap + bodyLines.length * bodyLineH : 0);
+
+    const fitted = { headingPx, bodyPx, headingFont, bodyFont, headingLines, bodyLines, headingLineH, bodyLineH, gap, lead, blockH };
+    if (blockH + lead <= bandH || shrink <= MIN_COPY_SCALE || attempt >= 4) return fitted;
+    shrink = Math.max(MIN_COPY_SCALE, shrink * Math.max(0.72, (bandH - lead) / blockH));
+  }
+}
+
 /** Draws the channel base chrome (counter, heading, body, accent bar). */
-function drawBaseText(ctx: SlideContext, slide: CarouselSlide, index: number, total: number, w: number, h: number) {
+function drawBaseText(
+  ctx: SlideContext,
+  slide: CarouselSlide,
+  index: number,
+  total: number,
+  w: number,
+  h: number,
+  images: Map<string, SlideImage | null> | undefined
+) {
   const scale = w / 1080;
   const margin = 80 * scale;
 
@@ -265,30 +489,28 @@ function drawBaseText(ctx: SlideContext, slide: CarouselSlide, index: number, to
   }
 
   const isHook = index === 0;
-  const headingFont = `800 ${(isHook ? 92 : 72) * scale}px ${SLIDE_FONT_STACK}`;
-  const bodyFont = `400 ${44 * scale}px ${SLIDE_FONT_STACK}`;
   const maxWidth = w - margin * 2;
+  const fit = fitCopy(ctx, slide, isHook, scale, maxWidth, bandBottom - bandTop);
+  const { headingPx, bodyPx, headingFont, bodyFont, headingLines, bodyLines, headingLineH, bodyLineH, blockH } = fit;
 
-  const headingLines = slide.heading ? wrapText(ctx, slide.heading, headingFont, maxWidth) : [];
-  const bodyLines = slide.body ? wrapText(ctx, slide.body, bodyFont, maxWidth) : [];
-  const headingLineH = (isHook ? 108 : 86) * scale;
-  const bodyLineH = 62 * scale;
-  const blockH = headingLines.length * headingLineH + (bodyLines.length ? 40 * scale + bodyLines.length * bodyLineH : 0);
-  let y = bandTop + (bandBottom - bandTop - blockH) / 2 + (isHook ? 70 : 50) * scale;
+  // Centred in the band. `fitCopy` has already made sure the block is no taller
+  // than the band, so this cannot centre the copy out of it — up onto the
+  // picture the band exists to sit under, or down through the accent bar.
+  let y = bandTop + Math.max(0, bandBottom - bandTop - blockH) / 2 + fit.lead;
 
   ctx.textAlign = "left";
   ctx.font = headingFont;
   ctx.fillStyle = slide.headingColor ?? COLATERAL_THEME.heading;
   for (const line of headingLines) {
-    ctx.fillText(line, margin, y);
+    fillRuns(ctx, line, margin, y, headingPx, images);
     y += headingLineH;
   }
   if (bodyLines.length) {
-    y += 40 * scale;
+    y += fit.gap;
     ctx.font = bodyFont;
     ctx.fillStyle = slide.bodyColor ?? COLATERAL_THEME.body;
     for (const line of bodyLines) {
-      ctx.fillText(line, margin, y);
+      fillRuns(ctx, line, margin, y, bodyPx, images);
       y += bodyLineH;
     }
   }
@@ -334,12 +556,30 @@ export function slideImageLayers(slide: CarouselSlide): Extract<SlideLayer, { ty
 }
 
 /**
+ * Every emoji a slide will draw as a picture. The counter is not in here on
+ * purpose — it is a number this code writes, not copy anyone typed.
+ */
+export function slideEmoji(slide: CarouselSlide): string[] {
+  const copy = [slide.heading ?? "", slide.body ?? ""];
+  for (const layer of slide.layers ?? []) {
+    if (layer.type === "text") copy.push(layer.text ?? "");
+  }
+  return emojiIn(copy.join("\n"));
+}
+
+/** Every emoji in a whole deck, deduplicated — one download covers every slide. */
+export function carouselEmoji(slides: CarouselSlide[]): string[] {
+  return emojiIn(slides.flatMap(slideEmoji).join("\n"));
+}
+
+/**
  * Paints one slide into an already-sized 2D context. Every measurement is a
  * fraction of the slide, so this is the whole layout — the browser export, the
  * editor preview and the server's PNG all come through here, with only the
  * canvas and the picture decoder differing.
  *
- * `images` is keyed by layer `src`; a missing or failed picture is simply not
+ * `images` is keyed by layer `src`, and by `emojiImageKey` for the Apple emoji
+ * pictures the copy is set with; a missing or failed picture is simply not
  * drawn, which is what keeps a deck exportable when one photo has gone.
  */
 export function paintSlide(
@@ -379,11 +619,11 @@ export function paintSlide(
   // keeps the stacked preview in the same z-order as the export.
   if (!options.skipBaseText && slide.scrim) paintScrim(ctx, slide.scrim, width, height);
 
-  if (!options.skipBaseText && !slide.hideBaseText) drawBaseText(ctx, slide, index, total, width, height);
+  if (!options.skipBaseText && !slide.hideBaseText) drawBaseText(ctx, slide, index, total, width, height, input.images);
 
   if (!options.skipTextLayers) {
     for (const layer of slide.layers ?? []) {
-      if (layer.type === "text") drawTextLayer(ctx, layer, width, height);
+      if (layer.type === "text") drawTextLayer(ctx, layer, width, height, input.images);
     }
   }
 }
@@ -407,13 +647,22 @@ export async function renderSlideCanvas(
   const ctx = canvas.getContext("2d")!;
 
   const images = new Map<string, SlideImage | null>();
+  const loads: Promise<unknown>[] = [];
   if (!options.skipImageLayers) {
-    await Promise.all(
-      slideImageLayers(slide).map(async (layer) => {
+    loads.push(
+      ...slideImageLayers(slide).map(async (layer) => {
         images.set(layer.src, await loadImage(layer.src).catch(() => null));
       })
     );
   }
+  // Emoji load whatever else is skipped: the editor stacks the picture layers
+  // as live DOM and paints only the copy here, and the copy is where they are.
+  loads.push(
+    ...slideEmoji(slide).map(async (glyph) => {
+      images.set(emojiImageKey(glyph), await loadEmojiImage(glyph));
+    })
+  );
+  await Promise.all(loads);
 
   paintSlide(ctx, { slide, index, total, width, height, images }, options);
   return canvas;

@@ -16,7 +16,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
-import { aspectSpec, COLATERAL_THEME, loadImage, renderSlideCanvas, SLIDE_FONT_STACK } from "@/lib/carousels/render";
+import { aspectSpec, COLATERAL_THEME, FRAME_POSITION, loadImage, renderSlideCanvas, SLIDE_FONT_STACK } from "@/lib/carousels/render";
 import { cn } from "@/lib/utils";
 import type { CarouselAspectRatio, CarouselSlide, SlideLayer } from "@/types/domain";
 
@@ -601,13 +601,31 @@ function EditStage({
             transform: layer.rotation ? `rotate(${layer.rotation}deg)` : undefined
           }}
         >
+          {/* A framed still is the whole picture over a blurred fill of itself,
+              which the export paints in one pass and the DOM needs two for. */}
+          {layer.fit === "frame" ? (
+            /* eslint-disable-next-line @next/next/no-img-element */
+            <img
+              src={layer.src}
+              alt=""
+              draggable={false}
+              aria-hidden
+              className="absolute inset-0 h-full w-full scale-110 object-cover blur-xl"
+            />
+          ) : null}
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
             src={layer.src}
             alt=""
             draggable={false}
-            className="h-full w-full"
-            style={{ objectFit: layer.fit ?? "contain", borderRadius: `${Math.min(50, (layer.radius ?? 0) * 100)}%` }}
+            className="relative h-full w-full"
+            style={{
+              objectFit: layer.fit === "frame" ? "contain" : layer.fit ?? "contain",
+              // The export reads FRAME_POSITION exactly as object-position reads
+              // it, so the still sits where it will be posted.
+              objectPosition: layer.fit === "frame" ? `50% ${FRAME_POSITION * 100}%` : undefined,
+              borderRadius: `${Math.min(50, (layer.radius ?? 0) * 100)}%`
+            }}
           />
           {selectedLayer === layer.id ? cornerHandles(layer) : null}
         </div>

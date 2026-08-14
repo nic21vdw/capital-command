@@ -45,8 +45,13 @@ export async function POST(request: NextRequest, { params }: Params) {
     const ids = Array.isArray((body as { ids?: unknown })?.ids)
       ? ((body as { ids: unknown[] }).ids.filter((id) => typeof id === "string") as string[])
       : undefined;
+    // What the sheet actually listed. Without it, an output that became
+    // bookable while the sheet was open reads as a row he unticked.
+    const seen = Array.isArray((body as { seen?: unknown })?.seen)
+      ? ((body as { seen: unknown[] }).seen.filter((id) => typeof id === "string") as string[])
+      : undefined;
     try {
-      const result = await queueRunOutputs(runId, ids);
+      const result = await queueRunOutputs(runId, ids, { seen });
       // Everything he ticked, plus whatever this run has not finished yet: the
       // segments render for hours after this click and the long-form export
       // often lands after the shorts.

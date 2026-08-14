@@ -14,6 +14,22 @@ already shipped.
 
 ## Unreleased
 
+- **Emoji are back on your carousels, in the Apple set.** Every slide is set in
+  Arial, which has no emoji in it, and the server that renders a booked deck has
+  no emoji font at all — so the 🚀 the copy was written around came out as empty
+  space on everything that actually got posted, while the preview on your screen
+  looked fine. Emoji are now drawn as Apple pictures rather than typed, so a
+  slide looks the same whether your browser or the publisher painted it, and it
+  is the iOS artwork wherever it lands. Decks already rendered are repainted.
+- **Stream stills show the whole frame again, your face included.** A still was
+  cropped to fill the slide, which threw away more than half the width of a
+  widescreen frame from the middle out — the half your webcam is in. So a slide
+  meant to show you working became a zoom into the middle of a screen share with
+  your face sliced off the edge. The whole frame now sits above the copy over a
+  blurred fill of itself: camera, editor and terminal all in shot together.
+- **You can look at a deck before it goes out.** `npm run carousel:proof`
+  renders a stored carousel to the exact files the publisher would post and
+  prints where they are, next to each slide's words.
 - **The Uploading Center stops re-reading the whole publish queue for every
   clip on screen.** Each clip card asked the queue "which of these posts are
   mine?" from scratch — four separate times per card, every time the page drew
@@ -22,6 +38,17 @@ already shipped.
   with the queue: across the whole clip library the same question cost 1.3
   seconds. The answer is now worked out once per queue and looked up, which
   measures 2 ms either way.
+
+## 2026-08-12
+
+- **Your carousels stopped being silently held back.** Confirming the booking
+  sheet marked every output that was not ticked as one you had deliberately
+  kept back — including the ones that only became bookable while the sheet was
+  open. The deck is written from the transcript minutes after the shorts
+  finish, so on 17 streams in a row it was recorded as an untick you never
+  made, and a held-back output is skipped forever: 26 rendered decks were made,
+  rendered, and then never booked. The sheet now says what it actually showed
+  you, and anything that lands after it opened is booked as it lands.
 
 ## 2026-08-12
 

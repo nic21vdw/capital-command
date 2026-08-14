@@ -67,7 +67,9 @@ describe("attachSlideBackdrops", () => {
 
   it("lays each still behind the whole slide, in order", () => {
     const slides = attachSlideBackdrops(deck(3), photos);
-    expect(slides[0].layers?.[0]).toMatchObject({ type: "image", src: photos[0].url, x: 0, y: 0, width: 1, height: 1, fit: "cover" });
+    // "frame", never "cover": a widescreen still cropped to a 4:5 slide loses
+    // the half of the frame the webcam is in.
+    expect(slides[0].layers?.[0]).toMatchObject({ type: "image", src: photos[0].url, x: 0, y: 0, width: 1, height: 1, fit: "frame" });
     expect(slides[1].layers?.[0]).toMatchObject({ type: "image", src: photos[1].url });
     expect(slides[2].layers).toBeUndefined();
   });

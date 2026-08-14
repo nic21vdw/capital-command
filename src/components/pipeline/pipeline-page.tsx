@@ -584,13 +584,13 @@ export function PipelinePage() {
   }, []);
 
   const confirmQueue = useCallback(
-    async (runId: string, ids: string[]) => {
+    async (runId: string, ids: string[], seen: string[]) => {
       setWorking("queue");
       try {
         const response = await fetch(`/api/pipeline/${runId}`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ action: "queue-all", ids })
+          body: JSON.stringify({ action: "queue-all", ids, seen })
         });
         const data = (await response.json()) as {
           detail?: string;
@@ -1238,7 +1238,8 @@ export function PipelinePage() {
                   onClick={() =>
                     void confirmQueue(
                       run.id,
-                      plan.candidates.map((item) => item.id).filter((id) => !dropped.includes(id))
+                      plan.candidates.map((item) => item.id).filter((id) => !dropped.includes(id)),
+                      plan.candidates.map((item) => item.id)
                     )
                   }
                   className="px-3 py-1.5 text-xs"

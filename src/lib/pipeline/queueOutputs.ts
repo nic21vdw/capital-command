@@ -394,7 +394,7 @@ async function settleSchedule(): Promise<void> {
 export async function queueRunOutputs(
   runId: string,
   ids?: string[],
-  options: { standing?: boolean } = {}
+  options: { standing?: boolean; seen?: string[] } = {}
 ): Promise<QueueResult> {
   const run = await getRun(runId);
   if (!run) throw new Error(`No pipeline run called ${runId}.`);
@@ -421,11 +421,21 @@ export async function queueRunOutputs(
     alreadyBooked.delete(item.id);
   }
 
-  // Only a person unticking something creates a held-back id. The drain has no
-  // opinion about what it did not book.
+  // Only a person unticking something creates a held-back id, and only for a
+  // row he was actually shown. The sheet is planned when it opens and the run
+  // is re-planned when it is confirmed, so an output that became bookable in
+  // between — the deck, written from the transcript minutes after the shorts
+  // finish, or the long-form export landing last — was never on screen to be
+  // unticked. Recording it as one held 26 rendered decks back permanently: the
+  // standing drain skips a held-back id forever, so the deck was made, rendered
+  // and then silently never booked. `seen` is what the sheet listed; anything
+  // outside it is left undecided for the drain to book as it lands.
+  const seen = options.seen;
   const droppedNow =
     !options.standing && ids
-      ? plan.candidates.filter((item) => !ids.includes(item.id) && !item.heldBack).map((item) => item.id)
+      ? plan.candidates
+          .filter((item) => !ids.includes(item.id) && !item.heldBack && (!seen || seen.includes(item.id)))
+          .map((item) => item.id)
       : [];
 
   const slots = plan.openSlots;

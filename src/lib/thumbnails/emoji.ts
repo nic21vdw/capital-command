@@ -6,27 +6,14 @@
  * To get a consistent Apple look everywhere we draw emoji from the open
  * `iamcal/emoji-data` Apple image set (served with permissive CORS by jsDelivr),
  * falling back to native `fillText` until the image has loaded.
+ *
+ * Naming the image is shared with the carousel renderer — see
+ * `src/lib/emoji/apple.ts`. This file is the browser-side cache around it.
  */
 
-const APPLE_BASE = "https://cdn.jsdelivr.net/gh/iamcal/emoji-data@master/img-apple-64";
+import { appleEmojiUrl, emojiCodepoints } from "@/lib/emoji/apple";
 
-/**
- * Converts an emoji glyph to its hyphen-joined lowercase codepoints, matching
- * the `emoji-data` image filenames. The U+FE0F variation selector is dropped,
- * since the Apple image set keys single-codepoint emoji without it.
- */
-export function emojiCodepoints(emoji: string): string {
-  return Array.from(emoji)
-    .map((ch) => ch.codePointAt(0) ?? 0)
-    .filter((cp) => cp !== 0xfe0f)
-    .map((cp) => cp.toString(16))
-    .join("-");
-}
-
-/** CDN URL for the Apple-styled PNG of an emoji glyph. */
-export function appleEmojiUrl(emoji: string): string {
-  return `${APPLE_BASE}/${emojiCodepoints(emoji)}.png`;
-}
+export { appleEmojiUrl, emojiCodepoints };
 
 type Entry = { img: HTMLImageElement; ready: boolean; failed: boolean };
 

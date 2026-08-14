@@ -10,7 +10,9 @@ import {
   planDeckRender,
   type DeckManifest
 } from "@/lib/carousels/deckFiles";
-import { paintSlide, slideImageLayers, type SlideImage } from "@/lib/carousels/render";
+import { appleEmojiBytes } from "@/lib/carousels/emojiFiles";
+import { carouselEmoji, paintSlide, slideImageLayers, type SlideImage } from "@/lib/carousels/render";
+import { emojiImageKey } from "@/lib/emoji/apple";
 import { carouselImagePath, parseCarouselImageId } from "@/lib/carousels/uploads";
 import type { Carousel } from "@/types/domain";
 
@@ -46,12 +48,19 @@ async function decodeLayers(carousel: Carousel): Promise<Map<string, SlideImage 
     for (const layer of slideImageLayers(slide)) sources.add(layer.src);
   }
   const images = new Map<string, SlideImage | null>();
-  await Promise.all(
-    [...sources].map(async (src) => {
+  await Promise.all([
+    ...[...sources].map(async (src) => {
       const bytes = await readLayerSource(src);
       images.set(src, bytes ? await loadImage(bytes).catch(() => null) : null);
+    }),
+    // The server has no emoji font at all — an emoji left to `fillText` here
+    // comes out as nothing, which is how decks were booked with the copy full
+    // of gaps. They are pictures, same as the stills.
+    ...carouselEmoji(carousel.slides).map(async (glyph) => {
+      const bytes = await appleEmojiBytes(glyph).catch(() => null);
+      images.set(emojiImageKey(glyph), bytes ? await loadImage(bytes).catch(() => null) : null);
     })
-  );
+  ]);
   return images;
 }
 
