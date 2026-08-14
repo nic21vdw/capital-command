@@ -24,8 +24,7 @@ data/voiceover/
 data/*.tmp
 data/uploads/
 data/emoji-apple/
-data/carousel-decks/
-data/carousel-images/
+data/carousels/
 data/publish-queue.json
 data/publish-queue.log*
 data/threads-queue.json
