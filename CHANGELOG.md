@@ -23,6 +23,14 @@ already shipped.
   rather than growing back into it. The editor's title overlay starts in the
   same place, so the preview matches what gets posted. Clips already rendered
   keep the old placement; this applies to everything rendered from now on.
+- **The Uploading Center stops re-reading the whole publish queue for every
+  clip on screen.** Each clip card asked the queue "which of these posts are
+  mine?" from scratch — four separate times per card, every time the page drew
+  itself, including on every character you typed into a caption. With a real
+  queue that was 54 ms of work per keystroke for one run of clips, and it grew
+  with the queue: across the whole clip library the same question cost 1.3
+  seconds. The answer is now worked out once per queue and looked up, which
+  measures 2 ms either way.
 
 ## 2026-08-12
 
