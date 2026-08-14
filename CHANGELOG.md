@@ -30,6 +30,14 @@ already shipped.
 - **You can look at a deck before it goes out.** `npm run carousel:proof`
   renders a stored carousel to the exact files the publisher would post and
   prints where they are, next to each slide's words.
+- **The Uploading Center stops re-reading the whole publish queue for every
+  clip on screen.** Each clip card asked the queue "which of these posts are
+  mine?" from scratch — four separate times per card, every time the page drew
+  itself, including on every character you typed into a caption. With a real
+  queue that was 54 ms of work per keystroke for one run of clips, and it grew
+  with the queue: across the whole clip library the same question cost 1.3
+  seconds. The answer is now worked out once per queue and looked up, which
+  measures 2 ms either way.
 
 ## 2026-08-12
 
