@@ -57,7 +57,7 @@ async function decodeLayers(carousel: Carousel): Promise<Map<string, SlideImage 
     // comes out as nothing, which is how decks were booked with the copy full
     // of gaps. They are pictures, same as the stills.
     ...carouselEmoji(carousel.slides).map(async (glyph) => {
-      const bytes = await appleEmojiBytes(glyph);
+      const bytes = await appleEmojiBytes(glyph).catch(() => null);
       images.set(emojiImageKey(glyph), bytes ? await loadImage(bytes).catch(() => null) : null);
     })
   ]);

@@ -111,3 +111,38 @@ describe("appleEmojiUrls", () => {
     ]);
   });
 });
+
+describe("appleEmojiUrls padding", () => {
+  const names = (glyph: string) => appleEmojiUrls(glyph).map((url) => url.split("/").pop());
+
+  it("offers the zero-padded name a keycap is actually filed under", () => {
+    // 1️⃣ is 0031-fe0f-20e3.png. Neither unpadded name exists.
+    expect(names("1️⃣")).toContain("0031-fe0f-20e3.png");
+  });
+
+  it("covers the hash and asterisk keycaps too", () => {
+    expect(names("#️⃣")).toContain("0023-fe0f-20e3.png");
+    expect(names("*️⃣")).toContain("002a-fe0f-20e3.png");
+  });
+
+  it("does not pad a codepoint that is already four digits or more", () => {
+    expect(names("🚀")).toEqual(["1f680.png"]);
+    expect(names("🛠️")).toEqual(["1f6e0.png", "1f6e0-fe0f.png"]);
+  });
+
+  it("never offers the same name twice", () => {
+    for (const glyph of ["🚀", "🛠️", "1️⃣", "🇨🇦", "👍🏽", "👨‍🚀"]) {
+      const offered = names(glyph);
+      expect(new Set(offered).size).toBe(offered.length);
+    }
+  });
+});
+
+describe("subdivision flags", () => {
+  it("swallows the invisible region tags rather than leaving them in the words", () => {
+    const runs = splitRuns("🏴󠁧󠁢󠁳󠁣󠁴󠁿 Scotland");
+    expect(runs).toHaveLength(2);
+    expect(runs[0].emoji).toBe(true);
+    expect(runs[1]).toEqual({ emoji: false, text: " Scotland" });
+  });
+});

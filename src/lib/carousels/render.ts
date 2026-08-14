@@ -221,7 +221,17 @@ export function loadImage(src: string): Promise<HTMLImageElement> {
   return pending;
 }
 
+/**
+ * Emoji URLs that are not there. An ordinary picture forgets a failure so a
+ * transient error can retry, but an emoji URL is content-addressed and its 404
+ * is permanent — and most glyphs miss their first candidate name by design. The
+ * editor repaints on every keystroke and every drag frame, so without this an
+ * editing session fires two 404s per affected glyph per repaint.
+ */
+const missingEmoji = new Set<string>();
+
 function fetchEmojiImage(url: string): Promise<HTMLImageElement> {
+  if (missingEmoji.has(url)) return Promise.reject(new Error("emoji not in the set"));
   const cached = decoded.get(url);
   if (cached) return cached;
   const pending = new Promise<HTMLImageElement>((resolve, reject) => {
@@ -233,7 +243,12 @@ function fetchEmojiImage(url: string): Promise<HTMLImageElement> {
     image.onerror = () => reject(new Error("emoji failed to load"));
     image.src = url;
   });
-  pending.catch(() => decoded.delete(url));
+  pending.catch(() => {
+    decoded.delete(url);
+    // An offline moment is not a missing file, and remembering it as one would
+    // blank that emoji for the rest of the session.
+    if (navigator.onLine !== false) missingEmoji.add(url);
+  });
   decoded.set(url, pending);
   return pending;
 }
@@ -282,7 +297,7 @@ function drawImageLayer(ctx: SlideContext, layer: Extract<SlideLayer, { type: "i
   const fit = layer.fit ?? "cover";
   if (fit === "frame") {
     paintCover(ctx, img, lx, ly, lw, lh, BACKDROP_BLUR_PX * Math.min(lw, lh));
-    paintContain(ctx, img, lx, ly, lw, lh, FRAME_ANCHOR);
+    paintContain(ctx, img, lx, ly, lw, lh, FRAME_POSITION);
   } else if (fit === "contain") {
     paintContain(ctx, img, lx, ly, lw, lh);
   } else {
@@ -295,18 +310,23 @@ function drawImageLayer(ctx: SlideContext, layer: Extract<SlideLayer, { type: "i
 const BACKDROP_BLUR_PX = 0.055;
 
 /**
- * Where the middle of a framed still sits in its box. Above centre, because the
- * copy is set in the lower third and a widescreen frame centred on a 4:5 slide
- * puts the busiest part of a screen share directly under the heading.
+ * Where a framed still sits in its box, read exactly as CSS `object-position`
+ * reads it: the fraction of the LEFTOVER space that goes above the picture. High
+ * up, because the copy is set underneath — and low enough a number that the
+ * picture clears the copy band at 4:5, 1:1 and 9:16 alike, which is the whole
+ * reason one layout can serve every ratio.
+ *
+ * The editor's DOM overlay is given the same number as an `object-position`, so
+ * what is dragged is still what exports. Anything cleverer here (centre the
+ * picture at a fraction of the slide) has no CSS equivalent and the two drift.
  */
-const FRAME_ANCHOR = 0.32;
+export const FRAME_POSITION = 0.08;
 
-function paintContain(ctx: SlideContext, img: SlideImage, lx: number, ly: number, lw: number, lh: number, anchor = 0.5) {
+function paintContain(ctx: SlideContext, img: SlideImage, lx: number, ly: number, lw: number, lh: number, position = 0.5) {
   const scale = Math.min(lw / img.width, lh / img.height);
   const dw = img.width * scale;
   const dh = img.height * scale;
-  const top = Math.max(ly, Math.min(ly + lh - dh, ly + lh * anchor - dh / 2));
-  ctx.drawImage(img, lx + (lw - dw) / 2, top, dw, dh);
+  ctx.drawImage(img, lx + (lw - dw) / 2, ly + (lh - dh) * position, dw, dh);
 }
 
 /**
@@ -385,6 +405,51 @@ function paintScrim(ctx: SlideContext, strength: number, w: number, h: number) {
   ctx.fillRect(0, 0, w, h);
 }
 
+/**
+ * How far the copy is allowed to be shrunk to fit its band. Below this the
+ * slide is unreadable at a thumb's distance and there is nothing left to save.
+ */
+const MIN_COPY_SCALE = 0.62;
+
+/**
+ * Sets the heading and body at the largest size whose wrapped block still fits
+ * the band it has to sit in.
+ *
+ * A photo slide's band is the strip UNDER the picture, and the generator is
+ * allowed a 220-character body — comfortably more lines than that strip holds.
+ * Left at a fixed size the block was simply drawn past both ends of the band:
+ * the heading landed on the picture and the last line of body ran through the
+ * accent bar. Wrapping changes the line count, so the size is re-measured after
+ * each step down rather than solved once.
+ */
+function fitCopy(
+  ctx: SlideContext,
+  slide: CarouselSlide,
+  isHook: boolean,
+  scale: number,
+  maxWidth: number,
+  bandH: number
+) {
+  let shrink = 1;
+  for (let attempt = 0; ; attempt += 1) {
+    const headingPx = (isHook ? 92 : 72) * scale * shrink;
+    const bodyPx = 44 * scale * shrink;
+    const headingFont = `800 ${headingPx}px ${SLIDE_FONT_STACK}`;
+    const bodyFont = `400 ${bodyPx}px ${SLIDE_FONT_STACK}`;
+    const headingLines = slide.heading ? wrapText(ctx, slide.heading, headingFont, maxWidth, headingPx) : [];
+    const bodyLines = slide.body ? wrapText(ctx, slide.body, bodyFont, maxWidth, bodyPx) : [];
+    const headingLineH = (isHook ? 108 : 86) * scale * shrink;
+    const bodyLineH = 62 * scale * shrink;
+    const gap = 40 * scale * shrink;
+    const lead = (isHook ? 70 : 50) * scale * shrink;
+    const blockH = headingLines.length * headingLineH + (bodyLines.length ? gap + bodyLines.length * bodyLineH : 0);
+
+    const fitted = { headingPx, bodyPx, headingFont, bodyFont, headingLines, bodyLines, headingLineH, bodyLineH, gap, lead, blockH };
+    if (blockH + lead <= bandH || shrink <= MIN_COPY_SCALE || attempt >= 4) return fitted;
+    shrink = Math.max(MIN_COPY_SCALE, shrink * Math.max(0.72, (bandH - lead) / blockH));
+  }
+}
+
 /** Draws the channel base chrome (counter, heading, body, accent bar). */
 function drawBaseText(
   ctx: SlideContext,
@@ -424,18 +489,14 @@ function drawBaseText(
   }
 
   const isHook = index === 0;
-  const headingPx = (isHook ? 92 : 72) * scale;
-  const bodyPx = 44 * scale;
-  const headingFont = `800 ${headingPx}px ${SLIDE_FONT_STACK}`;
-  const bodyFont = `400 ${bodyPx}px ${SLIDE_FONT_STACK}`;
   const maxWidth = w - margin * 2;
+  const fit = fitCopy(ctx, slide, isHook, scale, maxWidth, bandBottom - bandTop);
+  const { headingPx, bodyPx, headingFont, bodyFont, headingLines, bodyLines, headingLineH, bodyLineH, blockH } = fit;
 
-  const headingLines = slide.heading ? wrapText(ctx, slide.heading, headingFont, maxWidth, headingPx) : [];
-  const bodyLines = slide.body ? wrapText(ctx, slide.body, bodyFont, maxWidth, bodyPx) : [];
-  const headingLineH = (isHook ? 108 : 86) * scale;
-  const bodyLineH = 62 * scale;
-  const blockH = headingLines.length * headingLineH + (bodyLines.length ? 40 * scale + bodyLines.length * bodyLineH : 0);
-  let y = bandTop + (bandBottom - bandTop - blockH) / 2 + (isHook ? 70 : 50) * scale;
+  // Centred in the band. `fitCopy` has already made sure the block is no taller
+  // than the band, so this cannot centre the copy out of it — up onto the
+  // picture the band exists to sit under, or down through the accent bar.
+  let y = bandTop + Math.max(0, bandBottom - bandTop - blockH) / 2 + fit.lead;
 
   ctx.textAlign = "left";
   ctx.font = headingFont;
@@ -445,7 +506,7 @@ function drawBaseText(
     y += headingLineH;
   }
   if (bodyLines.length) {
-    y += 40 * scale;
+    y += fit.gap;
     ctx.font = bodyFont;
     ctx.fillStyle = slide.bodyColor ?? COLATERAL_THEME.body;
     for (const line of bodyLines) {

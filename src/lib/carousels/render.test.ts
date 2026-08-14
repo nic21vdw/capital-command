@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { attachSlideImages, IMAGE_SLIDE_LAYOUT } from "@/lib/carousels/imageSlides";
-import { aspectSpec, renderSlideCanvas } from "@/lib/carousels/render";
+import { aspectSpec, FRAME_POSITION, renderSlideCanvas } from "@/lib/carousels/render";
 import type { CarouselSlide } from "@/types/domain";
 
 /**
@@ -248,5 +248,86 @@ describe("a framed still", () => {
     await renderSlideCanvas(covered, 0, 6, "portrait");
     expect(drawnImages).toHaveLength(1);
     expect(drawnImages[0].h).toBeCloseTo(1350, 5);
+  });
+});
+
+/**
+ * The copy block is centred in its band, and the band on a photo slide is the
+ * strip UNDER the picture. Copy too tall for it must not be centred out of the
+ * band and onto the picture — the generator is allowed a 220-character body,
+ * which is more lines than the band holds.
+ */
+describe("copy taller than its band", () => {
+  const band = { top: 0.6, bottom: 0.9 };
+  const long: CarouselSlide = {
+    id: "long",
+    heading: "Four whole words here",
+    body: "A".repeat(40) + " " + "B".repeat(40) + " " + "C".repeat(40) + " " + "D".repeat(40) + " " + "E".repeat(40),
+    textBand: band,
+    scrim: 0.52,
+    layers: [{ id: "l", type: "image", src: "/frame.jpg", x: 0, y: 0, width: 1, height: 1, fit: "frame" }]
+  };
+
+  it("never lets the copy climb above the band onto the picture", async () => {
+    await renderSlideCanvas(long, 1, 8, "portrait");
+    const copyLines = drawnText.filter((line) => !/^\d+\/\d+$/.test(line.text));
+    expect(copyLines.length).toBeGreaterThan(3);
+    for (const line of copyLines) expect(line.y).toBeGreaterThan(band.top * 1350);
+  });
+
+  it("still centres copy that does fit", async () => {
+    const short = { ...long, body: "Short." };
+    drawnText.length = 0;
+    await renderSlideCanvas(short, 1, 8, "portrait");
+    const copyLines = drawnText.filter((line) => !/^\d+\/\d+$/.test(line.text));
+    const first = Math.min(...copyLines.map((line) => line.y));
+    // Off the top of the band, not flush against it.
+    expect(first).toBeGreaterThan(band.top * 1350 + 60);
+  });
+});
+
+/**
+ * The still is placed exactly the way CSS `object-position` places it, because
+ * the editor's live overlay IS a CSS `object-position` — the two have to agree
+ * or what is dragged stops being what exports.
+ */
+describe("where a framed still sits", () => {
+  const framed: CarouselSlide = {
+    id: "f",
+    heading: "H",
+    body: "",
+    textBand: { top: 0.6, bottom: 0.9 },
+    layers: [{ id: "l", type: "image", src: "/frame.jpg", x: 0, y: 0, width: 1, height: 1, fit: "frame" }]
+  };
+
+  it("puts FRAME_POSITION of the leftover space above the picture", async () => {
+    await renderSlideCanvas(framed, 1, 8, "portrait");
+    const [, picture] = drawnImages;
+    expect(picture.y).toBeCloseTo((1350 - picture.h) * FRAME_POSITION, 5);
+  });
+
+  it("clears the copy band at every ratio the deck can be posted at", async () => {
+    // A real widescreen frame, which is what a stream still always is.
+    Object.assign(globalThis, {
+      Image: class {
+        width = 1920;
+        height = 1080;
+        onload: (() => void) | null = null;
+        onerror: (() => void) | null = null;
+        set src(_value: string) {
+          setTimeout(() => this.onload?.(), 0);
+        }
+      }
+    });
+    for (const ratio of ["portrait", "square", "story"] as const) {
+      drawnImages.length = 0;
+      // Its own src per ratio: decoded pictures are cached by source, and the
+      // 16:9 stub would otherwise lose to one an earlier test already decoded.
+      const layer = { ...framed.layers![0], src: `/frame-${ratio}.jpg` };
+      await renderSlideCanvas({ ...framed, layers: [layer] }, 1, 8, ratio);
+      const spec = aspectSpec(ratio);
+      const [, picture] = drawnImages;
+      expect(picture.y + picture.h).toBeLessThanOrEqual(0.6 * spec.height);
+    }
   });
 });

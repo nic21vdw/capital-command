@@ -554,9 +554,12 @@ the picker can promise what the server will do.
   cannot go back to a plain `measureText` on the whole string), the browser
   loads them `crossOrigin="anonymous"` so the export can still make a blob, and
   the server reads them from `data/emoji-apple` through
-  `src/lib/carousels/emojiFiles.ts`. Two filenames are tried, not one:
-  `emoji-data` keeps U+FE0F for some glyphs (🛠️ is `1f6e0-fe0f.png`) and drops
-  it for others, with no rule to derive.
+  `src/lib/carousels/emojiFiles.ts`. SEVERAL filenames are tried, not one, and
+  each was a glyph that came out blank until it was added: `emoji-data` keeps
+  U+FE0F for some glyphs (🛠️ is `1f6e0-fe0f.png`) and drops it for others, and
+  zero-pads codepoints below U+1000 (1️⃣ is `0031-fe0f-20e3.png`, which is every
+  keycap a numbered listicle is made of). There is no rule to derive — probe the
+  CDN before assuming a name.
 - A CHANGE TO THE PAINTER MUST BUMP `PAINTER_VERSION` in `deckFiles.ts`. Decks
   already rendered to `data/carousel-decks` are served from disk and their
   slides are unchanged by a fix to how they are drawn, so without the bump the
@@ -565,9 +568,18 @@ the picker can promise what the server will do.
   Cropping a 16:9 frame to fill a 4:5 slide throws away 55% of its width from
   the middle out — which is the half the webcam is in, so the deck became a zoom
   into the middle of a screen share with Nic's face sliced off the edge. The
-  whole frame sits above centre over a blurred fill of itself, with the copy
-  band under it, so the face AND the editor AND the terminal are all in shot.
-  Same rule as clips: never `cover` footage.
+  whole frame sits high in the slide over a blurred fill of itself, with the
+  copy band under it, so the face AND the editor AND the terminal are all in
+  shot. Same rule as clips: never `cover` footage. `FRAME_POSITION` is read
+  exactly as CSS `object-position` reads it, because the editor's live overlay
+  IS an `object-position` — anything cleverer has no CSS equivalent and the two
+  silently drift apart.
+- THE COPY IS SIZED TO ITS BAND, not set at a fixed size (`fitCopy`). A photo
+  slide's band is the strip under the picture and the generator is allowed a
+  220-character body, which is more lines than that strip holds — so the block
+  was drawn straight past both ends of it, heading onto the picture and the last
+  body line through the accent bar. Wrapping changes the line count, so the size
+  is re-measured after each step down rather than solved once.
 - LOOK AT A DECK BEFORE IT GOES OUT. `npm run carousel:proof` renders a stored
   carousel to the exact files the publisher would post and prints their paths
   with each slide's copy. Both defects above shipped for weeks because nothing

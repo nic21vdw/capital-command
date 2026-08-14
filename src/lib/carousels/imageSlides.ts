@@ -44,7 +44,7 @@ export type CarouselImage = {
  */
 export const BACKDROP_SLIDE_LAYOUT = {
   scrim: 0.52,
-  band: { top: 0.6, bottom: 0.88 },
+  band: { top: 0.6, bottom: 0.9 },
   headingColor: "#ffffff",
   bodyColor: "rgba(255,255,255,0.86)"
 } as const;

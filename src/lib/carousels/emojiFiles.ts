@@ -1,4 +1,4 @@
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { appleEmojiUrls, emojiCodepoints } from "@/lib/emoji/apple";
 import { dataPath } from "@/lib/paths";
@@ -33,8 +33,12 @@ async function download(glyph: string): Promise<Buffer | null> {
   for (const url of appleEmojiUrls(glyph)) {
     const response = await fetch(url, { signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) }).catch(() => null);
     if (!response?.ok) continue;
-    const bytes = Buffer.from(await response.arrayBuffer());
-    if (bytes.length > 0) return bytes;
+    // The body read gets its own guard: a reset connection or the timeout
+    // firing after the headers arrived rejects HERE, and an unguarded throw
+    // takes the whole deck down with it.
+    const body = await response.arrayBuffer().catch(() => null);
+    if (!body?.byteLength) continue;
+    return Buffer.from(body);
   }
   return null;
 }
@@ -45,8 +49,11 @@ export async function appleEmojiBytes(glyph: string): Promise<Buffer | null> {
   if (!key || misses.has(key)) return null;
 
   const file = cachePath(glyph);
+  // A zero-length file is not a cached emoji, it is a write that was killed
+  // half way — and a release tree-kills the running server. Read as a hit it
+  // would blank that glyph forever, with nothing to invalidate it.
   const stored = await readFile(file).catch(() => null);
-  if (stored) return stored;
+  if (stored?.length) return stored;
 
   const existing = inFlight.get(key);
   if (existing) return existing;
@@ -58,7 +65,12 @@ export async function appleEmojiBytes(glyph: string): Promise<Buffer | null> {
       return null;
     }
     await mkdir(cacheRoot, { recursive: true }).catch(() => null);
-    await writeFile(file, bytes).catch(() => null);
+    // Written aside and renamed, so a kill mid-write leaves the temporary file
+    // rather than a truncated PNG under the name the next run will trust.
+    const temporary = `${file}.${process.pid}.tmp`;
+    await writeFile(temporary, bytes)
+      .then(() => rename(temporary, file))
+      .catch(() => rm(temporary, { force: true }).catch(() => null));
     return bytes;
   })().finally(() => inFlight.delete(key));
 

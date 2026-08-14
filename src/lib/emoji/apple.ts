@@ -25,7 +25,10 @@ const APPLE_BASE = "https://cdn.jsdelivr.net/gh/iamcal/emoji-data@master/img-app
 const ATOM = "(?:\\p{Emoji_Presentation}|\\p{Extended_Pictographic}\\uFE0F)(?:[\\u{1F3FB}-\\u{1F3FF}])?";
 const KEYCAP = "[0-9#*]\\uFE0F?\\u20E3";
 const FLAG = "\\p{RI}\\p{RI}";
-const EMOJI_SOURCE = `(?:${FLAG}|${KEYCAP}|${ATOM}(?:\\u200D${ATOM})*)`;
+/** Subdivision flags spell their region out in invisible tag characters. Left
+ *  behind in the text run they are unprintable rubbish inside a word. */
+const TAGS = "(?:[\\u{E0020}-\\u{E007E}]+\\u{E007F})?";
+const EMOJI_SOURCE = `(?:${FLAG}|${KEYCAP}|${ATOM}${TAGS}(?:\\u200D${ATOM}${TAGS})*)`;
 
 export function emojiPattern(): RegExp {
   return new RegExp(EMOJI_SOURCE, "gu");
@@ -51,22 +54,34 @@ export function appleEmojiUrl(emoji: string): string {
 }
 
 /**
- * Both names the image set might file a glyph under, best guess first.
+ * Every name the image set might file a glyph under, best guess first.
  *
- * `emoji-data` keeps U+FE0F in the filename for the emoji whose canonical
- * sequence carries it and drops it for the rest — 🛠️ is `1f6e0-fe0f.png` and
- * ❤️ is `2764-fe0f.png`, while 💡 is plain `1f4a1.png`. There is no rule to
- * derive from the codepoints, so the fallback IS the rule: stripping
- * unconditionally is what left 🛠️, one of the emoji the slide prompt asks for
- * by name, missing from every deck.
+ * There is no rule to derive here, so the fallback IS the rule, and each of
+ * these was a glyph that came out blank until it was added:
+ *
+ * - U+FE0F is KEPT for the emoji whose canonical sequence carries it and dropped
+ *   for the rest. 🛠️ is `1f6e0-fe0f.png` and ❤️ is `2764-fe0f.png`, while 💡 is
+ *   plain `1f4a1.png` — and 🛠️ is one of the emoji the slide prompt asks for by
+ *   name, so stripping unconditionally cost a picture on real decks.
+ * - Codepoints below U+1000 are ZERO-PADDED to four hex digits. 1️⃣ is
+ *   `0031-fe0f-20e3.png`, not `31-fe0f-20e3.png`, which is every keycap — and a
+ *   keycap is what a numbered listicle slide is made of.
  */
 export function appleEmojiUrls(emoji: string): string[] {
-  const stripped = emojiCodepoints(emoji);
-  const kept = Array.from(emoji)
-    .map((ch) => (ch.codePointAt(0) ?? 0).toString(16))
-    .join("-");
-  const names = kept === stripped ? [stripped] : [stripped, kept];
-  return names.map((name) => `${APPLE_BASE}/${name}.png`);
+  const points = Array.from(emoji).map((ch) => ch.codePointAt(0) ?? 0);
+  const name = (keep: boolean, pad: boolean) =>
+    points
+      .filter((cp) => keep || cp !== 0xfe0f)
+      .map((cp) => (pad ? cp.toString(16).padStart(4, "0") : cp.toString(16)))
+      .join("-");
+  const names: string[] = [];
+  for (const keep of [false, true]) {
+    for (const pad of [false, true]) {
+      const candidate = name(keep, pad);
+      if (!names.includes(candidate)) names.push(candidate);
+    }
+  }
+  return names.map((entry) => `${APPLE_BASE}/${entry}.png`);
 }
 
 /** The key an emoji's decoded picture is filed under alongside slide images. */
