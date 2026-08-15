@@ -479,12 +479,24 @@ export function buildTextOverlayDialogue(
 }
 
 /**
+ * Fraction of the frame height that platform UI covers along the top edge of a
+ * vertical short: the phone status bar, plus the back / search / overflow row
+ * that Shorts, TikTok and Reels draw over the video. Burned-in text that starts
+ * above this line reads as crowded or clipped on a real phone, so it is a floor
+ * for the FIRST line of the title, not for the block's anchor.
+ */
+export const TITLE_TOP_SAFE_FRAC = 0.12;
+
+/** Line budget for the title block before it starts shrinking to fit. */
+const TITLE_MAX_LINES = 3;
+
+/**
  * The clip's title as a single ASS dialogue line: bold white text centered
  * horizontally, sitting just above the top edge of the contain-fitted video so
  * it lands on the blurred fill rather than over the footage. `videoTopFrac` is
  * the video band's top edge as a fraction of the frame height ((1 - videoH/frameH)/2);
- * pass 0 for a source that fills the frame — the title then clamps to a safe
- * band near the top instead of disappearing. Shown for the whole clip.
+ * pass 0 for a source that fills the frame — the title then clamps below the
+ * platform chrome instead of riding under it. Shown for the whole clip.
  */
 export function buildClipTitleDialogue(
   title: string,
@@ -494,15 +506,41 @@ export function buildClipTitleDialogue(
   end: number,
   videoTopFrac: number
 ): string {
-  const fs = Math.max(12, Math.round(height * 0.034));
   const gap = Math.round(height * 0.018);
-  // \an2 anchors the text block's bottom-center at pos, so a wrapped title
-  // grows upward into the blur instead of down over the video.
-  const y = Math.max(Math.round(height * 0.1), Math.round(clamp01(videoTopFrac) * height) - gap);
-  const maxChars = Math.max(1, Math.floor((width * 0.88) / (fs * 0.52)));
-  const wrapped = wrapLine(title, maxChars).join("\n");
-  const tag = `{\\an2\\pos(${Math.round(width / 2)},${y})}`;
-  return `Dialogue: 3,${formatAssTime(start)},${formatAssTime(end)},Title,,0,0,0,,${tag}${escapeAss(wrapped)}`;
+  const { fontSize, lines } = fitTitleLines(title, width, height);
+  // \an2 anchors the block's BOTTOM-center at pos and wrapped lines grow
+  // upward, so the safe-area floor has to clear the whole block. Clamping the
+  // anchor alone let a two-line title push its first line up under the status
+  // bar while the anchor still looked legal.
+  const blockHeight = lines.length * Math.round(fontSize * 1.2);
+  const safeFloor = Math.round(height * TITLE_TOP_SAFE_FRAC) + blockHeight;
+  const y = Math.max(safeFloor, Math.round(clamp01(videoTopFrac) * height) - gap);
+  const tag = `{\\an2\\pos(${Math.round(width / 2)},${y})\\fs${fontSize}}`;
+  return `Dialogue: 3,${formatAssTime(start)},${formatAssTime(end)},Title,,0,0,0,,${tag}${escapeAss(lines.join("\n"))}`;
+}
+
+/**
+ * Wraps the title to at most TITLE_MAX_LINES, shrinking the font a step at a
+ * time before giving up and truncating. A title the AI titler accepts can be
+ * 75 characters, which wraps to four lines at full size — tall enough to reach
+ * back into the chrome no matter where the block is anchored.
+ */
+function fitTitleLines(title: string, width: number, height: number): { fontSize: number; lines: string[] } {
+  const base = Math.max(12, Math.round(height * 0.034));
+  const floor = Math.max(12, Math.round(height * 0.026));
+  let lines = [title];
+  for (let fontSize = base; fontSize >= floor; fontSize -= 2) {
+    lines = wrapLine(title, Math.max(1, Math.floor((width * 0.88) / (fontSize * 0.52))));
+    if (lines.length <= TITLE_MAX_LINES) return { fontSize, lines };
+  }
+  return { fontSize: floor, lines: truncateLines(lines, TITLE_MAX_LINES) };
+}
+
+function truncateLines(lines: string[], maxLines: number): string[] {
+  if (lines.length <= maxLines) return lines;
+  const kept = lines.slice(0, maxLines);
+  kept[maxLines - 1] = `${kept[maxLines - 1].replace(/[\s.,;:!?-]+$/, "")}…`;
+  return kept;
 }
 
 function clamp01(value: number) {

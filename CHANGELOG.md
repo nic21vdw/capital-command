@@ -44,6 +44,15 @@ already shipped.
 - **You can look at a deck before it goes out.** `npm run carousel:proof`
   renders a stored carousel to the exact files the publisher would post and
   prints where they are, next to each slide's words.
+- **Clip titles stop hiding under the phone's top bar.** A title that wrapped
+  onto two lines burned its first line up against the status bar and the
+  Shorts back/search row — the placement clamped where the text block ended
+  instead of where it started, so the taller the title, the higher it climbed.
+  Titles now sit below a safe band reserved for platform chrome no matter how
+  many lines they take, and a title too long for three lines shrinks to fit
+  rather than growing back into it. The editor's title overlay starts in the
+  same place, so the preview matches what gets posted. Clips already rendered
+  keep the old placement; this applies to everything rendered from now on.
 - **The Uploading Center stops re-reading the whole publish queue for every
   clip on screen.** Each clip card asked the queue "which of these posts are
   mine?" from scratch — four separate times per card, every time the page drew
