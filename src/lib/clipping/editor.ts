@@ -1,4 +1,5 @@
 import { CAPTION_PRESETS } from "@/lib/clipping/captions";
+import { titleIsPublishable, titleNamesChannelEntity } from "@/lib/clipping/title-quality";
 import { DEFAULT_CENTER_BLUR_ZOOM } from "@/lib/clipping/centerBlur";
 import { defaultSfxSettings } from "@/lib/sfx/types";
 import {
@@ -144,6 +145,9 @@ function scoreTitle(title: string): number {
     if (/^\d/.test(word)) score += 2;
   }
   if (title.length >= 30 && title.length <= 65) score += 2;
+  // Naming a tool the channel is known for (Claude, Opus, CoLateral, Revit …)
+  // is the single strongest signal the audit found, so it breaks ties.
+  if (titleNamesChannelEntity(title)) score += 2;
   return score;
 }
 
@@ -176,6 +180,11 @@ export function generateClipTitleCandidates(captions: CaptionSegment[]): string[
   const seen = new Set<string>();
   const scored = raw
     .filter(Boolean)
+    // The gate is what stops a tidy-looking transcript fragment ("Let's Get
+    // Started", "What Is Up My Man") from being offered as a title at all.
+    // Returning nothing is the right answer when the transcript has no title
+    // in it — the caller falls back to a placeholder the creator will rename.
+    .filter((title) => titleIsPublishable(title))
     .filter((title) => {
       const key = title.toLowerCase();
       if (seen.has(key)) return false;

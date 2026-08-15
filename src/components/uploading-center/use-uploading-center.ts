@@ -8,6 +8,7 @@ import { loadJobCaptions } from "@/lib/clipping/captions-client";
 import { leadingSilenceSec } from "@/lib/clipping/editor";
 import { hasEditsBeyondAutoRender, renderSignature } from "@/lib/clipping/export-signature";
 import { indexProjectsBySource, newestProjectFor, type ClipProjectIndex } from "@/lib/clipping/project-index";
+import { firstPublishableTitle } from "@/lib/clipping/title-quality";
 import type { ClipCandidate, ClipJob } from "@/lib/clipping/types";
 import type { CaptionSegment, ClipProject } from "@/types/domain";
 import { placeChannelVideos, type ChannelPlacement } from "@/lib/publisher/channelPlacement";
@@ -214,12 +215,13 @@ export function copyPlatformFor(target: PlatformTarget): PlatformId {
 }
 
 // Keep in sync with the Clip Generator's headline: the creator/auto title on
-// the backend clip wins, then the hook quote, then a quote from the rationale.
+// the backend clip wins, then the hook quote, then a quote from the rationale —
+// and the last two only when they pass the title quality gate, because this
+// headline is what seeds the publish queue's title.
 function clipHeadline(clip: ClipCandidate, index: number) {
   if (clip.title) return clip.title;
-  if (clip.hookQuote) return clip.hookQuote;
   const quoted = clip.rationale.match(/"([^"]{8,90})"/);
-  return quoted?.[1] ?? `Clip ${index + 1}`;
+  return firstPublishableTitle([clip.hookQuote, quoted?.[1]]) ?? `Clip ${index + 1}`;
 }
 
 /** Stable empty list, so a clip with no posts doesn't rebuild its card. */

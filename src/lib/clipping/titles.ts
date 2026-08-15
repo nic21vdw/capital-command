@@ -1,5 +1,6 @@
 import { aiConfigured, runAi } from "@/lib/ai";
 import { CHANNEL_KEYWORDS, TITLE_STYLE_EXAMPLES } from "@/lib/clipping/keywords";
+import { judgeTitle, MAX_TITLE_CHARS, TITLE_QUALITY_RULES } from "@/lib/clipping/title-quality";
 
 // Re-exported so existing importers of these constants keep working; the
 // canonical definition lives in the dependency-free keywords.ts so client
@@ -31,6 +32,9 @@ Every title must:
 - Use the channel keywords naturally when they fit the clip — never force one that doesn't.
 - Contain no quotation marks, hashtags, or emoji.
 
+These are checked automatically and a title that breaks one is thrown away:
+${TITLE_QUALITY_RULES.map((rule) => `- ${rule}`).join("\n")}
+
 Examples of the exact style to match:
 ${TITLE_STYLE_EXAMPLES.map((t) => `- ${t}`).join("\n")}
 
@@ -45,20 +49,33 @@ export type ClipTitleRequest = {
 
 /** Longest transcript excerpt sent per clip — enough to understand the moment. */
 const MAX_TRANSCRIPT_CHARS = 700;
-const MAX_TITLE_CHARS = 75;
+
+/** How many times a batch is re-asked for the clips whose titles were rejected. */
+const MAX_TITLE_ATTEMPTS = 3;
 
 export function viralTitlesConfigured() {
   return aiConfigured();
 }
 
+/** A title the quality gate threw out, fed back so the retry doesn't repeat it. */
+export type RejectedTitle = { id: string; title: string; reason: string };
+
 /** Builds the user prompt listing every clip's transcript. Pure, for tests. */
 export function buildViralTitleUserPrompt(
   clips: ClipTitleRequest[],
-  context?: { streamTitle?: string; topic?: string }
+  context?: { streamTitle?: string; topic?: string },
+  rejected?: RejectedTitle[]
 ): string {
   const lines: string[] = [];
   if (context?.streamTitle?.trim()) lines.push(`Stream: ${context.streamTitle.trim()}`);
   if (context?.topic?.trim()) lines.push(`The creator asked for clips focused on: ${context.topic.trim()}`);
+  if (rejected?.length) {
+    lines.push(
+      "Your previous titles for these clips were rejected. Write different ones that fix the problem:",
+      ...rejected.map((entry) => `- Clip ${entry.id}: "${entry.title}" — ${entry.reason}`),
+      ""
+    );
+  }
   lines.push(
     `Write one viral title for EACH of the ${clips.length} clip transcripts below.`,
     "",
@@ -113,9 +130,16 @@ export function parseViralTitles(text: string): Map<string, string> {
 }
 
 /**
- * Writes a viral title for each clip in one Claude call. Returns a map of
- * clip id -> title (possibly missing some ids), or null when title generation
- * is unavailable or failed entirely.
+ * Writes a viral title for each clip. Returns a map of clip id -> title
+ * (possibly missing some ids), or null when title generation is unavailable or
+ * produced nothing usable.
+ *
+ * Every title the model returns is put through the quality gate, and the clips
+ * whose titles failed are asked again — with the rejected title and the reason
+ * attached — up to MAX_TITLE_ATTEMPTS times. Falling through to the heuristic
+ * titler on a bad AI title is what let transcript sludge reach the queue: the
+ * heuristic's material is the same transcript, so a second look at it was never
+ * going to be better than asking again.
  */
 export async function generateViralTitles(
   clips: ClipTitleRequest[],
@@ -125,16 +149,35 @@ export async function generateViralTitles(
   const withText = clips.filter((clip) => clip.transcript.trim());
   if (withText.length === 0) return null;
 
-  try {
-    const result = await runAi({
-      maxTokens: 1500,
-      system: VIRAL_TITLE_SYSTEM_PROMPT,
-      messages: [{ role: "user", content: buildViralTitleUserPrompt(withText, context) }]
-    });
-    if (!result || result.refused) return null;
-    const titles = parseViralTitles(result.text);
-    return titles.size > 0 ? titles : null;
-  } catch {
-    return null;
+  const accepted = new Map<string, string>();
+  let pending = withText;
+  let rejected: RejectedTitle[] = [];
+
+  for (let attempt = 0; attempt < MAX_TITLE_ATTEMPTS && pending.length > 0; attempt += 1) {
+    let text: string;
+    try {
+      const result = await runAi({
+        maxTokens: 1500,
+        system: VIRAL_TITLE_SYSTEM_PROMPT,
+        messages: [{ role: "user", content: buildViralTitleUserPrompt(pending, context, rejected) }]
+      });
+      if (!result || result.refused) break;
+      text = result.text;
+    } catch {
+      break;
+    }
+
+    const titles = parseViralTitles(text);
+    if (titles.size === 0) break;
+
+    rejected = [];
+    for (const [id, title] of titles) {
+      const judgement = judgeTitle(title);
+      if (judgement.publishable) accepted.set(id, title);
+      else rejected.push({ id, title, reason: judgement.reason ?? "not publishable" });
+    }
+    pending = pending.filter((clip) => !accepted.has(clip.id));
   }
+
+  return accepted.size > 0 ? accepted : null;
 }

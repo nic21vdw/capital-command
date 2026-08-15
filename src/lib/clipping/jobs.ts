@@ -11,6 +11,7 @@ import {
 import { buildAss, buildClipTitleDialogue, chunkWords, windowSegments } from "@/lib/clipping/captions";
 import { dataPath } from "@/lib/paths";
 import { generateClipTitle } from "@/lib/clipping/editor";
+import { firstPublishableTitle } from "@/lib/clipping/title-quality";
 import { generateViralTitles } from "@/lib/clipping/titles";
 import { copyClipsToDrive, driveDir } from "@/lib/clipping/drive";
 import { downloadAudio, downloadSection, fetchVideoMeta } from "@/lib/clipping/download";
@@ -315,8 +316,12 @@ async function refineJobVirality(job: ClipJob, candidates: ClipCandidate[]): Pro
  * writes viral, keyword-aware titles for the whole batch (see titles.ts for
  * the style guide); clips the model missed — or every clip when the call is
  * unavailable — fall back to the local heuristic titler, and failing that keep
- * any title the moment-selection pass proposed. Raw transcript fragments are
- * never used as titles.
+ * any title the moment-selection pass proposed.
+ *
+ * Every one of those sources is put through the quality gate before it sticks.
+ * A clip that survives all three with nothing publishable is left untitled and
+ * named in a job notice: an untitled clip asks Nic for one sentence, where a
+ * transcript fragment quietly becomes a published Short nobody watches.
  */
 async function assignClipTitles(job: ClipJob) {
   if (job.clips.length === 0) return;
@@ -334,10 +339,20 @@ async function assignClipTitles(job: ClipJob) {
     requests.length > 0
       ? await generateViralTitles(requests, { streamTitle: job.fileName, topic: job.topic })
       : null;
-  for (const clip of job.clips) {
-    const generated = viral?.get(clip.id);
-    if (generated) clip.title = generated;
-    else if (!clip.title) clip.title = generateClipTitle(excerpts.get(clip.id) ?? [], "") || undefined;
+  const untitled: number[] = [];
+  job.clips.forEach((clip, index) => {
+    const title = firstPublishableTitle([
+      viral?.get(clip.id),
+      clip.title,
+      generateClipTitle(excerpts.get(clip.id) ?? [], "")
+    ]);
+    clip.title = title ?? undefined;
+    if (!title) untitled.push(index + 1);
+  });
+  if (untitled.length > 0) {
+    job.notices.push(
+      `${untitled.length} clip${untitled.length === 1 ? "" : "s"} (${untitled.join(", ")}) need a title written by hand — nothing the transcript offered was good enough to publish.`
+    );
   }
   await persistJobs();
 }

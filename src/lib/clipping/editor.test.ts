@@ -12,6 +12,7 @@ import {
 } from "./editor";
 import { appDataSchema, clipProjectSchema, defaultCaptionStyle } from "@/lib/storage/schemas";
 import { seedData } from "@/lib/mockData/seed";
+import { titleIsPublishable } from "@/lib/clipping/title-quality";
 import type { CaptionSegment } from "@/types/domain";
 
 const caption = (id: string, text: string): CaptionSegment => ({
@@ -142,6 +143,28 @@ describe("generateClipTitleCandidates", () => {
   it("returns an empty list when there is no caption text", () => {
     expect(generateClipTitleCandidates([])).toEqual([]);
     expect(generateClipTitle([], "Fallback")).toBe("Fallback");
+  });
+
+  it("offers nothing at all when the transcript is pure chatter", () => {
+    // The real transcript behind "What Is Up My Man" and "Let's Get Started" —
+    // there is no title in here, and pretending otherwise is what published
+    // Shorts nobody watched.
+    const captions = [
+      caption("c1", "What is up my man. Let's get started. Have we've started on this grind."),
+      caption("c2", "Thank, max and tool. Inside your local. July's been a great month.")
+    ];
+    expect(generateClipTitleCandidates(captions)).toEqual([]);
+    expect(generateClipTitle(captions, "")).toBe("");
+  });
+
+  it("every candidate it does offer is publishable", () => {
+    const captions = [
+      caption("c1", "The biggest mistake new investors make every single year is chasing hype."),
+      caption("c2", "What is up my man, let's get started.")
+    ];
+    const candidates = generateClipTitleCandidates(captions);
+    expect(candidates.length).toBeGreaterThan(0);
+    expect(candidates.every((title) => titleIsPublishable(title))).toBe(true);
   });
 });
 

@@ -31,6 +31,7 @@ import { chunkWords, windowSegments } from "@/lib/clipping/captions";
 import { loadJobCaptions, loadJobSilences } from "@/lib/clipping/captions-client";
 import { generateClipTitle, makeClipProject, makeTitleOverlay } from "@/lib/clipping/editor";
 import { buildClipSegments, buildClipSegmentsFromSilences } from "@/lib/clipping/segments";
+import { firstPublishableTitle } from "@/lib/clipping/title-quality";
 import { writeDraftProject } from "@/components/editor/drafts";
 import { cn, safeFilename } from "@/lib/utils";
 import type { ClipCandidate, ClipJob, ClipJobStage, ClipJobStatus } from "@/lib/clipping/types";
@@ -77,9 +78,11 @@ function statusClass(status: ClipJobStatus) {
 
 function clipHeadline(clip: ClipCandidate, index: number) {
   if (clip.title) return clip.title;
-  if (clip.hookQuote) return clip.hookQuote;
+  // With no title, the fallbacks are raw transcript — usable only if they read
+  // as a headline. "Clip 3" is an honest placeholder; a spoken fragment posted
+  // as a title is not, and that is how "What Is Up My Man" got published.
   const quoted = clip.rationale.match(/"([^"]{8,90})"/);
-  return quoted?.[1] ?? `Clip ${index + 1}`;
+  return firstPublishableTitle([clip.hookQuote, quoted?.[1]]) ?? `Clip ${index + 1}`;
 }
 
 export function ClipGeneratorPage() {

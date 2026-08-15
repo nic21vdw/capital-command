@@ -14,6 +14,20 @@ already shipped.
 
 ## Unreleased
 
+- **Speech-to-text sludge can no longer become a Short title.** "Thank, Max and
+  Tool", "Have We've Started on This Grind", "What Is Up My Man", "Let's Get
+  Started" — those were published, and 33 more posts sitting in the queue were
+  headed the same way. Every auto-generated clip title now has to read as a
+  headline before it can be used: no opening on "Have" or "Is", no dangling "to"
+  or "and" at the end, no comma-spliced shout-out to chat, no stray number where
+  a word should be, no repeated phrase, no "Show beginners how to…" to-do notes
+  written to you instead of the viewer. When Claude writes one that fails, it is
+  asked again — up to three times, told exactly what was wrong — instead of
+  quietly handing the job to the transcript slicer. If nothing passes, the clip
+  comes out as "Clip 4" with a notice on the stream telling you which clips need
+  a title from you. An empty box you fill in beats a published Short nobody
+  watches. Titles that name a tool up front — Claude, Opus 5, Cursor, CoLateral,
+  AutoCAD, Revit — now also win the tie when the app picks between candidates.
 - **Emoji are back on your carousels, in the Apple set.** Every slide is set in
   Arial, which has no emoji in it, and the server that renders a booked deck has
   no emoji font at all — so the 🚀 the copy was written around came out as empty
