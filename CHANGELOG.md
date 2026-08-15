@@ -14,6 +14,8 @@ already shipped.
 
 ## Unreleased
 
+## 2026-08-14
+
 - **Emoji are back on your carousels, in the Apple set.** Every slide is set in
   Arial, which has no emoji in it, and the server that renders a booked deck has
   no emoji font at all — so the 🚀 the copy was written around came out as empty
