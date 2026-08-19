@@ -2,7 +2,7 @@ import { mkdir, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { beforeAll, describe, expect, it, vi } from "vitest";
-import { AbandonedUploadError, PermanentError, StillProcessingError, TransientError } from "@/lib/publisher/http";
+import { AbandonedUploadError, PermanentError, StillProcessingError, ThrottledError, TransientError } from "@/lib/publisher/http";
 import { PublishQueue } from "@/lib/publisher/queue";
 import { runDue } from "@/lib/publisher/runner";
 import { MemoryQueueStore, testConfig, testItem } from "@/lib/publisher/test-helpers";
@@ -312,6 +312,22 @@ describe("runDue", () => {
     expect(report.outcomes[0].outcome).toBe("retrying");
     expect(item.platforms.instagram?.status).toBe("pending");
     expect(item.platforms.instagram?.nextAttemptAt).toBeTruthy();
+  });
+
+  it("a throttled platform waits out its window without spending an attempt", async () => {
+    const { config, queue, log } = setup();
+    const item = testItem({ clipPath, publishAt: "2026-07-10T22:30:00.000Z", platformIds: ["tiktok"] });
+    await queue.add(item);
+
+    const tiktok = fakeAdapter("tiktok", async () => {
+      throw new ThrottledError(360, "clear your TikTok inbox");
+    });
+    const report = await runDue(DUE, { config, queue, log, adapters: { tiktok } });
+
+    expect(report.outcomes[0].outcome).toBe("deferred");
+    expect(item.platforms.tiktok?.status).toBe("pending");
+    expect(item.platforms.tiktok?.attempts).toBe(0);
+    expect(item.platforms.tiktok?.nextAttemptAt).toBe(new Date(DUE.getTime() + 360 * 60_000).toISOString());
   });
 
   it("an abandoned upload fails visibly and loses its handle, so the retry starts fresh", async () => {
