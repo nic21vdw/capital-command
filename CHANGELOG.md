@@ -51,15 +51,16 @@ already shipped.
   heard about and span there — the same picture at four seconds and at forty
   minutes. It now counts the update up on a clock that keeps running while the
   app is down, says plainly that the app is rebuilding and comes back on its
-  own, warns once a build is taking unusually long, and stops claiming an
-  update is on its way after twenty minutes — pointing at update-app.log
+  own, warns once a build has been going ten minutes, and stops claiming an
+  update is on its way after an hour — pointing at update-app.log
   instead. When the app comes back it says so, once, with the build it is now
   running, rather than reloading into a screen that looks identical.
 - **A release that wedges no longer takes the app down with it silently.** The
   release writes a heartbeat every 30 seconds through the long build step, so a
   build that has stopped moving is visible instead of looking the same as one
-  that is working, and a build still running after 30 minutes is stopped and
-  reported rather than leaving the app down indefinitely.
+  that is working, and a build still running after 90 minutes — twice what the
+  slowest real release here has taken, retry included — is stopped and reported
+  rather than leaving the app down indefinitely.
 - **An update survives the page that started it.** Reloading, or opening a
   second tab mid-update, used to show no update at all and then reload without
   explanation; every screen now picks up the release the app itself reports.

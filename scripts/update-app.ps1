@@ -514,7 +514,7 @@ Step "Stopping the running app ($(Elapsed) in)"
 Invoke-Script "stop-server.ps1" | Out-Null
 
 Step "Building and starting the new version ($(Elapsed) in, takes a few minutes)"
-if ((Invoke-Script "start-server.ps1" @("-Quiet") -TimeoutMinutes 30) -ne 0) {
+if ((Invoke-Script "start-server.ps1" @("-Quiet") -TimeoutMinutes 90) -ne 0) {
   # It has already printed the reason and the tail of the log it failed in.
   # Waiting five minutes for a server that was never started only buries that.
   Fail "The build did not finish. The app is still down - see build.log in $root, then run update-capital-command.bat again."
