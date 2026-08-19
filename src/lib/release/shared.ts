@@ -183,13 +183,20 @@ export function releaseStillRunning(
  * How long a release runs before the wait itself is worth saying something
  * about, and how long before the app stops claiming it is on its way.
  *
- * A rebuild takes minutes and the server is DOWN for almost all of them, so the
- * screen cannot be told anything during the part that takes longest. A spinner
- * with no clock is the same picture at four seconds and at forty minutes, which
- * is how a build that had quietly stopped read as one still going.
+ * A rebuild takes tens of minutes and the server is DOWN for almost all of
+ * them, so the screen cannot be told anything during the part that takes
+ * longest. A spinner with no clock is the same picture at four seconds and at
+ * forty minutes, which is how a build that had quietly stopped read as one
+ * still going.
+ *
+ * The numbers are this machine's, not a guess: the 2026-08-18 release compiled
+ * for 26.9 minutes, failed on a OneDrive path, rebuilt, and came back after 49
+ * minutes in total. A warning at ten minutes and a giving-up at an hour is what
+ * that leaves room for. Set them tighter and the alarm becomes the normal
+ * state, which is the same lie as the frozen spinner in the other direction.
  */
-export const RELEASE_SLOW_AFTER_SECONDS = 360;
-export const RELEASE_LOST_AFTER_SECONDS = 1200;
+export const RELEASE_SLOW_AFTER_SECONDS = 600;
+export const RELEASE_LOST_AFTER_SECONDS = 3600;
 
 export type ReleaseWatch = {
   tone: "working" | "slow" | "lost";
@@ -248,7 +255,7 @@ export function watchRelease({
     headline,
     detail: offline
       ? slow
-        ? "The app is still rebuilding. It stays down until the build finishes, then this page reloads itself."
+        ? "The app is still rebuilding — a full build here takes tens of minutes. It stays down until the build finishes, then this page reloads itself."
         : "The app is down while it rebuilds — this page reloads itself when it comes back."
       : "This page reloads itself when the app comes back.",
     elapsed,
