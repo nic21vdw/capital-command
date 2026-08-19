@@ -14,6 +14,8 @@ already shipped.
 
 ## Unreleased
 
+## 2026-08-19
+
 - **You can now tell a clip to post straight to TikTok instead of waiting in
   the inbox for a tap.** The TikTok panel on a clip asks what TikTok requires
   before a direct post — who can see it, whether comments, Duet and Stitch are
