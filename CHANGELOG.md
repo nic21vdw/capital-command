@@ -21,6 +21,15 @@ already shipped.
   have been picked up. A stream that has not ended is now skipped and left
   unrecorded, and the next scan takes the whole thing in once you stop.
 
+- **Spotify is signed in and the Podcast page now says which episodes are
+  actually live on it.** Connect Spotify once on the Podcast page, point it at
+  the show, and every episode in the feed is labelled either **Live on
+  Spotify** with a link straight to it, or **waiting for Spotify to pull it
+  in** — so there is finally an answer to "did that stream go out" that comes
+  from Spotify rather than from the feed. Spotify still has no upload API for
+  creators, so publishing keeps happening the way it already did: the app
+  hosts the RSS feed and Spotify fetches from it.
+
 ## 2026-08-14
 
 - **Emoji are back on your carousels, in the Apple set.** Every slide is set in

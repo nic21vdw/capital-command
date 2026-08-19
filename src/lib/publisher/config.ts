@@ -112,6 +112,15 @@ export type PublisherConfig = {
      */
     audited: boolean;
   };
+  /**
+   * Spotify Web API — read-only. Spotify has no creator write API, so these
+   * credentials never publish anything: they are how the app checks whether an
+   * episode the RSS feed offered has actually landed on Spotify yet.
+   */
+  spotify: {
+    clientId: string | null;
+    clientSecret: string | null;
+  };
   s3: {
     endpoint: string | null;
     bucket: string | null;
@@ -233,6 +242,10 @@ export function publisherConfig(): PublisherConfig {
       clientSecret: str("TIKTOK_CLIENT_SECRET"),
       refreshToken: cachedRefreshToken("tiktok.refreshToken") ?? str("TIKTOK_REFRESH_TOKEN"),
       audited: flag("TIKTOK_AUDITED")
+    },
+    spotify: {
+      clientId: str("SPOTIFY_CLIENT_ID"),
+      clientSecret: str("SPOTIFY_CLIENT_SECRET")
     },
     s3: {
       endpoint: str("S3_ENDPOINT"),

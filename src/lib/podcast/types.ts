@@ -19,6 +19,12 @@ export type PodcastShow = {
   /** Square cover art, 1400-3000px, on a public HTTPS URL. */
   artworkUrl: string;
   copyright: string;
+  /**
+   * The show's Spotify id, once the feed has been claimed there. It is not a
+   * feed tag — it is how the app asks Spotify whether an episode it offered
+   * has actually been pulled in yet.
+   */
+  spotifyShowId?: string;
 };
 
 export type PodcastEpisode = {

@@ -10,9 +10,11 @@ import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { PageHeader } from "@/components/ui/page-header";
 import { Textarea } from "@/components/ui/textarea";
+import { SpotifyCard } from "@/components/podcast/spotify-card";
 import type { EpisodeCandidate } from "@/lib/podcast/candidates";
 import type { FeedBlocker } from "@/lib/podcast/feed";
 import type { PodcastEpisode, PodcastShow } from "@/lib/podcast/types";
+import type { SpotifyStatus } from "@/lib/spotify/status";
 
 type PodcastResponse = {
   show: PodcastShow;
@@ -47,12 +49,15 @@ export function PodcastPage() {
   const [state, setState] = useState<PodcastResponse | null>(null);
   const [draft, setDraft] = useState<PodcastShow | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
+  const [spotify, setSpotify] = useState<SpotifyStatus | null>(null);
   // null means "not touched yet", which is what lets the stream's own episode
   // be preselected while still allowing it to be cleared back to nothing.
   const [picked, setPicked] = useState<string | null>(null);
   const requestedProject = useSearchParams().get("project");
   const [hostDraft, setHostDraft] = useState("");
   const [changingHost, setChangingHost] = useState(false);
+
+  const handleSpotifyStatus = useCallback((next: SpotifyStatus) => setSpotify(next), []);
 
   const apply = useCallback((next: PodcastResponse) => {
     setState(next);
@@ -172,6 +177,12 @@ export function PodcastPage() {
             Republish feed
           </Button>
         }
+      />
+
+      <SpotifyCard
+        showTitle={state.show.title}
+        episodeCount={state.episodes.length}
+        onStatus={handleSpotifyStatus}
       />
 
       <Card className="mb-5">
@@ -428,6 +439,22 @@ export function PodcastPage() {
                         {new Date(episode.publishedAt).toLocaleDateString()} · {minutes(episode.durationSec)} ·{" "}
                         {(episode.bytes / 1_000_000).toFixed(0)} MB
                       </p>
+                      {spotify?.show ? (
+                        spotify.live[episode.id] ? (
+                          <a
+                            className="mt-1.5 inline-flex items-center gap-1 text-xs text-emerald-200 underline decoration-emerald-200/30 underline-offset-4"
+                            href={spotify.live[episode.id].url}
+                            target="_blank"
+                            rel="noreferrer"
+                          >
+                            Live on Spotify <ExternalLink className="h-3 w-3" />
+                          </a>
+                        ) : (
+                          <p className="mt-1.5 text-xs text-[var(--muted-foreground)]">
+                            Waiting for Spotify to pull it in
+                          </p>
+                        )
+                      ) : null}
                     </div>
                     <Button
                       variant="ghost"
