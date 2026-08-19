@@ -14,6 +14,18 @@ already shipped.
 
 ## Unreleased
 
+- **Six posts a day instead of three, and a year of calendar instead of four
+  months.** "Every slot in the next four months is taken" was never YouTube
+  saying no — it was two numbers hardcoded in this app: three posting times a
+  day, and a booking sheet that refused to look past 120 days while
+  `publish:shuffle` was happily spreading over two years. Twelve finished shorts
+  had nowhere to go because of it. The grid is now yours to set —
+  `PUBLISH_SLOT_TIMES`, `PUBLISH_WEEKEND_SLOT_TIMES` and
+  `PUBLISH_BOOKING_HORIZON_DAYS` — the Uploading Center draws whatever the
+  server books on, and the message you get when a day really is full tells you
+  how to make room. The original three times are still in the default set, so
+  nothing already scheduled moved.
+
 ## 2026-08-18
 
 - **The daily scan no longer takes in a stream while you are still streaming
