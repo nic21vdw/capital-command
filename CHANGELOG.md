@@ -14,6 +14,23 @@ already shipped.
 
 ## Unreleased
 
+- **Booking a stream's outputs now hands them to the platforms straight away.**
+  The pipeline used to write everything into the queue and leave it for the
+  five-minute runner, so a batch you just booked sat there saying "Queued" with
+  nothing actually anywhere. The booking now settles the slots and immediately
+  pushes up everything a platform will take early — YouTube gets the upload and
+  shows it in Studio as Scheduled. It runs behind the sheet, so booking closes
+  as fast as it always did. `publish:enqueue` at the terminal does the same.
+- **Every scheduled post shows its own frame.** A card could only show a
+  picture when the post came from a clip job whose folder was still around, so
+  long-form edits, topic segments, adopted videos and anything queued from the
+  CLI drew an empty grey box — which reads as "this booking did not take". A
+  poster frame is now pulled from whatever file the post will publish.
+- **The board says what a waiting post is waiting for.** "Queued" now only
+  appears where it is true: YouTube posts say **Uploading** while the file goes
+  up ahead of the slot, and Instagram, TikTok and Facebook — none of which
+  accept a future post through their API — say **Posts at slot**, with a
+  hover explaining that Capital Command posts it itself at that time.
 - **The six posting times are now evenly spaced, and the queue you already have
   fills them.** The six-a-day grid had a four-hour hole in the afternoon and two
   posts ninety minutes apart on a Saturday morning; every time is now 150
