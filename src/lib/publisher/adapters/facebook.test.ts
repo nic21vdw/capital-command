@@ -313,6 +313,53 @@ describe("facebook adapter", () => {
     expect(result.status).toBe("published");
   });
 
+  it("falls back to posting at the slot when Facebook refuses to schedule", async () => {
+    mockFetchRoutes([
+      {
+        match: "/video_reels",
+        respond: (request) =>
+          formBody(request).upload_phase === "start"
+            ? jsonResponse({ video_id: "video-1", upload_url: UPLOAD_URL })
+            : jsonResponse({ error: { message: "scheduled_publish_time is not supported" } }, { status: 400 })
+      },
+      { match: "rupload.facebook.com", respond: () => jsonResponse({ success: true }) },
+      { match: "/video-1?fields=status", respond: () => jsonResponse({ status: { video_status: "ready" } }) }
+    ]);
+    const { adapter, http } = await loadAdapterAndErrors();
+    const request = input();
+    request.item.publishAt = new Date(Date.now() + 3 * 60 * 60 * 1000).toISOString();
+
+    const error = await adapter.publish(request).catch((thrown: unknown) => thrown);
+
+    // Deferred to the slot, not failed: the post still goes out, the old way.
+    expect(error).toBeInstanceOf(http.ThrottledError);
+    expect((error as Error).message).toMatch(/posted at its slot/);
+  });
+
+  it("remembers the upload session before sending any bytes", async () => {
+    mockFetchRoutes([
+      {
+        match: "/video_reels",
+        respond: (request) =>
+          formBody(request).upload_phase === "start"
+            ? jsonResponse({ video_id: "video-1", upload_url: UPLOAD_URL })
+            : jsonResponse({ success: true })
+      },
+      { match: "rupload.facebook.com", respond: () => jsonResponse({ success: true }) },
+      { match: "/video-1?fields=status", respond: () => jsonResponse({ status: { video_status: "ready" } }) }
+    ]);
+    const adapter = await loadAdapter();
+    const handles: string[] = [];
+    const request = input();
+    request.onHandle = async (handle) => {
+      handles.push(handle);
+    };
+
+    await adapter.publish(request);
+
+    expect(handles).toEqual(["video-1"]);
+  });
+
   it("refuses non-public visibility (the API has no private Reels)", async () => {
     mockFetchRoutes([]);
     const adapter = await loadAdapter();

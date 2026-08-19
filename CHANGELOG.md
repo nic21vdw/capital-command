@@ -25,7 +25,9 @@ already shipped.
   only a Reel can be scheduled through the API — and four Reels go up per run,
   so the backlog drains over an evening instead of uploading hundreds of clips
   at once. `npm run publish:facebook:verify` proves the whole thing against the
-  real Page with one post and no queue involved.
+  real Page with one post and no queue involved. If Facebook ever refuses to
+  hold a Reel, that post is not failed — it is put back to its slot and
+  published there, the way it was before this existed.
 
 - **Booking a stream's outputs now hands them to the platforms straight away.**
   The pipeline used to write everything into the queue and leave it for the

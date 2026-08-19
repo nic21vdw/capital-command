@@ -364,6 +364,9 @@ export const facebookAdapter: PlatformAdapter = {
       });
       if (!started.video_id) throw new PermanentError("Facebook video_reels start returned no video_id.");
       videoId = started.video_id;
+      // Remembered before a byte moves, so a run that dies during the transfer
+      // resumes this session instead of opening a second one.
+      await input.onHandle?.(videoId);
       await transferHostedFile(started.upload_url ?? ruploadUrl(videoId), input.publicUrl, creds.accessToken);
     }
 
@@ -371,7 +374,24 @@ export const facebookAdapter: PlatformAdapter = {
     const pollUntil = Date.now() + Math.max(0, input.pollBudgetMs ?? DEFAULT_POLL_BUDGET_MS);
     for (;;) {
       const status = await videoStatus(videoId, creds.accessToken);
-      if (READY_TO_FINISH.has(status.toLowerCase())) return finishUpload(videoId, caption, creds, scheduleFor);
+      if (READY_TO_FINISH.has(status.toLowerCase())) {
+        if (!scheduleFor) return finishUpload(videoId, caption, creds, null);
+        try {
+          return await finishUpload(videoId, caption, creds, scheduleFor);
+        } catch (error) {
+          // Scheduling is the new half of this adapter, and the old half still
+          // works: if Facebook refuses to hold the Reel, the post is deferred
+          // to its slot and published there, exactly as it was before. A
+          // refused schedule must never become a failed post.
+          if (error instanceof PermanentError) {
+            throw new ThrottledError(
+              Math.max(1, Math.ceil((scheduleFor.getTime() - Date.now()) / 60_000)),
+              `Facebook would not take this Reel as scheduled (${error.message}) — it will be posted at its slot instead.`
+            );
+          }
+          throw error;
+        }
+      }
       if (status === "published" || status === "PUBLISHED") {
         return { status: "published", postId: videoId, containerId: videoId, detail: "already published" };
       }
