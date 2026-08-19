@@ -93,7 +93,7 @@ function Invoke-Logged {
 # "Building and starting the new version" while the thing was already running.
 # Start-Process -Wait waits on the process, not on end-of-output.
 function Invoke-Script {
-  param([string]$Name, [string[]]$Arguments = @())
+  param([string]$Name, [string[]]$Arguments = @(), [int]$TimeoutMinutes = 0)
 
   $log = Join-Path $env:TEMP ("cc-release-" + [System.Guid]::NewGuid().ToString("N") + ".log")
   $script = Join-Path $PSScriptRoot $Name
@@ -111,7 +111,33 @@ function Invoke-Script {
   $psi.Arguments = "/c `"$command`""
   $psi.UseShellExecute = $false
   $child = [System.Diagnostics.Process]::Start($psi)
-  $child.WaitForExit()
+
+  # A heartbeat while it works, because `next build` says nothing for minutes at
+  # a time and the only thing watching is a browser reading this file. Silence
+  # and a dead release look identical from there - and the app is DOWN for this
+  # step, so the log is all anyone has. Every 30 seconds it writes down how long
+  # this step has been going, which is what lets the screen show a clock instead
+  # of a spinner that never changes.
+  $beat = Get-Date
+  $waited = Get-Date
+  while (-not $child.WaitForExit(1000)) {
+    if (((Get-Date) - $beat).TotalSeconds -ge 30) {
+      $beat = Get-Date
+      Write-Log ("... still working on this step ($(Elapsed) into the update)")
+    }
+
+    # A step that never ends is worse than one that fails: the app is already
+    # stopped by this point, so a build that wedges takes the whole workflow
+    # down and says nothing about it for as long as the machine stays on. This
+    # gives up instead, kills only what this release started - by PID, never by
+    # name - and lets the screen say what happened.
+    if ($TimeoutMinutes -gt 0 -and ((Get-Date) - $waited).TotalMinutes -ge $TimeoutMinutes) {
+      Write-Log ("$Name has been running for $TimeoutMinutes minutes with nothing to show - stopping it.")
+      & taskkill.exe /PID $child.Id /T /F 2>&1 | ForEach-Object { Write-Log $_.ToString() }
+      try { $child.WaitForExit(10000) | Out-Null } catch { }
+      return 1
+    }
+  }
 
   # Shared read, and neither the read nor the delete may be fatal: the server
   # start-server.ps1 leaves behind INHERITED this file's handle and holds it for
@@ -324,6 +350,11 @@ function Elapsed {
   return "{0:mm}m{0:ss}s" -f $span
 }
 
+# Stamped, not just printed: the app is restarted in the middle of this, so the
+# only way any screen can say how long the update has been running is to read
+# when it started back out of the log.
+Write-Log ("Update started " + $started.ToString("o"))
+
 Step "Checking this checkout"
 
 # Not $branch: PowerShell variable names are case-insensitive, so that would be
@@ -483,10 +514,10 @@ Step "Stopping the running app ($(Elapsed) in)"
 Invoke-Script "stop-server.ps1" | Out-Null
 
 Step "Building and starting the new version ($(Elapsed) in, takes a few minutes)"
-if ((Invoke-Script "start-server.ps1" @("-Quiet")) -ne 0) {
+if ((Invoke-Script "start-server.ps1" @("-Quiet") -TimeoutMinutes 30) -ne 0) {
   # It has already printed the reason and the tail of the log it failed in.
   # Waiting five minutes for a server that was never started only buries that.
-  Fail "The release did not start. The app is still down - see build.log in $root."
+  Fail "The build did not finish. The app is still down - see build.log in $root, then run update-capital-command.bat again."
 }
 
 Step "Waiting for the app to answer ($(Elapsed) in)"

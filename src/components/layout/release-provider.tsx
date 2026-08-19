@@ -1,13 +1,16 @@
 "use client";
 
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
-import type { ReleaseStatus } from "@/lib/release/shared";
+import type { ReleaseStatus, ReleaseWatch } from "@/lib/release/shared";
+import { watchRelease } from "@/lib/release/shared";
 
 export type ReleasePhase = "idle" | "checking" | "starting" | "updating";
 
 export type ReleaseProgress = {
   step: string | null;
   failed: string | null;
+  finished: boolean;
+  startedAt: number | null;
   quietFor: number | null;
   tail: string[];
 };
@@ -23,6 +26,8 @@ type ReleaseContextValue = {
   busy: boolean;
   error: string | null;
   checkedAt: number | null;
+  /** What the running release is doing, as something safe to put on screen. */
+  watch: ReleaseWatch | null;
   check: () => Promise<ReleaseStatusWithProgress | null>;
   install: () => Promise<void>;
 };
@@ -31,6 +36,7 @@ const ReleaseContext = createContext<ReleaseContextValue | null>(null);
 
 const POLL_MS = 15 * 60 * 1000;
 const RESTART_POLL_MS = 4000;
+const TICK_MS = 1000;
 
 /**
  * One release check for the whole shell.
@@ -46,6 +52,9 @@ export function ReleaseProvider({ children }: { children: React.ReactNode }) {
   const [phase, setPhase] = useState<ReleasePhase>("idle");
   const [error, setError] = useState<string | null>(null);
   const [checkedAt, setCheckedAt] = useState<number | null>(null);
+  const [offline, setOffline] = useState(false);
+  const [now, setNow] = useState(() => Date.now());
+  const [startedAt, setStartedAt] = useState<number | null>(null);
   const wentDown = useRef(false);
 
   const load = useCallback(async () => {
@@ -55,8 +64,18 @@ export function ReleaseProvider({ children }: { children: React.ReactNode }) {
       const next = (await response.json()) as ReleaseStatusWithProgress;
       setStatus(next);
       setCheckedAt(Date.now());
+      setOffline(false);
+      if (next.progress?.startedAt) setStartedAt(next.progress.startedAt);
+      // A release survives the page that started it: the server restarts, and
+      // so does anything opened, reloaded or opened in a second tab while it
+      // runs. Without adopting what the app itself reports, those screens show
+      // no update at all and then reload under him with no explanation.
+      if (next.updating) {
+        setPhase((current) => (current === "updating" ? current : "updating"));
+      }
       return next;
     } catch {
+      setOffline(true);
       return null;
     }
   }, []);
@@ -66,6 +85,15 @@ export function ReleaseProvider({ children }: { children: React.ReactNode }) {
     const timer = setInterval(() => void load(), POLL_MS);
     return () => clearInterval(timer);
   }, [load]);
+
+  // The clock is the only thing that can still move while the server is down,
+  // and it is the whole difference between "this is working" and a spinner that
+  // has said the same thing for twenty minutes.
+  useEffect(() => {
+    if (phase !== "updating" && phase !== "starting") return;
+    const timer = setInterval(() => setNow(Date.now()), TICK_MS);
+    return () => clearInterval(timer);
+  }, [phase]);
 
   // While a release runs the server is stopped, rebuilt and started again, so
   // polling is expected to FAIL for a while and then succeed. Waiting for it
@@ -88,7 +116,9 @@ export function ReleaseProvider({ children }: { children: React.ReactNode }) {
         setPhase("idle");
         return;
       }
-      if (wentDown.current && !next.pending.length) window.location.reload();
+      if (next.progress?.finished || (wentDown.current && !next.pending.length)) {
+        window.location.reload();
+      }
     }, RESTART_POLL_MS);
     return () => clearInterval(timer);
   }, [phase, load]);
@@ -105,6 +135,8 @@ export function ReleaseProvider({ children }: { children: React.ReactNode }) {
   const install = useCallback(async () => {
     setError(null);
     setPhase("starting");
+    setStartedAt(Date.now());
+    wentDown.current = false;
     try {
       const response = await fetch("/api/update", { method: "POST" });
       if (!response.ok) {
@@ -121,17 +153,20 @@ export function ReleaseProvider({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
+  const busy = phase === "starting" || phase === "updating";
+  const watch = busy
+    ? watchRelease({
+        step: status?.progress?.step ?? null,
+        failed: status?.progress?.failed ?? null,
+        startedAt,
+        offline,
+        now
+      })
+    : null;
+
   return (
     <ReleaseContext.Provider
-      value={{
-        status,
-        phase,
-        busy: phase === "starting" || phase === "updating",
-        error,
-        checkedAt,
-        check,
-        install
-      }}
+      value={{ status, phase, busy, error, checkedAt, watch, check, install }}
     >
       {children}
     </ReleaseContext.Provider>

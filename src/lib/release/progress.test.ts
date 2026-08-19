@@ -61,6 +61,61 @@ describe("readReleaseProgress", () => {
   it("says nothing when no release has ever run here", async () => {
     const progress = await readReleaseProgress(mkdtempSync(join(tmpdir(), "release-progress-")));
 
-    expect(progress).toEqual({ step: null, failed: null, finished: false, quietFor: null, tail: [] });
+    expect(progress).toEqual({
+      step: null,
+      failed: null,
+      finished: false,
+      startedAt: null,
+      quietFor: null,
+      tail: []
+    });
+  });
+});
+
+describe("readReleaseProgress, while a build is running", () => {
+  const started = "2026-08-18T23:25:00.000Z";
+
+  it("reads back when the update started, so the clock survives the restart", async () => {
+    const progress = await readReleaseProgress(
+      logged([`Update started ${started}`, "", "==> Checking this checkout"].join("\r\n"))
+    );
+
+    expect(progress.startedAt).toBe(Date.parse(started));
+  });
+
+  // The heartbeat exists to keep the log moving through a build that says
+  // nothing for minutes. Left in the tail it would push out every line worth
+  // reading, which is the only thing the tail is for.
+  it("keeps heartbeats out of the tail but still counts as the log moving", async () => {
+    const progress = await readReleaseProgress(
+      logged(
+        [
+          `Update started ${started}`,
+          "==> Building and starting the new version (00m09s in, takes a few minutes)",
+          "... still working on this step (00m39s into the update)",
+          "... still working on this step (01m09s into the update)"
+        ].join("\r\n")
+      )
+    );
+
+    expect(progress.tail).toEqual([
+      `Update started ${started}`,
+      "==> Building and starting the new version (00m09s in, takes a few minutes)"
+    ]);
+    expect(progress.step).toBe("Building and starting the new version (00m09s in, takes a few minutes)");
+  });
+
+  it("knows a release that reached a running app", async () => {
+    const progress = await readReleaseProgress(
+      logged(
+        [
+          `Update started ${started}`,
+          "==> Waiting for the app to answer (04m02s in)",
+          "Capital Command is updated and running at http://localhost:3000 (took 04m20s)"
+        ].join("\r\n")
+      )
+    );
+
+    expect(progress.finished).toBe(true);
   });
 });

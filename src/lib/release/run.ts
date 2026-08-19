@@ -45,9 +45,14 @@ export function startRelease(
 
   // Truncated here, appended to there: the first line has to exist before
   // PowerShell has finished starting, or the banner's first poll sees the
-  // PREVIOUS release's log and reports a stale step.
+  // PREVIOUS release's log and reports a stale step. It carries a start stamp
+  // for the same reason the script writes one: the clock on screen has to
+  // cover the seconds before PowerShell is even running.
   try {
-    writeFileSync(logPath, "==> Starting the update\r\n");
+    writeFileSync(
+      logPath,
+      `Update started ${new Date().toISOString()}\r\n==> Starting the update\r\n`
+    );
   } catch {
     // A log that cannot be written is not a reason to refuse to update.
   }

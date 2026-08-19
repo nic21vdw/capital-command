@@ -178,3 +178,105 @@ export function releaseStillRunning(
   if (progress.quietFor !== null && progress.quietFor > RELEASE_ABANDONED_AFTER_SECONDS) return false;
   return true;
 }
+
+/**
+ * How long a release runs before the wait itself is worth saying something
+ * about, and how long before the app stops claiming it is on its way.
+ *
+ * A rebuild takes minutes and the server is DOWN for almost all of them, so the
+ * screen cannot be told anything during the part that takes longest. A spinner
+ * with no clock is the same picture at four seconds and at forty minutes, which
+ * is how a build that had quietly stopped read as one still going.
+ */
+export const RELEASE_SLOW_AFTER_SECONDS = 360;
+export const RELEASE_LOST_AFTER_SECONDS = 1200;
+
+export type ReleaseWatch = {
+  tone: "working" | "slow" | "lost";
+  headline: string;
+  detail: string;
+  elapsed: string | null;
+  spin: boolean;
+};
+
+/**
+ * What to say about a release that is under way, from the last thing it managed
+ * to tell the browser plus a clock.
+ *
+ * `offline` is not a failure: the release stops the server on purpose, so every
+ * poll fails from the middle of the update until the new build answers. What it
+ * changes is what can honestly be shown — the step is now a memory, and the
+ * clock is the only thing still moving.
+ */
+export function watchRelease({
+  step,
+  failed,
+  startedAt,
+  offline,
+  now
+}: {
+  step: string | null;
+  failed?: string | null;
+  startedAt: number | null;
+  offline: boolean;
+  now: number;
+}): ReleaseWatch {
+  const seconds = startedAt === null ? null : Math.max(0, Math.round((now - startedAt) / 1000));
+  const elapsed = seconds === null ? null : formatElapsed(seconds);
+
+  if (failed) {
+    return { tone: "lost", headline: "The update stopped", detail: failed, elapsed, spin: false };
+  }
+
+  if (seconds !== null && seconds >= RELEASE_LOST_AFTER_SECONDS) {
+    return {
+      tone: "lost",
+      headline: `The update has not come back after ${elapsed}`,
+      detail: offline
+        ? "The rebuild may still be running. Check update-app.log in the Capital Command folder, and run update-capital-command.bat again if it has stopped."
+        : "It is still running but has been quiet for a long time — check update-app.log in the Capital Command folder.",
+      elapsed,
+      spin: false
+    };
+  }
+
+  const slow = seconds !== null && seconds >= RELEASE_SLOW_AFTER_SECONDS;
+  const headline = step ? `${step}${elapsed ? ` — ${elapsed}` : ""}` : "Starting the update";
+
+  return {
+    tone: slow ? "slow" : "working",
+    headline,
+    detail: offline
+      ? slow
+        ? "The app is still rebuilding. It stays down until the build finishes, then this page reloads itself."
+        : "The app is down while it rebuilds — this page reloads itself when it comes back."
+      : "This page reloads itself when the app comes back.",
+    elapsed,
+    spin: true
+  };
+}
+
+function formatElapsed(seconds: number): string {
+  const minutes = Math.floor(seconds / 60);
+  if (!minutes) return `${seconds}s`;
+  return `${minutes}m ${String(seconds % 60).padStart(2, "0")}s`;
+}
+
+/**
+ * Whether to tell Nic the update landed.
+ *
+ * The old release ended by reloading the page into a version that looked
+ * exactly like the one before it, so the only proof it had worked was that the
+ * spinner was gone. A finished release says so once, until it is acknowledged.
+ */
+export const RELEASE_DONE_NOTICE_SECONDS = 1800;
+
+export function shouldShowUpdated(
+  status: Pick<ReleaseStatus, "releasable" | "running"> | null,
+  progress: Pick<ReleaseProgress, "finished" | "quietFor"> | null | undefined,
+  { acknowledged }: { acknowledged?: string | null } = {}
+): boolean {
+  if (!status?.releasable || !progress?.finished) return false;
+  if (progress.quietFor !== null && progress.quietFor > RELEASE_DONE_NOTICE_SECONDS) return false;
+  return !(acknowledged && acknowledged === status.running);
+}

@@ -1,16 +1,18 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { ArrowDownToLine, ChevronDown, Loader2, X } from "lucide-react";
+import { ArrowDownToLine, CheckCircle2, ChevronDown, Loader2, TriangleAlert, X } from "lucide-react";
 import { useRelease } from "@/components/layout/release-provider";
-import { shouldShowBanner } from "@/lib/release/shared";
+import { shouldShowBanner, shouldShowUpdated } from "@/lib/release/shared";
 import { cn } from "@/lib/utils";
 
 const DISMISSED_KEY = "cc.update.dismissed";
+const ACKNOWLEDGED_KEY = "cc.update.done";
 
 /**
  * Tells Nic when the app on his screen is older than the work waiting on
- * `dev`, and releases it when he says so.
+ * `main`, releases it when he says so, says what the release is doing while it
+ * runs, and says it landed when it is over.
  *
  * Until this existed the only way to know was to read CHANGELOG.md and
  * double-click a .bat, which meant finished work sat unreleased for days
@@ -20,50 +22,101 @@ const DISMISSED_KEY = "cc.update.dismissed";
  * remembering to go looking.
  */
 export function UpdateBanner() {
-  const { status, busy, error, install } = useRelease();
+  const { status, busy, error, watch, install } = useRelease();
   const [dismissed, setDismissed] = useState<string | null>(null);
+  const [acknowledged, setAcknowledged] = useState<string | null>(null);
   const [expanded, setExpanded] = useState(false);
 
   useEffect(() => {
     queueMicrotask(() => {
       try {
         setDismissed(window.localStorage.getItem(DISMISSED_KEY));
+        setAcknowledged(window.localStorage.getItem(ACKNOWLEDGED_KEY));
       } catch {
         // Non-critical preference read.
       }
     });
   }, []);
 
-  const dismiss = () => {
-    if (!status?.latest) return;
-    setDismissed(status.latest);
+  const remember = (key: string, value: string | null, set: (value: string) => void) => {
+    if (!value) return;
+    set(value);
     try {
-      window.localStorage.setItem(DISMISSED_KEY, status.latest);
+      window.localStorage.setItem(key, value);
     } catch {
       // Non-critical preference persistence.
     }
   };
 
+  if (!busy && shouldShowUpdated(status, status?.progress, { acknowledged })) {
+    return (
+      <div className="mb-4 flex flex-wrap items-center gap-3 rounded-xl border border-emerald-500/40 bg-emerald-500/10 px-4 py-3">
+        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-emerald-500/20 text-emerald-400">
+          <CheckCircle2 className="h-4 w-4" />
+        </span>
+        <div className="min-w-0 flex-1">
+          <p className="text-sm font-semibold text-white">Capital Command is up to date</p>
+          <p className="truncate text-xs text-[var(--muted-foreground)]">
+            The update finished and the app restarted — now running{" "}
+            {status?.runningShort ?? "the latest build"}.
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={() => remember(ACKNOWLEDGED_KEY, status?.running ?? null, setAcknowledged)}
+          className="rounded-lg border border-[var(--border)] px-3 py-1.5 text-xs text-[var(--muted-foreground)] transition hover:border-[var(--border-strong)] hover:text-white"
+        >
+          Got it
+        </button>
+      </div>
+    );
+  }
+
   if (!status || !shouldShowBanner(status, { dismissed, busy })) return null;
 
   const count = status.pending.length;
+  const lost = watch?.tone === "lost";
 
   return (
-    <div className="mb-4 overflow-hidden rounded-xl border border-[var(--accent)]/40 bg-[color-mix(in_srgb,var(--accent)_12%,var(--panel))]">
+    <div
+      className={cn(
+        "mb-4 overflow-hidden rounded-xl border",
+        lost
+          ? "border-amber-500/50 bg-amber-500/10"
+          : "border-[var(--accent)]/40 bg-[color-mix(in_srgb,var(--accent)_12%,var(--panel))]"
+      )}
+    >
       <div className="flex flex-wrap items-center gap-3 px-4 py-3">
-        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-[var(--accent)]/20 text-[var(--accent)]">
-          {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArrowDownToLine className="h-4 w-4" />}
+        <span
+          className={cn(
+            "flex h-8 w-8 shrink-0 items-center justify-center rounded-lg",
+            lost ? "bg-amber-500/20 text-amber-400" : "bg-[var(--accent)]/20 text-[var(--accent)]"
+          )}
+        >
+          {busy ? (
+            lost ? (
+              <TriangleAlert className="h-4 w-4" />
+            ) : (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            )
+          ) : (
+            <ArrowDownToLine className="h-4 w-4" />
+          )}
         </span>
 
         <div className="min-w-0 flex-1">
           <p className="text-sm font-semibold text-white">
             {busy
-              ? "Updating Capital Command…"
+              ? watch?.tone === "lost"
+                ? watch.headline
+                : `Updating Capital Command… ${watch?.elapsed ?? ""}`.trim()
               : `An update is ready — ${count} change${count === 1 ? "" : "s"} waiting`}
           </p>
-          <p className="truncate text-xs text-[var(--muted-foreground)]">
+          <p className={cn("text-xs text-[var(--muted-foreground)]", !lost && "truncate")}>
             {busy
-              ? `${status.progress?.step ?? "Starting"} — this page reloads itself when the app comes back.`
+              ? watch?.tone === "lost"
+                ? watch.detail
+                : `${watch?.headline ?? "Starting the update"} — ${watch?.detail ?? ""}`
               : `Running ${status.runningShort ?? "an unstamped build"} · latest ${status.latestShort ?? "unknown"}`}
           </p>
         </div>
@@ -89,7 +142,7 @@ export function UpdateBanner() {
             </button>
             <button
               type="button"
-              onClick={dismiss}
+              onClick={() => remember(DISMISSED_KEY, status.latest, setDismissed)}
               aria-label="Dismiss until the next update"
               className="flex h-8 w-8 items-center justify-center rounded-lg text-[var(--muted-foreground)] transition hover:text-white"
             >
