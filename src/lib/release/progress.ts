@@ -5,6 +5,12 @@ import { UPDATE_LOG } from "@/lib/release/run";
 /** The line update-app.ps1 ends a good release with. */
 const RELEASE_DONE = "Capital Command is updated and running";
 
+/** The line every release opens with, so elapsed time survives the restart. */
+const RELEASE_STARTED = /^Update started (.+)$/;
+
+/** What a step writes while it is still working, so a slow build is not silence. */
+const HEARTBEAT = "... ";
+
 export type ReleaseProgress = {
   /** The last thing the release said it was doing, for the banner. */
   step: string | null;
@@ -12,6 +18,8 @@ export type ReleaseProgress = {
   failed: string | null;
   /** Set when the release got all the way to a running app. */
   finished: boolean;
+  /** When this release started, in epoch ms. Null when the log has no stamp. */
+  startedAt: number | null;
   /** How long since the log last moved, in seconds. Null when there is no log. */
   quietFor: number | null;
   tail: string[];
@@ -33,7 +41,7 @@ export async function readReleaseProgress(root = process.cwd()): Promise<Release
     text = file;
     quietFor = Math.max(0, Math.round((Date.now() - info.mtimeMs) / 1000));
   } catch {
-    return { step: null, failed: null, finished: false, quietFor: null, tail: [] };
+    return { step: null, failed: null, finished: false, startedAt: null, quietFor: null, tail: [] };
   }
 
   const lines = text.split(/\r?\n/).filter((line) => line.trim());
@@ -43,7 +51,21 @@ export async function readReleaseProgress(root = process.cwd()): Promise<Release
     step: steps.length ? steps[steps.length - 1].slice(4) : null,
     failed: failure ? failure.slice(7) : null,
     finished: lines.some((line) => line.startsWith(RELEASE_DONE)),
+    startedAt: startedAtOf(lines),
     quietFor,
-    tail: lines.slice(-12)
+    // Heartbeats keep the log moving through a long build, which is what stops
+    // a release being read as abandoned. They say nothing on their own, so they
+    // are kept out of the tail rather than crowding out the last real lines.
+    tail: lines.filter((line) => !line.startsWith(HEARTBEAT)).slice(-12)
   };
+}
+
+function startedAtOf(lines: string[]): number | null {
+  for (const line of lines) {
+    const stamp = line.match(RELEASE_STARTED);
+    if (!stamp) continue;
+    const at = Date.parse(stamp[1].trim());
+    if (!Number.isNaN(at)) return at;
+  }
+  return null;
 }

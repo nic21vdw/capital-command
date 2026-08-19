@@ -1,9 +1,9 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { ArrowDownToLine, CheckCircle2, Loader2, RefreshCw } from "lucide-react";
+import { ArrowDownToLine, CheckCircle2, Loader2, RefreshCw, TriangleAlert } from "lucide-react";
 import { useRelease, type ReleaseStatusWithProgress } from "@/components/layout/release-provider";
-import { updateCheckState } from "@/lib/release/shared";
+import { updateCheckState, type ReleaseWatch } from "@/lib/release/shared";
 import { cn } from "@/lib/utils";
 
 const FLASH_MS = 5000;
@@ -28,7 +28,7 @@ type Look = {
  * and opens the same one-click install when the answer is yes.
  */
 export function UpdateCheckButton({ collapsed = false }: { collapsed?: boolean }) {
-  const { status, phase, busy, error, check, install } = useRelease();
+  const { status, phase, busy, error, watch, check, install } = useRelease();
   const [open, setOpen] = useState(false);
   const [flash, setFlash] = useState(false);
   const container = useRef<HTMLDivElement>(null);
@@ -67,7 +67,7 @@ export function UpdateCheckButton({ collapsed = false }: { collapsed?: boolean }
     else if (next) setFlash(true);
   };
 
-  const look = describe(state, { count, status, flash });
+  const look = describe(state, { count, status, flash, watch });
 
   return (
     <div ref={container} className="relative">
@@ -165,15 +165,27 @@ function describe(
   {
     count,
     status,
-    flash
-  }: { count: number; status: ReleaseStatusWithProgress | null; flash: boolean }
+    flash,
+    watch
+  }: {
+    count: number;
+    status: ReleaseStatusWithProgress | null;
+    flash: boolean;
+    watch: ReleaseWatch | null;
+  }
 ): Look {
   switch (state) {
+    // Same clock as the banner. The sidebar is the one thing on screen that
+    // never scrolls away, so an update that has stopped moving has to be
+    // visible here too rather than only where the banner happens to be.
     case "updating":
+      if (watch?.tone === "lost") {
+        return { icon: TriangleAlert, label: "Update not responding", detail: watch.detail, accent: true };
+      }
       return {
         icon: Loader2,
-        label: "Updating…",
-        detail: "Rebuilding and restarting",
+        label: `Updating… ${watch?.elapsed ?? ""}`.trim(),
+        detail: watch?.headline ?? "Rebuilding and restarting",
         spin: true,
         accent: true
       };

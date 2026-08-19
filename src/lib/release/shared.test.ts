@@ -5,7 +5,11 @@ import {
   shouldShowBanner,
   updateCheckState,
   releaseStillRunning,
-  RELEASE_ABANDONED_AFTER_SECONDS
+  shouldShowUpdated,
+  watchRelease,
+  RELEASE_ABANDONED_AFTER_SECONDS,
+  RELEASE_LOST_AFTER_SECONDS,
+  RELEASE_SLOW_AFTER_SECONDS
 } from "./shared";
 
 const CHANGELOG = `# Changelog
@@ -154,5 +158,89 @@ describe("releaseStillRunning", () => {
 
   it("is not running if this process never started one", () => {
     expect(releaseStillRunning(false, running)).toBe(false);
+  });
+});
+
+describe("watchRelease", () => {
+  const startedAt = Date.parse("2026-08-18T23:25:00.000Z");
+  const at = (seconds: number) => startedAt + seconds * 1000;
+  const building = { step: "Building and starting the new version", startedAt };
+
+  it("counts the update up rather than repeating the last step forever", () => {
+    const watch = watchRelease({ ...building, offline: true, now: at(75) });
+
+    expect(watch.elapsed).toBe("1m 15s");
+    expect(watch.headline).toContain("1m 15s");
+    expect(watch.tone).toBe("working");
+  });
+
+  // The server is stopped BY the update, so a failed poll is the normal middle
+  // of one. Reading it as a fault is what made a working release look broken.
+  it("treats the app being down as part of the update, not a failure", () => {
+    const watch = watchRelease({ ...building, offline: true, now: at(30) });
+
+    expect(watch.tone).toBe("working");
+    expect(watch.detail).toContain("rebuilds");
+  });
+
+  it("says a long build is still a build", () => {
+    const watch = watchRelease({ ...building, offline: true, now: at(RELEASE_SLOW_AFTER_SECONDS + 1) });
+
+    expect(watch.tone).toBe("slow");
+    expect(watch.spin).toBe(true);
+  });
+
+  // The complaint this exists for: a spinner that had been going for twenty
+  // minutes said exactly what it said at four seconds.
+  it("stops claiming an update is on its way once it has not come back", () => {
+    const watch = watchRelease({ ...building, offline: true, now: at(RELEASE_LOST_AFTER_SECONDS) });
+
+    expect(watch.tone).toBe("lost");
+    expect(watch.spin).toBe(false);
+    expect(watch.detail).toContain("update-app.log");
+  });
+
+  it("shows the reason a release wrote down over any clock", () => {
+    const watch = watchRelease({
+      ...building,
+      failed: "npm install failed.",
+      offline: false,
+      now: at(20)
+    });
+
+    expect(watch.tone).toBe("lost");
+    expect(watch.detail).toBe("npm install failed.");
+  });
+
+  it("still says something before the log has been read", () => {
+    const watch = watchRelease({ step: null, startedAt: null, offline: false, now: at(5) });
+
+    expect(watch.headline).toBe("Starting the update");
+    expect(watch.elapsed).toBeNull();
+  });
+});
+
+describe("shouldShowUpdated", () => {
+  const landed = { releasable: true, running: "abc123" };
+  const finished = { finished: true, quietFor: 20 };
+
+  it("says the update landed", () => {
+    expect(shouldShowUpdated(landed, finished)).toBe(true);
+  });
+
+  it("says nothing about a release that never finished", () => {
+    expect(shouldShowUpdated(landed, { finished: false, quietFor: 20 })).toBe(false);
+  });
+
+  // Otherwise every visit for the rest of the week opens on the news that an
+  // update once worked.
+  it("forgets an old release, and one already acknowledged", () => {
+    expect(shouldShowUpdated(landed, { finished: true, quietFor: 4000 })).toBe(false);
+    expect(shouldShowUpdated(landed, finished, { acknowledged: "abc123" })).toBe(false);
+    expect(shouldShowUpdated(landed, finished, { acknowledged: "older1" })).toBe(true);
+  });
+
+  it("stays out of a sandbox", () => {
+    expect(shouldShowUpdated({ ...landed, releasable: false }, finished)).toBe(false);
   });
 });
