@@ -13,9 +13,23 @@ import { zonedToUtc } from "@/lib/publisher/time";
  * (07:30 Toronto is 12:30Z in winter but 11:30Z in summer).
  */
 
-export const DEFAULT_SLOT_TIMES = ["07:30", "12:30", "19:30"];
-/** Optimal weekend upload times: mid-morning, early afternoon, evening. */
-export const DEFAULT_WEEKEND_SLOT_TIMES = ["10:00", "13:00", "19:00"];
+/**
+ * Six a day, matching `youtube.dailyUploadBudget` — the grid and the uploader's
+ * own allowance now agree. It was three, which is what made a full queue report
+ * "every slot in the next four months is taken" while the channel itself had no
+ * such limit. The original three times are still in the set, so nothing already
+ * booked sits off-grid. Override with PUBLISH_SLOT_TIMES.
+ */
+export const DEFAULT_SLOT_TIMES = ["07:30", "10:00", "12:30", "15:30", "19:30", "22:00"];
+/** Weekends start later and run later; the original three are kept. */
+export const DEFAULT_WEEKEND_SLOT_TIMES = ["08:30", "10:00", "13:00", "15:30", "19:00", "21:00"];
+
+/**
+ * How far ahead the booking sheet may reach. A year, not four months: the only
+ * thing this bounds is how long a list of empty slots gets, and stopping short
+ * of the queue's own reach is what refused work there was room for.
+ */
+export const DEFAULT_BOOKING_HORIZON_DAYS = 365;
 
 export type ScheduleSlot = {
   /** Stable id: `<dateKey> <time>` in the configured timezone. */
@@ -131,4 +145,17 @@ export function nextBookableSlot(options: Omit<SlotOptions, "days" | "startDayOf
     throw new Error("No bookable slot in the next week — check the schedule slot times.");
   }
   return slots[0];
+}
+
+/**
+ * The configured grid as `generateSlots` options. One helper so every caller —
+ * the booking sheet, the shuffle, the API and the Uploading Center — draws the
+ * same day. A caller that spreads over different times than the picker shows is
+ * how a booking lands where nothing can see it.
+ */
+export function slotGrid(config: { slotTimes: string[]; weekendSlotTimes: string[] }): {
+  times: string[];
+  weekendTimes: string[];
+} {
+  return { times: config.slotTimes, weekendTimes: config.weekendSlotTimes };
 }
