@@ -22,6 +22,11 @@ export type ChannelUpload = {
   aspect: { width: number; height: number } | null;
   /** True when the video has liveStreamingDetails — i.e. it was a live stream. */
   wasLiveStream: boolean;
+  /**
+   * True while the stream is STILL RUNNING. Its VOD is not finished, so a
+   * download gets whatever fragment exists at that moment.
+   */
+  isLiveNow: boolean;
   privacyStatus: string;
   url: string;
 };
@@ -41,6 +46,7 @@ export type IngestDecision =
         | "probable-short-unknown-aspect"
         | "not-public"
         | "not-a-live-stream"
+        | "still-live"
         | "already-in-the-pipeline";
       /** True when the skip is a judgement call the human may want to overturn. */
       needsReview?: boolean;

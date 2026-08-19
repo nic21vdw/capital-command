@@ -32,7 +32,7 @@ export type ChannelScan = {
 
 type VideoResource = {
   id: string;
-  snippet?: { title?: string; publishedAt?: string };
+  snippet?: { title?: string; publishedAt?: string; liveBroadcastContent?: string };
   status?: { privacyStatus?: string };
   contentDetails?: { duration?: string };
   liveStreamingDetails?: Record<string, unknown>;
@@ -66,6 +66,23 @@ export function aspectFromPlayer(player: VideoResource["player"]): { width: numb
   return parsed;
 }
 
+/**
+ * Is this stream still running right now?
+ *
+ * Two signals, either of which is enough. `liveBroadcastContent` is the plain
+ * answer when YouTube gives it; `liveStreamingDetails` is the fallback, where a
+ * stream that has started and has no `actualEndTime` has not finished yet.
+ * Neither is trusted alone: the first is occasionally stale on a stream that
+ * just ended, and the second is absent on a premiere.
+ */
+export function isLiveNow(resource: VideoResource): boolean {
+  const broadcast = resource.snippet?.liveBroadcastContent;
+  if (broadcast === "live" || broadcast === "upcoming") return true;
+  const details = resource.liveStreamingDetails;
+  if (!details) return false;
+  return Boolean(details.actualStartTime) && !details.actualEndTime;
+}
+
 function toUpload(resource: VideoResource): ChannelUpload | null {
   if (!resource.id) return null;
   return {
@@ -80,6 +97,7 @@ function toUpload(resource: VideoResource): ChannelUpload | null {
     // field. Streams keep it after they end, which is what we want — the VOD is
     // what gets ingested, hours after the stream itself finished.
     wasLiveStream: Boolean(resource.liveStreamingDetails),
+    isLiveNow: isLiveNow(resource),
     privacyStatus: resource.status?.privacyStatus ?? "unknown",
     url: `https://www.youtube.com/watch?v=${resource.id}`
   };

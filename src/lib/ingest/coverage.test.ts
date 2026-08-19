@@ -10,6 +10,7 @@ const upload = (over: Partial<ChannelUpload>): ChannelUpload => ({
   durationSec: 7200,
   aspect: { width: 1920, height: 1080 },
   wasLiveStream: true,
+  isLiveNow: false,
   privacyStatus: "public",
   url: "https://youtu.be/v1",
   ...over

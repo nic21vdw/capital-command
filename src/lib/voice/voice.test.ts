@@ -175,6 +175,7 @@ describe("voice tools", () => {
       durationSec: 4000,
       aspect: null,
       wasLiveStream: false,
+      isLiveNow: false,
       privacyStatus: "public",
       url: "https://www.youtube.com/watch?v=abc"
     };
