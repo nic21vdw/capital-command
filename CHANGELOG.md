@@ -25,6 +25,19 @@ already shipped.
   server books on, and the message you get when a day really is full tells you
   how to make room. The original three times are still in the default set, so
   nothing already scheduled moved.
+- **A TikTok clip that TikTok asks you to slow down on is no longer thrown
+  away.** When your TikTok inbox is full of uploads still waiting for a tap,
+  TikTok refuses new ones — and the runner used to record that as a permanent
+  failure, so three clips were discarded rather than sent. It now waits six
+  hours and tries again without spending the clip's attempts, and says what
+  actually needs doing: open TikTok and clear the drafts sitting in the inbox.
+- **The TikTok audit watcher stops implying someone is still reviewing the
+  app.** TikTok rejected it on 2026-07-29 — "not approved for personal or
+  internal company use" — and the API says exactly the same thing whether a
+  review is queued or already refused, so the watcher logged "still waiting"
+  for three weeks. `docs/TIKTOK.md` now carries the decision, what still works
+  today (clips upload to your TikTok inbox), and what a resubmission has to
+  change to get automatic posting.
 
 ## 2026-08-18
 

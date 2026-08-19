@@ -275,10 +275,14 @@ local scheduler and the Actions cron against the same queue at the same time.
    only needs filling in by hand for GitHub Actions runs. TikTok rotates the
    refresh token on every use and the adapter persists each rotation; the grant
    itself lasts 365 days, so reconnect once a year.
-5. **Audit gate:** until TikTok audits and approves the app, every API post is
-   forced to `SELF_ONLY` (only you can see it) — that's the built-in sandbox.
-   Once approved, set `TIKTOK_AUDITED=true` and posts follow your configured
-   visibility (`public` → `PUBLIC_TO_EVERYONE`). No code changes needed.
+5. **Audit gate:** until TikTok audits and approves the app, Direct Post is
+   refused outright and clips are sent to your TikTok inbox instead — you
+   finish each one with a tap in the TikTok app. Once approved, set
+   `TIKTOK_AUDITED=true` and posts go straight to the profile with your
+   configured visibility (`public` → `PUBLIC_TO_EVERYONE`). No code changes
+   needed. **This app's review was rejected on 2026-07-29** — see
+   [docs/TIKTOK.md](docs/TIKTOK.md) for the reason and what a resubmission has
+   to change.
 
 **Cloudflare R2 (free media hosting)**
 1. Cloudflare dashboard → R2 → create a bucket (free tier: 10 GB, zero egress
@@ -298,8 +302,9 @@ local scheduler and the Actions cron against the same queue at the same time.
 4. `npm run publish:run` —
    - **YouTube**: video appears in YouTube Studio as **Scheduled** for the
      right time (public visibility) or as Private (private visibility).
-   - **TikTok**: post appears on your profile as private (`SELF_ONLY`) and
-     `publish:list` shows its post id.
+   - **TikTok**: while the app is unaudited the clip lands in your TikTok
+     inbox and `publish:list` shows it as scheduled; once audited it appears
+     on your profile with its post id.
    - **Instagram**: use `--visibility public` on a test account; the Reel goes
      live and `publish:list` shows the media id.
    - **Facebook**: use `--visibility public` on a test Page; the Reel goes
