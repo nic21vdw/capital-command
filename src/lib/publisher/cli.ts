@@ -140,6 +140,16 @@ async function main() {
     console.log(`[publisher]   publishes: ${formatInTimezone(new Date(item.publishAt), config.timezone)} (${config.timezone})`);
     console.log(`[publisher]   platforms: ${Object.keys(item.platforms).join(", ")} · visibility: ${item.visibility}`);
     if (item.mediaKey) console.log(`[publisher]   hosted:    ${item.mediaKey}`);
+    // Booked is not delivered. Hand it to whatever takes a future post now —
+    // YouTube uploads it and shows it as Scheduled — rather than leaving a
+    // typed-out booking sitting here until the next five-minute tick.
+    await runDue(new Date(), { itemId: item.id }).catch((error: unknown) =>
+      console.warn(
+        `[publisher] the upload after enqueue failed — the scheduler will retry: ${
+          error instanceof Error ? error.message : String(error)
+        }`
+      )
+    );
     return;
   }
 
@@ -567,6 +577,95 @@ async function main() {
     }
     const removed = await publishQueue(config).remove(id, "cli-remove");
     console.log(removed ? `[publisher] removed ${id}.` : `[publisher] no item ${id}.`);
+    return;
+  }
+
+  if (command === "frontload") {
+    const { planScheduleFrontload, isYoutubeScheduled } = await import("@/lib/publisher/scheduleShuffle");
+    const { generateSlots, slotGrid } = await import("@/lib/publisher/slots");
+    const { updateYoutubeVideoPublishAt } = await import("@/lib/publisher/adapters/youtube");
+    const queue = publishQueue(config);
+    const items = await queue.list();
+    const now = new Date();
+    // Moving a video YouTube already holds is only honest when the new time is
+    // sent to YouTube too, so --push is what lets those move and nothing else
+    // touches them.
+    const push = args.flags.has("push");
+    const horizon = Number(flagStr(args, "days") ?? config.bookingHorizonDays);
+    const openSlots = generateSlots({ timeZone: config.timezone, days: horizon, now, ...slotGrid(config) })
+      .filter((slot) => slot.bookable)
+      .map((slot) => slot.utc);
+    const plan = planScheduleFrontload(items, now, { openSlots, onlyPending: !push });
+    const lastBefore = items
+      .filter((item) => new Date(item.publishAt) > now)
+      .reduce((latest, item) => (item.publishAt > latest ? item.publishAt : latest), "");
+    const lastAfter = plan.moves.reduce(
+      (latest, move) => (move.to > latest ? move.to : latest),
+      plan.unplaced.reduce((latest, item) => (item.to > latest ? item.to : latest), "")
+    );
+    console.log(
+      `[publisher] frontload: ${plan.moves.length} post${plan.moves.length === 1 ? "" : "s"} would move, ${plan.unchanged} stay put.`
+    );
+    if (lastBefore && lastAfter) {
+      console.log(
+        `[publisher]   the queue ends ${formatInTimezone(new Date(lastBefore), config.timezone)} now, ${formatInTimezone(new Date(lastAfter), config.timezone)} after.`
+      );
+    }
+    for (const move of plan.moves.slice(0, 40)) {
+      console.log(
+        `[publisher]   ${move.id}  ${formatInTimezone(new Date(move.from), config.timezone)} → ${formatInTimezone(new Date(move.to), config.timezone)}  ${move.title}`
+      );
+    }
+    if (plan.moves.length > 40) console.log(`[publisher]   …and ${plan.moves.length - 40} more.`);
+    for (const clash of plan.collisions) {
+      console.log(
+        `[publisher]   UNRESOLVED ${formatInTimezone(new Date(clash.publishAt), config.timezone)} ${clash.occupant} — ${clash.itemIds.join(", ")}`
+      );
+    }
+    for (const repeat of plan.repeats) {
+      console.log(
+        `[publisher]   BACK-TO-BACK ${formatInTimezone(new Date(repeat.publishAt), config.timezone)} ${repeat.source} — ${repeat.itemIds.join(", ")}`
+      );
+    }
+    for (const stuck of plan.unplaced) {
+      console.log(`[publisher]   NO SLOT WITHIN ${horizon} DAYS ${stuck.id} — ${stuck.title}`);
+    }
+    if (!push) {
+      const holding = items.filter((item) => new Date(item.publishAt) > now && isYoutubeScheduled(item)).length;
+      if (holding > 0) {
+        console.log(
+          `[publisher] ${holding} video${holding === 1 ? " is" : "s are"} already scheduled on YouTube and stayed put — re-run with --push to move ${holding === 1 ? "it" : "them"} and tell YouTube.`
+        );
+      }
+    }
+    if (!args.flags.has("write")) {
+      console.log("[publisher] dry run — re-run with --write to save it.");
+      return;
+    }
+    const changed = await queue.applyPublishTimes(
+      plan.moves.map((move) => ({ id: move.id, publishAt: move.to })),
+      "cli-frontload"
+    );
+    console.log(`[publisher] wrote ${changed} new time${changed === 1 ? "" : "s"} to the queue.`);
+    if (!push) return;
+    const byId = new Map((await queue.list()).map((item) => [item.id, item]));
+    let pushed = 0;
+    let failed = 0;
+    for (const move of plan.moves) {
+      const item = byId.get(move.id);
+      if (!item || !isYoutubeScheduled(item)) continue;
+      try {
+        await updateYoutubeVideoPublishAt(item.platforms.youtube!.postId!, new Date(move.to), item.accountId);
+        pushed += 1;
+        console.log(`[publisher]   youtube ${item.platforms.youtube?.postId} → ${move.to}`);
+      } catch (error) {
+        failed += 1;
+        console.error(
+          `[publisher]   youtube ${item.platforms.youtube?.postId} failed: ${error instanceof Error ? error.message : String(error)}`
+        );
+      }
+    }
+    console.log(`[publisher] pushed ${pushed} YouTube schedule${pushed === 1 ? "" : "s"}${failed ? `, ${failed} failed` : ""}.`);
     return;
   }
 

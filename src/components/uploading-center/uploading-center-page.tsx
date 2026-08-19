@@ -63,7 +63,11 @@ import {
 import { buildAgenda } from "@/lib/publisher/agenda";
 import { dateTimeFormat } from "@/lib/publisher/intl";
 import { slotOffsetForDateKey } from "@/lib/publisher/slotWindow";
-import type { ScheduleSlot } from "@/lib/publisher/slots";
+import {
+  DEFAULT_SLOT_TIMES,
+  DEFAULT_WEEKEND_SLOT_TIMES,
+  type ScheduleSlot
+} from "@/lib/publisher/slots";
 import { localCalendarParts } from "@/lib/publisher/time";
 import type { PlatformId, QueueItem } from "@/lib/publisher/types";
 
@@ -839,8 +843,9 @@ export function UploadingCenterPage() {
                 {overview ? (
                   <p className="mt-3 text-xs text-[var(--muted-foreground)]">
                     Every scheduled post and channel video shows on its day above.
-                    Suggested slots: weekdays 07:30, 12:30 and 19:30; weekends
-                    10:00, 13:00 and 19:00 ({overview.timezone}); stored in UTC.
+                    Suggested slots: weekdays {listTimes(overview.slotTimes ?? DEFAULT_SLOT_TIMES)}; weekends{" "}
+                    {listTimes(overview.weekendSlotTimes ?? DEFAULT_WEEKEND_SLOT_TIMES)} ({overview.timezone});
+                    stored in UTC.
                   </p>
                 ) : null}
               </div>
@@ -864,6 +869,11 @@ export function UploadingCenterPage() {
  * finished uploading to YouTube: a link straight to the video and a big
  * button into the channel's Content page in YouTube Studio.
  */
+function listTimes(times: string[]): string {
+  if (times.length < 2) return times.join("");
+  return `${times.slice(0, -1).join(", ")} and ${times[times.length - 1]}`;
+}
+
 function UploadSuccessDialog({
   success,
   channelId,

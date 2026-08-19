@@ -56,6 +56,8 @@ export type ShufflePlan = {
   collisions: ShuffleCollision[];
   /** Neighbouring slots still holding one stream. */
   repeats: ShuffleRepeat[];
+  /** Posts the grid had no room for inside the horizon asked for. */
+  unplaced: ShuffleMove[];
 };
 
 export type ShuffleOptions = {
@@ -350,7 +352,7 @@ function move(
  *
  * A permutation cannot help here and saying so is not an answer: when 312
  * Facebook posts are spread over 278 instants, 34 of them have nowhere to be
- * until the schedule reaches further forward. It always can — the grid is three
+ * until the schedule reaches further forward. It always can — the grid is six
  * slots a day for as long as the caller asks — so the overflow moves out rather
  * than stacking on a day that already posts.
  */
@@ -467,7 +469,7 @@ function timeline(
 }
 
 function emptyPlan(): ShufflePlan {
-  return { moves: [], unchanged: 0, collisions: [], repeats: [] };
+  return { moves: [], unchanged: 0, collisions: [], repeats: [], unplaced: [] };
 }
 
 export function planScheduleShuffle(items: QueueItem[], now: Date, options: ShuffleOptions = {}): ShufflePlan {
@@ -475,7 +477,7 @@ export function planScheduleShuffle(items: QueueItem[], now: Date, options: Shuf
   const { positions, pool } = timeline(items, now, movable);
   if (pool.length === 0) return emptyPlan();
   const placed = separate(fill(positions, shuffled(pool, options.seed ?? Date.now())), 0);
-  return { ...movesFrom(placed, new Set(pool.map((item) => item.id))), ...report(placed) };
+  return { ...movesFrom(placed, new Set(pool.map((item) => item.id))), ...report(placed), unplaced: [] };
 }
 
 /**
@@ -492,7 +494,105 @@ export function planScheduleRepair(items: QueueItem[], now: Date, options: Shuff
   const parked = separate(park(upcoming, pinned, shuffled(pool, options.seed ?? Date.now())), 1);
   const spread = relocate(parked, laneCounts(parked), options.openSlots ?? []);
   const placed = separate(spread, 1);
-  return { ...movesFrom(placed, new Set(pool.map((item) => item.id))), ...report(placed) };
+  return { ...movesFrom(placed, new Set(pool.map((item) => item.id))), ...report(placed), unplaced: [] };
+}
+
+/**
+ * Pulls the whole upcoming queue forward onto the earliest slots the grid has,
+ * in the order it is already in.
+ *
+ * This is what widening the grid actually means. Doubling the slots a day holds
+ * does nothing on its own: the posts already booked keep the times they were
+ * given under the old grid, so the new slots open up empty and the queue still
+ * runs to the same date months out — three a day for four months instead of six
+ * a day for two. The point of posting six a day is that the backlog reaches the
+ * feed sooner, not that the calendar grows more places to sit.
+ *
+ * So every movable post is lifted off and dealt back onto the grid from the
+ * front, keeping the order it was in — the queue Nic has already read stays the
+ * queue he read, only closer. It is a compaction, not a re-order; use
+ * `planScheduleShuffle` when the order itself is what should change.
+ *
+ * Three things hold it back from being a plain "deal them in order", and all
+ * three are the same constraints the rest of this file works under:
+ *
+ *   - A post that is ALREADY TOO SOON to re-seat stays put. The earliest grid
+ *     slot is tomorrow (`schedule.ts`), and anything still to go out today has
+ *     had its bytes uploaded and its time published; moving it is not a
+ *     schedule change, it is a broken promise to a platform.
+ *   - A video YOUTUBE ALREADY HOLDS stays put unless the caller is going to
+ *     tell YouTube about the move (`onlyPending`), exactly as in a shuffle.
+ *   - ONE PLATFORM PER INSTANT, and NO STREAM TWICE RUNNING. A slot nothing
+ *     acceptable fits into is left empty and the pass moves on rather than
+ *     double-booking it.
+ *
+ * A post the horizon has no slot for is returned in `unplaced` and left on the
+ * time it already has. That only happens when the caller asks for a window too
+ * short to hold the queue, and it is reported rather than silently dropped.
+ */
+export function planScheduleFrontload(items: QueueItem[], now: Date, options: ShuffleOptions = {}): ShufflePlan {
+  const grid = [...(options.openSlots ?? [])].sort((a, b) => a.localeCompare(b));
+  const upcoming = items.filter((item) => isUpcomingItem(item, now));
+  if (grid.length === 0 || upcoming.length === 0) return emptyPlan();
+
+  const earliest = grid[0];
+  const held = (item: QueueItem) =>
+    item.publishAt < earliest || (options.onlyPending !== false && isYoutubeScheduled(item));
+  const pinned = upcoming.filter(held);
+  const pool = upcoming
+    .filter((item) => !held(item))
+    .sort((a, b) => a.publishAt.localeCompare(b.publishAt) || a.id.localeCompare(b.id));
+  if (pool.length === 0) return emptyPlan();
+
+  const positions: Position[] = [
+    ...pinned.map((item): Position => ({ publishAt: item.publishAt, fixed: item })),
+    ...grid.map((publishAt): Position => ({ publishAt }))
+  ].sort((a, b) => a.publishAt.localeCompare(b.publishAt) || (a.fixed ? 0 : 1) - (b.fixed ? 0 : 1));
+
+  const { placed, leftover } = seat(positions, pool);
+  const settled = separate(placed, 0);
+  const movable = new Set(pool.map((item) => item.id));
+  return {
+    ...movesFrom(settled, movable),
+    ...report(settled),
+    unplaced: leftover.map((item) => ({ id: item.id, title: item.title, from: item.publishAt, to: item.publishAt }))
+  };
+}
+
+/**
+ * Deals a pool into positions from the front, taking the first post that fits
+ * and leaving a position empty when none does — the difference from `fill`,
+ * which has exactly as many posts as positions and so must place something.
+ * Here the positions are the whole calendar ahead and run out long after the
+ * posts do, so the tail of the grid is meant to stay empty.
+ */
+function seat(positions: Position[], pool: QueueItem[]): { placed: Placed[]; leftover: QueueItem[] } {
+  const taken = new Map<string, Set<string>>();
+  const remaining = [...pool];
+  const placed: Placed[] = [];
+
+  for (const position of positions) {
+    if (position.fixed) {
+      claim(taken, position.publishAt, position.fixed);
+      placed.push({ item: position.fixed, publishAt: position.publishAt, fixed: true });
+      continue;
+    }
+    if (remaining.length === 0) continue;
+    const previous = placed[placed.length - 1]?.item;
+    const free = (item: QueueItem) => fits(taken, position.publishAt, item);
+    const apart = (item: QueueItem) => !previous || sourceOf(item) !== sourceOf(previous);
+
+    let pick = firstMatch(remaining, (item) => free(item) && apart(item));
+    if (pick < 0) pick = firstMatch(remaining, free);
+    if (pick < 0) continue;
+    const [item] = remaining.splice(pick, 1);
+    claim(taken, position.publishAt, item);
+    placed.push({ item, publishAt: position.publishAt, fixed: false });
+  }
+
+  for (const item of remaining) placed.push({ item, publishAt: item.publishAt, fixed: true });
+  placed.sort((a, b) => a.publishAt.localeCompare(b.publishAt) || (a.fixed ? 0 : 1) - (b.fixed ? 0 : 1));
+  return { placed, leftover: remaining };
 }
 
 export function applyScheduleShuffle(items: QueueItem[], plan: ShufflePlan): QueueItem[] {
