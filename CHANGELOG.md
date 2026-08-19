@@ -14,6 +14,13 @@ already shipped.
 
 ## Unreleased
 
+- **The daily scan no longer takes in a stream while you are still streaming
+  it.** A scan that ran mid-stream downloaded the 40 seconds of Day 39 that
+  YouTube had published so far, cut two shorts out of that sliver, and wrote the
+  stream into its ledger as done — so the finished eight-hour VOD would never
+  have been picked up. A stream that has not ended is now skipped and left
+  unrecorded, and the next scan takes the whole thing in once you stop.
+
 ## 2026-08-14
 
 - **Emoji are back on your carousels, in the Apple set.** Every slide is set in

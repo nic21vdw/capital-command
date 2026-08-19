@@ -162,3 +162,30 @@ describe("aspectFromPlayer", () => {
     expect(aspectFromPlayer({ embedHtml: '<iframe width="0" height="0"></iframe>' })).toBeNull();
   });
 });
+
+describe("isLiveNow", () => {
+  it("reads the broadcast field when YouTube gives one", async () => {
+    const { isLiveNow } = await loadModule();
+    expect(isLiveNow({ id: "v", snippet: { liveBroadcastContent: "live" } })).toBe(true);
+    expect(isLiveNow({ id: "v", snippet: { liveBroadcastContent: "upcoming" } })).toBe(true);
+    expect(isLiveNow({ id: "v", snippet: { liveBroadcastContent: "none" } })).toBe(false);
+  });
+
+  // The fallback that matters: a stream that started and has not ended is still
+  // writing its VOD, so there is nothing whole to download yet.
+  it("treats a started stream with no end time as still running", async () => {
+    const { isLiveNow } = await loadModule();
+    expect(isLiveNow({ id: "v", liveStreamingDetails: { actualStartTime: "2026-08-18T22:00:00Z" } })).toBe(true);
+    expect(
+      isLiveNow({
+        id: "v",
+        liveStreamingDetails: { actualStartTime: "2026-08-18T22:00:00Z", actualEndTime: "2026-08-19T01:00:00Z" }
+      })
+    ).toBe(false);
+  });
+
+  it("is false for an ordinary upload", async () => {
+    const { isLiveNow } = await loadModule();
+    expect(isLiveNow({ id: "v" })).toBe(false);
+  });
+});

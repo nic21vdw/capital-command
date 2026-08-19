@@ -16,6 +16,7 @@ function upload(overrides: Partial<ChannelUpload> = {}): ChannelUpload {
     durationSec: 1800,
     aspect: { width: 480, height: 270 },
     wasLiveStream: false,
+    isLiveNow: false,
     privacyStatus: "public",
     url: "https://www.youtube.com/watch?v=vid-1",
     ...overrides
@@ -69,6 +70,28 @@ describe("decideUpload", () => {
   it("takes in a live stream VOD", () => {
     const decision = decideUpload(upload({ wasLiveStream: true, durationSec: 7200 }), nothingSeen);
     expect(decision).toEqual({ action: "ingest", reason: "live-stream" });
+  });
+
+  // A mid-stream scan downloaded a 40-second sliver of a multi-hour stream and
+  // clipped shorts out of it, then recorded the stream as taken in.
+  it("skips a stream that is still running", () => {
+    const decision = decideUpload(upload({ wasLiveStream: true, isLiveNow: true, durationSec: 40 }), nothingSeen);
+    expect(decision).toEqual({ action: "skip", reason: "still-live" });
+  });
+
+  it("takes the same stream in once it has ended", () => {
+    const decision = decideUpload(upload({ wasLiveStream: true, isLiveNow: false, durationSec: 7200 }), nothingSeen);
+    expect(decision).toEqual({ action: "ingest", reason: "live-stream" });
+  });
+
+  // Still-live is a wait, not a judgement about the video, so it must not
+  // out-rank the guards that stop the app re-eating its own output.
+  it("still prefers provenance over a stream that is live", () => {
+    const seen = { publishedPostIds: new Set(["vid-1"]), ingestedVideoIds: new Set<string>() };
+    expect(decideUpload(upload({ isLiveNow: true }), seen)).toEqual({
+      action: "skip",
+      reason: "published-by-distribution-centre"
+    });
   });
 
   // The whole point: the pipeline's own Shorts must not come back in.

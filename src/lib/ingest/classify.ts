@@ -20,7 +20,8 @@ import type { ChannelUpload, IngestDecision } from "@/lib/ingest/types";
  *     queue and so have no postId to match.
  *
  * Live streams short-circuit the shape test: a stream is never a Short, and its
- * VOD is exactly the thing worth clipping.
+ * VOD is exactly the thing worth clipping — but only once it has ENDED. A
+ * stream still in progress is skipped, because its VOD is still being written.
  */
 
 /** Shorts are capped at three minutes, so that is the shape cutoff. */
@@ -85,6 +86,15 @@ export function decideUpload(
     return { action: "skip", reason: "not-public" };
   }
 
+  // A stream that has not ended yet has no finished VOD to take in. Downloading
+  // one gets whatever fragment YouTube has published so far — on 2026-08-18 a
+  // scan that ran mid-stream took a 40-second sliver of a multi-hour stream and
+  // clipped shorts out of it. No ledger record is written for a skip, so the
+  // next scan takes the whole thing in once the stream is over.
+  if (upload.isLiveNow) {
+    return { action: "skip", reason: "still-live" };
+  }
+
   // A live stream is never a Short, whatever its duration says, so it skips the
   // shape test entirely — a short technical-difficulties stream still counts.
   if (upload.wasLiveStream) {
@@ -133,6 +143,8 @@ export function explainDecision(decision: IngestDecision): string {
       return "not public";
     case "not-a-live-stream":
       return "not a live stream (live-only scan)";
+    case "still-live":
+      return "still live — taken in after it ends";
     case "already-in-the-pipeline":
       return "already a pipeline run's source";
   }
