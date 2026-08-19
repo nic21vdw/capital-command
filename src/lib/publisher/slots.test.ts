@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { generateSlots } from "@/lib/publisher/slots";
+import { DEFAULT_SLOT_TIMES, DEFAULT_WEEKEND_SLOT_TIMES, generateSlots } from "@/lib/publisher/slots";
 
 const TZ = "America/Toronto";
 
@@ -10,15 +10,30 @@ function slot(slots: ReturnType<typeof generateSlots>, id: string) {
 }
 
 describe("generateSlots", () => {
-  it("emits 3 slots every day: weekday times on weekdays, weekend times on weekends", () => {
+  it("emits the configured slots every day: weekday times on weekdays, weekend times on weekends", () => {
     // Wed Mar 4 2026 → Mar 4-17 covers 10 weekdays and 4 weekend days.
     const slots = generateSlots({ timeZone: TZ, now: new Date("2026-03-04T15:00:00Z") });
-    expect(slots).toHaveLength(42);
+    expect(slots).toHaveLength(14 * DEFAULT_SLOT_TIMES.length);
     const dates = new Set(slots.map((s) => s.dateKey));
     expect(dates.size).toBe(14);
-    expect(slots.filter((s) => s.dateKey === "2026-03-06").map((s) => s.time)).toEqual(["07:30", "12:30", "19:30"]); // Friday
-    expect(slots.filter((s) => s.dateKey === "2026-03-07").map((s) => s.time)).toEqual(["10:00", "13:00", "19:00"]); // Saturday
-    expect(slots.filter((s) => s.dateKey === "2026-03-08").map((s) => s.time)).toEqual(["10:00", "13:00", "19:00"]); // Sunday
+    expect(slots.filter((s) => s.dateKey === "2026-03-06").map((s) => s.time)).toEqual(DEFAULT_SLOT_TIMES); // Friday
+    expect(slots.filter((s) => s.dateKey === "2026-03-07").map((s) => s.time)).toEqual(DEFAULT_WEEKEND_SLOT_TIMES); // Saturday
+    expect(slots.filter((s) => s.dateKey === "2026-03-08").map((s) => s.time)).toEqual(DEFAULT_WEEKEND_SLOT_TIMES); // Sunday
+  });
+
+  // The grid is configuration, not a constant: a caller that asks for its own
+  // times gets exactly those, which is what lets the picker and the booking
+  // sheet promise the same day.
+  it("uses the times it is given, weekday and weekend alike", () => {
+    const slots = generateSlots({
+      timeZone: TZ,
+      now: new Date("2026-03-04T15:00:00Z"),
+      days: 4,
+      times: ["09:00", "21:00"],
+      weekendTimes: ["11:00"]
+    });
+    expect(slots.filter((s) => s.dateKey === "2026-03-06").map((s) => s.time)).toEqual(["09:00", "21:00"]); // Friday
+    expect(slots.filter((s) => s.dateKey === "2026-03-07").map((s) => s.time)).toEqual(["11:00"]); // Saturday
   });
 
   it("converts Toronto wall-clock to UTC across the spring-forward boundary", () => {
@@ -44,24 +59,22 @@ describe("generateSlots", () => {
 
   it("flags only the first day as today, including past slots on that day", () => {
     const slots = generateSlots({ timeZone: TZ, now: new Date("2026-03-04T15:00:00Z") });
-    expect(slots.filter((s) => s.today).map((s) => s.id)).toEqual([
-      "2026-03-04 07:30",
-      "2026-03-04 12:30",
-      "2026-03-04 19:30"
-    ]);
+    expect(slots.filter((s) => s.today).map((s) => s.id)).toEqual(
+      DEFAULT_SLOT_TIMES.map((time) => `2026-03-04 ${time}`)
+    );
   });
 
   it("pages forward with startDayOffset: the window starts N days after today", () => {
     // Same Wed Mar 4 2026 anchor, next two-week period → Mar 18-31.
     const slots = generateSlots({ timeZone: TZ, now: new Date("2026-03-04T15:00:00Z"), startDayOffset: 14 });
-    expect(slots).toHaveLength(42);
+    expect(slots).toHaveLength(14 * DEFAULT_SLOT_TIMES.length);
     expect(slots[0].dateKey).toBe("2026-03-18");
     expect(slots[slots.length - 1].dateKey).toBe("2026-03-31");
     // A future window contains neither today nor past slots.
     expect(slots.some((s) => s.today)).toBe(false);
     expect(slots.some((s) => s.past)).toBe(false);
     // Weekend detection still tracks the actual calendar day.
-    expect(slots.filter((s) => s.dateKey === "2026-03-21").map((s) => s.time)).toEqual(["10:00", "13:00", "19:00"]); // Saturday
+    expect(slots.filter((s) => s.dateKey === "2026-03-21").map((s) => s.time)).toEqual(DEFAULT_WEEKEND_SLOT_TIMES); // Saturday
   });
 
   it("keeps UTC conversion correct in offset windows that cross DST", () => {

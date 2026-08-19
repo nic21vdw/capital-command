@@ -57,6 +57,8 @@ export function primaryAccountIdFor(platform: PlatformId): string {
 export type Overview = {
   enabled: boolean;
   timezone: string;
+  slotTimes?: string[];
+  weekendSlotTimes?: string[];
   quota: YoutubeQuota;
 };
 
@@ -339,9 +341,21 @@ export function useUploadingCenter(clipProjects: ClipProject[] = []) {
    * and it is the same function the server used to run for this.
    */
   const timezone = overview?.timezone ?? "UTC";
+  // The times the SERVER books on, not this file's defaults: the grid is
+  // configurable, and a picker drawing a different day than the booking sheet
+  // is a slot he can see and nothing can fill.
+  const slotTimes = overview?.slotTimes;
+  const weekendSlotTimes = overview?.weekendSlotTimes;
   const slots = useMemo(
-    () => generateSlots({ timeZone: timezone, days: SLOT_WINDOW_DAYS, startDayOffset: slotOffsetDays }),
-    [timezone, slotOffsetDays]
+    () =>
+      generateSlots({
+        timeZone: timezone,
+        days: SLOT_WINDOW_DAYS,
+        startDayOffset: slotOffsetDays,
+        ...(slotTimes ? { times: slotTimes } : {}),
+        ...(weekendSlotTimes ? { weekendTimes: weekendSlotTimes } : {})
+      }),
+    [timezone, slotOffsetDays, slotTimes, weekendSlotTimes]
   );
 
   const activeYoutubeAccountId = activeAccountIds.youtube;

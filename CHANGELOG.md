@@ -21,6 +21,17 @@ already shipped.
   Uploading Center says so on the picker ("Instagram + Facebook"), and mirroring
   a schedule onto Instagram now mirrors it onto Facebook too. An extra (non-primary)
   Instagram account still posts on its own, since no Page is paired with it.
+- **Six posts a day instead of three, and a year of calendar instead of four
+  months.** "Every slot in the next four months is taken" was never YouTube
+  saying no — it was two numbers hardcoded in this app: three posting times a
+  day, and a booking sheet that refused to look past 120 days while
+  `publish:shuffle` was happily spreading over two years. Twelve finished shorts
+  had nowhere to go because of it. The grid is now yours to set —
+  `PUBLISH_SLOT_TIMES`, `PUBLISH_WEEKEND_SLOT_TIMES` and
+  `PUBLISH_BOOKING_HORIZON_DAYS` — the Uploading Center draws whatever the
+  server books on, and the message you get when a day really is full tells you
+  how to make room. The original three times are still in the default set, so
+  nothing already scheduled moved.
 - **A TikTok clip that TikTok asks you to slow down on is no longer thrown
   away.** When your TikTok inbox is full of uploads still waiting for a tap,
   TikTok refuses new ones — and the runner used to record that as a permanent
