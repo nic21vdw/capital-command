@@ -14,6 +14,19 @@ already shipped.
 
 ## Unreleased
 
+- **Facebook now holds your Reels for you.** A short booked for the Page used
+  to sit here until its slot came round and only then start uploading — so
+  nothing existed on Facebook until the minute it went out, and a missed run
+  was a missed post. A Reel whose slot is between 15 minutes and 28 days away
+  is now uploaded straight away and handed to Facebook with the time on it;
+  Facebook publishes it itself, and the board says **Scheduled**. At the slot
+  the app checks Facebook actually published it and publishes it itself if not,
+  the same follow-through YouTube has always had. Picture posts are unchanged —
+  only a Reel can be scheduled through the API — and four Reels go up per run,
+  so the backlog drains over an evening instead of uploading hundreds of clips
+  at once. `npm run publish:facebook:verify` proves the whole thing against the
+  real Page with one post and no queue involved.
+
 - **Booking a stream's outputs now hands them to the platforms straight away.**
   The pipeline used to write everything into the queue and leave it for the
   five-minute runner, so a batch you just booked sat there saying "Queued" with

@@ -102,6 +102,17 @@ export const defaultAdapters: Record<PlatformId, PlatformAdapter> = {
 const PLATFORMS_NEEDING_PUBLIC_URL = new Set<PlatformId>(["instagram", "facebook"]);
 
 const FACEBOOK_POLL_BUDGET_MS_PER_RUN = 180_000;
+
+/**
+ * How many Facebook Reels one run may hand over AHEAD of their slot. Facebook
+ * takes a scheduled Reel up to 29 days out, so the moment that became true
+ * every upcoming post inside four weeks turned due at once — hundreds of clips
+ * hosted and transferred in a single run, on a machine that is also editing
+ * video. A few per run drains the backlog over an evening at the five-minute
+ * cadence and leaves the runs short. Nothing here delays a post at its slot:
+ * that path is not an early hand-over and is never counted.
+ */
+const FACEBOOK_PRESCHEDULES_PER_RUN = 4;
 const FACEBOOK_POLL_BUDGET_MS_PER_ITEM = 60_000;
 
 /** Finds the clip bytes: the local file when present, else the hosted copy. */
@@ -339,6 +350,7 @@ export async function runDue(now: Date = new Date(), options: RunDueOptions = {}
     ? Number.POSITIVE_INFINITY
     : remainingYoutubeUploads(await queue.list(), now, config);
   let facebookPollMsLeft = FACEBOOK_POLL_BUDGET_MS_PER_RUN;
+  let facebookPreschedulesLeft = options.force ? Number.POSITIVE_INFINITY : FACEBOOK_PRESCHEDULES_PER_RUN;
 
   for (const { item, platforms } of due) {
     let localPath: string | null = null;
@@ -387,6 +399,16 @@ export async function runDue(now: Date = new Date(), options: RunDueOptions = {}
             const duplicate = await youtubeChannelDuplicate(item, config, now);
             if (duplicate) throw new PermanentError(channelDuplicateMessage(duplicate));
             youtubeUploadsLeft -= 1;
+          }
+          if (platform === "facebook" && new Date(item.publishAt).getTime() > now.getTime()) {
+            if (facebookPreschedulesLeft <= 0) {
+              record(
+                "deferred",
+                `${FACEBOOK_PRESCHEDULES_PER_RUN} Reels have already been handed to Facebook ahead of time this run — this one goes up on the next run.`
+              );
+              continue;
+            }
+            facebookPreschedulesLeft -= 1;
           }
           await queue.claim(item, platform, now);
           // Resolve media lazily and once per item, not per platform.
