@@ -14,6 +14,16 @@ already shipped.
 
 ## Unreleased
 
+- **The Uploading Center now opens on tomorrow, across all four platforms at
+  once.** The board underneath it is one platform per tab, so a post whose
+  YouTube leg died on a dead token still renders as a healthy card on the
+  Instagram tab — which is how YouTube went four days without posting while
+  every tab looked fine. The new panel at the top of the page lists everything
+  booked for tomorrow with each platform's status side by side, and leads with
+  whatever cannot post and why. Underneath it: how many long-form edits and
+  rendered carousels are finished but still not booked, worked out by asking
+  the queue what it already references rather than trusting a flag.
+
 ## 2026-08-14
 
 - **Emoji are back on your carousels, in the Apple set.** Every slide is set in

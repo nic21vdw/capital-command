@@ -46,6 +46,7 @@ import {
 import { QuotaMeter } from "@/components/uploading-center/quota-meter";
 import { ScheduleBoard } from "@/components/uploading-center/schedule-board";
 import { StatusChip } from "@/components/uploading-center/status-chip";
+import { TomorrowSummary } from "@/components/uploading-center/tomorrow-summary";
 import {
   DEFAULT_SLOT_OFFSET_DAYS,
   PLATFORM_LABELS,
@@ -807,6 +808,9 @@ export function UploadingCenterPage() {
           </Card>
         ) : (
           <>
+            <div className="mb-6">
+              <TomorrowSummary />
+            </div>
             <div className="grid gap-6 xl:grid-cols-[minmax(22rem,1fr)_minmax(0,2.3fr)]">
               <ClipQueue
                 jobs={jobsWithClips}
