@@ -1,3 +1,8 @@
+import {
+  DEFAULT_BOOKING_HORIZON_DAYS,
+  DEFAULT_SLOT_TIMES,
+  DEFAULT_WEEKEND_SLOT_TIMES
+} from "@/lib/publisher/slots";
 import { vi } from "vitest";
 import type { PublisherConfig } from "@/lib/publisher/config";
 import type { QueueStore } from "@/lib/publisher/store";
@@ -29,6 +34,9 @@ export function testConfig(overrides: Partial<PublisherConfig> = {}): PublisherC
     autoEnqueue: false,
     platforms: ["youtube", "instagram", "tiktok"],
     timezone: "America/Toronto",
+    slotTimes: DEFAULT_SLOT_TIMES,
+    weekendSlotTimes: DEFAULT_WEEKEND_SLOT_TIMES,
+    bookingHorizonDays: DEFAULT_BOOKING_HORIZON_DAYS,
     defaultVisibility: "private",
     queueBackend: "file",
     maxAttempts: 3,

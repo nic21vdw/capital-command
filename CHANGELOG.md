@@ -32,6 +32,37 @@ already shipped.
 - **An update survives the page that started it.** Reloading, or opening a
   second tab mid-update, used to show no update at all and then reload without
   explanation; every screen now picks up the release the app itself reports.
+- **Anything you schedule to Instagram now goes to the Facebook Page as well.**
+  The same clip or picture post, the same caption, the same slot, carried on the
+  one scheduled post instead of a second one you had to book yourself — so the
+  Page keeps up with the Instagram feed without you ticking anything. The
+  Uploading Center says so on the picker ("Instagram + Facebook"), and mirroring
+  a schedule onto Instagram now mirrors it onto Facebook too. An extra (non-primary)
+  Instagram account still posts on its own, since no Page is paired with it.
+- **Six posts a day instead of three, and a year of calendar instead of four
+  months.** "Every slot in the next four months is taken" was never YouTube
+  saying no — it was two numbers hardcoded in this app: three posting times a
+  day, and a booking sheet that refused to look past 120 days while
+  `publish:shuffle` was happily spreading over two years. Twelve finished shorts
+  had nowhere to go because of it. The grid is now yours to set —
+  `PUBLISH_SLOT_TIMES`, `PUBLISH_WEEKEND_SLOT_TIMES` and
+  `PUBLISH_BOOKING_HORIZON_DAYS` — the Uploading Center draws whatever the
+  server books on, and the message you get when a day really is full tells you
+  how to make room. The original three times are still in the default set, so
+  nothing already scheduled moved.
+- **A TikTok clip that TikTok asks you to slow down on is no longer thrown
+  away.** When your TikTok inbox is full of uploads still waiting for a tap,
+  TikTok refuses new ones — and the runner used to record that as a permanent
+  failure, so three clips were discarded rather than sent. It now waits six
+  hours and tries again without spending the clip's attempts, and says what
+  actually needs doing: open TikTok and clear the drafts sitting in the inbox.
+- **The TikTok audit watcher stops implying someone is still reviewing the
+  app.** TikTok rejected it on 2026-07-29 — "not approved for personal or
+  internal company use" — and the API says exactly the same thing whether a
+  review is queued or already refused, so the watcher logged "still waiting"
+  for three weeks. `docs/TIKTOK.md` now carries the decision, what still works
+  today (clips upload to your TikTok inbox), and what a resubmission has to
+  change to get automatic posting.
 
 ## 2026-08-18
 

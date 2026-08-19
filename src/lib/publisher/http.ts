@@ -26,6 +26,22 @@ export class StillProcessingError extends TransientError {
   }
 }
 
+/**
+ * The platform is refusing this post for a reason that clears with time, not
+ * with a fix: a posting rate limit, or a backlog of uploads the creator has
+ * not finished yet. Retrying in minutes would burn the item's attempts on a
+ * wall that is still there, so the runner defers instead — the item keeps its
+ * attempts and comes back when the window has actually moved.
+ */
+export class ThrottledError extends TransientError {
+  constructor(
+    readonly retryAfterMinutes: number,
+    message: string
+  ) {
+    super(message);
+  }
+}
+
 export class AbandonedUploadError extends TransientError {
   constructor(
     readonly containerId: string,

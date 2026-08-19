@@ -13,7 +13,7 @@ import { MAX_IMAGES_PER_POST } from "@/lib/publisher/images";
 import { shuffled } from "@/lib/publisher/mirror";
 import { publishQueue } from "@/lib/publisher/queue";
 import { planScheduleRepair } from "@/lib/publisher/scheduleShuffle";
-import { generateSlots } from "@/lib/publisher/slots";
+import { generateSlots, slotGrid } from "@/lib/publisher/slots";
 import type { PlatformId, QueueItem } from "@/lib/publisher/types";
 import type { Carousel } from "@/types/domain";
 
@@ -129,7 +129,6 @@ async function readQueue(): Promise<QueueItem[]> {
  * the edge. The overflow is still refused rather than stacked — this only
  * decides how much calendar counts as the calendar.
  */
-const BOOKING_HORIZON_DAYS = 120;
 
 /** Everything this run made that could be posted, minus what is already booked. */
 export async function planRunOutputs(runId: string): Promise<QueuePlan | null> {
@@ -159,7 +158,7 @@ export async function planRunOutputs(runId: string): Promise<QueuePlan | null> {
   const taken = new Set(existing.map((item) => item.publishAt));
   // `bookable`, not `!past`: a run's whole output never lands on the day it was
   // booked, so the earliest slot offered is tomorrow's (see schedule.ts).
-  const openSlots = generateSlots({ timeZone: config.timezone, days: BOOKING_HORIZON_DAYS })
+  const openSlots = generateSlots({ timeZone: config.timezone, days: config.bookingHorizonDays, ...slotGrid(config) })
     .filter((slot) => slot.bookable && !taken.has(slot.utc))
     .map((slot) => slot.utc);
 
@@ -366,7 +365,7 @@ async function settleSchedule(): Promise<void> {
   const queue = publishQueue(config);
   const now = new Date();
   const upcoming = await queue.list();
-  const openSlots = generateSlots({ timeZone: config.timezone, days: BOOKING_HORIZON_DAYS, now })
+  const openSlots = generateSlots({ timeZone: config.timezone, days: config.bookingHorizonDays, now, ...slotGrid(config) })
     .filter((slot) => slot.bookable)
     .map((slot) => slot.utc);
   const fix = planScheduleRepair(upcoming, now, { openSlots });
@@ -439,6 +438,7 @@ export async function queueRunOutputs(
       : [];
 
   const slots = plan.openSlots;
+  const horizonMonths = Math.max(1, Math.round(publisherConfig().bookingHorizonDays / 30));
 
   const queued: QueueResult["queued"] = [];
   // Keyed by candidate so the complaint reads in the order he ticked them,
@@ -447,7 +447,13 @@ export async function queueRunOutputs(
   const bookedIds: string[] = [];
   for (const { candidate, publishAt } of assignSlots(chosen, slots)) {
     if (!publishAt) {
-      problems.set(candidate.id, { title: candidate.title, error: "Every slot in the next four months is taken." });
+      // Naming the way out matters: the grid is his own configuration, not a
+      // limit the platforms impose, and "the calendar is full" reads like the
+      // latter. PUBLISH_SLOT_TIMES is how a day gets more room.
+      problems.set(candidate.id, {
+        title: candidate.title,
+        error: `Every slot in the next ${horizonMonths} months is taken — add another posting time to fit more into a day.`
+      });
       continue;
     }
     try {

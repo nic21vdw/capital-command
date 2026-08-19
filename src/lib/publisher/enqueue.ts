@@ -18,6 +18,7 @@ import {
   type DuplicateCandidate
 } from "@/lib/publisher/duplicates";
 import { generateClipMetadata } from "@/lib/publisher/metadata";
+import { withFacebookAlongsideInstagram } from "@/lib/publisher/metaPairing";
 import type { QueueWriter } from "@/lib/publisher/audit";
 import { newPlatformState, publishQueue, type PublishQueue } from "@/lib/publisher/queue";
 import { assertBookable } from "@/lib/publisher/schedule";
@@ -192,17 +193,22 @@ export async function enqueue(options: EnqueueOptions): Promise<QueueItem> {
   const absolute = path.isAbsolute(options.clipPath) ? options.clipPath : path.join(process.cwd(), options.clipPath);
   await assertRegularFile(absolute, `Clip file not found: ${options.clipPath}`);
 
-  const platforms = (options.platforms?.length ? options.platforms : config.platforms).filter(
-    (p, i, list) => list.indexOf(p) === i
+  const platforms = withFacebookAlongsideInstagram(
+    (options.platforms?.length ? options.platforms : config.platforms).filter((p, i, list) => list.indexOf(p) === i),
+    options.accountId
   );
   if (platforms.length === 0) throw new Error("No platforms selected (check PUBLISH_PLATFORMS).");
 
   const accountId = await resolveAccountId(options.accountId, platforms);
   const configured = await configuredPlatformSet(platforms, accountId, config);
   const igAutomated = platforms.includes("instagram") && configured.has("instagram");
+  // Facebook Reels are transferred from a public URL too, so a Page riding
+  // along on an Instagram post needs the same hosted copy.
+  const fbAutomated = platforms.includes("facebook") && configured.has("facebook");
 
   const needsHosting =
     igAutomated ||
+    fbAutomated ||
     config.queueBackend === "r2" ||
     process.env.TIKTOK_UPLOAD_MODE?.trim().toLowerCase() === "url";
   if (igAutomated && !hostingConfigured(config)) {
@@ -344,8 +350,9 @@ export async function enqueueImagePost(options: EnqueueImageOptions): Promise<Qu
     await assertRegularFile(absolute, `Image file not found: ${absolute}`);
   }
 
-  const asked = (options.platforms?.length ? options.platforms : config.platforms).filter(
-    (p, i, list) => list.indexOf(p) === i
+  const asked = withFacebookAlongsideInstagram(
+    (options.platforms?.length ? options.platforms : config.platforms).filter((p, i, list) => list.indexOf(p) === i),
+    options.accountId
   );
   if (asked.length === 0) throw new Error("No platforms selected (check PUBLISH_PLATFORMS).");
 

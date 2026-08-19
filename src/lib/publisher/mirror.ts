@@ -1,3 +1,4 @@
+import { withFacebookAlongsideInstagram } from "@/lib/publisher/metaPairing";
 import type { PlatformId, QueueItem } from "@/lib/publisher/types";
 
 /**
@@ -159,7 +160,13 @@ export function planMirror(items: QueueItem[], options: MirrorOptions): MirrorPl
   const lead = options.lead ?? "youtube";
   const mode = options.mode ?? "match";
   const seed = options.seed ?? 1;
-  const targets = options.targets.filter((platform) => platform !== lead);
+  // In "match" the Page rides the same items Instagram does, which is the
+  // pairing every other route into the queue makes (`metaPairing.ts`). In
+  // "shuffle" a target keeps a schedule of its own, with different clips at
+  // those slots — that is not the same post reaching Facebook, so the targets
+  // asked for are the targets used.
+  const asked = mode === "match" ? withFacebookAlongsideInstagram(options.targets) : options.targets;
+  const targets = asked.filter((platform) => platform !== lead);
   const plan: MirrorPlan = { additions: [], newItems: [], skipped: [] };
 
   const schedule = leadSchedule(items, lead, options.now);

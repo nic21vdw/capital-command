@@ -5,7 +5,7 @@ import {
   isSameDayOrEarlier,
   TooSoonError
 } from "@/lib/publisher/schedule";
-import { generateSlots, nextBookableSlot } from "@/lib/publisher/slots";
+import { DEFAULT_SLOT_TIMES, generateSlots, nextBookableSlot } from "@/lib/publisher/slots";
 
 const TZ = "America/Toronto";
 // 2026-08-11 09:00 Toronto — a booking made in the morning, with the day's
@@ -49,8 +49,9 @@ describe("the slot grid", () => {
   it("marks today's remaining slots unbookable, and keeps showing them", () => {
     const slots = generateSlots({ timeZone: TZ, days: 3, now: NOW });
     const today = slots.filter((slot) => slot.dateKey === "2026-08-11");
-    expect(today).toHaveLength(3);
-    expect(today.map((slot) => slot.past)).toEqual([true, false, false]);
+    expect(today).toHaveLength(DEFAULT_SLOT_TIMES.length);
+    // NOW is mid-morning, so only the first time of the day has gone.
+    expect(today.filter((slot) => slot.past).map((slot) => slot.time)).toEqual([DEFAULT_SLOT_TIMES[0]]);
     // Not past, but still not bookable — that is the whole rule.
     expect(today.every((slot) => slot.bookable)).toBe(false);
     expect(slots.filter((slot) => slot.bookable).every((slot) => slot.dateKey > "2026-08-11")).toBe(true);

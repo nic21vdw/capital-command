@@ -93,7 +93,12 @@ async function main() {
   const body = await res.text();
 
   if (body.includes("unaudited_client_can_only_post_to_private_accounts")) {
-    console.log("NOT_APPROVED - still waiting on the TikTok app audit.");
+    // A queued review and a REJECTED one look identical from here - TikTok
+    // says nothing over the API either way. docs/TIKTOK.md has the review
+    // history; the portal is the only place a decision appears.
+    console.log(
+      "NOT_APPROVED - Direct Post is still refused. That reads the same whether the review is queued or was rejected - developers.tiktok.com/apps is the only place that says which."
+    );
     process.exitCode = 10;
     return;
   }
