@@ -273,6 +273,28 @@ export class PublishQueue {
   }
 
   /**
+   * Puts a platform back to sleep without counting the try. A rate limit or an
+   * upload backlog is not the item's fault and is not fixed by attempting it
+   * two more times an hour apart — that only spends the attempts that a real
+   * failure would need. The item keeps its status and its attempts and comes
+   * back once the window has moved.
+   */
+  async deferAttempt(
+    item: QueueItem,
+    platform: PlatformId,
+    message: string,
+    retryAfterMinutes: number,
+    now: Date
+  ): Promise<void> {
+    const state = item.platforms[platform];
+    if (!state) return;
+    state.error = message;
+    state.claimedAt = undefined;
+    state.nextAttemptAt = new Date(now.getTime() + retryAfterMinutes * 60_000).toISOString();
+    await this.save();
+  }
+
+  /**
    * Records a failure. Transient errors schedule a retry with exponential
    * backoff until maxAttempts, then become permanent. Permanent errors mark
    * the platform failed immediately with the reason.

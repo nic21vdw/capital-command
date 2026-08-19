@@ -168,6 +168,33 @@ describe("tiktok adapter", () => {
     expect(JSON.parse(String(requests[1].body)).post_info.privacy_level).toBe("SELF_ONLY");
   });
 
+  it("defers instead of failing when TikTok's inbox backlog blocks the upload", async () => {
+    mockFetchRoutes([
+      {
+        match: "/v2/oauth/token/",
+        respond: () => jsonResponse({ access_token: "tt-at", expires_in: 86400, refresh_token: "tt-refresh" })
+      },
+      {
+        match: "/v2/post/publish/inbox/video/init/",
+        respond: () =>
+          jsonResponse(
+            { error: { code: "spam_risk_too_many_pending_share", message: "spam_risk_too_many_pending_share" } },
+            { status: 400 }
+          )
+      }
+    ]);
+    const adapter = await loadAdapter();
+    // resetModules gives the adapter its own copy of the module graph, so the
+    // class to compare against has to come from that same copy.
+    const { ThrottledError } = await import("@/lib/publisher/http");
+
+    const error = await adapter.publish(input()).catch((thrown: unknown) => thrown);
+
+    expect(error).toBeInstanceOf(ThrottledError);
+    expect((error as InstanceType<typeof ThrottledError>).retryAfterMinutes).toBe(360);
+    expect((error as Error).message).toMatch(/open the TikTok app/i);
+  });
+
   it("resumes a pending publish_id by polling status only", async () => {
     const requests = routes();
     const adapter = await loadAdapter();
