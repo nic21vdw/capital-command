@@ -4,6 +4,11 @@
 # that matters: it opens a Direct Post and reads the answer. Init only - no
 # bytes are uploaded, so nothing is posted and nothing lands in the inbox.
 #
+# It cannot tell a queued review from a rejected one - both refuse Direct Post
+# with the same code, and a rejection arrives only in the developer portal. If
+# this has logged NOT_APPROVED for weeks, read docs/TIKTOK.md and open the
+# portal before assuming anyone is still reviewing anything.
+#
 # Register it to check every few hours:
 #
 #   npm run tiktok:watch:register

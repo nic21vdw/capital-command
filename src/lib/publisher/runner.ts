@@ -12,7 +12,7 @@ import { hostImages, hostMedia, mediaHost } from "@/lib/publisher/hosting";
 import { imagePathsOf, isImagePost } from "@/lib/publisher/images";
 import { channelDuplicateMessage, youtubeChannelDuplicate } from "@/lib/publisher/duplicateGuard";
 import { describeMirrorPlan, planMirror } from "@/lib/publisher/mirror";
-import { AbandonedUploadError, PermanentError, StillProcessingError, isTransient } from "@/lib/publisher/http";
+import { AbandonedUploadError, PermanentError, StillProcessingError, ThrottledError, isTransient } from "@/lib/publisher/http";
 import { remainingYoutubeUploads } from "@/lib/publisher/quota";
 import { PublishQueue, isTerminalStatus, newPlatformState, publishQueue } from "@/lib/publisher/queue";
 import { formatInTimezone } from "@/lib/publisher/time";
@@ -436,6 +436,13 @@ export async function runDue(now: Date = new Date(), options: RunDueOptions = {}
           // the next run resumes polling instead of re-uploading.
           await queue.recordSuccess(item, platform, { status: "uploaded", containerId: error.containerId, detail: message }, now);
           record("uploaded", message);
+          continue;
+        }
+        if (error instanceof ThrottledError) {
+          // A wall that time takes down, not the item: keep its attempts and
+          // come back when the platform's window has moved.
+          await queue.deferAttempt(item, platform, message, error.retryAfterMinutes, now);
+          record("deferred", `${message} (next attempt ${item.platforms[platform]?.nextAttemptAt ?? "later"})`);
           continue;
         }
         if (error instanceof AbandonedUploadError) await queue.clearDeadUpload(item, platform);
