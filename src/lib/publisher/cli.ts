@@ -140,6 +140,16 @@ async function main() {
     console.log(`[publisher]   publishes: ${formatInTimezone(new Date(item.publishAt), config.timezone)} (${config.timezone})`);
     console.log(`[publisher]   platforms: ${Object.keys(item.platforms).join(", ")} · visibility: ${item.visibility}`);
     if (item.mediaKey) console.log(`[publisher]   hosted:    ${item.mediaKey}`);
+    // Booked is not delivered. Hand it to whatever takes a future post now —
+    // YouTube uploads it and shows it as Scheduled — rather than leaving a
+    // typed-out booking sitting here until the next five-minute tick.
+    await runDue(new Date(), { itemId: item.id }).catch((error: unknown) =>
+      console.warn(
+        `[publisher] the upload after enqueue failed — the scheduler will retry: ${
+          error instanceof Error ? error.message : String(error)
+        }`
+      )
+    );
     return;
   }
 

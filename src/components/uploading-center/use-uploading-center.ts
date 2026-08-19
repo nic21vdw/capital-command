@@ -516,27 +516,30 @@ export function useUploadingCenter(clipProjects: ClipProject[] = []) {
   const itemsForClip = useCallback((clip: ReadyClip) => itemsByClipKey.get(clip.key) ?? NO_ITEMS, [itemsByClipKey]);
 
   /**
-   * Poster-frame URL for a queue item, resolved through the clip job it came
-   * from (CLI-enqueued items without a jobId have no preview). Prefers the
-   * pre-rendered poster; falls back to on-demand frame extraction.
+   * Poster-frame URL for a queue item. A clip job already has a rendered
+   * poster, so that is preferred and costs nothing. Everything else — a
+   * long-form edit, a topic segment, an adopted video, anything the CLI queued
+   * — falls back to the queue's own thumbnail route, which pulls a frame from
+   * the file the post will publish. Every scheduled video shows a picture now,
+   * so an empty box means the file is missing rather than "this post came in
+   * through a different door".
    */
   const thumbnailByItemId = useMemo(() => {
     const map = new Map<string, string>();
     for (const item of queueItems) {
-      if (!item.jobId) continue;
-      const job = jobs.find((candidate) => candidate.id === item.jobId);
-      if (!job) continue;
+      const job = item.jobId ? jobs.find((candidate) => candidate.id === item.jobId) : undefined;
       const normalized = (item.sourceClipPath ?? item.clipPath).replace(/\\/g, "/");
-      const clip = job.clips.find((candidate) =>
+      const clip = job?.clips.find((candidate) =>
         clipFiles(candidate).some((file) => normalized.endsWith(`/${file}`))
       );
-      if (!clip) continue;
-      // The thumbnail endpoint only serves files the job produced (clip.file);
-      // downloadFile renders aren't in that list.
-      if (clip.posterFile) {
+      // The clips thumbnail endpoint only serves files the job produced
+      // (clip.file); downloadFile renders aren't in that list.
+      if (job && clip?.posterFile) {
         map.set(item.id, `/api/clips/${job.id}/files/${encodeURIComponent(clip.posterFile)}`);
-      } else if (clip.file) {
+      } else if (job && clip?.file) {
         map.set(item.id, `/api/clips/${job.id}/thumbnail/${encodeURIComponent(clip.file)}`);
+      } else {
+        map.set(item.id, `/api/publish/${item.id}/thumbnail`);
       }
     }
     return map;

@@ -12,6 +12,8 @@ import { enqueue, enqueueImagePost } from "@/lib/publisher/enqueue";
 import { MAX_IMAGES_PER_POST } from "@/lib/publisher/images";
 import { shuffled } from "@/lib/publisher/mirror";
 import { publishQueue } from "@/lib/publisher/queue";
+import { withPublishRunLock } from "@/lib/publisher/runLock";
+import { runDue } from "@/lib/publisher/runner";
 import { planScheduleRepair } from "@/lib/publisher/scheduleShuffle";
 import { generateSlots } from "@/lib/publisher/slots";
 import type { PlatformId, QueueItem } from "@/lib/publisher/types";
@@ -23,8 +25,10 @@ import type { Carousel } from "@/types/domain";
 // queue at all — they were downloaded and uploaded by hand. This plans one
 // booking for everything a run produced and, on confirmation, books it.
 //
-// Nothing here publishes. Every item lands in the same queue the Uploading
-// Center writes to, at a future slot, for the publish runner to post.
+// Every item lands in the same queue the Uploading Center writes to, at a
+// future slot. Nothing is posted early — but a booking is not a delivery, so
+// as soon as the slots are settled the platforms that accept a future post are
+// handed theirs (YouTube, Buffer) instead of waiting on the next runner tick.
 
 export type QueueOutputKind = "clip" | "longform" | "segment" | "carousel";
 
@@ -378,6 +382,32 @@ async function settleSchedule(): Promise<void> {
 }
 
 /**
+ * Hands the new bookings to the platforms that will take them early, instead
+ * of leaving them for the five-minute runner to notice. Booking a post and
+ * delivering it are different things, and until the delivery happens the post
+ * exists only in this app: YouTube takes the upload now and shows it in Studio
+ * as Scheduled, and Buffer takes its updates now. Nothing here posts anything
+ * before its slot — a platform that cannot be handed a future post is left for
+ * the runner to post at the time, which is what the board now says it does.
+ *
+ * Deliberately not awaited: the booking call returns as soon as the queue is
+ * written, so the sheet closes at the speed it always did while the uploads
+ * run behind it. The run lock means this can never overlap the scheduled
+ * runner, and a run already in flight is already doing this work.
+ */
+function sendWhatCanGoUpNow(): void {
+  if (!publisherConfig().enabled) return;
+  void withPublishRunLock(() => runDue(new Date()))
+    .catch((error: unknown) =>
+      console.warn(
+        `[pipeline] the publish pass after booking failed — the scheduled runner will pick it up: ${
+          error instanceof Error ? error.message : String(error)
+        }`
+      )
+    );
+}
+
+/**
  * Books the chosen outputs into the publish queue, one per free slot, in
  * random order so a run does not occupy a week as the same stream. One
  * failure never stops the rest — a run with twelve outputs would otherwise
@@ -502,7 +532,10 @@ export async function queueRunOutputs(
     await updateRun(run, { queueBooked: [...alreadyBooked, ...bookedIds] });
   }
   const failed = chosen.map((candidate) => problems.get(candidate.id)).filter((entry) => entry !== undefined);
-  if (queued.length > 0) await settleSchedule();
+  if (queued.length > 0) {
+    await settleSchedule();
+    sendWhatCanGoUpNow();
+  }
   if (bookedIds.length > 0 || droppedNow.length > 0) {
     await updateRun(run, {
       queueBooked: [...alreadyBooked, ...bookedIds],
