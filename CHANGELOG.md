@@ -14,6 +14,17 @@ already shipped.
 
 ## Unreleased
 
+- **You can now tell a clip to post straight to TikTok instead of waiting in
+  the inbox for a tap.** The TikTok panel on a clip asks what TikTok requires
+  before a direct post — who can see it, whether comments, Duet and Stitch are
+  allowed, and whether it promotes a brand — and Schedule stays greyed out
+  until those are answered. Interactions your TikTok account has switched off
+  show as unavailable rather than being sent anyway, and the answers are
+  re-checked against your account at the moment the clip posts. Leave the
+  panel alone and nothing changes: the clip goes to your inbox exactly as
+  before. Until the app review is approved TikTok only accepts "Only you" for
+  a direct post, and anything wider is refused before the upload starts.
+
 - **The TikTok resubmission is written out, so it is a decision rather than a
   project.** `docs/TIKTOK-RESUBMISSION.md` has why the review was refused (two
   reasons, not one — the personal-use framing, and the consent UI TikTok

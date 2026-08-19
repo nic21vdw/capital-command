@@ -27,6 +27,8 @@ import {
 import { cn } from "@/lib/utils";
 import type { ScheduleSlot } from "@/lib/publisher/slots";
 import type { PlatformId, PlatformState, QueueItem } from "@/lib/publisher/types";
+import { TiktokConsent } from "@/components/uploading-center/tiktok-consent";
+import { consentProblem } from "@/lib/publisher/tiktokPost";
 
 export const CLIP_DRAG_TYPE = "application/x-capital-command-clip";
 
@@ -183,6 +185,10 @@ export function ClipCard({
   // fine — scheduling renders the trimmed cut first, then posts it — so the note
   // below is informational, not a block.
   const needsRerender = clip.needsRerender;
+  const tiktokTargeted = draft.platform === "tiktok" || everywhere;
+  // TikTok's own rules, applied where the button is: a direct post with an
+  // unanswered question is not schedulable at all.
+  const consentBlocker = tiktokTargeted && draft.tiktok ? consentProblem(draft.tiktok) : null;
   // Only while the caption is still empty: once there is copy in the box, typed
   // or retried, the clip is no longer the one that quietly went out uncaptioned.
   const captionFailed = Boolean(captionError) && !draft.caption.trim();
@@ -280,6 +286,9 @@ export function ClipCard({
               </span>
             </p>
           ) : null}
+          {tiktokTargeted ? (
+            <TiktokConsent value={draft.tiktok} onChange={(tiktok) => onDraftChange({ ...draft, tiktok })} />
+          ) : null}
           <div className="flex flex-wrap items-center gap-2">
             <Select
               value={draft.platform}
@@ -310,10 +319,12 @@ export function ClipCard({
             </Select>
             <Button
               onClick={onSchedule}
-              disabled={scheduling || !draft.slotUtc}
+              disabled={scheduling || !draft.slotUtc || Boolean(consentBlocker)}
               className="h-9 px-3"
               title={
-                everywhere
+                consentBlocker
+                  ? consentBlocker
+                  : everywhere
                   ? "Schedules this clip on YouTube, TikTok, Instagram and Facebook at that slot"
                   : needsRerender
                     ? "Renders your trimmed clip, then schedules it"

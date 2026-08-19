@@ -275,9 +275,11 @@ local scheduler and the Actions cron against the same queue at the same time.
    only needs filling in by hand for GitHub Actions runs. TikTok rotates the
    refresh token on every use and the adapter persists each rotation; the grant
    itself lasts 365 days, so reconnect once a year.
-5. **Audit gate:** until TikTok audits and approves the app, Direct Post is
-   refused outright and clips are sent to your TikTok inbox instead — you
-   finish each one with a tap in the TikTok app. Once approved, set
+5. **Audit gate:** a clip is sent to your TikTok inbox to finish with a tap
+   unless you fill in the clip's TikTok panel and choose to post straight to
+   the profile, which asks for the audience, interaction settings and
+   commercial-content disclosure TikTok requires. Until TikTok approves the
+   app, a direct post may only ask for "Only you". Once approved, set
    `TIKTOK_AUDITED=true` and posts go straight to the profile with your
    configured visibility (`public` → `PUBLIC_TO_EVERYONE`). No code changes
    needed. **This app's review was rejected on 2026-07-29** — see

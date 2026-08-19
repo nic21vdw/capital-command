@@ -26,7 +26,7 @@ import { nextBookableSlot } from "@/lib/publisher/slots";
 import { finalizeTitle } from "@/lib/title/finalize";
 import { resolvePublishAt } from "@/lib/publisher/time";
 import { prepareVerticalMedia, type PostFormat } from "@/lib/publisher/vertical";
-import type { PlatformId, PlatformState, QueueItem, Visibility } from "@/lib/publisher/types";
+import type { PlatformId, PlatformState, QueueItem, TiktokPostOptions, Visibility } from "@/lib/publisher/types";
 
 const PLATFORM_LABELS: Record<PlatformId, string> = {
   youtube: "YouTube",
@@ -94,6 +94,12 @@ export type EnqueueOptions = {
   accountId?: string;
   /** Extra context for metadata generation (stream title, topic, spoken text). */
   metadataSource?: { streamTitle?: string; topic?: string; spokenText?: string };
+  /**
+   * The creator's TikTok consent for this post (tiktokPost.ts). Without it a
+   * TikTok post takes the inbox flow, where the creator answers the same
+   * questions inside TikTok before it goes live.
+   */
+  tiktok?: TiktokPostOptions;
   /**
    * Books a time today. Only a person asking for it, never anything automatic —
    * see `schedule.ts` for why the day a batch is booked is off limits.
@@ -280,6 +286,7 @@ export async function enqueue(options: EnqueueOptions): Promise<QueueItem> {
     jobId: options.jobId,
     ...(options.runId ? { runId: options.runId } : {}),
     ...(accountId ? { accountId } : {}),
+    ...(options.tiktok && platforms.includes("tiktok") ? { tiktok: options.tiktok } : {}),
     platforms: Object.fromEntries(
       platforms.map((p) => [p, configured.has(p) ? newPlatformState() : manualPlatformState(p)])
     )

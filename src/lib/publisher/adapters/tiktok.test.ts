@@ -3,7 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { formBody, jsonResponse, mockFetchRoutes, testItem } from "@/lib/publisher/test-helpers";
-import type { PublishInput } from "@/lib/publisher/types";
+import type { PublishInput, TiktokPostOptions } from "@/lib/publisher/types";
 
 /**
  * Mocked integration test: asserts the outgoing requests match the TikTok
@@ -64,6 +64,11 @@ function input(overrides: Partial<PublishInput["item"]> = {}): PublishInput {
   };
 }
 
+/** The same input, with the consent a creator gives in the panel. */
+function direct(base: PublishInput, consent: Omit<TiktokPostOptions, "delivery">): PublishInput {
+  return { ...base, item: { ...base.item, tiktok: { delivery: "direct", ...consent } } };
+}
+
 function routes(finalStatus: "PUBLISH_COMPLETE" | "SEND_TO_USER_INBOX" = "SEND_TO_USER_INBOX") {
   const init = () =>
     jsonResponse({
@@ -75,6 +80,21 @@ function routes(finalStatus: "PUBLISH_COMPLETE" | "SEND_TO_USER_INBOX" = "SEND_T
       // Refresh token grant returns the same refresh_token (no rotation).
       match: "/v2/oauth/token/",
       respond: () => jsonResponse({ access_token: "tt-at", expires_in: 86400, refresh_token: "tt-refresh" })
+    },
+    {
+      // Direct posts query this first. The account has Duet switched off, so a
+      // consent claiming otherwise has something to be held against.
+      match: "/v2/post/publish/creator_info/query/",
+      respond: () =>
+        jsonResponse({
+          data: {
+            creator_nickname: "Nic",
+            creator_username: "nicvandewetering",
+            privacy_level_options: ["PUBLIC_TO_EVERYONE", "MUTUAL_FOLLOW_FRIENDS", "SELF_ONLY"],
+            duet_disabled: true
+          },
+          error: { code: "ok" }
+        })
     },
     // Inbox first: its path also ends in /video/init/, so it has to be matched
     // before the Direct Post route or every inbox call lands on the wrong one.
@@ -148,9 +168,11 @@ describe("tiktok adapter", () => {
     const requests = routes("PUBLISH_COMPLETE");
     const adapter = await loadAdapter();
 
-    const result = await adapter.publish(input({ visibility: "public" }));
+    const result = await adapter.publish(
+      direct(input({ visibility: "public" }), { privacyLevel: "PUBLIC_TO_EVERYONE" })
+    );
 
-    const init = requests[1];
+    const init = requests[2];
     expect(init.url).toBe("https://open.tiktokapis.com/v2/post/publish/video/init/");
     const body = JSON.parse(String(init.body));
     expect(body.post_info.privacy_level).toBe("PUBLIC_TO_EVERYONE");
@@ -163,9 +185,69 @@ describe("tiktok adapter", () => {
     const requests = routes("PUBLISH_COMPLETE");
     const adapter = await loadAdapter();
 
-    await adapter.publish(input({ visibility: "private" }));
+    await adapter.publish(direct(input({ visibility: "private" }), { privacyLevel: "SELF_ONLY" }));
 
-    expect(JSON.parse(String(requests[1].body)).post_info.privacy_level).toBe("SELF_ONLY");
+    expect(JSON.parse(String(requests[2].body)).post_info.privacy_level).toBe("SELF_ONLY");
+  });
+
+  it("asks TikTok what the creator allows before every direct post", async () => {
+    vi.stubEnv("TIKTOK_AUDITED", "true");
+    const requests = routes("PUBLISH_COMPLETE");
+    const adapter = await loadAdapter();
+
+    await adapter.publish(
+      direct(input(), { privacyLevel: "PUBLIC_TO_EVERYONE", allowComment: true, allowDuet: true, allowStitch: true })
+    );
+
+    expect(requests[1].url).toBe("https://open.tiktokapis.com/v2/post/publish/creator_info/query/");
+    const post = JSON.parse(String(requests[2].body)).post_info;
+    expect(post.disable_comment).toBe(false);
+    // The account has Duet switched off in TikTok, so a stored consent saying
+    // otherwise is not what gets sent.
+    expect(post.disable_duet).toBe(true);
+    expect(post.disable_stitch).toBe(false);
+  });
+
+  it("sends every interaction the creator did not turn on as disabled", async () => {
+    vi.stubEnv("TIKTOK_AUDITED", "true");
+    const requests = routes("PUBLISH_COMPLETE");
+    const adapter = await loadAdapter();
+
+    await adapter.publish(direct(input(), { privacyLevel: "SELF_ONLY" }));
+
+    const post = JSON.parse(String(requests[2].body)).post_info;
+    expect(post.disable_comment).toBe(true);
+    expect(post.disable_duet).toBe(true);
+    expect(post.disable_stitch).toBe(true);
+    expect(post.brand_content_toggle).toBe(false);
+    expect(post.brand_organic_toggle).toBe(false);
+  });
+
+  it("carries the commercial-content disclosure through to TikTok", async () => {
+    vi.stubEnv("TIKTOK_AUDITED", "true");
+    const requests = routes("PUBLISH_COMPLETE");
+    const adapter = await loadAdapter();
+
+    await adapter.publish(
+      direct(input(), { privacyLevel: "PUBLIC_TO_EVERYONE", brandOrganic: true, brandedContent: true })
+    );
+
+    const post = JSON.parse(String(requests[2].body)).post_info;
+    expect(post.brand_organic_toggle).toBe(true);
+    expect(post.brand_content_toggle).toBe(true);
+  });
+
+  it("refuses a wider-than-private direct post while the app is unaudited", async () => {
+    const requests = routes("PUBLISH_COMPLETE");
+    const adapter = await loadAdapter();
+
+    const error = await adapter
+      .publish(direct(input(), { privacyLevel: "PUBLIC_TO_EVERYONE" }))
+      .catch((thrown: unknown) => thrown);
+
+    expect((error as Error).message).toMatch(/unaudited app to private posts/i);
+    // Refused before a byte was uploaded.
+    expect(requests.some((request) => request.url.includes("/video/init/"))).toBe(false);
   });
 
   it("defers instead of failing when TikTok's inbox backlog blocks the upload", async () => {

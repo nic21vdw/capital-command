@@ -5,6 +5,7 @@ import { ensureVerticalClipFile, outputDir } from "@/lib/clipping/jobs";
 import { publisherConfig } from "@/lib/publisher/config";
 import { PUBLISHING_OFF_MESSAGE } from "@/lib/publisher/enabled";
 import { enqueue } from "@/lib/publisher/enqueue";
+import { consentProblem, parseConsent } from "@/lib/publisher/tiktokPost";
 import { FAILED_RETENTION_DAYS, publishQueue } from "@/lib/publisher/queue";
 import { connectRearmScope, rearmItems } from "@/lib/publisher/rearm";
 import { runDue, type RunReport } from "@/lib/publisher/runner";
@@ -68,7 +69,26 @@ const enqueueSchema = z.object({
   platforms: z.array(z.enum(["youtube", "instagram", "tiktok", "facebook"])).optional(),
   visibility: z.enum(["public", "private", "unlisted"]).optional(),
   accountId: z.string().min(1).optional(),
-  format: z.enum(["short", "long"]).optional()
+  format: z.enum(["short", "long"]).optional(),
+  /**
+   * The creator's TikTok consent (tiktokPost.ts). Shape-checked here and
+   * rule-checked below: TikTok's posting rules are not the browser's to
+   * enforce alone.
+   */
+  tiktok: z
+    .object({
+      delivery: z.enum(["direct", "inbox"]),
+      privacyLevel: z
+        .enum(["PUBLIC_TO_EVERYONE", "MUTUAL_FOLLOW_FRIENDS", "FOLLOWER_OF_CREATOR", "SELF_ONLY"])
+        .optional(),
+      allowComment: z.boolean().optional(),
+      allowDuet: z.boolean().optional(),
+      allowStitch: z.boolean().optional(),
+      brandOrganic: z.boolean().optional(),
+      brandedContent: z.boolean().optional(),
+      consentedAt: z.string().optional()
+    })
+    .optional()
 });
 
 /**
@@ -132,6 +152,12 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Provide either clipPath or jobId + file." }, { status: 400 });
   }
 
+  const tiktokConsent = parseConsent(body.tiktok);
+  if (tiktokConsent) {
+    const problem = consentProblem(tiktokConsent);
+    if (problem) return NextResponse.json({ error: problem }, { status: 400 });
+  }
+
   let item;
   try {
     item = await enqueue({
@@ -144,7 +170,8 @@ export async function POST(request: NextRequest) {
       visibility: body.visibility,
       jobId: body.jobId,
       accountId: body.accountId,
-      format: body.format
+      format: body.format,
+      tiktok: tiktokConsent
     });
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : String(error) }, { status: 400 });

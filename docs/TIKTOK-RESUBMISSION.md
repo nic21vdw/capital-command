@@ -18,24 +18,32 @@ Privacy Policy URLs submitted with the app both open with the sentence
 the only redirect URI was `http://localhost:3000/api/auth/tiktok/callback`. All
 three say *internal tool* on their own.
 
-**2. The app does not implement the UX TikTok requires for Direct Post.**
-Review never reached this, and it fails independently of the framing. TikTok's
-content sharing guidelines make the following mandatory before a direct post,
-and the Uploading Center has almost none of it:
+**2. The app did not implement the UX TikTok requires for Direct Post.**
+Review never reached this, and it would have failed independently of the
+framing. It is built now — the Uploading Center's TikTok consent panel — and
+the table below is what it does:
 
-| Required | Today |
+| Required | Where it lives |
 |---|---|
-| Creator's nickname shown, so it is clear which account is being posted to | shown in the account switcher — the one requirement already met |
-| A privacy dropdown with **no default**, options taken from `creator_info` | never asked — `use-uploading-center.ts` enqueues with `visibility: "public"` hardcoded |
-| Comment / Duet / Stitch toggles, all **off** by default, greyed out where the creator disabled them | never asked — the adapter sends `disable_duet/comment/stitch: false` unconditionally |
-| Commercial-content disclosure (Your brand / Branded content), off by default | absent |
-| The matching compliance line (Music Usage Confirmation, plus Branded Content Policy when that is selected) | absent |
-| A preview of what is about to be posted, and explicit consent | the clip card is close, but consent is implicit |
-| `creator_info` queried before every direct post | queried for the profile display only, not in the publish path |
+| Creator's nickname shown, so it is clear which account is being posted to | the account switcher, and the panel's own "Posting to …" line |
+| A privacy dropdown with **no default**, options taken from `creator_info` | the panel opens on "Who can see this post…" and lists only the audiences that account was offered |
+| Comment / Duet / Stitch toggles, all **off** by default, greyed out where the creator disabled them | three toggles, off until turned on, disabled with the reason when TikTok says the account has them off |
+| Commercial-content disclosure (Your brand / Branded content), off by default | the disclosure toggle and its two options, sent as `brand_organic_toggle` / `brand_content_toggle` |
+| The matching compliance line (Music Usage Confirmation, plus Branded Content Policy when that is selected) | `complianceStatement()`, shown under the disclosure as it is switched |
+| A preview of what is about to be posted, and explicit consent | the clip card's preview, and Schedule refuses to fire while an answer is missing |
+| `creator_info` queried before every direct post | `withCurrentCreatorSettings()` in the adapter, immediately before init |
 
-None of that matters while the app is unaudited — the inbox flow has no
-privacy or interaction settings of its own, which is exactly why TikTok allows
-it. All of it matters the moment Direct Post is the ask.
+Two rules are enforced twice on purpose — in the panel, and again server-side
+in `/api/publish` and the adapter: branded content cannot be private, and an
+interaction the creator has since switched off in TikTok is dropped rather
+than sent. The browser is not allowed to be the only place TikTok's rules
+hold.
+
+None of it is needed for the inbox route, which has no privacy or interaction
+settings of its own — that is exactly why TikTok allows an unaudited app to
+use it. So the panel offers both: **Send to my TikTok inbox** (unchanged, and
+still the default for every clip that does not touch the panel) and **Post
+straight to my profile**, which is the path review is about.
 
 ## What sandbox does not solve
 
@@ -66,15 +74,14 @@ the history.
    replaces it has to be true of the product.
 3. **A redirect URI on that domain**, registered in the portal alongside
    localhost. A reviewer who only sees `localhost` sees an internal tool.
-4. **The Direct Post consent panel built** — the whole table above: privacy
-   dropdown with no default from `creator_info`, three interaction toggles off
-   by default and disabled where the creator's own settings disable them, the
-   commercial-content disclosure, the compliance line, the preview and the
-   explicit post button. `creator_info` queried before each direct post.
+4. ~~**The Direct Post consent panel built.**~~ Done — see the table above.
+   While the app is unaudited it will only let a direct post ask for **Only
+   you**, because that is all TikTok accepts; everything wider is refused
+   before a byte is uploaded.
 5. **A creator who is not you can connect and post.** If that is not true, the
    description in the next section is not true either, and this is Lane A.
 
-Steps 1–3 are copy and DNS. Step 4 is the build. Step 5 is the honest test.
+Steps 1–3 are copy and DNS. Step 5 is the honest test. Step 4 is built.
 
 ## The copy
 
@@ -139,7 +146,7 @@ in every shot. This is the most common cause of a repeat rejection.
 | 2 | Sign in, open the Uploading Center | The app's own UI on the same domain. |
 | 3 | **Connect TikTok** | Click it; the TikTok OAuth consent screen appears with the scopes listed; authorize; land back in the app with the account chip showing avatar, display name and @handle. That is `user.info.basic`, on camera. |
 | 4 | Pick a clip | The clip card with its video preview and caption — the "preview of the to-be-posted content" the guidelines require. |
-| 5 | Open the export panel | Privacy dropdown **unselected**, interaction toggles **all off**, commercial-content toggle **off**. Hold two seconds so the defaults are legible. |
+| 5 | Open the export panel | Choose **Post straight to my profile**. Privacy dropdown **unselected**, interaction toggles **all off**, commercial-content toggle **off**. Hold two seconds so the defaults are legible. |
 | 6 | Fill it in | Choose a privacy level, turn on one interaction toggle, show a toggle greyed out because the creator's TikTok settings disable it, then turn on the commercial-content disclosure and let the compliance line appear. |
 | 7 | Post | Click post, show the confirmation, cut to the TikTok profile with the post live. That is `video.publish`, end to end. |
 | 8 | The draft path | Back in the app, choose "send to inbox" on another clip, then show the TikTok inbox notification and the draft waiting there. That is `video.upload`. |
