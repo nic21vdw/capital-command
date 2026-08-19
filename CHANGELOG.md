@@ -14,6 +14,13 @@ already shipped.
 
 ## Unreleased
 
+- **The TikTok resubmission is written out, so it is a decision rather than a
+  project.** `docs/TIKTOK-RESUBMISSION.md` has why the review was refused (two
+  reasons, not one — the personal-use framing, and the consent UI TikTok
+  requires for Direct Post that the Uploading Center does not have), what has
+  to be true before submitting again, the description and review notes to
+  paste, the demo video shot by shot, and the portal click-through.
+
 - **Booking a stream's outputs now hands them to the platforms straight away.**
   The pipeline used to write everything into the queue and leave it for the
   five-minute runner, so a batch you just booked sat there saying "Queued" with

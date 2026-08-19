@@ -52,8 +52,9 @@ as they are scheduled; each still needs a tap.
 
 ## Getting Direct Post
 
-Someone has to resubmit the review from the portal, and the resubmission has
-to answer the rejection rather than repeat the submission:
+[TIKTOK-RESUBMISSION.md](TIKTOK-RESUBMISSION.md) is the worked version of this
+— the two reasons a resubmission fails today, the copy to paste, the demo
+video shot list and the portal click-through. The short form:
 
 1. `Return to Draft` on the app.
 2. Rewrite the description and the review notes so they describe the product,
