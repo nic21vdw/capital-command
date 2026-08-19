@@ -180,6 +180,17 @@ export function targetPlatforms(target: PlatformTarget): PlatformId[] {
   return target === ALL_PLATFORMS_TARGET ? [...ALL_PLATFORMS] : [target];
 }
 
+/**
+ * The requests a target actually makes. Instagram carries Facebook with it —
+ * one queue item, both platforms (see `metaPairing.ts`) — so asking for
+ * Facebook separately would only be refused as a duplicate of the post that
+ * already covers it.
+ */
+export function schedulePlatforms(target: PlatformTarget): PlatformId[] {
+  const platforms = targetPlatforms(target);
+  return platforms.includes("instagram") ? platforms.filter((platform) => platform !== "facebook") : platforms;
+}
+
 export type ClipDraft = {
   title: string;
   caption: string;
@@ -201,9 +212,14 @@ export const PLATFORM_LABELS: Record<PlatformId, string> = {
   facebook: "Facebook"
 };
 
+/**
+ * The picker's wording, which says what a target really posts to: choosing
+ * Instagram posts to the Facebook Page too (`metaPairing.ts`).
+ */
 export const PLATFORM_TARGET_LABELS: Record<PlatformTarget, string> = {
   all: "All platforms",
-  ...PLATFORM_LABELS
+  ...PLATFORM_LABELS,
+  instagram: "Instagram + Facebook"
 };
 
 /**
@@ -917,7 +933,7 @@ export function useUploadingCenter(clipProjects: ClipProject[] = []) {
         // One post per targeted platform, each on that platform's own active
         // account. Sequential: the queue store isn't safe under concurrent
         // writes. A platform that fails never blocks the rest.
-        const platforms = targetPlatforms(draft.platform);
+        const platforms = schedulePlatforms(draft.platform);
         let scheduled = 0;
         let firstError: string | null = null;
         for (const platform of platforms) {
@@ -1024,8 +1040,9 @@ export function useUploadingCenter(clipProjects: ClipProject[] = []) {
     async (assignments: Array<{ clip: ReadyClip; draft: ClipDraft }>, heldBack: ReadyClip[] = []) => {
       if (assignments.length === 0) return;
       setBusy("auto-assign");
-      // Counted in posts, not clips: a clip aimed at "All platforms" is four.
-      const total = assignments.reduce((sum, { draft }) => sum + targetPlatforms(draft.platform).length, 0);
+      // Counted in requests, not clips: a clip aimed at "All platforms" is
+      // three, the Instagram one carrying Facebook with it.
+      const total = assignments.reduce((sum, { draft }) => sum + schedulePlatforms(draft.platform).length, 0);
       let scheduled = 0;
       let firstError: string | null = null;
       try {
@@ -1044,7 +1061,7 @@ export function useUploadingCenter(clipProjects: ClipProject[] = []) {
               continue;
             }
           }
-          for (const platform of targetPlatforms(draft.platform)) {
+          for (const platform of schedulePlatforms(draft.platform)) {
             try {
               const response = await fetch("/api/publish", {
                 method: "POST",
