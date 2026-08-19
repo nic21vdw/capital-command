@@ -14,6 +14,8 @@ already shipped.
 
 ## Unreleased
 
+## 2026-08-18
+
 - **The daily scan no longer takes in a stream while you are still streaming
   it.** A scan that ran mid-stream downloaded the 40 seconds of Day 39 that
   YouTube had published so far, cut two shorts out of that sliver, and wrote the
