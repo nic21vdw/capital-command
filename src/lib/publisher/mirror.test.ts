@@ -76,12 +76,17 @@ describe("planMirror — match", () => {
       item("b", "2026-08-01T17:00:00.000Z")
     ];
     const plan = planMirror(items, { targets: ["instagram"], now: NOW });
-    expect(plan.additions).toEqual([{ itemId: "b", platform: "instagram" }]);
+    expect(plan.additions.filter((a) => a.platform === "instagram")).toEqual([{ itemId: "b", platform: "instagram" }]);
+  });
+
+  it("mirrors to the Facebook Page wherever it mirrors to Instagram", () => {
+    const plan = planMirror(SCHEDULE, { targets: ["instagram"], now: NOW });
+    expect(plan.additions.filter((a) => a.platform === "facebook").map((a) => a.itemId)).toEqual(["a", "b", "c"]);
   });
 
   it("never mirrors the lead platform onto itself", () => {
     const plan = planMirror(SCHEDULE, { targets: ["youtube", "instagram"], now: NOW });
-    expect(plan.additions.every((a) => a.platform === "instagram")).toBe(true);
+    expect(plan.additions.every((a) => a.platform !== "youtube")).toBe(true);
   });
 
   // The IG/FB adapters refuse a non-public post; catching it here turns a

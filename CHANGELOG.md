@@ -14,6 +14,14 @@ already shipped.
 
 ## Unreleased
 
+- **Anything you schedule to Instagram now goes to the Facebook Page as well.**
+  The same clip or picture post, the same caption, the same slot, carried on the
+  one scheduled post instead of a second one you had to book yourself — so the
+  Page keeps up with the Instagram feed without you ticking anything. The
+  Uploading Center says so on the picker ("Instagram + Facebook"), and mirroring
+  a schedule onto Instagram now mirrors it onto Facebook too. An extra (non-primary)
+  Instagram account still posts on its own, since no Page is paired with it.
+
 ## 2026-08-18
 
 - **The daily scan no longer takes in a stream while you are still streaming

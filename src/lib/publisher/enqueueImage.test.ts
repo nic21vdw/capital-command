@@ -98,7 +98,8 @@ describe("enqueueImagePost", () => {
     const { enqueueImagePost } = await load();
     const item = await enqueueImagePost({ ...BASE, imagePaths: [images[0]], platforms: ["instagram"] });
     expect(item.imagePaths).toEqual([path.relative(process.cwd(), images[0])]);
-    expect(Object.keys(item.platforms)).toEqual(["instagram"]);
+    // Instagram carries the Facebook Page with it (`metaPairing.ts`).
+    expect(Object.keys(item.platforms)).toEqual(["instagram", "facebook"]);
   });
 
   it("refuses a platform that cannot take pictures instead of queueing it", async () => {
