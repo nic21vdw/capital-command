@@ -4,6 +4,7 @@ import {
   applyScheduleShuffle,
   laneDemand,
   occupancyOf,
+  planScheduleFrontload,
   planScheduleRepair,
   planScheduleShuffle,
   sourceOf
@@ -254,5 +255,121 @@ describe("planScheduleRepair", () => {
       item("c", "2026-08-15T11:30:00.000Z", { jobId: "three" })
     ];
     expect(planScheduleRepair(items, NOW, { seed: 9 }).moves).toEqual([]);
+  });
+});
+
+/** The six-a-day grid as instants, from `from` for `days` days. */
+function grid(from: string, days: number): string[] {
+  const slots: string[] = [];
+  for (let day = 0; day < days; day += 1) {
+    const date = new Date(`${from}T00:00:00.000Z`);
+    date.setUTCDate(date.getUTCDate() + day);
+    const key = date.toISOString().slice(0, 10);
+    for (const hour of ["11:30", "14:00", "16:30", "19:00", "21:30", "23:30"]) {
+      slots.push(new Date(`${key}T${hour}:00.000Z`).toISOString());
+    }
+  }
+  return slots;
+}
+
+describe("planScheduleFrontload", () => {
+  /** Three a day over a fortnight, one stream per day, as the old grid left it. */
+  function spreadOut(): QueueItem[] {
+    const items: QueueItem[] = [];
+    for (let day = 0; day < 14; day += 1) {
+      const date = new Date("2026-08-13T00:00:00.000Z");
+      date.setUTCDate(date.getUTCDate() + day);
+      const key = date.toISOString().slice(0, 10);
+      for (const [index, hour] of ["11:30", "16:30", "23:30"].entries()) {
+        items.push(
+          item(`d${day}-${index}`, `${key}T${hour}:00.000Z`, { jobId: `stream-${day}`, ...on(["youtube", "instagram"]) })
+        );
+      }
+    }
+    return items;
+  }
+
+  it("halves how long the queue takes to go out, without dropping a post", () => {
+    const items = spreadOut();
+    const plan = planScheduleFrontload(items, NOW, { openSlots: grid("2026-08-13", 30) });
+    const after = applyScheduleShuffle(items, plan);
+
+    expect(plan.unplaced).toEqual([]);
+    expect(after).toHaveLength(items.length);
+    const lastBefore = items.map((entry) => entry.publishAt).sort().pop()!;
+    const lastAfter = after.map((entry) => entry.publishAt).sort().pop()!;
+    expect(lastBefore.slice(0, 10)).toBe("2026-08-26");
+    expect(lastAfter.slice(0, 10)).toBe("2026-08-19");
+  });
+
+  it("fills the near days to six a day rather than leaving the new slots empty", () => {
+    const items = spreadOut();
+    const after = applyScheduleShuffle(items, planScheduleFrontload(items, NOW, { openSlots: grid("2026-08-13", 30) }));
+    const perDay = new Map<string, number>();
+    for (const entry of after) {
+      const day = entry.publishAt.slice(0, 10);
+      perDay.set(day, (perDay.get(day) ?? 0) + 1);
+    }
+    expect(perDay.get("2026-08-13")).toBe(6);
+    expect(perDay.get("2026-08-14")).toBe(6);
+    expect(perDay.get("2026-08-15")).toBe(6);
+  });
+
+  it("keeps the order the queue was already read in", () => {
+    const items = spreadOut();
+    const after = applyScheduleShuffle(items, planScheduleFrontload(items, NOW, { openSlots: grid("2026-08-13", 30) }));
+    const before = [...items].sort((a, b) => a.publishAt.localeCompare(b.publishAt)).map((entry) => entry.id);
+    const now = [...after].sort((a, b) => a.publishAt.localeCompare(b.publishAt)).map((entry) => entry.id);
+    // Separating streams may swap neighbours; nothing may travel further than that.
+    now.forEach((id, index) => expect(Math.abs(before.indexOf(id) - index)).toBeLessThanOrEqual(2));
+  });
+
+  it("never puts one platform on an instant twice", () => {
+    const items = spreadOut();
+    const plan = planScheduleFrontload(items, NOW, { openSlots: grid("2026-08-13", 30) });
+    expect(plan.collisions).toEqual([]);
+    expect(doubleBooked(applyScheduleShuffle(items, plan))).toEqual([]);
+  });
+
+  it("leaves a post that is already too soon to move exactly where it is", () => {
+    const soon = item("soon", "2026-08-12T23:00:00.000Z", on(["youtube"]));
+    const items = [soon, ...spreadOut()];
+    const plan = planScheduleFrontload(items, NOW, { openSlots: grid("2026-08-13", 30) });
+    expect(plan.moves.some((move) => move.id === "soon")).toBe(false);
+  });
+
+  it("leaves a video YouTube already holds until the caller means to tell YouTube", () => {
+    const held = item("held", "2026-08-25T16:30:00.000Z", {
+      jobId: "stream-held",
+      platforms: { youtube: { ...newPlatformState(), status: "scheduled", postId: "vid1" } }
+    });
+    const items = [...spreadOut(), held];
+
+    const pinned = planScheduleFrontload(items, NOW, { openSlots: grid("2026-08-13", 30) });
+    expect(pinned.moves.some((move) => move.id === "held")).toBe(false);
+
+    // It keeps its place at the back of the queue — it just gets there sooner.
+    const pushed = planScheduleFrontload(items, NOW, { openSlots: grid("2026-08-13", 30), onlyPending: false });
+    expect(pushed.moves.find((move) => move.id === "held")?.to.slice(0, 10)).toBe("2026-08-19");
+  });
+
+  it("reports the posts a horizon too short has no slot for instead of losing them", () => {
+    const items = spreadOut();
+    const plan = planScheduleFrontload(items, NOW, { openSlots: grid("2026-08-13", 2) });
+    expect(plan.unplaced).toHaveLength(items.length - 12);
+    const after = applyScheduleShuffle(items, plan);
+    expect(after).toHaveLength(items.length);
+    expect(new Set(after.map((entry) => entry.id)).size).toBe(items.length);
+  });
+
+  it("keeps two clips from one stream out of consecutive slots", () => {
+    const items = spreadOut();
+    const after = applyScheduleShuffle(items, planScheduleFrontload(items, NOW, { openSlots: grid("2026-08-13", 30) }));
+    expect(backToBack(after)).toBeLessThan(backToBack(items));
+  });
+
+  it("does nothing when there is no grid to move onto", () => {
+    const items = spreadOut();
+    expect(planScheduleFrontload(items, NOW, { openSlots: [] }).moves).toEqual([]);
   });
 });
