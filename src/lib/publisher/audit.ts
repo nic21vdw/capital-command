@@ -44,6 +44,7 @@ export type QueueWriter =
   | "cli-retitle"
   | "cli-remove"
   | "cli-shuffle"
+  | "cli-frontload"
   | "cli-adopt"
   | "runner-mirror"
   | "adopt-channel-videos"

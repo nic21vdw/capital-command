@@ -16,9 +16,9 @@ import type { PlatformId, PlatformState, QueueItem } from "@/lib/publisher/types
 /**
  * Day-by-day schedule calendar for one platform. Every scheduled post and every
  * video already on the channel shows on the day it goes live, at its real time —
- * whether it lands on one of the three daily slots (07:30 / 12:30 / 19:30 on
- * weekdays, 10:00 / 13:00 / 19:00 on weekends) or somewhere in between (a 14:30
- * upload sits on its day too). The remaining open slots for a future day render
+ * whether it lands on one of the six daily slots (`DEFAULT_SLOT_TIMES` on
+ * weekdays, `DEFAULT_WEEKEND_SLOT_TIMES` on weekends) or somewhere in between
+ * (a 14:35 upload sits on its day too). The remaining open slots for a day render
  * as drop targets: drop a queue clip, drop a video file straight from the
  * computer, or use the Upload button. Past days keep their history but offer no
  * new slots. This is the whole picture in one place — nothing floats in a list

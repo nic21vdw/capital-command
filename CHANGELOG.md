@@ -14,6 +14,20 @@ already shipped.
 
 ## Unreleased
 
+- **The six posting times are now evenly spaced, and the queue you already have
+  fills them.** The six-a-day grid had a four-hour hole in the afternoon and two
+  posts ninety minutes apart on a Saturday morning; every time is now 150
+  minutes from the last — weekdays 07:30, 10:00, 12:30, 15:00, 17:30 and 20:00,
+  weekends 09:00, 11:30, 14:00, 16:30, 19:00 and 21:30 — so the feed sees you
+  six times in six different parts of the day. More slots on their own only
+  grow the calendar, though: everything already booked keeps the time the old
+  three-a-day grid gave it, so the new slots open up empty and the queue still
+  runs to the same date months out. `npm run publish:frontload` is the other
+  half — it lifts every upcoming post and deals it back onto the grid from
+  tomorrow, in the order it is already in, so the backlog reaches the feed twice
+  as fast instead of the calendar growing more places to sit. It shows the plan
+  and the new end date first and only writes with `--write`; `--push` also moves
+  the videos YouTube is already holding, and tells YouTube.
 - **An update in progress now tells you it is still going, and says when it is
   done.** The rebuild stops the server, so for the minutes it takes there is
   nothing left to answer the screen: the banner froze on whatever step it last

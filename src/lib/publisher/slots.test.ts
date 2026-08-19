@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { YOUTUBE_DAILY_UNITS, YOUTUBE_UNITS_PER_UPLOAD } from "@/lib/publisher/quota";
 import { DEFAULT_SLOT_TIMES, DEFAULT_WEEKEND_SLOT_TIMES, generateSlots } from "@/lib/publisher/slots";
 
 const TZ = "America/Toronto";
@@ -7,6 +8,15 @@ function slot(slots: ReturnType<typeof generateSlots>, id: string) {
   const found = slots.find((s) => s.id === id);
   if (!found) throw new Error(`No slot ${id} in [${slots.map((s) => s.id).join(", ")}]`);
   return found;
+}
+
+/** Minutes between consecutive times, which is what "evenly spaced" means here. */
+function gaps(times: string[]): number[] {
+  const minutes = times.map((time) => {
+    const [hour, minute] = time.split(":").map(Number);
+    return hour * 60 + minute;
+  });
+  return minutes.slice(1).map((minute, index) => minute - minutes[index]);
 }
 
 describe("generateSlots", () => {
@@ -36,6 +46,19 @@ describe("generateSlots", () => {
     expect(slots.filter((s) => s.dateKey === "2026-03-07").map((s) => s.time)).toEqual(["11:00"]); // Saturday
   });
 
+  it("spaces both grids evenly, so six a day reads as presence and not as a burst", () => {
+    expect(new Set(gaps(DEFAULT_SLOT_TIMES))).toEqual(new Set([150]));
+    expect(new Set(gaps(DEFAULT_WEEKEND_SLOT_TIMES))).toEqual(new Set([150]));
+  });
+
+  it("books no more uploads a day than YouTube's API quota allows", () => {
+    // videos.insert costs 1600 of 10,000 units a day — six fit, a seventh would
+    // be a slot the runner could never upload into. See quota.ts.
+    const ceiling = Math.floor(YOUTUBE_DAILY_UNITS / YOUTUBE_UNITS_PER_UPLOAD);
+    expect(DEFAULT_SLOT_TIMES.length).toBeLessThanOrEqual(ceiling);
+    expect(DEFAULT_WEEKEND_SLOT_TIMES.length).toBeLessThanOrEqual(ceiling);
+  });
+
   it("converts Toronto wall-clock to UTC across the spring-forward boundary", () => {
     // DST starts Sun Mar 8 2026 in America/Toronto (EST -5 → EDT -4).
     const slots = generateSlots({ timeZone: TZ, now: new Date("2026-03-04T15:00:00Z") });
@@ -46,8 +69,8 @@ describe("generateSlots", () => {
   it("converts across the fall-back boundary, including a UTC date rollover", () => {
     // DST ends Sun Nov 1 2026 (EDT -4 → EST -5).
     const slots = generateSlots({ timeZone: TZ, now: new Date("2026-10-28T15:00:00Z") });
-    expect(slot(slots, "2026-10-30 19:30").utc).toBe("2026-10-30T23:30:00.000Z"); // EDT
-    expect(slot(slots, "2026-11-02 19:30").utc).toBe("2026-11-03T00:30:00.000Z"); // EST, next UTC day
+    expect(slot(slots, "2026-10-30 20:00").utc).toBe("2026-10-31T00:00:00.000Z"); // EDT, next UTC day
+    expect(slot(slots, "2026-11-02 20:00").utc).toBe("2026-11-03T01:00:00.000Z"); // EST, next UTC day
   });
 
   it("marks slots earlier than now as past", () => {

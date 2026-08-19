@@ -3,26 +3,36 @@ import { EARLIEST_PUBLISH_DAY_OFFSET } from "@/lib/publisher/schedule";
 import { zonedToUtc } from "@/lib/publisher/time";
 
 /**
- * The Uploading Center's schedule grid: every day at fixed local times
- * (weekdays default 07:30 / 12:30 / 19:30, weekends 10:00 / 13:00 / 19:00 in
- * PUBLISH_TIMEZONE), generated for an N-day window that starts today by
+ * The Uploading Center's schedule grid: every day at fixed local times in
+ * PUBLISH_TIMEZONE, generated for an N-day window that starts today by
  * default or `startDayOffset` days later (how the Uploading Center pages
  * forward through future two-week periods). Slots are
  * computed on the server so the wall-clock labels are in the configured
  * timezone and the stored instant is UTC, with DST handled by zonedToUtc
  * (07:30 Toronto is 12:30Z in winter but 11:30Z in summer).
+ *
+ * Weekdays open earlier and finish earlier than weekends — a Saturday at 07:30
+ * posts to nobody.
  */
 
 /**
- * Six a day, matching `youtube.dailyUploadBudget` — the grid and the uploader's
- * own allowance now agree. It was three, which is what made a full queue report
- * "every slot in the next four months is taken" while the channel itself had no
- * such limit. The original three times are still in the set, so nothing already
- * booked sits off-grid. Override with PUBLISH_SLOT_TIMES.
+ * The six times a day, and the spacing is the point: 150 minutes apart, so the
+ * feed sees the account six times in six different parts of the day rather than
+ * three times and then a four-hour hole. Overridden per-machine with
+ * PUBLISH_SLOT_TIMES / PUBLISH_WEEKEND_SLOT_TIMES.
+ *
+ * Six is also exactly what YouTube's Data API allows, and what
+ * `youtube.dailyUploadBudget` already assumed: videos.insert costs 1600 of the
+ * 10,000 daily units, so 6.25 uploads fit in a day. A seventh slot would book a
+ * post the runner could never upload.
+ *
+ * Widening the grid moves nothing on its own — everything already booked keeps
+ * the time the old grid gave it. `planScheduleFrontload` is what puts the queue
+ * onto these times.
  */
-export const DEFAULT_SLOT_TIMES = ["07:30", "10:00", "12:30", "15:30", "19:30", "22:00"];
-/** Weekends start later and run later; the original three are kept. */
-export const DEFAULT_WEEKEND_SLOT_TIMES = ["08:30", "10:00", "13:00", "15:30", "19:00", "21:00"];
+export const DEFAULT_SLOT_TIMES = ["07:30", "10:00", "12:30", "15:00", "17:30", "20:00"];
+/** Weekends run the same 150-minute spacing, shifted to a later start and finish. */
+export const DEFAULT_WEEKEND_SLOT_TIMES = ["09:00", "11:30", "14:00", "16:30", "19:00", "21:30"];
 
 /**
  * How far ahead the booking sheet may reach. A year, not four months: the only
