@@ -1,4 +1,9 @@
 import { readFileSync } from "node:fs";
+import {
+  DEFAULT_BOOKING_HORIZON_DAYS,
+  DEFAULT_SLOT_TIMES,
+  DEFAULT_WEEKEND_SLOT_TIMES
+} from "@/lib/publisher/slots";
 import { ALL_PLATFORMS, type PlatformId, type Visibility } from "@/lib/publisher/types";
 import { dataPath } from "@/lib/paths";
 
@@ -33,6 +38,21 @@ export type PublisherConfig = {
   /** Platforms enabled by default when an enqueue call doesn't name any. */
   platforms: PlatformId[];
   timezone: string;
+  /**
+   * The daily posting grid, as local HH:mm in `timezone`. These are the ONLY
+   * thing that decides how much can be scheduled per day — six a day matches
+   * youtube.dailyUploadBudget, so the grid and the uploader's own allowance
+   * agree instead of one silently capping the other.
+   */
+  slotTimes: string[];
+  weekendSlotTimes: string[];
+  /**
+   * How far ahead anything may be booked. The pipeline's booking sheet used a
+   * hardcoded 120 days while `publish:shuffle` spread over 730, so a queue the
+   * shuffle was happy with reported "every slot is taken" the moment the
+   * pipeline tried to add to it.
+   */
+  bookingHorizonDays: number;
   defaultVisibility: Visibility;
   /** Queue persistence: local JSON file, or the same JSON object stored in R2/S3 (required for GitHub Actions). */
   queueBackend: "file" | "r2";
@@ -170,6 +190,22 @@ function cachedRefreshToken(key: string): string | null {
   }
 }
 
+/**
+ * Reads a comma-separated list of local HH:mm times, sorted and de-duplicated.
+ * Falls back whole when the variable is unset or every entry is junk — a typo
+ * must never silently shrink the day's capacity to one slot.
+ */
+function timeList(name: string, fallback: string[]): string[] {
+  const raw = str(name);
+  if (!raw) return fallback;
+  const parsed = raw
+    .split(",")
+    .map((time) => time.trim())
+    .filter((time) => /^([01]\d|2[0-3]):[0-5]\d$/.test(time));
+  const unique = [...new Set(parsed)].sort();
+  return unique.length > 0 ? unique : fallback;
+}
+
 /** Reads a comma-separated platform list, falling back when unset or all junk. */
 function platformList(name: string, fallback: PlatformId[]): PlatformId[] {
   const raw = str(name);
@@ -198,6 +234,9 @@ export function publisherConfig(): PublisherConfig {
     autoEnqueue: flag("PUBLISH_AUTO_ENQUEUE"),
     platforms,
     timezone: str("PUBLISH_TIMEZONE") ?? "America/Toronto",
+    slotTimes: timeList("PUBLISH_SLOT_TIMES", DEFAULT_SLOT_TIMES),
+    weekendSlotTimes: timeList("PUBLISH_WEEKEND_SLOT_TIMES", DEFAULT_WEEKEND_SLOT_TIMES),
+    bookingHorizonDays: num("PUBLISH_BOOKING_HORIZON_DAYS", DEFAULT_BOOKING_HORIZON_DAYS),
     defaultVisibility,
     queueBackend: str("PUBLISH_QUEUE_BACKEND")?.toLowerCase() === "r2" ? "r2" : "file",
     maxAttempts: num("PUBLISH_MAX_ATTEMPTS", 5),

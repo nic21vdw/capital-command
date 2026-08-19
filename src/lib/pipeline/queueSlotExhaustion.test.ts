@@ -1,12 +1,24 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { generateSlots } from "@/lib/publisher/slots";
+import {
+  DEFAULT_BOOKING_HORIZON_DAYS,
+  DEFAULT_SLOT_TIMES,
+  DEFAULT_WEEKEND_SLOT_TIMES,
+  generateSlots
+} from "@/lib/publisher/slots";
 import type { PipelineRun } from "@/lib/pipeline/types";
 
 const state = {
   run: {} as PipelineRun,
   clips: [] as { id: string; title: string }[],
   booked: [] as { publishAt: string }[],
-  config: { enabled: true, platforms: ["youtube"], timezone: "America/Toronto" }
+  config: {
+    enabled: true,
+    platforms: ["youtube"],
+    timezone: "America/Toronto",
+    slotTimes: DEFAULT_SLOT_TIMES,
+    weekendSlotTimes: DEFAULT_WEEKEND_SLOT_TIMES,
+    bookingHorizonDays: DEFAULT_BOOKING_HORIZON_DAYS
+  }
 };
 
 vi.mock("@/lib/pipeline/runs", () => ({
@@ -42,7 +54,7 @@ const { queueRunOutputs } = await import("@/lib/pipeline/queueOutputs");
 
 /** Every slot the booker can reach, in the order it would fill them. */
 function horizon(): string[] {
-  return generateSlots({ timeZone: state.config.timezone, days: 120 })
+  return generateSlots({ timeZone: state.config.timezone, days: state.config.bookingHorizonDays })
     .filter((slot) => slot.bookable)
     .map((slot) => slot.utc);
 }
@@ -55,7 +67,14 @@ function firstThreeWeeks(): string[] {
 }
 
 beforeEach(() => {
-  state.config = { enabled: true, platforms: ["youtube"], timezone: "America/Toronto" };
+  state.config = {
+    enabled: true,
+    platforms: ["youtube"],
+    timezone: "America/Toronto",
+    slotTimes: DEFAULT_SLOT_TIMES,
+    weekendSlotTimes: DEFAULT_WEEKEND_SLOT_TIMES,
+    bookingHorizonDays: DEFAULT_BOOKING_HORIZON_DAYS
+  };
   state.booked = [];
   state.clips = Array.from({ length: 5 }, (_, i) => ({ id: `clip${i}`, title: `Clip ${i}` }));
   state.run = {
@@ -77,7 +96,7 @@ describe("booking when the calendar is already full", () => {
 
     expect(result.queued).toHaveLength(0);
     expect(result.failed).toHaveLength(5);
-    expect(result.failed[0].error).toContain("four months");
+    expect(result.failed[0].error).toContain("is taken");
   });
 
   it("reaches past the booked three weeks instead of refusing the whole run", async () => {
@@ -92,6 +111,10 @@ describe("booking when the calendar is already full", () => {
   });
 
   it("books only what actually fits, one output per free slot", async () => {
+    // A short horizon on purpose: this is about which slots get used, and
+    // filling a year of the real grid to leave two gaps is thousands of
+    // fixtures for the same assertion.
+    state.config.bookingHorizonDays = 21;
     const slots = horizon();
     const free = new Set([slots[3], slots[7]]);
     state.booked = slots.filter((slot) => !free.has(slot)).map((publishAt) => ({ publishAt }));

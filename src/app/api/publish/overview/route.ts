@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { publisherConfig } from "@/lib/publisher/config";
 import { youtubeQuota } from "@/lib/publisher/quota";
 import { publishQueue } from "@/lib/publisher/queue";
-import { generateSlots } from "@/lib/publisher/slots";
+import { generateSlots, slotGrid } from "@/lib/publisher/slots";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -41,7 +41,13 @@ export async function GET(request: NextRequest) {
   const now = new Date();
 
   if (request.nextUrl.searchParams.get("slotsOnly") === "1") {
-    const slots = generateSlots({ timeZone: config.timezone, days, startDayOffset: offsetDays, now });
+    const slots = generateSlots({
+      timeZone: config.timezone,
+      days,
+      startDayOffset: offsetDays,
+      now,
+      ...slotGrid(config)
+    });
     return NextResponse.json({ enabled: config.enabled, timezone: config.timezone, slotOffsetDays: offsetDays, slots });
   }
 
@@ -50,6 +56,12 @@ export async function GET(request: NextRequest) {
   return NextResponse.json({
     enabled: config.enabled,
     timezone: config.timezone,
+    // The grid the SERVER will book on. The Uploading Center pages through
+    // slots without a request, so it has to be told the times rather than
+    // assuming the defaults — a client drawing three slots a day against a
+    // server booking six shows gaps that are not there.
+    slotTimes: config.slotTimes,
+    weekendSlotTimes: config.weekendSlotTimes,
     quota: youtubeQuota(items, now, config)
   });
 }

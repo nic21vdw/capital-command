@@ -574,7 +574,7 @@ async function main() {
     const { laneDemand, planScheduleRepair, planScheduleShuffle, isYoutubeScheduled } = await import(
       "@/lib/publisher/scheduleShuffle"
     );
-    const { generateSlots } = await import("@/lib/publisher/slots");
+    const { generateSlots, slotGrid } = await import("@/lib/publisher/slots");
     const { updateYoutubeVideoPublishAt } = await import("@/lib/publisher/adapters/youtube");
     const queue = publishQueue(config);
     const items = await queue.list();
@@ -585,12 +585,12 @@ async function main() {
     // sent to YouTube as well, so that is what --push means and nothing else
     // touches them. A repair never moves them at all.
     const push = args.flags.has("push");
-    // A repair may reach past the end of what is booked. The grid is three slots
-    // a day for as long as we ask, so "the calendar is full" is never the
-    // answer — a post with nowhere to go this month goes next month.
+    // A repair may reach past the end of what is booked. The grid is the
+    // configured slots a day for as long as we ask, so "the calendar is full"
+    // is never the answer — a post with nowhere to go this month goes next.
     const now = new Date();
     const horizon = Number(flagStr(args, "days") ?? 730);
-    const openSlots = generateSlots({ timeZone: config.timezone, days: horizon, now })
+    const openSlots = generateSlots({ timeZone: config.timezone, days: horizon, now, ...slotGrid(config) })
       .filter((slot) => slot.bookable)
       .map((slot) => slot.utc);
     const plan = repair
