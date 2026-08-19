@@ -16,7 +16,7 @@ import { indexQueueByClip } from "@/lib/publisher/clipQueueIndex";
 import { generateSlots } from "@/lib/publisher/slots";
 import type { YoutubeQuota } from "@/lib/publisher/quota";
 import { DEFAULT_SLOT_OFFSET_DAYS, SLOT_WINDOW_DAYS } from "@/lib/publisher/slotWindow";
-import { ALL_PLATFORMS, type PlatformId, type QueueItem } from "@/lib/publisher/types";
+import { ALL_PLATFORMS, type PlatformId, type QueueItem, type TiktokPostOptions } from "@/lib/publisher/types";
 
 export { DEFAULT_SLOT_OFFSET_DAYS, SLOT_WINDOW_DAYS };
 
@@ -196,6 +196,12 @@ export type ClipDraft = {
   caption: string;
   platform: PlatformTarget;
   slotUtc: string;
+  /**
+   * The creator's TikTok consent, present only once they have opened the
+   * panel and chosen to post straight to the profile. Absent means the clip
+   * goes to the TikTok inbox, which is what every clip did before the panel.
+   */
+  tiktok?: TiktokPostOptions;
 };
 
 const DEFAULT_ACTIVE_ACCOUNTS: Record<PlatformId, string> = {
@@ -954,7 +960,10 @@ export function useUploadingCenter(clipProjects: ClipProject[] = []) {
               // uploaded private and YouTube flips it live at the slot time.
               visibility: "public",
               // The post lands on the account the platform's tab is showing.
-              accountId: activeAccountIds[platform]
+              accountId: activeAccountIds[platform],
+              // Only TikTok has consent to carry, and only when the creator
+              // chose to post straight to the profile.
+              ...(platform === "tiktok" && draft.tiktok ? { tiktok: draft.tiktok } : {})
             })
           });
           if (!response.ok) {
@@ -1077,7 +1086,8 @@ export function useUploadingCenter(clipProjects: ClipProject[] = []) {
                   caption: draft.caption.trim() || undefined,
                   platforms: [platform],
                   visibility: "public",
-                  accountId: activeAccountIds[platform]
+                  accountId: activeAccountIds[platform],
+                  ...(platform === "tiktok" && draft.tiktok ? { tiktok: draft.tiktok } : {})
                 })
               });
               if (!response.ok) {

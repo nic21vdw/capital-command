@@ -9,7 +9,8 @@ until TikTok approves the app — which it has already declined once.
 |---|---|
 | OAuth (Login Kit, refresh, rotation) | working — the connection is live |
 | Upload of a clip to TikTok | working — clip goes to your TikTok **inbox** |
-| Direct Post (straight to the profile, no tap) | blocked by app review |
+| The consent panel Direct Post requires | built — audience, interactions and disclosure, per post |
+| Direct Post (straight to the profile, no tap) | blocked by app review; only "Only you" is accepted until then |
 | App review | **Rejected 2026-07-29**, not pending |
 
 ## The review

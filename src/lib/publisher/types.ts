@@ -94,6 +94,31 @@ export type BufferState = {
   note?: string;
 };
 
+/** The audiences TikTok can post to; creator_info says which one an account may use. */
+export type TiktokPrivacyLevel = "PUBLIC_TO_EVERYONE" | "MUTUAL_FOLLOW_FRIENDS" | "FOLLOWER_OF_CREATOR" | "SELF_ONLY";
+
+/**
+ * The creator's answers for one TikTok post (see tiktokPost.ts).
+ *
+ * "direct" posts straight to the profile and needs every field below —
+ * TikTok requires the creator to have chosen them, with nothing preselected.
+ * "inbox" sends the clip to TikTok as a draft and carries none of them,
+ * because the creator makes those choices inside TikTok instead.
+ */
+export type TiktokPostOptions = {
+  delivery: "direct" | "inbox";
+  privacyLevel?: TiktokPrivacyLevel;
+  allowComment?: boolean;
+  allowDuet?: boolean;
+  allowStitch?: boolean;
+  /** "Your brand" — the creator promoting themselves. */
+  brandOrganic?: boolean;
+  /** "Branded content" — a paid partnership. Cannot be posted privately. */
+  brandedContent?: boolean;
+  /** When the creator consented, for the audit trail. */
+  consentedAt?: string;
+};
+
 export type QueueItem = {
   id: string;
   /**
@@ -155,6 +180,13 @@ export type QueueItem = {
    * nothing was watching is never swept before it is seen.
    */
   failedSeenAt?: string;
+  /**
+   * The creator's TikTok consent for this post (tiktokPost.ts). Absent on
+   * posts scheduled before the panel existed and on every post that does not
+   * target TikTok; the adapter then falls back to the inbox flow, which is
+   * what those posts have always used.
+   */
+  tiktok?: TiktokPostOptions;
 };
 
 export type PostResult = {

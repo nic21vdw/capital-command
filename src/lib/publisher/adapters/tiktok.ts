@@ -3,6 +3,7 @@ import { publisherConfig } from "@/lib/publisher/config";
 import { PermanentError, StillProcessingError, ThrottledError, fetchJson, fetchRaw } from "@/lib/publisher/http";
 import { IMAGE_REFUSALS, isImagePost } from "@/lib/publisher/images";
 import { composeCaption } from "@/lib/publisher/metadata";
+import { consentProblem, fetchCreatorPostingInfo, reconcileWithCreator } from "@/lib/publisher/tiktokPost";
 import { getCachedToken, setCachedToken } from "@/lib/publisher/tokens";
 import { formatInTimezone, toRfc3339Utc } from "@/lib/publisher/time";
 import type { PlatformAdapter, PostResult, PublishInput, PublishPlan } from "@/lib/publisher/types";
@@ -17,12 +18,18 @@ import type { PlatformAdapter, PostResult, PublishInput, PublishPlan } from "@/l
  * "unaudited_client_can_only_post_to_private_accounts" — so forcing
  * SELF_ONLY is not enough to make posting work before approval.
  *
- * So until TIKTOK_AUDITED is true this adapter uses the INBOX flow instead:
- * the clip is sent to the creator's TikTok INBOX and they finish the post
- * from the notification in the TikTok mobile app. Nothing is posted publicly by the API, which is
- * why TikTok allows it for an unaudited client on a public account. After
- * approval, the same code Direct Posts with the configured visibility — one
- * .env flip, no code change.
+ * So a post carrying no consent (item.tiktok) uses the INBOX flow: the clip is
+ * sent to the creator's TikTok INBOX and they finish the post from the
+ * notification in the TikTok mobile app. Nothing is posted publicly by the
+ * API, which is why TikTok allows it for an unaudited client on a public
+ * account, and the creator makes every privacy and interaction choice inside
+ * TikTok — the reason the inbox flow needs no consent panel of its own.
+ *
+ * A post whose creator filled in the consent panel (delivery "direct") is
+ * direct posted with exactly what they chose, after creator_info is queried
+ * again to confirm those answers still hold. Before approval TikTok restricts
+ * direct posts to private viewing, so an unaudited direct post may only ask
+ * for SELF_ONLY; after approval every audience creator_info offers is open.
  *
  * Primary source is FILE_UPLOAD (direct binary upload — no hosting needed);
  * PULL_FROM_URL is available via TIKTOK_UPLOAD_MODE=url and requires the
@@ -133,8 +140,16 @@ async function accessToken(): Promise<string> {
   return cachedAccess.accessToken;
 }
 
+/**
+ * The audience for a direct post: the creator's own answer when they gave one,
+ * otherwise the item's visibility, which is how a post scheduled before the
+ * consent panel existed still resolves. Never public while unaudited — TikTok
+ * refuses that outright.
+ */
 function privacyLevel(input: PublishInput): string {
   const { tiktok } = publisherConfig();
+  const chosen = input.item.tiktok?.privacyLevel;
+  if (chosen) return chosen;
   if (!tiktok.audited) return "SELF_ONLY";
   return input.item.visibility === "public" ? "PUBLIC_TO_EVERYONE" : "SELF_ONLY";
 }
@@ -148,13 +163,17 @@ function uploadMode(): "file" | "url" {
   return process.env.TIKTOK_UPLOAD_MODE?.trim().toLowerCase() === "url" ? "url" : "file";
 }
 
-/** Before audit approval the only flow TikTok accepts is the inbox one. */
-function inboxFlow(): boolean {
-  return !publisherConfig().tiktok.audited;
+/**
+ * Which flow this post takes. Direct posting is a choice the creator makes in
+ * the consent panel; anything without that consent goes to the inbox, which is
+ * where every post went before the panel existed.
+ */
+function inboxFlow(input: PublishInput): boolean {
+  return (input.item.tiktok?.delivery ?? "inbox") !== "direct";
 }
 
-function initEndpoint(): string {
-  return inboxFlow() ? `${API_BASE}/post/publish/inbox/video/init/` : `${API_BASE}/post/publish/video/init/`;
+function initEndpoint(input: PublishInput): string {
+  return inboxFlow(input) ? `${API_BASE}/post/publish/inbox/video/init/` : `${API_BASE}/post/publish/video/init/`;
 }
 
 type SourceInfo =
@@ -173,21 +192,30 @@ type InitBody = {
     disable_duet: boolean;
     disable_comment: boolean;
     disable_stitch: boolean;
+    /** The commercial-content disclosure, as the creator declared it. */
+    brand_content_toggle: boolean;
+    brand_organic_toggle: boolean;
   };
   source_info: SourceInfo;
 };
 
 function buildInitBody(input: PublishInput, size: number): InitBody {
   const caption = composeCaption(input.item).slice(0, 2200);
-  const post_info = inboxFlow()
+  const consent = input.item.tiktok;
+  const post_info = inboxFlow(input)
     ? undefined
     : {
         // TikTok has no separate description field; hashtags go in the title text.
         title: caption,
         privacy_level: privacyLevel(input),
-        disable_duet: false,
-        disable_comment: false,
-        disable_stitch: false
+        // Off unless the creator turned it on themselves. TikTok's guidelines
+        // are explicit that none of these may start checked, so a missing
+        // answer is a no and never a default yes.
+        disable_duet: consent?.allowDuet !== true,
+        disable_comment: consent?.allowComment !== true,
+        disable_stitch: consent?.allowStitch !== true,
+        brand_content_toggle: consent?.brandedContent === true,
+        brand_organic_toggle: consent?.brandOrganic === true
       };
   if (uploadMode() === "url") {
     if (!input.publicUrl) {
@@ -270,6 +298,25 @@ async function pollStatus(publishId: string, token: string): Promise<PostResult>
   throw new StillProcessingError(publishId, "TikTok is still processing the upload — will resume on the next run.");
 }
 
+/**
+ * Re-reads the creator's TikTok settings and holds the stored consent against
+ * them. An answer the account no longer permits is dropped rather than sent,
+ * and an audience TikTok no longer offers stops the post here instead of
+ * letting it go out as something the creator did not choose.
+ */
+async function withCurrentCreatorSettings(input: PublishInput, token: string): Promise<PublishInput> {
+  const info = await fetchCreatorPostingInfo(token);
+  const consent = reconcileWithCreator(input.item.tiktok ?? { delivery: "direct" }, info);
+  const problem = consentProblem(consent, info);
+  if (problem) throw new PermanentError("TikTok will not take this post as scheduled: " + problem);
+  if (!publisherConfig().tiktok.audited && consent.privacyLevel !== "SELF_ONLY") {
+    throw new PermanentError(
+      "TikTok restricts an unaudited app to private posts, and this one asks for a wider audience. Send it to the inbox instead, or wait for the app review."
+    );
+  }
+  return { ...input, item: { ...input.item, tiktok: consent } };
+}
+
 export const tiktokAdapter: PlatformAdapter = {
   id: "tiktok",
 
@@ -288,15 +335,15 @@ export const tiktokAdapter: PlatformAdapter = {
     const body = buildInitBody(input, 0);
     return {
       platform: "tiktok",
-      endpoint: initEndpoint(),
+      endpoint: initEndpoint(input),
       payload: { ...body },
       publishAtUtc: toRfc3339Utc(publishAt),
       publishAtLocal: formatInTimezone(publishAt, config.timezone),
       notes: [
         "No native scheduling — the runner fires this at the target time.",
-        config.tiktok.audited
-          ? "App is audited: Direct Post, visibility follows the item setting."
-          : "App not audited yet (TIKTOK_AUDITED unset): sends the clip to your TikTok inbox instead — TikTok refuses Direct Post from an unaudited app to a public account.",
+        inboxFlow(input)
+          ? "No consent answers on this post: the clip goes to your TikTok inbox, where you choose audience and interactions before it posts."
+          : "Direct post to " + privacyLevel(input) + ", with the interaction and disclosure settings the creator chose.",
         uploadMode() === "url" ? "Source: PULL_FROM_URL from hosted media." : "Source: FILE_UPLOAD (direct binary, no hosting needed)."
       ]
     };
@@ -310,9 +357,15 @@ export const tiktokAdapter: PlatformAdapter = {
     const pending = input.item.platforms.tiktok?.containerId;
     if (pending) return pollStatus(pending, token);
 
+    // TikTok requires creator_info immediately before a direct post, and it is
+    // the only way to know the creator has not turned an interaction off since
+    // they consented. The inbox flow asks nothing of the creator, so it needs
+    // neither the call nor the check.
+    if (!inboxFlow(input)) input = await withCurrentCreatorSettings(input, token);
+
     const size = (await stat(input.localPath)).size;
     const initPayload = await fetchJson<TiktokEnvelope<{ publish_id?: string; upload_url?: string }>>(
-      initEndpoint(),
+      initEndpoint(input),
       {
         label: "TikTok publish init",
         headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json; charset=UTF-8" },

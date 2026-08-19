@@ -281,6 +281,15 @@ async function fetchCreatorInfo(accessToken: string): Promise<TiktokCreatorInfo 
 }
 
 /** A fresh access token from the persisted refresh token, or null. */
+/**
+ * A fresh access token from the persisted refresh token, or null when TikTok
+ * is not connected. Exported for the routes that have to ask TikTok something
+ * on the creator's behalf, such as the consent panel's creator_info lookup.
+ */
+export async function tiktokAccessToken(): Promise<string | null> {
+  return accessTokenFromRefresh();
+}
+
 async function accessTokenFromRefresh(): Promise<string | null> {
   const { tiktok } = publisherConfig();
   const refreshToken = (await getCachedToken(TIKTOK_REFRESH_TOKEN_CACHE_KEY)) ?? tiktok.refreshToken;
