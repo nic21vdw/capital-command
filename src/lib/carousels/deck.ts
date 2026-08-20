@@ -70,3 +70,45 @@ export function clampBatchCount(count?: number): number {
   if (!Number.isFinite(count) || !count || count < 1) return DEFAULT_BATCH_COUNT;
   return Math.min(MAX_BATCH_COUNT, Math.round(count));
 }
+
+/**
+ * Openers that are not hooks. A greeting, a mic check, a bare day counter or a
+ * house catchphrase is what the model reaches for when it takes the first thing
+ * said in the recording instead of the best thing in it — every one of these was
+ * pulled from a deck that actually went out.
+ */
+const WEAK_HOOK_PATTERNS: RegExp[] = [
+  /^(hey|hi|hello|yo|what'?s up|how are we|how'?s everyone|good (morning|evening))\b/i,
+  /\bwho wants it\b/i,
+  /^(let'?s go|we'?re (live|back)|welcome back|come on,? \w+)\b/i,
+  /\b(mic|audio|sound) (check|test)\b/i,
+  /\btesting the (mic|audio)\b/i,
+  /\bbuilding in public\b/i,
+  /\bone vibe(?: coding session)? at a time\b/i,
+  /\bbig things (are )?coming\b/i,
+  /\b(this is )?(only |just )?(the beginning|getting started|the start)\b/i,
+  /\bfollow the journey\b/i
+];
+
+/** A day counter with nothing else in it — "Day 37 of vibe coding". */
+const BARE_DAY_COUNTER = /^day\s*\d+\s*(of\s+(vibe\s+coding|building|streaming))?[\s\p{P}\p{S}]*$/iu;
+
+/**
+ * Why this hook is not good enough, or null when it is.
+ *
+ * Checked in code rather than only asked for in the prompt: a hook is the one
+ * slide the whole deck depends on, and "please write a good one" is advice the
+ * model takes on most runs and not on the run nobody is watching. A weak hook
+ * costs a retry, which is cheap; a weak hook that ships costs the post.
+ */
+export function hookProblem(hook: { heading?: string; body?: string } | undefined): string | null {
+  const heading = (hook?.heading ?? "").trim();
+  if (!heading) return "the hook slide has no heading";
+  const bare = heading.replace(/[\p{Emoji_Presentation}\p{Extended_Pictographic}️]/gu, "").trim();
+  if (!bare) return "the hook slide is nothing but emoji";
+  if (BARE_DAY_COUNTER.test(bare)) return `the hook is a bare day counter ("${heading}")`;
+  for (const pattern of WEAK_HOOK_PATTERNS) {
+    if (pattern.test(bare)) return `the hook is a greeting or a stock phrase rather than a claim ("${heading}")`;
+  }
+  return null;
+}
