@@ -52,7 +52,8 @@
     "publish:shuffle": "tsx src/lib/publisher/cli.ts shuffle",
     "publish:frontload": "tsx src/lib/publisher/cli.ts frontload",
     "publish:adopt": "tsx src/lib/publisher/cli.ts adopt",
-    "carousel:proof": "tsx scripts/proof-carousel.ts"
+    "carousel:proof": "tsx scripts/proof-carousel.ts",
+    "carousel:book": "tsx scripts/carousel-book.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.104.1",

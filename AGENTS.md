@@ -317,6 +317,25 @@ picture, and a deck illustrated with footage of him talking in the car. The
 second is handled by `src/lib/carousels/footage.ts` — see the calibration note
 in that file before touching the threshold.
 
+## Booking a deck has to run from the production folder
+
+`enqueueImagePost` stores each picture as a path RELATIVE to `process.cwd()`
+(`enqueue.ts`, `relativePaths`). Book a deck from a sandbox worktree and the
+queue item points at `..\..\OneDrive\...` — which resolves to nothing when the
+publish runner reads it from production hours later, and the post fails at its
+slot with no one watching.
+
+So `npm run carousel:book` belongs in production, after a release, never in a
+sandbox. That is also why a deck cannot be booked ahead of the release that
+carries the renderer it was designed for: `renderCarouselDeck` repaints from
+whatever source the running checkout has, so booking from a checkout that is
+behind repaints the deck in the OLD layout.
+
+YouTube is not bookable at all — `IMAGE_REFUSALS.youtube` in `images.ts` says
+why: the Data API has no picture endpoint and community posts are in no public
+API. A carousel for YouTube is posted by hand, from the rendered slides in
+`data/carousels/<carouselId>/`.
+
 ## Tests
 
 `npm test` is the suite (`vitest run`). It used to be a PowerShell script that
