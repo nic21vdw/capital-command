@@ -450,7 +450,55 @@ function fitCopy(
   }
 }
 
-/** Draws the channel base chrome (counter, heading, body, accent bar). */
+/**
+ * The channel signature that closes every slide. Nothing on a slide otherwise
+ * says whose it is, and these decks get reposted stripped of their caption —
+ * the mark and the name are the only thing that survives that.
+ */
+export const SLIDE_SIGNATURE = "Nic Vandewetering";
+
+/**
+ * The YouTube mark, drawn rather than fetched. An external logo would taint the
+ * canvas and `toBlob` then returns null for the whole slide, so the one piece of
+ * brand furniture on every slide is built out of the same paths as the rest.
+ * `arcTo` with a zero radius is a straight line — the play triangle.
+ */
+function drawYouTubeMark(ctx: SlideContext, x: number, y: number, markW: number, alpha: number) {
+  const markH = markW * 0.7;
+  ctx.save();
+  ctx.fillStyle = `rgba(255,0,0,${alpha.toFixed(2)})`;
+  roundedRectPath(ctx, x, y, markW, markH, markH * 0.28);
+  ctx.fill();
+  const left = x + markW * 0.4;
+  const tip = x + markW * 0.63;
+  const top = y + markH * 0.3;
+  const bottom = y + markH * 0.7;
+  ctx.fillStyle = `rgba(255,255,255,${alpha.toFixed(2)})`;
+  ctx.beginPath();
+  ctx.moveTo(left, top);
+  ctx.arcTo(tip, y + markH / 2, left, bottom, 0);
+  ctx.arcTo(left, bottom, left, top, 0);
+  ctx.closePath();
+  ctx.fill();
+  ctx.restore();
+}
+
+/** Mark and name, centered at the foot of the slide, deliberately quiet. */
+function drawSignature(ctx: SlideContext, w: number, h: number, scale: number, onDark: boolean) {
+  const fontPx = 30 * scale;
+  ctx.font = `600 ${fontPx}px ${SLIDE_FONT_STACK}`;
+  ctx.textAlign = "left";
+  const markW = 46 * scale;
+  const gap = 16 * scale;
+  const textW = ctx.measureText(SLIDE_SIGNATURE).width;
+  const x = (w - (markW + gap + textW)) / 2;
+  const baseline = h - 56 * scale;
+  drawYouTubeMark(ctx, x, baseline - 25 * scale, markW, onDark ? 0.85 : 0.92);
+  ctx.fillStyle = onDark ? "rgba(255,255,255,0.74)" : COLATERAL_THEME.counter;
+  ctx.fillText(SLIDE_SIGNATURE, x + markW + gap, baseline);
+}
+
+/** Draws the channel base chrome (counter, heading, body, accent bar, signature). */
 function drawBaseText(
   ctx: SlideContext,
   slide: CarouselSlide,
@@ -462,6 +510,7 @@ function drawBaseText(
 ) {
   const scale = w / 1080;
   const margin = 80 * scale;
+  const onDark = Boolean(slide.textBand);
 
   // The band the copy is centered inside — the whole slide unless a photo has
   // claimed the top of it.
@@ -498,11 +547,15 @@ function drawBaseText(
   // picture the band exists to sit under, or down through the accent bar.
   let y = bandTop + Math.max(0, bandBottom - bandTop - blockH) / 2 + fit.lead;
 
+  // Copy is centred on the slide's axis, and so are the accent bar and the
+  // signature under it — one column down the middle, under a picture that is
+  // itself centred in its frame. Ragged-left copy under a centred picture is
+  // the arrangement this replaced.
   ctx.textAlign = "left";
   ctx.font = headingFont;
   ctx.fillStyle = slide.headingColor ?? COLATERAL_THEME.heading;
   for (const line of headingLines) {
-    fillRuns(ctx, line, margin, y, headingPx, images);
+    fillRuns(ctx, line, lineStart(ctx, line, headingPx, "center", margin, maxWidth), y, headingPx, images);
     y += headingLineH;
   }
   if (bodyLines.length) {
@@ -510,14 +563,20 @@ function drawBaseText(
     ctx.font = bodyFont;
     ctx.fillStyle = slide.bodyColor ?? COLATERAL_THEME.body;
     for (const line of bodyLines) {
-      fillRuns(ctx, line, margin, y, bodyPx, images);
+      fillRuns(ctx, line, lineStart(ctx, line, bodyPx, "center", margin, maxWidth), y, bodyPx, images);
       y += bodyLineH;
     }
   }
 
-  // Blue accent bar anchoring the bottom-left.
+  // Accent rule, centred directly under the copy rather than pinned to the
+  // corner: it has to read as the end of the block it follows, and the foot of
+  // the slide now belongs to the signature.
+  const barW = 90 * scale;
+  const barY = Math.min(y + 14 * scale, h - 130 * scale);
   ctx.fillStyle = COLATERAL_THEME.accent;
-  ctx.fillRect(margin, h - 130 * scale, 90 * scale, 8 * scale);
+  ctx.fillRect((w - barW) / 2, barY, barW, 8 * scale);
+
+  drawSignature(ctx, w, h, scale, onDark);
 }
 
 /**

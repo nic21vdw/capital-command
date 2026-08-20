@@ -1,7 +1,9 @@
 import { aiConfigured, runAi } from "@/lib/ai";
 import { parseAtSeconds, timecode, transcriptDigest, type TranscriptSegment } from "@/lib/carousels/anchors";
-import { carouselAngle, clampBatchCount, MAX_SLIDES, resolveSlideCount } from "@/lib/carousels/deck";
+import { carouselAngle, clampBatchCount, hookProblem, MAX_SLIDES, resolveSlideCount } from "@/lib/carousels/deck";
 import { attachSlideBackdrops, attachSlideImages, type CarouselImage } from "@/lib/carousels/imageSlides";
+import { deskFramesForDeck } from "@/lib/carousels/bRoll";
+import { footageKind } from "@/lib/carousels/footage";
 import { framesForSlides } from "@/lib/carousels/videoFrames";
 import { CHANNEL_KEYWORDS } from "@/lib/clipping/keywords";
 import type { ClipCandidate, ClipJob } from "@/lib/clipping/types";
@@ -54,10 +56,21 @@ export function carouselGenerationConfigured() {
 
 export const CAROUSEL_SYSTEM_PROMPT = `You write carousel copy for a creator who builds software with AI in public (a structural engineer building CoLateral, an AI workspace for structural engineers). The same carousel is posted across Instagram, Facebook, and TikTok, so keep the copy platform-neutral — no "Instagram" / "IG"-only references, and nothing that only makes sense on one network. Channel keywords: ${CHANNEL_KEYWORDS.join(", ")}.
 
+A deck is the story of one session: what was built, what broke, what it cost, what was learned, what ships next. A reader who was not there should finish it knowing what happened that night.
+
 Carousel rules:
-- Slide 1 is the HOOK: a bold, specific claim or question — max 12 words in "heading", "body" empty or one short kicker line.
+- Slide 1 is the HOOK and it is the slide the whole deck lives or dies on. It must state a real stake from the session — a number, a thing that broke, a decision, a result — in max 12 words, with "body" empty or one short kicker. Take it from the STRONGEST moment anywhere in the session, not from whatever was said first. It does not have to be a sentence he said; write the hook the session earned.
+- BANNED as a hook, always: a greeting ("how are we tonight", "what's up chat"), a mic or audio check, "who wants it", "let's go", a bare day counter, or any opener that would fit any other episode unchanged.
 - Middle slides each carry ONE idea: "heading" max 8 words, "body" 1-3 short sentences (max 220 characters) that deliver — not tease — the idea.
-- The last slide is the CTA: heading invites the follow / the video, body one line. Never salesy, never "link in bio" begging.
+- Every slide must name something specific: a number, a tool, an error, a feature, a person, or a decision. If a slide could be dropped into a different episode without changing a word, it is filler — pick a different moment.
+- Stream logistics are not story beats. No slide about OBS, a terminal restart, a mic test, the internet connection, scene setup, or "let me pull that up" — unless it changed what got built, and then the slide says what it cost.
+- "$0 revenue" is not the point of a deck. Use at most one revenue line and at most one "Day N" line per deck, and only where that number IS the idea of that slide.
+- The body must add what the heading does not already say. Never leave a body empty, never restate the heading in other words.
+- At least two thirds of the slides must be about the build — what was made, what broke, what was fixed, what was learned in the code. Mindset, health and lifestyle material is capped at two slides, and only where it ties back to the work.
+- No two slides may make the same point.
+- The last slide is the CTA: name what specifically comes next — the next feature, the next session's topic, the cliffhanger from this one — and put the invitation on top of it in one line. "Follow for more" on its own is not a valid slide.
+- The source is speech-to-text and it garbles names. Correct obvious mishearings against the real ones (Claude, Claude Code, Warp, Cursor, Grok, CoLateral, Streamer.bot, Remotion, Vandewetering). If you cannot work out what a garbled name was, write the slide without it or pick another moment — never publish the garble.
+- Never use these phrases or their variants: "building in public", "one vibe at a time", "big things coming", "this is only the beginning", "the grind", "follow the journey", "let's go".
 - Plain, confident language. No hashtags on slides, no invented facts or numbers.
 - Use emojis liberally to add energy and scroll-stopping personality — aim for one or two relevant emojis on most slides (in the heading, at the start of a body line, or as a bullet marker). Pick emojis that reinforce the idea (🚀 momentum, 🧠 insight, ⚡ speed, 💡 idea, 🔥 hot take, 📈 growth, 🤖 AI, 🛠️ building). Keep them tasteful — a couple per slide, never a wall of them.
 
@@ -377,6 +390,13 @@ export async function generateCarousel(
         last = "The model was unavailable or declined.";
       } else {
         const parsed = parseCarousel(result.text);
+        const weakHook = parsed ? hookProblem(parsed.slides[0]) : null;
+        if (parsed && weakHook && attempt < CAROUSEL_ATTEMPTS) {
+          // Thrown back rather than published. The deck behind it may be fine,
+          // but slide 1 is the only one most people ever see.
+          last = `The deck came back with a weak opening slide — ${weakHook}.`;
+          continue;
+        }
         if (parsed) {
           const padded = padForImages(parsed.slides, images.length);
           return {
@@ -424,11 +444,17 @@ export async function illustrateFromRecording(input: {
   sourceId: string;
   transcript: TranscriptSegment[];
 }): Promise<{ carousel: Carousel; note: string | null }> {
-  const frames = await framesForSlides({
-    sourceId: input.sourceId,
-    slides: input.drafts,
-    segments: input.transcript
-  }).catch(() => null);
+  // A phone-shot talking-head recording is illustrated from the desk instead of
+  // from itself — see bRoll.ts. Anchoring is skipped with it: there is nothing
+  // in the borrowed footage for a slide's own second to point at.
+  const talkingHead = (await footageKind(input.sourceId).catch(() => "desk")) === "talking-head";
+  const frames = talkingHead
+    ? await deskFramesForDeck({ excludeSourceId: input.sourceId, slideCount: input.carousel.slides.length }).catch(() => null)
+    : await framesForSlides({
+        sourceId: input.sourceId,
+        slides: input.drafts,
+        segments: input.transcript
+      }).catch(() => null);
   if (!frames?.images.some(Boolean)) return { carousel: input.carousel, note: frames?.note ?? null };
   return {
     carousel: { ...input.carousel, slides: attachSlideBackdrops(input.carousel.slides, frames.images) },
