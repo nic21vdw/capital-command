@@ -79,6 +79,12 @@ async function repairClips(run: PipelineRun): Promise<RepairResult> {
   }
   const job = await retryMissingRenders(run.clipJobId);
   if (!job) return { ok: false, error: "The clip job is gone — it may have been deleted." };
+  if (job.clips.length === 0) {
+    return { ok: true, stage: "clips", detail: "No clips were ever planned — the clip job is starting again from the source." };
+  }
+  if (job.status === "done") {
+    return { ok: true, stage: "clips", detail: "Every clip had already rendered — the run is settled." };
+  }
   return { ok: true, stage: "clips", detail: "The clips that never rendered are rendering again." };
 }
 

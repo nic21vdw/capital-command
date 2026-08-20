@@ -178,7 +178,29 @@ export async function retryMissingRenders(id: string): Promise<ClipJob | undefin
     throw new Error("This job is already processing.");
   }
   const missingIndexes = job.clips.map((clip, index) => (clip.file ? -1 : index)).filter((index) => index >= 0);
-  if (missingIndexes.length === 0) return job;
+
+  // A job that never planned a clip stopped before there was anything to
+  // re-render, so re-rendering nothing reported success and left the run
+  // exactly as broken as it was. It has to start again from the source.
+  if (job.clips.length === 0) {
+    if (!job.sourceUrl) {
+      throw new Error("This job planned no clips and has no source link to start from. Paste the link again.");
+    }
+    await update(job, { status: "queued", stage: "downloading", progress: 2, error: undefined, notices: [] });
+    void runPipeline(job, job.sourceUrl).catch((error) => failJob(job, error));
+    return job;
+  }
+
+  // Every clip is already on disk. A server that stopped mid-job leaves the
+  // record on "error" with all of its files present, and nothing else ever
+  // clears that — the run reads as needing attention forever and no button
+  // in the app can settle it.
+  if (missingIndexes.length === 0) {
+    if (job.status === "error") {
+      await update(job, { status: "done", stage: "finished", progress: 100, error: undefined });
+    }
+    return job;
+  }
 
   job.notices = job.notices.filter((notice) => !/^Clip \d+ \(/.test(notice));
   await update(job, { status: "processing", stage: "rendering", progress: 50, notices: job.notices });
