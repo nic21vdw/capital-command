@@ -299,6 +299,24 @@ or the rebuild ships whatever is sitting merged on `main` and the release stops
 being Nic's to run.
 
 
+## The carousel house style is settled — don't redesign it
+
+Nic picked this layout and asked for it to be the standard, so treat it as a
+constraint rather than a starting point:
+
+- The picture is the WHOLE frame, never cropped — `fit: "frame"` lays the full
+  widescreen still over a blurred bed of itself, high in the slide.
+- The copy sits in the band underneath, **centred**: heading, body and the blue
+  accent rule all on the slide's centre axis.
+- Every slide is signed at the foot — the YouTube mark and *Nic Vandewetering*,
+  quiet, low contrast. It is drawn in `render.ts`, not fetched: an external
+  logo taints the canvas and `toBlob` then returns null for the whole slide.
+
+The two things he does not want back are ragged-left copy under a centred
+picture, and a deck illustrated with footage of him talking in the car. The
+second is handled by `src/lib/carousels/footage.ts` — see the calibration note
+in that file before touching the threshold.
+
 ## Tests
 
 `npm test` is the suite (`vitest run`). It used to be a PowerShell script that
