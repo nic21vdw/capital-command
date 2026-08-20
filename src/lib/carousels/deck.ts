@@ -112,3 +112,51 @@ export function hookProblem(hook: { heading?: string; body?: string } | undefine
   }
   return null;
 }
+
+/**
+ * Words a title leaves lowercase unless they open or close it. The usual
+ * headline set — articles, coordinating conjunctions and the short
+ * prepositions.
+ */
+const TITLE_MINOR_WORDS = new Set([
+  "a", "an", "and", "as", "at", "but", "by", "for", "from", "in", "into", "nor",
+  "of", "off", "on", "onto", "or", "over", "per", "so", "the", "to", "up", "via",
+  "vs", "with", "yet"
+]);
+
+/**
+ * A heading set the way a headline is set: the first letter of every word that
+ * carries meaning.
+ *
+ * A word that already has a capital inside it is left exactly as written —
+ * that is what keeps CoLateral, OBS, AI and PE from being flattened into
+ * Colateral, Obs, Ai and Pe. Hyphenated and slashed compounds are capitalised
+ * on both sides, and the first and last words always are, whatever they are.
+ */
+export function titleCaseHeading(heading: string): string {
+  const words = heading.split(/(\s+)/);
+  const indexes = words.map((word, index) => (word.trim() ? index : -1)).filter((index) => index >= 0);
+  const first = indexes[0];
+  const last = indexes[indexes.length - 1];
+
+  return words
+    .map((word, index) => {
+      if (!word.trim()) return word;
+      return word
+        .split(/([-/])/)
+        .map((part, partIndex) => {
+          if (!/[a-z]/i.test(part)) return part;
+          // Anything with its own capitals is a name the writer set on purpose.
+          if (/[A-Z]/.test(part.slice(1))) return part;
+          const bare = part.replace(/[^a-z']/gi, "").toLowerCase();
+          const minor = TITLE_MINOR_WORDS.has(bare) && index !== first && index !== last && partIndex === 0;
+          if (minor) return part.toLowerCase();
+          // Only a letter the word actually STARTS with. Reaching further in
+          // capitalises the letters that follow a number — "11pm" became
+          // "11Pm" and "1st" became "1St".
+          return part.replace(/^([^\p{L}\p{N}]*)(\p{L})/u, (_all, lead, letter) => lead + letter.toUpperCase());
+        })
+        .join("");
+    })
+    .join("");
+}

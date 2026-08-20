@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { attachSlideImages, IMAGE_SLIDE_LAYOUT } from "@/lib/carousels/imageSlides";
-import { aspectSpec, FRAME_POSITION, renderSlideCanvas } from "@/lib/carousels/render";
+import { aspectSpec, FRAME_POSITION, FRAME_ZOOM, renderSlideCanvas } from "@/lib/carousels/render";
 import type { CarouselSlide } from "@/types/domain";
 
 /**
@@ -225,13 +225,16 @@ describe("a framed still", () => {
     layers: [{ id: "l", type: "image", src: "/frame.jpg", x: 0, y: 0, width: 1, height: 1, fit: "frame" }]
   };
 
-  it("draws the whole picture, and a bed behind it that does fill the slide", async () => {
+  it("draws the picture grown into the space above the copy, over a bed that fills the slide", async () => {
     await renderSlideCanvas(framed, 0, 6, "portrait");
     expect(drawnImages).toHaveLength(2);
     const [bed, picture] = drawnImages;
-    // The stub image is 1200x800; contained in 1080 wide that is 1080x720.
-    expect(picture.w).toBeCloseTo(1080, 5);
-    expect(picture.h).toBeCloseTo(720, 5);
+    // The stub image is 1200x800; contained in 1080 wide that is 1080x720, and
+    // there is room above the copy for the whole zoom.
+    expect(picture.w).toBeCloseTo(1080 * FRAME_ZOOM, 5);
+    expect(picture.h).toBeCloseTo(720 * FRAME_ZOOM, 5);
+    // Grown from the middle, so what is lost is a strip off each side.
+    expect(picture.x).toBeCloseTo((1080 - picture.w) / 2, 5);
     // The bed overfills, so a blur cannot fade the slide's own edges out.
     expect(bed.w).toBeGreaterThan(1080);
     expect(bed.h).toBeGreaterThan(1350);
@@ -304,6 +307,34 @@ describe("where a framed still sits", () => {
     await renderSlideCanvas(framed, 1, 8, "portrait");
     const [, picture] = drawnImages;
     expect(picture.y).toBeCloseTo((1350 - picture.h) * FRAME_POSITION, 5);
+  });
+
+  it("grows the still into the space above the copy, cropping the sides evenly", async () => {
+    await renderSlideCanvas(framed, 1, 8, "portrait");
+    const [, picture] = drawnImages;
+    expect(picture.w).toBeCloseTo(1080 * FRAME_ZOOM, 5);
+    expect(picture.x).toBeCloseTo((1080 - picture.w) / 2, 5);
+  });
+
+  it("takes less zoom rather than crossing the copy band on a squarer frame", async () => {
+    Object.assign(globalThis, {
+      Image: class {
+        width = 1920;
+        height = 1080;
+        onload: (() => void) | null = null;
+        onerror: (() => void) | null = null;
+        set src(_value: string) {
+          setTimeout(() => this.onload?.(), 0);
+        }
+      }
+    });
+    drawnImages.length = 0;
+    const layer = { ...framed.layers![0], src: "/frame-capped.jpg" };
+    await renderSlideCanvas({ ...framed, layers: [layer] }, 1, 8, "square");
+    const [, picture] = drawnImages;
+    expect(picture.w).toBeGreaterThan(1080);
+    expect(picture.w).toBeLessThan(1080 * FRAME_ZOOM);
+    expect(picture.y + picture.h).toBeCloseTo(0.6 * 1080, 5);
   });
 
   it("clears the copy band at every ratio the deck can be posted at", async () => {

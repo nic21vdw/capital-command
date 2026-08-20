@@ -14,6 +14,21 @@ already shipped.
 
 ## Unreleased
 
+- **The still on a carousel slide sits flush with the top and is drawn bigger.**
+  A widescreen frame fitted into a 4:5 slide left a band of blurred nothing
+  across the top before the picture even started. It now starts at the top edge
+  and grows into the space above the copy — up to ten per cent, less on a
+  squarer frame, never across the words — which costs a strip off each side
+  that was the desk and the wall anyway.
+- **Slides are signed with X as well as YouTube.** The foot of every slide now
+  reads *Nic Vandewetering* beside the YouTube mark and *@nvandewetering*
+  beside an X mark. Both are drawn rather than fetched: an external logo taints
+  the canvas and the whole slide then fails to export.
+- **Slide headings are set like headlines.** The first letter of every word that
+  carries meaning is capitalised, small words in the middle are left alone, and
+  a name that already has its own capitals is untouched — CoLateral, OBS and PE
+  stay as written, and "11pm" does not become "11Pm".
+
 - A stream whose clips all finished no longer sits on "needs attention" forever. When the server stopped mid-job the clip record kept its error even though every clip was on disk, and Retry could not clear it; it now settles the job. A job that stopped before it planned any clips restarts from the source instead of reporting success and doing nothing.
 
 - **"5 needs you" on the Catching up with YouTube panel now names those five

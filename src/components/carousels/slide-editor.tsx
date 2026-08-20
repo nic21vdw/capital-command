@@ -16,7 +16,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
-import { aspectSpec, COLATERAL_THEME, FRAME_POSITION, loadImage, renderSlideCanvas, SLIDE_FONT_STACK } from "@/lib/carousels/render";
+import { aspectSpec, COLATERAL_THEME, FRAME_POSITION, FRAME_ZOOM, loadImage, renderSlideCanvas, SLIDE_FONT_STACK } from "@/lib/carousels/render";
 import { cn } from "@/lib/utils";
 import type { CarouselAspectRatio, CarouselSlide, SlideLayer } from "@/types/domain";
 
@@ -622,8 +622,11 @@ function EditStage({
             style={{
               objectFit: layer.fit === "frame" ? "contain" : layer.fit ?? "contain",
               // The export reads FRAME_POSITION exactly as object-position reads
-              // it, so the still sits where it will be posted.
+              // it, and grows the picture by FRAME_ZOOM from that same top edge,
+              // so the still sits where it will be posted.
               objectPosition: layer.fit === "frame" ? `50% ${FRAME_POSITION * 100}%` : undefined,
+              transform: layer.fit === "frame" ? `scale(${FRAME_ZOOM})` : undefined,
+              transformOrigin: layer.fit === "frame" ? `50% ${FRAME_POSITION * 100}%` : undefined,
               borderRadius: `${Math.min(50, (layer.radius ?? 0) * 100)}%`
             }}
           />
