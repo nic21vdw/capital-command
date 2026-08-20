@@ -9,6 +9,11 @@
 # this has logged NOT_APPROVED for weeks, read docs/TIKTOK.md and open the
 # portal before assuming anyone is still reviewing anything.
 #
+# It logs SANDBOX instead when the configured client key belongs to the sandbox
+# app. That answer can never change: approval lands on the production app, so
+# the production client key and secret have to reach .env before this watcher
+# is watching anything at all.
+#
 # Register it to check every few hours:
 #
 #   npm run tiktok:watch:register
@@ -43,7 +48,7 @@ $marker = Join-Path ([Environment]::GetFolderPath("Desktop")) "TIKTOK-APPROVED.t
   "TikTok approved the Capital Command app on $stamp.",
   "",
   "Direct Post is now open. To publish scheduled clips automatically:",
-  "  1. Set TIKTOK_AUDITED=true in .env",
+  "  1. Set TIKTOK_AUDITED=true in .env, alongside the production TIKTOK_CLIENT_KEY and TIKTOK_CLIENT_SECRET",
   "  2. Restart the app (or let the publish runner restart it)",
   "",
   "Scheduled clips will then post straight to the profile - no inbox tap.",

@@ -52,6 +52,11 @@ no access to the Content Posting API for public videos. Unaudited direct posts
 are restricted to private viewing whatever environment they run in. There is
 no route to a public automatic post that skips approval.
 
+This matters after approval too, because `.env` holds the sandbox credentials
+today. Approval is granted to the production app, so step 10 below swaps the
+client key and secret; leaving the `sbaw…` key in place would keep Direct Post
+refused no matter what the portal says.
+
 ## The fork
 
 **Lane A — stay as you are.** Clips keep uploading to the TikTok inbox and you
@@ -177,7 +182,10 @@ Record it after the checklist is true, not before — the video is the claim.
 9. Leave `npm run tiktok:watch` registered. It logs every four hours and puts
    `TIKTOK-APPROVED.txt` on the Desktop the moment Direct Post opens. It
    cannot see a rejection, so check the portal yourself after a week.
-10. On approval: set `TIKTOK_AUDITED=true` in the production `.env` and
+10. On approval: copy the **production** Client key and Client secret from the
+    portal into `.env` — the ones there now start `sbaw`, which is the sandbox
+    app and stays unaudited forever — reconnect TikTok so the refresh token is
+    issued against those credentials, then set `TIKTOK_AUDITED=true` and
     restart. The adapter switches to Direct Post on its own.
 
 Reviews have come back anywhere from a day to a fortnight. The last one took
