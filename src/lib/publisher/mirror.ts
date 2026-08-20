@@ -169,6 +169,7 @@ export function planMirror(items: QueueItem[], options: MirrorOptions): MirrorPl
   const targets = asked.filter((platform) => platform !== lead);
   const plan: MirrorPlan = { additions: [], newItems: [], skipped: [] };
 
+  const byId = new Map(items.map((item) => [item.id, item]));
   const schedule = leadSchedule(items, lead, options.now);
   const publishable = schedule.filter((item) => {
     if (item.visibility === "public") return true;
@@ -207,6 +208,20 @@ export function planMirror(items: QueueItem[], options: MirrorOptions): MirrorPl
     );
   }
 
+  // What each target already carries, by clip rather than by slot. The open
+  // slots above are the times a platform has free; they say nothing about which
+  // clips it has already been given. Dealing from the full lead schedule into
+  // those times is what booked the same short to the same Page two, three and
+  // five times over — every pass that found a free slot dealt it again.
+  const bookedClips = new Map<PlatformId, Set<string>>();
+  for (const platform of targets) {
+    const booked = new Set<string>();
+    for (const item of items) {
+      if (item.platforms[platform] && item.clipPath) booked.add(item.clipPath);
+    }
+    bookedClips.set(platform, booked);
+  }
+
   // Platforms sharing the same open slots are dealt as one group, which is
   // what lets the deal guarantee distinct clips per instant.
   const groups = new Map<string, PlatformId[]>();
@@ -222,9 +237,22 @@ export function planMirror(items: QueueItem[], options: MirrorOptions): MirrorPl
     const orders = dealDistinctOrders(clipIds, platforms, seed, clipIds);
     for (const platform of platforms) {
       const order = orders.get(platform)!;
+      const booked = bookedClips.get(platform) ?? new Set<string>();
       slots.forEach((slot, index) => {
+        const sourceItemId = order[index];
+        const source = byId.get(sourceItemId);
+        // A slot left empty is a post that does not go out; the same clip on
+        // the same feed twice is a post that should not have. Prefer the gap.
+        if (source?.clipPath && booked.has(source.clipPath)) {
+          plan.skipped.push({
+            itemId: sourceItemId,
+            reason: `already booked on ${platform} — not dealt a second slot.`
+          });
+          return;
+        }
+        if (source?.clipPath) booked.add(source.clipPath);
         plan.newItems.push({
-          sourceItemId: order[index],
+          sourceItemId,
           slotItemId: slot.id,
           publishAt: slot.publishAt,
           platform
