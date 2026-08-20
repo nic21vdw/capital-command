@@ -58,6 +58,7 @@ async function main() {
   });
   if (!generated.carousel) throw new Error(`no deck written: ${generated.reason}`);
   console.log(`wrote ${generated.carousel.slides.length} slides`);
+  console.log(`hook retries: ${generated.hookRetries ?? 0}`);
 
   const illustrated = await illustrateFromRecording({
     carousel: generated.carousel,
@@ -66,8 +67,15 @@ async function main() {
     transcript
   });
   console.log(`illustration: ${illustrated.note ?? "every slide got a still"}`);
+  const bare = illustrated.carousel.slides.filter((slide) => !(slide.layers ?? []).length).length;
+  console.log(`slides with no picture: ${bare}`);
 
-  await writeFile(out, `${JSON.stringify(illustrated.carousel, null, 2)}\n`);
+  const deck = {
+    ...illustrated.carousel,
+    hookRetries: generated.hookRetries ?? 0,
+    illustrationNote: illustrated.note
+  };
+  await writeFile(out, JSON.stringify(deck, null, 2));
   console.log(`saved -> ${out}`);
 }
 
