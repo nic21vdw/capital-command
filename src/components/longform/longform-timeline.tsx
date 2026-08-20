@@ -13,7 +13,7 @@ const round3 = (value: number) => Math.round(value * 1000) / 1000;
 // are the dead space the edit removes — click any block to flip it.
 
 const MIN_ZOOM = 1;
-const MAX_ZOOM = 16;
+const MAX_ZOOM = 64;
 // Height of the main track / waveform in px. Big enough that the sound
 // decibels show up as a readable bar chart rather than a thin line.
 const TRACK_HEIGHT = 112;
@@ -26,6 +26,9 @@ function pickTickStep(secondsPerPixel: number) {
 }
 
 export type TimelineSelection = { start: number; end: number };
+
+/** The stretch of the recording the editor is currently working on. */
+export type TimelineWindow = { start: number; end: number; label: string };
 
 export function LongformTimeline({
   project,
@@ -45,7 +48,8 @@ export function LongformTimeline({
   selectedAudioId,
   onSelectAudio,
   onAudioChange,
-  onDropAudio
+  onDropAudio,
+  focusWindow
 }: {
   project: LongformProject;
   time: number;
@@ -65,6 +69,8 @@ export function LongformTimeline({
   onSelectAudio: (id: string | null) => void;
   onAudioChange: (id: string, patch: Partial<Pick<LongformAudioClip, "start" | "duration">>) => void;
   onDropAudio: (file: File, timeSec: number) => void;
+  /** When a topic segment is being edited, the rest of the recording is dimmed. */
+  focusWindow?: TimelineWindow | null;
 }) {
   const duration = Math.max(0.1, project.durationSec);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -88,6 +94,37 @@ export function LongformTimeline({
   }, []);
 
   const contentWidth = Math.max(1, Math.round(trackWidth * zoom));
+
+  // Picking a segment frames it: zoom until that stretch fills the view and
+  // scroll to it, so the timeline shows the segment's own footage rather than
+  // a three-hour ruler with an invisible ten minutes somewhere inside it.
+  const focusStart = focusWindow?.start ?? null;
+  const focusEnd = focusWindow?.end ?? null;
+  const focusKey = focusStart === null ? null : `${focusStart}-${focusEnd}`;
+  // Which window has already been framed. Framing happens once per window, so
+  // zooming by hand afterwards is not fought by this effect.
+  const framedRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (focusKey === null || focusStart === null || focusEnd === null) {
+      framedRef.current = null;
+      return;
+    }
+    if (framedRef.current === focusKey) return;
+    const span = Math.max(1, focusEnd - focusStart);
+    const next = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, (duration / span) * 0.92));
+    // Zoom first and scroll on the pass after it: the track is only as wide as
+    // the new zoom once React has re-rendered it, and a scrollLeft past the old
+    // width is silently clamped back to where it was.
+    if (Math.abs(zoom - next) > 0.001) {
+      const frame = requestAnimationFrame(() => setZoom(next));
+      return () => cancelAnimationFrame(frame);
+    }
+    const el = scrollRef.current;
+    if (!el || contentWidth < 2) return;
+    framedRef.current = focusKey;
+    el.scrollLeft = Math.max(0, (focusStart / duration) * contentWidth - el.clientWidth * 0.04);
+  }, [focusKey, focusStart, focusEnd, duration, zoom, contentWidth]);
+
   const pct = useCallback((t: number) => `${(Math.min(duration, Math.max(0, t)) / duration) * 100}%`, [duration]);
 
   // Waveform: the cached 0..1 peaks drawn as a mirrored bar chart.
@@ -316,6 +353,11 @@ export function LongformTimeline({
             : "Click a red block to keep it, or kept footage to cut it. Drag the purple handles to move and resize the hook. Drop images or audio here and drag them along their track — press Delete to remove a selected image."}
         </p>
         <div className="flex shrink-0 items-center gap-1">
+          {focusWindow && (
+            <span className="mr-1 truncate rounded-full border border-[var(--accent)]/50 bg-[var(--accent)]/10 px-2 py-0.5 text-[11px] text-white">
+              {focusWindow.label}
+            </span>
+          )}
           <span className="mr-1 text-xs text-[var(--muted-foreground)]">{cutCount} cuts</span>
           <button
             type="button"
@@ -631,6 +673,29 @@ export function LongformTimeline({
               })
             )}
           </div>
+
+          {/* Everything outside the segment being edited, greyed back. The
+              masks never take pointer events: the rest of the recording is
+              still clickable, it is just not what you are working on. */}
+          {focusWindow && (
+            <>
+              <div
+                className="pointer-events-none absolute inset-y-0 left-0 z-20 bg-black/55"
+                style={{ width: pct(focusWindow.start) }}
+              />
+              <div
+                className="pointer-events-none absolute inset-y-0 right-0 z-20 bg-black/55"
+                style={{ width: `${Math.max(0, 100 - (Math.min(duration, focusWindow.end) / duration) * 100)}%` }}
+              />
+              <div
+                className="pointer-events-none absolute inset-y-0 z-20 border-x-2 border-[var(--accent)]/70"
+                style={{
+                  left: pct(focusWindow.start),
+                  width: `${((Math.min(duration, focusWindow.end) - focusWindow.start) / duration) * 100}%`
+                }}
+              />
+            </>
+          )}
         </div>
       </div>
     </div>

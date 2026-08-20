@@ -14,6 +14,24 @@ already shipped.
 
 ## Unreleased
 
+- **The Long-Form Editor opens one segment at a time, not the whole stream.**
+  A stream is three to five videos in one recording, but the editor only ever
+  showed the full three hours and left the segments on a tab. There is now a
+  dropdown across the top of the editor — Full recording, then every segment
+  with its runtime and whether it has been rendered — and picking one scopes
+  the whole view to it: the player and the scrubber run that stretch and stop
+  at its end, the timeline zooms to it with the rest of the stream greyed back,
+  and the bar carries **Render this segment**, **Watch** (plays the finished
+  file in place of the preview) and **Download**. Every project card on the
+  Long-Form Video page lists its segments too, and each one opens straight into
+  its own editing view. The Stream Pipeline's segments step now links there
+  instead of to the full stream.
+- **App demos stopped being cut into "segments" that were really half a video.**
+  Segments are for streams: anything under fifteen minutes is now left whole,
+  and says so, instead of coming back split in two. The one- and two-segment
+  splits already sitting on the short app-demo uploads are cleared out —
+  nothing that had been rendered is touched.
+
 - **The same short stopped being booked to Facebook two, three and five times.** Mirroring in shuffle mode only remembered which time slots a platform already had, not which clips — so any clip it already carried was dealt again into whatever slot was free, and every pass found more. 43 repeat bookings were sitting in the queue. A clip a platform already has is now skipped, and the mirror says so instead of silently doubling the post up.
 - **The TikTok audit watcher was watching an app that can never be approved.**
   The client key in `.env` is the sandbox app's, and a sandbox app is unaudited

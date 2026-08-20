@@ -32,7 +32,10 @@ export async function POST(request: NextRequest, { params }: Params) {
     return NextResponse.json({ error: "Expected an optional `count` and `targetMinutes`." }, { status: 400 });
   }
 
+  // Asking for segments by hand overrides the "this is one video" floor: the
+  // planner refuses short recordings on its own, but a request names one.
   const options: TopicPlanOptions = {};
+  if (parsed.data.count || parsed.data.targetMinutes) options.minTotalSec = 0;
   if (parsed.data.count) {
     options.minCount = parsed.data.count;
     options.maxCount = parsed.data.count;
