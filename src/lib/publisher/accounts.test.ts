@@ -4,6 +4,8 @@ import {
   itemAccountId,
   itemBelongsToAccount,
   primaryAccountId,
+  tiktokCreatorKey,
+  tiktokRefreshTokenKey,
   withPrimaries,
   youtubeChannelKey,
   youtubeRefreshTokenKey,
@@ -41,6 +43,20 @@ describe("primary accounts", () => {
     expect(youtubeChannelKey("youtube-primary")).toBe("youtube.channel");
     expect(youtubeRefreshTokenKey("youtube-x1")).toBe("youtube.refreshToken.youtube-x1");
     expect(youtubeChannelKey("youtube-x1")).toBe("youtube.channel.youtube-x1");
+  });
+});
+
+describe("TikTok token-cache keys", () => {
+  it("keeps the original keys for the primary account", () => {
+    expect(tiktokRefreshTokenKey()).toBe("tiktok.refreshToken");
+    expect(tiktokRefreshTokenKey("tiktok-primary")).toBe("tiktok.refreshToken");
+    expect(tiktokCreatorKey()).toBe("tiktok.creator");
+  });
+
+  it("suffixes an added account so it cannot overwrite the primary's", () => {
+    expect(tiktokRefreshTokenKey("tiktok-a1b2c3d4")).toBe("tiktok.refreshToken.tiktok-a1b2c3d4");
+    expect(tiktokCreatorKey("tiktok-a1b2c3d4")).toBe("tiktok.creator.tiktok-a1b2c3d4");
+    expect(tiktokRefreshTokenKey("tiktok-a1b2c3d4")).not.toBe(tiktokRefreshTokenKey());
   });
 });
 

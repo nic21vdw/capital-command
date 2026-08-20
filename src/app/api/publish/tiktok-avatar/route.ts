@@ -1,7 +1,8 @@
 import { createReadStream } from "node:fs";
 import { stat } from "node:fs/promises";
 import { Readable } from "node:stream";
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
+import { primaryAccountId } from "@/lib/publisher/accounts";
 import { resolveTiktokAvatarFile, tiktokCreatorInfo } from "@/lib/publisher/tiktokAuth";
 
 export const runtime = "nodejs";
@@ -12,11 +13,12 @@ export const dynamic = "force-dynamic";
  * dies in a couple of days; the connect flow and tiktokCreatorInfo write the
  * bytes into data/publisher so this route stays stable for the UI.
  */
-export async function GET() {
-  let file = await resolveTiktokAvatarFile();
+export async function GET(request: NextRequest) {
+  const accountId = request.nextUrl.searchParams.get("account") || primaryAccountId("tiktok");
+  let file = await resolveTiktokAvatarFile(accountId);
   if (!file) {
-    await tiktokCreatorInfo();
-    file = await resolveTiktokAvatarFile();
+    await tiktokCreatorInfo(accountId);
+    file = await resolveTiktokAvatarFile(accountId);
   }
   if (!file) {
     return NextResponse.json({ error: "No TikTok avatar is cached yet." }, { status: 404 });

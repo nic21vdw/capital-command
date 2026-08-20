@@ -1,4 +1,5 @@
 import { open, stat } from "node:fs/promises";
+import { itemAccountId, primaryAccountId, tiktokRefreshTokenKey } from "@/lib/publisher/accounts";
 import { publisherConfig } from "@/lib/publisher/config";
 import { PermanentError, StillProcessingError, ThrottledError, fetchJson, fetchRaw } from "@/lib/publisher/http";
 import { IMAGE_REFUSALS, isImagePost } from "@/lib/publisher/images";
@@ -38,7 +39,6 @@ import type { PlatformAdapter, PostResult, PublishInput, PublishPlan } from "@/l
  */
 
 const API_BASE = "https://open.tiktokapis.com/v2";
-const REFRESH_TOKEN_CACHE_KEY = "tiktok.refreshToken";
 const POLL_INTERVAL_MS = 10_000;
 const MAX_POLLS_PER_RUN = 24;
 
@@ -102,18 +102,28 @@ function assertOk<T>(payload: TiktokEnvelope<T>, label: string): T {
   return payload.data;
 }
 
-let cachedAccess: { accessToken: string; expiresAt: number } | null = null;
+// Access tokens are per connected account, so one profile's token can never
+// be spent posting to another's.
+const cachedAccess = new Map<string, { accessToken: string; expiresAt: number }>();
 
-async function accessToken(): Promise<string> {
+async function accessToken(accountId: string = primaryAccountId("tiktok")): Promise<string> {
   const { tiktok } = publisherConfig();
-  if (!tiktok.clientKey || !tiktok.clientSecret || !tiktok.refreshToken) {
-    throw new PermanentError("TikTok is not configured. Set TIKTOK_CLIENT_KEY, TIKTOK_CLIENT_SECRET and TIKTOK_REFRESH_TOKEN.");
+  const primary = accountId === primaryAccountId("tiktok");
+  const stored = await getCachedToken(tiktokRefreshTokenKey(accountId));
+  const seeded = primary ? tiktok.refreshToken : null;
+  if (!tiktok.clientKey || !tiktok.clientSecret || !(stored ?? seeded)) {
+    throw new PermanentError(
+      primary
+        ? "TikTok is not configured. Set TIKTOK_CLIENT_KEY, TIKTOK_CLIENT_SECRET and TIKTOK_REFRESH_TOKEN."
+        : "This TikTok account is not connected — open the Uploading Center and connect it."
+    );
   }
-  if (cachedAccess && cachedAccess.expiresAt > Date.now() + 60_000) return cachedAccess.accessToken;
+  const hit = cachedAccess.get(accountId);
+  if (hit && hit.expiresAt > Date.now() + 60_000) return hit.accessToken;
 
   // TikTok may rotate the refresh token — prefer the persisted rotation over
   // the .env seed, and store any new value the response carries.
-  const refreshToken = (await getCachedToken(REFRESH_TOKEN_CACHE_KEY)) ?? tiktok.refreshToken;
+  const refreshToken = (stored ?? seeded)!;
   const data = await fetchJson<{
     access_token?: string;
     expires_in?: number;
@@ -134,10 +144,11 @@ async function accessToken(): Promise<string> {
     throw new PermanentError(`TikTok token refresh failed: ${data.error ?? ""} ${data.error_description ?? ""}`.trim());
   }
   if (data.refresh_token && data.refresh_token !== refreshToken) {
-    await setCachedToken(REFRESH_TOKEN_CACHE_KEY, data.refresh_token);
+    await setCachedToken(tiktokRefreshTokenKey(accountId), data.refresh_token);
   }
-  cachedAccess = { accessToken: data.access_token, expiresAt: Date.now() + (data.expires_in ?? 3600) * 1000 };
-  return cachedAccess.accessToken;
+  const minted = { accessToken: data.access_token, expiresAt: Date.now() + (data.expires_in ?? 3600) * 1000 };
+  cachedAccess.set(accountId, minted);
+  return minted.accessToken;
 }
 
 /**
@@ -351,7 +362,7 @@ export const tiktokAdapter: PlatformAdapter = {
 
   async publish(input: PublishInput): Promise<PostResult> {
     if (isImagePost(input.item)) throw new PermanentError(IMAGE_REFUSALS.tiktok!);
-    const token = await accessToken();
+    const token = await accessToken(itemAccountId(input.item, "tiktok"));
 
     // Resume: if a previous run already initialized/uploaded, just poll.
     const pending = input.item.platforms.tiktok?.containerId;

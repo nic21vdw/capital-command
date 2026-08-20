@@ -14,6 +14,13 @@ already shipped.
 
 ## Unreleased
 
+- **A second TikTok profile no longer knocks out the first.** Connecting TikTok
+  wrote to one shared slot, so a second account overwrote the first account's
+  connection — and extra TikTok accounts never posted at all, they just saved
+  as manual reminders. Every TikTok account now keeps its own connection,
+  profile and avatar, the Connect button appears on each one, and a clip posts
+  with the token belonging to the account it was booked to.
+
 - **The TikTok submission has a product page, terms and a privacy policy that
   describe software creators run — not one person's private dashboard.** The
   documents the reviewer read in July opened with "a personal content-operations
