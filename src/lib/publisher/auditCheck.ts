@@ -16,7 +16,8 @@ import path from "node:path";
  *
  *   npx tsx src/lib/publisher/auditCheck.ts
  *
- * Exit code 0 = approved, 10 = still unaudited, 1 = could not tell.
+ * Exit code 0 = approved, 10 = still unaudited, 11 = pointed at the sandbox
+ * app, whose answer can never change, 1 = could not tell.
  */
 
 // Runs outside Next, so load .env the way the publisher CLI does.
@@ -47,6 +48,7 @@ async function main() {
     process.exitCode = 1;
     return;
   }
+  const sandbox = tiktok.clientKey.startsWith("sbaw");
 
   const tokenRes = await fetch(`${API}/oauth/token/`, {
     method: "POST",
@@ -93,9 +95,13 @@ async function main() {
   const body = await res.text();
 
   if (body.includes("unaudited_client_can_only_post_to_private_accounts")) {
-    // A queued review and a REJECTED one look identical from here - TikTok
-    // says nothing over the API either way. docs/TIKTOK.md has the review
-    // history; the portal is the only place a decision appears.
+    if (sandbox) {
+      console.log(
+        "SANDBOX - TIKTOK_CLIENT_KEY is the sandbox app's key, and a sandbox app is unaudited by definition: this refusal will never lift, however the production review goes. Approval applies to the production app, so it only reaches this machine once TIKTOK_CLIENT_KEY and TIKTOK_CLIENT_SECRET are the production pair - the TIKTOK_AUDITED flag on its own changes nothing. See docs/TIKTOK.md."
+      );
+      process.exitCode = 11;
+      return;
+    }
     console.log(
       "NOT_APPROVED - Direct Post is still refused. That reads the same whether the review is queued or was rejected - developers.tiktok.com/apps is the only place that says which."
     );

@@ -15,6 +15,13 @@ already shipped.
 ## Unreleased
 
 - **The same short stopped being booked to Facebook two, three and five times.** Mirroring in shuffle mode only remembered which time slots a platform already had, not which clips — so any clip it already carried was dealt again into whatever slot was free, and every pass found more. 43 repeat bookings were sitting in the queue. A clip a platform already has is now skipped, and the mirror says so instead of silently doubling the post up.
+- **The TikTok audit watcher was watching an app that can never be approved.**
+  The client key in `.env` is the sandbox app's, and a sandbox app is unaudited
+  by definition — so the four-hourly "still waiting on the TikTok app audit"
+  was reporting a fixed answer, not a queue. It now says `SANDBOX` and names
+  what is actually missing: the production client key and secret, which is what
+  approval would apply to. The docs carry the same correction, so the day the
+  review clears, flipping `TIKTOK_AUDITED` alone will not look like a failure.
 
 - **The X mark on a slide is the X mark, not a typed letter X.** It is drawn
   from the logo's own outlines on its 24-unit grid — the wings and counter as
