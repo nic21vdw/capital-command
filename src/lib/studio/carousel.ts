@@ -1,6 +1,6 @@
 import { aiConfigured, runAi } from "@/lib/ai";
 import { parseAtSeconds, timecode, transcriptDigest, type TranscriptSegment } from "@/lib/carousels/anchors";
-import { carouselAngle, clampBatchCount, hookProblem, MAX_SLIDES, resolveSlideCount } from "@/lib/carousels/deck";
+import { carouselAngle, clampBatchCount, hookProblem, MAX_SLIDES, resolveSlideCount, titleCaseHeading } from "@/lib/carousels/deck";
 import { attachSlideBackdrops, attachSlideImages, type CarouselImage } from "@/lib/carousels/imageSlides";
 import { deskFramesForDeck } from "@/lib/carousels/bRoll";
 import { footageKind } from "@/lib/carousels/footage";
@@ -189,7 +189,9 @@ export function parseCarousel(text: string): { title: string; slides: SlideDraft
     if (!Array.isArray(parsed.slides)) return null;
     const slides = parsed.slides
       .map((slide) => ({
-        heading: typeof slide.heading === "string" ? slide.heading.trim() : "",
+        // Set as a headline here rather than at paint time, so the words in the
+        // editor are the words on the slide.
+        heading: typeof slide.heading === "string" ? titleCaseHeading(slide.heading.trim()) : "",
         body: typeof slide.body === "string" ? slide.body.trim() : "",
         atSeconds: parseAtSeconds(slide.atSeconds, 0)
       }))

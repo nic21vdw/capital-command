@@ -276,7 +276,14 @@ function roundedRectPath(ctx: SlideContext, x: number, y: number, w: number, h: 
   ctx.closePath();
 }
 
-function drawImageLayer(ctx: SlideContext, layer: Extract<SlideLayer, { type: "image" }>, img: SlideImage, w: number, h: number) {
+function drawImageLayer(
+  ctx: SlideContext,
+  layer: Extract<SlideLayer, { type: "image" }>,
+  img: SlideImage,
+  w: number,
+  h: number,
+  bandTop = 1
+) {
   const lx = layer.x * w;
   const ly = layer.y * h;
   const lw = layer.width * w;
@@ -297,7 +304,7 @@ function drawImageLayer(ctx: SlideContext, layer: Extract<SlideLayer, { type: "i
   const fit = layer.fit ?? "cover";
   if (fit === "frame") {
     paintCover(ctx, img, lx, ly, lw, lh, BACKDROP_BLUR_PX * Math.min(lw, lh));
-    paintContain(ctx, img, lx, ly, lw, lh, FRAME_POSITION);
+    paintContain(ctx, img, lx, ly, lw, lh, FRAME_POSITION, frameZoom(img, lw, lh, ly, bandTop * h));
   } else if (fit === "contain") {
     paintContain(ctx, img, lx, ly, lw, lh);
   } else {
@@ -311,19 +318,54 @@ const BACKDROP_BLUR_PX = 0.055;
 
 /**
  * Where a framed still sits in its box, read exactly as CSS `object-position`
- * reads it: the fraction of the LEFTOVER space that goes above the picture. High
- * up, because the copy is set underneath — and low enough a number that the
- * picture clears the copy band at 4:5, 1:1 and 9:16 alike, which is the whole
- * reason one layout can serve every ratio.
+ * reads it: the fraction of the LEFTOVER space that goes above the picture.
+ * Zero — the picture is flush with the top of the slide. A widescreen still in
+ * a 4:5 frame is far shorter than the slide it sits in, so anything above zero
+ * opens a band of blurred nothing across the top before the picture starts.
  *
  * The editor's DOM overlay is given the same number as an `object-position`, so
- * what is dragged is still what exports. Anything cleverer here (centre the
- * picture at a fraction of the slide) has no CSS equivalent and the two drift.
+ * what is dragged is still what exports.
  */
-export const FRAME_POSITION = 0.08;
+export const FRAME_POSITION = 0;
 
-function paintContain(ctx: SlideContext, img: SlideImage, lx: number, ly: number, lw: number, lh: number, position = 0.5) {
-  const scale = Math.min(lw / img.width, lh / img.height);
+/**
+ * How much bigger than `contain` a framed still is drawn. A 16:9 frame fitted
+ * inside a 4:5 slide is limited by its width, so it stops well short of the
+ * copy band and the slide reads as a small picture floating on a blur. Ten per
+ * cent closes that, at the cost of five per cent off each side — and the sides
+ * of a stream frame are the desk and the wall, not the middle of the shot.
+ *
+ * The editor scales its overlay by the same factor from the same origin.
+ */
+export const FRAME_ZOOM = 1.1;
+
+/**
+ * How much the still actually grows: up to FRAME_ZOOM, but never past the top
+ * of the copy band, and never below the size it fits at.
+ *
+ * The cap is what keeps one layout serving every frame. At 4:5 and 9:16 a
+ * widescreen still has room to spare above the copy and takes the full zoom; at
+ * 1:1 it does not, and takes what is there. A 16:9 slide has no room at all —
+ * the still already fills it — so the floor leaves that case exactly as it was.
+ */
+function frameZoom(img: SlideImage, lw: number, lh: number, ly: number, bandTop: number): number {
+  const contained = img.height * Math.min(lw / img.width, lh / img.height);
+  if (contained <= 0) return 1;
+  const room = bandTop - ly - contained * FRAME_POSITION;
+  return Math.max(1, Math.min(FRAME_ZOOM, room / contained));
+}
+
+function paintContain(
+  ctx: SlideContext,
+  img: SlideImage,
+  lx: number,
+  ly: number,
+  lw: number,
+  lh: number,
+  position = 0.5,
+  zoom = 1
+) {
+  const scale = Math.min(lw / img.width, lh / img.height) * zoom;
   const dw = img.width * scale;
   const dh = img.height * scale;
   ctx.drawImage(img, lx + (lw - dw) / 2, ly + (lh - dh) * position, dw, dh);
@@ -453,15 +495,31 @@ function fitCopy(
 /**
  * The channel signature that closes every slide. Nothing on a slide otherwise
  * says whose it is, and these decks get reposted stripped of their caption —
- * the mark and the name are the only thing that survives that.
+ * the marks and the names are the only thing that survives that.
  */
 export const SLIDE_SIGNATURE = "Nic Vandewetering";
+export const SLIDE_HANDLE = "@nvandewetering";
 
 /**
- * The YouTube mark, drawn rather than fetched. An external logo would taint the
- * canvas and `toBlob` then returns null for the whole slide, so the one piece of
- * brand furniture on every slide is built out of the same paths as the rest.
- * `arcTo` with a zero radius is a straight line — the play triangle.
+ * A four-cornered shape. `arcTo` with a zero radius is a straight line, which
+ * is the whole of what the marks below need — a `lineTo` would mean widening
+ * `SlideContext`, and every context this paints into has to implement it.
+ */
+function fillQuad(ctx: SlideContext, points: Array<[number, number]>) {
+  ctx.beginPath();
+  ctx.moveTo(points[0][0], points[0][1]);
+  for (let i = 1; i < points.length; i += 1) {
+    const next = points[(i + 1) % points.length];
+    ctx.arcTo(points[i][0], points[i][1], next[0], next[1], 0);
+  }
+  ctx.closePath();
+  ctx.fill();
+}
+
+/**
+ * The marks are drawn rather than fetched. An external logo taints the canvas
+ * and `toBlob` then returns null for the whole slide, so the one piece of brand
+ * furniture on every slide is built out of the same paths as everything else.
  */
 function drawYouTubeMark(ctx: SlideContext, x: number, y: number, markW: number, alpha: number) {
   const markH = markW * 0.7;
@@ -471,31 +529,76 @@ function drawYouTubeMark(ctx: SlideContext, x: number, y: number, markW: number,
   ctx.fill();
   const left = x + markW * 0.4;
   const tip = x + markW * 0.63;
-  const top = y + markH * 0.3;
-  const bottom = y + markH * 0.7;
   ctx.fillStyle = `rgba(255,255,255,${alpha.toFixed(2)})`;
-  ctx.beginPath();
-  ctx.moveTo(left, top);
-  ctx.arcTo(tip, y + markH / 2, left, bottom, 0);
-  ctx.arcTo(left, bottom, left, top, 0);
-  ctx.closePath();
-  ctx.fill();
+  fillQuad(ctx, [
+    [left, y + markH * 0.3],
+    [tip, y + markH / 2],
+    [left, y + markH * 0.7]
+  ]);
   ctx.restore();
 }
 
-/** Mark and name, centered at the foot of the slide, deliberately quiet. */
+/**
+ * The X mark: two crossing strokes, set in the same ink as the name beside it.
+ * Monochrome rather than boxed, because a black tile is invisible on a slide
+ * whose whole job is to be a dark still.
+ */
+function drawXMark(ctx: SlideContext, x: number, y: number, size: number, ink: string) {
+  const bar = size * 0.17;
+  const inset = size * 0.06;
+  const a = x + inset;
+  const b = x + size - inset;
+  const top = y + inset;
+  const bottom = y + size - inset;
+  ctx.save();
+  ctx.fillStyle = ink;
+  fillQuad(ctx, [
+    [a, top],
+    [a + bar, top],
+    [b, bottom],
+    [b - bar, bottom]
+  ]);
+  fillQuad(ctx, [
+    [b - bar, top],
+    [b, top],
+    [a + bar, bottom],
+    [a, bottom]
+  ]);
+  ctx.restore();
+}
+
+/**
+ * Both marks and both names, centred at the foot of the slide and deliberately
+ * quiet. Measured and placed by hand rather than aligned, because the row is
+ * two pictures and two pieces of copy that have to sit on one baseline.
+ */
 function drawSignature(ctx: SlideContext, w: number, h: number, scale: number, onDark: boolean) {
   const fontPx = 30 * scale;
   ctx.font = `600 ${fontPx}px ${SLIDE_FONT_STACK}`;
   ctx.textAlign = "left";
-  const markW = 46 * scale;
-  const gap = 16 * scale;
-  const textW = ctx.measureText(SLIDE_SIGNATURE).width;
-  const x = (w - (markW + gap + textW)) / 2;
+
+  const ytW = 46 * scale;
+  const xW = 32 * scale;
+  const markGap = 14 * scale;
+  const itemGap = 46 * scale;
+  const nameW = ctx.measureText(SLIDE_SIGNATURE).width;
+  const handleW = ctx.measureText(SLIDE_HANDLE).width;
+  const total = ytW + markGap + nameW + itemGap + xW + markGap + handleW;
+
+  const ink = onDark ? "rgba(255,255,255,0.74)" : COLATERAL_THEME.counter;
   const baseline = h - 56 * scale;
-  drawYouTubeMark(ctx, x, baseline - 25 * scale, markW, onDark ? 0.85 : 0.92);
-  ctx.fillStyle = onDark ? "rgba(255,255,255,0.74)" : COLATERAL_THEME.counter;
-  ctx.fillText(SLIDE_SIGNATURE, x + markW + gap, baseline);
+  let cursor = (w - total) / 2;
+
+  drawYouTubeMark(ctx, cursor, baseline - 25 * scale, ytW, onDark ? 0.85 : 0.92);
+  cursor += ytW + markGap;
+  ctx.fillStyle = ink;
+  ctx.fillText(SLIDE_SIGNATURE, cursor, baseline);
+  cursor += nameW + itemGap;
+
+  drawXMark(ctx, cursor, baseline - 25 * scale, xW, ink);
+  cursor += xW + markGap;
+  ctx.fillStyle = ink;
+  ctx.fillText(SLIDE_HANDLE, cursor, baseline);
 }
 
 /** Draws the channel base chrome (counter, heading, body, accent bar, signature). */
@@ -669,7 +772,7 @@ export function paintSlide(
   if (!options.skipImageLayers) {
     for (const layer of slideImageLayers(slide)) {
       const img = input.images?.get(layer.src);
-      if (img) drawImageLayer(ctx, layer, img, width, height);
+      if (img) drawImageLayer(ctx, layer, img, width, height, slide.textBand?.top ?? 1);
     }
   }
 
