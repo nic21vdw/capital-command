@@ -1,7 +1,7 @@
 import { recordQueueMutations, type QueueWriter } from "@/lib/publisher/audit";
 import { publisherConfig, type PublisherConfig } from "@/lib/publisher/config";
 import { mediaHost } from "@/lib/publisher/hosting";
-import { preSchedules } from "@/lib/publisher/nativeScheduling";
+import { preSchedulesItem } from "@/lib/publisher/nativeScheduling";
 import { rearmItem, type RearmScope } from "@/lib/publisher/rearm";
 import { FileQueueStore, R2QueueStore, type QueueStore } from "@/lib/publisher/store";
 import type { BufferState, PlatformId, PlatformState, PostResult, QueueItem } from "@/lib/publisher/types";
@@ -205,7 +205,7 @@ export class PublishQueue {
       if (isTerminalStatus(state.status) && !awaitingFlip) continue;
       const timeDue = awaitingFlip
         ? new Date(item.publishAt).getTime() <= now.getTime()
-        : preSchedules(platform) || new Date(item.publishAt).getTime() <= now.getTime();
+        : preSchedulesItem(platform, item, now) || new Date(item.publishAt).getTime() <= now.getTime();
       if (!timeDue) continue;
       if (state.nextAttemptAt && new Date(state.nextAttemptAt).getTime() > now.getTime()) continue;
       if (state.claimedAt) {

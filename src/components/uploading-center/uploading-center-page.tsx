@@ -670,12 +670,13 @@ export function UploadingCenterPage() {
           {id === "youtube" && configured && channel?.needsReconnect ? (
             <ReconnectYoutubeNotice accountId={activeAccount?.id} />
           ) : null}
-          {id === "tiktok" && !configured && activeAccount?.primary ? (
-            <ConnectTiktokNotice />
+          {id === "tiktok" && !configured ? (
+            <ConnectTiktokNotice
+              accountId={activeAccount?.id}
+              primary={activeAccount?.primary}
+            />
           ) : null}
-          {id !== "youtube" &&
-          !configured &&
-          !(id === "tiktok" && activeAccount?.primary) ? (
+          {id !== "youtube" && id !== "tiktok" && !configured ? (
             <p className="flex items-center gap-2 rounded-lg border border-amber-400/25 bg-amber-400/8 px-3 py-2 text-xs text-amber-200">
               <AlertTriangle className="h-4 w-4 shrink-0" />
               {PLATFORM_LABELS[id]} isn&apos;t connected yet — assignments save
@@ -817,6 +818,7 @@ export function UploadingCenterPage() {
                 activeJob={activeJob}
                 onSelectJob={setActiveJobId}
                 clips={readyClips}
+                tiktokAccountId={activeAccountIds.tiktok}
                 slots={slots}
                 draftFor={draftFor}
                 onDraftChange={onDraftChange}
@@ -1020,19 +1022,31 @@ function connectUrl(accountId?: string) {
     : "/api/auth/google";
 }
 
-function ConnectTiktokNotice() {
+function tiktokConnectUrl(accountId?: string) {
+  return accountId
+    ? `/api/auth/tiktok?account=${encodeURIComponent(accountId)}`
+    : "/api/auth/tiktok";
+}
+
+function ConnectTiktokNotice({
+  accountId,
+  primary,
+}: {
+  accountId?: string;
+  primary?: boolean;
+}) {
   return (
     <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-amber-400/25 bg-amber-400/8 px-3 py-2">
       <p className="flex items-center gap-2 text-xs text-amber-200">
         <AlertTriangle className="h-4 w-4 shrink-0" />
-        TikTok isn&apos;t connected — new assignments save as manual reminders
-        instead of posting. Connecting needs TIKTOK_CLIENT_KEY and
-        TIKTOK_CLIENT_SECRET in .env first.
+        {primary
+          ? "TikTok isn't connected — new assignments save as manual reminders instead of posting. Connecting needs TIKTOK_CLIENT_KEY and TIKTOK_CLIENT_SECRET in .env first."
+          : "This TikTok account isn't connected yet — sign in to the profile it posts as. Its own connection is kept separate, so connecting it leaves your other TikTok accounts alone."}
       </p>
       <Button
         variant="secondary"
         className="h-8 px-3 text-xs"
-        onClick={() => (window.location.href = "/api/auth/tiktok")}
+        onClick={() => (window.location.href = tiktokConnectUrl(accountId))}
       >
         Connect TikTok
       </Button>

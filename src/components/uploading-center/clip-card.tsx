@@ -138,6 +138,7 @@ export function summarizePlatformState(
 export function ClipCard({
   clip,
   draft,
+  tiktokAccountId,
   slots,
   isSlotTaken,
   scheduledItems,
@@ -153,6 +154,7 @@ export function ClipCard({
 }: {
   clip: ReadyClip;
   draft: ClipDraft;
+  tiktokAccountId: string;
   slots: ScheduleSlot[];
   /** True when the slot is already booked on the card's target — on every one
    *  of its platforms when that target is "All platforms". */
@@ -287,7 +289,7 @@ export function ClipCard({
             </p>
           ) : null}
           {tiktokTargeted ? (
-            <TiktokConsent value={draft.tiktok} onChange={(tiktok) => onDraftChange({ ...draft, tiktok })} />
+            <TiktokConsent value={draft.tiktok} accountId={tiktokAccountId} onChange={(tiktok) => onDraftChange({ ...draft, tiktok })} />
           ) : null}
           <div className="flex flex-wrap items-center gap-2">
             <Select
@@ -367,7 +369,7 @@ export function ClipCard({
                     return (
                       <div key={`${item.id}:${platform}`} className="space-y-0.5 text-xs">
                         <div className="flex items-center gap-2 text-[var(--muted-foreground)]">
-                          <StatusChip status={state.status} platform={platform} />
+                          <StatusChip status={state.status} platform={platform} item={item} />
                           <span className="truncate font-medium text-white">{PLATFORM_LABELS[platform]}</span>
                           {summary.uploaded ? (
                             <span className="inline-flex items-center gap-1 whitespace-nowrap text-emerald-300">

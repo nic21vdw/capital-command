@@ -70,23 +70,82 @@ Do not submit Lane B until the checklist is honestly complete. A second
 rejection on the same grounds is worse than not submitting — the reviewer sees
 the history.
 
+## The framing that makes Lane B honest
+
+The original checklist assumed Capital Command would become a hosted service
+other creators sign into. It cannot be that without a build nobody has agreed
+to: there is no login, no user model, and every data path resolves from
+`process.cwd()` — one folder, one operator. Worse, the same app serves the
+private screens (`/finance`, `/holdings`, `/notes`), so the running instance
+can never be the public demo.
+
+There is a second framing, and it is both true and acceptable to TikTok:
+**self-hosted software**. Each creator installs their own copy and connects
+their own account to it. That is exactly what the app already is, and it is not
+"personal or company internal use" — it is a tool distributed to creators, the
+same category as any open-source publishing client.
+
+Everything below assumes that framing. `site/` is written to it.
+
+## What you can and cannot claim today
+
+Checked against the code on 2026-08-19. **Do not submit a sentence from the
+column that is not true yet.**
+
+| Claim | True? | Why |
+|---|---|---|
+| "Creators connect their own TikTok account" | **yes**, per install | The OAuth flow is real and works. One connection per copy of the app. |
+| "Creators connect their accounts" (plural, one install) | **yes** | Each account has its own `tiktok.refreshToken.<accountId>` entry, its own cached profile and its own mirrored avatar; the adapter refreshes with the token belonging to the account the clip is booked to. Connecting a second profile leaves the first alone. |
+| "The creator picks privacy, interactions and disclosure before posting" | **yes** | The consent panel, and enforced again server-side. |
+| "We query `creator_info` before every direct post" | **yes** | `withCurrentCreatorSettings()` in the adapter. |
+| "Clips post automatically at a scheduled time" | **yes** | The publish runner does this today for YouTube, Instagram, Facebook and Threads; TikTok is inbox-only until approval. |
+| "Open source" | **not yet** | `nic21vdw/capital-command` is a **private** repo. `site/index.html` says open source and self-hosted, and that sentence becomes false the moment a reviewer checks. Either make the repo public, or cut the claim from the page before it is submitted. |
+| "Hosted at &lt;domain&gt;" | **not yet** | No domain is registered and no host is connected. See below. |
+
 ## Lane B checklist — must be true before you submit
 
-1. **A real domain serving a real product page.** Not a raw GitHub URL. The
-   page describes what creators get and how to connect their account.
-2. **Terms and Privacy rewritten and hosted on that domain.** They currently
-   declare personal use in their first line. That line has to go, and what
-   replaces it has to be true of the product.
-3. **A redirect URI on that domain**, registered in the portal alongside
-   localhost. A reviewer who only sees `localhost` sees an internal tool.
+1. **A real domain serving the product page.** Not a raw GitHub URL. ~~Write
+   the page.~~ Done — `site/index.html`. It still needs a domain and a host;
+   both are yours to buy and sign into.
+2. ~~**Terms and Privacy rewritten.**~~ Done — `site/terms.html`,
+   `site/privacy.html`, mirrored into `TERMS.md` and `PRIVACY.md` so the
+   currently-registered raw GitHub URLs stop saying "personal
+   content-operations dashboard" the moment they are fetched.
+3. **A redirect URI on that domain**, registered alongside localhost. Note what
+   this actually means under the self-hosted framing: the callback runs on the
+   creator's own machine, so `http://localhost:3000/api/auth/tiktok/callback`
+   is the honest one and should stay. Add the domain-based URI only if you
+   genuinely serve the app there.
 4. ~~**The Direct Post consent panel built.**~~ Done — see the table above.
-   While the app is unaudited it will only let a direct post ask for **Only
-   you**, because that is all TikTok accepts; everything wider is refused
-   before a byte is uploaded.
-5. **A creator who is not you can connect and post.** If that is not true, the
-   description in the next section is not true either, and this is Lane A.
+5. **Decide the open-source claim.** Make the repo public, or edit the page.
+   Do not submit with it unresolved.
+6. **A creator who is not you can install it and connect their own account.**
+   Under the self-hosted framing this is achievable: it means the setup
+   documented in `LOCAL_SETUP.md` works for somebody else, on their machine,
+   with their own TikTok app credentials. Test it with one person before you
+   claim it.
 
-Steps 1–3 are copy and DNS. Step 5 is the honest test. Step 4 is built.
+## Publishing `site/`
+
+Three static files and a stylesheet, no build step. Any static host serves it:
+
+```
+site/index.html      the product page — the Web/Desktop URL to register
+site/terms.html      the Terms of Service URL to register
+site/privacy.html    the Privacy Policy URL to register
+site/style.css
+```
+
+Preview it exactly as a reviewer will see it:
+
+```
+cd site && python -m http.server 8765
+```
+
+Hosting it needs an account nobody but you can sign into. Cloudflare Pages is
+the shortest route — the Cloudflare account behind `S3_ENDPOINT` already
+exists, Pages is free, and a custom domain is a DNS record on the same
+dashboard. GitHub Pages is not an option while the repo is private.
 
 ## The copy
 
@@ -102,8 +161,10 @@ read it, change the app or change the sentence — do not submit it as-is.**
 
 ### App review notes (max 1000 characters)
 
-> Capital Command turns a creator's long-form video into short clips and posts
-> them to the accounts they connect, on a schedule they set.
+> Capital Command is self-hosted software for creators. It turns a creator's
+> long-form video into short clips and posts them to the TikTok account they
+> connect, on a schedule they set. Each creator runs their own copy, so the
+> video, the schedule and the tokens stay on their machine.
 >
 > Login Kit + user.info.basic: the creator connects their TikTok account with
 > OAuth. We read display name, avatar and username only, to show which account
@@ -117,9 +178,10 @@ read it, change the app or change the sentence — do not submit it as-is.**
 > Content Posting API + video.upload: creators who prefer to caption in TikTok
 > choose "send to inbox", and the clip arrives as a draft to finish there.
 >
-> Changes in this version: the product is hosted at <DOMAIN> with its own terms
-> and privacy policy; the export screen implements the required consent UX; a
-> redirect URI on <DOMAIN> replaces the localhost-only setup.
+> Changes in this version: the product page, terms and privacy policy are
+> hosted at <DOMAIN> and describe the software creators run, replacing the
+> earlier documents that described one operator's own dashboard; the export
+> screen implements the required consent UX.
 
 *(975 characters with a 15-character domain substituted twice, so there is
 room for a longer one. The portal counts as you type — trim the last paragraph
@@ -143,12 +205,21 @@ No cuts that hide a step — a cut where a decision happens reads as something
 hidden. Narrate with captions or voice; silence makes the reviewer guess.
 
 The domain in the address bar must match the website registered for the app,
-in every shot. This is the most common cause of a repeat rejection.
+in every shot. This is the most common cause of a repeat rejection. For a
+self-hosted app that means shot 1 is on `<DOMAIN>` and the app shots are on
+`localhost` — which is honest and consistent with what you submitted, provided
+the review notes say the creator runs their own copy. Do not fake a domain over
+the app.
+
+**Keep the private screens off camera.** The sidebar reaches `/finance`,
+`/holdings`, `/goals` and `/notes`. None of it belongs in a video a stranger
+reviews. Record with the window sized so only the Uploading Center is in frame,
+or collapse the sidebar first.
 
 | # | Shot | What must be on screen |
 |---|---|---|
-| 1 | Product page at `<DOMAIN>` | The public page, address bar visible. Two seconds is enough — it establishes that this is not localhost. |
-| 2 | Sign in, open the Uploading Center | The app's own UI on the same domain. |
+| 1 | Product page at `<DOMAIN>` | `site/index.html` live on the registered domain, address bar visible. Hold on the "What the TikTok connection does" section — it states the three scopes in the same words as the review notes, which is the fastest way for a reviewer to match them. |
+| 2 | Open the Uploading Center | The creator's own installation. Sidebar collapsed; no finance, holdings, goals or notes on screen. |
 | 3 | **Connect TikTok** | Click it; the TikTok OAuth consent screen appears with the scopes listed; authorize; land back in the app with the account chip showing avatar, display name and @handle. That is `user.info.basic`, on camera. |
 | 4 | Pick a clip | The clip card with its video preview and caption — the "preview of the to-be-posted content" the guidelines require. |
 | 5 | Open the export panel | Choose **Post straight to my profile**. Privacy dropdown **unselected**, interaction toggles **all off**, commercial-content toggle **off**. Hold two seconds so the defaults are legible. |

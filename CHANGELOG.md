@@ -31,6 +31,22 @@ already shipped.
   and says so, instead of coming back split in two. The one- and two-segment
   splits already sitting on the short app-demo uploads are cleared out —
   nothing that had been rendered is touched.
+- **A second TikTok profile no longer knocks out the first.** Connecting TikTok
+  wrote to one shared slot, so a second account overwrote the first account's
+  connection — and extra TikTok accounts never posted at all, they just saved
+  as manual reminders. Every TikTok account now keeps its own connection,
+  profile and avatar, the Connect button appears on each one, and a clip posts
+  with the token belonging to the account it was booked to.
+
+- **The TikTok submission has a product page, terms and a privacy policy that
+  describe software creators run — not one person's private dashboard.** The
+  documents the reviewer read in July opened with "a personal content-operations
+  dashboard", which is the exact thing TikTok said it would not approve. They
+  are rewritten and live in `site/`, mirrored into `TERMS.md` and `PRIVACY.md`
+  so the URLs already registered with TikTok stop contradicting the new ones.
+  `docs/TIKTOK-RESUBMISSION.md` now names, claim by claim, which sentences are
+  true today and which two are not — the repo is private, so "open source" is
+  not yet one of them.
 
 - **The same short stopped being booked to Facebook two, three and five times.** Mirroring in shuffle mode only remembered which time slots a platform already had, not which clips — so any clip it already carried was dealt again into whatever slot was free, and every pass found more. 43 repeat bookings were sitting in the queue. A clip a platform already has is now skipped, and the mirror says so instead of silently doubling the post up.
 - **The TikTok audit watcher was watching an app that can never be approved.**
@@ -93,6 +109,21 @@ already shipped.
   requires for Direct Post that the Uploading Center does not have), what has
   to be true before submitting again, the description and review notes to
   paste, the demo video shot by shot, and the portal click-through.
+- **Facebook now holds your posts for you — Reels and carousels both.** A short
+  or a deck booked for the Page used to sit here until its slot came round and
+  only then start uploading — so nothing existed on Facebook until the minute it
+  went out, and a missed run was a missed post. Anything whose slot is between
+  15 minutes and 28 days away is now handed to Facebook straight away with the
+  time on it: a Reel through the finish call, a carousel as unpublished photos
+  under a feed post carrying the scheduled time. Facebook publishes it itself,
+  and the board says **Scheduled**. At the slot the app checks Facebook actually
+  published it and publishes it itself if not, the same follow-through YouTube
+  has always had. Four go up per run, so the backlog drains over an evening
+  instead of uploading hundreds of posts at once.
+  `npm run publish:facebook:verify` proves the whole thing against the real Page
+  with one post and no queue involved. If Facebook ever refuses to hold a post,
+  it is not failed — it is put back to its slot and published there, the way it
+  was before this existed.
 
 - **Booking a stream's outputs now hands them to the platforms straight away.**
   The pipeline used to write everything into the queue and leave it for the

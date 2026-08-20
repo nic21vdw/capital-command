@@ -21,6 +21,26 @@ describe("publish queue state machine", () => {
     expect(queue.duePlatforms(item, DUE).sort()).toEqual(["instagram", "tiktok", "youtube"]);
   });
 
+  it("a Facebook post is due as soon as its slot is inside Facebook's window", async () => {
+    const { queue } = makeQueue();
+    const now = new Date("2026-07-01T00:00:00.000Z");
+    const inAWeek = testItem({ publishAt: "2026-07-08T00:00:00.000Z", platformIds: ["facebook"] });
+    const inThreeMonths = testItem({ publishAt: "2026-10-01T00:00:00.000Z", platformIds: ["facebook"] });
+    const deck = testItem({
+      publishAt: "2026-07-08T00:00:00.000Z",
+      platformIds: ["facebook"],
+      mediaKind: "image",
+      imagePaths: ["data/carousels/deck/slide-1.png"]
+    });
+
+    expect(queue.duePlatforms(inAWeek, now)).toEqual(["facebook"]);
+    // Past Facebook's 29 days: uploading it now would leave a Reel with
+    // nothing holding it back.
+    expect(queue.duePlatforms(inThreeMonths, now)).toEqual([]);
+    // A deck is scheduled the same way — published=false with the time on it.
+    expect(queue.duePlatforms(deck, now)).toEqual(["facebook"]);
+  });
+
   it("terminal states are never due again (idempotency)", async () => {
     const { queue } = makeQueue();
     const item = testItem({ publishAt: PUBLISH_AT });

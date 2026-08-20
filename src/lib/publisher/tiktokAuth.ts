@@ -4,6 +4,7 @@ import path from "node:path";
 import { dataPath } from "@/lib/paths";
 import { publisherConfig } from "@/lib/publisher/config";
 import { fetchJson } from "@/lib/publisher/http";
+import { primaryAccountId, tiktokCreatorKey, tiktokRefreshTokenKey } from "@/lib/publisher/accounts";
 import { getCachedToken, setCachedToken } from "@/lib/publisher/tokens";
 
 /**
@@ -38,11 +39,31 @@ const CREATOR_INFO_URL = "https://open.tiktokapis.com/v2/post/publish/creator_in
 // "Connected as …" badge reads.
 const SCOPE = "user.info.basic,video.publish,video.upload";
 
-export const TIKTOK_REFRESH_TOKEN_CACHE_KEY = "tiktok.refreshToken";
-export const TIKTOK_CREATOR_CACHE_KEY = "tiktok.creator";
-export const TIKTOK_AVATAR_URL = "/api/publish/tiktok-avatar";
-const VERIFIER_CACHE_KEY = "tiktok.codeVerifier";
+export const TIKTOK_REFRESH_TOKEN_CACHE_KEY = tiktokRefreshTokenKey();
+export const TIKTOK_CREATOR_CACHE_KEY = tiktokCreatorKey();
+const AVATAR_ROUTE = "/api/publish/tiktok-avatar";
+export const TIKTOK_AVATAR_URL = AVATAR_ROUTE;
 const AVATAR_BASENAME = "tiktok-avatar";
+
+function primaryTiktok(): string {
+  return primaryAccountId("tiktok");
+}
+
+function verifierKey(accountId: string): string {
+  return accountId === primaryTiktok() ? "tiktok.codeVerifier" : `tiktok.codeVerifier.${accountId}`;
+}
+
+/**
+ * The avatar route for an account. The primary keeps the bare path so URLs
+ * already stored in a cached profile stay valid.
+ */
+export function tiktokAvatarUrl(accountId: string = primaryAccountId("tiktok")): string {
+  return accountId === primaryAccountId("tiktok") ? AVATAR_ROUTE : `${AVATAR_ROUTE}?account=${encodeURIComponent(accountId)}`;
+}
+
+function avatarBasename(accountId: string): string {
+  return accountId === primaryTiktok() ? AVATAR_BASENAME : `${AVATAR_BASENAME}-${accountId}`;
+}
 const AVATAR_EXTS = ["webp", "jpg", "jpeg", "png"] as const;
 
 export type TiktokCreatorInfo = { title: string; thumbnail: string | null; handle: string | null };
@@ -66,11 +87,13 @@ function extToContentType(ext: string): string {
 }
 
 function isLocalAvatarUrl(thumbnail: string | null | undefined): boolean {
-  return thumbnail === TIKTOK_AVATAR_URL || Boolean(thumbnail?.startsWith(`${TIKTOK_AVATAR_URL}?`));
+  return thumbnail === AVATAR_ROUTE || Boolean(thumbnail?.startsWith(`${AVATAR_ROUTE}?`));
 }
 
 /** The mirrored avatar file on disk, if a connect or refresh already wrote one. */
-export async function resolveTiktokAvatarFile(): Promise<{ path: string; contentType: string } | null> {
+export async function resolveTiktokAvatarFile(
+  accountId: string = primaryAccountId("tiktok")
+): Promise<{ path: string; contentType: string } | null> {
   const dir = avatarDir();
   let names: string[] = [];
   try {
@@ -79,7 +102,7 @@ export async function resolveTiktokAvatarFile(): Promise<{ path: string; content
     return null;
   }
   for (const ext of AVATAR_EXTS) {
-    const name = `${AVATAR_BASENAME}.${ext}`;
+    const name = `${avatarBasename(accountId)}.${ext}`;
     if (!names.includes(name)) continue;
     const filePath = path.join(dir, name);
     try {
@@ -92,7 +115,7 @@ export async function resolveTiktokAvatarFile(): Promise<{ path: string; content
   return null;
 }
 
-async function clearMirroredAvatars(): Promise<void> {
+async function clearMirroredAvatars(accountId: string): Promise<void> {
   const dir = avatarDir();
   let names: string[] = [];
   try {
@@ -102,7 +125,7 @@ async function clearMirroredAvatars(): Promise<void> {
   }
   await Promise.all(
     AVATAR_EXTS.map(async (ext) => {
-      const name = `${AVATAR_BASENAME}.${ext}`;
+      const name = `${avatarBasename(accountId)}.${ext}`;
       if (!names.includes(name)) return;
       await unlink(path.join(dir, name)).catch(() => undefined);
     })
@@ -110,7 +133,7 @@ async function clearMirroredAvatars(): Promise<void> {
 }
 
 /** Pulls a signed CDN avatar into data/publisher so the UI never depends on it. */
-async function mirrorAvatar(remoteUrl: string): Promise<boolean> {
+async function mirrorAvatar(remoteUrl: string, accountId: string): Promise<boolean> {
   try {
     const response = await fetch(remoteUrl);
     if (!response.ok) return false;
@@ -119,8 +142,8 @@ async function mirrorAvatar(remoteUrl: string): Promise<boolean> {
     const ext = contentTypeToExt(response.headers.get("content-type"));
     const dir = avatarDir();
     await mkdir(dir, { recursive: true });
-    await clearMirroredAvatars();
-    await writeFile(path.join(dir, `${AVATAR_BASENAME}.${ext}`), buffer);
+    await clearMirroredAvatars(accountId);
+    await writeFile(path.join(dir, `${avatarBasename(accountId)}.${ext}`), buffer);
     return true;
   } catch {
     return false;
@@ -132,16 +155,17 @@ async function mirrorAvatar(remoteUrl: string): Promise<boolean> {
  * the remote is already expired, returns the profile with a null thumbnail so
  * the caller can refresh for a fresh URL.
  */
-async function withLocalAvatar(info: TiktokCreatorInfo): Promise<TiktokCreatorInfo> {
+async function withLocalAvatar(info: TiktokCreatorInfo, accountId: string): Promise<TiktokCreatorInfo> {
+  const local = tiktokAvatarUrl(accountId);
   if (!info.thumbnail) {
-    if (await resolveTiktokAvatarFile()) return { ...info, thumbnail: TIKTOK_AVATAR_URL };
+    if (await resolveTiktokAvatarFile(accountId)) return { ...info, thumbnail: local };
     return info;
   }
   if (isLocalAvatarUrl(info.thumbnail)) {
-    if (await resolveTiktokAvatarFile()) return { ...info, thumbnail: TIKTOK_AVATAR_URL };
+    if (await resolveTiktokAvatarFile(accountId)) return { ...info, thumbnail: local };
     return { ...info, thumbnail: null };
   }
-  if (await mirrorAvatar(info.thumbnail)) return { ...info, thumbnail: TIKTOK_AVATAR_URL };
+  if (await mirrorAvatar(info.thumbnail, accountId)) return { ...info, thumbnail: local };
   return info;
 }
 
@@ -168,7 +192,10 @@ function codeChallenge(verifier: string): string {
   return createHash("sha256").update(verifier).digest("hex");
 }
 
-export async function tiktokAuthUrl(redirectUri: string): Promise<string> {
+export async function tiktokAuthUrl(
+  redirectUri: string,
+  accountId: string = primaryAccountId("tiktok")
+): Promise<string> {
   const { tiktok } = publisherConfig();
   if (!tiktok.clientKey || !tiktok.clientSecret) {
     throw new Error(
@@ -177,13 +204,15 @@ export async function tiktokAuthUrl(redirectUri: string): Promise<string> {
     );
   }
   const verifier = randomBytes(48).toString("hex");
-  await setCachedToken(VERIFIER_CACHE_KEY, verifier);
+  await setCachedToken(verifierKey(accountId), verifier);
   const params = new URLSearchParams({
     client_key: tiktok.clientKey,
     response_type: "code",
     scope: SCOPE,
     redirect_uri: redirectUri,
-    state: randomBytes(12).toString("hex"),
+    // The account being connected rides back in state, so the callback stores
+    // the minted token under the right key instead of the primary's.
+    state: accountId,
     code_challenge: codeChallenge(verifier),
     code_challenge_method: "S256"
   });
@@ -191,12 +220,16 @@ export async function tiktokAuthUrl(redirectUri: string): Promise<string> {
 }
 
 /** Exchanges the callback code and persists the refresh token backend-side. */
-export async function exchangeTiktokCode(code: string, redirectUri: string): Promise<void> {
+export async function exchangeTiktokCode(
+  code: string,
+  redirectUri: string,
+  accountId: string = primaryAccountId("tiktok")
+): Promise<void> {
   const { tiktok } = publisherConfig();
   if (!tiktok.clientKey || !tiktok.clientSecret) {
     throw new Error("TIKTOK_CLIENT_KEY / TIKTOK_CLIENT_SECRET are not configured.");
   }
-  const verifier = await getCachedToken(VERIFIER_CACHE_KEY);
+  const verifier = await getCachedToken(verifierKey(accountId));
   if (!verifier) {
     throw new Error("This connection attempt expired — click Connect TikTok again.");
   }
@@ -224,14 +257,14 @@ export async function exchangeTiktokCode(code: string, redirectUri: string): Pro
       `TikTok returned no refresh token: ${data.error ?? ""} ${data.error_description ?? ""}`.trim()
     );
   }
-  await setCachedToken(TIKTOK_REFRESH_TOKEN_CACHE_KEY, data.refresh_token);
-  await setCachedToken(VERIFIER_CACHE_KEY, "");
+  await setCachedToken(tiktokRefreshTokenKey(accountId), data.refresh_token);
+  await setCachedToken(verifierKey(accountId), "");
   if (data.access_token) {
     try {
       const info = await fetchCreatorInfo(data.access_token);
       if (info) {
-        const localized = await withLocalAvatar(info);
-        await setCachedToken(TIKTOK_CREATOR_CACHE_KEY, JSON.stringify(localized));
+        const localized = await withLocalAvatar(info, accountId);
+        await setCachedToken(tiktokCreatorKey(accountId), JSON.stringify(localized));
       }
     } catch {
       // The badge falls back to plain "TikTok connected"; the connection itself succeeded.
@@ -286,13 +319,16 @@ async function fetchCreatorInfo(accessToken: string): Promise<TiktokCreatorInfo 
  * is not connected. Exported for the routes that have to ask TikTok something
  * on the creator's behalf, such as the consent panel's creator_info lookup.
  */
-export async function tiktokAccessToken(): Promise<string | null> {
-  return accessTokenFromRefresh();
+export async function tiktokAccessToken(accountId: string = primaryAccountId("tiktok")): Promise<string | null> {
+  return accessTokenFromRefresh(accountId);
 }
 
-async function accessTokenFromRefresh(): Promise<string | null> {
+async function accessTokenFromRefresh(accountId: string): Promise<string | null> {
   const { tiktok } = publisherConfig();
-  const refreshToken = (await getCachedToken(TIKTOK_REFRESH_TOKEN_CACHE_KEY)) ?? tiktok.refreshToken;
+  // Only the primary falls back to the .env seed; an added account exists
+  // solely as the token its own connect flow minted.
+  const cached = await getCachedToken(tiktokRefreshTokenKey(accountId));
+  const refreshToken = cached ?? (accountId === primaryTiktok() ? tiktok.refreshToken : null);
   if (!tiktok.clientKey || !tiktok.clientSecret || !refreshToken) return null;
   const data = await fetchJson<{ access_token?: string; refresh_token?: string }>(TOKEN_URL, {
     label: "TikTok token refresh",
@@ -307,17 +343,17 @@ async function accessTokenFromRefresh(): Promise<string | null> {
   // TikTok rotates the refresh token on use; dropping the new one strands the
   // connection until someone reconnects by hand.
   if (data?.refresh_token && data.refresh_token !== refreshToken) {
-    await setCachedToken(TIKTOK_REFRESH_TOKEN_CACHE_KEY, data.refresh_token);
+    await setCachedToken(tiktokRefreshTokenKey(accountId), data.refresh_token);
   }
   return data?.access_token ?? null;
 }
 
-// One network refresh per process — enough to recover an expired CDN avatar
-// without hammering TikTok on every sidebar poll.
-let creatorRefetched = false;
+// One network refresh per process per account — enough to recover an expired
+// CDN avatar without hammering TikTok on every sidebar poll.
+const creatorRefetched = new Set<string>();
 
-async function readStoredCreator(): Promise<TiktokCreatorInfo | null> {
-  const cached = await getCachedToken(TIKTOK_CREATOR_CACHE_KEY);
+async function readStoredCreator(accountId: string): Promise<TiktokCreatorInfo | null> {
+  const cached = await getCachedToken(tiktokCreatorKey(accountId));
   if (!cached) return null;
   try {
     return JSON.parse(cached) as TiktokCreatorInfo;
@@ -326,9 +362,9 @@ async function readStoredCreator(): Promise<TiktokCreatorInfo | null> {
   }
 }
 
-async function persistCreator(info: TiktokCreatorInfo): Promise<TiktokCreatorInfo> {
-  const localized = await withLocalAvatar(info);
-  await setCachedToken(TIKTOK_CREATOR_CACHE_KEY, JSON.stringify(localized));
+async function persistCreator(info: TiktokCreatorInfo, accountId: string): Promise<TiktokCreatorInfo> {
+  const localized = await withLocalAvatar(info, accountId);
+  await setCachedToken(tiktokCreatorKey(accountId), JSON.stringify(localized));
   return localized;
 }
 
@@ -336,41 +372,42 @@ async function persistCreator(info: TiktokCreatorInfo): Promise<TiktokCreatorInf
  * True when the cached profile still needs a TikTok round-trip: no handle,
  * no local avatar on disk, or a remote CDN thumbnail that may already be dead.
  */
-async function needsCreatorRefresh(stored: TiktokCreatorInfo | null): Promise<boolean> {
+async function needsCreatorRefresh(stored: TiktokCreatorInfo | null, accountId: string): Promise<boolean> {
   if (!stored?.handle) return true;
-  if (isLocalAvatarUrl(stored.thumbnail) && (await resolveTiktokAvatarFile())) return false;
+  if (isLocalAvatarUrl(stored.thumbnail) && (await resolveTiktokAvatarFile(accountId))) return false;
   if (stored.thumbnail?.startsWith("http")) {
-    if (await mirrorAvatar(stored.thumbnail)) {
-      stored.thumbnail = TIKTOK_AVATAR_URL;
-      await setCachedToken(TIKTOK_CREATOR_CACHE_KEY, JSON.stringify(stored));
+    if (await mirrorAvatar(stored.thumbnail, accountId)) {
+      stored.thumbnail = tiktokAvatarUrl(accountId);
+      await setCachedToken(tiktokCreatorKey(accountId), JSON.stringify(stored));
       return false;
     }
     return true;
   }
-  return !(await resolveTiktokAvatarFile());
+  return !(await resolveTiktokAvatarFile(accountId));
 }
 
 /** The connected account's display name, @handle and avatar, when known. */
-export async function tiktokCreatorInfo(): Promise<TiktokCreatorInfo | null> {
-  const stored = await readStoredCreator();
-  if (!(await needsCreatorRefresh(stored))) {
-    return stored ? { ...stored, thumbnail: TIKTOK_AVATAR_URL } : null;
+export async function tiktokCreatorInfo(
+  accountId: string = primaryAccountId("tiktok")
+): Promise<TiktokCreatorInfo | null> {
+  const stored = await readStoredCreator(accountId);
+  if (!(await needsCreatorRefresh(stored, accountId))) {
+    return stored ? { ...stored, thumbnail: tiktokAvatarUrl(accountId) } : null;
   }
-  if (creatorRefetched) {
+  if (creatorRefetched.has(accountId)) {
     if (!stored) return null;
-    const localized = await withLocalAvatar(stored);
-    return localized;
+    return withLocalAvatar(stored, accountId);
   }
-  creatorRefetched = true;
-  const accessToken = await accessTokenFromRefresh();
+  creatorRefetched.add(accountId);
+  const accessToken = await accessTokenFromRefresh(accountId);
   if (!accessToken) {
     if (!stored) return null;
-    return withLocalAvatar(stored);
+    return withLocalAvatar(stored, accountId);
   }
   const fresh = await fetchCreatorInfo(accessToken);
   if (!fresh) {
     if (!stored) return null;
-    return withLocalAvatar(stored);
+    return withLocalAvatar(stored, accountId);
   }
-  return persistCreator(fresh);
+  return persistCreator(fresh, accountId);
 }

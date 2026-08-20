@@ -297,3 +297,76 @@ describe("tiktokRedirectUri", () => {
     expect(tiktokRedirectUri("http://localhost:3000")).toBe("http://127.0.0.1:3000/api/auth/tiktok/callback");
   });
 });
+
+describe("a second TikTok account", () => {
+  const EXTRA = "tiktok-abc12345";
+
+  function connectRoutes(name: string, handle: string, avatar: string, refresh: string) {
+    return mockFetchRoutes([
+      {
+        match: "/v2/oauth/token/",
+        respond: () => jsonResponse({ access_token: `at-${handle}`, refresh_token: refresh })
+      },
+      {
+        match: "/v2/user/info/",
+        respond: () => jsonResponse({ data: { user: { display_name: name, avatar_url: avatar, username: handle } } })
+      },
+      { match: avatar, respond: () => avatarResponse() }
+    ]);
+  }
+
+  it("keeps its token, its profile and its avatar apart from the primary's", async () => {
+    connectRoutes("Nic", "nic", "https://cdn/nic.jpg", "refresh-primary");
+    const { tiktokAuthUrl, exchangeTiktokCode, tiktokCreatorInfo, tiktokAvatarUrl, resolveTiktokAvatarFile } =
+      await load();
+    await tiktokAuthUrl(REDIRECT);
+    await exchangeTiktokCode("code-primary", REDIRECT);
+
+    connectRoutes("Side Channel", "side", "https://cdn/side.jpg", "refresh-extra");
+    await tiktokAuthUrl(REDIRECT, EXTRA);
+    await exchangeTiktokCode("code-extra", REDIRECT, EXTRA);
+
+    // The primary's connection is untouched by the second one.
+    expect(cache.get("tiktok.refreshToken")).toBe("refresh-primary");
+    expect(cache.get(`tiktok.refreshToken.${EXTRA}`)).toBe("refresh-extra");
+
+    expect(await tiktokCreatorInfo()).toEqual({
+      title: "Nic",
+      thumbnail: tiktokAvatarUrl(),
+      handle: "nic"
+    });
+    expect(await tiktokCreatorInfo(EXTRA)).toEqual({
+      title: "Side Channel",
+      thumbnail: tiktokAvatarUrl(EXTRA),
+      handle: "side"
+    });
+    expect(tiktokAvatarUrl(EXTRA)).toContain(EXTRA);
+
+    // Two mirrored avatar files, not one overwritten by the other.
+    const primaryAvatar = await resolveTiktokAvatarFile();
+    const extraAvatar = await resolveTiktokAvatarFile(EXTRA);
+    expect(primaryAvatar).not.toBeNull();
+    expect(extraAvatar).not.toBeNull();
+    expect(extraAvatar!.path).not.toBe(primaryAvatar!.path);
+  });
+
+  it("carries the account in the OAuth state and uses its own verifier", async () => {
+    const { tiktokAuthUrl } = await load();
+    const url = new URL(await tiktokAuthUrl(REDIRECT, EXTRA));
+    expect(url.searchParams.get("state")).toBe(EXTRA);
+    const verifier = cache.get(`tiktok.codeVerifier.${EXTRA}`);
+    expect(verifier).toBeTruthy();
+    expect(url.searchParams.get("code_challenge")).toBe(createHash("sha256").update(verifier!).digest("hex"));
+    // The primary's pending verifier is not consumed by another account's connect.
+    expect(cache.get("tiktok.codeVerifier")).toBeUndefined();
+  });
+
+  it("refuses an access token for an account that was never connected", async () => {
+    mockFetchRoutes([{ match: "/v2/oauth/token/", respond: () => jsonResponse({ access_token: "nope" }) }]);
+    const { tiktokAccessToken } = await load();
+    // No .env seed may leak into an added account — that would post the wrong
+    // clip to the primary's profile.
+    vi.stubEnv("TIKTOK_REFRESH_TOKEN", "seeded-primary-token");
+    expect(await tiktokAccessToken(EXTRA)).toBeNull();
+  });
+});

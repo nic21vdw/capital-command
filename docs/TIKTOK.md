@@ -8,6 +8,7 @@ until TikTok approves the app — which it has already declined once.
 | | State |
 |---|---|
 | OAuth (Login Kit, refresh, rotation) | working — the connection is live |
+| More than one TikTok profile | working — each connected account keeps its own token, profile and avatar |
 | Upload of a clip to TikTok | working — clip goes to your TikTok **inbox** |
 | The consent panel Direct Post requires | built — audience, interactions and disclosure, per post |
 | Direct Post (straight to the profile, no tap) | blocked by app review; only "Only you" is accepted until then |

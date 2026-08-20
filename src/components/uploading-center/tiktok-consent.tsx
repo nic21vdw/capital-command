@@ -31,12 +31,16 @@ type CreatorInfoState =
   | { status: "ready"; info: TiktokCreatorPostingInfo; audited: boolean }
   | { status: "error"; message: string };
 
-let creatorInfoRequest: Promise<CreatorInfoState> | null = null;
+// Keyed by account: two connected profiles have different audiences and
+// different interaction settings, and one must never answer for the other.
+const creatorInfoRequests = new Map<string, Promise<CreatorInfoState>>();
 
-async function loadCreatorInfo(): Promise<CreatorInfoState> {
-  creatorInfoRequest ??= (async (): Promise<CreatorInfoState> => {
+async function loadCreatorInfo(accountId: string): Promise<CreatorInfoState> {
+  let creatorInfoRequest = creatorInfoRequests.get(accountId);
+  if (!creatorInfoRequest) {
+    creatorInfoRequest = (async (): Promise<CreatorInfoState> => {
     try {
-      const response = await fetch("/api/publish/tiktok/creator-info");
+      const response = await fetch(`/api/publish/tiktok/creator-info?account=${encodeURIComponent(accountId)}`);
       const payload = await response.json();
       if (!response.ok) return { status: "error", message: payload?.error ?? "TikTok would not answer." };
       const { audited, ...info } = payload as TiktokCreatorPostingInfo & { audited: boolean };
@@ -44,11 +48,13 @@ async function loadCreatorInfo(): Promise<CreatorInfoState> {
     } catch {
       return { status: "error", message: "Could not reach TikTok." };
     }
-  })();
+    })();
+    creatorInfoRequests.set(accountId, creatorInfoRequest);
+  }
   const settled = await creatorInfoRequest;
   // A failed lookup must not be cached forever — the account may just have
   // been connected, or the network may have blinked.
-  if (settled.status === "error") creatorInfoRequest = null;
+  if (settled.status === "error") creatorInfoRequests.delete(accountId);
   return settled;
 }
 
@@ -89,10 +95,12 @@ function Toggle({
 
 export function TiktokConsent({
   value,
-  onChange
+  onChange,
+  accountId
 }: {
   value: TiktokPostOptions | undefined;
   onChange: (next: TiktokPostOptions | undefined) => void;
+  accountId: string;
 }) {
   const [state, setState] = useState<CreatorInfoState>({ status: "loading" });
   const consent = value ?? { delivery: "inbox" as const };
@@ -101,7 +109,7 @@ export function TiktokConsent({
   useEffect(() => {
     if (!direct) return;
     let cancelled = false;
-    void loadCreatorInfo().then((next) => {
+    void loadCreatorInfo(accountId).then((next) => {
       if (!cancelled) setState(next);
     });
     return () => {
@@ -110,7 +118,7 @@ export function TiktokConsent({
       // answer is never shown as if it were this account's.
       setState({ status: "loading" });
     };
-  }, [direct]);
+  }, [direct, accountId]);
 
   const info = state.status === "ready" ? state.info : null;
   const audited = state.status === "ready" ? state.audited : true;

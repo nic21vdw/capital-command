@@ -32,6 +32,7 @@ export function ClipQueue({
   activeJob,
   onSelectJob,
   clips,
+  tiktokAccountId,
   slots,
   draftFor,
   onDraftChange,
@@ -57,6 +58,7 @@ export function ClipQueue({
   activeJob: ClipJob | null;
   onSelectJob: (jobId: string) => void;
   clips: ReadyClip[];
+  tiktokAccountId: string;
   slots: ScheduleSlot[];
   draftFor: (clip: ReadyClip) => ClipDraft;
   onDraftChange: (clip: ReadyClip, draft: ClipDraft) => void;
@@ -261,6 +263,7 @@ export function ClipQueue({
               key={clip.key}
               clip={clip}
               draft={draftFor(clip)}
+              tiktokAccountId={tiktokAccountId}
               slots={slots}
               isSlotTaken={isSlotTaken}
               scheduledItems={itemsForClip(clip)}

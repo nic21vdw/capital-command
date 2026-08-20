@@ -1,4 +1,5 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
+import { primaryAccountId } from "@/lib/publisher/accounts";
 import { publisherConfig } from "@/lib/publisher/config";
 import { fetchCreatorPostingInfo } from "@/lib/publisher/tiktokPost";
 import { tiktokAccessToken } from "@/lib/publisher/tiktokAuth";
@@ -12,10 +13,11 @@ export const dynamic = "force-dynamic";
  * takes. The consent panel draws itself from this, so the options offered are
  * always the account's own rather than a list this app decided on.
  */
-export async function GET() {
-  const token = await tiktokAccessToken();
+export async function GET(request: NextRequest) {
+  const accountId = request.nextUrl.searchParams.get("account") || primaryAccountId("tiktok");
+  const token = await tiktokAccessToken(accountId);
   if (!token) {
-    return NextResponse.json({ error: "TikTok is not connected." }, { status: 409 });
+    return NextResponse.json({ error: "This TikTok account is not connected." }, { status: 409 });
   }
   try {
     const info = await fetchCreatorPostingInfo(token);
