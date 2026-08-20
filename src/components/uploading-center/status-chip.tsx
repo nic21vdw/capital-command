@@ -1,6 +1,6 @@
 import { cn } from "@/lib/utils";
 import { pendingHint, pendingLabel } from "@/lib/publisher/nativeScheduling";
-import type { PlatformId, PlatformStatus } from "@/lib/publisher/types";
+import type { PlatformId, PlatformStatus, QueueItem } from "@/lib/publisher/types";
 
 /**
  * The Uploading Center's status colors: draft grey, waiting blue, scheduled
@@ -29,17 +29,22 @@ const CHIPS: Record<ChipStatus, { label: string; className: string }> = {
 export function StatusChip({
   status,
   platform,
+  item,
   className
 }: {
   status: ChipStatus;
   platform?: PlatformId;
+  /** The post itself, when there is one: a picture post and a slot beyond
+   *  Facebook's 29-day window are both "posts at slot" on a platform that
+   *  otherwise takes the upload early. */
+  item?: Pick<QueueItem, "mediaKind" | "publishAt">;
   className?: string;
 }) {
   const chip = CHIPS[status];
-  const label = status === "pending" ? pendingLabel(platform) : chip.label;
+  const label = status === "pending" ? pendingLabel(platform, item) : chip.label;
   return (
     <span
-      title={status === "pending" ? pendingHint(platform) : undefined}
+      title={status === "pending" ? pendingHint(platform, item) : undefined}
       className={cn(
         "inline-flex items-center whitespace-nowrap rounded-full border px-2 py-0.5 text-[11px] font-medium",
         chip.className,

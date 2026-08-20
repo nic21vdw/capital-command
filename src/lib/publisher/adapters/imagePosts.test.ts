@@ -183,6 +183,86 @@ describe("Facebook picture posts", () => {
   });
 });
 
+describe("a Facebook picture post booked ahead of its slot", () => {
+  const SLOT = "2026-07-08T00:00:00.000Z";
+
+  function scheduled(urls: string[]): PublishInput {
+    const request = imageInput("facebook", urls);
+    request.item.publishAt = SLOT;
+    return request;
+  }
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-07-01T00:00:00.000Z"));
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("hands a deck to Facebook with the slot on it instead of posting it", async () => {
+    let photo = 0;
+    const requests = mockFetchRoutes([
+      { match: `/${FB_PAGE}/photos`, respond: () => jsonResponse({ id: `photo-${(photo += 1)}` }) },
+      { match: `/${FB_PAGE}/feed`, respond: () => jsonResponse({ id: "page_post-42" }) }
+    ]);
+    const adapter = (await import("@/lib/publisher/adapters/facebook")).facebookAdapter;
+
+    const result = await adapter.publish(scheduled(["https://media.test/1.png", "https://media.test/2.png"]));
+
+    const feed = formBody(requests[2]);
+    expect(feed.published).toBe("false");
+    expect(feed.scheduled_publish_time).toBe(String(Date.parse(SLOT) / 1000));
+    expect(result.status).toBe("scheduled");
+    expect(result.postId).toBe("page_post-42");
+  });
+
+  it("schedules a single photo the same way", async () => {
+    const requests = mockFetchRoutes([
+      { match: `/${FB_PAGE}/photos`, respond: () => jsonResponse({ id: "photo-9" }) }
+    ]);
+    const adapter = (await import("@/lib/publisher/adapters/facebook")).facebookAdapter;
+
+    const result = await adapter.publish(scheduled(["https://media.test/1.png"]));
+
+    expect(formBody(requests[0])).toMatchObject({
+      published: "false",
+      scheduled_publish_time: String(Date.parse(SLOT) / 1000)
+    });
+    expect(result.status).toBe("scheduled");
+  });
+
+  it("falls back to the slot when Facebook refuses to hold the post", async () => {
+    let photo = 0;
+    mockFetchRoutes([
+      { match: `/${FB_PAGE}/photos`, respond: () => jsonResponse({ id: `photo-${(photo += 1)}` }) },
+      { match: `/${FB_PAGE}/feed`, respond: () => jsonResponse({ error: { message: "cannot schedule" } }, { status: 400 }) }
+    ]);
+    const { facebookAdapter } = await import("@/lib/publisher/adapters/facebook");
+    const { ThrottledError } = await import("@/lib/publisher/http");
+
+    await expect(
+      facebookAdapter.publish(scheduled(["https://media.test/1.png", "https://media.test/2.png"]))
+    ).rejects.toBeInstanceOf(ThrottledError);
+  });
+
+  it("publishes a post Facebook still had at its slot, and leaves a live one alone", async () => {
+    const requests = mockFetchRoutes([
+      { match: "/page_post-42?fields=is_published", respond: () => jsonResponse({ is_published: false }) },
+      { match: "/page_post-42", respond: () => jsonResponse({ success: true }) }
+    ]);
+    vi.setSystemTime(new Date("2026-07-08T00:05:00.000Z"));
+    const adapter = (await import("@/lib/publisher/adapters/facebook")).facebookAdapter;
+    const item = scheduled(["https://media.test/1.png", "https://media.test/2.png"]).item;
+
+    const result = await adapter.finalize!(item, { status: "scheduled", attempts: 0, postId: "page_post-42" });
+
+    expect(result.status).toBe("published");
+    expect(formBody(requests[1])).toMatchObject({ is_published: "true" });
+  });
+});
+
 describe("the dry-run plan for a picture post", () => {
   it("describes pictures, not a video, on both platforms", async () => {
     const instagram = (await import("@/lib/publisher/adapters/instagram")).instagramAdapter;

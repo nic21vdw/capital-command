@@ -326,7 +326,7 @@ function QueueEntryCard({
           <span className="ml-auto shrink-0 text-[10px] font-medium text-[var(--muted-foreground)]">{time}</span>
         </div>
         <div className="mt-1.5 flex items-center gap-1.5">
-          <StatusChip status={state.status} platform={platform} />
+          <StatusChip status={state.status} platform={platform} item={item} />
           {pictures > 0 ? (
             <button
               type="button"
