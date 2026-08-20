@@ -1,9 +1,10 @@
 "use client";
 
+import Link from "next/link";
 import { Loader2, RefreshCw } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
-import type { ChannelCoverage, CoverageGroup } from "@/lib/ingest/coverage";
+import type { ChannelCoverage, CoverageGroup, CoverageVideo } from "@/lib/ingest/coverage";
 
 const KIND_LABELS: Record<CoverageGroup["kind"], string> = {
   stream: "Live streams",
@@ -14,11 +15,30 @@ function outstandingLine(group: CoverageGroup): string {
   return [
     group.working > 0 ? `${group.working} in the pipeline` : "",
     group.waiting > 0 ? `${group.waiting} not started` : "",
-    group.attention > 0 ? `${group.attention} needs you` : ""
+    group.attention > 0 ? `${group.attention} need${group.attention === 1 ? "s" : ""} you` : ""
   ]
     .filter(Boolean)
     .join(" · ");
 }
+
+// Every count on this card used to be a number with nothing behind it: "5 needs
+// you" named five videos the screen would not show and gave no way to reach.
+// These are those videos — the broken ones first, because they are the ones the
+// morning is waiting on.
+const NEEDS_YOU_SHOWN = 5;
+const NOT_STARTED_SHOWN = 2;
+
+function listed(group: CoverageGroup): { rows: CoverageVideo[]; hidden: number } {
+  const needsYou = group.outstanding.filter((video) => video.state === "attention");
+  const notStarted = group.outstanding.filter((video) => video.state === "waiting");
+  return {
+    rows: [...needsYou.slice(0, NEEDS_YOU_SHOWN), ...notStarted.slice(0, NOT_STARTED_SHOWN)],
+    hidden: Math.max(needsYou.length - NEEDS_YOU_SHOWN, 0) + Math.max(notStarted.length - NOT_STARTED_SHOWN, 0)
+  };
+}
+
+const ACTION =
+  "shrink-0 rounded-full border border-[var(--border)] px-2 py-0.5 text-[11px] text-[var(--muted-foreground)] transition hover:border-[var(--border-strong)] hover:text-white disabled:opacity-50";
 
 function scannedAt(iso: string) {
   const at = new Date(iso);
@@ -98,6 +118,7 @@ export function ChannelCoverageCard({
       <div className="mt-3 space-y-3">
         {groups.map((group) => {
           const percent = Math.round((group.done / group.total) * 100);
+          const { rows, hidden } = listed(group);
           return (
             <div key={group.kind}>
               <div className="flex flex-wrap items-baseline justify-between gap-x-3 text-xs">
@@ -113,24 +134,31 @@ export function ChannelCoverageCard({
                   style={{ width: `${percent}%` }}
                 />
               </div>
-              {group.outstanding
-                .filter((video) => video.state === "waiting")
-                .slice(0, 2)
-                .map((video) => (
-                  <div key={video.videoId} className="mt-1.5 flex items-center gap-2">
-                    <span className="min-w-0 flex-1 truncate text-[11px] text-[var(--muted-foreground)]">
-                      {video.title}
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => onRun(video.url)}
-                      disabled={starting}
-                      className="shrink-0 rounded-full border border-[var(--border)] px-2 py-0.5 text-[11px] text-[var(--muted-foreground)] transition hover:border-[var(--border-strong)] hover:text-white disabled:opacity-50"
-                    >
-                      Run it
+              {rows.map((video) => (
+                <div key={video.videoId} className="mt-1.5 flex items-center gap-2">
+                  <span className="min-w-0 flex-1 truncate text-[11px] text-[var(--muted-foreground)]">
+                    {video.state === "attention" ? <span className="text-amber-300">Needs you · </span> : null}
+                    {video.title}
+                    {video.state === "attention" && video.note ? (
+                      <span className="text-[var(--muted-foreground)]"> — {video.note.toLowerCase()}</span>
+                    ) : null}
+                  </span>
+                  {video.runId ? (
+                    <Link href={`/pipeline?run=${video.runId}`} className={ACTION}>
+                      Open it
+                    </Link>
+                  ) : (
+                    <button type="button" onClick={() => onRun(video.url)} disabled={starting} className={ACTION}>
+                      {video.state === "attention" ? "Start it again" : "Run it"}
                     </button>
-                  </div>
-                ))}
+                  )}
+                </div>
+              ))}
+              {hidden > 0 ? (
+                <p className="mt-1.5 text-[11px] text-[var(--muted-foreground)]">
+                  and {hidden} more not shown here.
+                </p>
+              ) : null}
             </div>
           );
         })}

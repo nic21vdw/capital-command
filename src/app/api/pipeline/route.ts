@@ -55,7 +55,9 @@ export async function GET(request: NextRequest) {
   const runStates: RunState = new Map();
   for (const entry of overviews) {
     const videoId = videoIdFromUrl(entry.run.sourceUrl);
-    if (videoId) runStates.set(videoId, runListStatus(entry).tone);
+    if (!videoId) continue;
+    const status = runListStatus(entry);
+    runStates.set(videoId, { state: status.tone, runId: entry.run.id, label: status.label });
   }
   const coverage = await ingestLedger()
     .then((ledger) => channelCoverage(ledger, runStates))
