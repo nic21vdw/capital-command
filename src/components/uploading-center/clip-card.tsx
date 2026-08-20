@@ -367,7 +367,7 @@ export function ClipCard({
                     return (
                       <div key={`${item.id}:${platform}`} className="space-y-0.5 text-xs">
                         <div className="flex items-center gap-2 text-[var(--muted-foreground)]">
-                          <StatusChip status={state.status} platform={platform} />
+                          <StatusChip status={state.status} platform={platform} item={item} />
                           <span className="truncate font-medium text-white">{PLATFORM_LABELS[platform]}</span>
                           {summary.uploaded ? (
                             <span className="inline-flex items-center gap-1 whitespace-nowrap text-emerald-300">

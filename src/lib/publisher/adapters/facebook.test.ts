@@ -199,6 +199,167 @@ describe("facebook adapter", () => {
     expect(requests).toHaveLength(3);
   });
 
+  it("schedules a Reel Facebook will hold, instead of publishing it early", async () => {
+    const publishAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+    const requests = mockFetchRoutes([
+      {
+        match: "/video_reels",
+        respond: (request) =>
+          formBody(request).upload_phase === "start"
+            ? jsonResponse({ video_id: "video-1", upload_url: UPLOAD_URL })
+            : jsonResponse({ success: true })
+      },
+      { match: "rupload.facebook.com", respond: () => jsonResponse({ success: true }) },
+      { match: "/video-1?fields=status", respond: () => jsonResponse({ status: { video_status: "ready" } }) }
+    ]);
+    const adapter = await loadAdapter();
+    const request = input();
+    request.item.publishAt = publishAt.toISOString();
+
+    const result = await adapter.publish(request);
+
+    const finish = formBody(requests[3]);
+    expect(finish.video_state).toBe("SCHEDULED");
+    expect(finish.scheduled_publish_time).toBe(String(Math.floor(publishAt.getTime() / 1000)));
+    expect(result.status).toBe("scheduled");
+    expect(result.postId).toBe("video-1");
+  });
+
+  it("publishes rather than schedules when the slot is minutes away", async () => {
+    const requests = mockFetchRoutes([
+      {
+        match: "/video_reels",
+        respond: (request) =>
+          formBody(request).upload_phase === "start"
+            ? jsonResponse({ video_id: "video-1", upload_url: UPLOAD_URL })
+            : jsonResponse({ success: true })
+      },
+      { match: "rupload.facebook.com", respond: () => jsonResponse({ success: true }) },
+      { match: "/video-1?fields=status", respond: () => jsonResponse({ status: { video_status: "ready" } }) }
+    ]);
+    const adapter = await loadAdapter();
+    const request = input();
+    // Inside Facebook's ten-minute floor: there is nothing to schedule with.
+    request.item.publishAt = new Date(Date.now() + 4 * 60 * 1000).toISOString();
+
+    const result = await adapter.publish(request);
+
+    expect(formBody(requests[3]).video_state).toBe("PUBLISHED");
+    expect(formBody(requests[3]).scheduled_publish_time).toBeUndefined();
+    expect(result.status).toBe("published");
+  });
+
+  it("uploads nothing for a slot further out than Facebook will schedule", async () => {
+    const requests = mockFetchRoutes([]);
+    const { adapter, http } = await loadAdapterAndErrors();
+    const request = input();
+    request.item.publishAt = new Date(Date.now() + 90 * 24 * 60 * 60 * 1000).toISOString();
+
+    const error = await adapter.publish(request).catch((thrown: unknown) => thrown);
+
+    expect(error).toBeInstanceOf(http.ThrottledError);
+    expect(requests).toHaveLength(0);
+  });
+
+  it("marks a scheduled Reel published once Facebook has published it", async () => {
+    mockFetchRoutes([
+      {
+        match: "/video-9?fields=status",
+        respond: () => jsonResponse({ status: { publishing_phase: { publish_status: "published" } } })
+      }
+    ]);
+    const adapter = await loadAdapter();
+    const item = input().item;
+    item.publishAt = new Date(Date.now() - 60_000).toISOString();
+
+    const result = await adapter.finalize!(item, { status: "scheduled", attempts: 1, postId: "video-9" });
+
+    expect(result.status).toBe("published");
+  });
+
+  it("leaves a scheduled Reel alone when its slot has not come yet", async () => {
+    const requests = mockFetchRoutes([
+      {
+        match: "/video-9?fields=status",
+        respond: () => jsonResponse({ status: { publishing_phase: { publish_status: "scheduled" } } })
+      }
+    ]);
+    const adapter = await loadAdapter();
+    const item = input().item;
+    item.publishAt = new Date(Date.now() + 60 * 60 * 1000).toISOString();
+
+    const result = await adapter.finalize!(item, { status: "scheduled", attempts: 1, postId: "video-9" });
+
+    expect(result.status).toBe("scheduled");
+    // Read only: nothing may be re-sent to a post that is sitting on the Page.
+    expect(requests).toHaveLength(1);
+  });
+
+  it("publishes a Reel Facebook is still holding past its slot", async () => {
+    const requests = mockFetchRoutes([
+      {
+        match: "/video-9?fields=status",
+        respond: () => jsonResponse({ status: { publishing_phase: { publish_status: "scheduled" } } })
+      },
+      { match: "/video_reels", respond: () => jsonResponse({ success: true }) }
+    ]);
+    const adapter = await loadAdapter();
+    const item = input().item;
+    item.publishAt = new Date(Date.now() - 10 * 60 * 1000).toISOString();
+
+    const result = await adapter.finalize!(item, { status: "scheduled", attempts: 1, postId: "video-9" });
+
+    expect(formBody(requests[1])).toMatchObject({ upload_phase: "finish", video_id: "video-9", video_state: "PUBLISHED" });
+    expect(result.status).toBe("published");
+  });
+
+  it("falls back to posting at the slot when Facebook refuses to schedule", async () => {
+    mockFetchRoutes([
+      {
+        match: "/video_reels",
+        respond: (request) =>
+          formBody(request).upload_phase === "start"
+            ? jsonResponse({ video_id: "video-1", upload_url: UPLOAD_URL })
+            : jsonResponse({ error: { message: "scheduled_publish_time is not supported" } }, { status: 400 })
+      },
+      { match: "rupload.facebook.com", respond: () => jsonResponse({ success: true }) },
+      { match: "/video-1?fields=status", respond: () => jsonResponse({ status: { video_status: "ready" } }) }
+    ]);
+    const { adapter, http } = await loadAdapterAndErrors();
+    const request = input();
+    request.item.publishAt = new Date(Date.now() + 3 * 60 * 60 * 1000).toISOString();
+
+    const error = await adapter.publish(request).catch((thrown: unknown) => thrown);
+
+    // Deferred to the slot, not failed: the post still goes out, the old way.
+    expect(error).toBeInstanceOf(http.ThrottledError);
+    expect((error as Error).message).toMatch(/posted at its slot/);
+  });
+
+  it("remembers the upload session before sending any bytes", async () => {
+    mockFetchRoutes([
+      {
+        match: "/video_reels",
+        respond: (request) =>
+          formBody(request).upload_phase === "start"
+            ? jsonResponse({ video_id: "video-1", upload_url: UPLOAD_URL })
+            : jsonResponse({ success: true })
+      },
+      { match: "rupload.facebook.com", respond: () => jsonResponse({ success: true }) },
+      { match: "/video-1?fields=status", respond: () => jsonResponse({ status: { video_status: "ready" } }) }
+    ]);
+    const adapter = await loadAdapter();
+    const handles: string[] = [];
+    const request = input();
+    request.onHandle = async (handle) => {
+      handles.push(handle);
+    };
+
+    await adapter.publish(request);
+
+    expect(handles).toEqual(["video-1"]);
+  });
+
   it("refuses non-public visibility (the API has no private Reels)", async () => {
     mockFetchRoutes([]);
     const adapter = await loadAdapter();
