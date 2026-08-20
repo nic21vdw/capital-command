@@ -152,6 +152,48 @@ async function finishUpload(
 }
 
 /**
+ * The same follow-through for a scheduled picture post. A Page post says
+ * whether it is out through `is_published`, and the way to publish one that is
+ * still waiting is to set that field — there is no upload to redo, so a slot
+ * Facebook slept through costs one write rather than a re-post.
+ */
+async function finalizeImagePost(
+  item: QueueItem,
+  state: PlatformState,
+  creds: { pageId: string; accessToken: string }
+): Promise<PostResult> {
+  const postId = state.postId;
+  if (!postId) {
+    throw new PermanentError(`The Facebook post for ${item.clipPath} has no post id recorded — cannot verify it went live.`);
+  }
+  const data = await fetchJson<{ is_published?: boolean }>(
+    `${graphBase()}/${postId}?fields=is_published&access_token=${encodeURIComponent(creds.accessToken)}`,
+    { label: "Facebook post published check", method: "GET" }
+  );
+  if (data.is_published) {
+    return { status: "published", postId, detail: "Facebook published the picture post at its slot" };
+  }
+  if (new Date(item.publishAt).getTime() > Date.now()) {
+    return { status: "scheduled", postId, detail: "already uploaded and waiting for its slot on Facebook" };
+  }
+  try {
+    await fetchJson(`${graphBase()}/${postId}`, {
+      label: "Facebook post publish now",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({ is_published: "true", access_token: creds.accessToken })
+    });
+  } catch (error) {
+    throw new ThrottledError(
+      60,
+      `Facebook still has this picture post scheduled past its slot and would not publish it on request (${
+        error instanceof Error ? error.message : String(error)
+      }) — checking again in an hour.`
+    );
+  }
+  return { status: "published", postId, detail: "published on request — Facebook had not released it at its slot" };
+}
+
+/**
  * Checks a scheduled Reel once its slot has passed, and publishes it if
  * Facebook has not. Same shape as the YouTube follow-through: it never
  * re-uploads, and reached before the slot (from a retry) it leaves the post
@@ -159,6 +201,7 @@ async function finishUpload(
  */
 async function finalizeFacebook(item: QueueItem, state: PlatformState): Promise<PostResult> {
   const creds = credentials();
+  if (isImagePost(item)) return finalizeImagePost(item, state, creds);
   const videoId = state.postId ?? state.containerId;
   if (!videoId) {
     throw new PermanentError(`The Facebook post for ${item.clipPath} has no video id recorded — cannot verify it went live.`);
@@ -190,6 +233,15 @@ async function finalizeFacebook(item: QueueItem, state: PlatformState): Promise<
   }
 }
 
+/**
+ * What turns a Page post into a scheduled one: it is created unpublished with
+ * the instant on it. The two fields always travel together — `published=true`
+ * beside a scheduled time asks Facebook to do two opposite things at once.
+ */
+function schedulingFields(scheduleFor: Date): Record<string, string> {
+  return { published: "false", scheduled_publish_time: String(Math.floor(scheduleFor.getTime() / 1000)) };
+}
+
 async function uploadPhoto(
   creds: { pageId: string; accessToken: string },
   fields: Record<string, string>
@@ -206,17 +258,26 @@ async function uploadPhoto(
 /**
  * A picture post on the Page.
  *
- * One picture: POST /{page-id}/photos (url, caption, published=true) — the
- * photo IS the post, so there is nothing to poll and nothing to finish.
+ * One picture: POST /{page-id}/photos (url, caption) — the photo IS the post,
+ * so there is nothing to poll and nothing to finish.
  * Several: each picture is uploaded with published=false, then one feed post
  * attaches them all — that is the only way the Graph API makes a multi-photo
  * post, and the unpublished photos never show on the Page on their own.
  *
- * A retry after the feed post landed is stopped by the recorded postId in the
+ * With a `scheduleFor` instant the post that carries the pictures is created
+ * unpublished with `scheduled_publish_time` on it, and Facebook publishes it
+ * itself at that moment — the same deal the Reels finish call strikes, made
+ * from the endpoint a deck actually goes through. Without one it publishes now.
+ *
+ * A retry after the post landed is stopped by the recorded postId in the
  * runner, so nothing here can post twice. A retry BEFORE it landed re-uploads
  * the unpublished photos; those are not posts and Facebook drops them.
  */
-async function publishImagePost(input: PublishInput, creds: { pageId: string; accessToken: string }): Promise<PostResult> {
+async function publishImagePost(
+  input: PublishInput,
+  creds: { pageId: string; accessToken: string },
+  scheduleFor: Date | null
+): Promise<PostResult> {
   const urls = input.images?.publicUrls ?? [];
   if (urls.length === 0) {
     throw new PermanentError(
@@ -229,8 +290,14 @@ async function publishImagePost(input: PublishInput, creds: { pageId: string; ac
   const caption = composeCaption(input.item);
 
   if (!isCarouselPost(input.item)) {
-    const photoId = await uploadPhoto(creds, { url: urls[0], caption, published: "true" });
-    return { status: "published", postId: photoId, detail: "photo published" };
+    const photoId = await uploadPhoto(creds, {
+      url: urls[0],
+      caption,
+      ...(scheduleFor ? schedulingFields(scheduleFor) : { published: "true" })
+    });
+    return scheduleFor
+      ? { status: "scheduled", postId: photoId, detail: `photo scheduled with Facebook for ${scheduleFor.toISOString()}` }
+      : { status: "published", postId: photoId, detail: "photo published" };
   }
 
   const existing = input.item.platforms.facebook?.childContainerIds ?? [];
@@ -243,15 +310,26 @@ async function publishImagePost(input: PublishInput, creds: { pageId: string; ac
           return ids;
         }, Promise.resolve([]));
 
-  const body = new URLSearchParams({ message: caption, access_token: creds.accessToken });
+  const body = new URLSearchParams({
+    message: caption,
+    ...(scheduleFor ? schedulingFields(scheduleFor) : {}),
+    access_token: creds.accessToken
+  });
   photoIds.forEach((id, index) => body.append(`attached_media[${index}]`, JSON.stringify({ media_fbid: id })));
   const post = await fetchJson<{ id?: string }>(`${graphBase()}/${creds.pageId}/feed`, {
-    label: "Facebook multi-photo feed post",
+    label: `Facebook multi-photo feed post${scheduleFor ? " (scheduled)" : ""}`,
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body
   });
   if (!post.id) throw new PermanentError("Facebook feed post returned no id.");
-  return { status: "published", postId: post.id, childContainerIds: photoIds, detail: `${photoIds.length} photos published` };
+  return scheduleFor
+    ? {
+        status: "scheduled",
+        postId: post.id,
+        childContainerIds: photoIds,
+        detail: `${photoIds.length} photos scheduled with Facebook for ${scheduleFor.toISOString()}`
+      }
+    : { status: "published", postId: post.id, childContainerIds: photoIds, detail: `${photoIds.length} photos published` };
 }
 
 export const facebookAdapter: PlatformAdapter = {
@@ -290,7 +368,9 @@ export const facebookAdapter: PlatformAdapter = {
         publishAtUtc: toRfc3339Utc(publishAt),
         publishAtLocal: formatInTimezone(publishAt, config.timezone),
         notes: [
-          "No native scheduling for pictures — the runner fires this at the target time.",
+          publishAt.getTime() - Date.now() > 0
+            ? "Scheduled natively: the post is created with published=false and scheduled_publish_time, and Facebook publishes it (10 minutes to 29 days out)."
+            : "Published on creation — this slot is too close to schedule.",
           "Requires a Page access token (not a user token) with pages_manage_posts.",
           count > 1 ? "Each photo is uploaded unpublished, then one feed post attaches them all." : "The photo is the post."
         ]
@@ -327,21 +407,37 @@ export const facebookAdapter: PlatformAdapter = {
       );
     }
 
-    if (isImagePost(input.item)) return publishImagePost(input, creds);
-
     // Where this post sits against Facebook's scheduling window decides what
-    // the finish call at the bottom does. A post too far out is deferred
-    // rather than uploaded: the queue's due rule already keeps those away from
-    // here, and uploading one anyway would leave a video Facebook has no
+    // the call that creates the post does. A post too far out is deferred
+    // rather than handed over: the queue's due rule already keeps those away
+    // from here, and handing one over anyway would leave media Facebook has no
     // instruction to hold — which is a post that goes out months early.
     const lead = facebookLead(input.item.publishAt, new Date());
     if (lead === "too-far") {
       throw new ThrottledError(
         facebookScheduleWaitMinutes(input.item.publishAt, new Date()),
-        "Facebook takes a scheduled Reel at most 29 days ahead — this slot is further out, so it goes up once it is inside that window."
+        "Facebook holds a scheduled post at most 29 days ahead — this slot is further out, so it goes up once it is inside that window."
       );
     }
     const scheduleFor = lead === "schedulable" ? new Date(input.item.publishAt) : null;
+
+    if (isImagePost(input.item)) {
+      if (!scheduleFor) return publishImagePost(input, creds, null);
+      try {
+        return await publishImagePost(input, creds, scheduleFor);
+      } catch (error) {
+        // Same bargain the Reel makes below: a schedule Facebook will not take
+        // is a post deferred to its slot, never a failed post. The photos
+        // already uploaded are unpublished and Facebook drops them.
+        if (error instanceof PermanentError) {
+          throw new ThrottledError(
+            Math.max(1, Math.ceil((scheduleFor.getTime() - Date.now()) / 60_000)),
+            `Facebook would not take this picture post as scheduled (${error.message}) — it will be posted at its slot instead.`
+          );
+        }
+        throw error;
+      }
+    }
 
     const caption = composeCaption(input.item);
 

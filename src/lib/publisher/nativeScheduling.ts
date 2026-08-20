@@ -1,4 +1,3 @@
-import { isImagePost } from "@/lib/publisher/images";
 import type { PlatformId, QueueItem } from "@/lib/publisher/types";
 
 /**
@@ -8,9 +7,9 @@ import type { PlatformId, QueueItem } from "@/lib/publisher/types";
  * only written down here. YouTube accepts the upload the moment it is queued
  * with status.publishAt set, so the video sits in YouTube Studio as Scheduled
  * and goes live without this app being awake. Facebook does the same for a
- * Reel, within a window of its own (below). Instagram and TikTok have no
- * scheduling in their publishing APIs at all — for those two the runner IS the
- * scheduler, and it posts at the slot.
+ * Reel and for a picture post, within a window of its own (below). Instagram
+ * and TikTok have no scheduling in their publishing APIs at all — for those
+ * two the runner IS the scheduler, and it posts at the slot.
  *
  * The queue's due rule and the board's wording both read this, so a platform
  * that gains native scheduling changes behaviour and copy from one line.
@@ -27,17 +26,19 @@ export function preSchedules(platform: PlatformId): boolean {
 }
 
 /**
- * Facebook's own limits on a scheduled Reel: the finish call takes
- * `scheduled_publish_time` only when it is "greater than 10 minutes from the
- * current time and within 29 days of the current date".
+ * Facebook's own limits on a scheduled post: `scheduled_publish_time` is taken
+ * only when it is "greater than 10 minutes from the current time and within 29
+ * days of the current date". The Reels finish call and a Page feed post read
+ * the same window, so one pair of edges covers both.
  *
  * Both edges are pulled in from the documented ones on purpose. The floor is
- * 15 minutes because the upload happens BEFORE the finish call — start,
- * transfer, then poll until Facebook has the bytes — so a post handed over
- * with eleven minutes to spare can reach the finish call with nine. The
- * ceiling is 28 days because the queue is a year deep and an item sitting a
- * day inside the real edge would tip over it between the run that picked it up
- * and the run that finishes it.
+ * 15 minutes because the media is handed over BEFORE the call that carries the
+ * time — for a Reel: start, transfer, then poll until Facebook has the bytes;
+ * for a deck: one unpublished photo upload per slide — so a post handed over
+ * with eleven minutes to spare can reach that call with nine. The ceiling is 28
+ * days because the queue is a year deep and an item sitting a day inside the
+ * real edge would tip over it between the run that picked it up and the run
+ * that finishes it.
  */
 export const FACEBOOK_SCHEDULE_MIN_MS = 15 * 60_000;
 export const FACEBOOK_SCHEDULE_MAX_MS = 28 * 24 * 60 * 60_000;
@@ -66,12 +67,11 @@ export function facebookScheduleWaitMinutes(publishAt: string, now: Date): numbe
 /**
  * Whether THIS post can be handed to THIS platform ahead of its slot.
  *
- * Facebook is the reason this takes the item and not just the platform. Only a
- * Reel can be scheduled through the API here: a picture post is a Page photo
- * or a feed post, which this app still publishes itself at the slot, and a
- * deck handed over early would go out early. The window matters for the same
- * reason — a post booked four months out is not schedulable yet, and calling
- * it due would upload it now with nothing to hold it back.
+ * Facebook is the reason this takes the item and not just the platform. Both
+ * shapes it posts can be scheduled — a Reel through the finish call, a picture
+ * post through `published=false` with `scheduled_publish_time` — but only
+ * inside the window above. A post booked four months out is not schedulable
+ * yet, and calling it due would hand it over now with nothing to hold it back.
  */
 export function preSchedulesItem(
   platform: PlatformId,
@@ -79,7 +79,6 @@ export function preSchedulesItem(
   now: Date = new Date()
 ): boolean {
   if (platform !== "facebook") return PRE_SCHEDULES[platform];
-  if (isImagePost(item)) return false;
   return facebookLead(item.publishAt, now) === "schedulable";
 }
 
@@ -105,9 +104,7 @@ export function pendingHint(platform?: PlatformId, item?: Pick<QueueItem, "media
   if (!platform) return "Waiting for the publish runner.";
   const name = PLATFORM_NAMES[platform];
   if (item && platform === "facebook" && !preSchedulesItem(platform, item)) {
-    return isImagePost(item)
-      ? "Facebook can only be handed a Reel ahead of time, so Capital Command posts this picture post itself at this slot."
-      : `This slot is further out than Facebook will take a scheduled Reel (29 days), so it goes up as soon as it is inside that window.`;
+    return "This slot is further out than Facebook will hold a post (29 days), so it goes up as soon as it is inside that window.";
   }
   return (item ? preSchedulesItem(platform, item) : preSchedules(platform))
     ? `${name} takes the upload ahead of time — it goes up now and ${name} publishes it at this slot.`

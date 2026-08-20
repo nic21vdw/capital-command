@@ -34,10 +34,12 @@ describe("Facebook's scheduling window", () => {
     expect(preSchedulesItem("facebook", video(at(60 * 24 * 60 * 60_000)), now)).toBe(false);
   });
 
-  it("never hands a picture post over early — only a Reel can be scheduled", () => {
-    expect(preSchedulesItem("facebook", deck(at(7 * 24 * 60 * 60_000)), now)).toBe(false);
-    expect(pendingLabel("facebook", deck(at(7 * 24 * 60 * 60_000)))).toBe("Posts at slot");
-    expect(pendingHint("facebook", deck(at(7 * 24 * 60 * 60_000)))).toContain("picture post");
+  it("hands a picture post over early on the same window as a Reel", () => {
+    expect(preSchedulesItem("facebook", deck(at(7 * 24 * 60 * 60_000)), now)).toBe(true);
+    expect(pendingLabel("facebook", deck(at(7 * 24 * 60 * 60_000)))).toBe("Uploading");
+    expect(preSchedulesItem("facebook", deck(at(5 * 60_000)), now)).toBe(false);
+    expect(preSchedulesItem("facebook", deck(at(60 * 24 * 60 * 60_000)), now)).toBe(false);
+    expect(pendingHint("facebook", deck(at(60 * 24 * 60 * 60_000)))).toContain("29 days");
   });
 
   it("leaves the other platforms' answers alone", () => {
