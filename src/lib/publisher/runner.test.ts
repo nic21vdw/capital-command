@@ -10,6 +10,7 @@ import type { PlatformAdapter, PlatformId, PostResult, PublishInput } from "@/li
 
 const DUE = new Date("2026-07-10T22:31:00.000Z");
 let clipPath: string;
+let otherClipPath: string;
 
 beforeAll(async () => {
   // The runner stats the clip file before publishing, so create a real one.
@@ -17,6 +18,10 @@ beforeAll(async () => {
   await mkdir(dir, { recursive: true });
   clipPath = path.join(dir, "clip.mp4");
   await writeFile(clipPath, Buffer.alloc(1024, 1));
+  // A second, DIFFERENT clip: shuffle deals by clip, so two posts sharing one
+  // file are the duplicate it is supposed to refuse, not two clips to deal.
+  otherClipPath = path.join(dir, "clip-2.mp4");
+  await writeFile(otherClipPath, Buffer.alloc(1024, 2));
 });
 
 /** Adapter double that records calls and plays a scripted response. */
@@ -109,11 +114,13 @@ describe("runDue — one schedule for every platform", () => {
       platforms: ["youtube", "instagram"],
       mirror: { enabled: true, lead: "youtube", targets: ["instagram"], mode: "shuffle" }
     });
-    for (const [id, at] of [
-      ["one", "2026-07-20T15:00:00.000Z"],
-      ["two", "2026-07-21T15:00:00.000Z"]
-    ]) {
-      await queue.add(testItem({ id, clipPath, publishAt: at, visibility: "public", platformIds: ["youtube"] }));
+    for (const [id, at, file] of [
+      ["one", "2026-07-20T15:00:00.000Z", clipPath],
+      ["two", "2026-07-21T15:00:00.000Z", otherClipPath]
+    ] as const) {
+      await queue.add(
+        testItem({ id, clipPath: file, publishAt: at, visibility: "public", platformIds: ["youtube"] })
+      );
     }
 
     await runDue(DUE, { config, queue, log, adapters: {} });
@@ -126,7 +133,7 @@ describe("runDue — one schedule for every platform", () => {
     expect(all.filter((i) => i.platforms.youtube).every((i) => !i.platforms.instagram)).toBe(true);
     // Same slots, and each clip dealt once.
     expect(igItems.map((i) => i.publishAt).sort()).toEqual(["2026-07-20T15:00:00.000Z", "2026-07-21T15:00:00.000Z"]);
-    expect(new Set(igItems.map((i) => i.clipPath)).size).toBe(1);
+    expect(new Set(igItems.map((i) => i.clipPath)).size).toBe(2);
   });
 
   it("does not re-deal slots it already filled on a second run", async () => {

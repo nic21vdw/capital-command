@@ -269,3 +269,56 @@ describe("shuffled", () => {
     expect(input).toEqual([1, 2, 3, 4, 5]);
   });
 });
+
+describe("planMirror — shuffle never deals a clip a platform already carries", () => {
+  // The live queue had the same short booked to the Page two, three and five
+  // times. Shuffle only remembered which SLOTS a platform occupied, so a clip
+  // it already carried was dealt again into any slot that happened to be free,
+  // and every mirror pass found more free slots.
+  const alreadyOnFacebook: QueueItem = {
+    ...item("fb-copy-of-a", "2026-09-20T14:00:00.000Z", { facebook: "pending" }),
+    clipPath: "clips/a.mp4"
+  };
+
+  it("skips the clip and says why, rather than booking it twice", () => {
+    const plan = planMirror([...SCHEDULE, alreadyOnFacebook], {
+      targets: ["facebook"],
+      mode: "shuffle",
+      now: NOW,
+      seed: 7
+    });
+
+    const dealt = plan.newItems.filter((entry) => entry.platform === "facebook").map((entry) => entry.sourceItemId);
+    expect(dealt).not.toContain("a");
+    expect(plan.skipped.some((skip) => skip.itemId === "a" && /already booked on facebook/.test(skip.reason))).toBe(true);
+  });
+
+  it("still deals the clips that platform does not have", () => {
+    const plan = planMirror([...SCHEDULE, alreadyOnFacebook], {
+      targets: ["facebook"],
+      mode: "shuffle",
+      now: NOW,
+      seed: 7
+    });
+
+    expect([...plan.newItems.map((entry) => entry.sourceItemId)].sort()).toEqual(["b", "c"]);
+  });
+
+  it("re-running the mirror adds nothing the second time", () => {
+    const first = planMirror(SCHEDULE, { targets: ["facebook"], mode: "shuffle", now: NOW, seed: 7 });
+    // What the runner would have written for each dealt clip.
+    const written: QueueItem[] = first.newItems.map((entry, index) => ({
+      ...item(`written-${index}`, entry.publishAt, { facebook: "pending" }),
+      clipPath: `clips/${entry.sourceItemId}.mp4`
+    }));
+
+    const second = planMirror([...SCHEDULE, ...written], {
+      targets: ["facebook"],
+      mode: "shuffle",
+      now: NOW,
+      seed: 7
+    });
+
+    expect(second.newItems).toEqual([]);
+  });
+});
