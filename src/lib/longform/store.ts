@@ -7,7 +7,7 @@ import { listJobs } from "@/lib/clipping/jobs";
 import { readSourceMeta, saveSourceFromUrl, sourceFilePath } from "@/lib/clipping/sources";
 import { readSourceTranscript, transcribeSource } from "@/lib/clipping/source-transcript";
 import { DEFAULT_PACE, buildSegments, hookCaptions, planCaptions, planHook } from "@/lib/longform/plan";
-import { buildTopics, type TopicPlanOptions } from "@/lib/longform/topics";
+import { DEFAULT_TOPIC_OPTIONS, buildTopics, type TopicPlanOptions } from "@/lib/longform/topics";
 import type { LongformPace, LongformProject } from "@/lib/longform/types";
 import { defaultSfxSettings } from "@/lib/sfx/types";
 import type { CaptionSegment } from "@/types/domain";
@@ -64,6 +64,7 @@ async function loadProjects() {
       migrateMusic(project);
       // Projects saved before viral sound effects existed default to off.
       project.sfx ??= defaultSfxSettings();
+      dropShortRecordingTopics(project);
       // Anything mid-flight when the server stopped can't resume.
       if (project.status === "processing") {
         project.status = "error";
@@ -133,6 +134,22 @@ function migrateMusic(project: LongformProject) {
     });
   }
   music.trackId = undefined;
+}
+
+/**
+ * Segments planned before the planner had a length floor. Every app demo in
+ * the library came back split into one or two "segments" — halves of a video
+ * rather than videos — and they now crowd the editor's segment picker. Drop
+ * them, unless one was actually rendered: a finished file is a real thing and
+ * is left alone.
+ */
+function dropShortRecordingTopics(project: LongformProject) {
+  if (!project.topics?.length) return;
+  if (project.durationSec >= DEFAULT_TOPIC_OPTIONS.minTotalSec) return;
+  const rendered = project.exports.some((record) => record.topicId && record.status === "done" && record.file);
+  if (rendered) return;
+  project.topics = [];
+  project.topicsNote = noSegmentsNote(project.durationSec, false);
 }
 
 export function projectWorkDir(projectId: string) {
@@ -368,6 +385,18 @@ async function fullSourceTranscript(project: LongformProject): Promise<CaptionSe
   return null;
 }
 
+/**
+ * Why a recording came back with no segments. A short one has nothing wrong
+ * with it — an eight-minute app demo is one upload, and saying "no distinct
+ * subjects" about it reads like a failure when it is the intended answer.
+ */
+function noSegmentsNote(durationSec: number, requested: boolean): string {
+  if (!requested && durationSec > 0 && durationSec < DEFAULT_TOPIC_OPTIONS.minTotalSec) {
+    return `At ${Math.max(1, Math.round(durationSec / 60))} minutes this is one video, not a stream — segments are only cut from recordings over ${Math.round(DEFAULT_TOPIC_OPTIONS.minTotalSec / 60)} minutes. Post it whole from the Export tab.`;
+  }
+  return "The transcript did not split into distinct subjects — this recording reads as one continuous topic.";
+}
+
 const NO_TRANSCRIPT_NOTE =
   "Topic segments need a transcript of the whole recording. This one is long enough that only its opening minutes were transcribed for the hook — run the same source through the Stream Pipeline (or the Clip Generator), which transcribes it end to end, and the segments appear here.";
 
@@ -410,9 +439,7 @@ async function planTopicsNow(
   // with the new ids; the finished files stay in the export list either way.
   await update(project, {
     topics,
-    topicsNote: topics.length
-      ? undefined
-      : "The transcript did not split into distinct subjects — this recording reads as one continuous topic."
+    topicsNote: topics.length ? undefined : noSegmentsNote(project.durationSec, options?.minTotalSec === 0)
   });
   return project;
 }

@@ -7,6 +7,8 @@ import {
   AudioLines,
   Captions,
   Check,
+  ChevronDown,
+  Clapperboard,
   Copy,
   Crosshair,
   Download,
@@ -103,17 +105,66 @@ function endOfEdit(project: LongformProject): number {
   return end || project.durationSec;
 }
 
+/** The render this topic segment was last given, whatever state it ended in. */
+export function segmentExportOf(project: LongformProject, topicId: string): LongformExportRecord | undefined {
+  return project.exports.find((record) => record.topicId === topicId);
+}
+
+/**
+ * Starts (or restarts) the render of one topic segment. Shared by the segment
+ * bar above the preview and the Segments panel, so both report the same thing.
+ */
+async function startSegmentRender(
+  project: LongformProject,
+  topicId: string,
+  setProject: React.Dispatch<React.SetStateAction<LongformProject>>,
+  skipDirtyRef: React.MutableRefObject<boolean>
+): Promise<boolean> {
+  try {
+    const response = await fetch(`/api/longform/projects/${project.id}/export`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ topicId })
+    });
+    const data = (await response.json()) as { export?: LongformExportRecord; error?: string };
+    if (!response.ok || !data.export) {
+      toast.error(data.error ?? "Could not start that segment.");
+      return false;
+    }
+    const record = data.export;
+    skipDirtyRef.current = true;
+    setProject((current) => ({
+      ...current,
+      topics: (current.topics ?? []).map((item) => (item.id === topicId ? { ...item, exportId: record.id } : item)),
+      exports: [record, ...current.exports.filter((item) => item.id !== record.id && item.topicId !== topicId)]
+    }));
+    return true;
+  } catch {
+    toast.error("Could not start that segment.");
+    return false;
+  }
+}
+
 export function LongformEditor({
   initialProject,
   onClose,
-  onDeleted
+  onDeleted,
+  initialSegmentId
 }: {
   initialProject: LongformProject;
   onClose: () => void;
   onDeleted: () => void;
+  /** Open straight onto one topic segment (the project list links in this way). */
+  initialSegmentId?: string | null;
 }) {
   const [project, setProject] = useState(initialProject);
-  const [tab, setTab] = useState<TabId>("hook");
+  const [tab, setTab] = useState<TabId>(initialSegmentId ? "segments" : "hook");
+  // Which of the recording's topic segments the editor is working on, or null
+  // for the whole recording. A stream is several videos in one file; this is
+  // which of them is on screen.
+  const [segmentId, setSegmentId] = useState<string | null>(initialSegmentId ?? null);
+  const [showRendered, setShowRendered] = useState(false);
+  const [renderingSegment, setRenderingSegment] = useState(false);
   const [time, setTime] = useState(0);
   const [playing, setPlaying] = useState(false);
   const [muted, setMuted] = useState(false);
@@ -134,6 +185,8 @@ export function LongformEditor({
   const editedModeRef = useRef(editedMode);
   const cutRangesRef = useRef<CutRange[]>(cutRangesOf(initialProject));
   const endRef = useRef(endOfEdit(initialProject));
+  // Playback bounds of the segment on screen; null means the whole recording.
+  const windowRef = useRef<{ start: number; end: number } | null>(null);
   const skipDirtyRef = useRef(true);
 
   useEffect(() => {
@@ -229,6 +282,13 @@ export function LongformEditor({
             setPlaying(false);
           }
         }
+        // A segment plays as its own video: it stops at its end rather than
+        // running on into the next subject.
+        const bounds = windowRef.current;
+        if (!video.paused && bounds && video.currentTime >= bounds.end - 0.05) {
+          video.pause();
+          setPlaying(false);
+        }
         if (now - lastUpdate > 90 || video.paused) {
           lastUpdate = now;
           setTime(video.currentTime);
@@ -256,7 +316,12 @@ export function LongformEditor({
     const video = videoRef.current;
     if (!video) return;
     if (video.paused) {
-      if (video.currentTime >= endRef.current - 0.05) video.currentTime = 0;
+      const bounds = windowRef.current;
+      if (bounds) {
+        if (video.currentTime < bounds.start || video.currentTime >= bounds.end - 0.05) video.currentTime = bounds.start;
+      } else if (video.currentTime >= endRef.current - 0.05) {
+        video.currentTime = 0;
+      }
       void video.play().catch(() => {
         video.muted = true;
         setMuted(true);
@@ -521,6 +586,79 @@ export function LongformEditor({
   const editedSec = editedDurationSec(project.segments, project.hook);
   const cutSec = Math.max(0, project.durationSec - editedSec);
 
+  // ----- The segment on screen -----
+  const topics = useMemo(() => project.topics ?? [], [project.topics]);
+  const activeTopic = useMemo(
+    () => topics.find((topic) => topic.id === segmentId) ?? null,
+    [topics, segmentId]
+  );
+  const activeIndex = activeTopic ? topics.indexOf(activeTopic) : -1;
+  const viewStart = activeTopic ? Math.max(0, activeTopic.start) : 0;
+  const viewEnd = activeTopic ? Math.min(project.durationSec, activeTopic.end) : project.durationSec;
+  const viewSpan = Math.max(0.1, viewEnd - viewStart);
+  const activeRecord = activeTopic ? segmentExportOf(project, activeTopic.id) : undefined;
+  const renderedFile = activeRecord?.status === "done" && activeRecord.file ? activeRecord : undefined;
+  const viewingRendered = showRendered && Boolean(renderedFile);
+
+  useEffect(() => {
+    windowRef.current = activeTopic ? { start: activeTopic.start, end: activeTopic.end } : null;
+  }, [activeTopic]);
+
+  // Land the playhead on a newly picked segment — including one picked by the
+  // link that opened the editor, which is how the pipeline and the project
+  // list arrive here. Only on the change, so scrubbing afterwards is free.
+  const landedSegmentRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!activeTopic) {
+      landedSegmentRef.current = null;
+      return;
+    }
+    if (landedSegmentRef.current === activeTopic.id) return;
+    landedSegmentRef.current = activeTopic.id;
+    const start = activeTopic.start;
+    const frame = requestAnimationFrame(() => seek(start));
+    return () => cancelAnimationFrame(frame);
+  }, [activeTopic, seek]);
+
+  const selectSegment = useCallback((id: string | null) => {
+    setSegmentId(id);
+    setShowRendered(false);
+  }, []);
+
+  const renderActiveSegment = useCallback(async () => {
+    if (!activeTopic) return;
+    setRenderingSegment(true);
+    const started = await startSegmentRender(projectRef.current, activeTopic.id, setProject, skipDirtyRef);
+    setRenderingSegment(false);
+    if (started) setShowRendered(false);
+  }, [activeTopic]);
+
+  // One poll for whichever render is running, wherever it was started from —
+  // the segment bar shows its progress even while another panel is open.
+  const runningExportId = project.exports.find((record) => record.status === "processing")?.id;
+  useEffect(() => {
+    if (!runningExportId) return;
+    const timer = setInterval(() => {
+      void fetch(`/api/longform/projects/${projectRef.current.id}/export/${runningExportId}`, { cache: "no-store" })
+        .then((response) => response.json())
+        .then((data: { export?: LongformExportRecord }) => {
+          const record = data.export;
+          if (!record) return;
+          skipDirtyRef.current = true;
+          setProject((current) => ({
+            ...current,
+            exports: current.exports.map((item) => (item.id === record.id ? record : item))
+          }));
+          if (record.status === "done") {
+            toast.success(record.topicId ? "Segment rendered — press Watch to play it." : "Your edited video is ready.");
+          }
+          if (record.status === "error") toast.error(record.error ?? "That render failed.");
+        })
+        .catch(() => undefined);
+    }, 1500);
+    return () => clearInterval(timer);
+  }, [runningExportId]);
+
   return (
     <div className="space-y-4">
       {/* Toolbar */}
@@ -583,9 +721,39 @@ export function LongformEditor({
         onChange={patch}
       />
 
+      <SegmentBar
+        project={project}
+        topics={topics}
+        activeTopic={activeTopic}
+        activeIndex={activeIndex}
+        onSelect={selectSegment}
+        record={activeRecord}
+        rendering={renderingSegment}
+        onRender={renderActiveSegment}
+        showRendered={viewingRendered}
+        onShowRendered={setShowRendered}
+        onFindSegments={() => setTab("segments")}
+      />
+
       <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_340px]">
         {/* Preview + transport + timeline */}
         <div className="min-w-0 space-y-3">
+          {viewingRendered && renderedFile ? (
+            <div className="space-y-2">
+              <video
+                key={renderedFile.id}
+                controls
+                autoPlay
+                preload="metadata"
+                src={`/api/longform/projects/${project.id}/export/${renderedFile.id}?file=1`}
+                className="w-full rounded-xl border border-[var(--border)] bg-black"
+              />
+              <p className="text-center text-xs text-[var(--muted-foreground)]">
+                The rendered segment — hook, cuts, captions and mix already baked in. Press{" "}
+                <span className="text-white">Back to editing</span> to change it and render again.
+              </p>
+            </div>
+          ) : (
           <LongformPreview
             project={project}
             time={time}
@@ -603,6 +771,7 @@ export function LongformEditor({
             }
             imageUrl={overlayImageUrl}
           />
+          )}
 
           {/* Play the placed timeline audio clips live under the preview,
               mirroring what the export mixes in. Silent unless the master
@@ -624,14 +793,14 @@ export function LongformEditor({
               {playing ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4 translate-x-px" />}
             </button>
             <span className="w-28 text-xs tabular-nums text-[var(--muted-foreground)]">
-              {formatClock(time)} / {formatClock(project.durationSec)}
+              {formatClock(Math.max(0, Math.min(time, viewEnd) - viewStart))} / {formatClock(viewSpan)}
             </span>
             <input
               type="range"
-              min={0}
-              max={project.durationSec}
+              min={viewStart}
+              max={viewEnd}
               step={0.05}
-              value={Math.min(time, project.durationSec)}
+              value={Math.min(Math.max(time, viewStart), viewEnd)}
               onChange={(event) => seek(Number(event.target.value))}
               className="h-1.5 min-w-24 flex-1 cursor-pointer appearance-none rounded-full bg-white/15 accent-[var(--accent)]"
               aria-label="Seek"
@@ -667,6 +836,15 @@ export function LongformEditor({
             project={project}
             time={time}
             peaks={peaks}
+            focusWindow={
+              activeTopic
+                ? {
+                    start: activeTopic.start,
+                    end: activeTopic.end,
+                    label: `Segment ${activeIndex + 1} · ${formatClock(viewSpan)}`
+                  }
+                : null
+            }
             selection={tab === "trim" ? selection : null}
             onSeek={seek}
             onToggleSegment={toggleSegment}
@@ -744,7 +922,14 @@ export function LongformEditor({
               />
             )}
             {tab === "segments" && (
-              <SegmentsPanel project={project} setProject={setProject} skipDirtyRef={skipDirtyRef} seek={seek} />
+              <SegmentsPanel
+                project={project}
+                setProject={setProject}
+                skipDirtyRef={skipDirtyRef}
+                seek={seek}
+                activeSegmentId={segmentId}
+                onSelectSegment={selectSegment}
+              />
             )}
             {tab === "images" && (
               <ImagesPanel
@@ -780,6 +965,203 @@ export function LongformEditor({
         </div>
       </div>
     </div>
+  );
+}
+
+/**
+ * Which of the recording's videos is on screen. A three-hour stream is not one
+ * upload: it is the three to five subjects it moved through, each its own
+ * ten-minute video. This bar is the dropdown that switches between them —
+ * "Full recording" plus every topic segment — and it scopes the whole editing
+ * view to whichever one is picked: the preview and transport play that stretch
+ * and stop at its end, and the timeline frames it with the rest greyed back.
+ *
+ * Short uploads never have segments (the planner refuses recordings under
+ * fifteen minutes), so on those this bar does not appear at all.
+ */
+function SegmentBar({
+  project,
+  topics,
+  activeTopic,
+  activeIndex,
+  onSelect,
+  record,
+  rendering,
+  onRender,
+  showRendered,
+  onShowRendered,
+  onFindSegments
+}: {
+  project: LongformProject;
+  topics: LongformTopic[];
+  activeTopic: LongformTopic | null;
+  activeIndex: number;
+  onSelect: (id: string | null) => void;
+  record: LongformExportRecord | undefined;
+  rendering: boolean;
+  onRender: () => void;
+  showRendered: boolean;
+  onShowRendered: (show: boolean) => void;
+  onFindSegments: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  if (topics.length === 0) return null;
+
+  const renderedCount = topics.filter((topic) => {
+    const item = segmentExportOf(project, topic.id);
+    return item?.status === "done" && item.file;
+  }).length;
+  const busy = project.exports.some((item) => item.status === "processing");
+  const done = record?.status === "done" && record.file ? record : undefined;
+  const label = activeTopic ? `${activeIndex + 1}. ${activeTopic.title}` : "Full recording";
+  const sublabel = activeTopic
+    ? `${formatClock(topicDurationSec(project, activeTopic))} · ${formatClock(activeTopic.start)}–${formatClock(activeTopic.end)}`
+    : `${formatClock(project.durationSec)} · the whole stream`;
+
+  return (
+    <div className="relative flex flex-wrap items-center gap-3 rounded-xl border border-[var(--border)] bg-[var(--surface)] px-4 py-3">
+      <span className="text-xs font-medium uppercase tracking-wide text-[var(--muted-foreground)]">Editing</span>
+
+      <div className="relative min-w-0 flex-1">
+        <button
+          type="button"
+          onClick={() => setOpen((value) => !value)}
+          aria-expanded={open}
+          aria-label="Choose which video to edit"
+          className="flex w-full min-w-0 items-center gap-2 rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-3 py-2 text-left transition hover:border-[var(--border-strong)]"
+        >
+          {activeTopic ? (
+            <Layers className="h-4 w-4 shrink-0 text-[var(--accent)]" />
+          ) : (
+            <Clapperboard className="h-4 w-4 shrink-0 text-[var(--muted-foreground)]" />
+          )}
+          <span className="min-w-0 flex-1">
+            <span className="block truncate text-sm font-semibold text-white">{label}</span>
+            <span className="block truncate text-[11px] tabular-nums text-[var(--muted-foreground)]">{sublabel}</span>
+          </span>
+          <ChevronDown className={cn("h-4 w-4 shrink-0 text-[var(--muted-foreground)] transition", open && "rotate-180")} />
+        </button>
+
+        {open && (
+          <>
+            <div className="fixed inset-0 z-30" onClick={() => setOpen(false)} />
+            <div className="absolute left-0 right-0 top-[calc(100%+4px)] z-40 max-h-80 overflow-y-auto rounded-lg border border-[var(--border)] bg-[var(--surface)] p-1 shadow-xl">
+              <SegmentOption
+                title="Full recording"
+                detail={`${formatClock(project.durationSec)} · everything, start to finish`}
+                selected={!activeTopic}
+                onClick={() => {
+                  onSelect(null);
+                  setOpen(false);
+                }}
+              />
+              {topics.map((topic, index) => {
+                const item = segmentExportOf(project, topic.id);
+                const state =
+                  item?.status === "processing"
+                    ? `rendering ${item.progress}%`
+                    : item?.status === "done" && item.file
+                      ? "rendered"
+                      : item?.status === "error"
+                        ? "render failed"
+                        : "not rendered yet";
+                return (
+                  <SegmentOption
+                    key={topic.id}
+                    title={`${index + 1}. ${topic.title}`}
+                    detail={`${formatClock(topicDurationSec(project, topic))} · ${formatClock(topic.start)}–${formatClock(topic.end)} · ${state}`}
+                    selected={topic.id === activeTopic?.id}
+                    rendered={item?.status === "done" && Boolean(item.file)}
+                    onClick={() => {
+                      onSelect(topic.id);
+                      setOpen(false);
+                    }}
+                  />
+                );
+              })}
+            </div>
+          </>
+        )}
+      </div>
+
+      <span className="shrink-0 text-xs text-[var(--muted-foreground)]">
+        {renderedCount} of {topics.length} rendered
+      </span>
+
+      {activeTopic ? (
+        <div className="flex shrink-0 flex-wrap items-center gap-2">
+          {record?.status === "processing" ? (
+            <span className="flex items-center gap-2 rounded-lg border border-[var(--border)] px-3 py-1.5 text-xs text-[var(--muted-foreground)]">
+              <Loader2 className="h-3.5 w-3.5 animate-spin" /> Rendering {record.progress}%
+            </span>
+          ) : (
+            <Button
+              variant={done ? "secondary" : "primary"}
+              className="gap-2 px-3 py-1.5 text-xs"
+              disabled={busy || rendering}
+              onClick={onRender}
+            >
+              {rendering ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Upload className="h-3.5 w-3.5" />}
+              {done ? "Render again" : "Render this segment"}
+            </Button>
+          )}
+          {done && (
+            <>
+              <Button
+                variant={showRendered ? "primary" : "secondary"}
+                className="gap-2 px-3 py-1.5 text-xs"
+                onClick={() => onShowRendered(!showRendered)}
+              >
+                <Play className="h-3.5 w-3.5" />
+                {showRendered ? "Back to editing" : "Watch"}
+              </Button>
+              <a
+                href={`/api/longform/projects/${project.id}/export/${done.id}?file=1&download=1&name=${encodeURIComponent(`${activeTopic.title}.mp4`)}`}
+                className="flex items-center gap-2 rounded-lg border border-[var(--border)] px-3 py-1.5 text-xs text-white transition hover:border-[var(--border-strong)]"
+              >
+                <Download className="h-3.5 w-3.5" /> Download
+              </a>
+            </>
+          )}
+        </div>
+      ) : (
+        <Button variant="secondary" className="shrink-0 gap-2 px-3 py-1.5 text-xs" onClick={onFindSegments}>
+          <Layers className="h-3.5 w-3.5" /> Segments
+        </Button>
+      )}
+    </div>
+  );
+}
+
+function SegmentOption({
+  title,
+  detail,
+  selected,
+  rendered,
+  onClick
+}: {
+  title: string;
+  detail: string;
+  selected: boolean;
+  rendered?: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={cn(
+        "flex w-full items-center gap-2 rounded-md px-3 py-2 text-left transition",
+        selected ? "bg-[var(--accent)]/15" : "hover:bg-white/5"
+      )}
+    >
+      <span className="min-w-0 flex-1">
+        <span className="block truncate text-sm text-white">{title}</span>
+        <span className="block truncate text-[11px] tabular-nums text-[var(--muted-foreground)]">{detail}</span>
+      </span>
+      {rendered && <Check className="h-3.5 w-3.5 shrink-0 text-emerald-400" />}
+      {selected && <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--accent)]" />}
+    </button>
   );
 }
 
@@ -2391,12 +2773,16 @@ function SegmentsPanel({
   project,
   setProject,
   skipDirtyRef,
-  seek
+  seek,
+  activeSegmentId,
+  onSelectSegment
 }: {
   project: LongformProject;
   setProject: React.Dispatch<React.SetStateAction<LongformProject>>;
   skipDirtyRef: React.MutableRefObject<boolean>;
   seek: (t: number) => void;
+  activeSegmentId: string | null;
+  onSelectSegment: (id: string | null) => void;
 }) {
   const [planning, setPlanning] = useState(false);
   const [count, setCount] = useState<number | "auto">("auto");
@@ -2433,28 +2819,6 @@ function SegmentsPanel({
     };
   }, [project.id, topics, applyTopics]);
 
-  // Mirror the Export panel: keep the rendering segment's progress moving.
-  useEffect(() => {
-    if (!active) return;
-    const timer = setInterval(() => {
-      void fetch(`/api/longform/projects/${project.id}/export/${active.id}`, { cache: "no-store" })
-        .then((response) => response.json())
-        .then((data: { export?: LongformExportRecord }) => {
-          if (!data.export) return;
-          const record = data.export;
-          skipDirtyRef.current = true;
-          setProject((current) => ({
-            ...current,
-            exports: current.exports.map((item) => (item.id === record.id ? record : item))
-          }));
-          if (record.status === "done") toast.success("Segment rendered.");
-          if (record.status === "error") toast.error(record.error ?? "That segment failed to render.");
-        })
-        .catch(() => undefined);
-    }, 1500);
-    return () => clearInterval(timer);
-  }, [active, project.id, setProject, skipDirtyRef]);
-
   const findSegments = async () => {
     setPlanning(true);
     try {
@@ -2483,31 +2847,8 @@ function SegmentsPanel({
 
   const exportSegment = async (topic: LongformTopic) => {
     setStarting(topic.id);
-    try {
-      const response = await fetch(`/api/longform/projects/${project.id}/export`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ topicId: topic.id })
-      });
-      const data = (await response.json()) as { export?: LongformExportRecord; error?: string };
-      if (!response.ok || !data.export) {
-        toast.error(data.error ?? "Could not start that segment.");
-        return;
-      }
-      const record = data.export;
-      skipDirtyRef.current = true;
-      setProject((current) => ({
-        ...current,
-        topics: (current.topics ?? []).map((item) =>
-          item.id === topic.id ? { ...item, exportId: record.id } : item
-        ),
-        exports: [record, ...current.exports.filter((item) => item.id !== record.id)]
-      }));
-    } catch {
-      toast.error("Could not start that segment.");
-    } finally {
-      setStarting(null);
-    }
+    await startSegmentRender(project, topic.id, setProject, skipDirtyRef);
+    setStarting(null);
   };
 
   return (
@@ -2569,11 +2910,18 @@ function SegmentsPanel({
 
       <div className="space-y-3">
         {(topics ?? []).map((topic, index) => {
-          const record = project.exports.find((item) => item.topicId === topic.id);
+          const record = segmentExportOf(project, topic.id);
           const rendering = record?.status === "processing";
           const runtime = topicDurationSec(project, topic);
+          const editing = topic.id === activeSegmentId;
           return (
-            <div key={topic.id} className="space-y-2 rounded-lg border border-[var(--border)] bg-[var(--surface-2)] p-3">
+            <div
+              key={topic.id}
+              className={cn(
+                "space-y-2 rounded-lg border bg-[var(--surface-2)] p-3",
+                editing ? "border-[var(--accent)]/60 ring-1 ring-[var(--accent)]/30" : "border-[var(--border)]"
+              )}
+            >
               <div className="flex items-start justify-between gap-2">
                 <div className="min-w-0">
                   <p className="text-sm font-semibold text-white">
@@ -2586,13 +2934,23 @@ function SegmentsPanel({
                 </span>
               </div>
 
-              <button
-                type="button"
-                onClick={() => seek(topic.start)}
-                className="text-[11px] tabular-nums text-[var(--accent)] transition hover:opacity-80"
-              >
-                {formatClock(topic.start)} – {formatClock(topic.end)} in the recording · jump here
-              </button>
+              <div className="flex flex-wrap items-center gap-2">
+                <Button
+                  variant={editing ? "primary" : "secondary"}
+                  className="gap-2 px-3 py-1.5 text-xs"
+                  onClick={() => onSelectSegment(editing ? null : topic.id)}
+                >
+                  <Layers className="h-3.5 w-3.5" />
+                  {editing ? "Editing this one" : "Edit this segment"}
+                </Button>
+                <button
+                  type="button"
+                  onClick={() => seek(topic.start)}
+                  className="text-[11px] tabular-nums text-[var(--accent)] transition hover:opacity-80"
+                >
+                  {formatClock(topic.start)} – {formatClock(topic.end)} · jump here
+                </button>
+              </div>
 
               {topic.keywords.length > 0 && (
                 <div className="flex flex-wrap gap-1">
@@ -2615,9 +2973,16 @@ function SegmentsPanel({
                   </p>
                 </div>
               ) : record?.status === "done" && record.file ? (
-                <div className="flex gap-2">
+                <div className="space-y-2">
+                  <video
+                    controls
+                    preload="metadata"
+                    src={`/api/longform/projects/${project.id}/export/${record.id}?file=1`}
+                    className="w-full rounded-lg border border-[var(--border)] bg-black"
+                  />
+                  <div className="flex gap-2">
                   <a
-                    href={`/api/longform/projects/${project.id}/export/${record.id}?file=1&download=1`}
+                    href={`/api/longform/projects/${project.id}/export/${record.id}?file=1&download=1&name=${encodeURIComponent(`${topic.title}.mp4`)}`}
                     className="flex flex-1 items-center justify-center gap-2 rounded-lg border border-[var(--border)] px-3 py-1.5 text-xs text-white transition hover:border-[var(--border-strong)]"
                   >
                     <Download className="h-3.5 w-3.5" /> Download
@@ -2630,6 +2995,7 @@ function SegmentsPanel({
                   >
                     Render again
                   </Button>
+                  </div>
                 </div>
               ) : (
                 <Button
@@ -2680,29 +3046,6 @@ function ExportPanel({
   // Segment renders live in the same export list but belong to the Segments
   // tab — this panel is always about the whole edit.
   const latestDone = project.exports.find((record) => !record.topicId && record.status === "done" && record.file);
-
-  // Poll while an export renders. State comes back through the project so a
-  // restarted panel picks the render right back up.
-  useEffect(() => {
-    if (!active) return;
-    const timer = setInterval(() => {
-      void fetch(`/api/longform/projects/${project.id}/export/${active.id}`, { cache: "no-store" })
-        .then((response) => response.json())
-        .then((data: { export?: LongformExportRecord; error?: string }) => {
-          if (!data.export) return;
-          const record = data.export;
-          skipDirtyRef.current = true;
-          setProject((current) => ({
-            ...current,
-            exports: current.exports.map((item) => (item.id === record.id ? record : item))
-          }));
-          if (record.status === "done") toast.success("Your edited video is ready.");
-          if (record.status === "error") toast.error(record.error ?? "Export failed.");
-        })
-        .catch(() => undefined);
-    }, 1200);
-    return () => clearInterval(timer);
-  }, [active, project.id, setProject, skipDirtyRef]);
 
   const startExport = async () => {
     setStarting(true);

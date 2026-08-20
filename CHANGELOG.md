@@ -14,6 +14,23 @@ already shipped.
 
 ## Unreleased
 
+- **The Long-Form Editor opens one segment at a time, not the whole stream.**
+  A stream is three to five videos in one recording, but the editor only ever
+  showed the full three hours and left the segments on a tab. There is now a
+  dropdown across the top of the editor — Full recording, then every segment
+  with its runtime and whether it has been rendered — and picking one scopes
+  the whole view to it: the player and the scrubber run that stretch and stop
+  at its end, the timeline zooms to it with the rest of the stream greyed back,
+  and the bar carries **Render this segment**, **Watch** (plays the finished
+  file in place of the preview) and **Download**. Every project card on the
+  Long-Form Video page lists its segments too, and each one opens straight into
+  its own editing view. The Stream Pipeline's segments step now links there
+  instead of to the full stream.
+- **App demos stopped being cut into "segments" that were really half a video.**
+  Segments are for streams: anything under fifteen minutes is now left whole,
+  and says so, instead of coming back split in two. The one- and two-segment
+  splits already sitting on the short app-demo uploads are cleared out —
+  nothing that had been rendered is touched.
 - **A second TikTok profile no longer knocks out the first.** Connecting TikTok
   wrote to one shared slot, so a second account overwrote the first account's
   connection — and extra TikTok accounts never posted at all, they just saved

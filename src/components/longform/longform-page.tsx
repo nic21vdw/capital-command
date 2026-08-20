@@ -2,7 +2,7 @@
 
 import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Clapperboard, Film, Loader2, MonitorCheck, Music4, Scissors, Trash2, UploadCloud, Zap } from "lucide-react";
+import { Check, ChevronDown, Clapperboard, Film, Layers, Loader2, MonitorCheck, Music4, Scissors, Trash2, UploadCloud, Zap } from "lucide-react";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -29,10 +29,19 @@ const STAGE_LABELS: Record<LongformProject["stage"], string> = {
   ready: "Ready"
 };
 
+/** How many of a project's topic segments already have a finished video. */
+function renderedSegments(project: LongformProjectSummary): number {
+  return (project.topics ?? []).filter((topic) =>
+    project.exports.some((item) => item.topicId === topic.id && item.status === "done" && item.file)
+  ).length;
+}
+
 export function LongformStudioPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const openId = searchParams.get("open");
+  // Which topic segment of that project the editor should open on.
+  const openSegmentId = searchParams.get("segment");
 
   const [projects, setProjects] = useState<LongformProjectSummary[]>([]);
   // The full project behind `openId`. The list carries summaries — a project's
@@ -49,6 +58,8 @@ export function LongformStudioPage() {
   const [draftName, setDraftName] = useState("");
   const [url, setUrl] = useState("");
   const [importing, setImporting] = useState(false);
+  // Which card has its segment list unfolded.
+  const [segmentsOpen, setSegmentsOpen] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
     try {
@@ -93,8 +104,13 @@ export function LongformStudioPage() {
   }, [openId, openIsReady]);
 
   const setOpen = useCallback(
-    (id: string | null) => {
-      router.replace(id ? `/longform?open=${encodeURIComponent(id)}` : "/longform");
+    (id: string | null, segmentId?: string) => {
+      if (!id) {
+        router.replace("/longform");
+        return;
+      }
+      const segment = segmentId ? `&segment=${encodeURIComponent(segmentId)}` : "";
+      router.replace(`/longform?open=${encodeURIComponent(id)}${segment}`);
     },
     [router]
   );
@@ -258,6 +274,7 @@ export function LongformStudioPage() {
       <LongformEditor
         key={openProject.id}
         initialProject={openProject}
+        initialSegmentId={openSegmentId}
         onClose={() => {
           setOpen(null);
           void refresh();
@@ -522,7 +539,7 @@ export function LongformStudioPage() {
                         {project.topics && project.topics.length > 0 && (
                           <>
                             {" · "}
-                            <span className="text-white">{project.topics.length}</span> topic segment
+                            <span className="text-white">{project.topics.length}</span> segment
                             {project.topics.length === 1 ? "" : "s"}
                           </>
                         )}
@@ -549,6 +566,59 @@ export function LongformStudioPage() {
                   )}
                   {project.status === "error" && (
                     <p className="line-clamp-2 text-xs text-red-300">{project.error}</p>
+                  )}
+                  {/* A stream is several videos in one recording. The card lists
+                      them so the segment you want is one click away, instead of
+                      opening the whole stream and hunting for it. */}
+                  {project.topics && project.topics.length > 0 && (
+                    <div className="rounded-lg border border-[var(--border)]">
+                      <button
+                        type="button"
+                        onClick={() => setSegmentsOpen((current) => (current === project.id ? null : project.id))}
+                        aria-expanded={segmentsOpen === project.id}
+                        className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs text-[var(--muted-foreground)] transition hover:text-white"
+                      >
+                        <Layers className="h-3.5 w-3.5 shrink-0 text-[var(--accent)]" />
+                        <span className="flex-1 truncate">
+                          {project.topics.length} long-form segment{project.topics.length === 1 ? "" : "s"} ·{" "}
+                          {renderedSegments(project)} rendered
+                        </span>
+                        <ChevronDown
+                          className={cn("h-3.5 w-3.5 shrink-0 transition", segmentsOpen === project.id && "rotate-180")}
+                        />
+                      </button>
+                      {segmentsOpen === project.id && (
+                        <div className="space-y-1 border-t border-[var(--border)] p-1">
+                          {project.topics.map((topic, index) => {
+                            const record = project.exports.find((item) => item.topicId === topic.id);
+                            const rendered = record?.status === "done" && Boolean(record.file);
+                            return (
+                              <button
+                                key={topic.id}
+                                type="button"
+                                onClick={() => setOpen(project.id, topic.id)}
+                                className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left transition hover:bg-white/5"
+                              >
+                                <span className="min-w-0 flex-1">
+                                  <span className="block truncate text-xs text-white">
+                                    {index + 1}. {topic.title}
+                                  </span>
+                                  <span className="block truncate text-[10px] tabular-nums text-[var(--muted-foreground)]">
+                                    {formatClock(Math.max(0, topic.end - topic.start))} ·{" "}
+                                    {record?.status === "processing"
+                                      ? `rendering ${record.progress}%`
+                                      : rendered
+                                        ? "rendered"
+                                        : "not rendered yet"}
+                                  </span>
+                                </span>
+                                {rendered && <Check className="h-3.5 w-3.5 shrink-0 text-emerald-400" />}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
                   )}
                   <div className="mt-auto flex items-center gap-2">
                     <Button

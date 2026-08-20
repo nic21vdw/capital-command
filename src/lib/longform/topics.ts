@@ -39,7 +39,15 @@ export const DEFAULT_TOPIC_OPTIONS = {
   /** The length we aim for: a ten minute upload. */
   targetSec: 600,
   minCount: 3,
-  maxCount: 5
+  maxCount: 5,
+  /**
+   * Shortest recording that is worth splitting at all. Segments exist because
+   * a three-hour stream is several videos wearing one file name; an app demo
+   * that ran eight minutes is one video, and cutting it in half produces two
+   * halves of a video rather than two videos. Below this the planner returns
+   * nothing and the recording is posted whole.
+   */
+  minTotalSec: 900
 };
 
 export type TopicPlanOptions = Partial<typeof DEFAULT_TOPIC_OPTIONS>;
@@ -267,14 +275,14 @@ export function planTopicSegments(
   transcript: CaptionSegment[],
   options: TopicPlanOptions = {}
 ): PlannedTopic[] {
-  const { minSec, maxSec, targetSec, minCount, maxCount } = { ...DEFAULT_TOPIC_OPTIONS, ...options };
+  const { minSec, maxSec, targetSec, minCount, maxCount, minTotalSec } = { ...DEFAULT_TOPIC_OPTIONS, ...options };
   const spoken = spokenSegments(transcript);
   if (spoken.length === 0) return [];
 
   const spanStart = spoken[0].start;
   const spanEnd = spoken[spoken.length - 1].end;
   const total = spanEnd - spanStart;
-  if (total < minSec) return [];
+  if (total < Math.max(minSec, minTotalSec)) return [];
 
   // How many segments this recording can actually carry: the target length
   // sets the ambition, the caps and the material set the limit.

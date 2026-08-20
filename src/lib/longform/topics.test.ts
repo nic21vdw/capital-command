@@ -80,6 +80,18 @@ describe("planTopicSegments", () => {
     expect(topics.length).toBeLessThanOrEqual(5);
   });
 
+  // An eight-minute app demo is one video. Splitting it produces two halves of
+  // a video, not two videos, and the app used to do exactly that.
+  it("leaves a short recording whole", () => {
+    const short = streamTranscript().filter((segment) => segment.end <= 480);
+    expect(planTopicSegments(short)).toEqual([]);
+  });
+
+  it("still splits a short recording when one is asked for by hand", () => {
+    const short = streamTranscript().filter((segment) => segment.end <= 480);
+    expect(planTopicSegments(short, { minTotalSec: 0 }).length).toBeGreaterThan(0);
+  });
+
   it("finds the boundaries where the vocabulary turns over", () => {
     const blocks = buildTopicBlocks(transcript);
     const candidates = boundaryCandidates(blocks);

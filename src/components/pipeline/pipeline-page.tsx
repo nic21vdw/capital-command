@@ -719,6 +719,9 @@ export function PipelinePage() {
   const pendingLabel = (key: PipelineStageKey, noun: string) =>
     stages?.[key].status === "skipped" || stages?.[key].status === "error" ? `no ${noun}` : `${noun} pending`;
   const longformHref = run?.longformProjectId ? `/longform?open=${run.longformProjectId}` : "/longform";
+  // The segments stage opens the editor already on its segment picker,
+  // rather than on the full stream with the segments a tab away.
+  const segmentsHref = run?.longformProjectId ? `${longformHref}&segment=topic-1` : "/longform";
   const segmentsPending = schedulable ? schedulable.segments - schedulable.segmentsRendered : 0;
   const audioHref =
     run?.longformProjectId && run.longformExportId
@@ -1026,9 +1029,9 @@ export function PipelinePage() {
               </Button>
             </>
           ) : null}
-          <Link href={longformHref}>
+          <Link href={segmentsHref}>
             <Button variant="secondary" className="px-3 py-1.5 text-xs">
-              Open in Long-Form Editor
+              Watch and edit the segments
             </Button>
           </Link>
           {schedulable && schedulable.segments > 0 ? (
