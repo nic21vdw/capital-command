@@ -14,6 +14,8 @@ already shipped.
 
 ## Unreleased
 
+## 2026-08-20
+
 - **The Long-Form Editor opens one segment at a time, not the whole stream.**
   A stream is three to five videos in one recording, but the editor only ever
   showed the full three hours and left the segments on a tab. There is now a
