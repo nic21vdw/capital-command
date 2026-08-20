@@ -14,6 +14,14 @@ already shipped.
 
 ## Unreleased
 
+- **"5 needs you" on the Catching up with YouTube panel now names those five
+  videos and gives each one a button.** The count used to be a number with
+  nothing behind it: nothing on the screen said which streams were stuck, and
+  there was no way to reach them. Each one is now listed with what went wrong —
+  "took too long, the scan gave up", "the run broke" — and either **Open it**,
+  which goes straight to that run, or **Start it again** for a run that is no
+  longer there.
+
 ## 2026-08-19
 
 - **You can now tell a clip to post straight to TikTok instead of waiting in

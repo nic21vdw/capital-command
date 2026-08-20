@@ -16,7 +16,13 @@ import type { ChannelSnapshot, ChannelVideo, IngestLedger, ScanCandidate } from 
 
 export type CoverageState = "done" | "working" | "attention" | "waiting";
 
-export type CoverageVideo = ChannelVideo & { state: CoverageState };
+export type CoverageVideo = ChannelVideo & {
+  state: CoverageState;
+  /** The run holding it, when there is one to open. */
+  runId?: string;
+  /** What is wrong with it, in the words the run list already uses. */
+  note?: string;
+};
 
 export type CoverageGroup = {
   kind: ChannelVideo["kind"];
@@ -40,7 +46,7 @@ export type ChannelCoverage = {
 };
 
 /** What the pipeline currently knows about one video, by its YouTube id. */
-export type RunState = Map<string, Exclude<CoverageState, "waiting">>;
+export type RunState = Map<string, { state: Exclude<CoverageState, "waiting">; runId: string; label: string }>;
 
 /**
  * The videos the coverage panel counts: everything the scan saw that Nic made
@@ -72,16 +78,26 @@ export function snapshotFromCandidates(
   return { at, lookbackDays, videos };
 }
 
-function stateOf(video: ChannelVideo, ledger: IngestLedger, runs: RunState): CoverageState {
+type VideoState = { state: CoverageState; runId?: string; note?: string };
+
+function stateOf(video: ChannelVideo, ledger: IngestLedger, runs: RunState): VideoState {
   const live = runs.get(video.videoId);
-  if (live) return live;
+  if (live) return { state: live.state, runId: live.runId, note: live.label };
   const record = ledger.records.find((entry) => entry.videoId === video.videoId);
-  if (!record) return "waiting";
-  if (record.outcome === "ready") return "done";
+  if (!record) return { state: "waiting" };
+  if (record.outcome === "ready") return { state: "done" };
   // The scan stopped retrying this one, so waiting for tomorrow is not going to
   // fix it — it needs a person.
-  if (record.attempts >= MAX_INGEST_ATTEMPTS) return "attention";
-  return "waiting";
+  // No run id here even when the record has one: a video whose run still exists
+  // came through `runs` above, so a record that reaches this line is one whose
+  // run has since been deleted. Starting it again is the only offer that works.
+  if (record.attempts >= MAX_INGEST_ATTEMPTS) {
+    return {
+      state: "attention",
+      note: record.outcome === "timeout" ? "Took too long, the scan gave up" : "The run broke"
+    };
+  }
+  return { state: "waiting" };
 }
 
 export function channelCoverage(ledger: IngestLedger, runs: RunState): ChannelCoverage | null {
@@ -93,10 +109,10 @@ export function channelCoverage(ledger: IngestLedger, runs: RunState): ChannelCo
   }
   for (const video of snapshot.videos) {
     const group = groups.get(video.kind)!;
-    const state = stateOf(video, ledger, runs);
+    const { state, runId, note } = stateOf(video, ledger, runs);
     group.total += 1;
     group[state] += 1;
-    if (state !== "done") group.outstanding.push({ ...video, state });
+    if (state !== "done") group.outstanding.push({ ...video, state, runId, note });
   }
   return {
     at: snapshot.at,

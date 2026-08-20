@@ -75,7 +75,7 @@ describe("how far behind the channel the pipeline is", () => {
   });
 
   it("counts each kind of video on its own", () => {
-    const runs: RunState = new Map([["b", "working"]]);
+    const runs: RunState = new Map([["b", { state: "working", runId: "r-b", label: "Running" }]]);
     const coverage = channelCoverage(
       ledger({ channel: snapshot, records: [record({ videoId: "a" })] }),
       runs
@@ -91,9 +91,15 @@ describe("how far behind the channel the pipeline is", () => {
   it("lets a broken run speak for the video", () => {
     const coverage = channelCoverage(
       ledger({ channel: snapshot, records: [record({ videoId: "a", outcome: "error" })] }),
-      new Map([["a", "attention"]])
+      new Map([["a", { state: "attention", runId: "r-a", label: "2 stages need attention" }]])
     )!;
     expect(coverage.groups[0]).toMatchObject({ done: 0, attention: 1 });
+    // The count is only useful if the panel can hand him the run behind it.
+    expect(coverage.groups[0].outstanding[0]).toMatchObject({
+      videoId: "a",
+      runId: "r-a",
+      note: "2 stages need attention"
+    });
   });
 
   it("treats a video the scan gave up on as needing a person", () => {
@@ -105,6 +111,9 @@ describe("how far behind the channel the pipeline is", () => {
       new Map()
     )!;
     expect(coverage.groups[0]).toMatchObject({ attention: 1 });
+    // Its run is gone — it did not come through `runs` — so the panel must not
+    // offer to open one.
+    expect(coverage.groups[0].outstanding[0]).toMatchObject({ videoId: "a", runId: undefined });
   });
 
   it("keeps a video still being retried as waiting, not as handled", () => {
