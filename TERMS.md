@@ -1,38 +1,70 @@
 # Terms of Service
 
-**Last updated: July 28, 2026**
+**Last updated: August 19, 2026**
 
-Capital Command is a personal content-operations dashboard, built and run by
-Nic Vandewetering. It runs on the operator's own machine and posts to the
-operator's own social accounts. It is not a hosted service, it has no other
-users, and no account can be created on it.
+The canonical copy of these terms is the one published with the product, in
+`site/terms.html`. This file mirrors it so the repository and the site never
+say different things.
 
-## Who may use it
+## What this software is
 
-Only the operator. There is no sign-up, no multi-tenant access, and no offer to
-the public. If you have reached this page from an app-review process, that is
-the whole scope: one person automating the publishing of their own videos.
+Capital Command is content operations software for creators. It cuts long-form
+video into short clips, prepares captions for them, and publishes them to
+social accounts on a schedule. It is provided as software you install and run
+on hardware you control, not as a hosted service, and there is no account to
+register with us.
 
-## What it does
+## Using it
 
-It edits long-form video the operator has recorded into short clips, writes the
-accompanying titles and captions, and schedules those clips to the operator's
-own YouTube, TikTok, Instagram, and Facebook accounts through each platform's
-official API, using credentials the operator has authorized.
+You may run Capital Command to publish to accounts you own or are authorised to
+manage. You are responsible for everything published from your installation:
+the content, the rights to use it, its captions, and its compliance with the
+rules of every platform you connect.
 
-## Acceptable use
+## What you must not do with it
 
-The operator publishes only content they created or hold the rights to, and
-follows the terms and community guidelines of every platform it posts to,
-including the TikTok Developer Terms of Service and the TikTok Community
-Guidelines. The software is not used to post on anyone else's behalf, to
-automate engagement, or to scrape.
+- Publish content you do not have the rights to publish, including music,
+  footage or likenesses you have not cleared.
+- Post to accounts you do not own or have not been authorised to manage.
+- Send spam, run coordinated or inauthentic activity, or evade a platform's
+  rate limits, enforcement actions or content policies.
+- Use it in any way that breaks the terms of a platform you have connected.
+  Those terms apply to what you publish and this document does not override
+  them.
+
+## Platform connections
+
+Connecting an account authorises the software to act on that account on your
+behalf, within the permissions shown on the platform's own consent screen. You
+can withdraw that authorisation at any time in the platform's settings, after
+which the software can no longer post. Each platform's terms and developer
+policies continue to govern your use of its API, including TikTok's.
+
+## Your content
+
+Your video, clips and captions remain yours. Running this software grants no
+licence over them to anyone, and nothing published through it is transmitted to
+the software's author.
+
+## Availability and changes
+
+The software depends on third-party APIs that may change, restrict or withdraw
+access at any time. A feature that depends on such an API may stop working for
+reasons outside anyone's control, and no availability is promised.
 
 ## No warranty
 
-The software is provided as-is, without warranty of any kind. It is a personal
-tool; it may break, and it may be changed or withdrawn at any time.
+Provided "as is", without warranty of any kind, express or implied, including
+fitness for a particular purpose and non-infringement. You run it at your own
+risk.
+
+## Limitation of liability
+
+To the maximum extent permitted by law, the author is not liable for any
+indirect, incidental or consequential damages, nor for lost profits, lost
+reach, removed posts, suspended accounts or lost data arising from your use of
+the software.
 
 ## Contact
 
-Questions about these terms: open an issue on this repository.
+nic21vdw@gmail.com

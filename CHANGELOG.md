@@ -14,6 +14,16 @@ already shipped.
 
 ## Unreleased
 
+- **The TikTok submission has a product page, terms and a privacy policy that
+  describe software creators run — not one person's private dashboard.** The
+  documents the reviewer read in July opened with "a personal content-operations
+  dashboard", which is the exact thing TikTok said it would not approve. They
+  are rewritten and live in `site/`, mirrored into `TERMS.md` and `PRIVACY.md`
+  so the URLs already registered with TikTok stop contradicting the new ones.
+  `docs/TIKTOK-RESUBMISSION.md` now names, claim by claim, which sentences are
+  true today and which two are not — the repo is private, so "open source" is
+  not yet one of them.
+
 - **The same short stopped being booked to Facebook two, three and five times.** Mirroring in shuffle mode only remembered which time slots a platform already had, not which clips — so any clip it already carried was dealt again into whatever slot was free, and every pass found more. 43 repeat bookings were sitting in the queue. A clip a platform already has is now skipped, and the mirror says so instead of silently doubling the post up.
 - **The TikTok audit watcher was watching an app that can never be approved.**
   The client key in `.env` is the sandbox app's, and a sandbox app is unaudited

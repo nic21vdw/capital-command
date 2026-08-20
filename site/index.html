@@ -1,0 +1,147 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Capital Command — one long video becomes a week of posts</title>
+<meta name="description" content="Open-source content operations software. Run it yourself, connect your own accounts, and it clips long-form video and schedules the shorts to TikTok, YouTube, Instagram, Facebook and Threads.">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<header class="site">
+  <div class="wrap">
+    <a class="mark" href="/"><span class="glyph">CC</span> Capital Command</a>
+    <nav>
+      <a href="#how">How it works</a>
+      <a href="#tiktok">TikTok</a>
+      <a href="#run">Run it</a>
+      <a href="/terms.html">Terms</a>
+      <a href="/privacy.html">Privacy</a>
+    </nav>
+  </div>
+</header>
+
+<main>
+
+<div class="wrap hero">
+  <span class="eyebrow">Open source · self-hosted</span>
+  <h1>One long video becomes a week of posts.</h1>
+  <p class="lede">Capital Command is content operations software for creators who publish long-form and want the short-form to follow. You run it on your own machine, connect the accounts you own, and it cuts the clips, writes the captions and books them into a schedule you control.</p>
+</div>
+
+<section id="how">
+  <div class="wrap">
+    <h2>How it works</h2>
+    <p class="sub">Three steps, and the third one is the point: you approve a schedule once and the posts go out without you.</p>
+    <div class="grid">
+      <div class="card">
+        <div class="step-n">1</div>
+        <h3>Connect your accounts</h3>
+        <p>Sign in to each platform through its own OAuth screen. Capital Command stores the tokens on the machine you are running it on, and shows you which account each one belongs to.</p>
+      </div>
+      <div class="card">
+        <div class="step-n">2</div>
+        <h3>Drop in a long video</h3>
+        <p>A stream, a podcast, a talk. It finds the moments worth cutting, crops them vertical, burns captions, and gives you every clip to keep or throw away.</p>
+      </div>
+      <div class="card">
+        <div class="step-n">3</div>
+        <h3>Book the week</h3>
+        <p>Clips go into time slots you set, per platform and per account. From then on the scheduler posts them — you see a calendar, not a to-do list.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <h2>Platforms it publishes to</h2>
+    <p class="sub">Each one through its official API, with the account holder's own authorisation.</p>
+    <div class="platforms">
+      <span class="pill">TikTok</span>
+      <span class="pill">YouTube</span>
+      <span class="pill">Instagram</span>
+      <span class="pill">Facebook</span>
+      <span class="pill">Threads</span>
+    </div>
+  </div>
+</section>
+
+<section id="tiktok">
+  <div class="wrap">
+    <h2>What the TikTok connection does</h2>
+    <p class="sub">Connecting TikTok is optional, and it is the account holder who connects it. This is exactly what Capital Command asks TikTok for and what it does with each permission.</p>
+
+    <table class="scopes">
+      <thead>
+        <tr><th>Permission</th><th>What Capital Command does with it</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>user.info.basic</code></td>
+          <td>Reads the display name, username and avatar of the account you just connected, so the app can show you which TikTok profile a scheduled clip is going to. Nothing else is read from your profile.</td>
+        </tr>
+        <tr>
+          <td><code>video.publish</code></td>
+          <td>Posts a clip straight to your profile at the time you scheduled it — using the audience, comment, duet, stitch and commercial-disclosure choices you made for that clip before it was booked.</td>
+        </tr>
+        <tr>
+          <td><code>video.upload</code></td>
+          <td>Sends a clip to your TikTok inbox as a draft instead, if you would rather write the caption and post it from the TikTok app yourself.</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <div class="grid" style="margin-top: 26px;">
+      <div class="card">
+        <h3>You choose the settings per clip</h3>
+        <p>Before anything is booked, the export screen asks who can see the post, whether comments, duet and stitch are allowed, and whether it is commercial content. Nothing is preselected, and the options offered are the ones your account actually has.</p>
+      </div>
+      <div class="card">
+        <h3>Settings you turned off stay off</h3>
+        <p>The choices are read from TikTok immediately before every post. If you have since switched comments off on your account, the clip goes out with comments off, whatever the app was told earlier.</p>
+      </div>
+      <div class="card">
+        <h3>Disconnect and it stops</h3>
+        <p>Revoke Capital Command in your TikTok settings, or delete the stored token, and it can no longer post. Anything already published stays yours to delete from TikTok.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="run">
+  <div class="wrap">
+    <h2>Running it yourself</h2>
+    <p class="sub">Capital Command is not a hosted service and there is no account to sign up for. It is software you run — on a laptop or a machine you control — so the videos, the schedule and every access token stay on your side.</p>
+    <div class="grid">
+      <div class="card">
+        <h3>Your machine, your data</h3>
+        <p>Clips, captions, the queue and the platform tokens live in a folder on the computer running it. There is no Capital Command server for them to be sent to.</p>
+      </div>
+      <div class="card">
+        <h3>Your own API access</h3>
+        <p>You bring your own credentials for each platform you connect, so the rate limits, the quotas and the review status are yours, not shared with anyone else's.</p>
+      </div>
+      <div class="card">
+        <h3>Nothing is charged</h3>
+        <p>There is no subscription and no payment step. The cost of running it is the machine it runs on and whatever the platforms charge you directly, which today is nothing.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+</main>
+
+<footer class="site">
+  <div class="wrap row">
+    <span>Capital Command</span>
+    <nav>
+      <a href="/terms.html">Terms of Service</a>
+      <a href="/privacy.html">Privacy Policy</a>
+    </nav>
+  </div>
+</footer>
+
+</body>
+</html>
