@@ -501,11 +501,11 @@ export const SLIDE_SIGNATURE = "Nic Vandewetering";
 export const SLIDE_HANDLE = "@nvandewetering";
 
 /**
- * A four-cornered shape. `arcTo` with a zero radius is a straight line, which
+ * A straight-edged shape. `arcTo` with a zero radius is a straight line, which
  * is the whole of what the marks below need — a `lineTo` would mean widening
  * `SlideContext`, and every context this paints into has to implement it.
  */
-function fillQuad(ctx: SlideContext, points: Array<[number, number]>) {
+function fillPolygon(ctx: SlideContext, points: Array<[number, number]>) {
   ctx.beginPath();
   ctx.moveTo(points[0][0], points[0][1]);
   for (let i = 1; i < points.length; i += 1) {
@@ -530,7 +530,7 @@ function drawYouTubeMark(ctx: SlideContext, x: number, y: number, markW: number,
   const left = x + markW * 0.4;
   const tip = x + markW * 0.63;
   ctx.fillStyle = `rgba(255,255,255,${alpha.toFixed(2)})`;
-  fillQuad(ctx, [
+  fillPolygon(ctx, [
     [left, y + markH * 0.3],
     [tip, y + markH / 2],
     [left, y + markH * 0.7]
@@ -539,31 +539,34 @@ function drawYouTubeMark(ctx: SlideContext, x: number, y: number, markW: number,
 }
 
 /**
- * The X mark: two crossing strokes, set in the same ink as the name beside it.
- * Monochrome rather than boxed, because a black tile is invisible on a slide
- * whose whole job is to be a dark still.
+ * The X mark, as the X mark actually is.
+ *
+ * Not a typed letter X and not two crossing bars — both were tried and both
+ * read as a placeholder. These are the logo's own outlines, on its 24-unit
+ * grid: the wings and the counter in one shape, the main diagonal in another.
+ * Filled as two polygons rather than one path with a hole, because a hole
+ * needs a fill rule and `SlideContext.fill` does not take one — and their union
+ * is the mark either way.
  */
+const X_MARK_GRID = 24;
+const X_MARK_SHAPES: Array<Array<[number, number]>> = [
+  [
+    [18.244, 2.25], [21.552, 2.25], [14.325, 10.51], [22.827, 21.75],
+    [16.17, 21.75], [10.956, 14.933], [4.99, 21.75], [1.68, 21.75],
+    [9.41, 12.915], [1.254, 2.25], [8.08, 2.25], [12.793, 8.481]
+  ],
+  [
+    [17.083, 19.77], [18.916, 19.77], [7.084, 4.126], [5.117, 4.126]
+  ]
+];
+
 function drawXMark(ctx: SlideContext, x: number, y: number, size: number, ink: string) {
-  const bar = size * 0.17;
-  const inset = size * 0.06;
-  const a = x + inset;
-  const b = x + size - inset;
-  const top = y + inset;
-  const bottom = y + size - inset;
+  const unit = size / X_MARK_GRID;
   ctx.save();
   ctx.fillStyle = ink;
-  fillQuad(ctx, [
-    [a, top],
-    [a + bar, top],
-    [b, bottom],
-    [b - bar, bottom]
-  ]);
-  fillQuad(ctx, [
-    [b - bar, top],
-    [b, top],
-    [a + bar, bottom],
-    [a, bottom]
-  ]);
+  for (const shape of X_MARK_SHAPES) {
+    fillPolygon(ctx, shape.map(([px, py]): [number, number] => [x + px * unit, y + py * unit]));
+  }
   ctx.restore();
 }
 

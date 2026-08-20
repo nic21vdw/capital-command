@@ -14,6 +14,14 @@ already shipped.
 
 ## Unreleased
 
+- **The X mark on a slide is the X mark, not a typed letter X.** It is drawn
+  from the logo's own outlines on its 24-unit grid — the wings and counter as
+  one shape, the main diagonal as another — so it reads as the brand rather
+  than as a placeholder.
+- **A deck says how many goes slide 1 took.** When the hook gate throws a draft
+  back, the count comes out with the deck instead of being swallowed, so a run
+  that needed three attempts at its opening slide is visible afterwards.
+
 - **The still on a carousel slide sits flush with the top and is drawn bigger.**
   A widescreen frame fitted into a 4:5 slide left a band of blurred nothing
   across the top before the picture even started. It now starts at the top edge

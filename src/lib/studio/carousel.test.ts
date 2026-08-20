@@ -288,3 +288,61 @@ describe("video stills", () => {
     expect(carousel.slides[0].scrim).toBeGreaterThan(0);
   });
 });
+
+/**
+ * Slide 1 is the one slide most people ever see, so a weak opener is thrown
+ * back in code rather than only discouraged in the prompt. These decks really
+ * did keep opening on "how are we tonight".
+ */
+describe("the hook gate", () => {
+  it("throws back a greeting hook, asks again, and says how many goes it took", async () => {
+    const replies = [
+      JSON.stringify({
+        title: "First try",
+        slides: [
+          { heading: "How are we tonight? Day 37 of vibe coding", body: "" },
+          { heading: "Second", body: "b" },
+          { heading: "Third", body: "c" }
+        ]
+      }),
+      JSON.stringify({
+        title: "Second try",
+        slides: [
+          { heading: "the deploy broke at 11pm", body: "" },
+          { heading: "Second", body: "b" },
+          { heading: "Third", body: "c" }
+        ]
+      })
+    ];
+    let call = 0;
+    const runAi = vi.fn(async () => ({ text: replies[Math.min(call++, replies.length - 1)], refused: false }));
+    vi.doMock("@/lib/ai", () => ({ runAi, aiConfigured: () => true }));
+
+    const { generateCarousel } = await import("@/lib/studio/carousel");
+    const result = await generateCarousel({ ...input, requireModel: true });
+
+    expect(runAi).toHaveBeenCalledTimes(2);
+    expect(result.hookRetries).toBe(1);
+    // The hook that survived is the one on the deck, set as a headline.
+    expect(result.carousel?.slides[0].heading).toBe("The Deploy Broke at 11pm");
+  });
+
+  it("ships the last draft rather than nothing when every attempt opens weakly", async () => {
+    const weak = JSON.stringify({
+      title: "Weak",
+      slides: [
+        { heading: "Who wants it?", body: "" },
+        { heading: "Second", body: "b" },
+        { heading: "Third", body: "c" }
+      ]
+    });
+    const runAi = vi.fn(async () => ({ text: weak, refused: false }));
+    vi.doMock("@/lib/ai", () => ({ runAi, aiConfigured: () => true }));
+
+    const { generateCarousel } = await import("@/lib/studio/carousel");
+    const result = await generateCarousel({ ...input, requireModel: true });
+
+    expect(result.carousel).not.toBeNull();
+    expect(result.hookRetries).toBe(2);
+  });
+});

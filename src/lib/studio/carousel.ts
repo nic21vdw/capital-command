@@ -300,6 +300,13 @@ export type CarouselGeneration = {
   carousel: Carousel | null;
   drafts: SlideDraft[];
   reason: string | null;
+  /**
+   * How many drafts were thrown back for opening on a weak hook. Reported
+   * rather than swallowed: a run that needed three goes at slide 1 is a run
+   * worth looking at, and the count is the only sign of it once the deck that
+   * finally passed is the one on screen.
+   */
+  hookRetries?: number;
 };
 
 export type CarouselGenerationInput = {
@@ -381,6 +388,7 @@ export async function generateCarousel(
   });
 
   let last = "The model was unavailable or declined.";
+  let hookRetries = 0;
   for (let attempt = 1; attempt <= CAROUSEL_ATTEMPTS; attempt += 1) {
     try {
       const result = await runAi({
@@ -397,6 +405,7 @@ export async function generateCarousel(
           // Thrown back rather than published. The deck behind it may be fine,
           // but slide 1 is the only one most people ever see.
           last = `The deck came back with a weak opening slide — ${weakHook}.`;
+          hookRetries += 1;
           continue;
         }
         if (parsed) {
@@ -412,6 +421,7 @@ export async function generateCarousel(
               batch: input.batch
             }),
             drafts: padded.slides,
+            hookRetries,
             reason: padded.missing
               ? `${padded.missing} photo${padded.missing === 1 ? "" : "s"} got a slide with no copy written for it — add the words in the editor.`
               : null
