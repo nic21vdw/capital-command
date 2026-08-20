@@ -14,6 +14,8 @@ already shipped.
 
 ## Unreleased
 
+- A stream whose clips all finished no longer sits on "needs attention" forever. When the server stopped mid-job the clip record kept its error even though every clip was on disk, and Retry could not clear it; it now settles the job. A job that stopped before it planned any clips restarts from the source instead of reporting success and doing nothing.
+
 - **"5 needs you" on the Catching up with YouTube panel now names those five
   videos and gives each one a button.** The count used to be a number with
   nothing behind it: nothing on the screen said which streams were stuck, and
