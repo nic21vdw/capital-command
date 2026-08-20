@@ -253,6 +253,52 @@ If you touch that script: the dependency link must stay per-checkout, and a
 sibling of the relocated `.next` rather than a child, because `next build`
 empties `.next` before it starts.
 
+## "The model was unavailable or declined" means the free tier is spent
+
+Every AI feature routes through `runAi` (`src/lib/ai/provider.ts`), which
+defaults to DeepSeek Flash on `https://opencode.ai/zen/v1` — free and
+**keyless**. That default is why `aiConfigured()` is true out of the box, and
+it is also the trap: when the free allowance runs out the endpoint answers
+**HTTP 429 `FreeUsageLimitError`**, `callDeepSeek` maps any non-OK response to
+`null`, and every caller quietly falls back to its offline heuristic.
+
+What that looks like from the outside is not an outage. It is carousels that
+skip with "The model was unavailable or declined. Tried 3 times", posts that
+come back as "simple announcement posts", ideas served from the template
+library — all at once, across features, with nothing in `server.out.log`,
+because a non-OK response is never logged. On 2026-08-19 eleven runs had been
+sitting on that message for a week; the cause was the free quota, not the
+prompts, the transcripts or the model.
+
+Check it directly before touching any prompt code:
+
+```
+curl -s -o /dev/null -w "%{http_code}\n" -X POST https://opencode.ai/zen/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{"model":"deepseek-v4-flash-free","max_tokens":20,"messages":[{"role":"user","content":"OK"}]}'
+```
+
+`429` means spent, and no retry ladder in `runDeepSeek` will get past it.
+
+The fix is a paid key. Nic's DeepSeek key lives in
+`%USERPROFILE%\.codewhale\secrets\secrets.json` under `entries.deepseek`, and
+production's `.env` now points at the paid API:
+
+```
+DEEPSEEK_API_KEY=<the key>
+DEEPSEEK_BASE_URL=https://api.deepseek.com/v1
+DEEPSEEK_MODEL=deepseek-chat
+```
+
+`deepseek-chat` is not a reasoning model, so it answers in `content` and the
+`outOfRoom` escalation ladder simply never fires — carousels come back in about
+a minute each instead of failing. `.env` is read when the server starts, so a
+change there needs a restart to take effect; that restart is not a release, but
+confirm `.next/BUILD_COMMIT` already equals `main` before running the launcher,
+or the rebuild ships whatever is sitting merged on `main` and the release stops
+being Nic's to run.
+
+
 ## Tests
 
 `npm test` is the suite (`vitest run`). It used to be a PowerShell script that
