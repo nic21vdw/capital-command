@@ -15,9 +15,13 @@ import type { PublishInput, TiktokPostOptions } from "@/lib/publisher/types";
 // and BOTH the adapter (via getCachedToken) and publisherConfig (which reads
 // that file synchronously) prefer it over the .env seed. Pin the token to the
 // env stub so the suite never reaches for the live one.
+const tokenCache = new Map<string, string>();
+
 vi.mock("@/lib/publisher/tokens", () => ({
-  getCachedToken: async () => null,
-  setCachedToken: async () => undefined
+  getCachedToken: async (key: string) => tokenCache.get(key) ?? null,
+  setCachedToken: async (key: string, value: string) => {
+    tokenCache.set(key, value);
+  }
 }));
 
 vi.mock("@/lib/publisher/config", async (importOriginal) => {
@@ -42,6 +46,7 @@ beforeAll(async () => {
 });
 
 beforeEach(() => {
+  tokenCache.clear();
   vi.stubEnv("TIKTOK_CLIENT_KEY", "tt-key");
   vi.stubEnv("TIKTOK_CLIENT_SECRET", "tt-secret");
   vi.stubEnv("TIKTOK_REFRESH_TOKEN", "tt-refresh");
@@ -288,5 +293,44 @@ describe("tiktok adapter", () => {
     expect(requests.some((r) => r.url.includes("/video/init/"))).toBe(false);
     expect(JSON.parse(String(requests[1].body))).toEqual({ publish_id: "pub-9" });
     expect(result.status).toBe("scheduled");
+  });
+});
+
+describe("posting as an added TikTok account", () => {
+  const EXTRA = "tiktok-a1b2c3d4";
+
+  it("refreshes with that account's token, not the primary's", async () => {
+    tokenCache.set("tiktok.refreshToken", "primary-refresh");
+    tokenCache.set(`tiktok.refreshToken.${EXTRA}`, "extra-refresh");
+    const requests = routes();
+    const adapter = await loadAdapter();
+
+    await adapter.publish(input({ accountId: EXTRA }));
+
+    const refresh = formBody(requests.find((request) => request.url.includes("/oauth/token/"))!);
+    expect(refresh.refresh_token).toBe("extra-refresh");
+  });
+
+  it("refuses to fall back to the primary when the account was never connected", async () => {
+    tokenCache.set("tiktok.refreshToken", "primary-refresh");
+    routes();
+    const adapter = await loadAdapter();
+
+    await expect(adapter.publish(input({ accountId: EXTRA }))).rejects.toThrow(/not connected/i);
+  });
+
+  it("does not spend one account's cached access token on another", async () => {
+    tokenCache.set("tiktok.refreshToken", "primary-refresh");
+    tokenCache.set(`tiktok.refreshToken.${EXTRA}`, "extra-refresh");
+    const requests = routes();
+    const adapter = await loadAdapter();
+
+    await adapter.publish(input());
+    await adapter.publish(input({ accountId: EXTRA }));
+
+    const refreshes = requests
+      .filter((request) => request.url.includes("/oauth/token/"))
+      .map((request) => formBody(request).refresh_token);
+    expect(refreshes).toEqual(["primary-refresh", "extra-refresh"]);
   });
 });

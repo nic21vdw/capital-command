@@ -20,9 +20,10 @@ import { ALL_PLATFORMS, type PlatformId, type QueueItem } from "@/lib/publisher/
  *
  * Extra accounts are stored next to the queue (data/social-accounts.json, or
  * the same JSON in the R2 bucket when the queue lives there). Extra YouTube
- * accounts connect through the same in-app OAuth flow with per-account token
- * cache keys; extra TikTok/Instagram/Facebook accounts save posts as "manual"
- * reminders until per-account credentials exist for those platforms.
+ * and TikTok accounts connect through the same in-app OAuth flow with
+ * per-account token cache keys; extra Instagram/Facebook accounts save posts
+ * as "manual" reminders until per-account credentials exist for those
+ * platforms.
  */
 
 export type SocialAccount = {
@@ -64,6 +65,19 @@ export function youtubeRefreshTokenKey(accountId: string = primaryAccountId("you
 
 export function youtubeChannelKey(accountId: string = primaryAccountId("youtube")): string {
   return accountId === primaryAccountId("youtube") ? "youtube.channel" : `youtube.channel.${accountId}`;
+}
+
+/**
+ * The same for a TikTok account. The keys the primary uses are the ones the
+ * connect flow has always written, so a connection made before accounts
+ * existed keeps posting without a migration.
+ */
+export function tiktokRefreshTokenKey(accountId: string = primaryAccountId("tiktok")): string {
+  return accountId === primaryAccountId("tiktok") ? "tiktok.refreshToken" : `tiktok.refreshToken.${accountId}`;
+}
+
+export function tiktokCreatorKey(accountId: string = primaryAccountId("tiktok")): string {
+  return accountId === primaryAccountId("tiktok") ? "tiktok.creator" : `tiktok.creator.${accountId}`;
 }
 
 function primaryAccount(platform: PlatformId): SocialAccount {
@@ -176,7 +190,7 @@ export async function removeAccount(accountId: string, queueItems: QueueItem[]):
 /**
  * Whether posts for this platform+account publish automatically. The primary
  * account is configured exactly when today's env credentials are; an extra
- * YouTube account is configured once its own Connect YouTube flow ran. Extra
+ * YouTube or TikTok account is configured once its own Connect flow ran. Extra
  * accounts on other platforms always post as manual reminders for now.
  */
 export async function accountIdConfigured(
@@ -191,6 +205,11 @@ export async function accountIdConfigured(
   if (platform === "youtube") {
     return Boolean(
       config.youtube.clientId && config.youtube.clientSecret && (await getCachedToken(youtubeRefreshTokenKey(resolved)))
+    );
+  }
+  if (platform === "tiktok") {
+    return Boolean(
+      config.tiktok.clientKey && config.tiktok.clientSecret && (await getCachedToken(tiktokRefreshTokenKey(resolved)))
     );
   }
   return false;

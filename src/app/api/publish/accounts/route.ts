@@ -39,7 +39,7 @@ async function profileFor(
   if (account.platform === "tiktok") {
     const config = publisherConfig();
     return {
-      profile: await tiktokCreatorInfo(),
+      profile: await tiktokCreatorInfo(account.id),
       blocker: config.tiktok.audited ? null : TIKTOK_AUDIT_BLOCKER
     };
   }

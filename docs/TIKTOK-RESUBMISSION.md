@@ -95,7 +95,7 @@ column that is not true yet.**
 | Claim | True? | Why |
 |---|---|---|
 | "Creators connect their own TikTok account" | **yes**, per install | The OAuth flow is real and works. One connection per copy of the app. |
-| "Creators connect their accounts" (plural, one install) | **no** | `TIKTOK_REFRESH_TOKEN_CACHE_KEY` is a single global key. A second TikTok connection overwrites the first, and `accounts.ts` downgrades extra TikTok accounts to manual reminders. Never write this in the plural. |
+| "Creators connect their accounts" (plural, one install) | **yes** | Each account has its own `tiktok.refreshToken.<accountId>` entry, its own cached profile and its own mirrored avatar; the adapter refreshes with the token belonging to the account the clip is booked to. Connecting a second profile leaves the first alone. |
 | "The creator picks privacy, interactions and disclosure before posting" | **yes** | The consent panel, and enforced again server-side. |
 | "We query `creator_info` before every direct post" | **yes** | `withCurrentCreatorSettings()` in the adapter. |
 | "Clips post automatically at a scheduled time" | **yes** | The publish runner does this today for YouTube, Instagram, Facebook and Threads; TikTok is inbox-only until approval. |
