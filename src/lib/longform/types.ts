@@ -55,6 +55,13 @@ export type LongformHook = {
   focusY: number;
   captionsEnabled: boolean;
   highlightCurrentWord: boolean;
+  /**
+   * Opening motion: a slow continuous push from 1x to `zoom` across the whole
+   * hook block, plus the title card that fades in at 0:00 and out by ~0:03.
+   * Nothing moves after the hook window ends. Absent on older projects, which
+   * keep the original half-second punch-in ramp.
+   */
+  motionEnabled?: boolean;
   /** Hook captions in hook-local seconds (relative to `start`, i.e. the hook plays from 0). */
   captions: CaptionSegment[];
   captionStyle: CaptionStyle;
@@ -164,12 +171,60 @@ export type LongformTopic = {
   exportId?: string;
 };
 
-/** Tunables for how aggressively dead space is cut. */
+/**
+ * Tunables for how aggressively dead space is cut. The last three are absent
+ * on projects saved before the pace drove silence detection; `resolvePace`
+ * fills them from the default pace, so a stored project always plans.
+ */
 export type LongformPace = {
-  /** Silences at least this long (seconds) get cut. */
+  /** Silences at least this long (seconds) are cut down to `paddingSec` a side. */
   minSilenceSec: number;
   /** Breathing room left on each side of a cut (seconds). */
   paddingSec: number;
+  /**
+   * Longest pause allowed to survive a cut plan. A quiet stretch too short to
+   * qualify as a silence is still compressed down to this, so a slow patch
+   * gets tightened instead of surviving whole.
+   */
+  maxKeptGapSec?: number;
+  /** dBFS level silence detection treats as quiet for this project. */
+  noiseDb?: number;
+  /** Shortest stretch silence detection reports for this project (seconds). */
+  detectMinSec?: number;
+};
+
+/** The detection floor a project's cached `silences` were captured at. */
+export type LongformSilenceDetection = {
+  noiseDb: number;
+  minDurSec: number;
+};
+
+/**
+ * The verdict on whether the opening actually earns attention, scored from the
+ * transcript inside the hook window with the same content signals the
+ * short-form clip ranker uses. A weak opening is surfaced on the project card
+ * and in the hook panel rather than quietly shipping.
+ */
+export type LongformHookReview = {
+  /** 0-100 blended strength of the opening. */
+  score: number;
+  /** `unknown` when no transcript covers the hook window. */
+  verdict: "strong" | "weak" | "unknown";
+  /** The words the review read, shown so the reason is checkable. */
+  opening: string;
+  /** Plain-language reasons behind the score. */
+  reasons: string[];
+  /** The strongest line found later in the take, offered as a cold open. */
+  coldOpen?: {
+    text: string;
+    /** Source-timeline seconds of the suggested line. */
+    start: number;
+    end: number;
+    score: number;
+  };
+  /** Source window the review covered. */
+  start: number;
+  end: number;
 };
 
 export type LongformExportStatus = "processing" | "done" | "error" | "canceled";
@@ -214,6 +269,12 @@ export type LongformProject = {
   transcriptError?: string;
   /** Raw detected silences the segment plan was built from. */
   silences: SilenceRange[];
+  /**
+   * The floor those silences were detected at. A replan that asks for a lower
+   * floor has to re-listen to the audio rather than reuse this cache; absent
+   * on projects saved before the floor was tunable (they used the old default).
+   */
+  silenceDetection?: LongformSilenceDetection;
   segments: LongformSegment[];
   /**
    * Topic segments found in the transcript, each exportable as its own video.
@@ -224,6 +285,8 @@ export type LongformProject = {
   /** Why there are no topic segments, when the planner could not produce any. */
   topicsNote?: string;
   hook: LongformHook;
+  /** Whether the opening earns attention; recomputed whenever the hook moves. */
+  hookReview?: LongformHookReview;
   /** Whole-video captions burned over the edited runtime. */
   captions: LongformCaptions;
   /** Images dropped onto the timeline, rendered over the edited video. */

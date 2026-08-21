@@ -1,6 +1,6 @@
 import { stat, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { buildAss } from "@/lib/clipping/captions";
+import { buildAss, buildClipTitleDialogue } from "@/lib/clipping/captions";
 import { isRenderCanceled, runFfmpeg } from "@/lib/clipping/ffmpeg";
 import { animatedReframeChain } from "@/lib/clipping/render";
 import { readSourceMeta, sourceFilePath } from "@/lib/clipping/sources";
@@ -31,8 +31,17 @@ const FRAME_H = 1080;
 const VERT_W = 1080;
 const VERT_H = 1920;
 const FPS = 30;
-// How long the hook's punch-in zoom takes to ramp from 1x to the target zoom.
+// How long the hook's punch-in zoom takes to ramp from 1x to the target zoom
+// when opening motion is switched off — the original snap-in.
 const HOOK_ZOOM_RAMP_SEC = 0.5;
+// With opening motion on, the push runs across the WHOLE hook block instead:
+// a continuous, decelerating 1x -> zoom drift over the 30 seconds a viewer
+// decides in. Nothing moves after the block ends — the body pass has no zoom.
+// The title card fades in at 0:00 and is gone by here.
+const HOOK_TITLE_CARD_SEC = 3;
+const HOOK_TITLE_FADE_MS = { in: 350, out: 500 };
+/** Longest title burned onto the opening; anything more reads as a paragraph. */
+const HOOK_TITLE_MAX_CHARS = 90;
 
 // Both parts encode with identical codec/size/fps/audio settings so the
 // concat demuxer can join them with a pure stream copy.
@@ -263,25 +272,42 @@ async function runExport(projectId: string, recordId: string, signal: AbortSigna
   if (hookRange) {
     const hookPath = path.join(workDir, `export-${recordId}-hook.mp4`);
     let assArg = "";
+    const motion = project.hook.motionEnabled !== false;
     const captions = project.hook.captionsEnabled ? project.hook.captions.filter((c) => c.enabled && c.text.trim()) : [];
-    if (captions.length > 0) {
+    // The title card is part of the opening treatment, not part of the
+    // captions, so it is burned even when hook captions are switched off.
+    const titleText = motion ? project.name.trim().slice(0, HOOK_TITLE_MAX_CHARS) : "";
+    const titleLine =
+      titleText && hookSec > 1
+        ? buildClipTitleDialogue(
+            titleText,
+            frameW,
+            frameH,
+            0,
+            Math.min(HOOK_TITLE_CARD_SEC, hookSec - 0.2),
+            0,
+            HOOK_TITLE_FADE_MS
+          )
+        : "";
+    if (captions.length > 0 || titleLine) {
       const assDoc = buildAss(captions, project.hook.captionStyle, frameW, frameH, project.hook.highlightCurrentWord);
       const assPath = path.join(workDir, `export-${recordId}-hook.ass`);
-      await writeFile(assPath, `${assDoc}\n`, "utf8");
+      await writeFile(assPath, titleLine ? `${assDoc}${titleLine}\n` : `${assDoc}\n`, "utf8");
       assArg = `ass='${escapeFilterPath(assPath)}',`;
     }
     // animatedReframeChain crops a zoomed cover of the frame around the focus
     // point, with a blurred fill behind so the punch-in never shows black
-    // edges. The zoom ramps in from 1x over the first HOOK_ZOOM_RAMP_SEC
-    // seconds (ease-out) so the opening glides into the punch-in instead of
-    // snapping to full zoom on the very first frame. The ramp is capped at
-    // half the hook so short hooks still finish the move before they end.
+    // edges. With opening motion on, the 1x -> zoom ease-out is stretched
+    // across the entire hook block, so the frame is drifting in for the whole
+    // 30 seconds rather than snapping and sitting still. With it off the old
+    // HOOK_ZOOM_RAMP_SEC punch-in is used, capped at half the hook so a short
+    // hook still finishes the move before it ends.
     // On the vertical layout the punch-in still runs on the 16:9 frame, which
     // is then wrapped into the 9:16 frame; the captions burn over the full
     // vertical frame afterwards.
     const sx = project.hook.focusX * 2 - 1;
     const sy = project.hook.focusY * 2 - 1;
-    const rampSec = Math.min(HOOK_ZOOM_RAMP_SEC, Math.max(0.05, hookSec / 2));
+    const rampSec = motion ? Math.max(HOOK_ZOOM_RAMP_SEC, hookSec) : Math.min(HOOK_ZOOM_RAMP_SEC, Math.max(0.05, hookSec / 2));
     const reframe = animatedReframeChain("0:v", "vz", FRAME_W, FRAME_H, project.hook.zoom, sx, sy, rampSec, FPS);
     const filter = vertical
       ? `${reframe};${verticalWrapChain("vz", "vv")};[vv]${assArg}fps=${FPS},setsar=1,format=yuv420p[vout]`

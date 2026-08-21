@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+  AlertTriangle,
   ArrowLeft,
   AudioLines,
   Captions,
@@ -1165,6 +1166,71 @@ function SegmentOption({
   );
 }
 
+/**
+ * The verdict on the opening, scored from the transcript inside the hook
+ * window. A weak opening says WHY it is weak and offers the strongest line
+ * found later in the take as a cold open — pulling the hook there is one
+ * click, and nothing is reordered until it is clicked.
+ */
+function HookReviewCard({
+  review,
+  onUseColdOpen
+}: {
+  review: LongformProject["hookReview"];
+  onUseColdOpen: (start: number) => void;
+}) {
+  if (!review) return null;
+  const weak = review.verdict === "weak";
+  const unknown = review.verdict === "unknown";
+  return (
+    <div
+      className={cn(
+        "space-y-2 rounded-lg border px-3 py-2.5 text-xs",
+        weak ? "border-amber-400/50 bg-amber-400/5" : unknown ? "border-[var(--border)]" : "border-emerald-400/40 bg-emerald-400/5"
+      )}
+    >
+      <div className="flex items-center gap-2">
+        {weak ? (
+          <AlertTriangle className="h-4 w-4 shrink-0 text-amber-400" />
+        ) : unknown ? (
+          <AlertTriangle className="h-4 w-4 shrink-0 text-[var(--muted-foreground)]" />
+        ) : (
+          <Check className="h-4 w-4 shrink-0 text-emerald-400" />
+        )}
+        <span className="font-medium text-white">
+          {weak ? "This opening needs work" : unknown ? "Opening not reviewed" : "Strong opening"}
+        </span>
+        {!unknown && <span className="ml-auto tabular-nums text-[var(--muted-foreground)]">{review.score}/100</span>}
+      </div>
+      {review.opening && (
+        <p className="text-[var(--muted-foreground)]">
+          Opens with <span className="text-white">&ldquo;{review.opening}…&rdquo;</span>
+        </p>
+      )}
+      <ul className="space-y-1 text-[var(--muted-foreground)]">
+        {review.reasons.map((reason) => (
+          <li key={reason}>· {reason}</li>
+        ))}
+      </ul>
+      {review.coldOpen && (
+        <div className="rounded-md border border-[var(--border)] bg-[var(--surface-2)] p-2">
+          <p className="text-[var(--muted-foreground)]">
+            Stronger line at {formatClock(review.coldOpen.start)} ({review.coldOpen.score}/100):
+          </p>
+          <p className="mt-1 text-white">&ldquo;{review.coldOpen.text}&rdquo;</p>
+          <Button
+            variant="secondary"
+            className="mt-2 w-full px-2 text-xs"
+            onClick={() => onUseColdOpen(review.coldOpen!.start)}
+          >
+            Open on this line instead
+          </Button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function HookPanel({
   project,
   patch,
@@ -1196,10 +1262,18 @@ function HookPanel({
       <div>
         <h3 className="text-sm font-semibold text-white">Viral hook</h3>
         <p className="mt-1 text-xs text-[var(--muted-foreground)]">
-          The first seconds decide whether viewers stay. Punch in on your face and burn in big word-synced captions.
-          Fumbled the opening? Move &ldquo;Hook starts at&rdquo; to pull the hook from a stronger moment later in the take.
+          The first 30 seconds decide whether viewers stay, so the whole block is treated: a slow push-in, big
+          word-synced captions and a title card over the opening. Nothing moves after it. Fumbled the opening? Move
+          &ldquo;Hook starts at&rdquo; to pull the hook from a stronger moment later in the take.
         </p>
       </div>
+      <HookReviewCard
+        review={project.hookReview}
+        onUseColdOpen={(start) => {
+          setHookStart(start);
+          seek(start);
+        }}
+      />
       <Toggle label="Hook enabled" checked={hook.enabled} onChange={(v) => patchHook({ enabled: v })} />
       {hook.enabled && (
         <>
@@ -1219,10 +1293,15 @@ function HookPanel({
             label="Hook length"
             value={Math.max(MIN_HOOK_SEC, hook.end - hookStart)}
             min={3}
-            max={Math.min(15, Math.max(4, project.durationSec - hookStart))}
+            max={Math.min(40, Math.max(4, project.durationSec - hookStart))}
             step={0.1}
             onChange={(len) => setHookEnd(hookStart + len)}
             format={(v) => `${v.toFixed(1)}s`}
+          />
+          <Toggle
+            label="Opening motion"
+            checked={hook.motionEnabled !== false}
+            onChange={(v) => patchHook({ motionEnabled: v })}
           />
           <RangeField
             label="Punch-in zoom"

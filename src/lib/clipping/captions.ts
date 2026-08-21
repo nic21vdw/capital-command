@@ -484,7 +484,9 @@ export function buildTextOverlayDialogue(
  * it lands on the blurred fill rather than over the footage. `videoTopFrac` is
  * the video band's top edge as a fraction of the frame height ((1 - videoH/frameH)/2);
  * pass 0 for a source that fills the frame — the title then clamps to a safe
- * band near the top instead of disappearing. Shown for the whole clip.
+ * band near the top instead of disappearing. Shown for the whole clip unless
+ * `fadeMs` is given, which fades the line in and back out at its own edges —
+ * what the long-form opening uses for a title card that clears the frame.
  */
 export function buildClipTitleDialogue(
   title: string,
@@ -492,7 +494,8 @@ export function buildClipTitleDialogue(
   height: number,
   start: number,
   end: number,
-  videoTopFrac: number
+  videoTopFrac: number,
+  fadeMs?: { in: number; out: number }
 ): string {
   const fs = Math.max(12, Math.round(height * 0.034));
   const gap = Math.round(height * 0.018);
@@ -501,7 +504,8 @@ export function buildClipTitleDialogue(
   const y = Math.max(Math.round(height * 0.1), Math.round(clamp01(videoTopFrac) * height) - gap);
   const maxChars = Math.max(1, Math.floor((width * 0.88) / (fs * 0.52)));
   const wrapped = wrapLine(title, maxChars).join("\n");
-  const tag = `{\\an2\\pos(${Math.round(width / 2)},${y})}`;
+  const fade = fadeMs ? `\\fad(${Math.max(0, Math.round(fadeMs.in))},${Math.max(0, Math.round(fadeMs.out))})` : "";
+  const tag = `{\\an2\\pos(${Math.round(width / 2)},${y})${fade}}`;
   return `Dialogue: 3,${formatAssTime(start)},${formatAssTime(end)},Title,,0,0,0,,${tag}${escapeAss(wrapped)}`;
 }
 

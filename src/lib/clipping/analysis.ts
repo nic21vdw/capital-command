@@ -93,16 +93,47 @@ export function createSilenceCollector(): { ranges: SilenceRange[]; onLine: (lin
   return { ranges, onLine };
 }
 
-/** Detects silence ranges used to snap clip boundaries to natural pauses. */
-export async function detectSilences(inputPath: string): Promise<SilenceRange[]> {
+export type SilenceDetection = {
+  /** dBFS level below which audio counts as silent. Closer to 0 = stricter. */
+  noiseDb: number;
+  /** Shortest stretch (seconds) reported as a silence. */
+  minDurSec: number;
+};
+
+/** What `detectSilences` uses when a caller does not pick its own floor. */
+export const DEFAULT_SILENCE_DETECTION: SilenceDetection = { noiseDb: -35, minDurSec: 0.35 };
+
+/**
+ * Detects silence ranges used to snap clip boundaries to natural pauses, and
+ * to plan the long-form dead-space cuts. The floor is a parameter because the
+ * two callers want different things: clip boundaries only need obvious pauses,
+ * while the long-form cut plan wants every quiet stretch its pace can act on.
+ */
+export async function detectSilences(
+  inputPath: string,
+  detection: SilenceDetection = DEFAULT_SILENCE_DETECTION
+): Promise<SilenceRange[]> {
   // Silences are parsed line-by-line as ffmpeg emits them, NOT from the
   // accumulated stderr afterwards: runFfmpeg caps captured stderr at 400 KB,
   // and a multi-hour stream logs thousands of silencedetect lines — parsing
   // the capped buffer would silently drop every silence before the cap and
   // leave the first hours of the recording uncut.
   const collector = createSilenceCollector();
+  const noise = Math.min(-1, Math.round(detection.noiseDb));
+  const dur = Math.max(0.05, detection.minDurSec);
   await runFfmpeg(
-    ["-hide_banner", "-i", inputPath, "-map", "a:0", "-af", "silencedetect=noise=-35dB:d=0.35", "-f", "null", "-"],
+    [
+      "-hide_banner",
+      "-i",
+      inputPath,
+      "-map",
+      "a:0",
+      "-af",
+      `silencedetect=noise=${noise}dB:d=${dur.toFixed(3)}`,
+      "-f",
+      "null",
+      "-"
+    ],
     { allowFailure: true, onLine: collector.onLine }
   );
   return collector.ranges;

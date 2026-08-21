@@ -18,37 +18,63 @@ import type {
 
 export type PacePresetId = "relaxed" | "fast" | "ultra";
 
+// Each preset carries its own detection floor as well as its cut rules: how
+// quiet counts as quiet is part of how hard a pace cuts, and the old
+// hard-coded -35 dB / 0.35 s floor simply never reported the pauses the faster
+// presets wanted to act on.
 export const PACE_PRESETS: Array<{ id: PacePresetId; label: string; description: string; pace: LongformPace }> = [
   {
     id: "relaxed",
     label: "Relaxed",
-    description: "Only long pauses are cut — keeps a natural rhythm.",
-    pace: { minSilenceSec: 1.2, paddingSec: 0.25 }
+    description: "Long pauses go, and slow patches are tightened. Keeps a natural rhythm.",
+    pace: { minSilenceSec: 1, paddingSec: 0.15, maxKeptGapSec: 0.6, noiseDb: -32, detectMinSec: 0.3 }
   },
   {
     id: "fast",
     label: "Fast",
-    description: "Every noticeable pause goes. The retention sweet spot.",
-    pace: { minSilenceSec: 0.7, paddingSec: 0.15 }
+    description: "Every noticeable pause goes and no gap survives longer than a beat.",
+    pace: { minSilenceSec: 0.35, paddingSec: 0.06, maxKeptGapSec: 0.22, noiseDb: -30, detectMinSec: 0.25 }
   },
   {
     id: "ultra",
     label: "Ultra",
     description: "Jump-cut everything — maximum pace, zero dead air.",
-    pace: { minSilenceSec: 0.45, paddingSec: 0.08 }
+    pace: { minSilenceSec: 0.25, paddingSec: 0.04, maxKeptGapSec: 0.15, noiseDb: -28, detectMinSec: 0.2 }
   }
 ];
 
 export const DEFAULT_PACE: LongformPace = PACE_PRESETS[1].pace;
 
 /** Cuts shorter than this after padding aren't worth a jump cut. */
-const MIN_CUT_SEC = 0.2;
+const MIN_CUT_SEC = 0.12;
 /** Segments shorter than this are dropped as timeline noise. */
 const MIN_SEGMENT_SEC = 0.05;
 
+/** Fills the fields projects saved before the pace drove silence detection lack. */
+export function resolvePace(pace: LongformPace): Required<LongformPace> {
+  return {
+    minSilenceSec: pace.minSilenceSec,
+    paddingSec: pace.paddingSec,
+    maxKeptGapSec: pace.maxKeptGapSec ?? DEFAULT_PACE.maxKeptGapSec ?? 0.22,
+    noiseDb: pace.noiseDb ?? DEFAULT_PACE.noiseDb ?? -30,
+    detectMinSec: pace.detectMinSec ?? DEFAULT_PACE.detectMinSec ?? 0.25
+  };
+}
+
+/** The silence-detection floor a pace asks for. */
+export function paceDetection(pace: LongformPace): { noiseDb: number; minDurSec: number } {
+  const resolved = resolvePace(pace);
+  return { noiseDb: resolved.noiseDb, minDurSec: resolved.detectMinSec };
+}
+
+// The opening block is a fixed 30 seconds: captions, motion and the hook
+// review all cover exactly the window a viewer decides in. It still lands on a
+// completed thought, so the real end floats in a band around the target.
 const HOOK_MIN_SEC = 4;
-const HOOK_MAX_SEC = 10;
-const HOOK_TARGET_SEC = 7;
+const HOOK_MAX_SEC = 34;
+const HOOK_TARGET_SEC = 30;
+/** How far back landing on a completed thought may pull the hook's end. */
+const HOOK_TRIM_FLOOR_SEC = 24;
 
 function round3(value: number) {
   return Math.round(value * 1000) / 1000;
@@ -56,12 +82,17 @@ function round3(value: number) {
 
 /**
  * Tiles the source timeline into alternating speech/silence segments from the
- * detected silences. Silences shorter than `pace.minSilenceSec` are kept as
- * part of the surrounding speech; qualifying silences are shrunk by
- * `pace.paddingSec` on each side (breathing room around the cut) and marked
- * disabled so they drop out of the edited video.
+ * detected silences. Every cut is carved from INSIDE a detected silence — the
+ * kept edges are the part of the pause nearest the speech on either side — so
+ * no amount of tightening can clip a word's onset or tail.
+ *
+ * How much of each pause survives depends on its length: a silence at least
+ * `pace.minSilenceSec` long keeps `pace.paddingSec` a side, and anything
+ * shorter that still runs longer than `pace.maxKeptGapSec` is compressed down
+ * to that gap instead of surviving whole.
  */
 export function buildSegments(durationSec: number, silences: SilenceRange[], pace: LongformPace): LongformSegment[] {
+  const { minSilenceSec, paddingSec, maxKeptGapSec } = resolvePace(pace);
   const duration = Math.max(0, durationSec);
   const segments: LongformSegment[] = [];
   let cursor = 0;
@@ -82,9 +113,11 @@ export function buildSegments(durationSec: number, silences: SilenceRange[], pac
   for (const silence of sorted) {
     const start = Math.max(0, silence.start);
     const end = Math.min(duration, silence.end);
-    if (end - start < pace.minSilenceSec) continue;
-    const cutStart = Math.max(cursor, start + pace.paddingSec);
-    const cutEnd = Math.min(duration, end - pace.paddingSec);
+    const length = end - start;
+    if (length <= 0) continue;
+    const keepEachSide = length >= minSilenceSec ? paddingSec : maxKeptGapSec / 2;
+    const cutStart = Math.max(cursor, start + keepEachSide);
+    const cutEnd = Math.min(duration, end - keepEachSide);
     if (cutEnd - cutStart < MIN_CUT_SEC) continue;
     push(cursor, cutStart, "speech");
     push(cutStart, cutEnd, "silence");
@@ -99,12 +132,13 @@ export function buildSegments(durationSec: number, silences: SilenceRange[], pac
 }
 
 /**
- * Picks where the hook should end: as close to ~7 seconds as possible while
- * landing on a completed thought (never mid-sentence), clamped to 4-10s.
+ * Picks where the hook should end: as close to 30 seconds as possible while
+ * landing on a completed thought (never mid-sentence), clamped to 24-34s and
+ * to the length of the recording.
  */
 export function planHookEnd(transcript: CaptionSegment[], durationSec: number, startSec = 0): number {
   const maxEnd = Math.min(startSec + HOOK_MAX_SEC, Math.max(1, durationSec));
-  const minEnd = Math.min(startSec + HOOK_MIN_SEC, maxEnd);
+  const minEnd = Math.min(startSec + HOOK_TRIM_FLOOR_SEC, maxEnd);
   const target = Math.min(startSec + HOOK_TARGET_SEC, maxEnd);
   if (transcript.length === 0) return round3(target);
   const resolved = resolveThoughtEnd(transcript, target, {
@@ -186,6 +220,7 @@ export function planHook(transcript: CaptionSegment[], durationSec: number): Lon
     focusY: 0.45,
     captionsEnabled: true,
     highlightCurrentWord: true,
+    motionEnabled: true,
     captions: hookCaptions(transcript, start, end),
     captionStyle: { ...VIRAL_HOOK_CAPTION_STYLE }
   };
