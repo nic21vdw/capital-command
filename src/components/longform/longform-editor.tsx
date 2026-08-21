@@ -43,6 +43,7 @@ import { ColorField, Field, NumberField, RangeField, SelectField, Toggle } from 
 import { SfxSection } from "@/components/editor/sfx-section";
 import { DescriptionDropdown } from "@/components/editor/description-dropdown";
 import { LongformAudioMixer } from "@/components/longform/longform-audio-mixer";
+import { ThumbnailPanel } from "@/components/longform/longform-thumbnail-panel";
 import { LongformPreview } from "@/components/longform/longform-preview";
 import { LongformTimeline, type TimelineSelection } from "@/components/longform/longform-timeline";
 import { CAPTION_PRESETS } from "@/lib/clipping/captions";
@@ -63,6 +64,7 @@ const TABS = [
   { id: "cuts", label: "Cuts", icon: Scissors },
   { id: "trim", label: "Trim", icon: Slice },
   { id: "segments", label: "Segments", icon: Layers },
+  { id: "thumbnail", label: "Thumbnail", icon: ImageIcon },
   { id: "images", label: "Images", icon: ImageIcon },
   { id: "music", label: "Audio", icon: Music4 },
   { id: "publish", label: "Publish", icon: FileText },
@@ -930,6 +932,15 @@ export function LongformEditor({
                 seek={seek}
                 activeSegmentId={segmentId}
                 onSelectSegment={selectSegment}
+              />
+            )}
+            {tab === "thumbnail" && (
+              <ThumbnailPanel
+                key={segmentId ?? "project"}
+                project={project}
+                setProject={setProject}
+                skipDirtyRef={skipDirtyRef}
+                activeSegmentId={segmentId}
               />
             )}
             {tab === "images" && (

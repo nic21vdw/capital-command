@@ -14,6 +14,21 @@ already shipped.
 
 ## Unreleased
 
+- **Your videos have pictures on them.** The Long-Form Video grid was a wall of
+  text, so telling one four-hour stream from another meant reading timecodes.
+  Every card now carries a poster: the thumbnail you made if you made one,
+  otherwise the best frame the app can find in that recording, picked rather
+  than grabbed from one second in.
+- **A Thumbnail tab in the Long-Form Editor.** Point it at a segment and it
+  reads through that stretch, scores what it sees and keeps the six best shots
+  of you — it knows the difference between you talking to camera and a "be right
+  back" screen, and it will not offer you one of those. It finds your facecam on
+  its own, crops to it and blows it up 8x with proper sharpening, which matters
+  because these streams come down at 640x360 and a plain screenshot looks like
+  one. Then it writes you three hook lines from what you actually said in that
+  segment, lays one over the picture in one of six looks, and saves the result
+  beside the video so the card and the upload both have it.
+
 - **Long-form videos now cut the quiet parts about twice as hard.** The dead-air
   pass only ever heard pauses that were quiet AND long, which is why Day 39 came
   out ten and a half minutes shorter than a four-hour recording. Each pace now
