@@ -14,6 +14,8 @@ already shipped.
 
 ## Unreleased
 
+## 2026-08-21
+
 - **Your videos have pictures on them.** The Long-Form Video grid was a wall of
   text, so telling one four-hour stream from another meant reading timecodes.
   Every card now carries a poster: the thumbnail you made if you made one,
