@@ -1,7 +1,28 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { aiConfigured, aiMaxTokens, aiProviderInfo, resolveProvider, runAi } from "@/lib/ai/provider";
+import {
+  aiConfigured,
+  aiLadder,
+  aiMaxTokens,
+  aiProviderInfo,
+  freeModels,
+  resetAiModelHealth,
+  resolveProvider,
+  resolveTier,
+  runAi
+} from "@/lib/ai/provider";
 
-const AI_ENV = ["AI_PROVIDER", "AI_MAX_TOKENS", "ANTHROPIC_API_KEY", "DEEPSEEK_MODEL", "ANTHROPIC_MODEL"] as const;
+const AI_ENV = [
+  "AI_PROVIDER",
+  "AI_MAX_TOKENS",
+  "AI_TIER",
+  "AI_FREE_MODELS",
+  "ANTHROPIC_API_KEY",
+  "ANTHROPIC_MODEL",
+  "DEEPSEEK_MODEL",
+  "DEEPSEEK_API_KEY",
+  "DEEPSEEK_BASE_URL",
+  "OPENCODE_API_KEY"
+] as const;
 
 describe("ai provider resolution", () => {
   let saved: Record<string, string | undefined>;
@@ -9,6 +30,7 @@ describe("ai provider resolution", () => {
   beforeEach(() => {
     saved = Object.fromEntries(AI_ENV.map((key) => [key, process.env[key]]));
     for (const key of AI_ENV) delete process.env[key];
+    resetAiModelHealth();
   });
 
   afterEach(() => {
@@ -18,7 +40,7 @@ describe("ai provider resolution", () => {
     }
   });
 
-  it("defaults to DeepSeek Flash (free, keyless)", () => {
+  it("defaults to the free, keyless zen ladder", () => {
     expect(resolveProvider()).toBe("deepseek");
     expect(aiConfigured()).toBe(true);
     expect(aiProviderInfo()).toMatchObject({ provider: "deepseek", free: true });
@@ -67,6 +89,7 @@ describe("deepseek reasoning budget", () => {
   beforeEach(() => {
     saved = Object.fromEntries(AI_ENV.map((key) => [key, process.env[key]]));
     for (const key of AI_ENV) delete process.env[key];
+    resetAiModelHealth();
     warn = vi.spyOn(console, "warn").mockImplementation(() => {});
   });
 
@@ -175,5 +198,174 @@ describe("deepseek reasoning budget", () => {
     await runAi({ maxTokens: 16000, messages: [{ role: "user", content: "hi" }] });
 
     expect(calls.map((call) => call.max_tokens)).toEqual([16000, 32000]);
+  });
+});
+
+/**
+ * opencode retired `deepseek-v4-flash-free` while it was still listed in the
+ * catalog: the id resolves, the call answers HTTP 400 "Model is unavailable",
+ * and the app went quietly stupid for as long as nobody noticed. The free tier
+ * is a ladder now, and these are the tests that keep it one.
+ */
+describe("free model ladder", () => {
+  let saved: Record<string, string | undefined>;
+  let warn: ReturnType<typeof vi.spyOn>;
+
+  beforeEach(() => {
+    saved = Object.fromEntries(AI_ENV.map((key) => [key, process.env[key]]));
+    for (const key of AI_ENV) delete process.env[key];
+    resetAiModelHealth();
+    warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    for (const key of AI_ENV) {
+      if (saved[key] === undefined) delete process.env[key];
+      else process.env[key] = saved[key];
+    }
+    resetAiModelHealth();
+    vi.unstubAllGlobals();
+    warn.mockRestore();
+  });
+
+  /** Answers per model name; anything unlisted is treated as retired. */
+  function stubModels(replies: Record<string, string>) {
+    const tried: Array<{ model: string; auth: string | null; url: string }> = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string, init: RequestInit) => {
+        const body = JSON.parse(String(init.body)) as { model: string };
+        const headers = new Headers(init.headers);
+        tried.push({ model: body.model, auth: headers.get("Authorization"), url: String(url) });
+        const answer = replies[body.model];
+        if (answer === undefined) {
+          return new Response(
+            JSON.stringify({ error: { type: "server_error", message: "Upstream request failed: Model is unavailable." } }),
+            { status: 400 }
+          );
+        }
+        return new Response(
+          JSON.stringify({ choices: [{ finish_reason: "stop", message: { content: answer } }] }),
+          { status: 200 }
+        );
+      })
+    );
+    return tried;
+  }
+
+  it("defaults to a ladder of free models, not one pinned name", () => {
+    expect(freeModels().length).toBeGreaterThan(1);
+    expect(freeModels()).not.toContain("deepseek-v4-flash-free");
+    expect(aiLadder().every((step) => step.free)).toBe(true);
+  });
+
+  it("walks past a retired model to the next one that answers", async () => {
+    const ladder = freeModels();
+    const tried = stubModels({ [ladder[1]]: "the answer" });
+
+    await expect(runAi({ messages: [{ role: "user", content: "hi" }] })).resolves.toEqual({
+      text: "the answer",
+      refused: false
+    });
+    expect(tried.map((call) => call.model)).toEqual([ladder[0], ladder[1]]);
+  });
+
+  it("strikes a retired model off so the next call does not pay for it again", async () => {
+    const ladder = freeModels();
+    const tried = stubModels({ [ladder[1]]: "the answer" });
+
+    await runAi({ messages: [{ role: "user", content: "hi" }] });
+    tried.length = 0;
+    await runAi({ messages: [{ role: "user", content: "hi" }] });
+
+    expect(tried.map((call) => call.model)).toEqual([ladder[1]]);
+    expect(freeModels()).not.toContain(ladder[0]);
+  });
+
+  it("sends no key on the free tier", async () => {
+    const tried = stubModels({ [freeModels()[0]]: "the answer" });
+
+    await runAi({ messages: [{ role: "user", content: "hi" }] });
+
+    expect(tried[0].auth).toBeNull();
+    expect(tried[0].url).toContain("opencode.ai/zen/v1");
+  });
+
+  it("falls back to the paid endpoint only after every free model is gone", async () => {
+    process.env.DEEPSEEK_API_KEY = "sk-paid";
+    process.env.DEEPSEEK_BASE_URL = "https://api.deepseek.com/v1";
+    process.env.DEEPSEEK_MODEL = "deepseek-chat";
+    const tried = stubModels({ "deepseek-chat": "the paid answer" });
+
+    await expect(runAi({ messages: [{ role: "user", content: "hi" }] })).resolves.toEqual({
+      text: "the paid answer",
+      refused: false
+    });
+
+    const paid = tried.at(-1)!;
+    expect(paid.model).toBe("deepseek-chat");
+    expect(paid.auth).toBe("Bearer sk-paid");
+    expect(paid.url).toContain("api.deepseek.com");
+    // Free first, every time: the key is a safety net, not the default.
+    expect(tried.slice(0, -1).every((call) => call.auth === null)).toBe(true);
+  });
+
+  it("never reaches for the paid endpoint on AI_TIER=free", async () => {
+    process.env.AI_TIER = "free";
+    process.env.DEEPSEEK_API_KEY = "sk-paid";
+    process.env.DEEPSEEK_MODEL = "deepseek-chat";
+    const tried = stubModels({ "deepseek-chat": "the paid answer" });
+
+    await expect(runAi({ messages: [{ role: "user", content: "hi" }] })).resolves.toBeNull();
+    expect(tried.every((call) => call.auth === null)).toBe(true);
+    expect(aiLadder().every((step) => step.free)).toBe(true);
+  });
+
+  it("keeps a paid-only mode for when the free tier is not enough", () => {
+    process.env.AI_TIER = "paid";
+    expect(resolveTier()).toBe("paid");
+    expect(aiConfigured()).toBe(false);
+    process.env.DEEPSEEK_API_KEY = "sk-paid";
+    expect(aiConfigured()).toBe(true);
+    expect(aiProviderInfo()).toMatchObject({ free: false });
+  });
+
+  it("takes a replacement ladder from AI_FREE_MODELS when the catalog moves", async () => {
+    process.env.AI_FREE_MODELS = "brand-new-free, another-free";
+    expect(freeModels()).toEqual(["brand-new-free", "another-free"]);
+    const tried = stubModels({ "another-free": "the answer" });
+
+    await runAi({ messages: [{ role: "user", content: "hi" }] });
+
+    expect(tried.map((call) => call.model)).toEqual(["brand-new-free", "another-free"]);
+  });
+
+  it("reads the scratchpad from either field zen models use", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({
+              choices: [{ finish_reason: "length", message: { content: "", reasoning: "thinking hard" } }]
+            }),
+            { status: 200 }
+          )
+      )
+    );
+
+    // An empty answer with a full scratchpad is a budget problem, not a dead
+    // model: it escalates rather than falling straight through the ladder.
+    await expect(runAi({ messages: [{ role: "user", content: "hi" }] })).resolves.toBeNull();
+    expect(warn.mock.calls.flat().join(" ")).toContain("budget thinking without answering");
+  });
+
+  it("says out loud when a model answers non-OK", async () => {
+    stubModels({});
+
+    await runAi({ messages: [{ role: "user", content: "hi" }] });
+
+    // The week-long silent outage started with a non-OK response nobody logged.
+    expect(warn.mock.calls.flat().join(" ")).toContain("Model is unavailable");
   });
 });
