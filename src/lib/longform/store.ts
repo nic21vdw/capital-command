@@ -1,4 +1,4 @@
-import { mkdir, readFile, rename, rm, unlink, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rename, rm, stat, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { dataPath } from "@/lib/paths";
 import { detectSilences } from "@/lib/clipping/analysis";
@@ -6,7 +6,15 @@ import { probeDuration, runFfmpeg } from "@/lib/clipping/ffmpeg";
 import { listJobs } from "@/lib/clipping/jobs";
 import { readSourceMeta, saveSourceFromUrl, sourceFilePath } from "@/lib/clipping/sources";
 import { readSourceTranscript, transcribeSource } from "@/lib/clipping/source-transcript";
-import { DEFAULT_PACE, buildSegments, hookCaptions, planCaptions, planHook } from "@/lib/longform/plan";
+import {
+  DEFAULT_PACE,
+  buildSegments,
+  hookCaptions,
+  paceDetection,
+  planCaptions,
+  planHook
+} from "@/lib/longform/plan";
+import { reviewHook } from "@/lib/longform/hook-review";
 import { DEFAULT_TOPIC_OPTIONS, buildTopics, type TopicPlanOptions } from "@/lib/longform/topics";
 import type { LongformPace, LongformProject } from "@/lib/longform/types";
 import { defaultSfxSettings } from "@/lib/sfx/types";
@@ -58,6 +66,12 @@ async function loadProjects() {
       // Projects saved before the hook could be moved off the opening default
       // to starting at 0 (the recording's start), matching their old behavior.
       if (project.hook) project.hook.start ??= 0;
+      // Opening motion is how every hook is treated now, so projects saved
+      // before the toggle existed adopt it rather than staying static.
+      if (project.hook) project.hook.motionEnabled ??= true;
+      // The opening's verdict is derived, so an older project gets one the
+      // first time it is loaded instead of showing the card no badge at all.
+      if (project.status === "ready" && !project.hookReview) refreshHookReview(project);
       // Projects saved before the audio track existed have no clips array, and
       // may carry a legacy single background track — migrate it into one clip
       // spanning the whole edit so it keeps playing and stays editable.
@@ -178,11 +192,23 @@ export async function deleteProject(id: string) {
   await persistProjects();
 }
 
+/**
+ * Keeps the opening's verdict in step with the hook window. Moving the hook is
+ * exactly how a weak opening gets fixed, so the review is re-scored on every
+ * save rather than only at analysis time — otherwise the card would keep
+ * warning about an opening that is no longer in the video.
+ */
+function refreshHookReview(project: LongformProject) {
+  if (!project.hook) return;
+  project.hookReview = reviewHook(project.transcript ?? [], project.hook.start ?? 0, project.hook.end);
+}
+
 export async function updateProject(id: string, patch: Partial<LongformProject>): Promise<LongformProject | undefined> {
   await loadProjects();
   const project = projects.get(id);
   if (!project) return undefined;
   Object.assign(project, patch, { updatedAt: new Date().toISOString() });
+  if (patch.hook || patch.transcript) refreshHookReview(project);
   await persistProjects();
   return project;
 }
@@ -331,17 +357,63 @@ export async function retryAnalysis(id: string): Promise<LongformProject | undef
 }
 
 /**
+ * Whether the cached silences can answer this pace. Each pace carries its own
+ * detection floor, and the cut plan can only ever act on pauses that were
+ * reported — a cache captured at the old -35 dB / 0.35 s floor does not
+ * contain the ones a faster pace exists to remove, and a cache captured
+ * lower would report them longer than this pace means them to be. So the
+ * cache is only reused at the exact floor it was taken at.
+ */
+function cacheCoversPace(project: LongformProject, pace: LongformPace): boolean {
+  const wanted = paceDetection(pace);
+  const cached = project.silenceDetection;
+  if (!cached) return false;
+  return Math.abs(cached.noiseDb - wanted.noiseDb) < 0.01 && Math.abs(cached.minDurSec - wanted.minDurSec) < 0.001;
+}
+
+/** The mono audio extract every analysis step reads, re-made if it is gone. */
+async function ensureProjectAudio(project: LongformProject): Promise<string | null> {
+  if (!project.hasAudio) return null;
+  const audioPath = path.join(projectWorkDir(project.id), "source-audio.mp3");
+  try {
+    await stat(audioPath);
+    return audioPath;
+  } catch {
+    // Fall through and re-extract.
+  }
+  const meta = await readSourceMeta(project.sourceId);
+  if (!meta) return null;
+  await mkdir(projectWorkDir(project.id), { recursive: true });
+  await runFfmpeg(["-y", "-i", sourceFilePath(meta), "-vn", "-ac", "1", "-ar", "16000", "-b:a", "64k", audioPath]);
+  return audioPath;
+}
+
+/**
  * Rebuilds the cut plan with new pace settings, keeping the hook as-is.
- * Manual segment toggles are reset — the plan is regenerated from the cached
- * silences, so no re-analysis of the media is needed.
+ * Manual segment toggles are reset. The cached silences are reused when they
+ * were detected at a fine enough floor for the requested pace; when they were
+ * not, the audio is re-listened to at the new floor first — otherwise a
+ * tighter pace would silently plan from pauses that were never reported.
  */
 export async function replanProject(id: string, pace: LongformPace): Promise<LongformProject | undefined> {
   await loadProjects();
   const project = projects.get(id);
   if (!project) return undefined;
   if (project.status !== "ready") throw new Error("This project is still processing.");
-  const segments = buildSegments(project.durationSec, project.silences, pace);
-  await update(project, { pace, segments });
+
+  let silences = project.silences;
+  let silenceDetection = project.silenceDetection;
+  if (!cacheCoversPace(project, pace)) {
+    const audioPath = await ensureProjectAudio(project);
+    if (audioPath) {
+      const detection = paceDetection(pace);
+      silences = await detectSilences(audioPath, detection);
+      silenceDetection = { noiseDb: detection.noiseDb, minDurSec: detection.minDurSec };
+    }
+  }
+
+  const segments = buildSegments(project.durationSec, silences, pace);
+  await update(project, { pace, segments, silences, silenceDetection });
   return project;
 }
 
@@ -519,9 +591,10 @@ async function runAnalysis(project: LongformProject) {
   }
 
   await update(project, { stage: "analyzing", progress: 72 });
+  const detection = paceDetection(project.pace);
   let silences: LongformProject["silences"] = [];
   if (audioPath) {
-    silences = await detectSilences(audioPath);
+    silences = await detectSilences(audioPath, detection);
   }
 
   await update(project, { stage: "planning", progress: 90 });
@@ -541,8 +614,10 @@ async function runAnalysis(project: LongformProject) {
   };
   await update(project, {
     silences,
+    silenceDetection: { noiseDb: detection.noiseDb, minDurSec: detection.minDurSec },
     segments,
     hook,
+    hookReview: reviewHook(transcript, hook.start ?? 0, hook.end),
     captions,
     transcript,
     // A re-analysis re-reads the audio, so any earlier topic plan is stale.

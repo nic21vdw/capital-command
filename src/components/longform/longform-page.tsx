@@ -2,7 +2,7 @@
 
 import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Check, ChevronDown, Clapperboard, Film, Layers, Loader2, MonitorCheck, Music4, Scissors, Trash2, UploadCloud, Zap } from "lucide-react";
+import { AlertTriangle, Check, ChevronDown, Clapperboard, Film, Layers, Loader2, MonitorCheck, Music4, Scissors, Trash2, UploadCloud, Zap } from "lucide-react";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -566,6 +566,21 @@ export function LongformStudioPage() {
                   )}
                   {project.status === "error" && (
                     <p className="line-clamp-2 text-xs text-red-300">{project.error}</p>
+                  )}
+                  {/* A weak opening is the one problem that never announces
+                      itself: the export succeeds and the video simply does not
+                      hold anyone. Say so on the card, before it ships. */}
+                  {project.status === "ready" && project.hookReview?.verdict === "weak" && (
+                    <button
+                      type="button"
+                      onClick={() => setOpen(project.id)}
+                      className="flex items-start gap-2 rounded-lg border border-amber-400/50 bg-amber-400/5 px-2.5 py-2 text-left text-xs text-amber-200 transition hover:bg-amber-400/10"
+                    >
+                      <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                      <span className="min-w-0">
+                        Weak opening ({project.hookReview.score}/100) — the first 30 seconds need a real hook.
+                      </span>
+                    </button>
                   )}
                   {/* A stream is several videos in one recording. The card lists
                       them so the segment you want is one click away, instead of

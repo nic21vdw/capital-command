@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   DEFAULT_PACE,
+  PACE_PRESETS,
   applyManualRange,
   buildSegments,
   editedDurationSec,
@@ -10,12 +11,14 @@ import {
   planCaptions,
   planHook,
   planHookEnd,
+  paceDetection,
   remapCaptionsToOutput,
+  resolvePace,
   sourceTimeToOutput,
   sourceToOutputIntervals,
   transcriptCaptions
 } from "@/lib/longform/plan";
-import type { LongformHook, LongformSegment } from "@/lib/longform/types";
+import type { LongformHook, LongformPace, LongformSegment } from "@/lib/longform/types";
 import type { CaptionSegment } from "@/types/domain";
 
 function caption(id: string, start: number, end: number, text: string): CaptionSegment {
@@ -52,10 +55,68 @@ describe("buildSegments", () => {
     expect(segments[2].end).toBeCloseTo(30, 3);
   });
 
-  it("keeps silences shorter than the pace threshold", () => {
-    const segments = buildSegments(30, [{ start: 10, end: 10.4 }], DEFAULT_PACE);
+  it("keeps a pause short enough to read as rhythm", () => {
+    // Under maxKeptGapSec there is nothing to compress — a beat that short is
+    // part of the delivery.
+    const segments = buildSegments(30, [{ start: 10, end: 10.15 }], DEFAULT_PACE);
     expect(segments).toHaveLength(1);
     expect(segments[0]).toMatchObject({ start: 0, kind: "speech", enabled: true });
+  });
+
+  it("compresses a pause too short to qualify but longer than the kept gap", () => {
+    // 0.5s at the Fast pace: below minSilenceSec is no longer a free pass, the
+    // pause is squeezed down to maxKeptGapSec instead of surviving whole.
+    const pace = { minSilenceSec: 0.8, paddingSec: 0.06, maxKeptGapSec: 0.22 };
+    const segments = buildSegments(30, [{ start: 10, end: 10.5 }], pace);
+    const cut = segments.find((segment) => segment.kind === "silence");
+    expect(cut).toBeDefined();
+    expect(cut!.enabled).toBe(false);
+    const kept = 10.5 - 10 - (cut!.end - cut!.start);
+    expect(kept).toBeCloseTo(0.22, 3);
+  });
+
+  it("never cuts outside a detected silence, so no word onset is clipped", () => {
+    // The tight Fast padding (0.06s) is only safe because every cut is carved
+    // from INSIDE the reported pause: the speech on both sides is untouched.
+    const silences = [
+      { start: 5, end: 5.4 },
+      { start: 12, end: 14 },
+      { start: 20, end: 20.5 },
+      { start: 40, end: 55 }
+    ];
+    const segments = buildSegments(60, silences, DEFAULT_PACE);
+    for (const cut of segments.filter((segment) => segment.kind === "silence")) {
+      const source = silences.find((silence) => cut.start >= silence.start && cut.end <= silence.end);
+      expect(source, `cut ${cut.start}-${cut.end} escaped its silence`).toBeDefined();
+      expect(cut.start).toBeGreaterThanOrEqual(source!.start);
+      expect(cut.end).toBeLessThanOrEqual(source!.end);
+    }
+  });
+
+  it("leaves the speech on both sides of a cut whole", () => {
+    const segments = buildSegments(30, [{ start: 10, end: 12 }], DEFAULT_PACE);
+    const [before, , after] = segments;
+    // Every frame of speech up to the pause survives, and the pause's own tail
+    // is what plays before the next word — never any part of the word itself.
+    expect(before.end).toBeGreaterThan(10);
+    expect(after.start).toBeLessThan(12);
+    expect(before.end).toBeCloseTo(10 + DEFAULT_PACE.paddingSec!, 3);
+    expect(after.start).toBeCloseTo(12 - DEFAULT_PACE.paddingSec!, 3);
+  });
+
+  it("cuts a stream harder on the new default than the old one", () => {
+    // The old Fast pace: 0.7s threshold, 0.15s padding, no gap clamp.
+    const legacy = { minSilenceSec: 0.7, paddingSec: 0.15, maxKeptGapSec: Infinity };
+    // A minute of talking with a mix of long and half-second pauses.
+    const silences = Array.from({ length: 60 }, (_, i) => ({
+      start: i * 5 + 3,
+      end: i * 5 + 3 + (i % 3 === 0 ? 1.2 : 0.5)
+    }));
+    const removed = (pace: LongformPace) =>
+      buildSegments(300, silences, pace)
+        .filter((segment) => !segment.enabled)
+        .reduce((sum, segment) => sum + (segment.end - segment.start), 0);
+    expect(removed(DEFAULT_PACE)).toBeGreaterThan(removed(legacy) * 1.5);
   });
 
   it("plans a full cut list for a stream-length recording", () => {
@@ -119,21 +180,28 @@ describe("buildSegments", () => {
 });
 
 describe("planHookEnd", () => {
-  it("defaults to ~7s without a transcript", () => {
-    expect(planHookEnd([], 600)).toBe(7);
+  it("defaults to the full 30-second opening block without a transcript", () => {
+    expect(planHookEnd([], 600)).toBe(30);
   });
 
   it("clamps to the video length for very short videos", () => {
     expect(planHookEnd([], 6)).toBeLessThanOrEqual(6);
   });
 
-  it("snaps to a completed thought near the target", () => {
+  it("snaps to a completed thought near the 30s target", () => {
     const transcript = [
-      caption("c1", 0, 3, "Here is the secret nobody tells you."),
-      caption("c2", 3.2, 8.1, "It changed everything about how I edit."),
-      caption("c3", 8.4, 15, "Let me show you the whole system now.")
+      caption("c1", 0, 12, "Here is the secret nobody tells you about editing long videos."),
+      caption("c2", 12.2, 28.6, "It changed everything about how I edit and how long it takes me."),
+      caption("c3", 29, 48, "Let me show you the whole system now from the very beginning.")
     ];
-    expect(planHookEnd(transcript, 600)).toBeCloseTo(8.1, 3);
+    const end = planHookEnd(transcript, 600);
+    expect(end).toBeCloseTo(28.6, 3);
+    expect(end).toBeGreaterThanOrEqual(24);
+    expect(end).toBeLessThanOrEqual(34);
+  });
+
+  it("keeps the whole first 30 seconds when the hook is moved later in the take", () => {
+    expect(planHookEnd([], 600, 42)).toBe(72);
   });
 });
 
@@ -518,5 +586,40 @@ describe("planHook anchoring", () => {
   it("keeps the punch-in gentle enough not to crop a screen share", () => {
     const hook = planHook([], 600);
     expect(hook.zoom).toBeLessThanOrEqual(1.15);
+  });
+
+  it("gives every new project the 30-second captioned, moving opening", () => {
+    const transcript = [
+      caption("a", 0, 15, "here is what nobody tells you about building in public every day"),
+      caption("b", 15, 32, "you do not need permission and you do not need an audience to start")
+    ];
+    const hook = planHook(transcript, 900);
+    expect(hook.end - hook.start).toBeGreaterThanOrEqual(24);
+    expect(hook.captionsEnabled).toBe(true);
+    expect(hook.motionEnabled).toBe(true);
+    // Captions cover the block, not just its first seconds.
+    expect(Math.max(...hook.captions.map((seg) => seg.end))).toBeGreaterThan(20);
+  });
+});
+
+describe("resolvePace", () => {
+  it("fills the detection floor for projects saved before the pace carried one", () => {
+    const legacy = resolvePace({ minSilenceSec: 0.7, paddingSec: 0.15 });
+    expect(legacy.minSilenceSec).toBe(0.7);
+    expect(legacy.noiseDb).toBe(DEFAULT_PACE.noiseDb);
+    expect(legacy.detectMinSec).toBe(DEFAULT_PACE.detectMinSec);
+    expect(legacy.maxKeptGapSec).toBeGreaterThan(0);
+  });
+
+  it("hands each preset its own detection floor, tightening with the pace", () => {
+    const [relaxed, fast, ultra] = PACE_PRESETS.map((preset) => resolvePace(preset.pace));
+    expect(relaxed.noiseDb).toBeLessThan(fast.noiseDb);
+    expect(fast.noiseDb).toBeLessThan(ultra.noiseDb);
+    expect(relaxed.detectMinSec).toBeGreaterThan(ultra.detectMinSec);
+    // Detection must always reach the shortest pause the pace can act on.
+    for (const pace of [relaxed, fast, ultra]) {
+      expect(paceDetection(pace).minDurSec).toBeLessThanOrEqual(pace.maxKeptGapSec + 0.12);
+      expect(paceDetection(pace).minDurSec).toBeLessThanOrEqual(pace.minSilenceSec);
+    }
   });
 });

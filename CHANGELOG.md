@@ -14,6 +14,28 @@ already shipped.
 
 ## Unreleased
 
+- **Long-form videos now cut the quiet parts about twice as hard.** The dead-air
+  pass only ever heard pauses that were quiet AND long, which is why Day 39 came
+  out ten and a half minutes shorter than a four-hour recording. Each pace now
+  listens with its own ear, and no pause survives longer than a beat: on that
+  same Day 39 the Fast pace removes **25 minutes instead of 10m31s** (2,054 cuts
+  instead of 576), Relaxed removes 11m34s and Ultra 38 minutes. Nothing can clip
+  a word — every cut is still carved out of the middle of a detected pause.
+  Switching pace in the editor re-listens to the audio when it has to, instead
+  of quietly re-planning from what the old ear heard.
+- **The first 30 seconds is the hook now, and it gets treated like one.** It was
+  a seven-second window before. Captions ride the whole 30-second block (and
+  still stop after it), the frame drifts slowly in across the entire block
+  instead of snapping in over half a second, and your video title fades on at
+  0:00 and is gone by 0:03. It is all togglable under Hook, and nothing moves
+  after 0:30.
+- **A weak opening no longer ships quietly.** The first 30 seconds is read and
+  scored, and a project whose opening does not earn attention says so on its
+  card and in the Hook panel — with the score, the reason, and the words it
+  read. When it is weak the editor also points at the strongest sentence
+  elsewhere in the take and offers to open on that instead. It never reorders
+  anything on its own.
+
 ## 2026-08-20
 
 - **The Long-Form Editor opens one segment at a time, not the whole stream.**

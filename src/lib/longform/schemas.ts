@@ -13,15 +13,20 @@ export const longformSegmentSchema = z.object({
   enabled: z.coerce.boolean()
 });
 
+// The hook block is 30 seconds now, and it can be pulled from anywhere in the
+// take (a stream that opens on a title card starts speaking minutes in), so
+// the window bounds are the recording's length rather than the old first
+// minute.
 export const longformHookSchema = z.object({
   enabled: z.coerce.boolean(),
-  start: z.coerce.number().min(0).max(60).default(0),
-  end: z.coerce.number().min(0).max(60),
+  start: z.coerce.number().min(0).max(36000).default(0),
+  end: z.coerce.number().min(0).max(36000),
   zoom: z.coerce.number().min(1).max(2.5),
   focusX: z.coerce.number().min(0).max(1),
   focusY: z.coerce.number().min(0).max(1),
   captionsEnabled: z.coerce.boolean(),
   highlightCurrentWord: z.coerce.boolean(),
+  motionEnabled: z.coerce.boolean().default(true),
   captions: z.array(captionSegmentSchema),
   captionStyle: captionStyleSchema
 });
@@ -67,8 +72,11 @@ export const longformMusicSchema = z.object({
 });
 
 export const longformPaceSchema = z.object({
-  minSilenceSec: z.coerce.number().min(0.2).max(5),
-  paddingSec: z.coerce.number().min(0).max(1)
+  minSilenceSec: z.coerce.number().min(0.1).max(5),
+  paddingSec: z.coerce.number().min(0).max(1),
+  maxKeptGapSec: z.coerce.number().min(0.05).max(5).optional(),
+  noiseDb: z.coerce.number().min(-60).max(-10).optional(),
+  detectMinSec: z.coerce.number().min(0.05).max(2).optional()
 });
 
 /** PATCH body for a project: any subset of the editable fields. */
