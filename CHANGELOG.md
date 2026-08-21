@@ -14,6 +14,15 @@ already shipped.
 
 ## Unreleased
 
+- **AI writing is free again, and it stops breaking when a model retires.**
+  opencode removed the free model the app was pinned to, so every AI feature —
+  carousels, titles, ideas, scripts, X posts — had quietly stopped asking a
+  model at all and was serving its offline fallback instead. The app now keeps a
+  list of free models rather than one name: it tries them in order, drops any
+  that has been retired or has hit its daily limit, and only reaches for your
+  paid DeepSeek key when every free one is gone. `npm run ai:check` tells you in
+  one screen which models are answering right now.
+
 - **Your videos have pictures on them.** The Long-Form Video grid was a wall of
   text, so telling one four-hour stream from another meant reading timecodes.
   Every card now carries a poster: the thumbnail you made if you made one,

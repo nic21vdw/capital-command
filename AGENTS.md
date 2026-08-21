@@ -253,36 +253,60 @@ If you touch that script: the dependency link must stay per-checkout, and a
 sibling of the relocated `.next` rather than a child, because `next build`
 empties `.next` before it starts.
 
-## "The model was unavailable or declined" means the free tier is spent
+## "The model was unavailable or declined" means a model went away
 
-Every AI feature routes through `runAi` (`src/lib/ai/provider.ts`), which
-defaults to DeepSeek Flash on `https://opencode.ai/zen/v1` — free and
-**keyless**. That default is why `aiConfigured()` is true out of the box, and
-it is also the trap: when the free allowance runs out the endpoint answers
-**HTTP 429 `FreeUsageLimitError`**, `callDeepSeek` maps any non-OK response to
-`null`, and every caller quietly falls back to its offline heuristic.
+Every AI feature routes through `runAi` (`src/lib/ai/provider.ts`). It defaults
+to the **free, keyless** models on `https://opencode.ai/zen/v1`, which is why
+`aiConfigured()` is true out of the box and why content creation costs nothing.
 
-What that looks like from the outside is not an outage. It is carousels that
-skip with "The model was unavailable or declined. Tried 3 times", posts that
-come back as "simple announcement posts", ideas served from the template
-library — all at once, across features, with nothing in `server.out.log`,
-because a non-OK response is never logged. On 2026-08-19 eleven runs had been
-sitting on that message for a week; the cause was the free quota, not the
-prompts, the transcripts or the model.
+**There is no single free model, and pinning one is what breaks this.** The
+provider hardcoded `deepseek-v4-flash-free` until opencode retired it upstream
+on 2026-08-21. The id stayed in the catalog, so nothing looked wrong; every call
+answered HTTP 400 "Model is unavailable", the non-OK response became `null`, and
+every caller dropped to its offline heuristic. The same thing happens at
+**HTTP 429 `FreeUsageLimitError`** when a free allowance is spent.
 
-Check it directly before touching any prompt code:
+From the outside neither looks like an outage. It is carousels that skip with
+"The model was unavailable or declined. Tried 3 times", posts that come back as
+"simple announcement posts", ideas served from the template library — all at
+once, across features. On 2026-08-19 eleven runs sat on that message for a week;
+the cause was the quota, not the prompts.
+
+So the free tier is a **ladder**, not a name. `FREE_MODELS` in `provider.ts`
+lists the free zen models best-first; a model that answers 400/404/429 is struck
+off for the life of the process and the next one takes the call. Every non-OK
+response is now logged with its status and body, so the silent version of this
+cannot happen again.
+
+Check the whole ladder before touching any prompt code:
 
 ```
-curl -s -o /dev/null -w "%{http_code}\n" -X POST https://opencode.ai/zen/v1/chat/completions \
-  -H "Content-Type: application/json" \
-  -d '{"model":"deepseek-v4-flash-free","max_tokens":20,"messages":[{"role":"user","content":"OK"}]}'
+npm run ai:check
 ```
 
-`429` means spent, and no retry ladder in `runDeepSeek` will get past it.
+It prints the catalog, probes each free model with a real JSON request, probes
+the paid fallback if one is configured, and exits non-zero only when nothing
+free answers. If the catalog has moved and the app has not caught up,
+`AI_FREE_MODELS` in `.env` overrides the list without a release:
 
-The fix is a paid key. Nic's DeepSeek key lives in
-`%USERPROFILE%\.codewhale\secrets\secrets.json` under `entries.deepseek`, and
-production's `.env` now points at the paid API:
+```
+AI_FREE_MODELS=some-new-free,another-free
+```
+
+Then fix `FREE_MODELS` in the sandbox so the next release carries it.
+
+### The paid key is a safety net, not the default
+
+`AI_TIER` decides how far the ladder goes:
+
+| `AI_TIER` | what runs |
+|---|---|
+| `auto` (default) | every free model, then the paid endpoint if a key is set |
+| `free` | free models only — never spends money |
+| `paid` | the paid endpoint only (needs `DEEPSEEK_API_KEY`) |
+
+Nic's DeepSeek key lives in `%USERPROFILE%\.codewhale\secrets\secrets.json`
+under `entries.deepseek`. Production's `.env` carries it:
 
 ```
 DEEPSEEK_API_KEY=<the key>
@@ -290,13 +314,14 @@ DEEPSEEK_BASE_URL=https://api.deepseek.com/v1
 DEEPSEEK_MODEL=deepseek-chat
 ```
 
-`deepseek-chat` is not a reasoning model, so it answers in `content` and the
-`outOfRoom` escalation ladder simply never fires — carousels come back in about
-a minute each instead of failing. `.env` is read when the server starts, so a
-change there needs a restart to take effect; that restart is not a release, but
-confirm `.next/BUILD_COMMIT` already equals `main` before running the launcher,
-or the rebuild ships whatever is sitting merged on `main` and the release stops
-being Nic's to run.
+Under `auto` those three no longer make the app paid — they describe where to go
+when free has nothing left. `deepseek-chat` is not a reasoning model, so it
+answers in `content` and the `outOfRoom` escalation never fires.
+
+`.env` is read when the server starts, so a change there needs a restart to take
+effect; that restart is not a release, but confirm `.next/BUILD_COMMIT` already
+equals `main` before running the launcher, or the rebuild ships whatever is
+sitting merged on `main` and the release stops being Nic's to run.
 
 
 ## The carousel house style is settled — don't redesign it
