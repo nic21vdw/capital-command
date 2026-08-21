@@ -237,6 +237,10 @@ export type LongformExportRecord = {
   file?: string;
   /** Audio-only (mp3) companion extracted from `file`, for podcast platforms. */
   audioFile?: string;
+  /** Generated thumbnail beside `file` in the output dir, once one is made. */
+  thumbnailFile?: string;
+  /** Hook line laid over the generated thumbnail, so it can be re-rendered. */
+  thumbnailHook?: string;
   error?: string;
   /** Duration of the rendered edit, for the summary line. */
   durationSec?: number;

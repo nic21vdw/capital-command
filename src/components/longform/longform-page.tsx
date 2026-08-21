@@ -36,6 +36,32 @@ function renderedSegments(project: LongformProjectSummary): number {
   ).length;
 }
 
+function ProjectPoster({ project }: { project: LongformProjectSummary }) {
+  const [failed, setFailed] = useState(false);
+  if (failed || project.status !== "ready") return null;
+  const generated = project.exports.some((item) => item.thumbnailFile);
+  return (
+    <div className="relative -mx-4 -mt-4 aspect-video overflow-hidden border-b border-[var(--border)] bg-black/40">
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        src={`/api/longform/projects/${project.id}/poster`}
+        alt=""
+        loading="lazy"
+        onError={() => setFailed(true)}
+        className="h-full w-full object-cover"
+      />
+      <span
+        className={cn(
+          "absolute left-2 top-2 rounded border bg-black/70 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide backdrop-blur",
+          generated ? "border-[var(--accent)]/50 text-[var(--accent)]" : "border-white/15 text-white/70"
+        )}
+      >
+        {generated ? "Thumbnail" : "Auto frame"}
+      </span>
+    </div>
+  );
+}
+
 export function LongformStudioPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -489,7 +515,8 @@ export function LongformStudioPage() {
             {projects.map((project) => {
               const editedSec = project.editedDurationSec;
               return (
-                <Card key={project.id} className="animate-in flex flex-col gap-3 p-4">
+                <Card key={project.id} className="animate-in flex flex-col gap-3 overflow-hidden p-4">
+                  <ProjectPoster project={project} />
                   <div className="flex items-start justify-between gap-2">
                     <div className="min-w-0">
                       {editingId === project.id ? (
