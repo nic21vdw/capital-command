@@ -23,6 +23,8 @@ already shipped.
   paid DeepSeek key when every free one is gone. `npm run ai:check` tells you in
   one screen which models are answering right now.
 
+## 2026-08-21
+
 - **Your videos have pictures on them.** The Long-Form Video grid was a wall of
   text, so telling one four-hour stream from another meant reading timecodes.
   Every card now carries a poster: the thumbnail you made if you made one,
