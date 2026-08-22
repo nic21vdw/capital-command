@@ -14,6 +14,13 @@ already shipped.
 
 ## Unreleased
 
+- **The TikTok demo video cannot be recorded the way the playbook said.** A
+  direct post cannot succeed from the sandbox client key, and that refusal
+  never lifts however the review goes, so the shot that filmed a post going
+  live on the profile does not exist to film. That shot now films the consent
+  gate and TikTok's own refusal, and the draft shot carries a warning to clear
+  the TikTok inbox first or it fails on camera.
+
 - **The TikTok app's product page, Terms and Privacy are live again.** The URLs
   registered against the TikTok app pointed at files in a private repo, so a
   reviewer clicking them got a 404 — on its own enough to be rejected a second
