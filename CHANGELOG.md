@@ -14,6 +14,16 @@ already shipped.
 
 ## Unreleased
 
+- **Opening the app no longer means waiting for a build.** A launch that finds
+  the build already matching what is checked out now starts the server straight
+  away — seconds instead of minutes — and only rebuilds when the code has
+  actually changed. `start-server.ps1 -Rebuild` forces one.
+- **The build itself went from about fifteen minutes to about two.** The app is
+  bundled with Turbopack now, and the lint and type-check passes no longer run
+  inside it; `npm run lint` and `npm run typecheck` still run them, and every
+  change has to pass those before it lands. The old bundler was reaching 21 GB
+  of memory on this machine, which is where most of that time went.
+
 ## 2026-08-22
 
 - **A day's rundown as one page you can send.** `npm run brief:day` writes a

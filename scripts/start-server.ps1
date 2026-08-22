@@ -8,7 +8,8 @@
 param(
   # Callers that already show their own console output (update-app.ps1) pass
   # this so a failure does not stop the release behind a modal dialog.
-  [switch]$Quiet
+  [switch]$Quiet,
+  [switch]$Rebuild
 )
 
 $ErrorActionPreference = "Stop"
@@ -82,6 +83,32 @@ if (Test-Path $pidFile) {
 
 Remove-Item $stdout, $stderr, $buildLog -ErrorAction SilentlyContinue
 
+function Test-BuildCurrent {
+  try {
+    if (-not (Test-Path (Join-Path $root ".next\BUILD_ID"))) { return $false }
+
+    $stampFile = Join-Path $root ".next\BUILD_COMMIT"
+    if (-not (Test-Path $stampFile)) { return $false }
+    $stamp = Get-Content $stampFile -Raw -ErrorAction SilentlyContinue
+    if (-not $stamp) { return $false }
+
+    $head = & git -C $root rev-parse HEAD 2>$null
+    if ($LASTEXITCODE -ne 0 -or -not $head) { return $false }
+    if ($stamp.Trim() -ne "$head".Trim()) { return $false }
+
+    $watched = @("src", "public", "remotion", "next.config.ts", "tsconfig.json", "postcss.config.mjs", "package.json", "package-lock.json")
+    & git -C $root diff --quiet HEAD -- $watched 2>$null
+    if ($LASTEXITCODE -ne 0) { return $false }
+
+    $untracked = & git -C $root ls-files --others --exclude-standard -- src remotion public 2>$null
+    if ($untracked) { return $false }
+
+    return $true
+  } catch {
+    return $false
+  }
+}
+
 function Invoke-Build($append) {
   # `next build` writes progress and warnings to stderr. Under the Stop
   # preference PowerShell promotes each of those lines to a terminating error,
@@ -103,9 +130,16 @@ function Invoke-Build($append) {
   return $exit
 }
 
-Write-Host "Building Capital Command (a few minutes)..."
-Set-BuildLock
-$buildExit = Invoke-Build $false
+$skipBuild = (-not $Rebuild) -and (Test-BuildCurrent)
+
+if ($skipBuild) {
+  Write-Host "The build already matches this checkout - starting it as it is."
+  $buildExit = 0
+} else {
+  Write-Host "Building Capital Command (a few minutes)..."
+  Set-BuildLock
+  $buildExit = Invoke-Build $false
+}
 
 # A build that fails on a warm .next is usually the cache, not the code: the
 # webpack runtime comes back half-written and prerendering dies on "Cannot read
@@ -123,7 +157,7 @@ if ($buildExit -ne 0) {
   $buildExit = Invoke-Build $true
 }
 
-Clear-BuildLock
+if (-not $skipBuild) { Clear-BuildLock }
 
 if ($buildExit -ne 0) {
   Show-Failure "The build failed twice (exit $buildExit), so the app was not started." $buildLog

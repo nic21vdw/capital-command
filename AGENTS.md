@@ -259,14 +259,39 @@ other agent's dev server), then start the app the normal way. Do not "fix" the
 scripts by removing the fallback without giving the server it starts the same
 pid file the launcher writes.
 
-## `next build` lints stricter than `npm run lint`
+## The build is Turbopack, and it does not lint or type-check
 
-`next build` treats some `react-hooks` rules as errors that a standalone lint
-run only warns about — `react-hooks/set-state-in-effect` is the one that has
-bitten this repo (#290). A clean `npm run lint` and a clean `npx tsc --noEmit`
-are NOT evidence that a release will build. Run `npm run build` before merging
-anything that touches a component, or the next `update-capital-command.bat`
-fails at the type-checking stage and leaves production with no server.
+`npm run build` is `next build --turbopack`, with `eslint.ignoreDuringBuilds`
+and `typescript.ignoreBuildErrors` set in `next.config.ts`. That is what took a
+release from about fifteen minutes to about two: the webpack build on this
+machine peaked at **21 GB** of working set and spent most of its time paging,
+and the lint and type passes ran on top of that. Nic killed a launch partway
+through a 24-minute build, which left `.next` with no `BUILD_ID` and the app
+dead — the failure this replaces.
+
+The consequence is that **a release will no longer refuse to build over a type
+or lint error**. `npm run typecheck` and `npm test` are the gate now, and they
+are not optional before landing anything. `next build` used to treat some
+`react-hooks` rules as errors that a standalone lint run only warns about
+(`react-hooks/set-state-in-effect`, #290); it no longer does, so read
+`npm run lint` warnings rather than waiting for a build to stop you.
+
+If Turbopack ever mis-handles the native packages in `serverExternalPackages`
+(`@napi-rs/canvas`, `@remotion/renderer`, `ffmpeg-static`,
+`@huggingface/transformers`), drop `--turbopack` from the `build` script — the
+webpack build still works, it is only slow. Verified on 2026-08-22 that a
+Turbopack build serves every screen and the routes that load those packages.
+
+## A launch only rebuilds when the code changed
+
+`start-server.ps1` compares `.next/BUILD_COMMIT` against `git rev-parse HEAD`
+and the working tree, and starts the existing build untouched when they agree.
+Opening the app used to rebuild it every single time, so a cold start cost a
+full build even when nothing had changed since the last one.
+
+`start-server.ps1 -Rebuild` forces a build. A release always rebuilds anyway:
+`update-app.ps1` merges first, so HEAD has moved by the time it starts the
+server.
 
 ## Never relocate the build cache outside a synced folder
 
