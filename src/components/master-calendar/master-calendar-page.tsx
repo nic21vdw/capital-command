@@ -1,21 +1,8 @@
 "use client";
 
-import { useEffect, useMemo, useState, type ComponentType, type CSSProperties } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import {
-  ArrowUpRight,
-  AtSign,
-  CalendarDays,
-  ChevronLeft,
-  ChevronRight,
-  Clapperboard,
-  Facebook,
-  Instagram,
-  Loader2,
-  Repeat,
-  Sparkles,
-  Youtube
-} from "lucide-react";
+import { ArrowUpRight, CalendarDays, ChevronLeft, ChevronRight, LayoutList, Loader2, Repeat, Sparkles } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -31,36 +18,9 @@ import {
 } from "@/lib/master-calendar/types";
 import type { CalendarPlan } from "@/lib/master-calendar/planner";
 import { sourceHrefForDay } from "@/lib/master-calendar/aggregate";
+import { formatDayKey, localTodayKey, shiftDayKey, weekdayOfDayKey } from "@/lib/master-calendar/day-keys";
+import { SourceIcon } from "@/components/master-calendar/source-icon";
 import { cn } from "@/lib/utils";
-
-/** Icon components accept the same className/style lucide icons do. */
-type IconComponent = ComponentType<{ className?: string; style?: CSSProperties }>;
-
-/** The Threads @ mark — lucide has no Threads logo, and @ is what the app uses. */
-function ThreadsLogo({ className, style }: { className?: string; style?: CSSProperties }) {
-  return <AtSign className={className} style={style} aria-hidden="true" />;
-}
-
-/**
- * Each calendar source's platform logo, tinted with its source colour so the
- * calendar reads by brand (YouTube, Instagram, Threads, Facebook) instead of by an
- * anonymous coloured dot. Long-form has no single social logo, so it uses a
- * clapperboard to stand in for tracked video content.
- */
-const SOURCE_ICONS: Record<CalendarSourceId, IconComponent> = {
-  shorts: Youtube,
-  carousels: Instagram,
-  "queued-carousels": Instagram,
-  x: ThreadsLogo,
-  fb: Facebook,
-  content: Clapperboard
-};
-
-/** The logo icon for a source, tinted with its brand colour. */
-function SourceIcon({ source, className }: { source: CalendarSourceId; className?: string }) {
-  const Icon = SOURCE_ICONS[source];
-  return <Icon className={cn("shrink-0", className)} style={{ color: CALENDAR_SOURCE_BY_ID[source].color }} />;
-}
 
 /** Group a day's events by source, in the canonical CALENDAR_SOURCES order. */
 function groupBySource(events: MasterCalendarEvent[]): { source: CalendarSource; events: MasterCalendarEvent[] }[] {
@@ -84,35 +44,11 @@ function groupBySource(events: MasterCalendarEvent[]): { source: CalendarSource;
 
 type ViewMode = "day" | "week" | "month";
 
-const DAY_MS = 86_400_000;
 const WEEKDAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-
-/** Calendar-day arithmetic on YYYY-MM-DD keys via UTC ms (never an instant). */
-function parseKey(key: string): number {
-  const [y, m, d] = key.split("-").map(Number);
-  return Date.UTC(y, (m ?? 1) - 1, d ?? 1);
-}
-
-function addDays(key: string, days: number): string {
-  return new Date(parseKey(key) + days * DAY_MS).toISOString().slice(0, 10);
-}
-
-function weekdayOf(key: string): number {
-  return new Date(parseKey(key)).getUTCDay();
-}
 
 /** Sunday of the week containing `key`. */
 function startOfWeek(key: string): string {
-  return addDays(key, -weekdayOf(key));
-}
-
-function localTodayKey(): string {
-  const now = new Date();
-  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
-}
-
-function formatKey(key: string, options: Intl.DateTimeFormatOptions): string {
-  return new Date(parseKey(key)).toLocaleDateString("en-US", { ...options, timeZone: "UTC" });
+  return shiftDayKey(key, -weekdayOfDayKey(key));
 }
 
 function statusTone(status: string): string {
@@ -312,8 +248,8 @@ export function MasterCalendarPage() {
 
   const shift = (direction: 1 | -1) => {
     setAnchor((current) => {
-      if (view === "day") return addDays(current, direction);
-      if (view === "week") return addDays(current, 7 * direction);
+      if (view === "day") return shiftDayKey(current, direction);
+      if (view === "week") return shiftDayKey(current, 7 * direction);
       const [y, m] = current.split("-").map(Number);
       return new Date(Date.UTC(y, m - 1 + direction, 1)).toISOString().slice(0, 10);
     });
@@ -355,22 +291,22 @@ export function MasterCalendarPage() {
     CALENDAR_SOURCE_BY_ID[kind === "post" ? "x" : kind === "longform" ? "content" : "shorts"];
 
   const periodLabel = useMemo(() => {
-    if (view === "day") return formatKey(anchor, { weekday: "long", month: "long", day: "numeric", year: "numeric" });
+    if (view === "day") return formatDayKey(anchor, { weekday: "long", month: "long", day: "numeric", year: "numeric" });
     if (view === "week") {
       const start = startOfWeek(anchor);
-      const end = addDays(start, 6);
-      return `${formatKey(start, { month: "short", day: "numeric" })} – ${formatKey(end, { month: "short", day: "numeric", year: "numeric" })}`;
+      const end = shiftDayKey(start, 6);
+      return `${formatDayKey(start, { month: "short", day: "numeric" })} – ${formatDayKey(end, { month: "short", day: "numeric", year: "numeric" })}`;
     }
-    return formatKey(anchor, { month: "long", year: "numeric" });
+    return formatDayKey(anchor, { month: "long", year: "numeric" });
   }, [view, anchor]);
 
   const weekDays = useMemo(() => {
     const start = startOfWeek(anchor);
-    return Array.from({ length: 7 }, (_, i) => addDays(start, i));
+    return Array.from({ length: 7 }, (_, i) => shiftDayKey(start, i));
   }, [anchor]);
 
   const monthDays = useMemo(
-    () => Array.from({ length: 42 }, (_, i) => addDays(startOfWeek(`${anchor.slice(0, 8)}01`), i)),
+    () => Array.from({ length: 42 }, (_, i) => shiftDayKey(startOfWeek(`${anchor.slice(0, 8)}01`), i)),
     [anchor]
   );
 
@@ -462,7 +398,7 @@ export function MasterCalendarPage() {
                           </Badge>
                         </div>
                         <p className="text-[var(--muted-foreground)]">
-                          {suggestion.weekday}, {formatKey(suggestion.dateKey, { month: "short", day: "numeric" })} · {suggestion.reason}
+                          {suggestion.weekday}, {formatDayKey(suggestion.dateKey, { month: "short", day: "numeric" })} · {suggestion.reason}
                         </p>
                       </div>
                       <Link
@@ -637,7 +573,7 @@ export function MasterCalendarPage() {
                       )}
                     >
                       <span className="text-[11px] font-medium uppercase tracking-wider text-[var(--muted-foreground)]">
-                        {WEEKDAY_LABELS[weekdayOf(dateKey)]}
+                        {WEEKDAY_LABELS[weekdayOfDayKey(dateKey)]}
                       </span>
                       <span
                         className={cn(
@@ -664,6 +600,14 @@ export function MasterCalendarPage() {
 
         {view === "day" ? (
           <div className="panel-enter space-y-1.5 p-4">
+            <Link
+              href={`/day-summary?date=${anchor}`}
+              className="mb-2 flex items-center gap-2 rounded-lg border border-[var(--border)] bg-white/[0.03] px-3 py-2 text-xs font-medium text-[var(--muted-foreground)] transition hover:bg-white/10 hover:text-white"
+            >
+              <LayoutList className="h-3.5 w-3.5 text-[var(--accent)]" />
+              Read this day as a summary — thumbnails, networks and what still needs doing
+              <ArrowUpRight className="ml-auto h-3.5 w-3.5" />
+            </Link>
             {groupBySource(eventsByDay.get(anchor) ?? []).map(({ source, events: sourceEvents }) => (
               <SourceGroupCard key={source.id} source={source} events={sourceEvents} />
             ))}

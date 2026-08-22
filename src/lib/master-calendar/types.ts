@@ -27,6 +27,12 @@ export type MasterCalendarEvent = {
   status: string;
   /** True for occurrences expanded from a repeating carousel schedule. */
   recurring?: boolean;
+  /**
+   * A poster frame cut from the real file, where one exists: the clip's own
+   * frame for a queued short, the first slide for a queued picture post. What
+   * makes a day read as content rather than as a list of titles.
+   */
+  thumbnailUrl?: string;
   /** Deep link into the screen that owns this item. Falls back to the source href. */
   href?: string;
 };

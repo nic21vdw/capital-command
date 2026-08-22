@@ -14,6 +14,15 @@ already shipped.
 
 ## Unreleased
 
+- **A day's posting, read as a briefing.** The new **Day Summary** screen, under
+  Calendar next to the Master Calendar, answers "what is going out tomorrow" in
+  one look: how many pieces, to which networks, how many are scheduled, already
+  out, or still need you, and the first and last posting time of the day. Under
+  that, every piece is a card with a frame cut from the real file — the clip's
+  own thumbnail, slide one of a carousel — grouped by shorts, carousels, Threads
+  packs, FB/IG and long-form, each group with a button straight into the screen
+  that manages it. Today and Tomorrow are one click apart, any date is one date
+  picker away, and the calendar's day view now offers the same day as a summary.
 - Agent sessions working on this repo now route mechanical work to cheaper
   models, keeping the weekly Claude limit for the work that actually needs
   the big one. Docs-only change; nothing in the app behaves differently.
