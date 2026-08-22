@@ -14,6 +14,26 @@ already shipped.
 
 ## Unreleased
 
+- **Shorts open on the first word instead of the pause before it.** The app has
+  always known where a clip's first word lands, but only the preview acted on
+  it — the file that actually posted still opened on up to a few seconds of
+  dead air, and every preview hid that. The ready-to-post render now cuts it
+  (never more than a quarter of the clip, never leaving one under five
+  seconds), and the burned captions slide back with it.
+- **Every short is mastered to the same loudness as everything else in the
+  feed.** Shorts were muxed with whatever the stream recorded — no gain
+  staging, no loudness target. They now go out at -14 LUFS under a true-peak
+  ceiling, with a gentle compressor so a quiet aside stays audible next to a
+  loud point. Clip Editor exports get it on their finished mix too, after the
+  music and effects balance, so the balance you set is what gets normalized.
+- **Burned captions and screenshare text come out sharper.** The 9:16 render
+  encoded at the speed setting that hurts fine text most, and the platforms
+  then re-encoded that softness. It renders a step slower and cleaner now.
+- **Automatically scheduled shorts finally carry hashtags.** Anything booked by
+  the pipeline, the clip job or the channel scan posted with no hashtags and no
+  YouTube tags at all — only the Uploading Center's own button wrote them. Each
+  clip now gets tags written from what is actually said in it, falling back to
+  the channel keywords the clip mentions when no model is configured.
 - **Segments deep in a stream get their hook words back.** Only the opening of
   a long recording is transcribed, so a segment two hours in had nothing to
   burn over its first seconds and opened on silence — 27 of the segments in the

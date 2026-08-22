@@ -1,6 +1,7 @@
 import { runAi } from "@/lib/ai";
 import type { QueueItem } from "@/lib/publisher/types";
 import { CLIP_DESCRIPTION_TEMPLATE } from "@/lib/clipping/editor";
+import { fallbackHashtags, generateClipHashtags } from "@/lib/clipping/hashtags";
 
 /**
  * Post metadata (title / description / hashtags) for a finished clip.
@@ -36,7 +37,8 @@ function normalizeHashtags(tags: string[]): string[] {
 }
 
 /** Offline fallback: derive a title from existing clip metadata; every clip
- *  carries the same standing CoLateral description. */
+ *  carries the same standing CoLateral description, plus the channel keywords
+ *  the clip's own words actually mention as tags. */
 export function fallbackMetadata(source: {
   streamTitle?: string;
   topic?: string;
@@ -47,7 +49,7 @@ export function fallbackMetadata(source: {
   return {
     title,
     description: CLIP_DESCRIPTION_TEMPLATE,
-    hashtags: []
+    hashtags: fallbackHashtags(source)
   };
 }
 
@@ -68,9 +70,15 @@ function parseMetadata(text: string): Partial<ClipMetadata> | null {
 }
 
 /**
- * Generates a punchy, complete-sentence title for the clip. The description
- * is always the standing CoLateral boilerplate — never model-generated.
- * Never throws — falls back to the heuristic on any error.
+ * Generates a punchy, complete-sentence title for the clip plus the hashtags
+ * it should carry. The description is always the standing CoLateral
+ * boilerplate — never model-generated.
+ *
+ * The hashtags are what make this the metadata every automatic booking route
+ * gets: the pipeline, the clip job and the ingest scan all reach the queue
+ * through here, and every one of them used to post an untagged short with no
+ * YouTube `snippet.tags` at all. Never throws — falls back to the heuristic on
+ * any error.
  */
 export async function generateClipMetadata(source: {
   streamTitle?: string;
@@ -100,10 +108,11 @@ export async function generateClipMetadata(source: {
     if (!result || result.refused) return fallback;
     const parsed = parseMetadata(result.text);
     if (!parsed?.title) return fallback;
+    const title = parsed.title.slice(0, MAX_TITLE_CHARS + 10);
     return {
-      title: parsed.title.slice(0, MAX_TITLE_CHARS + 10),
+      title,
       description: CLIP_DESCRIPTION_TEMPLATE,
-      hashtags: []
+      hashtags: await generateClipHashtags({ ...source, title })
     };
   } catch {
     return fallback;
