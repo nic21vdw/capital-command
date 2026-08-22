@@ -1,0 +1,46 @@
+# The public product page — what TikTok's reviewer opens.
+#
+# site/ holds the product page, Terms of Service and Privacy Policy that are
+# registered against the TikTok app. GitHub Pages cannot serve an arbitrary
+# folder from a branch (only the repo root or docs/), so this workflow uploads
+# site/ as the Pages artifact instead.
+#
+# It needs Pages switched on once, with the source set to GitHub Actions:
+#   Settings → Pages → Build and deployment → Source: GitHub Actions
+# That control only exists while the repository is public.
+#
+# Published at https://nic21vdw.github.io/capital-command/
+
+name: Product page
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "site/**"
+      - ".github/workflows/pages.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+      - id: deploy
+        uses: actions/deploy-pages@v4
