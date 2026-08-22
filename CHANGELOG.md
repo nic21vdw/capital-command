@@ -14,6 +14,15 @@ already shipped.
 
 ## Unreleased
 
+- **A day's rundown as one page you can send.** `npm run brief:day` writes a
+  standalone HTML briefing for any posting day — every piece in time order with
+  a frame cut from the real file, the networks each one lands on and its state,
+  a per-network breakdown, the day's Threads posts, and a section listing
+  anything whose media is missing or whose upload failed. It reads the queues
+  off disk, so it can be pointed at the production `data\` folder from a
+  sandbox: `npm run brief:day -- --date 2026-08-23 --data <dir> --out <file>`.
+  Defaults to tomorrow.
+
 - **A day's posting, read as a briefing.** The new **Day Summary** screen, under
   Calendar next to the Master Calendar, answers "what is going out tomorrow" in
   one look: how many pieces, to which networks, how many are scheduled, already
