@@ -14,6 +14,8 @@ already shipped.
 
 ## Unreleased
 
+## 2026-08-22
+
 - **A day's rundown as one page you can send.** `npm run brief:day` writes a
   standalone HTML briefing for any posting day — every piece in time order with
   a frame cut from the real file, the networks each one lands on and its state,
