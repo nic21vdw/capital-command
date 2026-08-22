@@ -14,6 +14,17 @@ already shipped.
 
 ## Unreleased
 
+- **Segments deep in a stream get their hook words back.** Only the opening of
+  a long recording is transcribed, so a segment two hours in had nothing to
+  burn over its first seconds and opened on silence — 27 of the segments in the
+  library rendered that way. The render now reads the whole recording's
+  transcript for a segment, and the review stops calling those openings
+  captionless.
+- **Car yaps never get booked back to YouTube.** The series is already on the
+  channel, so an edit of it re-uploaded spends a daily upload slot to duplicate
+  itself (17 had to be pulled by hand once). The scheduler refuses them now and
+  says why; the Instagram vertical cut is untouched.
+
 - **The videos you already have move their captions too.** Every existing
   long-form project still carried the old placement, so its next export would
   have burned the words across the middle again; opening one now moves them

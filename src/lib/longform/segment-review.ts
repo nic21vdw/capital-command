@@ -1,5 +1,5 @@
 import { reviewHook } from "@/lib/longform/hook-review";
-import { MIN_LONGFORM_SEC } from "@/lib/longform/length";
+import { MIN_LONGFORM_SEC, formatRuntime } from "@/lib/longform/length";
 import { exportRanges, projectForTopic, topicDurationSec } from "@/lib/longform/plan";
 import type { LongformProject, LongformSegmentReview, LongformTopic } from "@/lib/longform/types";
 
@@ -24,6 +24,13 @@ function round1(value: number) {
   return Math.round(value * 10) / 10;
 }
 
+/** Whether the stored transcript has words inside a window at all. */
+function transcriptCovers(project: LongformProject, start: number, end: number): boolean {
+  return (project.transcript ?? []).some(
+    (segment) => segment.end > start && segment.start < end && segment.text.trim().length > 0
+  );
+}
+
 /**
  * Reviews one topic segment as the standalone video it is exported as: the
  * same view of the project `projectForTopic` renders, so what is reviewed is
@@ -41,7 +48,13 @@ export function reviewTopicOpening(project: LongformProject, topic: LongformTopi
     missing.push("This segment opens with no hook block at all — the first seconds are plain footage.");
   } else {
     const captions = hook.captionsEnabled ? hook.captions.filter((caption) => caption.enabled && caption.text.trim()) : [];
-    if (captions.length === 0) {
+    // A long stream is only transcribed as far as the hook needs, so a segment
+    // hours in has no stored words — the render reads the whole recording's
+    // transcript for exactly this reason. Reporting that as "no captions"
+    // flagged 27 segments that will caption themselves perfectly well.
+    if (captions.length === 0 && !hook.captionsEnabled) {
+      missing.push("Hook captions are switched off — the opening plays with no words on screen.");
+    } else if (captions.length === 0 && transcriptCovers(project, hook.start ?? 0, hook.end)) {
       missing.push("Nothing is burned over the opening — the hook plays with no words on screen.");
     }
     if (hook.motionEnabled === false) {
@@ -52,20 +65,26 @@ export function reviewTopicOpening(project: LongformProject, topic: LongformTopi
     }
   }
 
-  const tooShort = runtimeSec > 0 && runtimeSec < MIN_LONGFORM_SEC;
-  if (tooShort) {
+  if (runtimeSec > 0 && runtimeSec < MIN_LONGFORM_SEC) {
     missing.push(
-      `This segment runs ${Math.floor(runtimeSec / 60)}m ${Math.round(runtimeSec % 60)}s — under the ${MIN_LONGFORM_SEC / 60} minute floor a long-form upload needs to carry mid-rolls.`
+      `This segment runs ${formatRuntime(runtimeSec)} — under the ${MIN_LONGFORM_SEC / 60} minute floor a long-form upload needs to carry mid-rolls.`
     );
   }
 
+  const reasonsForUntranscribed: string[] = [];
   const { hookRange } = exportRanges(view.segments, hook);
   if (hook.enabled && hookSec >= MIN_HOOK_SEC && !hookRange) {
     missing.push("The hook window is entirely inside cut footage, so the export starts on the body.");
   }
 
+  const untranscribed = !transcriptCovers(project, hook.start ?? 0, hook.end);
+  if (untranscribed && hook.enabled) {
+    reasonsForUntranscribed.push(
+      "This segment's opening is not in the stored transcript — its words are read from the whole recording when it renders, so review it by watching the render back."
+    );
+  }
   const verdict: LongformSegmentReview["verdict"] =
-    missing.length > 0 ? "weak" : opening.verdict === "unknown" ? "unknown" : opening.verdict;
+    missing.length > 0 ? "weak" : untranscribed || opening.verdict === "unknown" ? "unknown" : opening.verdict;
 
   return {
     topicId: topic.id,
@@ -76,7 +95,7 @@ export function reviewTopicOpening(project: LongformProject, topic: LongformTopi
     score: opening.score,
     verdict,
     opening: opening.opening,
-    reasons: [...missing, ...opening.reasons],
+    reasons: [...missing, ...reasonsForUntranscribed, ...opening.reasons],
     missingTreatment: missing,
     coldOpen: opening.coldOpen
   };
@@ -97,7 +116,9 @@ export function weakSegmentOpenings(reviews: LongformSegmentReview[]): LongformS
 /** One line for the segment list: what the review found, or that it passed. */
 export function segmentReviewHeadline(review: LongformSegmentReview): string {
   if (review.missingTreatment.length > 0) return review.missingTreatment[0];
-  if (review.verdict === "unknown") return "No transcript covers this opening — watch it back yourself.";
+  if (review.verdict === "unknown") {
+    return "Its opening words are read from the full recording at render time — watch the render back.";
+  }
   if (review.verdict === "weak") return `Weak opening (${review.score}/100) — it opens on a line that promises nothing.`;
   return `Opens strong (${review.score}/100) with the hook treatment on.`;
 }

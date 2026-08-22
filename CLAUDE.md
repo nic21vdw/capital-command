@@ -272,6 +272,16 @@ not already in the publish queue; `queueRunOutputs` books them.
   book what the same plan would have booked, deduped by file path, so it can
   never queue something twice or something he unticked in a later plan.
 
+### Car yaps are already on YouTube (`carYaps.ts`)
+
+The "Yapping Until I Can Buy a Nicer Car" series is posted to the channel live.
+An edit of one booked back to YouTube spends a daily upload slot to duplicate
+what is already there — 17 were booked and pulled by hand on 2026-08-20 — and
+the pipeline makes another every time a car yap runs through it. `collectLongform`
+refuses them by title, whatever their length. The Instagram vertical cut of a
+car yap is a different thing and is wanted; only the YouTube long-form booking
+is refused.
+
 ## Two things the publisher must never do (`schedule.ts`, `duplicates.ts`)
 
 A batch booking once put a run's whole output onto the channel inside one
@@ -437,6 +447,12 @@ special case.
   video on 2026-08-19 — that is the hole this closes. A hand-made request for
   `count` segments still overrides the floor, because it has already decided how
   long they are.
+- A SEGMENT'S WORDS COME FROM THE WHOLE RECORDING (`withFullTranscript`). Long
+  sources are only transcribed as far as the hook needs, so `project.transcript`
+  covers the opening minutes and nothing else; a segment hours in had no words
+  to burn and opened on silence. The render reads the shared source transcript
+  for a segment render and never stores it — a four-hour transcript is megabytes
+  and `projects.json` is rewritten on every save.
 - EVERY SEGMENT OPENS LIKE ITS OWN VIDEO (`segment-review.ts`). `projectForTopic`
   hands each segment the project's hook settings, so one switch left off opens
   all five of them flat. The review reads each segment the way `hook-review.ts`

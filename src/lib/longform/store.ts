@@ -463,7 +463,7 @@ function transcriptCoverage(transcript: CaptionSegment[], durationSec: number): 
  * nothing covers the recording — topics would otherwise all land in the first
  * few minutes.
  */
-async function fullSourceTranscript(project: LongformProject): Promise<CaptionSegment[] | null> {
+export async function fullSourceTranscript(project: LongformProject): Promise<CaptionSegment[] | null> {
   if (transcriptCoverage(project.transcript ?? [], project.durationSec) >= TOPIC_COVERAGE) {
     return project.transcript;
   }
@@ -481,6 +481,24 @@ async function fullSourceTranscript(project: LongformProject): Promise<CaptionSe
     // The clips store is unavailable — fall through to the note below.
   }
   return null;
+}
+
+/**
+ * The project as a render should read it: same plan, but with the whole
+ * recording's words when the stored transcript only covers the opening.
+ *
+ * A long source is only transcribed as far as the hook needs, and a topic
+ * segment three hours in then has no words to burn over its opening — 27 of
+ * the segments in the library were rendered exactly that way, opening on
+ * silence where the hook should be. The words exist; they are in the clip
+ * job's transcript of the same source. Read in, never stored: a four-hour
+ * transcript is megabytes, and `projects.json` is rewritten on every save.
+ */
+export async function withFullTranscript(project: LongformProject): Promise<LongformProject> {
+  if (transcriptCoverage(project.transcript ?? [], project.durationSec) >= TOPIC_COVERAGE) return project;
+  const transcript = await fullSourceTranscript(project);
+  if (!transcript) return project;
+  return { ...project, transcript };
 }
 
 /**
