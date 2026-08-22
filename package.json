@@ -55,7 +55,8 @@
     "publish:adopt": "tsx src/lib/publisher/cli.ts adopt",
     "publish:facebook:verify": "tsx scripts/verify-facebook-schedule.ts",
     "carousel:proof": "tsx scripts/proof-carousel.ts",
-    "carousel:book": "tsx scripts/carousel-book.ts"
+    "carousel:book": "tsx scripts/carousel-book.ts",
+    "brief:day": "tsx scripts/day-briefing.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.104.1",
