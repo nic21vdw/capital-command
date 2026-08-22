@@ -14,6 +14,10 @@ already shipped.
 
 ## Unreleased
 
+- **The videos you already have move their captions too.** Every existing
+  long-form project still carried the old placement, so its next export would
+  have burned the words across the middle again; opening one now moves them
+  into the subtitle band — unless you dragged them somewhere yourself.
 - **Long-form captions read as subtitles again.** Both the hook words and the
   whole-video captions now sit in the lower third of the frame instead of
   across the middle, where they covered the screen-share and your face, and

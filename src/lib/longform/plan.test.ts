@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   DEFAULT_PACE,
   LONGFORM_CAPTION_STYLE,
+  migrateCaptionPlacement,
   PACE_PRESETS,
   VIRAL_HOOK_CAPTION_STYLE,
   applyManualRange,
@@ -21,7 +22,7 @@ import {
   transcriptCaptions
 } from "@/lib/longform/plan";
 import type { LongformHook, LongformPace, LongformSegment } from "@/lib/longform/types";
-import type { CaptionSegment } from "@/types/domain";
+import type { CaptionSegment, CaptionStyle } from "@/types/domain";
 
 function caption(id: string, start: number, end: number, text: string): CaptionSegment {
   const words = text.split(/\s+/).filter(Boolean);
@@ -282,6 +283,28 @@ describe("caption placement", () => {
   it("still opens louder than it captions the body", () => {
     expect(VIRAL_HOOK_CAPTION_STYLE.fontScale).toBeGreaterThan(LONGFORM_CAPTION_STYLE.fontScale);
     expect(VIRAL_HOOK_CAPTION_STYLE.uppercase).toBe(true);
+  });
+});
+
+describe("migrateCaptionPlacement", () => {
+  const style = (position: CaptionStyle["position"], offsetY?: number): CaptionStyle => ({
+    ...LONGFORM_CAPTION_STYLE,
+    position,
+    offsetY
+  });
+
+  it("moves an old project's hook words out of the middle of the frame", () => {
+    const project = { hook: { captionStyle: style("middle") }, captions: { style: style("bottom") } };
+    migrateCaptionPlacement(project);
+    expect(project.hook.captionStyle.position).toBe("lower-third");
+    expect(project.captions.style.position).toBe("lower-third");
+  });
+
+  it("leaves captions dragged into place by hand alone", () => {
+    const project = { hook: { captionStyle: style("middle", 0.4) }, captions: { style: style("top") } };
+    migrateCaptionPlacement(project);
+    expect(project.hook.captionStyle.position).toBe("middle");
+    expect(project.captions.style.position).toBe("top");
   });
 });
 
