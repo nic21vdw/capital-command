@@ -75,6 +75,18 @@ not stop the app from noticing one either. Fetching and pushing are best effort
 throughout: `update-app.ps1` and `dev-worktree.ps1` carry on without them, and
 the app's update check falls back from `origin/main` to the local `main`.
 
+The copy can also be AHEAD. Merged pull requests land on GitHub's `main`, and
+nothing pulls them back until someone fetches — so a worktree cut from the local
+`main` can already be several commits behind, and its PR then refuses to merge
+("the merge commit cannot be cleanly created"), usually on `CHANGELOG.md`.
+Rebasing fixes it locally but needs a force-push, which the guardrail denies.
+Merge `github/main` INTO the branch instead and push normally, then bring the
+local `origin` back in line:
+
+```
+git push origin refs/remotes/github/main:main
+```
+
 When GitHub is refusing uploads and work is stuck on a branch that only exists
 here, it can still be released directly:
 
