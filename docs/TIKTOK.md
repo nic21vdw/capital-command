@@ -72,6 +72,14 @@ tries again, and the run reports what to do — open TikTok and clear the inbox.
 The practical limit is therefore the phone, not the code. Clips upload as fast
 as they are scheduled; each still needs a tap.
 
+Because nothing drains the inbox on a timer, the runner also refuses to make
+the pile deeper. `TIKTOK_INBOX_LIMIT` (default 10) caps how many untapped
+drafts may be outstanding: past it a fresh inbox upload is **deferred** with a
+count of what is waiting, rather than sent into a refusal — see
+`src/lib/publisher/tiktokInbox.ts`. Unlike YouTube's daily allowance this
+ceiling has no reset; it falls only when drafts are posted or discarded in the
+app. Direct Post is never counted, because it leaves nothing in the inbox.
+
 ## Getting Direct Post
 
 [TIKTOK-RESUBMISSION.md](TIKTOK-RESUBMISSION.md) is the worked version of this
