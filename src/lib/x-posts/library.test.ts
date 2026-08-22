@@ -16,23 +16,23 @@ describe("POST_LIBRARY", () => {
     expect(REPLY_LIBRARY.length).toBeGreaterThanOrEqual(REPLIES_PER_PACK);
   });
 
-  it("keeps the punchy version tight", () => {
+  it("keeps the short version short", () => {
     for (const post of POST_LIBRARY) {
-      expect(post.text.length, post.topic).toBeGreaterThanOrEqual(150);
-      expect(post.text.length, post.topic).toBeLessThanOrEqual(300);
+      expect(post.text.length, post.topic).toBeGreaterThanOrEqual(70);
+      expect(post.text.length, post.topic).toBeLessThanOrEqual(180);
     }
   });
 
-  it("gives the warm version room, within Threads' limit", () => {
+  it("gives the second version one more beat, not a paragraph", () => {
     for (const post of POST_LIBRARY) {
-      expect(post.threadsVariant.length, post.topic).toBeGreaterThanOrEqual(300);
-      expect(post.threadsVariant.length, post.topic).toBeLessThanOrEqual(450);
+      expect(post.threadsVariant.length, post.topic).toBeGreaterThanOrEqual(180);
+      expect(post.threadsVariant.length, post.topic).toBeLessThanOrEqual(280);
     }
   });
 
-  it("makes the warm version clearly longer than the punchy one", () => {
+  it("makes the longer version clearly longer than the short one", () => {
     for (const post of POST_LIBRARY) {
-      expect(post.threadsVariant.length - post.text.length, post.topic).toBeGreaterThan(60);
+      expect(post.threadsVariant.length - post.text.length, post.topic).toBeGreaterThan(50);
     }
   });
 
