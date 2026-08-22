@@ -14,6 +14,9 @@ already shipped.
 
 ## Unreleased
 
+- Agent sessions working on this repo now route mechanical work to cheaper
+  models, keeping the weekly Claude limit for the work that actually needs
+  the big one. Docs-only change; nothing in the app behaves differently.
 - **The daily Threads posts got a lot shorter and stopped sounding like a
   model wrote them.** They were running as long as the box allowed and using
   the industry wording straight out of the positioning brief, which reads as
