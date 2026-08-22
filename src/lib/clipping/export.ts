@@ -1,5 +1,6 @@
 import { mkdir, rm, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { shortsAudioArgs, shortsAudioFilter } from "@/lib/clipping/audio";
 import { buildAss, buildTextOverlayDialogue, buildWatermarkDialogue } from "@/lib/clipping/captions";
 import { hasAudioStream, isRenderCanceled, probeDuration, runFfmpeg } from "@/lib/clipping/ffmpeg";
 import { attachEditedClipRender, outputDir, workDir } from "@/lib/clipping/jobs";
@@ -360,15 +361,21 @@ async function buildArgs(spec: ExportSpec, dir: string): Promise<{ args: string[
       });
     }
   });
+  // The finished mix is mastered to the short-form loudness target on its way
+  // out — the same treatment the long-form render has always given its final
+  // mix, and the reason an exported clip sits at the same volume as everything
+  // around it in a feed. Applied AFTER the mix so the creator's clip/music/sfx
+  // balance is what gets normalized, never each source separately.
+  const master = (label: string) => `[${label}]${shortsAudioFilter()}[aout]`;
   if (audioLabels.length === 1) {
-    parts.push(`${audioLabels[0]}anull[aout]`);
+    parts.push(master(audioLabels[0].slice(1, -1)));
     audioMapped = true;
   } else if (audioLabels.length > 1) {
     // duration=first keeps the clip's own audio in charge of length; without
     // clip audio the mix is padded then cut to the trimmed duration instead.
     const tail = hasAudio
-      ? `amix=inputs=${audioLabels.length}:duration=first:dropout_transition=0:normalize=0[aout]`
-      : `amix=inputs=${audioLabels.length}:duration=longest:dropout_transition=0:normalize=0,apad,atrim=0:${dur.toFixed(2)}[aout]`;
+      ? `amix=inputs=${audioLabels.length}:duration=first:dropout_transition=0:normalize=0,${shortsAudioFilter()}[aout]`
+      : `amix=inputs=${audioLabels.length}:duration=longest:dropout_transition=0:normalize=0,apad,atrim=0:${dur.toFixed(2)},${shortsAudioFilter()}[aout]`;
     parts.push(`${audioLabels.join("")}${tail}`);
     audioMapped = true;
   }
@@ -383,7 +390,7 @@ async function buildArgs(spec: ExportSpec, dir: string): Promise<{ args: string[
     else args.push("-an");
   } else {
     args.push("-c:v", "libx264", "-preset", "veryfast", "-crf", String(crf("mp4", settings.quality)), "-pix_fmt", "yuv420p");
-    if (audioMapped) args.push("-c:a", "aac", "-b:a", "160k");
+    if (audioMapped) args.push(...shortsAudioArgs());
     else args.push("-an");
     args.push("-movflags", "+faststart");
   }

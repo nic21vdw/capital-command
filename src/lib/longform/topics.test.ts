@@ -80,6 +80,14 @@ describe("planTopicSegments", () => {
     expect(topics.length).toBeLessThanOrEqual(5);
   });
 
+  // Long-form means long enough to carry mid-rolls. A four-minute "segment"
+  // is a clip, and the planner used to hand back plenty of them.
+  it("never plans a segment under the eight-minute floor", () => {
+    const topics = planTopicSegments(streamTranscript());
+    expect(topics.length).toBeGreaterThan(0);
+    for (const topic of topics) expect(topic.end - topic.start).toBeGreaterThanOrEqual(480);
+  });
+
   // An eight-minute app demo is one video. Splitting it produces two halves of
   // a video, not two videos, and the app used to do exactly that.
   it("leaves a short recording whole", () => {
@@ -87,9 +95,11 @@ describe("planTopicSegments", () => {
     expect(planTopicSegments(short)).toEqual([]);
   });
 
+  // A hand-made request names both the floor and the total it is overriding —
+  // the API route derives the floor from the number of segments asked for.
   it("still splits a short recording when one is asked for by hand", () => {
     const short = streamTranscript().filter((segment) => segment.end <= 480);
-    expect(planTopicSegments(short, { minTotalSec: 0 }).length).toBeGreaterThan(0);
+    expect(planTopicSegments(short, { minTotalSec: 0, minSec: 120 }).length).toBeGreaterThan(0);
   });
 
   it("finds the boundaries where the vocabulary turns over", () => {

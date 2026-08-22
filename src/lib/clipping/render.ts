@@ -1,3 +1,4 @@
+import { shortsAudioArgs, shortsAudioFilter, shortsVideoArgs } from "@/lib/clipping/audio";
 import { clampCenterBlurZoom, DEFAULT_CENTER_BLUR_ZOOM } from "@/lib/clipping/centerBlur";
 import { runFfmpeg } from "@/lib/clipping/ffmpeg";
 import {
@@ -222,13 +223,9 @@ export async function renderVertical(inputPath: string, outputPath: string, audi
       "[bg]scale=540:960:force_original_aspect_ratio=increase,crop=540:960,boxblur=12:2,eq=brightness=-0.08,scale=1080:1920[bgb];" +
       "[fg]scale=1080:-2[fgs];" +
       "[bgb][fgs]overlay=(W-w)/2:(H-h)/2",
-    "-c:v",
-    "libx264",
-    "-preset",
-    "veryfast",
-    "-crf",
-    "23",
-    ...(audioPresent ? ["-c:a", "aac", "-b:a", "128k"] : ["-an"]),
+    ...(audioPresent ? ["-af", shortsAudioFilter()] : []),
+    ...shortsVideoArgs(),
+    ...(audioPresent ? shortsAudioArgs() : ["-an"]),
     "-movflags",
     "+faststart",
     outputPath
@@ -282,6 +279,14 @@ export function verticalCompositionChain(
  * found, and centered over a blurred, dimmed fill of itself otherwise. An
  * optional burned-in ASS overlay carries the word-synced captions and the
  * title; pass null to render the composition alone.
+ *
+ * `startSec` drops that many seconds off the FRONT of the render so the short
+ * opens on the first spoken word instead of the pause before it (see
+ * `hook.ts`). The caller is responsible for shifting the ASS by the same
+ * amount — `writeClipDownloadAss` does.
+ *
+ * Audio is mastered on the way out (`audio.ts`): a short that posts quieter
+ * than the clip above it in the feed is the loudest amateur tell there is.
  */
 export async function renderCaptionedVertical(
   inputPath: string,
@@ -289,28 +294,30 @@ export async function renderCaptionedVertical(
   assPath: string | null,
   audioPresent: boolean,
   framing?: ClipFramingSpec,
-  zoom: number = DEFAULT_CENTER_BLUR_ZOOM
+  zoom: number = DEFAULT_CENTER_BLUR_ZOOM,
+  startSec: number = 0
 ) {
   const composition = verticalCompositionChain(framing, zoom);
   const filter = assPath
     ? `${composition};[vc]ass='${escapeFilterPath(assPath)}'[vout]`
     : `${composition};[vc]null[vout]`;
+  // `-ss` BEFORE `-i` so the decoder skips the removed head instead of
+  // decoding and discarding it, and so the output timeline starts at zero —
+  // which is what lets the burned ASS keep clip-local times (shifted by the
+  // same amount) rather than needing an offset of its own.
+  const seek = startSec > 0 ? ["-ss", startSec.toFixed(3)] : [];
   await runFfmpeg([
     "-y",
+    ...seek,
     "-i",
     inputPath,
     "-filter_complex",
     filter,
     "-map",
     "[vout]",
-    ...(audioPresent ? ["-map", "0:a?"] : []),
-    "-c:v",
-    "libx264",
-    "-preset",
-    "veryfast",
-    "-crf",
-    "23",
-    ...(audioPresent ? ["-c:a", "aac", "-b:a", "128k"] : ["-an"]),
+    ...(audioPresent ? ["-map", "0:a?", "-af", shortsAudioFilter()] : []),
+    ...shortsVideoArgs(),
+    ...(audioPresent ? shortsAudioArgs() : ["-an"]),
     "-movflags",
     "+faststart",
     outputPath
@@ -378,14 +385,9 @@ export async function renderClipLayout(
     stackedLayoutChain(layout, layoutOverrides),
     "-map",
     "[vout]",
-    ...(audioPresent ? ["-map", "0:a?"] : []),
-    "-c:v",
-    "libx264",
-    "-preset",
-    "veryfast",
-    "-crf",
-    "23",
-    ...(audioPresent ? ["-c:a", "aac", "-b:a", "128k"] : ["-an"]),
+    ...(audioPresent ? ["-map", "0:a?", "-af", shortsAudioFilter()] : []),
+    ...shortsVideoArgs(),
+    ...(audioPresent ? shortsAudioArgs() : ["-an"]),
     "-movflags",
     "+faststart",
     outputPath

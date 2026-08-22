@@ -16,6 +16,7 @@ const LONG_SECONDS = 352;
 
 const state = {
   run: {} as PipelineRun,
+  exports: [] as { id: string; status: string; file: string; title: string; durationSec?: number }[],
   clips: [] as { id: string; title: string }[],
   added: [] as { title?: string; clipPath: string }[],
   config: { enabled: true, platforms: ["youtube"], timezone: "America/Toronto", defaultVisibility: "public" }
@@ -38,11 +39,7 @@ vi.mock("@/lib/clipping/jobs", () => ({
 }));
 
 vi.mock("@/lib/longform/store", () => ({
-  getProject: async () => ({
-    id: "proj1",
-    exports: [{ id: "export1", status: "done", file: "longform.mp4", title: "Day 10: Yapping Until I Can Buy a Nicer Car" }],
-    topics: []
-  }),
+  getProject: async () => ({ id: "proj1", exports: state.exports, topics: [] }),
   projectOutputDir: () => OUTPUT_DIR
 }));
 
@@ -73,7 +70,7 @@ vi.mock("@/lib/publisher/metadata", () => ({
   generateClipMetadata: async () => ({ title: "Generated", description: "", hashtags: ["#ai"] })
 }));
 
-const { queueRunOutputs } = await import("@/lib/pipeline/queueOutputs");
+const { planRunOutputs, queueRunOutputs } = await import("@/lib/pipeline/queueOutputs");
 
 beforeEach(async () => {
   await mkdir(OUTPUT_DIR, { recursive: true });
@@ -81,9 +78,12 @@ beforeEach(async () => {
   await writeFile(path.join(OUTPUT_DIR, "clip1.mp4"), Buffer.alloc(64, 1));
   state.added = [];
   state.clips = [];
+  state.exports = [
+    { id: "export1", status: "done", file: "longform.mp4", title: "Day 10: Vibe Coding Until I Can Move Out" }
+  ];
   state.run = {
     id: "run1",
-    name: "Day 10: Yapping Until I Can Buy a Nicer Car",
+    name: "Day 10: Vibe Coding Until I Can Move Out",
     status: "running",
     clipJobId: "job1",
     longformProjectId: "proj1",
@@ -97,7 +97,7 @@ describe("booking a run's long-form edit", () => {
 
     expect(result.failed).toEqual([]);
     expect(result.queued.map((item) => item.title)).toEqual([
-      "Day 10: Yapping Until I Can Buy a Nicer Car"
+      "Day 10: Vibe Coding Until I Can Move Out"
     ]);
     // Posted exactly as it was rendered — no 9:16 re-render. The probe still
     // runs, but only to confirm the file holds a video at all; its 352 seconds
@@ -106,13 +106,55 @@ describe("booking a run's long-form edit", () => {
     expect(state.added[0].clipPath.endsWith("-vertical.mp4")).toBe(false);
   });
 
+  // A forty-second "long-form" export is a short wearing the wrong name, and
+  // booking it as long-form is what puts it on the channel as a feature.
+  it("refuses an export under the eight-minute long-form floor", async () => {
+    state.exports = [
+      { id: "export1", status: "done", file: "longform.mp4", title: "Day 39", durationSec: 40 }
+    ];
+
+    const plan = await planRunOutputs("run1");
+
+    expect(plan?.candidates ?? []).toEqual([]);
+    expect(plan?.skipped[0].reason).toMatch(/not a long-form upload/);
+  });
+
+  it("books an export that clears the floor", async () => {
+    state.exports = [
+      { id: "export1", status: "done", file: "longform.mp4", title: "Day 39", durationSec: 620 }
+    ];
+
+    const result = await queueRunOutputs("run1");
+
+    expect(result.queued.map((item) => item.title)).toEqual(["Day 39"]);
+  });
+
+  // The car yap is already on YouTube. An edit of it booked back there spends
+  // a daily upload slot to duplicate the channel — 17 were pulled by hand once.
+  it("refuses to book a car yap back to YouTube, whatever its length", async () => {
+    state.exports = [
+      {
+        id: "export1",
+        status: "done",
+        file: "longform.mp4",
+        title: "Day 10: Yapping Until I Can Buy a Nicer Car",
+        durationSec: 900
+      }
+    ];
+
+    const plan = await planRunOutputs("run1");
+
+    expect(plan?.candidates ?? []).toEqual([]);
+    expect(plan?.skipped[0].reason).toMatch(/already on YouTube/);
+  });
+
   it("still refuses a Short over the length limit", async () => {
     state.clips = [{ id: "clip1", title: "A clip that ran long" }];
 
     const result = await queueRunOutputs("run1");
 
     expect(result.queued.map((item) => item.title)).toEqual([
-      "Day 10: Yapping Until I Can Buy a Nicer Car"
+      "Day 10: Vibe Coding Until I Can Move Out"
     ]);
     expect(result.failed).toHaveLength(1);
     expect(result.failed[0].title).toBe("A clip that ran long");

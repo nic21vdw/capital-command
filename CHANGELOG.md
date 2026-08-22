@@ -24,6 +24,92 @@ already shipped.
   that manages it. Today and Tomorrow are one click apart, any date is one date
   picker away, and the calendar's day view now offers the same day as a summary.
 
+- **The daily Threads posts got a lot shorter and stopped sounding like a
+  model wrote them.** They were running as long as the box allowed and using
+  the industry wording straight out of the positioning brief, which reads as
+  drafted and gets scrolled past. From the next pack on, each post is one
+  thought in plain words, roughly 70-150 characters with a slightly longer
+  second version, written to leave a reader something to say back rather than
+  closing with a neat verdict. The offline idea library was rewritten to match,
+  so a day the model is unavailable sounds the same.
+
+- **The TikTok demo video has a script now.** The shot list said what had to be
+  on screen but not what to say over it, so recording meant improvising the
+  narration nine times. `docs/TIKTOK-DEMO-SCRIPT.md` is one 110-second take,
+  line by line, with the checks to run first - including the two that fail on
+  camera otherwise: the TikTok inbox being full, and the run being set to
+  YouTube alone so the consent panel never appears.
+
+- **The TikTok demo video cannot be recorded the way the playbook said.** A
+  direct post cannot succeed from the sandbox client key, and that refusal
+  never lifts however the review goes, so the shot that filmed a post going
+  live on the profile does not exist to film. That shot now films the consent
+  gate and TikTok's own refusal, and the draft shot carries a warning to clear
+  the TikTok inbox first or it fails on camera.
+
+- **The TikTok app's product page, Terms and Privacy are live again.** The URLs
+  registered against the TikTok app pointed at files in a private repo, so a
+  reviewer clicking them got a 404 — on its own enough to be rejected a second
+  time. `site/` is now published by GitHub Pages at
+  `nic21vdw.github.io/capital-command`, and the resubmission playbook carries
+  the real addresses instead of a placeholder.
+
+- **Shorts open on the first word instead of the pause before it.** The app has
+  always known where a clip's first word lands, but only the preview acted on
+  it — the file that actually posted still opened on up to a few seconds of
+  dead air, and every preview hid that. The ready-to-post render now cuts it
+  (never more than a quarter of the clip, never leaving one under five
+  seconds), and the burned captions slide back with it.
+- **Every short is mastered to the same loudness as everything else in the
+  feed.** Shorts were muxed with whatever the stream recorded — no gain
+  staging, no loudness target. They now go out at -14 LUFS under a true-peak
+  ceiling, with a gentle compressor so a quiet aside stays audible next to a
+  loud point. Clip Editor exports get it on their finished mix too, after the
+  music and effects balance, so the balance you set is what gets normalized.
+- **Burned captions and screenshare text come out sharper.** The 9:16 render
+  encoded at the speed setting that hurts fine text most, and the platforms
+  then re-encoded that softness. It renders a step slower and cleaner now.
+- **Automatically scheduled shorts finally carry hashtags.** Anything booked by
+  the pipeline, the clip job or the channel scan posted with no hashtags and no
+  YouTube tags at all — only the Uploading Center's own button wrote them. Each
+  clip now gets tags written from what is actually said in it, falling back to
+  the channel keywords the clip mentions when no model is configured.
+- **TikTok stops filling your inbox faster than you can empty it.** Every clip
+  sent the inbox way waits as a draft until you tap it in the TikTok app, and
+  TikTok refuses new uploads once too many are waiting — which is how 37 piled
+  up and every TikTok post started failing. The runner now stops at 10 waiting
+  drafts (`TIKTOK_INBOX_LIMIT`) and tells you how many are on your phone
+  instead of uploading into the refusal. Nothing is lost: the clips keep their
+  place and go up once you have cleared the backlog.
+- **Segments deep in a stream get their hook words back.** Only the opening of
+  a long recording is transcribed, so a segment two hours in had nothing to
+  burn over its first seconds and opened on silence — 27 of the segments in the
+  library rendered that way. The render now reads the whole recording's
+  transcript for a segment, and the review stops calling those openings
+  captionless.
+- **Car yaps never get booked back to YouTube.** The series is already on the
+  channel, so an edit of it re-uploaded spends a daily upload slot to duplicate
+  itself (17 had to be pulled by hand once). The scheduler refuses them now and
+  says why; the Instagram vertical cut is untouched.
+
+- **The videos you already have move their captions too.** Every existing
+  long-form project still carried the old placement, so its next export would
+  have burned the words across the middle again; opening one now moves them
+  into the subtitle band — unless you dragged them somewhere yourself.
+- **Long-form captions read as subtitles again.** Both the hook words and the
+  whole-video captions now sit in the lower third of the frame instead of
+  across the middle, where they covered the screen-share and your face, and
+  captions are on by default on every new project.
+- **A long-form video is eight minutes or it isn't one.** Topic segments are
+  planned at twelve minutes and never come back under eight, so every segment
+  can carry mid-rolls — and the scheduler refuses to book a shorter export as a
+  long-form upload (a forty-second one went out as a feature). The editor says
+  so on the Export tab before you render.
+- **Every segment's opening is reviewed, not just the stream's.** Each topic
+  segment is its own upload, so each one is now checked for the hook treatment
+  — burned-in words, the push-in, the motion — and the Long-Form list and the
+  Hook panel name the segments that open flat.
+
 ## 2026-08-21
 
 - **AI writing is free again, and it stops breaking when a model retires.**

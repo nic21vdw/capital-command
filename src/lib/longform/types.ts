@@ -227,6 +227,30 @@ export type LongformHookReview = {
   end: number;
 };
 
+/**
+ * A verdict on one topic segment's opening. Every segment is its own upload,
+ * so every segment has to open like one: the hook window, the burned-in words
+ * and the push-in, over a stretch long enough to be a long-form video.
+ */
+export type LongformSegmentReview = {
+  topicId: string;
+  title: string;
+  /** Source window the segment's hook covers. */
+  start: number;
+  end: number;
+  /** Runtime of the segment once its cuts are applied. */
+  runtimeSec: number;
+  /** 0-100 strength of the words the segment opens on. */
+  score: number;
+  verdict: "strong" | "weak" | "unknown";
+  opening: string;
+  /** Everything wrong with the opening, treatment first. */
+  reasons: string[];
+  /** The parts of the hook treatment this segment is missing. */
+  missingTreatment: string[];
+  coldOpen?: LongformHookReview["coldOpen"];
+};
+
 export type LongformExportStatus = "processing" | "done" | "error" | "canceled";
 
 export type LongformExportRecord = {
@@ -291,6 +315,8 @@ export type LongformProject = {
   hook: LongformHook;
   /** Whether the opening earns attention; recomputed whenever the hook moves. */
   hookReview?: LongformHookReview;
+  /** Per-segment opening verdicts; recomputed whenever the topics or hook move. */
+  segmentReviews?: LongformSegmentReview[];
   /** Whole-video captions burned over the edited runtime. */
   captions: LongformCaptions;
   /** Images dropped onto the timeline, rendered over the edited video. */

@@ -1,6 +1,8 @@
 import path from "node:path";
 import { renderCarouselDeck } from "@/lib/carousels/renderDeck";
 import { getJob, outputDir } from "@/lib/clipping/jobs";
+import { MIN_LONGFORM_SEC, shortOfLongformNote } from "@/lib/longform/length";
+import { CAR_YAP_YOUTUBE_NOTE, isCarYapTitle } from "@/lib/publisher/carYaps";
 import { getProject, projectOutputDir } from "@/lib/longform/store";
 import { deckIsPostable, deckRatio } from "@/lib/carousels/deckFiles";
 import { getRun, listRuns, updateRun } from "@/lib/pipeline/runs";
@@ -228,6 +230,18 @@ async function collectLongform(
     if (!isSegment && record.id !== run.longformExportId) continue;
     const topic = isSegment ? project.topics?.find((item) => item.id === record.topicId) : undefined;
     const title = record.title ?? topic?.title ?? run.name;
+    // A long-form booking says "this is a long-form upload" — no Shorts length
+    // rule runs on it and it goes out as rendered. A forty-second edit booked
+    // that way is a short posted as a feature, which is how one went out.
+    if (isCarYapTitle(title) || isCarYapTitle(project.name) || isCarYapTitle(run.name)) {
+      skipped.push({ title, reason: CAR_YAP_YOUTUBE_NOTE });
+      continue;
+    }
+    const runtimeSec = record.durationSec ?? 0;
+    if (runtimeSec > 0 && runtimeSec < MIN_LONGFORM_SEC) {
+      skipped.push({ title, reason: shortOfLongformNote(runtimeSec) });
+      continue;
+    }
     const filePath = path.resolve(dir, record.file);
     if (alreadyQueued.has(filePath.toLowerCase())) {
       skipped.push({ title, reason: "Already scheduled." });

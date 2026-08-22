@@ -131,6 +131,12 @@ export type PublisherConfig = {
      * configured visibility (public → PUBLIC_TO_EVERYONE).
      */
     audited: boolean;
+    /**
+     * How many unfinished drafts may sit in the TikTok inbox before the runner
+     * stops sending more (see tiktokInbox.ts). Only a tap in the app clears
+     * them, so this ceiling never resets on its own.
+     */
+    inboxLimit: number;
   };
   /**
    * Spotify Web API — read-only. Spotify has no creator write API, so these
@@ -280,7 +286,8 @@ export function publisherConfig(): PublisherConfig {
       clientKey: str("TIKTOK_CLIENT_KEY"),
       clientSecret: str("TIKTOK_CLIENT_SECRET"),
       refreshToken: cachedRefreshToken("tiktok.refreshToken") ?? str("TIKTOK_REFRESH_TOKEN"),
-      audited: flag("TIKTOK_AUDITED")
+      audited: flag("TIKTOK_AUDITED"),
+      inboxLimit: num("TIKTOK_INBOX_LIMIT", 10)
     },
     spotify: {
       clientId: str("SPOTIFY_CLIENT_ID"),

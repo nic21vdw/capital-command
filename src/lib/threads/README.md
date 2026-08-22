@@ -188,6 +188,18 @@ Two rules make that button safe to press at any hour, more than once:
 The scheduled tick still plans an unattended day on its own; pressing the button
 just re-lays the rest of the day from now.
 
+## How the posts sound
+
+Short, plain, one thought each. `text` runs about 70-150 characters and
+`threadsVariant` about 180-280: both far under Threads' 500, because a post
+that fills the box reads as drafted and gets scrolled past. The rules live in
+one place, the prompt in `src/lib/x-posts/generator.ts`, and the fallback idea
+library is written to the same shape so an offline day sounds the same.
+
+The positioning brief feeds that prompt with subject matter, not voice. Its
+wording is industry jargon, which is exactly what these posts avoid, so the
+prompt tells the model not to lift phrases from it.
+
 ## Two accounts, one version each
 
 The pack deliberately writes each idea twice — a punchier `text` and a warmer

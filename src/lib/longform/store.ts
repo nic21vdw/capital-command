@@ -11,10 +11,12 @@ import {
   buildSegments,
   hookCaptions,
   paceDetection,
+  migrateCaptionPlacement,
   planCaptions,
   planHook
 } from "@/lib/longform/plan";
 import { reviewHook } from "@/lib/longform/hook-review";
+import { reviewTopicOpenings } from "@/lib/longform/segment-review";
 import { DEFAULT_TOPIC_OPTIONS, buildTopics, type TopicPlanOptions } from "@/lib/longform/topics";
 import type { LongformPace, LongformProject } from "@/lib/longform/types";
 import { defaultSfxSettings } from "@/lib/sfx/types";
@@ -72,10 +74,18 @@ async function loadProjects() {
       // The opening's verdict is derived, so an older project gets one the
       // first time it is loaded instead of showing the card no badge at all.
       if (project.status === "ready" && !project.hookReview) refreshHookReview(project);
+      // Same for the per-segment verdicts: derived, so an older project gets
+      // them on load rather than showing an unreviewed segment list.
+      if (project.status === "ready" && project.topics?.length && !project.segmentReviews) {
+        refreshSegmentReviews(project);
+      }
       // Projects saved before the audio track existed have no clips array, and
       // may carry a legacy single background track — migrate it into one clip
       // spanning the whole edit so it keeps playing and stays editable.
       migrateMusic(project);
+      // Projects saved before captions moved into the subtitle band still burn
+      // them across the middle of the frame on their next export.
+      migrateCaptionPlacement(project);
       // Projects saved before viral sound effects existed default to off.
       project.sfx ??= defaultSfxSettings();
       dropShortRecordingTopics(project);
@@ -163,6 +173,7 @@ function dropShortRecordingTopics(project: LongformProject) {
   const rendered = project.exports.some((record) => record.topicId && record.status === "done" && record.file);
   if (rendered) return;
   project.topics = [];
+  project.segmentReviews = undefined;
   project.topicsNote = noSegmentsNote(project.durationSec, false);
 }
 
@@ -203,12 +214,26 @@ function refreshHookReview(project: LongformProject) {
   project.hookReview = reviewHook(project.transcript ?? [], project.hook.start ?? 0, project.hook.end);
 }
 
+/**
+ * Keeps every segment's opening verdict in step with the plan. A segment's
+ * hook is derived from the project's, so moving the project hook, replanning
+ * the topics or re-transcribing all change what each segment opens with.
+ */
+function refreshSegmentReviews(project: LongformProject) {
+  if (!project.hook || !project.topics?.length) {
+    project.segmentReviews = undefined;
+    return;
+  }
+  project.segmentReviews = reviewTopicOpenings(project);
+}
+
 export async function updateProject(id: string, patch: Partial<LongformProject>): Promise<LongformProject | undefined> {
   await loadProjects();
   const project = projects.get(id);
   if (!project) return undefined;
   Object.assign(project, patch, { updatedAt: new Date().toISOString() });
   if (patch.hook || patch.transcript) refreshHookReview(project);
+  if (patch.hook || patch.transcript || patch.topics || patch.segments) refreshSegmentReviews(project);
   await persistProjects();
   return project;
 }
@@ -216,6 +241,7 @@ export async function updateProject(id: string, patch: Partial<LongformProject>)
 /** Internal update used by the pipeline; keeps updatedAt fresh. */
 async function update(project: LongformProject, patch: Partial<LongformProject>) {
   Object.assign(project, patch, { updatedAt: new Date().toISOString() });
+  if (patch.hook || patch.transcript || patch.topics || patch.segments) refreshSegmentReviews(project);
   await persistProjects();
 }
 
@@ -437,7 +463,7 @@ function transcriptCoverage(transcript: CaptionSegment[], durationSec: number): 
  * nothing covers the recording — topics would otherwise all land in the first
  * few minutes.
  */
-async function fullSourceTranscript(project: LongformProject): Promise<CaptionSegment[] | null> {
+export async function fullSourceTranscript(project: LongformProject): Promise<CaptionSegment[] | null> {
   if (transcriptCoverage(project.transcript ?? [], project.durationSec) >= TOPIC_COVERAGE) {
     return project.transcript;
   }
@@ -455,6 +481,24 @@ async function fullSourceTranscript(project: LongformProject): Promise<CaptionSe
     // The clips store is unavailable — fall through to the note below.
   }
   return null;
+}
+
+/**
+ * The project as a render should read it: same plan, but with the whole
+ * recording's words when the stored transcript only covers the opening.
+ *
+ * A long source is only transcribed as far as the hook needs, and a topic
+ * segment three hours in then has no words to burn over its opening — 27 of
+ * the segments in the library were rendered exactly that way, opening on
+ * silence where the hook should be. The words exist; they are in the clip
+ * job's transcript of the same source. Read in, never stored: a four-hour
+ * transcript is megabytes, and `projects.json` is rewritten on every save.
+ */
+export async function withFullTranscript(project: LongformProject): Promise<LongformProject> {
+  if (transcriptCoverage(project.transcript ?? [], project.durationSec) >= TOPIC_COVERAGE) return project;
+  const transcript = await fullSourceTranscript(project);
+  if (!transcript) return project;
+  return { ...project, transcript };
 }
 
 /**
@@ -622,6 +666,7 @@ async function runAnalysis(project: LongformProject) {
     transcript,
     // A re-analysis re-reads the audio, so any earlier topic plan is stale.
     topics: undefined,
+    segmentReviews: undefined,
     topicsNote: undefined,
     status: "ready",
     stage: "ready",

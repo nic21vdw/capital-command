@@ -2,6 +2,7 @@ import { aiConfigured, runAi } from "@/lib/ai";
 import { CHANNEL_KEYWORDS, TITLE_STYLE_EXAMPLES } from "@/lib/clipping/keywords";
 import { resolveThoughtEnd } from "@/lib/clipping/thought-end";
 import type { LongformTopic } from "@/lib/longform/types";
+import { MIN_LONGFORM_SEC } from "@/lib/longform/length";
 import type { CaptionSegment } from "@/types/domain";
 
 // ----- Long-form topic segments -----
@@ -32,22 +33,27 @@ const PAUSE_BOUNDARY_SEC = 20;
 const PAUSE_BOUNDARY_BONUS = 0.15;
 
 export const DEFAULT_TOPIC_OPTIONS = {
-  /** Shortest a topic segment may be — below this it is a tangent, not a video. */
-  minSec: 240,
+  /**
+   * Shortest a topic segment may be. Eight minutes is the floor because that
+   * is where a YouTube upload can carry mid-roll ads; anything under it is a
+   * tangent, not a video, and belongs in the Clip Generator instead.
+   */
+  minSec: MIN_LONGFORM_SEC,
   /** Longest a topic segment may be before it is split again. */
-  maxSec: 1200,
-  /** The length we aim for: a ten minute upload. */
-  targetSec: 600,
-  minCount: 3,
+  maxSec: 1800,
+  /** The length we aim for: a twelve minute upload, comfortably past the floor. */
+  targetSec: 720,
+  minCount: 2,
   maxCount: 5,
   /**
    * Shortest recording that is worth splitting at all. Segments exist because
    * a three-hour stream is several videos wearing one file name; an app demo
    * that ran eight minutes is one video, and cutting it in half produces two
    * halves of a video rather than two videos. Below this the planner returns
-   * nothing and the recording is posted whole.
+   * nothing and the recording is posted whole. It is two whole segments: a
+   * split that cannot make two videos over the floor should not happen.
    */
-  minTotalSec: 900
+  minTotalSec: MIN_LONGFORM_SEC * 2
 };
 
 export type TopicPlanOptions = Partial<typeof DEFAULT_TOPIC_OPTIONS>;
@@ -351,11 +357,13 @@ export function planTopicSegments(
 
   // Land every edge on a completed thought so a segment never opens or closes
   // halfway through a sentence.
-  return kept.map((topic, index) => {
+  const placed = kept.map((topic, index) => {
     const next = kept[index + 1];
     const hardEnd = next ? Math.min(spanEnd, next.start) : spanEnd;
+    // Landing on a completed thought may move the edge, but never below the
+    // length floor: a segment trimmed under it is no longer a long-form video.
     const resolved = resolveThoughtEnd(spoken, topic.end, {
-      minEnd: topic.start + minSec / 2,
+      minEnd: Math.min(topic.start + minSec, hardEnd),
       maxEnd: hardEnd,
       maxExtension: 30,
       maxTrim: 30
@@ -364,9 +372,12 @@ export function planTopicSegments(
     return {
       ...topic,
       start: round3(opening ? opening.start : topic.start),
-      end: round3(Math.max(topic.start + minSec / 2, resolved.end))
+      end: round3(Math.min(hardEnd, Math.max(topic.start + minSec, resolved.end)))
     };
   });
+  // A window the neighbours left no room to grow into is dropped rather than
+  // shipped under the floor.
+  return placed.filter((topic) => topic.end - topic.start >= minSec);
 }
 
 // ----- Titles and summaries -----

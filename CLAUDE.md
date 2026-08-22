@@ -272,6 +272,16 @@ not already in the publish queue; `queueRunOutputs` books them.
   book what the same plan would have booked, deduped by file path, so it can
   never queue something twice or something he unticked in a later plan.
 
+### Car yaps are already on YouTube (`carYaps.ts`)
+
+The "Yapping Until I Can Buy a Nicer Car" series is posted to the channel live.
+An edit of one booked back to YouTube spends a daily upload slot to duplicate
+what is already there — 17 were booked and pulled by hand on 2026-08-20 — and
+the pipeline makes another every time a car yap runs through it. `collectLongform`
+refuses them by title, whatever their length. The Instagram vertical cut of a
+car yap is a different thing and is wanted; only the YouTube long-form booking
+is refused.
+
 ## Two things the publisher must never do (`schedule.ts`, `duplicates.ts`)
 
 A batch booking once put a run's whole output onto the channel inside one
@@ -359,6 +369,12 @@ both. Two accounts posting the same wording would read as mirrored spam.
   `itemsForDate`. Counting an ad-hoc post as the day's batch would make the
   planner skip writing the pack — the one thing this module exists to do. UI
   surfaces keep using `itemsForDate`, so the post is still visible.
+- The pack's VOICE is a contract, not a preference: one thought per post,
+  short (about 70-150 characters, and a second version at 180-280), plain
+  enough for someone outside engineering, and open enough to reply to. The
+  positioning brief supplies subject matter only, and its wording is the jargon
+  to avoid. Prompt and lengths in `src/lib/x-posts/generator.ts`; the fallback
+  `library.ts` and its test hold the same shape.
 - See `src/lib/threads/README.md`.
 
 ## Launch Pad (`src/lib/launch`)
@@ -429,6 +445,62 @@ special case.
   the same `sourceId`; the pipeline plans the segments once that lands.
 - Segments are planned automatically but rendered on demand — auto-rendering
   five ten-minute videos per stream is hours of encoding nobody asked for.
+- EIGHT MINUTES IS THE FLOOR (`length.ts`, `MIN_LONGFORM_SEC`). It is where a
+  YouTube upload can carry mid-rolls, so it is what "long-form" means here:
+  `planTopicSegments` never returns a window under it, `queueOutputs` refuses to
+  book a shorter export as a long-form upload, and the editor warns before the
+  render. A forty-second project was rendered, booked and posted as a long-form
+  video on 2026-08-19 — that is the hole this closes. A hand-made request for
+  `count` segments still overrides the floor, because it has already decided how
+  long they are.
+- A SEGMENT'S WORDS COME FROM THE WHOLE RECORDING (`withFullTranscript`). Long
+  sources are only transcribed as far as the hook needs, so `project.transcript`
+  covers the opening minutes and nothing else; a segment hours in had no words
+  to burn and opened on silence. The render reads the shared source transcript
+  for a segment render and never stores it — a four-hour transcript is megabytes
+  and `projects.json` is rewritten on every save.
+- EVERY SEGMENT OPENS LIKE ITS OWN VIDEO (`segment-review.ts`). `projectForTopic`
+  hands each segment the project's hook settings, so one switch left off opens
+  all five of them flat. The review reads each segment the way `hook-review.ts`
+  reads the whole edit — the opening line's strength AND whether the treatment
+  is actually on (burned-in words, motion, a push-in over 1.03x) — and stores
+  the verdicts on the project as `segmentReviews`.
+- CAPTIONS SIT IN THE LOWER THIRD, both the hook's and the body's. The middle of
+  a 16:9 upload is the screen-share, the editor and the face; words burned over
+  it hide the video they are about. The hook still reads as a hook through size,
+  weight and the push-in, not through where it sits.
+
+## What a short ships as (`audio.ts`, `hook.ts`)
+
+Two things separate a clip that reads as a real short from one that reads as a
+recording of a stream, and both used to be missing from the file that actually
+posted.
+
+- EVERY SHORT IS MASTERED (`shortsAudioFilter`). Shorts went out with whatever
+  the stream recorded: no gain staging, no loudness target, AAC 128k at the
+  source rate, while long-form had normalized its final mix for ages. They now
+  go out at -14 LUFS under a -1.5 dBTP ceiling with a gentle 3:1 compressor
+  under it, at 48 kHz stereo. Every short-form render reads that one chain —
+  `renderCaptionedVertical`, `renderVertical`, `renderClipLayout` and the Clip
+  Editor export, which applies it AFTER the amix so the creator's clip/music/sfx
+  balance is what gets normalized and not each source separately. Long-form has
+  its own loudnorm in `longform/render.ts`; don't fold the two together, the
+  targets and the LRA differ on purpose.
+- A SHORT OPENS ON THE FIRST WORD (`hookTrimSec`). `leadingSilenceSec` has
+  always known where that is, but only the Uploading Center's PREVIEW acted on
+  it — it seeked past the pause, so the dead air was invisible in the app and
+  shipped in every file. The ready render cuts it, and `hook.ts` caps the cut
+  (never more than a quarter of the clip, never leaving one under five seconds,
+  never a cut under half a second). The burned ASS is shifted by the same amount
+  (`shiftSegments`) or every caption plays a beat late.
+- THE TRIM IS RECORDED ON THE CLIP (`clip.hookTrimSec`). That is what stops the
+  preview skipping the pause a second time on a file that no longer has one, and
+  what keeps renders made before this existed behaving as they did. Don't infer
+  it from the transcript at display time.
+- The 9:16 encode is `fast`/CRF 20, not `veryfast`/23 (`shortsVideoArgs`). A
+  frame carrying burned captions, a title and a screenshare is exactly what x264
+  softens first at the faster setting, and four platforms then re-encode that
+  softness. The extra encode time is the trade.
 
 ## Clip metadata conventions (titles, descriptions, tags)
 
@@ -445,6 +517,14 @@ fallback when no API key is configured or the call fails.
   descriptions, tags, hashtags: reuse `CHANNEL_KEYWORDS` and
   `TITLE_STYLE_EXAMPLES` from `titles.ts` and write viral, keyword-aware
   copy with Claude rather than slicing the transcript.
+- HASHTAGS FOLLOW THAT RULE (`hashtags.ts`). Everything the app books by itself
+  — the pipeline's booking sheet, the clip job, the ingest scan — reaches the
+  queue through `generateClipMetadata`, which returned `hashtags: []`, so every
+  automatically scheduled short posted untagged with no YouTube `snippet.tags`
+  at all; only the Uploading Center's own button (`publisher/ai-copy.ts`) ever
+  wrote them. The offline fallback matches `CHANNEL_KEYWORDS` on WHOLE WORDS —
+  "AI" as a substring hits "said", "again" and "email", which would tag every
+  clip ever made with the channel's biggest keyword.
 - Every generated clip shows its title in white text centered just above
   the video band (over the blurred fill) by default: the ready-to-post
   render burns it in (`writeClipDownloadAss` + `buildClipTitleDialogue` in

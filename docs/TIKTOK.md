@@ -14,6 +14,7 @@ until TikTok approves the app — which it has already declined once.
 | Direct Post (straight to the profile, no tap) | blocked by app review; only "Only you" is accepted until then |
 | App review | **Rejected 2026-07-29**, not pending — and not resubmitted since |
 | The credentials in `.env` | the **sandbox** app's, so approval would not reach this machine on its own |
+| The product page, Terms and Privacy | live at `https://nic21vdw.github.io/capital-command/` — the URLs registered before this returned 404, because the repo was private |
 
 ## The review
 
@@ -72,6 +73,14 @@ tries again, and the run reports what to do — open TikTok and clear the inbox.
 The practical limit is therefore the phone, not the code. Clips upload as fast
 as they are scheduled; each still needs a tap.
 
+Because nothing drains the inbox on a timer, the runner also refuses to make
+the pile deeper. `TIKTOK_INBOX_LIMIT` (default 10) caps how many untapped
+drafts may be outstanding: past it a fresh inbox upload is **deferred** with a
+count of what is waiting, rather than sent into a refusal — see
+`src/lib/publisher/tiktokInbox.ts`. Unlike YouTube's daily allowance this
+ceiling has no reset; it falls only when drafts are posted or discarded in the
+app. Direct Post is never counted, because it leaves nothing in the inbox.
+
 ## Getting Direct Post
 
 [TIKTOK-RESUBMISSION.md](TIKTOK-RESUBMISSION.md) is the worked version of this
@@ -82,8 +91,10 @@ video shot list and the portal click-through. The short form:
 2. Rewrite the description and the review notes so they describe the product,
    not one person's own accounts — TikTok rejects "for my own channels"
    outright. Only claim what is true.
-3. Record a fresh demo video showing the real end-to-end flow on the domain
-   registered for the app, covering every product and scope requested
+3. Record a fresh demo video showing the real end-to-end flow, opening on the
+   address registered for the app —
+   `https://nic21vdw.github.io/capital-command/` — and covering every scope
+   requested
    (`user.info.basic`, `video.publish`, `video.upload`). Drop scopes that are
    not demonstrated; unused scopes delay the review.
 4. Submit, then let `npm run tiktok:watch` catch the moment Direct Post opens.
