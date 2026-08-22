@@ -2,10 +2,13 @@
 
 Capital Command is not a launched product. It is one person's private,
 local command centre for running their own social media, and the copy in
-`C:\Users\nic21\OneDrive\Documents\GitHub\capital-command` is that live
-system: the Windows scheduled tasks, the `.env`, the tokens and the whole
-`data\` folder (publish queue, Threads queue, clips, pipeline runs) live in
-that folder and nowhere else.
+`C:\Users\nic21\Repos\capital-command` is that live system: the Windows
+scheduled tasks, the `.env`, the tokens and the whole `data\` folder (publish
+queue, Threads queue, clips, pipeline runs) live in that folder and nowhere
+else. It used to sit under `OneDrive\Documents\GitHub`, which is what the
+OneDrive warnings further down are about; production is no longer in a synced
+folder, and `Launch Capital Command.bat` in OneDrive still points at the old
+path.
 
 That is why the rules below exist. A change made directly in that folder
 doesn't wait to be reviewed — it lands in the middle of a posting day.
@@ -18,7 +21,7 @@ running app.
 
 | | Production | Sandbox |
 |---|---|---|
-| Folder | `…\OneDrive\Documents\GitHub\capital-command` | `%USERPROFILE%\capital-command-<name>` |
+| Folder | `%USERPROFILE%\Repos\capital-command` | `%USERPROFILE%\capital-command-<name>` |
 | Branch | `main`, always | `claude/<name>`, cut from `main` |
 | Port | 3000 | 3100 (`npm run dev:sandbox`) |
 | Data | the real queues, tokens and clips | its own empty `data\` + a snapshot of app data |

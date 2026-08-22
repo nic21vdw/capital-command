@@ -13,6 +13,7 @@ import {
   Facebook,
   FileText,
   Images,
+  LayoutList,
   Lightbulb,
   Megaphone,
   Mic,
@@ -99,7 +100,9 @@ const PIPELINE_STAGES: PipelineStage[] = [
     label: "Calendar",
     items: [
       // The end of the line: everything scheduled, managed in one place.
-      { href: "/master-calendar", label: "Master Calendar", icon: CalendarRange }
+      { href: "/master-calendar", label: "Master Calendar", icon: CalendarRange },
+      // The same day read as a briefing rather than a grid.
+      { href: "/day-summary", label: "Day Summary", icon: LayoutList }
     ]
   }
 ];
