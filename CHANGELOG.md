@@ -14,6 +14,13 @@ already shipped.
 
 ## Unreleased
 
+- **The TikTok demo video has a script now.** The shot list said what had to be
+  on screen but not what to say over it, so recording meant improvising the
+  narration nine times. `docs/TIKTOK-DEMO-SCRIPT.md` is one 110-second take,
+  line by line, with the checks to run first - including the two that fail on
+  camera otherwise: the TikTok inbox being full, and the run being set to
+  YouTube alone so the consent panel never appears.
+
 - **The TikTok demo video cannot be recorded the way the playbook said.** A
   direct post cannot succeed from the sandbox client key, and that refusal
   never lifts however the review goes, so the shot that filmed a post going

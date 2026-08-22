@@ -285,6 +285,10 @@ or collapse the sidebar first.
 
 Record it after the checklist is true, not before — the video is the claim.
 
+[TIKTOK-DEMO-SCRIPT.md](TIKTOK-DEMO-SCRIPT.md) is this table as one take:
+what to say over each shot, timed to about 110 seconds, with the checks to
+run before pressing record.
+
 ## Clicking through the portal
 
 1. [developers.tiktok.com/apps](https://developers.tiktok.com/apps) → **Capital
