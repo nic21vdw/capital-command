@@ -14,6 +14,15 @@ already shipped.
 
 ## Unreleased
 
+- **The daily Threads posts got a lot shorter and stopped sounding like a
+  model wrote them.** They were running as long as the box allowed and using
+  the industry wording straight out of the positioning brief, which reads as
+  drafted and gets scrolled past. From the next pack on, each post is one
+  thought in plain words, roughly 70-150 characters with a slightly longer
+  second version, written to leave a reader something to say back rather than
+  closing with a neat verdict. The offline idea library was rewritten to match,
+  so a day the model is unavailable sounds the same.
+
 - **The TikTok demo video has a script now.** The shot list said what had to be
   on screen but not what to say over it, so recording meant improvising the
   narration nine times. `docs/TIKTOK-DEMO-SCRIPT.md` is one 110-second take,

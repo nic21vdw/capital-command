@@ -369,6 +369,12 @@ both. Two accounts posting the same wording would read as mirrored spam.
   `itemsForDate`. Counting an ad-hoc post as the day's batch would make the
   planner skip writing the pack — the one thing this module exists to do. UI
   surfaces keep using `itemsForDate`, so the post is still visible.
+- The pack's VOICE is a contract, not a preference: one thought per post,
+  short (about 70-150 characters, and a second version at 180-280), plain
+  enough for someone outside engineering, and open enough to reply to. The
+  positioning brief supplies subject matter only, and its wording is the jargon
+  to avoid. Prompt and lengths in `src/lib/x-posts/generator.ts`; the fallback
+  `library.ts` and its test hold the same shape.
 - See `src/lib/threads/README.md`.
 
 ## Launch Pad (`src/lib/launch`)

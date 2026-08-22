@@ -6,8 +6,8 @@ import type { XDailyPack, XPostFormat, XSuggestedPost, XSuggestedReply } from "@
 
 /**
  * Server-side generation of the Threads pack: 24 fresh original posts (each
- * written twice, punchy and warm) spread across the waking day with human
- * jitter, plus 20 evergreen replies. Every press of Generate writes a brand
+ * written twice, short and slightly longer) spread across the waking day with
+ * human jitter, plus 20 evergreen replies. Every press of Generate writes a brand
  * new pack. Prefers Claude (fresh writing against the positioning brief,
  * avoiding topics from recent packs); degrades to the built-in idea library
  * when the API key is missing or the call fails, so the tool never comes up
@@ -18,18 +18,19 @@ export const POSTS_PER_PACK = 24;
 export const REPLIES_PER_PACK = 20;
 
 /**
- * Both versions of an idea post to Threads, so both get Threads' 500 characters
- * — the old 270 was X's limit, kept long after X stopped being a destination.
- * The punchy one stays tight and the warm one is given room, because the point
- * of writing each idea twice is that two feeds don't read as duplicates: length
- * is the most visible way they differ.
+ * Both versions of an idea post to Threads, so both could run to Threads' 500
+ * characters. Neither should. A post that fills the box reads as drafted, and a
+ * feed skims past it; the ones that start conversations are the length someone
+ * actually types with their thumbs. So the punchy version is a couple of lines
+ * and the warm one gives the same thought one extra beat, which is also what
+ * keeps two feeds from reading as duplicates.
  */
 const THREADS_LIMIT = 500;
-const PUNCHY_MIN = 150;
-const PUNCHY_MAX = 260;
-const PUNCHY_CEILING = 300;
-const WARM_MIN = 300;
-const WARM_MAX = 450;
+const PUNCHY_MIN = 70;
+const PUNCHY_MAX = 150;
+const PUNCHY_CEILING = 180;
+const WARM_MIN = 180;
+const WARM_MAX = 280;
 
 export function plannerConfigured() {
   return aiConfigured();
@@ -194,6 +195,9 @@ export async function generateDailyPack(input: {
 
 ${brief}
 
+The brief tells you WHAT I think about. It is not how I talk. Its wording is the
+exact industry jargon these posts have to avoid, so never lift a phrase from it.
+
 Topics my recent daily packs already covered (do NOT repeat these angles):
 ${avoid}
 
@@ -201,24 +205,31 @@ Today's optional focus topic: ${focusLine}
 
 Write today's content pack:
 
-1. Exactly ${POSTS_PER_PACK} ORIGINAL standalone posts. Each must be a specific, insightful, non-generic thought in my voice (see voice rules in the brief). Every single post must take a DIFFERENT angle — no two posts in the set may circle the same idea. Vary the formats across the set: insight, contrarian, story, question, framework, observation. At most 4 of the ${POSTS_PER_PACK} may touch CoLateral, and only obliquely — the rest build the personal brand (verification, judgment, agentic engineering, vertical AI, professional workflows).
+1. Exactly ${POSTS_PER_PACK} ORIGINAL standalone posts. ONE thought each, said short. These have to stop a thumb mid scroll and give someone a reason to reply, so the first line has to earn the second and there is no room for a wind up. Every post takes a DIFFERENT angle, and no two circle the same idea. Vary the formats across the set: insight, contrarian, story, question, framework, observation. At most 4 of the ${POSTS_PER_PACK} may touch CoLateral, and only in passing. The rest are just him talking about building things with AI and about work.
 
-HOW IT MUST SOUND. These posts go out on a personal feed, so they have to read like a person typed them, not like copy that was drafted:
+KEEP THEM SHORT. Short is the point. If a post needs a second idea to make sense, cut the second idea, not the words around it. One or two lines. Never a paragraph that fills the box.
 
-- NEVER use an em dash or an en dash. Not one, anywhere. Use a comma, a full stop, or start a new line. This is the single clearest sign a post was written by a model.
-- No "it's not X, it's Y" seesaws, no "here's the thing", no rule-of-three lists where every item is the same length. Those are cadences, and the cadence is the tell.
-- Vary the sentence length hard. A long thought, then three words. Some posts should be one line; some should run four short lines. Do not make them all the same shape.
+KEEP THEM PLAIN. Someone outside engineering has to get it instantly. Say it the way he would say it out loud to a friend, not the way it would be written down. Ban the trade words: agentic, workflow, throughput, verification loop, vertical AI, leverage, iterate, ship velocity, bottleneck, stack, pipeline, context window, tooling, orchestration. If a sentence needs a job title to decode, rewrite it as the thing that actually happened.
+
+LEAVE ROOM FOR A REPLY. Take a side, admit something, or ask something he genuinely does not know the answer to. Do not close every post with a neat verdict, because a finished argument gives nobody anything to say back. Never beg for it either: no "Thoughts?", no "Agree?", no "who else".
+
+DO NOT SOUND LIKE A MODEL. These go out on a personal feed, and the giveaways are all cadence:
+
+- NEVER an em dash or an en dash. Not one, anywhere. Use a comma, a full stop, or a new line. It is the single clearest tell.
+- No "it's not X, it's Y" seesaws. No "here's the thing", no "the truth is", no "most people think". No rule-of-three lists where every item is the same length.
+- No wise closing line that restates the post as a law. Real posts just stop.
+- Vary the length hard. A long thought, then three words. Some posts are one line.
 - Plain words over impressive ones. "use" not "leverage", "start" not "embark", "so" not "thus". No "delve", "robust", "seamless", "landscape", "testament", "crucial".
 - Contractions throughout. Start a sentence with And or But when it reads better. Trailing thoughts are fine.
-- Say the specific thing. A real number, a real hour of the day, a thing that actually broke. Vague authority reads as generated; a small concrete detail reads as lived.
-- No hashtags, no emoji, no "Thoughts?" sign-off begging for replies.
+- Say the specific thing. A real number, a real hour of the day, a thing that actually broke. A small concrete detail reads as lived; vague authority reads as generated.
+- No hashtags, no emoji.
 
-Write every post twice, both for Threads, which allows ${THREADS_LIMIT} characters:
-- "text" is the punchy version: tight and quotable, ${PUNCHY_MIN}-${PUNCHY_MAX} characters, never over ${PUNCHY_CEILING}.
-- "threadsVariant" is the same idea told warmer and more conversational — room to give the thought a second beat or a concrete detail. ${WARM_MIN}-${WARM_MAX} characters, always clearly longer than the punchy version, and reworded throughout so the two never read as duplicates.
-Neither version may exceed ${THREADS_LIMIT} characters.
+Write every post twice, both for Threads:
+- "text" is the punchy version: ${PUNCHY_MIN}-${PUNCHY_MAX} characters, never over ${PUNCHY_CEILING}. Often one line.
+- "threadsVariant" is the same idea with one more beat, a detail or an aside, ${WARM_MIN}-${WARM_MAX} characters. Longer than the punchy one but still short, and reworded from its first words so the two never read as the same post twice.
+Neither version may exceed ${THREADS_LIMIT} characters, and neither should come close.
 
-2. Exactly ${REPLIES_PER_PACK} evergreen REPLIES I can adapt when engaging with typical conversations in my space. For each, give "scenario" (one line describing the kind of post it answers, e.g. "Someone ships an impressive AI demo") and "text" (the reply, 2-4 sentences, adds a genuine engineering/professional-workflow perspective, never salesy).
+2. Exactly ${REPLIES_PER_PACK} evergreen REPLIES I can adapt when engaging with typical conversations in my space. For each, give "scenario" (one line describing the kind of post it answers, e.g. "Someone ships an impressive AI demo") and "text" (the reply, 1-3 short sentences, same plain voice as the posts, says something real from having done the work, never salesy, never a lecture).
 
 Follow every voice rule: no hashtags, no emojis, no generic openers, no invented facts or numbers, no motivational-influencer tone.
 
@@ -232,7 +243,7 @@ Respond with ONLY valid JSON, no commentary, in exactly this shape:
       // skips a doomed first attempt that costs a minute and a half.
       maxTokens: 32000,
       system:
-        "You are a sharp ghostwriter for a structural engineer who builds AI tooling (CoLateral AI). You write specific, credible, non-generic social posts in his voice. You write like a person typing on their phone, not like polished marketing copy: plain words, varied sentence length, contractions, and NEVER an em dash or en dash. You never fabricate facts, projects, or numbers. You output strict JSON when asked.",
+        "You ghostwrite short social posts for a structural engineer who builds AI tools (CoLateral AI). You write the way he talks: short, plain, specific, a bit blunt. No jargon, no thought-leader voice, no essays. A post is one thought, one or two lines, and it leaves someone something to argue with. You write like a person typing on their phone, not like polished marketing copy: plain words, varied sentence length, contractions, and NEVER an em dash or en dash. You never fabricate facts, projects, or numbers. You output strict JSON when asked.",
       messages: [{ role: "user", content: userPrompt }]
     });
 
