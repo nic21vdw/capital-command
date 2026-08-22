@@ -15,6 +15,7 @@ import {
   planHook
 } from "@/lib/longform/plan";
 import { reviewHook } from "@/lib/longform/hook-review";
+import { reviewTopicOpenings } from "@/lib/longform/segment-review";
 import { DEFAULT_TOPIC_OPTIONS, buildTopics, type TopicPlanOptions } from "@/lib/longform/topics";
 import type { LongformPace, LongformProject } from "@/lib/longform/types";
 import { defaultSfxSettings } from "@/lib/sfx/types";
@@ -72,6 +73,11 @@ async function loadProjects() {
       // The opening's verdict is derived, so an older project gets one the
       // first time it is loaded instead of showing the card no badge at all.
       if (project.status === "ready" && !project.hookReview) refreshHookReview(project);
+      // Same for the per-segment verdicts: derived, so an older project gets
+      // them on load rather than showing an unreviewed segment list.
+      if (project.status === "ready" && project.topics?.length && !project.segmentReviews) {
+        refreshSegmentReviews(project);
+      }
       // Projects saved before the audio track existed have no clips array, and
       // may carry a legacy single background track — migrate it into one clip
       // spanning the whole edit so it keeps playing and stays editable.
@@ -163,6 +169,7 @@ function dropShortRecordingTopics(project: LongformProject) {
   const rendered = project.exports.some((record) => record.topicId && record.status === "done" && record.file);
   if (rendered) return;
   project.topics = [];
+  project.segmentReviews = undefined;
   project.topicsNote = noSegmentsNote(project.durationSec, false);
 }
 
@@ -203,12 +210,26 @@ function refreshHookReview(project: LongformProject) {
   project.hookReview = reviewHook(project.transcript ?? [], project.hook.start ?? 0, project.hook.end);
 }
 
+/**
+ * Keeps every segment's opening verdict in step with the plan. A segment's
+ * hook is derived from the project's, so moving the project hook, replanning
+ * the topics or re-transcribing all change what each segment opens with.
+ */
+function refreshSegmentReviews(project: LongformProject) {
+  if (!project.hook || !project.topics?.length) {
+    project.segmentReviews = undefined;
+    return;
+  }
+  project.segmentReviews = reviewTopicOpenings(project);
+}
+
 export async function updateProject(id: string, patch: Partial<LongformProject>): Promise<LongformProject | undefined> {
   await loadProjects();
   const project = projects.get(id);
   if (!project) return undefined;
   Object.assign(project, patch, { updatedAt: new Date().toISOString() });
   if (patch.hook || patch.transcript) refreshHookReview(project);
+  if (patch.hook || patch.transcript || patch.topics || patch.segments) refreshSegmentReviews(project);
   await persistProjects();
   return project;
 }
@@ -216,6 +237,7 @@ export async function updateProject(id: string, patch: Partial<LongformProject>)
 /** Internal update used by the pipeline; keeps updatedAt fresh. */
 async function update(project: LongformProject, patch: Partial<LongformProject>) {
   Object.assign(project, patch, { updatedAt: new Date().toISOString() });
+  if (patch.hook || patch.transcript || patch.topics || patch.segments) refreshSegmentReviews(project);
   await persistProjects();
 }
 
@@ -622,6 +644,7 @@ async function runAnalysis(project: LongformProject) {
     transcript,
     // A re-analysis re-reads the audio, so any earlier topic plan is stale.
     topics: undefined,
+    segmentReviews: undefined,
     topicsNote: undefined,
     status: "ready",
     stage: "ready",

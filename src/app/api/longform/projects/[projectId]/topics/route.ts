@@ -39,6 +39,12 @@ export async function POST(request: NextRequest, { params }: Params) {
   if (parsed.data.count) {
     options.minCount = parsed.data.count;
     options.maxCount = parsed.data.count;
+    // The eight-minute floor is what the planner applies on its own; a request
+    // for a specific number of segments has already decided how long they are,
+    // so it lowers the floor to what that number leaves room for.
+    if (project.durationSec > 0) {
+      options.minSec = Math.min(DEFAULT_TOPIC_OPTIONS.minSec, Math.floor(project.durationSec / parsed.data.count));
+    }
   }
   if (parsed.data.targetMinutes) {
     const targetSec = Math.round(parsed.data.targetMinutes * 60);

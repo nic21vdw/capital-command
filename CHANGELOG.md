@@ -14,6 +14,20 @@ already shipped.
 
 ## Unreleased
 
+- **Long-form captions read as subtitles again.** Both the hook words and the
+  whole-video captions now sit in the lower third of the frame instead of
+  across the middle, where they covered the screen-share and your face, and
+  captions are on by default on every new project.
+- **A long-form video is eight minutes or it isn't one.** Topic segments are
+  planned at twelve minutes and never come back under eight, so every segment
+  can carry mid-rolls — and the scheduler refuses to book a shorter export as a
+  long-form upload (a forty-second one went out as a feature). The editor says
+  so on the Export tab before you render.
+- **Every segment's opening is reviewed, not just the stream's.** Each topic
+  segment is its own upload, so each one is now checked for the hook treatment
+  — burned-in words, the push-in, the motion — and the Long-Form list and the
+  Hook panel name the segments that open flat.
+
 ## 2026-08-21
 
 - **AI writing is free again, and it stops breaking when a model retires.**

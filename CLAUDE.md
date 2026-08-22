@@ -429,6 +429,24 @@ special case.
   the same `sourceId`; the pipeline plans the segments once that lands.
 - Segments are planned automatically but rendered on demand — auto-rendering
   five ten-minute videos per stream is hours of encoding nobody asked for.
+- EIGHT MINUTES IS THE FLOOR (`length.ts`, `MIN_LONGFORM_SEC`). It is where a
+  YouTube upload can carry mid-rolls, so it is what "long-form" means here:
+  `planTopicSegments` never returns a window under it, `queueOutputs` refuses to
+  book a shorter export as a long-form upload, and the editor warns before the
+  render. A forty-second project was rendered, booked and posted as a long-form
+  video on 2026-08-19 — that is the hole this closes. A hand-made request for
+  `count` segments still overrides the floor, because it has already decided how
+  long they are.
+- EVERY SEGMENT OPENS LIKE ITS OWN VIDEO (`segment-review.ts`). `projectForTopic`
+  hands each segment the project's hook settings, so one switch left off opens
+  all five of them flat. The review reads each segment the way `hook-review.ts`
+  reads the whole edit — the opening line's strength AND whether the treatment
+  is actually on (burned-in words, motion, a push-in over 1.03x) — and stores
+  the verdicts on the project as `segmentReviews`.
+- CAPTIONS SIT IN THE LOWER THIRD, both the hook's and the body's. The middle of
+  a 16:9 upload is the screen-share, the editor and the face; words burned over
+  it hide the video they are about. The hook still reads as a hook through size,
+  weight and the push-in, not through where it sits.
 
 ## Clip metadata conventions (titles, descriptions, tags)
 

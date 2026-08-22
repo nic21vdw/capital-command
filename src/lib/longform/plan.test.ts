@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
   DEFAULT_PACE,
+  LONGFORM_CAPTION_STYLE,
   PACE_PRESETS,
+  VIRAL_HOOK_CAPTION_STYLE,
   applyManualRange,
   buildSegments,
   editedDurationSec,
@@ -266,10 +268,27 @@ describe("transcriptCaptions", () => {
   });
 });
 
+describe("caption placement", () => {
+  // Burning words across the middle of a 16:9 upload covers the screen-share,
+  // the editor and the face — the video the words are about. Subtitles sit in
+  // the lower third, and both long-form looks do.
+  it("keeps both long-form caption styles in the subtitle band", () => {
+    expect(LONGFORM_CAPTION_STYLE.position).toBe("lower-third");
+    expect(VIRAL_HOOK_CAPTION_STYLE.position).toBe("lower-third");
+    expect(LONGFORM_CAPTION_STYLE.alignment).toBe("center");
+    expect(VIRAL_HOOK_CAPTION_STYLE.alignment).toBe("center");
+  });
+
+  it("still opens louder than it captions the body", () => {
+    expect(VIRAL_HOOK_CAPTION_STYLE.fontScale).toBeGreaterThan(LONGFORM_CAPTION_STYLE.fontScale);
+    expect(VIRAL_HOOK_CAPTION_STYLE.uppercase).toBe(true);
+  });
+});
+
 describe("planCaptions", () => {
-  it("starts switched off so existing exports keep rendering unchanged", () => {
+  it("starts switched on so every long-form upload carries subtitles", () => {
     const plan = planCaptions([caption("c1", 0, 5, "one two three")]);
-    expect(plan.enabled).toBe(false);
+    expect(plan.enabled).toBe(true);
     expect(plan.highlightCurrentWord).toBe(true);
     expect(plan.segments.length).toBeGreaterThan(0);
   });

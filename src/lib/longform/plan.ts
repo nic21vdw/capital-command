@@ -169,13 +169,16 @@ export function hookCaptions(
 }
 
 /**
- * The default hook caption look: huge bold uppercase words in the middle of
- * the frame with the spoken word highlighted — the retention-editing style
- * that reads clearly even on a muted feed.
+ * The default hook caption look: big bold uppercase words in the subtitle
+ * band with the spoken word highlighted — the retention-editing style that
+ * reads clearly even on a muted feed. It sits where subtitles sit rather than
+ * across the middle of the frame: on a 16:9 upload the middle is where the
+ * screen-share, the face and everything worth seeing is, and burning words
+ * over it hides the video the words are about.
  */
 export const VIRAL_HOOK_CAPTION_STYLE: CaptionStyle = {
   fontFamily: "Inter, system-ui, sans-serif",
-  fontScale: 0.075,
+  fontScale: 0.062,
   fontWeight: 900,
   textColor: "#ffffff",
   highlightColor: "#fde047",
@@ -183,7 +186,7 @@ export const VIRAL_HOOK_CAPTION_STYLE: CaptionStyle = {
   backgroundOpacity: 0,
   outlineWidth: 4,
   shadow: 2,
-  position: "middle",
+  position: "lower-third",
   alignment: "center",
   maxWordsPerCaption: 3,
   wordsPerLine: 3,
@@ -227,9 +230,9 @@ export function planHook(transcript: CaptionSegment[], durationSec: number): Lon
 }
 
 /**
- * The default whole-video caption look: readable bottom-of-frame phrases for a
- * 16:9 long-form upload — smaller and calmer than the viral hook style, closer
- * to classic subtitles but still word-highlighted.
+ * The default whole-video caption look: plain subtitles for a 16:9 long-form
+ * upload — smaller and calmer than the hook style, sitting in the same
+ * lower-third band so the words never move up the frame mid-video.
  */
 export const LONGFORM_CAPTION_STYLE: CaptionStyle = {
   fontFamily: "Inter, system-ui, sans-serif",
@@ -243,7 +246,7 @@ export const LONGFORM_CAPTION_STYLE: CaptionStyle = {
   backgroundOpacity: 0,
   outlineWidth: 2.5,
   shadow: 2,
-  position: "bottom",
+  position: "lower-third",
   alignment: "center",
   maxWordsPerCaption: 5,
   wordsPerLine: 5,
@@ -263,13 +266,13 @@ export function transcriptCaptions(transcript: CaptionSegment[], maxWords = 5): 
 }
 
 /**
- * Builds the default whole-video caption plan. Captions start switched off —
- * they are a toggle-on feature, so existing exports keep rendering unchanged
- * until the editor enables them.
+ * Builds the default whole-video caption plan. Captions are ON by default: a
+ * long-form upload without subtitles is watched with the sound off and
+ * understood by nobody, and the toggle is still there to turn them back off.
  */
 export function planCaptions(transcript: CaptionSegment[]): LongformCaptions {
   return {
-    enabled: false,
+    enabled: true,
     highlightCurrentWord: true,
     segments: transcriptCaptions(transcript),
     style: { ...LONGFORM_CAPTION_STYLE }

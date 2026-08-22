@@ -12,6 +12,7 @@ import { Progress } from "@/components/ui/progress";
 import { AdvancedOptions } from "@/components/ui/advanced-options";
 import { LongformEditor } from "@/components/longform/longform-editor";
 import { formatClock } from "@/lib/clipping/editor";
+import { segmentReviewHeadline } from "@/lib/longform/segment-review";
 import type { LongformProjectSummary } from "@/lib/longform/summary";
 import type { LongformProject } from "@/lib/longform/types";
 import { cn } from "@/lib/utils";
@@ -30,6 +31,11 @@ const STAGE_LABELS: Record<LongformProject["stage"], string> = {
 };
 
 /** How many of a project's topic segments already have a finished video. */
+/** Segments whose opening the review flagged — the ones still to fix. */
+function weakSegments(project: LongformProjectSummary): number {
+  return (project.segmentReviews ?? []).filter((review) => review.verdict === "weak").length;
+}
+
 function renderedSegments(project: LongformProjectSummary): number {
   return (project.topics ?? []).filter((topic) =>
     project.exports.some((item) => item.topicId === topic.id && item.status === "done" && item.file)
@@ -624,6 +630,7 @@ export function LongformStudioPage() {
                         <span className="flex-1 truncate">
                           {project.topics.length} long-form segment{project.topics.length === 1 ? "" : "s"} ·{" "}
                           {renderedSegments(project)} rendered
+                          {weakSegments(project) > 0 ? ` · ${weakSegments(project)} opening${weakSegments(project) === 1 ? "" : "s"} to fix` : ""}
                         </span>
                         <ChevronDown
                           className={cn("h-3.5 w-3.5 shrink-0 transition", segmentsOpen === project.id && "rotate-180")}
@@ -634,6 +641,7 @@ export function LongformStudioPage() {
                           {project.topics.map((topic, index) => {
                             const record = project.exports.find((item) => item.topicId === topic.id);
                             const rendered = record?.status === "done" && Boolean(record.file);
+                            const review = project.segmentReviews?.find((item) => item.topicId === topic.id);
                             return (
                               <button
                                 key={topic.id}
@@ -653,6 +661,12 @@ export function LongformStudioPage() {
                                         ? "rendered"
                                         : "not rendered yet"}
                                   </span>
+                                  {review && review.verdict !== "strong" && (
+                                    <span className="mt-0.5 flex items-start gap-1 text-[10px] leading-snug text-amber-200/90">
+                                      <AlertTriangle className="mt-0.5 h-3 w-3 shrink-0" />
+                                      <span className="min-w-0">{segmentReviewHeadline(review)}</span>
+                                    </span>
+                                  )}
                                 </span>
                                 {rendered && <Check className="h-3.5 w-3.5 shrink-0 text-emerald-400" />}
                               </button>
