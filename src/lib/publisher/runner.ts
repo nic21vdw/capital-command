@@ -14,6 +14,7 @@ import { channelDuplicateMessage, youtubeChannelDuplicate } from "@/lib/publishe
 import { describeMirrorPlan, planMirror } from "@/lib/publisher/mirror";
 import { AbandonedUploadError, PermanentError, StillProcessingError, ThrottledError, isTransient } from "@/lib/publisher/http";
 import { remainingYoutubeUploads } from "@/lib/publisher/quota";
+import { outstandingTiktokDrafts, usesTiktokInbox } from "@/lib/publisher/tiktokInbox";
 import { PublishQueue, isTerminalStatus, newPlatformState, publishQueue } from "@/lib/publisher/queue";
 import { formatInTimezone } from "@/lib/publisher/time";
 import type { PlatformAdapter, PlatformId, PlatformState, PostResult, PublishInput, PublishPlan, QueueItem } from "@/lib/publisher/types";
@@ -346,9 +347,16 @@ export async function runDue(now: Date = new Date(), options: RunDueOptions = {}
   // it at its slot — so without this a batch booked across three weeks sends
   // every file today, empties the daily allowance and locks the channel out of
   // uploading. `due` is ordered by slot, so what does go up is the soonest.
+  const allItems = await queue.list();
   let youtubeUploadsLeft = options.force
     ? Number.POSITIVE_INFINITY
-    : remainingYoutubeUploads(await queue.list(), now, config);
+    : remainingYoutubeUploads(allItems, now, config);
+  // TikTok's ceiling counts drafts waiting in the inbox, and only a tap in the
+  // app clears one — so unlike YouTube's allowance it does not reset overnight.
+  const tiktokDraftsWaiting = outstandingTiktokDrafts(allItems);
+  let tiktokInboxLeft = options.force
+    ? Number.POSITIVE_INFINITY
+    : Math.max(0, config.tiktok.inboxLimit - tiktokDraftsWaiting);
   let facebookPollMsLeft = FACEBOOK_POLL_BUDGET_MS_PER_RUN;
   let facebookPreschedulesLeft = options.force ? Number.POSITIVE_INFINITY : FACEBOOK_PRESCHEDULES_PER_RUN;
 
@@ -399,6 +407,16 @@ export async function runDue(now: Date = new Date(), options: RunDueOptions = {}
             const duplicate = await youtubeChannelDuplicate(item, config, now);
             if (duplicate) throw new PermanentError(channelDuplicateMessage(duplicate));
             youtubeUploadsLeft -= 1;
+          }
+          if (platform === "tiktok" && usesTiktokInbox(item)) {
+            if (tiktokInboxLeft <= 0) {
+              record(
+                "deferred",
+                `${tiktokDraftsWaiting} clips are already waiting in your TikTok inbox — open the TikTok app and post or discard them, then this one goes up on the next run.`
+              );
+              continue;
+            }
+            tiktokInboxLeft -= 1;
           }
           if (platform === "facebook" && new Date(item.publishAt).getTime() > now.getTime()) {
             if (facebookPreschedulesLeft <= 0) {

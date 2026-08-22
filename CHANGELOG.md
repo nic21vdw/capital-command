@@ -34,6 +34,13 @@ already shipped.
   YouTube tags at all — only the Uploading Center's own button wrote them. Each
   clip now gets tags written from what is actually said in it, falling back to
   the channel keywords the clip mentions when no model is configured.
+- **TikTok stops filling your inbox faster than you can empty it.** Every clip
+  sent the inbox way waits as a draft until you tap it in the TikTok app, and
+  TikTok refuses new uploads once too many are waiting — which is how 37 piled
+  up and every TikTok post started failing. The runner now stops at 10 waiting
+  drafts (`TIKTOK_INBOX_LIMIT`) and tells you how many are on your phone
+  instead of uploading into the refusal. Nothing is lost: the clips keep their
+  place and go up once you have cleared the backlog.
 - **Segments deep in a stream get their hook words back.** Only the opening of
   a long recording is transcribed, so a segment two hours in had nothing to
   burn over its first seconds and opened on silence — 27 of the segments in the

@@ -64,7 +64,13 @@ export function testConfig(overrides: Partial<PublisherConfig> = {}): PublisherC
       appId: "ig-app-id"
     },
     facebook: { pageId: "10000000000000000", pageAccessToken: "fb-token", graphApiVersion: "v23.0" },
-    tiktok: { clientKey: "tt-key", clientSecret: "tt-secret", refreshToken: "tt-refresh", audited: false },
+    tiktok: {
+      clientKey: "tt-key",
+      clientSecret: "tt-secret",
+      refreshToken: "tt-refresh",
+      audited: false,
+      inboxLimit: 10
+    },
     spotify: { clientId: null, clientSecret: null },
     s3: { endpoint: null, bucket: null, accessKeyId: null, secretAccessKey: null, region: "auto", publicBaseUrl: null },
     buffer: { enabled: false, accessToken: null, profileIds: [], apiBase: "https://api.bufferapp.com/1", shortenLinks: true },
