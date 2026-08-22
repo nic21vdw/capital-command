@@ -14,6 +14,8 @@ already shipped.
 
 ## Unreleased
 
+## 2026-08-21
+
 - **AI writing is free again, and it stops breaking when a model retires.**
   opencode removed the free model the app was pinned to, so every AI feature —
   carousels, titles, ideas, scripts, X posts — had quietly stopped asking a
