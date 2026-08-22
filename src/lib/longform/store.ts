@@ -11,6 +11,7 @@ import {
   buildSegments,
   hookCaptions,
   paceDetection,
+  migrateCaptionPlacement,
   planCaptions,
   planHook
 } from "@/lib/longform/plan";
@@ -82,6 +83,9 @@ async function loadProjects() {
       // may carry a legacy single background track — migrate it into one clip
       // spanning the whole edit so it keeps playing and stays editable.
       migrateMusic(project);
+      // Projects saved before captions moved into the subtitle band still burn
+      // them across the middle of the frame on their next export.
+      migrateCaptionPlacement(project);
       // Projects saved before viral sound effects existed default to off.
       project.sfx ??= defaultSfxSettings();
       dropShortRecordingTopics(project);

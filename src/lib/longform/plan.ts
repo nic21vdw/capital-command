@@ -280,6 +280,24 @@ export function planCaptions(transcript: CaptionSegment[]): LongformCaptions {
 }
 
 /**
+ * Moves an existing project's captions out of the middle of the frame. Every
+ * project made before the styles changed still carries the old placement — the
+ * hook across the middle, the body flush to the bottom edge — and a stored
+ * style is what the next export burns, so a fix that only reached new projects
+ * would not reach a single video actually being edited. A caption dragged into
+ * place by hand (`offsetY`) is left exactly where it was put.
+ */
+export function migrateCaptionPlacement(project: {
+  hook?: { captionStyle?: CaptionStyle };
+  captions?: { style?: CaptionStyle };
+}): void {
+  for (const style of [project.hook?.captionStyle, project.captions?.style]) {
+    if (!style || style.offsetY !== undefined) continue;
+    if (style.position === "middle" || style.position === "bottom") style.position = "lower-third";
+  }
+}
+
+/**
  * Non-destructively applies a manual keep/cut across an arbitrary [start, end]
  * span, splitting any segments that straddle the boundaries so exactly that
  * span flips to `enabled`. This powers manual trimming: the editor can remove
