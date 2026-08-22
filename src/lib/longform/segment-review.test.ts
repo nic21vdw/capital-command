@@ -123,6 +123,28 @@ describe("reviewTopicOpening", () => {
     expect(review.missingTreatment.join(" ")).toContain("8 minute floor");
   });
 
+  // A long stream is transcribed only as far as the hook needs. The words for a
+  // segment three hours in are read from the whole recording when it renders,
+  // so "no captions stored" is not a fault to report — it flagged 27 segments.
+  it("does not call an untranscribed opening captionless", () => {
+    const base = project({ transcript: transcript().filter((line) => line.end <= 120) });
+    const review = reviewTopicOpening(base, topic);
+    expect(review.missingTreatment).toEqual([]);
+    expect(review.verdict).toBe("unknown");
+    expect(review.reasons.join(" ")).toContain("read from the whole recording");
+  });
+
+  it("still reports hook captions that were switched off", () => {
+    const base = project({ transcript: transcript().filter((line) => line.end <= 120) });
+    const review = reviewTopicOpening({ ...base, hook: { ...base.hook, captionsEnabled: false } }, topic);
+    expect(review.missingTreatment.join(" ")).toContain("switched off");
+  });
+
+  it("says a short segment's runtime without rounding it to sixty seconds", () => {
+    const review = reviewTopicOpening(project(), { ...topic, end: 900 });
+    expect(review.missingTreatment.join(" ")).toContain("5m 00s");
+  });
+
   it("reads the words the segment actually opens on, not the stream's", () => {
     const review = reviewTopicOpening(project(), topic);
     expect(review.opening.toLowerCase()).toContain("mistake");

@@ -7,7 +7,7 @@ import { readSourceMeta, sourceFilePath } from "@/lib/clipping/sources";
 import { getTrack, trackFilePath } from "@/lib/longform/music";
 import { overlayFilePath } from "@/lib/longform/overlays";
 import { editedDurationSec, exportRanges, projectForTopic, remapCaptionsToOutput, sourceTimeToOutput, sourceToOutputIntervals, type KeptRange } from "@/lib/longform/plan";
-import { getProject, projectOutputDir, projectWorkDir, setTopicExport, updateProject } from "@/lib/longform/store";
+import { getProject, projectOutputDir, projectWorkDir, setTopicExport, updateProject, withFullTranscript } from "@/lib/longform/store";
 import type { LongformExportRecord, LongformProject } from "@/lib/longform/types";
 import { planSfxCues } from "@/lib/sfx/cues";
 import { resolveSoundPath } from "@/lib/sfx/sounds";
@@ -248,7 +248,11 @@ async function runExport(projectId: string, recordId: string, signal: AbortSigna
   // A segment render works on the clipped view of the project. Re-deriving it
   // here (rather than passing it in) keeps the stored record the only source
   // of truth for what this export is.
-  const project = exportTarget(stored, stored.exports.find((item) => item.id === recordId)?.topicId);
+  const topicId = stored.exports.find((item) => item.id === recordId)?.topicId;
+  // A segment's hook captions are cut from the transcript at its own window,
+  // which on a long stream is past everything the project stored.
+  const source = topicId ? await withFullTranscript(stored) : stored;
+  const project = exportTarget(source, topicId);
   const meta = await readSourceMeta(project.sourceId);
   if (!meta) throw new Error("The uploaded source file for this project is gone. Upload the video again.");
   const srcPath = sourceFilePath(meta);

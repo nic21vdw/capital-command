@@ -14,8 +14,15 @@ export function isLongformLength(durationSec: number): boolean {
   return durationSec >= MIN_LONGFORM_SEC;
 }
 
+/** A runtime as "8m 05s" — rounding the seconds alone produced "4m 60s". */
+export function formatRuntime(durationSec: number): string {
+  const whole = Math.round(Math.max(0, durationSec));
+  const minutes = Math.floor(whole / 60);
+  const seconds = whole % 60;
+  return minutes > 0 ? `${minutes}m ${String(seconds).padStart(2, "0")}s` : `${seconds}s`;
+}
+
 /** Plain-English "this is not a long-form video" for a runtime under the floor. */
 export function shortOfLongformNote(durationSec: number): string {
-  const minutes = durationSec >= 60 ? `${Math.floor(durationSec / 60)}m ${Math.round(durationSec % 60)}s` : `${Math.round(durationSec)}s`;
-  return `At ${minutes} this is not a long-form upload — long-form runs ${MIN_LONGFORM_SEC / 60} minutes or more so it can carry mid-rolls. Post it as a short from the Clip Generator instead.`;
+  return `At ${formatRuntime(durationSec)} this is not a long-form upload — long-form runs ${MIN_LONGFORM_SEC / 60} minutes or more so it can carry mid-rolls. Post it as a short from the Clip Generator instead.`;
 }

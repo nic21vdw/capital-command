@@ -79,11 +79,11 @@ beforeEach(async () => {
   state.added = [];
   state.clips = [];
   state.exports = [
-    { id: "export1", status: "done", file: "longform.mp4", title: "Day 10: Yapping Until I Can Buy a Nicer Car" }
+    { id: "export1", status: "done", file: "longform.mp4", title: "Day 10: Vibe Coding Until I Can Move Out" }
   ];
   state.run = {
     id: "run1",
-    name: "Day 10: Yapping Until I Can Buy a Nicer Car",
+    name: "Day 10: Vibe Coding Until I Can Move Out",
     status: "running",
     clipJobId: "job1",
     longformProjectId: "proj1",
@@ -97,7 +97,7 @@ describe("booking a run's long-form edit", () => {
 
     expect(result.failed).toEqual([]);
     expect(result.queued.map((item) => item.title)).toEqual([
-      "Day 10: Yapping Until I Can Buy a Nicer Car"
+      "Day 10: Vibe Coding Until I Can Move Out"
     ]);
     // Posted exactly as it was rendered — no 9:16 re-render. The probe still
     // runs, but only to confirm the file holds a video at all; its 352 seconds
@@ -129,13 +129,32 @@ describe("booking a run's long-form edit", () => {
     expect(result.queued.map((item) => item.title)).toEqual(["Day 39"]);
   });
 
+  // The car yap is already on YouTube. An edit of it booked back there spends
+  // a daily upload slot to duplicate the channel — 17 were pulled by hand once.
+  it("refuses to book a car yap back to YouTube, whatever its length", async () => {
+    state.exports = [
+      {
+        id: "export1",
+        status: "done",
+        file: "longform.mp4",
+        title: "Day 10: Yapping Until I Can Buy a Nicer Car",
+        durationSec: 900
+      }
+    ];
+
+    const plan = await planRunOutputs("run1");
+
+    expect(plan?.candidates ?? []).toEqual([]);
+    expect(plan?.skipped[0].reason).toMatch(/already on YouTube/);
+  });
+
   it("still refuses a Short over the length limit", async () => {
     state.clips = [{ id: "clip1", title: "A clip that ran long" }];
 
     const result = await queueRunOutputs("run1");
 
     expect(result.queued.map((item) => item.title)).toEqual([
-      "Day 10: Yapping Until I Can Buy a Nicer Car"
+      "Day 10: Vibe Coding Until I Can Move Out"
     ]);
     expect(result.failed).toHaveLength(1);
     expect(result.failed[0].title).toBe("A clip that ran long");
