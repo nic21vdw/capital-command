@@ -139,6 +139,21 @@ normal release does, and pushes later if it can.
   checkout did it. It is append-only and rotates at 2 MB, and a failed write
   is only ever a warning — auditing must never be able to stop a post.
 
+## Which model does the work
+
+The weekly Claude rate limit is shared with every other repo on this machine,
+and it hit 90% on 2026-08-22. Most work here is mechanical — queue plumbing,
+schedule math, ingest and CSV/JSON churn, upload bookkeeping — and none of it
+needs Opus.
+
+- Run mechanical stages in subagents on `haiku` or `sonnet` (the Agent tool
+  takes a `model` override). Reserve Opus for debugging that is actually hard.
+- For a long, boring, bulk session, suggest Nic relaunch on DeepSeek with
+  `dsnow` (same conversation, cheaper backend; `ccnow` returns to Claude).
+- One-shot questions with no session context go to `/ds`.
+- Never spawn batches of headless `claude` sessions (eval or benchmark
+  batteries) — one such overnight run is what drained the limit.
+
 ## Opening production as a desktop app
 
 `Capital Command.bat` in the production folder starts the server if it isn't
