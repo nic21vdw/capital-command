@@ -14,6 +14,13 @@ already shipped.
 
 ## Unreleased
 
+- **The TikTok app's product page, Terms and Privacy are live again.** The URLs
+  registered against the TikTok app pointed at files in a private repo, so a
+  reviewer clicking them got a 404 — on its own enough to be rejected a second
+  time. `site/` is now published by GitHub Pages at
+  `nic21vdw.github.io/capital-command`, and the resubmission playbook carries
+  the real addresses instead of a placeholder.
+
 - **Shorts open on the first word instead of the pause before it.** The app has
   always known where a clip's first word lands, but only the preview acted on
   it — the file that actually posted still opened on up to a few seconds of

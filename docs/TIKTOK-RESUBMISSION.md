@@ -99,26 +99,33 @@ column that is not true yet.**
 | "The creator picks privacy, interactions and disclosure before posting" | **yes** | The consent panel, and enforced again server-side. |
 | "We query `creator_info` before every direct post" | **yes** | `withCurrentCreatorSettings()` in the adapter. |
 | "Clips post automatically at a scheduled time" | **yes** | The publish runner does this today for YouTube, Instagram, Facebook and Threads; TikTok is inbox-only until approval. |
-| "Open source" | **not yet** | `nic21vdw/capital-command` is a **private** repo. `site/index.html` says open source and self-hosted, and that sentence becomes false the moment a reviewer checks. Either make the repo public, or cut the claim from the page before it is submitted. |
-| "Hosted at &lt;domain&gt;" | **not yet** | No domain is registered and no host is connected. See below. |
+| "Open source" | **yes** | `nic21vdw/capital-command` is public, and the product page links straight to it from "Read the source" and the footer, so a reviewer can check the claim in one click instead of taking it on trust. |
+| "Hosted at the registered address" | **yes** | `site/` is served by GitHub Pages at `https://nic21vdw.github.io/capital-command/`, deployed by `.github/workflows/pages.yml` on every push that touches `site/`. |
 
 ## Lane B checklist — must be true before you submit
 
-1. **A real domain serving the product page.** Not a raw GitHub URL. ~~Write
-   the page.~~ Done — `site/index.html`. It still needs a domain and a host;
-   both are yours to buy and sign into.
+1. ~~**A real address serving the product page.**~~ Done — GitHub Pages serves
+   `site/` at `https://nic21vdw.github.io/capital-command/`. This is the item
+   that had actually failed hardest: while the repo was private the registered
+   Terms and Privacy URLs were raw GitHub links that returned **404** to
+   anyone not signed in as Nic, and so did the Vercel URL on the repo. A
+   reviewer clicking either got nothing, which is a rejection on its own and
+   has nothing to do with the framing.
 2. ~~**Terms and Privacy rewritten.**~~ Done — `site/terms.html`,
    `site/privacy.html`, mirrored into `TERMS.md` and `PRIVACY.md` so the
    currently-registered raw GitHub URLs stop saying "personal
    content-operations dashboard" the moment they are fetched.
-3. **A redirect URI on that domain**, registered alongside localhost. Note what
-   this actually means under the self-hosted framing: the callback runs on the
-   creator's own machine, so `http://localhost:3000/api/auth/tiktok/callback`
-   is the honest one and should stay. Add the domain-based URI only if you
-   genuinely serve the app there.
+3. ~~**Decide the redirect URI.**~~ Done — nothing changes. Pages serves four
+   static files, not the app, so no callback can arrive there and the honest
+   answer is that `http://localhost:3000/api/auth/tiktok/callback` stays the
+   only one. Under the self-hosted framing that is consistent rather than
+   suspicious: the callback runs on the creator's own machine.
 4. ~~**The Direct Post consent panel built.**~~ Done — see the table above.
-5. **Decide the open-source claim.** Make the repo public, or edit the page.
-   Do not submit with it unresolved.
+5. ~~**Decide the open-source claim.**~~ Done — the repository is public, so
+   "Open source · self-hosted" is true, and the page links to the source. What
+   made this safe to do: `.env` was never committed, `data/` tracks only
+   `.gitkeep`, and `data/publisher-tokens.json` is gitignored, so no
+   credential or queue data is in the history.
 6. **A creator who is not you can install it and connect their own account.**
    Under the self-hosted framing this is achievable: it means the setup
    documented in `LOCAL_SETUP.md` works for somebody else, on their machine,
@@ -142,10 +149,20 @@ Preview it exactly as a reviewer will see it:
 cd site && python -m http.server 8765
 ```
 
-Hosting it needs an account nobody but you can sign into. Cloudflare Pages is
-the shortest route — the Cloudflare account behind `S3_ENDPOINT` already
-exists, Pages is free, and a custom domain is a DNS record on the same
-dashboard. GitHub Pages is not an option while the repo is private.
+Hosting is GitHub Pages, which became available the moment the repository went
+public. `.github/workflows/pages.yml` uploads `site/` as the Pages artifact on
+every push that touches it — Pages cannot serve an arbitrary folder from a
+branch, only the repo root or `docs/`, which is why this goes through Actions
+rather than the branch-and-folder setting.
+
+Switching it on is once, in the browser: **Settings → Pages → Build and
+deployment → Source: GitHub Actions**. After that the address is
+`https://nic21vdw.github.io/capital-command/` and it updates itself.
+
+Links inside `site/` are relative, so the same four files work unchanged if
+they later move to a bought domain at a root path. Cloudflare Pages remains
+the fallback if a custom domain is ever wanted — the account behind
+`S3_ENDPOINT` already exists.
 
 ## The copy
 
@@ -161,31 +178,30 @@ read it, change the app or change the sentence — do not submit it as-is.**
 
 ### App review notes (max 1000 characters)
 
-> Capital Command is self-hosted software for creators. It turns a creator's
-> long-form video into short clips and posts them to the TikTok account they
-> connect, on a schedule they set. Each creator runs their own copy, so the
-> video, the schedule and the tokens stay on their machine.
+> Capital Command is self-hosted software for creators. It cuts long-form
+> video into clips and posts them to the TikTok account the creator
+> connects, on a schedule they set. Each creator runs their own copy, so
+> video, schedule and tokens stay on their machine.
 >
-> Login Kit + user.info.basic: the creator connects their TikTok account with
-> OAuth. We read display name, avatar and username only, to show which account
-> is connected and label each scheduled post.
+> Login Kit + user.info.basic: the creator connects their account with
+> OAuth. We read display name, avatar and username only, to label the
+> connected account and each post.
 >
-> Content Posting API + video.publish: after the creator picks the privacy
-> level, interaction settings and commercial-content disclosure on our export
-> screen (options queried from creator_info, nothing preselected), we direct
-> post the clip at the scheduled time.
+> Content Posting API + video.publish: the creator picks privacy,
+> interactions and commercial-content disclosure on our export screen,
+> options queried from creator_info with nothing preselected, and we direct
+> post at the scheduled time.
 >
-> Content Posting API + video.upload: creators who prefer to caption in TikTok
-> choose "send to inbox", and the clip arrives as a draft to finish there.
+> Content Posting API + video.upload: creators who prefer to caption in
+> TikTok choose send to inbox, and the clip arrives as a draft.
 >
-> Changes in this version: the product page, terms and privacy policy are
-> hosted at <DOMAIN> and describe the software creators run, replacing the
-> earlier documents that described one operator's own dashboard; the export
-> screen implements the required consent UX.
+> New in this version: product page, terms and privacy are hosted at
+> nic21vdw.github.io/capital-command and describe software creators run
+> themselves; source at github.com/nic21vdw/capital-command.
 
-*(975 characters with a 15-character domain substituted twice, so there is
-room for a longer one. The portal counts as you type — trim the last paragraph
-first if it overruns.)*
+*(995 characters, measured against TikTok's 1000 limit — paste it as five
+paragraphs. The portal counts as you type; trim the last paragraph first if
+you change the address.)*
 
 ## Scope audit
 
@@ -206,7 +222,7 @@ hidden. Narrate with captions or voice; silence makes the reviewer guess.
 
 The domain in the address bar must match the website registered for the app,
 in every shot. This is the most common cause of a repeat rejection. For a
-self-hosted app that means shot 1 is on `<DOMAIN>` and the app shots are on
+self-hosted app that means shot 1 is on `nic21vdw.github.io/capital-command` and the app shots are on
 `localhost` — which is honest and consistent with what you submitted, provided
 the review notes say the creator runs their own copy. Do not fake a domain over
 the app.
@@ -218,7 +234,7 @@ or collapse the sidebar first.
 
 | # | Shot | What must be on screen |
 |---|---|---|
-| 1 | Product page at `<DOMAIN>` | `site/index.html` live on the registered domain, address bar visible. Hold on the "What the TikTok connection does" section — it states the three scopes in the same words as the review notes, which is the fastest way for a reviewer to match them. |
+| 1 | Product page at `https://nic21vdw.github.io/capital-command/` | `site/index.html` live on the registered domain, address bar visible. Hold on the "What the TikTok connection does" section — it states the three scopes in the same words as the review notes, which is the fastest way for a reviewer to match them. |
 | 2 | Open the Uploading Center | The creator's own installation. Sidebar collapsed; no finance, holdings, goals or notes on screen. |
 | 3 | **Connect TikTok** | Click it; the TikTok OAuth consent screen appears with the scopes listed; authorize; land back in the app with the account chip showing avatar, display name and @handle. That is `user.info.basic`, on camera. |
 | 4 | Pick a clip | The clip card with its video preview and caption — the "preview of the to-be-posted content" the guidelines require. |
@@ -236,11 +252,17 @@ Record it after the checklist is true, not before — the video is the claim.
    Command** (app ID `7667654582432024593`). It opens on **Not approved**.
 2. **Return to Draft**, top right. Nothing is editable until that is clicked.
 3. **Basic information**: replace the Description, point Terms of Service URL
-   and Privacy Policy URL at the hosted pages on `<DOMAIN>`, and set the
-   Web/Desktop URL to `<DOMAIN>` itself instead of the README.
-4. **Products → Login Kit → Redirect URI**: add
-   `https://<DOMAIN>/api/auth/tiktok/callback`. Keep the localhost one — the
-   local app still uses it.
+   and Privacy Policy URL at `https://nic21vdw.github.io/capital-command/terms.html` and
+   `https://nic21vdw.github.io/capital-command/privacy.html`, and set the Web/Desktop URL to
+   `https://nic21vdw.github.io/capital-command/` instead of the README.
+4. **Products → Login Kit → Redirect URI**: change nothing.
+   `http://localhost:3000/api/auth/tiktok/callback` stays the only one, and
+   that is the honest answer here — Pages serves four static files, so the app
+   is not running at the registered address and never receives a callback
+   there. Adding a second URI that resolves to a product page would be a URI
+   TikTok can redirect to and nothing can answer. The review notes already say
+   each creator runs their own copy, which is what makes a localhost callback
+   consistent rather than suspicious.
 5. **Products → Content Posting API**: Direct Post stays enabled. Leave
    *Verify domains* alone unless you switch to `TIKTOK_UPLOAD_MODE=url`;
    `FILE_UPLOAD` needs no verified domain.
