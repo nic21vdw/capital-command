@@ -33,6 +33,19 @@ the table below is what it does:
 | A preview of what is about to be posted, and explicit consent | the clip card's preview, and Schedule refuses to fire while an answer is missing |
 | `creator_info` queried before every direct post | `withCurrentCreatorSettings()` in the adapter, immediately before init |
 
+Every row above was re-checked against the running app on 2026-08-22, against
+`components/uploading-center/tiktok-consent.tsx` rather than from memory, and
+all seven hold. Schedule really is disabled until the answers are complete —
+`clip-card.tsx:324` puts `consentBlocker` in the button's `disabled`, with the
+reason as its tooltip.
+
+One thing the table does not say: if `creator_info` comes back with an empty
+audience list, the dropdown falls back to listing every privacy level rather
+than none. It is not a way to post something TikTok did not offer —
+`consentProblem()` re-checks the choice against `creator_info` in the panel, in
+`/api/publish` and again in the adapter — but the list itself is the one place
+a value appears that the account was not handed.
+
 Two rules are enforced twice on purpose — in the panel, and again server-side
 in `/api/publish` and the adapter: branded content cannot be private, and an
 interaction the creator has since switched off in TikTok is dropped rather
@@ -220,6 +233,32 @@ One take, 90–120 seconds, screen recording at 1080p with the cursor visible.
 No cuts that hide a step — a cut where a decision happens reads as something
 hidden. Narrate with captions or voice; silence makes the reviewer guess.
 
+### Two shots cannot be recorded as this list first described them
+
+Checked against the live app on 2026-08-22, before recording rather than after.
+
+**A direct post cannot be made to succeed today, at all.** `npm run
+tiktok:audit` answers: the client key is the sandbox app's, a sandbox app is
+unaudited by definition, and *that refusal will never lift however the
+production review goes*. Forcing SELF_ONLY does not get around it either —
+TikTok refuses Direct Post from an unaudited client unless the target account
+is itself private (`unaudited_client_can_only_post_to_private_accounts`). So
+there is no way to film a clip going straight to the profile and appearing
+there. Shot 7 below is rewritten to film what does exist: the call being made
+and TikTok's own answer. The consent UX, which is what TikTok's guidelines
+actually require of the app, films completely.
+
+Expect the panel's own amber line — "The TikTok app review has not been
+approved, so TikTok only accepts a private post here" — to be on screen during
+shots 5 to 7. Leave it visible. It is true, the reviewer already knows it, and
+hiding it would be the dishonest choice.
+
+**Shot 8 needs the inbox cleared first.** TikTok is holding the maximum number
+of unfinished drafts, so a fresh inbox upload is refused with
+`spam_risk_too_many_pending_share` and there is nothing to film. Open TikTok
+and post or discard the waiting drafts before recording, or shot 8 fails on
+camera.
+
 The domain in the address bar must match the website registered for the app,
 in every shot. This is the most common cause of a repeat rejection. For a
 self-hosted app that means shot 1 is on `nic21vdw.github.io/capital-command` and the app shots are on
@@ -240,8 +279,8 @@ or collapse the sidebar first.
 | 4 | Pick a clip | The clip card with its video preview and caption — the "preview of the to-be-posted content" the guidelines require. |
 | 5 | Open the export panel | Choose **Post straight to my profile**. Privacy dropdown **unselected**, interaction toggles **all off**, commercial-content toggle **off**. Hold two seconds so the defaults are legible. |
 | 6 | Fill it in | Choose a privacy level, turn on one interaction toggle, show a toggle greyed out because the creator's TikTok settings disable it, then turn on the commercial-content disclosure and let the compliance line appear. |
-| 7 | Post | Click post, show the confirmation, cut to the TikTok profile with the post live. That is `video.publish`, end to end. |
-| 8 | The draft path | Back in the app, choose "send to inbox" on another clip, then show the TikTok inbox notification and the draft waiting there. That is `video.upload`. |
+| 7 | Post, and show the wall | With every answer filled in, Schedule stops being greyed out — hold on that, because a button that only enables once the creator has answered *is* the consent requirement, on camera. Click it and let TikTok's refusal appear verbatim. Say what it is: Direct Post is built and gated on this review, and cannot succeed from an unaudited client. Do not stage a post that TikTok did not accept. |
+| 8 | The draft path | Back in the app, choose "send to inbox" on another clip, then show the TikTok inbox notification and the draft waiting there. That is `video.upload`, and it is the one posting path that films end to end today — **clear the inbox before recording** or it is refused. |
 | 9 | The schedule | The calendar with clips booked into future slots, to show what "automatically" means. |
 
 Record it after the checklist is true, not before — the video is the claim.
