@@ -10,13 +10,14 @@ import {
 } from "@/lib/clipping/analysis";
 import { buildAss, buildClipTitleDialogue, chunkWords, windowSegments } from "@/lib/clipping/captions";
 import { dataPath } from "@/lib/paths";
-import { generateClipTitle } from "@/lib/clipping/editor";
+import { generateClipTitle, leadingSilenceSec } from "@/lib/clipping/editor";
+import { hookTrimSec, shiftSegments } from "@/lib/clipping/hook";
 import { generateViralTitles } from "@/lib/clipping/titles";
 import { copyClipsToDrive, driveDir } from "@/lib/clipping/drive";
 import { downloadAudio, downloadSection, fetchVideoMeta } from "@/lib/clipping/download";
 import { hasAudioStream, probeDimensions, probeDuration, runFfmpeg } from "@/lib/clipping/ffmpeg";
 import { DOWNLOAD_FRAME_H, DOWNLOAD_FRAME_W, planClipFraming } from "@/lib/clipping/autoframe";
-import { centerBlurVideoTopFrac } from "@/lib/clipping/centerBlur";
+import { centerBlurVideoTopFrac, DEFAULT_CENTER_BLUR_ZOOM } from "@/lib/clipping/centerBlur";
 import { framingVideoTopFrac } from "@/lib/clipping/framing";
 import { renderCaptionedVertical, renderPreviewAssets, renderSourceClip, type ClipFramingSpec } from "@/lib/clipping/render";
 import { readSourceMeta, sourceFilePath, type SourceMeta } from "@/lib/clipping/sources";
@@ -652,6 +653,16 @@ async function runPipeline(job: ClipJob, url: string) {
 
 
 /**
+ * How much dead air the ready-to-post render cuts off the front of this clip.
+ * The transcript already knows where the first word lands; `hook.ts` decides
+ * how much of the pause before it can safely go.
+ */
+function clipHookTrim(job: ClipJob, clip: ClipCandidate): number {
+  const windowed = windowSegments(job.sourceCaptions ?? [], clip.start, clip.end);
+  return hookTrimSec(leadingSilenceSec(windowed), clip.end - clip.start);
+}
+
+/**
  * Writes the ASS document burned into a clip's ready-to-post download render:
  * the clip's word-synced captions, windowed to the clip range and styled like a
  * fresh editor project, plus the clip's title in white just above the centered
@@ -659,19 +670,22 @@ async function runPipeline(job: ClipJob, url: string) {
  * the clip ships clean, matching the editor's watermark-off default.
  * `sourceDims` are the input video's pixel dimensions, used to find the video
  * band's top edge; a 16:9 source is assumed when not provided.
+ * `trimSec` is the opening dead air the render is dropping, so the captions and
+ * the title are slid back to match it.
  */
 async function writeClipDownloadAss(
   job: ClipJob,
   clip: ClipCandidate,
   index: number,
   sourceDims?: { width: number; height: number },
-  framing?: ClipFramingSpec
+  framing?: ClipFramingSpec,
+  trimSec: number = 0
 ): Promise<string> {
   const style = defaultCaptionStyle;
   // Window the source captions into clip-local time, then re-chunk the words the
   // same way the editor does so the burned captions match what opening the clip
   // in the editor would show.
-  const windowed = windowSegments(job.sourceCaptions ?? [], clip.start, clip.end);
+  const windowed = shiftSegments(windowSegments(job.sourceCaptions ?? [], clip.start, clip.end), trimSec);
   const words = windowed.flatMap((segment) => segment.words);
   const captions = words.length ? chunkWords(words, style.maxWordsPerCaption) : windowed;
   const captionDoc = buildAss(captions, style, DOWNLOAD_FRAME_W, DOWNLOAD_FRAME_H, true);
@@ -691,7 +705,7 @@ async function writeClipDownloadAss(
       );
   const title = clip.title?.trim() || generateClipTitle(windowed, "");
   const titleLine = title
-    ? `${buildClipTitleDialogue(title, DOWNLOAD_FRAME_W, DOWNLOAD_FRAME_H, 0, Math.max(0.1, clip.end - clip.start), videoTopFrac)}\n`
+    ? `${buildClipTitleDialogue(title, DOWNLOAD_FRAME_W, DOWNLOAD_FRAME_H, 0, Math.max(0.1, clip.end - clip.start - trimSec), videoTopFrac)}\n`
     : "";
   const assPath = path.join(workDir(job.id), `caps-${String(index + 1).padStart(2, "0")}.ass`);
   await writeFile(assPath, `${captionDoc}${titleLine}`, "utf8");
@@ -758,13 +772,19 @@ export async function ensureVerticalClipFile(jobId: string, fileName: string): P
     // ready renders already carry theirs, and double-burning looks broken.
     const framing = (await planClipFraming(filePath)) ?? undefined;
     let assPath: string | null = null;
+    let trim = 0;
     if (job && clip && isMaster) {
-      assPath = await writeClipDownloadAss(job, clip, job.clips.indexOf(clip), dims, framing).catch(() => null);
+      trim = clipHookTrim(job, clip);
+      assPath = await writeClipDownloadAss(job, clip, job.clips.indexOf(clip), dims, framing, trim).catch(() => null);
+      // The ASS is what carries the shifted captions; without it the trim would
+      // desync every line, so a failed caption write gives the trim up too.
+      if (!assPath) trim = 0;
     }
-    await renderCaptionedVertical(filePath, verticalPath, assPath, audio, framing);
+    await renderCaptionedVertical(filePath, verticalPath, assPath, audio, framing, DEFAULT_CENTER_BLUR_ZOOM, trim);
+    if (job && clip && isMaster) clip.hookTrimSec = trim > 0 ? trim : undefined;
   }
-  if (job && clip && isMaster && !clip.downloadFile) {
-    clip.downloadFile = verticalName;
+  if (job && clip && isMaster) {
+    clip.downloadFile ??= verticalName;
     await persistJobs();
   }
   return verticalName;
@@ -837,14 +857,21 @@ async function renderClipIndexes(job: ClipJob, indexes: number[]) {
             reason: framing.framing.reason
           };
         }
+        // Open on the first word, not on the pause before it — the transcript
+        // says where that is, and every second of dead air here is spent on the
+        // only part of a short a scrolling viewer is guaranteed to see.
+        const trim = clipHookTrim(job, clip);
         try {
           const dims = await probeDimensions(produced).catch(() => undefined);
-          const assPath = await writeClipDownloadAss(job, clip, i, dims, framing);
-          await renderCaptionedVertical(produced, downloadPath, assPath, true, framing);
+          const assPath = await writeClipDownloadAss(job, clip, i, dims, framing, trim);
+          await renderCaptionedVertical(produced, downloadPath, assPath, true, framing, DEFAULT_CENTER_BLUR_ZOOM, trim);
         } catch {
-          await renderCaptionedVertical(produced, downloadPath, null, true, framing);
+          await renderCaptionedVertical(produced, downloadPath, null, true, framing, DEFAULT_CENTER_BLUR_ZOOM, trim);
         }
         clip.downloadFile = downloadName;
+        // Recorded so the Uploading Center's preview does not skip the dead air
+        // a second time — this render has already removed it.
+        clip.hookTrimSec = trim > 0 ? trim : undefined;
         // The preview only exists to give the card something to show before the
         // ready render lands. Now that it has, the preview is a third copy of
         // the same clip on disk for nothing — ClipFrame prefers `downloadFile`

@@ -464,6 +464,38 @@ special case.
   it hide the video they are about. The hook still reads as a hook through size,
   weight and the push-in, not through where it sits.
 
+## What a short ships as (`audio.ts`, `hook.ts`)
+
+Two things separate a clip that reads as a real short from one that reads as a
+recording of a stream, and both used to be missing from the file that actually
+posted.
+
+- EVERY SHORT IS MASTERED (`shortsAudioFilter`). Shorts went out with whatever
+  the stream recorded: no gain staging, no loudness target, AAC 128k at the
+  source rate, while long-form had normalized its final mix for ages. They now
+  go out at -14 LUFS under a -1.5 dBTP ceiling with a gentle 3:1 compressor
+  under it, at 48 kHz stereo. Every short-form render reads that one chain —
+  `renderCaptionedVertical`, `renderVertical`, `renderClipLayout` and the Clip
+  Editor export, which applies it AFTER the amix so the creator's clip/music/sfx
+  balance is what gets normalized and not each source separately. Long-form has
+  its own loudnorm in `longform/render.ts`; don't fold the two together, the
+  targets and the LRA differ on purpose.
+- A SHORT OPENS ON THE FIRST WORD (`hookTrimSec`). `leadingSilenceSec` has
+  always known where that is, but only the Uploading Center's PREVIEW acted on
+  it — it seeked past the pause, so the dead air was invisible in the app and
+  shipped in every file. The ready render cuts it, and `hook.ts` caps the cut
+  (never more than a quarter of the clip, never leaving one under five seconds,
+  never a cut under half a second). The burned ASS is shifted by the same amount
+  (`shiftSegments`) or every caption plays a beat late.
+- THE TRIM IS RECORDED ON THE CLIP (`clip.hookTrimSec`). That is what stops the
+  preview skipping the pause a second time on a file that no longer has one, and
+  what keeps renders made before this existed behaving as they did. Don't infer
+  it from the transcript at display time.
+- The 9:16 encode is `fast`/CRF 20, not `veryfast`/23 (`shortsVideoArgs`). A
+  frame carrying burned captions, a title and a screenshare is exactly what x264
+  softens first at the faster setting, and four platforms then re-encode that
+  softness. The extra encode time is the trade.
+
 ## Clip metadata conventions (titles, descriptions, tags)
 
 Clip titles are NEVER raw transcript fragments — a slice of what was said
@@ -479,6 +511,14 @@ fallback when no API key is configured or the call fails.
   descriptions, tags, hashtags: reuse `CHANNEL_KEYWORDS` and
   `TITLE_STYLE_EXAMPLES` from `titles.ts` and write viral, keyword-aware
   copy with Claude rather than slicing the transcript.
+- HASHTAGS FOLLOW THAT RULE (`hashtags.ts`). Everything the app books by itself
+  — the pipeline's booking sheet, the clip job, the ingest scan — reaches the
+  queue through `generateClipMetadata`, which returned `hashtags: []`, so every
+  automatically scheduled short posted untagged with no YouTube `snippet.tags`
+  at all; only the Uploading Center's own button (`publisher/ai-copy.ts`) ever
+  wrote them. The offline fallback matches `CHANNEL_KEYWORDS` on WHOLE WORDS —
+  "AI" as a substring hits "said", "again" and "email", which would tag every
+  clip ever made with the channel's biggest keyword.
 - Every generated clip shows its title in white text centered just above
   the video band (over the blurred fill) by default: the ready-to-post
   render burns it in (`writeClipDownloadAss` + `buildClipTitleDialogue` in

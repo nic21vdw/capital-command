@@ -54,6 +54,13 @@ export type ClipCandidate = {
    */
   downloadFile?: string;
   /**
+   * Seconds of opening dead air `downloadFile` was rendered without, so the
+   * short starts on its first word. Absent on renders made before this existed
+   * and on clips that already opened on the word — which is what tells the
+   * preview whether it still has to seek past the pause itself.
+   */
+  hookTrimSec?: number;
+  /**
    * Latest Clip Editor export for this clip. When present it supersedes
    * `downloadFile` everywhere a finished clip is shown or posted (Clip
    * Generator playback/download, Uploading Center), so the edited clip and

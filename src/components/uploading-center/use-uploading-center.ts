@@ -518,10 +518,13 @@ export function useUploadingCenter(clipProjects: ClipProject[] = []) {
       // The auto renders (downloadFile / master) share the clip's source
       // timeline, so the clip-local transcript tells us how much dead air it
       // opens on. An edited export has its own trim, so we never second-guess
-      // where the user set its start.
-      const startSec = clip.editedFile
-        ? 0
-        : leadingSilenceSec(windowSegments(activeCaptions, clip.start, clip.end));
+      // where the user set its start. A ready render that already cut the dead
+      // air out of the file (`hookTrimSec`) must not have it skipped twice.
+      const alreadyTrimmed = file === clip.downloadFile && clip.hookTrimSec !== undefined;
+      const startSec =
+        clip.editedFile || alreadyTrimmed
+          ? 0
+          : leadingSilenceSec(windowSegments(activeCaptions, clip.start, clip.end));
       return [
         {
           key: `${activeJob.id}/${file}`,
