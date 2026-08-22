@@ -49,6 +49,8 @@ import { LongformTimeline, type TimelineSelection } from "@/components/longform/
 import { CAPTION_PRESETS } from "@/lib/clipping/captions";
 import { applyCaptionPreset, formatClock } from "@/lib/clipping/editor";
 import { PACE_PRESETS, applyManualRange, editedDurationSec, hookCaptions, topicDurationSec, transcriptCaptions, type PacePresetId } from "@/lib/longform/plan";
+import { MIN_LONGFORM_SEC, shortOfLongformNote } from "@/lib/longform/length";
+import { reviewTopicOpenings, segmentReviewHeadline } from "@/lib/longform/segment-review";
 import type { LongformVideoMetadata } from "@/lib/longform/metadata";
 import type { LongformAudioClip, LongformExportRecord, LongformOverlay, LongformProject, LongformTopic, MusicTrack } from "@/lib/longform/types";
 import type { CaptionAlignment, CaptionAnimation, CaptionPosition, CaptionPresetId, CaptionSegment } from "@/types/domain";
@@ -1242,6 +1244,58 @@ function HookReviewCard({
   );
 }
 
+/**
+ * The same review, per topic segment. Every segment is exported as its own
+ * video, so its first seconds are the only opening most of its viewers see —
+ * and a segment inherits the project's hook settings, which means one switch
+ * left off here opens all five of them flat. Derived live so toggling motion
+ * or captions above updates every verdict as it is changed.
+ */
+function SegmentOpeningsCard({ project, onOpenSegment }: { project: LongformProject; onOpenSegment: (topicId: string) => void }) {
+  const reviews = useMemo(() => reviewTopicOpenings(project), [project]);
+  if (reviews.length === 0) return null;
+  const weak = reviews.filter((review) => review.verdict === "weak").length;
+  return (
+    <div className="space-y-2 rounded-lg border border-[var(--border)] px-3 py-2.5 text-xs">
+      <div className="flex items-center gap-2">
+        <Layers className="h-4 w-4 shrink-0 text-[var(--accent)]" />
+        <span className="font-medium text-white">Segment openings</span>
+        <span className="ml-auto tabular-nums text-[var(--muted-foreground)]">
+          {weak > 0 ? `${weak} of ${reviews.length} to fix` : `${reviews.length} reviewed`}
+        </span>
+      </div>
+      <ul className="space-y-1.5">
+        {reviews.map((review, index) => (
+          <li key={review.topicId}>
+            <button
+              type="button"
+              onClick={() => onOpenSegment(review.topicId)}
+              className="flex w-full items-start gap-2 rounded-md px-1.5 py-1 text-left transition hover:bg-white/5"
+            >
+              {review.verdict === "strong" ? (
+                <Check className="mt-0.5 h-3.5 w-3.5 shrink-0 text-emerald-400" />
+              ) : (
+                <AlertTriangle
+                  className={cn(
+                    "mt-0.5 h-3.5 w-3.5 shrink-0",
+                    review.verdict === "weak" ? "text-amber-400" : "text-[var(--muted-foreground)]"
+                  )}
+                />
+              )}
+              <span className="min-w-0 flex-1">
+                <span className="block truncate text-white">
+                  {index + 1}. {review.title}
+                </span>
+                <span className="block text-[var(--muted-foreground)]">{segmentReviewHeadline(review)}</span>
+              </span>
+            </button>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
 function HookPanel({
   project,
   patch,
@@ -1285,6 +1339,10 @@ function HookPanel({
           seek(start);
         }}
       />
+      <SegmentOpeningsCard project={project} onOpenSegment={(topicId) => {
+        const topic = project.topics?.find((item) => item.id === topicId);
+        if (topic) seek(topic.start);
+      }} />
       <Toggle label="Hook enabled" checked={hook.enabled} onChange={(v) => patchHook({ enabled: v })} />
       {hook.enabled && (
         <>
@@ -3234,6 +3292,16 @@ function ExportPanel({
           Clip Generator for shorts.
         </p>
       </div>
+
+      {/* A long-form upload under the floor is a short posted as a feature:
+          no mid-rolls, and a channel page full of forty-second "episodes". The
+          scheduler refuses to book one, so say it here rather than at the slot. */}
+      {editedSec > 0 && editedSec < MIN_LONGFORM_SEC && (
+        <div className="flex items-start gap-2 rounded-lg border border-amber-400/50 bg-amber-400/5 px-3 py-2.5 text-xs text-amber-200">
+          <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+          <span className="min-w-0">{shortOfLongformNote(editedSec)}</span>
+        </div>
+      )}
 
       <div className="space-y-1 rounded-lg border border-[var(--border)] px-3 py-2.5 text-xs text-[var(--muted-foreground)]">
         <p>
