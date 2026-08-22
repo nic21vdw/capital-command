@@ -130,6 +130,9 @@ function shortsEvents(
       ),
       platforms: (Object.keys(item.platforms) as PlatformId[]).map((platform) => PLATFORM_LABELS[platform]),
       status: queueItemStatus(item),
+      // A frame of the file itself, served by the same routes the uploading
+      // board uses: the clip's poster frame, or slide one of a picture post.
+      thumbnailUrl: picture ? `/api/publish/${item.id}/images/0` : `/api/publish/${item.id}/thumbnail`,
       href: picture
         ? carouselId
           ? `/carousels?open=${encodeURIComponent(carouselId)}`
