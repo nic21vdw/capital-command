@@ -282,6 +282,38 @@ refuses them by title, whatever their length. The Instagram vertical cut of a
 car yap is a different thing and is wanted; only the YouTube long-form booking
 is refused.
 
+## The running app owns the publish queue (`queue.ts`)
+
+`publishQueue()` is a process-wide singleton and `load()` reads
+`data/publish-queue.json` ONCE — `loaded` is a one-shot flag. Every write then
+serializes the whole in-memory map back over the file. So a second process that
+edits the queue while the app is up has its work reverted the moment the app
+next saves anything: a booking, a rename, a delete, `settleSchedule` after a
+pipeline booking. It looks like it worked — the file is right, the audit log
+records it — and then it is silently gone.
+
+That is why the publisher CLI is a maintenance tool and not a second door into
+a live queue. Anything that has to change scheduled times while the app is
+running must go through the app's own HTTP API, in-process:
+
+- `POST /api/publish` with an explicit `publishAt` books a video at a chosen
+  slot, which is how to place something outside the earliest-free-slot order
+  `planRunOutputs` deals in. Carousels have no HTTP route — only the pipeline's
+  booking sheet books a deck.
+- `PATCH /api/publish/:id` renames, `DELETE /api/publish/:id` removes.
+
+If a file-level edit is unavoidable, stop the server first or restart it after
+(`scripts/stop-server.ps1`, then `npm run start` — that serves the existing
+`.next` and is not a release), and confirm the times through the API afterwards
+rather than by reading the file.
+
+Two related things the queue does not do for you. Facebook holds a natively
+scheduled Reel 29 days out at most, so a post moved beyond that window keeps
+whatever time Facebook already took — delete the Page post and set the leg back
+to `pending` so it goes up with its other platforms. And YouTube holds its own
+`publishAt`: a moved item that is already `scheduled` on YouTube needs
+`updateYoutubeVideoPublishAt` too, which is what `frontload --push` exists for.
+
 ## Two things the publisher must never do (`schedule.ts`, `duplicates.ts`)
 
 A batch booking once put a run's whole output onto the channel inside one
