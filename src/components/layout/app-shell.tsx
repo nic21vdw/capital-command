@@ -7,6 +7,7 @@ import {
   AtSign,
   Bot,
   CalendarRange,
+  ChevronDown,
   ChevronLeft,
   ChevronRight,
   Clapperboard,
@@ -635,6 +636,121 @@ function CollapsedPipeline({ pathname }: { pathname: string }) {
   );
 }
 
+/**
+ * Below `lg` the app is often living in a quarter of a screen — a pane in
+ * CoLateral, a snapped window — where the old strip of twenty-three tabs meant
+ * scrolling sideways to reach anything. One row instead: which screen you are
+ * on, opening a grouped menu of all of them, with the accounts and settings
+ * beside it.
+ */
+function NarrowChrome({ pathname }: { pathname: string }) {
+  const [menuOpen, setMenuOpen] = useState(false);
+
+  useEffect(() => {
+    if (!menuOpen) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setMenuOpen(false);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [menuOpen]);
+
+  const current = ALL_NAV_ITEMS.find((item) => isActivePath(pathname, item.href)) ?? ALL_NAV_ITEMS[0];
+  const CurrentIcon = current.icon;
+
+  return (
+    <div className="mb-3 lg:hidden">
+      <div className="flex items-center gap-2 rounded-xl border border-[var(--border)] bg-[var(--panel)] p-1.5">
+        <div className="relative min-w-0 flex-1">
+          <button
+            type="button"
+            onClick={() => setMenuOpen((open) => !open)}
+            aria-expanded={menuOpen}
+            aria-label={`${current.label} — open menu`}
+            className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left transition hover:bg-white/5"
+          >
+            <CurrentIcon className="h-4 w-4 shrink-0 text-[var(--accent)]" />
+            <span className="min-w-0 flex-1 truncate text-sm font-medium text-white">{current.label}</span>
+            <ChevronDown className={cn("h-4 w-4 shrink-0 text-[var(--muted-foreground)] transition", menuOpen && "rotate-180")} />
+          </button>
+          {menuOpen && (
+            <>
+              <button
+                type="button"
+                aria-label="Close menu"
+                onClick={() => setMenuOpen(false)}
+                className="fixed inset-0 z-40 cursor-default"
+              />
+              <div className="absolute inset-x-0 top-full z-50 mt-1.5 max-h-[70vh] overflow-y-auto rounded-xl border border-[var(--border-strong)] bg-[var(--panel)] p-2 shadow-2xl">
+                {PIPELINE_STAGES.map((stage) => (
+                  <div key={stage.step} className="pb-1.5">
+                    <p className="flex items-center gap-1.5 px-1 pb-1 text-[10px] font-semibold uppercase tracking-wider text-[var(--muted-foreground)]">
+                      <StageNode step={stage.step} active={stage.items.some((item) => isActivePath(pathname, item.href))} />
+                      {stage.label}
+                    </p>
+                    <div className="grid grid-cols-2 gap-1 sm:grid-cols-3">
+                      {stage.items.map((item) => (
+                        <NarrowNavItem
+                          key={item.href}
+                          item={item}
+                          active={isActivePath(pathname, item.href)}
+                          onSelect={() => setMenuOpen(false)}
+                        />
+                      ))}
+                    </div>
+                  </div>
+                ))}
+                <div className="border-t border-[var(--border)] pt-1.5">
+                  <p className="px-1 pb-1 text-[10px] font-semibold uppercase tracking-wider text-[var(--muted-foreground)]">
+                    Studio
+                  </p>
+                  <div className="grid grid-cols-2 gap-1 sm:grid-cols-3">
+                    {STUDIO_ITEMS.map((item) => (
+                      <NarrowNavItem
+                        key={item.href}
+                        item={item}
+                        active={isActivePath(pathname, item.href)}
+                        onSelect={() => setMenuOpen(false)}
+                      />
+                    ))}
+                    <NarrowNavItem
+                      item={{ href: "/settings", label: "Settings", icon: Settings }}
+                      active={pathname === "/settings"}
+                      onSelect={() => setMenuOpen(false)}
+                    />
+                  </div>
+                </div>
+              </div>
+            </>
+          )}
+        </div>
+        <MobileChannelChip />
+      </div>
+    </div>
+  );
+}
+
+function NarrowNavItem({ item, active, onSelect }: { item: NavItem; active: boolean; onSelect: () => void }) {
+  const Icon = item.icon;
+  const { needsAttention } = usePipelineAttention();
+  const { stream } = useStream();
+  const attention = isPipelineHref(item.href) ? needsAttention : 0;
+  return (
+    <Link
+      href={streamHref(item.href, stream)}
+      onClick={onSelect}
+      className={cn(
+        "flex items-center gap-2 rounded-lg px-2 py-2 text-xs transition",
+        active ? "bg-white/8 font-medium text-white" : "text-[var(--muted-foreground)] hover:bg-white/5 hover:text-white"
+      )}
+    >
+      <Icon className={cn("h-4 w-4 shrink-0", active && "text-[var(--accent)]")} />
+      <span className="min-w-0 flex-1 truncate">{item.label}</span>
+      {attention > 0 && <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-amber-400" />}
+    </Link>
+  );
+}
+
 function ProfileFooter({ collapsed = false }: { collapsed?: boolean }) {
   const { data } = useAppData();
   const profile = data.settings.profile;
@@ -712,7 +828,7 @@ function AppChrome({ children, frame }: { children: React.ReactNode; frame: bool
   };
 
   return (
-    <div className={cn("flex min-h-screen gap-6 px-4 py-4 lg:px-6", frame && "app-frame")}>
+    <div className={cn("flex min-h-screen gap-6 px-2 py-2 sm:px-4 sm:py-4 lg:px-6", frame && "app-frame")}>
       <aside className={cn("hidden shrink-0 transition-[width] duration-300 lg:block", sidebarCollapsed ? "w-20" : "w-72")}>
         <div className="sticky top-4 flex h-[calc(100vh-2rem)] flex-col rounded-xl border border-[var(--border)] bg-[var(--panel)] p-4">
           {/* When collapsed the rail is too narrow for the brand and the toggle
@@ -804,41 +920,7 @@ function AppChrome({ children, frame }: { children: React.ReactNode; frame: bool
         {/* Above everything, on every page: a release waiting on `dev` is the
             one thing worth interrupting whatever is on screen for. */}
         <UpdateBanner />
-        {/* Mobile top bar + nav */}
-        <div className="mb-4 lg:hidden">
-          <div className="mb-3 flex items-center justify-between gap-3 rounded-xl border border-[var(--border)] bg-[var(--panel)] px-4 py-3">
-            <Brand />
-            <div className="flex items-center gap-2">
-              <MobileChannelChip />
-              <Link
-                href="/settings"
-                aria-label="Open settings"
-                className="flex h-9 w-9 items-center justify-center rounded-lg border border-[var(--border)] text-[var(--muted-foreground)] transition hover:text-white"
-              >
-                <Settings className="h-4 w-4" />
-              </Link>
-            </div>
-          </div>
-          <div className="flex items-center gap-1 overflow-x-auto rounded-xl border border-[var(--border)] bg-[var(--panel)] p-1">
-            {ALL_NAV_ITEMS.map((item) => {
-              const active = isActivePath(pathname, item.href);
-              return (
-                <Link
-                  key={item.href}
-                  href={item.href}
-                  className={cn(
-                    "whitespace-nowrap rounded-md px-3 py-2 text-sm transition",
-                    active
-                      ? "bg-white/8 font-medium text-white"
-                      : "text-[var(--muted-foreground)]"
-                  )}
-                >
-                  {item.label}
-                </Link>
-              );
-            })}
-          </div>
-        </div>
+        <NarrowChrome pathname={pathname} />
         {/* Keyed on the route so each navigation pushes the new page in with an
             iOS-style transition. Query-param changes (e.g. tab switches) keep
             the same key and don't re-animate. */}
@@ -851,7 +933,7 @@ function AppChrome({ children, frame }: { children: React.ReactNode; frame: bool
         <div className={cn(frame && "app-frame-hide")}>
           <AppFooter />
           {/* Room for the command bar, which floats over everything. */}
-          <div className="h-32" />
+          <div className="h-24 sm:h-32" />
         </div>
       </main>
       <CommandBar />
@@ -862,7 +944,7 @@ function AppChrome({ children, frame }: { children: React.ReactNode; frame: bool
 /** The connected accounts, shrunk to avatar chips for the mobile top bar. */
 function MobileChannelChip() {
   const state = useConnections();
-  if (!state.loaded) return <span className="h-9 w-9 animate-pulse rounded-full bg-white/10" />;
+  if (!state.loaded) return <span className="h-7 w-7 animate-pulse rounded-full bg-white/10" />;
 
   const others = state.others.filter((row) => row.connected > 0);
 
@@ -874,14 +956,14 @@ function MobileChannelChip() {
           aria-label={`${state.channel.title} — YouTube`}
           title={handleLabel(state.channel, "YouTube")}
         >
-          <ChannelAvatar channel={state.channel} className="h-9 w-9" />
+          <ChannelAvatar channel={state.channel} className="h-7 w-7" />
         </Link>
       ) : (
         <a
           href="/api/auth/google"
           aria-label="Sign in with YouTube"
           title="Sign in with YouTube"
-          className="flex h-9 w-9 items-center justify-center rounded-full bg-[#ff0000]/15 text-[#ff4d4d] transition hover:bg-[#ff0000]/25"
+          className="flex h-7 w-7 items-center justify-center rounded-full bg-[#ff0000]/15 text-[#ff4d4d] transition hover:bg-[#ff0000]/25"
         >
           <PlatformIcon platform="youtube" />
         </a>
@@ -895,7 +977,7 @@ function MobileChannelChip() {
             href="/uploading-center"
             aria-label={label}
             title={label}
-            className="relative block h-7 w-7 shrink-0"
+            className="relative block h-6 w-6 shrink-0"
           >
             <span
               className={cn(

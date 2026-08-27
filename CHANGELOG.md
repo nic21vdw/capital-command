@@ -14,6 +14,15 @@ already shipped.
 
 ## Unreleased
 
+- **The app is usable in a narrow pane again.** In a quarter of a screen — a
+  CoLateral card, a snapped window — the top of every screen used to be a strip
+  of twenty-three tabs you had to drag sideways through, above a profile row,
+  before any of the page showed. That is now one row: the screen you are on,
+  which opens a menu of every screen grouped by pipeline step, with the
+  connected accounts beside it. Settings moved into that menu, the command bar
+  drops its button labels when there is no room for them, and the page starts
+  right under the row instead of a third of the way down.
+
 - **Opening the app no longer means waiting for a build.** A launch that finds
   the build already matching what is checked out now starts the server straight
   away — seconds instead of minutes — and only rebuilds when the code has
