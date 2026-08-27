@@ -311,7 +311,7 @@ export function CommandBar() {
   }
 
   return (
-    <div className="pointer-events-none fixed inset-x-0 bottom-0 z-40 flex justify-center px-3 pb-[max(1.5rem,env(safe-area-inset-bottom))]">
+    <div className="pointer-events-none fixed inset-x-0 bottom-0 z-40 flex justify-center px-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] sm:px-3 sm:pb-[max(1.5rem,env(safe-area-inset-bottom))]">
       <div className="pointer-events-auto w-full max-w-3xl">
         {open && lines.length ? (
           <div className="mb-2 max-h-[45vh] overflow-y-auto rounded-2xl border border-[var(--border)] bg-[var(--panel)]/95 p-3 shadow-2xl backdrop-blur">
@@ -371,7 +371,7 @@ export function CommandBar() {
 
         <div
           className={cn(
-            "flex items-center gap-2 rounded-2xl border bg-[var(--panel)]/95 px-3 py-2 shadow-2xl backdrop-blur transition",
+            "flex items-center gap-1.5 rounded-2xl border bg-[var(--panel)]/95 px-2 py-2 shadow-2xl backdrop-blur transition sm:gap-2 sm:px-3",
             listening ? "border-red-400/60" : "border-[var(--border)]"
           )}
         >
@@ -413,6 +413,7 @@ export function CommandBar() {
               shield.tone === "expired" && "border-red-400/50 bg-red-400/10 text-red-200 hover:bg-red-400/20",
               shield.tone === "read-only" && "border-[var(--border)] text-[var(--muted-foreground)] hover:text-white"
             )}
+            aria-label={shield.label}
           >
             {shield.tone === "armed" ? (
               <Unlock className="h-3.5 w-3.5" />
@@ -421,14 +422,14 @@ export function CommandBar() {
             ) : (
               <ShieldCheck className="h-3.5 w-3.5" />
             )}
-            {shield.label}
+            <span className="hidden sm:inline">{shield.label}</span>
           </button>
 
           <button
             type="button"
             onClick={() => setSpeakReplies((current) => !current)}
             title={speakReplies ? "Answers are read out loud" : "Answers are silent"}
-            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-[var(--border)] text-[var(--muted-foreground)] transition hover:text-white"
+            className="hidden h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-[var(--border)] text-[var(--muted-foreground)] transition hover:text-white sm:flex"
           >
             {speakReplies ? <Volume2 className="h-4 w-4 text-[var(--accent)]" /> : <VolumeX className="h-4 w-4" />}
           </button>
@@ -445,7 +446,7 @@ export function CommandBar() {
             )}
           >
             <Mic className={cn("h-3.5 w-3.5", listening && "animate-pulse")} />
-            {listening ? "Listening" : "Speak"}
+            <span className="hidden sm:inline">{listening ? "Listening" : "Speak"}</span>
           </button>
 
           {thinking ? (
