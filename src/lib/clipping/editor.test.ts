@@ -8,7 +8,8 @@ import {
   generateClipTitleCandidates,
   leadingSilenceSec,
   makeClipProject,
-  makeTitleOverlay
+  makeTitleOverlay,
+  setClipDescription
 } from "./editor";
 import { appDataSchema, clipProjectSchema, defaultCaptionStyle } from "@/lib/storage/schemas";
 import { seedData } from "@/lib/mockData/seed";
@@ -158,18 +159,28 @@ describe("generateClipHashtags", () => {
 });
 
 describe("generateClipDescription", () => {
-  it("always returns the standing CoLateral description, regardless of transcript", () => {
+  // It was a hardcoded block of one person's links, so every install's uploads
+  // credited his accounts. It comes from Settings now, and an install that has
+  // not written one gets nothing rather than somebody else's.
+  it("is empty until this install writes one", () => {
+    setClipDescription("");
+    expect(generateClipDescription([caption("c1", "anything at all")])).toBe("");
+  });
+
+  it("returns whatever this install wrote, regardless of transcript", () => {
+    setClipDescription("Follow along at example.com\n\nYouTube: @yourchannel");
     const captions = [
       caption("c1", "Bitcoin is the future of money. Bitcoin keeps growing every year."),
       caption("c2", "Everyone should learn about bitcoin and money management today.")
     ];
     const description = generateClipDescription(captions);
-    expect(description).toContain("CoLateral");
-    expect(description).toContain("https://colateral.ai");
-    expect(description).toContain("#BuildInPublic");
+    expect(description).toContain("example.com");
+    expect(description).toContain("@yourchannel");
+    expect(description).not.toContain("Bitcoin");
   });
 
   it("returns the same standing description with no captions", () => {
+    setClipDescription("standing copy");
     expect(generateClipDescription([])).toBe(generateClipDescription([caption("c1", "hi")]));
   });
 });

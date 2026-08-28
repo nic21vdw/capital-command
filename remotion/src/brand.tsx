@@ -58,7 +58,9 @@ export const ClaudeSpark: React.FC<{
   );
 };
 
-// The signature "channel bug" — Nic's name, bottom-right, on every segment.
+// The signature "channel bug" - the channel's name, bottom-right, on every
+// segment. Empty draws nothing, which is what an install that has not said
+// whose it is gets; it used to default to one person's name.
 const Signature: React.FC<{ name: string; color: string; sparkColor: string }> = ({
   name,
   color,
@@ -92,7 +94,7 @@ const Signature: React.FC<{ name: string; color: string; sparkColor: string }> =
 
 // Brand layer: a faint accent glow (gentle pulse) + scattered sparks + the
 // signature. `accent` drives the glow so it tracks whatever theme is used;
-// `sparkColor`/`signature` default to Nic's Dracula identity.
+// `sparkColor` defaults to the Dracula identity; `signature` defaults to empty.
 export const BrandDecor: React.FC<{
   accent?: string;
   sparkColor?: string;
@@ -101,7 +103,7 @@ export const BrandDecor: React.FC<{
 }> = ({
   accent = DRACULA_PURPLE,
   sparkColor = DRACULA_PINK,
-  signature = "Nic Vandewetering",
+  signature = "",
   showSignature = true,
 }) => {
   const frame = useCurrentFrame();
@@ -134,7 +136,7 @@ export const BrandDecor: React.FC<{
       <div style={{ position: "absolute", top: 128, right: 210 }}>
         <ClaudeSpark size={24} color={sparkColor} spin={spin * 1.6} opacity={0.5} />
       </div>
-      {showSignature && (
+      {showSignature && signature && (
         <Signature name={signature} color={sparkColor} sparkColor={sparkColor} />
       )}
     </AbsoluteFill>

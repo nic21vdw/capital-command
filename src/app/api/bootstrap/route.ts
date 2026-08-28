@@ -4,6 +4,7 @@ import { projectsWithoutCaptions, stampAppDataSignatures } from "@/lib/clipping/
 import { derivePortfolioSummary } from "@/lib/derive";
 import { ensureExecution } from "@/lib/execution/server";
 import { readApiStatus } from "@/lib/apiStatus";
+import { ensureSetupStamp } from "@/lib/setup";
 import { AppDataUnreadableError, latestGoodSnapshot, readAppData, writeAppData } from "@/lib/storage/store";
 
 export async function GET() {
@@ -36,8 +37,11 @@ export async function GET() {
   // Seed default execution goals and reconcile any ended weeks into debt before
   // the dashboard renders, persisting the result so reconciliation is durable.
   const ensured = ensureExecution(stored);
-  const data = ensured.data;
-  if (ensured.changed) {
+  // An install that was already running predates the setup screen and must not
+  // be shown one. See ensureSetupStamp.
+  const stamped = ensureSetupStamp(ensured.data);
+  const data = stamped.data;
+  if (ensured.changed || stamped.changed) {
     await writeAppData(data);
   }
 

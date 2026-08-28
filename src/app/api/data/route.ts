@@ -5,6 +5,7 @@ import { derivePortfolioSummary } from "@/lib/derive";
 import { ensureExecution } from "@/lib/execution/server";
 import { todayLocal } from "@/lib/execution/dates";
 import { getMarketDataProvider } from "@/lib/marketData";
+import { setClipDescription } from "@/lib/clipping/editor";
 import { seedData } from "@/lib/mockData/seed";
 import { appDataSchema, brandAssetsSchema, clipProjectSchema, contentItemSchema, creatorProfileSchema, defaultCreatorProfile, defaultFbStrategy, executionCompletionSchema, executionGoalSchema, expenseSchema, fbPostSchema, fbStrategySchema, goalSchema, holdingSchema, importHoldingSchema, productLaunchSchema, researchNoteSchema, savedThumbnailSchema, settingsSchema, videoProjectSchema, watchlistSchema, xActivitySchema, xStrategySchema } from "@/lib/storage/schemas";
 import { readApiStatus } from "@/lib/apiStatus";
@@ -274,6 +275,10 @@ export async function POST(request: NextRequest) {
         await setPublishingEnabled(Boolean((payload as { publishingEnabled: boolean }).publishingEnabled));
       }
       data = await externalizeAppDataImages({ ...data, settings });
+      // The enqueue path reads this from module state rather than from the
+      // document, so a saved description has to be pushed to it here or the
+      // next clip goes out with the previous one.
+      setClipDescription(settings.clipDescription ?? "");
       break;
     }
     case "upsertContentItem": {

@@ -14,6 +14,36 @@ already shipped.
 
 ## Unreleased
 
+- **A new install is empty, and yours.** Opening the app for the first time used
+  to write a document full of my records to disk — brokerage accounts, holdings,
+  an expense ledger down to the receipt numbers — so anyone who installed it
+  landed on a dashboard of my money with nothing saying it was not theirs. A
+  fresh install now starts empty and asks two questions: whose channel this is,
+  and which accounts it may post to. Both are skippable and both live in
+  Settings afterwards. Nothing about an install that is already running changes:
+  it is recognised as already set up and never sees that screen.
+
+- **Accounts are connected in the app, not in a text file.** Settings has a
+  Connections section — YouTube, TikTok, Spotify, Instagram, Facebook and
+  Threads, each saying connected or not, with a field per credential and the
+  sign-in button right there once the fields are filled. What you enter is
+  written beside your data, never shown back to you, and never sent anywhere.
+  Anything already in `.env` keeps working and still wins.
+
+- **Exports stop carrying my name.** Rendered carousels were signed
+  "Nic Vandewetering / @nvandewetering" and every generated clip carried a
+  description full of my links and handles, whoever rendered them. The
+  signature is the channel name and handle in Settings, the clip description is
+  a box in Settings you write yourself, and both are empty until you fill them —
+  an unsigned slide being the one answer that cannot be wrong. The X reply brief
+  and the presentation lower third are placeholders now too.
+
+- **Settings is about this app again.** The currency selector, the Alpha Vantage
+  market-data card and the "not financial or investment advice" disclaimer are
+  gone from it — they belonged to the finance screens, not to a publishing tool.
+  "Restore mock data" is "Load demo data", and the demo is invented rather than
+  being my real records.
+
 - **The app wears CoLateral's colours.** CoLateral Dark is now what opens by
   default - the same palette as the rest of CoLateral, rather than a slate grey
   that belonged to nothing - and Office Blue joins it in the theme picker as

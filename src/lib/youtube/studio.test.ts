@@ -39,6 +39,7 @@ function mkItem(input: Partial<ContentItem>): ContentItem {
 function mkProfile(input: Partial<CreatorProfile>): CreatorProfile {
   return {
     channelName: input.channelName ?? "Test Channel",
+    handle: input.handle ?? "",
     platform: input.platform ?? "YouTube",
     subscribers: input.subscribers ?? 0,
     totalViews: input.totalViews ?? 0,

@@ -1,7 +1,7 @@
 import { copyFile, mkdir, readFile, readdir, rename, rm, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { dataPath } from "@/lib/paths";
-import { seedData } from "@/lib/mockData/seed";
+import { emptyData, seedData } from "@/lib/mockData/seed";
 import { appDataSchema } from "@/lib/storage/schemas";
 import type { AppData } from "@/types/domain";
 
@@ -42,7 +42,8 @@ export class AppDataUnreadableError extends Error {
  * content item into demo data, silently, with no copy kept. A file that is
  * there and unreadable is a reason to stop, not to replace — the pipeline store
  * has always worked this way (`readRunsFile` leaves itself unloaded). Only a
- * file that genuinely does not exist gets the seed.
+ * file that genuinely does not exist gets a document written for it, and what
+ * gets written is empty: a first run belongs to whoever is having it.
  */
 export async function readAppData(): Promise<AppData> {
   await ensureStore();
@@ -53,8 +54,8 @@ export async function readAppData(): Promise<AppData> {
       return appDataSchema.parse(JSON.parse(raw));
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === "ENOENT") {
-        await writeAppData(seedData);
-        return seedData;
+        await writeAppData(emptyData);
+        return emptyData;
       }
       if (attempt < 2) {
         // A read can land mid-write; the retry is for that, not for damage.

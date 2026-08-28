@@ -1,4 +1,14 @@
 import React from "react";
+
+/**
+ * Whose name goes on the lower third of these decks. It was one person's,
+ * written into the scene, so anyone rendering this deck introduced him. There
+ * is no settings read here - this file is a static catalogue of demo projects
+ * that Remotion bundles at build time - so it is a constant that says plainly
+ * that it is a placeholder rather than a constant that says a name.
+ */
+const PRESENTER = { name: "Presenter", subtitle: "Your title here" };
+
 import { AbsoluteFill } from "remotion";
 import { VIDEO as BUCKLING_VIDEO } from "../../remotion/theme";
 import { TitleComp } from "../../remotion/compositions/TitleComp";
@@ -111,7 +121,7 @@ export const PROJECTS: Project[] = [
         id: "LowerThird",
         title: "Lower Third",
         note: "Reusable name/title slide-in card",
-        component: onSignalStage(() => <LowerThird name="Nic Vandewetering" subtitle="Structural Engineer, Building CoLateral" />),
+        component: onSignalStage(() => <LowerThird name={PRESENTER.name} subtitle={PRESENTER.subtitle} />),
         durationInFrames: 100
       },
       { id: "CommentCTA", title: "Comment CTA", note: "4s comment call-to-action", component: onSignalStage(CommentCTA), durationInFrames: 120 },

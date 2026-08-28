@@ -1,13 +1,14 @@
 "use client";
 
+import { useState } from "react";
+import { ConnectionsSettings } from "@/components/layout/connections-settings";
 import { ProfileSettings } from "@/components/layout/profile-settings";
 import { ThemePicker } from "@/components/finance/theme-picker";
 import { useAppData } from "@/components/providers/app-provider";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { PageHeader } from "@/components/ui/page-header";
-import { Select } from "@/components/ui/select";
+import { Textarea } from "@/components/ui/textarea";
 
 export function SettingsPage() {
   const { data, apiStatus, mutate } = useAppData();
@@ -17,30 +18,13 @@ export function SettingsPage() {
       <PageHeader
         eyebrow="Settings"
         title="Settings"
-        description="Control theme, currency, refresh behavior, and data exports."
+        description="Who this channel is, which accounts it may post to, how it looks, and what it does unattended."
       />
       <ProfileSettings />
       <ThemePicker />
+      <ConnectionsSettings />
+      <ClipDescriptionCard />
       <div className="grid gap-4 xl:grid-cols-2">
-        <Card>
-          <h2 className="text-lg font-semibold text-white">Preferences</h2>
-          <div className="mt-4 max-w-xs">
-            <p className="mb-2 text-sm text-[var(--muted-foreground)]">Currency</p>
-            <Select
-              value={data.settings.currency}
-              onChange={(event) =>
-                void mutate(
-                  "updateSettings",
-                  { ...data.settings, currency: event.target.value },
-                  { successMessage: "Currency updated." }
-                )
-              }
-            >
-              <option value="CAD">CAD</option>
-              <option value="USD">USD</option>
-            </Select>
-          </div>
-        </Card>
         <Card>
           <h2 className="text-lg font-semibold text-white">Overnight posting</h2>
           <p className="mt-2 text-sm text-[var(--muted-foreground)]">
@@ -101,23 +85,6 @@ export function SettingsPage() {
             </span>
           </label>
         </Card>
-        <Card>
-          <h2 className="text-lg font-semibold text-white">Market data</h2>
-          <div className="mt-4 space-y-4">
-            <div className="flex items-center justify-between rounded-lg border border-[var(--border)] bg-[var(--surface-2)] p-4">
-              <div>
-                <p className="text-sm text-white">Alpha Vantage API key</p>
-                <p className="text-sm text-[var(--muted-foreground)]">Status only. The actual key is never displayed.</p>
-              </div>
-              <Badge className={apiStatus.hasAlphaVantageKey ? "text-emerald-300" : "text-amber-200"}>
-                {apiStatus.hasAlphaVantageKey ? "Configured" : "Using mock fallback"}
-              </Badge>
-            </div>
-            <Button variant="secondary" onClick={() => void mutate("refreshPrices", undefined, { successMessage: "Data refreshed." })}>
-              Refresh market data
-            </Button>
-          </div>
-        </Card>
       </div>
       <div className="grid gap-4 xl:grid-cols-2">
         <Card>
@@ -130,7 +97,7 @@ export function SettingsPage() {
         </Card>
         <Card>
           <h2 className="text-lg font-semibold text-white">Danger zone</h2>
-          <p className="mt-1 text-sm text-[var(--muted-foreground)]">Delete all tracked data with confirmation, or restore the seeded mock dataset.</p>
+          <p className="mt-1 text-sm text-[var(--muted-foreground)]">Delete everything this app tracks, or load a small demo document to see what a populated screen looks like. Loading the demo replaces what is there.</p>
           <div className="mt-4 flex flex-wrap gap-2">
             <Button
               variant="danger"
@@ -143,19 +110,69 @@ export function SettingsPage() {
             >
               Delete all data
             </Button>
-            <Button variant="secondary" onClick={() => void mutate("resetData", undefined, { successMessage: "Mock seed data restored." })}>
-              Restore mock data
+            <Button variant="secondary" onClick={() => void mutate("resetData", undefined, { successMessage: "Demo data loaded." })}>
+              Load demo data
             </Button>
           </div>
         </Card>
       </div>
-      <Card>
-        <h2 className="text-lg font-semibold text-white">Disclaimer</h2>
-        <p className="mt-3 text-sm text-[var(--muted-foreground)]">
-          This app is for personal tracking and educational organization only. It does not provide financial, tax, legal,
-          or investment advice.
-        </p>
-      </Card>
     </div>
+  );
+}
+
+/**
+ * The block of copy that closes every clip this app generates - the links and
+ * handles that go under an upload. It was hardcoded to one person's, so a
+ * buyer's videos credited his accounts; it is now theirs to write, and empty
+ * until they do.
+ */
+function ClipDescriptionCard() {
+  const { data, mutate } = useAppData();
+  const saved = data.settings.clipDescription ?? "";
+  const [draft, setDraft] = useState(saved);
+  const [lastSaved, setLastSaved] = useState(saved);
+
+  // Adjusting state during render rather than in an effect: what was saved is a
+  // prop as far as this box is concerned, and re-syncing the draft to it in an
+  // effect renders the stale text once before correcting it.
+  if (lastSaved !== saved) {
+    setLastSaved(saved);
+    setDraft(saved);
+  }
+
+  return (
+    <Card>
+      <h2 className="text-lg font-semibold text-white">Standing clip description</h2>
+      <p className="mt-1 text-sm text-[var(--muted-foreground)]">
+        Added under every clip this app uploads — your links, your handles, whatever you want on all of them. Leave it
+        empty and clips go out with no standing description.
+      </p>
+      <Textarea
+        className="mt-4 min-h-40"
+        value={draft}
+        spellCheck={false}
+        placeholder="Follow along at example.com&#10;&#10;YouTube: @yourchannel&#10;Instagram: @yourhandle"
+        onChange={(event) => setDraft(event.target.value)}
+      />
+      <div className="mt-3 flex items-center gap-2">
+        <Button
+          disabled={draft === saved}
+          onClick={() =>
+            void mutate(
+              "updateSettings",
+              { ...data.settings, clipDescription: draft },
+              { successMessage: "Saved." }
+            )
+          }
+        >
+          Save
+        </Button>
+        {draft === saved ? null : (
+          <Button variant="secondary" onClick={() => setDraft(saved)}>
+            Discard
+          </Button>
+        )}
+      </div>
+    </Card>
   );
 }

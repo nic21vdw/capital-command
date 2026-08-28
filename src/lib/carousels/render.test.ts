@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { attachSlideImages, IMAGE_SLIDE_LAYOUT } from "@/lib/carousels/imageSlides";
-import { aspectSpec, FRAME_POSITION, FRAME_ZOOM, renderSlideCanvas } from "@/lib/carousels/render";
+import { aspectSpec, FRAME_POSITION, FRAME_ZOOM, renderSlideCanvas, setSlideSignature } from "@/lib/carousels/render";
 import type { CarouselSlide } from "@/types/domain";
 
 /**
@@ -360,5 +360,37 @@ describe("where a framed still sits", () => {
       const [, picture] = drawnImages;
       expect(picture.y + picture.h).toBeLessThanOrEqual(0.6 * spec.height);
     }
+  });
+});
+
+/**
+ * Whose name closes a slide. It was two constants naming one person, so every
+ * deck anyone rendered was signed with his name and handle; it comes from the
+ * creator profile now, and an install that has not said whose it is signs
+ * nothing rather than signing his.
+ */
+describe("the slide signature", () => {
+  it("draws nothing when nobody has said whose channel this is", async () => {
+    setSlideSignature({ name: "", handle: "" });
+    await renderSlideCanvas(copy, 0, 5, "portrait");
+    const text = drawnText.map((line) => line.text).join(" ");
+    expect(text).not.toContain("@");
+    expect(text).not.toContain("Vandewetering");
+  });
+
+  it("draws the channel this install belongs to", async () => {
+    setSlideSignature({ name: "Someone Else", handle: "@someoneelse" });
+    await renderSlideCanvas(copy, 0, 5, "portrait");
+    const text = drawnText.map((line) => line.text).join(" ");
+    expect(text).toContain("Someone Else");
+    expect(text).toContain("@someoneelse");
+  });
+
+  it("draws only the half it has", async () => {
+    setSlideSignature({ name: "Only A Name", handle: "" });
+    await renderSlideCanvas(copy, 0, 5, "portrait");
+    const text = drawnText.map((line) => line.text).join(" ");
+    expect(text).toContain("Only A Name");
+    expect(text).not.toContain("@");
   });
 });

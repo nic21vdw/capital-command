@@ -64,7 +64,16 @@ function flagStr(args: Args, name: string): string | undefined {
 }
 
 async function main() {
-  // Imports are deferred so .env is loaded before any config is read.
+  // Imports are deferred so .env is loaded before any config is read. The
+  // credentials Settings saved are folded in at the same point and for the
+  // same reason: the runner is a separate process from the app, so nothing has
+  // put them into this one's environment yet.
+  const { applyStoredCredentials } = await import("@/lib/publisher/credentials");
+  await applyStoredCredentials();
+
+  const { refreshClipDescription } = await import("@/lib/publisher/standingDescription");
+  await refreshClipDescription();
+
   const { publisherConfig } = await import("@/lib/publisher/config");
   const { publishQueue } = await import("@/lib/publisher/queue");
   const { runDue } = await import("@/lib/publisher/runner");
