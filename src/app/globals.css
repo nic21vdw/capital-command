@@ -29,22 +29,22 @@
 */
 
 :root {
-  /* Fallback = Slate (also applied by the pre-paint script before hydration). */
-  --background: #0b0d12;
-  --foreground: #e7eaf0;
-  --color-white: #ffffff;
-  --panel: #12151c;
-  --surface: #14181f;
-  --surface-2: #181d26;
-  --border: rgba(255, 255, 255, 0.08);
+  /* Fallback = CoLateral Dark (also applied by the pre-paint script before hydration). */
+  --background: #070c12;
+  --foreground: #dce7f0;
+  --color-white: #dce7f0;
+  --panel: #0c1219;
+  --surface: #111922;
+  --surface-2: #16212e;
+  --border: rgba(255, 255, 255, 0.075);
   --border-strong: rgba(255, 255, 255, 0.14);
-  --muted-foreground: #9aa3b2;
-  --accent: #5b8def;
-  --accent-strong: #7aa2f7;
-  --accent-contrast: #07101f;
-  --card-from: #14181f;
-  --card-to: #14181f;
-  --shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --muted-foreground: #6f8396;
+  --accent: #4da6ff;
+  --accent-strong: #7ac0ff;
+  --accent-contrast: #06121c;
+  --card-from: #111922;
+  --card-to: #111922;
+  --shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
   --well: rgba(0, 0, 0, 0.2);
   --well-deep: rgba(0, 0, 0, 0.4);
   color-scheme: dark;
@@ -197,6 +197,48 @@
   color-scheme: light;
 }
 
+[data-theme="colateral"] {
+  --background: #070c12;
+  --foreground: #dce7f0;
+  --color-white: #dce7f0;
+  --panel: #0c1219;
+  --surface: #111922;
+  --surface-2: #16212e;
+  --border: rgba(255, 255, 255, 0.075);
+  --border-strong: rgba(255, 255, 255, 0.14);
+  --muted-foreground: #6f8396;
+  --accent: #4da6ff;
+  --accent-strong: #7ac0ff;
+  --accent-contrast: #06121c;
+  --card-from: #111922;
+  --card-to: #111922;
+  --shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
+  --well: rgba(0, 0, 0, 0.2);
+  --well-deep: rgba(0, 0, 0, 0.4);
+  color-scheme: dark;
+}
+
+[data-theme="colateral-light"] {
+  --background: #f3f6fa;
+  --foreground: #17253a;
+  --color-white: #17253a;
+  --panel: #ffffff;
+  --surface: #f7f9fc;
+  --surface-2: #eaf1f8;
+  --border: rgba(16, 44, 77, 0.12);
+  --border-strong: rgba(16, 44, 77, 0.22);
+  --muted-foreground: #576c83;
+  --accent: #0078d4;
+  --accent-strong: #106ebe;
+  --accent-contrast: #ffffff;
+  --card-from: #f7f9fc;
+  --card-to: #f7f9fc;
+  --shadow: 0 1px 2px rgba(16, 44, 77, 0.06), 0 1px 3px rgba(16, 44, 77, 0.1);
+  --well: rgba(16, 44, 77, 0.05);
+  --well-deep: rgba(16, 44, 77, 0.09);
+  color-scheme: light;
+}
+
 /*
   Light-theme readability remaps
   ------------------------------
@@ -212,7 +254,8 @@
   because the opacity is applied to the remapped hue.
 */
 [data-theme="paper"],
-[data-theme="arctic"] {
+[data-theme="arctic"],
+[data-theme="colateral-light"] {
   --color-amber-100: #78350f;
   --color-amber-200: #92400e;
   --color-amber-300: #b45309;

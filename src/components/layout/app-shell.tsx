@@ -125,7 +125,7 @@ const STUDIO_ITEMS: NavItem[] = [
 const ALL_NAV_ITEMS = [...PIPELINE_STAGES.flatMap((stage) => stage.items), ...STUDIO_ITEMS];
 const SIDEBAR_COLLAPSED_KEY = "capital-command:sidebar-collapsed";
 // Shown in the sidebar brand until a display name is saved in Settings.
-const DEFAULT_BRAND_NAME = "Nic Vandewetering";
+const DEFAULT_BRAND_NAME = "Capital Command";
 
 /** "/" and "/pipeline" are the same screen, so either lights up Stream Pipeline. */
 function isActivePath(pathname: string, href: string): boolean {
@@ -168,7 +168,7 @@ function Brand({ collapsed = false }: { collapsed?: boolean }) {
       <span
         className={cn(
           "flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-lg text-sm font-bold tracking-tight text-white",
-          !avatar && "bg-gradient-to-br from-[#a855f7] to-[#7c3aed] shadow-[0_2px_10px_rgba(124,58,237,0.45)]"
+          !avatar && "bg-gradient-to-br from-[var(--accent)] to-[var(--accent-strong)] text-[var(--accent-contrast)] shadow-[0_2px_10px_color-mix(in_srgb,var(--accent)_45%,transparent)]"
         )}
       >
         {avatar ? (
@@ -251,7 +251,7 @@ function PlatformBadge({ platform, className }: { platform: PlatformKey; classNa
   return (
     <span
       className={cn(
-        "absolute -bottom-0.5 -right-0.5 flex h-4 w-4 items-center justify-center rounded-full border border-[var(--panel)] bg-[#12121a]",
+        "absolute -bottom-0.5 -right-0.5 flex h-4 w-4 items-center justify-center rounded-full border border-[var(--panel)] bg-[var(--panel)]",
         PLATFORM_STYLE[platform].tint,
         className
       )}

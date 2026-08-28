@@ -14,6 +14,21 @@ already shipped.
 
 ## Unreleased
 
+- **The app wears CoLateral's colours.** CoLateral Dark is now what opens by
+  default - the same palette as the rest of CoLateral, rather than a slate grey
+  that belonged to nothing - and Office Blue joins it in the theme picker as
+  CoLateral's light appearance. Every theme you have picked before still works
+  and is still what you get. The chrome that ignored the theme and painted
+  itself white or violet regardless - the clip editor, the timeline, the
+  carousel slide editor, the sidebar avatar - now follows whichever theme is on,
+  and four chips in the podcast and uploading screens that were painting no
+  background at all got the background back.
+
+- **The app calls itself Capital Command.** The browser tab, the sidebar before
+  you save a display name, the installed-app icon and five page titles all said
+  "Nic Vandewetering", which is a person and not this product. They say Capital
+  Command now, and the icon is CoLateral's blue rather than a purple NV.
+
 - **The app is usable in a narrow pane again.** In a quarter of a screen — a
   CoLateral card, a snapped window — the top of every screen used to be a strip
   of twenty-three tabs you had to drag sideways through, above a profile row,

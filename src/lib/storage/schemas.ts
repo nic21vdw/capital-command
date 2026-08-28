@@ -97,7 +97,7 @@ export const settingsSchema = z.object({
   autoScheduleOvernight: z.coerce.boolean().optional(),
   // Unknown/legacy values (e.g. old accent ids) gracefully fall back to undefined,
   // and the UI resolves that to the default preset at runtime.
-  themePreset: z.enum(["slate", "midnight", "graphite", "forest", "dracula", "paper", "arctic"]).optional().catch(undefined),
+  themePreset: z.enum(["colateral", "colateral-light", "slate", "midnight", "graphite", "forest", "dracula", "paper", "arctic"]).optional().catch(undefined),
   profile: userProfileSchema.optional()
 });
 

@@ -1,4 +1,5 @@
 import { defaultXStrategy } from "@/lib/storage/schemas";
+import { DEFAULT_THEME } from "@/lib/themes";
 import type { AppData } from "@/types/domain";
 
 const now = "2026-05-01T09:00:00.000Z";
@@ -6,7 +7,7 @@ const now = "2026-05-01T09:00:00.000Z";
 export const seedData: AppData = {
   settings: {
     currency: "CAD",
-    themePreset: "slate"
+    themePreset: DEFAULT_THEME
   },
   xStrategy: defaultXStrategy,
   // Execution goals are seeded lazily on first dashboard load (see
