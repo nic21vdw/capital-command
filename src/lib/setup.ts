@@ -25,14 +25,47 @@ export function looksUsed(data: AppData): boolean {
 }
 
 /**
- * Stamp a used-but-unstamped document. Returns the document unchanged, and
+ * Whether this document is actually tracking a portfolio.
+ *
+ * The finance screens default to hidden, because they are a portfolio tracker
+ * that grew up beside the publishing pipeline and are not what this pack sells.
+ * An install that has holdings, accounts, expenses, goals or a watchlist in it
+ * is plainly using them, though, and hiding screens somebody is mid-way through
+ * using is a worse answer than showing a buyer one extra tab. So they are
+ * turned on once, for those installs only.
+ */
+export function tracksFinances(data: AppData): boolean {
+  return Boolean(
+    data.holdings.length ||
+      data.accounts.length ||
+      data.expenses.length ||
+      data.goals.length ||
+      data.watchlist.length
+  );
+}
+
+/**
+ * Stamp a used-but-unstamped document, and turn the finance screens on for one
+ * that is already tracking a portfolio. Returns the document unchanged, and
  * `changed: false`, when there is nothing to do - the caller only writes when
  * something actually moved.
  */
 export function ensureSetupStamp(data: AppData): { data: AppData; changed: boolean } {
-  if (data.settings.setupCompletedAt || !looksUsed(data)) return { data, changed: false };
-  return {
-    data: { ...data, settings: { ...data.settings, setupCompletedAt: new Date().toISOString() } },
-    changed: true
-  };
+  const settings = { ...data.settings };
+  let changed = false;
+
+  if (!settings.setupCompletedAt && looksUsed(data)) {
+    settings.setupCompletedAt = new Date().toISOString();
+    changed = true;
+  }
+
+  // Only ever turned ON here, and only when it has not been decided. Someone
+  // who switched the screens off in Settings must not have them switched back
+  // on by their own holdings on the next load.
+  if (settings.personalDashboard === undefined && tracksFinances(data)) {
+    settings.personalDashboard = true;
+    changed = true;
+  }
+
+  return changed ? { data: { ...data, settings }, changed } : { data, changed: false };
 }

@@ -1,6 +1,8 @@
+import { existsSync } from "node:fs";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { emptyData, seedData } from "@/lib/mockData/seed";
-import { ensureSetupStamp, looksUsed } from "@/lib/setup";
+import { ensureSetupStamp, looksUsed, tracksFinances } from "@/lib/setup";
 import { DEFAULT_X_BRIEF, settingsSchema } from "@/lib/storage/schemas";
 import { CONNECTIONS, CONNECTION_FIELD_NAMES } from "@/lib/publisher/connections";
 
@@ -107,5 +109,64 @@ describe("the settings that make an install someone's own", () => {
     const settings = settingsSchema.parse({ currency: "CAD" });
     expect(settings.clipDescription).toBe("");
     expect(settings.setupCompletedAt).toBeUndefined();
+  });
+});
+
+describe("the personal finance screens", () => {
+  // A portfolio tracker sharing an app with a publishing pipeline. Not what the
+  // pack sells, and not something to delete either - somebody is using it.
+  it("are off on an install that is not tracking a portfolio", () => {
+    expect(tracksFinances(emptyData)).toBe(false);
+    expect(emptyData.settings.personalDashboard).toBeUndefined();
+    expect(ensureSetupStamp(emptyData).data.settings.personalDashboard).toBeUndefined();
+  });
+
+  it("are turned on once for an install that already has holdings", () => {
+    const used = { ...emptyData, holdings: [...seedData.holdings, { id: "h", ticker: "X" }] } as typeof emptyData;
+    expect(tracksFinances(used)).toBe(true);
+    expect(ensureSetupStamp(used).data.settings.personalDashboard).toBe(true);
+  });
+
+  it("stay off once somebody has turned them off, holdings or not", () => {
+    const off = {
+      ...emptyData,
+      goals: [{ id: "g" }],
+      settings: { ...emptyData.settings, personalDashboard: false, setupCompletedAt: "2026-01-01T00:00:00.000Z" }
+    } as unknown as typeof emptyData;
+    const stamped = ensureSetupStamp(off);
+    expect(stamped.changed).toBe(false);
+    expect(stamped.data.settings.personalDashboard).toBe(false);
+  });
+
+  it("default to off in the schema readers", () => {
+    expect(settingsSchema.parse({ currency: "CAD" }).personalDashboard).toBeUndefined();
+  });
+});
+
+describe("what the pack does not ship", () => {
+  // Three screens that were dead weight rather than features: a golf swing
+  // analyser and an X reply studio, both behind redirects and imported by
+  // nothing, and an avatar generator whose client says in its own header that
+  // its endpoint paths are guesses.
+  const root = process.cwd();
+
+  it.each([
+    "src/app/golf",
+    "src/components/golf",
+    "src/lib/golf",
+    "src/app/x-strategy",
+    "src/app/api/x-strategy",
+    "src/components/x-strategy",
+    "src/lib/x-strategy/session-brief.ts",
+    "src/app/avatar",
+    "src/app/api/avatar",
+    "src/components/avatar",
+    "src/lib/higgsfield"
+  ])("%s is gone", (relative) => {
+    expect(existsSync(join(root, relative))).toBe(false);
+  });
+
+  it("keeps the date helper the rest of the app imports from x-strategy", () => {
+    expect(existsSync(join(root, "src/lib/x-strategy/analytics.ts"))).toBe(true);
   });
 });

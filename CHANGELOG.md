@@ -14,6 +14,28 @@ already shipped.
 
 ## Unreleased
 
+- **The personal finance screens are yours to show or hide.** Billing, holdings,
+  watchlist, goals and insights are a portfolio tracker that grew up inside a
+  publishing app, and they were reachable only if you remembered the URL. They
+  are a switch in Settings now — off for a new install, ON for yours, because
+  an install already holding accounts and holdings turns them on for itself
+  once. Turned on, they get a sidebar entry; turned off, they hide and nothing
+  is deleted.
+
+- **Three screens that never worked are gone.** The golf swing analyser and the
+  X Reply Studio were both behind redirects to other screens and imported by
+  nothing — whole components and libraries shipping in every build for a page
+  you could not open. The Higgsfield Avatar screen is gone too: its client says
+  in its own header that the endpoint paths are guesses, it needed a key that
+  was never set, and it has never produced a video. Its sidebar entry led
+  nowhere and now does not exist.
+
+- **The test suite stopped depending on somebody else's rate limit.** One
+  publishing test generated its captions by calling a real AI provider, so it
+  went red whenever a free tier was busy — a suite that fails for reasons you
+  cannot fix is a suite everyone learns to ignore. It uses the same offline path
+  a machine with no API key takes, and runs in a fifth of the time.
+
 - **A new install is empty, and yours.** Opening the app for the first time used
   to write a document full of my records to disk — brokerage accounts, holdings,
   an expense ledger down to the receipt numbers — so anyone who installed it

@@ -24,7 +24,6 @@ export const SCREENS: Screen[] = [
   { id: "scripts", href: "/scripts", label: "Scripts", purpose: "written scripts" },
   { id: "music", href: "/music", label: "Music Studio", purpose: "background music" },
   { id: "voiceover", href: "/voiceover", label: "Voiceover", purpose: "generated voiceover" },
-  { id: "avatar", href: "/avatar", label: "Higgsfield Avatar", purpose: "avatar video" },
   { id: "outliers", href: "/outliers", label: "Outlier Radar", purpose: "competitor and outlier research" },
   { id: "launch", href: "/launch", label: "Launch Pad", purpose: "Product Hunt launch planning" },
   { id: "presentation", href: "/presentation", label: "Segment Deck", purpose: "motion video segments" },
