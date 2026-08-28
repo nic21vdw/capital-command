@@ -3,6 +3,8 @@
 import { createContext, startTransition, useCallback, useContext, useEffect, useState } from "react";
 import { toast } from "sonner";
 import { derivePortfolioSummary } from "@/lib/derive";
+import { setSlideSignature } from "@/lib/carousels/render";
+import { setClipDescription } from "@/lib/clipping/editor";
 import { localDateKey } from "@/lib/x-strategy/analytics";
 import { defaultXStrategy } from "@/lib/storage/schemas";
 import { DEFAULT_THEME } from "@/lib/themes";
@@ -234,6 +236,19 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     return () => window.clearTimeout(timer);
   }, [refresh]);
 
+  // Whose install this is, pushed into the two renderers that sign their
+  // output. Both used to hold one person's name as a constant, so anything
+  // anyone exported went out under it. They default to empty and this is what
+  // fills them - from the document, so it follows what Settings saved.
+  useEffect(() => {
+    if (!payload) return;
+    setSlideSignature({
+      name: payload.data.creatorProfile.channelName,
+      handle: payload.data.creatorProfile.handle
+    });
+    setClipDescription(payload.data.settings.clipDescription ?? "");
+  }, [payload]);
+
   const mutate = useCallback(async (action: string, payload?: unknown, options?: { successMessage?: string }) => {
     try {
       const response = await fetch("/api/data", {
@@ -295,6 +310,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
 const emptyCreatorProfile: CreatorProfile = {
   channelName: "",
+  handle: "",
   platform: "YouTube",
   subscribers: 0,
   totalViews: 0,
@@ -483,6 +499,7 @@ export function makeExecutionGoal(input?: Partial<ExecutionGoal>): ExecutionGoal
 export function makeCreatorProfile(input?: Partial<CreatorProfile>): CreatorProfile {
   return {
     channelName: input?.channelName ?? "",
+    handle: input?.handle ?? "",
     platform: input?.platform ?? "YouTube",
     subscribers: input?.subscribers ?? 0,
     totalViews: input?.totalViews ?? 0,

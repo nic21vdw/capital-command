@@ -1,5 +1,5 @@
 import { appleEmojiUrls, emojiImageKey, emojiIn, splitRuns } from "@/lib/emoji/apple";
-import type { CarouselAspectRatio, CarouselSlide, SlideLayer } from "@/types/domain";
+import type { CarouselAspectRatio, CarouselSlide, CreatorSignature, SlideLayer } from "@/types/domain";
 
 /**
  * Canvas rendering for carousel slides. The same routine draws the small card
@@ -497,8 +497,31 @@ function fitCopy(
  * says whose it is, and these decks get reposted stripped of their caption —
  * the marks and the names are the only thing that survives that.
  */
-export const SLIDE_SIGNATURE = "Nic Vandewetering";
-export const SLIDE_HANDLE = "@nvandewetering";
+let slideSignature: CreatorSignature = { name: "", handle: "" };
+
+/**
+ * Whose it is comes from the creator profile, not from this file. It was two
+ * constants naming one person, so every deck anyone rendered was signed with
+ * his name and handle. Empty is the default and empty draws nothing: an
+ * unsigned slide is right for someone who has not said whose it is, and it is
+ * the one answer that cannot be wrong.
+ *
+ * A module-level pair rather than a parameter because `paintSlide` is called
+ * from the editor, the preview, the download path and the tests, and threading
+ * a signature through all four to reach one `fillText` would put the profile
+ * into the signature of every one of them.
+ */
+export function setSlideSignature(signature: Partial<CreatorSignature>) {
+  slideSignature = {
+    name: (signature.name ?? "").trim(),
+    handle: (signature.handle ?? "").trim()
+  };
+}
+
+/** Whose name closes a slide right now. */
+export function slideSignatureOf(): CreatorSignature {
+  return slideSignature;
+}
 
 /**
  * A straight-edged shape. `arcTo` with a zero radius is a straight line, which
@@ -576,6 +599,12 @@ function drawXMark(ctx: SlideContext, x: number, y: number, size: number, ink: s
  * two pictures and two pieces of copy that have to sit on one baseline.
  */
 function drawSignature(ctx: SlideContext, w: number, h: number, scale: number, onDark: boolean) {
+  // Each half is a mark and the copy that belongs to it, and each is drawn only
+  // if there is copy for it: a YouTube mark beside nothing is not a quieter
+  // signature, it is a logo floating on someone's slide.
+  const { name, handle } = slideSignature;
+  if (!name && !handle) return;
+
   const fontPx = 30 * scale;
   ctx.font = `600 ${fontPx}px ${SLIDE_FONT_STACK}`;
   ctx.textAlign = "left";
@@ -584,24 +613,30 @@ function drawSignature(ctx: SlideContext, w: number, h: number, scale: number, o
   const xW = 32 * scale;
   const markGap = 14 * scale;
   const itemGap = 46 * scale;
-  const nameW = ctx.measureText(SLIDE_SIGNATURE).width;
-  const handleW = ctx.measureText(SLIDE_HANDLE).width;
-  const total = ytW + markGap + nameW + itemGap + xW + markGap + handleW;
+  const nameW = name ? ctx.measureText(name).width : 0;
+  const handleW = handle ? ctx.measureText(handle).width : 0;
+  const namePart = name ? ytW + markGap + nameW : 0;
+  const handlePart = handle ? xW + markGap + handleW : 0;
+  const total = namePart + handlePart + (namePart && handlePart ? itemGap : 0);
 
   const ink = onDark ? "rgba(255,255,255,0.74)" : COLATERAL_THEME.counter;
   const baseline = h - 56 * scale;
   let cursor = (w - total) / 2;
 
-  drawYouTubeMark(ctx, cursor, baseline - 25 * scale, ytW, onDark ? 0.85 : 0.92);
-  cursor += ytW + markGap;
-  ctx.fillStyle = ink;
-  ctx.fillText(SLIDE_SIGNATURE, cursor, baseline);
-  cursor += nameW + itemGap;
+  if (name) {
+    drawYouTubeMark(ctx, cursor, baseline - 25 * scale, ytW, onDark ? 0.85 : 0.92);
+    cursor += ytW + markGap;
+    ctx.fillStyle = ink;
+    ctx.fillText(name, cursor, baseline);
+    cursor += nameW + (handle ? itemGap : 0);
+  }
 
-  drawXMark(ctx, cursor, baseline - 25 * scale, xW, ink);
-  cursor += xW + markGap;
-  ctx.fillStyle = ink;
-  ctx.fillText(SLIDE_HANDLE, cursor, baseline);
+  if (handle) {
+    drawXMark(ctx, cursor, baseline - 25 * scale, xW, ink);
+    cursor += xW + markGap;
+    ctx.fillStyle = ink;
+    ctx.fillText(handle, cursor, baseline);
+  }
 }
 
 /** Draws the channel base chrome (counter, heading, body, accent bar, signature). */

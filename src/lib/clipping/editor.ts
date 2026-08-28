@@ -238,28 +238,33 @@ export function generateClipHashtags(captions: CaptionSegment[], max = 4): strin
     .map(([word]) => `#${word.charAt(0).toUpperCase()}${word.slice(1)}`);
 }
 
-/** Standing description applied to every generated clip/short, regardless of
- *  transcript content — the CoLateral "build in public" boilerplate. */
-export const CLIP_DESCRIPTION_TEMPLATE = `I’m building CoLateral, the all-in-one engineering workspace for structural engineers, designers, and technical professionals who want better tools for calculations, drafting, project workflows, and AI-powered engineering work.
+/**
+ * The standing description every generated clip carries.
+ *
+ * This was a hardcoded block of one person's marketing — his site, and his
+ * YouTube, TikTok, Instagram, X and Threads handles — applied to every clip
+ * anyone generated. A buyer's uploads credited his accounts.
+ *
+ * It is now whatever the owner of this install wrote in Settings, and empty
+ * until they write something. Empty is a real answer: a clip with no standing
+ * description is correct, and a clip carrying a stranger's links is not.
+ */
+let clipDescriptionTemplate = "";
 
-Follow along as I build CoLateral in public.
+/** Point the standing clip description at this install's own copy. */
+export function setClipDescription(description: string) {
+  clipDescriptionTemplate = (description ?? "").trim();
+}
 
-Try / follow CoLateral:
-https://colateral.ai
+/** The standing clip description, or "" when the owner has not written one. */
+export function clipDescription(): string {
+  return clipDescriptionTemplate;
+}
 
-Connect with me:
-YouTube: @NicVandewetering
-TikTok: @nicvandewetering
-Instagram: @nicvandewetering
-X: @nicvandeweter
-Threads: @nicvandewetering
-
-#BuildInPublic #ContentCreation #YouTubeCreator #JustPostIt #AI #Engineering #StructuralEngineering #CoLateral #Startup #CreatorEconomy #AITools #Productivity #Tech #Entrepreneurship`;
-
-/** Publish-ready description for a clip. Every generated clip uses the same
- *  standing CoLateral description. */
+/** Publish-ready description for a clip. Every generated clip carries the
+ *  install's own standing description. */
 export function generateClipDescription(_captions: CaptionSegment[]): string {
-  return CLIP_DESCRIPTION_TEMPLATE;
+  return clipDescription();
 }
 
 /**

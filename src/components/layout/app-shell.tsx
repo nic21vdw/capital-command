@@ -33,6 +33,7 @@ import {
 } from "lucide-react";
 import { AppFooter } from "@/components/layout/app-footer";
 import { CommandBar } from "@/components/layout/command-bar";
+import { FirstRun } from "@/components/layout/first-run";
 import { ReleaseProvider } from "@/components/layout/release-provider";
 import { UpdateBanner } from "@/components/layout/update-banner";
 import { UpdateCheckButton } from "@/components/layout/update-check";
@@ -791,11 +792,25 @@ export function AppShell({ children, frame = false }: { children: React.ReactNod
     <ReleaseProvider>
       <PipelineAttentionProvider>
         <StreamProvider>
-          <AppChrome frame={frame}>{children}</AppChrome>
+          <SetupGate>
+            <AppChrome frame={frame}>{children}</AppChrome>
+          </SetupGate>
         </StreamProvider>
       </PipelineAttentionProvider>
     </ReleaseProvider>
   );
+}
+
+/**
+ * An install that has never been set up gets the setup screen instead of the
+ * app, whichever URL it was opened on. It is one check against one field, and
+ * that field is only ever written by finishing or skipping setup - so this
+ * cannot latch on for someone who simply has not filled their profile in.
+ */
+function SetupGate({ children }: { children: React.ReactNode }) {
+  const { data } = useAppData();
+  if (!data.settings.setupCompletedAt) return <FirstRun />;
+  return <>{children}</>;
 }
 
 function AppChrome({ children, frame }: { children: React.ReactNode; frame: boolean }) {

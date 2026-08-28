@@ -98,7 +98,20 @@ export const settingsSchema = z.object({
   // Unknown/legacy values (e.g. old accent ids) gracefully fall back to undefined,
   // and the UI resolves that to the default preset at runtime.
   themePreset: z.enum(["colateral", "colateral-light", "slate", "midnight", "graphite", "forest", "dracula", "paper", "arctic"]).optional().catch(undefined),
-  profile: userProfileSchema.optional()
+  profile: userProfileSchema.optional(),
+  /**
+   * The standing description appended to every generated clip - the links and
+   * handles the owner wants under their own uploads. Empty until they write
+   * one, because the alternative was shipping someone else's.
+   */
+  clipDescription: z.string().default(""),
+  /**
+   * When the owner finished (or dismissed) first-run setup. Absent means a
+   * fresh install that has not said who it belongs to yet, which is what the
+   * setup screen is for. A timestamp rather than a boolean so it is obvious
+   * from the document when this install was actually started.
+   */
+  setupCompletedAt: z.string().optional()
 });
 
 export const contentItemSchema = z.object({
@@ -121,6 +134,13 @@ export const contentItemSchema = z.object({
 
 export const creatorProfileSchema = z.object({
   channelName: z.string().trim().default(""),
+  /**
+   * The @handle that closes a rendered carousel slide, beside the channel name.
+   * Empty by default and empty is a real answer: a slide with nobody's name on
+   * it is correct for someone who has not said whose it is, and it used to be
+   * one person's name whoever rendered it.
+   */
+  handle: z.string().trim().default(""),
   platform: z.enum(["YouTube", "Twitch", "TikTok", "Instagram", "Other"]).default("YouTube"),
   subscribers: z.coerce.number().min(0).default(0),
   totalViews: z.coerce.number().min(0).default(0),
@@ -201,10 +221,17 @@ export const executionDebtSchema = z.object({
 
 // Default positioning/voice/strategy used the first time the X tool loads.
 // Editable in the tool; persisted in the app data store.
+//
+// The Positioning block and the accounts list are deliberately placeholders.
+// They used to be one person's real positioning, his handle and the accounts he
+// follows, so a buyer's first generated reply was written in his voice and
+// about his business. Everything below Positioning - the voice rules, the
+// selection criteria, the execution instructions - is craft rather than
+// identity and is worth keeping as a starting point.
 export const DEFAULT_X_BRIEF = `# X Reply Brief
 
 ## Positioning
-I am Nic Vandewetering (@nic21vdw), a Structural EIT building CoLateral AI: software and AI tools for structural-engineering workflows. My positioning is at the intersection of structural engineering, AI coding agents (Claude Code, Codex), vibe coding, agentic engineering, professional review and verification, and building sophisticated vertical software without a traditional software team.
+REPLACE THIS. Who you are, what you build, and the intersection you speak from - two or three sentences, specific enough that a reply written from it could not have been written by anyone else. Everything below is a starting point; this part has to be yours or the replies will sound like nobody.
 
 ## Core angles
 - Code generation is becoming cheap; judgment, verification, and problem definition become more valuable
@@ -219,7 +246,7 @@ I am Nic Vandewetering (@nic21vdw), a Structural EIT building CoLateral AI: soft
 Claude Code, Codex, agentic engineering, vibe coding, AI coding agents, parallel agents, harness engineering, context engineering, AI code review, evaluation and verification, vertical AI, AI tools for professional or regulated industries, human judgment as the bottleneck, moving from prototypes to reliable production systems
 
 ## Accounts to check regularly
-@mvanhorn, @petergyang, @sachinrekhi, @martinfowler
+REPLACE THIS with the handles worth reading in your field.
 
 ## Voice rules
 - Write like a sharp engineer who understands business and software
@@ -229,7 +256,7 @@ Claude Code, Codex, agentic engineering, vibe coding, AI coding agents, parallel
 - Do NOT start with: Great post, Exactly, This, Couldn't agree more
 - Do NOT use hashtags or emojis
 - Do NOT sound like a motivational influencer
-- Do NOT mention CoLateral unless directly relevant
+- Do NOT mention your own product unless directly relevant
 - Do NOT turn the reply into a sales pitch
 - Do NOT claim to be a licensed professional engineer
 - Do NOT invent projects, results, revenue, customers, or statistics

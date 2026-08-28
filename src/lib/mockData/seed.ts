@@ -1,491 +1,106 @@
-import { defaultXStrategy } from "@/lib/storage/schemas";
+import { appDataSchema, defaultCreatorProfile, defaultXStrategy } from "@/lib/storage/schemas";
 import { DEFAULT_THEME } from "@/lib/themes";
 import type { AppData } from "@/types/domain";
 
 const now = "2026-05-01T09:00:00.000Z";
 
-export const seedData: AppData = {
-  settings: {
-    currency: "CAD",
-    themePreset: DEFAULT_THEME
-  },
+const baseSettings = { currency: "CAD", themePreset: DEFAULT_THEME } as const;
+
+/**
+ * What a fresh install opens on: nothing.
+ *
+ * This file used to hold one person's real records — brokerage accounts,
+ * holdings with their actual quantities, an expense ledger down to the receipt
+ * and order numbers — and `readAppData` wrote them to disk the first time
+ * anyone loaded a page. Someone who installed the app was shown a dashboard of
+ * a stranger's money and had no way to know it was not a demo of their own.
+ *
+ * A fresh document is empty instead. Nothing to mistake for your own data, and
+ * nothing to delete before you start.
+ */
+export const emptyData: AppData = appDataSchema.parse({
+  settings: baseSettings,
+  accounts: [],
+  holdings: [],
+  watchlist: [],
+  researchNotes: [],
+  goals: [],
+  portfolioSnapshots: [],
+  expenses: [],
+  contentItems: [],
+  creatorProfile: defaultCreatorProfile,
+  xStrategy: defaultXStrategy
+});
+
+/**
+ * A demo document, reachable only from Settings → "Load demo data".
+ *
+ * Invented, and obviously so: the channel is a fictional one, the accounts are
+ * named for what they are rather than for a bank, and every number is round.
+ * It exists so someone can see what a populated screen looks like before they
+ * have populated one, and it is never what a first run writes.
+ */
+export const seedData: AppData = appDataSchema.parse({
+  settings: baseSettings,
   xStrategy: defaultXStrategy,
-  // Execution goals are seeded lazily on first dashboard load (see
-  // ensureExecution) so that pre-existing data files migrate cleanly too.
-  executionGoals: [],
-  executionCompletions: [],
-  executionPeriods: [],
-  executionDebt: [],
-  savedThumbnails: [],
-  clipProjects: [],
-  videoProjects: [],
   accounts: [
-    { id: "acct-tfsa", name: "Wealthsimple TFSA", type: "TFSA", institution: "Wealthsimple", currency: "CAD" },
-    { id: "acct-rrsp", name: "Questrade RRSP", type: "RRSP", institution: "Questrade", currency: "CAD" },
-    { id: "acct-cash", name: "Cash Reserve", type: "Cash", institution: "EQ Bank", currency: "CAD" }
+    { id: "acct-demo-invest", name: "Investment account", type: "Non-Registered", institution: "Demo", currency: "CAD" },
+    { id: "acct-demo-cash", name: "Cash reserve", type: "Cash", institution: "Demo", currency: "CAD" }
   ],
-  holdings: [
-    {
-      id: "h-1",
-      ticker: "XEQT",
-      name: "iShares Core Equity ETF Portfolio",
-      assetClass: "ETFs",
-      account: "Wealthsimple TFSA",
-      quantity: 185,
-      averageCost: 28.4,
-      currentPrice: 31.18,
-      dividendYield: 2.1,
-      notes: "Core global equity position.",
-      updatedAt: now
-    },
-    {
-      id: "h-2",
-      ticker: "MSFT",
-      name: "Microsoft",
-      assetClass: "Stocks",
-      account: "Questrade RRSP",
-      quantity: 18,
-      averageCost: 378.55,
-      currentPrice: 421.22,
-      dividendYield: 0.75,
-      notes: "Compounder with AI tailwinds.",
-      updatedAt: now
-    },
-    {
-      id: "h-3",
-      ticker: "BN",
-      name: "Brookfield Corporation",
-      assetClass: "Stocks",
-      account: "Wealthsimple TFSA",
-      quantity: 42,
-      averageCost: 52.15,
-      currentPrice: 61.74,
-      dividendYield: 0.9,
-      notes: "Long-term capital allocator.",
-      updatedAt: now
-    },
-    {
-      id: "h-4",
-      ticker: "CASH",
-      name: "High Interest Savings ETF",
-      assetClass: "Cash",
-      account: "Cash Reserve",
-      quantity: 140,
-      averageCost: 50,
-      currentPrice: 50.12,
-      dividendYield: 4.8,
-      notes: "Liquidity bucket.",
-      updatedAt: now
-    },
-    {
-      id: "h-5",
-      ticker: "BTC",
-      name: "Bitcoin",
-      assetClass: "Crypto",
-      account: "Crypto Wallet",
-      quantity: 0.18,
-      averageCost: 74200,
-      currentPrice: 89500,
-      notes: "Small high-volatility sleeve.",
-      updatedAt: now
-    }
-  ],
-  watchlist: [
-    {
-      id: "w-1",
-      ticker: "ATD",
-      name: "Alimentation Couche-Tard",
-      assetClass: "Stocks",
-      currentPrice: 83.14,
-      targetBuyPrice: 76,
-      reason: "Durable operator with steady compounding profile.",
-      riskRating: 2,
-      convictionRating: 4,
-      notes: "Watch valuation on pullbacks.",
-      dateAdded: "2026-04-14T12:00:00.000Z"
-    },
-    {
-      id: "w-2",
-      ticker: "QQQM",
-      name: "Invesco NASDAQ 100 ETF",
-      assetClass: "ETFs",
-      currentPrice: 210.42,
-      targetBuyPrice: 197,
-      reason: "Possible growth tilt in RRSP.",
-      riskRating: 3,
-      convictionRating: 3,
-      notes: "Compare with existing US equity exposure.",
-      dateAdded: "2026-04-22T12:00:00.000Z"
-    }
-  ],
-  researchNotes: [
-    {
-      id: "n-1",
-      title: "Microsoft moat review",
-      relatedTicker: "MSFT",
-      thesis: "Strong enterprise distribution and recurring revenue support long-duration compounding.",
-      bullCase: "Azure, Office, and AI attach rates deepen customer lock-in.",
-      bearCase: "Multiple compression if AI monetization disappoints.",
-      keyRisks: "Regulatory pressure, cloud competition, execution risk.",
-      valuationThoughts: "Premium quality deserves premium multiple, but position sizing matters.",
-      sourceLinks: ["https://www.microsoft.com/investor"],
-      tags: ["quality", "cloud", "ai"],
-      body: "## Thesis\nMicrosoft remains a high-quality compounder.\n\n## What to watch\n- Azure growth durability\n- Copilot monetization\n- Margin discipline",
-      createdAt: "2026-04-10T15:00:00.000Z",
-      updatedAt: "2026-04-22T18:00:00.000Z"
-    },
-    {
-      id: "n-2",
-      title: "House down payment glidepath",
-      thesis: "Reduce volatility for capital needed within 3 years.",
-      bullCase: "Higher savings rate shortens timeline and reduces sequence risk.",
-      bearCase: "Over-allocating to equities could hurt timing.",
-      keyRisks: "Housing price drift, lifestyle inflation.",
-      valuationThoughts: "Not valuation-driven; this is about liquidity planning.",
-      sourceLinks: [],
-      tags: ["goal", "cash-management"],
-      body: "Keep near-term funds in lower-volatility vehicles and revisit monthly.",
-      createdAt: "2026-04-18T15:00:00.000Z",
-      updatedAt: "2026-04-18T15:00:00.000Z"
-    }
-  ],
-  goals: [
-    {
-      id: "g-1",
-      goalName: "Retirement portfolio",
-      targetAmount: 1500000,
-      currentAmount: 184200,
-      targetDate: "2045-12-31",
-      notes: "Long-term core investing target."
-    },
-    {
-      id: "g-2",
-      goalName: "House down payment",
-      targetAmount: 120000,
-      currentAmount: 42800,
-      targetDate: "2029-06-30",
-      notes: "Blend of cash and short-duration holdings."
-    },
-    {
-      id: "g-3",
-      goalName: "Emergency fund",
-      targetAmount: 30000,
-      currentAmount: 18600,
-      targetDate: "2027-03-31",
-      notes: "Keep in high-interest savings or cash ETFs."
-    }
-  ],
-  portfolioSnapshots: [
-    { date: "2026-04-24", totalValue: 32040 },
-    { date: "2026-04-25", totalValue: 32210 },
-    { date: "2026-04-26", totalValue: 31980 },
-    { date: "2026-04-27", totalValue: 32610 },
-    { date: "2026-04-28", totalValue: 33080 },
-    { date: "2026-04-29", totalValue: 33340 },
-    { date: "2026-04-30", totalValue: 33720 },
-    { date: "2026-05-01", totalValue: 34190 }
-  ],
-  expenses: [
-    {
-      id: "exp-pc-build",
-      name: "Custom PC build",
-      vendor: "Self-assembled",
-      category: "Hardware",
-      frequency: "one-time",
-      amount: 3200,
-      currency: "CAD",
-      date: "2026-01-12",
-      active: true,
-      notes: "Ryzen 9 + 64GB RAM workstation base.",
-      createdAt: "2026-01-12T18:00:00.000Z",
-      updatedAt: "2026-01-12T18:00:00.000Z"
-    },
-    {
-      id: "exp-gpu",
-      name: "RTX 4090 GPU",
-      vendor: "NVIDIA",
-      category: "Hardware",
-      frequency: "one-time",
-      amount: 2400,
-      currency: "CAD",
-      date: "2026-01-12",
-      active: true,
-      notes: "Local model inference and training.",
-      createdAt: "2026-01-12T18:00:00.000Z",
-      updatedAt: "2026-01-12T18:00:00.000Z"
-    },
-    {
-      id: "exp-monitor",
-      name: "Dual 4K monitors",
-      vendor: "Dell",
-      category: "Peripherals",
-      frequency: "one-time",
-      amount: 1100,
-      currency: "CAD",
-      date: "2026-01-15",
-      active: true,
-      notes: "Productivity setup.",
-      createdAt: "2026-01-15T18:00:00.000Z",
-      updatedAt: "2026-01-15T18:00:00.000Z"
-    },
-    {
-      id: "exp-claude",
-      name: "Claude Max",
-      vendor: "Anthropic",
-      category: "AI Subscription",
-      frequency: "monthly",
-      amount: 200,
-      currency: "USD",
-      date: "2026-02-01",
-      active: true,
-      notes: "Primary coding and research assistant.",
-      createdAt: "2026-02-01T18:00:00.000Z",
-      updatedAt: "2026-02-01T18:00:00.000Z"
-    },
-    {
-      id: "exp-chatgpt",
-      name: "ChatGPT Pro",
-      vendor: "OpenAI",
-      category: "AI Subscription",
-      frequency: "monthly",
-      amount: 200,
-      currency: "USD",
-      date: "2026-02-01",
-      active: true,
-      notes: "Secondary model + deep research.",
-      createdAt: "2026-02-01T18:00:00.000Z",
-      updatedAt: "2026-02-01T18:00:00.000Z"
-    },
-    {
-      id: "exp-cursor",
-      name: "Cursor Pro",
-      vendor: "Anysphere",
-      category: "AI Subscription",
-      frequency: "monthly",
-      amount: 20,
-      currency: "USD",
-      date: "2026-02-01",
-      active: true,
-      notes: "AI IDE.",
-      createdAt: "2026-02-01T18:00:00.000Z",
-      updatedAt: "2026-02-01T18:00:00.000Z"
-    },
-    {
-      id: "exp-aws",
-      name: "AWS compute & storage",
-      vendor: "Amazon Web Services",
-      category: "Cloud",
-      frequency: "monthly",
-      amount: 85,
-      currency: "USD",
-      date: "2026-02-01",
-      active: true,
-      notes: "Hosting and backups.",
-      createdAt: "2026-02-01T18:00:00.000Z",
-      updatedAt: "2026-02-01T18:00:00.000Z"
-    },
-    {
-      id: "exp-vercel",
-      name: "Vercel Pro",
-      vendor: "Vercel",
-      category: "Cloud",
-      frequency: "monthly",
-      amount: 20,
-      currency: "USD",
-      date: "2026-02-01",
-      active: true,
-      notes: "App deployments.",
-      createdAt: "2026-02-01T18:00:00.000Z",
-      updatedAt: "2026-02-01T18:00:00.000Z"
-    },
-    {
-      id: "exp-github",
-      name: "GitHub Copilot",
-      vendor: "GitHub",
-      category: "Software",
-      frequency: "yearly",
-      amount: 100,
-      currency: "USD",
-      date: "2026-01-20",
-      active: true,
-      notes: "Inline completions.",
-      createdAt: "2026-01-20T18:00:00.000Z",
-      updatedAt: "2026-01-20T18:00:00.000Z"
-    },
-    {
-      id: "exp-claude-pro-2026-05",
-      name: "Claude Pro",
-      vendor: "Anthropic, PBC",
-      category: "AI Subscription",
-      frequency: "monthly",
-      amount: 31.64,
-      currency: "CAD",
-      date: "2026-05-07",
-      active: false,
-      notes: "Monthly subscription May 7–Jun 7, 2026. Receipt #2288-7381-6072, Invoice #H5BWLGBB-0001. Subtotal CAD $28.00 + HST 13% $3.64 = $31.64. Visa ending 8234. Superseded by Claude Max on 2026-06-02.",
-      createdAt: "2026-05-07T12:00:00.000Z",
-      updatedAt: "2026-05-07T12:00:00.000Z"
-    },
-    {
-      id: "exp-claude-max-2026-06",
-      name: "Claude Max Plan 5x",
-      vendor: "Anthropic, PBC",
-      category: "AI Subscription",
-      frequency: "monthly",
-      amount: 153.37,
-      currency: "CAD",
-      date: "2026-06-02",
-      active: true,
-      notes: "Subscription Jun 2–Jul 2, 2026. Receipt #2805-2380-4892, Invoice #H5BWLGBB-0002. Subtotal CAD $135.73 (includes -$4.27 credit for unused Claude Pro time) + HST 13% $17.64 = $153.37. Visa ending 8234.",
-      createdAt: "2026-06-02T12:00:00.000Z",
-      updatedAt: "2026-06-02T12:00:00.000Z"
-    },
-    {
-      id: "exp-chatgpt-2025-07",
-      name: "ChatGPT Plus",
-      vendor: "OpenAI (Apple App Store)",
-      category: "AI Subscription",
-      frequency: "monthly",
-      amount: 28.24,
-      currency: "CAD",
-      date: "2025-07-23",
-      active: false,
-      notes: "Monthly, renews Aug 23, 2025. Apple Order ID MQ99DY6N1G. Subtotal CAD $24.99 + GST/HST $3.25 = $28.24. Paid Visa 8234 (Apple Pay) $18.24 + Account Balance $10.00. Superseded by 2025-12-30 renewal.",
-      createdAt: "2025-07-23T12:00:00.000Z",
-      updatedAt: "2025-07-23T12:00:00.000Z"
-    },
-    {
-      id: "exp-chatgpt-2025-12",
-      name: "ChatGPT Plus",
-      vendor: "OpenAI (Apple App Store)",
-      category: "AI Subscription",
-      frequency: "monthly",
-      amount: 28.24,
-      currency: "CAD",
-      date: "2025-12-30",
-      active: true,
-      notes: "⚠️ NEEDS MANUAL SPLIT — Apple receipt also bundles Crave Standard With Ads + STARZ ($10.99, non-AI), excluded from this entry. ChatGPT portion: subtotal CAD $24.99 + HST $3.25 = $28.24. Full receipt total CAD $40.66 (subtotal $35.98 + HST $4.68). Order ID MQ99ZH09SV, renews Jan 23, 2026. Visa 8234 (Apple Pay).",
-      createdAt: "2025-12-30T12:00:00.000Z",
-      updatedAt: "2025-12-30T12:00:00.000Z"
-    },
-    {
-      id: "exp-monitor-acer-nitro-xv240y",
-      name: "Acer Nitro 23.8\" FHD 200Hz Gaming Monitor (XV240Y)",
-      vendor: "Best Buy Canada (Store #980, London ON)",
-      category: "Peripherals",
-      frequency: "one-time",
-      amount: 156.72,
-      currency: "CAD",
-      date: "2026-05-14",
-      active: true,
-      notes: "Item #18926805. Order #1029403813, Transaction #980 64 0660 05142026. Subtotal CAD $138.69 (includes EHF $8.70) + HST 13% $18.03 = $156.72. Debit (Chequing) ending 8501.",
-      createdAt: "2026-05-14T12:00:00.000Z",
-      updatedAt: "2026-05-14T12:00:00.000Z"
-    },
-    {
-      id: "exp-adapter-insignia-dp-hdmi",
-      name: "Insignia DisplayPort to HDMI Adapter (NS-PADPHD-C)",
-      vendor: "Best Buy Canada (Store #980, London ON)",
-      category: "Peripherals",
-      frequency: "one-time",
-      amount: 28.86,
-      currency: "CAD",
-      date: "2026-05-25",
-      active: true,
-      notes: "Item #15596340. Transaction #980 41 2903 05252026. Subtotal CAD $25.54 (includes EHF $0.55) + HST 13% $3.32 = $28.86. Visa ending 8234.",
-      createdAt: "2026-05-25T12:00:00.000Z",
-      updatedAt: "2026-05-25T12:00:00.000Z"
-    },
-    {
-      id: "exp-ibuypower-element-pc",
-      name: "iBUYPOWER Element Gaming PC (i5-14400F / RTX 5060Ti / 64GB DDR5 / 2TB NVMe)",
-      vendor: "Best Buy Canada (Marketplace: Tech Nation)",
-      category: "Hardware",
-      frequency: "one-time",
-      amount: 2399.99,
-      currency: "CAD",
-      date: "2026-05-12",
-      active: true,
-      notes: "⚠️ NEEDS FULL TAX RECEIPT — itemized tax not in email; retrieve from BestBuy.ca Order Status page. Order #1029352690, Web Code 19585753. Price CAD $2,399.99 (tax not yet itemized). Charged at shipment May 12, 2026. Windows 11 Home.",
-      createdAt: "2026-05-12T12:00:00.000Z",
-      updatedAt: "2026-05-12T12:00:00.000Z"
-    }
-  ],
+  holdings: [],
+  watchlist: [],
+  researchNotes: [],
+  goals: [],
+  portfolioSnapshots: [],
+  expenses: [],
   creatorProfile: {
-    channelName: "Nic Vandewetering",
+    channelName: "Demo Channel",
     platform: "YouTube",
-    subscribers: 740,
-    totalViews: 92400,
-    watchHours: 3120,
+    subscribers: 500,
+    totalViews: 50000,
+    watchHours: 2000,
     monetized: false,
     subscriberGoal: 1000,
-    monthlyRevenueGoal: 1500,
+    monthlyRevenueGoal: 1000,
     updatedAt: now
   },
   contentItems: [
     {
-      id: "c-1",
-      title: "How I track my portfolio every Sunday",
+      id: "c-demo-1",
+      title: "A finished upload, so the Published column is not empty",
       type: "Video",
       platform: "YouTube",
       status: "Published",
       publishDate: "2026-04-27",
-      url: "https://youtube.com",
-      views: 8420,
-      likes: 612,
-      comments: 87,
-      watchHours: 410,
-      revenue: 142.5,
-      notes: "Best performing upload this month. Make a follow-up.",
+      views: 5000,
+      likes: 400,
+      comments: 50,
+      watchHours: 300,
+      revenue: 100,
+      notes: "Demo row. Delete it once you have uploads of your own.",
       createdAt: "2026-04-20T12:00:00.000Z",
       updatedAt: "2026-04-28T12:00:00.000Z"
     },
     {
-      id: "c-2",
-      title: "Live market open + Q&A",
-      type: "Stream",
-      platform: "YouTube",
-      status: "Published",
-      publishDate: "2026-04-30",
-      views: 1960,
-      likes: 188,
-      comments: 240,
-      watchHours: 520,
-      revenue: 64.2,
-      notes: "Strong chat engagement. Schedule weekly.",
-      createdAt: "2026-04-29T12:00:00.000Z",
-      updatedAt: "2026-04-30T22:00:00.000Z"
-    },
-    {
-      id: "c-3",
-      title: "3 ETFs I'd buy and hold for 20 years",
+      id: "c-demo-2",
+      title: "One still being edited",
       type: "Video",
       platform: "YouTube",
       status: "Editing",
       publishDate: "2026-05-04",
-      notes: "B-roll done. Needs thumbnail + chapters.",
+      notes: "Demo row.",
       createdAt: "2026-04-28T12:00:00.000Z",
-      updatedAt: "2026-05-01T09:00:00.000Z"
+      updatedAt: now
     },
     {
-      id: "c-4",
-      title: "TFSA vs RRSP in 60 seconds",
+      id: "c-demo-3",
+      title: "And one that is still an idea",
       type: "Short",
       platform: "YouTube",
-      status: "Scripting",
-      notes: "Hook: 'You're probably using the wrong account.'",
-      createdAt: "2026-05-01T08:00:00.000Z",
-      updatedAt: "2026-05-01T08:00:00.000Z"
-    },
-    {
-      id: "c-5",
-      title: "Reacting to my worst stock picks",
-      type: "Video",
-      platform: "YouTube",
       status: "Idea",
-      notes: "Vulnerable + educational angle. Could perform well.",
-      createdAt: "2026-05-01T08:30:00.000Z",
-      updatedAt: "2026-05-01T08:30:00.000Z"
+      notes: "Demo row.",
+      createdAt: now,
+      updatedAt: now
     }
   ]
-};
+});

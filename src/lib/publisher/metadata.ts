@@ -1,6 +1,6 @@
 import { runAi } from "@/lib/ai";
 import type { QueueItem } from "@/lib/publisher/types";
-import { CLIP_DESCRIPTION_TEMPLATE } from "@/lib/clipping/editor";
+import { clipDescription } from "@/lib/clipping/editor";
 import { fallbackHashtags, generateClipHashtags } from "@/lib/clipping/hashtags";
 
 /**
@@ -37,8 +37,8 @@ function normalizeHashtags(tags: string[]): string[] {
 }
 
 /** Offline fallback: derive a title from existing clip metadata; every clip
- *  carries the same standing CoLateral description, plus the channel keywords
- *  the clip's own words actually mention as tags. */
+ *  carries this install's standing description, plus the channel keywords the
+ *  clip's own words actually mention as tags. */
 export function fallbackMetadata(source: {
   streamTitle?: string;
   topic?: string;
@@ -48,7 +48,7 @@ export function fallbackMetadata(source: {
   const title = base.length > MAX_TITLE_CHARS ? `${base.slice(0, MAX_TITLE_CHARS - 1)}…` : base;
   return {
     title,
-    description: CLIP_DESCRIPTION_TEMPLATE,
+    description: clipDescription(),
     hashtags: fallbackHashtags(source)
   };
 }
@@ -111,7 +111,7 @@ export async function generateClipMetadata(source: {
     const title = parsed.title.slice(0, MAX_TITLE_CHARS + 10);
     return {
       title,
-      description: CLIP_DESCRIPTION_TEMPLATE,
+      description: clipDescription(),
       hashtags: await generateClipHashtags({ ...source, title })
     };
   } catch {

@@ -126,6 +126,13 @@ export interface Expense {
 
 export type ThemePreset = "colateral" | "colateral-light" | "slate" | "midnight" | "graphite" | "forest" | "dracula" | "paper" | "arctic";
 
+export interface CreatorSignature {
+  /** Channel name drawn at the foot of every rendered slide. Empty draws nothing. */
+  name: string;
+  /** The @handle drawn beside it. Empty draws nothing. */
+  handle: string;
+}
+
 export interface UserProfile {
   /** Display name shown in the profile bar. */
   displayName?: string;
@@ -144,6 +151,10 @@ export interface Settings {
   /** Active full theme preset (sets background, surfaces, text, and accent together). */
   themePreset?: ThemePreset;
   profile?: UserProfile;
+  /** Standing description appended to every generated clip. Empty draws none. */
+  clipDescription?: string;
+  /** When first-run setup was finished or dismissed. Absent means a fresh install. */
+  setupCompletedAt?: string;
 }
 
 export type ContentType = "Video" | "Short" | "Stream" | "Podcast";
@@ -172,6 +183,7 @@ export interface ContentItem {
 
 export interface CreatorProfile {
   channelName: string;
+  handle: string;
   platform: ContentPlatform;
   subscribers: number;
   totalViews: number;
