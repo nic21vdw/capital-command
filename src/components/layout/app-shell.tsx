@@ -25,11 +25,11 @@ import {
   Rocket,
   Scissors,
   Settings,
-  Sparkles,
   UploadCloud,
   Wand2,
   Workflow,
-  type LucideIcon
+  type LucideIcon,
+  WalletCards
 } from "lucide-react";
 import { AppFooter } from "@/components/layout/app-footer";
 import { CommandBar } from "@/components/layout/command-bar";
@@ -116,14 +116,25 @@ const STUDIO_ITEMS: NavItem[] = [
   { href: "/scripts", label: "Scripts", icon: FileText },
   { href: "/outliers", label: "Outlier Radar", icon: Radar },
   { href: "/presentation", label: "Segment Deck", icon: Presentation },
-  { href: "/avatar", label: "Higgsfield Avatar", icon: Sparkles },
   { href: "/voiceover", label: "Voiceover", icon: Mic },
   // Licensed music models (fal.ai) writing tracks into the shared library the
   // Long-Form Editor pulls from — a tool that feeds the flow, not a format.
   { href: "/music", label: "Music Studio", icon: Music4 }
 ];
 
-const ALL_NAV_ITEMS = [...PIPELINE_STAGES.flatMap((stage) => stage.items), ...STUDIO_ITEMS];
+/**
+ * The personal finance screens, listed only on an install that has asked for
+ * them. They were reachable by URL and by nothing else, which meant an owner
+ * who wanted them had to remember the address and a buyer could stumble onto
+ * them. Now the switch decides, and the switch puts them in the sidebar.
+ */
+const FINANCE_ITEM: NavItem = { href: "/finance", label: "Personal Finance", icon: WalletCards };
+
+function studioItemsFor(personalDashboard: boolean | undefined): NavItem[] {
+  return personalDashboard === true ? [...STUDIO_ITEMS, FINANCE_ITEM] : STUDIO_ITEMS;
+}
+
+const ALL_NAV_ITEMS = [...PIPELINE_STAGES.flatMap((stage) => stage.items), ...STUDIO_ITEMS, FINANCE_ITEM];
 const SIDEBAR_COLLAPSED_KEY = "capital-command:sidebar-collapsed";
 // Shown in the sidebar brand until a display name is saved in Settings.
 const DEFAULT_BRAND_NAME = "Capital Command";
@@ -645,6 +656,8 @@ function CollapsedPipeline({ pathname }: { pathname: string }) {
  * beside it.
  */
 function NarrowChrome({ pathname }: { pathname: string }) {
+  const { data: appData } = useAppData();
+  const studioItems = studioItemsFor(appData.settings.personalDashboard);
   const [menuOpen, setMenuOpen] = useState(false);
 
   useEffect(() => {
@@ -706,7 +719,7 @@ function NarrowChrome({ pathname }: { pathname: string }) {
                     Studio
                   </p>
                   <div className="grid grid-cols-2 gap-1 sm:grid-cols-3">
-                    {STUDIO_ITEMS.map((item) => (
+                    {studioItems.map((item) => (
                       <NarrowNavItem
                         key={item.href}
                         item={item}
@@ -816,6 +829,8 @@ function SetupGate({ children }: { children: React.ReactNode }) {
 function AppChrome({ children, frame }: { children: React.ReactNode; frame: boolean }) {
   const pathname = usePathname();
   const settingsActive = pathname === "/settings";
+  const { data } = useAppData();
+  const studioItems = studioItemsFor(data.settings.personalDashboard);
   // Read the stored preference after mount: reading localStorage inside the
   // useState initializer makes the client's first render disagree with the
   // server HTML and triggers a React hydration error.
@@ -908,7 +923,7 @@ function AppChrome({ children, frame }: { children: React.ReactNode; frame: bool
                 Studio
               </p>
               <div className="space-y-0.5">
-                {STUDIO_ITEMS.map((item) => (
+                {studioItems.map((item) => (
                   <NavLink
                     key={item.href}
                     item={item}

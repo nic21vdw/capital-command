@@ -4,6 +4,22 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { withFacebookAlongsideInstagram } from "@/lib/publisher/metaPairing";
 
+/**
+ * Enqueuing generates a title, a description and hashtags, and generating them
+ * asks a model. Unmocked, this test made real HTTP calls to whichever free
+ * provider was configured, so it failed whenever one of them was rate-limited
+ * or down - `HTTP 429 FreeUsageLimitError`, `503 Endpoint is unavailable` - and
+ * a suite that goes red because somebody else's free tier is busy teaches
+ * everyone to ignore it. `runAi` answering null is the same path a machine with
+ * no key takes: metadata falls back to the deterministic heuristic, which is
+ * what this test wants anyway. It is about which platforms a queue item lands
+ * on, not about what a model would have called it.
+ */
+vi.mock("@/lib/ai", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/ai")>();
+  return { ...actual, aiConfigured: () => false, runAi: vi.fn(async () => null) };
+});
+
 vi.mock("@/lib/publisher/hosting", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/publisher/hosting")>();
   return {

@@ -155,6 +155,8 @@ export interface Settings {
   clipDescription?: string;
   /** When first-run setup was finished or dismissed. Absent means a fresh install. */
   setupCompletedAt?: string;
+  /** Show the personal finance screens. Off by default; they are not part of the pack. */
+  personalDashboard?: boolean;
 }
 
 export type ContentType = "Video" | "Short" | "Stream" | "Podcast";

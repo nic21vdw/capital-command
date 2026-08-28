@@ -111,7 +111,22 @@ export const settingsSchema = z.object({
    * setup screen is for. A timestamp rather than a boolean so it is obvious
    * from the document when this install was actually started.
    */
-  setupCompletedAt: z.string().optional()
+  setupCompletedAt: z.string().optional(),
+  /**
+   * Show the personal finance screens - billing, holdings, watchlist, goals and
+   * insights. They are a portfolio tracker that grew up in the same app as the
+   * publishing pipeline, and they are not what this pack sells; a buyer opening
+   * a social tool and finding a brokerage dashboard is reading a different
+   * product. Off by default, so they are hidden unless the owner of an install
+   * asks for them - which keeps the data and the screens rather than deleting
+   * work somebody is using.
+   *
+   * Optional rather than defaulted to false, because absent and false are
+   * different answers here: absent means nobody has decided, which is what lets
+   * an install that is already tracking a portfolio have them turned on once.
+   * Every reader treats absent as off.
+   */
+  personalDashboard: z.coerce.boolean().optional()
 });
 
 export const contentItemSchema = z.object({

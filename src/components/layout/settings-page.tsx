@@ -24,6 +24,37 @@ export function SettingsPage() {
       <ThemePicker />
       <ConnectionsSettings />
       <ClipDescriptionCard />
+      <Card>
+        <h2 className="text-lg font-semibold text-white">Personal finance</h2>
+        <p className="mt-2 text-sm text-[var(--muted-foreground)]">
+          Billing, holdings, watchlist, goals and insights — a portfolio tracker that shares this app with the
+          publishing pipeline. Off unless you want it, because it is not what this app is for.
+        </p>
+        <label className="mt-4 flex items-start gap-2.5 text-sm text-white/90">
+          <input
+            type="checkbox"
+            checked={data.settings.personalDashboard === true}
+            onChange={(event) =>
+              void mutate(
+                "updateSettings",
+                { ...data.settings, personalDashboard: event.target.checked },
+                {
+                  successMessage: event.target.checked
+                    ? "Personal finance is on, and in the sidebar."
+                    : "Personal finance is hidden. Nothing was deleted."
+                }
+              )
+            }
+            className="mt-0.5 h-4 w-4 shrink-0 accent-[var(--accent)]"
+          />
+          <span>
+            Show the personal finance screens
+            <span className="mt-1 block text-xs text-[var(--muted-foreground)]">
+              Turning this off hides the screens and the sidebar entry. Whatever they hold stays in your data.
+            </span>
+          </span>
+        </label>
+      </Card>
       <div className="grid gap-4 xl:grid-cols-2">
         <Card>
           <h2 className="text-lg font-semibold text-white">Overnight posting</h2>
