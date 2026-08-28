@@ -133,7 +133,7 @@ export function TiktokConsent({
   const set = (patch: Partial<TiktokPostOptions>) => onChange({ ...consent, ...patch });
 
   return (
-    <div className="space-y-2 rounded-lg border border-[var(--border)] bg-[var(--surface-1)] p-3">
+    <div className="space-y-2 rounded-lg border border-[var(--border)] bg-[var(--surface)] p-3">
       <div className="flex flex-wrap items-center gap-3 text-xs">
         <span className="font-medium text-white">TikTok</span>
         <label className="flex items-center gap-1.5 text-[var(--muted-foreground)]">

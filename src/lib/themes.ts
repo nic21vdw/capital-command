@@ -13,6 +13,24 @@ export interface ThemePresetDef {
 
 export const themePresets: ThemePresetDef[] = [
   {
+    id: "colateral",
+    label: "CoLateral Dark",
+    description: "CoLateral's own dark palette",
+    mode: "dark",
+    background: "#070c12",
+    surface: "#111922",
+    accent: "#4da6ff"
+  },
+  {
+    id: "colateral-light",
+    label: "Office Blue",
+    description: "CoLateral's light appearance",
+    mode: "light",
+    background: "#f3f6fa",
+    surface: "#ffffff",
+    accent: "#0078d4"
+  },
+  {
     id: "slate",
     label: "Slate",
     description: "Neutral dark, cool blue accent",
@@ -77,7 +95,7 @@ export const themePresets: ThemePresetDef[] = [
   }
 ];
 
-export const DEFAULT_THEME: ThemePreset = "slate";
+export const DEFAULT_THEME: ThemePreset = "colateral";
 
 export const themePresetIds = themePresets.map((theme) => theme.id);
 

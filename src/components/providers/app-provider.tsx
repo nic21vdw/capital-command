@@ -5,6 +5,7 @@ import { toast } from "sonner";
 import { derivePortfolioSummary } from "@/lib/derive";
 import { localDateKey } from "@/lib/x-strategy/analytics";
 import { defaultXStrategy } from "@/lib/storage/schemas";
+import { DEFAULT_THEME } from "@/lib/themes";
 import type { AppData, ContentItem, CreatorProfile, ExecutionCategory, ExecutionGoal, Expense, FbPost, Goal, Holding, ResearchNote, Settings, WatchlistItem, XActivity, XActivityType } from "@/types/domain";
 
 interface BootstrapPayload {
@@ -220,7 +221,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         setLoading(false);
         return;
       }
-      toast.error("Unable to load Nic Vandewetering data.");
+      toast.error("Unable to load Capital Command data.");
       setLoading(false);
     }
   }, []);
@@ -317,7 +318,7 @@ const emptyAppData: AppData = {
   xStrategy: defaultXStrategy,
   settings: {
     currency: "CAD",
-    themePreset: "slate"
+    themePreset: DEFAULT_THEME
   },
   executionGoals: [],
   executionCompletions: [],
@@ -413,7 +414,7 @@ export function makeGoal(input?: Partial<Goal>): Goal {
 export function makeSettings(input?: Partial<Settings>): Settings {
   return {
     currency: input?.currency ?? "CAD",
-    themePreset: input?.themePreset ?? "slate",
+    themePreset: input?.themePreset ?? DEFAULT_THEME,
     profile: input?.profile
   };
 }

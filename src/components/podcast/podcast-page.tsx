@@ -382,7 +382,7 @@ export function PodcastPage() {
             ) : (
               <>
                 <select
-                  className="mt-3 w-full rounded-lg border border-[var(--border)] bg-[var(--surface-1)] px-3 py-2 text-sm text-white"
+                  className="mt-3 w-full rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-sm text-white"
                   value={selected ? `${selected.projectId}:${selected.exportId}` : ""}
                   onChange={(event) => setPicked(event.target.value)}
                 >

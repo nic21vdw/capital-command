@@ -5,8 +5,8 @@ import { ThemePresetProvider, ThemePresetScript } from "@/components/providers/t
 import "@/app/globals.css";
 
 export const metadata: Metadata = {
-  title: "Nic Vandewetering",
-  description: "A personal investment dashboard for tracking holdings, goals, and research."
+  title: "Capital Command",
+  description: "The CoLateral command centre for planning, producing and publishing a channel."
 };
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {

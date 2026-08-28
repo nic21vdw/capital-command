@@ -206,7 +206,7 @@ export function ClipQueue({
                       "inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] transition",
                       on
                         ? "border-[var(--accent)] bg-[var(--accent)]/15 text-[var(--accent)]"
-                        : "border-[var(--border)] bg-[var(--surface-1)] text-[var(--muted-foreground)] hover:border-[var(--accent)] hover:text-[var(--accent)]"
+                        : "border-[var(--border)] bg-[var(--surface)] text-[var(--muted-foreground)] hover:border-[var(--accent)] hover:text-[var(--accent)]"
                     )}
                   >
                     {hashtag}

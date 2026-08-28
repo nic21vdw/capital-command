@@ -1,7 +1,7 @@
 import type { ContentItem, ContentPlatform } from "@/types/domain";
 
 // How the Studio numbers were sourced. "tracked" means derived from the data the
-// user enters in Nic Vandewetering; "live" means pulled from the YouTube API. The UI
+// user enters in Capital Command; "live" means pulled from the YouTube API. The UI
 // keys off this so the same screen works before and after a real connection exists.
 export type StudioSource = "live" | "tracked";
 

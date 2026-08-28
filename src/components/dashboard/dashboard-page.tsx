@@ -37,7 +37,7 @@ export function DashboardPage() {
     <div className="space-y-6">
       <PageHeader
         eyebrow="Dashboard"
-        title="Nic Vandewetering"
+        title="Capital Command"
         description="Overview of your portfolio, watchlist, and research notes."
       />
       <QuoteOfTheDayCard />

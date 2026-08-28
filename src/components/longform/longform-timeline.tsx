@@ -139,7 +139,7 @@ export function LongformTimeline({
     if (!ctx) return;
     ctx.scale(dpr, dpr);
     ctx.clearRect(0, 0, contentWidth, height);
-    const accent = getComputedStyle(canvas).getPropertyValue("--accent").trim() || "#a855f7";
+    const accent = getComputedStyle(canvas).getPropertyValue("--accent").trim() || "#4da6ff";
     ctx.fillStyle = accent;
     ctx.globalAlpha = 0.6;
     const mid = height / 2;

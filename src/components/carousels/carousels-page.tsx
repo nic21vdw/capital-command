@@ -838,7 +838,7 @@ function CarouselCard({
                   event.stopPropagation();
                   setEditor({ index, mode: "preview" });
                 }}
-                className="pointer-events-auto inline-flex items-center gap-1 rounded-md bg-black/60 px-2 py-1 text-[10px] font-medium text-[#fff] backdrop-blur transition hover:bg-black/80"
+                className="pointer-events-auto inline-flex items-center gap-1 rounded-md bg-black/60 px-2 py-1 text-[10px] font-medium text-white backdrop-blur transition hover:bg-black/80"
               >
                 <Eye className="h-3 w-3" /> Preview
               </button>

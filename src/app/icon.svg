@@ -1,12 +1,7 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32">
-  <defs>
-    <linearGradient id="nv" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0" stop-color="#a855f7"/>
-      <stop offset="1" stop-color="#7c3aed"/>
-    </linearGradient>
-  </defs>
-  <rect width="32" height="32" rx="7" fill="url(#nv)"/>
-  <text x="16" y="21.5" text-anchor="middle" fill="#ffffff"
-        font-family="ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif"
-        font-size="14" font-weight="700" letter-spacing="-0.5">NV</text>
+  <rect width="32" height="32" rx="7" fill="#070c12"/>
+  <rect x="0.75" y="0.75" width="30.5" height="30.5" rx="6.25" fill="none" stroke="#4da6ff" stroke-opacity="0.35"/>
+  <text x="16" y="21.5" text-anchor="middle" fill="#4da6ff"
+        font-family="Inter, ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif"
+        font-size="14" font-weight="700" letter-spacing="-0.5">CC</text>
 </svg>
