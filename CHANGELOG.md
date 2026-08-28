@@ -14,6 +14,14 @@ already shipped.
 
 ## Unreleased
 
+- **An overdue Facebook post stops claiming it is too far in the future.** A
+  picture post or Reel whose slot has passed, or is minutes away, is posted
+  rather than scheduled — but the board explained that by saying the slot was
+  "further out than Facebook will hold a post (29 days)", which is the opposite
+  of what had happened. It now says what it says for every other post it has to
+  put up itself. Only a slot genuinely beyond the window gets the 29-day
+  wording.
+
 - **The personal finance screens are yours to show or hide.** Billing, holdings,
   watchlist, goals and insights are a portfolio tracker that grew up inside a
   publishing app, and they were reachable only if you remembered the URL. They

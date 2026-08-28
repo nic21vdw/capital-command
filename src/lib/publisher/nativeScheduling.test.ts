@@ -34,12 +34,26 @@ describe("Facebook's scheduling window", () => {
     expect(preSchedulesItem("facebook", video(at(60 * 24 * 60 * 60_000)), now)).toBe(false);
   });
 
+  // Every slot here is measured from the frozen `now` above, so every reader of
+  // one has to be given that same `now`. The two that were not - a label and a
+  // hint - were answered against the real clock instead, and passed only while
+  // the real clock was still behind a fixture dated 2026-08-26.
   it("hands a picture post over early on the same window as a Reel", () => {
     expect(preSchedulesItem("facebook", deck(at(7 * 24 * 60 * 60_000)), now)).toBe(true);
-    expect(pendingLabel("facebook", deck(at(7 * 24 * 60 * 60_000)))).toBe("Uploading");
+    expect(pendingLabel("facebook", deck(at(7 * 24 * 60 * 60_000)), now)).toBe("Uploading");
     expect(preSchedulesItem("facebook", deck(at(5 * 60_000)), now)).toBe(false);
     expect(preSchedulesItem("facebook", deck(at(60 * 24 * 60 * 60_000)), now)).toBe(false);
-    expect(pendingHint("facebook", deck(at(60 * 24 * 60 * 60_000)))).toContain("29 days");
+    expect(pendingHint("facebook", deck(at(60 * 24 * 60 * 60_000)), now)).toContain("29 days");
+  });
+
+  // The window has two edges and only one of them is "too far". A post that is
+  // imminent or overdue is not pre-scheduled either, and it used to be told the
+  // slot was further out than Facebook would hold it.
+  it("does not tell an overdue post that it is too far in the future", () => {
+    expect(pendingHint("facebook", deck(at(-60_000)), now)).not.toContain("29 days");
+    expect(pendingHint("facebook", deck(at(5 * 60_000)), now)).not.toContain("29 days");
+    expect(pendingHint("facebook", deck(at(5 * 60_000)), now)).toContain("no scheduling API");
+    expect(pendingHint("facebook", deck(at(60 * 24 * 60 * 60_000)), now)).toContain("29 days");
   });
 
   it("leaves the other platforms' answers alone", () => {

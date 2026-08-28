@@ -86,10 +86,20 @@ export function preSchedulesItem(
  * What "pending" means on the board. "Queued" reads as nothing has happened
  * yet, which is true for a platform this app has to post to itself and
  * misleading for one that is about to be handed the file.
+ *
+ * `now` is a parameter for the same reason it is one on `preSchedulesItem`:
+ * with an item, the answer depends on how far off the slot is, and a function
+ * whose answer changes with the clock but cannot be told what the clock says
+ * can only be tested against the real one. It was, and the test aged into a
+ * failure the day its fixture's slot went past.
  */
-export function pendingLabel(platform?: PlatformId, item?: Pick<QueueItem, "mediaKind" | "publishAt">): string {
+export function pendingLabel(
+  platform?: PlatformId,
+  item?: Pick<QueueItem, "mediaKind" | "publishAt">,
+  now: Date = new Date()
+): string {
   if (!platform) return "Queued";
-  if (item) return preSchedulesItem(platform, item) ? "Uploading" : "Posts at slot";
+  if (item) return preSchedulesItem(platform, item, now) ? "Uploading" : "Posts at slot";
   return preSchedules(platform) ? "Uploading" : "Posts at slot";
 }
 
@@ -100,13 +110,21 @@ const PLATFORM_NAMES: Record<PlatformId, string> = {
   facebook: "Facebook"
 };
 
-export function pendingHint(platform?: PlatformId, item?: Pick<QueueItem, "mediaKind" | "publishAt">): string {
+export function pendingHint(
+  platform?: PlatformId,
+  item?: Pick<QueueItem, "mediaKind" | "publishAt">,
+  now: Date = new Date()
+): string {
   if (!platform) return "Waiting for the publish runner.";
   const name = PLATFORM_NAMES[platform];
-  if (item && platform === "facebook" && !preSchedulesItem(platform, item)) {
+  // Only a slot BEYOND the window gets the "further out than Facebook will
+  // hold it" wording. One that is inside a quarter of an hour, or already past,
+  // is also not pre-scheduled - and telling someone their overdue post is too
+  // far in the future is worse than saying nothing.
+  if (item && platform === "facebook" && facebookLead(item.publishAt, now) === "too-far") {
     return "This slot is further out than Facebook will hold a post (29 days), so it goes up as soon as it is inside that window.";
   }
-  return (item ? preSchedulesItem(platform, item) : preSchedules(platform))
+  return (item ? preSchedulesItem(platform, item, now) : preSchedules(platform))
     ? `${name} takes the upload ahead of time — it goes up now and ${name} publishes it at this slot.`
     : `${name} has no scheduling API, so Capital Command posts this itself at this slot. Nothing else is needed.`;
 }
