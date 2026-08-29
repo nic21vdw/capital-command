@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { CLIP_SECTION_FORMAT, FULL_VIDEO_FORMAT } from "./encode";
 import { cleanYtDlpError, clientAttemptArgs, downloadWithFallbacks, YT_PLAYER_CLIENTS } from "./download";
 
 /**
@@ -72,5 +73,17 @@ describe("cleanYtDlpError", () => {
 
   it("explains a 403 without leaking the temporary URL", () => {
     expect(cleanYtDlpError(new Error("HTTP Error 403: Forbidden"))).toMatch(/temporary media URL/i);
+  });
+});
+
+describe("source format selectors", () => {
+  it("pulls a clip section at 1080p rather than stretching 720p", () => {
+    expect(CLIP_SECTION_FORMAT).toContain("height<=1080");
+    expect(CLIP_SECTION_FORMAT).not.toContain("720");
+  });
+
+  it("keeps a full VOD at 1440p when the source has it", () => {
+    expect(FULL_VIDEO_FORMAT).toContain("height<=1440");
+    expect(FULL_VIDEO_FORMAT).not.toContain("720");
   });
 });

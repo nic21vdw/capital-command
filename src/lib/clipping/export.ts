@@ -1,6 +1,7 @@
 import { mkdir, rm, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { shortsAudioArgs, shortsAudioFilter } from "@/lib/clipping/audio";
+import { containScale, masterVideoArgs, scaleFilter } from "@/lib/clipping/encode";
 import { buildAss, buildTextOverlayDialogue, buildWatermarkDialogue } from "@/lib/clipping/captions";
 import { hasAudioStream, isRenderCanceled, probeDuration, runFfmpeg } from "@/lib/clipping/ffmpeg";
 import { attachEditedClipRender, outputDir, workDir } from "@/lib/clipping/jobs";
@@ -99,8 +100,8 @@ export function cancelExport(id: string): ExportRecord | undefined {
 }
 
 function crf(format: string, quality: ExportSpec["settings"]["quality"]): number {
-  if (format === "webm") return quality === "high" ? 24 : quality === "medium" ? 31 : 37;
-  return quality === "high" ? 18 : quality === "medium" ? 23 : 28;
+  if (format === "webm") return quality === "high" ? 20 : quality === "medium" ? 28 : 34;
+  return quality === "high" ? 16 : quality === "medium" ? 20 : 24;
 }
 
 function dataUrlToBuffer(src: string): Buffer | null {
@@ -217,7 +218,7 @@ function centerBlurChain(
   return (
     `[${inLabel}]split=2[__bg][__fg];` +
     `[__bg]scale=${w}:${h}:force_original_aspect_ratio=increase,crop=${w}:${h},boxblur=24:4,eq=brightness=-0.1[__bgb];` +
-    `[__fg]scale=${w}:${h}:force_original_aspect_ratio=decrease,scale=iw*${cropScale}:ih*${cropScale},setsar=1[__fgs];` +
+    `[__fg]${containScale(w, h)},${scaleFilter(`iw*${cropScale}`, `ih*${cropScale}`)},setsar=1[__fgs];` +
     `[__bgb][__fgs]overlay=x='${x}':y='${y}'[${outLabel}]`
   );
 }
@@ -225,7 +226,7 @@ function centerBlurChain(
 /** Letterboxes the full source frame into the output with no blur fill. */
 function fitChain(inLabel: string, outLabel: string, w: number, h: number): string {
   return (
-    `[${inLabel}]scale=${w}:${h}:force_original_aspect_ratio=decrease,` +
+    `[${inLabel}]${containScale(w, h)},` +
     `pad=${w}:${h}:(ow-iw)/2:(oh-ih)/2:color=black,setsar=1[${outLabel}]`
   );
 }
@@ -312,7 +313,7 @@ async function buildArgs(spec: ExportSpec, dir: string): Promise<{ args: string[
       ? `,rotate=${rad.toFixed(4)}:c=none:ow=rotw(${rad.toFixed(4)}):oh=roth(${rad.toFixed(4)})`
       : "";
     parts.push(
-      `[${inputIdx}:v]format=rgba,colorchannelmixer=aa=${o.opacity.toFixed(3)},scale=${targetW}:-1${rotate}[ov${k}]`
+      `[${inputIdx}:v]format=rgba,colorchannelmixer=aa=${o.opacity.toFixed(3)},${scaleFilter(targetW, -1)}${rotate}[ov${k}]`
     );
     const enable = `:enable='between(t,${o.start},${o.end > o.start ? o.end : dur})'`;
     const next = `vov${k}`;
@@ -386,10 +387,10 @@ async function buildArgs(spec: ExportSpec, dir: string): Promise<{ args: string[
 
   if (settings.format === "webm") {
     args.push("-c:v", "libvpx-vp9", "-b:v", "0", "-crf", String(crf("webm", settings.quality)));
-    if (audioMapped) args.push("-c:a", "libopus", "-b:a", "128k");
+    if (audioMapped) args.push("-c:a", "libopus", "-b:a", "192k");
     else args.push("-an");
   } else {
-    args.push("-c:v", "libx264", "-preset", "veryfast", "-crf", String(crf("mp4", settings.quality)), "-pix_fmt", "yuv420p");
+    args.push(...masterVideoArgs(crf("mp4", settings.quality)));
     if (audioMapped) args.push(...shortsAudioArgs());
     else args.push("-an");
     args.push("-movflags", "+faststart");

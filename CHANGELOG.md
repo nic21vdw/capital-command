@@ -14,6 +14,15 @@ already shipped.
 
 ## Unreleased
 
+- **Shorts and long-form keep the original picture and sound instead of
+  softening them.** Clip sections were pulled at 720p and stretched to fill
+  the frame, and both the 9:16 render and the long-form body encoded with a
+  fast, lossy setting that turned screenshare text and the mix mushy. They
+  now take the full 1080p (1440p when a long VOD has it), scale with
+  lanczos, encode at CRF 17, and keep the audio at 320 kbps. The punch-in
+  zoom no longer upscales a smaller window either, so the opening of a
+  long-form edit stays sharp.
+
 - **An overdue Facebook post stops claiming it is too far in the future.** A
   picture post or Reel whose slot has passed, or is minutes away, is posted
   rather than scheduled — but the board explained that by saying the slot was

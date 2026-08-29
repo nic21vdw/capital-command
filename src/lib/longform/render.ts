@@ -1,6 +1,7 @@
 import { stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { buildAss, buildClipTitleDialogue } from "@/lib/clipping/captions";
+import { masterAudioArgs, masterVideoArgs, scaleFilter } from "@/lib/clipping/encode";
 import { isRenderCanceled, runFfmpeg } from "@/lib/clipping/ffmpeg";
 import { animatedReframeChain } from "@/lib/clipping/render";
 import { readSourceMeta, sourceFilePath } from "@/lib/clipping/sources";
@@ -46,14 +47,12 @@ const HOOK_TITLE_MAX_CHARS = 90;
 // Both parts encode with identical codec/size/fps/audio settings so the
 // concat demuxer can join them with a pure stream copy.
 //
-// `superfast` (vs `veryfast`) roughly halves the encode time. In CRF mode the
-// preset trades encoder effort for file size at (near) constant visual quality
-// — so the exported clip looks the same, it just gets a little larger. That's a
-// good deal for the body pass, which re-encodes the whole kept timeline and
-// dominates export time. (The real cure for slow exports is not re-encoding the
-// body at all — see the module header — but this keeps cuts frame-accurate.)
-const VIDEO_ENC = ["-c:v", "libx264", "-preset", "superfast", "-crf", "20"];
-const AUDIO_ENC = ["-c:a", "aac", "-b:a", "160k", "-ar", "48000", "-ac", "2"];
+// The shared master (`encode.ts`) is medium / CRF 17 / AAC 320k. superfast
+// at CRF 20 was the speed trade that softened screenshare text and the mix
+// on a file that four platforms then re-encode. Encode time is the cost of
+// keeping the original looking like the original.
+const VIDEO_ENC = masterVideoArgs();
+const AUDIO_ENC = masterAudioArgs();
 
 // Streaming platforms play everything at roughly -14 LUFS. A raw stream edit
 // lands nearer -25 dBFS mean, which sounds broken-quiet next to the video
@@ -88,7 +87,7 @@ function verticalWrapChain(inLabel: string, outLabel: string): string {
     `[${inLabel}]split=2[__vwbg][__vwfg];` +
     `[__vwbg]scale=${VERT_W / 2}:${VERT_H / 2}:force_original_aspect_ratio=increase,crop=${VERT_W / 2}:${VERT_H / 2},` +
     `boxblur=12:2,eq=brightness=-0.08,scale=${VERT_W}:${VERT_H}[__vwbgb];` +
-    `[__vwfg]scale=${VERT_W}:-2[__vwfgs];` +
+    `[__vwfg]${scaleFilter(VERT_W, -2)}[__vwfgs];` +
     `[__vwbgb][__vwfgs]overlay=(W-w)/2:(H-h)/2[${outLabel}]`
   );
 }
@@ -361,7 +360,7 @@ async function runExport(projectId: string, recordId: string, signal: AbortSigna
         ]
       : [
           `[0:v]select='${expr}',setpts=N/FRAME_RATE/TB,` +
-            `scale=${FRAME_W}:${FRAME_H}:force_original_aspect_ratio=decrease,` +
+            `${scaleFilter(FRAME_W, FRAME_H, ["force_original_aspect_ratio=decrease"])},` +
             `pad=${FRAME_W}:${FRAME_H}:(ow-iw)/2:(oh-ih)/2:color=0x050914,setsar=1,fps=${FPS},format=yuv420p[vout]`
         ];
     if (hasAudio) filters.push(`[0:a]aselect='${expr}',asetpts=N/SR/TB[aout]`);
@@ -660,7 +659,7 @@ async function applyOverlays(
     const scaledW = Math.max(2, Math.round(item.width * frameW));
     // Scale to the requested width (keeping aspect), then apply opacity.
     filters.push(
-      `[${index + 1}:v]scale=${scaledW}:-1,format=rgba,colorchannelmixer=aa=${item.opacity.toFixed(3)}[ov${index}]`
+      `[${index + 1}:v]${scaleFilter(scaledW, -1)},format=rgba,colorchannelmixer=aa=${item.opacity.toFixed(3)}[ov${index}]`
     );
   });
   let prev = "0:v";
