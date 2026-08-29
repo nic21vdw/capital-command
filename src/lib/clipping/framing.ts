@@ -1,4 +1,5 @@
 import { centerBlurVideoTopFrac, DEFAULT_CENTER_BLUR_ZOOM } from "@/lib/clipping/centerBlur";
+import { coverScale } from "@/lib/clipping/encode";
 import type { Rect } from "@/lib/clipping/layouts";
 import type { SubjectTrack } from "@/lib/clipping/subject";
 
@@ -205,7 +206,7 @@ export function subjectFillChain(
   const y = keyframeExpression(keyframes.map((k) => ({ t: k.t, v: clamp(k.y * target.sourceH, 0, maxY) })));
   return (
     `[${inLabel}]crop=${cropW}:${cropH}:x='${x}':y='${y}',` +
-    `scale=${target.targetW}:${target.targetH}:force_original_aspect_ratio=increase,` +
+    `${coverScale(target.targetW, target.targetH)},` +
     `crop=${target.targetW}:${target.targetH},setsar=1[${outLabel}]`
   );
 }

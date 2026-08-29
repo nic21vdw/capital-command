@@ -1,5 +1,6 @@
 import { shortsAudioArgs, shortsAudioFilter, shortsVideoArgs } from "@/lib/clipping/audio";
 import { clampCenterBlurZoom, DEFAULT_CENTER_BLUR_ZOOM } from "@/lib/clipping/centerBlur";
+import { containScale, coverScale, evenPixels, masterAudioArgs, masterVideoArgs, scaleFilter } from "@/lib/clipping/encode";
 import { runFfmpeg } from "@/lib/clipping/ffmpeg";
 import {
   SPEAKER_STACK_LAYOUT,
@@ -50,8 +51,8 @@ function layerChain(layer: LayoutLayer, layerName: string, frameW: number, frame
   // rect so the blurred base shows through the letterbox instead of a box.
   const fitted =
     layer.fit === "contain"
-      ? `scale=${dest.w}:${dest.h}:force_original_aspect_ratio=decrease`
-      : `scale=${dest.w}:${dest.h}:force_original_aspect_ratio=increase,crop=${dest.w}:${dest.h}`;
+      ? containScale(dest.w, dest.h)
+      : `${coverScale(dest.w, dest.h)},crop=${dest.w}:${dest.h}`;
 
   return {
     // Center the (possibly smaller) fitted layer inside its dest rect.
@@ -85,7 +86,7 @@ export function reframeChain(
   return (
     `[${inLabel}]split=2[__bg][__fg];` +
     `[__bg]scale=${w}:${h}:force_original_aspect_ratio=increase,crop=${w}:${h},boxblur=24:4,eq=brightness=-0.08[__bgb];` +
-    `[__fg]scale=${w}:${h}:force_original_aspect_ratio=increase,scale=iw*${cropScale}:ih*${cropScale},crop=${w}:${h}:x='${cropX}':y='${cropY}'[__fgs];` +
+    `[__fg]${coverScale(w, h)},${scaleFilter(`iw*${cropScale}`, `ih*${cropScale}`)},crop=${w}:${h}:x='${cropX}':y='${cropY}'[__fgs];` +
     `[__bgb][__fgs]overlay=0:0[${outLabel}]`
   );
 }
@@ -134,14 +135,17 @@ export function animatedReframeChain(
   // option value is single-quoted below.
   const progress = `min(1,it/${ramp.toFixed(3)})`;
   const z = `1+${(target - 1).toFixed(4)}*(1-pow(1-${progress},3))`;
-  // zoompan crops an (iw/zoom)x(ih/zoom) window around the focus point out of
-  // the WxH cover frame, then scales it back up to fill the frame (s=WxH).
+  // zoompan crops an (iw/zoom)x(ih/zoom) window then bilinear-scales it to
+  // s=WxH. Feeding it a cover already sized to the max zoom means the crop
+  // at target zoom is 1:1 with the output, so the punch-in never upscales.
+  const srcW = evenPixels(w * target);
+  const srcH = evenPixels(h * target);
   const x = `(iw-iw/zoom)/2*(1+${sx.toFixed(4)})`;
   const y = `(ih-ih/zoom)/2*(1+${sy.toFixed(4)})`;
   return (
     `[${inLabel}]fps=${fps},split=2[__bg][__fg];` +
     `[__bg]scale=${w}:${h}:force_original_aspect_ratio=increase,crop=${w}:${h},boxblur=24:4,eq=brightness=-0.08[__bgb];` +
-    `[__fg]scale=${w}:${h}:force_original_aspect_ratio=increase,crop=${w}:${h},` +
+    `[__fg]${coverScale(srcW, srcH)},crop=${srcW}:${srcH},` +
       `zoompan=z='${z}':x='${x}':y='${y}':d=1:s=${w}x${h}:fps=${fps}[__fgs];` +
     `[__bgb][__fgs]overlay=0:0[${outLabel}]`
   );
@@ -189,17 +193,12 @@ export async function renderSourceClip(inputPath: string, outputPath: string, au
     "-i",
     inputPath,
     "-filter_complex",
-    "[0:v]scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:(ow-iw)/2:(oh-ih)/2:color=0x050914,setsar=1,format=yuv420p[vout]",
+    `[0:v]${containScale(1920, 1080)},pad=1920:1080:(ow-iw)/2:(oh-ih)/2:color=0x050914,setsar=1,format=yuv420p[vout]`,
     "-map",
     "[vout]",
     ...(audioPresent ? ["-map", "0:a?"] : []),
-    "-c:v",
-    "libx264",
-    "-preset",
-    "veryfast",
-    "-crf",
-    "20",
-    ...(audioPresent ? ["-c:a", "aac", "-b:a", "160k"] : ["-an"]),
+    ...masterVideoArgs(),
+    ...(audioPresent ? masterAudioArgs() : ["-an"]),
     "-movflags",
     "+faststart",
     outputPath
@@ -221,7 +220,7 @@ export async function renderVertical(inputPath: string, outputPath: string, audi
     // lighter boxblur — visually equivalent to the old 24:4 but much faster.
     "[0:v]split=2[bg][fg];" +
       "[bg]scale=540:960:force_original_aspect_ratio=increase,crop=540:960,boxblur=12:2,eq=brightness=-0.08,scale=1080:1920[bgb];" +
-      "[fg]scale=1080:-2[fgs];" +
+      `[fg]${scaleFilter(1080, -2)}[fgs];` +
       "[bgb][fgs]overlay=(W-w)/2:(H-h)/2",
     ...(audioPresent ? ["-af", shortsAudioFilter()] : []),
     ...shortsVideoArgs(),
@@ -268,7 +267,7 @@ export function verticalCompositionChain(
   return (
     "[0:v]split=2[bg][fg];" +
     "[bg]scale=540:960:force_original_aspect_ratio=increase,crop=540:960,boxblur=12:2,eq=brightness=-0.08,scale=1080:1920[bgb];" +
-    `[fg]scale=1080:1920:force_original_aspect_ratio=decrease,scale=iw*${z}:ih*${z}[fgs];` +
+    `[fg]${containScale(1080, 1920)},${scaleFilter(`iw*${z}`, `ih*${z}`)}[fgs];` +
     "[bgb][fgs]overlay=(W-w)/2:(H-h)/2,setsar=1[vc]"
   );
 }
@@ -342,7 +341,7 @@ export function stackedLayoutChain(
     return (
       "[0:v]split=2[bg][fg];" +
       `[bg]scale=${blurW}:${blurH}:force_original_aspect_ratio=increase,crop=${blurW}:${blurH},boxblur=12:2,eq=brightness=-0.08,scale=${frameW}:${frameH}[bgb];` +
-      `[fg]scale=${frameW}:-2[fgs];` +
+      `[fg]${scaleFilter(frameW, -2)}[fgs];` +
       "[bgb][fgs]overlay=(W-w)/2:(H-h)/2[vout]"
     );
   }

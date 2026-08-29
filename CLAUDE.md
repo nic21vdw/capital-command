@@ -529,10 +529,18 @@ posted.
   preview skipping the pause a second time on a file that no longer has one, and
   what keeps renders made before this existed behaving as they did. Don't infer
   it from the transcript at display time.
-- The 9:16 encode is `fast`/CRF 20, not `veryfast`/23 (`shortsVideoArgs`). A
-  frame carrying burned captions, a title and a screenshare is exactly what x264
-  softens first at the faster setting, and four platforms then re-encode that
-  softness. The extra encode time is the trade.
+- The master encode is `medium`/CRF 17 with AAC 320k (`encode.ts`), shared by
+  shorts and long-form. A frame carrying burned captions, a title and a
+  screenshare is exactly what x264 softens first at `superfast`/`fast` CRF 20,
+  and four platforms then re-encode that softness. The extra encode time is the
+  trade.
+- SOURCE FOOTAGE STAYS AT THE ORIGINAL RESOLUTION. Clip sections used to
+  download at 720p (`downloadSection`) and get stretched to 1080x1920, which is
+  the softness you see on a posted short. They now pull 1080p; a full VOD
+  prefers 1440p and falls back to 1080p. Every quality-critical `scale` uses
+  lanczos. The long-form punch-in (`animatedReframeChain`) feeds zoompan a
+  cover already sized to the max zoom so the crop at target zoom is 1:1 with
+  the output instead of bilinear-upscaling.
 
 ## Clip metadata conventions (titles, descriptions, tags)
 

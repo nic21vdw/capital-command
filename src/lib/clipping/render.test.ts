@@ -25,6 +25,10 @@ describe("reframeChain", () => {
     expect(chain).toContain("it/0.500");
     // Ease-out cubic ramp toward the (1.3 - 1) = 0.3 delta above 1x.
     expect(chain).toContain("zoompan=z='1+0.3000*(1-pow(1-min(1,it/0.500),3))'");
+    // Cover is pre-scaled to the max zoom so zoompan's crop at 1.3x is 1:1
+    // with the output instead of bilinear-upscaling a 1920x1080 window.
+    expect(chain).toContain("scale=2496:1404:force_original_aspect_ratio=increase");
+    expect(chain).toContain("crop=2496:1404");
     // One output frame per input frame, scaled back up to fill the frame.
     expect(chain).toContain(":d=1:s=1920x1080:fps=30");
     // Vertical focus offset is carried into the zoom window position.
@@ -130,7 +134,8 @@ describe("renderCaptionedVertical", () => {
     // Contain-fit into the frame, then punched in so the video is bigger than
     // the blurred fill around it; the overlay clips whatever hangs over.
     expect(filter).toContain("[fg]scale=1080:1920:force_original_aspect_ratio=decrease");
-    expect(filter).toContain(`scale=iw*${DEFAULT_CENTER_BLUR_ZOOM.toFixed(4)}:ih*${DEFAULT_CENTER_BLUR_ZOOM.toFixed(4)}[fgs]`);
+    expect(filter).toContain("flags=lanczos+accurate_rnd+full_chroma_int");
+    expect(filter).toContain(`scale=iw*${DEFAULT_CENTER_BLUR_ZOOM.toFixed(4)}:ih*${DEFAULT_CENTER_BLUR_ZOOM.toFixed(4)}`);
     expect(filter).toContain("boxblur=12:2");
     expect(filter).toContain("overlay=(W-w)/2:(H-h)/2");
     // Burns the caption/watermark document in.
@@ -141,14 +146,14 @@ describe("renderCaptionedVertical", () => {
     runFfmpeg.mockClear();
     await renderCaptionedVertical("in.mp4", "out.mp4", null, true, undefined, 1);
     const filter = filterOf(runFfmpeg.mock.calls);
-    expect(filter).toContain("scale=iw*1.0000:ih*1.0000[fgs]");
+    expect(filter).toContain("scale=iw*1.0000:ih*1.0000");
   });
 
   it("does not punch in past the ceiling, however hard it is asked to", async () => {
     runFfmpeg.mockClear();
     await renderCaptionedVertical("in.mp4", "out.mp4", null, true, undefined, 50);
     const filter = filterOf(runFfmpeg.mock.calls);
-    expect(filter).toContain(`scale=iw*${MAX_CENTER_BLUR_ZOOM.toFixed(4)}:ih*${MAX_CENTER_BLUR_ZOOM.toFixed(4)}[fgs]`);
+    expect(filter).toContain(`scale=iw*${MAX_CENTER_BLUR_ZOOM.toFixed(4)}:ih*${MAX_CENTER_BLUR_ZOOM.toFixed(4)}`);
   });
 
   it("fills the frame with the speaker when the clip was auto-framed", async () => {

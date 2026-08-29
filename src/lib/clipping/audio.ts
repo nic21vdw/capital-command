@@ -1,5 +1,7 @@
+import { masterAudioArgs, masterVideoArgs } from "@/lib/clipping/encode";
+
 /**
- * Mastering and encode settings for short-form renders.
+ * Mastering chain for short-form renders.
  *
  * Every ready-to-post short used to be muxed with whatever the stream
  * recorded: no gain staging, no loudness target, AAC 128k at the source
@@ -10,8 +12,8 @@
  * this is the same treatment for the short-form paths, plus the compression
  * that keeps a quiet aside audible next to a loud one inside the same clip.
  *
- * Leaf module: no imports, pure strings, tested. Nothing here decides WHICH
- * files get mastered — the render functions do.
+ * Encoder settings live in `encode.ts` so shorts and long-form share them.
+ * Nothing here decides WHICH files get mastered — the render functions do.
  */
 
 /** Integrated loudness every short is normalized to, matching the platforms' own target. */
@@ -52,31 +54,16 @@ export function shortsMasteringChain(inLabel: string, outLabel: string): string 
   return `[${inLabel}]${shortsAudioFilter()}[${outLabel}]`;
 }
 
-/** Encoder settings for a short's audio: stereo 48 kHz AAC at a bitrate the platforms won't audibly re-crush. */
+/** Encoder settings for a short's audio: the shared master AAC encode. */
 export function shortsAudioArgs(): string[] {
-  return ["-c:a", "aac", "-b:a", "192k", "-ar", "48000", "-ac", "2"];
+  return masterAudioArgs();
 }
 
 /**
- * Encoder settings for a short's video. A 1080x1920 frame carrying burned
- * captions, a title and (usually) an editor screenshare is exactly the
- * content x264 spends its bits worst on at CRF 23 `veryfast`: text edges go
- * soft, and the platform then re-encodes that softness rather than the
- * original. `fast` at CRF 20 is roughly half again the encode time for a
- * visibly cleaner master, which is the right trade on a file that is
- * rendered once and re-encoded by four platforms.
+ * Encoder settings for a short's video. Same master as long-form
+ * (`encode.ts`): a 1080x1920 frame carrying burned captions and a
+ * screenshare is exactly the content a fast CRF 20 pass softens first.
  */
 export function shortsVideoArgs(): string[] {
-  return [
-    "-c:v",
-    "libx264",
-    "-preset",
-    "fast",
-    "-crf",
-    "20",
-    "-profile:v",
-    "high",
-    "-pix_fmt",
-    "yuv420p"
-  ];
+  return masterVideoArgs();
 }

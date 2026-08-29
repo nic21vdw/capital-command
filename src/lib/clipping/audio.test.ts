@@ -34,14 +34,21 @@ describe("shortsMasteringChain", () => {
 });
 
 describe("shortsVideoArgs", () => {
-  it("encodes burned captions and screenshare text sharper than the old veryfast/23 default", () => {
+  it("uses the shared master encode so shorts match long-form", () => {
     const args = shortsVideoArgs();
     expect(args).toContain("libx264");
-    expect(Number(args[args.indexOf("-crf") + 1])).toBeLessThan(23);
-    expect(args[args.indexOf("-preset") + 1]).not.toBe("veryfast");
+    expect(Number(args[args.indexOf("-crf") + 1])).toBeLessThanOrEqual(18);
+    expect(args[args.indexOf("-preset") + 1]).toBe("medium");
   });
 
   it("stays in the pixel format every platform accepts", () => {
     expect(shortsVideoArgs()).toContain("yuv420p");
+  });
+});
+
+describe("shortsAudioArgs", () => {
+  it("uses the shared master AAC encode", () => {
+    const args = shortsAudioArgs();
+    expect(Number.parseInt(args[args.indexOf("-b:a") + 1], 10)).toBeGreaterThanOrEqual(256);
   });
 });
