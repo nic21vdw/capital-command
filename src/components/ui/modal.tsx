@@ -34,7 +34,7 @@ export function Modal({
         role="dialog"
         aria-modal="true"
         aria-label={title}
-        className="modal-panel-enter w-full max-w-3xl rounded-2xl border border-[var(--border)] bg-[var(--panel)] p-6 shadow-[0_24px_64px_rgba(0,0,0,0.4)]"
+        className="modal-panel-enter w-full max-w-3xl rounded-2xl border border-[var(--border)] bg-[var(--panel)] p-6 shadow-[var(--shadow-modal)]"
       >
         <div className="mb-4 flex items-start justify-between gap-4">
           <div>

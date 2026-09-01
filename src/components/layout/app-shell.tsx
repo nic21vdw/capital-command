@@ -25,6 +25,7 @@ import {
   Rocket,
   Scissors,
   Settings,
+  Target,
   UploadCloud,
   Wand2,
   Workflow,
@@ -115,6 +116,9 @@ const STUDIO_ITEMS: NavItem[] = [
   { href: "/ideas", label: "Idea Lab", icon: Lightbulb },
   { href: "/scripts", label: "Scripts", icon: FileText },
   { href: "/outliers", label: "Outlier Radar", icon: Radar },
+  // Built, and reachable by URL alone until now: the recurring content,
+  // networking and build goals that decide whether the pipeline gets fed.
+  { href: "/execution", label: "Execution", icon: Target },
   { href: "/presentation", label: "Segment Deck", icon: Presentation },
   { href: "/voiceover", label: "Voiceover", icon: Mic },
   // Licensed music models (fal.ai) writing tracks into the shared library the

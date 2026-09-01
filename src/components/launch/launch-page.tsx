@@ -197,7 +197,7 @@ export function LaunchPage() {
   return (
     <div>
       <PageHeader
-        eyebrow="Distribute"
+        eyebrow="Step 2 · Formats"
         title="Launch Pad"
         description="Plan a Product Hunt launch as a content event: a playbook dated backwards from launch day, the listing copy, and the live standing once it goes up."
         actions={

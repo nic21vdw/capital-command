@@ -76,7 +76,7 @@ export function IdeasPage() {
     <div>
       <PageHeader
         eyebrow="Studio"
-        title="Keyword Research"
+        title="Idea Lab"
         description="Type a seed keyword (or leave it open) and get scored video ideas: working titles in the channel voice, the search phrases they target, intent, and how crowded each one is. Save the winners, then send them to Scripts."
         actions={
           <div className="flex flex-col gap-2 sm:flex-row sm:items-center">

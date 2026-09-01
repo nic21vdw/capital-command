@@ -1,6 +1,23 @@
 @import "tailwindcss";
 
 /*
+  Typeface
+  --------
+  CoLateral serves Inter from its own repository rather than a CDN, so the
+  framed app matches only if it does the same: a Google-hosted face would also
+  make a release depend on the network, and the app is expected to work with
+  none. The file is the same InterVariable.woff2 CoLateral ships, roman only,
+  under the SIL Open Font License v1.1 (public/fonts/Inter-LICENSE.txt).
+*/
+@font-face {
+  font-family: Inter;
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url("/fonts/InterVariable.woff2") format("woff2");
+}
+
+/*
   Motion system
   -------------
   iOS-style motion everywhere: every Tailwind `transition*` utility picks up the
@@ -45,9 +62,24 @@
   --card-from: #111922;
   --card-to: #111922;
   --shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
+  --shadow-pop: 0 10px 28px rgba(0, 0, 0, 0.42);
+  --shadow-modal: 0 24px 64px rgba(0, 0, 0, 0.55);
   --well: rgba(0, 0, 0, 0.2);
   --well-deep: rgba(0, 0, 0, 0.4);
   color-scheme: dark;
+}
+
+/*
+  Type. CoLateral's own stack, so the framed app and the card around it set the
+  same words in the same face rather than two near-misses. It sits on `html`
+  and not in `:root`'s block because a theme does not choose the typeface, and
+  themes.test.ts holds every preset to exactly the properties :root declares.
+*/
+html {
+  --font-ui: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
+    "Segoe UI", Roboto, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas,
+    "Liberation Mono", monospace;
 }
 
 [data-theme="slate"] {
@@ -66,6 +98,8 @@
   --card-from: #14181f;
   --card-to: #14181f;
   --shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --shadow-pop: 0 10px 28px rgba(0, 0, 0, 0.42);
+  --shadow-modal: 0 24px 64px rgba(0, 0, 0, 0.55);
   --well: rgba(0, 0, 0, 0.2);
   --well-deep: rgba(0, 0, 0, 0.4);
   color-scheme: dark;
@@ -87,6 +121,8 @@
   --card-from: #0c1119;
   --card-to: #0c1119;
   --shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
+  --shadow-pop: 0 10px 28px rgba(0, 0, 0, 0.42);
+  --shadow-modal: 0 24px 64px rgba(0, 0, 0, 0.55);
   --well: rgba(0, 0, 0, 0.2);
   --well-deep: rgba(0, 0, 0, 0.4);
   color-scheme: dark;
@@ -108,6 +144,8 @@
   --card-from: #18181b;
   --card-to: #18181b;
   --shadow: 0 1px 2px rgba(0, 0, 0, 0.45);
+  --shadow-pop: 0 10px 28px rgba(0, 0, 0, 0.42);
+  --shadow-modal: 0 24px 64px rgba(0, 0, 0, 0.55);
   --well: rgba(0, 0, 0, 0.2);
   --well-deep: rgba(0, 0, 0, 0.4);
   color-scheme: dark;
@@ -129,6 +167,8 @@
   --card-from: #0f1c16;
   --card-to: #0f1c16;
   --shadow: 0 1px 2px rgba(0, 0, 0, 0.45);
+  --shadow-pop: 0 10px 28px rgba(0, 0, 0, 0.42);
+  --shadow-modal: 0 24px 64px rgba(0, 0, 0, 0.55);
   --well: rgba(0, 0, 0, 0.2);
   --well-deep: rgba(0, 0, 0, 0.4);
   color-scheme: dark;
@@ -150,6 +190,8 @@
   --card-from: #282a36;
   --card-to: #282a36;
   --shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
+  --shadow-pop: 0 10px 28px rgba(0, 0, 0, 0.42);
+  --shadow-modal: 0 24px 64px rgba(0, 0, 0, 0.55);
   --well: rgba(0, 0, 0, 0.2);
   --well-deep: rgba(0, 0, 0, 0.4);
   color-scheme: dark;
@@ -171,6 +213,8 @@
   --card-from: #ffffff;
   --card-to: #ffffff;
   --shadow: 0 1px 2px rgba(27, 26, 22, 0.06), 0 1px 3px rgba(27, 26, 22, 0.1);
+  --shadow-pop: 0 10px 28px rgba(27, 26, 22, 0.14);
+  --shadow-modal: 0 24px 64px rgba(27, 26, 22, 0.2);
   --well: rgba(27, 26, 22, 0.05);
   --well-deep: rgba(27, 26, 22, 0.09);
   color-scheme: light;
@@ -192,6 +236,8 @@
   --card-from: #ffffff;
   --card-to: #ffffff;
   --shadow: 0 1px 2px rgba(15, 23, 34, 0.06), 0 1px 3px rgba(15, 23, 34, 0.1);
+  --shadow-pop: 0 10px 28px rgba(15, 23, 34, 0.14);
+  --shadow-modal: 0 24px 64px rgba(15, 23, 34, 0.2);
   --well: rgba(15, 23, 34, 0.05);
   --well-deep: rgba(15, 23, 34, 0.09);
   color-scheme: light;
@@ -213,6 +259,8 @@
   --card-from: #111922;
   --card-to: #111922;
   --shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
+  --shadow-pop: 0 10px 28px rgba(0, 0, 0, 0.42);
+  --shadow-modal: 0 24px 64px rgba(0, 0, 0, 0.55);
   --well: rgba(0, 0, 0, 0.2);
   --well-deep: rgba(0, 0, 0, 0.4);
   color-scheme: dark;
@@ -234,6 +282,8 @@
   --card-from: #f7f9fc;
   --card-to: #f7f9fc;
   --shadow: 0 1px 2px rgba(16, 44, 77, 0.06), 0 1px 3px rgba(16, 44, 77, 0.1);
+  --shadow-pop: 0 10px 28px rgba(16, 44, 77, 0.14);
+  --shadow-modal: 0 24px 64px rgba(16, 44, 77, 0.2);
   --well: rgba(16, 44, 77, 0.05);
   --well-deep: rgba(16, 44, 77, 0.09);
   color-scheme: light;
@@ -297,8 +347,9 @@ body {
   min-height: 100vh;
   background: var(--background);
   color: var(--foreground);
-  font-family: ui-sans-serif, system-ui, sans-serif;
+  font-family: var(--font-ui);
   -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
   /* Enter animations slide content in from the right; clip the brief overhang
      instead of flashing a horizontal scrollbar. */
   overflow-x: clip;
@@ -307,6 +358,37 @@ body {
 a {
   color: inherit;
   text-decoration: none;
+}
+
+/* Form controls do not inherit a family, and a stray system font inside a
+   panel is the most visible way a framed app stops looking like its host. */
+button,
+input,
+select,
+textarea {
+  font-family: inherit;
+}
+
+code,
+pre,
+kbd,
+samp {
+  font-family: var(--font-mono);
+}
+
+/*
+  Inter's default figures are proportional, so a column of numbers shifts as
+  values change. This app is queues, schedules and counts, so — as CoLateral
+  does — opt the tables and numeric fields into tabular figures.
+*/
+table,
+time,
+input[type="number"],
+input[type="date"],
+input[type="time"],
+input[type="datetime-local"],
+.num {
+  font-variant-numeric: tabular-nums;
 }
 
 /*

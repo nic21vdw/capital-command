@@ -781,7 +781,7 @@ function CarouselCard({
             {downloadMenu ? (
               <>
                 <div className="fixed inset-0 z-10" onClick={() => setDownloadMenu(false)} />
-                <div className="panel-enter absolute right-0 z-20 mt-1 w-52 rounded-lg border border-[var(--border)] bg-[var(--panel)] p-1 shadow-[0_16px_40px_rgba(0,0,0,0.4)]">
+                <div className="panel-enter absolute right-0 z-20 mt-1 w-52 rounded-lg border border-[var(--border)] bg-[var(--panel)] p-1 shadow-[var(--shadow-pop)]">
                   <p className="px-2 py-1 text-[10px] font-semibold uppercase tracking-wider text-[var(--muted-foreground)]">
                     Download all as…
                   </p>

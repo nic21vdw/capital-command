@@ -325,7 +325,7 @@ function PreviewStage({
         key={index}
         ref={canvasRef}
         className={cn(
-          "modal-panel-enter max-h-full max-w-full rounded-2xl border border-white/10 shadow-[0_24px_80px_rgba(0,0,0,0.6)] transition-opacity duration-200",
+          "modal-panel-enter max-h-full max-w-full rounded-2xl border border-white/10 shadow-[var(--shadow-modal)] transition-opacity duration-200",
           ready ? "opacity-100" : "opacity-0"
         )}
         style={{ aspectRatio: `${spec.width} / ${spec.height}` }}
@@ -562,7 +562,7 @@ function EditStage({
     <div
       ref={stageRef}
       className={cn(
-        "modal-panel-enter relative max-h-full overflow-hidden rounded-2xl border shadow-[0_24px_80px_rgba(0,0,0,0.6)]",
+        "modal-panel-enter relative max-h-full overflow-hidden rounded-2xl border shadow-[var(--shadow-modal)]",
         dropActive ? "border-[var(--accent)] ring-2 ring-[var(--accent)]/60" : "border-white/10"
       )}
       style={{ aspectRatio: `${spec.width} / ${spec.height}`, height: "min(72vh, 100%)" }}
