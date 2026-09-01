@@ -723,7 +723,7 @@ function PostPreview({
           </div>
         ) : (
           <div className="space-y-3">
-            <p className="whitespace-pre-wrap text-sm leading-relaxed text-white/90">{hook || "Your hook lands here 👇"}</p>
+            <p className="whitespace-pre-wrap text-sm leading-relaxed text-[#fff]/90">{hook || "Your hook lands here 👇"}</p>
             {media ? (
               format === "imageText" ? (
                 <div className="relative overflow-hidden rounded-xl bg-black">

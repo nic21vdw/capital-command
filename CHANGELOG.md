@@ -14,6 +14,25 @@ already shipped.
 
 ## Unreleased
 
+- **Capital Command reads as part of CoLateral, not as a second app inside
+  it.** The palette already matched; the type did not — every screen was set
+  in Segoe UI one panel away from CoLateral's Inter. Inter now ships with the
+  app, so it looks the same framed in the Command Centre as it does on its
+  own, and still works with no connection. Numbers in tables stop jittering as
+  they update. Six pieces of chrome — the home search bar, the carousels menu,
+  both dialogs, the primary button — painted a heavy black shadow that was
+  invisible on a dark theme and looked broken on Office Blue; they follow the
+  theme now.
+
+- **Fixes from a walk through every screen.** Execution — recurring goals,
+  streaks and carry-forward debt — was fully built and reachable only by
+  typing the address; it is in the sidebar now. Idea Lab and Scripts were
+  called something else once you opened them, and Launch Pad claimed a
+  different step than the one it sits under. The Facebook post previews went
+  unreadable on a light theme, the Draft chip washed out, and the voice picker
+  stayed dark inside a light one. What the walk found, and the rules it leaves
+  behind, are in `docs/colateral-theme-audit.md`.
+
 - **Shorts and long-form keep the original picture and sound instead of
   softening them.** Clip sections were pulled at 720p and stretched to fill
   the frame, and both the 9:16 render and the long-form body encoded with a

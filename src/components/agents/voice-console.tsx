@@ -273,7 +273,7 @@ export function VoiceConsole({ onWorkStarted }: { onWorkStarted?: () => void }) 
                 className="mt-1.5 w-full rounded-lg border border-[var(--border)] bg-white/[0.04] px-3 py-2 text-sm font-normal normal-case tracking-normal text-white"
               >
                 {(currentProvider?.voices ?? []).map((name) => (
-                  <option key={name} value={name} className="bg-[#12141c]">
+                  <option key={name} value={name} className="bg-[var(--panel)]">
                     {name}
                   </option>
                 ))}

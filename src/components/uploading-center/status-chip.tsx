@@ -17,7 +17,7 @@ import type { PlatformId, PlatformStatus, QueueItem } from "@/lib/publisher/type
 export type ChipStatus = PlatformStatus | "draft";
 
 const CHIPS: Record<ChipStatus, { label: string; className: string }> = {
-  draft: { label: "Draft", className: "border-white/15 bg-white/8 text-gray-300" },
+  draft: { label: "Draft", className: "border-white/15 bg-white/8 text-[var(--muted-foreground)]" },
   pending: { label: "Queued", className: "border-sky-400/30 bg-sky-400/10 text-sky-300" },
   uploaded: { label: "Uploaded", className: "border-indigo-400/30 bg-indigo-400/10 text-indigo-300" },
   scheduled: { label: "Scheduled", className: "border-teal-400/30 bg-teal-400/10 text-teal-300" },

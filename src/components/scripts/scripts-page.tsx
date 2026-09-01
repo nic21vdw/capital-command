@@ -93,7 +93,7 @@ export function ScriptsPage() {
     <div>
       <PageHeader
         eyebrow="Studio"
-        title="Script Studio"
+        title="Scripts"
         description="Full scripts written in your voice, following your script framework — hook to CTA, with a production kit of suggested graphics and sound effects you accept or dismiss. Start from a saved idea in the Idea Lab, or straight from a title here."
         actions={
           <div className="flex flex-col gap-2 sm:flex-row sm:items-center">

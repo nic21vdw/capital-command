@@ -185,8 +185,8 @@ function StreamSearchBar({
       className={cn(
         "flex items-center gap-2 rounded-full border border-[var(--border)] bg-[var(--surface-2)] transition focus-within:border-[var(--accent)]",
         compact
-          ? "px-2 py-1.5 shadow-[0_1px_8px_rgba(0,0,0,0.25)]"
-          : "px-3 py-2.5 shadow-[0_8px_40px_rgba(0,0,0,0.35)] focus-within:shadow-[0_8px_44px_color-mix(in_srgb,var(--accent)_18%,transparent)]"
+          ? "px-2 py-1.5 shadow-[var(--shadow)]"
+          : "px-3 py-2.5 shadow-[var(--shadow-pop)] focus-within:shadow-[0_8px_44px_color-mix(in_srgb,var(--accent)_18%,transparent)]"
       )}
     >
       <button
