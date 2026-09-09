@@ -3,6 +3,7 @@ import { readReleaseStatus } from "@/lib/release/status";
 import { isReleaseInFlight, startRelease } from "@/lib/release/run";
 import { readReleaseProgress } from "@/lib/release/progress";
 import { releaseStillRunning } from "@/lib/release/shared";
+import { releaseRuntime } from "@/lib/release/runtime";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -11,6 +12,7 @@ export async function GET() {
   const [status, progress] = await Promise.all([readReleaseStatus(), readReleaseProgress()]);
   return NextResponse.json({
     ...status,
+    ...releaseRuntime(),
     updating: releaseStillRunning(isReleaseInFlight(), progress),
     progress
   });
@@ -46,5 +48,5 @@ export async function POST() {
     return NextResponse.json({ error: result.reason ?? "Could not start the update." }, { status: 409 });
   }
 
-  return NextResponse.json({ started: true, releasing: status.latestShort });
+  return NextResponse.json({ started: true, releasing: status.latestShort, ...releaseRuntime() });
 }

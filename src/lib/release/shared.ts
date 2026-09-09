@@ -248,16 +248,17 @@ export function watchRelease({
   }
 
   const slow = seconds !== null && seconds >= RELEASE_SLOW_AFTER_SECONDS;
-  const headline = step ? `${step}${elapsed ? ` — ${elapsed}` : ""}` : "Starting the update";
+  const label = offline ? "Waiting for Capital Command to restart" : step;
+  const headline = label ? `${label}${elapsed ? ` - ${elapsed}` : ""}` : "Starting the update";
 
   return {
     tone: slow ? "slow" : "working",
     headline,
     detail: offline
       ? slow
-        ? "The app is still rebuilding — a full build here takes tens of minutes. It stays down until the build finishes, then this page reloads itself."
-        : "The app is down while it rebuilds — this page reloads itself when it comes back."
-      : "This page reloads itself when the app comes back.",
+        ? "The app has not answered yet. This screen will reopen automatically when it returns."
+        : "The app is offline while it rebuilds. This screen will reopen automatically."
+      : "This screen will reopen automatically when the app restarts.",
     elapsed,
     spin: true
   };

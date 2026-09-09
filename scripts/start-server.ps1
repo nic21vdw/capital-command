@@ -94,9 +94,10 @@ function Test-BuildCurrent {
 
     $head = & git -C $root rev-parse HEAD 2>$null
     if ($LASTEXITCODE -ne 0 -or -not $head) { return $false }
-    if ($stamp.Trim() -ne "$head".Trim()) { return $false }
-
-    $watched = @("src", "public", "remotion", "next.config.ts", "tsconfig.json", "postcss.config.mjs", "package.json", "package-lock.json")
+    # Docs and launcher changes do not change a Next bundle.
+    $watched = @("src", "public", "remotion", "next.config.ts", "tsconfig.json", "postcss.config.mjs", "package.json", "package-lock.json", ".npmrc", "scripts/prepare-dev-cache.mjs", "scripts/stamp-build-commit.mjs")
+    & git -C $root diff --quiet $stamp.Trim() $head.Trim() -- $watched 2>$null
+    if ($LASTEXITCODE -ne 0) { return $false }
     & git -C $root diff --quiet HEAD -- $watched 2>$null
     if ($LASTEXITCODE -ne 0) { return $false }
 
@@ -133,7 +134,13 @@ function Invoke-Build($append) {
 $skipBuild = (-not $Rebuild) -and (Test-BuildCurrent)
 
 if ($skipBuild) {
-  Write-Host "The build already matches this checkout - starting it as it is."
+  Write-Host "The build inputs are unchanged - reusing the existing build."
+  # This commit has identical app inputs, so it is covered by this build too.
+  Push-Location $root
+  try {
+    & $node (Join-Path $PSScriptRoot "stamp-build-commit.mjs")
+    if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+  } finally { Pop-Location }
   $buildExit = 0
 } else {
   Write-Host "Building Capital Command (a few minutes)..."
@@ -172,12 +179,10 @@ if (-not (Test-Path $buildId)) {
   exit 1
 }
 
-$command = "cd /d `"$root`" && `"$node`" .\node_modules\next\dist\bin\next start --hostname 127.0.0.1 --port $port 1>`"$stdout`" 2>`"$stderr`""
-$psi = New-Object System.Diagnostics.ProcessStartInfo
-$psi.FileName = "C:\Windows\System32\cmd.exe"
-$psi.Arguments = "/c `"$command`""
-$psi.UseShellExecute = $false
-$process = [System.Diagnostics.Process]::Start($psi)
+# Give the server its own hidden console. Inheriting the updater's console
+# lets closing that console kill the server that just reported it was ready.
+$entry = Join-Path $root "node_modules\next\dist\bin\next"
+$process = Start-Process -FilePath $node -ArgumentList "`"$entry`" start --hostname 127.0.0.1 --port $port" -WorkingDirectory $root -WindowStyle Hidden -RedirectStandardOutput $stdout -RedirectStandardError $stderr -PassThru
 
 Set-Content -Path $pidFile -Value $process.Id
 
@@ -195,4 +200,9 @@ if (-not (Test-Port)) {
   exit 1
 }
 
+& (Join-Path $PSScriptRoot "wait-for-url.ps1") -Url "http://127.0.0.1:$port/api/update/progress" -TimeoutSeconds 60
+if ($LASTEXITCODE -ne 0) {
+  Show-Failure "The server opened its port but did not become ready." $stderr
+  exit 1
+}
 Write-Output "Started server with PID $($process.Id)"
