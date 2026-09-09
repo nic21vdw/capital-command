@@ -43,7 +43,7 @@ export async function POST() {
     return NextResponse.json({ error: "There is nothing new to release." }, { status: 409 });
   }
 
-  const result = startRelease(process.cwd(), { afterFailure: Boolean(progress.failed) });
+  const result = startRelease(process.cwd(), { afterFailure: !releaseStillRunning(true, progress) });
   if (!result.started) {
     return NextResponse.json({ error: result.reason ?? "Could not start the update." }, { status: 409 });
   }
