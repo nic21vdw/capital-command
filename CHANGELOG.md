@@ -14,6 +14,8 @@ already shipped.
 
 ## Unreleased
 
+## 2026-09-08
+
 - **Capital Command reads as part of CoLateral, not as a second app inside
   it.** The palette already matched; the type did not — every screen was set
   in Segoe UI one panel away from CoLateral's Inter. Inter now ships with the
