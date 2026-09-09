@@ -14,6 +14,12 @@ already shipped.
 
 ## Unreleased
 
+- **Updates return automatically to the same CoLateral card with less waiting.**
+  The card pauses its normal page requests during an update and reopens as soon
+  as the replacement server answers. Restart checks no longer fetch Git remotes
+  or wait five minutes for the full home page. Build workers skip live pipeline
+  startup, and changes outside the app's build inputs reuse the existing build.
+
 ## 2026-09-08
 
 - **Capital Command reads as part of CoLateral, not as a second app inside

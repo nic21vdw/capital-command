@@ -416,6 +416,24 @@ why: the Data API has no picture endpoint and community posts are in no public
 API. A carousel for YouTube is posted by hand, from the rendered slides in
 `data/carousels/<carouselId>/`.
 
+## Update and restart verification
+
+`/api/update/progress` is the lightweight readiness endpoint. It reads the
+release log and the process identity captured by `releaseRuntime()` at server
+startup, without fetching Git remotes or rendering the home page. The card
+unmounts its normal page contents while updating and polls sequentially with a
+timeout. A new process reopens the same frame even if further commits have
+landed during the build. Never use an empty pending-commit list as restart proof.
+
+`start-server.ps1` starts Node in its own hidden console with separate log files
+and verifies this endpoint before returning. `update-app.ps1` must not add a
+second home-page readiness wait. Build reuse compares the stamped commit's app
+inputs with HEAD and checks for local changes; a changed source or build config
+still rebuilds. `src/instrumentation.ts` skips runtime initialization during
+`phase-production-build`, so build workers do not load settings or start the
+live pipeline. `src/lib/release/server-start.test.ts` exercises the Windows
+launcher on an isolated fake server and verifies it outlives the launcher.
+
 ## Tests
 
 `npm test` is the suite (`vitest run`). It used to be a PowerShell script that

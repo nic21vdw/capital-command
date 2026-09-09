@@ -4,6 +4,14 @@ export async function register() {
   // an early return instead leaves the import reachable, and the edge build
   // then fails to resolve `os` through the ffmpeg binary lookup.
   if (process.env.NEXT_RUNTIME === "nodejs") {
+    // Build workers render pages, they are not app servers. Loading the media
+    // pipeline in each worker adds startup work and can start background jobs
+    // against the live data while an in-place release is compiling.
+    if (process.env.NEXT_PHASE === "phase-production-build") return;
+
+    const { releaseRuntime } = await import("@/lib/release/runtime");
+    releaseRuntime();
+
     // Before anything reads config: every credential reader in this codebase
     // reads process.env, and the credentials Settings saved live in a file.
     // Folding the file in here is what lets an account be connected from the

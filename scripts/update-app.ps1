@@ -520,11 +520,9 @@ if ((Invoke-Script "start-server.ps1" @("-Quiet") -TimeoutMinutes 90) -ne 0) {
   Fail "The build did not finish. The app is still down - see build.log in $root, then run update-capital-command.bat again."
 }
 
-Step "Waiting for the app to answer ($(Elapsed) in)"
+# start-server already verified the lightweight HTTP endpoint. Rechecking the
+# full home page here added a five-minute wait unrelated to server readiness.
 $port = if ($env:CAPITAL_COMMAND_PORT) { $env:CAPITAL_COMMAND_PORT } else { "3000" }
-if ((Invoke-Script "wait-for-url.ps1" @("-Url", "http://127.0.0.1:$port", "-TimeoutSeconds", "300")) -ne 0) {
-  Fail "The app did not come up. Check server.err.log in $root."
-}
 
 Write-Log ""
 Write-Log "Capital Command is updated and running at http://localhost:$port (took $(Elapsed))"

@@ -3,6 +3,7 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
 import type { ReleaseStatus, ReleaseWatch } from "@/lib/release/shared";
 import { watchRelease } from "@/lib/release/shared";
+import { fetchRelease, restartOutcome, type RestartStatus } from "@/lib/release/restart";
 
 export type ReleasePhase = "idle" | "checking" | "starting" | "updating";
 
@@ -16,6 +17,7 @@ export type ReleaseProgress = {
 };
 
 export type ReleaseStatusWithProgress = ReleaseStatus & {
+  instance?: string;
   updating?: boolean;
   progress?: ReleaseProgress;
 };
@@ -55,13 +57,16 @@ export function ReleaseProvider({ children }: { children: React.ReactNode }) {
   const [offline, setOffline] = useState(false);
   const [now, setNow] = useState(() => Date.now());
   const [startedAt, setStartedAt] = useState<number | null>(null);
-  const wentDown = useRef(false);
+  const busy = phase === "starting" || phase === "updating";
+  const previousInstance = useRef<string | null>(null);
+  const checking = useRef(false);
 
   const load = useCallback(async () => {
+    if (checking.current) return null;
+    checking.current = true;
     try {
-      const response = await fetch("/api/update", { cache: "no-store" });
-      if (!response.ok) return null;
-      const next = (await response.json()) as ReleaseStatusWithProgress;
+      const next = await fetchRelease<ReleaseStatusWithProgress>("/api/update", {}, 60_000);
+      previousInstance.current ??= next.instance ?? null;
       setStatus(next);
       setCheckedAt(Date.now());
       setOffline(false);
@@ -77,14 +82,17 @@ export function ReleaseProvider({ children }: { children: React.ReactNode }) {
     } catch {
       setOffline(true);
       return null;
+    } finally {
+      checking.current = false;
     }
   }, []);
 
   useEffect(() => {
+    if (busy) return;
     queueMicrotask(() => void load());
     const timer = setInterval(() => void load(), POLL_MS);
     return () => clearInterval(timer);
-  }, [load]);
+  }, [load, busy]);
 
   // The clock is the only thing that can still move while the server is down,
   // and it is the whole difference between "this is working" and a spinner that
@@ -101,27 +109,36 @@ export function ReleaseProvider({ children }: { children: React.ReactNode }) {
   // still shutting down — from reading as "done, nothing changed".
   useEffect(() => {
     if (phase !== "updating") return;
-    const timer = setInterval(async () => {
-      const next = await load();
-      if (!next) {
-        wentDown.current = true;
-        return;
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout>;
+    const poll = async () => {
+      try {
+        const next = await fetchRelease<RestartStatus>("/api/update/progress");
+        if (cancelled) return;
+        setOffline(false);
+        setStatus((current) => current ? { ...current, progress: next.progress } : current);
+        if (next.progress.startedAt) setStartedAt(next.progress.startedAt);
+        const outcome = restartOutcome(previousInstance.current, next);
+        previousInstance.current ??= next.instance;
+        if (outcome === "reload") {
+          // Reload only this frame. CoLateral keeps the card in its array slot.
+          window.location.reload();
+          return;
+        }
+        if (outcome === "failed" || outcome === "abandoned") {
+          setError(next.progress.failed ?? "The update stopped reporting progress. You can retry the update.");
+          setPhase("idle");
+          return;
+        }
+      } catch {
+        // The server is intentionally offline during the build.
+        if (!cancelled) setOffline(true);
       }
-      // The release script can die without ever stopping the server — a git
-      // refusal, a failed npm install. Nothing goes down, nothing reloads, and
-      // the banner spins forever. Its log is the only witness, so a logged
-      // ERROR ends the wait here instead.
-      if (next.progress?.failed) {
-        setError(next.progress.failed);
-        setPhase("idle");
-        return;
-      }
-      if (next.progress?.finished || (wentDown.current && !next.pending.length)) {
-        window.location.reload();
-      }
-    }, RESTART_POLL_MS);
-    return () => clearInterval(timer);
-  }, [phase, load]);
+      if (!cancelled) timer = setTimeout(() => void poll(), RESTART_POLL_MS);
+    };
+    void poll();
+    return () => { cancelled = true; clearTimeout(timer); };
+  }, [phase]);
 
   const check = useCallback(async () => {
     setError(null);
@@ -136,7 +153,7 @@ export function ReleaseProvider({ children }: { children: React.ReactNode }) {
     setError(null);
     setPhase("starting");
     setStartedAt(Date.now());
-    wentDown.current = false;
+    previousInstance.current = status?.instance ?? previousInstance.current;
     try {
       const response = await fetch("/api/update", { method: "POST" });
       if (!response.ok) {
@@ -145,15 +162,16 @@ export function ReleaseProvider({ children }: { children: React.ReactNode }) {
         setPhase("idle");
         return;
       }
+      const result = await response.json() as { instance?: string };
+      previousInstance.current = result.instance ?? previousInstance.current;
       setPhase("updating");
     } catch {
       // The release can kill the server before the response comes back, which
       // is a successful start, not a failure.
       setPhase("updating");
     }
-  }, []);
+  }, [status?.instance]);
 
-  const busy = phase === "starting" || phase === "updating";
   const watch = busy
     ? watchRelease({
         step: status?.progress?.step ?? null,
@@ -168,7 +186,15 @@ export function ReleaseProvider({ children }: { children: React.ReactNode }) {
     <ReleaseContext.Provider
       value={{ status, phase, busy, error, checkedAt, watch, check, install }}
     >
-      {children}
+      {busy ? (
+        <main className="flex min-h-screen items-center justify-center bg-[var(--background)] p-6">
+          <section role="status" className="w-full max-w-lg space-y-3 rounded-xl border border-[var(--border)] bg-[var(--panel)] p-6">
+            <h1 className="text-lg font-semibold">Updating Capital Command</h1>
+            <p className="text-sm">{watch?.headline}</p>
+            <p className="text-sm text-[var(--muted-foreground)]">{watch?.detail}</p>
+          </section>
+        </main>
+      ) : children}
     </ReleaseContext.Provider>
   );
 }
