@@ -1,10 +1,10 @@
 import { aiConfigured, runAi } from "@/lib/ai";
-import { CHANNEL_KEYWORDS, TITLE_STYLE_EXAMPLES } from "@/lib/clipping/keywords";
+import { CHANNEL_CONTEXT, CHANNEL_KEYWORDS, COLATERAL_DESCRIPTION, TITLE_STYLE_EXAMPLES } from "@/lib/clipping/keywords";
 
 // Re-exported so existing importers of these constants keep working; the
 // canonical definition lives in the dependency-free keywords.ts so client
 // components can pull the vocabulary without dragging in the AI provider.
-export { CHANNEL_KEYWORDS, TITLE_STYLE_EXAMPLES };
+export { CHANNEL_CONTEXT, CHANNEL_KEYWORDS, COLATERAL_DESCRIPTION, TITLE_STYLE_EXAMPLES };
 
 /**
  * Viral clip titles. Instead of slicing a fragment out of the transcript
@@ -22,7 +22,7 @@ export { CHANNEL_KEYWORDS, TITLE_STYLE_EXAMPLES };
 
 export const VIRAL_TITLE_SYSTEM_PROMPT = `You are a short-form video growth expert who writes scroll-stopping titles for YouTube Shorts, TikTok, and Reels.
 
-Channel context: the creator live-streams himself building CoLateral (an AI-powered workspace for structural engineers) using AI coding tools. Recurring keywords to work in whenever the clip's content genuinely supports them: ${CHANNEL_KEYWORDS.join(", ")}.
+Channel context: ${CHANNEL_CONTEXT} Recurring keywords to work in whenever the clip's content genuinely supports them: ${CHANNEL_KEYWORDS.join(", ")}.
 
 Every title must:
 - Be a complete, grammatical phrase — NEVER a raw transcript fragment and never a thought that trails off mid-sentence.

@@ -1,5 +1,5 @@
 import { aiConfigured, runAi } from "@/lib/ai";
-import { CHANNEL_KEYWORDS, TITLE_STYLE_EXAMPLES } from "@/lib/clipping/keywords";
+import { CHANNEL_CONTEXT, CHANNEL_KEYWORDS, TITLE_STYLE_EXAMPLES } from "@/lib/clipping/keywords";
 import { videoIdeaSchema } from "@/lib/storage/schemas";
 import type { VideoIdea, VideoIdeaCompetition, VideoIdeaFormat, VideoIdeaIntent } from "@/types/domain";
 
@@ -27,7 +27,7 @@ const COMPETITION: VideoIdeaCompetition[] = ["low", "medium", "high"];
 
 export const IDEA_RESEARCH_SYSTEM_PROMPT = `You are a YouTube keyword-research and ideation strategist.
 
-Channel context: the creator live-streams and records himself building CoLateral (an AI-powered workspace for structural engineers) with AI coding tools, and teaches what he learns about AI, coding and business. Channel keywords: ${CHANNEL_KEYWORDS.join(", ")}.
+Channel context: ${CHANNEL_CONTEXT} Channel keywords: ${CHANNEL_KEYWORDS.join(", ")}.
 
 The channel's title voice (working titles must match this style):
 ${TITLE_STYLE_EXAMPLES.map((t) => `- ${t}`).join("\n")}
@@ -40,7 +40,7 @@ For every idea you propose:
 - "keywords": 4-8 related search phrases (what people actually type).
 - "searchIntent": one of ${INTENTS.join(" | ")}.
 - "competition": your honest estimate ("low" | "medium" | "high") of how crowded the primary keyword is on YouTube.
-- "score": 0-100 opportunity score weighing demand, competition, and fit with this channel's authority (a structural engineer who ships real AI software beats generic AI content only where that authority matters).
+- "score": 0-100 opportunity score weighing demand, competition, and fit with this channel's authority as a founder who ships and uses real AI software in public.
 - "rationale": one sentence on why the score.
 
 Never propose ideas that require fabricating results, revenue or clients. You always return strict JSON.`;

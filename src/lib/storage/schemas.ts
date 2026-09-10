@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { COLATERAL_DESCRIPTION } from "@/lib/clipping/keywords";
 
 export const holdingSchema = z.object({
   id: z.string(),
@@ -555,7 +556,7 @@ export const DEFAULT_SCRIPT_FRAMEWORK = `# Script Framework
 Open on the payoff or the boldest claim of the video — never an intro, never "hey guys". One or two lines that make the promise concrete ("I built X in Y", "This mistake cost me Z"), then one line of stakes: why this matters to the viewer right now.
 
 ## 2. Context & Stakes (20-40 seconds)
-The minimum backstory needed to care: what I'm building (CoLateral, AI tools for structural engineers), what the problem was, and what happens if it goes wrong. End with an open loop — name what's coming later so people stay.
+The minimum backstory needed to care: what I'm building, what the problem was, and what happens if it goes wrong. Use this positioning when the product needs context: ${COLATERAL_DESCRIPTION} End with an open loop - name what's coming later so people stay.
 
 ## 3. Value Beats (the body — 3 to 5 beats)
 Each beat = one concrete thing: a step, a decision, a mistake, a demo. For every beat:

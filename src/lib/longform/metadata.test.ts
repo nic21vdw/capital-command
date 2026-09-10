@@ -109,6 +109,9 @@ describe("fallbackLongformMetadata", () => {
     const fallback = fallbackLongformMetadata({ name: "My Stream" });
     expect(fallback.titles.length).toBeGreaterThan(2);
     expect(fallback.description).toContain("My Stream");
+    expect(fallback.description).toContain("desktop agentic workspace");
+    expect(fallback.description).toContain("https://colateralai.com");
+    expect(fallback.description).not.toMatch(/structural engineer/i);
     expect(fallback.tags.length).toBeGreaterThan(5);
     expect(fallback.source).toBe("fallback");
   });

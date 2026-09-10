@@ -1,5 +1,5 @@
 import { aiConfigured, runAi } from "@/lib/ai";
-import { CHANNEL_KEYWORDS, TITLE_STYLE_EXAMPLES } from "@/lib/clipping/keywords";
+import { CHANNEL_CONTEXT, CHANNEL_KEYWORDS, TITLE_STYLE_EXAMPLES } from "@/lib/clipping/keywords";
 import type { PipelinePost } from "@/lib/pipeline/types";
 
 /**
@@ -30,7 +30,7 @@ export function pipelinePostsConfigured() {
   return aiConfigured();
 }
 
-export const PIPELINE_POSTS_SYSTEM_PROMPT = `You write social posts for a creator who live-streams himself building CoLateral (an AI-powered workspace for structural engineers) using AI coding tools. Recurring channel keywords to work in when the content genuinely supports them: ${CHANNEL_KEYWORDS.join(", ")}.
+export const PIPELINE_POSTS_SYSTEM_PROMPT = `You write social posts for this channel. ${CHANNEL_CONTEXT} Recurring channel keywords to work in when the content genuinely supports them: ${CHANNEL_KEYWORDS.join(", ")}.
 
 Voice rules for every post:
 - Complete, grammatical sentences — NEVER a raw transcript fragment and never a thought that trails off.

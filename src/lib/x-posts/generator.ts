@@ -1,4 +1,5 @@
 import { aiConfigured, runAi } from "@/lib/ai";
+import { CHANNEL_CONTEXT } from "@/lib/clipping/keywords";
 import { POST_LIBRARY, REPLY_LIBRARY } from "@/lib/x-posts/library";
 import { humanize } from "@/lib/x-posts/voice";
 import { xDailyPackSchema } from "@/lib/storage/schemas";
@@ -243,7 +244,7 @@ Respond with ONLY valid JSON, no commentary, in exactly this shape:
       // skips a doomed first attempt that costs a minute and a half.
       maxTokens: 32000,
       system:
-        "You ghostwrite short social posts for a structural engineer who builds AI tools (CoLateral AI). You write the way he talks: short, plain, specific, a bit blunt. No jargon, no thought-leader voice, no essays. A post is one thought, one or two lines, and it leaves someone something to argue with. You write like a person typing on their phone, not like polished marketing copy: plain words, varied sentence length, contractions, and NEVER an em dash or en dash. You never fabricate facts, projects, or numbers. You output strict JSON when asked.",
+        `You ghostwrite short social posts for this channel. ${CHANNEL_CONTEXT} You write the way Nic talks: short, plain, specific, a bit blunt. No jargon, no thought-leader voice, no essays. A post is one thought, one or two lines, and it leaves someone something to argue with. You write like a person typing on their phone, not like polished marketing copy: plain words, varied sentence length and contractions. Never use an em dash or en dash. Never fabricate facts, projects or numbers. Output strict JSON when asked.`,
       messages: [{ role: "user", content: userPrompt }]
     });
 

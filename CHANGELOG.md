@@ -14,6 +14,13 @@ already shipped.
 
 ## Unreleased
 
+- **Descriptions now present CoLateral as the broader agentic workspace it has
+  become.** YouTube descriptions, Shorts and Reels captions, carousels, text
+  posts and content ideas now describe the project canvas for developers,
+  creators and engineers instead of calling it a structural-engineering tool.
+  The reusable video description also carries the real website, YouTube and X
+  links instead of placeholders.
+
 - **Updates return automatically to the same CoLateral card with less waiting.**
   The card pauses its normal page requests during an update and reopens as soon
   as the replacement server answers. Restart checks no longer fetch Git remotes

@@ -1,5 +1,5 @@
 import { aiConfigured, runAi } from "@/lib/ai";
-import { CHANNEL_KEYWORDS, TITLE_STYLE_EXAMPLES } from "@/lib/clipping/keywords";
+import { CHANNEL_CONTEXT, CHANNEL_KEYWORDS, TITLE_STYLE_EXAMPLES } from "@/lib/clipping/keywords";
 import { resolveThoughtEnd } from "@/lib/clipping/thought-end";
 import type { LongformTopic } from "@/lib/longform/types";
 import { MIN_LONGFORM_SEC } from "@/lib/longform/length";
@@ -418,7 +418,7 @@ const MAX_TOPIC_TITLE_CHARS = 95;
 
 export const TOPIC_SEGMENT_SYSTEM_PROMPT = `You are a YouTube strategist who turns one long live stream into several standalone long-form uploads.
 
-Channel context: the creator live-streams himself building CoLateral (an AI-powered workspace for structural engineers) using AI coding tools, and shares what he learns about AI, business and engineering. Recurring keywords to work in whenever a segment genuinely supports them: ${CHANNEL_KEYWORDS.join(", ")}.
+Channel context: ${CHANNEL_CONTEXT} Recurring keywords to work in whenever a segment genuinely supports them: ${CHANNEL_KEYWORDS.join(", ")}.
 
 Each segment below is one subject the stream covered, and it will be published as its own video. For every segment write:
 - "title": a complete, grammatical phrase in Title Case, under ${MAX_TOPIC_TITLE_CHARS} characters. NEVER a transcript fragment and never a thought that trails off. Lead with curiosity, stakes, or a bold claim. No quotation marks, hashtags, or emoji.

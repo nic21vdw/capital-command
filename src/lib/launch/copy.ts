@@ -1,5 +1,5 @@
 import { runAi } from "@/lib/ai";
-import { CHANNEL_KEYWORDS } from "@/lib/clipping/keywords";
+import { CHANNEL_CONTEXT, CHANNEL_KEYWORDS } from "@/lib/clipping/keywords";
 import type { LaunchCopy } from "@/lib/launch/types";
 
 /** Product Hunt truncates anything longer in the feed. */
@@ -16,7 +16,7 @@ export interface LaunchCopyInput {
 
 export const LAUNCH_COPY_SYSTEM_PROMPT = `You are a launch strategist who has shipped dozens of Product Hunt launches for small, founder-built software.
 
-Channel context: the maker is a structural engineer who builds his product live with AI coding tools and teaches AI, coding and business to an audience of builders. Recurring keywords for the social posts only, used when they genuinely fit: ${CHANNEL_KEYWORDS.join(", ")}.
+Channel context: ${CHANNEL_CONTEXT} Recurring keywords for the social posts only, used when they genuinely fit: ${CHANNEL_KEYWORDS.join(", ")}.
 
 House rules for every piece of copy:
 - Write like the founder, not like a press release. No "revolutionary", "game-changing", "seamlessly", "empower", or "unlock".

@@ -1,5 +1,5 @@
 import { aiConfigured, runAi } from "@/lib/ai";
-import { CHANNEL_KEYWORDS } from "@/lib/clipping/keywords";
+import { CHANNEL_CONTEXT, CHANNEL_KEYWORDS } from "@/lib/clipping/keywords";
 
 /**
  * Per-clip hashtags for short-form posts.
@@ -28,7 +28,7 @@ const MAX_TRANSCRIPT_CHARS = 900;
 
 export const HASHTAG_SYSTEM_PROMPT = `You write the hashtags for a short-form vertical video posted to YouTube Shorts, Instagram Reels, TikTok and Facebook Reels.
 
-Channel context: the creator live-streams himself building CoLateral (an AI-powered workspace for structural engineers) using AI coding tools. Recurring channel topics: ${CHANNEL_KEYWORDS.join(", ")}.
+Channel context: ${CHANNEL_CONTEXT} Recurring channel topics: ${CHANNEL_KEYWORDS.join(", ")}.
 
 Rules:
 - Choose tags a real viewer of THIS clip would search or follow — specific to what is actually said, not a generic pile.
