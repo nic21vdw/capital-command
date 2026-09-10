@@ -1,5 +1,5 @@
 import { aiConfigured, runAi } from "@/lib/ai";
-import { CHANNEL_KEYWORDS, TITLE_STYLE_EXAMPLES } from "@/lib/clipping/keywords";
+import { CHANNEL_CONTEXT, CHANNEL_KEYWORDS, COLATERAL_DESCRIPTION, TITLE_STYLE_EXAMPLES } from "@/lib/clipping/keywords";
 import type { LongformProject, LongformSegment } from "@/lib/longform/types";
 import type { CaptionSegment } from "@/types/domain";
 
@@ -90,7 +90,7 @@ export function transcriptLines(transcript: CaptionSegment[], segments: Longform
 
 export const LONGFORM_METADATA_SYSTEM_PROMPT = `You are a YouTube growth strategist who writes titles and descriptions for long-form videos.
 
-Channel context: the creator live-streams and records himself building CoLateral (an AI-powered workspace for structural engineers) using AI coding tools, and shares what he learns about AI, business and engineering. Recurring keywords to work in whenever the video genuinely supports them: ${CHANNEL_KEYWORDS.join(", ")}.
+Channel context: ${CHANNEL_CONTEXT} Recurring keywords to work in whenever the video genuinely supports them: ${CHANNEL_KEYWORDS.join(", ")}.
 
 Title rules — every title must:
 - Be a complete, grammatical phrase — NEVER a transcript fragment.
@@ -107,6 +107,7 @@ Description rules:
 - Then a short paragraph on what the video covers and why it matters, weaving in the channel keywords naturally.
 - Then 3-5 bullet lines ("- ") of the concrete things covered.
 - Close with a one-line call to action to subscribe for more AI/vibe-coding/building-in-public content, then 3-5 hashtags on the final line.
+- When CoLateral is relevant, use the channel description above. Never narrow it to one profession or engineering discipline.
 - No invented facts, links, or timestamps you were not given.
 
 You always return strict JSON.`;
@@ -224,9 +225,11 @@ export function fallbackLongformMetadata(project: Pick<LongformProject, "name">)
       `${base} (Full Walkthrough)`
     ].map((t) => (t.length > MAX_TITLE_CHARS ? `${t.slice(0, MAX_TITLE_CHARS - 1)}…` : t)),
     description: [
-      `${base} — building in public with AI.`,
+      `${base} - building CoLateral in public with AI.`,
       "",
-      `In this video I keep building CoLateral, my AI-powered workspace for structural engineers, using AI coding tools like Claude. Expect real ${CHANNEL_KEYWORDS.slice(0, 4).join(", ")} work — wins, mistakes, and everything in between.`,
+      `In this video I work on CoLateral. ${COLATERAL_DESCRIPTION} Expect real ${CHANNEL_KEYWORDS.slice(0, 4).join(", ")} work, including the wins, mistakes and decisions along the way.`,
+      "",
+      "Explore CoLateral: https://colateralai.com",
       "",
       "Subscribe for more AI, vibe coding and building-in-public videos.",
       "",

@@ -1,4 +1,4 @@
-import { CHANNEL_KEYWORDS } from "@/lib/clipping/keywords";
+import { CHANNEL_KEYWORDS, COLATERAL_DESCRIPTION } from "@/lib/clipping/keywords";
 
 /**
  * The description + keywords a fresh clip/long-form project starts with, shown
@@ -9,14 +9,13 @@ import { CHANNEL_KEYWORDS } from "@/lib/clipping/keywords";
  * Replace DEFAULT_VIDEO_DESCRIPTION with the channel's real boilerplate (links,
  * CTAs, socials) — it is intentionally in one place so it's a one-line swap.
  */
-export const DEFAULT_VIDEO_DESCRIPTION = `Watch me build CoLateral — an AI-powered workspace for structural engineers — live, using AI coding tools like Claude and ChatGPT.
+export const DEFAULT_VIDEO_DESCRIPTION = `I'm building CoLateral in public. ${COLATERAL_DESCRIPTION}
 
-Every video is building in public: real vibe coding, real AI agents, real startup decisions. If you're into AI, coding, SaaS, and automation, subscribe and follow along.
+These videos show the real work behind it: new features, AI workflows, experiments, mistakes and the decisions that go into shipping software with Claude Code, Codex and other AI tools.
 
-🔗 Links
-- Website: https://
-- X / Twitter: https://
-- Newsletter: https://`;
+Explore CoLateral: https://colateralai.com
+Watch the full build: https://www.youtube.com/@nicvandewetering
+Follow updates: https://x.com/nic21vdw`;
 
 /**
  * The default keyword set, stored as a single comma-separated string so it maps

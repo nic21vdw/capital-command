@@ -25,6 +25,9 @@ describe("buildPlatformCopyPrompt", () => {
     expect(prompt).toContain("America/Toronto");
     expect(prompt).toContain("Vibe Coding a SaaS");
     expect(prompt).toContain("here is how I did it");
+    expect(prompt).toContain("desktop agentic workspace");
+    expect(prompt).toContain("developers, creators and engineers");
+    expect(prompt).not.toMatch(/structural engineer/i);
   });
 });
 

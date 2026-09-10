@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
+  CHANNEL_CONTEXT,
   CHANNEL_KEYWORDS,
+  COLATERAL_DESCRIPTION,
   TITLE_STYLE_EXAMPLES,
   VIRAL_TITLE_SYSTEM_PROMPT,
   buildViralTitleUserPrompt,
@@ -9,6 +11,14 @@ import {
 } from "./titles";
 
 describe("VIRAL_TITLE_SYSTEM_PROMPT", () => {
+  it("uses CoLateral's current discipline-neutral positioning", () => {
+    expect(COLATERAL_DESCRIPTION).toContain("desktop agentic workspace");
+    expect(COLATERAL_DESCRIPTION).toContain("developers, creators and engineers");
+    expect(CHANNEL_CONTEXT).toContain("founder and builder");
+    expect(CHANNEL_CONTEXT).toContain("Claude Code, Codex");
+    expect(VIRAL_TITLE_SYSTEM_PROMPT).not.toMatch(/structural engineer/i);
+  });
+
   it("carries the channel keywords and the style examples", () => {
     for (const keyword of ["AI", "vibe coding", "Claude", "ChatGPT", "business"]) {
       expect(CHANNEL_KEYWORDS).toContain(keyword);

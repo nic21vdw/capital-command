@@ -5,7 +5,7 @@ import { attachSlideBackdrops, attachSlideImages, type CarouselImage } from "@/l
 import { deskFramesForDeck } from "@/lib/carousels/bRoll";
 import { footageKind } from "@/lib/carousels/footage";
 import { framesForSlides } from "@/lib/carousels/videoFrames";
-import { CHANNEL_KEYWORDS } from "@/lib/clipping/keywords";
+import { CHANNEL_CONTEXT, CHANNEL_KEYWORDS } from "@/lib/clipping/keywords";
 import type { ClipCandidate, ClipJob } from "@/lib/clipping/types";
 import { carouselSchema } from "@/lib/storage/schemas";
 import type { Carousel, CarouselBatch, CarouselSlide } from "@/types/domain";
@@ -54,7 +54,7 @@ export function carouselGenerationConfigured() {
   return aiConfigured();
 }
 
-export const CAROUSEL_SYSTEM_PROMPT = `You write carousel copy for a creator who builds software with AI in public (a structural engineer building CoLateral, an AI workspace for structural engineers). The same carousel is posted across Instagram, Facebook, and TikTok, so keep the copy platform-neutral — no "Instagram" / "IG"-only references, and nothing that only makes sense on one network. Channel keywords: ${CHANNEL_KEYWORDS.join(", ")}.
+export const CAROUSEL_SYSTEM_PROMPT = `You write carousel copy for this channel. ${CHANNEL_CONTEXT} The same carousel is posted across Instagram, Facebook, and TikTok, so keep the copy platform-neutral - no "Instagram" / "IG"-only references, and nothing that only makes sense on one network. Channel keywords: ${CHANNEL_KEYWORDS.join(", ")}.
 
 A deck is the story of one session: what was built, what broke, what it cost, what was learned, what ships next. A reader who was not there should finish it knowing what happened that night.
 

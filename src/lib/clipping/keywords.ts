@@ -11,8 +11,11 @@ export const CHANNEL_KEYWORDS = [
   "AI",
   "vibe coding",
   "Claude",
+  "Codex",
   "ChatGPT",
   "AI agents",
+  "agentic workspace",
+  "project canvas",
   "coding",
   "SaaS",
   "startup",
@@ -21,6 +24,12 @@ export const CHANNEL_KEYWORDS = [
   "engineering",
   "automation"
 ];
+
+export const COLATERAL_DESCRIPTION =
+  "CoLateral is a desktop agentic workspace for developers, creators and engineers, where AI agents, files and ideas share one project canvas.";
+
+export const CHANNEL_CONTEXT =
+  `The creator is Nic Vandewetering, founder and builder of CoLateral. ${COLATERAL_DESCRIPTION} He builds it live with Claude Code, Codex and other AI tools, sharing the real product work, experiments, mistakes and business decisions along the way.`;
 
 /** Example titles that define the channel's title voice. */
 export const TITLE_STYLE_EXAMPLES = [
@@ -31,5 +40,5 @@ export const TITLE_STYLE_EXAMPLES = [
   "Building a Startup Live With AI Agents",
   "The AI Mistake Every New Founder Makes",
   "I Made AI Build My Entire Landing Page",
-  "How Vibe Coding Changed My Engineering Business"
+  "I Put My AI Agents and Files on One Canvas"
 ];

@@ -1,5 +1,5 @@
 import { aiConfigured, runAi } from "@/lib/ai";
-import { CHANNEL_KEYWORDS } from "@/lib/clipping/keywords";
+import { CHANNEL_CONTEXT, CHANNEL_KEYWORDS } from "@/lib/clipping/keywords";
 import type { PlatformId } from "@/lib/publisher/types";
 
 /**
@@ -81,7 +81,7 @@ export function buildPlatformCopyPrompt(
     "",
     PLATFORM_GUIDE[platform],
     "",
-    "Channel context: the creator builds CoLateral (an AI workspace for structural engineers) live with AI coding tools and teaches AI, coding and business.",
+    `Channel context: ${CHANNEL_CONTEXT}`,
     `Channel keywords to weave in when they genuinely fit: ${CHANNEL_KEYWORDS.join(", ")}.`,
     ""
   ];

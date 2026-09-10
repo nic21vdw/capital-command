@@ -1,5 +1,5 @@
 import { aiConfigured, runAi } from "@/lib/ai";
-import { CHANNEL_KEYWORDS } from "@/lib/clipping/keywords";
+import { CHANNEL_CONTEXT, CHANNEL_KEYWORDS } from "@/lib/clipping/keywords";
 import { SFX_SOUNDS } from "@/lib/sfx/types";
 import { videoScriptSchema } from "@/lib/storage/schemas";
 import type { ScriptGraphic, ScriptSection, ScriptSfx, VideoIdea, VideoScript } from "@/types/domain";
@@ -23,7 +23,7 @@ const GRAPHIC_KINDS = ["b-roll", "screen-recording", "diagram", "text-overlay", 
 
 export const SCRIPT_SYSTEM_PROMPT = `You are the scriptwriter for a YouTube channel about building software with AI.
 
-Channel context: the creator is a structural engineer building CoLateral (an AI-powered workspace for structural engineers) with AI coding tools, sharing the journey. Channel keywords to weave in naturally: ${CHANNEL_KEYWORDS.join(", ")}.
+Channel context: ${CHANNEL_CONTEXT} Channel keywords to weave in naturally: ${CHANNEL_KEYWORDS.join(", ")}.
 
 You write COMPLETE scripts — the actual words to say, not outlines. Rules:
 - Follow the creator's script framework exactly (provided with each request): its sections, its ordering, its voice rules.
