@@ -18,6 +18,7 @@ import {
 import { reviewHook } from "@/lib/longform/hook-review";
 import { reviewTopicOpenings } from "@/lib/longform/segment-review";
 import { DEFAULT_TOPIC_OPTIONS, buildTopics, type TopicPlanOptions } from "@/lib/longform/topics";
+import type { OutputQuality } from "@/lib/pipeline/outputQuality";
 import type { LongformPace, LongformProject } from "@/lib/longform/types";
 import { defaultSfxSettings } from "@/lib/sfx/types";
 import type { CaptionSegment } from "@/types/domain";
@@ -254,7 +255,11 @@ async function failProject(project: LongformProject, error: unknown) {
  * the analysis pipeline (transcribe → find dead space → plan the hook and
  * cuts) without blocking the response; the client polls.
  */
-export async function createProject(sourceId: string, name?: string): Promise<LongformProject> {
+export async function createProject(
+  sourceId: string,
+  name?: string,
+  output?: OutputQuality
+): Promise<LongformProject> {
   await loadProjects();
   const meta = await readSourceMeta(sourceId);
   if (!meta) throw new Error("That uploaded video could not be found. Upload it again.");
@@ -267,7 +272,8 @@ export async function createProject(sourceId: string, name?: string): Promise<Lo
     durationSec: meta.durationSec,
     width: meta.width,
     height: meta.height,
-    hasAudio: meta.hasAudio
+    hasAudio: meta.hasAudio,
+    output
   });
 
   void runAnalysis(project).catch((error) => failProject(project, error));
@@ -309,6 +315,7 @@ async function newProjectRecord(fields: {
   width: number;
   height: number;
   hasAudio: boolean;
+  output?: OutputQuality;
 }): Promise<LongformProject> {
   const id = crypto.randomUUID().slice(0, 8);
   const now = new Date().toISOString();
@@ -325,6 +332,7 @@ async function newProjectRecord(fields: {
     width: fields.width,
     height: fields.height,
     hasAudio: fields.hasAudio,
+    output: fields.output,
     transcript: [],
     silences: [],
     segments: [],

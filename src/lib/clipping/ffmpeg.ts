@@ -165,6 +165,8 @@ export type VideoStreamInfo = {
   width: number;
   height: number;
   durationSec: number | null;
+  /** Frames per second as the container reports it; absent when it says nothing. */
+  fps?: number | null;
 };
 
 /** Parses `ffmpeg -i` stderr into display dimensions and duration. */
@@ -181,10 +183,14 @@ export function parseVideoStreamInfo(stderr: string): VideoStreamInfo | null {
   if (rotation && Math.abs((Math.abs(Number(rotation[1])) % 180) - 90) < 1) [width, height] = [height, width];
   const duration = stderr.match(/Duration:\s*(\d+):(\d+):(\d+(?:\.\d+)?)/);
   const durationSec = duration ? Number(duration[1]) * 3600 + Number(duration[2]) * 60 + Number(duration[3]) : null;
-  return { width, height, durationSec };
+  // ffmpeg prints "…, 5994 kb/s, 59.94 fps, 59.94 tbr, 90k tbn" — take the fps
+  // field, not tbr, which on a VFR recording is the ceiling rather than the rate.
+  const rate = stderr.match(/Video:[^\n]*?,\s*([\d.]+)\s*fps\b/);
+  const fps = rate && Number(rate[1]) > 0 ? Number(rate[1]) : null;
+  return { width, height, durationSec, fps };
 }
 
-/** Reads the video's display dimensions and duration by parsing `ffmpeg -i`. */
+/** Reads the video's display dimensions, duration and frame rate by parsing `ffmpeg -i`. */
 export async function probeVideoStream(inputPath: string): Promise<VideoStreamInfo> {
   const { stderr } = await runFfmpeg(["-hide_banner", "-i", inputPath], { allowFailure: true });
   const info = parseVideoStreamInfo(stderr);

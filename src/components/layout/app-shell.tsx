@@ -140,6 +140,7 @@ function studioItemsFor(personalDashboard: boolean | undefined): NavItem[] {
 
 const ALL_NAV_ITEMS = [...PIPELINE_STAGES.flatMap((stage) => stage.items), ...STUDIO_ITEMS, FINANCE_ITEM];
 const SIDEBAR_COLLAPSED_KEY = "capital-command:sidebar-collapsed";
+const STUDIO_OPEN_KEY = "capital-command:studio-open";
 // Shown in the sidebar brand until a display name is saved in Settings.
 const DEFAULT_BRAND_NAME = "Capital Command";
 
@@ -596,6 +597,83 @@ function StageNode({ step, active }: { step: number; active: boolean }) {
   );
 }
 
+/**
+ * The tools that feed the pipeline without being part of it. They are opened a
+ * few times a week and the flow above is opened every day, so they fold away
+ * behind one row — open while you are on one of them, and remembered after.
+ */
+function StudioSection({
+  items,
+  pathname,
+  collapsed
+}: {
+  items: NavItem[];
+  pathname: string;
+  collapsed: boolean;
+}) {
+  const onStudioPage = items.some((item) => isActivePath(pathname, item.href));
+  const [open, setOpen] = useState(false);
+
+  useEffect(() => {
+    queueMicrotask(() => {
+      try {
+        if (window.localStorage.getItem(STUDIO_OPEN_KEY) === "1") setOpen(true);
+      } catch {
+        // Non-critical preference read.
+      }
+    });
+  }, []);
+
+  const toggle = () => {
+    setOpen((current) => {
+      const next = !current;
+      try {
+        window.localStorage.setItem(STUDIO_OPEN_KEY, next ? "1" : "0");
+      } catch {
+        // Non-critical preference persistence.
+      }
+      return next;
+    });
+  };
+
+  if (collapsed) {
+    return (
+      <div>
+        <div className="mx-3 border-t border-[var(--border)] pb-1" />
+        <p className="sr-only">Studio</p>
+        <div className="space-y-0.5">
+          {items.map((item) => (
+            <NavLink key={item.href} item={item} active={isActivePath(pathname, item.href)} collapsed />
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  const showItems = open || onStudioPage;
+  return (
+    <div className="border-t border-[var(--border)] pt-4">
+      <button
+        type="button"
+        onClick={toggle}
+        aria-expanded={showItems}
+        className="flex w-full items-center gap-1.5 rounded-lg px-1 py-1 text-[11px] font-medium uppercase tracking-[0.14em] text-[var(--muted-foreground)] transition hover:text-white"
+      >
+        <ChevronDown className={cn("h-3.5 w-3.5 shrink-0 transition", !showItems && "-rotate-90")} />
+        <span className="flex-1 text-left">Studio</span>
+        {!showItems && <span className="normal-case tracking-normal">{items.length}</span>}
+      </button>
+      {showItems && (
+        <div className="mt-1 space-y-0.5">
+          {items.map((item) => (
+            <NavLink key={item.href} item={item} active={isActivePath(pathname, item.href)} />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 /** One pipeline stage: numbered node + connector on the rail, links beside. */
 function StageGroup({
   stage,
@@ -916,27 +994,7 @@ function AppChrome({ children, frame }: { children: React.ReactNode; frame: bool
               )}
             </div>
 
-            <div className={cn(!sidebarCollapsed && "border-t border-[var(--border)] pt-4")}>
-              {sidebarCollapsed ? <div className="mx-3 border-t border-[var(--border)] pb-1" /> : null}
-              <p
-                className={cn(
-                  "px-1 pb-2 text-[11px] font-medium uppercase tracking-[0.14em] text-[var(--muted-foreground)]",
-                  sidebarCollapsed && "sr-only"
-                )}
-              >
-                Studio
-              </p>
-              <div className="space-y-0.5">
-                {studioItems.map((item) => (
-                  <NavLink
-                    key={item.href}
-                    item={item}
-                    active={isActivePath(pathname, item.href)}
-                    collapsed={sidebarCollapsed}
-                  />
-                ))}
-              </div>
-            </div>
+            <StudioSection items={studioItems} pathname={pathname} collapsed={sidebarCollapsed} />
           </nav>
 
           <div className="mt-4 space-y-3 border-t border-[var(--border)] pt-4">

@@ -5,6 +5,7 @@ import Link from "next/link";
 import { PUBLISHING_OFF_MESSAGE } from "@/lib/publisher/enabledMessage";
 import { useSearchParams } from "next/navigation";
 import {
+  ArrowLeft,
   ArrowUp,
   AtSign,
   CalendarClock,
@@ -33,8 +34,17 @@ import { VisualAdComposer } from "@/components/pipeline/visual-ad-composer";
 import type { QueuePlan } from "@/lib/pipeline/queueOutputs";
 import { usePipelineAttention, useRefreshAttention } from "@/components/pipeline/attention";
 import { useStream } from "@/components/providers/stream-provider";
+import { useAppData } from "@/components/providers/app-provider";
 import { runListStatus, type RunTone } from "@/lib/pipeline/status";
 import { runProgress } from "@/lib/pipeline/progress";
+import {
+  DEFAULT_OUTPUT_QUALITY,
+  OUTPUT_FRAME_RATES,
+  OUTPUT_RESOLUTIONS,
+  describeOutputQuality,
+  normalizeOutputQuality,
+  type OutputQuality
+} from "@/lib/pipeline/outputQuality";
 import { ChannelCoverageCard } from "@/components/pipeline/channel-coverage";
 import type { ChannelCoverage } from "@/lib/ingest/coverage";
 import { MAX_IMAGES_PER_POST } from "@/lib/publisher/images";
@@ -64,8 +74,17 @@ const STATUS_LABELS: Record<PipelineStageStatus, string> = {
   skipped: "Skipped"
 };
 
-// What each stage is called wherever it is named — the row heading and the
-// "these stopped short" summary must say the same word for the same thing.
+const STATUS_DOT: Record<PipelineStageStatus, string> = {
+  ready: "bg-emerald-400",
+  error: "bg-red-400",
+  running: "bg-sky-400 animate-pulse",
+  waiting: "bg-white/20",
+  skipped: "bg-amber-400"
+};
+
+// What each stage is called wherever it is named — the row heading, the output
+// strip and the "these stopped short" summary must say the same word for the
+// same thing.
 const STAGE_TITLES: Record<PipelineStageKey, string> = {
   source: "Stream source",
   longform: "Long-form edit",
@@ -78,6 +97,32 @@ const STAGE_TITLES: Record<PipelineStageKey, string> = {
   posts: "Text-only posts",
   schedule: "Scheduler"
 };
+
+const STAGE_ICONS: Record<PipelineStageKey, LucideIcon> = {
+  source: UploadCloud,
+  longform: Clapperboard,
+  segments: Layers,
+  clips: Scissors,
+  audio: Podcast,
+  podcast: Radio,
+  images: Images,
+  visuals: Sparkles,
+  posts: AtSign,
+  schedule: CalendarClock
+};
+
+const STAGE_ORDER: PipelineStageKey[] = [
+  "source",
+  "longform",
+  "segments",
+  "clips",
+  "audio",
+  "podcast",
+  "images",
+  "visuals",
+  "posts",
+  "schedule"
+];
 
 const RUN_TONE_DOT: Record<RunTone, string> = {
   attention: "bg-amber-400",
@@ -112,6 +157,8 @@ const LAUNCHING_STAGES: Record<PipelineStageKey, PipelineStage> = {
   schedule: { status: "waiting", detail: "Waiting for the first output." }
 };
 
+const SMALL_BUTTON = "px-3 py-1.5 text-xs";
+
 function formatStartedAt(iso: string) {
   const started = new Date(iso);
   if (Number.isNaN(started.getTime())) return "Unknown date";
@@ -135,6 +182,10 @@ function StatusChip({ status }: { status: PipelineStageStatus }) {
       {STATUS_LABELS[status]}
     </span>
   );
+}
+
+function Spinner() {
+  return <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />;
 }
 
 function CopyPostButton({ text }: { text: string }) {
@@ -162,45 +213,32 @@ function CopyPostButton({ text }: { text: string }) {
 
 /**
  * The one control the app opens on: a single pill that takes a link, a click to
- * upload, or a dropped file. `compact` is the version that stays pinned above a
- * running flow.
+ * upload, or a dropped file.
  */
 function StreamSearchBar({
   value,
   onChange,
   onSubmit,
   onPickFile,
-  busy,
-  compact = false
+  busy
 }: {
   value: string;
   onChange: (next: string) => void;
   onSubmit: () => void;
   onPickFile: () => void;
   busy: boolean;
-  compact?: boolean;
 }) {
   return (
-    <div
-      className={cn(
-        "flex items-center gap-2 rounded-full border border-[var(--border)] bg-[var(--surface-2)] transition focus-within:border-[var(--accent)]",
-        compact
-          ? "px-2 py-1.5 shadow-[var(--shadow)]"
-          : "px-3 py-2.5 shadow-[var(--shadow-pop)] focus-within:shadow-[0_8px_44px_color-mix(in_srgb,var(--accent)_18%,transparent)]"
-      )}
-    >
+    <div className="flex items-center gap-2 rounded-full border border-[var(--border)] bg-[var(--surface-2)] px-3 py-2.5 shadow-[var(--shadow-pop)] transition focus-within:border-[var(--accent)] focus-within:shadow-[0_8px_44px_color-mix(in_srgb,var(--accent)_18%,transparent)]">
       <button
         type="button"
         onClick={onPickFile}
         disabled={busy}
         aria-label="Upload a video file"
         title="Upload a video file"
-        className={cn(
-          "flex shrink-0 items-center justify-center rounded-full text-[var(--muted-foreground)] transition hover:bg-white/8 hover:text-white disabled:opacity-40",
-          compact ? "h-8 w-8" : "h-10 w-10"
-        )}
+        className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-[var(--muted-foreground)] transition hover:bg-white/8 hover:text-white disabled:opacity-40"
       >
-        <Plus className={compact ? "h-4 w-4" : "h-5 w-5"} />
+        <Plus className="h-5 w-5" />
       </button>
       <input
         value={value}
@@ -209,12 +247,9 @@ function StreamSearchBar({
           if (event.key === "Enter") onSubmit();
         }}
         disabled={busy}
-        placeholder={compact ? "Run another stream..." : "Paste a stream or VOD link"}
+        placeholder="Paste a stream or VOD link"
         aria-label="Stream or VOD link"
-        className={cn(
-          "min-w-0 flex-1 bg-transparent text-white outline-none placeholder:text-[var(--muted-foreground)] disabled:opacity-60",
-          compact ? "h-8 text-sm" : "h-10 text-base"
-        )}
+        className="h-10 min-w-0 flex-1 bg-transparent text-base text-white outline-none placeholder:text-[var(--muted-foreground)] disabled:opacity-60"
       />
       <button
         type="button"
@@ -222,49 +257,146 @@ function StreamSearchBar({
         disabled={busy || !value.trim()}
         aria-label="Run the pipeline"
         title="Run the pipeline"
-        className={cn(
-          "flex shrink-0 items-center justify-center rounded-full bg-[var(--accent)] text-[var(--accent-contrast)] transition hover:opacity-90 disabled:bg-white/10 disabled:text-[var(--muted-foreground)]",
-          compact ? "h-8 w-8" : "h-10 w-10"
-        )}
+        className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[var(--accent)] text-[var(--accent-contrast)] transition hover:opacity-90 disabled:bg-white/10 disabled:text-[var(--muted-foreground)]"
       >
-        {busy ? (
-          <Loader2 className={cn("animate-spin", compact ? "h-4 w-4" : "h-4.5 w-4.5")} />
-        ) : (
-          <ArrowUp className={compact ? "h-4 w-4" : "h-5 w-5"} />
-        )}
+        {busy ? <Loader2 className="h-4.5 w-4.5 animate-spin" /> : <ArrowUp className="h-5 w-5" />}
       </button>
+    </div>
+  );
+}
+
+const SELECT_CLASS =
+  "h-8 cursor-pointer appearance-none rounded-full border border-[var(--border)] bg-[var(--surface-2)] pl-3 pr-7 text-xs text-white outline-none transition hover:border-[var(--border-strong)] focus:border-[var(--accent)] disabled:opacity-50";
+
+/**
+ * The only two settings the pipeline asks for. They live under the search bar,
+ * are remembered for the next stream, and travel with the run they started.
+ */
+function OutputQualityPicker({
+  value,
+  onChange,
+  disabled
+}: {
+  value: OutputQuality;
+  onChange: (next: OutputQuality) => void;
+  disabled: boolean;
+}) {
+  const chevron = (
+    <span className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-[10px] text-[var(--muted-foreground)]">
+      ▾
+    </span>
+  );
+  return (
+    <div className="flex flex-wrap items-center justify-center gap-2 text-xs text-[var(--muted-foreground)]">
+      <label className="relative flex items-center gap-1.5">
+        <span>Resolution</span>
+        <select
+          value={value.resolution}
+          disabled={disabled}
+          aria-label="Output resolution"
+          onChange={(event) =>
+            onChange(normalizeOutputQuality({ ...value, resolution: event.target.value }))
+          }
+          className={SELECT_CLASS}
+        >
+          {OUTPUT_RESOLUTIONS.map((option) => (
+            <option key={option.id} value={option.id}>
+              {option.label}
+            </option>
+          ))}
+        </select>
+        {chevron}
+      </label>
+      <label className="relative flex items-center gap-1.5">
+        <span>Frame rate</span>
+        <select
+          value={value.frameRate}
+          disabled={disabled}
+          aria-label="Output frame rate"
+          onChange={(event) =>
+            onChange(normalizeOutputQuality({ ...value, frameRate: event.target.value }))
+          }
+          className={SELECT_CLASS}
+        >
+          {OUTPUT_FRAME_RATES.map((option) => (
+            <option key={option.id} value={option.id}>
+              {option.label}
+            </option>
+          ))}
+        </select>
+        {chevron}
+      </label>
+    </div>
+  );
+}
+
+type OutputChip = { key: PipelineStageKey; label: string; status: PipelineStageStatus };
+
+/**
+ * What one stream turns into, in one line: every format with a dot for where
+ * it has got to. Clicking a chip lands on that stage of the flow.
+ */
+function OutputStrip({ chips }: { chips: OutputChip[] }) {
+  return (
+    <div className="flex flex-wrap gap-1.5">
+      {chips.map((chip) => {
+        const Icon = STAGE_ICONS[chip.key];
+        return (
+          <a
+            key={chip.key}
+            href={`#stage-${chip.key}`}
+            onClick={(event) => {
+              event.preventDefault();
+              document.getElementById(`stage-${chip.key}`)?.scrollIntoView({ behavior: "smooth", block: "center" });
+            }}
+            className={cn(
+              "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-medium transition hover:border-[var(--border-strong)]",
+              chip.status === "ready"
+                ? "border-emerald-400/25 bg-emerald-400/[0.06] text-white"
+                : chip.status === "running"
+                  ? "border-sky-400/25 bg-sky-400/[0.06] text-white"
+                  : chip.status === "error"
+                    ? "border-red-400/25 bg-red-400/[0.06] text-white"
+                    : "border-[var(--border)] text-[var(--muted-foreground)]"
+            )}
+          >
+            <span className={cn("h-1.5 w-1.5 rounded-full", STATUS_DOT[chip.status])} />
+            <Icon className="h-3 w-3" />
+            {chip.label}
+          </a>
+        );
+      })}
     </div>
   );
 }
 
 /** One node in the top-to-bottom flow: icon on the rail, card to the right. */
 function StageRow({
-  icon: Icon,
-  title,
+  stageKey,
   stage,
   index,
   last = false,
   flowing = false,
   onRetry,
   retrying = false,
+  action,
   children
 }: {
-  icon: LucideIcon;
-  title: string;
+  stageKey: PipelineStageKey;
   stage: PipelineStage;
   index: number;
   last?: boolean;
   flowing?: boolean;
-  /** Present only when this stage can be run again — see `retryable`. */
   onRetry?: () => void;
   retrying?: boolean;
+  action?: React.ReactNode;
   children?: React.ReactNode;
 }) {
+  const Icon = STAGE_ICONS[stageKey];
   const active = stage.status === "running";
   const done = stage.status === "ready";
   return (
-    <div className="animate-in flex gap-4" style={{ animationDelay: `${index * 70}ms` }}>
-      {/* Rail: the node plus the connector running down to the next stage. */}
+    <div id={`stage-${stageKey}`} className="animate-in flex gap-4 scroll-mt-24" style={{ animationDelay: `${index * 70}ms` }}>
       <div className="flex flex-col items-center">
         <div
           className={cn(
@@ -292,39 +424,46 @@ function StageRow({
           />
         )}
       </div>
-      <div className="min-w-0 flex-1 pb-6">
+      <div className="min-w-0 flex-1 pb-5">
         <Card className={cn("p-4", active && "pipeline-card-live border-sky-400/25")}>
           <div className="flex flex-wrap items-center justify-between gap-2">
-            <h3 className="text-sm font-semibold text-white">{title}</h3>
+            <h3 className="text-sm font-semibold text-white">{STAGE_TITLES[stageKey]}</h3>
             <StatusChip status={stage.status} />
           </div>
           <p className="mt-1 text-sm text-[var(--muted-foreground)]">{stage.detail}</p>
           {stage.status === "running" && typeof stage.progress === "number" && (
             <Progress value={stage.progress} className="mt-3" />
           )}
-          {/* A stage that failed or gave up is one click from running again —
-              the same repair the command bar performs, on the row that broke. */}
-          {onRetry && (
-            <div className="mt-3">
-              <Button
-                variant="secondary"
-                onClick={onRetry}
-                disabled={retrying}
-                className="border-amber-400/30 px-3 py-1.5 text-xs text-amber-200 hover:border-amber-400/50"
-              >
-                {retrying ? (
-                  <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
-                ) : (
-                  <RotateCcw className="mr-1.5 h-3.5 w-3.5" />
-                )}
-                Try this again
-              </Button>
+          {onRetry || action ? (
+            <div className="mt-3 flex flex-wrap items-center gap-2">
+              {onRetry ? (
+                <Button
+                  variant="secondary"
+                  onClick={onRetry}
+                  disabled={retrying}
+                  className={cn(SMALL_BUTTON, "border-amber-400/30 text-amber-200 hover:border-amber-400/50")}
+                >
+                  {retrying ? <Spinner /> : <RotateCcw className="mr-1.5 h-3.5 w-3.5" />}
+                  Try this again
+                </Button>
+              ) : null}
+              {action}
             </div>
-          )}
+          ) : null}
           {children}
         </Card>
       </div>
     </div>
+  );
+}
+
+function OpenLink({ href, label = "Open" }: { href: string; label?: string }) {
+  return (
+    <Link href={href}>
+      <Button variant="secondary" className={SMALL_BUTTON}>
+        {label}
+      </Button>
+    </Link>
   );
 }
 
@@ -333,6 +472,7 @@ export function PipelinePage() {
   // has to land on that run, not on the list with it buried in it.
   const requestedRunId = useSearchParams().get("run");
   const { select: selectStream } = useStream();
+  const { data, mutate } = useAppData();
   const [overviews, setOverviews] = useState<PipelineRunOverview[]>([]);
   const [coverage, setCoverage] = useState<ChannelCoverage | null>(null);
   const [loaded, setLoaded] = useState(false);
@@ -356,6 +496,17 @@ export function PipelinePage() {
   const uploadInputRef = useRef<HTMLInputElement>(null);
   const [postsOpen, setPostsOpen] = useState(false);
 
+  const outputQuality = useMemo(
+    () => normalizeOutputQuality(data.settings.outputQuality ?? DEFAULT_OUTPUT_QUALITY),
+    [data.settings.outputQuality]
+  );
+  const setOutputQuality = useCallback(
+    (next: OutputQuality) => {
+      void mutate("updateSettings", { ...data.settings, outputQuality: next });
+    },
+    [data.settings, mutate]
+  );
+
   // While a brand-new run is being created there is no id to match yet, so the
   // flow must NOT fall back to the newest previous run — it renders the
   // launching skeleton instead until the server hands back the real run.
@@ -369,9 +520,9 @@ export function PipelinePage() {
     try {
       const response = await fetch("/api/pipeline", { cache: "no-store" });
       if (!response.ok) return;
-      const data = (await response.json()) as { runs: PipelineRunOverview[]; coverage?: ChannelCoverage | null };
-      setOverviews(data.runs);
-      setCoverage(data.coverage ?? null);
+      const payload = (await response.json()) as { runs: PipelineRunOverview[]; coverage?: ChannelCoverage | null };
+      setOverviews(payload.runs);
+      setCoverage(payload.coverage ?? null);
     } finally {
       setLoaded(true);
     }
@@ -391,30 +542,31 @@ export function PipelinePage() {
   }, [overviews, refresh]);
 
   const startRun = useCallback(
-    async (body: { url?: string; sourceId?: string }) => {
+    async (body: { url?: string; sourceId?: string; name?: string }) => {
       setShowFlow(true);
       setLaunching(true);
       const response = await fetch("/api/pipeline", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body)
+        body: JSON.stringify({ ...body, output: outputQuality })
       });
-      const data = (await response.json()) as { run?: PipelineRun; error?: string };
-      if (response.ok && data.run) {
-        setActiveRunId(data.run.id);
+      const payload = (await response.json()) as { run?: PipelineRun; error?: string };
+      if (response.ok && payload.run) {
+        setActiveRunId(payload.run.id);
         setPostsOpen(false);
         setUrl("");
-        selectStream(data.run.id);
+        selectStream(payload.run.id);
         toast.success("Pipeline started. Everything runs from here.");
         await refresh();
         setLaunching(false);
-      } else {
-        setLaunching(false);
-        setShowFlow(overviews.length > 0);
-        toast.error(data.error ?? "Could not start the pipeline.");
+        return payload.run;
       }
+      setLaunching(false);
+      setShowFlow(overviews.length > 0);
+      toast.error(payload.error ?? "Could not start the pipeline.");
+      return null;
     },
-    [overviews.length, refresh, selectStream]
+    [outputQuality, overviews.length, refresh, selectStream]
   );
 
   const submitUrl = useCallback(async () => {
@@ -445,13 +597,13 @@ export function PipelinePage() {
           headers: { "Content-Type": file.type || "video/mp4" },
           body: file
         });
-        const data = (await response.json()) as { source?: { id: string }; error?: string };
-        if (!response.ok || !data.source) {
+        const payload = (await response.json()) as { source?: { id: string }; error?: string };
+        if (!response.ok || !payload.source) {
           setLaunching(false);
-          toast.error(data.error ?? "Upload failed.");
+          toast.error(payload.error ?? "Upload failed.");
           return;
         }
-        await startRun({ sourceId: data.source.id });
+        await startRun({ sourceId: payload.source.id });
       } catch {
         setLaunching(false);
         toast.error("Upload failed. Is the dev server still running?");
@@ -482,6 +634,7 @@ export function PipelinePage() {
     [busy, uploadFile]
   );
 
+  const shownRunId = active?.run.id ?? null;
   const deleteRun = useCallback(
     async (runId: string) => {
       try {
@@ -492,7 +645,7 @@ export function PipelinePage() {
         // Removing the run you were reading goes back to the search screen.
         // Clearing the id alone would silently swap the flow to the NEWEST run,
         // which reads as "it threw me back to the top of the pipeline".
-        if (activeRunId === runId) {
+        if (activeRunId === runId || shownRunId === runId) {
           setActiveRunId(null);
           setShowFlow(false);
         }
@@ -501,7 +654,7 @@ export function PipelinePage() {
         toast.error("Could not remove the run.");
       }
     },
-    [activeRunId, overviews]
+    [activeRunId, overviews, shownRunId]
   );
 
   /**
@@ -532,23 +685,23 @@ export function PipelinePage() {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(body)
         });
-        const data = (await response.json()) as {
+        const payload = (await response.json()) as {
           detail?: string;
           error?: string;
           refused?: string[];
           overview?: PipelineRunOverview;
         };
-        if (!response.ok || !data.overview) {
-          toast.error(data.error ?? "That could not be started again.");
+        if (!response.ok || !payload.overview) {
+          toast.error(payload.error ?? "That could not be started again.");
           return;
         }
         setOverviews((current) =>
-          current.map((entry) => (entry.run.id === runId ? data.overview! : entry))
+          current.map((entry) => (entry.run.id === runId ? payload.overview! : entry))
         );
         // Naming what refused is the difference between "1 could not be" and
         // knowing which row is still broken.
-        for (const refusal of data.refused ?? []) toast.error(refusal);
-        toast.success(data.detail ?? "Started again.");
+        for (const refusal of payload.refused ?? []) toast.error(refusal);
+        toast.success(payload.detail ?? "Started again.");
       } catch {
         toast.error("Request failed. Is the server still running?");
       } finally {
@@ -566,16 +719,16 @@ export function PipelinePage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action: "plan-queue" })
       });
-      const data = (await response.json()) as { plan?: QueuePlan; error?: string };
-      if (!response.ok || !data.plan) {
-        toast.error(data.error ?? "Could not work out what is ready.");
+      const payload = (await response.json()) as { plan?: QueuePlan; error?: string };
+      if (!response.ok || !payload.plan) {
+        toast.error(payload.error ?? "Could not work out what is ready.");
         return;
       }
       // A row the server marked as decided opens UNTICKED. Clearing this was
       // the sheet re-ticking exactly what he had held back, under a label
       // telling him to tick it.
-      setDropped(data.plan.candidates.filter((item) => item.heldBack).map((item) => item.id));
-      setPlan(data.plan);
+      setDropped(payload.plan.candidates.filter((item) => item.heldBack).map((item) => item.id));
+      setPlan(payload.plan);
     } catch {
       toast.error("Request failed. Is the server still running?");
     } finally {
@@ -592,7 +745,7 @@ export function PipelinePage() {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ action: "queue-all", ids, seen })
         });
-        const data = (await response.json()) as {
+        const payload = (await response.json()) as {
           detail?: string;
           error?: string;
           queued?: { title: string }[];
@@ -600,23 +753,23 @@ export function PipelinePage() {
           overview?: PipelineRunOverview;
         };
         if (!response.ok) {
-          toast.error(data.error ?? "Nothing could be scheduled.");
+          toast.error(payload.error ?? "Nothing could be scheduled.");
           return;
         }
-        if (data.overview) {
-          setOverviews((current) => current.map((entry) => (entry.run.id === runId ? data.overview! : entry)));
+        if (payload.overview) {
+          setOverviews((current) => current.map((entry) => (entry.run.id === runId ? payload.overview! : entry)));
         }
         // A booking that half worked has to say which half — the queue is the
         // one place a silent gap turns into a day with nothing posted. Nothing
         // scheduled is a failure, whatever the response code says, and the sheet
         // stays open so the untouched list is still there to try again.
-        for (const failure of data.failed ?? []) toast.error(`${failure.title}: ${failure.error}`);
-        const booked = data.queued?.length ?? 0;
+        for (const failure of payload.failed ?? []) toast.error(`${failure.title}: ${failure.error}`);
+        const booked = payload.queued?.length ?? 0;
         if (booked === 0) {
-          toast.error(data.detail ?? "Nothing could be scheduled.");
+          toast.error(payload.detail ?? "Nothing could be scheduled.");
           return;
         }
-        toast.success(data.detail ?? "Scheduled.");
+        toast.success(payload.detail ?? "Scheduled.");
         setPlan(null);
       } catch {
         toast.error("Request failed. Is the server still running?");
@@ -627,10 +780,6 @@ export function PipelinePage() {
     []
   );
 
-  /**
-   * Runs the same link through the pipeline again and drops the dead run, so a
-   * failed download is one button rather than a copy-paste and a delete.
-   */
   /** Runs the scan again from here, rather than sending him to another screen. */
   const rescan = useCallback(async () => {
     setWorking("scan");
@@ -640,9 +789,9 @@ export function PipelinePage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({})
       });
-      const data = (await response.json()) as { error?: string };
+      const payload = (await response.json()) as { error?: string };
       if (!response.ok) {
-        toast.error(data.error ?? "The scan could not be started.");
+        toast.error(payload.error ?? "The scan could not be started.");
         return;
       }
       toast.success("Scanning the channel again.");
@@ -656,25 +805,29 @@ export function PipelinePage() {
     }
   }, [refreshAttention]);
 
+  /**
+   * Runs the same link through the pipeline again and drops the dead run, so a
+   * failed download is one button rather than a copy-paste and a delete.
+   */
   const restartRun = useCallback(
-    async (runId: string, url: string, name: string) => {
+    async (runId: string, sourceUrl: string, name: string) => {
       setWorking("restart");
       try {
         const response = await fetch("/api/pipeline", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ url, name })
+          body: JSON.stringify({ url: sourceUrl, name, output: outputQuality })
         });
-        const data = (await response.json()) as { run?: PipelineRun; error?: string };
-        if (!response.ok || !data.run) {
-          toast.error(data.error ?? "Could not start it again.");
+        const payload = (await response.json()) as { run?: PipelineRun; error?: string };
+        if (!response.ok || !payload.run) {
+          toast.error(payload.error ?? "Could not start it again.");
           return;
         }
         // Only once the new run exists: losing the old one AND the new start
         // would leave nothing on screen and the link gone with it.
         await fetch(`/api/pipeline/${runId}`, { method: "DELETE" }).catch(() => undefined);
-        setActiveRunId(data.run.id);
-        selectStream(data.run.id);
+        setActiveRunId(payload.run.id);
+        selectStream(payload.run.id);
         toast.success("Downloading the stream again.");
         await refresh();
       } catch {
@@ -683,16 +836,16 @@ export function PipelinePage() {
         setWorking(null);
       }
     },
-    [refresh, selectStream]
+    [outputQuality, refresh, selectStream]
   );
 
-  // Opening a run scrolls back to the top of the page, not to the flow: the
-  // picker stays in view, so it is obvious WHICH run is now open. Opening one
-  // IS choosing what you work on, so the shell is told at the same moment.
+  // Opening a run scrolls back to the top of the page. Opening one IS choosing
+  // what you work on, so the shell is told at the same moment.
   const openRun = useCallback(
     (runId: string) => {
       setActiveRunId(runId);
       setPostsOpen(false);
+      setPlan(null);
       setShowFlow(true);
       selectStream(runId);
       requestAnimationFrame(() => window.scrollTo({ top: 0, behavior: "smooth" }));
@@ -704,6 +857,7 @@ export function PipelinePage() {
     setShowFlow(false);
     setLaunching(false);
     setActiveRunId(null);
+    setPlan(null);
     setUrl("");
   }, []);
 
@@ -713,11 +867,6 @@ export function PipelinePage() {
   // The posts go to the Threads queue, not the video booking sheet, so the
   // retry offered has to be the one that matches what failed.
   const bookingFailure = Boolean(run?.queueFailures?.length) && run?.queueFailures?.[0].title !== "Text posts";
-  // A count of zero means one of two very different things. "segments pending"
-  // next to a Skipped segments stage read as a contradiction — a stage that
-  // gave up is never going to deliver anything.
-  const pendingLabel = (key: PipelineStageKey, noun: string) =>
-    stages?.[key].status === "skipped" || stages?.[key].status === "error" ? `no ${noun}` : `${noun} pending`;
   const longformHref = run?.longformProjectId ? `/longform?open=${run.longformProjectId}` : "/longform";
   // The segments stage opens the editor already on its segment picker,
   // rather than on the full stream with the segments a tab away.
@@ -758,24 +907,14 @@ export function PipelinePage() {
               : `The last channel scan failed${scanTrouble.error ? ` — ${scanTrouble.error}` : "."}`}
       </p>
       <div className="flex shrink-0 flex-wrap gap-2">
-        {/* Offered in every state: after reconnecting the channel this is what
-            clears the row, and waiting for tomorrow's scan is not an answer. */}
-        <Button
-          variant="secondary"
-          disabled={working === "scan"}
-          onClick={() => void rescan()}
-          className="px-3 py-1.5 text-xs"
-        >
-          {working === "scan" ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : null}
-          Scan now
-        </Button>
         {scanTrouble.status === "not-connected" || scanTrouble.status === "needs-reconnect" ? (
-          <Link href="/uploading-center">
-            <Button variant="secondary" className="px-3 py-1.5 text-xs">
-              Connect the channel
-            </Button>
-          </Link>
-        ) : null}
+          <OpenLink href="/uploading-center" label="Connect the channel" />
+        ) : (
+          <Button variant="secondary" disabled={working === "scan"} onClick={() => void rescan()} className={SMALL_BUTTON}>
+            {working === "scan" ? <Spinner /> : null}
+            Scan now
+          </Button>
+        )}
       </div>
     </Card>
   ) : null;
@@ -794,37 +933,29 @@ export function PipelinePage() {
     />
   );
 
-  // The opening screen stays close to bare, so it only offers the handful of
-  // most recent runs; the full, scrollable list lives above a running flow.
   // Names are shown in FULL and stamped with when the run started — a channel
   // posts the same series week after week, so four runs can share a title and
   // a truncated pill leaves nothing to tell them apart by.
   const runList = (compact = false) => {
-    const listed = compact ? overviews : overviews.slice(0, 6);
+    const listed = compact ? overviews.filter((entry) => entry.run.id !== run?.id) : overviews.slice(0, 6);
     return listed.length === 0 ? null : (
-      <div className={compact ? "mt-4" : "mt-8"}>
+      <div className={compact ? "mt-2" : "mt-8"}>
         <p className="pb-2 text-[11px] font-medium uppercase tracking-[0.14em] text-[var(--muted-foreground)]">
-          Earlier pipelines
+          {compact ? "Other streams" : "Earlier pipelines"}
         </p>
         <div
           className={cn(
             "grid gap-2 sm:grid-cols-2",
-            compact && overviews.length > 4 && "max-h-64 overflow-y-auto pr-1"
+            compact && listed.length > 4 && "max-h-64 overflow-y-auto pr-1"
           )}
         >
           {listed.map((entry) => {
-            const isActive = showFlow && entry.run.id === (run?.id ?? "");
             const status = runListStatus(entry);
             const progress = runProgress(entry);
             return (
               <div
                 key={entry.run.id}
-                className={cn(
-                  "group flex items-start gap-2 rounded-xl border px-3 py-2 transition",
-                  isActive
-                    ? "border-[var(--accent)] bg-white/8"
-                    : "border-[var(--border)] hover:border-[var(--border-strong)] hover:bg-white/4"
-                )}
+                className="group flex items-start gap-2 rounded-xl border border-[var(--border)] px-3 py-2 transition hover:border-[var(--border-strong)] hover:bg-white/4"
               >
                 <button
                   type="button"
@@ -834,20 +965,10 @@ export function PipelinePage() {
                 >
                   <span className={cn("mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full", RUN_TONE_DOT[status.tone])} />
                   <span className="min-w-0 flex-1">
-                    <span
-                      className={cn(
-                        "block break-words text-xs font-medium",
-                        isActive ? "text-white" : "text-white/90"
-                      )}
-                    >
-                      {entry.run.name}
-                    </span>
+                    <span className="block break-words text-xs font-medium text-white/90">{entry.run.name}</span>
                     <span className={cn("mt-0.5 block text-[11px]", RUN_TONE_TEXT[status.tone])}>
                       {status.label} · {formatStartedAt(entry.run.createdAt)}
                     </span>
-                    {/* What the run made and where it got to. The list used to
-                        say only whether it had finished, so ten shorts nobody
-                        had booked looked exactly like a stream fully posted. */}
                     <span className="mt-1.5 block h-1 overflow-hidden rounded-full bg-white/8">
                       <span
                         className={cn(
@@ -918,6 +1039,9 @@ export function PipelinePage() {
               busy={busy}
             />
           </div>
+          <div className="mt-4">
+            <OutputQualityPicker value={outputQuality} onChange={setOutputQuality} disabled={busy} />
+          </div>
           <p className="mt-3 text-center text-xs text-[var(--muted-foreground)]">
             One stream in — long-form edit, shorts, MP3, carousel, and posts come back out.
           </p>
@@ -947,451 +1071,327 @@ export function PipelinePage() {
     );
   }
 
-  const rows: Array<{
-    key: PipelineStageKey;
-    icon: LucideIcon;
-    title: string;
-    children?: React.ReactNode;
-  }> = [
-    {
-      key: "source",
-      icon: UploadCloud,
-      title: STAGE_TITLES.source,
-      // A run whose download failed had nothing to click at all: the link was
-      // printed as text, and the fix was select, copy, delete, paste, start.
-      children:
-        run?.status === "error" && run.sourceUrl ? (
-          <div className="mt-3">
-            <Button
-              disabled={working === "restart"}
-              onClick={() => void restartRun(run.id, run.sourceUrl!, run.name)}
-              className="px-3 py-1.5 text-xs"
-            >
-              {working === "restart" ? (
-                <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
-              ) : (
-                <RotateCcw className="mr-1.5 h-3.5 w-3.5" />
-              )}
-              Start this stream again
-            </Button>
-          </div>
-        ) : null
-    },
-    {
-      key: "longform",
-      icon: Clapperboard,
-      title: STAGE_TITLES.longform,
-      children: (
-        <div className="mt-3">
-          <Link href={longformHref}>
-            <Button variant="secondary" className="px-3 py-1.5 text-xs">
-              Open in Long-Form Editor
-            </Button>
-          </Link>
-        </div>
-      )
-    },
-    {
-      key: "segments",
-      icon: Layers,
-      title: STAGE_TITLES.segments,
-      // Segments are planned automatically and rendered on demand, one at a
-      // time. The button used to be a link to the editor — it now renders.
-      children: (
-        <div className="mt-3 flex flex-wrap items-center gap-2">
-          {run && segmentsPending > 0 ? (
+  const chips: OutputChip[] = stages
+    ? [
+        {
+          key: "longform",
+          label: "Long-form",
+          status: stages.longform.status
+        },
+        {
+          key: "segments",
+          label:
+            schedulable && schedulable.segments > 0
+              ? `Segments ${schedulable.segmentsRendered}/${schedulable.segments}`
+              : "Segments",
+          status: stages.segments.status
+        },
+        {
+          key: "clips",
+          label: schedulable && schedulable.clipsReady > 0 ? `${schedulable.clipsReady} shorts` : "Shorts",
+          status: stages.clips.status
+        },
+        { key: "audio", label: "MP3", status: stages.audio.status },
+        { key: "podcast", label: "Spotify", status: stages.podcast.status },
+        {
+          key: "images",
+          label:
+            schedulable && schedulable.carouselSlides > 0 ? `${schedulable.carouselSlides}-slide carousel` : "Carousel",
+          status: stages.images.status
+        },
+        { key: "visuals", label: "Visual ad", status: stages.visuals.status },
+        {
+          key: "posts",
+          label: schedulable && schedulable.posts > 0 ? `${schedulable.posts} posts` : "Posts",
+          status: stages.posts.status
+        },
+        {
+          key: "schedule",
+          label: schedulable && schedulable.queued > 0 ? `${schedulable.queued} scheduled` : "Schedule",
+          status: stages.schedule.status
+        }
+      ]
+    : [];
+
+  const stageAction = (key: PipelineStageKey): React.ReactNode => {
+    if (!stages) return null;
+    const status = stages[key].status;
+    switch (key) {
+      case "source":
+        return run?.status === "error" && run.sourceUrl ? (
+          <Button
+            disabled={working === "restart"}
+            onClick={() => void restartRun(run.id, run.sourceUrl!, run.name)}
+            className={SMALL_BUTTON}
+          >
+            {working === "restart" ? <Spinner /> : <RotateCcw className="mr-1.5 h-3.5 w-3.5" />}
+            Start this stream again
+          </Button>
+        ) : null;
+      case "longform":
+        return status === "ready" ? <OpenLink href={longformHref} label="Open the edit" /> : null;
+      case "segments":
+        if (!run || !schedulable || schedulable.segments === 0) return null;
+        if (segmentsPending > 0) {
+          return (
             <>
-              {/* Rendering five ten-minute videos is hours of encoding, so it
-                  stays opt-in — but it should be ONE opt-in, not one per
-                  segment with a wait in between. */}
               <Button
                 disabled={working === "segments-all" || run.renderAllSegments === true}
                 onClick={() => void startAgain(run.id, { action: "segments-all" }, "segments-all")}
-                className="px-3 py-1.5 text-xs"
+                className={SMALL_BUTTON}
               >
-                {working === "segments-all" ? (
-                  <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
-                ) : (
-                  <Layers className="mr-1.5 h-3.5 w-3.5" />
-                )}
+                {working === "segments-all" ? <Spinner /> : <Layers className="mr-1.5 h-3.5 w-3.5" />}
                 {run.renderAllSegments
-                  ? `Rendering all ${segmentsPending} — one at a time`
+                  ? `Rendering ${segmentsPending} — one at a time`
                   : `Render all ${segmentsPending} segments`}
               </Button>
-              <Button
-                variant="secondary"
-                disabled={working === "segment"}
-                onClick={() => void startAgain(run.id, { action: "segment" }, "segment")}
-                className="px-3 py-1.5 text-xs"
-              >
-                {working === "segment" ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : null}
-                Just the next one
-              </Button>
-            </>
-          ) : null}
-          <Link href={segmentsHref}>
-            <Button variant="secondary" className="px-3 py-1.5 text-xs">
-              Watch and edit the segments
-            </Button>
-          </Link>
-          {schedulable && schedulable.segments > 0 ? (
-            <span className="text-xs text-[var(--muted-foreground)]">
-              {schedulable.segmentsRendered} of {schedulable.segments} rendered
-            </span>
-          ) : null}
-        </div>
-      )
-    },
-    {
-      key: "clips",
-      icon: Scissors,
-      title: STAGE_TITLES.clips,
-      children: (
-        <div className="mt-3">
-          <Link href="/clips">
-            <Button variant="secondary" className="px-3 py-1.5 text-xs">
-              Open in Clip Generator
-            </Button>
-          </Link>
-        </div>
-      )
-    },
-    {
-      key: "audio",
-      icon: Podcast,
-      title: STAGE_TITLES.audio,
-      children:
-        stages?.audio.status === "ready" && audioHref ? (
-          <div className="mt-3">
-            <a href={audioHref}>
-              <Button variant="secondary" className="px-3 py-1.5 text-xs">
-                <Download className="mr-1.5 h-3.5 w-3.5" />
-                Download MP3
-              </Button>
-            </a>
-          </div>
-        ) : null
-    },
-    {
-      key: "podcast",
-      icon: Radio,
-      title: STAGE_TITLES.podcast,
-      children: (
-        <div className="mt-3">
-          <Link href="/podcast">
-            <Button variant="secondary" className="px-3 py-1.5 text-xs">
-              Open the podcast feed
-            </Button>
-          </Link>
-        </div>
-      )
-    },
-    {
-      key: "images",
-      icon: Images,
-      title: STAGE_TITLES.images,
-      children:
-        run?.carouselId || run?.longformProjectId ? (
-          <div className="mt-3 flex flex-wrap gap-2">
-            {run?.carouselId ? (
-              <Link href="/carousels">
-                <Button variant="secondary" className="px-3 py-1.5 text-xs">
-                  Open in Carousels
-                </Button>
-              </Link>
-            ) : null}
-            {/* The unattended stage writes one text-only carousel. More batches,
-                or photos on the slides, are a person's call — this lands on the
-                Carousels page with this stream already picked. */}
-            {run?.longformProjectId ? (
-              <Link href={`/carousels?longform=${run.longformProjectId}`}>
-                <Button variant="secondary" className="px-3 py-1.5 text-xs">
-                  Add photos / more batches
-                </Button>
-              </Link>
-            ) : null}
-          </div>
-        ) : null
-    },
-    {
-      key: "visuals",
-      icon: Sparkles,
-      title: STAGE_TITLES.visuals,
-      children:
-        active?.visualMoment && run?.sourceId ? (
-          <VisualAdComposer sourceId={run.sourceId} streamName={run.name} moment={active.visualMoment} />
-        ) : null
-    },
-    {
-      key: "posts",
-      icon: AtSign,
-      title: STAGE_TITLES.posts,
-      children:
-        run?.posts && run.posts.length > 0 ? (
-          <div className="mt-3 space-y-2">
-            <div className="flex flex-wrap items-center gap-3">
-              <button
-                type="button"
-                onClick={() => setPostsOpen((open) => !open)}
-                className="text-xs font-medium text-[var(--accent)] transition hover:opacity-80"
-              >
-                {postsOpen ? "Hide posts" : `Show ${run.posts.length} posts`}
-              </button>
-              {/* Copying four posts into three apps by hand was the only way
-                  these ever left the app. The Threads ones go on the same queue
-                  the autopilot drains; the rest stay here to copy. */}
-              <Button
-                variant="secondary"
-                disabled={working === "queue-posts" || Boolean(run.postsQueuedAt)}
-                onClick={() => void startAgain(run.id, { action: "queue-posts" }, "queue-posts")}
-                className="px-3 py-1.5 text-xs"
-              >
-                {working === "queue-posts" ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : null}
-                {run.postsQueuedAt ? "Posts scheduled" : "Schedule the Threads posts"}
-              </Button>
-            </div>
-            {postsOpen &&
-              run.posts.map((post) => (
-                <div
-                  key={post.id}
-                  className="flex items-start gap-2 rounded-lg border border-[var(--border)] bg-white/3 p-3"
-                >
-                  <span className="mt-0.5 shrink-0 rounded-full border border-white/10 bg-white/6 px-2 py-0.5 text-[10px] font-medium text-[var(--muted-foreground)]">
-                    {POST_PLATFORM_LABELS[post.platform]}
-                  </span>
-                  <p className="min-w-0 flex-1 whitespace-pre-wrap text-sm text-white/90">{post.text}</p>
-                  <CopyPostButton text={post.text} />
-                </div>
-              ))}
-          </div>
-        ) : null
-    },
-    {
-      key: "schedule",
-      icon: CalendarClock,
-      title: STAGE_TITLES.schedule,
-      children: schedulable ? (
-        <div className="mt-3 space-y-3">
-          {/* The last mile. Everything this run made goes into the publish
-              queue from here — the clips one at a time in the Uploading Center
-              was the longest chore in the app, and the long-form video and its
-              segments had no route into the queue at all. */}
-          {run && plan ? (
-            <div className="rounded-lg border border-[var(--border)] bg-white/3 p-3">
-              {plan.problem ? (
-                <p className="text-xs text-amber-300/90">
-                  {plan.problem}{" "}
-                  <Link href="/settings" className="underline">
-                    Open Settings
-                  </Link>
-                </p>
-              ) : plan.candidates.length === 0 ? (
-                <p className="text-xs text-[var(--muted-foreground)]">
-                  Nothing here is waiting to be scheduled
-                  {plan.skipped.length > 0 ? ` — ${plan.skipped.length} already are.` : "."}
-                </p>
-              ) : (
-                <>
-                  <p className="mb-2 text-xs text-[var(--muted-foreground)]">
-                    {plan.candidates.length} to schedule, one per free slot. Untick anything you would rather keep back.
-                  </p>
-                  <div className="max-h-56 space-y-1 overflow-y-auto pr-1">
-                    {plan.candidates.map((candidate) => (
-                      <label key={candidate.id} className="flex items-start gap-2 text-xs text-white/90">
-                        <input
-                          type="checkbox"
-                          checked={!dropped.includes(candidate.id)}
-                          onChange={() =>
-                            setDropped((current) =>
-                              current.includes(candidate.id)
-                                ? current.filter((id) => id !== candidate.id)
-                                : [...current, candidate.id]
-                            )
-                          }
-                          className="mt-0.5 h-3.5 w-3.5 shrink-0 accent-[var(--accent)]"
-                        />
-                        <span className="min-w-0 flex-1">
-                          <span className="mr-1.5 rounded bg-white/8 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-[var(--muted-foreground)]">
-                            {candidate.kind === "clip" ? "short" : candidate.kind}
-                          </span>
-                          {candidate.title}
-                          {candidate.imagePaths ? (
-                            <span className="ml-1.5 text-[var(--muted-foreground)]">
-                              {candidate.imagePaths.length} slides
-                            </span>
-                          ) : null}
-                          {candidate.heldBack ? (
-                            <span className="ml-1.5 text-[11px] text-[var(--muted-foreground)]">
-                              {candidate.heldBack === "unticked"
-                                ? "— you held this back; tick it to book it"
-                                : "— booked before, then removed from the queue"}
-                            </span>
-                          ) : null}
-                        </span>
-                      </label>
-                    ))}
-                  </div>
-                </>
-              )}
-              <div className="mt-3 flex flex-wrap items-center gap-2">
-                <Button
-                  disabled={
-                    working === "queue" || Boolean(plan.problem) || plan.candidates.length === dropped.length
-                  }
-                  onClick={() =>
-                    void confirmQueue(
-                      run.id,
-                      plan.candidates.map((item) => item.id).filter((id) => !dropped.includes(id)),
-                      plan.candidates.map((item) => item.id)
-                    )
-                  }
-                  className="px-3 py-1.5 text-xs"
-                >
-                  {working === "queue" ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : null}
-                  Schedule {plan.candidates.length - dropped.length} now
-                </Button>
-                <Button variant="secondary" onClick={() => setPlan(null)} className="px-3 py-1.5 text-xs">
-                  Cancel
-                </Button>
-                {plan.skipped.length > 0 ? (
-                  <span className="text-[11px] text-[var(--muted-foreground)]">
-                    {plan.skipped.length} left out — {plan.skipped[0].reason.toLowerCase()}
-                  </span>
-                ) : null}
-                {run.queueWhenReady ? (
-                  <span className="text-[11px] text-emerald-300/90">
-                    Anything still rendering is booked as it lands.
-                  </span>
-                ) : null}
-              </div>
-            </div>
-          ) : null}
-          <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-[var(--muted-foreground)]">
-            <span>{schedulable.clipsReady} shorts</span>
-            <span>{schedulable.longformReady ? "1 long-form video" : pendingLabel("longform", "long-form")}</span>
-            <span>
-              {schedulable.segments > 0 ? `${schedulable.segments} topic segments` : pendingLabel("segments", "segments")}
-            </span>
-            <span>{schedulable.audioReady ? "1 MP3" : pendingLabel("audio", "MP3")}</span>
-            <span className={schedulable.podcastPublished ? "text-emerald-300" : undefined}>
-              {schedulable.podcastPublished ? "podcast episode published" : pendingLabel("podcast", "Spotify episode")}
-            </span>
-            <span>
-              {schedulable.carouselSlides > 0
-                ? schedulable.carouselSlides <= MAX_IMAGES_PER_POST
-                  ? `${schedulable.carouselSlides} slides ready to book`
-                  : `${schedulable.carouselSlides} slides — split by hand`
-                : pendingLabel("images", "slides")}
-            </span>
-            <span>
-              {schedulable.visualAdReady ? "visual ad ready to compose" : pendingLabel("visuals", "visual ad")}
-            </span>
-            <span>{schedulable.posts} posts</span>
-            {schedulable.queued > 0 && <span className="text-emerald-300">{schedulable.queued} queued</span>}
-          </div>
-          {/* The standing instruction is invisible once the sheet closes unless
-              it says so here — and it has to be his to stop without editing a
-              file. */}
-          {run?.queueWhenReady ? (
-            <div className="flex flex-wrap items-center gap-2 rounded-lg border border-emerald-400/20 bg-emerald-400/[0.06] px-3 py-2">
-              <span className="min-w-0 flex-1 text-xs text-emerald-100/90">
-                Anything still rendering is booked as it lands. Nothing you unticked will be.
-                {run.unattended ? " Its segments render and its Threads posts are scheduled too." : ""}
+              <span className="text-xs text-[var(--muted-foreground)]">
+                {schedulable.segmentsRendered} of {schedulable.segments} rendered
               </span>
-              <Button
-                variant="secondary"
-                disabled={working === "stop-queueing"}
-                onClick={() => void startAgain(run.id, { action: "stop-queueing" }, "stop-queueing")}
-                className="shrink-0 px-3 py-1.5 text-xs"
-              >
-                {working === "stop-queueing" ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : null}
-                Stop booking automatically
-              </Button>
-            </div>
-          ) : null}
-          <div className="flex flex-wrap gap-2">
-            {run?.queueFailures?.length ? (
-            <span className="w-full text-xs text-amber-300/90">
-              {run.queueFailures[0].error.includes(PUBLISHING_OFF_MESSAGE) ? (
-                <>
-                  {run.queueFailures[0].error}{" "}
-                  <Link href="/settings" className="underline">
-                    Open Settings
-                  </Link>
-                </>
-              ) : (
-                run.queueFailures[0].error
-              )}
-            </span>
-          ) : null}
-          {run?.queueFailures?.length ? (
-              bookingFailure ? (
-                <Button
-                  disabled={working === "plan"}
-                  onClick={() => void loadPlan(run.id)}
-                  className="px-3 py-1.5 text-xs"
-                >
-                  {working === "plan" ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : null}
+            </>
+          );
+        }
+        return <OpenLink href={segmentsHref} label="Watch the segments" />;
+      case "clips":
+        return status === "ready" ? <OpenLink href="/clips" label="Open the clips" /> : null;
+      case "audio":
+        return status === "ready" && audioHref ? (
+          <a href={audioHref}>
+            <Button variant="secondary" className={SMALL_BUTTON}>
+              <Download className="mr-1.5 h-3.5 w-3.5" />
+              Download MP3
+            </Button>
+          </a>
+        ) : null;
+      case "podcast":
+        return status === "ready" ? <OpenLink href="/podcast" label="Open the episode" /> : null;
+      case "images":
+        return run?.carouselId ? (
+          <OpenLink
+            href={run.longformProjectId ? `/carousels?longform=${run.longformProjectId}` : "/carousels"}
+            label="Open the carousel"
+          />
+        ) : null;
+      case "posts":
+        return run?.posts && run.posts.length > 0 ? (
+          <>
+            <Button
+              variant="secondary"
+              disabled={working === "queue-posts" || Boolean(run.postsQueuedAt)}
+              onClick={() => void startAgain(run.id, { action: "queue-posts" }, "queue-posts")}
+              className={SMALL_BUTTON}
+            >
+              {working === "queue-posts" ? <Spinner /> : null}
+              {run.postsQueuedAt ? "Threads posts scheduled" : "Schedule the Threads posts"}
+            </Button>
+            <button
+              type="button"
+              onClick={() => setPostsOpen((open) => !open)}
+              className="text-xs font-medium text-[var(--accent)] transition hover:opacity-80"
+            >
+              {postsOpen ? "Hide posts" : `Show ${run.posts.length} posts`}
+            </button>
+          </>
+        ) : null;
+      case "schedule":
+        if (!run || !schedulable) return null;
+        if (run.queueFailures?.length) {
+          return (
+            <>
+              {bookingFailure ? (
+                <Button disabled={working === "plan"} onClick={() => void loadPlan(run.id)} className={SMALL_BUTTON}>
+                  {working === "plan" ? <Spinner /> : null}
                   Book these now
                 </Button>
               ) : (
                 <Button
                   disabled={working === "queue-posts"}
                   onClick={() => void startAgain(run.id, { action: "queue-posts" }, "queue-posts")}
-                  className="px-3 py-1.5 text-xs"
+                  className={SMALL_BUTTON}
                 >
-                  {working === "queue-posts" ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : null}
+                  {working === "queue-posts" ? <Spinner /> : null}
                   Schedule the Threads posts
                 </Button>
-              )
-            ) : null}
-            {/* Something that will never book — a deck he is not rebuilding, a
-                slot that is not coming free — has to be dismissable, or the
-                badge and the amber row stay lit forever. */}
-            {run?.queueFailures?.length ? (
+              )}
               <Button
                 variant="secondary"
                 disabled={working === "dismiss-failures"}
                 onClick={() => void startAgain(run.id, { action: "dismiss-failures" }, "dismiss-failures")}
-                className="px-3 py-1.5 text-xs"
+                className={SMALL_BUTTON}
               >
-                {working === "dismiss-failures" ? (
-                  <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
-                ) : null}
+                {working === "dismiss-failures" ? <Spinner /> : null}
                 Dismiss
               </Button>
-            ) : null}
-            {/* "Book these now" already opens this exact sheet, so the generic
-                button next to it was the same click twice. */}
-            {run && !plan && !bookingFailure ? (
-              <Button
-                disabled={working === "plan"}
-                onClick={() => void loadPlan(run.id)}
-                className="px-3 py-1.5 text-xs"
-              >
-                {working === "plan" ? (
-                  <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
-                ) : (
-                  <CalendarClock className="mr-1.5 h-3.5 w-3.5" />
-                )}
-                Schedule everything from this run
-              </Button>
-            ) : null}
-            <Link href={run?.clipJobId ? `/uploading-center?job=${run.clipJobId}` : "/uploading-center"}>
-              <Button variant="secondary" className="px-3 py-1.5 text-xs">
-                Open the Uploading Center
-              </Button>
-            </Link>
-            <Link href="/master-calendar">
-              <Button variant="secondary" className="px-3 py-1.5 text-xs">
-                Master Calendar
-              </Button>
-            </Link>
-          </div>
-        </div>
-      ) : null
+            </>
+          );
+        }
+        if (plan) return null;
+        return (
+          <Button disabled={working === "plan"} onClick={() => void loadPlan(run.id)} className={SMALL_BUTTON}>
+            {working === "plan" ? <Spinner /> : <CalendarClock className="mr-1.5 h-3.5 w-3.5" />}
+            Schedule everything
+          </Button>
+        );
+      default:
+        return null;
     }
-  ];
+  };
+
+  const stageBody = (key: PipelineStageKey): React.ReactNode => {
+    switch (key) {
+      case "visuals":
+        return active?.visualMoment && run?.sourceId ? (
+          <VisualAdComposer sourceId={run.sourceId} streamName={run.name} moment={active.visualMoment} />
+        ) : null;
+      case "posts":
+        return postsOpen && run?.posts?.length ? (
+          <div className="mt-3 space-y-2">
+            {run.posts.map((post) => (
+              <div
+                key={post.id}
+                className="flex items-start gap-2 rounded-lg border border-[var(--border)] bg-white/3 p-3"
+              >
+                <span className="mt-0.5 shrink-0 rounded-full border border-white/10 bg-white/6 px-2 py-0.5 text-[10px] font-medium text-[var(--muted-foreground)]">
+                  {POST_PLATFORM_LABELS[post.platform]}
+                </span>
+                <p className="min-w-0 flex-1 whitespace-pre-wrap text-sm text-white/90">{post.text}</p>
+                <CopyPostButton text={post.text} />
+              </div>
+            ))}
+          </div>
+        ) : null;
+      case "schedule":
+        if (!run || !schedulable) return null;
+        return (
+          <div className="mt-3 space-y-3">
+            {run.queueFailures?.length ? (
+              <p className="text-xs text-amber-300/90">
+                {run.queueFailures[0].error}
+                {run.queueFailures[0].error.includes(PUBLISHING_OFF_MESSAGE) ? (
+                  <>
+                    {" "}
+                    <Link href="/settings" className="underline">
+                      Open Settings
+                    </Link>
+                  </>
+                ) : null}
+              </p>
+            ) : null}
+            {plan ? (
+              <div className="rounded-lg border border-[var(--border)] bg-white/3 p-3">
+                {plan.problem ? (
+                  <p className="text-xs text-amber-300/90">
+                    {plan.problem}{" "}
+                    <Link href="/settings" className="underline">
+                      Open Settings
+                    </Link>
+                  </p>
+                ) : plan.candidates.length === 0 ? (
+                  <p className="text-xs text-[var(--muted-foreground)]">
+                    Nothing here is waiting to be scheduled
+                    {plan.skipped.length > 0 ? ` — ${plan.skipped.length} already are.` : "."}
+                  </p>
+                ) : (
+                  <>
+                    <p className="mb-2 text-xs text-[var(--muted-foreground)]">
+                      {plan.candidates.length} to schedule, one per free slot. Untick anything you would rather keep
+                      back.
+                    </p>
+                    <div className="max-h-56 space-y-1 overflow-y-auto pr-1">
+                      {plan.candidates.map((candidate) => (
+                        <label key={candidate.id} className="flex items-start gap-2 text-xs text-white/90">
+                          <input
+                            type="checkbox"
+                            checked={!dropped.includes(candidate.id)}
+                            onChange={() =>
+                              setDropped((current) =>
+                                current.includes(candidate.id)
+                                  ? current.filter((id) => id !== candidate.id)
+                                  : [...current, candidate.id]
+                              )
+                            }
+                            className="mt-0.5 h-3.5 w-3.5 shrink-0 accent-[var(--accent)]"
+                          />
+                          <span className="min-w-0 flex-1">
+                            <span className="mr-1.5 rounded bg-white/8 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-[var(--muted-foreground)]">
+                              {candidate.kind === "clip" ? "short" : candidate.kind}
+                            </span>
+                            {candidate.title}
+                            {candidate.imagePaths ? (
+                              <span className="ml-1.5 text-[var(--muted-foreground)]">
+                                {candidate.imagePaths.length} slides
+                              </span>
+                            ) : null}
+                            {candidate.heldBack ? (
+                              <span className="ml-1.5 text-[11px] text-[var(--muted-foreground)]">
+                                {candidate.heldBack === "unticked"
+                                  ? "— you held this back; tick it to book it"
+                                  : "— booked before, then removed from the queue"}
+                              </span>
+                            ) : null}
+                          </span>
+                        </label>
+                      ))}
+                    </div>
+                  </>
+                )}
+                <div className="mt-3 flex flex-wrap items-center gap-2">
+                  <Button
+                    disabled={
+                      working === "queue" || Boolean(plan.problem) || plan.candidates.length === dropped.length
+                    }
+                    onClick={() =>
+                      void confirmQueue(
+                        run.id,
+                        plan.candidates.map((item) => item.id).filter((id) => !dropped.includes(id)),
+                        plan.candidates.map((item) => item.id)
+                      )
+                    }
+                    className={SMALL_BUTTON}
+                  >
+                    {working === "queue" ? <Spinner /> : null}
+                    Schedule {plan.candidates.length - dropped.length} now
+                  </Button>
+                  <Button variant="secondary" onClick={() => setPlan(null)} className={SMALL_BUTTON}>
+                    Cancel
+                  </Button>
+                  {plan.skipped.length > 0 ? (
+                    <span className="text-[11px] text-[var(--muted-foreground)]">
+                      {plan.skipped.length} left out — {plan.skipped[0].reason.toLowerCase()}
+                    </span>
+                  ) : null}
+                </div>
+              </div>
+            ) : null}
+            {schedulable.carouselSlides > MAX_IMAGES_PER_POST ? (
+              <p className="text-xs text-[var(--muted-foreground)]">
+                {schedulable.carouselSlides} slides is more than one post takes — the deck is split by hand in
+                Carousels.
+              </p>
+            ) : null}
+            {run.queueWhenReady ? (
+              <div className="flex flex-wrap items-center gap-2 rounded-lg border border-emerald-400/20 bg-emerald-400/[0.06] px-3 py-2">
+                <span className="min-w-0 flex-1 text-xs text-emerald-100/90">
+                  Anything still rendering is booked as it lands. Nothing you unticked will be.
+                  {run.unattended ? " Its segments render and its Threads posts are scheduled too." : ""}
+                </span>
+                <Button
+                  variant="secondary"
+                  disabled={working === "stop-queueing"}
+                  onClick={() => void startAgain(run.id, { action: "stop-queueing" }, "stop-queueing")}
+                  className={cn(SMALL_BUTTON, "shrink-0")}
+                >
+                  {working === "stop-queueing" ? <Spinner /> : null}
+                  Stop booking automatically
+                </Button>
+              </div>
+            ) : null}
+          </div>
+        );
+      default:
+        return null;
+    }
+  };
 
   return (
     <div
@@ -1402,28 +1402,40 @@ export function PipelinePage() {
       )}
     >
       <div className="pipeline-hero-enter mx-auto max-w-3xl">
-        <div className="flex items-center gap-3">
+        <div className="flex items-start gap-3">
           <button
             type="button"
             onClick={backToSearch}
-            className="flex shrink-0 items-center gap-1.5 rounded-full border border-[var(--border)] px-3 py-1.5 text-xs text-[var(--muted-foreground)] transition hover:border-[var(--border-strong)] hover:text-white"
+            className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-[var(--border)] text-[var(--muted-foreground)] transition hover:border-[var(--border-strong)] hover:text-white"
             title="Start a new stream"
+            aria-label="Start a new stream"
           >
-            <Sparkles className="h-3.5 w-3.5" />
-            New stream
+            <ArrowLeft className="h-4 w-4" />
           </button>
           <div className="min-w-0 flex-1">
-            <StreamSearchBar
-              value={url}
-              onChange={setUrl}
-              onSubmit={() => void submitUrl()}
-              onPickFile={() => uploadInputRef.current?.click()}
-              busy={busy}
-              compact
-            />
+            <h2 className="text-lg font-semibold leading-tight text-white">{run?.name ?? "Starting the pipeline..."}</h2>
+            <p className="mt-0.5 truncate text-xs text-[var(--muted-foreground)]">
+              {run ? `${formatStartedAt(run.createdAt)} · ${describeOutputQuality(normalizeOutputQuality(run.output))}` : "Reading the stream"}
+              {run?.sourceUrl || run?.fileName ? ` · ${run.sourceUrl ?? run.fileName}` : ""}
+            </p>
           </div>
+          {run ? (
+            <button
+              type="button"
+              onClick={() => void deleteRun(run.id)}
+              className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-[var(--muted-foreground)] transition hover:bg-red-400/10 hover:text-red-300"
+              aria-label={`Remove ${run.name}`}
+              title="Remove this run"
+            >
+              <Trash2 className="h-4 w-4" />
+            </button>
+          ) : null}
         </div>
-        {runList(true)}
+        {chips.length > 0 ? (
+          <div className="mt-4">
+            <OutputStrip chips={chips} />
+          </div>
+        ) : null}
       </div>
 
       <div className="mx-auto mt-6 max-w-3xl">
@@ -1431,20 +1443,11 @@ export function PipelinePage() {
         {!stages ? (
           loaded ? (
             <Card className="p-10 text-center text-sm text-[var(--muted-foreground)]">
-              That run is gone. Paste a stream link above to start a new one.
+              That run is gone. Go back and paste a stream link to start a new one.
             </Card>
           ) : null
         ) : (
           <>
-            <div className="mb-4 flex flex-wrap items-baseline gap-x-3 gap-y-1">
-              <h2 className="text-lg font-semibold text-white">{run?.name ?? "Starting the pipeline..."}</h2>
-              <span className="text-xs text-[var(--muted-foreground)]">
-                {run?.sourceUrl ?? run?.fileName ?? "Reading the stream"}
-              </span>
-            </div>
-            {/* Everything that broke, and one button that starts all of it
-                again — a run that failed in three places is one click, not a
-                hunt down the flow for which rows went amber. */}
             {run && active && active.retryable.length > 0 ? (
               <Card className="mb-4 flex flex-wrap items-center justify-between gap-3 border-amber-400/25 bg-amber-400/[0.06] p-3">
                 <p className="min-w-0 text-sm text-amber-100/90">
@@ -1455,13 +1458,9 @@ export function PipelinePage() {
                   variant="secondary"
                   disabled={working === "retry-all"}
                   onClick={() => void startAgain(run.id, { action: "retry-all" }, "retry-all")}
-                  className="shrink-0 border-amber-400/30 px-3 py-1.5 text-xs text-amber-100 hover:border-amber-400/60"
+                  className={cn(SMALL_BUTTON, "shrink-0 border-amber-400/30 text-amber-100 hover:border-amber-400/60")}
                 >
-                  {working === "retry-all" ? (
-                    <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
-                  ) : (
-                    <RotateCcw className="mr-1.5 h-3.5 w-3.5" />
-                  )}
+                  {working === "retry-all" ? <Spinner /> : <RotateCcw className="mr-1.5 h-3.5 w-3.5" />}
                   Try them all again
                 </Button>
               </Card>
@@ -1471,30 +1470,29 @@ export function PipelinePage() {
                 {notice}
               </p>
             ))}
-            {rows.map((row, index) => {
-              const next = rows[index + 1];
+            {STAGE_ORDER.map((key, index) => {
+              const next = STAGE_ORDER[index + 1];
               // The server decides what can be run again; the row only draws it.
-              const repairable = active?.retryable.some((item) => item.stage === row.key);
+              const repairable = active?.retryable.some((item) => item.stage === key);
               return (
                 <StageRow
-                  key={row.key}
-                  icon={row.icon}
-                  title={row.title}
-                  stage={stages[row.key]}
+                  key={key}
+                  stageKey={key}
+                  stage={stages[key]}
                   index={index}
-                  last={index === rows.length - 1}
-                  flowing={Boolean(next && stages[next.key].status === "running")}
-                  onRetry={
-                    repairable && run ? () => void startAgain(run.id, { stage: row.key }, row.key) : undefined
-                  }
-                  retrying={working === row.key}
+                  last={index === STAGE_ORDER.length - 1}
+                  flowing={Boolean(next && stages[next].status === "running")}
+                  onRetry={repairable && run ? () => void startAgain(run.id, { stage: key }, key) : undefined}
+                  retrying={working === key}
+                  action={stageAction(key)}
                 >
-                  {row.children}
+                  {stageBody(key)}
                 </StageRow>
               );
             })}
           </>
         )}
+        {runList(true)}
       </div>
       {fileInput}
     </div>

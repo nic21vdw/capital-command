@@ -2,14 +2,20 @@ import { describe, expect, it } from "vitest";
 import {
   CLIP_SECTION_FORMAT,
   FULL_VIDEO_FORMAT,
+  INTERMEDIATE_CRF,
   MASTER_AUDIO_BITRATE,
   MASTER_CRF,
   MASTER_PRESET,
+  MAX_SOURCE_HEIGHT,
+  clipSectionFormat,
   containScale,
   coverScale,
   evenPixels,
+  fullVideoFormat,
+  intermediateVideoArgs,
   masterAudioArgs,
   masterVideoArgs,
+  resolveOutputFrame,
   scaleFilter
 } from "./encode";
 
@@ -61,15 +67,105 @@ describe("evenPixels", () => {
   });
 });
 
+describe("intermediate encode", () => {
+  it("keeps a file another filter pass will re-encode near-lossless", () => {
+    const args = intermediateVideoArgs();
+    expect(Number(args[args.indexOf("-crf") + 1])).toBe(INTERMEDIATE_CRF);
+    expect(INTERMEDIATE_CRF).toBeLessThanOrEqual(14);
+    expect(INTERMEDIATE_CRF).toBeLessThan(MASTER_CRF);
+    expect(args[args.indexOf("-pix_fmt") + 1]).toBe("yuv420p");
+  });
+});
+
 describe("source format selectors", () => {
-  it("pulls clip sections at 1080p instead of stretching a 720p download", () => {
-    expect(CLIP_SECTION_FORMAT).toContain("height<=1080");
-    expect(CLIP_SECTION_FORMAT).not.toContain("720");
+  it("asks for the best stream up to 4K when nothing is capped", () => {
+    expect(FULL_VIDEO_FORMAT).toContain(`bv*[height<=${MAX_SOURCE_HEIGHT}]+ba`);
+    expect(CLIP_SECTION_FORMAT).toContain(`bv*[height<=${MAX_SOURCE_HEIGHT}]+ba`);
   });
 
-  it("keeps a long-form VOD at 1440p when the source has it, and 1080p otherwise", () => {
-    expect(FULL_VIDEO_FORMAT).toContain("height<=1440");
-    expect(FULL_VIDEO_FORMAT).toContain("height<=1080");
-    expect(FULL_VIDEO_FORMAT).not.toContain("720");
+  /**
+   * The bug this pins: the old selectors ended in a bare `b`, which on YouTube
+   * is itag 18 — 640x360. Whenever the adaptive tiers in front of it could not
+   * be served, a whole stream came down at 360p and every render upscaled it.
+   * Adaptive must be exhausted before anything muxed is considered.
+   */
+  it("exhausts every adaptive tier before it will take a muxed fallback", () => {
+    const tiers = FULL_VIDEO_FORMAT.split("/");
+    const lastAdaptive = tiers.map((tier) => tier.startsWith("bv*")).lastIndexOf(true);
+    const firstMuxed = tiers.findIndex((tier) => !tier.startsWith("bv*"));
+    expect(lastAdaptive).toBeGreaterThanOrEqual(0);
+    expect(firstMuxed).toBeGreaterThan(lastAdaptive);
+    expect(tiers[tiers.length - 1]).toBe("b");
+  });
+
+  it("caps the download at the chosen output resolution", () => {
+    expect(fullVideoFormat({ resolution: "1080", frameRate: "source" })).toContain("bv*[height<=1080]+ba");
+    expect(clipSectionFormat({ resolution: "720", frameRate: "source" })).toContain("bv*[height<=720]+ba");
+  });
+});
+
+describe("resolveOutputFrame", () => {
+  it("keeps a 16:9 source exactly as it is when nothing is capped", () => {
+    expect(resolveOutputFrame({ width: 2560, height: 1440, fps: 60 })).toEqual({
+      width: 2560,
+      height: 1440,
+      fps: 60
+    });
+  });
+
+  /**
+   * The long-form export used to pad every source into a hardcoded 1920x1080 at
+   * 30 fps, so a 360p download was lanczos-upscaled to 1080p and encoded at
+   * CRF 17: three times the pixels, none of the detail, and a 60 fps recording
+   * lost half its frames on the way.
+   */
+  it("never upscales a small source and never invents frames", () => {
+    expect(resolveOutputFrame({ width: 640, height: 360, fps: 30 })).toEqual({
+      width: 640,
+      height: 360,
+      fps: 30
+    });
+    expect(resolveOutputFrame({ width: 640, height: 360, fps: 30 }, { resolution: "2160", frameRate: "60" })).toEqual({
+      width: 640,
+      height: 360,
+      fps: 30
+    });
+  });
+
+  it("scales down to a chosen height, keeping aspect", () => {
+    expect(resolveOutputFrame({ width: 3840, height: 2160, fps: 60 }, { resolution: "1080", frameRate: "source" })).toEqual(
+      { width: 1920, height: 1080, fps: 60 }
+    );
+  });
+
+  it("caps a chosen frame rate without touching the size", () => {
+    expect(resolveOutputFrame({ width: 1920, height: 1080, fps: 60 }, { resolution: "source", frameRate: "30" })).toEqual(
+      { width: 1920, height: 1080, fps: 30 }
+    );
+  });
+
+  it("keeps an ultrawide's own width rather than squashing it into 16:9", () => {
+    expect(resolveOutputFrame({ width: 2560, height: 1080, fps: 30 }).width).toBe(2560);
+  });
+
+  it("widens a 4:3 source's canvas to 16:9 so it letterboxes instead of stretching", () => {
+    expect(resolveOutputFrame({ width: 1440, height: 1080, fps: 30 })).toEqual({
+      width: 1920,
+      height: 1080,
+      fps: 30
+    });
+  });
+
+  it("builds a 9:16 frame whose short side never exceeds the source width", () => {
+    expect(resolveOutputFrame({ width: 1920, height: 1080, fps: 30 }, undefined, "vertical")).toEqual({
+      width: 1080,
+      height: 1920,
+      fps: 30
+    });
+    expect(resolveOutputFrame({ width: 640, height: 360, fps: 30 }, undefined, "vertical").width).toBe(640);
+  });
+
+  it("falls back to 1080p30 when the source could not be probed", () => {
+    expect(resolveOutputFrame({ width: 0, height: 0, fps: 0 })).toEqual({ width: 1920, height: 1080, fps: 30 });
   });
 });

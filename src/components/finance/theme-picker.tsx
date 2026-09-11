@@ -8,8 +8,9 @@ import { themePresets } from "@/lib/themes";
 import { cn } from "@/lib/utils";
 
 export function ThemePicker({ compact = false }: { compact?: boolean }) {
-  const { theme, setTheme } = useThemePreset();
+  const { theme, setTheme, hosted } = useThemePreset();
   const { data, mutate } = useAppData();
+  const following = themePresets.find((option) => option.id === theme);
 
   const onSelect = (id: (typeof themePresets)[number]["id"]) => {
     setTheme(id);
@@ -55,6 +56,22 @@ export function ThemePicker({ compact = false }: { compact?: boolean }) {
       })}
     </div>
   );
+
+  if (hosted) {
+    const note = (
+      <p className="text-sm text-[var(--muted-foreground)]">
+        Following CoLateral{following ? ` — ${following.label}` : ""}. Change the theme in CoLateral&apos;s settings
+        and this screen follows.
+      </p>
+    );
+    if (compact) return note;
+    return (
+      <Card>
+        <h3 className="text-sm font-semibold text-white">Theme</h3>
+        <div className="mt-1">{note}</div>
+      </Card>
+    );
+  }
 
   if (compact) {
     return content;

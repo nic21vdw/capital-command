@@ -98,7 +98,41 @@ export const settingsSchema = z.object({
   autoScheduleOvernight: z.coerce.boolean().optional(),
   // Unknown/legacy values (e.g. old accent ids) gracefully fall back to undefined,
   // and the UI resolves that to the default preset at runtime.
-  themePreset: z.enum(["colateral", "colateral-light", "slate", "midnight", "graphite", "forest", "dracula", "paper", "arctic"]).optional().catch(undefined),
+  themePreset: z
+    .enum([
+      "dark",
+      "light",
+      "dracula",
+      "catppuccin",
+      "nord",
+      "tokyonight",
+      "gruvbox",
+      "everforest",
+      "github",
+      "ayu",
+      "onedark",
+      "monokai",
+      "rosepine",
+      "solarized",
+      "linear",
+      "absolutely",
+      "codex"
+    ])
+    .optional()
+    .catch(undefined),
+  /**
+   * What the pipeline renders at, remembered from the last stream. Same
+   * forgiving treatment as `themePreset`: an id this build no longer knows
+   * falls back to undefined, which the app resolves to the source's own size
+   * and frame rate.
+   */
+  outputQuality: z
+    .object({
+      resolution: z.enum(["source", "2160", "1440", "1080", "720"]),
+      frameRate: z.enum(["source", "60", "30", "24"])
+    })
+    .optional()
+    .catch(undefined),
   profile: userProfileSchema.optional(),
   /**
    * The standing description appended to every generated clip - the links and

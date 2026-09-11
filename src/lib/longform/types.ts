@@ -1,4 +1,5 @@
 import type { SilenceRange } from "@/lib/clipping/analysis";
+import type { OutputQuality } from "@/lib/pipeline/outputQuality";
 import type { CaptionSegment, CaptionStyle, SfxSettings } from "@/types/domain";
 
 // ----- Long-Form Editor -----
@@ -326,6 +327,12 @@ export type LongformProject = {
   sfx?: SfxSettings;
   /** Output frame of the export; absent on older projects (treated as `wide`). */
   layout?: LongformLayout;
+  /**
+   * Resolution and frame-rate ceiling the export renders to, carried down from
+   * the pipeline run that created the project. Absent means "ask the settings",
+   * and the settings default to the source's own size and rate.
+   */
+  output?: OutputQuality;
   pace: LongformPace;
   exports: LongformExportRecord[];
   /** Publish-ready titles/description/tags; absent until first generated. */

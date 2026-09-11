@@ -79,13 +79,19 @@ async function autoScheduleAllowed(): Promise<boolean> {
   }
 }
 
-/** POST /api/pipeline — start a run from a VOD `url` or an uploaded `sourceId`. */
+/**
+ * POST /api/pipeline — start a run from a VOD `url` or an uploaded `sourceId`.
+ *
+ * An optional `output` (`{ resolution, frameRate }`) picks what the run renders
+ * at; anything unrecognised falls back to the source's own size and rate. It is
+ * also written to settings so the next stream opens on the same choice.
+ */
 export async function POST(request: NextRequest) {
   if (!resolveFfmpeg()) {
     return NextResponse.json({ error: FFMPEG_MISSING_MESSAGE }, { status: 500 });
   }
 
-  let body: { url?: unknown; sourceId?: unknown; name?: unknown; queueWhenReady?: unknown };
+  let body: { url?: unknown; sourceId?: unknown; name?: unknown; queueWhenReady?: unknown; output?: unknown };
   try {
     body = (await request.json()) as typeof body;
   } catch {
@@ -104,7 +110,7 @@ export async function POST(request: NextRequest) {
 
   try {
     if (sourceId) {
-      const run = await createRunFromSource(sourceId, name || undefined);
+      const run = await createRunFromSource(sourceId, name || undefined, body.output);
       if (asked) await updateRun(run, { renderAllSegments: true });
       if (queueWhenReady) await updateRun(run, { queueWhenReady: true, unattended: true });
       return NextResponse.json({ run }, { status: 201 });
@@ -112,7 +118,7 @@ export async function POST(request: NextRequest) {
     if (!/^https?:\/\/\S+$/i.test(url)) {
       return NextResponse.json({ error: "Enter a valid http(s) stream/VOD URL, or upload a file." }, { status: 400 });
     }
-    const run = await createRunFromUrl(url, name || undefined);
+    const run = await createRunFromUrl(url, name || undefined, body.output);
     // Rendering the segments is not what the consent gate is about — they are
     // videos he already owns, and leaving them unrendered made the DEFAULT
     // configuration stop short of "ready to schedule".

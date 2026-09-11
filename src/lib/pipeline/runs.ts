@@ -20,6 +20,7 @@ import {
   speechWordCount,
   visualMomentFromClips
 } from "@/lib/pipeline/visual-brief";
+import { DEFAULT_OUTPUT_QUALITY, describeOutputQuality, normalizeOutputQuality, type OutputQuality } from "@/lib/pipeline/outputQuality";
 import {
   WHOLE_RUN_FAILURE,
   type PipelineRun,
@@ -172,13 +173,15 @@ function newRunRecord(fields: Partial<PipelineRun> & Pick<PipelineRun, "name" | 
  * in the background, then the fan-out begins. Returns immediately with the
  * run in the `ingesting` state so the client can poll.
  */
-export async function createRunFromUrl(url: string, name?: string): Promise<PipelineRun> {
+export async function createRunFromUrl(url: string, name?: string, output?: unknown): Promise<PipelineRun> {
   await loadRuns();
+  const quality = await rememberOutputQuality(output);
   const run = newRunRecord({
     name: (name ?? "").trim() || "Stream",
     status: "ingesting",
     progress: 2,
-    sourceUrl: url
+    sourceUrl: url,
+    output: quality
   });
   await persistRuns();
   void ingestFromUrl(run, url, name).catch(async (error) => {
@@ -187,17 +190,48 @@ export async function createRunFromUrl(url: string, name?: string): Promise<Pipe
   return run;
 }
 
+/**
+ * Settles what this run renders at and remembers it for the next stream.
+ *
+ * The picker sits under the search bar rather than in Settings, so the run is
+ * where the answer arrives — but the next stream has to open on the same
+ * choice, which is what writing it back to settings is for.
+ */
+async function rememberOutputQuality(output: unknown): Promise<OutputQuality> {
+  if (output === undefined || output === null) {
+    try {
+      const data = await readAppData();
+      return normalizeOutputQuality(data.settings.outputQuality);
+    } catch {
+      return { ...DEFAULT_OUTPUT_QUALITY };
+    }
+  }
+  const quality = normalizeOutputQuality(output);
+  try {
+    const data = await readAppData();
+    if (JSON.stringify(data.settings.outputQuality) !== JSON.stringify(quality)) {
+      await writeAppData({ ...data, settings: { ...data.settings, outputQuality: quality } });
+    }
+  } catch {
+    // A settings write that fails must never stop the run — the run carries the
+    // choice itself, and only the "remember it next time" part is lost.
+  }
+  return quality;
+}
+
 /** Starts a run from an already-uploaded source (`POST /api/clips/sources`). */
-export async function createRunFromSource(sourceId: string, name?: string): Promise<PipelineRun> {
+export async function createRunFromSource(sourceId: string, name?: string, output?: unknown): Promise<PipelineRun> {
   await loadRuns();
   const meta = await readSourceMeta(sourceId);
   if (!meta) throw new Error("That uploaded video could not be found. Upload it again.");
+  const quality = await rememberOutputQuality(output);
   const run = newRunRecord({
     name: (name ?? "").trim() || meta.fileName.replace(/\.[a-z0-9]+$/i, "") || meta.fileName,
     status: "running",
     sourceId,
     fileName: meta.fileName,
-    durationSec: meta.durationSec
+    durationSec: meta.durationSec,
+    output: quality
   });
   await persistRuns();
   await advanceRun(run);
@@ -205,10 +239,23 @@ export async function createRunFromSource(sourceId: string, name?: string): Prom
 }
 
 async function ingestFromUrl(run: PipelineRun, url: string, name?: string) {
-  const meta = await saveSourceFromUrl(url, (pct) => {
-    const next = Math.max(2, Math.min(99, Math.round(pct)));
-    if (next !== run.progress) void update(run, { progress: next });
-  });
+  const quality = normalizeOutputQuality(run.output);
+  const meta = await saveSourceFromUrl(
+    url,
+    (pct) => {
+      const next = Math.max(2, Math.min(99, Math.round(pct)));
+      if (next !== run.progress) void update(run, { progress: next });
+    },
+    quality
+  );
+  // A host that only served a small stream is the single biggest thing that can
+  // make an edit look worse than the recording, and it used to happen in total
+  // silence — a three-hour stream arrived at 360p and every stage downstream
+  // reported success. Say it on the run instead.
+  if (meta.height > 0 && meta.height < 720) {
+    const notice = `The source only downloaded at ${meta.width}x${meta.height} (asked for ${describeOutputQuality(quality)}). The edit cannot be sharper than that.`;
+    if (!run.notices.includes(notice)) run.notices.push(notice);
+  }
   await update(run, {
     status: "running",
     progress: undefined,
@@ -293,7 +340,7 @@ export async function advanceRun(run: PipelineRun): Promise<void> {
   // reports it as broken and a retry clears the count.
   if (!run.longformProjectId && !stuck(run, "longform")) {
     await step(run, "longform", async () => {
-      const project = await createProject(sourceId, run.name);
+      const project = await createProject(sourceId, run.name, normalizeOutputQuality(run.output));
       await update(run, { longformProjectId: project.id });
     });
   }

@@ -14,6 +14,44 @@ already shipped.
 
 ## Unreleased
 
+- **Capital Command wears whatever theme you picked in CoLateral.** It carried
+  two of CoLateral's palettes and six of its own; it now carries all seventeen
+  of CoLateral's, under CoLateral's own names, so nothing is translated on the
+  way across. Framed in the Command Centre the card hands the theme over on
+  first paint and again whenever you change it, and Settings says it is
+  following rather than offering a second picker. Opened on its own, the theme
+  you pick in Settings is still yours.
+
+- **Long-form videos stop coming out soft.** Three things were stacked against
+  them. The downloader's last fallback took YouTube's 360p stream whenever the
+  adaptive formats were not served, and nothing said so — the Day 56 edit was
+  built from a 640x360, 194 kbps download of a three-hour stream. The renderer
+  then upscaled that to a hardcoded 1920x1080 at 30 fps, which also halved a
+  60 fps recording. Then the captions pass re-encoded the whole file a second
+  time. Now every adaptive format is tried before any muxed one, the edit is
+  rendered at the recording's own size and frame rate, captions and overlays
+  burn in together, and the file is encoded at full quality exactly once. A
+  download that still lands below 720p says so on the run.
+
+- **You choose what comes out.** Two dropdowns under the stream box: resolution
+  up to 4K and frame rate up to 60. Both default to Source, which now means the
+  best the recording has. A number is a ceiling, never a stretch — a 1080p
+  stream asked for 4K stays 1080p, and 60 fps is never invented from 30. The
+  choice is remembered for the next stream and stamped on the run that used it.
+
+- **The Stream Pipeline screen is one screen again.** A stream you are working
+  on now opens on its own name, with a strip under it naming every format it
+  turns into and a dot for where each one has got to — click one and the flow
+  scrolls to it. Each stage carries at most one button instead of a row of
+  them: the long-form edit, the clips, the MP3, the episode and the carousel
+  are each one link, the posts hide behind one, and the scheduler is the only
+  place that opens a sheet. The search bar, the repeated stream list and the
+  three duplicate ways to book the same outputs are gone from the flow.
+
+- **The eight Studio tools fold away behind one row.** They are opened a few
+  times a week and the pipeline is opened every day. The section opens itself
+  while you are on one of those screens, and remembers being left open.
+
 - **Descriptions now present CoLateral as the broader agentic workspace it has
   become.** YouTube descriptions, Shorts and Reels captions, carousels, text
   posts and content ideas now describe the project canvas for developers,
