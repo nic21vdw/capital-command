@@ -88,7 +88,7 @@ export function AccountSwitcher({
         <option value={ADD_OPTION}>＋ Add {PLATFORM_LABELS[platform]} account…</option>
       </Select>
       {activeAccount?.connected ? (
-        <span className="flex items-center gap-1.5 text-xs text-emerald-300">
+        <span className="tone-success tone-text flex items-center gap-1.5 text-xs">
           {profileOf(activeAccount)?.thumbnail ? (
             // eslint-disable-next-line @next/next/no-img-element -- remote avatar host isn't in next.config images
             <img src={profileOf(activeAccount)?.thumbnail ?? ""} alt="" className="h-4 w-4 rounded-full" />

@@ -24,6 +24,7 @@ import { PageHeader } from "@/components/ui/page-header";
 import { CompetitionPanel } from "@/components/outliers/competition-panel";
 import { readJson, useOutlierRadar, type RadarState } from "@/components/outliers/use-outlier-radar";
 import { channelGroupOptions, DEFAULT_COMPETITION_GROUP, normalizeGroupLabel } from "@/lib/youtube/competitor-trends";
+import { useColateralSurface } from "@/lib/colateral/useSurface";
 import { cn } from "@/lib/utils";
 import {
   buildOutlierInsights,
@@ -220,6 +221,95 @@ export function OutliersPage() {
   const lastRun = state?.runs[0] ?? null;
   const config = configDraft ?? state?.config ?? null;
 
+  useColateralSurface({
+    route: "/outliers",
+    title: "Outlier Radar",
+    summary: "Watch competitor channels, flag breakout videos, and analyze what's working across them.",
+    fields: [
+      { id: "channelInput", label: "Channel to add", value: channelInput, kind: "text", hint: "URL, @handle, or UC… channel id." },
+      { id: "multiplier", label: "Outlier multiplier", value: config?.multiplier ?? null, kind: "number", readOnly: !config },
+      { id: "baselineWindow", label: "Baseline window", value: config?.baselineWindow ?? null, kind: "number", unit: "videos", readOnly: !config },
+      { id: "cooldownMinutes", label: "Cache cooldown", value: config?.cooldownMinutes ?? null, kind: "number", unit: "min", readOnly: !config }
+    ],
+    controls: [
+      { id: "add-channel", label: "Add channel", group: "Watchlist", disabled: adding || !channelInput.trim() },
+      { id: "pull-stats", label: scanning ? "Pulling stats…" : "Pull stats", group: "Scan", disabled: scanning || !state?.configured },
+      { id: "force-refresh", label: "Force refresh", group: "Scan", disabled: scanning || !state?.configured },
+      { id: "save-config", label: "Save detection settings", group: "Settings", disabled: !configDraft },
+      { id: "cancel-config", label: "Cancel settings edit", group: "Settings", disabled: !configDraft },
+      ...(state?.channels ?? []).map((channel) => ({
+        id: `remove-channel:${channel.id}`,
+        label: `Remove ${channel.title}`,
+        group: "Watchlist",
+        destructive: true
+      }))
+    ],
+    readings: [
+      { label: "Channels", value: String(state?.channels.length ?? 0) },
+      { label: "Flagged outliers", value: String(state?.outliers.length ?? 0) },
+      { label: "YouTube configured", value: state?.configured ? "Yes" : "No" },
+      { label: "Last pull", value: lastRun ? formatDate(lastRun.at) : "No pulls yet" },
+      { label: "Load error", value: loadError ?? "None" }
+    ],
+    setField: (id, value) => {
+      if (id === "channelInput") {
+        setChannelInput(typeof value === "string" ? value : String(value ?? ""));
+        return true;
+      }
+      if (!config) return false;
+      const num = Number(value);
+      if (!Number.isFinite(num)) return false;
+      if (id === "multiplier") {
+        setConfigDraft({ ...config, multiplier: num });
+        return true;
+      }
+      if (id === "baselineWindow") {
+        setConfigDraft({ ...config, baselineWindow: num });
+        return true;
+      }
+      if (id === "cooldownMinutes") {
+        setConfigDraft({ ...config, cooldownMinutes: num });
+        return true;
+      }
+      return false;
+    },
+    click: (id) => {
+      if (id === "add-channel") {
+        if (adding || !channelInput.trim()) return false;
+        void addChannel();
+        return true;
+      }
+      if (id === "pull-stats") {
+        if (scanning || !state?.configured) return false;
+        void runScan(false);
+        return true;
+      }
+      if (id === "force-refresh") {
+        if (scanning || !state?.configured) return false;
+        void runScan(true);
+        return true;
+      }
+      if (id === "save-config") {
+        if (!configDraft) return false;
+        void saveConfig();
+        return true;
+      }
+      if (id === "cancel-config") {
+        if (!configDraft) return false;
+        setConfigDraft(null);
+        return true;
+      }
+      if (id.startsWith("remove-channel:")) {
+        const channelId = id.slice("remove-channel:".length);
+        const channel = state?.channels.find((entry) => entry.id === channelId);
+        if (!channel) return false;
+        void removeChannel(channel);
+        return true;
+      }
+      return false;
+    }
+  });
+
   return (
     <div>
       <PageHeader
@@ -229,7 +319,7 @@ export function OutliersPage() {
       />
 
       {loadError ? (
-        <Card className="mb-4 border-red-500/30 bg-red-500/10 text-sm text-red-200">
+        <Card className="mb-4 tone-danger tone-edge tone-soft text-sm tone-text">
           <p className="flex items-center gap-2">
             <AlertTriangle className="h-4 w-4 shrink-0" /> {loadError}
           </p>
@@ -240,7 +330,7 @@ export function OutliersPage() {
       ) : null}
 
       {state && !state.configured ? (
-        <Card className="mb-4 border-amber-500/30 bg-amber-500/10 text-sm text-amber-200">
+        <Card className="mb-4 tone-warning tone-edge tone-soft text-sm tone-text">
           <p className="flex items-center gap-2">
             <AlertTriangle className="h-4 w-4 shrink-0" />
             YouTube is not connected. Set YOUTUBE_CLIENT_ID / YOUTUBE_CLIENT_SECRET and use Connect YouTube in the
@@ -314,7 +404,7 @@ export function OutliersPage() {
                     {channel.lastFetchedAt ? ` · fetched ${formatDate(channel.lastFetchedAt)}` : ""}
                   </p>
                   {channel.lastError ? (
-                    <p className="mt-0.5 flex items-center gap-1 text-xs text-amber-300">
+                    <p className="mt-0.5 flex items-center gap-1 text-xs tone-warning tone-text">
                       <AlertTriangle className="h-3 w-3 shrink-0" />
                       <span className="truncate" title={channel.lastError}>
                         {channel.lastError}
@@ -370,7 +460,7 @@ export function OutliersPage() {
                     {lastRun.channelsSkipped} cached · {lastRun.channelsFailed} failed
                   </p>
                   {lastRun.notes.map((note) => (
-                    <p key={note} className="mt-1 flex items-center gap-1 text-amber-300">
+                    <p key={note} className="mt-1 flex items-center gap-1 tone-warning tone-text">
                       <AlertTriangle className="h-3 w-3 shrink-0" /> {note}
                     </p>
                   ))}
@@ -731,23 +821,23 @@ function OutlierInsightsPanel({ outlier, channel }: { outlier: Outlier; channel:
       </div>
       <div className="mt-4 grid gap-4 lg:grid-cols-2">
         <div>
-          <h3 className="text-xs font-semibold uppercase tracking-wider text-emerald-300">What worked</h3>
+          <h3 className="text-xs font-semibold uppercase tracking-wider tone-success tone-text">What worked</h3>
           <ul className="mt-2 space-y-1.5 text-sm text-[var(--muted-foreground)]">
             {insights.whatWorked.map((note) => (
               <li key={note} className="flex gap-2">
-                <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-emerald-400/70" />
+                <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full tone-success tone-fill opacity-70" />
                 {note}
               </li>
             ))}
           </ul>
         </div>
         <div>
-          <h3 className="text-xs font-semibold uppercase tracking-wider text-amber-300">What to check</h3>
+          <h3 className="text-xs font-semibold uppercase tracking-wider tone-warning tone-text">What to check</h3>
           {insights.watchouts.length > 0 ? (
             <ul className="mt-2 space-y-1.5 text-sm text-[var(--muted-foreground)]">
               {insights.watchouts.map((note) => (
                 <li key={note} className="flex gap-2">
-                  <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-amber-400/70" />
+                  <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full tone-warning tone-fill opacity-70" />
                   {note}
                 </li>
               ))}
@@ -763,7 +853,7 @@ function OutlierInsightsPanel({ outlier, channel }: { outlier: Outlier; channel:
         </div>
       </div>
       {insights.missingData.length > 0 ? (
-        <div className="mt-3 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-200">
+        <div className="mt-3 rounded-lg tone-warning tone-edge tone-soft px-3 py-2 text-xs tone-text">
           {insights.missingData.map((note) => (
             <p key={note} className="flex items-center gap-1.5">
               <AlertTriangle className="h-3 w-3 shrink-0" /> {note}

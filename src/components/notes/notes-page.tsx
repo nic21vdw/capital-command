@@ -12,12 +12,31 @@ import { Input } from "@/components/ui/input";
 import { Modal } from "@/components/ui/modal";
 import { PageHeader } from "@/components/ui/page-header";
 import { Textarea } from "@/components/ui/textarea";
+import { useColateralSurface } from "@/lib/colateral/useSurface";
 import type { ResearchNote } from "@/types/domain";
 
 export function NotesPage() {
   const { data, mutate } = useAppData();
   const [editing, setEditing] = useState<ResearchNote | null>(null);
   const [showModal, setShowModal] = useState(false);
+
+  useColateralSurface({
+    route: "/notes",
+    title: "Notes",
+    summary: "Thesis notes, bull and bear cases, valuations and supporting links.",
+    fields: [],
+    controls: [{ id: "add-note", label: "Add note", group: "Notes" }],
+    readings: [
+      { label: "Notes saved", value: String(data.researchNotes.length) },
+      { label: "Open note", value: editing?.title ?? "None" }
+    ],
+    click: (id) => {
+      if (id !== "add-note") return false;
+      setEditing(makeResearchNote());
+      setShowModal(true);
+      return true;
+    }
+  });
 
   const saveNote = async (formData: FormData) => {
     const note = makeResearchNote(editing ?? undefined);

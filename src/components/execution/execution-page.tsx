@@ -21,6 +21,7 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { PageHeader } from "@/components/ui/page-header";
 import { Skeleton } from "@/components/ui/skeleton";
+import { useColateralSurface } from "@/lib/colateral/useSurface";
 import { type StreakResult } from "@/lib/execution/calculations";
 import { formatLongDate, formatWeekRange, todayLocal, weekdayLabel } from "@/lib/execution/dates";
 import {
@@ -87,6 +88,42 @@ export function ExecutionPage() {
 
   const undoOne = (goalId: string, id: string, key: string) =>
     run(key, () => mutate("undoCompletion", { id, today }));
+
+  // No single top-level input governs this page — every editable value lives
+  // on one goal deep in a list — so the surface offers the two real
+  // page-level actions and the numbers those actions move, rather than
+  // inventing fields nothing on screen actually has.
+  useColateralSurface({
+    route: "/execution",
+    title: "Execution",
+    summary: "Recurring content, networking, and build goals with streaks and carried-forward debt.",
+    fields: [],
+    controls: [
+      { id: "manageGoals", label: "Manage goals", group: "Goals", disabled: !view.hasGoals },
+      { id: "seedDefaults", label: "Create default goals", group: "Goals", disabled: view.hasGoals || loading }
+    ],
+    readings: [
+      { label: "Today", value: pct(view.summary.todayPercent) },
+      { label: "This week", value: pct(view.summary.weekPercent) },
+      { label: "Outstanding debt", value: String(view.summary.outstandingDebt) },
+      { label: "Current streak", value: streakLabel(view.summary.activeStreak) },
+      { label: "Active goals", value: String(view.activeGoals.length) }
+    ],
+    setField: () => false,
+    click: (id) => {
+      if (id === "manageGoals") {
+        if (!view.hasGoals) return false;
+        setManagerOpen(true);
+        return true;
+      }
+      if (id === "seedDefaults") {
+        if (view.hasGoals) return false;
+        void mutate("seedExecution", { today }, { successMessage: "Default goals created." });
+        return true;
+      }
+      return false;
+    }
+  });
 
   if (loading && data.executionGoals.length === 0) {
     return (
@@ -296,7 +333,7 @@ function TodaySection({
                 <div className="min-w-0">
                   <div className="flex items-center gap-2">
                     <p className="truncate text-sm font-medium text-white">{task.goal.title}</p>
-                    {task.hasDebt ? <Badge className="border-amber-400/30 bg-amber-400/10 text-amber-200">debt</Badge> : null}
+                    {task.hasDebt ? <Badge tone="warning">debt</Badge> : null}
                   </div>
                   <p className="text-xs text-[var(--muted-foreground)]">
                     {task.goal.category} · {task.completed} of {task.required} completed today
@@ -323,7 +360,7 @@ function TodaySection({
                           filled
                             ? "border-[var(--accent)] bg-[var(--accent)]"
                             : "border-white/15 bg-transparent hover:border-[var(--accent)]/60",
-                          index >= task.required && filled && "border-amber-300 bg-amber-300",
+                          index >= task.required && filled && "border-[var(--accent-strong)] bg-[var(--accent-strong)]",
                           !interactive && "cursor-default opacity-70"
                         )}
                       />
@@ -358,7 +395,7 @@ function SegmentedBar({ goal }: { goal: WeeklyGoalView }) {
         </div>
         {breakdown.startingDebt > 0 ? (
           <div className="h-full overflow-hidden rounded-full bg-white/8" style={{ flexBasis: `${debtPct}%` }} title="Carried-forward debt">
-            <div className="h-full rounded-full bg-amber-400 transition-[width]" style={{ width: `${debtFill}%` }} />
+            <div className="tone-warning tone-fill h-full rounded-full transition-[width]" style={{ width: `${debtFill}%` }} />
           </div>
         ) : null}
       </div>
@@ -368,7 +405,7 @@ function SegmentedBar({ goal }: { goal: WeeklyGoalView }) {
           {breakdown.startingDebt > 0 ? (
             <>
               {" "}
-              · <span className="text-amber-400">■</span> Debt
+              · <span className="tone-warning tone-text">■</span> Debt
             </>
           ) : null}
         </span>
@@ -452,7 +489,7 @@ function WeeklyGoalsSection({
                           : day.met
                             ? "border-[var(--accent)]/50 bg-[var(--accent)]/15 text-[var(--accent)]"
                             : day.missed
-                              ? "border-amber-400/30 bg-amber-400/5 text-amber-200/80"
+                              ? "tone-warning tone-edge tone-soft tone-text"
                               : "border-white/15 text-white",
                         day.isToday && "ring-1 ring-[var(--accent)]"
                       )}
@@ -491,7 +528,7 @@ function WeeklyGoalsSection({
                           </span>
                           <button
                             type="button"
-                            className="text-[var(--muted-foreground)] hover:text-red-300"
+                            className="text-[var(--muted-foreground)] hover:text-[var(--danger)]"
                             onClick={() => onUndoEntry(goal.id, entry.id)}
                           >
                             remove
@@ -517,7 +554,7 @@ function Stat({ label, value, accent }: { label: string; value: number; accent?:
       <dd
         className={cn(
           "font-semibold text-white",
-          accent === "amber" && "text-amber-300",
+          accent === "amber" && "text-[var(--warning)]",
           accent === "accent" && "text-[var(--accent)]"
         )}
       >
@@ -568,7 +605,7 @@ function DebtPanel({ debts }: { debts: DebtView[] }) {
               <div key={debt.goal.id} className="rounded-2xl border border-white/8 bg-[var(--well)] p-4">
                 <div className="flex items-start justify-between gap-3">
                   <div className="flex min-w-0 items-center gap-3">
-                    <span className="rounded-xl bg-amber-400/10 p-2 text-amber-300">
+                    <span className="tone-warning tone-soft tone-text rounded-xl p-2">
                       <Icon className="h-4 w-4" />
                     </span>
                     <div className="min-w-0">
@@ -579,7 +616,7 @@ function DebtPanel({ debts }: { debts: DebtView[] }) {
                     </div>
                   </div>
                   <div className="text-right">
-                    <p className="text-xl font-semibold text-amber-300">{debt.total}</p>
+                    <p className="tone-warning tone-text text-xl font-semibold">{debt.total}</p>
                     {debt.repaidThisWeek > 0 ? <p className="text-[11px] text-[var(--accent)]">{debt.repaidThisWeek} repaid</p> : null}
                   </div>
                 </div>
@@ -588,7 +625,7 @@ function DebtPanel({ debts }: { debts: DebtView[] }) {
                     <span
                       key={week.originWeekStart}
                       title={`${week.remaining} of ${week.original} from week of ${formatWeekRange(week.originWeekStart)}`}
-                      className="rounded-lg border border-amber-400/20 bg-amber-400/5 px-2 py-1 text-[11px] text-amber-200/90"
+                      className="chip tone-warning"
                     >
                       {week.remaining} · {formatWeekRange(week.originWeekStart).split(" – ")[0]}
                     </span>
@@ -601,7 +638,7 @@ function DebtPanel({ debts }: { debts: DebtView[] }) {
                   </div>
                   <div className="mt-1 h-1.5 w-full overflow-hidden rounded-full bg-white/10">
                     <div
-                      className={cn("h-full rounded-full", debt.percentOfCap >= 80 ? "bg-red-400" : "bg-amber-400")}
+                      className={cn("h-full rounded-full", debt.percentOfCap >= 80 ? "tone-danger tone-fill" : "tone-warning tone-fill")}
                       style={{ width: `${Math.min(100, debt.percentOfCap)}%` }}
                     />
                   </div>
@@ -692,15 +729,7 @@ function WeeklyHistory({ weeks }: { weeks: WeekSummary[] }) {
 
       <div className="mb-4 flex flex-wrap items-center gap-2">
         {week.isCurrent ? <Badge className="border-white/15 bg-white/6 text-white">In progress</Badge> : null}
-        <Badge
-          className={cn(
-            week.successful
-              ? "border-[var(--accent)]/30 bg-[var(--accent)]/10 text-[var(--accent)]"
-              : "border-amber-400/30 bg-amber-400/10 text-amber-200"
-          )}
-        >
-          {week.successful ? "Successful week" : "Baseline missed"}
-        </Badge>
+        <Badge tone={week.successful ? "accent" : "warning"}>{week.successful ? "Successful week" : "Baseline missed"}</Badge>
         <span className="text-sm text-[var(--muted-foreground)]">{pct(week.percent)} of baseline</span>
       </div>
 
@@ -733,9 +762,9 @@ function WeeklyHistory({ weeks }: { weeks: WeekSummary[] }) {
                 <td className="px-3 py-2 text-[var(--muted-foreground)]">{row.baseline}</td>
                 <td className="px-3 py-2 text-[var(--muted-foreground)]">{row.startingDebt}</td>
                 <td className="px-3 py-2 text-white">{row.completed}</td>
-                <td className="px-3 py-2 text-amber-300">{row.debtPaid}</td>
-                <td className="px-3 py-2 text-amber-300">{row.newDebt}</td>
-                <td className="px-3 py-2 text-amber-300">{row.endingDebt}</td>
+                <td className="px-3 py-2 text-[var(--warning)]">{row.debtPaid}</td>
+                <td className="px-3 py-2 text-[var(--warning)]">{row.newDebt}</td>
+                <td className="px-3 py-2 text-[var(--warning)]">{row.endingDebt}</td>
                 <td className="px-3 py-2 text-[var(--accent)]">{row.overachievement}</td>
               </tr>
             ))}

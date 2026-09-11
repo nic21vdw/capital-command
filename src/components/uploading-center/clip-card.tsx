@@ -204,7 +204,7 @@ export function ClipCard({
       }}
       className={cn(
         "rounded-xl border border-[var(--border)] bg-[var(--surface-2)] p-3 transition hover:border-[var(--border-strong)]",
-        captionFailed && "border-amber-400/50",
+        captionFailed && "tone-warning tone-edge",
         highlighted && "border-[var(--accent)] ring-1 ring-[var(--accent)]/50"
       )}
     >
@@ -277,10 +277,10 @@ export function ClipCard({
             value={draft.caption}
             onChange={(event) => onDraftChange({ ...draft, caption: event.target.value })}
             placeholder="Caption — leave empty to auto-generate on schedule"
-            className={cn("min-h-16 py-2", captionFailed && "border-amber-400/40")}
+            className={cn("min-h-16 py-2", captionFailed && "tone-warning tone-edge")}
           />
           {captionFailed ? (
-            <p className="flex items-start gap-2 rounded-lg border border-amber-400/25 bg-amber-400/8 px-3 py-2 text-xs text-amber-200">
+            <p className="tone-warning tone-edge tone-soft tone-text flex items-start gap-2 rounded-lg border px-3 py-2 text-xs">
               <TriangleAlert className="mt-0.5 h-3.5 w-3.5 shrink-0" />
               <span>
                 No AI caption for this clip — {captionError?.replace(/\s*[.!]+$/, "")}. Scheduling the whole run
@@ -347,7 +347,7 @@ export function ClipCard({
             <button
               type="button"
               onClick={onEditClip}
-              className="flex w-full items-start gap-2 rounded-lg border border-amber-400/25 bg-amber-400/8 px-3 py-2 text-left text-xs text-amber-200 transition hover:border-amber-400/50"
+              className="tone-warning tone-edge tone-soft tone-text flex w-full items-start gap-2 rounded-lg border px-3 py-2 text-left text-xs transition hover:opacity-90"
             >
               <Scissors className="mt-0.5 h-3.5 w-3.5 shrink-0" />
               <span>
@@ -372,7 +372,7 @@ export function ClipCard({
                           <StatusChip status={state.status} platform={platform} item={item} />
                           <span className="truncate font-medium text-white">{PLATFORM_LABELS[platform]}</span>
                           {summary.uploaded ? (
-                            <span className="inline-flex items-center gap-1 whitespace-nowrap text-emerald-300">
+                            <span className="tone-success tone-text inline-flex items-center gap-1 whitespace-nowrap">
                               <CheckCircle2 className="h-3 w-3" /> {summary.uploaded}
                             </span>
                           ) : null}

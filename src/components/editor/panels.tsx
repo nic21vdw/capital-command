@@ -837,7 +837,7 @@ export const AudioPanel = memo(function AudioPanel({ api }: { api: EditorApi }) 
           <>
             <div className="flex items-center justify-between gap-2 text-xs text-[var(--muted-foreground)]">
               <span className="truncate">{a.musicName ?? "music track"}</span>
-              <button type="button" onClick={() => set({ musicSrc: undefined, musicName: undefined })} className="text-red-300 hover:text-red-200">
+              <button type="button" onClick={() => set({ musicSrc: undefined, musicName: undefined })} className="text-[var(--danger)] hover:opacity-80">
                 Remove
               </button>
             </div>
@@ -987,11 +987,11 @@ export const ExportPanel = memo(function ExportPanel({ api }: { api: EditorApi }
 
         {state.status === "canceled" && <p className="mt-2 text-sm text-[var(--muted-foreground)]">Render stopped. Press Export video to try again.</p>}
 
-        {state.status === "error" && <p className="mt-2 text-sm text-red-300">{state.error}</p>}
+        {state.status === "error" && <p className="mt-2 text-sm text-[var(--danger)]">{state.error}</p>}
 
         {state.status === "done" && state.exportId && (
-          <div className="mt-3 space-y-2 rounded-lg border border-emerald-400/30 bg-emerald-400/8 p-3">
-            <p className="flex items-center gap-2 text-sm text-emerald-200">
+          <div className="tone-success tone-soft tone-edge mt-3 space-y-2 rounded-lg border p-3">
+            <p className="tone-text flex items-center gap-2 text-sm">
               <Check className="h-4 w-4" /> Export complete — file is playable.
             </p>
             <video
@@ -1175,7 +1175,7 @@ function CopyButton({ value, title, label }: { value: string; title: string; lab
       title={title}
       className={cn(
         "inline-flex shrink-0 items-center gap-1.5 rounded-md border border-[var(--border)] px-2 py-1 text-xs transition hover:border-[var(--accent)] hover:text-white",
-        copied ? "text-emerald-300" : "text-[var(--muted-foreground)]"
+        copied ? "text-[var(--success)]" : "text-[var(--muted-foreground)]"
       )}
     >
       {copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}

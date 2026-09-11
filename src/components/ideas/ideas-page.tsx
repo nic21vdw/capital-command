@@ -11,6 +11,7 @@ import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { PageHeader } from "@/components/ui/page-header";
 import { Tabs } from "@/components/ui/tabs";
+import { useColateralSurface } from "@/lib/colateral/useSurface";
 import { cn } from "@/lib/utils";
 import type { VideoIdea, VideoIdeaStatus } from "@/types/domain";
 
@@ -21,14 +22,14 @@ interface GenerateResponse {
 }
 
 const COMPETITION_STYLES: Record<VideoIdea["competition"], string> = {
-  low: "border-emerald-400/30 bg-emerald-400/10 text-emerald-200",
-  medium: "border-amber-400/30 bg-amber-400/10 text-amber-200",
-  high: "border-rose-400/30 bg-rose-400/10 text-rose-200"
+  low: "tone-success tone-edge tone-soft tone-text",
+  medium: "tone-warning tone-edge tone-soft tone-text",
+  high: "tone-danger tone-edge tone-soft tone-text"
 };
 
 function scoreColor(score: number) {
-  if (score >= 75) return "text-emerald-300";
-  if (score >= 55) return "text-amber-300";
+  if (score >= 75) return "tone-success tone-text";
+  if (score >= 55) return "tone-warning tone-text";
   return "text-[var(--muted-foreground)]";
 }
 
@@ -72,6 +73,38 @@ export function IdeasPage() {
     }
   };
 
+  useColateralSurface({
+    route: "/ideas",
+    title: "Idea Lab",
+    summary: "Research scored video ideas from a seed keyword, then save or archive them.",
+    fields: [{ id: "seed", label: "Seed keyword", value: seed, kind: "text", hint: "Leave blank to let the researcher pick a topic." }],
+    controls: [
+      {
+        id: "generate",
+        label: generating ? "Researching…" : "Research ideas",
+        group: "Ideas",
+        disabled: generating
+      }
+    ],
+    readings: [
+      { label: "Ideas", value: String(ideas.length) },
+      { label: "Suggested", value: String(suggested.length) },
+      { label: "Saved", value: String(saved.length) },
+      { label: "Archived", value: String(archived.length) }
+    ],
+    setField: (id, value) => {
+      if (id !== "seed") return false;
+      setSeed(typeof value === "string" ? value : String(value ?? ""));
+      return true;
+    },
+    click: (id) => {
+      if (id !== "generate") return false;
+      if (generating) return false;
+      void generate();
+      return true;
+    }
+  });
+
   return (
     <div>
       <PageHeader
@@ -101,7 +134,7 @@ export function IdeasPage() {
       />
 
       {reason ? (
-        <div className="mb-6 rounded-2xl border border-amber-400/30 bg-amber-400/10 p-3 text-xs text-amber-100">{reason}</div>
+        <div className="mb-6 rounded-2xl tone-warning tone-edge tone-soft p-3 text-xs tone-text">{reason}</div>
       ) : null}
 
       <Tabs
@@ -271,7 +304,7 @@ function IdeaCard({ idea, onChanged }: { idea: VideoIdea; onChanged: (idea: Vide
       {idea.keywords.length ? (
         <div className="flex flex-wrap gap-1.5">
           {idea.keywords.map((keyword) => (
-            <span key={keyword} className="rounded-full bg-white/5 px-2 py-0.5 text-[11px] text-white/70">
+            <span key={keyword} className="rounded-full bg-white/5 px-2 py-0.5 text-[11px] text-[var(--muted-foreground-2)]">
               {keyword}
             </span>
           ))}

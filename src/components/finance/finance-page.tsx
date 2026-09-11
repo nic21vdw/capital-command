@@ -9,10 +9,31 @@ import { useAppData } from "@/components/providers/app-provider";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { PageHeader } from "@/components/ui/page-header";
+import { useColateralSurface } from "@/lib/colateral/useSurface";
 
 export function FinancePage() {
   const { data } = useAppData();
   const [showAppearance, setShowAppearance] = useState(false);
+
+  useColateralSurface({
+    route: "/finance",
+    title: "Personal Finance",
+    summary: "Stripe billing alongside AI, cloud and hardware spending.",
+    fields: [{ id: "currency", label: "Currency", value: data.settings.currency, kind: "text", readOnly: true }],
+    controls: [
+      {
+        id: "toggle-appearance",
+        label: showAppearance ? "Hide appearance panel" : "Show appearance panel",
+        group: "Appearance"
+      }
+    ],
+    readings: [{ label: "Tracked expenses", value: String(data.expenses.length) }],
+    click: (id) => {
+      if (id !== "toggle-appearance") return false;
+      setShowAppearance((value) => !value);
+      return true;
+    }
+  });
 
   return (
     <div className="space-y-8">

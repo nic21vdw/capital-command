@@ -17,7 +17,7 @@ import {
 import { toast } from "sonner";
 import { useAppData } from "@/components/providers/app-provider";
 import { ClipFrame } from "@/components/clips/clip-frame";
-import { Badge } from "@/components/ui/badge";
+import { Badge, type BadgeTone } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -32,6 +32,7 @@ import { loadJobCaptions, loadJobSilences } from "@/lib/clipping/captions-client
 import { generateClipTitle, makeClipProject, makeTitleOverlay } from "@/lib/clipping/editor";
 import { buildClipSegments, buildClipSegmentsFromSilences } from "@/lib/clipping/segments";
 import { writeDraftProject } from "@/components/editor/drafts";
+import { useColateralSurface } from "@/lib/colateral/useSurface";
 import { cn, safeFilename } from "@/lib/utils";
 import type { ClipCandidate, ClipJob, ClipJobStage, ClipJobStatus } from "@/lib/clipping/types";
 
@@ -69,10 +70,10 @@ function statusLabel(job: ClipJob) {
   return "Needs attention";
 }
 
-function statusClass(status: ClipJobStatus) {
-  if (status === "done") return "border-emerald-400/30 bg-emerald-400/10 text-emerald-300";
-  if (status === "error") return "border-red-400/30 bg-red-400/10 text-red-300";
-  return "border-sky-400/30 bg-sky-400/10 text-sky-300";
+function statusTone(status: ClipJobStatus): BadgeTone {
+  if (status === "done") return "success";
+  if (status === "error") return "danger";
+  return "info";
 }
 
 function clipHeadline(clip: ClipCandidate, index: number) {
@@ -361,6 +362,88 @@ export function ClipGeneratorPage() {
     }
   };
 
+  useColateralSurface({
+    route: "/clips",
+    title: "Short Clips",
+    summary: "Turn a stream into short, captioned clips ready for Shorts and Reels.",
+    fields: [
+      { id: "url", label: "Stream URL", value: url, kind: "text", hint: "Paste a VOD link, then run Find clips." },
+      { id: "focus", label: "Focus", value: brief, kind: "longtext", hint: "Leave blank to pick moments from the whole stream." },
+      { id: "clipCount", label: "Clips to generate", value: clipCount, kind: "number" },
+      { id: "autoFrame", label: "Frame on the speaker", value: autoFrame, kind: "boolean" }
+    ],
+    controls: [
+      { id: "submitUrl", label: "Find clips", group: "Add a stream", disabled: submitting || uploading || !url.trim() },
+      { id: "refresh", label: "Refresh streams", group: "Streams" },
+      {
+        id: "retryFailed",
+        label: "Retry missing renders",
+        group: "Active stream",
+        disabled: !activeJob || processing || failedClipCount === 0
+      },
+      {
+        id: "deleteStream",
+        label: "Delete stream",
+        group: "Active stream",
+        destructive: true,
+        disabled: !activeJob || processing
+      }
+    ],
+    readings: [
+      { label: "Streams", value: String(jobs.length) },
+      { label: "Active stream", value: activeJob?.fileName ?? "None" },
+      { label: "Status", value: activeJob ? statusLabel(activeJob) : "—" },
+      { label: "Clips ready", value: String(previewableClips.length) },
+      { label: "Missing renders", value: String(failedClipCount) }
+    ],
+    setField: (id, value) => {
+      if (id === "url") {
+        if (typeof value !== "string") return false;
+        setUrl(value);
+        return true;
+      }
+      if (id === "focus") {
+        if (typeof value !== "string") return false;
+        setBrief(value);
+        return true;
+      }
+      if (id === "clipCount") {
+        const n = Number(value);
+        if (!Number.isFinite(n) || n < 1 || n > MAX_CLIP_COUNT) return false;
+        setClipCount(Math.round(n));
+        return true;
+      }
+      if (id === "autoFrame") {
+        if (typeof value !== "boolean") return false;
+        setAutoFrame(value);
+        return true;
+      }
+      return false;
+    },
+    click: (id) => {
+      if (id === "submitUrl") {
+        if (submitting || uploading || !url.trim()) return false;
+        void submitUrl();
+        return true;
+      }
+      if (id === "refresh") {
+        void refresh();
+        return true;
+      }
+      if (id === "retryFailed") {
+        if (!activeJob || processing || failedClipCount === 0) return false;
+        void retryFailedRenders(activeJob);
+        return true;
+      }
+      if (id === "deleteStream") {
+        if (!activeJob || processing) return false;
+        void removeJob(activeJob);
+        return true;
+      }
+      return false;
+    }
+  });
+
   const busy = submitting || uploading;
   const settingsSummary = [
     `${clipCount} clip${clipCount === 1 ? "" : "s"}`,
@@ -553,7 +636,7 @@ export function ClipGeneratorPage() {
                         </p>
                       </div>
                       <div className="flex shrink-0 items-center gap-1.5">
-                        <Badge className={statusClass(job.status)}>{statusLabel(job)}</Badge>
+                        <Badge tone={statusTone(job.status)}>{statusLabel(job)}</Badge>
                         {job.status !== "processing" && job.status !== "queued" && (
                           <button
                             type="button"
@@ -563,7 +646,7 @@ export function ClipGeneratorPage() {
                               event.stopPropagation();
                               void removeJob(job);
                             }}
-                            className="flex h-6 w-6 items-center justify-center rounded-md text-[var(--muted-foreground)] transition hover:bg-red-500/10 hover:text-red-400"
+                            className="flex h-6 w-6 items-center justify-center rounded-md text-[var(--muted-foreground)] transition hover:bg-[color-mix(in_srgb,var(--danger)_14%,transparent)] hover:text-[var(--danger)]"
                           >
                             <Trash2 className="h-3.5 w-3.5" />
                           </button>
@@ -595,7 +678,7 @@ export function ClipGeneratorPage() {
                 <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
                   <div className="min-w-0">
                     <div className="flex flex-wrap items-center gap-2">
-                      <Badge className={statusClass(activeJob.status)}>{statusLabel(activeJob)}</Badge>
+                      <Badge tone={statusTone(activeJob.status)}>{statusLabel(activeJob)}</Badge>
                       {activeJob.durationSec ? <Badge>{formatTimestamp(activeJob.durationSec)}</Badge> : null}
                       {activeJob.topic && <Badge>{activeJob.topic}</Badge>}
                     </div>
@@ -670,14 +753,14 @@ export function ClipGeneratorPage() {
                       </p>
                     </div>
                     {failedClipCount > 0 && (
-                      <Badge className="border-amber-400/30 bg-amber-400/10 text-amber-300">
+                      <Badge tone="warning">
                         {failedClipCount} missing render{failedClipCount === 1 ? "" : "s"}
                       </Badge>
                     )}
                   </div>
                   {previewableClips.length === 0 ? (
                     <Card className="flex flex-col items-center gap-2 py-10 text-center">
-                      <AlertTriangle className="h-6 w-6 text-amber-300" />
+                      <AlertTriangle className="h-6 w-6 text-[var(--warning)]" />
                       <p className="text-sm font-semibold text-white">No clips could be rendered</p>
                       <p className="max-w-md text-sm text-[var(--muted-foreground)]">
                         Use “Retry missing” above, or delete this stream and try adding it again.
@@ -808,14 +891,12 @@ function Notice({ tone, text }: { tone: "warning" | "danger"; text: string }) {
   return (
     <div
       className={cn(
-        "mt-4 flex items-start gap-3 rounded-lg border p-3",
-        tone === "danger" ? "border-red-400/25 bg-red-500/10" : "border-amber-400/25 bg-amber-500/10"
+        "mt-4 flex items-start gap-3 rounded-lg border p-3 tone-soft tone-edge",
+        tone === "danger" ? "tone-danger" : "tone-warning"
       )}
     >
-      <AlertTriangle className={cn("mt-0.5 h-4 w-4 shrink-0", tone === "danger" ? "text-red-400" : "text-amber-400")} />
-      <p className={cn("min-w-0 break-words text-xs leading-relaxed", tone === "danger" ? "text-red-200" : "text-amber-100")}>
-        {text}
-      </p>
+      <AlertTriangle className="tone-text mt-0.5 h-4 w-4 shrink-0" />
+      <p className="tone-text min-w-0 break-words text-xs leading-relaxed">{text}</p>
     </div>
   );
 }
@@ -944,18 +1025,12 @@ function ClipCard({
               </Badge>
               <Badge>{duration}s</Badge>
               {clip.score > 0 && (
-                <Badge
-                  className="border-emerald-400/30 bg-emerald-400/10 text-emerald-300"
-                  title={clip.rationale}
-                >
+                <Badge tone="success" title={clip.rationale}>
                   Score {clip.score}
                 </Badge>
               )}
               {clip.framing && clip.framing.mode !== "center-blur" && (
-                <Badge
-                  className="border-sky-400/30 bg-sky-400/10 text-sky-200"
-                  title={clip.framing.reason}
-                >
+                <Badge tone="info" title={clip.framing.reason}>
                   {clip.framing.mode === "subject-fill" ? "Framed on speaker" : "Camera lead"}
                 </Badge>
               )}

@@ -9,6 +9,7 @@ import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { PageHeader } from "@/components/ui/page-header";
 import { Textarea } from "@/components/ui/textarea";
+import { useColateralSurface } from "@/lib/colateral/useSurface";
 import type { MusicTrack } from "@/lib/longform/types";
 import type { MusicJobRecord } from "@/lib/music/jobs";
 import type { MusicModel } from "@/lib/music/models";
@@ -157,6 +158,119 @@ export function MusicStudioPage() {
     }
   };
 
+  useColateralSurface({
+    route: "/music",
+    title: "Music Studio",
+    summary: "Write background music with licensed models on fal.ai; finished takes land in the shared music library.",
+    fields: [
+      { id: "prompt", label: model?.promptLabel ?? "Prompt", value: prompt, kind: "longtext" },
+      { id: "title", label: "Track title", value: title, kind: "text" },
+      { id: "modelId", label: "Model", value: model?.id ?? "", kind: "select", options: state.models.map((entry) => entry.id) },
+      {
+        id: "instrumental",
+        label: "Instrumental",
+        value: instrumental,
+        kind: "boolean",
+        readOnly: model?.vocals === "none",
+        hint: model?.vocals === "none" ? `${model.label} has no vocals.` : undefined
+      },
+      {
+        id: "durationSec",
+        label: "Length",
+        value: durationSec ?? model?.duration?.default ?? 0,
+        kind: "number",
+        unit: "s",
+        readOnly: !model?.duration
+      },
+      {
+        id: "samples",
+        label: "Takes",
+        value: samples,
+        kind: "number",
+        readOnly: !model || model.maxSamples <= 1
+      },
+      {
+        id: "lyrics",
+        label: "Lyrics",
+        value: lyrics,
+        kind: "longtext",
+        readOnly: !(model?.vocals === "field" && !instrumental)
+      }
+    ],
+    controls: [
+      {
+        id: "generate",
+        label: `Generate with ${model?.label ?? "model"}`,
+        group: "Generate",
+        disabled: !model || starting || !prompt.trim() || !state.configured,
+        destructive: true,
+        hint: "Billed per second of audio by fal.ai."
+      },
+      {
+        id: "writeBrief",
+        label: "Write it for me",
+        group: "Prompt",
+        disabled: writingBrief || !prompt.trim()
+      }
+    ],
+    readings: [
+      { label: "Model", value: model?.label ?? "—" },
+      { label: "Pending generations", value: String(pending.length) },
+      { label: "Tracks in library", value: String(state.tracks.length) },
+      { label: "Studio configured", value: state.configured ? "Yes" : "No — needs FAL_KEY" }
+    ],
+    setField: (id, value) => {
+      switch (id) {
+        case "prompt":
+          if (typeof value !== "string") return false;
+          setPrompt(value);
+          return true;
+        case "title":
+          if (typeof value !== "string") return false;
+          setTitle(value);
+          return true;
+        case "modelId": {
+          if (typeof value !== "string") return false;
+          const target = state.models.find((entry) => entry.id === value);
+          if (!target) return false;
+          selectModel(target);
+          return true;
+        }
+        case "instrumental":
+          if (typeof value !== "boolean" || model?.vocals === "none") return false;
+          setInstrumental(value);
+          return true;
+        case "durationSec":
+          if (typeof value !== "number" || !model?.duration) return false;
+          setDurationSec(Math.min(model.duration.max, Math.max(model.duration.min, value)));
+          return true;
+        case "samples":
+          if (typeof value !== "number" || !model || model.maxSamples <= 1) return false;
+          setSamples(Math.min(model.maxSamples, Math.max(1, Math.round(value))));
+          return true;
+        case "lyrics":
+          if (typeof value !== "string" || !(model?.vocals === "field" && !instrumental)) return false;
+          setLyrics(value);
+          return true;
+        default:
+          return false;
+      }
+    },
+    click: (id) => {
+      if (id === "generate") {
+        if (!model || starting || !prompt.trim() || !state.configured) return false;
+        void generate();
+        return true;
+      }
+      if (id === "writeBrief") {
+        if (writingBrief || !prompt.trim()) return false;
+        void writeBrief();
+        return true;
+      }
+      return false;
+    }
+  });
+
   return (
     <div>
       <PageHeader
@@ -166,8 +280,8 @@ export function MusicStudioPage() {
       />
 
       {!state.configured && (
-        <Card className="mb-6 border-amber-400/30 bg-amber-400/5">
-          <p className="text-sm text-amber-200">
+        <Card className="tone-warning tone-edge tone-soft mb-6">
+          <p className="tone-warning tone-text text-sm">
             Set <code className="rounded bg-black/30 px-1.5 py-0.5">FAL_KEY</code> in <code>.env</code> to turn the studio
             on. Grab one from fal.ai/dashboard/keys — generations are billed per second of audio by fal.
           </p>
@@ -309,7 +423,7 @@ export function MusicStudioPage() {
                 <Loader2 className="h-4 w-4 shrink-0 animate-spin text-[var(--accent)]" />
               ) : (
                 <Music4
-                  className={cn("h-4 w-4 shrink-0", job.status === "complete" ? "text-emerald-300" : "text-red-400")}
+                  className={cn("h-4 w-4 shrink-0", job.status === "complete" ? "text-[var(--success)]" : "text-[var(--danger)]")}
                 />
               )}
               <div className="min-w-0 flex-1">
@@ -358,7 +472,7 @@ export function MusicStudioPage() {
                 <button
                   type="button"
                   onClick={() => void removeTrack(track)}
-                  className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-[var(--border)] text-[var(--muted-foreground)] transition hover:border-red-400/60 hover:text-red-400"
+                  className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-[var(--border)] text-[var(--muted-foreground)] transition hover:border-[var(--danger)]/60 hover:text-[var(--danger)]"
                   aria-label={`Delete ${track.fileName}`}
                 >
                   <Trash2 className="h-3.5 w-3.5" />

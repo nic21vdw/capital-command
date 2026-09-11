@@ -23,6 +23,7 @@ import { chunkWords, windowSegments } from "@/lib/clipping/captions";
 import { generateClipTitle, makeClipProject, makeTitleOverlay } from "@/lib/clipping/editor";
 import { writeDraftProject } from "@/components/editor/drafts";
 import { useAppData } from "@/components/providers/app-provider";
+import { useColateralSurface } from "@/lib/colateral/useSurface";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -49,6 +50,7 @@ import { StatusChip } from "@/components/uploading-center/status-chip";
 import {
   DEFAULT_SLOT_OFFSET_DAYS,
   PLATFORM_LABELS,
+  PLATFORM_TARGET_LABELS,
   SLOT_WINDOW_DAYS,
   copyPlatformFor,
   studioContentUrl,
@@ -518,6 +520,10 @@ export function UploadingCenterPage() {
     () => clipsNeedingCaption({ clips: readyClips, draftFor, isScheduled }).length,
     [draftFor, isScheduled, readyClips],
   );
+  const unscheduledCount = useMemo(
+    () => readyClips.filter((clip) => itemsForClip(clip).length === 0).length,
+    [readyClips, itemsForClip],
+  );
 
   // "AI captions for all": write a caption for every unscheduled clip that
   // hasn't got one, tailored to whatever platform each card targets.
@@ -677,7 +683,7 @@ export function UploadingCenterPage() {
             />
           ) : null}
           {id !== "youtube" && id !== "tiktok" && !configured ? (
-            <p className="flex items-center gap-2 rounded-lg border border-amber-400/25 bg-amber-400/8 px-3 py-2 text-xs text-amber-200">
+            <p className="tone-warning tone-edge tone-soft tone-text flex items-center gap-2 rounded-lg border px-3 py-2 text-xs">
               <AlertTriangle className="h-4 w-4 shrink-0" />
               {PLATFORM_LABELS[id]} isn&apos;t connected yet — assignments save
               as <StatusChip status="manual" /> reminders. Automatic posting
@@ -685,7 +691,7 @@ export function UploadingCenterPage() {
             </p>
           ) : null}
           {id === "tiktok" && configured ? (
-            <p className="rounded-lg border border-emerald-400/25 bg-emerald-400/8 px-3 py-2 text-xs text-emerald-200">
+            <p className="tone-success tone-edge tone-soft tone-text rounded-lg border px-3 py-2 text-xs">
               {activeAccount?.tiktok
                 ? `Connected as ${activeAccount.tiktok.title}. `
                 : "TikTok connected. "}
@@ -732,6 +738,145 @@ export function UploadingCenterPage() {
     };
   });
 
+  // So an agent on the CoLateral canvas can read and drive this screen: the
+  // run's platform/hashtags/window are the inputs worth exposing, the bulk
+  // actions are the primary controls, and the readings are what the page is
+  // reporting right now. Every setField/click below runs the exact handler
+  // its on-screen counterpart runs — never a parallel path.
+  const bulkBusy = busy === "auto-assign" || busy === "captions-all";
+  useColateralSurface({
+    route: "/uploading-center",
+    title: "Uploading Center",
+    summary: "Book finished clips onto the YouTube, TikTok, Instagram and Facebook posting schedule.",
+    fields: [
+      {
+        id: "runPlatform",
+        label: "Default platform for this run",
+        value: runDefaults.platform,
+        kind: "select",
+        options: Object.keys(PLATFORM_TARGET_LABELS),
+      },
+      {
+        id: "runHashtags",
+        label: "Hashtags for this run",
+        value: runDefaults.hashtags.join(" "),
+        kind: "text",
+        hint: "Space-separated hashtags appended to every new clip's title.",
+      },
+      {
+        id: "scheduleOffsetDays",
+        label: "Schedule window offset",
+        value: slotOffsetDays,
+        kind: "number",
+        unit: "d",
+        hint: `Days from today; ${DEFAULT_SLOT_OFFSET_DAYS} is the default window.`,
+      },
+      {
+        id: "activeJobId",
+        label: "Active clip run",
+        value: activeJob?.id ?? "",
+        kind: "select",
+        options: jobsWithClips.map((job) => job.id),
+      },
+    ],
+    controls: [
+      {
+        id: "autoAssign",
+        label: "Schedule at next free slots",
+        group: "Queue",
+        destructive: true,
+        disabled: bulkBusy || unscheduledCount === 0,
+      },
+      {
+        id: "captionsForAll",
+        label: "AI captions for all",
+        group: "Queue",
+        disabled: bulkBusy,
+      },
+      {
+        id: "retryCaptions",
+        label: "Retry failed captions",
+        group: "Queue",
+        disabled: bulkBusy || failedCaptionClips.length === 0,
+      },
+      {
+        id: "connectYoutube",
+        label: "Connect YouTube",
+        group: "Accounts",
+        disabled: Boolean(activeYoutubeAccount?.connected),
+      },
+      {
+        id: "cancelPlacement",
+        label: "Cancel placement",
+        group: "Queue",
+        disabled: !placingClip,
+      },
+    ],
+    readings: [
+      { label: "Clips in this run", value: String(readyClips.length) },
+      { label: "Unscheduled clips", value: String(unscheduledCount) },
+      { label: "Failed captions", value: String(failedCaptionClips.length) },
+      {
+        label: "YouTube quota",
+        value: overview ? `${overview.quota.uploadsUsed}/${overview.quota.budgetUploads} uploads` : "—",
+      },
+      { label: "Publishing", value: overview ? (overview.enabled ? "On" : "Off") : "—" },
+    ],
+    setField: (id, value) => {
+      if (id === "runPlatform") {
+        if (typeof value !== "string" || !(value in PLATFORM_TARGET_LABELS)) return false;
+        onRunDefaultsChange({ ...runDefaults, platform: value as PlatformTarget });
+        return true;
+      }
+      if (id === "runHashtags") {
+        if (typeof value !== "string") return false;
+        const hashtags = value.split(/\s+/).filter(Boolean);
+        onRunDefaultsChange({ ...runDefaults, hashtags });
+        return true;
+      }
+      if (id === "scheduleOffsetDays") {
+        const next = Number(value);
+        if (!Number.isFinite(next)) return false;
+        setSlotOffsetDays(next);
+        return true;
+      }
+      if (id === "activeJobId") {
+        if (typeof value !== "string" || !jobsWithClips.some((job) => job.id === value)) return false;
+        setActiveJobId(value);
+        return true;
+      }
+      return false;
+    },
+    click: (id) => {
+      if (id === "autoAssign") {
+        if (bulkBusy || unscheduledCount === 0) return false;
+        void handleAutoAssign();
+        return true;
+      }
+      if (id === "captionsForAll") {
+        if (bulkBusy) return false;
+        handleCaptionsForAll();
+        return true;
+      }
+      if (id === "retryCaptions") {
+        if (bulkBusy || failedCaptionClips.length === 0) return false;
+        handleRetryCaptions();
+        return true;
+      }
+      if (id === "connectYoutube") {
+        if (activeYoutubeAccount?.connected) return false;
+        window.location.href = connectUrl(activeYoutubeAccount?.id);
+        return true;
+      }
+      if (id === "cancelPlacement") {
+        if (!placingClip) return false;
+        setPlacingKey(null);
+        return true;
+      }
+      return false;
+    },
+  });
+
   return (
     // The header is a frozen pane and everything under it scrolls: the calendar
     // runs to months of days, and losing the channel and the quota meter on the
@@ -744,7 +889,7 @@ export function UploadingCenterPage() {
         actions={
           <div className="flex w-full max-w-sm flex-col gap-2">
             {activeYoutubeAccount?.connected ? (
-              <Badge className="self-start border-emerald-400/30 bg-emerald-400/10 text-emerald-300">
+              <Badge tone="success" className="self-start">
                 {activeYoutubeAccount.youtube?.thumbnail ? (
                   // eslint-disable-next-line @next/next/no-img-element -- remote avatar host isn't in next.config images
                   <img
@@ -799,8 +944,8 @@ export function UploadingCenterPage() {
             <Loader2 className="h-5 w-5 animate-spin text-[var(--muted-foreground)]" />
           </Card>
         ) : overview && !overview.enabled ? (
-          <Card className="space-y-2 border-amber-400/25">
-            <p className="flex items-center gap-2 text-sm font-medium text-amber-200">
+          <Card className="tone-warning tone-edge space-y-2">
+            <p className="tone-warning tone-text flex items-center gap-2 text-sm font-medium">
               <AlertTriangle className="h-4 w-4" /> Publishing is switched off
             </p>
             <p className="text-sm text-[var(--muted-foreground)]">
@@ -911,7 +1056,7 @@ function UploadSuccessDialog({
       onClose={onClose}
     >
       <div className="space-y-4">
-        <div className="flex items-center gap-2 rounded-lg border border-emerald-400/25 bg-emerald-400/8 px-3 py-2 text-xs text-emerald-200">
+        <div className="tone-success tone-edge tone-soft tone-text flex items-center gap-2 rounded-lg border px-3 py-2 text-xs">
           <CheckCircle2 className="h-4 w-4 shrink-0" />
           {scheduled
             ? "Nothing else to do — YouTube publishes it at the slot time on its own."
@@ -1036,8 +1181,8 @@ function ConnectTiktokNotice({
   primary?: boolean;
 }) {
   return (
-    <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-amber-400/25 bg-amber-400/8 px-3 py-2">
-      <p className="flex items-center gap-2 text-xs text-amber-200">
+    <div className="tone-warning tone-edge tone-soft flex flex-wrap items-center justify-between gap-3 rounded-lg border px-3 py-2">
+      <p className="tone-warning tone-text flex items-center gap-2 text-xs">
         <AlertTriangle className="h-4 w-4 shrink-0" />
         {primary
           ? "TikTok isn't connected — new assignments save as manual reminders instead of posting. Connecting needs TIKTOK_CLIENT_KEY and TIKTOK_CLIENT_SECRET in .env first."
@@ -1056,8 +1201,8 @@ function ConnectTiktokNotice({
 
 function ReconnectYoutubeNotice({ accountId }: { accountId?: string }) {
   return (
-    <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-amber-400/25 bg-amber-400/8 px-3 py-2">
-      <p className="flex items-center gap-2 text-xs text-amber-200">
+    <div className="tone-warning tone-edge tone-soft flex flex-wrap items-center justify-between gap-3 rounded-lg border px-3 py-2">
+      <p className="tone-warning tone-text flex items-center gap-2 text-xs">
         <AlertTriangle className="h-4 w-4 shrink-0" />
         Uploads still work, but the current connection can&apos;t read your
         channel — reconnect to see the videos already scheduled on YouTube here.
@@ -1075,8 +1220,8 @@ function ReconnectYoutubeNotice({ accountId }: { accountId?: string }) {
 
 function ConnectYoutubeNotice({ accountId }: { accountId?: string }) {
   return (
-    <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-amber-400/25 bg-amber-400/8 px-3 py-2">
-      <p className="flex items-center gap-2 text-xs text-amber-200">
+    <div className="tone-warning tone-edge tone-soft flex flex-wrap items-center justify-between gap-3 rounded-lg border px-3 py-2">
+      <p className="tone-warning tone-text flex items-center gap-2 text-xs">
         <AlertTriangle className="h-4 w-4 shrink-0" />
         This YouTube account isn&apos;t connected — new assignments save as
         manual reminders instead of uploading.

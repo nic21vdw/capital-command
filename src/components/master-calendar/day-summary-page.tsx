@@ -16,7 +16,7 @@ import {
   Repeat,
   Send
 } from "lucide-react";
-import { Badge } from "@/components/ui/badge";
+import { Badge, type BadgeTone } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { PageHeader } from "@/components/ui/page-header";
 import { SourceIcon } from "@/components/master-calendar/source-icon";
@@ -29,6 +29,7 @@ import {
   type MasterCalendarEvent,
   type MasterCalendarResponse
 } from "@/lib/master-calendar/types";
+import { useColateralSurface } from "@/lib/colateral/useSurface";
 import { cn } from "@/lib/utils";
 
 /**
@@ -47,11 +48,11 @@ const STATE_LABELS: Record<SummaryState, string> = {
   failed: "Failed"
 };
 
-const STATE_TONES: Record<SummaryState, string> = {
-  published: "border-emerald-400/30 bg-emerald-400/10 text-emerald-200",
-  scheduled: "border-sky-400/30 bg-sky-400/10 text-sky-200",
-  pending: "border-amber-400/30 bg-amber-400/10 text-amber-200",
-  failed: "border-red-400/30 bg-red-400/10 text-red-200"
+const STATE_TONES: Record<SummaryState, BadgeTone> = {
+  published: "success",
+  scheduled: "info",
+  pending: "warning",
+  failed: "danger"
 };
 
 const STATE_ICONS: Record<SummaryState, typeof CheckCircle2> = {
@@ -77,7 +78,7 @@ function StateChips({ states, className }: { states: Record<SummaryState, number
       {shown.map((state) => {
         const Icon = STATE_ICONS[state];
         return (
-          <Badge key={state} className={cn("gap-1", STATE_TONES[state])}>
+          <Badge key={state} tone={STATE_TONES[state]} className="gap-1">
             <Icon className="h-3 w-3" />
             {states[state]} {STATE_LABELS[state].toLowerCase()}
           </Badge>
@@ -123,7 +124,7 @@ function PieceCard({ event }: { event: MasterCalendarEvent }) {
           <ArrowUpRight className="mt-0.5 h-3.5 w-3.5 shrink-0 text-[var(--muted-foreground)] opacity-0 transition group-hover:opacity-100" />
         </div>
         <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
-          <Badge className={cn("capitalize", STATE_TONES[state])}>{event.status}</Badge>
+          <Badge tone={STATE_TONES[state]} className="capitalize">{event.status}</Badge>
           {event.recurring ? (
             <Badge className="gap-1 border-white/10 bg-white/5 text-[var(--muted-foreground)]">
               <Repeat className="h-3 w-3" />
@@ -215,6 +216,62 @@ export function DaySummaryPage({ initialDate }: { initialDate?: string }) {
         ? `All at ${summary.firstTime}`
         : `${summary.firstTime} – ${summary.lastTime}`
       : "No fixed times";
+
+  // "N published/scheduled/pending/failed", non-zero states only — the same
+  // roll-up StateChips renders, read back as one line for an agent.
+  const stateSummary =
+    (["failed", "published", "scheduled", "pending"] as SummaryState[])
+      .filter((state) => summary.states[state] > 0)
+      .map((state) => `${summary.states[state]} ${STATE_LABELS[state].toLowerCase()}`)
+      .join(" · ") || "Nothing scheduled";
+  const networksSummary =
+    summary.platforms.map((platform) => `${platform.label} (${platform.count})`).join(", ") || "None";
+
+  useColateralSurface({
+    route: "/day-summary",
+    title: "Day Summary",
+    summary: "One day's distribution as a briefing: everything going out, what state it is in, and where to manage each piece.",
+    fields: [{ id: "date", label: "Date", value: dateKey, kind: "date" }],
+    controls: [
+      { id: "prev-day", label: "Previous day", group: "Day" },
+      { id: "today", label: "Today", group: "Day" },
+      { id: "tomorrow", label: "Tomorrow", group: "Day" },
+      { id: "next-day", label: "Next day", group: "Day" }
+    ],
+    readings: [
+      { label: "Pieces today", value: String(summary.total) },
+      { label: "By state", value: stateSummary },
+      { label: "Posting window", value: window },
+      { label: "Failed", value: String(summary.states.failed) },
+      { label: "Networks", value: networksSummary }
+    ],
+    setField: (id, value) => {
+      if (id !== "date") return false;
+      const next = String(value ?? "");
+      if (!DATE_KEY_RE.test(next)) return false;
+      setDateKey(next);
+      return true;
+    },
+    click: (id) => {
+      if (id === "today") {
+        setDateKey(todayKey);
+        return true;
+      }
+      if (id === "tomorrow") {
+        setDateKey(shiftDayKey(todayKey, 1));
+        return true;
+      }
+      if (id === "prev-day") {
+        setDateKey((current) => shiftDayKey(current, -1));
+        return true;
+      }
+      if (id === "next-day") {
+        setDateKey((current) => shiftDayKey(current, 1));
+        return true;
+      }
+      return false;
+    }
+  });
 
   return (
     <div>

@@ -711,12 +711,12 @@ export function LongformEditor({
           })}
         </div>
         <span
-          className={cn("h-2 w-2 shrink-0 rounded-full", saved ? "bg-emerald-400" : "bg-amber-400 animate-pulse")}
+          className={cn("h-2 w-2 shrink-0 rounded-full", saved ? "tone-success tone-fill" : "tone-warning tone-fill animate-pulse")}
           title={saved ? "All changes saved" : "Saving…"}
         />
         <span className="text-xs text-[var(--muted-foreground)]">
           {formatClock(project.durationSec)} → <span className="font-semibold text-white">{formatClock(editedSec)}</span>
-          <span className="ml-1 text-emerald-400">(−{formatClock(cutSec)})</span>
+          <span className="ml-1 text-[var(--success)]">(−{formatClock(cutSec)})</span>
         </span>
       </div>
 
@@ -1173,7 +1173,7 @@ function SegmentOption({
         <span className="block truncate text-sm text-white">{title}</span>
         <span className="block truncate text-[11px] tabular-nums text-[var(--muted-foreground)]">{detail}</span>
       </span>
-      {rendered && <Check className="h-3.5 w-3.5 shrink-0 text-emerald-400" />}
+      {rendered && <Check className="h-3.5 w-3.5 shrink-0 text-[var(--success)]" />}
       {selected && <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--accent)]" />}
     </button>
   );
@@ -1199,16 +1199,16 @@ function HookReviewCard({
     <div
       className={cn(
         "space-y-2 rounded-lg border px-3 py-2.5 text-xs",
-        weak ? "border-amber-400/50 bg-amber-400/5" : unknown ? "border-[var(--border)]" : "border-emerald-400/40 bg-emerald-400/5"
+        weak ? "tone-warning tone-edge tone-soft" : unknown ? "border-[var(--border)]" : "tone-success tone-edge tone-soft"
       )}
     >
       <div className="flex items-center gap-2">
         {weak ? (
-          <AlertTriangle className="h-4 w-4 shrink-0 text-amber-400" />
+          <AlertTriangle className="h-4 w-4 shrink-0 text-[var(--warning)]" />
         ) : unknown ? (
           <AlertTriangle className="h-4 w-4 shrink-0 text-[var(--muted-foreground)]" />
         ) : (
-          <Check className="h-4 w-4 shrink-0 text-emerald-400" />
+          <Check className="h-4 w-4 shrink-0 text-[var(--success)]" />
         )}
         <span className="font-medium text-white">
           {weak ? "This opening needs work" : unknown ? "Opening not reviewed" : "Strong opening"}
@@ -1273,12 +1273,12 @@ function SegmentOpeningsCard({ project, onOpenSegment }: { project: LongformProj
               className="flex w-full items-start gap-2 rounded-md px-1.5 py-1 text-left transition hover:bg-white/5"
             >
               {review.verdict === "strong" ? (
-                <Check className="mt-0.5 h-3.5 w-3.5 shrink-0 text-emerald-400" />
+                <Check className="mt-0.5 h-3.5 w-3.5 shrink-0 text-[var(--success)]" />
               ) : (
                 <AlertTriangle
                   className={cn(
                     "mt-0.5 h-3.5 w-3.5 shrink-0",
-                    review.verdict === "weak" ? "text-amber-400" : "text-[var(--muted-foreground)]"
+                    review.verdict === "weak" ? "text-[var(--warning)]" : "text-[var(--muted-foreground)]"
                   )}
                 />
               )}
@@ -1493,7 +1493,7 @@ function HookPanel({
                       <button
                         type="button"
                         onClick={() => deleteCaption(seg.id)}
-                        className="mt-1 flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-[var(--border)] text-[var(--muted-foreground)] transition hover:border-red-400/60 hover:text-red-400"
+                        className="mt-1 flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-[var(--border)] text-[var(--muted-foreground)] transition hover:border-[color-mix(in_srgb,var(--danger)_60%,transparent)] hover:text-[var(--danger)]"
                         aria-label="Delete caption"
                         title="Delete this hook caption"
                       >
@@ -1757,7 +1757,7 @@ function CaptionsPanel({
                     <button
                       type="button"
                       onClick={() => deleteSegment(seg.id)}
-                      className="ml-auto flex h-6 w-6 shrink-0 items-center justify-center rounded-md border border-[var(--border)] text-[var(--muted-foreground)] transition hover:border-red-400/60 hover:text-red-400"
+                      className="ml-auto flex h-6 w-6 shrink-0 items-center justify-center rounded-md border border-[var(--border)] text-[var(--muted-foreground)] transition hover:border-[color-mix(in_srgb,var(--danger)_60%,transparent)] hover:text-[var(--danger)]"
                       aria-label="Delete caption"
                       title="Delete this caption"
                     >
@@ -1930,13 +1930,13 @@ function KeepToggle({ kept, onChange }: { kept: boolean; onChange: (keep: boolea
       title={kept ? "Kept in the video — flip to cut it out" : "Cut from the video — flip to keep it"}
       className={cn(
         "flex shrink-0 items-center gap-1.5 rounded-md border px-2 py-1 text-xs font-medium transition-colors duration-200",
-        kept ? "border-emerald-400/50 bg-emerald-400/10 text-emerald-300" : "border-red-400/50 bg-red-400/10 text-red-300"
+        kept ? "tone-success tone-edge tone-soft tone-text" : "tone-danger tone-edge tone-soft tone-text"
       )}
     >
       <span
         className={cn(
           "relative h-4 w-7 shrink-0 rounded-full transition-colors duration-200",
-          kept ? "bg-emerald-400" : "bg-red-400/70"
+          kept ? "tone-success tone-fill" : "tone-danger tone-fill"
         )}
       >
         <span
@@ -2026,7 +2026,7 @@ function TrimPanel({
             {hasSelection && selection ? (
               <>
                 {formatClock(selection.start)} → {formatClock(selection.end)}{" "}
-                <span className="text-sky-300">({(selection.end - selection.start).toFixed(1)}s)</span>
+                <span className="text-[var(--info)]">({(selection.end - selection.start).toFixed(1)}s)</span>
               </>
             ) : (
               <span className="text-[var(--muted-foreground)]">nothing selected yet</span>
@@ -2064,7 +2064,7 @@ function TrimPanel({
       )}
 
       {inHook && (
-        <p className="rounded-lg border border-amber-400/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-200">
+        <p className="tone-warning tone-edge tone-soft tone-text rounded-lg border px-3 py-2 text-xs">
           Heads up: the hook always plays in full, so any part of this selection inside the hook window (
           {(project.hook.start ?? 0).toFixed(1)}s–{project.hook.end.toFixed(1)}s) won&apos;t be trimmed.
         </p>
@@ -2203,7 +2203,7 @@ function ImagesPanel({
                   <button
                     type="button"
                     onClick={() => removeOverlay(overlay.id)}
-                    className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-[var(--border)] text-[var(--muted-foreground)] transition hover:border-red-400/60 hover:text-red-400"
+                    className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-[var(--border)] text-[var(--muted-foreground)] transition hover:border-[color-mix(in_srgb,var(--danger)_60%,transparent)] hover:text-[var(--danger)]"
                     aria-label="Remove image"
                   >
                     <Trash2 className="h-3.5 w-3.5" />
@@ -2541,7 +2541,7 @@ function MusicPanel({
           format={(v) => `${Math.round(v * 100)}%`}
         />
         {!project.hasAudio && (
-          <p className="text-[10px] text-amber-300/80">
+          <p className="tone-warning tone-text text-[10px]">
             This upload has no audio of its own, so the video level has no effect.
           </p>
         )}
@@ -2588,7 +2588,7 @@ function MusicPanel({
           {generating && <span className="text-xs text-[var(--muted-foreground)]">{generateStatus}</span>}
         </div>
         {!studioReady && (
-          <p className="text-[10px] text-amber-300/80">
+          <p className="tone-warning tone-text text-[10px]">
             Set FAL_KEY in .env to turn this on — until then, upload songs below.
           </p>
         )}
@@ -2666,11 +2666,11 @@ function MusicPanel({
                 key={clip.id}
                 className={cn(
                   "rounded-lg border transition",
-                  selected ? "border-emerald-400 bg-emerald-400/10" : "border-[var(--border)]"
+                  selected ? "border-[var(--accent)] bg-[var(--accent)]/10" : "border-[var(--border)]"
                 )}
               >
                 <div className="flex items-center gap-2 p-2">
-                  <Music4 className="h-4 w-4 shrink-0 text-emerald-300" />
+                  <Music4 className="h-4 w-4 shrink-0 text-[var(--accent)]" />
                   <button
                     type="button"
                     onClick={() => {
@@ -2696,7 +2696,7 @@ function MusicPanel({
                   <button
                     type="button"
                     onClick={() => removeAudioClip(clip.id)}
-                    className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-[var(--border)] text-[var(--muted-foreground)] transition hover:border-red-400/60 hover:text-red-400"
+                    className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-[var(--border)] text-[var(--muted-foreground)] transition hover:border-[color-mix(in_srgb,var(--danger)_60%,transparent)] hover:text-[var(--danger)]"
                     aria-label="Remove clip"
                   >
                     <Trash2 className="h-3.5 w-3.5" />
@@ -2763,7 +2763,7 @@ function MusicPanel({
                   <button
                     type="button"
                     onClick={() => void removeTrack(track)}
-                    className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-[var(--border)] text-[var(--muted-foreground)] transition hover:border-red-400/60 hover:text-red-400"
+                    className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-[var(--border)] text-[var(--muted-foreground)] transition hover:border-[color-mix(in_srgb,var(--danger)_60%,transparent)] hover:text-[var(--danger)]"
                     aria-label="Delete song"
                   >
                     <Trash2 className="h-3.5 w-3.5" />
@@ -3041,7 +3041,7 @@ function SegmentsPanel({
       </div>
 
       {project.topicsNote && (
-        <p className="rounded-lg border border-amber-400/30 bg-amber-400/5 px-3 py-2 text-xs text-amber-200/90">
+        <p className="tone-warning tone-edge tone-soft tone-text rounded-lg border px-3 py-2 text-xs">
           {project.topicsNote}
         </p>
       )}
@@ -3157,7 +3157,7 @@ function SegmentsPanel({
               )}
 
               {record?.status === "error" && (
-                <p className="text-[11px] text-red-300">{record.error}</p>
+                <p className="tone-danger tone-text text-[11px]">{record.error}</p>
               )}
             </div>
           );
@@ -3297,7 +3297,7 @@ function ExportPanel({
           no mid-rolls, and a channel page full of forty-second "episodes". The
           scheduler refuses to book one, so say it here rather than at the slot. */}
       {editedSec > 0 && editedSec < MIN_LONGFORM_SEC && (
-        <div className="flex items-start gap-2 rounded-lg border border-amber-400/50 bg-amber-400/5 px-3 py-2.5 text-xs text-amber-200">
+        <div className="tone-warning tone-edge tone-soft tone-text flex items-start gap-2 rounded-lg border px-3 py-2.5 text-xs">
           <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
           <span className="min-w-0">{shortOfLongformNote(editedSec)}</span>
         </div>
@@ -3400,7 +3400,7 @@ function ExportPanel({
       )}
 
       {project.exports.some((record) => record.status === "error") && (
-        <p className="rounded-lg border border-red-400/40 bg-red-500/10 px-3 py-2 text-xs text-red-300">
+        <p className="tone-danger tone-edge tone-soft tone-text rounded-lg border px-3 py-2 text-xs">
           {project.exports.find((record) => record.status === "error")?.error}
         </p>
       )}

@@ -114,7 +114,7 @@ export function ScheduleCalendar({
                     onClick={() => onUnschedule(occurrence.carouselId, occurrence.scheduleId)}
                     aria-label="Remove schedule"
                     title="Remove this schedule"
-                    className="shrink-0 text-[var(--muted-foreground)] transition hover:text-red-300"
+                    className="shrink-0 text-[var(--muted-foreground)] transition hover:text-[var(--danger)]"
                   >
                     <Trash2 className="h-3.5 w-3.5" />
                   </button>
