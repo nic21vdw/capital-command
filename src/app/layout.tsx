@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Toaster } from "sonner";
 import { AppProvider } from "@/components/providers/app-provider";
+import { ColateralBridgeProvider } from "@/components/providers/colateral-bridge-provider";
 import { ThemePresetProvider, ThemePresetScript } from "@/components/providers/theme-preset-provider";
 import "@/app/globals.css";
 
@@ -24,10 +25,19 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
       </head>
       <body>
         <ThemePresetProvider>
-          <AppProvider>
-            {children}
-            <Toaster richColors position="top-right" />
-          </AppProvider>
+          {/*
+            The canvas bridge sits between the theme and the data: it needs
+            `useHostTheme` from above it, and everything below it — the shell,
+            the pages, the command bar — reads `useColateralBridge` to know
+            whether it is inside a Capital Command Card and how much room it
+            has. It renders nothing of its own.
+          */}
+          <ColateralBridgeProvider>
+            <AppProvider>
+              {children}
+              <Toaster richColors position="top-right" />
+            </AppProvider>
+          </ColateralBridgeProvider>
         </ThemePresetProvider>
       </body>
     </html>

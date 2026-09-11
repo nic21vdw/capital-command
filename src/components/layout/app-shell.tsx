@@ -42,6 +42,7 @@ import { StreamBanner } from "@/components/layout/stream-banner";
 import { StreamCard } from "@/components/layout/stream-card";
 import { PipelineAttentionProvider, usePipelineAttention } from "@/components/pipeline/attention";
 import { useAppData } from "@/components/providers/app-provider";
+import { useColateralBridge } from "@/components/providers/colateral-bridge-provider";
 import { StreamProvider, useStream } from "@/components/providers/stream-provider";
 import { streamHref } from "@/lib/pipeline/streams";
 import { PlatformIcon, PLATFORM_LABEL, type PlatformIconKey } from "@/components/ui/platform-icon";
@@ -913,6 +914,15 @@ function AppChrome({ children, frame }: { children: React.ReactNode; frame: bool
   const settingsActive = pathname === "/settings";
   const { data } = useAppData();
   const studioItems = studioItemsFor(data.settings.personalDashboard);
+  // Inside a Capital Command Card the window is a card on a canvas, not a
+  // browser tab. A 288px sidebar is most of a small card, so the host says how
+  // much room it has and the shell sheds chrome to match: `compact` starts the
+  // rail collapsed (everything still reachable, it just stops costing half the
+  // card) and `bare` drops the rail and the footer entirely, because the host
+  // is drawing its own route rail above the frame.
+  const { hosted, chrome } = useColateralBridge();
+  const hostedBare = hosted && chrome === "bare";
+  const hostedCompact = hosted && chrome === "compact";
   // Read the stored preference after mount: reading localStorage inside the
   // useState initializer makes the client's first render disagree with the
   // server HTML and triggers a React hydration error.
@@ -927,6 +937,14 @@ function AppChrome({ children, frame }: { children: React.ReactNode; frame: bool
     });
   }, []);
 
+  // A card that shrinks to `compact` collapses the rail; one that grows back
+  // to `full` leaves it wherever the engineer last put it, because re-opening
+  // a rail somebody deliberately closed is the more annoying of the two
+  // mistakes.
+  useEffect(() => {
+    if (hostedCompact) setSidebarCollapsed(true);
+  }, [hostedCompact]);
+
   const toggleSidebar = () => {
     setSidebarCollapsed((current) => {
       const next = !current;
@@ -940,8 +958,22 @@ function AppChrome({ children, frame }: { children: React.ReactNode; frame: bool
   };
 
   return (
-    <div className={cn("flex min-h-screen gap-6 px-2 py-2 sm:px-4 sm:py-4 lg:px-6", frame && "app-frame")}>
-      <aside className={cn("hidden shrink-0 transition-[width] duration-300 lg:block", sidebarCollapsed ? "w-20" : "w-72")}>
+    <div
+      className={cn(
+        "flex min-h-screen gap-6 px-2 py-2 sm:px-4 sm:py-4 lg:px-6",
+        frame && "app-frame",
+        // A card's edge is the card's, not the page's: the host already draws a
+        // border and a header, so the frame stops adding a second inset.
+        hosted && "gap-4 px-2 py-2 sm:px-3 sm:py-3 lg:px-3"
+      )}
+    >
+      <aside
+        className={cn(
+          "hidden shrink-0 transition-[width] duration-300 lg:block",
+          sidebarCollapsed ? "w-20" : "w-72",
+          hostedBare && "lg:hidden"
+        )}
+      >
         <div className="sticky top-4 flex h-[calc(100vh-2rem)] flex-col rounded-xl border border-[var(--border)] bg-[var(--panel)] p-4">
           {/* When collapsed the rail is too narrow for the brand and the toggle
               side by side, so stack them instead of letting them overflow. */}
@@ -1022,7 +1054,7 @@ function AppChrome({ children, frame }: { children: React.ReactNode; frame: bool
           <StreamBanner />
           {children}
         </div>
-        <div className={cn(frame && "app-frame-hide")}>
+        <div className={cn((frame || hostedBare) && "app-frame-hide")}>
           <AppFooter />
           {/* Room for the command bar, which floats over everything. */}
           <div className="h-24 sm:h-32" />
