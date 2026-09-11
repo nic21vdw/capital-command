@@ -59,6 +59,11 @@
   --accent: #4da6ff;
   --accent-strong: #7ac0ff;
   --accent-contrast: #06121c;
+  --muted-foreground-2: #8ca5bc;
+  --success: #1ed96b;
+  --warning: #f0b429;
+  --danger: #f05050;
+  --info: #7c5cff;
   --card-from: #111922;
   --card-to: #111922;
   --shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
@@ -96,6 +101,11 @@ html {
   --accent: #4da6ff;
   --accent-strong: #7ac0ff;
   --accent-contrast: #070c12;
+  --muted-foreground-2: #8ca5bc;
+  --success: #1ed96b;
+  --warning: #f0b429;
+  --danger: #f05050;
+  --info: #7c5cff;
   --card-from: #111922;
   --card-to: #111922;
   --shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
@@ -119,6 +129,11 @@ html {
   --accent: #0078d4;
   --accent-strong: #106ebe;
   --accent-contrast: #ffffff;
+  --muted-foreground-2: #405b78;
+  --success: #107c10;
+  --warning: #ca5010;
+  --danger: #d13438;
+  --info: #106ebe;
   --card-from: #f7f9fc;
   --card-to: #f7f9fc;
   --shadow: 0 1px 2px rgba(16, 44, 77, 0.06), 0 1px 3px rgba(16, 44, 77, 0.1);
@@ -142,6 +157,11 @@ html {
   --accent: #bd93f9;
   --accent-strong: #ceaefb;
   --accent-contrast: #282a36;
+  --muted-foreground-2: #bcc2cd;
+  --success: #50fa7b;
+  --warning: #f1fa8c;
+  --danger: #ff5555;
+  --info: #ff79c6;
   --card-from: #343746;
   --card-to: #343746;
   --shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
@@ -165,6 +185,11 @@ html {
   --accent: #89b4fa;
   --accent-strong: #a7c7fb;
   --accent-contrast: #1e1e2e;
+  --muted-foreground-2: #a6adc8;
+  --success: #a6e3a1;
+  --warning: #f9e2af;
+  --danger: #f38ba8;
+  --info: #cba6f7;
   --card-from: #313244;
   --card-to: #313244;
   --shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
@@ -188,6 +213,11 @@ html {
   --accent: #88c0d0;
   --accent-strong: #a6d0dc;
   --accent-contrast: #2e3440;
+  --muted-foreground-2: #d8dee9;
+  --success: #a3be8c;
+  --warning: #ebcb8b;
+  --danger: #bf616a;
+  --info: #b48ead;
   --card-from: #3b4252;
   --card-to: #3b4252;
   --shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
@@ -211,6 +241,11 @@ html {
   --accent: #7aa2f7;
   --accent-strong: #9bb9f9;
   --accent-contrast: #1a1b26;
+  --muted-foreground-2: #9aa5ce;
+  --success: #9ece6a;
+  --warning: #e0af68;
+  --danger: #f7768e;
+  --info: #bb9af7;
   --card-from: #24283b;
   --card-to: #24283b;
   --shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
@@ -234,6 +269,11 @@ html {
   --accent: #83a598;
   --accent-strong: #a2bcb2;
   --accent-contrast: #282828;
+  --muted-foreground-2: #d5c4a1;
+  --success: #b8bb26;
+  --warning: #fabd2f;
+  --danger: #fb4934;
+  --info: #d3869b;
   --card-from: #3c3836;
   --card-to: #3c3836;
   --shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
@@ -257,6 +297,11 @@ html {
   --accent: #a7c080;
   --accent-strong: #bdd0a0;
   --accent-contrast: #2d353b;
+  --muted-foreground-2: #b8c1bb;
+  --success: #83c092;
+  --warning: #dbbc7f;
+  --danger: #e67e80;
+  --info: #d699b6;
   --card-from: #374247;
   --card-to: #374247;
   --shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
@@ -280,6 +325,11 @@ html {
   --accent: #2f81f7;
   --accent-strong: #63a1f9;
   --accent-contrast: #0d1117;
+  --muted-foreground-2: #8b929c;
+  --success: #3fb950;
+  --warning: #d29922;
+  --danger: #f85149;
+  --info: #a371f7;
   --card-from: #161b22;
   --card-to: #161b22;
   --shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
@@ -303,6 +353,11 @@ html {
   --accent: #5ccfe6;
   --accent-strong: #85dbec;
   --accent-contrast: #1f2430;
+  --muted-foreground-2: #9aa0a7;
+  --success: #87d96c;
+  --warning: #ffd173;
+  --danger: #ff6666;
+  --info: #d4bfff;
   --card-from: #232834;
   --card-to: #232834;
   --shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
@@ -326,6 +381,11 @@ html {
   --accent: #61afef;
   --accent-strong: #89c3f3;
   --accent-contrast: #282c34;
+  --muted-foreground-2: #a3a9b3;
+  --success: #98c379;
+  --warning: #e5c07b;
+  --danger: #e06c75;
+  --info: #c678dd;
   --card-from: #2c313a;
   --card-to: #2c313a;
   --shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
@@ -349,6 +409,11 @@ html {
   --accent: #66d9ef;
   --accent-strong: #8ce3f3;
   --accent-contrast: #272822;
+  --muted-foreground-2: #cfcfc2;
+  --success: #a6e22e;
+  --warning: #e6db74;
+  --danger: #f92672;
+  --info: #ae81ff;
   --card-from: #3e3d32;
   --card-to: #3e3d32;
   --shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
@@ -372,6 +437,11 @@ html {
   --accent: #c4a7e7;
   --accent-strong: #d3bded;
   --accent-contrast: #191724;
+  --muted-foreground-2: #9d9ab4;
+  --success: #9ccfd8;
+  --warning: #f6c177;
+  --danger: #eb6f92;
+  --info: #ebbcba;
   --card-from: #26233a;
   --card-to: #26233a;
   --shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
@@ -395,6 +465,11 @@ html {
   --accent: #268bd2;
   --accent-strong: #5ca8dd;
   --accent-contrast: #001a21;
+  --muted-foreground-2: #abb6b6;
+  --success: #859900;
+  --warning: #b58900;
+  --danger: #dc322f;
+  --info: #6c71c4;
   --card-from: #0a3f4d;
   --card-to: #0a3f4d;
   --shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
@@ -418,6 +493,11 @@ html {
   --accent: #5e6ad2;
   --accent-strong: #868fdd;
   --accent-contrast: #ffffff;
+  --muted-foreground-2: #8f939c;
+  --success: #4cb782;
+  --warning: #f2c94c;
+  --danger: #eb5757;
+  --info: #7b81e0;
   --card-from: #1c1c1f;
   --card-to: #1c1c1f;
   --shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
@@ -441,6 +521,11 @@ html {
   --accent: #8bc6fa;
   --accent-strong: #a8d4fb;
   --accent-contrast: #0a0a0f;
+  --muted-foreground-2: #9896a8;
+  --success: #34d399;
+  --warning: #fbbf24;
+  --danger: #f87171;
+  --info: #818cf8;
   --card-from: #161620;
   --card-to: #161620;
   --shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
@@ -464,6 +549,11 @@ html {
   --accent: #6c8cff;
   --accent-strong: #91a9ff;
   --accent-contrast: #080810;
+  --muted-foreground-2: #9492a6;
+  --success: #4ade80;
+  --warning: #fbbf24;
+  --danger: #ef4444;
+  --info: #8bc6fa;
   --card-from: #141420;
   --card-to: #141420;
   --shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
@@ -472,6 +562,79 @@ html {
   --well: rgba(0, 0, 0, 0.2);
   --well-deep: rgba(0, 0, 0, 0.4);
   color-scheme: dark;
+}
+
+/*
+  Status tones
+  ------------
+  CoLateral derives every status colour from the ACTIVE theme: --green, --amber,
+  --red and --indigo are part of each palette, so a "ready" chip is Gruvbox green
+  on Gruvbox and Nord green on Nord. This app was painting the same chip Tailwind
+  emerald on all fifteen dark themes, which is the single most visible way the
+  framed app stopped looking like the canvas around it. `--success`, `--warning`,
+  `--danger` and `--info` above are CoLateral's four, theme by theme, and
+  `--muted-foreground-2` is its second text tier (--tx2) for the copy that is
+  quieter than body text but louder than a caption.
+
+  `.chip` reads whichever tone class sits beside it, so a status pill is two
+  classes and no arbitrary values:
+
+      <span className="chip tone-success">Ready</span>
+      <span className="chip tone-warning">Needs a thumbnail</span>
+
+  `.tone-text` / `.tone-fill` / `.tone-soft` / `.tone-edge` are the same tone for
+  anything that is not a pill - an icon, a progress bar, a left border on a row.
+  A tone class on a parent cascades, so one `tone-danger` on a row paints every
+  toned child inside it.
+*/
+.tone-success { --tone: var(--success); }
+.tone-warning { --tone: var(--warning); }
+.tone-danger { --tone: var(--danger); }
+.tone-info { --tone: var(--info); }
+.tone-accent { --tone: var(--accent); }
+.tone-neutral { --tone: var(--muted-foreground); }
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  white-space: nowrap;
+  border-radius: 9999px;
+  border: 1px solid color-mix(in srgb, var(--tone, var(--muted-foreground)) 34%, transparent);
+  background: color-mix(in srgb, var(--tone, var(--muted-foreground)) 14%, transparent);
+  color: var(--tone, var(--muted-foreground));
+  padding: 0.125rem 0.5rem;
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1.5;
+  font-variant-numeric: tabular-nums;
+}
+
+/* A chip carrying a count reads better with the number set apart. */
+.chip > .chip-count {
+  opacity: 0.75;
+}
+
+.tone-text { color: var(--tone, var(--foreground)); }
+.tone-fill { background-color: var(--tone, var(--accent)); }
+.tone-soft { background-color: color-mix(in srgb, var(--tone, var(--accent)) 14%, transparent); }
+.tone-edge { border-color: color-mix(in srgb, var(--tone, var(--accent)) 34%, transparent); }
+
+/*
+  An inset panel: a list, a log, a preview well. CoLateral's cards sit on --s1
+  and sink their wells with --well, and this is the same move in one class so a
+  page does not invent its own black at 20%.
+*/
+.well {
+  background: var(--well);
+  border: 1px solid var(--border);
+  border-radius: 0.75rem;
+}
+
+.well-deep {
+  background: var(--well-deep);
+  border: 1px solid var(--border);
+  border-radius: 0.75rem;
 }
 
 /*
