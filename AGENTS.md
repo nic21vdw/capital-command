@@ -39,7 +39,10 @@ Create or refresh it with `npm run dev:worktree`.
 ## The loop
 
 1. Work in your own sandbox worktree, on a branch cut from `main`.
-2. Verify it: `npm run typecheck`, `npm test`.
+2. Verify what you changed, not the whole repo: `npm run typecheck`, then the
+   specs that cover the change (`npm test <path-or-name>`). The full `npm test` is
+   289 spec files; save it for a release, a dependency bump, or a change whose blast
+   radius you cannot name. A whole suite run on a one-line edit is waste, not care.
 3. Add a line to **`CHANGELOG.md`** under _Unreleased_ saying what changed in
    the terms Nic cares about — what he can now do, or what stopped being
    broken. That line is what the app shows him when it offers the update, so
@@ -270,8 +273,9 @@ through a 24-minute build, which left `.next` with no `BUILD_ID` and the app
 dead — the failure this replaces.
 
 The consequence is that **a release will no longer refuse to build over a type
-or lint error**. `npm run typecheck` and `npm test` are the gate now, and they
-are not optional before landing anything. `next build` used to treat some
+or lint error**. `npm run typecheck` and the specs covering your change are the
+gate now, and they are not optional before landing anything. That gate is scoped,
+not exhaustive: run the whole suite before a release, not before a button move. `next build` used to treat some
 `react-hooks` rules as errors that a standalone lint run only warns about
 (`react-hooks/set-state-in-effect`, #290); it no longer does, so read
 `npm run lint` warnings rather than waiting for a build to stop you.
