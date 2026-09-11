@@ -5,7 +5,8 @@ import { chmod, mkdir, readdir, rename, rm, stat } from "node:fs/promises";
 import path from "node:path";
 import { Readable } from "node:stream";
 import { dataPath } from "@/lib/paths";
-import { CLIP_SECTION_FORMAT, FULL_VIDEO_FORMAT } from "@/lib/clipping/encode";
+import { clipSectionFormat, fullVideoFormat } from "@/lib/clipping/encode";
+import { DEFAULT_OUTPUT_QUALITY, type OutputQuality } from "@/lib/pipeline/outputQuality";
 import { resolveFfmpeg } from "@/lib/clipping/ffmpeg";
 
 // yt-dlp ships a single self-contained binary per platform, so we can fetch and
@@ -288,9 +289,10 @@ export async function downloadAudio(
 }
 
 /**
- * Downloads a single time range [startSec, endSec] of the source as an MP4,
- * at 1080p so the 9:16 render is scaling original pixels rather than
- * stretching a 720p download. Returns the produced file path.
+ * Downloads a single time range [startSec, endSec] of the source as an MP4, at
+ * the best stream the host offers up to the chosen ceiling, so the 9:16 render
+ * is scaling original pixels rather than stretching a smaller download.
+ * Returns the produced file path.
  *
  * We deliberately do NOT pass --force-keyframes-at-cuts: that flag re-encodes
  * the whole section just to land cuts on exact frames, which is the single
@@ -303,7 +305,8 @@ export async function downloadSection(
   startSec: number,
   endSec: number,
   destPath: string,
-  onProgress?: (pct: number) => void
+  onProgress?: (pct: number) => void,
+  quality: OutputQuality = DEFAULT_OUTPUT_QUALITY
 ): Promise<string> {
   const bin = await ensureYtDlp();
   const dir = path.dirname(destPath);
@@ -311,7 +314,7 @@ export async function downloadSection(
   const template = path.join(dir, `${base}.%(ext)s`);
   const baseArgs = [
     "-f",
-    CLIP_SECTION_FORMAT,
+    clipSectionFormat(quality),
     "--download-sections",
     `*${startSec.toFixed(2)}-${endSec.toFixed(2)}`,
     "--no-playlist",
@@ -338,14 +341,16 @@ export async function downloadSection(
 }
 
 /**
- * Downloads the whole video as a single MP4, preferring 1440p when the
- * source has it and 1080p otherwise, so a long-form master is not a
- * downscale of a higher original. Returns the produced file path.
+ * Downloads the whole video as a single MP4 at the best stream the host offers,
+ * up to 4K (or lower, when the owner picked a smaller output), so a long-form
+ * master is never a downscale — or, as it was until this was fixed, a 360p
+ * muxed fallback — of a higher original. Returns the produced file path.
  */
 export async function downloadFullVideo(
   url: string,
   destPath: string,
-  onProgress?: (pct: number) => void
+  onProgress?: (pct: number) => void,
+  quality: OutputQuality = DEFAULT_OUTPUT_QUALITY
 ): Promise<string> {
   const bin = await ensureYtDlp();
   const dir = path.dirname(destPath);
@@ -353,7 +358,7 @@ export async function downloadFullVideo(
   const template = path.join(dir, `${base}.%(ext)s`);
   const baseArgs = [
     "-f",
-    FULL_VIDEO_FORMAT,
+    fullVideoFormat(quality),
     "--no-playlist",
     "--no-part",
     "--merge-output-format",

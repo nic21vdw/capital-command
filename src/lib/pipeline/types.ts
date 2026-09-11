@@ -1,4 +1,5 @@
 import type { RunDelivery } from "@/lib/pipeline/delivery";
+import type { OutputQuality } from "@/lib/pipeline/outputQuality";
 
 // ----- Stream Pipeline -----
 // A pipeline run takes ONE stream (a VOD link or an uploaded file) and fans it
@@ -39,6 +40,11 @@ export type PipelineRun = {
   sourceId?: string;
   fileName?: string;
   durationSec?: number;
+  /**
+   * Resolution and frame-rate ceiling chosen when the run was started. Absent
+   * on runs created before the picker existed, which read as "source quality".
+   */
+  output?: OutputQuality;
   /** Long-form project auto-created from the source. */
   longformProjectId?: string;
   /** The export auto-started once the long-form analysis is ready. */

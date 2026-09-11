@@ -17,9 +17,9 @@ describe("the overnight scheduling setting", () => {
   });
 
   it("keeps every other setting untouched", () => {
-    const parsed = settingsSchema.parse({ currency: "USD", themePreset: "midnight", autoScheduleOvernight: false });
+    const parsed = settingsSchema.parse({ currency: "USD", themePreset: "nord", autoScheduleOvernight: false });
     expect(parsed.currency).toBe("USD");
-    expect(parsed.themePreset).toBe("midnight");
+    expect(parsed.themePreset).toBe("nord");
     expect(parsed.autoScheduleOvernight).toBe(false);
   });
 });

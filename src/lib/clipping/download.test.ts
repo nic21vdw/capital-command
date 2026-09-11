@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { CLIP_SECTION_FORMAT, FULL_VIDEO_FORMAT } from "./encode";
+import { CLIP_SECTION_FORMAT, FULL_VIDEO_FORMAT, clipSectionFormat, fullVideoFormat } from "./encode";
 import { cleanYtDlpError, clientAttemptArgs, downloadWithFallbacks, YT_PLAYER_CLIENTS } from "./download";
 
 /**
@@ -77,13 +77,29 @@ describe("cleanYtDlpError", () => {
 });
 
 describe("source format selectors", () => {
-  it("pulls a clip section at 1080p rather than stretching 720p", () => {
-    expect(CLIP_SECTION_FORMAT).toContain("height<=1080");
-    expect(CLIP_SECTION_FORMAT).not.toContain("720");
+  it("pulls a clip section at the best stream on offer, up to 4K", () => {
+    expect(CLIP_SECTION_FORMAT).toContain("bv*[height<=2160]+ba");
   });
 
-  it("keeps a full VOD at 1440p when the source has it", () => {
-    expect(FULL_VIDEO_FORMAT).toContain("height<=1440");
-    expect(FULL_VIDEO_FORMAT).not.toContain("720");
+  it("keeps a full VOD at the best stream on offer, up to 4K", () => {
+    expect(FULL_VIDEO_FORMAT).toContain("bv*[height<=2160]+ba");
+  });
+
+  /**
+   * A three-hour stream arrived as 640x360: every adaptive tier was unavailable
+   * on the player client that answered, so the trailing `b` took YouTube's itag
+   * 18 muxed stream and nothing in the app said so. Muxed tiers now come last.
+   */
+  it("never prefers a muxed stream over an adaptive one", () => {
+    for (const selector of [CLIP_SECTION_FORMAT, FULL_VIDEO_FORMAT]) {
+      const tiers = selector.split("/");
+      const lastAdaptive = tiers.map((tier) => tier.startsWith("bv*")).lastIndexOf(true);
+      expect(tiers.findIndex((tier) => !tier.startsWith("bv*"))).toBeGreaterThan(lastAdaptive);
+    }
+  });
+
+  it("passes the chosen resolution to yt-dlp as the height ceiling", () => {
+    expect(fullVideoFormat({ resolution: "1440", frameRate: "source" })).toContain("bv*[height<=1440]+ba");
+    expect(clipSectionFormat({ resolution: "1080", frameRate: "60" })).toContain("bv*[height<=1080]+ba");
   });
 });

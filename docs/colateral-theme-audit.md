@@ -95,6 +95,28 @@ the model to spell the name correctly in a transcript.
   success, failure and pending. The light presets already remap those shades
   for contrast; that is the seam to use, not a new token.
 
+## How the theme reaches the frame
+
+The frame is a different origin from CoLateral, so it cannot read the theme
+CoLateral stores in `localStorage`. CoLateral's card tells it instead, twice:
+
+- **On the URL.** The card appends `?theme=<id>` to the iframe address, and the
+  pre-paint script in `theme-preset-provider.tsx` reads it before the first
+  frame is drawn. The id is remembered in `sessionStorage` for the tab, so a
+  client-side navigation inside the app keeps it.
+- **On change.** CoLateral fires `colateral:theme` whenever its theme changes;
+  the card forwards it with `postMessage({ type: "colateral:theme", theme })`
+  and the provider applies it live.
+
+The ids are CoLateral's own. Capital Command's presets are exactly CoLateral's
+seventeen, under the same ids, so nothing is translated on the way across.
+Values a release before this one stored (`colateral`, `colateral-light`, and
+the six presets that were only ever this app's) are mapped in
+`LEGACY_THEME_IDS` the first time they are read.
+
+While the host is choosing, Settings says so and hides the picker. Opened on
+its own, outside CoLateral, the app keeps the theme picked in Settings.
+
 ## What is still separate
 
 `site/style.css` is the standalone marketing site under `site/`, not the app,

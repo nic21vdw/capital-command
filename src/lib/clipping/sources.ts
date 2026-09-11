@@ -7,6 +7,7 @@ import { pipeline } from "node:stream/promises";
 import { dataPath } from "@/lib/paths";
 import { downloadFullVideo, fetchVideoMeta } from "@/lib/clipping/download";
 import { hasAudioStream, probeDuration, resolveFfmpeg, runFfmpeg } from "@/lib/clipping/ffmpeg";
+import { DEFAULT_OUTPUT_QUALITY, type OutputQuality } from "@/lib/pipeline/outputQuality";
 
 // Sources live under data/clips/sources/<id>/ — the source file is stored once
 // and referenced by any number of projects, so large videos are never copied.
@@ -92,7 +93,8 @@ export async function saveSourceFromStream(
  */
 export async function saveSourceFromUrl(
   url: string,
-  onProgress?: (pct: number) => void
+  onProgress?: (pct: number) => void,
+  quality: OutputQuality = DEFAULT_OUTPUT_QUALITY
 ): Promise<SourceMeta> {
   const id = crypto.randomUUID().slice(0, 12);
   await mkdir(sourceDir(id), { recursive: true });
@@ -108,7 +110,7 @@ export async function saveSourceFromUrl(
   }
 
   const dest = path.join(sourceDir(id), "source.mp4");
-  const produced = await downloadFullVideo(url, dest, onProgress);
+  const produced = await downloadFullVideo(url, dest, onProgress, quality);
   const storedName = path.basename(produced);
 
   return finalizeSource(id, storedName, produced, `${title}.mp4`, "video/mp4");

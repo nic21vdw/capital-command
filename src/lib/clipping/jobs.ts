@@ -21,7 +21,9 @@ import { centerBlurVideoTopFrac, DEFAULT_CENTER_BLUR_ZOOM } from "@/lib/clipping
 import { framingVideoTopFrac } from "@/lib/clipping/framing";
 import { renderCaptionedVertical, renderPreviewAssets, renderSourceClip, type ClipFramingSpec } from "@/lib/clipping/render";
 import { readSourceMeta, sourceFilePath, type SourceMeta } from "@/lib/clipping/sources";
+import { DEFAULT_OUTPUT_QUALITY, normalizeOutputQuality, type OutputQuality } from "@/lib/pipeline/outputQuality";
 import { defaultCaptionStyle } from "@/lib/storage/schemas";
+import { readAppData } from "@/lib/storage/store";
 import { ensureClipThumbnail } from "@/lib/clipping/thumbnails";
 import { fetchSourceCaptions } from "@/lib/clipping/transcription";
 import { selectByTranscript } from "@/lib/clipping/transcript-select";
@@ -35,6 +37,20 @@ let persistQueue = Promise.resolve();
 let queuedPersist: Promise<void> | null = null;
 
 const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+/**
+ * The resolution/frame-rate ceiling the owner last chose, or the source's own
+ * size and rate. Never throws: a settings file that cannot be read must not
+ * stop clips from rendering.
+ */
+async function settingsOutputQuality(): Promise<OutputQuality> {
+  try {
+    const data = await readAppData();
+    return normalizeOutputQuality(data.settings.outputQuality);
+  } catch {
+    return { ...DEFAULT_OUTPUT_QUALITY };
+  }
+}
 
 function isTransientReplaceError(error: unknown) {
   const code = (error as NodeJS.ErrnoException).code;
@@ -799,13 +815,17 @@ async function renderClipIndexes(job: ClipJob, indexes: number[]) {
   if (job.sourceId && !uploadMeta) {
     throw new Error("The uploaded source file for this job is gone. Upload the video again.");
   }
+  // What the owner asked the pipeline to render at. Read once for the whole
+  // batch: it decides which stream is pulled for each section AND the frame the
+  // master is encoded into, and neither may differ between clips of one job.
+  const quality = await settingsOutputQuality();
   const renderOne = async (i: number) => {
     const clip = job.clips[i];
     const segPath = path.join(workDir(job.id), `seg-${String(i + 1).padStart(2, "0")}.mp4`);
     try {
       const produced = uploadMeta
         ? await cutLocalSection(sourceFilePath(uploadMeta), clip.start, clip.end, segPath)
-        : await downloadSection(job.sourceUrl, clip.start, clip.end, segPath);
+        : await downloadSection(job.sourceUrl, clip.start, clip.end, segPath, undefined, quality);
       const baseName = `clip-${String(i + 1).padStart(2, "0")}`;
       const primaryName = `${baseName}.mp4`;
       // Publish an instant preview (faststart stream copy + poster frame)
@@ -829,7 +849,7 @@ async function renderClipIndexes(job: ClipJob, indexes: number[]) {
       } catch {
         // A failed preview never blocks the real render.
       }
-      await renderSourceClip(produced, path.join(outputDir(job.id), primaryName), true);
+      await renderSourceClip(produced, path.join(outputDir(job.id), primaryName), true, quality);
       clip.file = primaryName;
       // Poster frame for the clip card; fire-and-forget so a thumbnail
       // hiccup never fails the render (the card falls back to lazy

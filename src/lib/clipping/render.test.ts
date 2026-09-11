@@ -1,10 +1,21 @@
 import { describe, expect, it, vi } from "vitest";
 import { DEFAULT_CENTER_BLUR_ZOOM, MAX_CENTER_BLUR_ZOOM } from "./centerBlur";
 import { CLIP_LAYOUTS } from "./layouts";
-import { animatedReframeChain, reframeChain, renderCaptionedVertical, stackedLayoutChain } from "./render";
+import {
+  animatedReframeChain,
+  reframeChain,
+  renderCaptionedVertical,
+  renderSourceClip,
+  stackedLayoutChain
+} from "./render";
 
 const runFfmpeg = vi.fn((..._args: unknown[]): Promise<void> => Promise.resolve());
-vi.mock("./ffmpeg", () => ({ runFfmpeg: (...args: unknown[]) => runFfmpeg(...args) }));
+const probed = { width: 1920, height: 1080, durationSec: 60, fps: 30 };
+const probeVideoStream = vi.fn((..._args: unknown[]): Promise<typeof probed> => Promise.resolve(probed));
+vi.mock("./ffmpeg", () => ({
+  runFfmpeg: (...args: unknown[]) => runFfmpeg(...args),
+  probeVideoStream: (...args: unknown[]) => probeVideoStream(...args)
+}));
 
 describe("reframeChain", () => {
   it("uses cover crop math so zoom and pan affect the exported frame", () => {
@@ -204,5 +215,44 @@ describe("renderCaptionedVertical", () => {
     const args = runFfmpeg.mock.calls[0][0] as string[];
     expect(args).toContain("-an");
     expect(args).not.toContain("aac");
+  });
+});
+
+describe("renderSourceClip", () => {
+  function argsOf(calls: unknown[][]): string[] {
+    return (calls[0]?.[0] ?? []) as string[];
+  }
+  function filterOf(calls: unknown[][]): string {
+    const args = argsOf(calls);
+    return args[args.indexOf("-filter_complex") + 1];
+  }
+
+  it("renders the section at its own size and rate instead of padding it to 1080p30", async () => {
+    runFfmpeg.mockClear();
+    probeVideoStream.mockResolvedValueOnce({ width: 2560, height: 1440, durationSec: 30, fps: 60 });
+    await renderSourceClip("in.mp4", "out.mp4", true);
+    const filter = filterOf(runFfmpeg.mock.calls);
+    expect(filter).toContain("scale=2560:1440");
+    expect(filter).toContain("pad=2560:1440");
+    expect(filter).toContain("fps=60");
+  });
+
+  it("never upscales a small section, whatever was asked for", async () => {
+    runFfmpeg.mockClear();
+    probeVideoStream.mockResolvedValueOnce({ width: 640, height: 360, durationSec: 30, fps: 30 });
+    await renderSourceClip("in.mp4", "out.mp4", true, { resolution: "2160", frameRate: "60" });
+    const filter = filterOf(runFfmpeg.mock.calls);
+    expect(filter).toContain("scale=640:360");
+    expect(filter).toContain("fps=30");
+    expect(filter).not.toContain("1920");
+  });
+
+  it("scales down to the chosen height and frame rate", async () => {
+    runFfmpeg.mockClear();
+    probeVideoStream.mockResolvedValueOnce({ width: 3840, height: 2160, durationSec: 30, fps: 60 });
+    await renderSourceClip("in.mp4", "out.mp4", true, { resolution: "1080", frameRate: "30" });
+    const filter = filterOf(runFfmpeg.mock.calls);
+    expect(filter).toContain("scale=1920:1080");
+    expect(filter).toContain("fps=30");
   });
 });

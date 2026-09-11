@@ -1,7 +1,16 @@
 import { shortsAudioArgs, shortsAudioFilter, shortsVideoArgs } from "@/lib/clipping/audio";
 import { clampCenterBlurZoom, DEFAULT_CENTER_BLUR_ZOOM } from "@/lib/clipping/centerBlur";
-import { containScale, coverScale, evenPixels, masterAudioArgs, masterVideoArgs, scaleFilter } from "@/lib/clipping/encode";
-import { runFfmpeg } from "@/lib/clipping/ffmpeg";
+import {
+  containScale,
+  coverScale,
+  evenPixels,
+  masterAudioArgs,
+  masterVideoArgs,
+  resolveOutputFrame,
+  scaleFilter
+} from "@/lib/clipping/encode";
+import { probeVideoStream, runFfmpeg } from "@/lib/clipping/ffmpeg";
+import { DEFAULT_OUTPUT_QUALITY, type OutputQuality } from "@/lib/pipeline/outputQuality";
 import {
   SPEAKER_STACK_LAYOUT,
   subjectFillChain,
@@ -186,14 +195,32 @@ export async function renderPreviewAssets(inputPath: string, previewPath: string
  * Renders the selected source range as a neutral 16:9 master clip. The full
  * source frame is preserved with contain scaling so any later vertical,
  * square, or portrait crop can be made non-destructively from this file.
+ *
+ * The frame comes from the downloaded section rather than a fixed 1920x1080:
+ * padding a 720p section out to 1080p and encoding it at CRF 17 spent three
+ * times the bitrate to add nothing, and every crop taken from it afterwards
+ * inherited the softness. A chosen output quality only ever caps this.
  */
-export async function renderSourceClip(inputPath: string, outputPath: string, audioPresent: boolean) {
+export async function renderSourceClip(
+  inputPath: string,
+  outputPath: string,
+  audioPresent: boolean,
+  quality: OutputQuality = DEFAULT_OUTPUT_QUALITY
+) {
+  const probed = await probeVideoStream(inputPath).catch(() => null);
+  const frame = resolveOutputFrame(
+    { width: probed?.width ?? 0, height: probed?.height ?? 0, fps: probed?.fps ?? 0 },
+    quality,
+    "wide"
+  );
   await runFfmpeg([
     "-y",
     "-i",
     inputPath,
     "-filter_complex",
-    `[0:v]${containScale(1920, 1080)},pad=1920:1080:(ow-iw)/2:(oh-ih)/2:color=0x050914,setsar=1,format=yuv420p[vout]`,
+    `[0:v]${containScale(frame.width, frame.height)},` +
+      `pad=${frame.width}:${frame.height}:(ow-iw)/2:(oh-ih)/2:color=0x050914,` +
+      `setsar=1,fps=${frame.fps},format=yuv420p[vout]`,
     "-map",
     "[vout]",
     ...(audioPresent ? ["-map", "0:a?"] : []),

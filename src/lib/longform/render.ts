@@ -1,8 +1,15 @@
 import { stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { buildAss, buildClipTitleDialogue } from "@/lib/clipping/captions";
-import { masterAudioArgs, masterVideoArgs, scaleFilter } from "@/lib/clipping/encode";
-import { isRenderCanceled, runFfmpeg } from "@/lib/clipping/ffmpeg";
+import {
+  containScale,
+  intermediateVideoArgs,
+  masterAudioArgs,
+  masterVideoArgs,
+  resolveOutputFrame,
+  scaleFilter
+} from "@/lib/clipping/encode";
+import { isRenderCanceled, probeVideoStream, runFfmpeg } from "@/lib/clipping/ffmpeg";
 import { animatedReframeChain } from "@/lib/clipping/render";
 import { readSourceMeta, sourceFilePath } from "@/lib/clipping/sources";
 import { getTrack, trackFilePath } from "@/lib/longform/music";
@@ -10,6 +17,8 @@ import { overlayFilePath } from "@/lib/longform/overlays";
 import { editedDurationSec, exportRanges, projectForTopic, remapCaptionsToOutput, sourceTimeToOutput, sourceToOutputIntervals, type KeptRange } from "@/lib/longform/plan";
 import { getProject, projectOutputDir, projectWorkDir, setTopicExport, updateProject, withFullTranscript } from "@/lib/longform/store";
 import type { LongformExportRecord, LongformProject } from "@/lib/longform/types";
+import { DEFAULT_OUTPUT_QUALITY, normalizeOutputQuality, type OutputQuality } from "@/lib/pipeline/outputQuality";
+import { readAppData } from "@/lib/storage/store";
 import { planSfxCues } from "@/lib/sfx/cues";
 import { resolveSoundPath } from "@/lib/sfx/sounds";
 import type { SfxSoundId } from "@/types/domain";
@@ -21,17 +30,18 @@ import { finalizeTitle } from "@/lib/title/finalize";
 //   2. Body — one single-pass select render that keeps only the enabled
 //      segments, cutting every stretch of dead space in one ffmpeg run.
 //   3. Concat — hook + body joined losslessly (identical encode settings).
-//      Timeline image overlays and the whole-video captions are then burned
-//      over the joined edit (captions remapped through the cuts).
-//   4. Audio — every placed timeline audio clip mixed under the edit.
+//   4. Burn-ins — timeline image overlays AND the whole-video captions drawn
+//      over the joined edit in ONE pass (captions remapped through the cuts).
+//   5. Audio — every placed timeline audio clip mixed under the edit, video
+//      stream-copied.
+//
+// The picture is encoded exactly once at ship quality. Whichever of stages 1-2
+// or stage 4 is last runs at the master CRF; anything before it that another
+// filter pass will re-read is near-lossless (`intermediateVideoArgs`). Stages
+// 3 and 5 never touch the picture at all. The frame itself comes from the
+// recording — see `resolveExportFrame`, not a hardcoded 1920x1080.
 // Export records persist on the project, so status survives a dev restart.
 
-const FRAME_W = 1920;
-const FRAME_H = 1080;
-// The 9:16 vertical layout's output frame.
-const VERT_W = 1080;
-const VERT_H = 1920;
-const FPS = 30;
 // How long the hook's punch-in zoom takes to ramp from 1x to the target zoom
 // when opening motion is switched off — the original snap-in.
 const HOOK_ZOOM_RAMP_SEC = 0.5;
@@ -69,10 +79,60 @@ function escapeFilterPath(p: string): string {
   return p.replace(/\\/g, "/").replace(/:/g, "\\:").replace(/'/g, "\\'");
 }
 
-/** The export's output frame, decided by the project's layout. */
-function frameSize(project: LongformProject): { frameW: number; frameH: number; vertical: boolean } {
+/**
+ * The frame every stage of one export is locked to.
+ *
+ * `frameW`/`frameH` is what ships. `wideW`/`wideH` is the 16:9 stage the hook's
+ * punch-in runs on before a vertical layout wraps it — on the wide layout the
+ * two are the same frame.
+ */
+type ExportFrame = {
+  frameW: number;
+  frameH: number;
+  wideW: number;
+  wideH: number;
+  fps: number;
+  vertical: boolean;
+};
+
+/** The output quality remembered for the next stream, when a project carries none. */
+async function settingsOutputQuality(): Promise<OutputQuality> {
+  try {
+    const data = await readAppData();
+    return normalizeOutputQuality(data.settings.outputQuality);
+  } catch {
+    return { ...DEFAULT_OUTPUT_QUALITY };
+  }
+}
+
+/**
+ * Decides the export's frame from the recording itself.
+ *
+ * This used to be the constant 1920x1080 at 30 fps, which is what made a
+ * long-form export look worse than the stream it came from: a 360p download was
+ * upscaled to 1080p (paying CRF 17 for three times the pixels and none of the
+ * detail) and a 60 fps recording was halved. The size and rate now come from
+ * the source, with the owner's choice acting only as a ceiling.
+ */
+async function resolveExportFrame(project: LongformProject, srcPath: string): Promise<ExportFrame> {
+  const quality = normalizeOutputQuality(project.output ?? (await settingsOutputQuality()));
+  const probed = await probeVideoStream(srcPath).catch(() => null);
+  const source = {
+    width: probed?.width || project.width,
+    height: probed?.height || project.height,
+    fps: probed?.fps ?? 0
+  };
   const vertical = (project.layout ?? "wide") === "vertical";
-  return vertical ? { frameW: VERT_W, frameH: VERT_H, vertical } : { frameW: FRAME_W, frameH: FRAME_H, vertical };
+  const wide = resolveOutputFrame(source, quality, "wide");
+  const frame = vertical ? resolveOutputFrame(source, quality, "vertical") : wide;
+  return {
+    frameW: frame.width,
+    frameH: frame.height,
+    wideW: wide.width,
+    wideH: wide.height,
+    fps: frame.fps,
+    vertical
+  };
 }
 
 /**
@@ -82,12 +142,14 @@ function frameSize(project: LongformProject): { frameW: number; frameH: number; 
  * vertical renders use. The background is blurred at quarter size (cheaper,
  * visually equivalent) and scaled back up.
  */
-function verticalWrapChain(inLabel: string, outLabel: string): string {
+function verticalWrapChain(inLabel: string, outLabel: string, frameW: number, frameH: number): string {
+  const bgW = Math.max(2, Math.round(frameW / 4) * 2);
+  const bgH = Math.max(2, Math.round(frameH / 4) * 2);
   return (
     `[${inLabel}]split=2[__vwbg][__vwfg];` +
-    `[__vwbg]scale=${VERT_W / 2}:${VERT_H / 2}:force_original_aspect_ratio=increase,crop=${VERT_W / 2}:${VERT_H / 2},` +
-    `boxblur=12:2,eq=brightness=-0.08,scale=${VERT_W}:${VERT_H}[__vwbgb];` +
-    `[__vwfg]${scaleFilter(VERT_W, -2)}[__vwfgs];` +
+    `[__vwbg]scale=${bgW}:${bgH}:force_original_aspect_ratio=increase,crop=${bgW}:${bgH},` +
+    `boxblur=12:2,eq=brightness=-0.08,scale=${frameW}:${frameH}[__vwbgb];` +
+    `[__vwfg]${scaleFilter(frameW, -2)}[__vwfgs];` +
     `[__vwbgb][__vwfgs]overlay=(W-w)/2:(H-h)/2[${outLabel}]`
   );
 }
@@ -259,7 +321,17 @@ async function runExport(projectId: string, recordId: string, signal: AbortSigna
   const outDir = projectOutputDir(projectId);
   const { hookRange, bodyRanges } = exportRanges(project.segments, project.hook);
   const hasAudio = project.hasAudio;
-  const { frameW, frameH, vertical } = frameSize(project);
+  const frame = await resolveExportFrame(project, srcPath);
+  const { frameW, frameH, wideW, wideH, fps, vertical } = frame;
+
+  // The overlay and caption burn-ins used to be two more full re-encodes of the
+  // whole edit, stacked on top of the hook/body encode: three generations of
+  // x264 on the same frames. They are one filtergraph now, planned here because
+  // knowing whether it will run is what decides how the parts are encoded — the
+  // parts stay near-lossless when something re-encodes them afterwards, and are
+  // themselves the single quality encode when nothing does.
+  const burnIn = await planBurnIns(project, frame, workDir, recordId);
+  const PART_ENC = burnIn ? intermediateVideoArgs() : VIDEO_ENC;
 
   const hookSec = hookRange ? hookRange.end - hookRange.start : 0;
   const bodySec = bodyRanges.reduce((sum, range) => sum + (range.end - range.start), 0);
@@ -311,10 +383,10 @@ async function runExport(projectId: string, recordId: string, signal: AbortSigna
     const sx = project.hook.focusX * 2 - 1;
     const sy = project.hook.focusY * 2 - 1;
     const rampSec = motion ? Math.max(HOOK_ZOOM_RAMP_SEC, hookSec) : Math.min(HOOK_ZOOM_RAMP_SEC, Math.max(0.05, hookSec / 2));
-    const reframe = animatedReframeChain("0:v", "vz", FRAME_W, FRAME_H, project.hook.zoom, sx, sy, rampSec, FPS);
+    const reframe = animatedReframeChain("0:v", "vz", wideW, wideH, project.hook.zoom, sx, sy, rampSec, fps);
     const filter = vertical
-      ? `${reframe};${verticalWrapChain("vz", "vv")};[vv]${assArg}fps=${FPS},setsar=1,format=yuv420p[vout]`
-      : `${reframe};[vz]${assArg}fps=${FPS},setsar=1,format=yuv420p[vout]`;
+      ? `${reframe};${verticalWrapChain("vz", "vv", frameW, frameH)};[vv]${assArg}fps=${fps},setsar=1,format=yuv420p[vout]`
+      : `${reframe};[vz]${assArg}fps=${fps},setsar=1,format=yuv420p[vout]`;
     await runFfmpeg(
       [
         "-y",
@@ -331,7 +403,7 @@ async function runExport(projectId: string, recordId: string, signal: AbortSigna
         "-map",
         "[vout]",
         ...(hasAudio ? ["-map", "0:a?"] : []),
-        ...VIDEO_ENC,
+        ...PART_ENC,
         ...(hasAudio ? AUDIO_ENC : ["-an"]),
         hookPath
       ],
@@ -355,13 +427,13 @@ async function runExport(projectId: string, recordId: string, signal: AbortSigna
     const filters = vertical
       ? [
           `[0:v]select='${expr}',setpts=N/FRAME_RATE/TB[vsel]`,
-          verticalWrapChain("vsel", "vwrap"),
-          `[vwrap]setsar=1,fps=${FPS},format=yuv420p[vout]`
+          verticalWrapChain("vsel", "vwrap", frameW, frameH),
+          `[vwrap]setsar=1,fps=${fps},format=yuv420p[vout]`
         ]
       : [
           `[0:v]select='${expr}',setpts=N/FRAME_RATE/TB,` +
-            `${scaleFilter(FRAME_W, FRAME_H, ["force_original_aspect_ratio=decrease"])},` +
-            `pad=${FRAME_W}:${FRAME_H}:(ow-iw)/2:(oh-ih)/2:color=0x050914,setsar=1,fps=${FPS},format=yuv420p[vout]`
+            `${containScale(frameW, frameH)},` +
+            `pad=${frameW}:${frameH}:(ow-iw)/2:(oh-ih)/2:color=0x050914,setsar=1,fps=${fps},format=yuv420p[vout]`
         ];
     if (hasAudio) filters.push(`[0:a]aselect='${expr}',asetpts=N/SR/TB[aout]`);
     // The select expression carries one between() term per kept range, and a
@@ -382,7 +454,7 @@ async function runExport(projectId: string, recordId: string, signal: AbortSigna
         "-map",
         "[vout]",
         ...(hasAudio ? ["-map", "[aout]"] : []),
-        ...VIDEO_ENC,
+        ...PART_ENC,
         ...(hasAudio ? AUDIO_ENC : ["-an"]),
         bodyPath
       ],
@@ -408,17 +480,14 @@ async function runExport(projectId: string, recordId: string, signal: AbortSigna
   }
   await patchRecord(projectId, recordId, { progress: 91 });
 
-  // 3b. Timeline overlays: burn each dropped-in image over the edited runtime.
-  // Images are authored in source seconds, so their visible window is mapped
-  // onto the concatenated hook + body timeline before it is drawn.
-  const overlaidPath = await applyOverlays(project, mergedPath, workDir, recordId, hasAudio, signal);
-  await patchRecord(projectId, recordId, { progress: 94 });
-
-  // 3c. Whole-video captions: burn the transcript captions over the edited
-  // runtime, on top of any image overlays. Segments are authored in source
-  // seconds, so each one shifts back by the cuts before it; when the hook
-  // burns its own captions these take over from hook.end onward.
-  const videoPath = await applyBodyCaptions(project, overlaidPath, workDir, recordId, hasAudio, signal);
+  // 3b. Burn-ins: the timeline overlay images and the whole-video captions, in
+  // ONE pass over the joined edit. Both are authored in source seconds, so both
+  // were mapped onto the concatenated hook + body timeline when the plan was
+  // built. This is the export's single quality encode whenever it runs; the
+  // parts feeding it were encoded near-lossless for exactly that reason.
+  const videoPath = burnIn
+    ? await runBurnIns(burnIn, mergedPath, path.join(workDir, `export-${recordId}-burned.mp4`), hasAudio, signal)
+    : mergedPath;
   await patchRecord(projectId, recordId, { progress: 96 });
 
   // 4. Audio mix: every placed timeline audio clip is mixed under the edit
@@ -617,26 +686,27 @@ async function fileExists(p: string): Promise<boolean> {
   }
 }
 
-/**
- * Draws the project's timeline overlay images onto the merged video and
- * returns the path to draw from next. When there is nothing to draw (no
- * overlays, missing files, or every overlay lands only inside cut footage)
- * the merged path is returned untouched so the video is never re-encoded for
- * no reason.
- */
-async function applyOverlays(
-  project: LongformProject,
-  mergedPath: string,
-  workDir: string,
-  recordId: string,
-  hasAudio: boolean,
-  signal: AbortSignal
-): Promise<string> {
-  const overlays = project.overlays ?? [];
-  if (overlays.length === 0) return mergedPath;
+/** One ffmpeg pass that draws everything burned over the finished edit. */
+type BurnInPlan = { inputs: string[]; filters: string[] };
 
+/**
+ * Plans the overlay images and whole-video captions burned over the edited
+ * runtime, as a single filtergraph.
+ *
+ * Both are authored in SOURCE seconds, so both are remapped onto the edited
+ * timeline here (anything landing only inside cut footage drops out). When the
+ * hook renders its own captions, the source window it covers is skipped so the
+ * two never stack. Returns null when there is nothing to draw, which is what
+ * lets the render skip a whole re-encode of the edit.
+ */
+async function planBurnIns(
+  project: LongformProject,
+  frame: ExportFrame,
+  workDir: string,
+  recordId: string
+): Promise<BurnInPlan | null> {
   const drawable: Array<{ path: string; intervals: KeptRange[]; x: number; y: number; width: number; opacity: number }> = [];
-  for (const overlay of overlays) {
+  for (const overlay of project.overlays ?? []) {
     const intervals = sourceToOutputIntervals(overlay.start, overlay.end, project.segments, project.hook);
     if (intervals.length === 0) continue;
     const imagePath = overlayFilePath(project.id, overlay.storedName);
@@ -650,13 +720,14 @@ async function applyOverlays(
       opacity: Math.min(1, Math.max(0, overlay.opacity))
     });
   }
-  if (drawable.length === 0) return mergedPath;
+
+  const assPath = await writeBodyCaptions(project, frame, workDir, recordId);
+  if (drawable.length === 0 && !assPath) return null;
 
   const inputs = drawable.flatMap((item) => ["-i", item.path]);
   const filters: string[] = [];
-  const { frameW } = frameSize(project);
   drawable.forEach((item, index) => {
-    const scaledW = Math.max(2, Math.round(item.width * frameW));
+    const scaledW = Math.max(2, Math.round(item.width * frame.frameW));
     // Scale to the requested width (keeping aspect), then apply opacity.
     filters.push(
       `[${index + 1}:v]${scaleFilter(scaledW, -1)},format=rgba,colorchannelmixer=aa=${item.opacity.toFixed(3)}[ov${index}]`
@@ -667,78 +738,66 @@ async function applyOverlays(
     const enable = item.intervals
       .map((iv) => `between(t,${iv.start.toFixed(3)},${iv.end.toFixed(3)})`)
       .join("+");
-    const label = index === drawable.length - 1 ? "vout" : `b${index}`;
+    const label = index === drawable.length - 1 && !assPath ? "vout" : `b${index}`;
     filters.push(
       `[${prev}][ov${index}]overlay=x='(main_w*${item.x})-(overlay_w/2)':` +
         `y='(main_h*${item.y})-(overlay_h/2)':enable='${enable}'[${label}]`
     );
     prev = label;
   });
-
-  const overlaidPath = path.join(workDir, `export-${recordId}-overlaid.mp4`);
-  await runFfmpeg([
-    "-y",
-    "-i",
-    mergedPath,
-    ...inputs,
-    "-filter_complex",
-    filters.join(";"),
-    "-map",
-    "[vout]",
-    ...(hasAudio ? ["-map", "0:a?"] : []),
-    ...VIDEO_ENC,
-    ...(hasAudio ? ["-c:a", "copy"] : ["-an"]),
-    overlaidPath
-  ], { signal });
-  return overlaidPath;
+  if (assPath) filters.push(`[${prev}]ass='${escapeFilterPath(assPath)}'[vout]`);
+  return { inputs, filters };
 }
 
 /**
- * Burns the whole-video captions onto the merged edit and returns the path to
- * draw from next. Caption segments live in source seconds, so they are first
- * remapped onto the edited runtime (dropping anything inside cut footage).
- * When the hook renders its own captions, the source window it covers is
- * skipped so the two never stack. Returns the input path untouched when
- * captions are off or nothing survives the remap.
+ * Writes the whole-video caption script for the edited runtime and returns its
+ * path, or null when captions are off or nothing survives the remap.
  */
-async function applyBodyCaptions(
+async function writeBodyCaptions(
   project: LongformProject,
-  mergedPath: string,
+  frame: ExportFrame,
   workDir: string,
-  recordId: string,
-  hasAudio: boolean,
-  signal: AbortSignal
-): Promise<string> {
+  recordId: string
+): Promise<string | null> {
   const captions = project.captions;
-  if (!captions?.enabled || captions.segments.length === 0) return mergedPath;
+  if (!captions?.enabled || captions.segments.length === 0) return null;
   const hookCaptionsBurned =
     project.hook.enabled && project.hook.captionsEnabled && project.hook.captions.some((c) => c.enabled && c.text.trim());
   const skipWindow = hookCaptionsBurned
     ? { start: Math.max(0, project.hook.start ?? 0), end: project.hook.end }
     : null;
   const remapped = remapCaptionsToOutput(captions.segments, project.segments, project.hook, skipWindow);
-  if (remapped.length === 0) return mergedPath;
+  if (remapped.length === 0) return null;
 
-  const { frameW, frameH } = frameSize(project);
-  const assDoc = buildAss(remapped, captions.style, frameW, frameH, captions.highlightCurrentWord);
+  const assDoc = buildAss(remapped, captions.style, frame.frameW, frame.frameH, captions.highlightCurrentWord);
   const assPath = path.join(workDir, `export-${recordId}-captions.ass`);
   await writeFile(assPath, `${assDoc}\n`, "utf8");
+  return assPath;
+}
 
-  const captionedPath = path.join(workDir, `export-${recordId}-captioned.mp4`);
+/** Runs the planned burn-ins — the export's one quality encode when it exists. */
+async function runBurnIns(
+  plan: BurnInPlan,
+  inputPath: string,
+  outputPath: string,
+  hasAudio: boolean,
+  signal: AbortSignal
+): Promise<string> {
   await runFfmpeg([
     "-y",
     "-i",
-    mergedPath,
+    inputPath,
+    ...plan.inputs,
     "-filter_complex",
-    `[0:v]ass='${escapeFilterPath(assPath)}'[vout]`,
+    plan.filters.join(";"),
     "-map",
     "[vout]",
     ...(hasAudio ? ["-map", "0:a?"] : []),
     ...VIDEO_ENC,
     ...(hasAudio ? ["-c:a", "copy"] : ["-an"]),
-    captionedPath
+    outputPath
   ], { signal });
-  return captionedPath;
+  return outputPath;
 }
 
 /** Builds the ffmpeg select expression keeping only the given time ranges. */

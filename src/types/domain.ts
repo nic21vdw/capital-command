@@ -1,3 +1,5 @@
+import type { OutputQuality } from "@/lib/pipeline/outputQuality";
+
 export type AssetClass =
   | "Stocks"
   | "ETFs"
@@ -124,7 +126,24 @@ export interface Expense {
   updatedAt: string;
 }
 
-export type ThemePreset = "colateral" | "colateral-light" | "slate" | "midnight" | "graphite" | "forest" | "dracula" | "paper" | "arctic";
+export type ThemePreset =
+  | "dark"
+  | "light"
+  | "dracula"
+  | "catppuccin"
+  | "nord"
+  | "tokyonight"
+  | "gruvbox"
+  | "everforest"
+  | "github"
+  | "ayu"
+  | "onedark"
+  | "monokai"
+  | "rosepine"
+  | "solarized"
+  | "linear"
+  | "absolutely"
+  | "codex";
 
 export interface CreatorSignature {
   /** Channel name drawn at the foot of every rendered slide. Empty draws nothing. */
@@ -157,6 +176,8 @@ export interface Settings {
   setupCompletedAt?: string;
   /** Show the personal finance screens. Off by default; they are not part of the pack. */
   personalDashboard?: boolean;
+  /** What the pipeline renders at, remembered from the last stream it ran. */
+  outputQuality?: OutputQuality;
 }
 
 export type ContentType = "Video" | "Short" | "Stream" | "Podcast";
