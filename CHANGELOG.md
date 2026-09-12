@@ -14,6 +14,8 @@ already shipped.
 
 ## Unreleased
 
+## 2026-09-12
+
 - **Capital Command wears whatever theme you picked in CoLateral.** It carried
   two of CoLateral's palettes and six of its own; it now carries all seventeen
   of CoLateral's, under CoLateral's own names, so nothing is translated on the
