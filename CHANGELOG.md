@@ -41,6 +41,8 @@ already shipped.
   the name of a preset — so a theme added to CoLateral after this app's last
   release, or one you recoloured yourself, paints the frame correctly anyway.
 
+## 2026-09-12
+
 - **Capital Command wears whatever theme you picked in CoLateral.** It carried
   two of CoLateral's palettes and six of its own; it now carries all seventeen
   of CoLateral's, under CoLateral's own names, so nothing is translated on the
