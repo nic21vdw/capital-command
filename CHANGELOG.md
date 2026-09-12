@@ -14,6 +14,33 @@ already shipped.
 
 ## Unreleased
 
+- **Agents on the CoLateral canvas can now work this app, not just look at it.**
+  A Capital Command Card used to be a window: the canvas could frame the app and
+  nothing more. It can now be asked to open a page, read what is on it, fill a
+  field in and press a button — so "put Capital Command on the uploading centre
+  and tell me what is queued" is one request rather than a description of clicks
+  for you to do. Pages say for themselves what they offer, so an agent reports
+  what the app actually says rather than guessing; anything that publishes or
+  deletes is marked as such and is meant to come back to you before it runs.
+
+- **The card can reach every screen, and stops wasting half a small card on the
+  sidebar.** Its page list had eleven of this app's thirty-two screens, so most
+  of the app was unreachable from the canvas. It now has all of them, grouped
+  the way the sidebar groups them, on a rail the card draws itself — and the app
+  collapses or drops its own sidebar as the card gets smaller, so a small card
+  is the page you wanted instead of mostly menu.
+
+- **Status colours follow the theme instead of staying Tailwind green.** A
+  "ready" chip was the same green on all fifteen dark themes while everything
+  around it changed, which is the most visible way the app stopped matching the
+  canvas. Success, warning, danger and info are now part of each theme, taken
+  from CoLateral's own, and every screen in the app was moved onto them.
+
+- **A theme CoLateral has that this app does not no longer falls back to Dark.**
+  The canvas now hands over the colours it is actually painting with, not just
+  the name of a preset — so a theme added to CoLateral after this app's last
+  release, or one you recoloured yourself, paints the frame correctly anyway.
+
 ## 2026-09-12
 
 - **Capital Command wears whatever theme you picked in CoLateral.** It carried

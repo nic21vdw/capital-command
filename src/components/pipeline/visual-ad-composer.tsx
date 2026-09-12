@@ -273,7 +273,7 @@ export function VisualAdComposer({
                 className="block max-h-[440px] w-full object-contain"
               />
               <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black via-black/75 to-transparent p-4 pt-16">
-                <div className="flex items-center gap-2 text-xs font-semibold text-violet-200">
+                <div className="flex items-center gap-2 text-xs font-semibold text-[var(--accent)]">
                   <ImagePlus className="h-4 w-4" />
                   Realistic reference
                 </div>
@@ -284,7 +284,7 @@ export function VisualAdComposer({
         </div>
 
         <div>
-          <p className="text-xs font-semibold uppercase tracking-[0.14em] text-violet-200">Selected hook</p>
+          <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[var(--accent)]">Selected hook</p>
           <p className="mt-1 text-sm font-semibold text-white">{moment.headline}</p>
           {moment.transcript && (
             <p className="mt-1 line-clamp-3 text-xs leading-relaxed text-[var(--muted-foreground)]">

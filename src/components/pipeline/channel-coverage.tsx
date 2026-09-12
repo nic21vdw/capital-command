@@ -130,14 +130,16 @@ export function ChannelCoverageCard({
               </div>
               <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-white/8">
                 <div
-                  className={cn("h-full rounded-full transition-all", percent === 100 ? "bg-emerald-400/70" : "bg-[var(--accent)]")}
+                  className={cn("h-full rounded-full transition-all", percent === 100 ? "tone-success tone-fill" : "bg-[var(--accent)]")}
                   style={{ width: `${percent}%` }}
                 />
               </div>
               {rows.map((video) => (
                 <div key={video.videoId} className="mt-1.5 flex items-center gap-2">
                   <span className="min-w-0 flex-1 truncate text-[11px] text-[var(--muted-foreground)]">
-                    {video.state === "attention" ? <span className="text-amber-300">Needs you · </span> : null}
+                    {video.state === "attention" ? (
+                      <span className="tone-warning tone-text">Needs you · </span>
+                    ) : null}
                     {video.title}
                     {video.state === "attention" && video.note ? (
                       <span className="text-[var(--muted-foreground)]"> — {video.note.toLowerCase()}</span>

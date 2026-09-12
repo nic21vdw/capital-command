@@ -166,7 +166,7 @@ export function TiktokConsent({
           <Loader2 className="h-3 w-3 animate-spin" /> Reading what this TikTok account allows…
         </p>
       ) : state.status === "error" ? (
-        <p className="flex items-start gap-2 text-[11px] text-amber-200">
+        <p className="tone-warning tone-text flex items-start gap-2 text-[11px]">
           <TriangleAlert className="mt-0.5 h-3 w-3 shrink-0" />
           {state.message} Nothing can be posted straight to the profile until TikTok answers — send it to the
           inbox instead.
@@ -244,12 +244,12 @@ export function TiktokConsent({
           ) : null}
           {compliance ? <p className="text-[11px] text-[var(--muted-foreground)]">{compliance}</p> : null}
           {!audited ? (
-            <p className="text-[11px] text-amber-200">
+            <p className="tone-warning tone-text text-[11px]">
               The TikTok app review has not been approved, so TikTok only accepts a private post here. Anything
               wider has to go to the inbox until it is.
             </p>
           ) : null}
-          {problem ? <p className="text-[11px] text-amber-200">{problem}</p> : null}
+          {problem ? <p className="tone-warning tone-text text-[11px]">{problem}</p> : null}
         </div>
       )}
     </div>

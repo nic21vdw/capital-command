@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { PUBLISHING_OFF_MESSAGE } from "@/lib/publisher/enabledMessage";
-import { useSearchParams } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
 import {
   ArrowLeft,
   ArrowUp,
@@ -48,6 +48,8 @@ import {
 import { ChannelCoverageCard } from "@/components/pipeline/channel-coverage";
 import type { ChannelCoverage } from "@/lib/ingest/coverage";
 import { MAX_IMAGES_PER_POST } from "@/lib/publisher/images";
+import { useColateralSurface } from "@/lib/colateral/useSurface";
+import { routeLabel } from "@/lib/colateral/routes";
 import { cn } from "@/lib/utils";
 import type {
   PipelinePost,
@@ -59,11 +61,11 @@ import type {
 } from "@/lib/pipeline/types";
 
 const STATUS_STYLES: Record<PipelineStageStatus, string> = {
-  ready: "border-emerald-400/30 bg-emerald-400/10 text-emerald-300",
-  error: "border-red-400/30 bg-red-400/10 text-red-300",
-  running: "border-sky-400/30 bg-sky-400/10 text-sky-300",
+  ready: "tone-success tone-edge tone-soft tone-text",
+  error: "tone-danger tone-edge tone-soft tone-text",
+  running: "tone-info tone-edge tone-soft tone-text",
   waiting: "border-white/10 bg-white/5 text-[var(--muted-foreground)]",
-  skipped: "border-amber-400/30 bg-amber-400/10 text-amber-300"
+  skipped: "tone-warning tone-edge tone-soft tone-text"
 };
 
 const STATUS_LABELS: Record<PipelineStageStatus, string> = {
@@ -75,11 +77,11 @@ const STATUS_LABELS: Record<PipelineStageStatus, string> = {
 };
 
 const STATUS_DOT: Record<PipelineStageStatus, string> = {
-  ready: "bg-emerald-400",
-  error: "bg-red-400",
-  running: "bg-sky-400 animate-pulse",
+  ready: "tone-success tone-fill",
+  error: "tone-danger tone-fill",
+  running: "tone-info tone-fill animate-pulse",
   waiting: "bg-white/20",
-  skipped: "bg-amber-400"
+  skipped: "tone-warning tone-fill"
 };
 
 // What each stage is called wherever it is named — the row heading, the output
@@ -125,13 +127,13 @@ const STAGE_ORDER: PipelineStageKey[] = [
 ];
 
 const RUN_TONE_DOT: Record<RunTone, string> = {
-  attention: "bg-amber-400",
-  working: "bg-sky-400 animate-pulse",
-  done: "bg-emerald-400"
+  attention: "tone-warning tone-fill",
+  working: "tone-info tone-fill animate-pulse",
+  done: "tone-success tone-fill"
 };
 
 const RUN_TONE_TEXT: Record<RunTone, string> = {
-  attention: "text-amber-300/90",
+  attention: "tone-warning tone-text",
   working: "text-[var(--muted-foreground)]",
   done: "text-[var(--muted-foreground)]"
 };
@@ -206,7 +208,7 @@ function CopyPostButton({ text }: { text: string }) {
       aria-label="Copy post"
       title="Copy post"
     >
-      {copied ? <Check className="h-3.5 w-3.5 text-emerald-300" /> : <Copy className="h-3.5 w-3.5" />}
+      {copied ? <Check className="h-3.5 w-3.5 text-[var(--success)]" /> : <Copy className="h-3.5 w-3.5" />}
     </button>
   );
 }
@@ -352,11 +354,11 @@ function OutputStrip({ chips }: { chips: OutputChip[] }) {
             className={cn(
               "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-medium transition hover:border-[var(--border-strong)]",
               chip.status === "ready"
-                ? "border-emerald-400/25 bg-emerald-400/[0.06] text-white"
+                ? "tone-success tone-edge tone-soft text-white"
                 : chip.status === "running"
-                  ? "border-sky-400/25 bg-sky-400/[0.06] text-white"
+                  ? "tone-info tone-edge tone-soft text-white"
                   : chip.status === "error"
-                    ? "border-red-400/25 bg-red-400/[0.06] text-white"
+                    ? "tone-danger tone-edge tone-soft text-white"
                     : "border-[var(--border)] text-[var(--muted-foreground)]"
             )}
           >
@@ -402,30 +404,30 @@ function StageRow({
           className={cn(
             "relative flex h-10 w-10 shrink-0 items-center justify-center rounded-full border transition",
             done
-              ? "border-emerald-400/40 bg-emerald-400/10 text-emerald-300"
+              ? "tone-success tone-edge tone-soft tone-text"
               : active
-                ? "pipeline-node-live border-sky-400/40 bg-sky-400/10 text-sky-300"
+                ? "pipeline-node-live tone-info tone-edge tone-soft tone-text"
                 : stage.status === "error"
-                  ? "border-red-400/40 bg-red-400/10 text-red-300"
+                  ? "tone-danger tone-edge tone-soft tone-text"
                   : "border-[var(--border)] bg-[var(--panel)] text-[var(--muted-foreground)]"
           )}
         >
           <Icon className="h-4.5 w-4.5" />
           {active && (
-            <span className="pipeline-orbit pointer-events-none absolute -inset-1 rounded-full border border-transparent border-t-sky-300/70" />
+            <span className="pipeline-orbit pointer-events-none absolute -inset-1 rounded-full border border-transparent border-t-[color-mix(in_srgb,var(--info)_70%,transparent)]" />
           )}
         </div>
         {!last && (
           <div
             className={cn(
               "w-px flex-1",
-              flowing ? "pipeline-rail-live bg-[var(--border)]" : done ? "bg-emerald-400/30" : "bg-[var(--border)]"
+              flowing ? "pipeline-rail-live bg-[var(--border)]" : done ? "tone-success tone-soft" : "bg-[var(--border)]"
             )}
           />
         )}
       </div>
       <div className="min-w-0 flex-1 pb-5">
-        <Card className={cn("p-4", active && "pipeline-card-live border-sky-400/25")}>
+        <Card className={cn("p-4", active && "pipeline-card-live tone-info tone-edge")}>
           <div className="flex flex-wrap items-center justify-between gap-2">
             <h3 className="text-sm font-semibold text-white">{STAGE_TITLES[stageKey]}</h3>
             <StatusChip status={stage.status} />
@@ -441,7 +443,10 @@ function StageRow({
                   variant="secondary"
                   onClick={onRetry}
                   disabled={retrying}
-                  className={cn(SMALL_BUTTON, "border-amber-400/30 text-amber-200 hover:border-amber-400/50")}
+                  className={cn(
+                    SMALL_BUTTON,
+                    "tone-warning tone-edge tone-text hover:border-[color-mix(in_srgb,var(--warning)_50%,transparent)]"
+                  )}
                 >
                   {retrying ? <Spinner /> : <RotateCcw className="mr-1.5 h-3.5 w-3.5" />}
                   Try this again
@@ -471,6 +476,7 @@ export function PipelinePage() {
   // ?run=<id> is how the command bar opens one run: "pull up the Day 13 run"
   // has to land on that run, not on the list with it buried in it.
   const requestedRunId = useSearchParams().get("run");
+  const pathname = usePathname();
   const { select: selectStream } = useStream();
   const { data, mutate } = useAppData();
   const [overviews, setOverviews] = useState<PipelineRunOverview[]>([]);
@@ -896,8 +902,8 @@ export function PipelinePage() {
   // screen, and this screen had never heard of scanning.
   const scanTrouble = scan && scan.status !== "ok" ? scan : null;
   const scanNotice = scanTrouble ? (
-    <Card className="mb-4 flex flex-wrap items-center justify-between gap-3 border-amber-400/25 bg-amber-400/[0.06] p-3">
-      <p className="min-w-0 text-sm text-amber-100/90">
+    <Card className="tone-warning tone-edge tone-soft mb-4 flex flex-wrap items-center justify-between gap-3 p-3">
+      <p className="tone-warning tone-text min-w-0 text-sm">
         {scanTrouble.status === "not-connected"
           ? "The nightly channel scan has nothing to look at — YouTube is not connected."
           : scanTrouble.status === "needs-reconnect"
@@ -932,6 +938,103 @@ export function PipelinePage() {
       }}
     />
   );
+
+  // This screen is mounted at both "/" and its "/pipeline" alias, so the
+  // route and title follow whichever one the app is actually on rather than
+  // hard-coding either.
+  const surfaceRoute = pathname || "/";
+  useColateralSurface({
+    route: surfaceRoute,
+    title: routeLabel(surfaceRoute),
+    summary: "Paste a stream link to run it through the whole pipeline, or open a run already in flight.",
+    fields: [
+      {
+        id: "url",
+        label: "Stream or VOD link",
+        value: url,
+        kind: "text",
+        hint: "Paste a full http(s) link, then press Start pipeline."
+      },
+      {
+        id: "resolution",
+        label: "Output resolution",
+        value: outputQuality.resolution,
+        kind: "select",
+        options: OUTPUT_RESOLUTIONS.map((option) => option.id)
+      },
+      {
+        id: "frameRate",
+        label: "Output frame rate",
+        value: outputQuality.frameRate,
+        kind: "select",
+        options: OUTPUT_FRAME_RATES.map((option) => option.id)
+      }
+    ],
+    controls: [
+      { id: "submit", label: "Start pipeline", group: "Import", disabled: busy || !url.trim() },
+      { id: "back-to-search", label: "Start a new stream", group: "Import", disabled: !showFlow },
+      { id: "rescan", label: "Scan the channel now", group: "Channel", disabled: working === "scan" },
+      {
+        id: "retry-all",
+        label: "Try failed stages again",
+        group: "Stage",
+        disabled: !(run && active && active.retryable.length > 0)
+      },
+      { id: "delete-active-run", label: "Remove this run", group: "Run", disabled: !run, destructive: true }
+    ],
+    readings: [
+      { label: "Runs in flight", value: String(overviews.filter((entry) => !entry.settled).length) },
+      { label: "Total runs", value: String(overviews.length) },
+      { label: "Active run", value: run?.name ?? "None" },
+      { label: "Channel scan", value: scanTrouble ? scanTrouble.status : "ok" }
+    ],
+    setField: (id, value) => {
+      if (id === "url") {
+        if (typeof value !== "string") return false;
+        setUrl(value);
+        return true;
+      }
+      if (id === "resolution") {
+        if (typeof value !== "string" || !OUTPUT_RESOLUTIONS.some((option) => option.id === value)) return false;
+        setOutputQuality(normalizeOutputQuality({ ...outputQuality, resolution: value }));
+        return true;
+      }
+      if (id === "frameRate") {
+        if (typeof value !== "string" || !OUTPUT_FRAME_RATES.some((option) => option.id === value)) return false;
+        setOutputQuality(normalizeOutputQuality({ ...outputQuality, frameRate: value }));
+        return true;
+      }
+      return false;
+    },
+    click: (id) => {
+      if (id === "submit") {
+        if (busy || !url.trim()) return false;
+        void submitUrl();
+        return true;
+      }
+      if (id === "back-to-search") {
+        if (!showFlow) return false;
+        backToSearch();
+        return true;
+      }
+      if (id === "rescan") {
+        if (working === "scan") return false;
+        void rescan();
+        return true;
+      }
+      if (id === "retry-all") {
+        if (!run || !active || active.retryable.length === 0) return false;
+        void startAgain(run.id, { action: "retry-all" }, "retry-all");
+        return true;
+      }
+      if (id === "delete-active-run") {
+        if (!run) return false;
+        void deleteRun(run.id);
+        return true;
+      }
+      return false;
+    }
+  });
 
   // Names are shown in FULL and stamped with when the run started — a channel
   // posts the same series week after week, so four runs can share a title and
@@ -974,10 +1077,10 @@ export function PipelinePage() {
                         className={cn(
                           "block h-full rounded-full transition-all",
                           status.tone === "attention"
-                            ? "bg-red-400/60"
+                            ? "tone-danger tone-fill"
                             : progress.percent === 100
-                              ? "bg-emerald-400/60"
-                              : "bg-sky-400/60"
+                              ? "tone-success tone-fill"
+                              : "tone-info tone-fill"
                         )}
                         style={{ width: `${progress.percent}%` }}
                       />
@@ -991,7 +1094,7 @@ export function PipelinePage() {
                       <span
                         className={cn(
                           "mt-0.5 block text-[11px]",
-                          entry.delivery.posted > 0 ? "text-emerald-300/80" : "text-[var(--muted-foreground)]"
+                          entry.delivery.posted > 0 ? "tone-success tone-text" : "text-[var(--muted-foreground)]"
                         )}
                       >
                         {progress.delivery}
@@ -1002,7 +1105,7 @@ export function PipelinePage() {
                 <button
                   type="button"
                   onClick={() => void deleteRun(entry.run.id)}
-                  className="mt-0.5 shrink-0 text-[var(--muted-foreground)] opacity-0 transition hover:text-red-300 focus-visible:opacity-100 group-hover:opacity-100"
+                  className="mt-0.5 shrink-0 text-[var(--muted-foreground)] opacity-0 transition hover:text-[var(--danger)] focus-visible:opacity-100 group-hover:opacity-100"
                   aria-label={`Remove ${entry.run.name}`}
                   title="Remove run"
                 >
@@ -1265,7 +1368,7 @@ export function PipelinePage() {
         return (
           <div className="mt-3 space-y-3">
             {run.queueFailures?.length ? (
-              <p className="text-xs text-amber-300/90">
+              <p className="tone-warning tone-text text-xs">
                 {run.queueFailures[0].error}
                 {run.queueFailures[0].error.includes(PUBLISHING_OFF_MESSAGE) ? (
                   <>
@@ -1280,7 +1383,7 @@ export function PipelinePage() {
             {plan ? (
               <div className="rounded-lg border border-[var(--border)] bg-white/3 p-3">
                 {plan.problem ? (
-                  <p className="text-xs text-amber-300/90">
+                  <p className="tone-warning tone-text text-xs">
                     {plan.problem}{" "}
                     <Link href="/settings" className="underline">
                       Open Settings
@@ -1370,8 +1473,8 @@ export function PipelinePage() {
               </p>
             ) : null}
             {run.queueWhenReady ? (
-              <div className="flex flex-wrap items-center gap-2 rounded-lg border border-emerald-400/20 bg-emerald-400/[0.06] px-3 py-2">
-                <span className="min-w-0 flex-1 text-xs text-emerald-100/90">
+              <div className="tone-success tone-edge tone-soft flex flex-wrap items-center gap-2 rounded-lg border px-3 py-2">
+                <span className="tone-success tone-text min-w-0 flex-1 text-xs">
                   Anything still rendering is booked as it lands. Nothing you unticked will be.
                   {run.unattended ? " Its segments render and its Threads posts are scheduled too." : ""}
                 </span>
@@ -1423,7 +1526,7 @@ export function PipelinePage() {
             <button
               type="button"
               onClick={() => void deleteRun(run.id)}
-              className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-[var(--muted-foreground)] transition hover:bg-red-400/10 hover:text-red-300"
+              className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-[var(--muted-foreground)] transition hover:bg-[color-mix(in_srgb,var(--danger)_10%,transparent)] hover:text-[var(--danger)]"
               aria-label={`Remove ${run.name}`}
               title="Remove this run"
             >
@@ -1449,8 +1552,8 @@ export function PipelinePage() {
         ) : (
           <>
             {run && active && active.retryable.length > 0 ? (
-              <Card className="mb-4 flex flex-wrap items-center justify-between gap-3 border-amber-400/25 bg-amber-400/[0.06] p-3">
-                <p className="min-w-0 text-sm text-amber-100/90">
+              <Card className="tone-warning tone-edge tone-soft mb-4 flex flex-wrap items-center justify-between gap-3 p-3">
+                <p className="tone-warning tone-text min-w-0 text-sm">
                   {active.retryable.length} stage{active.retryable.length === 1 ? "" : "s"} stopped short —{" "}
                   {active.retryable.map((item) => STAGE_TITLES[item.stage]).join(", ")}.
                 </p>
@@ -1458,7 +1561,10 @@ export function PipelinePage() {
                   variant="secondary"
                   disabled={working === "retry-all"}
                   onClick={() => void startAgain(run.id, { action: "retry-all" }, "retry-all")}
-                  className={cn(SMALL_BUTTON, "shrink-0 border-amber-400/30 text-amber-100 hover:border-amber-400/60")}
+                  className={cn(
+                    SMALL_BUTTON,
+                    "tone-warning tone-edge tone-text shrink-0 hover:border-[color-mix(in_srgb,var(--warning)_60%,transparent)]"
+                  )}
                 >
                   {working === "retry-all" ? <Spinner /> : <RotateCcw className="mr-1.5 h-3.5 w-3.5" />}
                   Try them all again
@@ -1466,7 +1572,7 @@ export function PipelinePage() {
               </Card>
             ) : null}
             {run?.notices?.map((notice) => (
-              <p key={notice} className="mb-2 text-xs text-amber-300/90">
+              <p key={notice} className="tone-warning tone-text mb-2 text-xs">
                 {notice}
               </p>
             ))}

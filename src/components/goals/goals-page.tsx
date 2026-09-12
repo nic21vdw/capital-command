@@ -11,6 +11,7 @@ import { Modal } from "@/components/ui/modal";
 import { PageHeader } from "@/components/ui/page-header";
 import { Progress } from "@/components/ui/progress";
 import { Textarea } from "@/components/ui/textarea";
+import { useColateralSurface } from "@/lib/colateral/useSurface";
 import { getMonthlyContributionRequired } from "@/lib/calculations/portfolio";
 import { formatCurrency } from "@/lib/utils";
 import type { Goal } from "@/types/domain";
@@ -19,6 +20,26 @@ export function GoalsPage() {
   const { data, mutate } = useAppData();
   const [editing, setEditing] = useState<Goal | null>(null);
   const [showModal, setShowModal] = useState(false);
+
+  const fullyFunded = data.goals.filter((goal) => goal.currentAmount >= goal.targetAmount).length;
+
+  useColateralSurface({
+    route: "/finance",
+    title: "Goals",
+    summary: "Long-term targets and how close each one is to being met.",
+    fields: [],
+    controls: [{ id: "add-goal", label: "Add goal", group: "Goals" }],
+    readings: [
+      { label: "Goals tracked", value: String(data.goals.length) },
+      { label: "Fully funded", value: String(fullyFunded) }
+    ],
+    click: (id) => {
+      if (id !== "add-goal") return false;
+      setEditing(makeGoal());
+      setShowModal(true);
+      return true;
+    }
+  });
 
   const saveGoal = async (formData: FormData) => {
     const goal = makeGoal(editing ?? undefined);

@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { ArrowUpRight, CalendarDays, ChevronLeft, ChevronRight, LayoutList, Loader2, Repeat, Sparkles } from "lucide-react";
-import { Badge } from "@/components/ui/badge";
+import { Badge, type BadgeTone } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { PageHeader } from "@/components/ui/page-header";
@@ -20,6 +20,7 @@ import type { CalendarPlan } from "@/lib/master-calendar/planner";
 import { sourceHrefForDay } from "@/lib/master-calendar/aggregate";
 import { formatDayKey, localTodayKey, shiftDayKey, weekdayOfDayKey } from "@/lib/master-calendar/day-keys";
 import { SourceIcon } from "@/components/master-calendar/source-icon";
+import { useColateralSurface } from "@/lib/colateral/useSurface";
 import { cn } from "@/lib/utils";
 
 /** Group a day's events by source, in the canonical CALENDAR_SOURCES order. */
@@ -51,11 +52,11 @@ function startOfWeek(key: string): string {
   return shiftDayKey(key, -weekdayOfDayKey(key));
 }
 
-function statusTone(status: string): string {
-  if (status === "published" || status === "posted") return "border-emerald-400/30 bg-emerald-400/10 text-emerald-200";
-  if (status === "failed") return "border-red-400/30 bg-red-400/10 text-red-200";
-  if (status === "scheduled") return "border-sky-400/30 bg-sky-400/10 text-sky-200";
-  return "";
+function statusTone(status: string): BadgeTone {
+  if (status === "published" || status === "posted") return "success";
+  if (status === "failed") return "danger";
+  if (status === "scheduled") return "info";
+  return "neutral";
 }
 
 /** A single event as a compact clickable row (month/week cells). */
@@ -139,7 +140,7 @@ function EventCard({ event }: { event: MasterCalendarEvent }) {
         </span>
       </span>
       {event.recurring ? <Repeat className="h-3.5 w-3.5 shrink-0 text-[var(--muted-foreground)]" /> : null}
-      <Badge className={cn("shrink-0 capitalize", statusTone(event.status))}>{event.status}</Badge>
+      <Badge tone={statusTone(event.status)} className="shrink-0 capitalize">{event.status}</Badge>
       <ArrowUpRight className="h-3.5 w-3.5 shrink-0 text-[var(--muted-foreground)] opacity-0 transition group-hover:opacity-100" />
     </Link>
   );
@@ -310,6 +311,103 @@ export function MasterCalendarPage() {
     [anchor]
   );
 
+  // The next upcoming piece in the currently loaded window, and anything that
+  // failed — the two things an agent asking "what's going out Thursday" needs
+  // most, read straight off the true (unfiltered-by-visibility) event list.
+  const nextEvent = useMemo(() => {
+    return events
+      .filter((event) => event.dateKey >= todayKey)
+      .slice()
+      .sort((a, b) => {
+        if (a.dateKey !== b.dateKey) return a.dateKey.localeCompare(b.dateKey);
+        if (a.time && b.time) return a.time.localeCompare(b.time);
+        if (a.time) return -1;
+        if (b.time) return 1;
+        return 0;
+      })[0];
+  }, [events, todayKey]);
+  const failedCount = useMemo(() => events.filter((event) => event.status === "failed").length, [events]);
+  const nextPostReading = nextEvent
+    ? `${formatDayKey(nextEvent.dateKey, { weekday: "short", month: "short", day: "numeric" })}${
+        nextEvent.time ? ` ${nextEvent.time}` : ""
+      } · ${nextEvent.title} (${CALENDAR_SOURCE_BY_ID[nextEvent.source].shortLabel})`
+    : "Nothing upcoming in this view";
+
+  useColateralSurface({
+    route: "/master-calendar",
+    title: "Master Calendar",
+    summary: "Every distribution calendar in one place: scheduled shorts, carousels, Threads packs, FB/IG threads and long-form content by day, week or month.",
+    fields: [
+      { id: "date", label: "Date", value: anchor, kind: "date" },
+      { id: "view", label: "View", value: view, kind: "select", options: ["day", "week", "month"] },
+      ...CALENDAR_SOURCES.map((source) => ({
+        id: `show-${source.id}`,
+        label: source.label,
+        value: !hidden.has(source.id),
+        kind: "boolean" as const
+      }))
+    ],
+    controls: [
+      { id: "today", label: "Today", group: "View" },
+      { id: "prev", label: "Previous period", group: "View" },
+      { id: "next", label: "Next period", group: "View" },
+      { id: "plan", label: plan ? "Re-plan" : "Plan my week", group: "Planner", disabled: planning }
+    ],
+    readings: [
+      { label: "Period", value: periodLabel },
+      { label: "Scheduled in view", value: String(events.length) },
+      { label: "Next post", value: nextPostReading },
+      { label: "Failed", value: String(failedCount) }
+    ],
+    setField: (id, value) => {
+      if (id === "date") {
+        const next = String(value ?? "");
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(next)) return false;
+        setAnchor(next);
+        return true;
+      }
+      if (id === "view") {
+        const next = String(value ?? "");
+        if (next !== "day" && next !== "week" && next !== "month") return false;
+        setView(next);
+        return true;
+      }
+      if (id.startsWith("show-")) {
+        const sourceId = id.slice("show-".length) as CalendarSourceId;
+        if (!CALENDAR_SOURCE_BY_ID[sourceId]) return false;
+        const shouldShow = Boolean(value);
+        setHidden((current) => {
+          const next = new Set(current);
+          if (shouldShow) next.delete(sourceId);
+          else next.add(sourceId);
+          return next;
+        });
+        return true;
+      }
+      return false;
+    },
+    click: (id) => {
+      if (id === "today") {
+        setAnchor(todayKey);
+        return true;
+      }
+      if (id === "prev") {
+        shift(-1);
+        return true;
+      }
+      if (id === "next") {
+        shift(1);
+        return true;
+      }
+      if (id === "plan") {
+        if (planning) return false;
+        void runPlan();
+        return true;
+      }
+      return false;
+    }
+  });
+
   return (
     <div>
       <PageHeader
@@ -479,7 +577,7 @@ export function MasterCalendarPage() {
         {view === "month" ? (
           <div className="panel-enter overflow-x-auto">
             <div className="min-w-[840px]">
-              <div className="grid grid-cols-7 border-b border-[var(--border)] bg-white/[0.02]">
+              <div className="grid grid-cols-7 border-b border-[var(--border)] bg-[var(--well)]">
                 {WEEKDAY_LABELS.map((label, index) => (
                   <div
                     key={label}
@@ -506,7 +604,7 @@ export function MasterCalendarPage() {
                         index % 7 !== 0 && "border-l",
                         index >= 7 && "border-t",
                         !inMonth && "opacity-40",
-                        isToday ? "bg-[var(--accent)]/8" : weekend && "bg-white/[0.02]"
+                        isToday ? "bg-[var(--accent)]/8" : weekend && "bg-[var(--well)]"
                       )}
                     >
                       <button

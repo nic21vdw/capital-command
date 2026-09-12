@@ -220,9 +220,9 @@ export function ClipQueue({
             </p>
           </AdvancedOptions>
           {failedCaptionCount > 0 ? (
-            <div className="flex flex-wrap items-center gap-2 rounded-lg border border-amber-400/25 bg-amber-400/8 px-2.5 py-2">
-              <TriangleAlert className="h-3.5 w-3.5 shrink-0 text-amber-300" />
-              <span className="min-w-0 flex-1 text-[11px] text-amber-100">
+            <div className="tone-warning tone-edge tone-soft flex flex-wrap items-center gap-2 rounded-lg border px-2.5 py-2">
+              <TriangleAlert className="tone-warning tone-text h-3.5 w-3.5 shrink-0" />
+              <span className="tone-warning tone-text min-w-0 flex-1 text-[11px]">
                 {/* Naming the button matters: only the whole-run button holds
                     these back. Scheduling a card on its own still posts it,
                     with fallback wording — saying "scheduling" flatly told him

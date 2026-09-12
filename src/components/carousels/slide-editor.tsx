@@ -182,7 +182,7 @@ export function SlideEditor({
               onClick={() => setMode("preview")}
               className={cn(
                 "inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition",
-                mode === "preview" ? "bg-[var(--accent)] text-[var(--accent-contrast)]" : "text-white/60 hover:text-white"
+                mode === "preview" ? "bg-[var(--accent)] text-[var(--accent-contrast)]" : "text-[var(--muted-foreground-2)] hover:text-white"
               )}
             >
               <Eye className="h-3.5 w-3.5" /> Preview
@@ -192,13 +192,13 @@ export function SlideEditor({
               onClick={() => setMode("edit")}
               className={cn(
                 "inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition",
-                mode === "edit" ? "bg-[var(--accent)] text-[var(--accent-contrast)]" : "text-white/60 hover:text-white"
+                mode === "edit" ? "bg-[var(--accent)] text-[var(--accent-contrast)]" : "text-[var(--muted-foreground-2)] hover:text-white"
               )}
             >
               <Pencil className="h-3.5 w-3.5" /> Edit
             </button>
           </div>
-          <span className="hidden text-xs text-white/60 sm:inline">
+          <span className="hidden text-xs text-[var(--muted-foreground)] sm:inline">
             Slide {index + 1} / {total} · {spec.label} {spec.badge}
           </span>
         </div>
@@ -213,7 +213,7 @@ export function SlideEditor({
             type="button"
             onClick={requestClose}
             aria-label="Close"
-            className="flex h-9 w-9 items-center justify-center rounded-lg text-white/60 transition hover:bg-white/10 hover:text-white"
+            className="flex h-9 w-9 items-center justify-center rounded-lg text-[var(--muted-foreground)] transition hover:bg-white/10 hover:text-white"
           >
             <X className="h-5 w-5" />
           </button>
@@ -819,7 +819,7 @@ function LayerControls({
         <p className="text-[11px] font-semibold uppercase tracking-wider text-[var(--muted-foreground)]">
           {layer.type === "text" ? "Text layer" : "Image layer"}
         </p>
-        <button type="button" onClick={onRemove} aria-label="Delete layer" className="text-[var(--muted-foreground)] transition hover:text-red-300">
+        <button type="button" onClick={onRemove} aria-label="Delete layer" className="text-[var(--muted-foreground)] transition hover:text-[var(--danger)]">
           <Trash2 className="h-3.5 w-3.5" />
         </button>
       </div>

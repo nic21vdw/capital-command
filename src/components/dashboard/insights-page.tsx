@@ -7,10 +7,29 @@ import { useAppData } from "@/components/providers/app-provider";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { PageHeader } from "@/components/ui/page-header";
+import { useColateralSurface } from "@/lib/colateral/useSurface";
 import { formatCurrency } from "@/lib/utils";
 
 export function DashboardInsightsPage() {
   const { data, summary } = useAppData();
+
+  useColateralSurface({
+    route: "/finance",
+    title: "Insights",
+    summary: "Observations about the current portfolio positioning — read-only.",
+    fields: [],
+    controls: [],
+    readings: [
+      { label: "Largest position", value: `${summary.largestPositionPercentage.toFixed(2)}%` },
+      { label: "Concentration risk", value: summary.concentrationRisk },
+      { label: "Cash percentage", value: `${summary.cashPercentage.toFixed(2)}%` },
+      {
+        label: "Estimated annual dividends",
+        value: formatCurrency(summary.estimatedAnnualDividends, data.settings.currency)
+      },
+      { label: "Holdings missing price data", value: String(summary.holdingsMissingData.length) }
+    ]
+  });
 
   return (
     <div className="space-y-6">
@@ -52,7 +71,9 @@ export function DashboardInsightsPage() {
                     <p className="font-medium text-white">{holding.ticker}</p>
                     <p className="text-sm text-[var(--muted-foreground)]">{holding.name}</p>
                   </div>
-                  <Badge>{holding.gainLossPercent.toFixed(2)}%</Badge>
+                  <Badge tone={holding.gainLossPercent >= 0 ? "success" : "danger"}>
+                    {holding.gainLossPercent.toFixed(2)}%
+                  </Badge>
                 </div>
               ))}
           </div>

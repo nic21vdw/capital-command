@@ -142,7 +142,7 @@ export function SpotifyCard({
       </div>
 
       {status.error ? (
-        <p className="mt-4 border-t border-[var(--border)] pt-4 text-sm text-amber-200">{status.error}</p>
+        <p className="mt-4 border-t border-[var(--border)] pt-4 text-sm tone-warning tone-text">{status.error}</p>
       ) : null}
 
       <div className="mt-4 border-t border-[var(--border)] pt-4">
@@ -157,7 +157,7 @@ export function SpotifyCard({
               </p>
             </div>
             <div className="flex items-center gap-2">
-              <Badge className="border-emerald-400/30 bg-emerald-400/10 text-emerald-200">
+              <Badge tone="success">
                 <Check className="mr-1.5 h-3.5 w-3.5" /> Show linked
               </Badge>
               <a

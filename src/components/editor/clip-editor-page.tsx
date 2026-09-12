@@ -18,6 +18,7 @@ import { AdvancedOptions } from "@/components/ui/advanced-options";
 import { ClipEditor } from "@/components/editor/clip-editor";
 import { clearDraftProject, readDraftProject, writeDraftProject } from "@/components/editor/drafts";
 import { EditorExportsProvider } from "@/components/editor/exports-provider";
+import { useColateralSurface } from "@/lib/colateral/useSurface";
 import type { CaptionSegment, ClipProject } from "@/types/domain";
 import type { ClipCandidate, ClipJob } from "@/lib/clipping/types";
 
@@ -289,6 +290,57 @@ export function ClipEditorPage() {
     if (openId === project.id) setOpenId(null);
   };
 
+  // Only the project-list-level state is reachable from here — once a project
+  // is open, its trim/captions/export controls live inside <ClipEditor>'s own
+  // state, so this surface reports what it opened rather than reaching in.
+  useColateralSurface({
+    route: "/editor",
+    title: "Clip Editor",
+    summary: "Open a rendered clip to trim it, caption it, and export it.",
+    fields: openProject
+      ? []
+      : [{ id: "sortMode", label: "Sort projects", value: sortMode, kind: "select", options: ["date", "name"] }],
+    controls: openProject
+      ? [
+          { id: "closeProject", label: "Back to projects", group: "Editor" },
+          { id: "deleteProject", label: "Delete project", group: "Editor", destructive: true }
+        ]
+      : [{ id: "newProject", label: "New project", group: "Projects" }],
+    readings: [
+      { label: "Projects", value: String(projects.length) },
+      ...(openProject
+        ? [
+            { label: "Editing", value: openProject.name },
+            { label: "Aspect ratio", value: openProject.aspectRatio },
+            { label: "Captions", value: String(openProject.captionCount ?? openProject.captions.length) }
+          ]
+        : [])
+    ],
+    setField: (id, value) => {
+      if (id === "sortMode") {
+        if (value !== "date" && value !== "name") return false;
+        setSortMode(value);
+        return true;
+      }
+      return false;
+    },
+    click: (id) => {
+      if (id === "newProject") {
+        openPicker();
+        return true;
+      }
+      if (id === "closeProject" && openProject) {
+        setOpenId(null);
+        return true;
+      }
+      if (id === "deleteProject" && openProject) {
+        void deleteProject(openProject);
+        return true;
+      }
+      return false;
+    }
+  });
+
   // A project was requested but the store is still loading (or a just-created
   // project hasn't landed yet) — hold instead of flashing the project list.
   if (!openProject && openId && loading) {
@@ -379,7 +431,7 @@ export function ClipEditorPage() {
                   type="button"
                   title="Delete project"
                   onClick={() => void deleteProject(project)}
-                  className="text-[var(--muted-foreground)] transition hover:text-red-400"
+                  className="text-[var(--muted-foreground)] transition hover:text-[var(--danger)]"
                 >
                   <Trash2 className="h-4 w-4" />
                 </button>

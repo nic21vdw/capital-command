@@ -289,7 +289,7 @@ export function LongformPreview({
         </span>
       )}
       {inCut && !hookActive && (
-        <span className="absolute left-3 top-3 rounded-full bg-red-500/90 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-white shadow">
+        <span className="absolute left-3 top-3 rounded-full bg-[var(--danger)] px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-white shadow">
           Cut in edit
         </span>
       )}
