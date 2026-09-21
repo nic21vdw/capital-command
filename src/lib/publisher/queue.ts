@@ -2,6 +2,7 @@ import { recordQueueMutations, type QueueWriter } from "@/lib/publisher/audit";
 import { publisherConfig, type PublisherConfig } from "@/lib/publisher/config";
 import { mediaHost } from "@/lib/publisher/hosting";
 import { preSchedulesItem } from "@/lib/publisher/nativeScheduling";
+import { youtubeHoldsForReview } from "@/lib/publisher/reviewHold";
 import { rearmItem, type RearmScope } from "@/lib/publisher/rearm";
 import { FileQueueStore, R2QueueStore, type QueueStore } from "@/lib/publisher/store";
 import type { BufferState, PlatformId, PlatformState, PostResult, QueueItem } from "@/lib/publisher/types";
@@ -196,16 +197,22 @@ export class PublishQueue {
    *  - Instagram/TikTok are due once publishAt <= now (no native scheduling);
    *  - "scheduled" posts come due again once publishAt <= now, so the runner
    *    can verify the platform really made them public (and force it if not);
+   *  - a scheduled long-form YouTube upload is due immediately, so the runner
+   *    can clear its go-live time and leave it private;
    *  - respects retry backoff (nextAttemptAt) and soft claims.
    */
   duePlatforms(item: QueueItem, now: Date): PlatformId[] {
     const due: PlatformId[] = [];
     for (const [platform, state] of Object.entries(item.platforms) as [PlatformId, PlatformState][]) {
-      const awaitingFlip = state.status === "scheduled";
-      if (isTerminalStatus(state.status) && !awaitingFlip) continue;
-      const timeDue = awaitingFlip
-        ? new Date(item.publishAt).getTime() <= now.getTime()
-        : preSchedulesItem(platform, item, now) || new Date(item.publishAt).getTime() <= now.getTime();
+      const heldReview =
+        platform === "youtube" && state.status === "scheduled" && youtubeHoldsForReview(item);
+      const awaitingFlip = state.status === "scheduled" && !heldReview;
+      if (isTerminalStatus(state.status) && !awaitingFlip && !heldReview) continue;
+      const timeDue = heldReview
+        ? true
+        : awaitingFlip
+          ? new Date(item.publishAt).getTime() <= now.getTime()
+          : preSchedulesItem(platform, item, now) || new Date(item.publishAt).getTime() <= now.getTime();
       if (!timeDue) continue;
       if (state.nextAttemptAt && new Date(state.nextAttemptAt).getTime() > now.getTime()) continue;
       if (state.claimedAt) {

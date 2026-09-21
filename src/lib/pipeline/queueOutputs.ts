@@ -519,7 +519,7 @@ export async function queueRunOutputs(
               title: candidate.title,
               format: LONG_VIDEO_KINDS.has(candidate.kind) ? "long" : "short",
               platforms: candidate.platforms.length ? candidate.platforms : undefined,
-              visibility: "public",
+              visibility: LONG_VIDEO_KINDS.has(candidate.kind) ? "private" : "public",
               jobId: candidate.kind === "clip" ? candidate.id.split(":")[1] : undefined,
               runId: run.id,
               metadataSource: { streamTitle: plan.runName },
