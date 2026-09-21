@@ -14,6 +14,8 @@ already shipped.
 
 ## Unreleased
 
+- **Long-form videos upload private and stay private.** Shorts and reels still go public on their own. A long-form upload, including one already sitting on YouTube as scheduled, is left private with no go-live time. Make it public yourself after you review it.
+
 ## 2026-09-12
 
 - **Capital Command wears whatever theme you picked in CoLateral.** It carried

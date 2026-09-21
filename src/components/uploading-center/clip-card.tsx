@@ -16,6 +16,7 @@ import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { ClipPreview } from "@/components/uploading-center/clip-preview";
 import { StatusChip } from "@/components/uploading-center/status-chip";
+import { youtubeHoldsForReview } from "@/lib/publisher/reviewHold";
 import {
   PLATFORM_LABELS,
   PLATFORM_TARGET_LABELS,
@@ -103,18 +104,24 @@ export type PlatformSummary = {
 export function summarizePlatformState(
   platform: PlatformId,
   state: PlatformState,
-  item: { publishAt: string; createdAt: string }
+  item: { publishAt: string; createdAt: string; format?: "short" | "long"; clipPath?: string }
 ): PlatformSummary {
   const goLive = formatStamp(item.publishAt);
   const uploadIso = state.uploadedAt ?? (state.postId ? item.createdAt : null);
   const uploaded = uploadIso ? `Uploaded ${formatDay(uploadIso)}` : null;
+  const heldPrivate = platform === "youtube" && youtubeHoldsForReview(item);
   switch (state.status) {
     case "scheduled":
-      return { uploaded, note: `Goes live ${goLive}` };
+      return {
+        uploaded,
+        note: heldPrivate ? "Private on YouTube - make it public after you review it" : `Goes live ${goLive}`
+      };
     case "published":
       return {
         uploaded: uploaded ?? `Uploaded ${formatDay(state.publishedAt ?? item.publishAt)}`,
-        note: `Live since ${formatStamp(state.publishedAt ?? item.publishAt)}`
+        note: heldPrivate
+          ? "Private on YouTube - make it public after you review it"
+          : `Live since ${formatStamp(state.publishedAt ?? item.publishAt)}`
       };
     case "uploaded":
       return { uploaded, note: `Processing · goes live ${goLive}` };

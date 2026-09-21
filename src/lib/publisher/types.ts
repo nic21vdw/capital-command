@@ -148,6 +148,11 @@ export type QueueItem = {
   /** Target publish instant, stored as UTC ISO-8601. */
   publishAt: string;
   visibility: Visibility;
+  /**
+   * "long" is a full-length YouTube upload: it goes up private and stays
+   * private. Absent on shorts, reels, and everything queued before this field.
+   */
+  format?: "short" | "long";
   createdAt: string;
   /** Only the requested platforms are present. */
   platforms: Partial<Record<PlatformId, PlatformState>>;

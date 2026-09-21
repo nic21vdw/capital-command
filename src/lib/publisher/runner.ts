@@ -23,11 +23,13 @@ import type { PlatformAdapter, PlatformId, PlatformState, PostResult, PublishInp
  * The scheduler/runner. run_due(now) processes every queue item that is due
  * and not yet in a terminal state:
  *
- *  - YouTube items upload immediately (whenever the runner first sees them)
+ *  - YouTube shorts upload immediately (whenever the runner first sees them)
  *    with status.publishAt — YouTube then publishes natively at the target
- *    time, so YouTube posts survive runner downtime. Once the target time
+ *    time, so those posts survive runner downtime. Once the target time
  *    passes, the runner double-checks the video actually went public and
  *    forces it public if YouTube ignored publishAt (adapter.finalize).
+ *    Long-form uploads go up private and stay private. One already scheduled
+ *    is due at once so its go-live time can be cleared.
  *  - Instagram/TikTok items fire once publishAt <= now, because those APIs
  *    have no server-side scheduling.
  *
