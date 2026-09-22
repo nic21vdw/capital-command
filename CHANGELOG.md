@@ -14,6 +14,8 @@ already shipped.
 
 ## Unreleased
 
+- **Segment Deck downloads finish faster without losing quality.** Remotion no longer paints one frame at a time — it uses your spare CPU cores (capped safely) and still exports at full resolution with the same master encode quality as the rest of the app.
+
 - **Long-form videos upload private and stay private.** Shorts and reels still go public on their own. A long-form upload, including one already sitting on YouTube as scheduled, is left private with no go-live time. Make it public yourself after you review it.
 
 ## 2026-09-12

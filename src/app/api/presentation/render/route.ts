@@ -4,6 +4,7 @@ import os from "os";
 import { promises as fs } from "fs";
 import { bundle } from "@remotion/bundler";
 import { selectComposition, renderMedia } from "@remotion/renderer";
+import { remotionConcurrency, REMOTION_EXPORT } from "@/lib/remotion/export";
 
 // NOTE: do not import from `projects.tsx` here — it loads Remotion scene
 // components at module scope, which throw in this server (RSC) context
@@ -68,8 +69,14 @@ export async function GET(req: NextRequest) {
     await renderMedia({
       serveUrl,
       composition,
-      codec: "h264",
+      codec: REMOTION_EXPORT.codec,
       outputLocation: outPath,
+      // Full-res final export: never downscale; CRF matches the app master encode.
+      scale: REMOTION_EXPORT.scale,
+      crf: REMOTION_EXPORT.crf,
+      imageFormat: REMOTION_EXPORT.imageFormat,
+      jpegQuality: REMOTION_EXPORT.jpegQuality,
+      concurrency: remotionConcurrency(),
       browserExecutable,
       chromiumOptions: { ignoreCertificateErrors, gl: "swangle" }
     });
