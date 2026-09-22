@@ -334,6 +334,8 @@ export function useUploadingCenter(clipProjects: ClipProject[] = []) {
    */
   const [captionFailures, setCaptionFailures] = useState<Record<string, string>>({});
   const remindedRef = useRef(new Set<string>());
+  /** Drops overlapping poll ticks so a slow YouTube channel read cannot stack. */
+  const refreshInFlightRef = useRef(false);
   /**
    * Which two-week window the schedule grid shows, in days after today
    * (0 = the current period, 14 = the next one, …). Nothing is fetched when it
@@ -429,6 +431,11 @@ export function useUploadingCenter(clipProjects: ClipProject[] = []) {
    */
   const refresh = useCallback(
     async (options?: { channelRefresh?: boolean }) => {
+      // A forced channel refresh (right after publish) always runs; the 60s
+      // poll skips when the previous tick is still in flight so clicks stay
+      // responsive while a slow YouTube read finishes.
+      if (refreshInFlightRef.current && !options?.channelRefresh) return;
+      refreshInFlightRef.current = true;
       void refreshChannel({ force: options?.channelRefresh });
       try {
         await Promise.all([
@@ -443,6 +450,7 @@ export function useUploadingCenter(clipProjects: ClipProject[] = []) {
       } catch {
         // Offline or malformed payload — retry on the next tick.
       } finally {
+        refreshInFlightRef.current = false;
         setLoaded(true);
       }
     },
