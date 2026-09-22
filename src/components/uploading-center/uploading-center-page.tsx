@@ -149,9 +149,14 @@ export function UploadingCenterPage() {
   }, [activeYoutubeAccountId, refreshChannel]);
 
   // The 60-second poll doubles as the TikTok/Instagram manual-reminder tick
-  // (YouTube self-publishes); it's a no-op when nothing changed.
+  // (YouTube self-publishes); it's a no-op when nothing changed. Skip ticks
+  // while the browser tab is hidden so switching back to Uploading Center
+  // is not competing with a backlog of channel refreshes.
   useEffect(() => {
-    const timer = setInterval(() => void refresh(), 60_000);
+    const timer = setInterval(() => {
+      if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
+      void refresh();
+    }, 60_000);
     return () => clearInterval(timer);
   }, [refresh]);
 
