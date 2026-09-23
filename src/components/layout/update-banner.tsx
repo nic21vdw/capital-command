@@ -50,7 +50,7 @@ export function UpdateBanner() {
 
   if (!busy && shouldShowUpdated(status, status?.progress, { acknowledged })) {
     return (
-      <div className="mb-4 flex flex-wrap items-center gap-3 rounded-xl border border-emerald-500/40 bg-emerald-500/10 px-4 py-3">
+      <div className="glass mb-4 flex flex-wrap items-center gap-3 rounded-xl border px-4 py-3 [--glass-tint:color-mix(in_srgb,var(--color-emerald-500)_10%,transparent)]">
         <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-emerald-500/20 text-emerald-400">
           <CheckCircle2 className="h-4 w-4" />
         </span>

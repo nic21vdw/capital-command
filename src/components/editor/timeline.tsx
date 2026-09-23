@@ -198,7 +198,7 @@ export function EditorTimeline({
   const pct = (t: number) => `${(Math.max(0, Math.min(dur, t)) / dur) * 100}%`;
 
   return (
-    <div className="select-none space-y-2 rounded-xl border border-[var(--border)] bg-[var(--surface)] p-3">
+    <div className="select-none space-y-2 glass rounded-xl border p-3">
       {/* Toolbar: selection readout + zoom + trim actions */}
       <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
         <span className="text-sm text-white">
