@@ -12,7 +12,7 @@ import type { YoutubeQuota } from "@/lib/publisher/quota";
 export function QuotaMeter({ quota }: { quota: YoutubeQuota }) {
   const percent = Math.min(100, (quota.projectedUploads / Math.max(1, quota.budgetUploads)) * 100);
   return (
-    <div className="rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-3 py-2">
+    <div className="glass-inset rounded-lg border px-3 py-2">
       <div className="flex items-center justify-between gap-4 text-xs">
         <span className="font-medium text-white">YouTube quota</span>
         <span className={cn("tabular-nums", quota.overBudget ? "text-amber-300" : "text-[var(--muted-foreground)]")}>

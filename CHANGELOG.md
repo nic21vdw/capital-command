@@ -14,6 +14,7 @@ already shipped.
 
 ## Unreleased
 
+- **Cards, the sidebar, the update banner and the command bar are glass now, like CoLateral.** They are see-through with a soft blur and a lit edge instead of flat slabs, and text on them stays as easy to read as before. Inside CoLateral they follow your Appearance settings: Classic surface or Glass strength 0 turns them back to solid, and so does Windows' reduce-transparency setting.
 - **A run tells you where it is at a glance.** The top of a run is one card: the stage it is on now (or stuck on), a percent, and a track with one icon per stage that jumps to that stage when clicked. Stages below are single quiet lines, and the sentence explaining a stage only appears while it is working or stuck. Hover a finished stage to read it. Running stages use your CoLateral accent colour.
 - **Long-form videos upload private and stay private.** Shorts and reels still go public on their own. A long-form upload, including one already sitting on YouTube as scheduled, is left private with no go-live time. Make it public yourself after you review it.
 

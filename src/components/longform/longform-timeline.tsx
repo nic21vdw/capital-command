@@ -345,7 +345,7 @@ export function LongformTimeline({
   const cutCount = project.segments.filter((segment) => !segment.enabled).length;
 
   return (
-    <div className="rounded-xl border border-[var(--border)] bg-[var(--surface)] p-3">
+    <div className="glass rounded-xl border p-3">
       <div className="mb-2 flex items-center justify-between gap-3">
         <p className="text-xs text-[var(--muted-foreground)]">
           {selection

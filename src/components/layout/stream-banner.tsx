@@ -56,7 +56,7 @@ function StreamBannerBody() {
   };
 
   return (
-    <div className="mb-4 flex flex-wrap items-center gap-x-3 gap-y-1.5 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-sm">
+    <div className="glass mb-4 flex flex-wrap items-center gap-x-3 gap-y-1.5 rounded-lg border px-3 py-2 text-sm">
       <Radio className={cn("h-4 w-4 shrink-0", filtered ? "text-[var(--accent)]" : "text-[var(--muted-foreground)]")} />
       <span className="text-[var(--muted-foreground)]">Working on</span>
       <Link href={`/?run=${encodeURIComponent(stream.id)}`} className="truncate font-medium text-white hover:text-[var(--accent)]">

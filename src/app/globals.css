@@ -1079,3 +1079,112 @@ input[type="range"]::-moz-range-thumb {
 .pipe-col:only-child::after {
   display: none;
 }
+
+html {
+  --glass-level: 60;
+  --glass-k: calc(var(--glass-level) / 100);
+  --glass-blur: calc(26px * var(--glass-k));
+  --glass-saturate: calc(1 + 0.7 * var(--glass-k));
+  --glass-fill: calc(100% - 18% * var(--glass-k));
+  --glass-inset-fill: calc(100% - 80% * var(--glass-k));
+  --glass-pop-fill: calc(100% - 12% * var(--glass-k));
+  --glass-edge: rgba(255, 255, 255, 0.1);
+  --glass-highlight: rgba(255, 255, 255, 0.09);
+  --glass-sheen: rgba(255, 255, 255, 0.035);
+  --glass-shadow: 0 10px 30px rgba(0, 0, 0, 0.32);
+  --glass-glow: 3%;
+}
+
+html[data-theme="light"] {
+  --glass-edge: rgba(255, 255, 255, 0.75);
+  --glass-highlight: rgba(255, 255, 255, 0.9);
+  --glass-sheen: rgba(255, 255, 255, 0.45);
+  --glass-shadow: 0 10px 28px rgba(16, 44, 77, 0.12), 0 1px 2px rgba(16, 44, 77, 0.08);
+  --glass-glow: 3%;
+}
+
+html:not([data-surface="classic"]):not([data-glass="flat"]) body {
+  background:
+    radial-gradient(1100px 720px at 6% -12%, color-mix(in srgb, var(--accent) var(--glass-glow), transparent), transparent 62%),
+    radial-gradient(900px 640px at 104% 108%, color-mix(in srgb, var(--accent) var(--glass-glow), transparent), transparent 60%),
+    var(--background);
+}
+
+@layer components {
+  .glass,
+  .glass-popover {
+    --glass-base: var(--surface);
+    border-color: var(--glass-edge);
+    background-color: color-mix(in srgb, var(--glass-base) var(--glass-fill), transparent);
+    background-image:
+      linear-gradient(var(--glass-tint, transparent), var(--glass-tint, transparent)),
+      linear-gradient(180deg, var(--glass-sheen), transparent 45%);
+    box-shadow: inset 0 1px 0 var(--glass-highlight), var(--glass-shadow);
+    -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+    backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+  }
+
+  .glass-popover {
+    --glass-base: var(--panel);
+    background-color: color-mix(in srgb, var(--glass-base) var(--glass-pop-fill), transparent);
+    box-shadow: inset 0 1px 0 var(--glass-highlight), var(--shadow-pop);
+  }
+
+  .glass-panel {
+    --glass-base: var(--panel);
+  }
+
+  :where(.glass, .glass-popover) .glass,
+  .glass-inset {
+    --glass-base: var(--surface-2);
+    border-color: var(--border);
+    background-color: color-mix(in srgb, var(--glass-base) var(--glass-inset-fill), transparent);
+    background-image: linear-gradient(var(--glass-tint, transparent), var(--glass-tint, transparent));
+    box-shadow: inset 0 1px 0 var(--glass-highlight);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+
+  :where(.glass, .glass-popover) .glass-popover {
+    background-color: var(--glass-base);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+
+  html[data-surface="classic"] :is(.glass, .glass-popover, .glass-inset),
+  html[data-glass="flat"] :is(.glass, .glass-popover, .glass-inset) {
+    border-color: var(--border);
+    background-color: var(--glass-base);
+    background-image: linear-gradient(var(--glass-tint, transparent), var(--glass-tint, transparent));
+    box-shadow: var(--shadow);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+
+  html[data-surface="classic"] .glass-popover,
+  html[data-glass="flat"] .glass-popover {
+    border-color: var(--border-strong);
+    box-shadow: var(--shadow-pop);
+  }
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  html:not([data-surface="classic"]):not([data-glass="flat"]) body {
+    background: var(--background);
+  }
+
+  @layer components {
+    .glass,
+    .glass-popover,
+    .glass-inset,
+    :where(.glass, .glass-popover) .glass,
+    :where(.glass, .glass-popover) .glass-popover {
+      border-color: var(--border);
+      background-color: var(--glass-base);
+      background-image: linear-gradient(var(--glass-tint, transparent), var(--glass-tint, transparent));
+      box-shadow: var(--shadow);
+      -webkit-backdrop-filter: none;
+      backdrop-filter: none;
+    }
+  }
+}

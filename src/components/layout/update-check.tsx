@@ -72,7 +72,7 @@ export function UpdateCheckButton({ collapsed = false }: { collapsed?: boolean }
   return (
     <div ref={container} className="relative">
       {open && available && !busy && (
-        <div className="absolute bottom-full left-0 z-30 mb-2 w-72 overflow-hidden rounded-xl border border-[var(--border-strong)] bg-[var(--panel)] shadow-xl">
+        <div className="glass-popover absolute bottom-full left-0 z-30 mb-2 w-72 overflow-hidden rounded-xl border">
           <div className="border-b border-[var(--border)] px-3 py-2.5">
             <p className="text-sm font-semibold text-white">
               {count} change{count === 1 ? "" : "s"} ready to install
