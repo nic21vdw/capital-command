@@ -547,6 +547,55 @@ open, with chapters.
   captions on past the stored ones (`extendCaptionSegments`), which fixed the
   same gap for topic segments.
 
+### Finding the story and watching the footage
+
+The best-of edit is cut to a story from footage it has looked at, not to a
+transcript. Words that read well can sit over a blank card, a private message
+or a screen that only makes sense after something that was cut.
+
+- THE KEYFRAME SCAN (`visual-scan.ts`) runs first, always. One ffmpeg pass
+  decodes only keyframes at 64x36 grey (`-skip_frame nokey`, seconds for a
+  multi-hour stream; every other second when keyframes are sparse) and keeps,
+  per sample, brightness, spread, change and a 16x9 signature. It is cached in
+  the project's work dir as `visual-timeline.json`, NEVER in `projects.json`.
+  A passage mostly on a blank screen is marked down and dropped, and every
+  passage's edges are pulled in past a blank screen onto a sentence
+  (`trimBlankEdges`), so no shot starts on the tail of a "starting soon" card.
+- THE STORY PASS asks the model for a premise and a role per kept passage
+  (setup, goal, attempt, problem, turn, payoff, wrap) with the scan's screen
+  notes beside each passage. Offline, `ensureStoryArc` pins the passage that
+  sets up the goal and the one with the result, and `repairContinuity` bridges
+  or drops a passage that opens by pointing back ("like I said", "it's still
+  broken") at something the edit skipped.
+- WATCHING (`vision-review.ts`): every passage that goes in is shown to a
+  vision model as a 3x2 contact sheet of six frames, with its words, its role,
+  the premise and the line before it. A drop (blank, loading, sensitive,
+  unrelated, needs context) takes it out and the best untried passage takes
+  its place and is watched too, up to 40 per build. A `sensitive` verdict is a
+  drop whatever the verdict line says. Claude directly with
+  `ANTHROPIC_API_KEY` (`ANTHROPIC_VISION_MODEL`, default Haiku), else fal's
+  vision gateway with `FAL_KEY` (the model the carousel check was calibrated
+  on); with neither, the scan's verdict stands and the panel says "Scan only".
+- CLEAN-UP (`fillers.ts`) is cut from word timings: standalone fillers (um,
+  uh, erm; never "like" or "so"), the first of a doubled word, and any pause
+  between words over 0.45s, carved between word edges so no kept word is
+  clipped. Each passage starts on its first real word (`cleanInPoint`), not
+  its "so, okay". Captions drop any word the edit does not play
+  (`remapCaptionsToOutput`). Passage runtimes are measured AFTER the clean-up
+  (`cleanedRuntimeSec`) and a pick never fills short of the eight-minute
+  floor: measured before, an eight-minute target shrank to 6m 50s.
+- ZOOM CUTS (`zoom-cuts.ts`) are the only effect: a jump cut inside the same
+  shot alternates between wide and a 1.12x punch-in on the hook's focus point,
+  held at least 3.5s; a cut to new material (a long skip, or a signature
+  change) is a straight cut back to wide. It is one `zoompan` over a frame
+  pre-scaled so the punch-in is a 1:1 crop, in the body pass, wide layout
+  only. `project.zoomCuts` absent means on for a best-of edit, off otherwise.
+- A BUILD IS A BACKGROUND JOB. `POST /highlight` answers 202 and the panel
+  polls `highlightBuild` (stage, progress, error). `runHighlightEdit` shares
+  one build between the editor and the pipeline; passage edits and "back to
+  the whole stream" are refused while one runs, and a build left running by a
+  restart is marked failed on load.
+
 ## What a short ships as (`audio.ts`, `hook.ts`)
 
 Two things separate a clip that reads as a real short from one that reads as a

@@ -17,6 +17,8 @@ import { overlayFilePath } from "@/lib/longform/overlays";
 import { editedDurationSec, exportRanges, extendCaptionSegments, projectForTopic, remapCaptionsToOutput, sourceTimeToOutput, sourceToOutputIntervals, type KeptRange } from "@/lib/longform/plan";
 import { getProject, projectOutputDir, projectWorkDir, setTopicExport, updateProject, withFullTranscript } from "@/lib/longform/store";
 import type { LongformExportRecord, LongformProject } from "@/lib/longform/types";
+import { readVisualTimeline } from "@/lib/longform/visual-scan";
+import { planZoomCuts, zoomCutFilter } from "@/lib/longform/zoom-cuts";
 import { DEFAULT_OUTPUT_QUALITY, normalizeOutputQuality, type OutputQuality } from "@/lib/pipeline/outputQuality";
 import { readAppData } from "@/lib/storage/store";
 import { planSfxCues } from "@/lib/sfx/cues";
@@ -430,6 +432,20 @@ async function runExport(projectId: string, recordId: string, signal: AbortSigna
     const lastEnd = bodyRanges[bodyRanges.length - 1].end;
     // Wide fits the kept frames into 16:9 with letterbox padding; vertical
     // centers them at full width over a blurred fill of themselves.
+    // Zoom cuts: jump cuts inside continuous footage alternate between the
+    // wide frame and a punch-in, so a cut reads as a change of shot rather
+    // than a hop. Planned from the body ranges and the keyframe scan; on the
+    // vertical layout the frame is already a composition, so it stays wide.
+    const zoomCut = !vertical && (project.zoomCuts ?? Boolean(project.highlight))
+      ? zoomCutFilter({
+          zoomed: planZoomCuts(bodyRanges, await readVisualTimeline(workDir)),
+          width: frameW,
+          height: frameH,
+          fps,
+          focusX: project.hook.focusX,
+          focusY: project.hook.focusY
+        })
+      : null;
     const filters = vertical
       ? [
           `[0:v]select='${expr}',setpts=N/FRAME_RATE/TB[vsel]`,
@@ -439,7 +455,8 @@ async function runExport(projectId: string, recordId: string, signal: AbortSigna
       : [
           `[0:v]select='${expr}',setpts=N/FRAME_RATE/TB,` +
             `${containScale(frameW, frameH)},` +
-            `pad=${frameW}:${frameH}:(ow-iw)/2:(oh-ih)/2:color=0x050914,setsar=1,fps=${fps},format=yuv420p[vout]`
+            `pad=${frameW}:${frameH}:(ow-iw)/2:(oh-ih)/2:color=0x050914,setsar=1,fps=${fps},` +
+            `${zoomCut ? `${zoomCut},setsar=1,` : ""}format=yuv420p[vout]`
         ];
     if (hasAudio) filters.push(`[0:a]aselect='${expr}',asetpts=N/SR/TB[aout]`);
     // The select expression carries one between() term per kept range, and a

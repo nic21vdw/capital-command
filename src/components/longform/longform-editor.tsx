@@ -259,7 +259,8 @@ export function LongformEditor({
           music: current.music,
           sfx: current.sfx,
           layout: current.layout ?? "wide",
-          pace: current.pace
+          pace: current.pace,
+          zoomCuts: current.zoomCuts
         })
       })
         .then((response) => {
@@ -910,7 +911,7 @@ export function LongformEditor({
           </div>
           <div key={tab} className="panel-enter space-y-4 glass rounded-xl border p-4">
             {tab === "bestof" && (
-              <BestOfPanel project={project} setProject={setProject} skipDirtyRef={skipDirtyRef} seek={seek} />
+              <BestOfPanel project={project} setProject={setProject} patch={patch} skipDirtyRef={skipDirtyRef} seek={seek} />
             )}
             {tab === "hook" && (
               <HookPanel
