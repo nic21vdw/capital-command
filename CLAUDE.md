@@ -502,6 +502,51 @@ special case.
   it hide the video they are about. The hook still reads as a hook through size,
   weight and the push-in, not through where it sits.
 
+## The best-of edit (`highlights.ts`)
+
+The third answer to "what is the long-form video of this stream". The full edit
+is the whole recording with its dead space cut (a two-hour upload from a
+three-hour stream); topic segments carve it into several videos. The best-of
+edit is ONE upload at a target runtime (12, 20 or 30 minutes, 20 by default):
+the stream's strongest passages, in the order they happened, opening on a cold
+open, with chapters.
+
+- A PASSAGE is a run of complete sentences, 40 seconds to 4 minutes, closed on
+  a sentence end or a real pause and never across a dead stretch
+  (`buildPassageWindows`). Every candidate is stored on the project, picked or
+  not, so the editor can swap one in without re-reading the stream.
+- THE PICK is an editor pass (`runAi`, one call over every passage) that keeps
+  the story and cuts setup, waiting, stream trouble and repeats. It is only
+  used when it lands near the target; otherwise the offline scorer
+  (`scorePassage` + `selectPassages`: density, energy, standalone, opening,
+  channel keywords, with a continuity bonus) decides. The button always
+  produces an edit.
+- APPLYING IT IS JUST SEGMENTS AND A HOOK (`applyHighlight`). The cut plan is
+  rebuilt from the pace and restricted to the enabled passages
+  (`restrictSegments`: dead space inside a passage stays cut), and the hook is
+  re-pointed at the cold open. So the whole-edit export, the preview, the
+  podcast MP3 and the scheduler render it with no special case. Swapping a
+  passage, rebuilding, or a new pace resets manual timeline edits, the same way
+  a replan always has.
+- THE COLD OPEN is the strongest sentence in the edit (8-20 seconds), used only
+  when it beats the first passage's own opening by a margin. The body skips
+  the lifted window, as it skips any hook window.
+- CHAPTERS ARE DERIVED, NEVER STORED (`highlightChapters`). They are timed on
+  the edited runtime with `sourceTimeToOutput`, so a timeline edit moves them.
+  They follow YouTube's rules or are empty: first at 0:00, at least three, none
+  under ten seconds. `generateLongformMetadata` uses them instead of asking the
+  model for chapters.
+- THE PIPELINE BUILDS IT BEFORE IT RENDERS (`pipeline/highlight-gate.ts`) when
+  the edit runs over 1.25x the target. It needs the whole stream's words, so
+  the render waits while the clip job is still transcribing and falls back to
+  the whole edit when no transcript is coming. One attempt per run
+  (`highlightPlanned`); a failure is recorded in `highlightNote`.
+- Anything that describes or renders a best-of edit reads the whole-recording
+  transcript (`withFullTranscript`), because its passages come from hours past
+  what the project itself transcribed. The render also carries the body
+  captions on past the stored ones (`extendCaptionSegments`), which fixed the
+  same gap for topic segments.
+
 ## What a short ships as (`audio.ts`, `hook.ts`)
 
 Two things separate a clip that reads as a real short from one that reads as a

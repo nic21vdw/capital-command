@@ -1,6 +1,9 @@
 import { aiConfigured, runAi } from "@/lib/ai";
 import { CHANNEL_CONTEXT, CHANNEL_KEYWORDS, COLATERAL_DESCRIPTION, TITLE_STYLE_EXAMPLES } from "@/lib/clipping/keywords";
-import type { LongformProject, LongformSegment } from "@/lib/longform/types";
+import { highlightChapters } from "@/lib/longform/highlights";
+import { formatChapterTime } from "@/lib/longform/length";
+import { editedDurationSec, sourceTimeToOutput } from "@/lib/longform/plan";
+import type { LongformHook, LongformProject, LongformSegment } from "@/lib/longform/types";
 import type { CaptionSegment } from "@/types/domain";
 
 /**
@@ -42,13 +45,7 @@ export function longformMetadataConfigured() {
   return aiConfigured();
 }
 
-export function formatChapterTime(seconds: number): string {
-  const total = Math.max(0, Math.floor(seconds));
-  const h = Math.floor(total / 3600);
-  const m = Math.floor((total % 3600) / 60);
-  const s = total % 60;
-  return h > 0 ? `${h}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}` : `${m}:${String(s).padStart(2, "0")}`;
-}
+export { formatChapterTime };
 
 /**
  * Maps a source-timeline second onto the edited runtime by subtracting the
@@ -66,16 +63,28 @@ export function toEditedSeconds(sourceSec: number, segments: LongformSegment[]):
   return Math.max(0, sourceSec - cut);
 }
 
+/** Whether a source instant plays in the edit: inside a kept segment or the hook window. */
+function playsInEdit(sourceSec: number, segments: LongformSegment[], hook: LongformHook): boolean {
+  if (hook.enabled && sourceSec >= (hook.start ?? 0) && sourceSec < hook.end) return true;
+  return segments.some((segment) => segment.enabled && sourceSec >= segment.start && sourceSec < segment.end);
+}
+
 /**
  * Timestamped transcript lines in edited-runtime minutes, capped so a long
  * recording still fits one prompt. Groups caption segments into ~30s lines.
+ *
+ * With the hook given, times are exact (the hook pulled to the front and every
+ * cut applied) and lines the edit does not play are left out: a best-of edit
+ * cuts most of the stream, and describing what was cut describes a different
+ * video.
  */
-export function transcriptLines(transcript: CaptionSegment[], segments: LongformSegment[]): string {
+export function transcriptLines(transcript: CaptionSegment[], segments: LongformSegment[], hook?: LongformHook): string {
   const lines: string[] = [];
   let bucketStart = -1;
   let bucketText: string[] = [];
   for (const segment of transcript) {
-    const edited = toEditedSeconds(segment.start, segments);
+    if (hook && !playsInEdit(segment.start, segments, hook)) continue;
+    const edited = hook ? sourceTimeToOutput(segment.start, segments, hook) ?? 0 : toEditedSeconds(segment.start, segments);
     if (bucketStart === -1) bucketStart = edited;
     bucketText.push(segment.text.trim());
     if (edited - bucketStart >= 30) {
@@ -214,9 +223,12 @@ export function parseLongformMetadata(text: string): Omit<LongformVideoMetadata,
 }
 
 /** Offline fallback: keyword-driven, honest, and clearly editable. */
-export function fallbackLongformMetadata(project: Pick<LongformProject, "name">): LongformVideoMetadata {
+export function fallbackLongformMetadata(
+  project: Pick<LongformProject, "name"> & Partial<Pick<LongformProject, "highlight" | "segments" | "hook">>
+): LongformVideoMetadata {
   const base = project.name.trim() || "New Video";
-  return {
+  const chapters = fixedChapters(project);
+  const fallback = {
     titles: [
       base,
       `How I Built ${base} With AI`,
@@ -236,10 +248,26 @@ export function fallbackLongformMetadata(project: Pick<LongformProject, "name">)
       "#AI #VibeCoding #BuildingInPublic"
     ].join("\n"),
     tags: [...CHANNEL_KEYWORDS],
-    chapters: [],
-    source: "fallback",
+    chapters,
+    source: "fallback" as const,
     generatedAt: new Date().toISOString()
   };
+  return { ...fallback, description: `${fallback.description}${chapterBlock(chapters)}` };
+}
+
+/**
+ * The chapters a best-of edit already knows: one per run of passages, timed on
+ * the edited runtime by the same mapping the render uses. These are exact, so
+ * they replace the model's guess rather than being second-guessed by it.
+ */
+export function fixedChapters(
+  project: Partial<Pick<LongformProject, "highlight" | "segments" | "hook">>
+): LongformChapter[] {
+  if (!project.highlight || !project.segments || !project.hook) return [];
+  return highlightChapters(project.highlight.passages, project.segments, project.hook).map(({ time, label }) => ({
+    time,
+    label
+  }));
 }
 
 /** Renders chapters into the "0:00 Label" lines YouTube parses. */
@@ -256,11 +284,14 @@ export async function generateLongformMetadata(project: LongformProject): Promis
   const fallback = fallbackLongformMetadata(project);
   if (!longformMetadataConfigured()) return fallback;
 
-  // Only ask for chapters when the transcript actually covers the video —
-  // long recordings only get their opening minutes transcribed.
+  // A best-of edit brings its own exact chapters. Otherwise only ask for them
+  // when the transcript actually covers the video — long recordings only get
+  // their opening minutes transcribed.
+  const known = fixedChapters(project);
   const transcriptEnd = project.transcript.length ? project.transcript[project.transcript.length - 1].end : 0;
-  const wantChapters = project.transcript.length > 0 && transcriptEnd >= project.durationSec * 0.8;
-  const transcriptText = transcriptLines(project.transcript, project.segments);
+  const wantChapters = known.length === 0 && project.transcript.length > 0 && transcriptEnd >= project.durationSec * 0.8;
+  const transcriptText = transcriptLines(project.transcript, project.segments, project.highlight ? project.hook : undefined);
+  const durationSec = project.highlight ? editedDurationSec(project.segments, project.hook) : project.durationSec;
 
   try {
     const result = await runAi({
@@ -271,7 +302,7 @@ export async function generateLongformMetadata(project: LongformProject): Promis
           role: "user",
           content: buildLongformMetadataPrompt({
             name: project.name,
-            durationSec: project.durationSec,
+            durationSec,
             transcriptText,
             wantChapters
           })
@@ -281,7 +312,7 @@ export async function generateLongformMetadata(project: LongformProject): Promis
     if (!result || result.refused) return fallback;
     const parsed = parseLongformMetadata(result.text);
     if (!parsed) return fallback;
-    const chapters = wantChapters ? parsed.chapters : [];
+    const chapters = known.length ? known : wantChapters ? parsed.chapters : [];
     return {
       ...parsed,
       chapters,

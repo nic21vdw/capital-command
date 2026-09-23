@@ -252,6 +252,53 @@ export type LongformSegmentReview = {
   coldOpen?: LongformHookReview["coldOpen"];
 };
 
+/**
+ * One stretch of the stream the best-of edit can be built from: a run of
+ * complete sentences, a minute or two long, scored on how much it carries.
+ * Every candidate is kept on the project, picked or not, so the editor can
+ * swap one in or out without re-reading the stream.
+ */
+export type LongformHighlightPassage = {
+  id: string;
+  /** Source-timeline seconds, both on a sentence boundary. */
+  start: number;
+  end: number;
+  /** 0-100: how much this stretch earns its place in the edit. */
+  score: number;
+  /** Chapter label this passage opens under, 2-5 words. */
+  label: string;
+  /** Whether Claude wrote the label or the offline keyword labeller did. */
+  labelSource: "ai" | "fallback";
+  /** Distinctive terms of the stretch, strongest first. */
+  keywords: string[];
+  /** The first words said, so a passage is recognisable in the list. */
+  opening: string;
+  /** Whether the planner picked it. */
+  picked: boolean;
+  /** Whether it is in the edit right now: the planner's pick, or the editor's override. */
+  enabled: boolean;
+};
+
+/**
+ * The best-of edit: the stream cut down to its strongest passages at a target
+ * runtime, opening on a cold-open hook, with chapters that follow the cut.
+ * Applying it rewrites the project's segments and hook, so every export path
+ * (preview, render, pipeline, podcast) renders it with no special case.
+ */
+export type LongformHighlight = {
+  /** The runtime the planner aimed for, in seconds. */
+  targetSec: number;
+  /** Every candidate passage in source order, picked or not. */
+  passages: LongformHighlightPassage[];
+  /** Where the opening came from: a lifted line, or the first passage's own start. */
+  opening: "cold-open" | "natural";
+  /** The line the video opens on. */
+  coldOpen?: { text: string; start: number; end: number; score: number };
+  /** Whether Claude chose the passages or the offline scorer did. */
+  selectedBy: "ai" | "fallback";
+  builtAt: string;
+};
+
 export type LongformExportStatus = "processing" | "done" | "error" | "canceled";
 
 export type LongformExportRecord = {
@@ -313,6 +360,11 @@ export type LongformProject = {
   topics?: LongformTopic[];
   /** Why there are no topic segments, when the planner could not produce any. */
   topicsNote?: string;
+  /**
+   * The best-of edit, once built. Absent means the edit is the whole
+   * recording with its dead space cut.
+   */
+  highlight?: LongformHighlight;
   hook: LongformHook;
   /** Whether the opening earns attention; recomputed whenever the hook moves. */
   hookReview?: LongformHookReview;

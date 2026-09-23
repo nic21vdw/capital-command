@@ -53,6 +53,10 @@ export type PipelineRun = {
   clipJobId?: string;
   /** Whether the topic-segment plan has been attempted from the full transcript. */
   segmentsPlanned?: boolean;
+  /** Whether the best-of edit has been attempted before the long-form render. */
+  highlightPlanned?: boolean;
+  /** Why the long-form render is the whole stream rather than a best-of edit. */
+  highlightNote?: string;
   /**
    * Render every planned topic segment, not just the one asked for. The export
    * engine takes one render at a time, so this is a standing instruction the

@@ -14,7 +14,7 @@ import { animatedReframeChain } from "@/lib/clipping/render";
 import { readSourceMeta, sourceFilePath } from "@/lib/clipping/sources";
 import { getTrack, trackFilePath } from "@/lib/longform/music";
 import { overlayFilePath } from "@/lib/longform/overlays";
-import { editedDurationSec, exportRanges, projectForTopic, remapCaptionsToOutput, sourceTimeToOutput, sourceToOutputIntervals, type KeptRange } from "@/lib/longform/plan";
+import { editedDurationSec, exportRanges, extendCaptionSegments, projectForTopic, remapCaptionsToOutput, sourceTimeToOutput, sourceToOutputIntervals, type KeptRange } from "@/lib/longform/plan";
 import { getProject, projectOutputDir, projectWorkDir, setTopicExport, updateProject, withFullTranscript } from "@/lib/longform/store";
 import type { LongformExportRecord, LongformProject } from "@/lib/longform/types";
 import { DEFAULT_OUTPUT_QUALITY, normalizeOutputQuality, type OutputQuality } from "@/lib/pipeline/outputQuality";
@@ -311,8 +311,14 @@ async function runExport(projectId: string, recordId: string, signal: AbortSigna
   // of truth for what this export is.
   const topicId = stored.exports.find((item) => item.id === recordId)?.topicId;
   // A segment's hook captions are cut from the transcript at its own window,
-  // which on a long stream is past everything the project stored.
-  const source = topicId ? await withFullTranscript(stored) : stored;
+  // which on a long stream is past everything the project stored, and a
+  // best-of edit plays passages from the whole stream. Both read the whole
+  // recording's words, and the body captions are carried on from it.
+  const full = topicId || stored.highlight ? await withFullTranscript(stored) : stored;
+  const source =
+    full === stored || !stored.captions
+      ? full
+      : { ...full, captions: { ...full.captions, segments: extendCaptionSegments(stored.captions.segments, full.transcript) } };
   const project = exportTarget(source, topicId);
   const meta = await readSourceMeta(project.sourceId);
   if (!meta) throw new Error("The uploaded source file for this project is gone. Upload the video again.");

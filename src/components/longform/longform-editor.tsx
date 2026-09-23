@@ -34,6 +34,7 @@ import {
   UploadCloud,
   Volume2,
   VolumeX,
+  Wand2,
   Zap
 } from "lucide-react";
 import { toast } from "sonner";
@@ -43,6 +44,7 @@ import { ColorField, Field, NumberField, RangeField, SelectField, Toggle } from 
 import { SfxSection } from "@/components/editor/sfx-section";
 import { DescriptionDropdown } from "@/components/editor/description-dropdown";
 import { LongformAudioMixer } from "@/components/longform/longform-audio-mixer";
+import { BestOfPanel } from "@/components/longform/longform-best-of-panel";
 import { ThumbnailPanel } from "@/components/longform/longform-thumbnail-panel";
 import { LongformPreview } from "@/components/longform/longform-preview";
 import { LongformTimeline, type TimelineSelection } from "@/components/longform/longform-timeline";
@@ -61,6 +63,7 @@ import { cn } from "@/lib/utils";
 // autosaves to the server after a short debounce, mirroring the Clip Editor.
 
 const TABS = [
+  { id: "bestof", label: "Best-of", icon: Wand2 },
   { id: "hook", label: "Hook", icon: Zap },
   { id: "captions", label: "Captions", icon: Captions },
   { id: "cuts", label: "Cuts", icon: Scissors },
@@ -163,7 +166,10 @@ export function LongformEditor({
   initialSegmentId?: string | null;
 }) {
   const [project, setProject] = useState(initialProject);
-  const [tab, setTab] = useState<TabId>(initialSegmentId ? "segments" : "hook");
+  // A stream opens on its best-of edit: that is the video it is being cut into.
+  const [tab, setTab] = useState<TabId>(
+    initialSegmentId ? "segments" : initialProject.highlight || initialProject.durationSec > 30 * 60 ? "bestof" : "hook"
+  );
   // Which of the recording's topic segments the editor is working on, or null
   // for the whole recording. A stream is several videos in one file; this is
   // which of them is on screen.
@@ -882,7 +888,7 @@ export function LongformEditor({
 
         {/* Panels */}
         <div className="min-w-0">
-          <div className="mb-3 grid grid-cols-5 gap-1 glass rounded-xl border p-1">
+          <div className="mb-3 grid grid-cols-6 gap-1 glass rounded-xl border p-1">
             {TABS.map((item) => {
               const Icon = item.icon;
               const active = tab === item.id;
@@ -892,7 +898,7 @@ export function LongformEditor({
                   type="button"
                   onClick={() => setTab(item.id)}
                   className={cn(
-                    "flex flex-col items-center gap-1 rounded-lg px-2 py-2 text-[11px] font-medium transition",
+                    "flex flex-col items-center gap-1 whitespace-nowrap rounded-lg px-2 py-2 text-[11px] font-medium transition",
                     active ? "bg-[var(--accent)]/15 text-white" : "text-[var(--muted-foreground)] hover:text-white"
                   )}
                 >
@@ -903,6 +909,9 @@ export function LongformEditor({
             })}
           </div>
           <div key={tab} className="panel-enter space-y-4 glass rounded-xl border p-4">
+            {tab === "bestof" && (
+              <BestOfPanel project={project} setProject={setProject} skipDirtyRef={skipDirtyRef} seek={seek} />
+            )}
             {tab === "hook" && (
               <HookPanel
                 project={project}
