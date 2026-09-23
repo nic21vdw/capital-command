@@ -120,6 +120,28 @@ export const longformTopicPlanSchema = z
   })
   .default({});
 
+/** POST body for building (or rebuilding) the best-of edit. */
+export const longformHighlightBuildSchema = z
+  .object({
+    /** The runtime to aim for. Eight minutes is the long-form floor. */
+    targetMinutes: z.coerce.number().min(8).max(60).optional()
+  })
+  .default({});
+
+/** PATCH body for swapping passages in or out of the best-of edit, or renaming their chapters. */
+export const longformHighlightPatchSchema = z.object({
+  passages: z
+    .array(
+      z.object({
+        id: z.string().min(1).max(32),
+        enabled: z.boolean().optional(),
+        label: z.string().trim().min(1).max(60).optional()
+      })
+    )
+    .min(1)
+    .max(2000)
+});
+
 // A project starts from either a previously uploaded `sourceId` or a video
 // `url` (YouTube/VOD link) the server downloads itself. Exactly one is required.
 export const longformCreateSchema = z
