@@ -5,6 +5,7 @@ import Link from "next/link";
 import { PUBLISHING_OFF_MESSAGE } from "@/lib/publisher/enabledMessage";
 import { useSearchParams } from "next/navigation";
 import {
+  AlertTriangle,
   ArrowLeft,
   ArrowUp,
   AtSign,
@@ -58,28 +59,37 @@ import type {
   PipelineStageStatus
 } from "@/lib/pipeline/types";
 
-const STATUS_STYLES: Record<PipelineStageStatus, string> = {
-  ready: "border-emerald-400/30 bg-emerald-400/10 text-emerald-300",
-  error: "border-red-400/30 bg-red-400/10 text-red-300",
-  running: "border-sky-400/30 bg-sky-400/10 text-sky-300",
-  waiting: "border-white/10 bg-white/5 text-[var(--muted-foreground)]",
-  skipped: "border-amber-400/30 bg-amber-400/10 text-amber-300"
-};
-
 const STATUS_LABELS: Record<PipelineStageStatus, string> = {
-  ready: "Ready",
-  error: "Needs attention",
+  ready: "Done",
+  error: "Stuck",
   running: "Working",
-  waiting: "Waiting",
+  waiting: "Queued",
   skipped: "Skipped"
 };
 
-const STATUS_DOT: Record<PipelineStageStatus, string> = {
-  ready: "bg-emerald-400",
-  error: "bg-red-400",
-  running: "bg-sky-400 animate-pulse",
-  waiting: "bg-white/20",
-  skipped: "bg-amber-400"
+const STATUS_TEXT: Record<PipelineStageStatus, string> = {
+  ready: "text-emerald-300",
+  error: "text-red-300",
+  running: "text-[var(--accent)]",
+  waiting: "text-[var(--muted-foreground)]",
+  skipped: "text-[var(--muted-foreground)]"
+};
+
+const NODE_STYLES: Record<PipelineStageStatus, string> = {
+  ready: "border-emerald-400/40 bg-emerald-400/10 text-emerald-300",
+  error: "border-red-400/50 bg-red-400/10 text-red-300",
+  running:
+    "pipeline-node-live border-[color-mix(in_srgb,var(--accent)_55%,transparent)] bg-[color-mix(in_srgb,var(--accent)_14%,transparent)] text-[var(--accent)]",
+  waiting: "border-[var(--border)] bg-[var(--panel)] text-[var(--muted-foreground)] opacity-60",
+  skipped: "border-dashed border-[var(--border)] bg-transparent text-[var(--muted-foreground)] opacity-50"
+};
+
+const TRACK_STYLES: Record<PipelineStageStatus, string> = {
+  ready: "bg-emerald-400/40",
+  error: "bg-red-400/40",
+  running: "bg-[var(--border)]",
+  waiting: "bg-[var(--border)]",
+  skipped: "bg-[var(--border)]"
 };
 
 // What each stage is called wherever it is named — the row heading, the output
@@ -126,7 +136,7 @@ const STAGE_ORDER: PipelineStageKey[] = [
 
 const RUN_TONE_DOT: Record<RunTone, string> = {
   attention: "bg-amber-400",
-  working: "bg-sky-400 animate-pulse",
+  working: "bg-[var(--accent)] animate-pulse",
   done: "bg-emerald-400"
 };
 
@@ -157,6 +167,8 @@ const LAUNCHING_STAGES: Record<PipelineStageKey, PipelineStage> = {
   schedule: { status: "waiting", detail: "Waiting for the first output." }
 };
 
+const LANDING_OUTPUTS: PipelineStageKey[] = ["longform", "clips", "audio", "images", "posts"];
+
 const SMALL_BUTTON = "px-3 py-1.5 text-xs";
 
 function formatStartedAt(iso: string) {
@@ -171,14 +183,10 @@ function formatStartedAt(iso: string) {
 
 function StatusChip({ status }: { status: PipelineStageStatus }) {
   return (
-    <span
-      className={cn(
-        "inline-flex shrink-0 items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-[11px] font-medium",
-        STATUS_STYLES[status]
-      )}
-    >
+    <span className={cn("inline-flex shrink-0 items-center gap-1 text-[11px] font-medium", STATUS_TEXT[status])}>
       {status === "running" && <Loader2 className="h-3 w-3 animate-spin" />}
       {status === "ready" && <Check className="h-3 w-3" />}
+      {status === "error" && <AlertTriangle className="h-3 w-3" />}
       {STATUS_LABELS[status]}
     </span>
   );
@@ -288,7 +296,7 @@ function OutputQualityPicker({
   );
   return (
     <div className="flex flex-wrap items-center justify-center gap-2 text-xs text-[var(--muted-foreground)]">
-      <label className="relative flex items-center gap-1.5">
+      <label className="relative flex items-center gap-1.5" title="Output resolution: a ceiling, never an upscale">
         <span>Resolution</span>
         <select
           value={value.resolution}
@@ -307,8 +315,8 @@ function OutputQualityPicker({
         </select>
         {chevron}
       </label>
-      <label className="relative flex items-center gap-1.5">
-        <span>Frame rate</span>
+      <label className="relative flex items-center gap-1.5" title="Output frame rate: a ceiling, never interpolated">
+        <span>FPS</span>
         <select
           value={value.frameRate}
           disabled={disabled}
@@ -332,51 +340,124 @@ function OutputQualityPicker({
 
 type OutputChip = { key: PipelineStageKey; label: string; status: PipelineStageStatus };
 
+function scrollToStage(key: PipelineStageKey) {
+  document.getElementById(`stage-${key}`)?.scrollIntoView({ behavior: "smooth", block: "center" });
+}
+
 /**
- * What one stream turns into, in one line: every format with a dot for where
- * it has got to. Clicking a chip lands on that stage of the flow.
+ * Where the run has got to, at a glance: which stage is live, how much of the
+ * run has settled, and one node per stage on a single track. Clicking a node
+ * lands on that stage's row.
  */
-function OutputStrip({ chips }: { chips: OutputChip[] }) {
+function RunProgressCard({
+  chips,
+  percent,
+  current
+}: {
+  chips: OutputChip[];
+  percent: number;
+  current: { key: PipelineStageKey; status: PipelineStageStatus } | null;
+}) {
+  const CurrentIcon = current ? STAGE_ICONS[current.key] : Check;
+  const tone = current?.status ?? "ready";
   return (
-    <div className="flex flex-wrap gap-1.5">
-      {chips.map((chip) => {
-        const Icon = STAGE_ICONS[chip.key];
-        return (
-          <a
-            key={chip.key}
-            href={`#stage-${chip.key}`}
-            onClick={(event) => {
-              event.preventDefault();
-              document.getElementById(`stage-${chip.key}`)?.scrollIntoView({ behavior: "smooth", block: "center" });
-            }}
-            className={cn(
-              "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-medium transition hover:border-[var(--border-strong)]",
-              chip.status === "ready"
-                ? "border-emerald-400/25 bg-emerald-400/[0.06] text-white"
-                : chip.status === "running"
-                  ? "border-sky-400/25 bg-sky-400/[0.06] text-white"
-                  : chip.status === "error"
-                    ? "border-red-400/25 bg-red-400/[0.06] text-white"
-                    : "border-[var(--border)] text-[var(--muted-foreground)]"
-            )}
-          >
-            <span className={cn("h-1.5 w-1.5 rounded-full", STATUS_DOT[chip.status])} />
-            <Icon className="h-3 w-3" />
-            {chip.label}
-          </a>
-        );
-      })}
-    </div>
+    <Card className={cn("p-4", tone === "running" && "pipeline-card-live")}>
+      <div className="flex items-center gap-3">
+        <div
+          className={cn(
+            "flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border",
+            NODE_STYLES[tone],
+            "opacity-100"
+          )}
+        >
+          <CurrentIcon className="h-5 w-5" />
+        </div>
+        <div className="min-w-0 flex-1">
+          <p className={cn("text-[11px] font-medium uppercase tracking-[0.14em]", STATUS_TEXT[tone])}>
+            {current
+              ? current.status === "error"
+                ? "Stuck on"
+                : current.status === "running"
+                  ? "Now"
+                  : "Up next"
+              : "Finished"}
+          </p>
+          <p className="truncate text-base font-semibold text-white">
+            {current ? STAGE_TITLES[current.key] : "Every stage has settled"}
+          </p>
+        </div>
+        <p className="shrink-0 text-2xl font-semibold tabular-nums text-white">
+          {percent}
+          <span className="text-sm text-[var(--muted-foreground)]">%</span>
+        </p>
+      </div>
+      <div className="mt-3 h-1 overflow-hidden rounded-full bg-white/8">
+        <div
+          className="h-full rounded-full bg-[var(--accent)] transition-all duration-700"
+          style={{ width: `${percent}%` }}
+        />
+      </div>
+      <div className="-mx-1 mt-4 overflow-x-auto pb-1">
+        <ol className="flex min-w-max items-start px-1">
+          {chips.map((chip, index) => {
+            const Icon = STAGE_ICONS[chip.key];
+            const next = chips[index + 1];
+            return (
+              <li key={chip.key} className="flex items-start">
+                <button
+                  type="button"
+                  onClick={() => scrollToStage(chip.key)}
+                  title={`${STAGE_TITLES[chip.key]}: ${STATUS_LABELS[chip.status]}`}
+                  className="group flex w-16 flex-col items-center gap-1.5"
+                >
+                  <span
+                    className={cn(
+                      "relative flex h-8 w-8 items-center justify-center rounded-full border transition group-hover:scale-110",
+                      NODE_STYLES[chip.status]
+                    )}
+                  >
+                    <Icon className="h-3.5 w-3.5" />
+                    {chip.status === "ready" ? (
+                      <Check className="absolute -bottom-0.5 -right-0.5 h-3 w-3 rounded-full bg-emerald-400 p-[1px] text-black" />
+                    ) : null}
+                  </span>
+                  <span
+                    className={cn(
+                      "max-w-full truncate text-[10px] leading-tight",
+                      chip.status === "waiting" || chip.status === "skipped"
+                        ? "text-[var(--muted-foreground)]"
+                        : "text-white/90"
+                    )}
+                  >
+                    {chip.label}
+                  </span>
+                </button>
+                {next ? (
+                  <span
+                    className={cn(
+                      "mt-4 h-px w-3 shrink-0",
+                      next.status === "running" ? "pipeline-track-live bg-[var(--border)]" : TRACK_STYLES[chip.status]
+                    )}
+                  />
+                ) : null}
+              </li>
+            );
+          })}
+        </ol>
+      </div>
+    </Card>
   );
 }
 
-/** One node in the top-to-bottom flow: icon on the rail, card to the right. */
+/**
+ * One stage of the run. Settled and queued stages are a single quiet line; the
+ * sentence underneath only shows while the stage is working or stuck, the only
+ * time there is anything to read. Hovering the title shows it otherwise.
+ */
 function StageRow({
   stageKey,
   stage,
   index,
-  last = false,
-  flowing = false,
   onRetry,
   retrying = false,
   action,
@@ -385,74 +466,79 @@ function StageRow({
   stageKey: PipelineStageKey;
   stage: PipelineStage;
   index: number;
-  last?: boolean;
-  flowing?: boolean;
   onRetry?: () => void;
   retrying?: boolean;
   action?: React.ReactNode;
   children?: React.ReactNode;
 }) {
   const Icon = STAGE_ICONS[stageKey];
-  const active = stage.status === "running";
-  const done = stage.status === "ready";
+  const live = stage.status === "running";
+  const stuck = stage.status === "error";
+  const quiet = stage.status === "waiting" || stage.status === "skipped";
+  const showDetail = live || stuck;
   return (
-    <div id={`stage-${stageKey}`} className="animate-in flex gap-4 scroll-mt-24" style={{ animationDelay: `${index * 70}ms` }}>
-      <div className="flex flex-col items-center">
-        <div
+    <div
+      id={`stage-${stageKey}`}
+      className={cn(
+        "animate-in scroll-mt-24 rounded-2xl border px-3 py-2.5 transition",
+        live
+          ? "pipeline-card-live border-[color-mix(in_srgb,var(--accent)_35%,transparent)] bg-[color-mix(in_srgb,var(--accent)_5%,transparent)]"
+          : stuck
+            ? "border-red-400/30 bg-red-400/[0.04]"
+            : "border-[var(--border)] bg-[var(--panel)]"
+      )}
+      style={{ animationDelay: `${index * 40}ms` }}
+    >
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+        <span
           className={cn(
-            "relative flex h-10 w-10 shrink-0 items-center justify-center rounded-full border transition",
-            done
-              ? "border-emerald-400/40 bg-emerald-400/10 text-emerald-300"
-              : active
-                ? "pipeline-node-live border-sky-400/40 bg-sky-400/10 text-sky-300"
-                : stage.status === "error"
-                  ? "border-red-400/40 bg-red-400/10 text-red-300"
-                  : "border-[var(--border)] bg-[var(--panel)] text-[var(--muted-foreground)]"
+            "relative flex h-8 w-8 shrink-0 items-center justify-center rounded-full border",
+            NODE_STYLES[stage.status]
           )}
         >
-          <Icon className="h-4.5 w-4.5" />
-          {active && (
-            <span className="pipeline-orbit pointer-events-none absolute -inset-1 rounded-full border border-transparent border-t-sky-300/70" />
-          )}
-        </div>
-        {!last && (
-          <div
-            className={cn(
-              "w-px flex-1",
-              flowing ? "pipeline-rail-live bg-[var(--border)]" : done ? "bg-emerald-400/30" : "bg-[var(--border)]"
-            )}
-          />
-        )}
-      </div>
-      <div className="min-w-0 flex-1 pb-5">
-        <Card className={cn("p-4", active && "pipeline-card-live border-sky-400/25")}>
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <h3 className="text-sm font-semibold text-white">{STAGE_TITLES[stageKey]}</h3>
-            <StatusChip status={stage.status} />
-          </div>
-          <p className="mt-1 text-sm text-[var(--muted-foreground)]">{stage.detail}</p>
-          {stage.status === "running" && typeof stage.progress === "number" && (
-            <Progress value={stage.progress} className="mt-3" />
-          )}
-          {onRetry || action ? (
-            <div className="mt-3 flex flex-wrap items-center gap-2">
-              {onRetry ? (
-                <Button
-                  variant="secondary"
-                  onClick={onRetry}
-                  disabled={retrying}
-                  className={cn(SMALL_BUTTON, "border-amber-400/30 text-amber-200 hover:border-amber-400/50")}
-                >
-                  {retrying ? <Spinner /> : <RotateCcw className="mr-1.5 h-3.5 w-3.5" />}
-                  Try this again
-                </Button>
-              ) : null}
-              {action}
-            </div>
+          <Icon className="h-3.5 w-3.5" />
+          {live ? (
+            <span className="pipeline-orbit pointer-events-none absolute -inset-1 rounded-full border border-transparent border-t-[var(--accent)]" />
           ) : null}
-          {children}
-        </Card>
+        </span>
+        <h3
+          className={cn(
+            "min-w-0 flex-1 truncate text-sm font-medium",
+            quiet ? "text-[var(--muted-foreground)]" : "text-white"
+          )}
+          title={showDetail ? undefined : stage.detail}
+        >
+          {STAGE_TITLES[stageKey]}
+        </h3>
+        {onRetry || action ? (
+          <div className="flex flex-wrap items-center gap-2">
+            {onRetry ? (
+              <Button
+                variant="secondary"
+                onClick={onRetry}
+                disabled={retrying}
+                className={cn(SMALL_BUTTON, "border-red-400/30 text-red-200 hover:border-red-400/50")}
+              >
+                {retrying ? <Spinner /> : <RotateCcw className="mr-1.5 h-3.5 w-3.5" />}
+                Retry
+              </Button>
+            ) : null}
+            {action}
+          </div>
+        ) : null}
+        <StatusChip status={stage.status} />
       </div>
+      {showDetail ? (
+        <p className={cn("mt-1.5 pl-11 text-xs", stuck ? "text-red-200/80" : "text-[var(--muted-foreground)]")}>
+          {stage.detail}
+        </p>
+      ) : null}
+      {live && typeof stage.progress === "number" ? (
+        <div className="pl-11">
+          <Progress value={stage.progress} className="mt-2" />
+        </div>
+      ) : null}
+      {children ? <div className="pl-11">{children}</div> : null}
     </div>
   );
 }
@@ -977,16 +1063,11 @@ export function PipelinePage() {
                             ? "bg-red-400/60"
                             : progress.percent === 100
                               ? "bg-emerald-400/60"
-                              : "bg-sky-400/60"
+                              : "bg-[var(--accent)]"
                         )}
                         style={{ width: `${progress.percent}%` }}
                       />
                     </span>
-                    {progress.outputs.length > 0 && (
-                      <span className="mt-1 block text-[11px] text-[var(--muted-foreground)]">
-                        {progress.outputs.join(" · ")}
-                      </span>
-                    )}
                     {progress.delivery && (
                       <span
                         className={cn(
@@ -1042,9 +1123,17 @@ export function PipelinePage() {
           <div className="mt-4">
             <OutputQualityPicker value={outputQuality} onChange={setOutputQuality} disabled={busy} />
           </div>
-          <p className="mt-3 text-center text-xs text-[var(--muted-foreground)]">
-            One stream in — long-form edit, shorts, MP3, carousel, and posts come back out.
-          </p>
+          <div className="mt-5 flex flex-wrap items-center justify-center gap-4 text-[var(--muted-foreground)]">
+            {LANDING_OUTPUTS.map((key) => {
+              const Icon = STAGE_ICONS[key];
+              return (
+                <span key={key} className="flex items-center gap-1.5 text-[11px]" title={STAGE_TITLES[key]}>
+                  <Icon className="h-3.5 w-3.5" />
+                  {STAGE_TITLES[key].split(" ")[0]}
+                </span>
+              );
+            })}
+          </div>
           {loaded ? (
             <ChannelCoverageCard
               coverage={coverage}
@@ -1073,6 +1162,7 @@ export function PipelinePage() {
 
   const chips: OutputChip[] = stages
     ? [
+        { key: "source", label: "Source", status: stages.source.status },
         {
           key: "longform",
           label: "Long-form",
@@ -1082,7 +1172,7 @@ export function PipelinePage() {
           key: "segments",
           label:
             schedulable && schedulable.segments > 0
-              ? `Segments ${schedulable.segmentsRendered}/${schedulable.segments}`
+              ? `${schedulable.segmentsRendered}/${schedulable.segments} segments`
               : "Segments",
           status: stages.segments.status
         },
@@ -1095,8 +1185,7 @@ export function PipelinePage() {
         { key: "podcast", label: "Spotify", status: stages.podcast.status },
         {
           key: "images",
-          label:
-            schedulable && schedulable.carouselSlides > 0 ? `${schedulable.carouselSlides}-slide carousel` : "Carousel",
+          label: schedulable && schedulable.carouselSlides > 0 ? `${schedulable.carouselSlides} slides` : "Carousel",
           status: stages.images.status
         },
         { key: "visuals", label: "Visual ad", status: stages.visuals.status },
@@ -1112,6 +1201,14 @@ export function PipelinePage() {
         }
       ]
     : [];
+
+  const currentKey = stages
+    ? (STAGE_ORDER.find((key) => stages[key].status === "running") ??
+      STAGE_ORDER.find((key) => stages[key].status === "error") ??
+      STAGE_ORDER.find((key) => stages[key].status === "waiting"))
+    : undefined;
+  const currentStage = stages && currentKey ? { key: currentKey, status: stages[currentKey].status } : null;
+  const percent = active ? runProgress(active).percent : 0;
 
   const stageAction = (key: PipelineStageKey): React.ReactNode => {
     if (!stages) return null;
@@ -1433,7 +1530,7 @@ export function PipelinePage() {
         </div>
         {chips.length > 0 ? (
           <div className="mt-4">
-            <OutputStrip chips={chips} />
+            <RunProgressCard chips={chips} percent={percent} current={currentStage} />
           </div>
         ) : null}
       </div>
@@ -1470,26 +1567,25 @@ export function PipelinePage() {
                 {notice}
               </p>
             ))}
-            {STAGE_ORDER.map((key, index) => {
-              const next = STAGE_ORDER[index + 1];
-              // The server decides what can be run again; the row only draws it.
-              const repairable = active?.retryable.some((item) => item.stage === key);
-              return (
-                <StageRow
-                  key={key}
-                  stageKey={key}
-                  stage={stages[key]}
-                  index={index}
-                  last={index === STAGE_ORDER.length - 1}
-                  flowing={Boolean(next && stages[next].status === "running")}
-                  onRetry={repairable && run ? () => void startAgain(run.id, { stage: key }, key) : undefined}
-                  retrying={working === key}
-                  action={stageAction(key)}
-                >
-                  {stageBody(key)}
-                </StageRow>
-              );
-            })}
+            <div className="space-y-2">
+              {STAGE_ORDER.map((key, index) => {
+                // The server decides what can be run again; the row only draws it.
+                const repairable = active?.retryable.some((item) => item.stage === key);
+                return (
+                  <StageRow
+                    key={key}
+                    stageKey={key}
+                    stage={stages[key]}
+                    index={index}
+                    onRetry={repairable && run ? () => void startAgain(run.id, { stage: key }, key) : undefined}
+                    retrying={working === key}
+                    action={stageAction(key)}
+                  >
+                    {stageBody(key)}
+                  </StageRow>
+                );
+              })}
+            </div>
           </>
         )}
         {runList(true)}

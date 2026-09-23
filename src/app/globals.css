@@ -869,6 +869,31 @@ td {
   animation: pipeline-rail-flow 1.5s linear infinite;
 }
 
+@keyframes pipeline-track-flow {
+  from {
+    transform: translateX(-120%);
+  }
+  to {
+    transform: translateX(260%);
+  }
+}
+
+.pipeline-track-live {
+  position: relative;
+  overflow: hidden;
+}
+
+.pipeline-track-live::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 45%;
+  background: linear-gradient(to right, transparent, var(--accent), transparent);
+  animation: pipeline-track-flow 1.4s linear infinite;
+}
+
 .pipeline-node-live {
   animation: pipeline-node-pulse 1.9s var(--ease-ios) infinite;
 }
@@ -899,6 +924,7 @@ td {
 
 @media (prefers-reduced-motion: reduce) {
   .pipeline-rail-live::after,
+  .pipeline-track-live::after,
   .pipeline-card-live::after {
     display: none;
   }
