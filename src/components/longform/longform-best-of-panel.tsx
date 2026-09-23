@@ -1,13 +1,15 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Check, Copy, Loader2, RotateCcw, Sparkles, Wand2 } from "lucide-react";
+import { AlertTriangle, Check, Copy, Eye, EyeOff, Loader2, RotateCcw, Sparkles, Wand2 } from "lucide-react";
 import { toast } from "sonner";
+import { Toggle } from "@/components/editor/controls";
 import { Button } from "@/components/ui/button";
+import { Progress } from "@/components/ui/progress";
 import { formatClock } from "@/lib/clipping/editor";
 import { editedDurationSec } from "@/lib/longform/plan";
 import { formatRuntime } from "@/lib/longform/length";
-import type { LongformHighlightPassage, LongformProject } from "@/lib/longform/types";
+import type { LongformHighlightPassage, LongformProject, LongformStoryRole } from "@/lib/longform/types";
 import { cn } from "@/lib/utils";
 
 // The Best-of panel: cut a long stream down to its strongest passages at a
@@ -20,6 +22,19 @@ const TARGETS = [12, 20, 30] as const;
 
 type Chapter = { time: string; label: string };
 
+const ROLE_LABELS: Record<LongformStoryRole, string> = {
+  setup: "Setup",
+  goal: "Goal",
+  attempt: "Attempt",
+  problem: "Problem",
+  turn: "Turn",
+  payoff: "Payoff",
+  wrap: "Wrap"
+};
+
+/** How often the panel checks on a build running in the background. */
+const BUILD_POLL_MS = 2000;
+
 type HighlightResponse = {
   project?: LongformProject;
   chapters?: Chapter[];
@@ -29,11 +44,13 @@ type HighlightResponse = {
 export function BestOfPanel({
   project,
   setProject,
+  patch,
   skipDirtyRef,
   seek
 }: {
   project: LongformProject;
   setProject: React.Dispatch<React.SetStateAction<LongformProject>>;
+  patch: (partial: Partial<LongformProject>) => void;
   skipDirtyRef: React.MutableRefObject<boolean>;
   seek: (t: number) => void;
 }) {
@@ -56,6 +73,32 @@ export function BestOfPanel({
     },
     [setProject, skipDirtyRef]
   );
+
+  // A build runs in the background (watching every passage takes minutes),
+  // so while one is running the panel follows it, and takes the finished edit
+  // the moment it lands.
+  const building = project.highlightBuild?.state === "running";
+  useEffect(() => {
+    if (!building) return;
+    let cancelled = false;
+    const timer = setInterval(() => {
+      void fetch(`/api/longform/projects/${project.id}/highlight`, { cache: "no-store" })
+        .then((response) => response.json())
+        .then((data: HighlightResponse) => {
+          if (cancelled || !data.project) return;
+          const finished = data.project.highlightBuild?.state !== "running";
+          apply(data);
+          if (finished && !data.project.highlightBuild) {
+            toast.success("Best-of edit built. Check the story, the opening and the chapters, then export.");
+          }
+        })
+        .catch(() => undefined);
+    }, BUILD_POLL_MS);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  }, [building, project.id, apply]);
 
   // Chapters are timed on the edit as it stands, which the timeline can move,
   // so they are read fresh whenever the panel opens or the cut plan changes.
@@ -96,9 +139,8 @@ export function BestOfPanel({
 
   const build = async () => {
     setBusy("build");
-    const ok = await request("POST", { targetMinutes });
+    await request("POST", { targetMinutes });
     setBusy(null);
-    if (ok) toast.success("Best-of edit built. Check the opening and the chapters, then export.");
   };
 
   const clear = async () => {
@@ -164,10 +206,22 @@ export function BestOfPanel({
             ))}
           </div>
         </div>
-        <Button className="w-full gap-2" disabled={busy !== null} onClick={() => void build()}>
-          {busy === "build" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Wand2 className="h-4 w-4" />}
-          {highlight ? "Rebuild the best-of edit" : "Build the best-of edit"}
+        <Button className="w-full gap-2" disabled={busy !== null || building} onClick={() => void build()}>
+          {busy === "build" || building ? <Loader2 className="h-4 w-4 animate-spin" /> : <Wand2 className="h-4 w-4" />}
+          {building ? "Building..." : highlight ? "Rebuild the best-of edit" : "Build the best-of edit"}
         </Button>
+        {building && project.highlightBuild && (
+          <div className="space-y-1">
+            <Progress value={project.highlightBuild.progress} />
+            <p className="text-[11px] text-[var(--muted-foreground)]">{project.highlightBuild.stage}...</p>
+          </div>
+        )}
+        {project.highlightBuild?.state === "error" && (
+          <p className="flex items-start gap-1.5 rounded-md border border-amber-400/30 bg-amber-400/5 px-2 py-1.5 text-[11px] text-amber-200/90">
+            <AlertTriangle className="mt-0.5 h-3 w-3 shrink-0" />
+            {project.highlightBuild.error ?? "The last build stopped."}
+          </p>
+        )}
         <p className="text-[11px] text-[var(--muted-foreground)]">
           {highlight
             ? "Rebuilding re-reads the stream and resets any passages you swapped by hand."
@@ -182,7 +236,42 @@ export function BestOfPanel({
           <div className="grid grid-cols-3 gap-2 text-center">
             <Stat label="Runtime" value={formatRuntime(runtime)} note={`target ${formatRuntime(highlight.targetSec)}`} />
             <Stat label="Passages" value={`${keptCount}`} note={`of ${passages.length}`} />
-            <Stat label="Chosen by" value={highlight.selectedBy === "ai" ? "AI" : "Scorer"} note={highlight.selectedBy === "ai" ? "editor pass" : "offline"} />
+            <Stat
+              label="Watched"
+              value={highlight.watched === "vision" ? "Every clip" : highlight.watched === "scan" ? "Scan only" : "No"}
+              note={highlight.watched === "vision" ? "vision check" : highlight.watched === "scan" ? "no vision key" : "no footage"}
+            />
+          </div>
+
+          {highlight.premise && (
+            <div className="space-y-1 rounded-lg border border-[var(--border)] p-3">
+              <p className="text-xs font-semibold text-white">The story</p>
+              <p className="text-xs text-[var(--muted-foreground)]">{highlight.premise}</p>
+            </div>
+          )}
+
+          <div className="space-y-2 rounded-lg border border-[var(--border)] p-3">
+            <p className="text-xs font-semibold text-white">Clean-up</p>
+            {highlight.cleanup ? (
+              <p className="text-[11px] text-[var(--muted-foreground)]">
+                Cut {highlight.cleanup.fillers} filler word{highlight.cleanup.fillers === 1 ? "" : "s"}, {highlight.cleanup.stutters}{" "}
+                stutter{highlight.cleanup.stutters === 1 ? "" : "s"} and {highlight.cleanup.gaps} long pause
+                {highlight.cleanup.gaps === 1 ? "" : "s"}, and started {highlight.cleanup.runUps} passage
+                {highlight.cleanup.runUps === 1 ? "" : "s"} on the first real word. Dead space between sentences is cut by
+                the pace in the Cuts tab.
+              </p>
+            ) : (
+              <p className="text-[11px] text-[var(--muted-foreground)]">Rebuild to cut filler words, stutters and long pauses.</p>
+            )}
+            <Toggle
+              label="Zoom cuts on jump cuts"
+              checked={project.zoomCuts ?? true}
+              onChange={(value) => patch({ zoomCuts: value })}
+            />
+            <p className="text-[11px] text-[var(--muted-foreground)]">
+              Each jump cut inside the same shot alternates between the wide frame and a 1.12x punch-in on the Hook
+              tab&rsquo;s focus point, so a cut reads as a change of shot. Cuts to new material stay straight cuts.
+            </p>
           </div>
 
           <div className="space-y-1.5 rounded-lg border border-[var(--border)] bg-[var(--surface-2)] p-3">
@@ -324,6 +413,7 @@ function PassageRow({
   onRename: (label: string) => void;
 }) {
   const [label, setLabel] = useState(passage.label);
+  const visual = passage.visual;
   const commit = () => {
     const next = label.trim();
     if (next && next !== passage.label) onRename(next);
@@ -361,6 +451,11 @@ function PassageRow({
           maxLength={60}
           className="min-w-0 flex-1 rounded border border-transparent bg-transparent px-1 py-0.5 text-xs font-medium text-white outline-none focus:border-[var(--border-strong)]"
         />
+        {passage.enabled && passage.role && (
+          <span className="shrink-0 rounded-full border border-[var(--accent)]/40 px-1.5 py-0.5 text-[9px] uppercase tracking-wide text-[var(--accent)]">
+            {passage.bridge ? "Bridge" : ROLE_LABELS[passage.role]}
+          </span>
+        )}
         {passage.picked && (
           <span className="shrink-0 rounded-full border border-white/10 bg-white/5 px-1.5 py-0.5 text-[9px] uppercase tracking-wide text-[var(--muted-foreground)]">
             AI pick
@@ -380,6 +475,22 @@ function PassageRow({
         </button>
       </div>
       <p className="line-clamp-2 text-[11px] text-[var(--muted-foreground)]">{passage.opening}…</p>
+      {visual && (
+        <p
+          className={cn(
+            "flex items-start gap-1.5 text-[11px]",
+            visual.verdict === "drop" ? "text-amber-200/90" : "text-[var(--muted-foreground)]"
+          )}
+          title={visual.source === "vision" ? "Watched by the vision check" : "Read from the keyframe scan"}
+        >
+          {visual.verdict === "drop" ? <EyeOff className="mt-0.5 h-3 w-3 shrink-0" /> : <Eye className="mt-0.5 h-3 w-3 shrink-0" />}
+          <span className="line-clamp-2">
+            {visual.verdict === "drop" ? "Dropped after watching: " : visual.source === "vision" ? "Watched: " : ""}
+            {visual.note}
+            {visual.score ? ` (${visual.score}/10)` : ""}
+          </span>
+        </p>
+      )}
     </div>
   );
 }
