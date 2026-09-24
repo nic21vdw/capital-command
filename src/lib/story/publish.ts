@@ -243,6 +243,7 @@ export type ShortCaptionOptions = {
   maxChars: number;
   terms?: Record<string, string>;
   fontSize?: number;
+  box?: boolean;
 };
 
 export function captionWords(words: TimelineWord[], terms: Record<string, string> = {}): TimelineWord[] {
@@ -257,7 +258,9 @@ export function captionWords(words: TimelineWord[], terms: Record<string, string
       continue;
     }
     if (previous && /[-–—]$/.test(previous.w)) out.pop();
-    const key = raw.toLowerCase().replace(/[^a-z0-9'.]/g, "");
+    const key = raw.toLowerCase().replace(/[^a-z0-9'.]/g, "").replace(/[.']+$/, "");
+    const last = out[out.length - 1];
+    if (last && key && last.w.toLowerCase().replace(/[^a-z0-9]/g, "") === key.replace(/[^a-z0-9]/g, "") && word.s - last.e < 0.5 && !/\d/.test(key)) continue;
     const replaced = lookup.get(key);
     out.push({ ...word, w: replaced ? raw.replace(/^[^,.!?]+/, replaced) : raw });
   }
@@ -294,7 +297,9 @@ export function shortCaptionsAss(words: TimelineWord[], options: ShortCaptionOpt
     "",
     "[V4+ Styles]",
     "Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding",
-    `Style: Cap,Montserrat Black,${options.fontSize ?? 96},&H0000E5FF,&H0000E5FF,&H00000000,&H96000000,0,0,0,0,100,100,1,0,1,${Math.round((options.fontSize ?? 96) / 12)},4,5,60,60,0,1`,
+    options.box
+      ? `Style: Cap,Montserrat Black,${options.fontSize ?? 96},&H0000E5FF,&H0000E5FF,&H70000000,&H70000000,0,0,0,0,100,100,1,0,3,14,0,5,60,60,0,1`
+      : `Style: Cap,Montserrat Black,${options.fontSize ?? 96},&H0000E5FF,&H0000E5FF,&H00000000,&H96000000,0,0,0,0,100,100,1,0,1,${Math.round((options.fontSize ?? 96) / 12)},4,5,60,60,0,1`,
     "",
     "[Events]",
     "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text"
@@ -306,7 +311,7 @@ export function shortCaptionsAss(words: TimelineWord[], options: ShortCaptionOpt
     chunk.forEach((word, index) => {
       const next = chunk[index + 1];
       const end = next ? next.s : Math.min(following, Math.max(word.e + 0.25, word.s + 0.3));
-      if (end <= word.s) return;
+      if (end - word.s < 0.08) return;
       const text = chunk
         .map((other, j) => (j === index ? `{\\fscx118\\fscy118}${clean(other.w)}{\\fscx100\\fscy100}` : clean(other.w)))
         .join(" ");

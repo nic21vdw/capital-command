@@ -11,8 +11,21 @@ import type { Pane } from "@/lib/story/shots";
 import { projectFile, readJson, readOverrides, readStatus } from "@/lib/story/store";
 import type { Transcript } from "@/lib/story/types";
 
-type BrollIdea = { source?: string | number; text?: string[]; why?: string; at?: number; dur?: number; crop?: { x: number; y: number; w: number; h: number } };
-type ScreenHint = { from: number; crop: { x: number; y: number; w: number; h: number } };
+type BrollIdea = {
+  source?: string | number;
+  file?: string;
+  fileStart?: number;
+  text?: string[];
+  panel?: boolean;
+  why?: string;
+  at?: number;
+  atWord?: string;
+  nth?: number;
+  offset?: number;
+  dur?: number;
+  crop?: { x: number; y: number; w: number; h: number };
+};
+type ScreenHint = { from?: number; fromWord?: string; nth?: number; offset?: number; crop: { x: number; y: number; w: number; h: number } };
 type ClipSpec = {
   id: string;
   title: string;
@@ -23,6 +36,9 @@ type ClipSpec = {
   screens?: ScreenHint[];
   captionY?: number;
   screenHeight?: number;
+  tailSec?: number;
+  wideCrop?: { x: number; y: number; w: number; h: number };
+  wideCaptionY?: number;
 };
 
 const CAM = { w: 1080, h: 608 };
@@ -102,7 +118,11 @@ async function main() {
       hopSec: 0.01,
       anchorFor: () => ({ x: 0.5, y: 0.5, source: "frame" })
     });
-    const baseSegments = edl.segments.map((segment) => ({ in: segment.in, out: segment.out, unitId: segment.unitId }));
+    const baseSegments = edl.segments.map((segment, index, all) => ({
+      in: segment.in,
+      out: index === all.length - 1 ? segment.out + (clip.tailSec ?? 0) : segment.out,
+      unitId: segment.unitId
+    }));
     const tWords = timelineWords(edl.segments, words);
     const dir = projectFile(id, "shorts", clip.id);
     await mkdir(dir, { recursive: true });
@@ -114,7 +134,7 @@ async function main() {
       const own = edl.segments.filter((segment) => segment.unitId === unitId);
       return { id: `u:${unitId}`, start: own[0].in, end: own[own.length - 1].out + 0.5, w: screenW, h: screenH, fps: 2 };
     });
-    const ideas = (clip.broll ?? []).slice(0, 5);
+    const ideas = (clip.broll ?? []).slice(0, 8);
     const request = {
       exclude,
       items: [
@@ -122,7 +142,7 @@ async function main() {
         ...unitSpans,
         ...ideas
           .map((idea, index) => ({ idea, index }))
-          .filter(({ idea }) => idea.source !== undefined && !idea.crop)
+          .filter(({ idea }) => idea.source !== undefined && !idea.crop && !idea.file)
           .map(({ idea, index }) => ({ id: `b${index}`, start: seconds(idea.source!), end: seconds(idea.source!) + 2.5, w: CARD_W, h: CARD_H, fps: 2 }))
       ]
     };
@@ -135,7 +155,17 @@ async function main() {
     let held = windows.screen;
     let heldSince = 0;
     let cursor = 0;
-    const hints = [...(clip.screens ?? [])].sort((a, b) => a.from - b.from);
+    const wordAt = (pattern: string | undefined, nth = 1, offset = 0): number | undefined => {
+      if (!pattern) return undefined;
+      const re = new RegExp(pattern, "i");
+      const hits = tWords.filter((word) => re.test(word.w));
+      const hit = hits[nth - 1];
+      if (!hit) throw new Error(`[${clip.id}] no word matching /${pattern}/ #${nth}`);
+      return Math.max(0, hit.s + offset);
+    };
+    const hints = (clip.screens ?? [])
+      .map((hint) => ({ ...hint, from: wordAt(hint.fromWord, hint.nth, hint.offset ?? -0.05) ?? hint.from ?? 0 }))
+      .sort((a, b) => a.from - b.from);
     const segments = baseSegments.map((segment) => {
       const hint = hints.filter((entry) => entry.from <= cursor + 0.01).pop();
       if (hint) {
@@ -150,13 +180,19 @@ async function main() {
       cursor += segment.out - segment.in;
       return { in: segment.in, out: segment.out, screen: held };
     });
-    const runtime = edl.runtimeSec;
+    const runtime = edl.runtimeSec + (clip.tailSec ?? 0);
     const spacing = ideas.length ? (runtime - 4) / ideas.length : 0;
-    const broll = ideas.map((idea, index) => ({
+    const broll = ideas.map((idea, index) => {
+      const at = wordAt(idea.atWord, idea.nth, idea.offset ?? -0.1) ?? idea.at ?? Math.min(runtime - 3, 3 + index * spacing + spacing * 0.35);
+      return { idea, index, at, dur: Math.min(idea.dur ?? 2.4, runtime - 0.2 - at) };
+    }).map(({ idea, index, at, dur }) => ({
       source: idea.source === undefined ? 0 : seconds(idea.source),
       text: idea.text,
-      at: idea.at ?? Math.min(runtime - 3, 3 + index * spacing + spacing * 0.35),
-      dur: idea.dur ?? 2.4,
+      panel: idea.panel,
+      file: idea.file ? path.resolve(projectFile(id, "shorts"), idea.file) : undefined,
+      fileStart: idea.fileStart,
+      at,
+      dur,
       crop: idea.crop ?? windows[`b${index}`],
       width: 1000,
       why: idea.why ?? ""
@@ -179,7 +215,7 @@ async function main() {
     );
     await writeFile(
       path.join(dir, "captions_wide.ass"),
-      shortCaptionsAss(tWords, { width: 1920, height: 1080, centerY: 930, maxWords: 4, maxChars: 26, terms: TERMS, fontSize: 78 }),
+      shortCaptionsAss(tWords, { width: 1920, height: 1080, centerY: clip.wideCaptionY ?? 960, maxWords: 3, maxChars: 22, terms: TERMS, fontSize: 100, box: true }),
       "utf8"
     );
     const out = path.join(dir, `${clip.id}.mp4`);
@@ -192,7 +228,8 @@ async function main() {
       broll,
       fontsDir,
       out,
-      outWide: path.join(dir, `${clip.id}-16x9.mp4`)
+      outWide: path.join(dir, `${clip.id}-16x9.mp4`),
+      wideCrop: clip.wideCrop
     };
     await writeFile(path.join(dir, "plan.json"), JSON.stringify(plan, null, 2));
     await writeFile(path.join(dir, "words.json"), JSON.stringify(tWords));

@@ -21,6 +21,10 @@ def run(args, cwd=None):
     return result.stderr
 
 
+def escape(text):
+    return text.replace("\\", "\\\\").replace("'", "’").replace(":", "\\:")
+
+
 def source_runs(segments):
     runs = []
     for k, seg in enumerate(segments):
@@ -54,9 +58,13 @@ def main_graph(plan, wide=False):
         sx = int(min(max(crop["x"], 0), 1920 - sw))
         sy = int(min(max(crop["y"], 0), 1080 - sh))
         if wide:
-            ww, wh = 1440, 810
-            wx = int(min(max(sx + sw / 2 - ww / 2, 0), 1920 - ww))
-            wy = int(min(max(sy + sh / 2 - wh / 2, 0), 1080 - wh))
+            box = plan.get("wideCrop")
+            if box:
+                ww, wh, wx, wy = even(box["w"]), even(box["h"]), box["x"], box["y"]
+            else:
+                ww, wh = 1050, 590
+                wx = 280
+                wy = int(min(max(sy + sh / 2 - wh / 2, 0), 930 - wh))
             lines.append(
                 f"[vs{k}]trim=start={start:.4f}:end={end:.4f},setpts=PTS-STARTPTS,split=2[c{k}][s{k}];"
                 f"[c{k}]crop={cam['w']}:{cam['h']}:{cam['x']}:{cam['y']},scale=640:360:flags={SCALE},unsharp=5:5:0.4,pad=652:372:6:6:white[cc{k}];"
@@ -91,9 +99,10 @@ def main_graph(plan, wide=False):
         cy = 120 if wide else CAM_H + card.get("top", 330)
         if card.get("text"):
             ch = even(cw * 0.42)
-            size = int(ch / (len(card["text"]) + 0.6))
+            longest = max(len(line) for line in card["text"])
+            size = int(min(ch / (len(card["text"]) + 0.7), (cw - 120) / (longest * 0.78)))
             draws = ",".join(
-                f"drawtext=fontfile=../fonts/Montserrat-Black.ttf:text='{line}':fontcolor={'0xFFE500' if n == 0 else 'white'}:fontsize={size}:"
+                f"drawtext=fontfile=../fonts/Montserrat-Black.ttf:expansion=none:text='{escape(line)}':fontcolor={'0xFFE500' if n == 0 else 'white'}:fontsize={size}:"
                 f"x=(w-text_w)/2:y={int(ch * (n + 0.5) / len(card['text']) - size / 2)}"
                 for n, line in enumerate(card["text"])
             )
@@ -104,8 +113,26 @@ def main_graph(plan, wide=False):
                 f"[{idx}:v]fps=30,crop={card['crop']['w']}:{card['crop']['h']}:{card['crop']['x']}:{card['crop']['y']},"
                 f"scale={cw}:{ch}:flags={SCALE},"
             )
+        if card.get("panel") and not wide:
+            lines.append(
+                f"[{idx}:v]fps=30,crop={card['crop']['w']}:{card['crop']['h']}:{card['crop']['x']}:{card['crop']['y']},"
+                f"scale={W}:{SCREEN_H}:flags={SCALE},format=yuva420p,fade=t=in:st=0:d=0.12:alpha=1,"
+                f"fade=t=out:st={max(0.2, dur - 0.12):.3f}:d=0.12:alpha=1,setpts=PTS-STARTPTS+{at:.3f}/TB[b{i}]"
+            )
+            out = f"vb{i}"
+            lines.append(f"[{video}][b{i}]overlay=x=0:y={CAM_H}:eof_action=pass:enable='between(t,{at:.3f},{at + dur:.3f})'[{out}]")
+            video = out
+            continue
+        if card.get("panel"):
+            ch = even(min(1180 * card["crop"]["h"] / card["crop"]["w"], 880))
+            cw = even(ch * card["crop"]["w"] / card["crop"]["h"])
+            source = (
+                f"[{idx}:v]fps=30,crop={card['crop']['w']}:{card['crop']['h']}:{card['crop']['x']}:{card['crop']['y']},"
+                f"scale={cw}:{ch}:flags={SCALE},"
+            )
+        border = "0xFFE500" if card.get("text") else "white"
         lines.append(
-            source + f"pad={cw + 16}:{ch + 16}:8:8:white,format=yuva420p,"
+            source + f"pad={cw + 16}:{ch + 16}:8:8:{border},format=yuva420p,"
             f"fade=t=in:st=0:d=0.18:alpha=1,fade=t=out:st={max(0.2, dur - 0.2):.3f}:d=0.2:alpha=1,"
             f"setpts=PTS-STARTPTS+{at:.3f}/TB[b{i}]"
         )
@@ -133,6 +160,8 @@ def main():
         if card.get("text"):
             cw = 900 if wide else card.get("width", 940)
             inputs += ["-f", "lavfi", "-t", f"{card['dur'] + 0.3:.3f}", "-i", f"color=c=0x101014:s={cw}x{even(cw * 0.42)}:r=30"]
+        elif card.get("file"):
+            inputs += ["-ss", f"{card.get('fileStart', 0):.3f}", "-t", f"{card['dur'] + 0.3:.3f}", "-i", card["file"]]
         else:
             inputs += ["-ss", f"{card['source']:.3f}", "-t", f"{card['dur'] + 0.3:.3f}", "-i", plan["source"]]
 
