@@ -54,6 +54,10 @@ export function isFillerYouKnow(words: Word[], i: number): boolean {
   return before || after;
 }
 
+function isInterjection(words: Word[], i: number): boolean {
+  return /-oh/i.test(words[i].w) || /^-oh/i.test(words[i + 1]?.w ?? "");
+}
+
 function isFragment(word: string): boolean {
   return /[-—–]$/.test(word.trim()) && norm(word).length <= 6;
 }
@@ -80,7 +84,7 @@ export function detectDisfluencies(words: Word[]): WordFlag[] {
 
   for (let i = 0; i < words.length; i++) {
     const current = norm(words[i].w);
-    if (PURE_FILLERS.has(current)) flag(i, "filler");
+    if (PURE_FILLERS.has(current) && !isInterjection(words, i)) flag(i, "filler");
     else if (isFillerLike(words, i)) flag(i, "filler");
     else if (isFillerYouKnow(words, i)) {
       flag(i, "filler");
@@ -221,14 +225,18 @@ export function snapToQuiet(time: number, envelope: Float32Array | null, hopSec:
   return Math.min(high, Math.max(low, best * hopSec));
 }
 
-export function countFillers(words: Word[]): number {
-  let total = 0;
+export function fillerIndices(words: Word[]): number[] {
+  const hits: number[] = [];
   for (let i = 0; i < words.length; i++) {
-    if (PURE_FILLERS.has(norm(words[i].w)) || isFillerLike(words, i)) total++;
+    if ((PURE_FILLERS.has(norm(words[i].w)) && !isInterjection(words, i)) || isFillerLike(words, i)) hits.push(i);
     else if (isFillerYouKnow(words, i)) {
-      total++;
+      hits.push(i);
       i++;
     }
   }
-  return total;
+  return hits;
+}
+
+export function countFillers(words: Word[]): number {
+  return fillerIndices(words).length;
 }

@@ -83,28 +83,41 @@ export async function writeOverrides(id: string, overrides: StoryOverrides): Pro
 }
 
 export async function readStatus(id: string): Promise<StoryStatus | null> {
-  return readJson<StoryStatus>(projectFile(id, "status.json"));
+  for (let attempt = 0; attempt < 5; attempt++) {
+    const status = await readJson<StoryStatus>(projectFile(id, "status.json"));
+    if (status) return status;
+    if (!(await exists(projectFile(id, "status.json")))) return null;
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+  return null;
 }
 
-export async function updateStatus(id: string, patch: Partial<StoryStatus>, message?: string): Promise<StoryStatus> {
-  const current = (await readStatus(id)) ?? {
-    id,
-    title: id,
-    sourcePath: projectFile(id, "source.mp4"),
-    durationSec: 0,
-    stage: "idle" as const,
-    busy: false,
-    log: [],
-    updatedAt: new Date().toISOString()
+const statusQueue = new Map<string, Promise<unknown>>();
+
+export function updateStatus(id: string, patch: Partial<StoryStatus>, message?: string): Promise<StoryStatus> {
+  const run = async (): Promise<StoryStatus> => {
+    const current = (await readStatus(id)) ?? {
+      id,
+      title: id,
+      sourcePath: projectFile(id, "source.mp4"),
+      durationSec: 0,
+      stage: "idle" as const,
+      busy: false,
+      log: [],
+      updatedAt: new Date().toISOString()
+    };
+    const next: StoryStatus = {
+      ...current,
+      ...patch,
+      log: message ? [...current.log, { at: new Date().toISOString(), message }].slice(-200) : current.log,
+      updatedAt: new Date().toISOString()
+    };
+    await writeJson(projectFile(id, "status.json"), next);
+    return next;
   };
-  const next: StoryStatus = {
-    ...current,
-    ...patch,
-    log: message ? [...current.log, { at: new Date().toISOString(), message }].slice(-200) : current.log,
-    updatedAt: new Date().toISOString()
-  };
-  await writeJson(projectFile(id, "status.json"), next);
-  return next;
+  const queued = (statusQueue.get(id) ?? Promise.resolve()).then(run, run);
+  statusQueue.set(id, queued.catch(() => undefined));
+  return queued;
 }
 
 export async function listProjects(): Promise<StoryStatus[]> {

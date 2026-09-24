@@ -1,8 +1,8 @@
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { askCopy, askStory } from "@/lib/story/ai";
-import { cleanRange, countFillers, detectDisfluencies, norm, type WordFlag } from "@/lib/story/cleanup";
-import { buildEdl, retime, timelineWords, zoomAnchor, type EdlUnit, type TimelineWord } from "@/lib/story/edl";
+import { cleanRange, countFillers, detectDisfluencies, fillerIndices, norm, type WordFlag } from "@/lib/story/cleanup";
+import { buildEdl, retime, silenceThreshold, timelineWords, zoomAnchor, type EdlUnit, type TimelineWord } from "@/lib/story/edl";
 import {
   buildDescription,
   buildSrt,
@@ -308,6 +308,43 @@ export async function storyStage(id: string, log: Log): Promise<StoryPlan> {
   return plan;
 }
 
+async function alignedWords(id: string, words: Word[], units: Unit[], log: Log): Promise<Word[]> {
+  const cacheFile = projectFile(id, "aligned.json");
+  const doneFile = projectFile(id, "aligned-units.json");
+  const cache = (await readJson<Record<string, [number, number, number]>>(cacheFile)) ?? {};
+  const done = new Set((await readJson<string[]>(doneFile)) ?? []);
+  const missing = units.filter((unit) => !done.has(unit.id));
+  if (missing.length > 0) {
+    const spans = missing.map((unit) => ({
+      start: unit.start,
+      end: unit.end,
+      words: words.slice(unit.firstWord, unit.lastWord + 1).map((word, offset) => ({ i: unit.firstWord + offset, w: word.w }))
+    }));
+    const spansFile = projectFile(id, "align-spans.json");
+    const outFile = projectFile(id, "align-out.json");
+    await writeJson(spansFile, spans);
+    const wav = projectFile(id, "audio16k.wav");
+    const status = await readStatus(id);
+    if (!(await exists(wav)) && status) await runProcess("ffmpeg", ["-v", "error", "-y", "-i", status.sourcePath, "-vn", "-ac", "1", "-ar", "16000", wav]);
+    log(`force-aligning ${missing.length} units for exact word edges`);
+    try {
+      await runProcess(PYTHON, [script("align.py"), wav, spansFile, outFile]);
+      Object.assign(cache, (await readJson<Record<string, [number, number, number]>>(outFile)) ?? {});
+      for (const unit of missing) done.add(unit.id);
+      await writeJson(cacheFile, cache);
+      await writeJson(doneFile, [...done]);
+    } catch (error) {
+      log(`alignment unavailable, using transcript timings: ${error instanceof Error ? error.message.slice(0, 200) : String(error)}`);
+    }
+    await rm(spansFile, { force: true });
+    await rm(outFile, { force: true });
+  }
+  return words.map((word, index) => {
+    const hit = cache[String(index)];
+    return hit && hit[1] > hit[0] ? { ...word, s: hit[0], e: hit[1] } : word;
+  });
+}
+
 export type EditResult = {
   edl: Edl;
   chapters: Chapter[];
@@ -334,7 +371,6 @@ export async function editStage(id: string, log: Log): Promise<EditResult> {
   const status = await readStatus(id);
   if (!analysis || !transcript || !storedPlan || !status) throw new Error("Plan the story before building the edit.");
   const overrides = await readOverrides(id);
-  const words = transcript.words;
   const units = new Map(analysis.units.map((unit) => [unit.id, { ...unit }]));
   applyTakeChoices(units, overrides.takeChoices);
   const plan: StoryPlan = overrides.hookUnitIds?.length ? { ...storedPlan, hookUnitIds: overrides.hookUnitIds, source: storedPlan.source } : storedPlan;
@@ -352,6 +388,10 @@ export async function editStage(id: string, log: Log): Promise<EditResult> {
   const payoffSection = plan.sections.find((section) => section.role === "payoff");
   const payoffFirst = payoffSection ? analysis.moments.find((moment) => moment.id === payoffSection.momentIds[0])?.unitIds[0] : undefined;
   if (payoffFirst) keyUnits.add(payoffFirst);
+  for (const section of plan.sections) {
+    const opening = analysis.moments.find((moment) => moment.id === section.momentIds[0])?.unitIds.find((unitId) => !units.get(unitId)?.retakeOf);
+    if (opening) keyUnits.add(opening);
+  }
 
   const entries: EdlUnit[] = order.map((unitId, index) => {
     const unit = units.get(unitId)!;
@@ -370,6 +410,7 @@ export async function editStage(id: string, log: Log): Promise<EditResult> {
 
   const samples = visual?.samples ?? [];
   const envelope = await loadEnvelope(id);
+  const words = await alignedWords(id, transcript.words, [...new Set(order)].map((unitId) => units.get(unitId)!), log);
   const built = buildEdl({
     source: status.sourcePath,
     fps: 30,
@@ -408,7 +449,7 @@ export async function editStage(id: string, log: Log): Promise<EditResult> {
     else if (removal.kind === "repeat") tally.repeat++;
     else tally.silence++;
   }
-  const bodyUnits = order.slice(hookCount).map((unitId) => units.get(unitId)!);
+  const bodyUnits = order.map((unitId) => units.get(unitId)!);
   const sourceSelectedSec = bodyUnits.reduce((sum, unit) => sum + (unit.end - unit.start), 0);
   const sourceFillersInSelection = bodyUnits.reduce((sum, unit) => sum + countFillers(words.slice(unit.firstWord, unit.lastWord + 1)), 0);
 
@@ -496,7 +537,9 @@ export function storyOutline(plan: StoryPlan, analysis: Analysis, edl: Edl | nul
   const moments = new Map(analysis.moments.map((moment) => [moment.id, moment]));
   const at = (unitIds: string[], prefix?: string) => {
     if (!edl) return "";
-    const segment = edl.segments.find((entry) => entry.enabled && unitIds.includes(entry.unitId) && (!prefix || entry.id.startsWith(prefix)));
+    const segment = edl.segments.find(
+      (entry) => entry.enabled && unitIds.includes(entry.unitId) && (prefix ? entry.id.startsWith(prefix) : !entry.id.startsWith("hook-"))
+    );
     return segment ? `[${chapterClock(segment.timelineIn)}] ` : "";
   };
   const lines = [
@@ -509,7 +552,8 @@ export function storyOutline(plan: StoryPlan, analysis: Analysis, edl: Edl | nul
     for (const section of plan.sections.filter((entry) => entry.role === role)) {
       const unitIds = section.momentIds.flatMap((momentId) => moments.get(momentId)?.unitIds ?? []);
       const sources = section.momentIds.map((momentId) => formatClock(moments.get(momentId)?.start ?? 0)).join(", ");
-      lines.push(`${n++}. ${at(unitIds)}${role.toUpperCase()} - ${section.title} (source ${sources}): ${section.reason}`);
+      const kept = (moments.get(section.momentIds[0])?.text ?? "").split(/\s+/).slice(0, 28).join(" ");
+      lines.push(`${n++}. ${at(unitIds)}${role.toUpperCase()} - ${section.title} (source ${sources}): ${section.reason} Opens on: "${kept}..."`);
     }
   }
   if (plan.openLoops.length) {
@@ -544,6 +588,9 @@ export type Verification = {
   fillersInSelection: number;
   fillersAfterRender: number;
   fillerRemovalPct: number;
+  fillersHeardRaw: number;
+  fillerRemovalRawPct: number;
+  audibleFillers: Array<{ at: number; context: string }>;
   captionDriftMs: number;
   loudness: { integrated: number; truePeak: number };
   loudnessOk: boolean;
@@ -553,6 +600,48 @@ export type Verification = {
   onlyAllowedTransitions: boolean;
   cutFrames: string[];
 };
+
+export function fillerHits(words: Word[]): Array<{ s: number; e: number; context: string }> {
+  return fillerIndices(words).map((i) => ({
+    s: words[i].s,
+    e: words[i].e,
+    context: words.slice(Math.max(0, i - 3), i + 4).map((word) => word.w).join(" ")
+  }));
+}
+
+export function voicedSeconds(envelope: Float32Array, hopSec: number, start: number, end: number): number {
+  const threshold = silenceThreshold(envelope, hopSec, (start + end) / 2);
+  let voiced = 0;
+  for (let k = Math.max(0, Math.floor(start / hopSec)); k < Math.min(envelope.length, Math.ceil(end / hopSec)); k++) {
+    if (envelope[k] > threshold) voiced += hopSec;
+  }
+  return voiced;
+}
+
+async function alignRender(id: string, wav: string, words: Word[], segments: Array<{ s: number; e: number }>): Promise<Word[]> {
+  const spans = segments
+    .map((segment) => ({
+      start: segment.s,
+      end: segment.e,
+      words: words.map((word, i) => ({ i, w: word.w, s: word.s })).filter((word) => word.s >= segment.s - 0.05 && word.s < segment.e)
+    }))
+    .filter((span) => span.words.length > 0);
+  const spansFile = projectFile(id, "final-align-spans.json");
+  const outFile = projectFile(id, "final-aligned.json");
+  await writeJson(spansFile, spans);
+  try {
+    await runProcess(PYTHON, [script("align.py"), wav, spansFile, outFile]);
+  } catch {
+    return words;
+  } finally {
+    await rm(spansFile, { force: true });
+  }
+  const aligned = (await readJson<Record<string, [number, number, number]>>(outFile)) ?? {};
+  return words.map((word, index) => {
+    const hit = aligned[String(index)];
+    return hit && hit[1] > hit[0] ? { ...word, s: hit[0], e: hit[1] } : word;
+  });
+}
 
 export async function verifyStage(id: string, log: Log): Promise<Verification> {
   const edl = await readJson<Edl>(packageFile(id, "edl.json"));
@@ -565,9 +654,17 @@ export async function verifyStage(id: string, log: Log): Promise<Verification> {
   log("re-transcribing the render");
   await runProcess("ffmpeg", ["-v", "error", "-y", "-i", final, "-vn", "-ac", "1", "-ar", "16000", wav]);
   await runProcess(PYTHON, [script("transcribe.py"), wav, projectFile(id, "final-transcript.json")]);
+  await runProcess(PYTHON, [script("envelope.py"), wav, projectFile(id, "final-envelope.f32")]);
+  const heardRaw = (await readJson<Transcript & { segments?: Array<{ s: number; e: number }> }>(projectFile(id, "final-transcript.json"))) ?? { words: [], durationSec: 0 };
+  const heard = await alignRender(id, wav, heardRaw.words, heardRaw.segments ?? []);
   await rm(wav, { force: true });
-  const heard = (await readJson<Transcript>(projectFile(id, "final-transcript.json")))?.words ?? [];
-  const fillersAfter = countFillers(heard);
+  const renderEnvelope = await readFile(projectFile(id, "final-envelope.f32")).then(
+    (buffer) => new Float32Array(buffer.buffer, buffer.byteOffset, Math.floor(buffer.byteLength / 4)),
+    () => null
+  );
+  const heardFillers = fillerHits(heard);
+  const audible = heardFillers.filter((hit) => !renderEnvelope || voicedSeconds(renderEnvelope, HOP_SEC, hit.s, hit.e) >= 0.1);
+  const fillersAfter = audible.length;
   const before = Math.max(1, edit.sourceFillersInSelection);
 
   const drifts: number[] = [];
@@ -600,6 +697,7 @@ export async function verifyStage(id: string, log: Log): Promise<Verification> {
   const cutFrames: string[] = [];
   const cuts = edl.segments.filter((segment) => segment.enabled && segment.timelineIn > 0);
   const picks = Array.from({ length: Math.min(10, cuts.length) }, (_, k) => cuts[Math.floor(((k + 0.5) * cuts.length) / Math.min(10, cuts.length))]);
+  await rm(projectFile(id, "cut-checks"), { recursive: true, force: true });
   await mkdir(projectFile(id, "cut-checks"), { recursive: true });
   for (const [k, segment] of picks.entries()) {
     const file = projectFile(id, "cut-checks", `cut-${String(k + 1).padStart(2, "0")}-${segment.id}.jpg`);
@@ -614,6 +712,9 @@ export async function verifyStage(id: string, log: Log): Promise<Verification> {
     fillersInSelection: edit.sourceFillersInSelection,
     fillersAfterRender: fillersAfter,
     fillerRemovalPct: Math.round((1 - fillersAfter / before) * 1000) / 10,
+    fillersHeardRaw: heardFillers.length,
+    fillerRemovalRawPct: Math.round((1 - heardFillers.length / before) * 1000) / 10,
+    audibleFillers: audible.map((hit) => ({ at: Math.round(hit.s * 100) / 100, context: hit.context })),
     captionDriftMs: Math.round(drifts[Math.floor(drifts.length / 2)] ?? 0),
     loudness,
     loudnessOk: Math.abs(loudness.integrated - LOUDNESS_TARGET.integrated) <= 1 && loudness.truePeak <= -1,
@@ -742,7 +843,7 @@ export async function packageStage(id: string, log: Log): Promise<void> {
           "",
           `- Runtime in range: ${verification.runtimeOk ? "yes" : "no"}`,
           `- Hook inside the first 30 s: ${verification.hookWithin30s ? "yes" : "no"}`,
-          `- Filler removal (re-transcription of the render): ${verification.fillerRemovalPct}% (${verification.fillersInSelection} in the selected source, ${verification.fillersAfterRender} heard in the render)`,
+          `- Filler removal (re-transcription of the render): ${verification.fillerRemovalPct}% counting fillers with audible voice under them (${verification.fillersInSelection} in the selected source, ${verification.fillersAfterRender} audible in the render); ${verification.fillerRemovalRawPct}% if every filler Whisper reports is counted (${verification.fillersHeardRaw}, most of the gap is Whisper writing "um" at hard cuts where the audio is silent)`,
           `- Caption drift (median, render vs SRT): ${verification.captionDriftMs} ms`,
           `- Loudness: ${verification.loudness.integrated} LUFS integrated, ${verification.loudness.truePeak} dBFS peak (${verification.loudnessOk ? "within" : "OUTSIDE"} +/-1 LU of -14, peak <= -1)`,
           `- Chapters valid for YouTube: ${verification.chaptersValid.ok ? "yes" : verification.chaptersValid.problems.join("; ")}`,

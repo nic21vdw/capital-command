@@ -26,6 +26,23 @@ export function zoomAnchor(samples: VisualSample[]): Anchor {
   return { x: xs[Math.floor(xs.length / 2)], y: ys[Math.floor(ys.length / 2)], source: "face" };
 }
 
+function smoothed(envelope: Float32Array, k: number): number {
+  const a = envelope[Math.max(0, k - 1)];
+  const b = envelope[k];
+  const c = envelope[Math.min(envelope.length - 1, k + 1)];
+  return (a + b + c) / 3;
+}
+
+export function silenceThreshold(envelope: Float32Array, hopSec: number, time: number): number {
+  const from = Math.max(0, Math.floor((time - 2) / hopSec));
+  const to = Math.min(envelope.length, Math.ceil((time + 2) / hopSec));
+  const window = Array.from(envelope.subarray(from, to)).sort((a, b) => a - b);
+  if (window.length === 0) return -40;
+  const floor = window[Math.floor(window.length * 0.1)];
+  const loud = window[Math.floor(window.length * 0.9)];
+  return floor + (loud - floor) * 0.35;
+}
+
 export function quantize(seconds: number, fps: number): number {
   return Math.round(seconds * fps) / fps;
 }
@@ -63,11 +80,17 @@ export function buildEdl(input: BuildEdlInput): BuiltEdl {
     const sectionChange = previousSection !== null && previousSection !== entry.section;
     const adjacent = previousUnit !== null && unit.start >= previousUnit.end && unit.start - previousUnit.end < 3;
 
+    let pushed = false;
     cleaned.ranges.forEach((range, index) => {
-      const low = range.firstWord > 0 ? input.words[range.firstWord - 1].e : 0;
-      const high = input.words[range.lastWord + 1]?.s ?? range.end + 1;
-      const inPoint = quantize(snapToQuiet(range.start, input.envelope, input.hopSec, low, input.words[range.firstWord].s), input.fps);
-      const outPoint = quantize(snapToQuiet(range.end, input.envelope, input.hopSec, input.words[range.lastWord].e, high), input.fps);
+      const words = input.words;
+      const before = range.firstWord > 0 ? words[range.firstWord - 1] : null;
+      const after = words[range.lastWord + 1] ?? null;
+      const first = words[range.firstWord];
+      const last = words[range.lastWord];
+      const startRaw = snapToQuiet(range.start, input.envelope, input.hopSec, before ? before.e : 0, first.s);
+      const endRaw = snapToQuiet(range.end, input.envelope, input.hopSec, last.e, after ? after.s : range.end + 1);
+      const inPoint = quantize(startRaw, input.fps);
+      const outPoint = quantize(endRaw, input.fps);
       if (outPoint - inPoint < MIN_SEGMENT_FRAMES / input.fps) return;
 
       let transition: Transition = "jump";
@@ -81,7 +104,8 @@ export function buildEdl(input: BuildEdlInput): BuiltEdl {
       const duration = outPoint - inPoint;
       if (transition === "jump") zoomed = !zoomed;
       else zoomed = false;
-      if (entry.key && duration >= PUSH_MIN_SEC && index === 0) {
+      if (entry.key && !pushed && duration >= PUSH_MIN_SEC) {
+        pushed = true;
         zoom = PUSH_FROM;
         zoomTo = PUSH_TO;
         zoomed = true;

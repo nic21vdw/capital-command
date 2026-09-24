@@ -65,10 +65,11 @@ async function main() {
     ]);
   }
 
-  if (!(await readStatus(id)) || arg("title")) {
+  const existing = await readStatus(id);
+  if (!existing || !existing.durationSec || arg("title")) {
     const meta = await probe(sourcePath);
     const info = await readFile(projectFile(id, "info.json"), "utf8").then((text) => JSON.parse(text) as { title?: string }).catch(() => null);
-    await updateStatus(id, { title: arg("title") ?? info?.title ?? id, sourceUrl: url, sourcePath, ...meta }, "project created");
+    await updateStatus(id, { title: arg("title") ?? info?.title ?? existing?.title ?? id, sourceUrl: url ?? existing?.sourceUrl, sourcePath, ...meta }, "project created");
   }
 
   const requested = arg("stages")?.split(",").map((stage) => stage.trim()) as StoryStage[] | undefined;
