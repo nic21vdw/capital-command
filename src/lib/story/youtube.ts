@@ -1,4 +1,4 @@
-import { open, stat } from "node:fs/promises";
+import { open, readFile, stat } from "node:fs/promises";
 import { assertPrivate, STORY_PRIVACY, storyStatus } from "@/lib/story/privacy";
 
 const UPLOAD_URL = "https://www.googleapis.com/upload/youtube/v3/videos?uploadType=resumable&part=snippet,status";
@@ -239,4 +239,25 @@ export function verifyPrivate(readback: VideoReadback): void {
 
 export function studioLink(videoId: string): string {
   return `https://studio.youtube.com/video/${videoId}/edit`;
+}
+
+export function tokenFromFile(tokensFile: string | undefined): () => Promise<string> {
+  let cached: { token: string; expires: number } | null = null;
+  return async () => {
+    if (cached && cached.expires > Date.now() + 60_000) return cached.token;
+    const stored = tokensFile ? (JSON.parse(await readFile(tokensFile, "utf8")) as Record<string, string>) : {};
+    const refreshToken = stored["youtube.refreshToken"] || process.env.YOUTUBE_REFRESH_TOKEN;
+    const clientId = process.env.YOUTUBE_CLIENT_ID;
+    const clientSecret = process.env.YOUTUBE_CLIENT_SECRET;
+    if (!refreshToken || !clientId || !clientSecret) throw new Error("YouTube is not connected: pass --tokens-file or set YOUTUBE_REFRESH_TOKEN.");
+    const response = await fetch("https://oauth2.googleapis.com/token", {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({ client_id: clientId, client_secret: clientSecret, refresh_token: refreshToken, grant_type: "refresh_token" })
+    });
+    if (!response.ok) throw new Error(`YouTube token refresh failed (${response.status}).`);
+    const data = (await response.json()) as { access_token: string; expires_in: number };
+    cached = { token: data.access_token, expires: Date.now() + data.expires_in * 1000 };
+    return cached.token;
+  };
 }

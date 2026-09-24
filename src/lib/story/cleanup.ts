@@ -12,7 +12,7 @@ const LIKE_AFTER_LINKING = new Set(["was", "is", "be", "it's", "that's", "what's
 
 const YOU_KNOW_OBJECTS = new Set([
   "what", "how", "that", "the", "why", "when", "where", "if", "it", "this", "about", "who", "a", "an",
-  "them", "him", "her", "me", "us", "your", "my", "whether", "which"
+  "them", "him", "her", "me", "us", "your", "my", "whether", "which", "what's", "that's", "i", "you", "exactly"
 ]);
 
 const STOPWORDS = new Set(["the", "a", "an", "of", "to", "and", "in", "is", "it", "on", "for", "that", "this", "i"]);
@@ -99,9 +99,21 @@ export function detectDisfluencies(words: Word[]): WordFlag[] {
     if (!current || !next) continue;
     const close = words[i + 1].s - words[i].e < 0.6;
     if (!close) continue;
-    if (current === next && !["that", "had", "is"].includes(current)) flag(i, "stutter");
+    if (current === next && !["that", "had", "is"].includes(current) && !/^[.\-%]/.test(words[i + 1].w.trim()) && !/^\d+$/.test(current)) flag(i, "stutter");
     else if (isFragment(words[i].w) || (current.length < next.length && next.startsWith(current) && current.length <= 3 && /-$/.test(words[i].w)))
       flag(i, "false-start");
+  }
+
+  for (let d = 1; d < words.length - 1; d++) {
+    if (!/^[-–—]+$/.test(words[d].w.trim())) continue;
+    for (let n = 3; n >= 1; n--) {
+      if (d - n < 0 || d + n >= words.length) continue;
+      let same = true;
+      for (let k = 0; k < n; k++) if (norm(words[d - n + k].w) !== norm(words[d + 1 + k].w) || !norm(words[d + 1 + k].w)) same = false;
+      if (!same) continue;
+      for (let k = d - n; k <= d; k++) flag(k, "repeat");
+      break;
+    }
   }
 
   for (let n = 5; n >= 2; n--) {

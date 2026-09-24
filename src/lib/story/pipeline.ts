@@ -310,7 +310,7 @@ export async function storyStage(id: string, log: Log): Promise<StoryPlan> {
   return plan;
 }
 
-const SCREEN_OVERLAYS = (pane: Pane | null) => [
+export const SCREEN_OVERLAYS = (pane: Pane | null) => [
   ...(pane ? [[Math.max(0, pane.x0 - 0.01), 0, 1, Math.min(1, pane.y1 + 0.22)]] : []),
   [0, 0.86, 1, 1],
   [0, 0, 0.145, 0.55]
@@ -428,7 +428,7 @@ function runProcessOut(command: string, args: string[]): Promise<{ stdout: strin
   );
 }
 
-async function alignedWords(id: string, words: Word[], units: Unit[], log: Log, removed: Set<number>): Promise<Word[]> {
+export async function alignedWords(id: string, words: Word[], units: Unit[], log: Log, removed: Set<number>): Promise<Word[]> {
   const cacheFile = projectFile(id, "aligned.json");
   const doneFile = projectFile(id, "aligned-units.json");
   const cache = (await readJson<Record<string, [number, number, number]>>(cacheFile)) ?? {};
