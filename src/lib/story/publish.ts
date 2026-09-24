@@ -234,3 +234,84 @@ export function captionsAss(words: TimelineWord[], width: number, height: number
 export function hookCaptionsAss(words: TimelineWord[], width: number, height: number): string {
   return captionsAss(words, width, height, Infinity);
 }
+
+export type ShortCaptionOptions = {
+  width: number;
+  height: number;
+  centerY: number;
+  maxWords: number;
+  maxChars: number;
+  terms?: Record<string, string>;
+  fontSize?: number;
+};
+
+export function captionWords(words: TimelineWord[], terms: Record<string, string> = {}): TimelineWord[] {
+  const out: TimelineWord[] = [];
+  const lookup = new Map(Object.entries(terms).map(([from, to]) => [from.toLowerCase(), to]));
+  for (const word of words) {
+    const raw = word.w.trim();
+    if (!raw || /^[-–—]+$/.test(raw) || /^(uh|um|umm|uhh|er|ah)[,.!?]*$/i.test(raw)) continue;
+    const previous = out[out.length - 1];
+    if (previous && /^([-.%]|,\d|\.\d)/.test(raw) && word.s - previous.e < 0.4 && !/[.!?]$/.test(previous.w)) {
+      out[out.length - 1] = { ...previous, w: `${previous.w}${raw}`, e: word.e };
+      continue;
+    }
+    if (previous && /[-–—]$/.test(previous.w)) out.pop();
+    const key = raw.toLowerCase().replace(/[^a-z0-9'.]/g, "");
+    const replaced = lookup.get(key);
+    out.push({ ...word, w: replaced ? raw.replace(/^[^,.!?]+/, replaced) : raw });
+  }
+  return out;
+}
+
+export function shortCaptionChunks(words: TimelineWord[], maxWords: number, maxChars: number): TimelineWord[][] {
+  const chunks: TimelineWord[][] = [];
+  let current: TimelineWord[] = [];
+  for (let i = 0; i < words.length; i++) {
+    current.push(words[i]);
+    const next = words[i + 1];
+    const text = current.map((word) => word.w).join(" ");
+    const sentenceEnd = /[.!?,]$/.test(words[i].w);
+    const tooLong = next ? text.length + 1 + next.w.length > maxChars : true;
+    const pause = next ? next.s - words[i].e > 0.35 : true;
+    if (current.length >= maxWords || sentenceEnd || tooLong || pause) {
+      chunks.push(current);
+      current = [];
+    }
+  }
+  if (current.length) chunks.push(current);
+  return chunks;
+}
+
+export function shortCaptionsAss(words: TimelineWord[], options: ShortCaptionOptions): string {
+  const clean = (word: string) => word.replace(/[{}\\]/g, "").replace(/[,;:]+$/, "").toUpperCase();
+  const lines = [
+    "[Script Info]",
+    "ScriptType: v4.00+",
+    `PlayResX: ${options.width}`,
+    `PlayResY: ${options.height}`,
+    "WrapStyle: 2",
+    "",
+    "[V4+ Styles]",
+    "Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding",
+    `Style: Cap,Montserrat Black,${options.fontSize ?? 96},&H0000E5FF,&H0000E5FF,&H00000000,&H96000000,0,0,0,0,100,100,1,0,1,${Math.round((options.fontSize ?? 96) / 12)},4,5,60,60,0,1`,
+    "",
+    "[Events]",
+    "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text"
+  ];
+  const x = Math.round(options.width / 2);
+  const chunks = shortCaptionChunks(captionWords(words, options.terms), options.maxWords, options.maxChars);
+  chunks.forEach((chunk, chunkIndex) => {
+    const following = chunks[chunkIndex + 1]?.[0]?.s ?? Infinity;
+    chunk.forEach((word, index) => {
+      const next = chunk[index + 1];
+      const end = next ? next.s : Math.min(following, Math.max(word.e + 0.25, word.s + 0.3));
+      if (end <= word.s) return;
+      const text = chunk
+        .map((other, j) => (j === index ? `{\\fscx118\\fscy118}${clean(other.w)}{\\fscx100\\fscy100}` : clean(other.w)))
+        .join(" ");
+      lines.push(`Dialogue: 0,${assTime(word.s)},${assTime(end)},Cap,,0,0,0,,{\\an5\\pos(${x},${options.centerY})}${text}`);
+    });
+  });
+  return `${lines.join("\n")}\n`;
+}
