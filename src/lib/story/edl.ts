@@ -6,7 +6,7 @@ export const PUSH_FROM = 1;
 export const PUSH_TO = 1.08;
 export const PUSH_MIN_SEC = 3;
 export const PUSH_MAX_SEC = 6;
-export const MAX_ZOOM = 1.2;
+export const MAX_ZOOM = 2;
 export const SECTION_AUDIO_LEAD_SEC = 0.3;
 const MIN_SEGMENT_FRAMES = 3;
 
@@ -127,7 +127,7 @@ export function buildEdl(input: BuildEdlInput): BuiltEdl {
     previousSection = entry.section;
   }
 
-  const merged = mergeBreaths(segments, input.words, flagged);
+  const merged = mergeBreaths(removeOverlaps(segments), input.words, flagged);
   const runtimeSec = merged.reduce((sum, segment) => sum + segment.out - segment.in, 0);
   return {
     edl: { version: 1, source: input.source, fps: input.fps, width: input.width, height: input.height, segments: merged, runtimeSec },
@@ -136,6 +136,20 @@ export function buildEdl(input: BuildEdlInput): BuiltEdl {
 }
 
 export const MERGE_GAP_SEC = 0.3;
+
+export function removeOverlaps(segments: EdlSegment[]): EdlSegment[] {
+  const out: EdlSegment[] = [];
+  for (const segment of segments) {
+    const previous = out[out.length - 1];
+    if (previous && segment.in < previous.out && segment.in >= previous.in) {
+      const trimmed = { ...segment, in: previous.out };
+      if (trimmed.out - trimmed.in >= 0.1) out.push(trimmed);
+      continue;
+    }
+    out.push(segment);
+  }
+  return out;
+}
 
 export function mergeBreaths(segments: EdlSegment[], words: Word[], flagged: Map<number, unknown>): EdlSegment[] {
   const out: EdlSegment[] = [];

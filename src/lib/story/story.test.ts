@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { cleanRange, countFillers, detectDisfluencies } from "@/lib/story/cleanup";
-import { buildEdl, mergeBreaths, PUSH_TO, retime, timelineWords, zoomAnchor, type EdlUnit } from "@/lib/story/edl";
-import { faceFraming, planShots, SCREEN_ZOOM, summarizeShots } from "@/lib/story/shots";
+import { buildEdl, mergeBreaths, PUSH_TO, removeOverlaps, retime, timelineWords, zoomAnchor, type EdlUnit } from "@/lib/story/edl";
+import { faceFraming, planShots, SCREEN_ZOOM, screenTalk, summarizeShots } from "@/lib/story/shots";
+import { steadyPointer, trustedAlignment } from "@/lib/story/pipeline";
 import { hookCaptionsAss } from "@/lib/story/publish";
 import { assertPrivate, PrivacyGuardError, STORY_PRIVACY, storyStatus } from "@/lib/story/privacy";
 import {
@@ -552,16 +553,17 @@ describe("shot plan", () => {
     const segments = [
       make("s1", "So we started the stream today", 0, 3, "cut"),
       make("s2", "and look at this website right here", 3, 3),
-      make("s3", "the pricing section is right here", 6, 3),
+      make("s3", "the pricing is right here", 6, 3),
       make("s4", "Holy crap, I got a reset!", 9, 2),
       make("s5", "then we kept talking about the plan", 11, 3),
       make("s6", "and more talking about the plan", 14, 3)
     ];
     const units = new Map(segments.map((segment) => [segment.id, { ...unit(segment.id, 0, 1, segment.id === "s4" ? "Holy crap, I got a reset!" : segment.id === "s2" || segment.id === "s3" ? "look at this website right here" : "we kept talking about the plan", 0.5), audio: { clarity: 0.8, energy: 0.9, paceWpm: 160, fillerRate: 0 } }]));
-    const focus = new Map([["s2", { x: 0.4, y: 0.5, share: 0.5, motion: 1 }], ["s3", { x: 0.4, y: 0.5, share: 0.5, motion: 1 }]]);
-    const shots = planShots({ segments, units, focus, pane, width: 1920, height: 1080 });
+    const pointers = new Map([["s2", { x: 0.31, y: 0.62, sightings: 4 }], ["s3", { x: 0.31, y: 0.62, sightings: 4 }]]);
+    const shots = planShots({ segments, units, pointers, pane, width: 1920, height: 1080 });
     expect(shots.map((segment) => segment.shot)).toEqual(["wide", "wide", "screen", "face", "wide", "wide"]);
     expect(shots[2].zoom).toBe(SCREEN_ZOOM);
+    expect([shots[2].anchorX, shots[2].anchorY]).toEqual([0.31, 0.62]);
     expect(summarizeShots(shots).face).toBe(1);
   });
 });
@@ -582,5 +584,34 @@ describe("hook captions", () => {
     expect(ass).toContain(",-1,0,0,0,");
     expect(ass).toContain("DISASTER STREAM IS");
     expect(ass.split("Dialogue:").length - 1).toBe(2);
+  });
+});
+
+describe("pointer zooms only on something small", () => {
+  it("stays on the whole screen for a topic line and without a steady pointer", () => {
+    expect(steadyPointer([{ t: 0, x: 0.3, y: 0.3, score: 0.99, kind: "hand" }])).toBeNull();
+    expect(steadyPointer([
+      { t: 0, x: 0.3, y: 0.3, score: 0.99, kind: "hand" },
+      { t: 0.25, x: 0.31, y: 0.3, score: 0.98, kind: "hand" },
+      { t: 0.5, x: 0.8, y: 0.9, score: 0.95, kind: "hand" }
+    ])).toEqual({ x: 0.31, y: 0.3, sightings: 2 });
+    expect(screenTalk("this website is gorgeous and the agent is working")).toBe(false);
+    expect(screenTalk("look at this, 98% already")).toBe(true);
+  });
+});
+
+describe("clean joins", () => {
+  it("never plays the same source audio twice across a cut", () => {
+    const base = { unitId: "u", section: "setup" as const, source: "", timelineIn: 0, timelineOut: 0, zoom: 1, zoomTo: 1, anchorX: 0.5, anchorY: 0.5, audioLeadSec: 0, enabled: true, reason: "r", audioScore: 0.5, visualScore: 0.5, scores: scores(0.5), transition: "jump" as const };
+    const fixed = removeOverlaps([{ ...base, id: "a", in: 176.467, out: 177.6 }, { ...base, id: "b", in: 177.333, out: 180.2 }]);
+    expect(fixed[1].in).toBeCloseTo(177.6);
+  });
+
+  it("ignores low-confidence alignments and keeps words in order", () => {
+    const words = trustedAlignment(
+      [{ w: "energy.", s: 177.04, e: 177.46 }, { w: "I'll", s: 177.62, e: 178.06 }],
+      { "0": [177.273, 177.597, 0.609], "1": [177.34, 178.105, 0.001] }
+    );
+    expect(words[1].s).toBeGreaterThanOrEqual(words[0].e);
   });
 });

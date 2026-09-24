@@ -158,6 +158,7 @@ export type StoryOverrides = {
   hookUnitIds?: string[];
   takeChoices: Record<string, string>;
   zoom: Record<string, number>;
+  cutWords?: number[];
 };
 
 export type StoryCopy = {

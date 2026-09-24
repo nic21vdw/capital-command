@@ -68,7 +68,8 @@ const patchSchema = z.object({
   disabledUnitIds: z.array(z.string()).optional(),
   hookUnitIds: z.array(z.string()).max(6).optional(),
   takeChoices: z.record(z.string(), z.string()).optional(),
-  zoom: z.record(z.string(), z.number().min(1).max(1.2)).optional()
+  zoom: z.record(z.string(), z.number().min(1).max(2)).optional(),
+  cutWords: z.array(z.number().int().min(0)).optional()
 });
 
 export async function PATCH(request: NextRequest, { params }: Params) {
@@ -84,7 +85,8 @@ export async function PATCH(request: NextRequest, { params }: Params) {
     disabledUnitIds: parsed.data.disabledUnitIds ?? current.disabledUnitIds,
     hookUnitIds: parsed.data.hookUnitIds ?? current.hookUnitIds,
     takeChoices: { ...current.takeChoices, ...(parsed.data.takeChoices ?? {}) },
-    zoom: Object.fromEntries(Object.entries(zoom).map(([key, value]) => [key, clampZoom(value)]))
+    zoom: Object.fromEntries(Object.entries(zoom).map(([key, value]) => [key, clampZoom(value)])),
+    cutWords: parsed.data.cutWords ?? current.cutWords
   });
   try {
     await editStage(id, () => undefined);

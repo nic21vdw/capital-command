@@ -14,6 +14,8 @@ already shipped.
 
 ## Unreleased
 
+- **Story edits stay on the whole screen and zoom only on what you point at.** A zoom now needs a line about something small ("look at this", a number, a price) and a place on screen where you are pointing: your mouse, or a popup that just opened. Cuts no longer play a word twice, and yellow captions run through the whole video.
+
 - **Story edits cut less and zoom on purpose.** Jump cuts no longer zoom in and out. A shot now holds for at least five seconds: the whole frame, a zoom onto the part of the screen being talked about, or a quick cut to your camera for a reaction. Short breaths are left in instead of cut, which removes about a third of the cuts, and the cold open gets bold yellow captions.
 
 - **A stream can now become a 10-minute story, uploaded to YouTube as a private draft.** `npm run story:edit -- --url <stream link>` reads the picture and the sound together, opens on the strongest line from anywhere in the stream, then runs setup, the build, the payoff and a close. It cuts the ums, stutters, false starts, repeated takes and dead air, punches in on jump cuts, pushes in slowly on the key lines and masters the sound to -14 LUFS. It writes the chapters, a description that tells the story, 5 titles, 3 thumbnail ideas and 10 candidate frames. The upload is always private and titled `[DRAFT]`, and you publish it from Studio. **Editor > Story edits** shows every cut and zoom with its reason, so you can switch cuts off, swap the hook, pick a different take or change a zoom, then re-render and re-upload. Zooms are centred on the whole frame and never on the small facecam in the corner.
