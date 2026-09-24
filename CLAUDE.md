@@ -572,6 +572,15 @@ long-form projects, the pipeline run or the publish queue.
 - Cuts are made between words only (`cleanRange`), snapped to the quietest 10 ms
   in the gap, frame-aligned, with 15 ms crossfades. Silences go to ~0.22 s,
   dramatic pauses before a new section keep up to 0.6 s.
+- WHISPER'S WORD EDGES ARE NOT GOOD ENOUGH TO CUT ON. Around fillers they ran
+  0.3-0.6 s early on Nic's streams, so a cut at the logged edge kept the "um"
+  (70% removal). `scripts/story/align.py` force-aligns the kept units with
+  wav2vec2 (torchaudio MMS_FA, CPU torch) and the EDL cuts on those edges
+  (99-100%). The envelope cannot stand in for it: his "um" is a -35 dB hum over
+  a -41 dB room.
+- The filler-primed transcriber writes "Um" at hard cuts where the audio is
+  silent, so `verify` only counts a re-transcribed filler with audible voice
+  under it, and aligns the render's words before measuring caption drift.
 - ZOOM IS FRAME-CENTRED unless the face is a talking-head size
   (`TALKING_HEAD_FACE_HEIGHT`). Nic's streams have a small facecam in the top
   right; punching into it is an upscale of a few hundred pixels and he asked for
