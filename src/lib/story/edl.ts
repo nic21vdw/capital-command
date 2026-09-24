@@ -26,13 +26,6 @@ export function zoomAnchor(samples: VisualSample[]): Anchor {
   return { x: xs[Math.floor(xs.length / 2)], y: ys[Math.floor(ys.length / 2)], source: "face" };
 }
 
-function smoothed(envelope: Float32Array, k: number): number {
-  const a = envelope[Math.max(0, k - 1)];
-  const b = envelope[k];
-  const c = envelope[Math.min(envelope.length - 1, k + 1)];
-  return (a + b + c) / 3;
-}
-
 export function silenceThreshold(envelope: Float32Array, hopSec: number, time: number): number {
   const from = Math.max(0, Math.floor((time - 2) / hopSec));
   const to = Math.min(envelope.length, Math.ceil((time + 2) / hopSec));
