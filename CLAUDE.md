@@ -581,11 +581,21 @@ long-form projects, the pipeline run or the publish queue.
 - The filler-primed transcriber writes "Um" at hard cuts where the audio is
   silent, so `verify` only counts a re-transcribed filler with audible voice
   under it, and aligns the render's words before measuring caption drift.
-- ZOOM IS FRAME-CENTRED unless the face is a talking-head size
-  (`TALKING_HEAD_FACE_HEIGHT`). Nic's streams have a small facecam in the top
-  right; punching into it is an upscale of a few hundred pixels and he asked for
-  it never to happen. Punch-ins alternate 100/110% on jump cuts, push-ins go
-  100 to 108% on key lines.
+- FRAMING IS A SHOT PLAN, NOT A ZOOM PER CUT (`shots.ts`). Nic's review of the
+  first cut: zooming in and out on every jump cut "bounces". Jump cuts now keep
+  the framing; the shot changes on purpose and holds at least 5 s: wide by
+  default and at each section, SCREEN (1.4x on the window `scripts/story/focus.py`
+  finds changing, overlays penalised) while he talks about what is on screen, and
+  4-6 brief CAMERA reactions (1.5-3.5 s, 45 s apart) framed exactly on the
+  facecam box, which he asked for. The box is detected once per project
+  (`focus.py --pane`, cached in `pane.json`), and a reaction is only allowed
+  where his face is actually inside it: early in a stream that box can hold a
+  different scene.
+- Natural breaths under 0.3 s are merged instead of cut (`mergeBreaths`), and
+  silences under 0.4 s are left alone. Together that took Day 61 from 353 cuts
+  to 225.
+- The cold open gets burned-in bold yellow captions (`hookCaptionsAss`, lower
+  third, three words at a time).
 - The render (`render.ts`) encodes source-order CHUNKS first (one decode per
   chunk, so a hook lifted from hour four doesn't buffer four hours of frames),
   then joins them with J-cuts at section starts, two-pass loudnorm to -14 LUFS.

@@ -120,6 +120,7 @@ export type EdlSegment = {
   anchorX: number;
   anchorY: number;
   transition: Transition;
+  shot?: "wide" | "screen" | "face";
   audioLeadSec: number;
   enabled: boolean;
   reason: string;

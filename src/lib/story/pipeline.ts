@@ -2,10 +2,12 @@ import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { askCopy, askStory } from "@/lib/story/ai";
 import { cleanRange, countFillers, detectDisfluencies, fillerIndices, norm, type WordFlag } from "@/lib/story/cleanup";
-import { buildEdl, retime, silenceThreshold, timelineWords, zoomAnchor, type EdlUnit, type TimelineWord } from "@/lib/story/edl";
+import { buildEdl, clampZoom, retime, silenceThreshold, timelineWords, zoomAnchor, type EdlUnit, type TimelineWord } from "@/lib/story/edl";
+import { planShots, SCREEN_ZOOM, screenTalk, summarizeShots, type FocusWindow, type Pane } from "@/lib/story/shots";
 import {
   buildDescription,
   buildSrt,
+  hookCaptionsAss,
   chapterBlock,
   chapterClock,
   chaptersFromTimeline,
@@ -55,7 +57,7 @@ import {
   TARGET_MIN_SEC,
   validLoops
 } from "@/lib/story/story";
-import type { Chapter, Edl, Moment, SectionRole, StoryCopy, StoryPlan, Transcript, Unit, VisualSample, VisualTrack, Word } from "@/lib/story/types";
+import type { Chapter, Edl, EdlSegment, Moment, SectionRole, StoryCopy, StoryPlan, Transcript, Unit, VisualSample, VisualTrack, Word } from "@/lib/story/types";
 import { bestTake, contentTokens, findRetakeGroups, splitUnits } from "@/lib/story/units";
 import { readBackVideo, studioLink, storyVideoBody, uploadCaptions, uploadStoryVideo, verifyPrivate } from "@/lib/story/youtube";
 
@@ -308,6 +310,67 @@ export async function storyStage(id: string, log: Log): Promise<StoryPlan> {
   return plan;
 }
 
+const SCREEN_OVERLAYS = (pane: Pane | null) => [
+  ...(pane ? [[Math.max(0, pane.x0 - 0.01), 0, 1, Math.min(1, pane.y1 + 0.22)]] : []),
+  [0, 0.86, 1, 1],
+  [0, 0, 0.145, 0.45]
+];
+
+async function cameraPane(id: string, source: string, samples: VisualSample[]): Promise<Pane | null> {
+  const cached = await readJson<Pane>(projectFile(id, "pane.json"));
+  if (cached) return cached;
+  const faces = samples.map((sample) => sample.face).filter((face): face is NonNullable<typeof face> => Boolean(face));
+  if (faces.length < samples.length * 0.5) return null;
+  const median = (values: number[]) => [...values].sort((a, b) => a - b)[Math.floor(values.length / 2)];
+  const face = { x: median(faces.map((f) => f.x)), y: median(faces.map((f) => f.y)), w: median(faces.map((f) => f.w)), h: median(faces.map((f) => f.h)) };
+  const times = Array.from({ length: 6 }, (_, k) => samples[Math.floor(((k + 0.5) * samples.length) / 6)].t);
+  try {
+    const { stdout } = await runProcessOut(PYTHON, [script("focus.py"), source, "--pane", JSON.stringify({ times, face })]);
+    const pane = JSON.parse(stdout.trim()) as Pane;
+    if (pane.x1 - pane.x0 < 0.05 || pane.y1 - pane.y0 < 0.05) return null;
+    await writeJson(projectFile(id, "pane.json"), pane);
+    return pane;
+  } catch {
+    return null;
+  }
+}
+
+async function focusWindows(id: string, source: string, units: Unit[], log: Log): Promise<Map<string, FocusWindow>> {
+  const cacheFile = projectFile(id, "focus.json");
+  const cache = (await readJson<Record<string, FocusWindow>>(cacheFile)) ?? {};
+  const missing = units.filter((unit) => !cache[unit.id] && screenTalk(unit.text));
+  if (missing.length > 0) {
+    const pane = await readJson<Pane>(projectFile(id, "pane.json"));
+    const request = {
+      zoom: SCREEN_ZOOM,
+      exclude: SCREEN_OVERLAYS(pane),
+      spans: missing.map((unit) => ({ id: unit.id, start: unit.start, end: Math.max(unit.end, unit.start + 1.5) }))
+    };
+    const requestFile = projectFile(id, "focus-request.json");
+    const outFile = projectFile(id, "focus-out.json");
+    await writeJson(requestFile, request);
+    log(`finding what is on screen for ${missing.length} lines`);
+    try {
+      await runProcess(PYTHON, [script("focus.py"), source, requestFile, outFile]);
+      Object.assign(cache, (await readJson<Record<string, FocusWindow>>(outFile)) ?? {});
+      await writeJson(cacheFile, cache);
+    } catch (error) {
+      log(`screen focus unavailable: ${error instanceof Error ? error.message.slice(0, 200) : String(error)}`);
+    }
+    await rm(requestFile, { force: true });
+    await rm(outFile, { force: true });
+  }
+  return new Map(Object.entries(cache));
+}
+
+function runProcessOut(command: string, args: string[]): Promise<{ stdout: string }> {
+  return new Promise((resolve, reject) =>
+    import("node:child_process").then(({ execFile }) =>
+      execFile(command, args, { maxBuffer: 1 << 20, windowsHide: true }, (error, stdout) => (error ? reject(error) : resolve({ stdout: String(stdout) })))
+    )
+  );
+}
+
 async function alignedWords(id: string, words: Word[], units: Unit[], log: Log): Promise<Word[]> {
   const cacheFile = projectFile(id, "aligned.json");
   const doneFile = projectFile(id, "aligned-units.json");
@@ -384,14 +447,9 @@ export async function editStage(id: string, log: Log): Promise<EditResult> {
   });
   const order = orderedUnitIds(plan, analysis.moments, units, disabled);
   const hookCount = plan.hookUnitIds.length;
-  const keyUnits = new Set<string>([...plan.hookUnitIds, ...plan.openLoops.flatMap((loop) => [loop.plantUnitId, loop.payoffUnitId])]);
   const payoffSection = plan.sections.find((section) => section.role === "payoff");
   const payoffFirst = payoffSection ? analysis.moments.find((moment) => moment.id === payoffSection.momentIds[0])?.unitIds[0] : undefined;
-  if (payoffFirst) keyUnits.add(payoffFirst);
-  for (const section of plan.sections) {
-    const opening = analysis.moments.find((moment) => moment.id === section.momentIds[0])?.unitIds.find((unitId) => !units.get(unitId)?.retakeOf);
-    if (opening) keyUnits.add(opening);
-  }
+  const keyUnits = new Set<string>(payoffFirst ? [payoffFirst] : []);
 
   const entries: EdlUnit[] = order.map((unitId, index) => {
     const unit = units.get(unitId)!;
@@ -422,9 +480,26 @@ export async function editStage(id: string, log: Log): Promise<EditResult> {
     envelope,
     hopSec: HOP_SEC,
     anchorFor: (start, end) => zoomAnchor(samplesIn(samples, start - 5, end + 5)),
-    zoomOverrides: overrides.zoom
   });
-  const retimed = retime(built.edl.segments);
+  const enabledUnits = [...new Set(built.edl.segments.map((segment) => segment.unitId))].map((unitId) => units.get(unitId)!);
+  const focus = await focusWindows(id, status.sourcePath, enabledUnits, log);
+  const pane = await cameraPane(id, status.sourcePath, samples);
+  const faceVisible = (segment: EdlSegment) => {
+    if (!pane) return false;
+    const inside = samplesIn(samples, segment.in, segment.out).map((sample) => {
+      const face = sample.face;
+      if (!face) return false;
+      const cx = face.x + face.w / 2;
+      const cy = face.y + face.h / 2;
+      return cx > pane.x0 && cx < pane.x1 && cy > pane.y0 && cy < pane.y1;
+    });
+    return inside.length > 0 && inside.filter(Boolean).length / inside.length >= 0.75;
+  };
+  const shot = planShots({ segments: built.edl.segments, units, focus, pane, width: built.edl.width, height: built.edl.height, faceVisible }).map((segment) => {
+    const override = overrides.zoom[segment.id];
+    return override === undefined ? segment : { ...segment, zoom: clampZoom(override), zoomTo: clampZoom(override), reason: `${segment.reason}; zoom set by hand` };
+  });
+  const retimed = retime(shot);
   const edl: Edl = { ...built.edl, segments: retimed.segments, runtimeSec: retimed.runtimeSec };
 
   const momentOfUnit = new Map<string, string>();
@@ -440,6 +515,9 @@ export async function editStage(id: string, log: Log): Promise<EditResult> {
 
   const tWords = timelineWords(edl.segments, words);
   const srt = buildSrt(tWords);
+  const hookEnd = Math.max(0, ...edl.segments.filter((segment) => segment.enabled && segment.id.startsWith("hook-")).map((segment) => segment.timelineOut));
+  const hookWords = tWords.filter((word) => word.s < hookEnd - 0.05);
+  await writeFile(projectFile(id, "hook.ass"), hookCaptionsAss(hookWords, edl.width, edl.height), "utf8");
   const tally = { filler: 0, stutter: 0, falseStart: 0, repeat: 0, silence: 0, seconds: 0 };
   for (const removal of built.removals) {
     tally.seconds += removal.end - removal.start;
@@ -460,7 +538,8 @@ export async function editStage(id: string, log: Log): Promise<EditResult> {
   await writeJson(projectFile(id, "timeline-words.json"), tWords);
   const result: EditResult = { edl, chapters, srt, words: tWords, removals: tally, sourceSelectedSec, sourceFillersInSelection };
   await writeJson(projectFile(id, "edit.json"), { ...result, srt: undefined, words: undefined });
-  log(`edit built: ${edl.segments.length} segments, ${formatClock(edl.runtimeSec)} runtime, ${chapters.length} chapters`);
+  const shots = summarizeShots(edl.segments);
+  log(`edit built: ${edl.segments.length} segments, ${formatClock(edl.runtimeSec)} runtime, ${chapters.length} chapters, ${shots.changes} framing changes (${shots.screen} screen, ${shots.face} camera)`);
   return result;
 }
 
@@ -574,6 +653,7 @@ export async function renderStage(id: string, log: Log): Promise<void> {
     sourcePath: status.sourcePath,
     sourceDurationSec: status.durationSec || (await sourceDuration(status.sourcePath)),
     workDir: projectFile(id, "render"),
+    captionsFile: (await exists(projectFile(id, "hook.ass"))) ? projectFile(id, "hook.ass") : undefined,
     outPath: packageFile(id, "final.mp4"),
     log
   });
@@ -820,7 +900,7 @@ export async function packageStage(id: string, log: Log): Promise<void> {
     `- Removed inside the kept story: ${edit.removals.filler} fillers, ${edit.removals.stutter} stutters, ${edit.removals.falseStart} false-start words, ${edit.removals.repeat} repeated words, ${edit.removals.silence} long pauses tightened (${Math.round(edit.removals.seconds)} s)`,
     `- Time removed overall: ${formatClock(status.durationSec - edl.runtimeSec)} of ${formatClock(status.durationSec)}`,
     `- Retakes found: ${analysis.retakeGroups.length} groups; the best take by combined audio + visual score is kept`,
-    `- Story planned by: ${plan.source === "ai" ? "the AI story editor, then fitted to runtime" : plan.source}`,
+    `- Story planned by: ${plan.source === "ai" ? "the AI story editor, then fitted to runtime" : plan.source === "override" ? "the AI story editor, then re-cut by hand in review" : plan.source}`,
     "",
     "## Hook",
     "",

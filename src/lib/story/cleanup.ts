@@ -138,8 +138,8 @@ export type CleanupOptions = {
 };
 
 export const DEFAULT_CLEANUP: CleanupOptions = {
-  maxGapSec: 0.3,
-  targetGapSec: 0.22,
+  maxGapSec: 0.4,
+  targetGapSec: 0.3,
   dramaticGapSec: 0.6,
   padSec: 0.05
 };

@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { cleanRange, countFillers, detectDisfluencies } from "@/lib/story/cleanup";
-import { buildEdl, PUNCH_ZOOM, PUSH_TO, retime, timelineWords, zoomAnchor, type EdlUnit } from "@/lib/story/edl";
+import { buildEdl, mergeBreaths, PUSH_TO, retime, timelineWords, zoomAnchor, type EdlUnit } from "@/lib/story/edl";
+import { faceFraming, planShots, SCREEN_ZOOM, summarizeShots } from "@/lib/story/shots";
+import { hookCaptionsAss } from "@/lib/story/publish";
 import { assertPrivate, PrivacyGuardError, STORY_PRIVACY, storyStatus } from "@/lib/story/privacy";
 import {
   buildDescription,
@@ -163,10 +165,10 @@ describe("EDL generation", () => {
     }
   });
 
-  it("alternates punch-in zoom on jump cuts and pushes in on a key line", () => {
+  it("keeps jump cuts at the same framing and pushes in on a key line", () => {
     const setup = built.edl.segments.filter((segment) => segment.section === "setup");
     expect(setup.map((segment) => segment.transition)).toEqual(["cut", "jump", "jump"]);
-    expect(setup.map((segment) => segment.zoom)).toEqual([1, PUNCH_ZOOM, 1]);
+    expect(setup.map((segment) => segment.zoom)).toEqual([1, 1, 1]);
     const payoff = built.edl.segments.find((segment) => segment.section === "payoff")!;
     expect(payoff.transition).toBe("j-cut");
     expect(payoff.zoom).toBe(1);
@@ -490,5 +492,95 @@ describe("render graph", () => {
     );
     expect(zoomFilter(segment("a", 0, 4, { zoom: 1, zoomTo: 1.08 }), 1920, 1080, 30)).toContain("zoompan=");
     expect(zoomFilter(segment("a", 0, 2), 1920, 1080, 30)).toBe("setsar=1");
+  });
+});
+
+describe("fewer cuts", () => {
+  it("plays a short breath instead of cutting it, but never merges over a removed filler", () => {
+    const list: Word[] = [
+      { w: "one", s: 0, e: 0.4 },
+      { w: "two", s: 0.8, e: 1.2 },
+      { w: "um", s: 1.3, e: 1.5 },
+      { w: "three", s: 1.6, e: 2 }
+    ];
+    const base = { unitId: "u", section: "setup" as const, source: "", timelineIn: 0, timelineOut: 0, zoom: 1, zoomTo: 1, anchorX: 0.5, anchorY: 0.5, audioLeadSec: 0, enabled: true, reason: "r", audioScore: 0.5, visualScore: 0.5, scores: scores(0.5) };
+    const merged = mergeBreaths(
+      [
+        { ...base, id: "a", in: 0, out: 0.45, transition: "cut" },
+        { ...base, id: "b", in: 0.75, out: 1.25, transition: "jump" },
+        { ...base, id: "c", in: 1.55, out: 2, transition: "jump" }
+      ],
+      list,
+      new Map([[2, "filler"]])
+    );
+    expect(merged.map((segment) => [segment.in, segment.out])).toEqual([[0, 1.25], [1.55, 2]]);
+    expect(merged[1].timelineIn).toBeCloseTo(1.25);
+  });
+});
+
+describe("shot plan", () => {
+  const pane = { x0: 0.69375, y0: 0.0083, x1: 1, y1: 0.3287 };
+  const make = (id: string, text: string, timelineIn: number, duration: number, transition: EdlSegment["transition"] = "jump"): EdlSegment => ({
+    id,
+    unitId: id,
+    section: "development",
+    source: "",
+    in: timelineIn + 100,
+    out: timelineIn + 100 + duration,
+    timelineIn,
+    timelineOut: timelineIn + duration,
+    zoom: 1,
+    zoomTo: 1,
+    anchorX: 0.5,
+    anchorY: 0.5,
+    transition,
+    audioLeadSec: 0,
+    enabled: true,
+    reason: "development: steady",
+    audioScore: 0.5,
+    visualScore: 0.5,
+    scores: scores(0.5)
+  });
+
+  it("frames the camera box exactly for a reaction", () => {
+    const framing = faceFraming(pane, 1920, 1080);
+    expect(framing.zoom).toBeGreaterThan(3);
+    expect(framing.x).toBeCloseTo(0.847, 2);
+  });
+
+  it("holds a framing for at least five seconds and cuts to the camera only briefly", () => {
+    const segments = [
+      make("s1", "So we started the stream today", 0, 3, "cut"),
+      make("s2", "and look at this website right here", 3, 3),
+      make("s3", "the pricing section is right here", 6, 3),
+      make("s4", "Holy crap, I got a reset!", 9, 2),
+      make("s5", "then we kept talking about the plan", 11, 3),
+      make("s6", "and more talking about the plan", 14, 3)
+    ];
+    const units = new Map(segments.map((segment) => [segment.id, { ...unit(segment.id, 0, 1, segment.id === "s4" ? "Holy crap, I got a reset!" : segment.id === "s2" || segment.id === "s3" ? "look at this website right here" : "we kept talking about the plan", 0.5), audio: { clarity: 0.8, energy: 0.9, paceWpm: 160, fillerRate: 0 } }]));
+    const focus = new Map([["s2", { x: 0.4, y: 0.5, share: 0.5, motion: 1 }], ["s3", { x: 0.4, y: 0.5, share: 0.5, motion: 1 }]]);
+    const shots = planShots({ segments, units, focus, pane, width: 1920, height: 1080 });
+    expect(shots.map((segment) => segment.shot)).toEqual(["wide", "wide", "screen", "face", "wide", "wide"]);
+    expect(shots[2].zoom).toBe(SCREEN_ZOOM);
+    expect(summarizeShots(shots).face).toBe(1);
+  });
+});
+
+describe("hook captions", () => {
+  it("writes bold yellow lower-third lines a few words at a time", () => {
+    const ass = hookCaptionsAss(
+      [
+        { w: "Disaster", s: 0, e: 0.4 },
+        { w: "stream", s: 0.4, e: 0.7 },
+        { w: "is", s: 0.7, e: 0.8 },
+        { w: "in", s: 0.8, e: 0.9 }
+      ],
+      1920,
+      1080
+    );
+    expect(ass).toContain("Style: Hook,Arial Black,92,&H0000E5FF");
+    expect(ass).toContain(",-1,0,0,0,");
+    expect(ass).toContain("DISASTER STREAM IS");
+    expect(ass.split("Dialogue:").length - 1).toBe(2);
   });
 });

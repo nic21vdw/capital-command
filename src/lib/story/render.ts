@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { mkdir, writeFile } from "node:fs/promises";
+import { copyFile, mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { INTERMEDIATE_CRF, INTERMEDIATE_PRESET, MASTER_AUDIO_BITRATE, MASTER_CRF, MASTER_PRESET, SCALE_FLAGS } from "@/lib/clipping/encode";
 import type { Edl, EdlSegment } from "@/lib/story/types";
@@ -116,7 +116,7 @@ export function audioAssembly(chunks: Chunk[]): string {
   return lines.join(";\n");
 }
 
-export function videoAssembly(chunks: Chunk[]): string {
+export function videoAssembly(chunks: Chunk[], captions?: string): string {
   const lines: string[] = [];
   chunks.forEach((chunk, k) => {
     const nextLead = chunks[k + 1]?.lead ?? 0;
@@ -124,7 +124,7 @@ export function videoAssembly(chunks: Chunk[]): string {
     const end = chunk.head + chunk.audioSec + nextLead;
     lines.push(`[${k}:v]trim=start=${fixed(start)}:end=${fixed(end)},setpts=PTS-STARTPTS[cv${k}]`);
   });
-  lines.push(`${chunks.map((_, k) => `[cv${k}]`).join("")}concat=n=${chunks.length}:v=1:a=0[vfinal]`);
+  lines.push(`${chunks.map((_, k) => `[cv${k}]`).join("")}concat=n=${chunks.length}:v=1:a=0${captions ? `[vcat];[vcat]ass=${captions}` : ""}[vfinal]`);
   return lines.join(";\n");
 }
 
@@ -158,9 +158,9 @@ export function finalArgs(chunkFiles: string[], filterPath: string, outPath: str
   ];
 }
 
-export function runProcess(command: string, args: string[], onLine?: (line: string) => void): Promise<{ stderr: string }> {
+export function runProcess(command: string, args: string[], onLine?: (line: string) => void, cwd?: string): Promise<{ stderr: string }> {
   return new Promise((resolve, reject) => {
-    const child = spawn(command, args, { windowsHide: true });
+    const child = spawn(command, args, { windowsHide: true, cwd });
     let stderr = "";
     child.stderr.on("data", (data: Buffer) => {
       const text = data.toString();
@@ -190,6 +190,7 @@ export async function renderEdl(input: {
   sourceDurationSec: number;
   workDir: string;
   outPath: string;
+  captionsFile?: string;
   parallel?: number;
   log?: (message: string) => void;
 }): Promise<RenderResult> {
@@ -216,8 +217,10 @@ export async function renderEdl(input: {
   log(`measured ${measure.input_i} LUFS / ${measure.input_tp} dBTP before normalising`);
 
   const finalFilter = path.join(workDir, "final.filter");
-  await writeFile(finalFilter, `${videoAssembly(chunks)};\n${audioAssembly(chunks)};\n[aclean]${loudnormFilter(measure)},aresample=48000[afinal]`);
-  await runProcess("ffmpeg", finalArgs(chunkFiles, finalFilter, input.outPath, edl.fps));
+  if (input.captionsFile) await copyFile(input.captionsFile, path.join(workDir, "captions.ass"));
+  const captions = input.captionsFile ? "captions.ass" : undefined;
+  await writeFile(finalFilter, `${videoAssembly(chunks, captions)};\n${audioAssembly(chunks)};\n[aclean]${loudnormFilter(measure)},aresample=48000[afinal]`);
+  await runProcess("ffmpeg", finalArgs(chunkFiles.map((file) => path.resolve(file)), path.resolve(finalFilter), path.resolve(input.outPath), edl.fps), undefined, workDir);
   const loudness = await measureLoudness(input.outPath);
   log(`final ${loudness.integrated} LUFS / ${loudness.truePeak} dBTP`);
   return { file: input.outPath, loudness, chunks: chunks.length };

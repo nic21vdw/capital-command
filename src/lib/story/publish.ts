@@ -180,3 +180,39 @@ export function thumbnailsMarkdown(concepts: ThumbnailConcept[], frames: Array<{
     ""
   ].join("\n");
 }
+
+function assTime(seconds: number): string {
+  const cs = Math.max(0, Math.round(seconds * 100));
+  const h = Math.floor(cs / 360000);
+  const m = Math.floor((cs % 360000) / 6000);
+  const sec = Math.floor((cs % 6000) / 100);
+  return `${h}:${String(m).padStart(2, "0")}:${String(sec).padStart(2, "0")}.${String(cs % 100).padStart(2, "0")}`;
+}
+
+export function hookCaptionsAss(words: TimelineWord[], width: number, height: number, wordsPerLine = 3): string {
+  const lines: string[] = [
+    "[Script Info]",
+    "ScriptType: v4.00+",
+    `PlayResX: ${width}`,
+    `PlayResY: ${height}`,
+    "WrapStyle: 2",
+    "",
+    "[V4+ Styles]",
+    "Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding",
+    `Style: Hook,Arial Black,${Math.round(height * 0.085)},&H0000E5FF,&H0000E5FF,&H00000000,&H96000000,-1,0,0,0,100,100,1,0,1,${Math.round(height * 0.007)},${Math.round(height * 0.003)},2,80,80,${Math.round(height * 0.14)},1`,
+    "",
+    "[Events]",
+    "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text"
+  ];
+  for (let i = 0; i < words.length; i += wordsPerLine) {
+    const chunk = words.slice(i, i + wordsPerLine);
+    const next = words[i + wordsPerLine];
+    const end = next ? Math.min(next.s, chunk[chunk.length - 1].e + 0.35) : chunk[chunk.length - 1].e + 0.35;
+    const text = chunk
+      .map((word) => word.w.replace(/[{}\\]/g, "").toUpperCase())
+      .join(" ")
+      .replace(/\s+-\s*/g, " ");
+    lines.push(`Dialogue: 0,${assTime(chunk[0].s)},${assTime(Math.max(end, chunk[0].s + 0.25))},Hook,,0,0,0,,{\\fad(40,40)}${text}`);
+  }
+  return `${lines.join("\n")}\n`;
+}
