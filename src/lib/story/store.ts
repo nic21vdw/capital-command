@@ -74,7 +74,8 @@ export async function readOverrides(id: string): Promise<StoryOverrides> {
     disabledUnitIds: stored?.disabledUnitIds ?? [],
     hookUnitIds: stored?.hookUnitIds,
     takeChoices: stored?.takeChoices ?? {},
-    zoom: stored?.zoom ?? {}
+    zoom: stored?.zoom ?? {},
+    cutWords: stored?.cutWords ?? []
   };
 }
 

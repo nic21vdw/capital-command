@@ -4,23 +4,22 @@ export type ShotKind = "wide" | "screen" | "face";
 
 export type Pane = { x0: number; y0: number; x1: number; y1: number };
 
-export type FocusWindow = { x: number; y: number; share: number; motion: number };
+export type Pointer = { x: number; y: number; sightings: number; zoom?: number };
 
-export const SCREEN_ZOOM = 1.4;
+export const SCREEN_ZOOM = 1.5;
 export const MIN_HOLD_SEC = 5;
-export const ESTABLISH_SEC = 3;
 export const FACE_MIN_SEC = 1.5;
 export const FACE_MAX_SEC = 3.5;
 export const FACE_SPACING_SEC = 45;
 export const MAX_FACE_SHOTS = 6;
 
-const SCREEN_TALK =
-  /\blook at\b|\bright here\b|\bthis (is|one|right|part|page|site|website|thing)\b|\bcheck (this|out)\b|\bsee (this|that|what)\b|website|homepage|\bsite\b|terminal|usage|\d+ ?%|pricing|services|questions|mobile|page|card|designer|wall|transparency|dashboard|button|settings|code|agent|session|loop|model|cli|codex|claude/i;
+const SMALL_REFERENCE =
+  /\blook at (this|that|these|it)\b|\bright here\b|\bright there\b|\bthis (button|number|bar|card|part|little|tab|box|line|icon|toggle|price|one right)\b|\bsee (this|that|these)\b|\d+ ?%|\$ ?\d|\bpricing\b|\bfrequently asked\b|\bcheck (this|it) out\b|\blook at all\b/i;
 
 const REACTION = /!|\bholy\b|\bwow\b|\boh (my|no|chat|guys|shoot)\b|\bno way\b|\binsane\b|\bgorgeous\b|\bcrazy\b|\bflashbang\b|\bbaby\b|\blet's go\b|\bi got\b|\bmogs\b|\bdisaster\b/i;
 
 export function screenTalk(text: string): boolean {
-  return SCREEN_TALK.test(text);
+  return SMALL_REFERENCE.test(text);
 }
 
 export function reactionScore(unit: Unit): number {
@@ -63,7 +62,7 @@ export function pickReactions(segments: EdlSegment[], units: Map<string, Unit>):
 export type ShotInput = {
   segments: EdlSegment[];
   units: Map<string, Unit>;
-  focus: Map<string, FocusWindow>;
+  pointers: Map<string, Pointer>;
   pane: Pane | null;
   width: number;
   height: number;
@@ -71,40 +70,42 @@ export type ShotInput = {
 };
 
 export function planShots(input: ShotInput): EdlSegment[] {
-  const { units, focus, pane } = input;
+  const { units, pointers, pane } = input;
   const eligible = input.faceVisible ? input.segments.filter((segment) => input.faceVisible!(segment)) : input.segments;
   const reactions = pane ? pickReactions(eligible, units) : new Set<string>();
   const face = pane ? faceFraming(pane, input.width, input.height) : null;
-  let current: { kind: Exclude<ShotKind, "face">; since: number; x: number; y: number } = { kind: "wide", since: 0, x: 0.5, y: 0.5 };
-  let sectionStart = 0;
+  let wideSince = 0;
+  let lastZoomUnit = "";
 
   return input.segments.map((segment) => {
     if (!segment.enabled) return segment;
     const unit = units.get(segment.unitId);
-    const newSection = segment.transition === "j-cut" || segment.transition === "cut";
-    if (newSection) {
-      sectionStart = segment.timelineIn;
-      current = { kind: "wide", since: segment.timelineIn, x: 0.5, y: 0.5 };
-    }
+    if (segment.transition === "j-cut" || segment.transition === "cut") wideSince = segment.timelineIn;
 
     if (face && reactions.has(segment.id)) {
       return withShot(segment, face.zoom, face.x, face.y, "face", "brief cut to the camera for the reaction");
     }
 
-    const held = segment.timelineIn - current.since;
-    const established = segment.timelineIn - sectionStart >= ESTABLISH_SEC;
-    const window = focus.get(segment.unitId);
-    const wantsScreen = Boolean(unit && window && screenTalk(unit.text));
-    if (!newSection && established && held >= MIN_HOLD_SEC) {
-      if (wantsScreen && current.kind === "wide") current = { kind: "screen", since: segment.timelineIn, x: window!.x, y: window!.y };
-      else if (!wantsScreen && current.kind === "screen") current = { kind: "wide", since: segment.timelineIn, x: 0.5, y: 0.5 };
+    const pointer = pointers.get(segment.unitId);
+    const pointing = Boolean(unit && pointer && screenTalk(unit.text));
+    const continuing = pointing && lastZoomUnit === segment.unitId;
+    if (pointing && (continuing || segment.timelineIn - wideSince >= MIN_HOLD_SEC)) {
+      lastZoomUnit = segment.unitId;
+      return withShot(
+        segment,
+        pointer!.zoom ?? SCREEN_ZOOM,
+        pointer!.x,
+        pointer!.y,
+        "screen",
+        pointer!.sightings > 0 ? "zoomed on the mouse pointer while he points at something small" : "zoomed on the small thing that appeared where he is pointing"
+      );
     }
-
-    if (current.kind === "screen") {
-      return withShot(segment, SCREEN_ZOOM, current.x, current.y, "screen", "held on the part of the screen being talked about");
+    if (lastZoomUnit && lastZoomUnit !== segment.unitId) {
+      lastZoomUnit = "";
+      wideSince = segment.timelineIn;
     }
     const push = segment.zoomTo > segment.zoom;
-    return withShot(segment, push ? segment.zoom : 1, 0.5, 0.5, "wide", push ? `slow push-in to ${Math.round(segment.zoomTo * 100)}% on a key line` : "wide shot");
+    return withShot(segment, push ? segment.zoom : 1, 0.5, 0.5, "wide", push ? `slow push-in to ${Math.round(segment.zoomTo * 100)}% on a key line` : "whole screen");
   });
 }
 

@@ -581,21 +581,27 @@ long-form projects, the pipeline run or the publish queue.
 - The filler-primed transcriber writes "Um" at hard cuts where the audio is
   silent, so `verify` only counts a re-transcribed filler with audible voice
   under it, and aligns the render's words before measuring caption drift.
-- FRAMING IS A SHOT PLAN, NOT A ZOOM PER CUT (`shots.ts`). Nic's review of the
-  first cut: zooming in and out on every jump cut "bounces". Jump cuts now keep
-  the framing; the shot changes on purpose and holds at least 5 s: wide by
-  default and at each section, SCREEN (1.4x on the window `scripts/story/focus.py`
-  finds changing, overlays penalised) while he talks about what is on screen, and
-  4-6 brief CAMERA reactions (1.5-3.5 s, 45 s apart) framed exactly on the
-  facecam box, which he asked for. The box is detected once per project
-  (`focus.py --pane`, cached in `pane.json`), and a reaction is only allowed
-  where his face is actually inside it: early in a stream that box can hold a
-  different scene.
+- FRAMING IS A SHOT PLAN, NOT A ZOOM PER CUT (`shots.ts`). Nic's reviews:
+  zooming on every jump cut "bounces", and zooming into the middle of the
+  screen is lazy. The default is the WHOLE SCREEN. A screen zoom happens only on
+  a line that references something small ("look at this", "right here", a %, a
+  price) AND where the screen shows where he is pointing: a confident pointer
+  match (`scripts/story/cursor.py`, templates from his real cursor, 0.965+ and
+  two agreeing sightings) or a compact region that changed, such as a popup or a
+  hover (`focus.py`: at most 35% x 40% of the frame, zoom 1.3-1.6x sized to fit
+  it). Window capture often hides the cursor, which is why the change region
+  matters. Brief CAMERA reactions (1.5-3.5 s) are framed on the detected facecam
+  box and only where his face is really inside it.
+- EVERY JOIN IS CHECKED FOR DOUBLED AUDIO. Low-confidence alignments (< 0.3) put
+  word edges inside the previous word, so two pieces overlapped and a word played
+  twice ("goo-good energy"). `trustedAlignment` only accepts confident edges for
+  kept words (removed fillers always take the aligned span), `removeOverlaps`
+  forbids overlapping pieces, and `verify` reports any word repeated across a cut.
+- Yellow captions run through the whole video (`captionsAss`): big for the cold
+  open, smaller for the body, both lower third.
 - Natural breaths under 0.3 s are merged instead of cut (`mergeBreaths`), and
   silences under 0.4 s are left alone. Together that took Day 61 from 353 cuts
   to 225.
-- The cold open gets burned-in bold yellow captions (`hookCaptionsAss`, lower
-  third, three words at a time).
 - The render (`render.ts`) encodes source-order CHUNKS first (one decode per
   chunk, so a hook lifted from hour four doesn't buffer four hours of frames),
   then joins them with J-cuts at section starts, two-pass loudnorm to -14 LUFS.

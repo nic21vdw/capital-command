@@ -189,7 +189,9 @@ function assTime(seconds: number): string {
   return `${h}:${String(m).padStart(2, "0")}:${String(sec).padStart(2, "0")}.${String(cs % 100).padStart(2, "0")}`;
 }
 
-export function hookCaptionsAss(words: TimelineWord[], width: number, height: number, wordsPerLine = 3): string {
+export function captionsAss(words: TimelineWord[], width: number, height: number, hookEnd = 0): string {
+  const style = (name: string, size: number, outline: number) =>
+    `Style: ${name},Arial Black,${Math.round(height * size)},&H0000E5FF,&H0000E5FF,&H00000000,&H96000000,-1,0,0,0,100,100,1,0,1,${Math.round(height * outline)},${Math.round(height * 0.003)},2,80,80,${Math.round(height * 0.12)},1`;
   const lines: string[] = [
     "[Script Info]",
     "ScriptType: v4.00+",
@@ -199,20 +201,36 @@ export function hookCaptionsAss(words: TimelineWord[], width: number, height: nu
     "",
     "[V4+ Styles]",
     "Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding",
-    `Style: Hook,Arial Black,${Math.round(height * 0.085)},&H0000E5FF,&H0000E5FF,&H00000000,&H96000000,-1,0,0,0,100,100,1,0,1,${Math.round(height * 0.007)},${Math.round(height * 0.003)},2,80,80,${Math.round(height * 0.14)},1`,
+    style("Hook", 0.085, 0.007),
+    style("Body", 0.06, 0.005),
     "",
     "[Events]",
     "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text"
   ];
-  for (let i = 0; i < words.length; i += wordsPerLine) {
-    const chunk = words.slice(i, i + wordsPerLine);
-    const next = words[i + wordsPerLine];
-    const end = next ? Math.min(next.s, chunk[chunk.length - 1].e + 0.35) : chunk[chunk.length - 1].e + 0.35;
+  let i = 0;
+  while (i < words.length) {
+    const hook = words[i].s < hookEnd;
+    const size = hook ? 3 : 4;
+    const chunk: TimelineWord[] = [];
+    while (i < words.length && chunk.length < size) {
+      const previous = chunk[chunk.length - 1];
+      if (previous && (words[i].s - previous.e > 0.6 || (words[i].s < hookEnd) !== hook)) break;
+      chunk.push(words[i]);
+      i++;
+      if (/[.!?]$/.test(chunk[chunk.length - 1].w)) break;
+    }
+    const next = words[i];
+    const last = chunk[chunk.length - 1];
+    const end = next ? Math.min(next.s, last.e + 0.35) : last.e + 0.35;
     const text = chunk
       .map((word) => word.w.replace(/[{}\\]/g, "").toUpperCase())
       .join(" ")
       .replace(/\s+-\s*/g, " ");
-    lines.push(`Dialogue: 0,${assTime(chunk[0].s)},${assTime(Math.max(end, chunk[0].s + 0.25))},Hook,,0,0,0,,{\\fad(40,40)}${text}`);
+    lines.push(`Dialogue: 0,${assTime(chunk[0].s)},${assTime(Math.max(end, chunk[0].s + 0.25))},${hook ? "Hook" : "Body"},,0,0,0,,{\\fad(40,40)}${text}`);
   }
   return `${lines.join("\n")}\n`;
+}
+
+export function hookCaptionsAss(words: TimelineWord[], width: number, height: number): string {
+  return captionsAss(words, width, height, Infinity);
 }

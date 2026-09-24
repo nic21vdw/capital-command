@@ -3,11 +3,11 @@ import path from "node:path";
 import { askCopy, askStory } from "@/lib/story/ai";
 import { cleanRange, countFillers, detectDisfluencies, fillerIndices, norm, type WordFlag } from "@/lib/story/cleanup";
 import { buildEdl, clampZoom, retime, silenceThreshold, timelineWords, zoomAnchor, type EdlUnit, type TimelineWord } from "@/lib/story/edl";
-import { planShots, SCREEN_ZOOM, screenTalk, summarizeShots, type FocusWindow, type Pane } from "@/lib/story/shots";
+import { planShots, screenTalk, summarizeShots, type Pane, type Pointer } from "@/lib/story/shots";
 import {
   buildDescription,
   buildSrt,
-  hookCaptionsAss,
+  captionsAss,
   chapterBlock,
   chapterClock,
   chaptersFromTimeline,
@@ -313,7 +313,7 @@ export async function storyStage(id: string, log: Log): Promise<StoryPlan> {
 const SCREEN_OVERLAYS = (pane: Pane | null) => [
   ...(pane ? [[Math.max(0, pane.x0 - 0.01), 0, 1, Math.min(1, pane.y1 + 0.22)]] : []),
   [0, 0.86, 1, 1],
-  [0, 0, 0.145, 0.45]
+  [0, 0, 0.145, 0.55]
 ];
 
 async function cameraPane(id: string, source: string, samples: VisualSample[]): Promise<Pane | null> {
@@ -335,32 +335,89 @@ async function cameraPane(id: string, source: string, samples: VisualSample[]): 
   }
 }
 
-async function focusWindows(id: string, source: string, units: Unit[], log: Log): Promise<Map<string, FocusWindow>> {
-  const cacheFile = projectFile(id, "focus.json");
-  const cache = (await readJson<Record<string, FocusWindow>>(cacheFile)) ?? {};
+export type Sighting = { t: number; x: number; y: number; score: number; kind: string };
+
+export function steadyPointer(sightings: Sighting[], minScore = 0.965): Pointer | null {
+  const good = sightings.filter((hit) => hit.score >= minScore);
+  if (good.length < 2) return null;
+  const median = (values: number[]) => [...values].sort((a, b) => a - b)[Math.floor(values.length / 2)];
+  const x = median(good.map((hit) => hit.x));
+  const y = median(good.map((hit) => hit.y));
+  const near = good.filter((hit) => Math.hypot(hit.x - x, (hit.y - y) * 0.5625) < 0.06);
+  if (near.length < 2 || near.length < good.length * 0.5) return null;
+  return { x: median(near.map((hit) => hit.x)), y: median(near.map((hit) => hit.y)), sightings: near.length };
+}
+
+async function pointerPositions(id: string, source: string, units: Unit[], log: Log): Promise<Map<string, Pointer>> {
+  const cacheFile = projectFile(id, "cursor.json");
+  const cache = (await readJson<Record<string, Sighting[]>>(cacheFile)) ?? {};
   const missing = units.filter((unit) => !cache[unit.id] && screenTalk(unit.text));
   if (missing.length > 0) {
     const pane = await readJson<Pane>(projectFile(id, "pane.json"));
     const request = {
-      zoom: SCREEN_ZOOM,
       exclude: SCREEN_OVERLAYS(pane),
+      fps: 4,
+      threshold: 0.94,
       spans: missing.map((unit) => ({ id: unit.id, start: unit.start, end: Math.max(unit.end, unit.start + 1.5) }))
     };
-    const requestFile = projectFile(id, "focus-request.json");
-    const outFile = projectFile(id, "focus-out.json");
+    const requestFile = projectFile(id, "cursor-request.json");
+    const outFile = projectFile(id, "cursor-out.json");
     await writeJson(requestFile, request);
-    log(`finding what is on screen for ${missing.length} lines`);
+    log(`looking for the mouse pointer during ${missing.length} lines`);
     try {
-      await runProcess(PYTHON, [script("focus.py"), source, requestFile, outFile]);
-      Object.assign(cache, (await readJson<Record<string, FocusWindow>>(outFile)) ?? {});
+      await runProcess(PYTHON, [script("cursor.py"), source, requestFile, outFile]);
+      Object.assign(cache, (await readJson<Record<string, Sighting[]>>(outFile)) ?? {});
       await writeJson(cacheFile, cache);
     } catch (error) {
-      log(`screen focus unavailable: ${error instanceof Error ? error.message.slice(0, 200) : String(error)}`);
+      log(`pointer tracking unavailable: ${error instanceof Error ? error.message.slice(0, 200) : String(error)}`);
     }
     await rm(requestFile, { force: true });
     await rm(outFile, { force: true });
   }
-  return new Map(Object.entries(cache));
+  const changes = await changeRegions(id, source, units.filter((unit) => screenTalk(unit.text)), log);
+  const out = new Map<string, Pointer>();
+  for (const unit of units) {
+    const pointer = steadyPointer(cache[unit.id] ?? []);
+    const region = compactRegion(changes[unit.id]);
+    if (pointer) out.set(unit.id, region && Math.abs(region.x - pointer.x) < 0.2 && Math.abs(region.y - pointer.y) < 0.25 ? { ...pointer, zoom: region.zoom } : pointer);
+    else if (region) out.set(unit.id, region);
+  }
+  return out;
+}
+
+export type ChangeRegion = { peak: number; motion: number; box: { x: number; y: number; w: number; h: number; dominance: number } | null };
+
+export function compactRegion(change: ChangeRegion | undefined): Pointer | null {
+  const box = change?.box;
+  if (!box || change!.peak < 20 || box.w > 0.35 || box.h > 0.4 || box.dominance < 0.6) return null;
+  const zoom = Math.min(1.6, Math.max(1.3, 1 / (1.35 * Math.max(box.w, box.h))));
+  return { x: box.x, y: box.y, sightings: 0, zoom: Math.round(zoom * 100) / 100 };
+}
+
+async function changeRegions(id: string, source: string, units: Unit[], log: Log): Promise<Record<string, ChangeRegion>> {
+  const cacheFile = projectFile(id, "changes.json");
+  const cache = (await readJson<Record<string, ChangeRegion>>(cacheFile)) ?? {};
+  const missing = units.filter((unit) => !(unit.id in cache));
+  if (missing.length === 0) return cache;
+  const pane = await readJson<Pane>(projectFile(id, "pane.json"));
+  const requestFile = projectFile(id, "changes-request.json");
+  const outFile = projectFile(id, "changes-out.json");
+  await writeJson(requestFile, {
+    exclude: SCREEN_OVERLAYS(pane),
+    spans: missing.map((unit) => ({ id: unit.id, start: Math.max(0, unit.start - 1.5), end: unit.end }))
+  });
+  log(`finding what changes on screen during ${missing.length} pointing lines`);
+  try {
+    await runProcess(PYTHON, [script("focus.py"), source, requestFile, outFile]);
+    Object.assign(cache, (await readJson<Record<string, ChangeRegion>>(outFile)) ?? {});
+    for (const unit of missing) if (!(unit.id in cache)) cache[unit.id] = { peak: 0, motion: 0, box: null };
+    await writeJson(cacheFile, cache);
+  } catch (error) {
+    log(`screen change tracking unavailable: ${error instanceof Error ? error.message.slice(0, 200) : String(error)}`);
+  }
+  await rm(requestFile, { force: true });
+  await rm(outFile, { force: true });
+  return cache;
 }
 
 function runProcessOut(command: string, args: string[]): Promise<{ stdout: string }> {
@@ -371,7 +428,7 @@ function runProcessOut(command: string, args: string[]): Promise<{ stdout: strin
   );
 }
 
-async function alignedWords(id: string, words: Word[], units: Unit[], log: Log): Promise<Word[]> {
+async function alignedWords(id: string, words: Word[], units: Unit[], log: Log, removed: Set<number>): Promise<Word[]> {
   const cacheFile = projectFile(id, "aligned.json");
   const doneFile = projectFile(id, "aligned-units.json");
   const cache = (await readJson<Record<string, [number, number, number]>>(cacheFile)) ?? {};
@@ -402,10 +459,25 @@ async function alignedWords(id: string, words: Word[], units: Unit[], log: Log):
     await rm(spansFile, { force: true });
     await rm(outFile, { force: true });
   }
-  return words.map((word, index) => {
-    const hit = cache[String(index)];
-    return hit && hit[1] > hit[0] ? { ...word, s: hit[0], e: hit[1] } : word;
+  return trustedAlignment(words, cache, removed);
+}
+
+export const MIN_ALIGN_SCORE = 0.3;
+
+export function trustedAlignment(words: Word[], aligned: Record<string, [number, number, number]>, removed: Set<number> = new Set()): Word[] {
+  const out = words.map((word, index) => {
+    const hit = aligned[String(index)];
+    const trusted = hit && hit[1] > hit[0] && (hit[2] >= MIN_ALIGN_SCORE || removed.has(index));
+    return trusted ? { ...word, s: hit[0], e: hit[1] } : { ...word };
   });
+  for (let i = 1; i < out.length; i++) {
+    if (out[i].s < out[i - 1].e) {
+      const middle = (out[i].s + out[i - 1].e) / 2;
+      out[i - 1] = { ...out[i - 1], e: Math.max(out[i - 1].s + 0.02, middle) };
+      out[i] = { ...out[i], s: Math.min(out[i].e - 0.02, Math.max(middle, out[i - 1].e)) };
+    }
+  }
+  return out;
 }
 
 export type EditResult = {
@@ -468,22 +540,25 @@ export async function editStage(id: string, log: Log): Promise<EditResult> {
 
   const samples = visual?.samples ?? [];
   const envelope = await loadEnvelope(id);
-  const words = await alignedWords(id, transcript.words, [...new Set(order)].map((unitId) => units.get(unitId)!), log);
+  const words = await alignedWords(id, transcript.words, [...new Set(order)].map((unitId) => units.get(unitId)!), log, new Set(analysis.flags.map((flag) => flag.index)));
   const built = buildEdl({
     source: status.sourcePath,
     fps: 30,
     width: status.width ?? 1920,
     height: status.height ?? 1080,
     words,
-    flags: analysis.flags,
+    flags: [
+      ...analysis.flags,
+      ...(overrides.cutWords ?? []).filter((index) => !analysis.flags.some((flag) => flag.index === index)).map((index) => ({ index, kind: "false-start" as const }))
+    ].sort((a, b) => a.index - b.index),
     units: entries,
     envelope,
     hopSec: HOP_SEC,
     anchorFor: (start, end) => zoomAnchor(samplesIn(samples, start - 5, end + 5)),
   });
   const enabledUnits = [...new Set(built.edl.segments.map((segment) => segment.unitId))].map((unitId) => units.get(unitId)!);
-  const focus = await focusWindows(id, status.sourcePath, enabledUnits, log);
   const pane = await cameraPane(id, status.sourcePath, samples);
+  const pointers = await pointerPositions(id, status.sourcePath, enabledUnits, log);
   const faceVisible = (segment: EdlSegment) => {
     if (!pane) return false;
     const inside = samplesIn(samples, segment.in, segment.out).map((sample) => {
@@ -495,7 +570,7 @@ export async function editStage(id: string, log: Log): Promise<EditResult> {
     });
     return inside.length > 0 && inside.filter(Boolean).length / inside.length >= 0.75;
   };
-  const shot = planShots({ segments: built.edl.segments, units, focus, pane, width: built.edl.width, height: built.edl.height, faceVisible }).map((segment) => {
+  const shot = planShots({ segments: built.edl.segments, units, pointers, pane, width: built.edl.width, height: built.edl.height, faceVisible }).map((segment) => {
     const override = overrides.zoom[segment.id];
     return override === undefined ? segment : { ...segment, zoom: clampZoom(override), zoomTo: clampZoom(override), reason: `${segment.reason}; zoom set by hand` };
   });
@@ -516,8 +591,8 @@ export async function editStage(id: string, log: Log): Promise<EditResult> {
   const tWords = timelineWords(edl.segments, words);
   const srt = buildSrt(tWords);
   const hookEnd = Math.max(0, ...edl.segments.filter((segment) => segment.enabled && segment.id.startsWith("hook-")).map((segment) => segment.timelineOut));
-  const hookWords = tWords.filter((word) => word.s < hookEnd - 0.05);
-  await writeFile(projectFile(id, "hook.ass"), hookCaptionsAss(hookWords, edl.width, edl.height), "utf8");
+  await rm(projectFile(id, "hook.ass"), { force: true });
+  await writeFile(projectFile(id, "captions.ass"), captionsAss(tWords, edl.width, edl.height, hookEnd - 0.05), "utf8");
   const tally = { filler: 0, stutter: 0, falseStart: 0, repeat: 0, silence: 0, seconds: 0 };
   for (const removal of built.removals) {
     tally.seconds += removal.end - removal.start;
@@ -653,7 +728,7 @@ export async function renderStage(id: string, log: Log): Promise<void> {
     sourcePath: status.sourcePath,
     sourceDurationSec: status.durationSec || (await sourceDuration(status.sourcePath)),
     workDir: projectFile(id, "render"),
-    captionsFile: (await exists(projectFile(id, "hook.ass"))) ? projectFile(id, "hook.ass") : undefined,
+    captionsFile: (await exists(projectFile(id, "captions.ass"))) ? projectFile(id, "captions.ass") : undefined,
     outPath: packageFile(id, "final.mp4"),
     log
   });
@@ -679,6 +754,8 @@ export type Verification = {
   everySegmentScored: boolean;
   onlyAllowedTransitions: boolean;
   cutFrames: string[];
+  doubledAtCuts: Array<{ at: number; words: string }>;
+  overlappingPieces: number;
 };
 
 export function fillerHits(words: Word[]): Array<{ s: number; e: number; context: string }> {
@@ -721,6 +798,22 @@ async function alignRender(id: string, wav: string, words: Word[], segments: Arr
     const hit = aligned[String(index)];
     return hit && hit[1] > hit[0] ? { ...word, s: hit[0], e: hit[1] } : word;
   });
+}
+
+export function doubledAtCuts(heard: Word[], edl: Edl): Array<{ at: number; words: string }> {
+  const cuts = edl.segments.filter((segment) => segment.enabled && segment.timelineIn > 0).map((segment) => segment.timelineIn);
+  const out: Array<{ at: number; words: string }> = [];
+  for (let i = 1; i < heard.length; i++) {
+    const a = norm(heard[i - 1].w);
+    const b = norm(heard[i].w);
+    if (!a || !b || heard[i].s - heard[i - 1].e > 0.6) continue;
+    if (/^\d+$/.test(a) || /^\./.test(heard[i].w)) continue;
+    const repeated = a === b || (a.length >= 2 && b.startsWith(a) && /-$/.test(heard[i - 1].w));
+    if (!repeated) continue;
+    const near = cuts.some((cut) => Math.abs(cut - heard[i].s) < 0.5 || Math.abs(cut - heard[i - 1].e) < 0.5);
+    if (near) out.push({ at: Math.round(heard[i].s * 100) / 100, words: `${heard[i - 1].w} ${heard[i].w}` });
+  }
+  return out;
 }
 
 export async function verifyStage(id: string, log: Log): Promise<Verification> {
@@ -773,6 +866,7 @@ export async function verifyStage(id: string, log: Log): Promise<Verification> {
     return { title: chapter.title, seconds: chapter.seconds, expected, heard: got, lands: overlap >= 0.4 };
   });
 
+  const doubled = doubledAtCuts(heard, edl);
   const loudness = await measureLoudness(final);
   const cutFrames: string[] = [];
   const cuts = edl.segments.filter((segment) => segment.enabled && segment.timelineIn > 0);
@@ -802,7 +896,9 @@ export async function verifyStage(id: string, log: Log): Promise<Verification> {
     chaptersValid: validateChapters(chapters, edl.runtimeSec),
     everySegmentScored: edl.segments.every((segment) => Number.isFinite(segment.audioScore) && Number.isFinite(segment.visualScore) && segment.reason.length > 0),
     onlyAllowedTransitions: edl.segments.every((segment) => ["cut", "jump", "j-cut", "l-cut"].includes(segment.transition)),
-    cutFrames
+    cutFrames,
+    doubledAtCuts: doubled,
+    overlappingPieces: edl.segments.filter((segment, index) => index > 0 && segment.enabled && segment.in < edl.segments[index - 1].out && segment.in > edl.segments[index - 1].in).length
   };
   await writeJson(projectFile(id, "verification.json"), verification);
   log(`verified: ${verification.fillerRemovalPct}% fillers removed, drift ${verification.captionDriftMs} ms, ${loudness.integrated} LUFS`);
@@ -925,6 +1021,7 @@ export async function packageStage(id: string, log: Log): Promise<void> {
           `- Hook inside the first 30 s: ${verification.hookWithin30s ? "yes" : "no"}`,
           `- Filler removal (re-transcription of the render): ${verification.fillerRemovalPct}% counting fillers with audible voice under them (${verification.fillersInSelection} in the selected source, ${verification.fillersAfterRender} audible in the render); ${verification.fillerRemovalRawPct}% if every filler Whisper reports is counted (${verification.fillersHeardRaw}, most of the gap is Whisper writing "um" at hard cuts where the audio is silent)`,
           `- Caption drift (median, render vs SRT): ${verification.captionDriftMs} ms`,
+          `- Words doubled across a cut: ${verification.doubledAtCuts.length ? verification.doubledAtCuts.map((hit) => `${hit.words} at ${chapterClock(hit.at)}`).join(", ") : "none"}; overlapping pieces: ${verification.overlappingPieces}`,
           `- Loudness: ${verification.loudness.integrated} LUFS integrated, ${verification.loudness.truePeak} dBFS peak (${verification.loudnessOk ? "within" : "OUTSIDE"} +/-1 LU of -14, peak <= -1)`,
           `- Chapters valid for YouTube: ${verification.chaptersValid.ok ? "yes" : verification.chaptersValid.problems.join("; ")}`,
           `- Chapters land on their section after render: ${verification.chapterChecks.filter((check) => check.lands).length}/${verification.chapterChecks.length}`,
