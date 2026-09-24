@@ -219,7 +219,10 @@ function runtimeFn(analysis: Analysis, words: Word[]): (momentId: string) => num
   };
 }
 
-function trimHook(ids: string[], units: Map<string, Unit>, words: Word[], flagged: Map<number, WordFlag["kind"]>): string[] {
+export const HOOK_MIN_SEC = 10;
+const HOOK_EXTEND_TO_SEC = 14;
+
+function trimHook(ids: string[], units: Map<string, Unit>, words: Word[], flagged: Map<number, WordFlag["kind"]>, ordered: Unit[]): string[] {
   const kept: string[] = [];
   let total = 0;
   for (const unitId of ids) {
@@ -228,6 +231,18 @@ function trimHook(ids: string[], units: Map<string, Unit>, words: Word[], flagge
     const seconds = cleanedSeconds(unit, words, flagged);
     if (kept.length && total + seconds > HOOK_MAX_SEC) break;
     kept.push(unitId);
+    total += seconds;
+  }
+  if (kept.length === 0 || total >= HOOK_MIN_SEC) return kept;
+  let index = ordered.findIndex((unit) => unit.id === kept[kept.length - 1]);
+  while (total < HOOK_EXTEND_TO_SEC && ++index < ordered.length) {
+    const next = ordered[index];
+    const previous = ordered[index - 1];
+    if (next.start - previous.end > 2.5) break;
+    if (next.retakeOf) continue;
+    const seconds = cleanedSeconds(next, words, flagged);
+    if (total + seconds > HOOK_MAX_SEC) break;
+    kept.push(next.id);
     total += seconds;
   }
   return kept;
@@ -245,8 +260,12 @@ export async function storyStage(id: string, log: Log): Promise<StoryPlan> {
   const usable = analysis.moments.filter((moment) => runtimeOf(moment.id) >= 12);
   const pool = [...usable].sort((a, b) => b.score - a.score).slice(0, 80).sort((a, b) => a.start - b.start);
 
-  log(`asking the story editor to structure ${pool.length} candidate moments`);
-  let plan = await askStory({ title: status?.title ?? id, targetSec: TARGET_AIM_SEC, moments: pool, units, runtimeOf }).catch(() => null);
+  let plan = await readJson<StoryPlan>(projectFile(id, "story-ai.json"));
+  if (!plan) {
+    log(`asking the story editor to structure ${pool.length} candidate moments`);
+    plan = await askStory({ title: status?.title ?? id, targetSec: TARGET_AIM_SEC, moments: pool, units, runtimeOf }).catch(() => null);
+    if (plan) await writeJson(projectFile(id, "story-ai.json"), plan);
+  }
   if (!plan) {
     log("story editor unavailable, using the offline planner");
     plan = heuristicPlan(pool, analysis.units);
@@ -256,7 +275,7 @@ export async function storyStage(id: string, log: Log): Promise<StoryPlan> {
     plan.hookUnitIds = fallback.hookUnitIds;
     plan.hookReason = plan.hookReason || fallback.hookReason;
   }
-  plan.hookUnitIds = trimHook(plan.hookUnitIds, units, words, flagged);
+  plan.hookUnitIds = trimHook(plan.hookUnitIds, units, words, flagged, analysis.units);
   const hookSec = plan.hookUnitIds.reduce((sum, unitId) => sum + cleanedSeconds(units.get(unitId)!, words, flagged), 0);
 
   const unitMoment = new Map<string, string>();
@@ -446,7 +465,13 @@ export async function copyStage(id: string, log: Log): Promise<StoryCopy> {
       summary: `${section.role} (${section.title}): ${(moments.get(section.momentIds[0])?.text ?? "").slice(0, 200)}`
     }))
   ];
-  const outline = storyOutline(plan, analysis, null);
+  const outline = [
+    `Cold open: "${hookText}"`,
+    ...plan.sections.map(
+      (section, index) =>
+        `s${index} ${section.role} "${section.title}": ${section.momentIds.map((momentId) => moments.get(momentId)?.text ?? "").join(" ").slice(0, 900)}`
+    )
+  ].join("\n");
   log("writing titles, description and thumbnail concepts");
   let copy = await askCopy({ title: status.title, outline, chapterKeys, transcript: tWords.map((word) => word.w).join(" ") }).catch(() => null);
   if (!copy || validateTitles(copy.titles).some((problem) => problem.startsWith("needs"))) {

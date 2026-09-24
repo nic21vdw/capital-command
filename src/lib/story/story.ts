@@ -10,6 +10,7 @@ export const MIN_OPEN_LOOPS = 2;
 export const SECTION_ORDER: SectionRole[] = ["hook", "setup", "development", "payoff", "close"];
 
 const MOMENT_GAP_SEC = 3;
+const TRIM_BIAS: Partial<Record<SectionRole, number>> = { development: 0, setup: 0.02, close: 0.03, payoff: 0.06 };
 const MOMENT_MAX_SEC = 150;
 
 export function buildMoments(units: Unit[]): Moment[] {
@@ -98,16 +99,20 @@ export function fitRuntime(input: {
   const keep = protectedMoments(plan, unitMoment);
   const used = () => new Set(plan.sections.flatMap((section) => section.momentIds));
 
-  while (planRuntime(plan, runtimeOf, hookSec) > TARGET_MAX_SEC) {
-    const droppable = plan.sections
-      .filter((section) => section.role === "development" || section.role === "setup")
+  const weight = (section: StorySection, id: string) => (byId.get(id)?.score ?? 0) + (TRIM_BIAS[section.role] ?? 0);
+  while (planRuntime(plan, runtimeOf, hookSec) > TARGET_AIM_SEC + 60) {
+    const candidates = plan.sections
       .flatMap((section) => section.momentIds.map((id) => ({ section, id })))
-      .filter(({ id, section }) => !keep.has(id) && section.momentIds.length > 1)
-      .sort((a, b) => (byId.get(a.id)?.score ?? 0) - (byId.get(b.id)?.score ?? 0));
-    const victim = droppable[0];
+      .filter(({ section }) => section.momentIds.length > 1)
+      .sort((a, b) => weight(a.section, a.id) - weight(b.section, b.id));
+    const victim = candidates.find(({ id }) => !keep.has(id)) ?? (planRuntime(plan, runtimeOf, hookSec) > TARGET_MAX_SEC ? candidates[0] : undefined);
     if (!victim) break;
     victim.section.momentIds = victim.section.momentIds.filter((id) => id !== victim.id);
   }
+  plan.openLoops = plan.openLoops.filter((loop) => {
+    const taken = used();
+    return [loop.plantUnitId, loop.payoffUnitId].every((unitId) => !unitMoment.has(unitId) || taken.has(unitMoment.get(unitId)!));
+  });
 
   const developments = plan.sections.filter((section) => section.role === "development");
   if (developments.length === 0) {

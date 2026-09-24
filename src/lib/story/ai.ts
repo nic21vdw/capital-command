@@ -113,7 +113,7 @@ export async function askStory(input: {
 
 export const COPY_SYSTEM_PROMPT = `You write YouTube packaging for a creator who builds software live on stream ("vibe coding" with AI agents) and documents the grind of moving out of his mom's basement.
 
-You are given the FINAL story outline of a 10 minute edit and its transcript. Write:
+You are given the FINAL sections of a 10 minute edit with the words actually spoken in each, plus the edited transcript. Everything you write must be true of THOSE words: do not describe anything that is not said in them, do not credit the creator with something a viewer or someone else made, and do not call something built when it was only asked for. Write:
 - titles: exactly 5, each UNDER 60 characters, one per style: curiosity, outcome, contrarian, number, direct. Accurate to what the video actually shows - no clickbait it does not deliver.
 - recommended: index 0-4 of the best title, and recommendedReason: one line.
 - hookSentence: one or two sentences for the top of the description that mirror the video's cold open.
@@ -121,7 +121,7 @@ You are given the FINAL story outline of a 10 minute edit and its transcript. Wr
 - takeaways: 3 to 5 short bullet lines.
 - chapterTitles: an object mapping each chapter key given to a 2-6 word curiosity-driven, accurate title.
 - hashtags: 3 to 5, and tags: 10-15 search tags from the key topics.
-- thumbnails: exactly 3 concepts, each {emotion, frame, overlay, layout, colors}. overlay is 2-4 words and must NOT repeat words from any title. frame describes which moment to grab.
+- thumbnails: exactly 3 concepts, each {emotion, frame, overlay, layout, colors}. overlay is 2-4 words and must NOT repeat words from any title. frame names the spoken moment to grab (quote a few words) and the expression to look for; do not invent props or actions.
 
 Channel title style examples:
 ${TITLE_STYLE_EXAMPLES.join("\n")}
