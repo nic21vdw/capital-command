@@ -2,7 +2,6 @@ import { cleanRange, snapToQuiet, type WordFlag } from "@/lib/story/cleanup";
 import { TALKING_HEAD_FACE_HEIGHT } from "@/lib/story/scoring";
 import type { Edl, EdlSegment, Removal, SectionRole, Transition, Unit, VisualSample, Word } from "@/lib/story/types";
 
-export const PUNCH_ZOOM = 1.1;
 export const PUSH_FROM = 1;
 export const PUSH_TO = 1.08;
 export const PUSH_MIN_SEC = 3;
@@ -62,7 +61,6 @@ export function buildEdl(input: BuildEdlInput): BuiltEdl {
   const removals: Removal[] = [];
   let previousUnit: Unit | null = null;
   let previousSection: SectionRole | null = null;
-  let zoomed = false;
   let cursor = 0;
 
   for (const entry of input.units) {
@@ -95,25 +93,13 @@ export function buildEdl(input: BuildEdlInput): BuiltEdl {
       let zoom = 1;
       let zoomTo = 1;
       const duration = outPoint - inPoint;
-      if (transition === "jump") zoomed = !zoomed;
-      else zoomed = false;
       if (entry.key && !pushed && duration >= PUSH_MIN_SEC) {
         pushed = true;
         zoom = PUSH_FROM;
         zoomTo = PUSH_TO;
-        zoomed = true;
-      } else if (zoomed) {
-        zoom = PUNCH_ZOOM;
-        zoomTo = PUNCH_ZOOM;
       }
 
       const id = `${entry.tag ? `${entry.tag}-` : ""}${unit.id}.${index + 1}`;
-      const override = input.zoomOverrides?.[id];
-      if (override !== undefined) {
-        zoom = clampZoom(override);
-        zoomTo = zoom;
-      }
-
       segments.push({
         id,
         unitId: unit.id,
@@ -141,10 +127,36 @@ export function buildEdl(input: BuildEdlInput): BuiltEdl {
     previousSection = entry.section;
   }
 
+  const merged = mergeBreaths(segments, input.words, flagged);
+  const runtimeSec = merged.reduce((sum, segment) => sum + segment.out - segment.in, 0);
   return {
-    edl: { version: 1, source: input.source, fps: input.fps, width: input.width, height: input.height, segments, runtimeSec: cursor },
+    edl: { version: 1, source: input.source, fps: input.fps, width: input.width, height: input.height, segments: merged, runtimeSec },
     removals
   };
+}
+
+export const MERGE_GAP_SEC = 0.3;
+
+export function mergeBreaths(segments: EdlSegment[], words: Word[], flagged: Map<number, unknown>): EdlSegment[] {
+  const out: EdlSegment[] = [];
+  let cursor = 0;
+  for (const segment of segments) {
+    const previous = out[out.length - 1];
+    const gap = previous ? segment.in - previous.out : Infinity;
+    const removedBetween =
+      previous !== undefined &&
+      words.some((word, index) => flagged.has(index) && word.e > previous.out && word.s < segment.in);
+    if (previous && segment.transition === "jump" && gap >= 0 && gap <= MERGE_GAP_SEC && !removedBetween && previous.section === segment.section) {
+      previous.out = segment.out;
+      cursor = previous.timelineIn + (previous.out - previous.in);
+      previous.timelineOut = cursor;
+      continue;
+    }
+    const duration = segment.out - segment.in;
+    out.push({ ...segment, timelineIn: cursor, timelineOut: cursor + duration });
+    cursor += duration;
+  }
+  return out;
 }
 
 export function clampZoom(zoom: number): number {
