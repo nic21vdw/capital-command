@@ -14,6 +14,8 @@ already shipped.
 
 ## Unreleased
 
+## 2026-09-25
+
 - **The update screen shows how far along it is.** While Capital Command updates, a hopping CC badge and a four-step track (Check, Install, Rebuild, Reopen) show which part is running, next to the real step and the time elapsed. It still reopens by itself when the app restarts, and it keeps still if your system asks for reduced motion.
 
 ## 2026-09-24
