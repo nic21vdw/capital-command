@@ -14,6 +14,8 @@ already shipped.
 
 ## Unreleased
 
+## 2026-09-24
+
 - **Story edits stay on the whole screen and zoom only on what you point at.** A zoom now needs a line about something small ("look at this", a number, a price) and a place on screen where you are pointing: your mouse, or a popup that just opened. Cuts no longer play a word twice, and yellow captions run through the whole video.
 
 - **Story edits cut less and zoom on purpose.** Jump cuts no longer zoom in and out. A shot now holds for at least five seconds: the whole frame, a zoom onto the part of the screen being talked about, or a quick cut to your camera for a reaction. Short breaths are left in instead of cut, which removes about a third of the cuts, and the cold open gets bold yellow captions.
