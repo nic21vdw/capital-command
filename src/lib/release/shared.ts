@@ -198,9 +198,13 @@ export function releaseStillRunning(
 export const RELEASE_SLOW_AFTER_SECONDS = 600;
 export const RELEASE_LOST_AFTER_SECONDS = 3600;
 
+export const RELEASE_STAGES = ["Check", "Install", "Rebuild", "Reopen"] as const;
+
 export type ReleaseWatch = {
   tone: "working" | "slow" | "lost";
   headline: string;
+  label: string;
+  stage: number;
   detail: string;
   elapsed: string | null;
   spin: boolean;
@@ -218,12 +222,14 @@ export type ReleaseWatch = {
 export function watchRelease({
   step,
   failed,
+  finished = false,
   startedAt,
   offline,
   now
 }: {
   step: string | null;
   failed?: string | null;
+  finished?: boolean;
   startedAt: number | null;
   offline: boolean;
   now: number;
@@ -232,13 +238,15 @@ export function watchRelease({
   const elapsed = seconds === null ? null : formatElapsed(seconds);
 
   if (failed) {
-    return { tone: "lost", headline: "The update stopped", detail: failed, elapsed, spin: false };
+    return { tone: "lost", headline: "The update stopped", label: "The update stopped", stage: releaseStage(step, offline, finished), detail: failed, elapsed, spin: false };
   }
 
   if (seconds !== null && seconds >= RELEASE_LOST_AFTER_SECONDS) {
     return {
       tone: "lost",
       headline: `The update has not come back after ${elapsed}`,
+      label: `The update has not come back after ${elapsed}`,
+      stage: releaseStage(step, offline, finished),
       detail: offline
         ? "The rebuild may still be running. Check update-app.log in the Capital Command folder, and run update-capital-command.bat again if it has stopped."
         : "It is still running but has been quiet for a long time — check update-app.log in the Capital Command folder.",
@@ -254,6 +262,8 @@ export function watchRelease({
   return {
     tone: slow ? "slow" : "working",
     headline,
+    label: stripStepClock(label ?? "Starting the update"),
+    stage: releaseStage(step, offline, finished),
     detail: offline
       ? slow
         ? "The app has not answered yet. This screen will reopen automatically when it returns."
@@ -262,6 +272,19 @@ export function watchRelease({
     elapsed,
     spin: true
   };
+}
+
+export function releaseStage(step: string | null, offline: boolean, finished = false): number {
+  const text = (step ?? "").toLowerCase();
+  if (finished) return 3;
+  if (text.startsWith("stopping") || text.startsWith("building")) return 2;
+  if (offline) return 2;
+  if (text.startsWith("installing") || text.startsWith("dating")) return 1;
+  return 0;
+}
+
+function stripStepClock(label: string): string {
+  return label.replace(/\s*\([^)]*\bin\b[^)]*\)\s*$/, "");
 }
 
 function formatElapsed(seconds: number): string {
