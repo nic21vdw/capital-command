@@ -1188,3 +1188,268 @@ html:not([data-surface="classic"]):not([data-glass="flat"]) body {
     }
   }
 }
+
+.updating-screen {
+  display: flex;
+  min-height: 100vh;
+  align-items: center;
+  justify-content: center;
+  padding: 24px 16px;
+  background:
+    radial-gradient(circle, color-mix(in srgb, var(--muted-foreground) 26%, transparent) 1px, transparent 1.4px),
+    var(--background);
+  background-size: 24px 24px, auto;
+}
+
+.updating-card {
+  display: flex;
+  width: 100%;
+  max-width: 460px;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 32px 24px 26px;
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  background: var(--panel);
+  box-shadow: var(--shadow-pop);
+  text-align: center;
+  animation: fade-up 0.42s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.updating-mascot {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  margin-bottom: 10px;
+}
+
+.updating-mascot-face {
+  display: grid;
+  width: 64px;
+  height: 64px;
+  place-items: center;
+  border-radius: 18px;
+  background: linear-gradient(160deg, var(--accent-strong), var(--accent));
+  color: var(--accent-contrast);
+  font-size: 22px;
+  font-weight: 800;
+  letter-spacing: -0.04em;
+  box-shadow: 0 10px 22px color-mix(in srgb, var(--accent) 32%, transparent);
+}
+
+.updating-mascot-shadow {
+  width: 44px;
+  height: 6px;
+  margin-top: 10px;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--accent) 22%, transparent);
+}
+
+.updating-mascot.is-moving .updating-mascot-face {
+  animation: updating-hop 1.6s var(--ease-ios-spring) infinite;
+}
+
+.updating-mascot.is-moving .updating-mascot-shadow {
+  animation: updating-shadow 1.6s var(--ease-ios-spring) infinite;
+}
+
+.updating-card[data-tone="lost"] .updating-mascot-face {
+  background: linear-gradient(160deg, #f5c86a, #d9953a);
+  box-shadow: 0 10px 22px rgba(217, 149, 58, 0.3);
+}
+
+.updating-title {
+  color: var(--foreground);
+  font-size: 20px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+.updating-headline {
+  display: flex;
+  align-items: baseline;
+  justify-content: center;
+  color: var(--foreground);
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.updating-dots {
+  display: inline-flex;
+  width: 1.4em;
+  text-align: left;
+}
+
+.updating-dots i {
+  font-style: normal;
+  animation: updating-dot 1.2s ease-in-out infinite;
+}
+
+.updating-dots i:nth-child(2) {
+  animation-delay: 0.15s;
+}
+
+.updating-dots i:nth-child(3) {
+  animation-delay: 0.3s;
+}
+
+.updating-elapsed {
+  padding: 2px 10px;
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  color: var(--muted-foreground);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.updating-track {
+  display: grid;
+  width: 100%;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 6px;
+  margin: 18px 0 6px;
+  padding: 0;
+  list-style: none;
+}
+
+.updating-step {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted-foreground);
+  font-size: 12px;
+}
+
+.updating-step + .updating-step::before {
+  position: absolute;
+  top: 13px;
+  right: calc(50% + 17px);
+  left: calc(-50% + 17px);
+  height: 2px;
+  border-radius: 2px;
+  background: var(--border-strong);
+  content: "";
+}
+
+.updating-step[data-state="done"]::before,
+.updating-step[data-state="current"]::before,
+.updating-step[data-state="stuck"]::before {
+  background: var(--accent);
+}
+
+.updating-step-dot {
+  display: grid;
+  width: 28px;
+  height: 28px;
+  place-items: center;
+  border: 2px solid var(--border-strong);
+  border-radius: 50%;
+  background: var(--surface);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.updating-step[data-state="done"] .updating-step-dot {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--accent-contrast);
+}
+
+.updating-step[data-state="current"] {
+  color: var(--foreground);
+  font-weight: 600;
+}
+
+.updating-step[data-state="current"] .updating-step-dot {
+  border-color: var(--accent);
+  color: var(--accent-strong);
+  animation: updating-pulse 1.6s ease-in-out infinite;
+}
+
+.updating-step[data-state="stuck"] .updating-step-dot {
+  border-color: #d9953a;
+  color: #f5c86a;
+}
+
+.updating-sweep {
+  position: relative;
+  display: block;
+  width: 140px;
+  height: 3px;
+  margin: 10px 0 4px;
+  overflow: hidden;
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+}
+
+.updating-sweep i {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 42%;
+  border-radius: inherit;
+  background: var(--accent);
+  animation: updating-sweep 1.25s ease-in-out infinite;
+}
+
+.updating-detail {
+  max-width: 44ch;
+  margin-top: 8px;
+  color: var(--muted-foreground);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+@keyframes updating-hop {
+  0%, 100% { transform: translateY(0) rotate(0deg); }
+  30% { transform: translateY(-12px) rotate(-4deg); }
+  55% { transform: translateY(0) rotate(0deg) scale(1.05, 0.95); }
+  70% { transform: translateY(-4px) rotate(3deg); }
+}
+
+@keyframes updating-shadow {
+  0%, 55%, 100% { transform: scaleX(1); opacity: 1; }
+  30% { transform: scaleX(0.7); opacity: 0.55; }
+  70% { transform: scaleX(0.9); opacity: 0.8; }
+}
+
+@keyframes updating-dot {
+  0%, 60%, 100% { opacity: 0.25; transform: translateY(0); }
+  30% { opacity: 1; transform: translateY(-3px); }
+}
+
+@keyframes updating-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--accent) 40%, transparent); }
+  50% { box-shadow: 0 0 0 6px color-mix(in srgb, var(--accent) 0%, transparent); }
+}
+
+@keyframes updating-sweep {
+  from { transform: translateX(-100%); }
+  to { transform: translateX(240%); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .updating-card,
+  .updating-mascot.is-moving .updating-mascot-face,
+  .updating-mascot.is-moving .updating-mascot-shadow,
+  .updating-step[data-state="current"] .updating-step-dot,
+  .updating-sweep i {
+    animation: none;
+  }
+
+  .updating-dots i {
+    animation: none;
+    opacity: 1;
+  }
+
+  .updating-sweep i {
+    width: 100%;
+    opacity: 0.6;
+  }
+}

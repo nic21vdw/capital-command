@@ -166,6 +166,17 @@ describe("watchRelease", () => {
   const at = (seconds: number) => startedAt + seconds * 1000;
   const building = { step: "Building and starting the new version", startedAt };
 
+  it("names the step without its clock and places it on the progress track", () => {
+    const at5 = { startedAt, offline: false, now: at(5) };
+
+    expect(watchRelease({ step: "Checking this checkout", ...at5 })).toMatchObject({ label: "Checking this checkout", stage: 0 });
+    expect(watchRelease({ step: "Installing dependencies (12s in)", ...at5 })).toMatchObject({ label: "Installing dependencies", stage: 1 });
+    expect(watchRelease({ step: "Building and starting the new version (1m 02s in, takes a few minutes)", ...at5 }))
+      .toMatchObject({ label: "Building and starting the new version", stage: 2 });
+    expect(watchRelease({ ...building, offline: true, now: at(40) })).toMatchObject({ label: "Waiting for Capital Command to restart", stage: 2 });
+    expect(watchRelease({ ...building, finished: true, offline: false, now: at(90) }).stage).toBe(3);
+  });
+
   it("counts the update up rather than repeating the last step forever", () => {
     const watch = watchRelease({ ...building, offline: true, now: at(75) });
 
