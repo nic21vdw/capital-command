@@ -2,82 +2,53 @@
 
 import { createContext, useCallback, useContext, useEffect, useState } from "react";
 import type { ThemePreset } from "@/types/domain";
-import { DEFAULT_THEME, LEGACY_THEME_IDS, isThemePreset, normalizeThemePreset, themePresetIds } from "@/lib/themes";
+import { DEFAULT_THEME, isThemePreset, normalizeThemePreset } from "@/lib/themes";
+import {
+  DEFAULT_APPEARANCE,
+  HOST_THEME_KEY,
+  HOST_THEME_MESSAGE,
+  HOST_THEME_PARAM,
+  THEME_STORAGE_KEY,
+  applyHostAppearance,
+  carriesAppearance,
+  hostBootScript,
+  mergeHostAppearance,
+  readHostAppearance,
+  readStoredAppearance,
+  storeAppearance,
+  type HostAppearance,
+  type HostAppearanceInput,
+} from "@/lib/host-appearance";
 
-const STORAGE_KEY = "capital-command-theme";
-const HOST_KEY = "capital-command-host-theme";
-export const HOST_THEME_MESSAGE = "colateral:theme";
-export const HOST_THEME_PARAM = "theme";
-export const HOST_SURFACE_PARAM = "surface";
-export const HOST_GLASS_LEVEL_PARAM = "glassLevel";
-const HOST_APPEARANCE_KEY = "capital-command-host-appearance";
-const DEFAULT_GLASS_LEVEL = 60;
-
-export type HostSurface = "glass" | "classic";
-
-export interface HostAppearance {
-  surface: HostSurface;
-  glassLevel: number;
-}
-
-const DEFAULT_APPEARANCE: HostAppearance = { surface: "glass", glassLevel: DEFAULT_GLASS_LEVEL };
-
-function parseSurface(value: unknown): HostSurface | null {
-  return value === "glass" || value === "classic" ? value : null;
-}
-
-function parseGlassLevel(value: unknown): number | null {
-  if (value === null || value === undefined || value === "") return null;
-  const n = typeof value === "number" ? value : Number(value);
-  if (!Number.isFinite(n)) return null;
-  return Math.min(100, Math.max(0, Math.round(n)));
-}
-
-export function mergeHostAppearance(base: HostAppearance, input: { surface?: unknown; glassLevel?: unknown }): HostAppearance {
-  return {
-    surface: parseSurface(input.surface) ?? base.surface,
-    glassLevel: parseGlassLevel(input.glassLevel) ?? base.glassLevel,
-  };
-}
+export { HOST_THEME_MESSAGE, HOST_THEME_PARAM, HOST_SURFACE_PARAM, HOST_GLASS_LEVEL_PARAM, HOST_BACKDROP_PARAM, mergeHostAppearance } from "@/lib/host-appearance";
+export type { HostAppearance, HostSurface } from "@/lib/host-appearance";
 
 function applyAppearance(appearance: HostAppearance) {
   if (typeof document === "undefined") return;
-  const root = document.documentElement;
-  root.dataset.surface = appearance.surface;
-  root.dataset.glass = appearance.glassLevel === 0 ? "flat" : "on";
-  root.style.setProperty("--glass-level", String(appearance.glassLevel));
+  applyHostAppearance(document.documentElement, appearance);
 }
 
-function readStoredAppearance(): HostAppearance {
+function readHostAppearanceNow(): HostAppearance {
   try {
-    const stored = JSON.parse(window.sessionStorage.getItem(HOST_APPEARANCE_KEY) ?? "null") as unknown;
-    if (stored && typeof stored === "object") return mergeHostAppearance(DEFAULT_APPEARANCE, stored);
+    return readHostAppearance(window.location.search, window.sessionStorage);
   } catch {
     return DEFAULT_APPEARANCE;
   }
-  return DEFAULT_APPEARANCE;
 }
 
-function storeAppearance(appearance: HostAppearance) {
+function readSessionAppearance(): HostAppearance {
   try {
-    window.sessionStorage.setItem(HOST_APPEARANCE_KEY, JSON.stringify(appearance));
+    return readStoredAppearance(window.sessionStorage);
   } catch {
-    return;
+    return DEFAULT_APPEARANCE;
   }
 }
 
-function readHostAppearance(): HostAppearance {
-  const stored = readStoredAppearance();
+function storeSessionAppearance(appearance: HostAppearance) {
   try {
-    const params = new URLSearchParams(window.location.search);
-    const next = mergeHostAppearance(stored, {
-      surface: params.get(HOST_SURFACE_PARAM),
-      glassLevel: params.get(HOST_GLASS_LEVEL_PARAM),
-    });
-    if (params.has(HOST_SURFACE_PARAM) || params.has(HOST_GLASS_LEVEL_PARAM)) storeAppearance(next);
-    return next;
+    storeAppearance(window.sessionStorage, appearance);
   } catch {
-    return stored;
+    return;
   }
 }
 
@@ -100,10 +71,10 @@ function readHostTheme(): ThemePreset | null {
   try {
     const param = new URLSearchParams(window.location.search).get(HOST_THEME_PARAM);
     if (isThemePreset(param)) {
-      window.sessionStorage.setItem(HOST_KEY, param);
+      window.sessionStorage.setItem(HOST_THEME_KEY, param);
       return param;
     }
-    const stored = window.sessionStorage.getItem(HOST_KEY);
+    const stored = window.sessionStorage.getItem(HOST_THEME_KEY);
     return isThemePreset(stored) ? stored : null;
   } catch {
     return null;
@@ -112,7 +83,7 @@ function readHostTheme(): ThemePreset | null {
 
 function readOwnTheme(): ThemePreset {
   try {
-    return normalizeThemePreset(window.localStorage.getItem(STORAGE_KEY));
+    return normalizeThemePreset(window.localStorage.getItem(THEME_STORAGE_KEY));
   } catch {
     return DEFAULT_THEME;
   }
@@ -126,7 +97,7 @@ export function ThemePresetProvider({ children }: { children: React.ReactNode })
     const fromHost = readHostTheme();
     const next = fromHost ?? readOwnTheme();
     applyTheme(next);
-    applyAppearance(readHostAppearance());
+    applyAppearance(readHostAppearanceNow());
     const timer = window.setTimeout(() => {
       setThemeState(next);
       setHosted(fromHost !== null);
@@ -136,16 +107,16 @@ export function ThemePresetProvider({ children }: { children: React.ReactNode })
 
   useEffect(() => {
     const onMessage = (event: MessageEvent) => {
-      const data = event.data as { type?: unknown; theme?: unknown; surface?: unknown; glassLevel?: unknown } | null;
-      if (!data || data.type !== HOST_THEME_MESSAGE) return;
-      if ("surface" in data || "glassLevel" in data) {
-        const appearance = mergeHostAppearance(readStoredAppearance(), data);
-        storeAppearance(appearance);
+      const data = event.data as ({ type?: unknown; theme?: unknown } & HostAppearanceInput) | null;
+      if (!data || typeof data !== "object" || data.type !== HOST_THEME_MESSAGE) return;
+      if (carriesAppearance(data)) {
+        const appearance = mergeHostAppearance(readSessionAppearance(), data);
+        storeSessionAppearance(appearance);
         applyAppearance(appearance);
       }
       if (!isThemePreset(data.theme)) return;
       try {
-        window.sessionStorage.setItem(HOST_KEY, data.theme);
+        window.sessionStorage.setItem(HOST_THEME_KEY, data.theme);
       } catch {
         /* a frame without storage still repaints */
       }
@@ -161,7 +132,7 @@ export function ThemePresetProvider({ children }: { children: React.ReactNode })
     setThemeState(next);
     applyTheme(next);
     try {
-      window.localStorage.setItem(STORAGE_KEY, next);
+      window.localStorage.setItem(THEME_STORAGE_KEY, next);
     } catch {
       /* private mode: the theme still applies for this page */
     }
@@ -186,21 +157,5 @@ export function useThemePreset() {
  * host theme remembered for this tab, then the theme picked in Settings.
  */
 export function ThemePresetScript() {
-  const valid = JSON.stringify(themePresetIds);
-  const legacy = JSON.stringify(LEGACY_THEME_IDS);
-  const script =
-    `(function(){var valid=${valid};var legacy=${legacy};` +
-    `function ok(t){return valid.indexOf(t)>-1}` +
-    `var t=null;try{var p=new URLSearchParams(location.search).get('${HOST_THEME_PARAM}');` +
-    `if(ok(p)){t=p;sessionStorage.setItem('${HOST_KEY}',p)}` +
-    `if(!t){var h=sessionStorage.getItem('${HOST_KEY}');if(ok(h))t=h}` +
-    `if(!t){var s=localStorage.getItem('${STORAGE_KEY}');if(s&&legacy[s])s=legacy[s];if(ok(s))t=s}}catch(e){}` +
-    `var d=document.documentElement;d.dataset.theme=t||'${DEFAULT_THEME}';` +
-    `var a={surface:'glass',glassLevel:${DEFAULT_GLASS_LEVEL}};` +
-    `function lv(v){if(v===null||v===undefined||v==='')return null;var n=Number(v);return isFinite(n)?Math.min(100,Math.max(0,Math.round(n))):null}` +
-    `function mg(o){if(!o)return;if(o.surface==='glass'||o.surface==='classic')a.surface=o.surface;var n=lv(o.glassLevel);if(n!==null)a.glassLevel=n}` +
-    `try{mg(JSON.parse(sessionStorage.getItem('${HOST_APPEARANCE_KEY}')));var q=new URLSearchParams(location.search);` +
-    `if(q.has('${HOST_SURFACE_PARAM}')||q.has('${HOST_GLASS_LEVEL_PARAM}')){mg({surface:q.get('${HOST_SURFACE_PARAM}'),glassLevel:q.get('${HOST_GLASS_LEVEL_PARAM}')});sessionStorage.setItem('${HOST_APPEARANCE_KEY}',JSON.stringify(a))}}catch(e){}` +
-    `d.dataset.surface=a.surface;d.dataset.glass=a.glassLevel===0?'flat':'on';d.style.setProperty('--glass-level',String(a.glassLevel));})();`;
-  return <script dangerouslySetInnerHTML={{ __html: script }} />;
+  return <script dangerouslySetInnerHTML={{ __html: hostBootScript() }} />;
 }

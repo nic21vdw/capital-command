@@ -1166,6 +1166,19 @@ html:not([data-surface="classic"]):not([data-glass="flat"]) body {
     var(--background);
 }
 
+html[data-host-backdrop="clear"]:not([data-surface="classic"]):not([data-glass="flat"]) {
+  background: transparent;
+}
+
+html[data-host-backdrop="clear"]:not([data-surface="classic"]):not([data-glass="flat"]) body {
+  --host-veil: calc(100% - var(--host-backdrop, 0) * 1%);
+  --host-glow: calc(var(--glass-glow) * (100 - var(--host-backdrop, 0)) / 100);
+  background:
+    radial-gradient(1100px 720px at 6% -12%, color-mix(in srgb, var(--accent) var(--host-glow), transparent), transparent 62%),
+    radial-gradient(900px 640px at 104% 108%, color-mix(in srgb, var(--accent) var(--host-glow), transparent), transparent 60%),
+    color-mix(in srgb, var(--background) var(--host-veil), transparent);
+}
+
 @layer components {
   .glass,
   .glass-popover {
@@ -1225,7 +1238,8 @@ html:not([data-surface="classic"]):not([data-glass="flat"]) body {
 }
 
 @media (prefers-reduced-transparency: reduce) {
-  html:not([data-surface="classic"]):not([data-glass="flat"]) body {
+  html:not([data-surface="classic"]):not([data-glass="flat"]) body,
+  html[data-host-backdrop="clear"]:not([data-surface="classic"]):not([data-glass="flat"]) body {
     background: var(--background);
   }
 
