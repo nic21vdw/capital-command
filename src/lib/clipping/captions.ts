@@ -352,9 +352,16 @@ export function buildAss(
   const primary = assColor(style.textColor);
   const outline = assColor("#000000");
   const back = assColor(style.backgroundColor, style.backgroundOpacity);
-  const bold = style.fontWeight >= 600 ? -1 : 0;
+  const fontName = style.fontFamily.split(",")[0].trim();
+  const bundled = isBundledCaptionFont(style.fontFamily);
+  const bold = bundled ? 0 : style.fontWeight >= 600 ? -1 : 0;
+  const italic = style.italic ? -1 : 0;
+  const titleFont = bundled ? "Montserrat ExtraBold" : fontName;
   // BorderStyle 3 paints an opaque box behind text when a background is wanted.
-  const borderStyle = style.backgroundOpacity > 0.02 ? 3 : 1;
+  const boxed = style.backgroundOpacity > 0.02;
+  const borderStyle = boxed ? 3 : 1;
+  const boxOutline = boxed ? back : outline;
+  const outlineWidth = boxed ? Math.max(style.outlineWidth, Math.round(fontSize * 0.18)) : style.outlineWidth;
 
   const header = [
     "[Script Info]",
@@ -366,14 +373,14 @@ export function buildAss(
     "",
     "[V4+ Styles]",
     "Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding",
-    `Style: Default,${style.fontFamily.split(",")[0].trim()},${fontSize},${primary},${assColor(style.highlightColor)},${outline},${back},${bold},0,0,0,100,100,0,0,${borderStyle},${style.outlineWidth},${style.shadow},${assAlignment(style)},40,40,${marginV},1`,
+    `Style: Default,${fontName},${fontSize},${primary},${assColor(style.highlightColor)},${boxOutline},${back},${bold},${italic},0,0,100,100,0,0,${borderStyle},${outlineWidth},${style.shadow},${assAlignment(style)},40,40,${marginV},1`,
     // Dedicated watermark style: drop-shadow outline (BorderStyle 1), never an
     // opaque caption box, so the CoLateral lockup stays legible on any frame.
-    `Style: Watermark,${style.fontFamily.split(",")[0].trim()},${Math.max(10, Math.round(height * 0.03))},&H00FFFFFF,&H00FFFFFF,&H00000000,&H80000000,-1,0,0,0,100,100,0,0,1,2,2,1,40,40,40,1`,
+    `Style: Watermark,${titleFont},${Math.max(10, Math.round(height * 0.03))},&H00FFFFFF,&H00FFFFFF,&H00000000,&H80000000,-1,0,0,0,100,100,0,0,1,2,2,1,40,40,40,1`,
     // Dedicated clip-title style: bold white with a clean drop-shadow outline
     // (never a caption box), used by buildClipTitleDialogue for the headline
     // burned above the video band on every rendered clip.
-    `Style: Title,${style.fontFamily.split(",")[0].trim()},${Math.max(12, Math.round(height * 0.034))},&H00FFFFFF,&H00FFFFFF,&H00000000,&H80000000,-1,0,0,0,100,100,0,0,1,3,2,2,60,60,60,1`,
+    `Style: Title,${titleFont},${Math.max(12, Math.round(height * 0.034))},&H00FFFFFF,&H00FFFFFF,&H00000000,&H80000000,-1,0,0,0,100,100,0,0,1,3,2,2,60,60,60,1`,
     "",
     "[Events]",
     "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text"
@@ -391,8 +398,19 @@ export function buildAss(
     style.offsetX !== undefined && style.offsetY !== undefined
       ? `{\\an5\\pos(${Math.round(style.offsetX * width)},${Math.round(style.offsetY * height)})}`
       : "";
+  const glow = style.glowColor
+    ? `\\1a&HFF&\\3c${assColor(style.glowColor)}\\3a&H40&\\bord${Math.max(6, Math.round(fontSize * 0.12))}\\blur${Math.max(8, Math.round(fontSize * 0.2))}\\shad0`
+    : "";
 
   const events: string[] = [];
+  const pushEvent = (start: number, end: number, text: string) => {
+    const times = `${formatAssTime(start)},${formatAssTime(end)}`;
+    if (glow) {
+      const glowText = text.replaceAll("{\\r}", `{\\r${glow}}`).replaceAll("\\alpha&H70&", "\\3a&HC0&");
+      events.push(`Dialogue: 0,${times},Default,,0,0,0,,${posTag}{${glow}}${glowText}`);
+    }
+    events.push(`Dialogue: ${glow ? 1 : 0},${times},Default,,0,0,0,,${posTag}${text}`);
+  };
   for (const seg of segments) {
     if (!seg.enabled || !seg.text.trim()) continue;
 
@@ -426,14 +444,14 @@ export function buildAss(
           .join("");
         // Entrance animation only on the first event so the phrase pops once.
         const prefix = i === 0 ? entrance : "";
-        events.push(`Dialogue: 0,${formatAssTime(eventStart)},${formatAssTime(eventEnd)},Default,,0,0,0,,${posTag}${prefix}${text}`);
+        pushEvent(eventStart, eventEnd, `${prefix}${text}`);
       }
       continue;
     }
 
     const tokens = seg.text.trim().split(/\s+/);
     const text = tokens.map((tok, j) => (j > 0 && j % wordsPerLine === 0 ? "\\N" : j > 0 ? " " : "") + transform(tok)).join("");
-    events.push(`Dialogue: 0,${formatAssTime(seg.start)},${formatAssTime(seg.end)},Default,,0,0,0,,${posTag}${entrance}${text}`);
+    pushEvent(seg.start, seg.end, `${entrance}${text}`);
   }
 
   return `${header.join("\n")}\n${events.join("\n")}\n`;
@@ -576,7 +594,265 @@ export function buildWatermarkDialogue(
 
 // --- Style presets ---------------------------------------------------------
 
-export const CAPTION_PRESETS: Record<CaptionPresetId, { label: string; style: Partial<CaptionStyle> }> = {
+export const CAPTION_FONT_FAMILIES = [
+  "Montserrat Black",
+  "Montserrat ExtraBold",
+  "Poppins Black",
+  "Poppins ExtraBold",
+  "Anton",
+  "Archivo Black",
+  "Instrument Serif"
+] as const;
+
+export function isBundledCaptionFont(fontFamily: string): boolean {
+  const first = fontFamily.split(",")[0].trim().replace(/^["']|["']$/g, "");
+  return (CAPTION_FONT_FAMILIES as readonly string[]).includes(first);
+}
+
+export const DEFAULT_GENERATOR_CAPTION_PRESET: CaptionPresetId = "pop";
+
+export const GENERATOR_CAPTION_PRESETS: CaptionPresetId[] = [
+  "pop",
+  "impact",
+  "hype",
+  "punch",
+  "glow",
+  "neon",
+  "boxed",
+  "sweep",
+  "editorial",
+  "paper",
+  "subtle",
+  "colateral-purple"
+];
+
+export function isCaptionPresetId(value: unknown): value is CaptionPresetId {
+  return typeof value === "string" && Object.prototype.hasOwnProperty.call(CAPTION_PRESETS, value);
+}
+
+type CaptionPresetLook = Omit<Partial<CaptionStyle>, "offsetX" | "offsetY">;
+
+function look(style: CaptionPresetLook): CaptionPresetLook {
+  return {
+    backgroundColor: "#000000",
+    backgroundOpacity: 0,
+    alignment: "center",
+    position: "lower-third",
+    italic: false,
+    glowColor: undefined,
+    ...style
+  };
+}
+
+export const CAPTION_PRESETS: Record<
+  CaptionPresetId,
+  { label: string; description?: string; sample?: [string, string, string]; style: Partial<CaptionStyle> }
+> = {
+  pop: {
+    label: "Pop",
+    description: "Heavy white type, yellow spoken word, springy pop-in",
+    sample: ["this", "changed", "everything"],
+    style: look({
+      fontFamily: "Montserrat Black, Inter, sans-serif",
+      fontWeight: 900,
+      fontScale: 0.046,
+      textColor: "#ffffff",
+      highlightColor: "#ffe234",
+      outlineWidth: 6,
+      shadow: 3,
+      animation: "pop",
+      maxWordsPerCaption: 3,
+      wordsPerLine: 3,
+      uppercase: true
+    })
+  },
+  impact: {
+    label: "Impact",
+    description: "Tall condensed type, two words at a time",
+    sample: ["ten", "million", "views"],
+    style: look({
+      fontFamily: "Anton, Impact, sans-serif",
+      fontWeight: 400,
+      fontScale: 0.065,
+      textColor: "#ffffff",
+      highlightColor: "#ffd60a",
+      outlineWidth: 7,
+      shadow: 5,
+      animation: "pop",
+      maxWordsPerCaption: 2,
+      wordsPerLine: 2,
+      uppercase: true
+    })
+  },
+  hype: {
+    label: "Hype",
+    description: "Extra-heavy stroke, hard shadow, electric green word",
+    sample: ["we", "are", "so back"],
+    style: look({
+      fontFamily: "Montserrat Black, Inter, sans-serif",
+      fontWeight: 900,
+      fontScale: 0.048,
+      textColor: "#ffffff",
+      highlightColor: "#39ff6a",
+      outlineWidth: 8,
+      shadow: 6,
+      animation: "pop",
+      maxWordsPerCaption: 3,
+      wordsPerLine: 3,
+      uppercase: true
+    })
+  },
+  punch: {
+    label: "Punch",
+    description: "One oversized word at a time, for fast hooks",
+    sample: ["never", "sell", "early"],
+    style: look({
+      fontFamily: "Anton, Impact, sans-serif",
+      fontWeight: 400,
+      fontScale: 0.078,
+      textColor: "#ffffff",
+      highlightColor: "#ffffff",
+      outlineWidth: 8,
+      shadow: 6,
+      position: "middle",
+      animation: "pop",
+      maxWordsPerCaption: 1,
+      wordsPerLine: 1,
+      uppercase: true
+    })
+  },
+  glow: {
+    label: "Glow",
+    description: "Clean white type with a cyan bloom",
+    sample: ["level", "up", "fast"],
+    style: look({
+      fontFamily: "Montserrat ExtraBold, Inter, sans-serif",
+      fontWeight: 800,
+      fontScale: 0.042,
+      textColor: "#ffffff",
+      highlightColor: "#7df9ff",
+      outlineWidth: 0,
+      shadow: 2,
+      animation: "pop",
+      maxWordsPerCaption: 3,
+      wordsPerLine: 3,
+      uppercase: true,
+      glowColor: "#00c8ff"
+    })
+  },
+  neon: {
+    label: "Neon",
+    description: "Magenta bloom and a pink spoken word",
+    sample: ["late", "night", "vibes"],
+    style: look({
+      fontFamily: "Poppins ExtraBold, Inter, sans-serif",
+      fontWeight: 800,
+      fontScale: 0.041,
+      textColor: "#ffffff",
+      highlightColor: "#ff9ceb",
+      outlineWidth: 0,
+      shadow: 2,
+      animation: "pop",
+      maxWordsPerCaption: 3,
+      wordsPerLine: 3,
+      uppercase: true,
+      glowColor: "#ff2ec4"
+    })
+  },
+  boxed: {
+    label: "Boxed",
+    description: "Translucent plate behind the line, readable on anything",
+    sample: ["read", "this", "first"],
+    style: look({
+      fontFamily: "Archivo Black, Inter, sans-serif",
+      fontWeight: 400,
+      fontScale: 0.037,
+      textColor: "#ffffff",
+      highlightColor: "#ffd23f",
+      backgroundOpacity: 0.62,
+      outlineWidth: 0,
+      shadow: 0,
+      animation: "fade",
+      maxWordsPerCaption: 3,
+      wordsPerLine: 3,
+      uppercase: true
+    })
+  },
+  sweep: {
+    label: "Sweep",
+    description: "Colour sweeps through each word as it is spoken",
+    sample: ["watch", "this", "part"],
+    style: look({
+      fontFamily: "Poppins ExtraBold, Inter, sans-serif",
+      fontWeight: 800,
+      fontScale: 0.04,
+      textColor: "#ffffff",
+      highlightColor: "#ff5fa2",
+      outlineWidth: 5,
+      shadow: 2,
+      animation: "karaoke",
+      maxWordsPerCaption: 4,
+      wordsPerLine: 4,
+      uppercase: true
+    })
+  },
+  editorial: {
+    label: "Editorial",
+    description: "Italic serif in sentence case, for stories and podcasts",
+    sample: ["and", "then", "everything"],
+    style: look({
+      fontFamily: "Instrument Serif, Georgia, serif",
+      fontWeight: 400,
+      fontScale: 0.058,
+      textColor: "#ffffff",
+      highlightColor: "#ffe6b8",
+      outlineWidth: 0,
+      shadow: 3,
+      animation: "karaoke",
+      maxWordsPerCaption: 4,
+      wordsPerLine: 4,
+      uppercase: false,
+      italic: true
+    })
+  },
+  paper: {
+    label: "Paper",
+    description: "Dark type on a white card, clean and educational",
+    sample: ["here is", "the", "lesson"],
+    style: look({
+      fontFamily: "Poppins ExtraBold, Inter, sans-serif",
+      fontWeight: 800,
+      fontScale: 0.035,
+      textColor: "#111111",
+      highlightColor: "#6d28d9",
+      backgroundColor: "#ffffff",
+      backgroundOpacity: 0.94,
+      outlineWidth: 0,
+      shadow: 0,
+      animation: "none",
+      maxWordsPerCaption: 4,
+      wordsPerLine: 4,
+      uppercase: false
+    })
+  },
+  subtle: {
+    label: "Subtle",
+    description: "Light sentence case, no stroke, for interviews and vlogs",
+    sample: ["honestly", "it", "worked"],
+    style: look({
+      fontFamily: "Montserrat ExtraBold, Inter, sans-serif",
+      fontWeight: 800,
+      fontScale: 0.036,
+      textColor: "#ffffff",
+      highlightColor: "#c4f1ff",
+      outlineWidth: 0,
+      shadow: 2,
+      animation: "karaoke",
+      maxWordsPerCaption: 4,
+      wordsPerLine: 4,
+      uppercase: false
+    })
+  },
   minimal: {
     label: "Minimal",
     style: {

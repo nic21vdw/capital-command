@@ -4,10 +4,13 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
   AlertTriangle,
+  Check,
   Download,
   Film,
+  Flame,
   Link as LinkIcon,
   Loader2,
+  Play,
   RotateCw,
   Scissors,
   SquarePlay,
@@ -27,13 +30,71 @@ import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { AdvancedOptions } from "@/components/ui/advanced-options";
 import { MAX_CLIP_COUNT, TARGET_CLIP_COUNT } from "@/lib/clipping/clip-count";
-import { chunkWords, windowSegments } from "@/lib/clipping/captions";
+import {
+  CAPTION_PRESETS,
+  DEFAULT_GENERATOR_CAPTION_PRESET,
+  GENERATOR_CAPTION_PRESETS,
+  chunkWords,
+  isCaptionPresetId,
+  windowSegments
+} from "@/lib/clipping/captions";
 import { loadJobCaptions, loadJobSilences } from "@/lib/clipping/captions-client";
-import { generateClipTitle, makeClipProject, makeTitleOverlay } from "@/lib/clipping/editor";
+import { CLIP_LENGTHS, CLIP_LENGTH_IDS, DEFAULT_CLIP_LENGTH, isClipLengthId, type ClipLengthId } from "@/lib/clipping/clip-length";
+import { captionStyleForPreset, generateClipTitle, makeClipProject, makeTitleOverlay } from "@/lib/clipping/editor";
+import { CaptionStylePicker } from "@/components/clips/caption-style-picker";
 import { buildClipSegments, buildClipSegmentsFromSilences } from "@/lib/clipping/segments";
 import { writeDraftProject } from "@/components/editor/drafts";
 import { cn, safeFilename } from "@/lib/utils";
 import type { ClipCandidate, ClipJob, ClipJobStage, ClipJobStatus } from "@/lib/clipping/types";
+import type { CaptionPresetId } from "@/types/domain";
+
+const PRESET_STORAGE_KEY = "clips.captionPreset";
+const LENGTH_STORAGE_KEY = "clips.clipLength";
+
+function readStored<T>(key: string, accept: (value: unknown) => value is T, fallback: T): T {
+  if (typeof window === "undefined") return fallback;
+  try {
+    const value = window.localStorage.getItem(key);
+    return accept(value) ? value : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+function writeStored(key: string, value: string) {
+  try {
+    window.localStorage.setItem(key, value);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+const PIPELINE_STEPS: Array<{ stage: ClipJobStage; label: string }> = [
+  { stage: "downloading", label: "Fetch" },
+  { stage: "analyzing", label: "Transcribe" },
+  { stage: "selecting", label: "Find moments" },
+  { stage: "rendering", label: "Render" }
+];
+
+type ClipSort = "best" | "timeline";
+const SCORE_FILTERS = [0, 70, 80, 90];
+
+function formatElapsed(ms: number) {
+  const total = Math.max(0, Math.round(ms / 1000));
+  const h = Math.floor(total / 3600);
+  const m = Math.floor((total % 3600) / 60);
+  const s = total % 60;
+  if (h > 0) return `${h}h ${m}m`;
+  if (m > 0) return `${m}m ${String(s).padStart(2, "0")}s`;
+  return `${s}s`;
+}
+
+function processingMs(job: ClipJob) {
+  if (!job.finishedAt) return null;
+  const ms = Date.parse(job.finishedAt) - Date.parse(job.createdAt);
+  return Number.isFinite(ms) && ms > 0 ? ms : null;
+}
 
 // Preset clip counts offered in the generator. Kept within [1, MAX_CLIP_COUNT];
 // bigger streams warrant more clips, so the range runs well past the default.
@@ -104,6 +165,22 @@ export function ClipGeneratorPage() {
   const [brief, setBrief] = useState("");
   const [clipCount, setClipCount] = useState(TARGET_CLIP_COUNT);
   const [autoFrame, setAutoFrame] = useState(true);
+  const [captionPreset, setCaptionPresetState] = useState<CaptionPresetId>(() =>
+    readStored(PRESET_STORAGE_KEY, isCaptionPresetId, DEFAULT_GENERATOR_CAPTION_PRESET)
+  );
+  const [clipLength, setClipLengthState] = useState<ClipLengthId>(() =>
+    readStored(LENGTH_STORAGE_KEY, isClipLengthId, DEFAULT_CLIP_LENGTH)
+  );
+  const setCaptionPreset = (preset: CaptionPresetId) => {
+    setCaptionPresetState(preset);
+    writeStored(PRESET_STORAGE_KEY, preset);
+  };
+  const setClipLength = (length: ClipLengthId) => {
+    setClipLengthState(length);
+    writeStored(LENGTH_STORAGE_KEY, length);
+  };
+  const [clipSort, setClipSort] = useState<ClipSort>("best");
+  const [minScore, setMinScore] = useState(0);
   const [submitting, setSubmitting] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [retryingJobId, setRetryingJobId] = useState<string | null>(null);
@@ -151,7 +228,7 @@ export function ClipGeneratorPage() {
       const response = await fetch("/api/clips", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body)
+        body: JSON.stringify({ ...body, captionPreset, clipLength })
       });
       const data = (await response.json()) as { job?: ClipJob; error?: string };
       if (response.ok && data.job) {
@@ -164,7 +241,7 @@ export function ClipGeneratorPage() {
         toast.error(data.error ?? "Could not start clipping that source.");
       }
     },
-    [refresh]
+    [captionPreset, clipLength, refresh]
   );
 
   const submitUrl = useCallback(async () => {
@@ -182,6 +259,17 @@ export function ClipGeneratorPage() {
       setSubmitting(false);
     }
   }, [autoFrame, brief, clipCount, startJob, url]);
+
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key !== "Enter" || !(event.ctrlKey || event.metaKey)) return;
+      if (submitting || uploading || !url.trim()) return;
+      event.preventDefault();
+      void submitUrl();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [submitUrl, submitting, uploading, url]);
 
   const uploadFile = useCallback(
     async (file: File) => {
@@ -278,6 +366,7 @@ export function ClipGeneratorPage() {
         clipStart: clip.start,
         clipEnd: clip.end
       });
+      if (job.captionPreset) project.captionStyle = captionStyleForPreset(job.captionPreset);
       const [captions, silences] = await Promise.all([loadJobCaptions(job.id), loadJobSilences(job.id)]);
       const windowed = windowSegments(captions, clip.start, clip.end);
       const words = windowed.flatMap((segment) => segment.words);
@@ -362,6 +451,15 @@ export function ClipGeneratorPage() {
   };
 
   const busy = submitting || uploading;
+  const visibleClips = useMemo(() => {
+    if (!activeJob) return [];
+    const entries = activeJob.clips
+      .map((clip, index) => ({ clip, index }))
+      .filter(({ clip }) => (clip.file || clip.previewFile) && clip.score >= minScore);
+    return clipSort === "timeline"
+      ? entries.sort((a, b) => a.clip.start - b.clip.start)
+      : entries.sort((a, b) => b.clip.score - a.clip.score || a.index - b.index);
+  }, [activeJob, clipSort, minScore]);
   const settingsSummary = [
     `${clipCount} clip${clipCount === 1 ? "" : "s"}`,
     autoFrame ? "framed on the speaker" : "centered over blur",
@@ -399,6 +497,7 @@ export function ClipGeneratorPage() {
                   if (event.key === "Enter" && !busy) void submitUrl();
                 }}
                 disabled={busy}
+                aria-keyshortcuts="Control+Enter Meta+Enter"
               />
               <Button onClick={() => void submitUrl()} disabled={busy || !url.trim()} className="w-full">
                 {submitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <LinkIcon className="mr-2 h-4 w-4" />}
@@ -450,6 +549,53 @@ export function ClipGeneratorPage() {
                   {dragActive ? "Drop to upload" : uploading ? "Uploading..." : "Upload a video file"}
                 </Button>
               </div>
+              <div className="space-y-1.5 pt-1">
+                <p className="text-xs font-medium text-[var(--muted-foreground)]">Clip length</p>
+                <div role="radiogroup" aria-label="Clip length" className="grid grid-cols-4 gap-1 rounded-full border border-white/10 bg-[var(--well)] p-1">
+                  {CLIP_LENGTH_IDS.map((id) => {
+                    const selected = id === clipLength;
+                    return (
+                      <button
+                        key={id}
+                        type="button"
+                        role="radio"
+                        aria-checked={selected}
+                        disabled={busy}
+                        onClick={() => setClipLength(id)}
+                        className={cn(
+                          "flex flex-col items-center rounded-full px-1 py-1 leading-tight transition",
+                          selected
+                            ? "bg-[var(--accent)] text-[var(--accent-contrast)]"
+                            : "text-[var(--muted-foreground)] hover:bg-white/5 hover:text-white"
+                        )}
+                      >
+                        <span className="text-[11px] font-semibold">{CLIP_LENGTHS[id].label}</span>
+                        <span className={cn("text-[10px] tabular-nums", selected ? "opacity-80" : "opacity-70")}>
+                          {CLIP_LENGTHS[id].hint}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+              <div className="space-y-1.5">
+                <div className="flex items-baseline justify-between gap-2">
+                  <p className="shrink-0 text-xs font-medium text-[var(--muted-foreground)]">Caption style</p>
+                  <p className="truncate text-[11px] text-[var(--muted-foreground)]">
+                    {CAPTION_PRESETS[captionPreset].description}
+                  </p>
+                </div>
+                <CaptionStylePicker
+                  value={captionPreset}
+                  options={GENERATOR_CAPTION_PRESETS}
+                  onChange={setCaptionPreset}
+                  disabled={busy}
+                />
+              </div>
+              <p className="flex items-start gap-1.5 text-[11px] leading-4 text-[var(--muted-foreground)]">
+                <Check className="mt-0.5 h-3 w-3 shrink-0 text-emerald-300" />
+                Transcribed on this PC and picked by free AI models, so a run normally costs nothing. Ctrl+Enter starts it.
+              </p>
               <AdvancedOptions id="clips-generate" summary={settingsSummary}>
                 <div className="space-y-1.5">
                   <label htmlFor="clip-focus" className="block text-xs font-medium text-[var(--muted-foreground)]">
@@ -547,9 +693,23 @@ export function ClipGeneratorPage() {
                         >
                           {job.fileName}
                         </p>
-                        <p className="mt-1 text-xs text-[var(--muted-foreground)]">
-                          {new Date(job.createdAt).toLocaleDateString()}
-                          {job.clips.length > 0 && ` · ${job.clips.length} clips`}
+                        <p className="mt-1 flex items-center gap-1.5 text-xs text-[var(--muted-foreground)]">
+                          <span
+                            aria-hidden
+                            className={cn(
+                              "h-1.5 w-1.5 shrink-0 rounded-full",
+                              job.status === "done"
+                                ? "bg-emerald-400"
+                                : job.status === "error"
+                                  ? "bg-red-400"
+                                  : "animate-pulse bg-sky-400"
+                            )}
+                          />
+                          <span className="tabular-nums">
+                            {new Date(job.createdAt).toLocaleDateString()}
+                            {job.clips.length > 0 && ` · ${job.clips.length} clips`}
+                            {processingMs(job) !== null && ` · ${formatElapsed(processingMs(job) as number)}`}
+                          </span>
                         </p>
                       </div>
                       <div className="flex shrink-0 items-center gap-1.5">
@@ -597,6 +757,8 @@ export function ClipGeneratorPage() {
                     <div className="flex flex-wrap items-center gap-2">
                       <Badge className={statusClass(activeJob.status)}>{statusLabel(activeJob)}</Badge>
                       {activeJob.durationSec ? <Badge>{formatTimestamp(activeJob.durationSec)}</Badge> : null}
+                      {activeJob.clipLength && <Badge>{CLIP_LENGTHS[activeJob.clipLength].hint} clips</Badge>}
+                      {activeJob.captionPreset && <Badge>{CAPTION_PRESETS[activeJob.captionPreset].label} captions</Badge>}
                       {activeJob.topic && <Badge>{activeJob.topic}</Badge>}
                     </div>
                     <EditableTitle
@@ -635,15 +797,9 @@ export function ClipGeneratorPage() {
                   </div>
                 </div>
 
-                {processing && (
-                  <div className="mt-5 space-y-2">
-                    <div className="flex items-center justify-between text-sm">
-                      <span className="text-white">{STAGE_LABELS[activeJob.stage]}...</span>
-                      <span className="text-[var(--muted-foreground)]">{activeJob.progress}%</span>
-                    </div>
-                    <Progress value={activeJob.progress} />
-                  </div>
-                )}
+                {processing && <PipelineProgress job={activeJob} />}
+
+                {activeJob.status === "done" && <RunStats job={activeJob} />}
 
                 {activeJob.status === "error" && (
                   <Notice tone="danger" text={activeJob.error ?? "This job could not finish."} />
@@ -669,11 +825,28 @@ export function ClipGeneratorPage() {
                           : `${previewableClips.length} clip${previewableClips.length === 1 ? "" : "s"}, best first. Open one to trim, pick a layout, and export.`}
                       </p>
                     </div>
-                    {failedClipCount > 0 && (
-                      <Badge className="border-amber-400/30 bg-amber-400/10 text-amber-300">
-                        {failedClipCount} missing render{failedClipCount === 1 ? "" : "s"}
-                      </Badge>
-                    )}
+                    <div className="flex flex-wrap items-center gap-2">
+                      {failedClipCount > 0 && (
+                        <Badge className="border-amber-400/30 bg-amber-400/10 text-amber-300">
+                          {failedClipCount} missing render{failedClipCount === 1 ? "" : "s"}
+                        </Badge>
+                      )}
+                      <Segmented
+                        label="Sort clips"
+                        value={clipSort}
+                        onChange={setClipSort}
+                        options={[
+                          { value: "best", label: "Best first" },
+                          { value: "timeline", label: "Timeline" }
+                        ]}
+                      />
+                      <Segmented
+                        label="Minimum score"
+                        value={minScore}
+                        onChange={setMinScore}
+                        options={SCORE_FILTERS.map((score) => ({ value: score, label: score === 0 ? "All" : `${score}+` }))}
+                      />
+                    </div>
                   </div>
                   {previewableClips.length === 0 ? (
                     <Card className="flex flex-col items-center gap-2 py-10 text-center">
@@ -683,20 +856,25 @@ export function ClipGeneratorPage() {
                         Use “Retry missing” above, or delete this stream and try adding it again.
                       </p>
                     </Card>
+                  ) : visibleClips.length === 0 ? (
+                    <Card className="flex flex-col items-center gap-2 py-8 text-center">
+                      <p className="text-sm font-semibold text-white">No clips score {minScore} or higher</p>
+                      <Button variant="secondary" className="px-3 py-1.5 text-xs" onClick={() => setMinScore(0)}>
+                        Show all clips
+                      </Button>
+                    </Card>
                   ) : (
-                    <div className="grid gap-3 2xl:grid-cols-2">
-                      {activeJob.clips.map((clip, index) =>
-                        clip.file || clip.previewFile ? (
-                          <ClipCard
-                            key={clip.id}
-                            clip={clip}
-                            index={index}
-                            jobId={activeJob.id}
-                            onEdit={() => void editClip(activeJob, clip, index)}
-                            onRename={(title) => void renameClip(activeJob, clip, title)}
-                          />
-                        ) : null
-                      )}
+                    <div className="grid gap-3 [grid-template-columns:repeat(auto-fill,minmax(210px,1fr))]">
+                      {visibleClips.map(({ clip, index }) => (
+                        <ClipCard
+                          key={clip.id}
+                          clip={clip}
+                          index={index}
+                          jobId={activeJob.id}
+                          onEdit={() => void editClip(activeJob, clip, index)}
+                          onRename={(title) => void renameClip(activeJob, clip, title)}
+                        />
+                      ))}
                     </div>
                   )}
                 </>
@@ -895,105 +1073,239 @@ function ClipCard({
     []
   );
 
+  const downloadName = clip.editedFile ?? clip.downloadFile ?? clip.file;
+  const scoreTone =
+    clip.score >= 90 ? "text-amber-300" : clip.score >= 75 ? "text-yellow-200" : "text-[var(--muted-foreground)]";
+  const breakdown = clip.breakdown
+    ? `Hook ${clip.breakdown.hook} · Pacing ${clip.breakdown.pacing} · Standalone ${clip.breakdown.standalone} · Intensity ${clip.breakdown.intensity}`
+    : "";
+
   return (
-    <Card className="animate-in overflow-hidden p-0 transition-all duration-200 hover:border-[var(--border-strong)] hover:shadow-lg">
-      <div className="grid min-h-full md:grid-cols-[220px_minmax(0,1fr)]">
-        {/* The preview is a full 9:16 frame — the shape the clip actually posts
-            in — so nothing is cut off, whichever file is backing it. */}
-        <div
-          className="relative mx-auto w-full max-w-[240px] md:max-w-none"
-          onPointerEnter={startPreview}
-          onPointerLeave={stopPreview}
-        >
-          <ClipFrame
-            ref={videoRef}
-            src={playbackFile ? fileUrl(jobId, playbackFile) : undefined}
-            // The poster paints the card instantly; the mp4 itself is not
-            // touched until hover, so ten cards don't fight over bandwidth
-            // (and show black boxes) while the page loads. Prefer the
-            // eagerly-generated poster frame, falling back to the on-demand
-            // thumbnail route for clips rendered before it existed.
-            poster={
-              clip.posterFile
-                ? fileUrl(jobId, clip.posterFile)
-                : clip.file
-                  ? thumbnailUrl(jobId, clip.file)
-                  : undefined
-            }
-            preload="none"
-            loop
-          />
-          <Badge className="absolute left-3 top-3 border-[var(--accent)]/30 bg-black/70 text-[var(--accent)]">
-            #{index + 1}
-          </Badge>
-        </div>
-        <div className="flex min-w-0 flex-col gap-5 p-5 lg:p-6">
-          <div className="min-w-0">
-            <EditableTitle
-              as="h3"
-              text={clipHeadline(clip, index)}
-              onCommit={onRename}
-              ariaLabel={`Clip ${index + 1} title`}
-              multiline
-              className="line-clamp-3 text-lg font-semibold leading-7 text-white"
-              inputClassName="min-h-20 w-full resize-none rounded-lg border border-[var(--accent)]/50 bg-[var(--well-deep)] px-3 py-2.5 text-lg font-semibold leading-7 text-white outline-none"
-            />
-            <div className="mt-4 flex flex-wrap gap-2">
-              <Badge>
-                {formatTimestamp(clip.start)} - {formatTimestamp(clip.end)}
-              </Badge>
-              <Badge>{duration}s</Badge>
-              {clip.score > 0 && (
-                <Badge
-                  className="border-emerald-400/30 bg-emerald-400/10 text-emerald-300"
-                  title={clip.rationale}
-                >
-                  Score {clip.score}
-                </Badge>
+    <Card className="group animate-in flex flex-col overflow-hidden rounded-2xl p-1.5 transition-all duration-200 hover:-translate-y-0.5 hover:border-[var(--border-strong)] hover:shadow-lg">
+      <div
+        className="relative overflow-hidden rounded-xl"
+        onPointerEnter={startPreview}
+        onPointerLeave={stopPreview}
+        onFocus={startPreview}
+        onBlur={stopPreview}
+      >
+        <ClipFrame
+          ref={videoRef}
+          src={playbackFile ? fileUrl(jobId, playbackFile) : undefined}
+          poster={
+            clip.posterFile
+              ? fileUrl(jobId, clip.posterFile)
+              : clip.file
+                ? thumbnailUrl(jobId, clip.file)
+                : undefined
+          }
+          preload="none"
+          loop
+        />
+        <div className="pointer-events-none absolute inset-x-2 top-2 flex items-start justify-between gap-2">
+          {clip.score > 0 ? (
+            <span
+              className={cn(
+                "inline-flex items-center gap-1 rounded-full bg-black/55 px-2 py-0.5 text-xs font-semibold tabular-nums backdrop-blur-md",
+                scoreTone
               )}
-              {clip.framing && clip.framing.mode !== "center-blur" && (
-                <Badge
-                  className="border-sky-400/30 bg-sky-400/10 text-sky-200"
-                  title={clip.framing.reason}
-                >
-                  {clip.framing.mode === "subject-fill" ? "Framed on speaker" : "Camera lead"}
-                </Badge>
-              )}
-            </div>
-          </div>
-
-          <div className="border-t border-white/8 pt-4">
-            <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-[var(--muted-foreground)]">
-              Why this clip
-            </p>
-            <p className="mt-2 line-clamp-3 text-sm leading-6 text-[var(--muted-foreground)]">{clip.rationale}</p>
-          </div>
-
-          {!clip.file && (
-            <div className="mt-auto flex items-center gap-2 pt-1 text-xs text-[var(--muted-foreground)]">
-              <Loader2 className="h-3.5 w-3.5 animate-spin" />
-              Finalizing the HD render — hover to preview it now
-            </div>
+            >
+              <Flame className="h-3 w-3" />
+              {clip.score}
+            </span>
+          ) : (
+            <span />
           )}
-
-          {clip.file && (
-            <div className="mt-auto flex flex-wrap gap-2 pt-1">
-              <Button className="px-3 py-1.5 text-xs" onClick={onEdit}>
-                <SquarePlay className="mr-1.5 h-3.5 w-3.5" />
-                Open in editor
-              </Button>
+          <span className="rounded-full bg-black/55 px-2 py-0.5 text-[11px] font-medium tabular-nums text-white backdrop-blur-md">
+            {duration}s
+          </span>
+        </div>
+        <span className="pointer-events-none absolute bottom-2 left-2 rounded-full bg-black/55 px-2 py-0.5 text-[11px] font-medium text-white/80 backdrop-blur-md">
+          #{index + 1}
+        </span>
+        <span className="pointer-events-none absolute inset-0 flex items-center justify-center opacity-0 transition-opacity duration-150 group-hover:opacity-100">
+          <span className="flex h-11 w-11 items-center justify-center rounded-full bg-white/15 text-white ring-1 ring-white/25 backdrop-blur-md">
+            <Play className="ml-0.5 h-5 w-5" fill="currentColor" />
+          </span>
+        </span>
+        {clip.file && (
+          <div className="absolute bottom-2 right-2 flex gap-1.5 opacity-0 transition-opacity duration-150 focus-within:opacity-100 group-hover:opacity-100">
+            <button
+              type="button"
+              onClick={onEdit}
+              aria-label="Open in editor"
+              title="Open in editor"
+              className="flex h-8 w-8 items-center justify-center rounded-full bg-black/60 text-white ring-1 ring-white/20 backdrop-blur-md transition hover:bg-[var(--accent)] hover:text-[var(--accent-contrast)]"
+            >
+              <SquarePlay className="h-4 w-4" />
+            </button>
+            {downloadName && (
               <a
-                href={fileUrl(jobId, clip.editedFile ?? clip.downloadFile ?? clip.file, true)}
-                download={`${safeFilename(clipHeadline(clip, index))}.${(clip.editedFile ?? clip.downloadFile ?? clip.file).split(".").pop() || "mp4"}`}
-                className="inline-flex items-center justify-center rounded-lg border border-[var(--border)] px-3 py-1.5 text-xs font-medium text-[var(--muted-foreground)] transition hover:border-[var(--border-strong)] hover:text-white"
+                href={fileUrl(jobId, downloadName, true)}
+                download={`${safeFilename(clipHeadline(clip, index))}.${downloadName.split(".").pop() || "mp4"}`}
+                aria-label="Download clip"
+                title="Download clip"
+                className="flex h-8 w-8 items-center justify-center rounded-full bg-black/60 text-white ring-1 ring-white/20 backdrop-blur-md transition hover:bg-white hover:text-black"
+              >
+                <Download className="h-4 w-4" />
+              </a>
+            )}
+          </div>
+        )}
+      </div>
+      <div className="flex min-w-0 flex-1 flex-col gap-1.5 px-1.5 pb-1 pt-2.5">
+        <EditableTitle
+          as="h3"
+          text={clipHeadline(clip, index)}
+          onCommit={onRename}
+          ariaLabel={`Clip ${index + 1} title`}
+          multiline
+          className="line-clamp-2 text-sm font-semibold leading-5 text-white"
+          inputClassName="min-h-16 w-full resize-none rounded-lg border border-[var(--accent)]/50 bg-[var(--well-deep)] px-2 py-1.5 text-sm font-semibold leading-5 text-white outline-none"
+        />
+        <p className="truncate text-[11px] tabular-nums text-[var(--muted-foreground)]" title={breakdown}>
+          {formatTimestamp(clip.start)} - {formatTimestamp(clip.end)}
+          {clip.framing && clip.framing.mode !== "center-blur" &&
+            ` · ${clip.framing.mode === "subject-fill" ? "Framed on speaker" : "Camera lead"}`}
+        </p>
+        <p className="line-clamp-2 text-[11px] leading-4 text-[var(--muted-foreground)]" title={clip.rationale}>
+          {clip.rationale}
+        </p>
+        {!clip.file ? (
+          <div className="mt-auto flex items-center gap-1.5 pt-1 text-[11px] text-[var(--muted-foreground)]">
+            <Loader2 className="h-3 w-3 animate-spin" />
+            Finalizing the HD render
+          </div>
+        ) : (
+          <div className="mt-auto flex gap-1.5 pt-1.5">
+            <Button className="flex-1 px-2 py-1.5 text-xs" onClick={onEdit}>
+              <SquarePlay className="mr-1.5 h-3.5 w-3.5" />
+              Edit
+            </Button>
+            {downloadName && (
+              <a
+                href={fileUrl(jobId, downloadName, true)}
+                download={`${safeFilename(clipHeadline(clip, index))}.${downloadName.split(".").pop() || "mp4"}`}
+                className="inline-flex flex-1 items-center justify-center rounded-lg border border-[var(--border)] px-2 py-1.5 text-xs font-medium text-[var(--muted-foreground)] transition hover:border-[var(--border-strong)] hover:text-white"
               >
                 <Download className="mr-1.5 h-3.5 w-3.5" />
                 Download
               </a>
-            </div>
-          )}
-        </div>
+            )}
+          </div>
+        )}
       </div>
     </Card>
+  );
+}
+
+function Segmented<T extends string | number>({
+  label,
+  value,
+  options,
+  onChange
+}: {
+  label: string;
+  value: T;
+  options: Array<{ value: T; label: string }>;
+  onChange: (value: T) => void;
+}) {
+  return (
+    <div role="radiogroup" aria-label={label} className="flex rounded-full border border-white/10 bg-[var(--well)] p-0.5">
+      {options.map((option) => {
+        const selected = option.value === value;
+        return (
+          <button
+            key={String(option.value)}
+            type="button"
+            role="radio"
+            aria-checked={selected}
+            onClick={() => onChange(option.value)}
+            className={cn(
+              "rounded-full px-2.5 py-1 text-xs font-medium transition",
+              selected ? "bg-white/12 text-white shadow-sm" : "text-[var(--muted-foreground)] hover:text-white"
+            )}
+          >
+            {option.label}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+function PipelineProgress({ job }: { job: ClipJob }) {
+  const current = Math.max(
+    0,
+    PIPELINE_STEPS.findIndex((step) => step.stage === job.stage)
+  );
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, []);
+  const elapsed = now - Date.parse(job.createdAt);
+  return (
+    <div className="mt-5 space-y-3">
+      <div className="flex items-center justify-between text-sm">
+        <span className="text-white">{STAGE_LABELS[job.stage]}...</span>
+        <span className="tabular-nums text-[var(--muted-foreground)]">
+          {job.progress}%{Number.isFinite(elapsed) && elapsed > 0 ? ` · ${formatElapsed(elapsed)}` : ""}
+        </span>
+      </div>
+      <Progress value={job.progress} />
+      <ol className="grid grid-cols-4 gap-2">
+        {PIPELINE_STEPS.map((step, index) => {
+          const done = index < current || job.stage === "finished";
+          const active = index === current && job.stage !== "finished";
+          return (
+            <li key={step.stage} className="flex items-center gap-2">
+              <span
+                className={cn(
+                  "flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[10px] font-semibold",
+                  done
+                    ? "bg-[var(--accent)] text-[var(--accent-contrast)]"
+                    : active
+                      ? "animate-pulse bg-[var(--accent)]/25 text-white ring-1 ring-[var(--accent)]"
+                      : "bg-white/6 text-[var(--muted-foreground)]"
+                )}
+              >
+                {done ? <Check className="h-3 w-3" strokeWidth={3} /> : index + 1}
+              </span>
+              <span className={cn("truncate text-xs", done || active ? "text-white" : "text-[var(--muted-foreground)]")}>
+                {step.label}
+              </span>
+            </li>
+          );
+        })}
+      </ol>
+    </div>
+  );
+}
+
+function RunStats({ job }: { job: ClipJob }) {
+  const rendered = job.clips.filter((clip) => clip.file).length;
+  const ms = processingMs(job);
+  const speed = ms && job.durationSec ? job.durationSec / (ms / 1000) : null;
+  const stats = [
+    { label: "Clips", value: String(rendered), note: job.clipCount ? `of ${job.clipCount} asked for` : "rendered" },
+    {
+      label: "Processing",
+      value: ms ? formatElapsed(ms) : "-",
+      note: speed && speed >= 1 ? `${speed.toFixed(speed >= 10 ? 0 : 1)}x faster than real time` : job.durationSec ? `for ${formatTimestamp(job.durationSec)} of video` : "run time"
+    },
+    { label: "API cost", value: "$0", note: "Local Whisper, free models" },
+    { label: "Created", value: new Date(job.createdAt).toLocaleDateString(undefined, { month: "short", day: "numeric" }), note: new Date(job.createdAt).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" }) }
+  ];
+  return (
+    <dl className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
+      {stats.map((stat) => (
+        <div key={stat.label} className="rounded-xl border border-white/8 bg-[var(--well)] px-3 py-2.5">
+          <dt className="text-[11px] font-medium uppercase tracking-wider text-[var(--muted-foreground)]">{stat.label}</dt>
+          <dd className="mt-1 text-lg font-semibold tabular-nums text-white">{stat.value}</dd>
+          <dd className="truncate text-[11px] text-[var(--muted-foreground)]">{stat.note}</dd>
+        </div>
+      ))}
+    </dl>
   );
 }

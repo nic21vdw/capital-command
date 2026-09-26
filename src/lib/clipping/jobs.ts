@@ -8,9 +8,10 @@ import {
   fallbackCandidates,
   selectCandidates
 } from "@/lib/clipping/analysis";
-import { buildAss, buildClipTitleDialogue, chunkWords, windowSegments } from "@/lib/clipping/captions";
+import { buildAss, buildClipTitleDialogue, chunkWords, isCaptionPresetId, windowSegments } from "@/lib/clipping/captions";
+import { clipLengthBounds, isClipLengthId, type ClipLengthId } from "@/lib/clipping/clip-length";
 import { dataPath } from "@/lib/paths";
-import { generateClipTitle, leadingSilenceSec } from "@/lib/clipping/editor";
+import { captionStyleForPreset, generateClipTitle, leadingSilenceSec } from "@/lib/clipping/editor";
 import { hookTrimSec, shiftSegments } from "@/lib/clipping/hook";
 import { generateViralTitles } from "@/lib/clipping/titles";
 import { copyClipsToDrive, driveDir } from "@/lib/clipping/drive";
@@ -22,7 +23,6 @@ import { framingVideoTopFrac } from "@/lib/clipping/framing";
 import { renderCaptionedVertical, renderPreviewAssets, renderSourceClip, type ClipFramingSpec } from "@/lib/clipping/render";
 import { readSourceMeta, sourceFilePath, type SourceMeta } from "@/lib/clipping/sources";
 import { DEFAULT_OUTPUT_QUALITY, normalizeOutputQuality, type OutputQuality } from "@/lib/pipeline/outputQuality";
-import { defaultCaptionStyle } from "@/lib/storage/schemas";
 import { readAppData } from "@/lib/storage/store";
 import { ensureClipThumbnail } from "@/lib/clipping/thumbnails";
 import { fetchSourceCaptions } from "@/lib/clipping/transcription";
@@ -30,6 +30,17 @@ import { selectByTranscript } from "@/lib/clipping/transcript-select";
 import { refineClipVirality, viralityRefinementConfigured } from "@/lib/clipping/virality";
 import { transcribeSource } from "@/lib/clipping/source-transcript";
 import type { ClipCandidate, ClipJob } from "@/lib/clipping/types";
+import type { CaptionPresetId } from "@/types/domain";
+
+export type ClipJobOptions = { captionPreset?: CaptionPresetId; clipLength?: ClipLengthId };
+
+function jobOptions(options: ClipJobOptions): Pick<ClipJob, "captionPreset" | "clipLength"> {
+  return {
+    captionPreset: isCaptionPresetId(options.captionPreset) ? options.captionPreset : undefined,
+    clipLength: isClipLengthId(options.clipLength) ? options.clipLength : undefined
+  };
+}
+
 
 const clipsRoot = dataPath("clips");
 const jobsFile = path.join(clipsRoot, "jobs.json");
@@ -227,6 +238,7 @@ export async function retryMissingRenders(id: string): Promise<ClipJob | undefin
 
 async function update(job: ClipJob, patch: Partial<ClipJob>) {
   Object.assign(job, patch);
+  if (job.status === "done" && !job.finishedAt) job.finishedAt = new Date().toISOString();
   await persistJobs();
 }
 
@@ -385,7 +397,8 @@ export async function createJobFromUrl(
   url: string,
   topic: string | undefined,
   clipCount?: number,
-  autoFrame?: boolean
+  autoFrame?: boolean,
+  options: ClipJobOptions = {}
 ): Promise<ClipJob> {
   await loadJobs();
   const id = crypto.randomUUID().slice(0, 8);
@@ -395,6 +408,7 @@ export async function createJobFromUrl(
     topic: topic || undefined,
     clipCount: clampClipCount(clipCount),
     autoFrame: autoFrame !== false,
+    ...jobOptions(options),
     sourceUrl: url,
     status: "queued",
     stage: "downloading",
@@ -418,7 +432,8 @@ export async function createJobFromUpload(
   sourceId: string,
   topic: string | undefined,
   clipCount?: number,
-  autoFrame?: boolean
+  autoFrame?: boolean,
+  options: ClipJobOptions = {}
 ): Promise<ClipJob> {
   await loadJobs();
   const meta = await readSourceMeta(sourceId);
@@ -430,6 +445,7 @@ export async function createJobFromUpload(
     topic: topic || undefined,
     clipCount: clampClipCount(clipCount),
     autoFrame: autoFrame !== false,
+    ...jobOptions(options),
     sourceUrl: `upload://${sourceId}`,
     sourceId,
     status: "queued",
@@ -504,7 +520,7 @@ async function runLocalPipeline(job: ClipJob, meta: SourceMeta) {
   await update(job, { stage: "selecting", progress: 42 });
   let candidates: ClipCandidate[] | null = null;
   if (transcript && transcript.length > 0) {
-    candidates = await selectByTranscript(transcript, durationSec, job.topic, targetCount);
+    candidates = await selectByTranscript(transcript, durationSec, job.topic, targetCount, clipLengthBounds(job.clipLength));
   }
   if (!candidates || candidates.length < targetCount) {
     if (audioPath) {
@@ -608,7 +624,7 @@ async function runPipeline(job: ClipJob, url: string) {
   await update(job, { stage: "selecting", progress: 42 });
   let candidates: ClipCandidate[] | null = null;
   if (transcript && transcript.length > 0) {
-    candidates = await selectByTranscript(transcript, durationSec, job.topic, targetCount);
+    candidates = await selectByTranscript(transcript, durationSec, job.topic, targetCount, clipLengthBounds(job.clipLength));
   }
 
   if (!candidates || candidates.length < targetCount) {
@@ -697,7 +713,7 @@ async function writeClipDownloadAss(
   framing?: ClipFramingSpec,
   trimSec: number = 0
 ): Promise<string> {
-  const style = defaultCaptionStyle;
+  const style = captionStyleForPreset(job.captionPreset);
   // Window the source captions into clip-local time, then re-chunk the words the
   // same way the editor does so the burned captions match what opening the clip
   // in the editor would show.

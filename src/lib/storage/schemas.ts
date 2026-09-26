@@ -785,6 +785,8 @@ export const captionStyleSchema = z.object({
   wordsPerLine: z.coerce.number().int().min(1).max(20).default(4),
   animation: z.enum(["none", "fade", "pop", "karaoke"]).default("pop"),
   uppercase: z.coerce.boolean().default(false),
+  italic: z.coerce.boolean().optional(),
+  glowColor: z.string().optional(),
   // Free caption placement from dragging on the preview (overrides `position`).
   offsetX: z.coerce.number().min(0).max(1).optional(),
   offsetY: z.coerce.number().min(0).max(1).optional()
