@@ -1,4 +1,4 @@
-import { mkdir, readFile, rename, unlink, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rename, stat, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { dataPath } from "@/lib/paths";
 
@@ -19,6 +19,8 @@ export interface QueueStore {
   load(): Promise<string | null>;
   save(text: string): Promise<void>;
   describe(): string;
+  /** A cheap fingerprint of the stored queue, when the backend has one. */
+  version?(): Promise<string | null>;
 }
 
 export class FileQueueStore implements QueueStore {
@@ -26,6 +28,16 @@ export class FileQueueStore implements QueueStore {
 
   describe(): string {
     return this.filePath;
+  }
+
+  async version(): Promise<string | null> {
+    try {
+      const info = await stat(this.filePath);
+      return `${info.mtimeMs}:${info.size}`;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
+      throw error;
+    }
   }
 
   async load(): Promise<string | null> {
