@@ -81,6 +81,17 @@ export type ThreadsConfig = {
   catchUpMinShortfall: number;
   /** Never re-lay the day more often than this. */
   catchUpCooldownMinutes: number;
+  /**
+   * Answer every published post that names CoLateral with a short reply of
+   * its own carrying the link, so the post reads as a thought and the link
+   * sits one tap below it.
+   */
+  plugReplies: boolean;
+  plugUrl: string;
+  /** How long after the post the link reply goes out. */
+  plugDelayMinutes: number;
+  /** A link reply that still hasn't landed this long after its post is dropped. */
+  plugWindowMinutes: number;
 };
 
 /** Threads rejects anything longer than this; posts are fitted to it. */
@@ -160,7 +171,11 @@ export function threadsConfig(): ThreadsConfig {
     catchUp: flag("THREADS_CATCHUP", true),
     catchUpMinGapMinutes: Math.max(MIN_GAP_MINUTES, num("THREADS_CATCHUP_GAP_MINUTES", 20)),
     catchUpMinShortfall: Math.max(1, num("THREADS_CATCHUP_MIN_SHORTFALL", 2)),
-    catchUpCooldownMinutes: Math.max(5, num("THREADS_CATCHUP_COOLDOWN_MINUTES", 60))
+    catchUpCooldownMinutes: Math.max(5, num("THREADS_CATCHUP_COOLDOWN_MINUTES", 60)),
+    plugReplies: flag("THREADS_PLUG_REPLY", true),
+    plugUrl: str("THREADS_PLUG_URL") ?? "https://colateralai.com",
+    plugDelayMinutes: Math.max(0, num("THREADS_PLUG_DELAY_MINUTES", 2)),
+    plugWindowMinutes: Math.max(10, num("THREADS_PLUG_WINDOW_MINUTES", 360))
   };
 }
 

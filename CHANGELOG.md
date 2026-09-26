@@ -14,6 +14,8 @@ already shipped.
 
 ## Unreleased
 
+- **Threads now sells CoLateral.** A third of every day's posts (8 of 24) are about CoLateral and name it, spread through the day, and the fallback idea library carries the same share. Every post that names CoLateral gets a reply of its own a couple of minutes later, from the same account, along the lines of "see what I'm building here: https://colateralai.com", so the link sits one tap under the post instead of inside it. Stream posts that mention CoLateral get the reply too. `THREADS_PLUG_REPLY=false` switches the replies off and `THREADS_PLUG_URL` changes the link.
+
 ## 2026-09-26
 
 - **Short Clips borrows the best of BridgeClip.** Pick a caption look before you clip: eleven new styles (Pop, Impact, Hype, Punch, Glow, Neon, Boxed, Sweep, Editorial, Paper, Subtle), each with a moving preview and burned in with its real font. Choose the clip length (Quick 10-20s, Auto 15-30s, Standard 30-60s, Long 60-90s). A finished run shows its clip count, processing time and $0 API cost; a running one shows its four steps. Clips sit in a tighter grid with the score and length on the video, sort by best or by timeline, and filter by score. Ctrl+Enter starts a run. The Stream Pipeline still clips with the old default look.

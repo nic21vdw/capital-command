@@ -326,3 +326,66 @@ export const REPLY_LIBRARY: LibraryReply[] = [
     text: "Pick a workflow you personally know end-to-end, ideally one with a review or sign-off step others find tedious. Depth in one real workflow beats breadth every time — and your judgment about 'correct' is the actual product."
   }
 ];
+
+export const COLATERAL_LIBRARY: LibraryPost[] = [
+  {
+    format: "story",
+    topic: "why CoLateral exists",
+    text: "I had six terminals, three chats and a folder of notes open for one project. That mess is why I started building CoLateral.",
+    threadsVariant: "Every project I worked on ended up spread across terminals, chat windows and a notes folder I never reopened. CoLateral started as me wanting all of it on one canvas I could actually look at, agents and files and ideas together."
+  },
+  {
+    format: "observation",
+    topic: "agents on one canvas",
+    text: "Running two AI agents side by side on the same CoLateral canvas feels like having coworkers you can see.",
+    threadsVariant: "Something changed once my agents lived on the CoLateral canvas instead of in hidden tabs. I can see which one is stuck, which one is waiting on me, and which one quietly finished an hour ago while I was busy with something else."
+  },
+  {
+    format: "insight",
+    topic: "building CoLateral with the tools it holds",
+    text: "Most of CoLateral gets written by the same AI agents it runs. Weird loop. Works better than I expected.",
+    threadsVariant: "A lot of CoLateral is built by Claude Code and Codex running inside CoLateral. So every rough edge I hit as a user turns into a fix the same afternoon, because I am the user who found it and the builder who has to live with it."
+  },
+  {
+    format: "question",
+    topic: "one workspace for everything",
+    text: "If your AI agents, files and notes all sat on one canvas, what would you want to see first when you opened it? Building that into CoLateral now.",
+    threadsVariant: "Honest question while I build CoLateral. When you open a project with agents, files and notes all on one canvas, what do you need to see first? Mine is whatever is waiting on me, but I am not sure that is true for everyone."
+  },
+  {
+    format: "story",
+    topic: "seeing the agent go wrong",
+    text: "When an agent goes wrong in CoLateral I see it happen on the canvas, not three hours later in a terminal I forgot about.",
+    threadsVariant: "The best bugs I catch while building CoLateral are the ones I watch happen. The agent is sitting right there on the canvas doing the wrong thing in plain sight, instead of buried in a terminal I minimised and forgot about."
+  },
+  {
+    format: "contrarian",
+    topic: "a canvas beats a chat box",
+    text: "I don't think a chat box is the right shape for working with AI. That's the bet I'm making with CoLateral.",
+    threadsVariant: "A chat box is fine for one question. It falls apart for a real project with files, agents and a dozen loose ends. So CoLateral puts the whole thing on a canvas instead, and I am betting that shape wins once projects get big."
+  },
+  {
+    format: "observation",
+    topic: "building CoLateral in public",
+    text: "Building CoLateral in public means you see the bad days too. I think those are the useful ones to watch.",
+    threadsVariant: "The deal with building CoLateral in public is that the rough days go on camera as well. I would rather show the part where something breaks and gets fixed than a clean demo nobody learns anything from."
+  },
+  {
+    format: "insight",
+    topic: "who CoLateral is for",
+    text: "I'm building CoLateral for people who have more AI agents running than they can keep track of. Which is most of us now.",
+    threadsVariant: "The people I have in mind for CoLateral are developers, creators and engineers who went from one AI helper to five in a year. Keeping track of what each one is doing became its own job, and that job is what the canvas is for."
+  },
+  {
+    format: "story",
+    topic: "no more copy and paste",
+    text: "The goal with CoLateral is simple. Stop copying and pasting between AI chats just to keep one project moving.",
+    threadsVariant: "Half my day used to be moving text between AI chats, a terminal and my notes so each one knew what the others were doing. CoLateral keeps them on one project canvas so that shuffling stops being my job."
+  },
+  {
+    format: "question",
+    topic: "what to build next in CoLateral",
+    text: "What's the most annoying part of running more than one AI agent at a time? Trying to fix exactly that in CoLateral.",
+    threadsVariant: "Genuinely asking because it decides what I build next in CoLateral. When you have more than one AI agent going at once, what is the part that wears you out? For me it is remembering which one I told what."
+  }
+];

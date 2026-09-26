@@ -200,6 +200,22 @@ The positioning brief feeds that prompt with subject matter, not voice. Its
 wording is industry jargon, which is exactly what these posts avoid, so the
 prompt tells the model not to lift phrases from it.
 
+## The CoLateral link goes in a reply
+
+Eight of the pack's 24 posts are about CoLateral and name it
+(`COLATERAL_POSTS_PER_PACK` in `generator.ts`; the fallback library puts one in
+every third slot). The posts themselves never carry a link. Instead, every
+queued post whose text names CoLateral gets a `plugText` at planning time
+(`plug.ts`), and once the post is live the runner replies to it from the same
+account with that text and https://colateralai.com (`reply_to_id` on the
+container).
+
+The reply is a side effect, never a condition. It waits
+`THREADS_PLUG_DELAY_MINUTES` (2) after the post, is dropped rather than sent
+once `THREADS_PLUG_WINDOW_MINUTES` (360) have passed, and a failed reply never
+changes the post's own status. `THREADS_PLUG_REPLY=false` turns it off and
+`THREADS_PLUG_URL` changes the link.
+
 ## Two accounts, one version each
 
 The pack deliberately writes each idea twice — a punchier `text` and a warmer
