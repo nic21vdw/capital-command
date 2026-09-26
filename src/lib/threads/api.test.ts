@@ -20,7 +20,11 @@ function config(): ThreadsConfig {
     catchUp: true,
     catchUpMinGapMinutes: 20,
     catchUpMinShortfall: 2,
-    catchUpCooldownMinutes: 60
+    catchUpCooldownMinutes: 60,
+    plugReplies: true,
+    plugUrl: "https://colateralai.com",
+    plugDelayMinutes: 2,
+    plugWindowMinutes: 360
   };
 }
 

@@ -271,3 +271,55 @@ describe("runDue", () => {
     expect(posted).toHaveLength(0);
   });
 });
+
+describe("runDue link replies", () => {
+  const plugged = (overrides: Partial<ThreadsQueueItem> = {}) =>
+    item({
+      status: "published",
+      postId: "post-main",
+      publishedAt: "2026-07-22T07:15:00.000Z",
+      plugText: "what I'm building: https://colateralai.com",
+      ...overrides
+    });
+
+  it("replies under a published CoLateral post with the link, once", async () => {
+    const replies: Array<{ text: string; replyToId?: string }> = [];
+    const { runDeps, state } = deps([plugged()], async (input) => {
+      replies.push({ text: input.text, replyToId: input.replyToId });
+      return { containerId: "c-reply", postId: "post-reply" };
+    });
+
+    await runDue(new Date("2026-07-22T07:20:00.000Z"), { config: config(), deps: runDeps, log: silent });
+    await runDue(new Date("2026-07-22T07:25:00.000Z"), { config: config(), deps: runDeps, log: silent });
+
+    expect(replies).toEqual([{ text: "what I'm building: https://colateralai.com", replyToId: "post-main" }]);
+    expect(state.items[0]).toMatchObject({ status: "published", postId: "post-main", plugPostId: "post-reply" });
+  });
+
+  it("waits out the delay before replying", async () => {
+    const { runDeps, posted } = deps([plugged()]);
+
+    await runDue(new Date("2026-07-22T07:16:00.000Z"), { config: config(), deps: runDeps, log: silent });
+
+    expect(posted).toEqual([]);
+  });
+
+  it("drops a reply that is far past its post instead of sending it late", async () => {
+    const { runDeps, state, posted } = deps([plugged()]);
+
+    await runDue(new Date("2026-07-22T20:00:00.000Z"), { config: config(), deps: runDeps, log: silent });
+
+    expect(posted).toEqual([]);
+    expect(state.items[0].plugDropped).toBe(true);
+  });
+
+  it("never touches the post itself when the reply fails", async () => {
+    const { runDeps, state } = deps([plugged()], async () => {
+      throw new PermanentError("links not allowed");
+    });
+
+    await runDue(new Date("2026-07-22T07:20:00.000Z"), { config: config(), deps: runDeps, log: silent });
+
+    expect(state.items[0]).toMatchObject({ status: "published", postId: "post-main", plugDropped: true });
+  });
+});
