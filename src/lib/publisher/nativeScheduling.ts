@@ -126,5 +126,5 @@ export function pendingHint(
   }
   return (item ? preSchedulesItem(platform, item, now) : preSchedules(platform))
     ? `${name} takes the upload ahead of time — it goes up now and ${name} publishes it at this slot.`
-    : `${name} has no scheduling API, so Capital Command posts this itself at this slot. Nothing else is needed.`;
+    : `${name} has no scheduling API, so CoLateral Marketing posts this itself at this slot. Nothing else is needed.`;
 }

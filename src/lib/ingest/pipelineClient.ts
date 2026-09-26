@@ -36,7 +36,7 @@ export function appBaseUrl(): string {
 export class AppUnreachableError extends Error {
   constructor(base: string, cause: string) {
     super(
-      `Could not reach Capital Command at ${base} (${cause}). The pipeline runs inside the app, so it has to be ` +
+      `Could not reach CoLateral Marketing at ${base} (${cause}). The pipeline runs inside the app, so it has to be ` +
         `running for the scan to hand anything to it. Start it with \`npm run dev\` (or \`npm run start\`), or set ` +
         `APP_BASE_URL if it listens somewhere else.`
     );

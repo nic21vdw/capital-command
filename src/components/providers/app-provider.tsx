@@ -223,7 +223,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         setLoading(false);
         return;
       }
-      toast.error("Unable to load Capital Command data.");
+      toast.error("Unable to load CoLateral Marketing data.");
       setLoading(false);
     }
   }, []);

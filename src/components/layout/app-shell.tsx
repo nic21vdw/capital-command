@@ -46,11 +46,12 @@ import { StreamProvider, useStream } from "@/components/providers/stream-provide
 import { streamHref } from "@/lib/pipeline/streams";
 import { PlatformIcon, PLATFORM_LABEL, type PlatformIconKey } from "@/components/ui/platform-icon";
 import { cn } from "@/lib/utils";
+import { ColateralMarketingMark } from "@/components/layout/colateral-marketing-mark";
 
 type NavItem = { href: string; label: string; icon: LucideIcon };
 
 /**
- * The sidebar IS the pipeline. Capital Command's whole point is one flow —
+ * The sidebar IS the pipeline. CoLateral Marketing's whole point is one flow —
  * import a stream, fan it out into every format, check each one, mass-schedule
  * the lot, then manage it all on the calendar — so the nav reads as that flow,
  * top to bottom, with numbered stages on a connecting rail.
@@ -142,7 +143,7 @@ const ALL_NAV_ITEMS = [...PIPELINE_STAGES.flatMap((stage) => stage.items), ...ST
 const SIDEBAR_COLLAPSED_KEY = "capital-command:sidebar-collapsed";
 const STUDIO_OPEN_KEY = "capital-command:studio-open";
 // Shown in the sidebar brand until a display name is saved in Settings.
-const DEFAULT_BRAND_NAME = "Capital Command";
+const DEFAULT_BRAND_NAME = "Your channel";
 
 /** "/" and "/pipeline" are the same screen, so either lights up Stream Pipeline. */
 function isActivePath(pathname: string, href: string): boolean {
@@ -757,6 +758,7 @@ function NarrowChrome({ pathname }: { pathname: string }) {
   return (
     <div className="mb-3 lg:hidden">
       <div className="glass-inset flex items-center gap-2 rounded-xl border p-1.5">
+        <ColateralMarketingMark collapsed className="pl-1" />
         <div className="relative min-w-0 flex-1">
           <button
             type="button"
@@ -946,7 +948,7 @@ function AppChrome({ children, frame }: { children: React.ReactNode; frame: bool
           {/* When collapsed the rail is too narrow for the brand and the toggle
               side by side, so stack them instead of letting them overflow. */}
           <div className={cn("flex pb-3", sidebarCollapsed ? "flex-col items-center gap-2" : "items-center justify-between gap-2 px-1")}>
-            <Brand collapsed={sidebarCollapsed} />
+            <ColateralMarketingMark collapsed={sidebarCollapsed} />
             <button
               type="button"
               onClick={toggleSidebar}
@@ -956,6 +958,10 @@ function AppChrome({ children, frame }: { children: React.ReactNode; frame: bool
             >
               {sidebarCollapsed ? <ChevronRight className="h-4 w-4" /> : <ChevronLeft className="h-4 w-4" />}
             </button>
+          </div>
+
+          <div className={cn("pb-3", !sidebarCollapsed && "px-1")}>
+            <Brand collapsed={sidebarCollapsed} />
           </div>
 
           {/* Who this pipeline publishes as — front and centre. */}

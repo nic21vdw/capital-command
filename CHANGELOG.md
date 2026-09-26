@@ -14,6 +14,8 @@ already shipped.
 
 ## Unreleased
 
+- **Capital Command is now CoLateral Marketing.** The app wears the CoLateral look: Beam Buddy and the CoLateral wordmark with "Marketing" after it at the top of the sidebar, a Beam Buddy app icon and favicon, Beam Buddy on the update screen, and the new name in the window title, the install prompt, banners and messages. The public site (terms, privacy and the TikTok page) is restyled to match colateralai.com. Run `npm run app:shortcut` once after this release to swap the old Desktop and Start Menu shortcuts for CoLateral Marketing ones.
+
 ## 2026-09-26
 
 - **Text stays readable at any CoLateral card transparency.** The canvas now shows through Capital Command only up to a limit set for each theme (30% on the dark theme, 45% on light), however high the card setting goes, and grey labels sitting straight on the page are drawn brighter while the card is see-through. They pass the WCAG AA contrast minimum over white and bright wallpaper. Text inside panels keeps its usual colour.

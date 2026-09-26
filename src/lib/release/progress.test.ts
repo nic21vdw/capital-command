@@ -111,9 +111,17 @@ describe("readReleaseProgress, while a build is running", () => {
         [
           `Update started ${started}`,
           "==> Waiting for the app to answer (04m02s in)",
-          "Capital Command is updated and running at http://localhost:3000 (took 04m20s)"
+          "CoLateral Marketing is updated and running at http://localhost:3000 (took 04m20s)"
         ].join("\r\n")
       )
+    );
+
+    expect(progress.finished).toBe(true);
+  });
+
+  it("still knows a release logged under the old name", async () => {
+    const progress = await readReleaseProgress(
+      logged([`Update started ${started}`, "Capital Command is updated and running at http://localhost:3000 (took 04m20s)"].join("\r\n"))
     );
 
     expect(progress.finished).toBe(true);

@@ -17,9 +17,21 @@ $icon = Join-Path $root "public\icons\capital-command.ico"
 $script = Join-Path $root "scripts\open-app.ps1"
 
 $targets = @(
+  (Join-Path ([Environment]::GetFolderPath("Desktop")) "CoLateral Marketing.lnk"),
+  (Join-Path ([Environment]::GetFolderPath("StartMenu")) "Programs\CoLateral Marketing.lnk")
+)
+
+$oldNames = @(
   (Join-Path ([Environment]::GetFolderPath("Desktop")) "Capital Command.lnk"),
   (Join-Path ([Environment]::GetFolderPath("StartMenu")) "Programs\Capital Command.lnk")
 )
+
+foreach ($old in $oldNames) {
+  if (Test-Path $old) {
+    Remove-Item $old -Force
+    Write-Host "Removed $old"
+  }
+}
 
 if ($Remove) {
   foreach ($target in $targets) {
@@ -43,7 +55,7 @@ foreach ($target in $targets) {
   $link.TargetPath = "$env:SystemRoot\System32\conhost.exe"
   $link.Arguments = "--headless powershell.exe -NoProfile -ExecutionPolicy Bypass -File `"$script`""
   $link.WorkingDirectory = $root
-  $link.Description = "Open Capital Command"
+  $link.Description = "Open CoLateral Marketing"
   if (Test-Path $icon) { $link.IconLocation = $icon }
   $link.Save()
 
@@ -51,5 +63,5 @@ foreach ($target in $targets) {
 }
 
 Write-Host ""
-Write-Host "Capital Command is on your Desktop and in the Start Menu." -ForegroundColor Green
+Write-Host "CoLateral Marketing is on your Desktop and in the Start Menu." -ForegroundColor Green
 Write-Host "Remove them again with: npm run app:shortcut -- -Remove"

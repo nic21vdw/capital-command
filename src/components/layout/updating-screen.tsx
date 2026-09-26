@@ -1,3 +1,4 @@
+import { BeamBuddyMark } from "@/components/layout/colateral-marketing-mark";
 import { RELEASE_STAGES, type ReleaseWatch } from "@/lib/release/shared";
 
 export function UpdatingScreen({ watch }: { watch: ReleaseWatch | null }) {
@@ -9,11 +10,11 @@ export function UpdatingScreen({ watch }: { watch: ReleaseWatch | null }) {
     <main className="updating-screen">
       <section role="status" aria-live="polite" className="updating-card" data-tone={watch?.tone ?? "working"}>
         <div className={`updating-mascot${moving ? " is-moving" : ""}`} aria-hidden="true">
-          <span className="updating-mascot-face">CC</span>
+          <span className="updating-mascot-face"><BeamBuddyMark className="h-12 w-12" /></span>
           <span className="updating-mascot-shadow" />
         </div>
 
-        <h1 className="updating-title">Updating Capital Command</h1>
+        <h1 className="updating-title">Updating CoLateral Marketing</h1>
 
         <p className="updating-headline">
           <span>{watch?.label ?? "Starting the update"}</span>
