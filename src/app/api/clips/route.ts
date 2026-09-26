@@ -1,6 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import { FFMPEG_MISSING_MESSAGE, resolveFfmpeg, runFfmpeg } from "@/lib/clipping/ffmpeg";
-import { createJobFromUpload, createJobFromUrl, jobWithoutCaptions, listJobs } from "@/lib/clipping/jobs";
+import { isCaptionPresetId } from "@/lib/clipping/captions";
+import { isClipLengthId } from "@/lib/clipping/clip-length";
+import {
+  createJobFromUpload,
+  createJobFromUrl,
+  jobWithoutCaptions,
+  listJobs,
+  type ClipJobOptions
+} from "@/lib/clipping/jobs";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -33,6 +41,8 @@ export async function POST(request: NextRequest) {
     sourceId?: unknown;
     clipCount?: unknown;
     autoFrame?: unknown;
+    captionPreset?: unknown;
+    clipLength?: unknown;
   };
   try {
     body = (await request.json()) as typeof body;
@@ -49,10 +59,14 @@ export async function POST(request: NextRequest) {
   // Framing the clip on the speaker is the default; only an explicit false
   // asks for the old centered-over-blur composition.
   const autoFrame = body.autoFrame !== false;
+  const options: ClipJobOptions = {
+    captionPreset: isCaptionPresetId(body.captionPreset) ? body.captionPreset : undefined,
+    clipLength: isClipLengthId(body.clipLength) ? body.clipLength : undefined
+  };
 
   if (sourceId) {
     try {
-      const job = await createJobFromUpload(sourceId, topic || undefined, clipCount, autoFrame);
+      const job = await createJobFromUpload(sourceId, topic || undefined, clipCount, autoFrame, options);
       return NextResponse.json({ job }, { status: 201 });
     } catch (error) {
       return NextResponse.json(
@@ -66,6 +80,6 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Enter a valid http(s) video/VOD URL." }, { status: 400 });
   }
 
-  const job = await createJobFromUrl(url, topic || undefined, clipCount, autoFrame);
+  const job = await createJobFromUrl(url, topic || undefined, clipCount, autoFrame, options);
   return NextResponse.json({ job }, { status: 201 });
 }

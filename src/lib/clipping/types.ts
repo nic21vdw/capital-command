@@ -123,6 +123,10 @@ export type ClipJob = {
    * centered-over-blur way.
    */
   autoFrame?: boolean;
+  /** Caption look burned into the ready-to-post renders. Absent means the default style. */
+  captionPreset?: import("@/types/domain").CaptionPresetId;
+  /** Clip length range the selector aims for. Absent means "auto" (15-30s). */
+  clipLength?: import("@/lib/clipping/clip-length").ClipLengthId;
   renderLayout?: ClipLayoutPreset;
   renderVariants?: boolean;
   layoutOverrides?: ClipLayoutOverrides;
@@ -134,6 +138,8 @@ export type ClipJob = {
   /** Non-fatal warnings shown in the UI. */
   notices: string[];
   createdAt: string;
+  /** When the job first finished, for the run's processing time. */
+  finishedAt?: string;
   durationSec?: number;
   /**
    * Full-source audio silence ranges measured with ffmpeg. New clip projects

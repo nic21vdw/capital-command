@@ -19,6 +19,7 @@ import {
 } from "@/lib/clipping/framing";
 import { DEFAULT_CLIP_LAYOUT, resolveClipLayout, withLayerSources, type LayoutLayer, type Rect } from "@/lib/clipping/layouts";
 import type { ClipLayoutOverrides, ClipLayoutPreset } from "@/lib/clipping/types";
+import { assFilter } from "@/lib/clipping/caption-fonts";
 
 /** An auto-framing decision plus the geometry it was planned against. */
 export type ClipFramingSpec = { framing: ClipFraming; target: FramingTarget };
@@ -325,7 +326,7 @@ export async function renderCaptionedVertical(
 ) {
   const composition = verticalCompositionChain(framing, zoom);
   const filter = assPath
-    ? `${composition};[vc]ass='${escapeFilterPath(assPath)}'[vout]`
+    ? `${composition};[vc]${assFilter(assPath, escapeFilterPath)}[vout]`
     : `${composition};[vc]null[vout]`;
   // `-ss` BEFORE `-i` so the decoder skips the removed head instead of
   // decoding and discarding it, and so the output timeline starts at zero —

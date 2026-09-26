@@ -23,6 +23,7 @@ import { planSfxCues } from "@/lib/sfx/cues";
 import { resolveSoundPath } from "@/lib/sfx/sounds";
 import type { SfxSoundId } from "@/types/domain";
 import { finalizeTitle } from "@/lib/title/finalize";
+import { assFilter } from "@/lib/clipping/caption-fonts";
 
 // The Long-Form Editor's export engine. The edited video is baked in stages:
 //   1. Hook — the opening seconds re-rendered with the punch-in zoom and the
@@ -374,7 +375,7 @@ async function runExport(projectId: string, recordId: string, signal: AbortSigna
       const assDoc = buildAss(captions, project.hook.captionStyle, frameW, frameH, project.hook.highlightCurrentWord);
       const assPath = path.join(workDir, `export-${recordId}-hook.ass`);
       await writeFile(assPath, titleLine ? `${assDoc}${titleLine}\n` : `${assDoc}\n`, "utf8");
-      assArg = `ass='${escapeFilterPath(assPath)}',`;
+      assArg = `${assFilter(assPath, escapeFilterPath)},`;
     }
     // animatedReframeChain crops a zoomed cover of the frame around the focus
     // point, with a blurred fill behind so the punch-in never shows black
@@ -751,7 +752,7 @@ async function planBurnIns(
     );
     prev = label;
   });
-  if (assPath) filters.push(`[${prev}]ass='${escapeFilterPath(assPath)}'[vout]`);
+  if (assPath) filters.push(`[${prev}]${assFilter(assPath, escapeFilterPath)}[vout]`);
   return { inputs, filters };
 }
 

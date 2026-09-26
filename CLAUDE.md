@@ -682,6 +682,25 @@ fallback when no API key is configured or the call fails.
   `captions.ts`), and fresh editor projects seed the matching white text
   overlay (`makeTitleOverlay`).
 
+## Caption presets and bundled caption fonts
+
+The generator's caption styles are `CAPTION_PRESETS` in `captions.ts`, ported
+from BridgeClip's engine presets. Their faces (Montserrat, Poppins, Anton,
+Archivo Black, Instrument Serif, all SIL OFL with licence files alongside) live
+in `public/fonts/captions/`. The browser loads them through `@font-face` in
+`globals.css`; ffmpeg gets them because every `ass=` filter goes through
+`assFilter()` (`caption-fonts.ts`), which adds `fontsdir`. Add an `ass=` filter
+without it and libass silently falls back to a system face.
+
+- The ASS `Fontname` is the family's own name (`Montserrat Black`, not
+  `Montserrat` at weight 900), and `buildAss` turns Bold off for bundled faces,
+  or libass fakes bold on an already-heavy face.
+- A job's `captionPreset` decides the burned-in look; a job without one (every
+  Stream Pipeline run) keeps `defaultCaptionStyle`.
+- Boxed styles draw the plate in `backgroundColor` (BorderStyle 3 paints the box
+  in OutlineColour). A popped (scaled) word breaks the plate into steps, so
+  boxed presets fade instead.
+
 ## Clip previews: center + blur, always the whole frame
 
 Every surface that shows a clip renders through `ClipFrame`
