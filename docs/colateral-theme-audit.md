@@ -108,6 +108,17 @@ CoLateral stores in `localStorage`. CoLateral's card tells it instead, twice:
   the card forwards it with `postMessage({ type: "colateral:theme", theme })`
   and the provider applies it live.
 
+The same two routes carry the card's appearance: `surface` (`glass` or
+`classic`), `glassLevel` (0-100, 0 is flat) and `backdrop` (0-90, how
+see-through the card body is; 0 is solid). All three are URL params next to
+`theme` and optional fields on the `colateral:theme` message, and they are
+remembered for the tab under `capital-command-host-appearance`. The parsing
+lives in `src/lib/host-appearance.ts`. A `backdrop` above 0 sets
+`data-host-backdrop="clear"` and `--host-backdrop` on `<html>`, which clears the
+root and lets the page background through by that percentage. The iframe
+element must use the same light or dark `color-scheme` as the theme, or
+Chromium paints the frame opaque.
+
 The ids are CoLateral's own. Capital Command's presets are exactly CoLateral's
 seventeen, under the same ids, so nothing is translated on the way across.
 Values a release before this one stored (`colateral`, `colateral-light`, and

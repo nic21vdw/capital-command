@@ -14,6 +14,8 @@ already shipped.
 
 ## Unreleased
 
+- **The CoLateral canvas shows through Capital Command.** When CoLateral's agent card glass is set to see-through, the app's page background inside the card now lets the canvas wallpaper through by the same amount, while panels, inputs and text keep their own fills. Solid (0), the Classic surface, flat glass and reduced transparency all stay opaque, and opening the app on its own is unchanged.
+
 ## 2026-09-26
 
 - **Threads now sells CoLateral.** A third of every day's posts (8 of 24) are about CoLateral and name it, spread through the day, and the fallback idea library carries the same share. Every post that names CoLateral gets a reply of its own a couple of minutes later, from the same account, along the lines of "see what I'm building here: https://colateralai.com", so the link sits one tap under the post instead of inside it. Stream posts that mention CoLateral get the reply too. `THREADS_PLUG_REPLY=false` switches the replies off and `THREADS_PLUG_URL` changes the link.
