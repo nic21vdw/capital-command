@@ -113,7 +113,7 @@ export function UpdateCheckButton({ collapsed = false }: { collapsed?: boolean }
               Install and restart
             </button>
             <p className="mt-2 text-[11px] leading-snug text-[var(--muted-foreground)]">
-              Capital Command rebuilds and restarts itself. This page reloads when it comes back.
+              CoLateral Marketing rebuilds and restarts itself. This page reloads when it comes back.
             </p>
           </div>
         </div>

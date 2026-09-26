@@ -6,8 +6,8 @@ The canonical copy of this policy is the one published with the product, in
 `site/privacy.html`. This file mirrors it so the repository and the site never
 say different things.
 
-Capital Command is software you install and run on a computer you control. It
-is not a hosted service. There is no Capital Command server that your videos,
+CoLateral Marketing is software you install and run on a computer you control. It
+is not a hosted service. There is no CoLateral Marketing server that your videos,
 captions, schedule or access tokens are sent to, and no operator of this
 software can see them.
 

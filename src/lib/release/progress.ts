@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { UPDATE_LOG } from "@/lib/release/run";
 
 /** The line update-app.ps1 ends a good release with. */
-const RELEASE_DONE = "Capital Command is updated and running";
+const RELEASE_DONE = ["CoLateral Marketing is updated and running", "Capital Command is updated and running"];
 
 /** The line every release opens with, so elapsed time survives the restart. */
 const RELEASE_STARTED = /^Update started (.+)$/;
@@ -50,7 +50,7 @@ export async function readReleaseProgress(root = process.cwd()): Promise<Release
   return {
     step: steps.length ? steps[steps.length - 1].slice(4) : null,
     failed: failure ? failure.slice(7) : null,
-    finished: lines.some((line) => line.startsWith(RELEASE_DONE)),
+    finished: lines.some((line) => RELEASE_DONE.some((done) => line.startsWith(done))),
     startedAt: startedAtOf(lines),
     quietFor,
     // Heartbeats keep the log moving through a long build, which is what stops

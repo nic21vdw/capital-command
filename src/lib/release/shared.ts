@@ -248,15 +248,15 @@ export function watchRelease({
       label: `The update has not come back after ${elapsed}`,
       stage: releaseStage(step, offline, finished),
       detail: offline
-        ? "The rebuild may still be running. Check update-app.log in the Capital Command folder, and run update-capital-command.bat again if it has stopped."
-        : "It is still running but has been quiet for a long time — check update-app.log in the Capital Command folder.",
+        ? "The rebuild may still be running. Check update-app.log in the CoLateral Marketing folder, and run update-capital-command.bat again if it has stopped."
+        : "It is still running but has been quiet for a long time — check update-app.log in the CoLateral Marketing folder.",
       elapsed,
       spin: false
     };
   }
 
   const slow = seconds !== null && seconds >= RELEASE_SLOW_AFTER_SECONDS;
-  const label = offline ? "Waiting for Capital Command to restart" : step;
+  const label = offline ? "Waiting for CoLateral Marketing to restart" : step;
   const headline = label ? `${label}${elapsed ? ` - ${elapsed}` : ""}` : "Starting the update";
 
   return {

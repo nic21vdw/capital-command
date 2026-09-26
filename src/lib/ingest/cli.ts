@@ -86,7 +86,7 @@ async function main() {
     // rather than a failure discovered after the channel read.
     if (!dryRun && !(await appReachable())) {
       console.error(
-        `[ingest] Capital Command is not running at ${appBaseUrl()}. The pipeline lives in the app, so start it ` +
+        `[ingest] CoLateral Marketing is not running at ${appBaseUrl()}. The pipeline lives in the app, so start it ` +
           `with \`npm run dev\` (or \`npm run start\`) before scanning — or set APP_BASE_URL.`
       );
       process.exitCode = 69; // EX_UNAVAILABLE

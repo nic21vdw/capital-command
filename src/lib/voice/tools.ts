@@ -42,7 +42,7 @@ export const VOICE_TOOLS: VoiceToolDefinition[] = [
   },
   {
     name: "sourceflow_state",
-    description: "Read the current Capital Command snapshot: content by status, recent items, recent pipeline runs, studio counts.",
+    description: "Read the current CoLateral Marketing snapshot: content by status, recent items, recent pipeline runs, studio counts.",
     parameters: NO_ARGS,
     action: false
   },

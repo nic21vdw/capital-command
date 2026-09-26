@@ -5,7 +5,7 @@ import { ThemePresetProvider, ThemePresetScript } from "@/components/providers/t
 import "@/app/globals.css";
 
 export const metadata: Metadata = {
-  title: "Capital Command",
+  title: "CoLateral Marketing",
   description: "The CoLateral command centre for planning, producing and publishing a channel."
 };
 

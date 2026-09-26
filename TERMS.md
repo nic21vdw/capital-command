@@ -8,7 +8,7 @@ say different things.
 
 ## What this software is
 
-Capital Command is content operations software for creators. It cuts long-form
+CoLateral Marketing is content operations software for creators. It cuts long-form
 video into short clips, prepares captions for them, and publishes them to
 social accounts on a schedule. It is provided as software you install and run
 on hardware you control, not as a hosted service, and there is no account to
@@ -16,7 +16,7 @@ register with us.
 
 ## Using it
 
-You may run Capital Command to publish to accounts you own or are authorised to
+You may run CoLateral Marketing to publish to accounts you own or are authorised to
 manage. You are responsible for everything published from your installation:
 the content, the rights to use it, its captions, and its compliance with the
 rules of every platform you connect.

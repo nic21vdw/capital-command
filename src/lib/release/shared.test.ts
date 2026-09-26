@@ -173,7 +173,7 @@ describe("watchRelease", () => {
     expect(watchRelease({ step: "Installing dependencies (12s in)", ...at5 })).toMatchObject({ label: "Installing dependencies", stage: 1 });
     expect(watchRelease({ step: "Building and starting the new version (1m 02s in, takes a few minutes)", ...at5 }))
       .toMatchObject({ label: "Building and starting the new version", stage: 2 });
-    expect(watchRelease({ ...building, offline: true, now: at(40) })).toMatchObject({ label: "Waiting for Capital Command to restart", stage: 2 });
+    expect(watchRelease({ ...building, offline: true, now: at(40) })).toMatchObject({ label: "Waiting for CoLateral Marketing to restart", stage: 2 });
     expect(watchRelease({ ...building, finished: true, offline: false, now: at(90) }).stage).toBe(3);
   });
 
