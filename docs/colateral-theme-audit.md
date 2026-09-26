@@ -115,7 +115,12 @@ see-through the card body is; 0 is solid). All three are URL params next to
 remembered for the tab under `capital-command-host-appearance`. The parsing
 lives in `src/lib/host-appearance.ts`. A `backdrop` above 0 sets
 `data-host-backdrop="clear"` and `--host-backdrop` on `<html>`, which clears the
-root and lets the page background through by that percentage. The iframe
+root and lets the page background through by that percentage, capped per theme
+by `--host-backdrop-cap` (30 by default, 45 on light, lower on the lighter dark
+themes) so that grey text sitting straight on the page still passes WCAG AA over
+a white or bright wallpaper. While clear, that page-level grey is mixed 80%
+toward `--foreground`; inside `.glass` panels it stays the theme's own. The
+spec in `src/lib/host-appearance.test.ts` checks every theme's cap. The iframe
 element must use the same light or dark `color-scheme` as the theme, or
 Chromium paints the frame opaque.
 

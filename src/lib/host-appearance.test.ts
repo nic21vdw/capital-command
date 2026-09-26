@@ -156,6 +156,52 @@ describe("backdrop CSS", () => {
     expect(css).toMatch(/color-mix\(in srgb, var\(--background\) var\(--host-veil\), transparent\)/);
   });
 
+  it("caps the see-through and restores the theme's muted colour inside panels", () => {
+    expect(css).toContain("--host-see-through: min(var(--host-backdrop, 0), var(--host-backdrop-cap));");
+    expect(css).toContain("--host-veil: calc(100% - var(--host-see-through) * 1%);");
+    expect(css).toContain("--muted-foreground: var(--host-page-muted);");
+    expect(css).toMatch(/:is\(\.glass, \.glass-popover, \.glass-inset\) \{\n {2}--muted-foreground: var\(--host-panel-muted\);/);
+  });
+
+  describe("page-level text passes WCAG AA at the capped see-through", () => {
+    const hex = (h: string) => [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16));
+    const channel = (v: number) => {
+      const s = v / 255;
+      return s <= 0.03928 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4;
+    };
+    const lum = (c: number[]) => 0.2126 * channel(c[0]) + 0.7152 * channel(c[1]) + 0.0722 * channel(c[2]);
+    const contrast = (a: number[], b: number[]) => {
+      const [x, y] = [lum(a), lum(b)];
+      return (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05);
+    };
+    const mix = (a: number[], b: number[], t: number) => a.map((v, i) => v * t + b[i] * (1 - t));
+    const wallpaper = [[255, 255, 255], [230, 57, 70], [244, 162, 97], [42, 157, 143], [69, 123, 157], [155, 93, 229]];
+    const defaultCap = Number(/html \{\n {2}--host-backdrop-cap: (\d+);/.exec(css)?.[1]);
+    const mutedShare = Number(/--host-page-muted: color-mix\(in srgb, var\(--foreground\) (\d+)%, var\(--muted-foreground\)\)/.exec(css)?.[1]);
+    const themes = [...css.matchAll(/\n\[data-theme="([^"]+)"\] \{([^}]*)\}/g)]
+      .filter(([, , body]) => body.includes("--background:"))
+      .map(([, id, body]) => {
+        const token = (name: string) => hex(new RegExp(`--${name}: (#[0-9a-fA-F]{6});`).exec(body)?.[1] ?? "#000000");
+        const cap = new RegExp(`html\\[data-theme="${id}"\\] \\{ --host-backdrop-cap: (\\d+); \\}`).exec(css)?.[1];
+        return { id, cap: cap ? Number(cap) : defaultCap, bg: token("background"), fg: token("foreground"), muted: token("muted-foreground") };
+      });
+
+    it("finds every theme and the shared values", () => {
+      expect(themes.length).toBeGreaterThanOrEqual(17);
+      expect(defaultCap).toBeGreaterThan(0);
+      expect(mutedShare).toBeGreaterThan(0);
+    });
+
+    it.each(themes.map((t) => [t.id, t] as const))("%s", (_id, theme) => {
+      const text = mix(theme.fg, theme.muted, mutedShare / 100);
+      for (const colour of wallpaper) {
+        const page = mix(theme.bg, colour, 1 - theme.cap / 100);
+        expect(contrast(text, page)).toBeGreaterThanOrEqual(4.5);
+        expect(contrast(theme.fg, page)).toBeGreaterThanOrEqual(4.5);
+      }
+    });
+  });
+
   it("goes opaque again under reduced transparency", () => {
     const reduced = css.slice(css.indexOf("@media (prefers-reduced-transparency: reduce)"));
     expect(reduced).toContain('html[data-host-backdrop="clear"]:not([data-surface="classic"]):not([data-glass="flat"]) body');
