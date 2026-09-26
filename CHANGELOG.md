@@ -14,6 +14,8 @@ already shipped.
 
 ## Unreleased
 
+## 2026-09-26
+
 - **Text stays readable at any CoLateral card transparency.** The canvas now shows through Capital Command only up to a limit set for each theme (30% on the dark theme, 45% on light), however high the card setting goes, and grey labels sitting straight on the page are drawn brighter while the card is see-through. They pass the WCAG AA contrast minimum over white and bright wallpaper. Text inside panels keeps its usual colour.
 
 - **The CoLateral canvas shows through Capital Command.** When CoLateral's agent card glass is set to see-through, the app's page background inside the card now lets the canvas wallpaper through by up to that amount, while panels, inputs and text keep their own fills. Solid (0), the Classic surface, flat glass and reduced transparency all stay opaque, and opening the app on its own is unchanged.
