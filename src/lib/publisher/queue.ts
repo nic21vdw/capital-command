@@ -34,6 +34,7 @@ import type { BufferState, PlatformId, PlatformState, PostResult, QueueItem } fr
 export class PublishQueue {
   private items = new Map<string, QueueItem>();
   private loaded = false;
+  private version: string | null = null;
 
   constructor(
     private readonly store: QueueStore,
@@ -45,9 +46,13 @@ export class PublishQueue {
   }
 
   async load(): Promise<void> {
-    if (this.loaded) return;
+    if (this.loaded) {
+      if (!this.store.version || (await this.store.version()) === this.version) return;
+      this.items.clear();
+    }
     this.loaded = true;
     const raw = await this.store.load();
+    this.version = (await this.store.version?.()) ?? null;
     if (!raw) return;
     for (const item of JSON.parse(raw) as QueueItem[]) this.items.set(item.id, item);
   }
@@ -55,6 +60,7 @@ export class PublishQueue {
   async save(): Promise<void> {
     const list = [...this.items.values()].sort((a, b) => a.publishAt.localeCompare(b.publishAt));
     await this.store.save(JSON.stringify(list, null, 2));
+    this.version = (await this.store.version?.()) ?? null;
   }
 
   async list(): Promise<QueueItem[]> {
