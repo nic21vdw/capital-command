@@ -1,4 +1,5 @@
 import { PermanentError, TransientError, fetchJson } from "@/lib/publisher/http";
+import { attributeLinks } from "@/lib/publisher/attribution";
 import { threadsConfig, type ThreadsAccount, type ThreadsConfig } from "@/lib/threads/config";
 
 /**
@@ -63,7 +64,7 @@ export async function createTextContainer(
   config: ThreadsConfig = threadsConfig(),
   replyToId?: string
 ): Promise<string> {
-  const body = new URLSearchParams({ media_type: "TEXT", text, access_token: account.accessToken });
+  const body = new URLSearchParams({ media_type: "TEXT", text: attributeLinks(text, "threads"), access_token: account.accessToken });
   if (replyToId) body.set("reply_to_id", replyToId);
   const userId = await accountUserId(account, config);
 
