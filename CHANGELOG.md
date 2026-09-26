@@ -14,6 +14,7 @@ already shipped.
 
 ## Unreleased
 
+- **Every post now links to its own colateralai.com path.** When a post goes out, a bare colateralai.com link in its caption becomes colateralai.com/yt on YouTube, /ig on Instagram, /tt on TikTok, /fb on Facebook and /th on Threads, so the site can tell which platform sent a visitor. Links that already point somewhere (/download, /pricing) are left alone. Every YouTube description, Shorts and long-form, now opens with "Try CoLateral: https://colateralai.com/yt". Nothing in the queue is rewritten; this happens as each post is sent.
 - **Capital Command is now CoLateral Marketing.** The app wears the CoLateral look: Beam Buddy and the CoLateral wordmark with "Marketing" after it at the top of the sidebar, a Beam Buddy app icon and favicon, Beam Buddy on the update screen, and the new name in the window title, the install prompt, banners and messages. The public site (terms, privacy and the TikTok page) is restyled to match colateralai.com. Run `npm run app:shortcut` once after this release to swap the old Desktop and Start Menu shortcuts for CoLateral Marketing ones.
 
 ## 2026-09-26

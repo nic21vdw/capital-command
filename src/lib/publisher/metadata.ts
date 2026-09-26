@@ -2,6 +2,7 @@ import { runAi } from "@/lib/ai";
 import type { QueueItem } from "@/lib/publisher/types";
 import { clipDescription } from "@/lib/clipping/editor";
 import { fallbackHashtags, generateClipHashtags } from "@/lib/clipping/hashtags";
+import { attributeLinks, youtubeDescription, type AttributionPlatform } from "@/lib/publisher/attribution";
 
 /**
  * Post metadata (title / description / hashtags) for a finished clip.
@@ -120,14 +121,15 @@ export async function generateClipMetadata(source: {
 }
 
 /** Full caption for platforms that take one text field (IG caption, TikTok title). */
-export function composeCaption(item: Pick<QueueItem, "caption" | "hashtags">): string {
+export function composeCaption(item: Pick<QueueItem, "caption" | "hashtags">, platform?: AttributionPlatform): string {
   const tags = normalizeHashtags(item.hashtags).join(" ");
-  return tags ? `${item.caption.trim()}\n\n${tags}` : item.caption.trim();
+  const caption = platform ? attributeLinks(item.caption, platform).trim() : item.caption.trim();
+  return tags ? `${caption}\n\n${tags}` : caption;
 }
 
-/** YouTube description: caption plus hashtags on their own line. */
+/** YouTube description: the CoLateral lead line, then caption plus hashtags on their own line. */
 export function composeDescription(item: Pick<QueueItem, "caption" | "hashtags">): string {
-  return composeCaption(item);
+  return youtubeDescription(composeCaption(item));
 }
 
 /** Bare tag words (no #) for YouTube's snippet.tags. */

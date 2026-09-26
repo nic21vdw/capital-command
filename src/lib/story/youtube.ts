@@ -1,4 +1,5 @@
 import { open, readFile, stat } from "node:fs/promises";
+import { youtubeDescription } from "@/lib/publisher/attribution";
 import { assertPrivate, STORY_PRIVACY, storyStatus } from "@/lib/story/privacy";
 
 const UPLOAD_URL = "https://www.googleapis.com/upload/youtube/v3/videos?uploadType=resumable&part=snippet,status";
@@ -41,7 +42,7 @@ export function storyVideoBody(input: Pick<StoryUploadInput, "title" | "descript
   const body: StoryVideoBody = {
     snippet: {
       title: input.title.slice(0, 100),
-      description: input.description.slice(0, 5000),
+      description: youtubeDescription(input.description).slice(0, 5000),
       tags: fitTags(input.tags),
       categoryId: input.categoryId,
       defaultLanguage: input.language,
