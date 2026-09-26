@@ -8,38 +8,51 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 /**
- * PATCH /api/publish/:id — rename a scheduled post. The new title is saved on
- * the queue item, and when the video is already on YouTube (uploaded as
- * scheduled, or published) it is renamed there too via videos.update. A
- * YouTube failure still keeps the local rename and is reported in the
- * response instead of failing the request.
+ * PATCH /api/publish/:id — edit a scheduled post's title, caption or hashtags.
+ * The edit is saved on the queue item. A new title on a video already on
+ * YouTube (uploaded as scheduled, or published) renames it there too via
+ * videos.update; a YouTube failure still keeps the local edit and is reported
+ * in the response instead of failing the request.
  */
 export async function PATCH(request: Request, { params }: { params: Promise<{ id: string }> }) {
   const config = publisherConfig();
   if (!config.enabled) {
     return NextResponse.json({ error: PUBLISHING_OFF_MESSAGE }, { status: 400 });
   }
-  let body: { title?: unknown };
+  let body: { title?: unknown; caption?: unknown; hashtags?: unknown };
   try {
-    body = (await request.json()) as { title?: unknown };
+    body = (await request.json()) as { title?: unknown; caption?: unknown; hashtags?: unknown };
   } catch {
     return NextResponse.json({ error: "Invalid JSON body." }, { status: 400 });
   }
   // 100 characters is YouTube's title limit; the queue stores what YouTube gets.
-  const title = typeof body.title === "string" ? body.title.trim().slice(0, 100) : "";
-  if (!title) return NextResponse.json({ error: "A non-empty title is required." }, { status: 400 });
+  const title = typeof body.title === "string" ? body.title.trim().slice(0, 100) : undefined;
+  const caption = typeof body.caption === "string" ? body.caption.trim() : undefined;
+  const hashtags =
+    Array.isArray(body.hashtags) && body.hashtags.every((tag) => typeof tag === "string")
+      ? (body.hashtags as string[])
+      : undefined;
+  if (title === "" || caption === "") {
+    return NextResponse.json({ error: "Title and caption cannot be empty." }, { status: 400 });
+  }
+  if (title === undefined && caption === undefined && hashtags === undefined) {
+    return NextResponse.json({ error: "Send a title, a caption or hashtags." }, { status: 400 });
+  }
 
   const queue = publishQueue(config);
   const { id } = await params;
   const item = await queue.get(id);
   if (!item) return NextResponse.json({ error: "No such scheduled post." }, { status: 404 });
-  item.title = title;
-  await queue.add(item, "api-publish-rename");
+  const renamed = title !== undefined && title !== item.title;
+  if (title !== undefined) item.title = title;
+  if (caption !== undefined) item.caption = caption;
+  if (hashtags !== undefined) item.hashtags = hashtags;
+  await queue.add(item, renamed ? "api-publish-rename" : "api-publish-edit");
 
   const postId = item.platforms.youtube?.postId;
-  if (!postId) return NextResponse.json({ item, youtube: "local" });
+  if (!renamed || !postId) return NextResponse.json({ item, youtube: "local" });
   try {
-    await updateYoutubeVideoTitle(postId, title, item.accountId);
+    await updateYoutubeVideoTitle(postId, item.title, item.accountId);
     return NextResponse.json({ item, youtube: "updated" });
   } catch (error) {
     return NextResponse.json({

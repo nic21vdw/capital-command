@@ -37,6 +37,7 @@ export type QueueWriter =
   | "enqueue-image"
   | "pipeline-queue-outputs"
   | "api-publish-rename"
+  | "api-publish-edit"
   | "api-publish-delete"
   | "api-publish-purge"
   | "cli-mirror"
