@@ -14,6 +14,8 @@ already shipped.
 
 ## Unreleased
 
+- **Settings are easier to scan.** Profile, accounts and publishing controls now have clear sections and icons. Each platform opens only when you need its credentials, optional fields stay tucked away, and account badges distinguish saved credentials from a completed sign-in. Appearance, finance and data tools live under More settings.
+
 ## 2026-09-26
 
 - **Shorts favour CoLateral on screen.** When clips are picked from a stream, moments where CoLateral is visibly working (an agent finishing, a card filling, a tool being built) now rank well above talk alone, and those clips start within three seconds of that moment. Each clip's score line in the Clip Generator shows its new "CoLateral" rating.
