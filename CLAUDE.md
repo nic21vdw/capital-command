@@ -847,18 +847,29 @@ the picker can promise what the server will do.
   into the writer. If the CLI is missing or gives no answer, the call falls back
   to the configured models exactly as before. `CAROUSEL_WRITER=off` turns it
   off; `CLAUDE_CODE_MODEL` picks another model. It never spawns under test.
-- A deck is ONE STORY. `CAROUSEL_SYSTEM_PROMPT` plans a through-line and an arc
-  (hook, setup, turns, payoff, CTA), opens a loop on every slide but the last,
-  and is written first person in Nic's voice. The words a skimmer must catch are
+- A deck is ONE STORY. `CAROUSEL_SYSTEM_PROMPT` has the model find the story
+  first (goal and stake, obstacle, turn, outcome) and state it as "I needed X,
+  but Y, so Z, which meant W" in the reply's `story` object, which the parser
+  ignores. Slides chain with BUT/SO, every slide but the last ends on a swipe
+  bridge, the payoff is held back to its own slide, and it is written first
+  person in Nic's voice. CoLateral is plugged where the session shows it, never
+  as a slide that only recites what it is, and the CTA invites people to try it
+  WITHOUT spelling out the address: the header puts colateralai.com
+  (`COLATERAL_SITE`) on every slide and the CTA slide paints a "Try it at
+  colateralai.com" button under its copy. The words a skimmer must catch are
   wrapped in `**double asterisks**`; `src/lib/carousels/emphasis.ts` parses them,
   the painter sets them heavier and in the accent colour, and anything that
   matches slide copy as words (anchoring, the vision gate, the hook check) reads
   it through `plainCopy`. A new reader of slide copy must do the same.
-- THEN THE DECK IS REVIEWED WITH ITS PICTURES. `illustrateFromRecording` ends in
-  `reviewCarouselStory` (`src/lib/carousels/storyReview.ts`): the stills are
-  copied to a temp folder and Opus opens each one with the Read tool beside its
-  slide, rewrites a slide to match what its picture shows or drops the picture,
-  drops repeats of an earlier shot, and tightens the story. Slide count and
+- THEN EVERY DECK IS REVIEWED. `reviewCarouselStory`
+  (`src/lib/carousels/storyReview.ts`) runs at the end of
+  `illustrateFromRecording`, and on decks with no recording to illustrate from
+  inside `generateCarousel` / `generateCarouselBatches`. It swipe-tests every
+  slide 1-10 and rewrites anything under 9, and checks the plug. Where the
+  deck has stills (only `fit: "frame"` stills — an uploaded photo is never
+  dropped), they are copied to a temp folder and Opus opens each one with the
+  Read tool beside its slide, rewrites a slide to match what its picture shows
+  or drops the picture, and drops repeats of an earlier shot. Slide count and
   order are fixed (pictures are positional) and a reply that changes them is
   thrown away. It fails open: no CLI, no answer, the deck stands as written.
 - Every slide is set in Inter (`SLIDE_FONT_STACK` in `src/lib/carousels/render.ts`,

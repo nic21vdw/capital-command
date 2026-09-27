@@ -31,6 +31,14 @@ describe("the story review", () => {
     expect(prompt).toContain("same number of slides, in the same order");
   });
 
+  it("reviews a deck with no stills as a story alone, without asking for pictures", () => {
+    const prompt = buildReviewPrompt([{ id: "a", heading: "Hook", body: "" }, { id: "b", heading: "Next", body: "" }], [null, null]);
+    expect(prompt).not.toContain("Read tool");
+    expect(prompt).not.toContain('"picture"');
+    expect(prompt).toContain("would I swipe to the next one?");
+    expect(prompt).toContain("colateralai.com");
+  });
+
   it("refuses a reply that changes how many slides there are", () => {
     expect(parseReview('{"slides":[{"heading":"a","body":"b","picture":"keep"}]}', 3)).toBeNull();
   });

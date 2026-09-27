@@ -15,7 +15,7 @@ type Painted = { x: number; y: number; w: number; h: number };
 const drawnText: Drawn[] = [];
 const drawnImages: Painted[] = [];
 
-const CHROME = /^(\d+\/\d+|CoLateral|\d{2}|WHAT'S NEXT|Swipe|Next|Follow .*)$/;
+const CHROME = /^(\d+\/\d+|CoLateral|colateralai\.com|Try it at colateralai\.com|\d{2}|WHAT'S NEXT|Swipe|Next|Follow .*)$/;
 const isCopy = (line: Drawn) => !CHROME.test(line.text.trim());
 
 function recordingContext() {
@@ -107,7 +107,7 @@ describe("photo slide geometry", () => {
     const [slide] = attachSlideImages([copy], [{ id: "a.png", url: "/api/studio/carousels/images/a.png" }]);
     await renderSlideCanvas(slide, 0, 8, "portrait");
     const counter = drawnText.find((line) => line.text === "1/8");
-    const copyLines = drawnText.filter((line) => line !== counter);
+    const copyLines = drawnText.filter(isCopy);
     expect(counter).toBeDefined();
     // Up on the photo, well above the first line of copy.
     expect(counter!.y).toBeLessThan(Math.min(...copyLines.map((line) => line.y)));
@@ -412,5 +412,29 @@ describe("bold keywords", () => {
     const agent = drawnText.find((line) => line.text.includes("agent"))!;
     expect(agent.font).toMatch(/^800 /);
     expect(agent.fill).toBe(COLATERAL_THEME.strong);
+  });
+});
+
+describe("the CoLateral plug", () => {
+  it("puts colateralai.com in the header of every slide", async () => {
+    for (const index of [0, 3, 7]) {
+      drawnText.length = 0;
+      await renderSlideCanvas(copy, index, 8, "portrait");
+      const site = drawnText.find((line) => line.text === "colateralai.com");
+      expect(site).toBeDefined();
+      expect(site!.y).toBeLessThan(150);
+    }
+  });
+
+  it("adds a colateralai.com button under the copy on the last slide only", async () => {
+    await renderSlideCanvas(copy, 7, 8, "portrait");
+    const button = drawnText.find((line) => line.text === "Try it at colateralai.com");
+    expect(button).toBeDefined();
+    const copyLines = drawnText.filter((line) => isCopy(line) && line.y < portrait.height - 150);
+    expect(button!.y).toBeGreaterThan(Math.max(...copyLines.map((line) => line.y)));
+    expect(button!.y).toBeLessThan(portrait.height - 150);
+    drawnText.length = 0;
+    await renderSlideCanvas(copy, 3, 8, "portrait");
+    expect(drawnText.some((line) => line.text === "Try it at colateralai.com")).toBe(false);
   });
 });

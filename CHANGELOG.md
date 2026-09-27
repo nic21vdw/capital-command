@@ -14,6 +14,15 @@ already shipped.
 
 ## Unreleased
 
+- **Carousels tell a better story and plug CoLateral.** Before writing, Opus
+  now finds the story in the stream — what I needed, what got in the way, what
+  changed, how it ended — and every slide ends on a line that makes you want
+  the next one, with the big reveal held for the payoff slide. Every deck, not
+  only ones with stream stills, now gets a second pass that swipe-tests each
+  slide and rewrites the weak ones. **colateralai.com** is in the header of
+  every slide, and the last slide has a "Try it at colateralai.com" button
+  next to the Follow button.
+
 - **Carousels are rebuilt from the copy up.** Opus 5.5 now writes every deck
   through Claude Code on this machine, as one story: a hook that makes a promise,
   each slide leading into the next, a payoff and a follow-up that gives people a

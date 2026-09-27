@@ -59,11 +59,23 @@ export const CAROUSEL_SYSTEM_PROMPT = `You write carousel copy for this channel.
 
 A carousel is ONE STORY told a slide at a time, and every slide exists to earn the next swipe. A reader who was not there should finish it knowing what happened, why it mattered, and what happens next.
 
-Plan before you write:
-- Find the through-line: the single question or conflict this session was really about (a thing that had to ship, a thing that broke, a bet, a number chased). Every slide advances that one thread. Moments that do not serve it are left out, however good.
-- Shape it as an arc: HOOK (the stake, stated so the reader needs the answer) -> SETUP (what was being attempted and why it mattered) -> TURNS (each middle slide is a step: an attempt, an obstacle, a discovery, a result — each one changing the situation) -> PAYOFF (what it came to: the result, the number, the lesson) -> CTA (what happens next, as the reason to follow).
-- Open a loop on every slide but the last. End a middle slide on something unresolved — the catch, the question, the thing about to go wrong — and resolve it on a later slide. Never resolve the hook's question before the payoff slide.
-- Read the finished deck back as a reader swiping it. If two slides could swap places, if one does not follow from the one before, or if the story would survive a slide being removed, rewrite until each slide is load-bearing.
+Find the story before you write a slide. A session is hours of material and most of it is not the story. Look for these, in this order, and build on the strongest one you find:
+- A GOAL with a STAKE: something I needed to happen tonight and what it would cost if it did not (money, a launch, a promise to chat, hours already sunk).
+- An OBSTACLE that fought back: the error, the stall, the wrong turn, the thing that broke at the worst moment. The bigger it is, the better the story — do not sand it down.
+- A TURN: the moment something changed — an insight, a new approach, an agent finding what I missed, a number moving. Stories are made of turns, not of events.
+- An OUTCOME and what it MEANS: shipped or not, the number it landed on, what I now know that I did not at the start.
+Then write the whole story as a single sentence of the form "I needed X, but Y, so Z, which meant W" — that is the through-line, and it goes in "story.throughLine". Every slide advances it. Moments that do not serve it are left out, however good.
+
+Shape the deck as an arc:
+- HOOK -> SETUP -> TURNS -> PAYOFF -> CTA. The hook states the stake so the reader needs the answer. The setup says what I was attempting and why it mattered. Each turn changes the situation. The payoff resolves the hook's question. The CTA says what happens next.
+- Chain slides with BUT and SO, never AND THEN. Each slide is a consequence of the one before it or a reversal of it. If the only link between two slides is that one happened later, find the cause-and-effect or cut one.
+- Every slide but the last ends on a SWIPE BRIDGE: its last sentence leaves something open that the next slide answers — a catch ("But the real problem was upstream."), a question ("So why was it still stuck?"), a reversal about to land, a number about to be revealed. Keep bridges short, concrete and different from each other; never "keep reading", "swipe to find out", "you won't believe" or any line that names the swipe.
+- Hold the payoff back. The hook's question is resolved on the payoff slide and not before; the strongest number or result is revealed there, not on slide 2.
+- Read the finished deck back as a stranger swiping it with their thumb. Score every slide 1-10 for "would I swipe to the next one?" and rewrite any slide under 9. If two slides could swap places, if one does not follow from the one before, or if the story would survive a slide being removed, rewrite until each slide is load-bearing.
+
+CoLateral is the product this whole channel exists to build, so every deck plugs it — honestly and specifically:
+- When the session shows CoLateral — the feature being built, the part that broke, what it let me do — at least one middle slide is about that, naming the actual thing and why it matters to someone who builds with AI. Never generic praise ("CoLateral is amazing"), never a feature the session does not show, and never a slide that only recites what CoLateral is: if the session does not show it, no middle slide is forced, and the CTA carries the plug.
+- The CTA slide names CoLateral and invites the reader to try it, alongside the reason to follow for the next session. Do not write the web address — every slide already shows colateralai.com, and the last slide carries a "Try it at colateralai.com" button under the copy. Keep the CTA body under 160 characters so the button has room.
 
 Carousel rules:
 - Slide 1 is the HOOK and it is the slide the whole deck lives or dies on. It must state a real stake from the session — a number, a thing that broke, a decision, a result — in max 12 words, with "body" empty or one short kicker that deepens the curiosity. Take it from the STRONGEST moment anywhere in the session, not from whatever was said first. It does not have to be a sentence he said; write the hook the session earned. A good hook makes a promise the deck keeps.
@@ -75,7 +87,7 @@ Carousel rules:
 - The body must add what the heading does not already say. Never leave a body empty (except an optional empty hook body), never restate the heading in other words.
 - At least two thirds of the slides must be about the build — what was made, what broke, what was fixed, what was learned in the code. Mindset, health and lifestyle material is capped at two slides, and only where it ties back to the work.
 - No two slides may make the same point.
-- The last slide is the CTA: close the story's loop in one line, then name what specifically comes next — the next feature, the next session's topic, the cliffhanger from this one — as the reason to follow. "Follow for more" on its own is not a valid slide.
+- The last slide is the CTA: close the story's loop in one line, name what specifically comes next — the next feature, the next session's topic, the cliffhanger from this one — as the reason to follow, and invite the reader to try CoLateral. "Follow for more" on its own is not a valid slide.
 - KEYWORDS ARE BOLD. Wrap the words a skimming reader must not miss in **double asterisks**: the number, the tool or product name, the result, the thing that broke. One bolded phrase (1-3 words) in a heading at most; one to three in a body. Never bold a whole sentence, never bold filler words, and never nest or leave a ** unclosed. Bold is for the eye that only reads the bold — reading only the bold words across the deck should still tell the story.
 - The source is speech-to-text and it garbles names. Correct obvious mishearings against the real ones (Claude, Claude Code, Opus, Codex, Warp, Cursor, Grok, CoLateral, Streamer.bot, Remotion, Vandewetering). If you cannot work out what a garbled name was, write the slide without it or pick another moment — never publish the garble.
 - Never use these phrases or their variants: "building in public", "one vibe at a time", "big things coming", "this is only the beginning", "the grind", "follow the journey", "let's go", "game changer", "buckle up".
@@ -105,6 +117,9 @@ export function clipCarouselSource(job: ClipJob, clip: ClipCandidate): { title: 
   const parts = [title, spoken || clip.hookQuote?.trim() || "", spoken ? "" : clip.rationale?.trim() || ""];
   return { title, text: parts.filter(Boolean).join("\n\n") };
 }
+
+const STORY_JSON =
+  '{"story":{"goal":"...","obstacle":"...","turn":"...","outcome":"...","throughLine":"I needed X, but Y, so Z, which meant W"}';
 
 /** Builds the carousel prompt. Pure, for tests. */
 export function buildCarouselPrompt(input: {
@@ -180,8 +195,8 @@ export function buildCarouselPrompt(input: {
     digest || input.sourceText.slice(0, 9000),
     "",
     digest
-      ? 'Respond with ONLY valid JSON: {"title":"short internal name for this carousel","slides":[{"heading":"...","body":"...","atSeconds":0}]}'
-      : 'Respond with ONLY valid JSON: {"title":"short internal name for this carousel","slides":[{"heading":"...","body":"..."}]}'
+      ? `Respond with ONLY valid JSON, the story first: ${STORY_JSON},"title":"short internal name for this carousel","slides":[{"heading":"...","body":"...","atSeconds":0}]}`
+      : `Respond with ONLY valid JSON, the story first: ${STORY_JSON},"title":"short internal name for this carousel","slides":[{"heading":"...","body":"..."}]}`
   );
   return lines.join("\n");
 }
@@ -420,16 +435,17 @@ export async function generateCarousel(
         }
         if (parsed) {
           const padded = padForImages(parsed.slides, images.length);
+          const record = toCarouselRecord({
+            title: parsed.title === "Carousel" ? input.title : parsed.title,
+            slides: padded.slides,
+            sourceType: input.sourceType,
+            sourceId: input.sourceId,
+            images,
+            imageMode: input.imageMode,
+            batch: input.batch
+          });
           return {
-            carousel: toCarouselRecord({
-              title: parsed.title === "Carousel" ? input.title : parsed.title,
-              slides: padded.slides,
-              sourceType: input.sourceType,
-              sourceId: input.sourceId,
-              images,
-              imageMode: input.imageMode,
-              batch: input.batch
-            }),
+            carousel: input.transcript?.length ? record : (await reviewStory(record)).carousel,
             drafts: padded.slides,
             hookRetries,
             reason: padded.missing
@@ -477,16 +493,18 @@ export async function illustrateFromRecording(input: {
         slides: input.drafts,
         segments: input.transcript
       }).catch(() => null);
-  if (!frames?.images.some(Boolean)) return { carousel: input.carousel, note: frames?.note ?? null };
-  const illustrated = { ...input.carousel, slides: attachSlideBackdrops(input.carousel.slides, frames.images) };
-  const reviewed = await reviewCarouselStory({ carousel: illustrated, system: CAROUSEL_SYSTEM_PROMPT }).catch(() => ({
-    carousel: illustrated,
-    note: null
-  }));
+  const illustrated = frames?.images.some(Boolean)
+    ? { ...input.carousel, slides: attachSlideBackdrops(input.carousel.slides, frames.images) }
+    : input.carousel;
+  const reviewed = await reviewStory(illustrated);
   return {
     carousel: reviewed.carousel,
-    note: [frames.note, reviewed.note].filter(Boolean).join(" ") || null
+    note: [frames?.note, reviewed.note].filter(Boolean).join(" ") || null
   };
+}
+
+function reviewStory(carousel: Carousel): Promise<{ carousel: Carousel; note: string | null }> {
+  return reviewCarouselStory({ carousel, system: CAROUSEL_SYSTEM_PROMPT }).catch(() => ({ carousel, note: null }));
 }
 
 /**
@@ -522,7 +540,11 @@ export async function generateCarouselBatches(
       // Each batch is written on its own angle, so each is about its own
       // moments and gets its own stills — one shared set would put the same
       // eight pictures behind three different stories.
-      if (!written.carousel || !input.recordingId || !input.transcript?.length) return written;
+      if (!written.carousel || !input.transcript?.length) return written;
+      if (!input.recordingId) {
+        const reviewed = await reviewStory(written.carousel);
+        return { ...written, carousel: reviewed.carousel };
+      }
       const illustrated = await illustrateFromRecording({
         carousel: written.carousel,
         drafts: written.drafts,

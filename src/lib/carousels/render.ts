@@ -76,6 +76,8 @@ export const SLIDE_FONT_STACK = "Inter, Arial, Helvetica, 'Liberation Sans', Ari
 
 export const SLIDE_FONT_WEIGHTS = [500, 700, 800, 900] as const;
 
+export const COLATERAL_SITE = "colateralai.com";
+
 export const DEFAULT_ASPECT_RATIO: CarouselAspectRatio = "portrait";
 
 export function aspectSpec(ratio: CarouselAspectRatio | undefined): AspectRatioSpec {
@@ -95,7 +97,8 @@ export const COLATERAL_THEME = {
   body: "rgba(222,234,248,0.86)",
   counter: "rgba(222,234,248,0.62)",
   chip: "rgba(6,16,29,0.8)",
-  track: "rgba(222,234,248,0.18)"
+  track: "rgba(222,234,248,0.18)",
+  siteFill: "rgba(77,166,255,0.18)"
 } as const;
 
 export function paintDefaultBackground(ctx: SlideContext, w: number, h: number) {
@@ -551,10 +554,14 @@ function fitCopy(
     const gap = 30 * scale * shrink;
     const kickerPx = 28 * scale * shrink;
     const kickerH = role === "hook" ? 0 : kickerPx + 30 * scale * shrink;
+    const siteH = role === "cta" ? (36 + 76) * scale : 0;
     const blockH =
-      kickerH + headingLines.length * headingLineH + (bodyLines.length ? gap + bodyLines.length * bodyLineH : 0);
+      kickerH +
+      headingLines.length * headingLineH +
+      (bodyLines.length ? gap + bodyLines.length * bodyLineH : 0) +
+      siteH;
 
-    const fitted = { heading, body, headingLines, bodyLines, headingLineH, bodyLineH, gap, kickerPx, kickerH, blockH };
+    const fitted = { heading, body, headingLines, bodyLines, headingLineH, bodyLineH, gap, kickerPx, kickerH, siteH, blockH };
     if (blockH <= bandH || shrink <= MIN_COPY_SCALE || attempt >= 4) return fitted;
     shrink = Math.max(MIN_COPY_SCALE, shrink * Math.max(0.72, bandH / blockH));
   }
@@ -737,14 +744,26 @@ function drawHeader(ctx: SlideContext, index: number, total: number, w: number, 
 
   ctx.font = `800 ${30 * scale}px ${SLIDE_FONT_STACK}`;
   const wordmarkW = ctx.measureText("CoLateral").width;
+  ctx.font = `700 ${24 * scale}px ${SLIDE_FONT_STACK}`;
+  const siteW = ctx.measureText(COLATERAL_SITE).width;
+  const divider = 18 * scale;
+  const leftW = mark + 14 * scale + wordmarkW + divider * 2 + 2 * scale + siteW;
   if (onPicture) {
     ctx.fillStyle = COLATERAL_THEME.chip;
-    roundedRectPath(ctx, margin - pad, top, mark + 14 * scale + wordmarkW + pad * 2, rowH, rowH / 2);
+    roundedRectPath(ctx, margin - pad, top, leftW + pad * 2, rowH, rowH / 2);
     ctx.fill();
   }
   drawBeamBuddy(ctx, margin, top + (rowH - mark) / 2, mark);
+  ctx.font = `800 ${30 * scale}px ${SLIDE_FONT_STACK}`;
   ctx.fillStyle = COLATERAL_THEME.heading;
-  ctx.fillText("CoLateral", margin + mark + 14 * scale, top + rowH / 2 + 11 * scale);
+  const wordmarkX = margin + mark + 14 * scale;
+  ctx.fillText("CoLateral", wordmarkX, top + rowH / 2 + 11 * scale);
+  const dividerX = wordmarkX + wordmarkW + divider;
+  ctx.fillStyle = COLATERAL_THEME.track;
+  ctx.fillRect(dividerX, top + rowH * 0.28, 2 * scale, rowH * 0.44);
+  ctx.font = `700 ${24 * scale}px ${SLIDE_FONT_STACK}`;
+  ctx.fillStyle = COLATERAL_THEME.accent;
+  ctx.fillText(COLATERAL_SITE, dividerX + 2 * scale + divider, top + rowH / 2 + 9 * scale);
 
   const counter = `${index + 1}/${total}`;
   ctx.font = `700 ${26 * scale}px ${SLIDE_FONT_STACK}`;
@@ -804,6 +823,24 @@ function drawPill(ctx: SlideContext, label: string, right: number, centerY: numb
   return pillW;
 }
 
+function drawSiteButton(ctx: SlideContext, left: number, top: number, scale: number) {
+  const pillH = 76 * scale;
+  const fontPx = 32 * scale;
+  const mark = 40 * scale;
+  const padX = 24 * scale;
+  ctx.font = `800 ${fontPx}px ${SLIDE_FONT_STACK}`;
+  ctx.textAlign = "left";
+  const label = `Try it at ${COLATERAL_SITE}`;
+  const textW = ctx.measureText(label).width;
+  const pillW = padX * 2 + mark + 16 * scale + textW;
+  ctx.fillStyle = COLATERAL_THEME.siteFill;
+  roundedRectPath(ctx, left, top, pillW, pillH, pillH / 2);
+  ctx.fill();
+  drawBeamBuddy(ctx, left + padX, top + (pillH - mark) / 2, mark);
+  ctx.fillStyle = COLATERAL_THEME.heading;
+  ctx.fillText(label, left + padX + mark + 16 * scale, top + pillH / 2 + fontPx * 0.36);
+}
+
 function drawBaseText(
   ctx: SlideContext,
   slide: CarouselSlide,
@@ -859,6 +896,7 @@ function drawBaseText(
       y += fit.bodyLineH;
     }
   }
+  if (fit.siteH) drawSiteButton(ctx, margin, y + 36 * scale, scale);
 
   const right = w - 72 * scale;
   const pill =

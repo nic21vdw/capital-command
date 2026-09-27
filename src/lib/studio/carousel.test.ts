@@ -161,7 +161,10 @@ describe("batches", () => {
     expect(request.system).toBe(CAROUSEL_SYSTEM_PROMPT);
     expect(CAROUSEL_SYSTEM_PROMPT).toContain("ONE STORY told a slide at a time");
     expect(CAROUSEL_SYSTEM_PROMPT).toContain("**double asterisks**");
-    expect(CAROUSEL_SYSTEM_PROMPT).toContain("Open a loop on every slide but the last");
+    expect(CAROUSEL_SYSTEM_PROMPT).toContain("SWIPE BRIDGE");
+    expect(CAROUSEL_SYSTEM_PROMPT).toContain("I needed X, but Y, so Z, which meant W");
+    expect(CAROUSEL_SYSTEM_PROMPT).toContain("Try it at colateralai.com");
+    expect(CAROUSEL_SYSTEM_PROMPT).toContain("Do not write the web address");
     expect(CAROUSEL_SYSTEM_PROMPT).toContain("first person");
   });
 
