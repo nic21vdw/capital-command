@@ -1,6 +1,6 @@
 # Live voice
 
-Talk to Capital Command. `/agents` opens a speech-to-speech session with
+Talk to CoLateral Marketing. `/agents` opens a speech-to-speech session with
 OpenAI Realtime or Grok Voice, and the model can call a small set of app tools
 while you are talking — the one that matters is "is there a new stream on my
 channel, and if so put it through the pipeline".

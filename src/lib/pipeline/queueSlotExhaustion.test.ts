@@ -6,11 +6,12 @@ import {
   generateSlots
 } from "@/lib/publisher/slots";
 import type { PipelineRun } from "@/lib/pipeline/types";
+import { localDateKey } from "@/lib/publisher/schedule";
 
 const state = {
   run: {} as PipelineRun,
   clips: [] as { id: string; title: string }[],
-  booked: [] as { publishAt: string }[],
+  booked: [] as { publishAt: string; format?: "short" | "long" }[],
   config: {
     enabled: true,
     platforms: ["youtube"],
@@ -90,7 +91,7 @@ beforeEach(() => {
 
 describe("booking when the calendar is already full", () => {
   it("refuses the overflow instead of stacking it onto slots that are taken", async () => {
-    state.booked = horizon().map((publishAt) => ({ publishAt }));
+    state.booked = horizon().map((publishAt) => ({ publishAt, format: "long" as const }));
 
     const result = await queueRunOutputs("run1");
 
@@ -100,7 +101,7 @@ describe("booking when the calendar is already full", () => {
   });
 
   it("reaches past the booked three weeks instead of refusing the whole run", async () => {
-    state.booked = firstThreeWeeks().map((publishAt) => ({ publishAt }));
+    state.booked = firstThreeWeeks().map((publishAt) => ({ publishAt, format: "long" as const }));
 
     const result = await queueRunOutputs("run1");
 
@@ -117,7 +118,7 @@ describe("booking when the calendar is already full", () => {
     state.config.bookingHorizonDays = 21;
     const slots = horizon();
     const free = new Set([slots[3], slots[7]]);
-    state.booked = slots.filter((slot) => !free.has(slot)).map((publishAt) => ({ publishAt }));
+    state.booked = slots.filter((slot) => !free.has(slot)).map((publishAt) => ({ publishAt, format: "long" as const }));
 
     const result = await queueRunOutputs("run1");
 
@@ -134,5 +135,57 @@ describe("booking when the calendar is already full", () => {
     expect(result.queued).toHaveLength(5);
     const times = result.queued.map((item) => item.publishAt);
     expect(new Set(times).size).toBe(times.length);
+  });
+});
+
+describe("the shorts-per-day limit", () => {
+  const dayOf = (instant: string) => localDateKey(instant, "America/Toronto");
+
+  function perDay(times: string[]): Map<string, number> {
+    const counts = new Map<string, number>();
+    for (const time of times) counts.set(dayOf(time), (counts.get(dayOf(time)) ?? 0) + 1);
+    return counts;
+  }
+
+  it("never books more than two shorts onto one day", async () => {
+    state.clips = Array.from({ length: 9 }, (_, i) => ({ id: `clip${i}`, title: `Clip ${i}` }));
+
+    const result = await queueRunOutputs("run1");
+
+    expect(result.queued).toHaveLength(9);
+    expect(Math.max(...perDay(result.queued.map((item) => item.publishAt)).values())).toBe(2);
+  });
+
+  it("counts the shorts already booked on a day", async () => {
+    const [first, second] = horizon();
+    state.booked = [
+      { publishAt: first, format: "short" },
+      { publishAt: second, format: "short" }
+    ];
+
+    const result = await queueRunOutputs("run1");
+
+    expect(result.queued.every((item) => dayOf(item.publishAt) !== dayOf(first))).toBe(true);
+  });
+
+  it("does not count long-form uploads against the limit", async () => {
+    const [first, second] = horizon();
+    state.booked = [
+      { publishAt: first, format: "long" },
+      { publishAt: second, format: "long" }
+    ];
+    state.clips = [{ id: "clip0", title: "Clip 0" }, { id: "clip1", title: "Clip 1" }];
+
+    const result = await queueRunOutputs("run1");
+
+    expect(result.queued.map((item) => dayOf(item.publishAt))).toEqual([dayOf(first), dayOf(first)]);
+  });
+
+  it("follows the configured limit", async () => {
+    state.config = { ...state.config, shortsPerDay: 1 } as typeof state.config;
+
+    const result = await queueRunOutputs("run1");
+
+    expect(Math.max(...perDay(result.queued.map((item) => item.publishAt)).values())).toBe(1);
   });
 });

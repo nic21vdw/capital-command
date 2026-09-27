@@ -1,6 +1,7 @@
 "use client";
 
 import { useRef, useState } from "react";
+import { UserRound } from "lucide-react";
 import { toast } from "sonner";
 import { useAppData } from "@/components/providers/app-provider";
 import { Button } from "@/components/ui/button";
@@ -73,11 +74,16 @@ export function ProfileSettings() {
   };
 
   return (
-    <Card>
-      <h2 className="text-lg font-semibold text-white">Profile</h2>
-      <p className="mt-1 text-sm text-[var(--muted-foreground)]">
-        Set the name and picture shown in the sidebar.
-      </p>
+    <Card id="profile" className="scroll-mt-6">
+      <div className="flex items-start gap-3">
+        <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[var(--accent)]/15 text-[var(--accent)]">
+          <UserRound className="h-5 w-5" aria-hidden="true" />
+        </span>
+        <div>
+          <h2 className="text-lg font-semibold text-white">Profile</h2>
+          <p className="mt-1 text-sm text-[var(--muted-foreground)]">Your name and photo in the sidebar.</p>
+        </div>
+      </div>
       <div className="mt-4 flex flex-col gap-5 sm:flex-row sm:items-start">
         <div className="flex flex-col items-center gap-2">
           <span className="flex h-20 w-20 items-center justify-center overflow-hidden rounded-full border border-white/10 bg-[var(--accent)] text-2xl font-semibold text-[var(--accent-contrast)]">

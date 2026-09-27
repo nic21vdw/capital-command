@@ -17,6 +17,7 @@ export type ConnectionField = {
   /** The environment variable name, which is also the key in credentials.json. */
   name: string;
   label: string;
+  optional?: boolean;
   /** Shown under the field. Where the value comes from, in one line. */
   hint?: string;
 };
@@ -43,7 +44,7 @@ export const CONNECTIONS: Connection[] = [
     fields: [
       { name: "YOUTUBE_CLIENT_ID", label: "Client ID", hint: "Google Cloud console, OAuth 2.0 Client IDs." },
       { name: "YOUTUBE_CLIENT_SECRET", label: "Client secret" },
-      { name: "YOUTUBE_API_KEY", label: "API key", hint: "Optional. Only needed for channel analytics." }
+      { name: "YOUTUBE_API_KEY", label: "API key", hint: "Only needed for channel analytics.", optional: true }
     ],
     oauth: { href: "/api/auth/google", label: "Connect YouTube" },
     console: "https://console.cloud.google.com/apis/credentials"
@@ -62,7 +63,7 @@ export const CONNECTIONS: Connection[] = [
   {
     id: "spotify",
     label: "Spotify",
-    purpose: "Publishes podcast episodes.",
+    purpose: "Checks your Spotify account and podcast episodes.",
     fields: [
       { name: "SPOTIFY_CLIENT_ID", label: "Client ID", hint: "Spotify developer dashboard." },
       { name: "SPOTIFY_CLIENT_SECRET", label: "Client secret" }
@@ -75,8 +76,8 @@ export const CONNECTIONS: Connection[] = [
     label: "Instagram",
     purpose: "Posts Reels and image posts to a business account.",
     fields: [
-      { name: "IG_APP_ID", label: "App ID", hint: "Meta app, Instagram Graph API." },
-      { name: "IG_APP_SECRET", label: "App secret" },
+      { name: "IG_APP_ID", label: "App ID", hint: "Used for token checks and Meta webhooks.", optional: true },
+      { name: "IG_APP_SECRET", label: "App secret", optional: true },
       { name: "IG_USER_ID", label: "Business account ID" },
       { name: "IG_ACCESS_TOKEN", label: "Access token", hint: "A long-lived token from the Meta console." }
     ],
@@ -99,7 +100,7 @@ export const CONNECTIONS: Connection[] = [
     label: "Threads",
     purpose: "Posts the daily Threads packs.",
     fields: [
-      { name: "THREADS_USER_ID", label: "User ID" },
+      { name: "THREADS_USER_ID", label: "User ID", hint: "The access token normally identifies the account.", optional: true },
       { name: "THREADS_ACCESS_TOKEN", label: "Access token", hint: "A long-lived token from the Meta console." }
     ],
     manualNote: "Threads has no in-app sign-in yet: the token comes from Meta's console and is pasted here.",

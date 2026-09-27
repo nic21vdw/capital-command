@@ -46,7 +46,19 @@ export function aspectDimensions(aspect: AspectRatioId): { w: number; h: number 
 
 export function applyCaptionPreset(style: CaptionStyle, preset: CaptionPresetId): CaptionStyle {
   // Presets bring their own `position`, so drop any drag-placed offsets.
-  return { ...style, ...CAPTION_PRESETS[preset].style, offsetX: undefined, offsetY: undefined };
+  return {
+    ...style,
+    fontFamily: defaultCaptionStyle.fontFamily,
+    italic: false,
+    glowColor: undefined,
+    ...CAPTION_PRESETS[preset].style,
+    offsetX: undefined,
+    offsetY: undefined
+  };
+}
+
+export function captionStyleForPreset(preset?: CaptionPresetId): CaptionStyle {
+  return preset ? applyCaptionPreset(defaultCaptionStyle, preset) : { ...defaultCaptionStyle };
 }
 
 export function formatClock(seconds: number): string {

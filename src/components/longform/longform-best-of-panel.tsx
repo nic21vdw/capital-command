@@ -265,7 +265,7 @@ export function BestOfPanel({
             )}
             <Toggle
               label="Zoom cuts on jump cuts"
-              checked={project.zoomCuts ?? true}
+              checked={project.zoomCuts ?? false}
               onChange={(value) => patch({ zoomCuts: value })}
             />
             <p className="text-[11px] text-[var(--muted-foreground)]">
