@@ -79,6 +79,7 @@ type RawClip = {
   pacing?: number;
   standalone?: number;
   intensity?: number;
+  product?: number;
 };
 
 /** Pulls the JSON array out of the model's reply, tolerating fences / prose. */
@@ -142,15 +143,15 @@ function toCandidate(
   end = resolved.end;
   if (end - start < Math.min(bounds.min, durationSec)) return null;
 
+  const product = Number(raw.product);
   const breakdown: ClipScoreBreakdown = {
     hook: Math.round(clamp(Number(raw.hook ?? 70), 0, 100)),
     pacing: Math.round(clamp(Number(raw.pacing ?? 70), 0, 100)),
     standalone: Math.round(clamp(Number(raw.standalone ?? 70), 0, 100)),
-    intensity: Math.round(clamp(Number(raw.intensity ?? 70), 0, 100))
+    intensity: Math.round(clamp(Number(raw.intensity ?? 70), 0, 100)),
+    ...(Number.isFinite(product) ? { product: Math.round(clamp(product, 0, 100)) } : {})
   };
-  const score = Math.round(
-    breakdown.hook * 0.28 + breakdown.intensity * 0.24 + breakdown.pacing * 0.33 + breakdown.standalone * 0.15
-  );
+  const score = transcriptClipScore(breakdown);
   const title = raw.title?.trim();
   const reason = raw.reason?.trim() || "Selected from the transcript as a strong standalone moment.";
 
@@ -166,6 +167,22 @@ function toCandidate(
     title: title || undefined
   };
 }
+
+/**
+ * The clip's overall score. On-screen CoLateral action is a bonus on top of the
+ * speech-based score, worth up to PRODUCT_BONUS points, so a moment where the
+ * product visibly does something outranks an equally good one where it does not.
+ */
+export const PRODUCT_BONUS = 25;
+
+export function transcriptClipScore(breakdown: ClipScoreBreakdown): number {
+  const base =
+    breakdown.hook * 0.28 + breakdown.intensity * 0.24 + breakdown.pacing * 0.33 + breakdown.standalone * 0.15;
+  return Math.round(Math.min(100, base + ((breakdown.product ?? 0) / 100) * PRODUCT_BONUS));
+}
+
+export const PRODUCT_MOMENT_RULE =
+  "- STRONGLY prefer moments where CoLateral is visibly doing something on screen: an agent finishing a task, a card filling in, a tool being built or run. The transcript cannot show the screen, so look for the speaker narrating or reacting to it (\"it's done\", \"look, it's filling in\", \"watch this build\"). Start such a clip no more than 3 seconds before that moment so it opens on the product working, not on setup talk.";
 
 /**
  * Reads the entire transcript and returns the best moments from across the whole
@@ -201,6 +218,7 @@ Rules:
 - THE ENDING IS CRITICAL: before finalizing each clip, re-read the transcript around your chosen "end" time and check what the speaker is saying right there. The clip must end where the thought CONCLUDES — the end of the sentence that completes the point, story, or punchline. Never end while the speaker is mid-sentence, and never end right after they have started a NEW sentence or point that the clip won't finish. If the thought concludes a few seconds after your ideal end, extend the end to include it — a slightly longer clip that lands the conclusion is always better than one that cuts off.
 - Each clip should be between ${bounds.min} and ${bounds.preferredMax} seconds long. You may exceed ${bounds.preferredMax} seconds when needed to let a thought conclude, or when the moment is one continuous thought that would be ruined by cutting it shorter - but never exceed ${bounds.max} seconds.
 - Favour strong hooks, emotional or surprising payoffs, hot takes, stories, and quotable lines.
+${PRODUCT_MOMENT_RULE}
 - Prefer variety: mix strong openings, tactical explanations, funny reactions, disagreement, turning points, and clean story payoffs when the transcript supports them.
 - Avoid picking multiple moments that make the same point unless the later one has a clearly better hook or payoff.
 - ${topicLine}
@@ -214,6 +232,7 @@ Return ONLY a JSON array (no prose) of objects with these fields:
 - "pacing": 0-100, word density and how much useful speech is packed into the moment
 - "standalone": 0-100, how well it stands on its own without context
 - "intensity": 0-100, the strength of the emotional or informational payoff
+- "product": 0-100, how clearly CoLateral is visibly doing something on screen within the clip's first 3 seconds (0 when it is not on screen)
 
 TRANSCRIPT:
 ${timeline}`;
