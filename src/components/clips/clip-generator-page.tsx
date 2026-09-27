@@ -1077,7 +1077,9 @@ function ClipCard({
   const scoreTone =
     clip.score >= 90 ? "text-amber-300" : clip.score >= 75 ? "text-yellow-200" : "text-[var(--muted-foreground)]";
   const breakdown = clip.breakdown
-    ? `Hook ${clip.breakdown.hook} · Pacing ${clip.breakdown.pacing} · Standalone ${clip.breakdown.standalone} · Intensity ${clip.breakdown.intensity}`
+    ? `Hook ${clip.breakdown.hook} · Pacing ${clip.breakdown.pacing} · Standalone ${clip.breakdown.standalone} · Intensity ${clip.breakdown.intensity}${
+        clip.breakdown.product !== undefined ? ` · CoLateral ${clip.breakdown.product}` : ""
+      }`
     : "";
 
   return (

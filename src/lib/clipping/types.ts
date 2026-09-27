@@ -30,6 +30,8 @@ export type ClipScoreBreakdown = {
   standalone: number;
   /** Emotional punch — overall loudness blended with emphatic language (0-100). */
   intensity: number;
+  /** How clearly CoLateral is visibly doing something on screen in the opening seconds (0-100). Absent when the selector could not judge it. */
+  product?: number;
 };
 
 export type ClipCandidate = {
