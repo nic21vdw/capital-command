@@ -56,6 +56,7 @@ import {
   type Corner
 } from "@/lib/thumbnails/render";
 import { overlayIdeas, titleTreatments } from "@/lib/thumbnails/suggestions";
+import { useColateralSurface } from "@/lib/colateral/useSurface";
 import {
   DEFAULT_TEXT_TRANSFORM,
   DEFAULT_TREATMENT,
@@ -268,7 +269,7 @@ function ToolButton({
         active
           ? "border-[var(--accent)] bg-[var(--accent)]/15 text-white"
           : danger
-            ? "border-white/10 bg-white/5 hover:border-red-500/40 hover:bg-red-500/15 hover:text-red-300"
+            ? "border-white/10 bg-white/5 hover:border-[color-mix(in_srgb,var(--danger)_40%,transparent)] hover:bg-[color-mix(in_srgb,var(--danger)_15%,transparent)] hover:text-[var(--danger)]"
             : "border-white/10 bg-white/5 hover:border-white/30 hover:text-white"
       )}
     >
@@ -283,10 +284,10 @@ type SaveStatus = "idle" | "unsaved" | "saving" | "saved" | "error";
 function SaveStatusBadge({ status }: { status: SaveStatus }) {
   const map: Record<SaveStatus, { label: string; className: string }> = {
     idle: { label: "Not saved", className: "border-white/10 bg-white/5 text-[var(--muted-foreground)]" },
-    unsaved: { label: "Unsaved changes", className: "border-amber-400/30 bg-amber-400/10 text-amber-200" },
-    saving: { label: "Saving…", className: "border-sky-400/30 bg-sky-400/10 text-sky-200" },
-    saved: { label: "Saved", className: "border-emerald-400/30 bg-emerald-400/10 text-emerald-200" },
-    error: { label: "Save failed", className: "border-red-500/40 bg-red-500/15 text-red-200" }
+    unsaved: { label: "Unsaved changes", className: "tone-warning tone-soft tone-edge tone-text" },
+    saving: { label: "Saving…", className: "tone-info tone-soft tone-edge tone-text" },
+    saved: { label: "Saved", className: "tone-success tone-soft tone-edge tone-text" },
+    error: { label: "Save failed", className: "tone-danger tone-soft tone-edge tone-text" }
   };
   const { label, className } = map[status];
   return <span className={cn("shrink-0 rounded-full border px-2.5 py-1 text-[11px] font-medium", className)}>{label}</span>;
@@ -1237,6 +1238,77 @@ export function ThumbnailGeneratorPage() {
         : images.find((l) => l.id === selectedId)?.name ?? null;
   const customColor = textColor !== "auto";
 
+  useColateralSurface({
+    route: "/thumbnails",
+    title: "Thumbnails",
+    summary: "Build a 1280×720 YouTube thumbnail from images, text and call-outs.",
+    fields: [
+      { id: "title", label: "Video title / topic", value: title, kind: "text" },
+      { id: "overlayText", label: "Thumbnail text", value: overlayText, kind: "text" },
+      { id: "projectName", label: "Project name", value: projectName, kind: "text" },
+      { id: "autosave", label: "Autosave", value: autosave, kind: "boolean" },
+      { id: "exportFormat", label: "Export format", value: exportFormat, kind: "select", options: ["png", "jpeg"] }
+    ],
+    controls: [
+      { id: "generateVariants", label: "Generate variants", group: "Variants" },
+      { id: "save", label: "Save thumbnail", group: "Project", disabled: saving },
+      { id: "exportImage", label: "Export image", group: "Export" }
+    ],
+    readings: [
+      { label: "Saved thumbnails", value: String(savedThumbnails.length) },
+      { label: "Save status", value: saveStatus },
+      { label: "Images placed", value: String(images.length) },
+      { label: "Variants generated", value: String(variants.length) }
+    ],
+    setField: (id, value) => {
+      if (id === "title") {
+        if (typeof value !== "string") return false;
+        setTitle(value);
+        return true;
+      }
+      if (id === "overlayText") {
+        if (typeof value !== "string") return false;
+        setOverlayText(value);
+        return true;
+      }
+      if (id === "projectName") {
+        if (typeof value !== "string") return false;
+        setProjectName(value);
+        return true;
+      }
+      if (id === "autosave") {
+        if (typeof value !== "boolean") return false;
+        setAutosave(value);
+        return true;
+      }
+      if (id === "exportFormat") {
+        if (value !== "png" && value !== "jpeg") return false;
+        setExportFormat(value);
+        return true;
+      }
+      return false;
+    },
+    click: (id) => {
+      if (id === "generateVariants") {
+        generateVariants();
+        return true;
+      }
+      if (id === "save") {
+        if (saving) return false;
+        saveThumbnail(false);
+        return true;
+      }
+      if (id === "exportImage") {
+        downloadDataUrl(
+          renderToSizedDataUrl(options, exportWidth, exportHeight, exportFormat),
+          exportName(`-${exportWidth}x${exportHeight}.${exportFormat === "png" ? "png" : "jpg"}`)
+        );
+        return true;
+      }
+      return false;
+    }
+  });
+
   return (
     <div className="space-y-6">
       <PageHeader
@@ -1329,7 +1401,7 @@ export function ThumbnailGeneratorPage() {
                         type="button"
                         title="Delete"
                         onClick={() => void deleteSavedThumbnail(saved)}
-                        className="flex h-7 w-7 items-center justify-center rounded-lg bg-white/8 text-[var(--muted-foreground)] transition hover:bg-red-500/20 hover:text-red-400"
+                        className="flex h-7 w-7 items-center justify-center rounded-lg bg-white/8 text-[var(--muted-foreground)] transition hover:bg-[color-mix(in_srgb,var(--danger)_20%,transparent)] hover:text-[var(--danger)]"
                       >
                         <Trash2 className="h-3.5 w-3.5" />
                       </button>
@@ -1408,7 +1480,7 @@ export function ThumbnailGeneratorPage() {
                           event.stopPropagation();
                           removeImage(layer.id);
                         }}
-                        className="flex h-7 w-7 items-center justify-center rounded-lg bg-white/8 text-[var(--muted-foreground)] transition hover:bg-red-500/20 hover:text-red-400"
+                        className="flex h-7 w-7 items-center justify-center rounded-lg bg-white/8 text-[var(--muted-foreground)] transition hover:bg-[color-mix(in_srgb,var(--danger)_20%,transparent)] hover:text-[var(--danger)]"
                       >
                         <X className="h-4 w-4" />
                       </button>
@@ -1959,7 +2031,7 @@ export function ThumbnailGeneratorPage() {
                         type="button"
                         title="Remove call-out"
                         onClick={() => removeSticker(sticker.id)}
-                        className="flex h-7 w-7 items-center justify-center rounded-lg bg-white/8 text-[var(--muted-foreground)] transition hover:bg-red-500/20 hover:text-red-400"
+                        className="flex h-7 w-7 items-center justify-center rounded-lg bg-white/8 text-[var(--muted-foreground)] transition hover:bg-[color-mix(in_srgb,var(--danger)_20%,transparent)] hover:text-[var(--danger)]"
                       >
                         <Trash2 className="h-3.5 w-3.5" />
                       </button>

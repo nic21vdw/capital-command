@@ -171,7 +171,7 @@ export function CompetitionPanel({
           </div>
 
           {report.warnings.length > 0 ? (
-            <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-200">
+            <div className="rounded-lg tone-warning tone-edge tone-soft px-3 py-2 text-xs tone-text">
               {report.warnings.map((warning) => (
                 <p key={warning} className="flex items-center gap-1.5">
                   <AlertTriangle className="h-3 w-3 shrink-0" /> {warning}
@@ -236,11 +236,11 @@ export function CompetitionPanel({
                 ) : null}
 
                 <div>
-                  <h3 className="text-xs font-semibold uppercase tracking-wider text-emerald-300">What this means for you</h3>
+                  <h3 className="text-xs font-semibold uppercase tracking-wider tone-success tone-text">What this means for you</h3>
                   <ul className="mt-2 space-y-1.5 text-sm text-[var(--muted-foreground)]">
                     {report.takeaways.map((note) => (
                       <li key={note} className="flex gap-2">
-                        <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-emerald-400/70" />
+                        <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full tone-success tone-fill opacity-70" />
                         {note}
                       </li>
                     ))}

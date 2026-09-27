@@ -181,7 +181,7 @@ export function FreeVoicePanel({ onWorkStarted }: { onWorkStarted?: () => void }
         <div className="flex items-center gap-2">
           <Sparkles className="h-4 w-4 text-[var(--accent)]" />
           <h2 className="font-semibold text-white">Talk to it</h2>
-          {info ? <Badge className={info.free ? "border-emerald-400/30 bg-emerald-400/10 text-emerald-200" : ""}>{info.free ? "free" : info.provider}</Badge> : null}
+          {info ? <Badge tone={info.free ? "success" : "neutral"}>{info.free ? "free" : info.provider}</Badge> : null}
           {thinking ? (
             <span className="flex items-center gap-1.5 text-xs text-[var(--muted-foreground)]">
               <Loader2 className="h-3.5 w-3.5 animate-spin" /> working
@@ -204,10 +204,14 @@ export function FreeVoicePanel({ onWorkStarted }: { onWorkStarted?: () => void }
         onClick={() => void toggleActions()}
         className={cn(
           "flex w-full items-start gap-2 rounded-lg border p-3 text-left transition",
-          allowActions ? "border-amber-400/40 bg-amber-400/10" : "border-[var(--border)] bg-white/[0.03]"
+          allowActions ? "tone-warning tone-edge tone-soft" : "border-[var(--border)] bg-white/[0.03]"
         )}
       >
-        {allowActions ? <Unlock className="mt-0.5 h-4 w-4 shrink-0 text-amber-300" /> : <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-emerald-300" />}
+        {allowActions ? (
+          <Unlock className="mt-0.5 h-4 w-4 shrink-0 tone-warning tone-text" />
+        ) : (
+          <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 tone-success tone-text" />
+        )}
         <span className="text-xs leading-relaxed text-[var(--muted-foreground)]">
           <span className="block text-sm font-medium text-white">{allowActions ? "Actions armed" : "Read-only"}</span>
           {allowActions
@@ -242,7 +246,7 @@ export function FreeVoicePanel({ onWorkStarted }: { onWorkStarted?: () => void }
         <div className="mt-3 space-y-1 rounded-lg border border-[var(--border)] bg-white/[0.02] p-2.5">
           {toolLines.map((line) => (
             <div key={line.id} className="flex items-center gap-2 text-xs">
-              <Radio className={cn("h-3 w-3 shrink-0", line.ok ? "text-emerald-300" : "text-red-300")} />
+              <Radio className={cn("h-3 w-3 shrink-0", line.ok ? "tone-success tone-text" : "tone-danger tone-text")} />
               <span className="text-white">{line.name.replaceAll("_", " ")}</span>
             </div>
           ))}

@@ -20,7 +20,7 @@ import {
   X
 } from "lucide-react";
 import { toast } from "sonner";
-import { Badge } from "@/components/ui/badge";
+import { Badge, type BadgeTone } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { PageHeader } from "@/components/ui/page-header";
@@ -28,6 +28,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { ChannelIngestPanel } from "@/components/agents/channel-ingest-panel";
 import { VoiceConsole } from "@/components/agents/voice-console";
 import { cn } from "@/lib/utils";
+import { useColateralSurface } from "@/lib/colateral/useSurface";
 import type { AgentAction, AgentProviderId, AgentRoleId, AgentRun } from "@/lib/agents/types";
 
 type AgentInfo = { id: AgentRoleId; name: string; shortName: string; purpose: string };
@@ -62,10 +63,10 @@ function speechRecognitionConstructor(): SpeechRecognitionConstructor | null {
   return speechWindow.SpeechRecognition ?? speechWindow.webkitSpeechRecognition ?? null;
 }
 
-function runStatusClass(status: AgentRun["status"]) {
-  if (status === "completed") return "border-emerald-400/30 bg-emerald-400/10 text-emerald-200";
-  if (status === "failed") return "border-red-400/30 bg-red-400/10 text-red-200";
-  return "border-blue-400/30 bg-blue-400/10 text-blue-200";
+function runStatusTone(status: AgentRun["status"]): BadgeTone {
+  if (status === "completed") return "success";
+  if (status === "failed") return "danger";
+  return "info";
 }
 
 export function AgentCommandPage() {
@@ -227,6 +228,107 @@ export function AgentCommandPage() {
     return seconds < 60 ? `${seconds}s` : `${Math.floor(seconds / 60)}m ${seconds % 60}s`;
   }, [activeRun]);
 
+  const pendingActions = activeRun?.actions.filter((action) => action.status === "proposed") ?? [];
+
+  // The canvas surface: this is the page most likely to be driven by an agent
+  // on the CoLateral canvas (it runs this app's own agents), so it gets the
+  // fullest surface of the four — the team roster, the live run, and the
+  // controls to send a command, add/remove a specialist, and approve or
+  // reject whatever the team proposes. Every handler below is the same one
+  // the buttons on this page call; nothing here is a parallel code path.
+  useColateralSurface({
+    route: "/agents",
+    title: "Sourceflow Agents",
+    summary: "Configure the agent team, send it a command, and approve or reject what it proposes.",
+    fields: [
+      { id: "prompt", label: "Command", value: prompt, kind: "longtext", hint: "Sent to the whole selected team." },
+      { id: "provider", label: "Brain", value: provider, kind: "select", options: providers.map((item) => item.id) },
+      { id: "speakReplies", label: "Speak replies aloud", value: speakReplies, kind: "boolean" }
+    ],
+    controls: [
+      {
+        id: "send",
+        label: running ? "Queue command" : "Send command",
+        group: "Command",
+        disabled: !prompt.trim()
+      },
+      { id: "voice", label: listening ? "Stop listening" : "Start voice input", group: "Command" },
+      ...agents.map((agent) => {
+        const selected = selectedAgents.includes(agent.id);
+        return {
+          id: `agent:${agent.id}`,
+          label: `${selected ? "Remove" : "Add"} ${agent.shortName}`,
+          group: "Team",
+          disabled: selected && selectedAgents.length === 1,
+          hint: agent.purpose
+        };
+      }),
+      ...pendingActions.flatMap((action) => [
+        { id: `approve:${action.id}`, label: `Approve: ${action.title}`, group: "Approvals", destructive: true },
+        { id: `reject:${action.id}`, label: `Reject: ${action.title}`, group: "Approvals" }
+      ])
+    ],
+    readings: [
+      { label: "Run status", value: activeRun ? activeRun.status : "no run yet" },
+      { label: "Active goal", value: activeRun?.goal ?? "—" },
+      { label: "Elapsed", value: elapsed || "—" },
+      {
+        label: "Team",
+        value: selectedAgents.map((id) => agents.find((agent) => agent.id === id)?.shortName ?? id).join(", ") || "none"
+      },
+      { label: "Pending approvals", value: String(pendingActions.length) },
+      { label: "Queued prompts", value: String(queue.length) },
+      { label: "Run history", value: String(bootstrap?.runs.length ?? 0) }
+    ],
+    setField: (id, value) => {
+      if (id === "prompt") {
+        setPrompt(typeof value === "string" ? value : String(value ?? ""));
+        return true;
+      }
+      if (id === "provider") {
+        const next = providers.find((item) => item.id === value);
+        if (!next) return false;
+        setProvider(next.id);
+        return true;
+      }
+      if (id === "speakReplies") {
+        if (typeof value !== "boolean") return false;
+        setSpeakReplies(value);
+        return true;
+      }
+      return false;
+    },
+    click: (id) => {
+      if (id === "send") {
+        if (!prompt.trim()) return false;
+        submit();
+        return true;
+      }
+      if (id === "voice") {
+        toggleListening();
+        return true;
+      }
+      if (id.startsWith("agent:")) {
+        const agentId = id.slice("agent:".length) as AgentRoleId;
+        if (!agents.some((agent) => agent.id === agentId)) return false;
+        const selected = selectedAgents.includes(agentId);
+        if (selected && selectedAgents.length === 1) return false;
+        setSelectedAgents((current) =>
+          selected ? current.filter((entryId) => entryId !== agentId) : [...current, agentId]
+        );
+        return true;
+      }
+      if (id.startsWith("approve:") || id.startsWith("reject:")) {
+        const actionId = id.slice(id.indexOf(":") + 1);
+        const action = activeRun?.actions.find((entry) => entry.id === actionId && entry.status === "proposed");
+        if (!action) return false;
+        void reviewAction(action, id.startsWith("approve:") ? "approve" : "reject");
+        return true;
+      }
+      return false;
+    }
+  });
+
   return (
     <div>
       <PageHeader
@@ -265,14 +367,14 @@ export function AgentCommandPage() {
                 >
                   <span className="flex items-center justify-between gap-2 text-sm font-medium text-white">
                     {item.label}
-                    <span className={cn("h-2 w-2 rounded-full", item.configured ? "bg-emerald-400" : "bg-amber-400")} />
+                    <span className={cn("h-2 w-2 rounded-full", item.configured ? "tone-success tone-fill" : "tone-warning tone-fill")} />
                   </span>
                   <span className="mt-1 block truncate text-xs text-[var(--muted-foreground)]">{item.model}</span>
                 </button>
               ))}
             </div>
             {!currentProvider?.configured ? (
-              <p className="mt-3 rounded-lg border border-amber-400/20 bg-amber-400/10 p-2.5 text-xs text-amber-100">
+              <p className="mt-3 rounded-lg tone-warning tone-edge tone-soft p-2.5 text-xs tone-text">
                 Add {provider === "grok" ? "XAI_API_KEY" : "OPENAI_API_KEY"} to the local .env file. Keys never enter the browser.
               </p>
             ) : null}
@@ -344,7 +446,7 @@ export function AgentCommandPage() {
             />
             <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
               <div className="flex items-center gap-2 text-xs text-[var(--muted-foreground)]">
-                <ShieldCheck className="h-4 w-4 text-emerald-300" /> Changes wait for your approval
+                <ShieldCheck className="h-4 w-4 tone-success tone-text" /> Changes wait for your approval
               </div>
               <div className="flex items-center gap-2">
                 <Button
@@ -388,7 +490,7 @@ export function AgentCommandPage() {
               <div className="mb-4 flex flex-wrap items-start justify-between gap-3 border-b border-[var(--border)] pb-4">
                 <div>
                   <div className="flex flex-wrap items-center gap-2">
-                    <Badge className={runStatusClass(activeRun.status)}>{activeRun.status}</Badge>
+                    <Badge tone={runStatusTone(activeRun.status)}>{activeRun.status}</Badge>
                     <Badge>{activeRun.provider === "grok" ? "Grok" : "ChatGPT"}</Badge>
                     <Badge>{activeRun.model}</Badge>
                     {elapsed ? <span className="text-xs text-[var(--muted-foreground)]">{elapsed}</span> : null}
@@ -396,7 +498,7 @@ export function AgentCommandPage() {
                   <h2 className="mt-3 text-lg font-semibold text-white">{activeRun.goal}</h2>
                 </div>
               </div>
-              {activeRun.error ? <div className="rounded-lg border border-red-400/30 bg-red-400/10 p-3 text-sm text-red-100">{activeRun.error}</div> : null}
+              {activeRun.error ? <div className="rounded-lg tone-danger tone-edge tone-soft p-3 text-sm tone-text">{activeRun.error}</div> : null}
               {activeRun.answer ? <div className="whitespace-pre-wrap text-sm leading-7 text-white/90">{activeRun.answer}</div> : null}
             </Card>
           ) : (
@@ -419,9 +521,9 @@ export function AgentCommandPage() {
                   <div key={step.id} className="rounded-lg border border-[var(--border)] bg-white/[0.03] p-3">
                     <div className="flex items-center justify-between gap-2">
                       <span className="text-sm font-medium text-white">{step.label}</span>
-                      {step.status === "running" ? <Loader2 className="h-3.5 w-3.5 animate-spin text-blue-300" /> : null}
-                      {step.status === "completed" ? <Check className="h-3.5 w-3.5 text-emerald-300" /> : null}
-                      {step.status === "failed" ? <CircleStop className="h-3.5 w-3.5 text-red-300" /> : null}
+                      {step.status === "running" ? <Loader2 className="h-3.5 w-3.5 animate-spin tone-info tone-text" /> : null}
+                      {step.status === "completed" ? <Check className="h-3.5 w-3.5 tone-success tone-text" /> : null}
+                      {step.status === "failed" ? <CircleStop className="h-3.5 w-3.5 tone-danger tone-text" /> : null}
                     </div>
                     <p className="mt-1 text-xs leading-relaxed text-[var(--muted-foreground)]">{step.summary || step.error || step.status}</p>
                   </div>

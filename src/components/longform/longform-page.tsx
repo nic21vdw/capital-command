@@ -15,6 +15,8 @@ import { formatClock } from "@/lib/clipping/editor";
 import { segmentReviewHeadline } from "@/lib/longform/segment-review";
 import type { LongformProjectSummary } from "@/lib/longform/summary";
 import type { LongformProject } from "@/lib/longform/types";
+import { useColateralSurface } from "@/lib/colateral/useSurface";
+import { routeLabel } from "@/lib/colateral/routes";
 import { cn } from "@/lib/utils";
 
 // The Long-Form Editor home: drop in a raw recording and it comes back with a
@@ -300,6 +302,59 @@ export function LongformStudioPage() {
     [refresh]
   );
 
+  const busy = uploadPct !== null || creating || importing;
+
+  // Registered here rather than inside LongformEditor: this component stays
+  // mounted (and holds the route) whether it is showing the project list or
+  // handing off to the editor below, so it is the one place a single surface
+  // for "/longform" can live without two components fighting over the route.
+  // The editor's own timeline, captions and hook settings are a separate,
+  // deep piece of state with no handle from up here, so they are left alone.
+  useColateralSurface({
+    route: "/longform",
+    title: routeLabel("/longform"),
+    summary: "Turn a raw recording into a finished long-form upload, or open one already in flight.",
+    fields: [
+      {
+        id: "url",
+        label: "Video import link",
+        value: url,
+        kind: "text",
+        hint: "Paste a full YouTube or VOD link, then press Import."
+      }
+    ],
+    controls: [
+      { id: "import", label: "Import from link", group: "Add", disabled: busy || !url.trim() },
+      { id: "close-editor", label: "Back to projects", group: "Navigate", disabled: !openProject }
+    ],
+    readings: [
+      { label: "Projects", value: String(projects.length) },
+      { label: "Still analyzing", value: String(projects.filter((project) => project.status === "processing").length) },
+      { label: "Open project", value: openProject?.name ?? (openId ? "Loading…" : "None") }
+    ],
+    setField: (id, value) => {
+      if (id === "url") {
+        if (typeof value !== "string") return false;
+        setUrl(value);
+        return true;
+      }
+      return false;
+    },
+    click: (id) => {
+      if (id === "import") {
+        if (busy || !url.trim()) return false;
+        void importUrl();
+        return true;
+      }
+      if (id === "close-editor") {
+        if (!openProject) return false;
+        setOpen(null);
+        return true;
+      }
+      return false;
+    }
+  });
+
   // Editor view for a ready project.
   if (openProject && openProject.id === openId && openProject.status === "ready") {
     return (
@@ -318,8 +373,6 @@ export function LongformStudioPage() {
       />
     );
   }
-
-  const busy = uploadPct !== null || creating || importing;
 
   return (
     <div className="space-y-6">
@@ -579,10 +632,9 @@ export function LongformStudioPage() {
                       </p>
                     </div>
                     <Badge
-                      className={cn(
-                        project.status === "ready" && "border-emerald-400/40 text-emerald-400",
-                        project.status === "error" && "border-red-400/40 text-red-400"
-                      )}
+                      tone={
+                        project.status === "ready" ? "success" : project.status === "error" ? "danger" : "neutral"
+                      }
                     >
                       {project.status === "processing"
                         ? `${project.progress}%`
@@ -598,7 +650,7 @@ export function LongformStudioPage() {
                     </div>
                   )}
                   {project.status === "error" && (
-                    <p className="line-clamp-2 text-xs text-red-300">{project.error}</p>
+                    <p className="tone-danger tone-text line-clamp-2 text-xs">{project.error}</p>
                   )}
                   {/* A weak opening is the one problem that never announces
                       itself: the export succeeds and the video simply does not
@@ -607,7 +659,7 @@ export function LongformStudioPage() {
                     <button
                       type="button"
                       onClick={() => setOpen(project.id)}
-                      className="flex items-start gap-2 rounded-lg border border-amber-400/50 bg-amber-400/5 px-2.5 py-2 text-left text-xs text-amber-200 transition hover:bg-amber-400/10"
+                      className="tone-warning tone-edge tone-soft tone-text flex items-start gap-2 rounded-lg border px-2.5 py-2 text-left text-xs transition hover:bg-[color-mix(in_srgb,var(--warning)_20%,transparent)]"
                     >
                       <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
                       <span className="min-w-0">
@@ -662,13 +714,13 @@ export function LongformStudioPage() {
                                         : "not rendered yet"}
                                   </span>
                                   {review && review.verdict !== "strong" && (
-                                    <span className="mt-0.5 flex items-start gap-1 text-[10px] leading-snug text-amber-200/90">
+                                    <span className="tone-warning tone-text mt-0.5 flex items-start gap-1 text-[10px] leading-snug">
                                       <AlertTriangle className="mt-0.5 h-3 w-3 shrink-0" />
                                       <span className="min-w-0">{segmentReviewHeadline(review)}</span>
                                     </span>
                                   )}
                                 </span>
-                                {rendered && <Check className="h-3.5 w-3.5 shrink-0 text-emerald-400" />}
+                                {rendered && <Check className="h-3.5 w-3.5 shrink-0 text-[var(--success)]" />}
                               </button>
                             );
                           })}
@@ -687,7 +739,7 @@ export function LongformStudioPage() {
                     <button
                       type="button"
                       onClick={() => void deleteProject(project)}
-                      className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-[var(--border)] text-[var(--muted-foreground)] transition hover:border-red-400/60 hover:text-red-400"
+                      className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-[var(--border)] text-[var(--muted-foreground)] transition hover:border-[color-mix(in_srgb,var(--danger)_60%,transparent)] hover:text-[var(--danger)]"
                       aria-label="Delete project"
                     >
                       <Trash2 className="h-4 w-4" />

@@ -18,6 +18,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { useAppData } from "@/components/providers/app-provider";
+import { useColateralSurface } from "@/lib/colateral/useSurface";
 import { ScheduleCalendar } from "@/components/carousels/schedule-calendar";
 import { ScheduleModal } from "@/components/carousels/schedule-modal";
 import { SlideEditor } from "@/components/carousels/slide-editor";
@@ -288,6 +289,89 @@ export function CarouselsPage() {
     }
   };
 
+  // The same values the "what to turn into slides" <Select> lists, in the same
+  // order, so a value the canvas writes here is one the picker already accepts.
+  const sourceOptions = useMemo(() => {
+    const options: string[] = [];
+    for (const script of scripts) options.push(`script:${script.id}`);
+    if (presetMissing) options.push(`longform:${presetLongform}`);
+    for (const project of projects) options.push(`longform:${project.id}`);
+    for (const short of shorts) options.push(`short:${short.jobId}::${short.clipId}`);
+    options.push("custom", "images");
+    return options;
+  }, [scripts, presetMissing, presetLongform, projects, shorts]);
+
+  useColateralSurface({
+    route: "/carousels",
+    title: "Carousels & Images",
+    summary: "Turn a script, video, short-form clip, batch of photos, or pasted text into a swipeable carousel to edit, download, and schedule.",
+    fields: [
+      { id: "source", label: "Source", value: sourceValue, kind: "select", options: sourceOptions },
+      { id: "customTitle", label: "Carousel title", value: customTitle, kind: "text", hint: "Used for pasted text / photo carousels." },
+      { id: "customText", label: "Pasted text", value: customText, kind: "longtext", hint: "Used when the source is pasted text." },
+      { id: "imageNotes", label: "Photo description", value: imageNotes, kind: "longtext", hint: "What the attached photos show." },
+      { id: "slideCount", label: "Slides per carousel", value: slideCount, kind: "number", unit: "slides" },
+      { id: "batchCount", label: "Batches to write", value: batchCount, kind: "number" }
+    ],
+    controls: [
+      { id: "generate", label: "Generate", group: "Generate", disabled: generating },
+      { id: "clearImages", label: "Clear photos", group: "Photos", disabled: images.length === 0 }
+    ],
+    readings: [
+      { label: "Carousels", value: String(carousels.length) },
+      { label: "Slides in next batch", value: String(deckSlides) },
+      { label: "Photos attached", value: String(images.length) }
+    ],
+    setField: (id, value) => {
+      switch (id) {
+        case "source":
+          if (typeof value !== "string") return false;
+          pickSource(value);
+          return true;
+        case "customTitle":
+          if (typeof value !== "string") return false;
+          setCustomTitle(value);
+          return true;
+        case "customText":
+          if (typeof value !== "string") return false;
+          setCustomText(value);
+          return true;
+        case "imageNotes":
+          if (typeof value !== "string") return false;
+          setImageNotes(value);
+          return true;
+        case "slideCount": {
+          const next = Number(value);
+          if (!SLIDE_COUNT_OPTIONS.includes(next)) return false;
+          setSlideCount(next);
+          return true;
+        }
+        case "batchCount": {
+          const next = Number(value);
+          if (!Number.isInteger(next) || next < 1 || next > MAX_BATCH_COUNT) return false;
+          setBatchCount(next);
+          return true;
+        }
+        default:
+          return false;
+      }
+    },
+    click: (id) => {
+      switch (id) {
+        case "generate":
+          if (generating) return false;
+          void generate();
+          return true;
+        case "clearImages":
+          if (images.length === 0) return false;
+          setImages([]);
+          return true;
+        default:
+          return false;
+      }
+    }
+  });
+
   return (
     <div>
       <PageHeader
@@ -413,12 +497,12 @@ export function CarouselsPage() {
                 : `${batchCount} carousels of ${deckSlides} slides — ${batchCount * deckSlides} in total`}
             </span>
             {batchCount > 1 ? (
-              <span className="text-white/70">
+              <span className="text-[var(--muted-foreground-2)]">
                 · {Array.from({ length: batchCount }, (_, i) => carouselAngle(i).label).join(" · ")}
               </span>
             ) : null}
             {images.length > 0 && deckSlides > slideCount ? (
-              <span className="text-amber-300/90">· raised to {deckSlides} so every photo gets a slide</span>
+              <span className="tone-warning tone-text">· raised to {deckSlides} so every photo gets a slide</span>
             ) : null}
           </p>
 
@@ -441,7 +525,7 @@ export function CarouselsPage() {
       </Card>
 
       {reason ? (
-        <div className="mb-6 rounded-2xl border border-amber-400/30 bg-amber-400/10 p-3 text-xs text-amber-100">{reason}</div>
+        <div className="tone-warning tone-edge tone-soft tone-text mb-6 rounded-2xl border p-3 text-xs">{reason}</div>
       ) : null}
 
       {carousels.length === 0 ? (

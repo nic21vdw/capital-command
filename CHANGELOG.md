@@ -14,6 +14,32 @@ already shipped.
 
 ## Unreleased
 
+- **Agents on the CoLateral canvas can now work this app, not just look at it.**
+  A Capital Command Card used to be a window: the canvas could frame the app and
+  nothing more. It can now be asked to open a page, read what is on it, fill a
+  field in and press a button — so "put Capital Command on the uploading centre
+  and tell me what is queued" is one request rather than a description of clicks
+  for you to do. Pages say for themselves what they offer, so an agent reports
+  what the app actually says rather than guessing; anything that publishes or
+  deletes is marked as such and is meant to come back to you before it runs.
+
+- **The card can reach every screen, and stops wasting half a small card on the
+  sidebar.** Its page list had eleven of this app's thirty-two screens, so most
+  of the app was unreachable from the canvas. It now has all of them, grouped
+  the way the sidebar groups them, on a rail the card draws itself — and the app
+  collapses or drops its own sidebar as the card gets smaller, so a small card
+  is the page you wanted instead of mostly menu.
+
+- **Status colours follow the theme instead of staying Tailwind green.** A
+  "ready" chip was the same green on all fifteen dark themes while everything
+  around it changed, which is the most visible way the app stopped matching the
+  canvas. Success, warning, danger and info are now part of each theme, taken
+  from CoLateral's own, and most screens were moved onto them.
+
+- **A theme CoLateral has that this app does not no longer falls back to Dark.**
+  The canvas now hands over the colours it is actually painting with, not just
+  the name of a preset — so a theme added to CoLateral after this app's last
+  release, or one you recoloured yourself, paints the frame correctly anyway.
 - **The best-of edit now finds the story and watches the footage.** It works out what the stream set out to do and cuts to that arc: it opens on the goal, ends on the result, and gives every passage a role. A passage that points back at something the edit skipped either brings that part in or goes. Every clip is watched before it goes in: with a vision key (Anthropic or fal), a model looks at six frames of it against what you are saying, and a blank, loading, off-topic or private screen is swapped for the next best passage. Without one, a scan of the footage still drops blank and "starting soon" screens and trims them off the ends of clips.
 - **Filler words and dead air are cut inside every clip.** Um, uh, doubled words and long pauses between words come out, each clip starts on its first real word, and the captions leave the cut words out too. The Best-of tab shows how many of each were cut.
 - **Zoom cuts in the best-of edit, if you want them.** A switch in the Best-of tab makes a jump cut inside the same shot alternate between the wide frame and a punch-in. It starts off, and cuts to new material stay straight cuts.

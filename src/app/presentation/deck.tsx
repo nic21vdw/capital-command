@@ -5,6 +5,7 @@ import { Player, type PlayerRef } from "@remotion/player";
 import { ChevronDown, ChevronLeft, ChevronRight, Clapperboard, Download, Loader2, Play } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
+import { useColateralSurface } from "@/lib/colateral/useSurface";
 import { PROJECTS, type Project } from "./projects";
 
 /**
@@ -119,6 +120,68 @@ export const PresentationDeck: React.FC = () => {
       setDownloading(false);
     }
   }, [downloading, project.id, slide.id, slide.title]);
+
+  useColateralSurface({
+    route: "/presentation",
+    title: "Segment Deck",
+    summary: "Preview every Remotion segment across the deck's projects, and render one as a downloadable MP4.",
+    fields: [
+      { id: "project", label: "Project", value: project.id, kind: "select", options: PROJECTS.map((p) => p.id) },
+      { id: "slideIndex", label: "Slide", value: index + 1, kind: "number", hint: `1-${slides.length}` }
+    ],
+    controls: [
+      { id: "previous", label: "Previous slide", group: "Navigate", disabled: index === 0 },
+      { id: "next", label: "Next slide", group: "Navigate", disabled: index === slides.length - 1 },
+      { id: "playPause", label: "Play / Pause", group: "Playback" },
+      { id: "download", label: "Download MP4", group: "Export", disabled: downloading }
+    ],
+    readings: [
+      { label: "Slides in project", value: String(slides.length) },
+      { label: "Format", value: `${project.format.width}×${project.format.height} @ ${project.format.fps}fps` },
+      { label: "Rendering", value: downloading ? "Yes" : "No" }
+    ],
+    setField: (id, value) => {
+      if (id === "project") {
+        if (typeof value !== "string") return false;
+        const target = PROJECTS.find((p) => p.id === value);
+        if (!target) return false;
+        selectProject(target.id);
+        return true;
+      }
+      if (id === "slideIndex") {
+        const wanted = Number(value);
+        if (!Number.isFinite(wanted)) return false;
+        const zeroBased = Math.round(wanted) - 1;
+        if (zeroBased < 0 || zeroBased > slides.length - 1) return false;
+        setIndex(zeroBased);
+        return true;
+      }
+      return false;
+    },
+    click: (id) => {
+      if (id === "previous") {
+        if (index === 0) return false;
+        setIndex((i) => clamp(i - 1));
+        return true;
+      }
+      if (id === "next") {
+        if (index === slides.length - 1) return false;
+        setIndex((i) => clamp(i + 1));
+        return true;
+      }
+      if (id === "playPause") {
+        if (!playerRef.current) return false;
+        playerRef.current.toggle();
+        return true;
+      }
+      if (id === "download") {
+        if (downloading) return false;
+        void downloadSlide();
+        return true;
+      }
+      return false;
+    }
+  });
 
   return (
     <div className="space-y-4">

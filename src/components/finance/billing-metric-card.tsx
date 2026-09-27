@@ -28,7 +28,7 @@ export function BillingMetricCard({
         <span
           className={cn(
             "inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium",
-            positive ? "bg-emerald-400/12 text-emerald-300" : "bg-red-400/12 text-red-300"
+            positive ? "tone-success tone-soft tone-text" : "tone-danger tone-soft tone-text"
           )}
         >
           <Icon className="h-3 w-3" />

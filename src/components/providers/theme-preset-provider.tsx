@@ -1,8 +1,9 @@
 "use client";
 
-import { createContext, useCallback, useContext, useEffect, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import type { ThemePreset } from "@/types/domain";
 import { DEFAULT_THEME, isThemePreset, normalizeThemePreset } from "@/lib/themes";
+import { THEME_TOKEN_NAMES, sanitizeThemeTokens } from "@/lib/colateral/protocol";
 import {
   DEFAULT_APPEARANCE,
   HOST_THEME_KEY,
@@ -59,12 +60,38 @@ interface ThemePresetContextValue {
   hosted: boolean;
 }
 
+interface HostThemeContextValue {
+  applyHostTheme: (theme: string, tokens: Record<string, string>) => void;
+  customPalette: boolean;
+}
+
 const ThemePresetContext = createContext<ThemePresetContextValue | null>(null);
+const HostThemeContext = createContext<HostThemeContextValue>({
+  applyHostTheme: () => {},
+  customPalette: false
+});
 
 function applyTheme(theme: ThemePreset) {
   if (typeof document !== "undefined") {
     document.documentElement.dataset.theme = theme;
   }
+}
+
+function applyHostTokens(tokens: Record<string, string>) {
+  if (typeof document === "undefined") return false;
+  const safe = sanitizeThemeTokens(tokens);
+  const root = document.documentElement;
+  let painted = false;
+  for (const name of THEME_TOKEN_NAMES) {
+    const value = safe[name];
+    if (value) {
+      root.style.setProperty(name, value);
+      painted = true;
+    } else {
+      root.style.removeProperty(name);
+    }
+  }
+  return painted;
 }
 
 function readHostTheme(): ThemePreset | null {
@@ -92,6 +119,7 @@ function readOwnTheme(): ThemePreset {
 export function ThemePresetProvider({ children }: { children: React.ReactNode }) {
   const [theme, setThemeState] = useState<ThemePreset>(DEFAULT_THEME);
   const [hosted, setHosted] = useState(false);
+  const [customPalette, setCustomPalette] = useState(false);
 
   useEffect(() => {
     const fromHost = readHostTheme();
@@ -107,22 +135,12 @@ export function ThemePresetProvider({ children }: { children: React.ReactNode })
 
   useEffect(() => {
     const onMessage = (event: MessageEvent) => {
-      const data = event.data as ({ type?: unknown; theme?: unknown } & HostAppearanceInput) | null;
+      const data = event.data as ({ type?: unknown } & HostAppearanceInput) | null;
       if (!data || typeof data !== "object" || data.type !== HOST_THEME_MESSAGE) return;
-      if (carriesAppearance(data)) {
-        const appearance = mergeHostAppearance(readSessionAppearance(), data);
-        storeSessionAppearance(appearance);
-        applyAppearance(appearance);
-      }
-      if (!isThemePreset(data.theme)) return;
-      try {
-        window.sessionStorage.setItem(HOST_THEME_KEY, data.theme);
-      } catch {
-        /* a frame without storage still repaints */
-      }
-      applyTheme(data.theme);
-      setThemeState(data.theme);
-      setHosted(true);
+      if (!carriesAppearance(data)) return;
+      const appearance = mergeHostAppearance(readSessionAppearance(), data);
+      storeSessionAppearance(appearance);
+      applyAppearance(appearance);
     };
     window.addEventListener("message", onMessage);
     return () => window.removeEventListener("message", onMessage);
@@ -131,6 +149,8 @@ export function ThemePresetProvider({ children }: { children: React.ReactNode })
   const setTheme = useCallback((next: ThemePreset) => {
     setThemeState(next);
     applyTheme(next);
+    applyHostTokens({});
+    setCustomPalette(false);
     try {
       window.localStorage.setItem(THEME_STORAGE_KEY, next);
     } catch {
@@ -138,9 +158,33 @@ export function ThemePresetProvider({ children }: { children: React.ReactNode })
     }
   }, []);
 
+  const applyHostTheme = useCallback((next: string, tokens: Record<string, string>) => {
+    if (isThemePreset(next)) {
+      try {
+        window.sessionStorage.setItem(HOST_THEME_KEY, next);
+      } catch {
+        /* a frame without storage still repaints */
+      }
+      applyTheme(next);
+      setThemeState(next);
+      setHosted(true);
+    }
+    const painted = applyHostTokens(tokens);
+    setCustomPalette(painted && !isThemePreset(next));
+    if (painted) setHosted(true);
+  }, []);
+
+  const hostValue = useMemo(() => ({ applyHostTheme, customPalette }), [applyHostTheme, customPalette]);
+
   return (
-    <ThemePresetContext.Provider value={{ theme, setTheme, hosted }}>{children}</ThemePresetContext.Provider>
+    <ThemePresetContext.Provider value={{ theme, setTheme, hosted }}>
+      <HostThemeContext.Provider value={hostValue}>{children}</HostThemeContext.Provider>
+    </ThemePresetContext.Provider>
   );
+}
+
+export function useHostTheme(): HostThemeContextValue {
+  return useContext(HostThemeContext);
 }
 
 export function useThemePreset() {

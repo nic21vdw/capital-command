@@ -65,7 +65,7 @@ export function BillingSection({ currency }: { currency: "CAD" | "USD" }) {
           <h2 className="text-xl font-semibold text-white">Stripe billing overview</h2>
         </div>
         <div className="flex items-center gap-2">
-          <Badge className={overview.source === "stripe" ? "text-emerald-300" : "text-amber-200"}>
+          <Badge tone={overview.source === "stripe" ? "success" : "warning"}>
             {overview.source === "stripe" ? "Live Stripe" : "Sample data"}
           </Badge>
           <Button variant="secondary" onClick={() => void load()}>
@@ -75,7 +75,7 @@ export function BillingSection({ currency }: { currency: "CAD" | "USD" }) {
       </div>
 
       {!hasKey ? (
-        <Card className="border-amber-300/20 bg-amber-300/5">
+        <Card className="tone-warning tone-edge tone-soft">
           <p className="text-sm text-white">
             Connect Stripe to see your real numbers. Add <code className="text-[var(--accent)]">STRIPE_SECRET_KEY</code> to
             your environment and refresh. Until then, the dashboard shows sample data.
@@ -118,7 +118,7 @@ export function BillingSection({ currency }: { currency: "CAD" | "USD" }) {
         <Card className="flex flex-col justify-between gap-3">
           <div className="flex items-center justify-between">
             <p className="text-sm text-[var(--muted-foreground)]">Disputes</p>
-            <TriangleAlert className="h-5 w-5 text-amber-300" />
+            <TriangleAlert className="h-5 w-5 tone-warning tone-text" />
           </div>
           <p className="text-3xl font-semibold text-white">{overview.disputes}</p>
           <p className="text-sm text-[var(--muted-foreground)]">Open disputes this period</p>
@@ -126,7 +126,7 @@ export function BillingSection({ currency }: { currency: "CAD" | "USD" }) {
         <Card className="flex flex-col justify-between gap-3">
           <div className="flex items-center justify-between">
             <p className="text-sm text-[var(--muted-foreground)]">High-risk payments</p>
-            <ShieldAlert className="h-5 w-5 text-red-300" />
+            <ShieldAlert className="h-5 w-5 tone-danger tone-text" />
           </div>
           <p className="text-3xl font-semibold text-white">{overview.highRiskPayments}</p>
           <p className="text-sm text-[var(--muted-foreground)]">Flagged by Stripe Radar</p>

@@ -23,6 +23,7 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { StatCard } from "@/components/ui/stat-card";
+import { useColateralSurface } from "@/lib/colateral/useSurface";
 import { deriveStudioOverview } from "@/lib/youtube/studio";
 import type { StudioVideoRow, StudioVisibility } from "@/lib/youtube/types";
 import { cn, formatCurrency } from "@/lib/utils";
@@ -82,7 +83,7 @@ function Thumbnail({ row }: { row: StudioVideoRow }) {
 function PerformanceBadge({ row }: { row: StudioVideoRow }) {
   if (row.performance === "top") {
     return (
-      <Badge className="border-emerald-400/30 bg-emerald-400/10 text-emerald-300">
+      <Badge tone="success">
         <TrendingUp className="mr-1 h-3 w-3" />
         Top
       </Badge>
@@ -90,7 +91,7 @@ function PerformanceBadge({ row }: { row: StudioVideoRow }) {
   }
   if (row.performance === "under") {
     return (
-      <Badge className="border-amber-400/30 bg-amber-400/10 text-amber-300">
+      <Badge tone="warning">
         <TrendingDown className="mr-1 h-3 w-3" />
         Lagging
       </Badge>
@@ -119,6 +120,41 @@ export function YouTubeStudioPage() {
       : monetization.bottleneck === "watchHours"
         ? "Watch hours are the gap to close"
         : null;
+
+  useColateralSurface({
+    route: "/youtube",
+    title: "YouTube",
+    summary: "Channel performance, monetization readiness, and every upload's numbers.",
+    fields: [
+      {
+        id: "filter",
+        label: "Content filter",
+        value: filter,
+        kind: "select",
+        options: FILTERS.map((option) => option.id)
+      }
+    ],
+    controls: [{ id: "open-studio", label: "Open YouTube Studio", group: "Channel" }],
+    readings: [
+      { label: "Subscribers", value: formatCount(overview.subscribers) },
+      { label: "Total views", value: formatCount(overview.totalViews) },
+      {
+        label: "Monetization",
+        value: monetization.monetized ? "Monetized" : monetization.eligible ? "Eligible to apply" : "On the path"
+      }
+    ],
+    setField: (id, value) => {
+      if (id !== "filter" || typeof value !== "string") return false;
+      if (!FILTERS.some((option) => option.id === value)) return false;
+      setFilter(value as RowFilter);
+      return true;
+    },
+    click: (id) => {
+      if (id !== "open-studio") return false;
+      window.open(STUDIO_URL, "_blank", "noreferrer");
+      return true;
+    }
+  });
 
   return (
     <div className="space-y-6">
@@ -194,13 +230,7 @@ export function YouTubeStudioPage() {
         <Card>
           <div className="flex items-center justify-between gap-4">
             <h2 className="text-xl font-semibold text-white">Monetization readiness</h2>
-            <Badge
-              className={
-                monetization.eligible
-                  ? "border-emerald-400/30 bg-emerald-400/10 text-emerald-300"
-                  : ""
-              }
-            >
+            <Badge tone={monetization.eligible ? "success" : "neutral"}>
               {monetization.monetized ? "Monetized" : monetization.eligible ? "Eligible to apply" : "On the path"}
             </Badge>
           </div>
@@ -228,7 +258,7 @@ export function YouTubeStudioPage() {
             </div>
           </div>
           {monetization.eligible ? (
-            <div className="mt-5 flex items-start gap-2 rounded-2xl border border-emerald-400/20 bg-emerald-400/5 p-4 text-sm text-emerald-200">
+            <div className="tone-success tone-edge tone-soft tone-text mt-5 flex items-start gap-2 rounded-2xl p-4 text-sm">
               <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />
               <span>Both thresholds are met. You can apply for the Partner Program from YouTube Studio.</span>
             </div>
@@ -261,7 +291,7 @@ export function YouTubeStudioPage() {
             <div className="mt-4 space-y-4">
               {insights.topPerformers.length > 0 ? (
                 <div>
-                  <p className="mb-2 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-emerald-300">
+                  <p className="tone-success tone-text mb-2 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide">
                     <TrendingUp className="h-3.5 w-3.5" />
                     Top performers
                   </p>
@@ -279,7 +309,7 @@ export function YouTubeStudioPage() {
               ) : null}
               {insights.underPerformers.length > 0 ? (
                 <div>
-                  <p className="mb-2 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-amber-300">
+                  <p className="tone-warning tone-text mb-2 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide">
                     <TrendingDown className="h-3.5 w-3.5" />
                     Lagging
                   </p>

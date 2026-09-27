@@ -224,8 +224,8 @@ export function VoiceConsole({ onWorkStarted }: { onWorkStarted?: () => void }) 
         <div className="flex items-center gap-2">
           <AudioLines className={cn("h-4 w-4", live ? "text-[var(--accent)]" : "text-[var(--muted-foreground)]")} />
           <h2 className="font-semibold text-white">Live voice</h2>
-          <Badge className={cn(live ? "border-emerald-400/30 bg-emerald-400/10 text-emerald-200" : "")}>{STATUS_LABEL[status]}</Badge>
-          {speaking ? <Badge className="border-blue-400/30 bg-blue-400/10 text-blue-200">Speaking</Badge> : null}
+          <Badge tone={live ? "success" : "neutral"}>{STATUS_LABEL[status]}</Badge>
+          {speaking ? <Badge tone="info">Speaking</Badge> : null}
         </div>
         <div className="flex items-center gap-2">
           {live ? (
@@ -258,7 +258,7 @@ export function VoiceConsole({ onWorkStarted }: { onWorkStarted?: () => void }) 
               >
                 <span className="flex items-center justify-between gap-2 text-sm font-medium text-white">
                   {item.label}
-                  <span className={cn("h-2 w-2 rounded-full", item.configured ? "bg-emerald-400" : "bg-amber-400")} />
+                  <span className={cn("h-2 w-2 rounded-full", item.configured ? "tone-success tone-fill" : "tone-warning tone-fill")} />
                 </span>
                 <span className="mt-1 block truncate text-xs text-[var(--muted-foreground)]">{item.model}</span>
               </button>
@@ -284,10 +284,14 @@ export function VoiceConsole({ onWorkStarted }: { onWorkStarted?: () => void }) 
               onClick={() => setAllowActions((value) => !value)}
               className={cn(
                 "flex w-full items-start gap-2 rounded-lg border p-3 text-left transition",
-                allowActions ? "border-amber-400/40 bg-amber-400/10" : "border-[var(--border)] bg-white/[0.03]"
+                allowActions ? "tone-warning tone-edge tone-soft" : "border-[var(--border)] bg-white/[0.03]"
               )}
             >
-              {allowActions ? <Unlock className="mt-0.5 h-4 w-4 shrink-0 text-amber-300" /> : <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-emerald-300" />}
+              {allowActions ? (
+                <Unlock className="mt-0.5 h-4 w-4 shrink-0 tone-warning tone-text" />
+              ) : (
+                <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 tone-success tone-text" />
+              )}
               <span className="text-xs leading-relaxed text-[var(--muted-foreground)]">
                 <span className="block text-sm font-medium text-white">{allowActions ? "Actions armed" : "Read-only"}</span>
                 {allowActions
@@ -299,11 +303,11 @@ export function VoiceConsole({ onWorkStarted }: { onWorkStarted?: () => void }) 
               <div
                 className={cn(
                   "rounded-lg border p-3",
-                  subscription?.signedIn ? "border-emerald-400/30 bg-emerald-400/10" : "border-[var(--border)] bg-white/[0.03]"
+                  subscription?.signedIn ? "tone-success tone-edge tone-soft" : "border-[var(--border)] bg-white/[0.03]"
                 )}
               >
                 <span className="flex items-center gap-1.5 text-sm font-medium text-white">
-                  <BadgeCheck className={cn("h-4 w-4", subscription?.signedIn ? "text-emerald-300" : "text-[var(--muted-foreground)]")} />
+                  <BadgeCheck className={cn("h-4 w-4", subscription?.signedIn ? "tone-success tone-text" : "text-[var(--muted-foreground)]")} />
                   SuperGrok / X Premium
                 </span>
                 <p className="mt-1 text-xs leading-relaxed text-[var(--muted-foreground)]">
@@ -339,7 +343,7 @@ export function VoiceConsole({ onWorkStarted }: { onWorkStarted?: () => void }) 
                 )}
               </div>
             ) : !currentProvider?.configured ? (
-              <p className="rounded-lg border border-amber-400/20 bg-amber-400/10 p-2.5 text-xs text-amber-100">
+              <p className="rounded-lg tone-warning tone-edge tone-soft p-2.5 text-xs tone-text">
                 OpenAI has no subscription route — ChatGPT Plus does not cover the realtime API, so this one needs pay-as-you-go credit and `OPENAI_API_KEY` in .env. Use Grok Voice to run on a subscription instead.
               </p>
             ) : null}
@@ -376,7 +380,7 @@ export function VoiceConsole({ onWorkStarted }: { onWorkStarted?: () => void }) 
               </span>
               {toolLines.map((line) => (
                 <div key={line.id} className="flex items-start gap-2 text-xs">
-                  <Radio className={cn("mt-0.5 h-3 w-3 shrink-0", line.ok ? "text-emerald-300" : "text-red-300")} />
+                  <Radio className={cn("mt-0.5 h-3 w-3 shrink-0", line.ok ? "tone-success tone-text" : "tone-danger tone-text")} />
                   <span className="text-white">{line.name.replaceAll("_", " ")}</span>
                   <span className="min-w-0 flex-1 truncate text-[var(--muted-foreground)]">{line.detail}</span>
                 </div>

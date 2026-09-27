@@ -13,6 +13,7 @@ import { Progress } from "@/components/ui/progress";
 import { Select } from "@/components/ui/select";
 import { StatCard } from "@/components/ui/stat-card";
 import { Textarea } from "@/components/ui/textarea";
+import { useColateralSurface } from "@/lib/colateral/useSurface";
 import { formatCurrency } from "@/lib/utils";
 import type { ContentItem, ContentPlatform, ContentStatus, ContentType } from "@/types/domain";
 
@@ -55,6 +56,75 @@ export function CreatorPage() {
     const watchThreshold = (profile.watchHours / MONETIZATION_WATCH_HOURS) * 100;
     return { published, publishedThisMonth, revenueThisMonth, inPipeline, subProgress, subThreshold, watchThreshold };
   }, [items, profile]);
+
+  useColateralSurface({
+    route: "/creator",
+    title: "Creator",
+    summary: "Subscriber growth, monetization, and the content pipeline for one channel.",
+    fields: [
+      { id: "channelName", label: "Channel name", value: profile.channelName, kind: "text" },
+      { id: "subscriberGoal", label: "Subscriber goal", value: profile.subscriberGoal, kind: "number" },
+      { id: "monthlyRevenueGoal", label: "Monthly revenue goal", value: profile.monthlyRevenueGoal, kind: "number" },
+      { id: "monetized", label: "Channel is monetized", value: profile.monetized, kind: "boolean" }
+    ],
+    controls: [{ id: "add-content", label: "Add content", group: "Content pipeline" }],
+    readings: [
+      { label: "Subscribers", value: formatCount(profile.subscribers) },
+      { label: "In pipeline", value: String(metrics.inPipeline) },
+      { label: "Published all-time", value: String(metrics.published.length) }
+    ],
+    // The same `mutate("updateCreatorProfile", ...)` call `saveChannel` makes,
+    // built from the same `makeCreatorProfile` helper — just one field at a
+    // time instead of a whole form submission.
+    setField: (id, value) => {
+      switch (id) {
+        case "channelName": {
+          if (typeof value !== "string") return false;
+          void mutate(
+            "updateCreatorProfile",
+            makeCreatorProfile({ ...profile, channelName: value }),
+            { successMessage: "Channel updated." }
+          );
+          return true;
+        }
+        case "subscriberGoal": {
+          if (typeof value !== "number") return false;
+          void mutate(
+            "updateCreatorProfile",
+            makeCreatorProfile({ ...profile, subscriberGoal: value }),
+            { successMessage: "Channel updated." }
+          );
+          return true;
+        }
+        case "monthlyRevenueGoal": {
+          if (typeof value !== "number") return false;
+          void mutate(
+            "updateCreatorProfile",
+            makeCreatorProfile({ ...profile, monthlyRevenueGoal: value }),
+            { successMessage: "Channel updated." }
+          );
+          return true;
+        }
+        case "monetized": {
+          if (typeof value !== "boolean") return false;
+          void mutate(
+            "updateCreatorProfile",
+            makeCreatorProfile({ ...profile, monetized: value }),
+            { successMessage: "Channel updated." }
+          );
+          return true;
+        }
+        default:
+          return false;
+      }
+    },
+    click: (id) => {
+      if (id !== "add-content") return false;
+      setEditing(null);
+      setShowContentModal(true);
+      return true;
+    }
+  });
 
   const saveContent = async (formData: FormData) => {
     const item = makeContentItem(editing ?? undefined);
@@ -154,7 +224,7 @@ export function CreatorPage() {
         <Card>
           <div className="flex items-center justify-between gap-4">
             <h2 className="text-xl font-semibold text-white">Monetization progress</h2>
-            <Badge className={profile.monetized ? "border-emerald-400/30 bg-emerald-400/10 text-emerald-300" : ""}>
+            <Badge tone={profile.monetized ? "success" : "neutral"}>
               {profile.monetized ? "Monetized" : "On the path"}
             </Badge>
           </div>

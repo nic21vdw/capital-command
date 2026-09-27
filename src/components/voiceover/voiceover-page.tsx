@@ -10,6 +10,7 @@ import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { PageHeader } from "@/components/ui/page-header";
 import { Textarea } from "@/components/ui/textarea";
+import { useColateralSurface } from "@/lib/colateral/useSurface";
 import type { Voiceover } from "@/types/domain";
 
 /** AI voiceover: typed dialogue synthesized in Nic's cloned voice (ElevenLabs). */
@@ -50,6 +51,48 @@ export function VoiceoverPage() {
       setGenerating(false);
     }
   };
+
+  useColateralSurface({
+    route: "/voiceover",
+    title: "Voiceover",
+    summary: "Type any dialogue and generate it in your own cloned voice for narration, avatar dubbing, or quick VO drops.",
+    fields: [
+      { id: "title", label: "Voiceover title", value: title, kind: "text" },
+      { id: "script", label: "Script", value: script, kind: "longtext" }
+    ],
+    controls: [
+      {
+        id: "generate",
+        label: "Generate voiceover",
+        group: "Generate",
+        disabled: generating || !script.trim(),
+        destructive: true,
+        hint: "Synthesizes audio through ElevenLabs — an external, billed API."
+      }
+    ],
+    readings: [
+      { label: "Voiceovers", value: String(voiceovers.length) },
+      { label: "Latest status", value: voiceovers[0]?.status ?? "—" }
+    ],
+    setField: (id, value) => {
+      if (typeof value !== "string") return false;
+      if (id === "title") {
+        setTitle(value);
+        return true;
+      }
+      if (id === "script") {
+        setScript(value);
+        return true;
+      }
+      return false;
+    },
+    click: (id) => {
+      if (id !== "generate") return false;
+      if (generating || !script.trim()) return false;
+      void generate();
+      return true;
+    }
+  });
 
   return (
     <div>
@@ -107,9 +150,9 @@ function VoiceoverCard({ voiceover, refresh }: { voiceover: Voiceover; refresh: 
         </div>
         <div className="flex items-center gap-2">
           {voiceover.status === "failed" ? (
-            <Badge className="border-red-400/30 bg-red-400/10 text-red-200">Failed</Badge>
+            <Badge tone="danger">Failed</Badge>
           ) : (
-            <Badge className="border-emerald-400/30 bg-emerald-400/10 text-emerald-200">Ready</Badge>
+            <Badge tone="success">Ready</Badge>
           )}
           <Button variant="danger" className="px-3 py-1.5 text-xs" onClick={() => void remove()}>
             <Trash2 className="h-3.5 w-3.5" />
@@ -120,7 +163,7 @@ function VoiceoverCard({ voiceover, refresh }: { voiceover: Voiceover; refresh: 
       {voiceover.status === "completed" && voiceover.audioUrl ? (
         <audio src={voiceover.audioUrl} controls className="w-full" />
       ) : voiceover.status === "failed" ? (
-        <p className="rounded-lg border border-red-400/30 bg-red-400/10 p-2 text-xs text-red-200">{voiceover.error}</p>
+        <p className="tone-danger tone-edge tone-soft tone-text rounded-lg border p-2 text-xs">{voiceover.error}</p>
       ) : null}
     </Card>
   );

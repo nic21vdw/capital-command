@@ -11,8 +11,11 @@ import { Modal } from "@/components/ui/modal";
 import { PageHeader } from "@/components/ui/page-header";
 import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
+import { useColateralSurface } from "@/lib/colateral/useSurface";
 import { formatCurrency } from "@/lib/utils";
 import type { WatchlistItem } from "@/types/domain";
+
+const ratingOptions = ["All", "1", "2", "3", "4", "5"];
 
 export function WatchlistPage() {
   const { data, mutate } = useAppData();
@@ -21,6 +24,50 @@ export function WatchlistPage() {
   const [view, setView] = useState<"cards" | "table">("cards");
   const [editing, setEditing] = useState<WatchlistItem | null>(null);
   const [showModal, setShowModal] = useState(false);
+
+  useColateralSurface({
+    route: "/finance",
+    title: "Watchlist",
+    summary: "Potential positions with target prices and reasons to watch them.",
+    fields: [
+      { id: "riskFilter", label: "Risk filter", value: riskFilter, kind: "select", options: ratingOptions },
+      {
+        id: "convictionFilter",
+        label: "Conviction filter",
+        value: convictionFilter,
+        kind: "select",
+        options: ratingOptions
+      },
+      { id: "view", label: "View", value: view, kind: "select", options: ["cards", "table"] }
+    ],
+    controls: [{ id: "add-item", label: "Add item", group: "Watchlist" }],
+    readings: [{ label: "Watchlist items", value: String(data.watchlist.length) }],
+    setField: (id, value) => {
+      if (typeof value !== "string") return false;
+      switch (id) {
+        case "riskFilter":
+          if (!ratingOptions.includes(value)) return false;
+          setRiskFilter(value);
+          return true;
+        case "convictionFilter":
+          if (!ratingOptions.includes(value)) return false;
+          setConvictionFilter(value);
+          return true;
+        case "view":
+          if (value !== "cards" && value !== "table") return false;
+          setView(value);
+          return true;
+        default:
+          return false;
+      }
+    },
+    click: (id) => {
+      if (id !== "add-item") return false;
+      setEditing(makeWatchlistItem());
+      setShowModal(true);
+      return true;
+    }
+  });
 
   const filtered = data.watchlist.filter((item) => {
     if (riskFilter !== "All" && String(item.riskRating) !== riskFilter) return false;

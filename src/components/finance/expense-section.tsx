@@ -191,7 +191,7 @@ export function ExpenseSection() {
                     <td className="px-3 py-3">
                       <span className="text-[var(--muted-foreground)]">{frequencyLabel[expense.frequency]}</span>
                       {expense.frequency !== "one-time" && !expense.active ? (
-                        <span className="ml-2 text-xs text-amber-300">paused</span>
+                        <span className="ml-2 text-xs tone-warning tone-text">paused</span>
                       ) : null}
                     </td>
                     <td className="px-3 py-3 text-right text-white">
@@ -206,7 +206,7 @@ export function ExpenseSection() {
                         </Button>
                         <Button
                           variant="ghost"
-                          className="px-2 text-red-300"
+                          className="px-2 tone-danger tone-text"
                           onClick={() =>
                             void mutate("deleteExpense", expense.id, { successMessage: "Expense removed." })
                           }

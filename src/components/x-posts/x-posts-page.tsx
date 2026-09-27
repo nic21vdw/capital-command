@@ -17,6 +17,7 @@ import {
   Sparkles
 } from "lucide-react";
 import { toast } from "sonner";
+import { useColateralSurface } from "@/lib/colateral/useSurface";
 import { useAppData } from "@/components/providers/app-provider";
 import { AdvancedOptions } from "@/components/ui/advanced-options";
 import { Badge } from "@/components/ui/badge";
@@ -199,6 +200,75 @@ export function XPostsPage() {
     void generate(false);
   }, [loading, storedPack, generate]);
 
+  // Let an agent on the CoLateral canvas read and drive this page: the same
+  // three actions the buttons below trigger, plus what the page is reporting.
+  useColateralSurface({
+    route: "/x-posts",
+    title: "X / Threads Posts",
+    summary: "Write a day of Threads posts and replies, then let the autopilot send them one at a time through the day.",
+    fields: [],
+    controls: [
+      {
+        id: "generate",
+        label: "Write today's posts",
+        group: "Compose",
+        disabled: generating || autopilot.busy !== null
+      },
+      {
+        id: "check-accounts",
+        label: "Check the accounts are connected",
+        group: "Manual",
+        disabled: autopilot.busy !== null
+      },
+      {
+        id: "schedule-now",
+        label: "Post these starting now",
+        group: "Manual",
+        // Hands the pack to the queue and starts sending it — as good as posting.
+        destructive: true,
+        disabled: generating || autopilot.busy !== null || !activePack
+      }
+    ],
+    readings: [
+      { label: "Posts today", value: String(activePack?.posts.length ?? 0) },
+      { label: "Replies ready", value: String(activePack?.replies.length ?? 0) },
+      {
+        label: "Posted today",
+        value: autopilot.status
+          ? `${autopilot.status.today.published}/${
+              autopilot.status.today.total ||
+              autopilot.status.settings.postsPerDay * Math.max(1, autopilot.status.settings.accounts.length)
+            }`
+          : "—"
+      },
+      { label: "Queued", value: String(autopilot.status?.today.pending ?? 0) },
+      { label: "Autopilot", value: autopilotArmed ? "Armed" : "Idle" }
+    ],
+    click: (id) => {
+      if (id === "generate") {
+        if (generating || autopilot.busy !== null) return false;
+        void generate(true);
+        return true;
+      }
+      if (id === "check-accounts") {
+        if (autopilot.busy !== null) return false;
+        void autopilot.send(
+          { action: "check" },
+          "check",
+          (json) =>
+            `Connected: ${(json.checks ?? []).map((entry) => (entry.username ? `@${entry.username}` : entry.label)).join(", ")}.`
+        );
+        return true;
+      }
+      if (id === "schedule-now") {
+        if (generating || autopilot.busy !== null || !activePack) return false;
+        void autopilot.scheduleNow();
+        return true;
+      }
+      return false;
+    }
+  });
+
   return (
     <div>
       <PageHeader
@@ -221,7 +291,7 @@ export function XPostsPage() {
       />
 
       {reason ? (
-        <div className="mb-6 rounded-2xl border border-amber-400/30 bg-amber-400/10 p-3 text-xs text-amber-100">{reason}</div>
+        <div className="mb-6 rounded-2xl border p-3 text-xs tone-warning tone-soft tone-edge tone-text">{reason}</div>
       ) : null}
 
       {activePack ? <PackSummary pack={activePack} now={now} /> : null}
@@ -476,13 +546,11 @@ function AutopilotCard({ status }: { status: AutopilotProps["status"] }) {
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
-          <Badge className={blockedReason ? "text-amber-200" : "text-[var(--accent)]"}>
-            {blockedReason ? "Idle" : "Armed"}
-          </Badge>
+          <Badge tone={blockedReason ? "warning" : "accent"}>{blockedReason ? "Idle" : "Armed"}</Badge>
           {today.pending ? <Badge>{today.pending} queued</Badge> : null}
-          {today.failed ? <Badge className="text-rose-200">{today.failed} failed</Badge> : null}
+          {today.failed ? <Badge tone="danger">{today.failed} failed</Badge> : null}
           {today.skipped ? <Badge>{today.skipped} skipped</Badge> : null}
-          {today.nextAt ? <Badge className="text-[var(--accent)]">Next {clock(today.nextAt)}</Badge> : null}
+          {today.nextAt ? <Badge tone="accent">Next {clock(today.nextAt)}</Badge> : null}
         </div>
       </div>
 
@@ -490,8 +558,8 @@ function AutopilotCard({ status }: { status: AutopilotProps["status"] }) {
         className={cn(
           "mt-4 flex flex-wrap items-center gap-x-4 gap-y-1 rounded-xl border px-3 py-2 text-xs",
           scheduler?.healthy
-            ? "border-emerald-400/25 bg-emerald-400/10 text-emerald-100"
-            : "border-amber-400/30 bg-amber-400/10 text-amber-100"
+            ? "tone-success tone-soft tone-edge tone-text"
+            : "tone-warning tone-soft tone-edge tone-text"
         )}
       >
         <span className="flex items-center gap-1.5 font-medium">
@@ -506,13 +574,13 @@ function AutopilotCard({ status }: { status: AutopilotProps["status"] }) {
       </div>
 
       {blockedReason ? (
-        <p className="mt-3 rounded-xl border border-amber-400/30 bg-amber-400/10 px-3 py-2 text-xs text-amber-100">
+        <p className="mt-3 rounded-xl border px-3 py-2 text-xs tone-warning tone-soft tone-edge tone-text">
           {blockedReason}
         </p>
       ) : null}
 
       {settings.unassignedVersions.length > 0 && !blockedReason ? (
-        <p className="mt-3 rounded-xl border border-amber-400/30 bg-amber-400/10 px-3 py-2 text-xs text-amber-100">
+        <p className="mt-3 rounded-xl border px-3 py-2 text-xs tone-warning tone-soft tone-edge tone-text">
           No account posts the {settings.unassignedVersions.map(versionLabel).join(" or ")} — that half of each
           day&apos;s pack is written and never used.
         </p>
@@ -629,11 +697,15 @@ function AutopilotTab({ status, busy, send }: AutopilotProps) {
               <span className="text-sm font-semibold text-white">{clock(item.publishAt)}</span>
             )}
             <Badge
-              className={cn(
-                item.status === "published" && "text-emerald-200",
-                item.status === "failed" && "text-rose-200",
-                item.status === "skipped" && "text-amber-200"
-              )}
+              tone={
+                item.status === "published"
+                  ? "success"
+                  : item.status === "failed"
+                    ? "danger"
+                    : item.status === "skipped"
+                      ? "warning"
+                      : "neutral"
+              }
             >
               {item.status}
             </Badge>
@@ -681,7 +753,7 @@ function AutopilotTab({ status, busy, send }: AutopilotProps) {
           )}
 
           {item.error ? (
-            <p className="text-xs text-rose-200">
+            <p className="text-xs tone-danger tone-text">
               {item.status === "failed" ? "Didn't post — " : null}
               {item.error}
             </p>
@@ -788,8 +860,8 @@ function PackSummary({ pack, now }: { pack: XDailyPack; now: number }) {
             </Badge>
           ) : null}
           <Badge>~every 40 min</Badge>
-          {pack.focus ? <Badge className="text-[var(--accent)]">Focus: {pack.focus}</Badge> : null}
-          <Badge className={pack.source === "ai" ? "text-[var(--accent)]" : undefined}>
+          {pack.focus ? <Badge tone="accent">Focus: {pack.focus}</Badge> : null}
+          <Badge tone={pack.source === "ai" ? "accent" : "neutral"}>
             {pack.source === "ai" ? "Claude-written" : "Idea library"}
           </Badge>
         </div>
@@ -798,9 +870,7 @@ function PackSummary({ pack, now }: { pack: XDailyPack; now: number }) {
       <div
         className={cn(
           "mt-4 flex flex-wrap items-center gap-x-4 gap-y-1 rounded-xl border px-3 py-2 text-xs",
-          stale
-            ? "border-amber-400/30 bg-amber-400/10 text-amber-100"
-            : "border-emerald-400/25 bg-emerald-400/10 text-emerald-100"
+          stale ? "tone-warning tone-soft tone-edge tone-text" : "tone-success tone-soft tone-edge tone-text"
         )}
       >
         <span className="flex items-center gap-1.5 font-medium">
@@ -868,7 +938,7 @@ function PostCard({ post }: { post: XSuggestedPost }) {
           <span
             className={cn(
               "text-xs tabular-nums",
-              overLimit ? "text-rose-300" : nearLimit ? "text-amber-300" : "text-[var(--muted-foreground)]"
+              overLimit ? "tone-danger tone-text" : nearLimit ? "tone-warning tone-text" : "text-[var(--muted-foreground)]"
             )}
           >
             {text.length}/{THREADS_LIMIT}

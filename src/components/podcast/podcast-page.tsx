@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { Check, Copy, ExternalLink, Loader2, Pencil, RefreshCw, Trash2, TriangleAlert, Upload } from "lucide-react";
 import { toast } from "sonner";
+import { useColateralSurface } from "@/lib/colateral/useSurface";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -141,6 +142,96 @@ export function PodcastPage() {
     if (ok) toast.success("Episode added to the feed");
   }
 
+  const ready = state ? state.blockers.length === 0 : false;
+  const unpublished = state ? state.candidates.filter((candidate) => !candidate.published) : [];
+  // `?project=` is the stream the sidebar handed this page. Pick its episode
+  // rather than making him find it among every recording ever cut.
+  const fromStream =
+    requestedProject && state ? state.candidates.find((candidate) => candidate.projectId === requestedProject) : undefined;
+  const selected = !state
+    ? undefined
+    : picked === null
+      ? fromStream
+      : state.candidates.find((candidate) => `${candidate.projectId}:${candidate.exportId}` === picked);
+
+  // Let an agent on the CoLateral canvas read and drive this page. Called
+  // unconditionally (even while the feed is still loading) so the surface
+  // registration never lives inside a branch.
+  useColateralSurface({
+    route: "/podcast",
+    title: "Podcast / Spotify",
+    summary: "Manage the podcast RSS feed Spotify pulls episodes from, and publish finished long-form edits as episodes.",
+    fields: draft
+      ? [
+          { id: "title", label: "Show title", value: draft.title, kind: "text" },
+          { id: "author", label: "Author", value: draft.author, kind: "text" },
+          { id: "category", label: "Category", value: draft.category, kind: "text" },
+          { id: "description", label: "Description", value: draft.description, kind: "longtext" },
+          { id: "explicit", label: "Explicit content", value: draft.explicit, kind: "boolean" }
+        ]
+      : [],
+    controls:
+      state && draft
+        ? [
+            { id: "save-show", label: "Save show details", group: "Show details", disabled: busy !== null },
+            {
+              id: "refresh-feed",
+              label: "Republish feed",
+              group: "Feed",
+              // Rewrites the public RSS feed Spotify pulls from.
+              destructive: true,
+              disabled: busy !== null || !state.configured
+            },
+            {
+              id: "publish-episode",
+              label: "Publish selected episode to the feed",
+              group: "Episodes",
+              destructive: true,
+              disabled: busy !== null || !selected || selected.published || !state.configured
+            }
+          ]
+        : [],
+    readings: state
+      ? [
+          { label: "Episodes live", value: String(state.episodes.length) },
+          { label: "Feed status", value: ready ? "Ready to submit" : "Not submittable yet" },
+          { label: "Unpublished exports", value: String(unpublished.length) },
+          { label: "Spotify", value: spotify?.connected ? "Connected" : "Not connected" },
+          { label: "Selected episode", value: selected?.title ?? "None selected" }
+        ]
+      : [{ label: "Status", value: "Loading" }],
+    setField: (id, value) => {
+      if (!draft) return false;
+      if (id === "explicit") {
+        if (typeof value !== "boolean") return false;
+        setDraft({ ...draft, explicit: value });
+        return true;
+      }
+      if ((id === "title" || id === "author" || id === "category" || id === "description") && typeof value === "string") {
+        setDraft({ ...draft, [id]: value });
+        return true;
+      }
+      return false;
+    },
+    click: (id) => {
+      if (!state || !draft) return false;
+      if (id === "save-show") {
+        void send("save-show", { show: draft }).then((ok) => ok && toast.success("Show details saved"));
+        return true;
+      }
+      if (id === "refresh-feed") {
+        void send("refresh").then((ok) => ok && toast.success("Feed republished"));
+        return true;
+      }
+      if (id === "publish-episode") {
+        if (!selected || selected.published) return false;
+        void publishCandidate(selected);
+        return true;
+      }
+      return false;
+    }
+  });
+
   if (!state || !draft) {
     return (
       <div className="flex items-center gap-2 text-sm text-[var(--muted-foreground)]">
@@ -148,18 +239,6 @@ export function PodcastPage() {
       </div>
     );
   }
-
-  const ready = state.blockers.length === 0;
-  const unpublished = state.candidates.filter((candidate) => !candidate.published);
-  // `?project=` is the stream the sidebar handed this page. Pick its episode
-  // rather than making him find it among every recording ever cut.
-  const fromStream = requestedProject
-    ? state.candidates.find((candidate) => candidate.projectId === requestedProject)
-    : undefined;
-  const selected =
-    picked === null
-      ? fromStream
-      : state.candidates.find((candidate) => `${candidate.projectId}:${candidate.exportId}` === picked);
 
   return (
     <div>
@@ -194,7 +273,7 @@ export function PodcastPage() {
             </p>
           </div>
           <div className="flex items-center gap-2">
-            <Badge className={ready ? "border-emerald-400/30 bg-emerald-400/10 text-emerald-200" : ""}>
+            <Badge tone={ready ? "success" : "warning"}>
               {ready ? (
                 <>
                   <Check className="mr-1.5 h-3.5 w-3.5" /> Ready to submit
@@ -270,7 +349,7 @@ export function PodcastPage() {
           <ul className="mt-4 space-y-3 border-t border-[var(--border)] pt-4 text-sm">
             {state.blockers.map((blocker) => (
               <li key={blocker.code}>
-                <p className="text-amber-200">{blocker.problem}</p>
+                <p className="tone-warning tone-text">{blocker.problem}</p>
                 <p className="mt-0.5 text-xs text-[var(--muted-foreground)]">{blocker.fix}</p>
               </li>
             ))}
@@ -413,7 +492,7 @@ export function PodcastPage() {
                   {selected && !selected.hasAudio ? "Cut the MP3 and publish" : "Publish to the feed"}
                 </Button>
                 {!state.configured ? (
-                  <p className="mt-2 text-xs text-amber-200">
+                  <p className="mt-2 text-xs tone-warning tone-text">
                     Nothing can be published until the feed has a permanent public URL — see the reasons above.
                   </p>
                 ) : null}
@@ -442,7 +521,7 @@ export function PodcastPage() {
                       {spotify?.show ? (
                         spotify.live[episode.id] ? (
                           <a
-                            className="mt-1.5 inline-flex items-center gap-1 text-xs text-emerald-200 underline decoration-emerald-200/30 underline-offset-4"
+                            className="mt-1.5 inline-flex items-center gap-1 text-xs tone-success tone-text underline decoration-current/30 underline-offset-4"
                             href={spotify.live[episode.id].url}
                             target="_blank"
                             rel="noreferrer"

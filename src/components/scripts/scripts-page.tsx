@@ -26,6 +26,7 @@ import { Input } from "@/components/ui/input";
 import { PageHeader } from "@/components/ui/page-header";
 import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
+import { useColateralSurface } from "@/lib/colateral/useSurface";
 import { cn } from "@/lib/utils";
 import type { KitSuggestionStatus, ScriptGraphic, VideoScript } from "@/types/domain";
 
@@ -84,6 +85,57 @@ export function ScriptsPage() {
       setGenerating(false);
     }
   };
+
+  // Registered here (not inside ScriptDetail) so the hook always runs exactly
+  // once per render regardless of which view is showing — ScriptDetail owns
+  // its own unsaved draft, so the surface reflects the list view: generating
+  // a script from a title, and which script (if any) is open right now.
+  useColateralSurface({
+    route: "/scripts",
+    title: "Scripts",
+    summary: "Write full scripts from a title or a saved idea, then manage the production kit.",
+    fields: [
+      { id: "title", label: "New script title", value: title, kind: "text", hint: "Used with Write script below." },
+      { id: "minutes", label: "Target minutes", value: minutes, kind: "number", unit: "min" },
+      { id: "showFramework", label: "Show framework editor", value: showFramework, kind: "boolean" }
+    ],
+    controls: [
+      {
+        id: "generate",
+        label: generating ? "Writing…" : "Write script",
+        group: "Scripts",
+        disabled: generating || !title.trim()
+      }
+    ],
+    readings: [
+      { label: "Scripts", value: String(scripts.length) },
+      { label: "Open script", value: selected ? selected.title : "None — browsing the list" }
+    ],
+    setField: (id, value) => {
+      if (id === "title") {
+        setTitle(typeof value === "string" ? value : String(value ?? ""));
+        return true;
+      }
+      if (id === "minutes") {
+        const next = Number(value);
+        if (!Number.isFinite(next) || next <= 0) return false;
+        setMinutes(next);
+        return true;
+      }
+      if (id === "showFramework") {
+        if (typeof value !== "boolean") return false;
+        setShowFramework(value);
+        return true;
+      }
+      return false;
+    },
+    click: (id) => {
+      if (id !== "generate") return false;
+      if (generating || !title.trim()) return false;
+      void generate();
+      return true;
+    }
+  });
 
   if (selected) {
     return <ScriptDetail key={selected.id} script={selected} refresh={refresh} onBack={() => router.push("/scripts")} />;
@@ -451,7 +503,7 @@ function SuggestionRow({
       className={cn(
         "space-y-1 rounded-lg border px-3 py-2",
         status === "accepted"
-          ? "border-emerald-400/40 bg-emerald-400/5"
+          ? "tone-success tone-edge tone-soft"
           : status === "dismissed"
             ? "border-[var(--border)] opacity-45"
             : "border-[var(--border)]"
@@ -463,7 +515,7 @@ function SuggestionRow({
           <button
             type="button"
             onClick={() => onStatus("accepted")}
-            className="flex items-center gap-1 rounded-md bg-emerald-400/10 px-2 py-1 text-[11px] font-medium text-emerald-200 transition hover:bg-emerald-400/20"
+            className="flex items-center gap-1 rounded-md tone-success tone-soft px-2 py-1 text-[11px] font-medium tone-text transition hover:bg-[color-mix(in_srgb,var(--success)_20%,transparent)]"
           >
             <Check className="h-3 w-3" /> Accept
           </button>

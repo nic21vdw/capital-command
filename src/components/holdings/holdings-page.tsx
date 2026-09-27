@@ -11,10 +11,12 @@ import { Modal } from "@/components/ui/modal";
 import { PageHeader } from "@/components/ui/page-header";
 import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
+import { useColateralSurface } from "@/lib/colateral/useSurface";
 import { formatCurrency, formatPercent } from "@/lib/utils";
 import type { Holding } from "@/types/domain";
 
 const assetClasses = ["All", "Stocks", "ETFs", "Crypto", "Cash", "Bonds", "Funds", "REITs", "Other"];
+const sortKeys = ["marketValue", "gainLossPercent", "ticker"] as const;
 
 export function HoldingsPage() {
   const { data, summary, mutate } = useAppData();
@@ -26,6 +28,64 @@ export function HoldingsPage() {
   const [showModal, setShowModal] = useState(false);
   const [importPreview, setImportPreview] = useState<Record<string, string>[]>([]);
   const [importError, setImportError] = useState("");
+
+  const accountOptions = ["All", ...Array.from(new Set(data.holdings.map((holding) => holding.account)))];
+
+  useColateralSurface({
+    route: "/finance",
+    title: "Holdings",
+    summary: "Portfolio positions — allocations, cost basis, gains, and manual price overrides.",
+    fields: [
+      { id: "search", label: "Search holdings", value: search, kind: "text" },
+      { id: "accountFilter", label: "Account filter", value: accountFilter, kind: "select", options: accountOptions },
+      { id: "assetFilter", label: "Asset class filter", value: assetFilter, kind: "select", options: assetClasses },
+      { id: "sortKey", label: "Sort by", value: sortKey, kind: "select", options: [...sortKeys] }
+    ],
+    controls: [
+      { id: "refresh-prices", label: "Refresh prices", group: "Holdings" },
+      { id: "add-holding", label: "Add holding", group: "Holdings" }
+    ],
+    readings: [
+      { label: "Holdings tracked", value: String(summary.holdings.length) },
+      { label: "Total market value", value: formatCurrency(summary.totalPortfolioValue, data.settings.currency) },
+      { label: "Total gain / loss", value: formatCurrency(summary.totalGainLoss, data.settings.currency) }
+    ],
+    setField: (id, value) => {
+      switch (id) {
+        case "search":
+          if (typeof value !== "string") return false;
+          setSearch(value);
+          return true;
+        case "accountFilter":
+          if (typeof value !== "string" || !accountOptions.includes(value)) return false;
+          setAccountFilter(value);
+          return true;
+        case "assetFilter":
+          if (typeof value !== "string" || !assetClasses.includes(value)) return false;
+          setAssetFilter(value);
+          return true;
+        case "sortKey":
+          if (typeof value !== "string" || !(sortKeys as readonly string[]).includes(value)) return false;
+          setSortKey(value as typeof sortKey);
+          return true;
+        default:
+          return false;
+      }
+    },
+    click: (id) => {
+      switch (id) {
+        case "refresh-prices":
+          void mutate("refreshPrices", undefined, { successMessage: "Prices refreshed." });
+          return true;
+        case "add-holding":
+          setEditing(makeHolding());
+          setShowModal(true);
+          return true;
+        default:
+          return false;
+      }
+    }
+  });
 
   const filtered = summary.holdings
     .filter((holding) => {
@@ -147,7 +207,7 @@ export function HoldingsPage() {
                   <td className="px-3 py-3 text-[var(--muted-foreground)]">{formatCurrency(holding.resolvedPrice, data.settings.currency)}</td>
                   <td className="px-3 py-3 text-white">{formatCurrency(holding.marketValue, data.settings.currency)}</td>
                   <td className="px-3 py-3">
-                    <span className={holding.gainLoss >= 0 ? "text-emerald-300" : "text-rose-300"}>
+                    <span className={holding.gainLoss >= 0 ? "tone-success tone-text" : "tone-danger tone-text"}>
                       {formatCurrency(holding.gainLoss, data.settings.currency)} ({formatPercent(holding.gainLossPercent)})
                     </span>
                   </td>
@@ -182,7 +242,7 @@ export function HoldingsPage() {
             <input type="file" accept=".csv" className="hidden" onChange={(event) => onImport(event.target.files?.[0] ?? null)} />
           </label>
         </div>
-        {importError ? <p className="mt-4 text-sm text-rose-300">{importError}</p> : null}
+        {importError ? <p className="mt-4 text-sm tone-danger tone-text">{importError}</p> : null}
         {importPreview.length ? (
           <div className="mt-4">
             <div className="overflow-x-auto rounded-2xl border border-white/8">

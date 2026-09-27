@@ -450,9 +450,9 @@ export function LongformTimeline({
                   className={cn(
                     "absolute top-0 h-full border-r border-black/20 transition-colors",
                     isCut
-                      ? "bg-red-500/35 hover:bg-red-500/50 backdrop-saturate-0"
+                      ? "bg-[color-mix(in_srgb,var(--danger)_35%,transparent)] hover:bg-[color-mix(in_srgb,var(--danger)_50%,transparent)] backdrop-saturate-0"
                       : segment.kind === "silence"
-                        ? "bg-emerald-400/15 hover:bg-emerald-400/25"
+                        ? "bg-[color-mix(in_srgb,var(--success)_15%,transparent)] hover:bg-[color-mix(in_srgb,var(--success)_25%,transparent)]"
                         : "bg-transparent hover:bg-white/10"
                   )}
                   style={{ left: pct(segment.start), width }}
@@ -517,10 +517,10 @@ export function LongformTimeline({
             {selection && (
               <>
                 <div
-                  className="pointer-events-none absolute top-0 z-10 h-full border-x-2 border-sky-400 bg-sky-400/20"
+                  className="pointer-events-none absolute top-0 z-10 h-full border-x-2 border-[var(--info)] bg-[color-mix(in_srgb,var(--info)_20%,transparent)]"
                   style={{ left: pct(selection.start), width: `${((selection.end - selection.start) / duration) * 100}%` }}
                 >
-                  <span className="absolute left-1/2 top-1 -translate-x-1/2 whitespace-nowrap rounded bg-sky-400 px-1 py-0.5 text-[9px] font-bold uppercase tracking-wide text-black">
+                  <span className="absolute left-1/2 top-1 -translate-x-1/2 whitespace-nowrap rounded bg-[var(--info)] px-1 py-0.5 text-[9px] font-bold uppercase tracking-wide text-black">
                     Selection
                   </span>
                 </div>
@@ -536,7 +536,7 @@ export function LongformTimeline({
                     if (event.key === "ArrowLeft") onSelectionChange({ ...selection, start: Math.max(0, selection.start - 0.25) });
                     if (event.key === "ArrowRight") onSelectionChange({ ...selection, start: Math.min(selection.end - 0.05, selection.start + 0.25) });
                   }}
-                  className="absolute top-0 z-20 h-full w-2 -translate-x-1/2 cursor-ew-resize rounded bg-sky-400 opacity-90 hover:opacity-100"
+                  className="absolute top-0 z-20 h-full w-2 -translate-x-1/2 cursor-ew-resize rounded bg-[var(--info)] opacity-90 hover:opacity-100"
                   style={{ left: pct(selection.start) }}
                   data-no-press
                 />
@@ -552,7 +552,7 @@ export function LongformTimeline({
                     if (event.key === "ArrowLeft") onSelectionChange({ ...selection, end: Math.max(selection.start + 0.05, selection.end - 0.25) });
                     if (event.key === "ArrowRight") onSelectionChange({ ...selection, end: Math.min(duration, selection.end + 0.25) });
                   }}
-                  className="absolute top-0 z-20 h-full w-2 -translate-x-1/2 cursor-ew-resize rounded bg-sky-400 opacity-90 hover:opacity-100"
+                  className="absolute top-0 z-20 h-full w-2 -translate-x-1/2 cursor-ew-resize rounded bg-[var(--info)] opacity-90 hover:opacity-100"
                   style={{ left: pct(selection.end) }}
                   data-no-press
                 />

@@ -26,6 +26,7 @@ import {
   type LucideIcon
 } from "lucide-react";
 import { toast } from "sonner";
+import { useColateralSurface } from "@/lib/colateral/useSurface";
 import { makeFbPost, useAppData } from "@/components/providers/app-provider";
 import { AdvancedOptions } from "@/components/ui/advanced-options";
 import { Badge } from "@/components/ui/badge";
@@ -127,6 +128,35 @@ export function FacebookPage() {
     },
     [mutate]
   );
+
+  const postedCount = useMemo(() => posts.filter((post) => post.status === "posted").length, [posts]);
+  const totalViews = useMemo(() => posts.reduce((sum, post) => sum + (post.views ?? 0), 0), [posts]);
+
+  // Let an agent on the CoLateral canvas read and drive this page. The
+  // composer itself lives further down the tree (its state is per-draft and
+  // only mounted while that tab is open), so what's exposed here is the one
+  // thing that's always live at this level: the shared content brief, plus
+  // what the library is currently reporting.
+  useColateralSurface({
+    route: "/facebook",
+    title: "FB / IG Threads",
+    summary:
+      "Draft Facebook/Instagram hook-and-comment-thread posts, save them to the library, and track logged results.",
+    fields: [{ id: "brief", label: "Content brief", value: brief, kind: "longtext" }],
+    controls: [],
+    readings: [
+      { label: "Posts in library", value: String(posts.length) },
+      { label: "Posted", value: String(postedCount) },
+      { label: "Drafts", value: String(posts.length - postedCount) },
+      { label: "Total logged views", value: formatViews(totalViews) }
+    ],
+    setField: (id, value) => {
+      if (id !== "brief" || typeof value !== "string") return false;
+      // The same handler the Save brief button calls.
+      void mutate("updateFbBrief", { brief: value }, { successMessage: "Brief saved." });
+      return true;
+    }
+  });
 
   return (
     <div>
@@ -469,7 +499,7 @@ function PostForm({
                 type="button"
                 aria-label={`Remove step ${index + 1}`}
                 onClick={() => setComments((current) => current.filter((item) => item.id !== comment.id))}
-                className="mt-3 shrink-0 rounded-lg p-1.5 text-[var(--muted-foreground)] transition-colors hover:bg-red-500/15 hover:text-red-200"
+                className="mt-3 shrink-0 rounded-lg p-1.5 text-[var(--muted-foreground)] transition-colors hover:bg-[var(--danger)]/15 hover:text-[var(--danger)]"
               >
                 <Trash2 className="h-4 w-4" />
               </button>
@@ -621,7 +651,7 @@ function MediaDropzone({
                 type="button"
                 aria-label="Remove media"
                 onClick={() => onChange(null)}
-                className="flex h-7 w-7 items-center justify-center rounded-lg bg-white/8 text-[var(--muted-foreground)] transition hover:bg-red-500/20 hover:text-red-300"
+                className="flex h-7 w-7 items-center justify-center rounded-lg bg-white/8 text-[var(--muted-foreground)] transition hover:bg-[var(--danger)]/20 hover:text-[var(--danger)]"
               >
                 <X className="h-4 w-4" />
               </button>
@@ -942,7 +972,7 @@ function LibraryCard({
       <div className="flex flex-wrap items-center gap-2">
         <span className={cn("rounded-full border px-2.5 py-0.5 text-[11px] font-medium", platform.chip)}>{platform.label}</span>
         <span className={cn("rounded-full border px-2.5 py-0.5 text-[11px] font-medium", format.chip)}>{format.label}</span>
-        <Badge className={post.status === "posted" ? "text-emerald-200" : undefined}>{post.status}</Badge>
+        <Badge tone={post.status === "posted" ? "success" : "neutral"}>{post.status}</Badge>
         <span className="text-xs tabular-nums text-[var(--muted-foreground)]">{post.date}</span>
         <span className="ml-auto text-xs text-[var(--muted-foreground)]">
           {thread.length} comment{thread.length === 1 ? "" : "s"}

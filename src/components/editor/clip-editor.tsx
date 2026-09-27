@@ -1111,8 +1111,8 @@ export function ClipEditor({
         >
           <Sparkles className="h-4 w-4" />
         </button>
-        <span className={cn("flex items-center gap-1.5 text-xs", saved ? "text-emerald-300" : "text-[var(--muted-foreground)]")}>
-          <span className={cn("h-1.5 w-1.5 rounded-full", saved ? "bg-emerald-300" : "bg-amber-300")} />
+        <span className={cn("flex items-center gap-1.5 text-xs", saved ? "text-[var(--success)]" : "text-[var(--warning)]")}>
+          <span className={cn("h-1.5 w-1.5 rounded-full", saved ? "bg-[var(--success)]" : "bg-[var(--warning)]")} />
           {saved ? "All changes saved" : "Unsaved changes"}
         </span>
         <Button onClick={() => void saveNow()} disabled={saving || saved}>
@@ -1200,7 +1200,7 @@ export function ClipEditor({
                           </span>
                         )}
                         {clipExport?.status === "done" && (
-                          <Check className="h-3.5 w-3.5 shrink-0 text-emerald-400" />
+                          <Check className="h-3.5 w-3.5 shrink-0 text-[var(--success)]" />
                         )}
                       </button>
                     );

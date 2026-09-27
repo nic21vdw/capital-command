@@ -24,6 +24,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { PageHeader } from "@/components/ui/page-header";
+import { useColateralSurface } from "@/lib/colateral/useSurface";
 import { cn } from "@/lib/utils";
 
 /**
@@ -449,6 +450,56 @@ export function DistributionPage() {
       .finally(() => setLoading(false));
   }, []);
 
+  const activeSource =
+    SOURCES.find((item) => item.key === source) ?? SOURCES[0];
+
+  // Registered before the loading early-return below, so the hook runs on
+  // every render regardless of whether the overview has loaded yet.
+  useColateralSurface({
+    route: "/distribution",
+    title: "Distribution Centre",
+    summary: "Pick a source, then follow the pipeline into every format it can become.",
+    fields: [
+      {
+        id: "source",
+        label: "Starting source",
+        value: source,
+        kind: "select",
+        options: SOURCES.map((item) => item.key),
+      },
+    ],
+    controls: [
+      {
+        id: "openStartTool",
+        label: "Open editor for this source",
+        group: "Start",
+      },
+    ],
+    readings: overview
+      ? [
+          { label: "Ideas suggested", value: String(overview.ideas.suggested) },
+          { label: "Scripts ready", value: String(overview.scripts.ready) },
+          { label: "Clips ready", value: String(overview.clips.clipsReady) },
+          { label: "Carousels made", value: String(overview.carousels.total) },
+          {
+            label: "Publish queue",
+            value: `${overview.publish.queued} queued, ${overview.publish.failed} failed`,
+          },
+        ]
+      : [],
+    setField: (id, value) => {
+      if (id !== "source") return false;
+      if (typeof value !== "string" || !SOURCES.some((item) => item.key === value)) return false;
+      setSource(value as SourceKey);
+      return true;
+    },
+    click: (id) => {
+      if (id !== "openStartTool") return false;
+      window.location.href = activeSource.startHref;
+      return true;
+    },
+  });
+
   if (loading || !overview) {
     return (
       <div className="flex items-center justify-center py-24">
@@ -457,8 +508,6 @@ export function DistributionPage() {
     );
   }
 
-  const activeSource =
-    SOURCES.find((item) => item.key === source) ?? SOURCES[0];
   const pipeline = PIPELINE[source];
   const caps = MATRIX[source];
   const spoken = SPOKEN_SOURCES.includes(source);
@@ -698,13 +747,13 @@ function OutputCard({
         <p
           className={cn(
             "text-sm font-semibold",
-            isReady ? "text-white" : "text-white/70",
+            isReady ? "text-white" : "text-[var(--muted-foreground-2)]",
           )}
         >
           {meta.label}
         </p>
         {isReady ? (
-          <Badge className="ml-auto border-emerald-400/20 bg-emerald-400/10 text-[10px] text-emerald-300">
+          <Badge tone="success" className="ml-auto text-[10px]">
             Ready
           </Badge>
         ) : (

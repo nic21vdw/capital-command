@@ -374,7 +374,10 @@ function QueueEntryCard({
                   title={blocked ? "Retry this post" : "Publish now"}
                   className={cn(
                     "text-[var(--muted-foreground)] transition hover:text-white",
-                    blocked && "text-rose-300 hover:text-rose-200"
+                    blocked &&
+                      (state.status === "failed"
+                        ? "hover:text-[var(--danger)] text-[var(--danger)]"
+                        : "hover:text-[var(--warning)] text-[var(--warning)]")
                   )}
                 >
                   {blocked ? <RotateCcw className="h-3.5 w-3.5" /> : <Send className="h-3.5 w-3.5" />}
@@ -385,7 +388,7 @@ function QueueEntryCard({
                 onClick={() => onRemove(item)}
                 aria-label="Remove from schedule"
                 title="Remove from schedule"
-                className="text-[var(--muted-foreground)] transition hover:text-red-300"
+                className="text-[var(--muted-foreground)] transition hover:text-[var(--danger)]"
               >
                 <Trash2 className="h-3.5 w-3.5" />
               </button>
@@ -413,7 +416,7 @@ function QueueEntryCard({
             <p
               className={cn(
                 "text-[11px] leading-snug",
-                state.status === "failed" ? "text-rose-300" : "text-amber-200"
+                state.status === "failed" ? "tone-danger tone-text" : "tone-warning tone-text"
               )}
             >
               {advice.headline}

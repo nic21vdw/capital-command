@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Check, Copy, Loader2, Plus, RefreshCw, Rocket, Trash2, TriangleAlert } from "lucide-react";
 import { toast } from "sonner";
 import { useAppData } from "@/components/providers/app-provider";
-import { Badge } from "@/components/ui/badge";
+import { Badge, type BadgeTone } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -12,6 +12,7 @@ import { PageHeader } from "@/components/ui/page-header";
 import { Select } from "@/components/ui/select";
 import { StatCard } from "@/components/ui/stat-card";
 import { Textarea } from "@/components/ui/textarea";
+import { useColateralSurface } from "@/lib/colateral/useSurface";
 import { todayLocal } from "@/lib/execution/dates";
 import { buildLaunchPlan } from "@/lib/launch/playbook";
 import { cn } from "@/lib/utils";
@@ -26,11 +27,11 @@ const STATUS_LABELS: Record<LaunchStatus, string> = {
   done: "Done"
 };
 
-const STATUS_STYLES: Record<LaunchStatus, string> = {
-  planning: "border-white/10 bg-white/6 text-[var(--muted-foreground)]",
-  scheduled: "border-amber-400/30 bg-amber-400/10 text-amber-200",
-  live: "border-emerald-400/30 bg-emerald-400/10 text-emerald-200",
-  done: "border-sky-400/30 bg-sky-400/10 text-sky-200"
+const STATUS_TONE: Record<LaunchStatus, BadgeTone> = {
+  planning: "neutral",
+  scheduled: "warning",
+  live: "success",
+  done: "info"
 };
 
 const SURFACE_LABELS: Record<string, string> = {
@@ -186,6 +187,111 @@ export function LaunchPage() {
     }
   };
 
+  useColateralSurface({
+    route: "/launch",
+    title: "Launch Pad",
+    summary: "Plan a Product Hunt launch as a content event: a dated playbook, the listing copy, and live standing once it goes up.",
+    fields: [
+      { id: "product", label: "Product", value: selected?.product ?? "", kind: "text", readOnly: !selected },
+      { id: "productUrl", label: "Website", value: selected?.productUrl ?? "", kind: "text", readOnly: !selected },
+      { id: "launchDate", label: "Launch date", value: selected?.launchDate ?? "", kind: "date", readOnly: !selected },
+      {
+        id: "status",
+        label: "Status",
+        value: selected?.status ?? "",
+        kind: "select",
+        options: Object.keys(STATUS_LABELS),
+        readOnly: !selected
+      },
+      { id: "slug", label: "Listing slug or URL", value: selected?.slug ?? "", kind: "text", readOnly: !selected },
+      { id: "notes", label: "Notes", value: selected?.notes ?? "", kind: "longtext", readOnly: !selected },
+      { id: "briefAudience", label: "Who it is for", value: brief.audience, kind: "longtext" },
+      { id: "briefWhatItDoes", label: "What it does", value: brief.whatItDoes, kind: "longtext" },
+      { id: "briefDifferentiator", label: "Why it is different", value: brief.differentiator, kind: "longtext" }
+    ],
+    controls: [
+      { id: "newLaunch", label: "New launch", group: "Launch" },
+      {
+        id: "generateCopy",
+        label: selected?.copy ? "Rewrite the copy" : "Write the launch copy",
+        group: "Copy",
+        disabled: !selected || generating
+      },
+      {
+        id: "refreshStats",
+        label: "Refresh Product Hunt stats",
+        group: "Stats",
+        disabled: !selected?.slug || refreshingStats
+      },
+      {
+        id: "deleteLaunch",
+        label: "Delete launch",
+        group: "Launch",
+        disabled: !selected,
+        destructive: true
+      }
+    ],
+    readings: [
+      { label: "Launch day", value: selected?.launchDate ?? "—" },
+      { label: "Days until launch", value: plan ? daysLabel(plan.daysUntilLaunch) : "—" },
+      { label: "Playbook progress", value: plan ? `${plan.completed}/${plan.total}` : "—" },
+      { label: "Overdue tasks", value: plan ? String(plan.overdueCount) : "—" },
+      { label: "Product Hunt votes", value: selected?.stats ? `${selected.stats.votes} votes` : "No stats read yet" }
+    ],
+    setField: (id, value) => {
+      if (!selected) return false;
+      if (id === "briefAudience" || id === "briefWhatItDoes" || id === "briefDifferentiator") {
+        if (typeof value !== "string") return false;
+        const key = id === "briefAudience" ? "audience" : id === "briefWhatItDoes" ? "whatItDoes" : "differentiator";
+        setBrief((current) => ({ ...current, [key]: value }));
+        return true;
+      }
+      if (typeof value !== "string") return false;
+      switch (id) {
+        case "product":
+        case "productUrl":
+        case "slug":
+        case "notes": {
+          const key = id as EditableField;
+          setDraft({ id: selected.id, values: { ...pending, [key]: value } });
+          void save({ ...selected, [key]: value });
+          return true;
+        }
+        case "launchDate":
+          void save({ ...selected, launchDate: value });
+          return true;
+        case "status":
+          if (!(value in STATUS_LABELS)) return false;
+          void save({ ...selected, status: value as LaunchStatus });
+          return true;
+        default:
+          return false;
+      }
+    },
+    click: (id) => {
+      switch (id) {
+        case "newLaunch":
+          void createLaunch();
+          return true;
+        case "generateCopy":
+          if (!selected || generating) return false;
+          void generateCopy();
+          return true;
+        case "refreshStats":
+          if (!selected?.slug || refreshingStats) return false;
+          void refreshStats();
+          return true;
+        case "deleteLaunch":
+          if (!selected) return false;
+          setSelectedId(null);
+          void mutate("deleteProductLaunch", selected.id, { successMessage: "Launch deleted" });
+          return true;
+        default:
+          return false;
+      }
+    }
+  });
+
   if (loading && launches.length === 0) {
     return (
       <div className="flex h-64 items-center justify-center text-[var(--muted-foreground)]">
@@ -274,7 +380,7 @@ export function LaunchPage() {
             <div className="flex items-start justify-between gap-4">
               <h2 className="text-lg font-semibold text-white">Launch details</h2>
               <div className="flex items-center gap-2">
-                <Badge className={STATUS_STYLES[selected.status]}>{STATUS_LABELS[selected.status]}</Badge>
+                <Badge tone={STATUS_TONE[selected.status]}>{STATUS_LABELS[selected.status]}</Badge>
                 <Button
                   variant="danger"
                   onClick={() => {
@@ -426,7 +532,7 @@ export function LaunchPage() {
                   <CopyBlock key={post.surface} label={SURFACE_LABELS[post.surface] ?? post.surface} value={post.text} />
                 ))}
                 {!selected.copy.aiGenerated ? (
-                  <p className="text-xs text-amber-200">
+                  <p className="tone-warning tone-text text-xs">
                     This is the offline draft — no AI provider was reachable when it was written. Regenerate for a stronger pass.
                   </p>
                 ) : null}
@@ -455,16 +561,16 @@ export function LaunchPage() {
                         className={cn(
                           "flex w-full gap-3 rounded-lg border p-3 text-left transition-colors",
                           task.done
-                            ? "border-emerald-400/20 bg-emerald-400/5"
+                            ? "tone-success tone-edge tone-soft"
                             : task.overdue
-                              ? "border-amber-400/30 bg-amber-400/5 hover:border-amber-400/50"
+                              ? "tone-warning tone-edge tone-soft hover:border-[color-mix(in_srgb,var(--warning)_50%,transparent)]"
                               : "border-[var(--border)] bg-[var(--surface-2)] hover:border-[var(--border-strong)]"
                         )}
                       >
                         <span
                           className={cn(
                             "mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded border",
-                            task.done ? "border-emerald-400/40 bg-emerald-400/20 text-emerald-200" : "border-white/20"
+                            task.done ? "tone-success tone-edge tone-soft tone-text" : "border-white/20"
                           )}
                         >
                           {task.done ? <Check className="h-3.5 w-3.5" /> : null}
@@ -475,7 +581,7 @@ export function LaunchPage() {
                               {task.label}
                             </span>
                             <span className="text-xs text-[var(--muted-foreground)]">{task.dueDate}</span>
-                            {task.overdue ? <Badge className="border-amber-400/30 bg-amber-400/10 text-amber-200">Overdue</Badge> : null}
+                            {task.overdue ? <Badge tone="warning">Overdue</Badge> : null}
                           </span>
                           <span className="mt-1 block text-sm text-[var(--muted-foreground)]">{task.detail}</span>
                         </span>

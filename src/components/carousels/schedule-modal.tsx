@@ -147,7 +147,7 @@ export function ScheduleModal({
         </label>
 
         {manualOnly.length > 0 ? (
-          <p className="rounded-lg border border-amber-400/30 bg-amber-400/10 p-2.5 text-[11px] text-amber-100">
+          <p className="tone-warning tone-edge tone-soft tone-text rounded-lg border p-2.5 text-[11px]">
             {manualOnly.map((p) => CAROUSEL_PLATFORMS.find((c) => c.id === p)?.label).join(", ")} doesn&apos;t take image
             carousels through the auto-publisher yet — those occurrences are tracked as reminders to post by hand at the
             scheduled time.

@@ -150,8 +150,8 @@ export function ChannelIngestPanel() {
           panel used to read "nothing taken in yet" for a scan that failed
           overnight — while the Stream Pipeline said the opposite. */}
       {!running && overview?.lastScanOutcome && overview.lastScanOutcome.status !== "ok" ? (
-        <div className="mt-3 rounded-lg border border-amber-400/25 bg-amber-400/[0.06] p-3">
-          <p className="text-xs text-amber-100/90">
+        <div className="mt-3 rounded-lg tone-warning tone-edge tone-soft p-3">
+          <p className="text-xs tone-text">
             {overview.lastScanOutcome.status === "stale"
               ? "The channel has not been scanned lately — the nightly task may not be running."
               : overview.lastScanOutcome.status === "not-connected"
@@ -163,12 +163,12 @@ export function ChannelIngestPanel() {
         </div>
       ) : null}
       {lastScan?.status === "failed" ? (
-        <div className="mt-3 rounded-lg border border-red-400/30 bg-red-400/10 p-3">
-          <span className="flex items-center gap-2 text-xs font-medium text-red-200">
+        <div className="mt-3 rounded-lg tone-danger tone-edge tone-soft p-3">
+          <span className="flex items-center gap-2 text-xs font-medium tone-text">
             <TriangleAlert className="h-3.5 w-3.5" />
             The last scan failed
           </span>
-          <p className="mt-1 text-[11px] leading-relaxed text-red-100/80">{lastScan.error ?? "No reason was recorded."}</p>
+          <p className="mt-1 text-[11px] leading-relaxed tone-text opacity-80">{lastScan.error ?? "No reason was recorded."}</p>
           <div className="mt-2 max-h-24 space-y-0.5 overflow-y-auto font-mono text-[11px] leading-relaxed text-[var(--muted-foreground)]">
             {lastScan.log.slice(-6).map((line, index) => (
               <div key={`${index}-${line.slice(0, 12)}`} className="truncate">
@@ -180,7 +180,7 @@ export function ChannelIngestPanel() {
       ) : null}
 
       {lastScan?.status === "completed" && lastScan.configured === false ? (
-        <div className="mt-3 rounded-lg border border-amber-400/30 bg-amber-400/10 p-3 text-[11px] leading-relaxed text-amber-100">
+        <div className="mt-3 rounded-lg tone-warning tone-edge tone-soft p-3 text-[11px] leading-relaxed tone-text">
           YouTube is not connected, so there is nothing to scan.{" "}
           <Link href="/uploading-center" className="text-white underline decoration-white/30 underline-offset-4">
             Connect the channel
@@ -189,7 +189,7 @@ export function ChannelIngestPanel() {
       ) : null}
 
       {lastScan?.needsReconnect ? (
-        <div className="mt-3 rounded-lg border border-amber-400/30 bg-amber-400/10 p-3 text-[11px] leading-relaxed text-amber-100">
+        <div className="mt-3 rounded-lg tone-warning tone-edge tone-soft p-3 text-[11px] leading-relaxed tone-text">
           The YouTube sign-in can no longer read the channel — nothing will be taken in until it is reconnected.{" "}
           <Link href="/uploading-center" className="text-white underline decoration-white/30 underline-offset-4">
             Reconnect YouTube
