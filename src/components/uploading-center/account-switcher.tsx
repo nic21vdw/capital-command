@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { CheckCircle2, Plus, Trash2, Youtube } from "lucide-react";
+import { CheckCircle2, Plus, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Modal } from "@/components/ui/modal";
 import { Select } from "@/components/ui/select";
@@ -18,13 +18,6 @@ function profileOf(account: SocialAccountView) {
   return account.profile ?? account.youtube ?? account.tiktok;
 }
 
-/**
- * The per-platform account picker at the top of each Uploading Center tab:
- * a dropdown of every account connected (or planned) for the platform, an
- * "Add account…" entry, and — for YouTube — a Connect button when the
- * selected account hasn't run OAuth yet. Switching accounts switches the
- * whole calendar below to that account's schedule.
- */
 export function AccountSwitcher({
   platform,
   accounts,
@@ -97,18 +90,6 @@ export function AccountSwitcher({
           )}
           {profileOf(activeAccount) ? `Connected as ${profileOf(activeAccount)?.title}` : "Connected"}
         </span>
-      ) : null}
-      {platform === "youtube" && activeAccount && !activeAccount.connected ? (
-        <Button
-          variant="secondary"
-          className="h-8 px-3 text-xs"
-          disabled={working}
-          onClick={() =>
-            (window.location.href = `/api/auth/google?account=${encodeURIComponent(activeAccount.id)}`)
-          }
-        >
-          <Youtube className="mr-1.5 h-3.5 w-3.5" /> Connect this account
-        </Button>
       ) : null}
       <span className="flex-1" />
       {activeAccount && !activeAccount.primary ? (
