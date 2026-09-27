@@ -14,6 +14,8 @@ already shipped.
 
 ## Unreleased
 
+- **Account setup has one clear place in the Uploading Center.** The duplicate YouTube connect controls are gone. Primary accounts now point to Settings for credentials and sign-in, while extra YouTube and TikTok accounts keep their own sign-in buttons. Instagram and Facebook reminders explain when credentials are needed.
+
 - **Settings are easier to scan.** Profile, accounts and publishing controls now have clear sections and icons. Each platform opens only when you need its credentials, optional fields stay tucked away, and account badges distinguish saved credentials from a completed sign-in. Appearance, finance and data tools live under More settings.
 
 ## 2026-09-26
