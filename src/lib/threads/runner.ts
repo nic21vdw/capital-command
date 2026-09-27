@@ -20,7 +20,7 @@ import type { ThreadsOutcome, ThreadsQueueItem, ThreadsRunReport } from "@/lib/t
 export type ThreadsRunDeps = {
   read: () => Promise<ThreadsQueueItem[]>;
   write: (items: ThreadsQueueItem[]) => Promise<void>;
-  post: (input: { account: ThreadsAccount; text: string; containerId?: string }) => Promise<{
+  post: (input: { account: ThreadsAccount; text: string; containerId?: string; replyToId?: string }) => Promise<{
     containerId: string;
     postId: string;
   }>;
@@ -80,7 +80,50 @@ export async function runDue(
     log(`[threads] slot ${item.slot} ${item.accountId} → ${outcome} — ${detail}`);
   };
 
+  const sendPlug = async (item: ThreadsQueueItem) => {
+    if (!item.plugText || item.plugPostId || item.plugDropped || !item.postId || !item.publishedAt) return;
+    const sinceMinutes = (now.getTime() - new Date(item.publishedAt).getTime()) / 60_000;
+    if (sinceMinutes < config.plugDelayMinutes) return;
+
+    const account = findAccount(config, item.accountId);
+    if (!account || sinceMinutes > config.plugWindowMinutes || (item.plugAttempts ?? 0) >= config.maxAttempts) {
+      item.plugDropped = true;
+      if (!dryRun) await deps.write(items);
+      log(`[threads] slot ${item.slot} ${item.accountId} link reply dropped`);
+      return;
+    }
+
+    if (dryRun) {
+      log(`[threads] slot ${item.slot} ${item.accountId} would reply: "${item.plugText}"`);
+      return;
+    }
+
+    try {
+      const result = await deps.post({
+        account,
+        text: item.plugText,
+        containerId: item.plugContainerId,
+        replyToId: item.postId
+      });
+      item.plugPostId = result.postId;
+      item.plugContainerId = result.containerId;
+      item.plugError = undefined;
+      log(`[threads] slot ${item.slot} ${item.accountId} link reply ${result.postId}`);
+    } catch (error) {
+      if (error instanceof ContainerPendingError) item.plugContainerId = error.containerId;
+      item.plugAttempts = (item.plugAttempts ?? 0) + 1;
+      item.plugError = error instanceof Error ? error.message : String(error);
+      if (!isTransient(error)) item.plugDropped = true;
+      log(`[threads] slot ${item.slot} ${item.accountId} link reply failed: ${item.plugError}`);
+    }
+    await deps.write(items);
+  };
+
   for (const item of items) {
+    if (item.status === "published") {
+      await sendPlug(item);
+      continue;
+    }
     if (item.status !== "pending") continue;
 
     // Already has a Threads post id: it went live and the queue never got to

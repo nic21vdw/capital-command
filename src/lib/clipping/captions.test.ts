@@ -14,8 +14,12 @@ import {
   serializeSrt,
   serializeVtt,
   splitSegment,
-  windowSegments
+  windowSegments,
+  GENERATOR_CAPTION_PRESETS,
+  isBundledCaptionFont,
+  isCaptionPresetId
 } from "./captions";
+import { applyCaptionPreset } from "./editor";
 import { defaultCaptionStyle } from "@/lib/storage/schemas";
 import type { CaptionSegment } from "@/types/domain";
 
@@ -214,6 +218,59 @@ describe("serialization", () => {
     const vtt = serializeVtt(segs);
     expect(vtt.startsWith("WEBVTT")).toBe(true);
     expect(vtt).toContain("00:00:00.000 --> 00:00:02.000");
+  });
+});
+
+describe("caption presets", () => {
+  const style = (id: Parameters<typeof applyCaptionPreset>[1]) => applyCaptionPreset(defaultCaptionStyle, id);
+  const defaultLine = (ass: string) => ass.split("\n").find((line) => line.startsWith("Style: Default,")) ?? "";
+
+  it("uses the bundled face by name without asking libass for faux bold", () => {
+    const fields = defaultLine(buildAss([seg("a", 0, 2, "hello world")], style("pop"), 1080, 1920, true)).split(",");
+    expect(fields[1]).toBe("Montserrat Black");
+    expect(fields[7]).toBe("0");
+  });
+
+  it("keeps the title off a display face so the burned headline does not change shape", () => {
+    const ass = buildAss([seg("a", 0, 2, "hello world")], style("impact"), 1080, 1920, true);
+    expect(ass).toContain("Style: Title,Montserrat ExtraBold,");
+  });
+
+  it("marks the editorial serif italic", () => {
+    const fields = defaultLine(buildAss([seg("a", 0, 2, "hello world")], style("editorial"), 1080, 1920, true)).split(",");
+    expect(fields[1]).toBe("Instrument Serif");
+    expect(fields[8]).toBe("-1");
+  });
+
+  it("draws a blurred glow layer under every glow caption event", () => {
+    const ass = buildAss([seg("a", 0, 2, "hello world")], style("glow"), 1080, 1920, true);
+    const glow = ass.split("\n").filter((line) => line.startsWith("Dialogue: 0,"));
+    const face = ass.split("\n").filter((line) => line.startsWith("Dialogue: 1,"));
+    expect(glow).toHaveLength(2);
+    expect(face).toHaveLength(2);
+    expect(glow[0]).toContain("\\1a&HFF&");
+    expect(glow[0]).toContain("\\blur");
+    expect(face[0]).not.toContain("\\blur");
+  });
+
+  it("paints a boxed caption's plate in its own background colour", () => {
+    const fields = defaultLine(buildAss([seg("a", 0, 2, "hello world")], style("paper"), 1080, 1920, true)).split(",");
+    expect(fields[5]).toMatch(/FFFFFF$/);
+    expect(fields[15]).toBe("3");
+  });
+
+  it("resets the font when switching back to a legacy preset", () => {
+    const legacy = applyCaptionPreset(style("editorial"), "minimal");
+    expect(legacy.fontFamily).toBe(defaultCaptionStyle.fontFamily);
+    expect(legacy.italic).toBe(false);
+    expect(legacy.glowColor).toBeUndefined();
+  });
+
+  it("only offers presets that exist", () => {
+    for (const id of GENERATOR_CAPTION_PRESETS) expect(isCaptionPresetId(id)).toBe(true);
+    expect(isCaptionPresetId("nope")).toBe(false);
+    expect(isBundledCaptionFont("Anton, Impact, sans-serif")).toBe(true);
+    expect(isBundledCaptionFont(defaultCaptionStyle.fontFamily)).toBe(false);
   });
 });
 

@@ -222,7 +222,7 @@ async function finalizeFacebook(item: QueueItem, state: PlatformState): Promise<
   // a refusal is treated as "still scheduled" and checked again rather than
   // failing a post that is sitting on the Page waiting to go out.
   try {
-    return await finishUpload(videoId, composeCaption(item), creds, null);
+    return await finishUpload(videoId, composeCaption(item, "facebook"), creds, null);
   } catch (error) {
     throw new ThrottledError(
       60,
@@ -287,7 +287,7 @@ async function publishImagePost(
   if (urls.length > MAX_IMAGES_PER_POST) {
     throw new PermanentError(`A Facebook picture post carries at most ${MAX_IMAGES_PER_POST} photos — this one has ${urls.length}.`);
   }
-  const caption = composeCaption(input.item);
+  const caption = composeCaption(input.item, "facebook");
 
   if (!isCarouselPost(input.item)) {
     const photoId = await uploadPhoto(creds, {
@@ -363,7 +363,7 @@ export const facebookAdapter: PlatformAdapter = {
         payload: {
           photos: count,
           url: input.images?.publicUrls[0] ?? "<hosted URL minted at publish time>",
-          message: composeCaption(input.item)
+          message: composeCaption(input.item, "facebook")
         },
         publishAtUtc: toRfc3339Utc(publishAt),
         publishAtLocal: formatInTimezone(publishAt, config.timezone),
@@ -382,7 +382,7 @@ export const facebookAdapter: PlatformAdapter = {
       payload: {
         upload_phase: "start",
         file_url: input.publicUrl ?? "<hosted URL minted at publish time>",
-        description: composeCaption(input.item)
+        description: composeCaption(input.item, "facebook")
       },
       publishAtUtc: toRfc3339Utc(publishAt),
       publishAtLocal: formatInTimezone(publishAt, config.timezone),
@@ -439,7 +439,7 @@ export const facebookAdapter: PlatformAdapter = {
       }
     }
 
-    const caption = composeCaption(input.item);
+    const caption = composeCaption(input.item, "facebook");
 
     // Resume a video from a previous run instead of starting a duplicate.
     let videoId = input.item.platforms.facebook?.containerId;

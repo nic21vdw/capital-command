@@ -15,6 +15,34 @@ already shipped.
 ## Unreleased
 
 - Other websites can no longer trigger app updates or start and revoke voice sessions through your local browser.
+- **Settings are easier to scan.** Profile, accounts and publishing controls now have clear sections and icons. Each platform opens only when you need its credentials, optional fields stay tucked away, and account badges distinguish saved credentials from a completed sign-in. Appearance, finance and data tools live under More settings.
+
+## 2026-09-26
+
+- **Shorts favour CoLateral on screen.** When clips are picked from a stream, moments where CoLateral is visibly working (an agent finishing, a card filling, a tool being built) now rank well above talk alone, and those clips start within three seconds of that moment. Each clip's score line in the Clip Generator shows its new "CoLateral" rating.
+- **No more than two Shorts a day.** New bookings, from the pipeline, the Uploading Center or an auto-queued export, never put more than two short-form videos on one day (Toronto time). Long-form uploads and picture posts do not count. A day that is already full says so instead of booking a third. The limit is `PUBLISH_SHORTS_PER_DAY` in `.env` (default 2). `npm run publish:thin` shows, day by day, how the queue already booked would look at two a day; `-- --apply` moves the extra ones (lowest clip score first, otherwise the latest) into `data/publish-queue.parked.json`, and `-- --unpark` puts them back. It never touches a post a platform already has, or anything whose time has passed, and it refuses to write unless the running app is on a build that reloads the queue.
+- **Every post now links to its own colateralai.com path.** When a post goes out, a bare colateralai.com link in its caption becomes colateralai.com/yt on YouTube, /ig on Instagram, /tt on TikTok, /fb on Facebook and /th on Threads, so the site can tell which platform sent a visitor. Links that already point somewhere (/download, /pricing) are left alone. Every YouTube description, Shorts and long-form, now opens with "Try CoLateral: https://colateralai.com/yt". Nothing in the queue is rewritten; this happens as each post is sent.
+- **Capital Command is now CoLateral Marketing.** The app wears the CoLateral look: Beam Buddy and the CoLateral wordmark with "Marketing" after it at the top of the sidebar, a Beam Buddy app icon and favicon, Beam Buddy on the update screen, and the new name in the window title, the install prompt, banners and messages. The public site (terms, privacy and the TikTok page) is restyled to match colateralai.com. Run `npm run app:shortcut` once after this release to swap the old Desktop and Start Menu shortcuts for CoLateral Marketing ones.
+
+## 2026-09-26
+
+- **Text stays readable at any CoLateral card transparency.** The canvas now shows through Capital Command only up to a limit set for each theme (30% on the dark theme, 45% on light), however high the card setting goes, and grey labels sitting straight on the page are drawn brighter while the card is see-through. They pass the WCAG AA contrast minimum over white and bright wallpaper. Text inside panels keeps its usual colour.
+
+- **The CoLateral canvas shows through Capital Command.** When CoLateral's agent card glass is set to see-through, the app's page background inside the card now lets the canvas wallpaper through by up to that amount, while panels, inputs and text keep their own fills. Solid (0), the Classic surface, flat glass and reduced transparency all stay opaque, and opening the app on its own is unchanged.
+
+## 2026-09-26
+
+- **Threads now sells CoLateral.** A third of every day's posts (8 of 24) are about CoLateral and name it, spread through the day, and the fallback idea library carries the same share. Every post that names CoLateral gets a reply of its own a couple of minutes later, from the same account, along the lines of "see what I'm building here: https://colateralai.com", so the link sits one tap under the post instead of inside it. Stream posts that mention CoLateral get the reply too. `THREADS_PLUG_REPLY=false` switches the replies off and `THREADS_PLUG_URL` changes the link.
+
+## 2026-09-26
+
+- **Short Clips borrows the best of BridgeClip.** Pick a caption look before you clip: eleven new styles (Pop, Impact, Hype, Punch, Glow, Neon, Boxed, Sweep, Editorial, Paper, Subtle), each with a moving preview and burned in with its real font. Choose the clip length (Quick 10-20s, Auto 15-30s, Standard 30-60s, Long 60-90s). A finished run shows its clip count, processing time and $0 API cost; a running one shows its four steps. Clips sit in a tighter grid with the score and length on the video, sort by best or by timeline, and filter by score. Ctrl+Enter starts a run. The Stream Pipeline still clips with the old default look.
+
+## 2026-09-25
+
+- **The update screen shows how far along it is.** While Capital Command updates, a hopping CC badge and a four-step track (Check, Install, Rebuild, Reopen) show which part is running, next to the real step and the time elapsed. It still reopens by itself when the app restarts, and it keeps still if your system asks for reduced motion.
+
+## 2026-09-24
 
 - **Story edits stay on the whole screen and zoom only on what you point at.** A zoom now needs a line about something small ("look at this", a number, a price) and a place on screen where you are pointing: your mouse, or a popup that just opened. Cuts no longer play a word twice, and yellow captions run through the whole video.
 

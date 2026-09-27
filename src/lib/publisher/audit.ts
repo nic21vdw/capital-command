@@ -37,6 +37,7 @@ export type QueueWriter =
   | "enqueue-image"
   | "pipeline-queue-outputs"
   | "api-publish-rename"
+  | "api-publish-edit"
   | "api-publish-delete"
   | "api-publish-purge"
   | "cli-mirror"
@@ -46,6 +47,8 @@ export type QueueWriter =
   | "cli-shuffle"
   | "cli-frontload"
   | "cli-adopt"
+  | "cli-thin"
+  | "cli-unpark"
   | "runner-mirror"
   | "adopt-channel-videos"
   | "unattributed";

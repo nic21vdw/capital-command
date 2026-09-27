@@ -1,5 +1,6 @@
 import { aiConfigured, runAi } from "@/lib/ai";
 import { clampClipCount, TARGET_CLIP_COUNT } from "@/lib/clipping/analysis";
+import { clipLengthBounds, type ClipLengthBounds } from "@/lib/clipping/clip-length";
 import { resolveThoughtEnd } from "@/lib/clipping/thought-end";
 import type { CaptionSegment } from "@/types/domain";
 import type { ClipCandidate, ClipScoreBreakdown } from "@/lib/clipping/types";
@@ -14,12 +15,6 @@ import type { ClipCandidate, ClipScoreBreakdown } from "@/lib/clipping/types";
  * so the caller can fall back to the offline energy analysis.
  */
 
-const MIN_CLIP_SEC = 15;
-// Clips should normally land between 15 and 30 seconds. The hard cap is a bit
-// higher so a genuinely continuous moment (e.g. a ~45s story that can't be cut)
-// can survive, but nothing longer than this is ever produced.
-const PREFERRED_MAX_CLIP_SEC = 30;
-const MAX_CLIP_SEC = 45;
 // A clip may run this many seconds past its proposed end so the speaker can
 // finish the sentence they are in — a slightly longer clip that concludes the
 // thought beats a shorter one that cuts off mid-sentence.
@@ -84,6 +79,7 @@ type RawClip = {
   pacing?: number;
   standalone?: number;
   intensity?: number;
+  product?: number;
 };
 
 /** Pulls the JSON array out of the model's reply, tolerating fences / prose. */
@@ -120,7 +116,8 @@ function toCandidate(
   index: number,
   durationSec: number,
   segments: CaptionSegment[],
-  starts: number[]
+  starts: number[],
+  bounds: ClipLengthBounds
 ): ClipCandidate | null {
   let start = Number(raw.start);
   let end = Number(raw.end);
@@ -136,25 +133,25 @@ function toCandidate(
   // thought actually concludes. Prefer running a few seconds longer to let
   // the speaker finish; trim back to the previous completed thought only when
   // nothing concludes ahead.
-  const minEnd = Math.min(start + MIN_CLIP_SEC, durationSec);
+  const minEnd = Math.min(start + bounds.min, durationSec);
   const resolved = resolveThoughtEnd(segments, Math.max(end, minEnd), {
     minEnd,
-    maxEnd: Math.min(durationSec, start + MAX_CLIP_SEC),
+    maxEnd: Math.min(durationSec, start + bounds.max),
     maxExtension: END_EXTENSION_SEC,
     maxTrim: END_TRIM_SEC
   });
   end = resolved.end;
-  if (end - start < Math.min(MIN_CLIP_SEC, durationSec)) return null;
+  if (end - start < Math.min(bounds.min, durationSec)) return null;
 
+  const product = Number(raw.product);
   const breakdown: ClipScoreBreakdown = {
     hook: Math.round(clamp(Number(raw.hook ?? 70), 0, 100)),
     pacing: Math.round(clamp(Number(raw.pacing ?? 70), 0, 100)),
     standalone: Math.round(clamp(Number(raw.standalone ?? 70), 0, 100)),
-    intensity: Math.round(clamp(Number(raw.intensity ?? 70), 0, 100))
+    intensity: Math.round(clamp(Number(raw.intensity ?? 70), 0, 100)),
+    ...(Number.isFinite(product) ? { product: Math.round(clamp(product, 0, 100)) } : {})
   };
-  const score = Math.round(
-    breakdown.hook * 0.28 + breakdown.intensity * 0.24 + breakdown.pacing * 0.33 + breakdown.standalone * 0.15
-  );
+  const score = transcriptClipScore(breakdown);
   const title = raw.title?.trim();
   const reason = raw.reason?.trim() || "Selected from the transcript as a strong standalone moment.";
 
@@ -172,6 +169,22 @@ function toCandidate(
 }
 
 /**
+ * The clip's overall score. On-screen CoLateral action is a bonus on top of the
+ * speech-based score, worth up to PRODUCT_BONUS points, so a moment where the
+ * product visibly does something outranks an equally good one where it does not.
+ */
+export const PRODUCT_BONUS = 25;
+
+export function transcriptClipScore(breakdown: ClipScoreBreakdown): number {
+  const base =
+    breakdown.hook * 0.28 + breakdown.intensity * 0.24 + breakdown.pacing * 0.33 + breakdown.standalone * 0.15;
+  return Math.round(Math.min(100, base + ((breakdown.product ?? 0) / 100) * PRODUCT_BONUS));
+}
+
+export const PRODUCT_MOMENT_RULE =
+  "- STRONGLY prefer moments where CoLateral is visibly doing something on screen: an agent finishing a task, a card filling in, a tool being built or run. The transcript cannot show the screen, so look for the speaker narrating or reacting to it (\"it's done\", \"look, it's filling in\", \"watch this build\"). Start such a clip no more than 3 seconds before that moment so it opens on the product working, not on setup talk.";
+
+/**
  * Reads the entire transcript and returns the best moments from across the whole
  * stream. Returns null when transcript selection is unavailable so the pipeline
  * can fall back to energy analysis.
@@ -180,7 +193,8 @@ export async function selectByTranscript(
   segments: CaptionSegment[],
   durationSec: number,
   topic?: string,
-  targetCount: number = TARGET_CLIP_COUNT
+  targetCount: number = TARGET_CLIP_COUNT,
+  bounds: ClipLengthBounds = clipLengthBounds()
 ): Promise<ClipCandidate[] | null> {
   if (!transcriptSelectionConfigured()) return null;
   if (!segments || segments.length === 0) return null;
@@ -202,8 +216,9 @@ Rules:
 - Choose moments from ACROSS THE WHOLE STREAM - do not cluster them all near the start. Spread them over the full timeline.
 - Each clip must be a self-contained thought that makes sense without surrounding context.
 - THE ENDING IS CRITICAL: before finalizing each clip, re-read the transcript around your chosen "end" time and check what the speaker is saying right there. The clip must end where the thought CONCLUDES — the end of the sentence that completes the point, story, or punchline. Never end while the speaker is mid-sentence, and never end right after they have started a NEW sentence or point that the clip won't finish. If the thought concludes a few seconds after your ideal end, extend the end to include it — a slightly longer clip that lands the conclusion is always better than one that cuts off.
-- Each clip should be between ${MIN_CLIP_SEC} and ${PREFERRED_MAX_CLIP_SEC} seconds long. You may exceed ${PREFERRED_MAX_CLIP_SEC} seconds when needed to let a thought conclude, or when the moment is one continuous thought that would be ruined by cutting it shorter - but never exceed ${MAX_CLIP_SEC} seconds.
+- Each clip should be between ${bounds.min} and ${bounds.preferredMax} seconds long. You may exceed ${bounds.preferredMax} seconds when needed to let a thought conclude, or when the moment is one continuous thought that would be ruined by cutting it shorter - but never exceed ${bounds.max} seconds.
 - Favour strong hooks, emotional or surprising payoffs, hot takes, stories, and quotable lines.
+${PRODUCT_MOMENT_RULE}
 - Prefer variety: mix strong openings, tactical explanations, funny reactions, disagreement, turning points, and clean story payoffs when the transcript supports them.
 - Avoid picking multiple moments that make the same point unless the later one has a clearly better hook or payoff.
 - ${topicLine}
@@ -217,6 +232,7 @@ Return ONLY a JSON array (no prose) of objects with these fields:
 - "pacing": 0-100, word density and how much useful speech is packed into the moment
 - "standalone": 0-100, how well it stands on its own without context
 - "intensity": 0-100, the strength of the emotional or informational payoff
+- "product": 0-100, how clearly CoLateral is visibly doing something on screen within the clip's first 3 seconds (0 when it is not on screen)
 
 TRANSCRIPT:
 ${timeline}`;
@@ -236,7 +252,7 @@ ${timeline}`;
 
     const starts = segments.map((s) => s.start);
     const candidates = parseClips(text)
-      .map((raw, index) => toCandidate(raw, index, durationSec, segments, starts))
+      .map((raw, index) => toCandidate(raw, index, durationSec, segments, starts, bounds))
       .filter((c): c is ClipCandidate => c !== null);
 
     if (candidates.length === 0) return null;

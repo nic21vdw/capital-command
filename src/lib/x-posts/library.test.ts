@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { POST_LIBRARY, REPLY_LIBRARY } from "@/lib/x-posts/library";
-import { POSTS_PER_PACK, REPLIES_PER_PACK, libraryPack } from "@/lib/x-posts/generator";
+import { COLATERAL_LIBRARY, POST_LIBRARY, REPLY_LIBRARY } from "@/lib/x-posts/library";
+import { COLATERAL_POSTS_PER_PACK, POSTS_PER_PACK, REPLIES_PER_PACK, libraryPack } from "@/lib/x-posts/generator";
 
 /**
  * The fallback pack has to obey the same two-version contract the generator
@@ -52,5 +52,27 @@ describe("libraryPack", () => {
     for (const post of pack.posts) {
       expect(post.threadsVariant.length).toBeGreaterThan(post.text.length);
     }
+  });
+});
+
+describe("COLATERAL_LIBRARY", () => {
+  it("names CoLateral in both versions, to the same length contract", () => {
+    expect(COLATERAL_LIBRARY.length).toBeGreaterThanOrEqual(COLATERAL_POSTS_PER_PACK);
+    for (const post of COLATERAL_LIBRARY) {
+      expect(post.text, post.topic).toMatch(/CoLateral/);
+      expect(post.threadsVariant, post.topic).toMatch(/CoLateral/);
+      expect(post.text.length, post.topic).toBeGreaterThanOrEqual(70);
+      expect(post.text.length, post.topic).toBeLessThanOrEqual(180);
+      expect(post.threadsVariant.length, post.topic).toBeGreaterThanOrEqual(180);
+      expect(post.threadsVariant.length, post.topic).toBeLessThanOrEqual(280);
+    }
+  });
+
+  it("puts a CoLateral post in every third slot of a fallback pack", () => {
+    const pack = libraryPack("2026-07-29", "");
+    const colateral = pack.posts.filter((post) => /CoLateral/.test(post.text));
+
+    expect(colateral).toHaveLength(COLATERAL_POSTS_PER_PACK);
+    expect(colateral.map((post) => post.slot)).toEqual([3, 6, 9, 12, 15, 18, 21, 24]);
   });
 });

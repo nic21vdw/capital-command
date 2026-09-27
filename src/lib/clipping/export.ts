@@ -29,6 +29,7 @@ import type {
   SfxSettings,
   SfxSoundId
 } from "@/types/domain";
+import { assFilter } from "@/lib/clipping/caption-fonts";
 
 export type ExportSpec = {
   jobId: string;
@@ -320,7 +321,7 @@ async function buildArgs(spec: ExportSpec, dir: string): Promise<{ args: string[
     parts.push(`[${last}][ov${k}]overlay=x=W*${o.x.toFixed(4)}-w/2:y=H*${o.y.toFixed(4)}-h/2${enable}[${next}]`);
     last = next;
   });
-  parts.push(`[${last}]ass='${escapeFilterPath(assPath)}'[vout]`);
+  parts.push(`[${last}]${assFilter(assPath, escapeFilterPath)}[vout]`);
 
   // --- Audio filtergraph ---
   // Every audio source lands in `audioLabels` (clip audio, background music,

@@ -2,7 +2,6 @@ import assert from 'node:assert/strict';
 import { registerHooks } from 'node:module';
 import { test } from 'node:test';
 
-// No provider, release process, filesystem data, or network is reachable here.
 const calls = { release: 0, voice: 0, revoke: 0, status: 0 };
 globalThis.__originTestCalls = calls;
 const source = {
