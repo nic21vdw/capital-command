@@ -1,3 +1,4 @@
+import { plainCopy } from "@/lib/carousels/emphasis";
 /**
  * Where in a recording each slide's copy came from.
  *
@@ -189,7 +190,7 @@ export function anchorSlides(input: {
 }): SlideAnchor[] {
   const spread = spreadTargets(input.durationSec, input.slides.length);
   const anchors = input.slides.map((slide, index): SlideAnchor => {
-    const words = `${slide.heading ?? ""} ${slide.body ?? ""}`;
+    const words = `${plainCopy(slide.heading)} ${plainCopy(slide.body)}`;
     const fromModel = parseAtSeconds(slide.atSeconds, input.durationSec);
     if (fromModel !== null) return { seconds: fromModel, from: "model" };
     const matched = matchSegmentTime(words, input.segments);

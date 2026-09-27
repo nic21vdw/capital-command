@@ -1,4 +1,5 @@
 import { appleEmojiUrls, emojiImageKey, emojiIn, splitRuns } from "@/lib/emoji/apple";
+import { emphasisWords, type EmphasisPiece } from "@/lib/carousels/emphasis";
 import type { CarouselAspectRatio, CarouselSlide, CreatorSignature, SlideLayer } from "@/types/domain";
 
 /**
@@ -71,7 +72,9 @@ export type SlideImage = { width: number; height: number };
  * same width. The editor's live-editing overlay uses the same stack, so what is
  * dragged is what exports.
  */
-export const SLIDE_FONT_STACK = "Arial, Helvetica, 'Liberation Sans', Arimo, sans-serif";
+export const SLIDE_FONT_STACK = "Inter, Arial, Helvetica, 'Liberation Sans', Arimo, sans-serif";
+
+export const SLIDE_FONT_WEIGHTS = [500, 700, 800, 900] as const;
 
 export const DEFAULT_ASPECT_RATIO: CarouselAspectRatio = "portrait";
 
@@ -79,37 +82,44 @@ export function aspectSpec(ratio: CarouselAspectRatio | undefined): AspectRatioS
   return ASPECT_RATIOS[ratio ?? DEFAULT_ASPECT_RATIO];
 }
 
-/**
- * CoLateral brand theme — a clean white/light canvas with blue accents. This
- * is the current provisional default (a fuller theme spec will land later);
- * every color the base chrome + default background use routes through here so
- * the theme can be swapped in one place.
- */
 export const COLATERAL_THEME = {
-  /** Background gradient (top-left → bottom-right). */
-  bgFrom: "#ffffff",
-  bgTo: "#e8f0ff",
-  /** Soft blue glow bloomed into the top-right corner. */
-  glow: "rgba(37,99,235,0.16)",
-  /** Blue accent used for the counter chip + accent bar. */
-  accent: "#2563eb",
-  /** Default heading / body / counter ink on the light canvas. */
-  heading: "#0f172a",
-  body: "#475569",
-  counter: "rgba(15,23,42,0.42)"
+  bgFrom: "#06101d",
+  bgTo: "#0b2442",
+  glow: "rgba(0,120,212,0.42)",
+  glowSoft: "rgba(77,166,255,0.12)",
+  grid: "rgba(148,197,255,0.11)",
+  accent: "#4da6ff",
+  accentDeep: "#0078d4",
+  strong: "#9fd2ff",
+  heading: "#ffffff",
+  body: "rgba(222,234,248,0.86)",
+  counter: "rgba(222,234,248,0.62)",
+  chip: "rgba(6,16,29,0.8)",
+  track: "rgba(222,234,248,0.18)"
 } as const;
 
-/** The brand gradient background used when a slide has no override. */
 export function paintDefaultBackground(ctx: SlideContext, w: number, h: number) {
   const bg = ctx.createLinearGradient(0, 0, w, h);
   bg.addColorStop(0, COLATERAL_THEME.bgFrom);
   bg.addColorStop(1, COLATERAL_THEME.bgTo);
   ctx.fillStyle = bg;
   ctx.fillRect(0, 0, w, h);
-  const glow = ctx.createRadialGradient(w * 0.85, h * 0.1, 50, w * 0.85, h * 0.1, Math.max(w, h) * 0.6);
+  const scale = w / 1080;
+  const step = 44 * scale;
+  const dot = Math.max(1, 2.4 * scale);
+  ctx.fillStyle = COLATERAL_THEME.grid;
+  for (let y = step / 2; y < h; y += step) {
+    for (let x = step / 2; x < w; x += step) ctx.fillRect(x - dot / 2, y - dot / 2, dot, dot);
+  }
+  const glow = ctx.createRadialGradient(w * 0.9, h * 0.04, 40 * scale, w * 0.9, h * 0.04, Math.max(w, h) * 0.62);
   glow.addColorStop(0, COLATERAL_THEME.glow);
-  glow.addColorStop(1, "rgba(37,99,235,0)");
+  glow.addColorStop(1, "rgba(0,120,212,0)");
   ctx.fillStyle = glow;
+  ctx.fillRect(0, 0, w, h);
+  const low = ctx.createRadialGradient(w * 0.05, h, 20 * scale, w * 0.05, h, Math.max(w, h) * 0.55);
+  low.addColorStop(0, COLATERAL_THEME.glowSoft);
+  low.addColorStop(1, "rgba(77,166,255,0)");
+  ctx.fillStyle = low;
   ctx.fillRect(0, 0, w, h);
 }
 
@@ -431,64 +441,122 @@ function drawTextLayer(
   ctx.restore();
 }
 
-/**
- * Darkens a slide's pictures so light copy reads over them. Flat across the
- * slide, deepening towards the bottom where the copy sits — a still from a
- * stream can be any brightness, and a fixed veil is the only thing that makes
- * the text legible without knowing which frame turned up.
- */
 function paintScrim(ctx: SlideContext, strength: number, w: number, h: number) {
   const veil = Math.max(0, Math.min(1, strength));
   const gradient = ctx.createLinearGradient(0, 0, 0, h);
-  gradient.addColorStop(0, `rgba(2,6,23,${(veil * 0.72).toFixed(3)})`);
-  gradient.addColorStop(0.35, `rgba(2,6,23,${(veil * 0.86).toFixed(3)})`);
-  gradient.addColorStop(1, `rgba(2,6,23,${Math.min(1, veil * 1.25).toFixed(3)})`);
+  gradient.addColorStop(0, `rgba(6,16,29,${(veil * 0.34).toFixed(3)})`);
+  gradient.addColorStop(0.42, `rgba(6,16,29,${(veil * 0.5).toFixed(3)})`);
+  gradient.addColorStop(0.6, `rgba(6,16,29,${Math.min(0.94, veil * 1.62).toFixed(3)})`);
+  gradient.addColorStop(1, `rgba(6,16,29,${Math.min(0.98, veil * 1.85).toFixed(3)})`);
   ctx.fillStyle = gradient;
   ctx.fillRect(0, 0, w, h);
 }
 
-/**
- * How far the copy is allowed to be shrunk to fit its band. Below this the
- * slide is unreadable at a thumb's distance and there is nothing left to save.
- */
 const MIN_COPY_SCALE = 0.62;
 
-/**
- * Sets the heading and body at the largest size whose wrapped block still fits
- * the band it has to sit in.
- *
- * A photo slide's band is the strip UNDER the picture, and the generator is
- * allowed a 220-character body — comfortably more lines than that strip holds.
- * Left at a fixed size the block was simply drawn past both ends of the band:
- * the heading landed on the picture and the last line of body ran through the
- * accent bar. Wrapping changes the line count, so the size is re-measured after
- * each step down rather than solved once.
- */
+type CopyWord = EmphasisPiece[];
+type CopyLine = CopyWord[];
+type CopySegment = { text: string; strong: boolean };
+type CopyStyle = { px: number; regular: string; strong: string };
+
+function copyStyle(px: number, regularWeight: number, strongWeight: number): CopyStyle {
+  return {
+    px,
+    regular: `${regularWeight} ${px}px ${SLIDE_FONT_STACK}`,
+    strong: `${strongWeight} ${px}px ${SLIDE_FONT_STACK}`
+  };
+}
+
+function lineSegments(line: CopyLine): CopySegment[] {
+  const segments: CopySegment[] = [];
+  line.forEach((word, wordIndex) => {
+    word.forEach((piece, pieceIndex) => {
+      const text = (wordIndex > 0 && pieceIndex === 0 ? " " : "") + piece.text;
+      const last = segments[segments.length - 1];
+      if (last && last.strong === piece.strong) last.text += text;
+      else segments.push({ text, strong: piece.strong });
+    });
+  });
+  return segments;
+}
+
+function measureLine(ctx: SlideContext, line: CopyLine, style: CopyStyle): number {
+  let width = 0;
+  for (const segment of lineSegments(line)) {
+    ctx.font = segment.strong ? style.strong : style.regular;
+    width += measureRuns(ctx, segment.text, style.px);
+  }
+  return width;
+}
+
+function wrapCopy(ctx: SlideContext, text: string, style: CopyStyle, maxWidth: number): CopyLine[] {
+  const lines: CopyLine[] = [];
+  let line: CopyLine = [];
+  for (const word of emphasisWords(text)) {
+    const candidate = [...line, word];
+    if (line.length && measureLine(ctx, candidate, style) > maxWidth) {
+      lines.push(line);
+      line = [word];
+    } else {
+      line = candidate;
+    }
+  }
+  if (line.length) lines.push(line);
+  return lines;
+}
+
+function drawCopyLine(
+  ctx: SlideContext,
+  line: CopyLine,
+  x: number,
+  y: number,
+  style: CopyStyle,
+  colors: { regular: string; strong: string },
+  images: Map<string, SlideImage | null> | undefined
+) {
+  let cursor = x;
+  for (const segment of lineSegments(line)) {
+    ctx.font = segment.strong ? style.strong : style.regular;
+    ctx.fillStyle = segment.strong ? colors.strong : colors.regular;
+    fillRuns(ctx, segment.text, cursor, y, style.px, images);
+    cursor += measureRuns(ctx, segment.text, style.px);
+  }
+}
+
+type SlideRole = "hook" | "middle" | "cta";
+
+function slideRole(index: number, total: number): SlideRole {
+  if (index === 0) return "hook";
+  return index === total - 1 && total > 1 ? "cta" : "middle";
+}
+
+const HEADING_PX: Record<SlideRole, number> = { hook: 98, middle: 76, cta: 82 };
+
 function fitCopy(
   ctx: SlideContext,
   slide: CarouselSlide,
-  isHook: boolean,
+  role: SlideRole,
   scale: number,
   maxWidth: number,
   bandH: number
 ) {
   let shrink = 1;
   for (let attempt = 0; ; attempt += 1) {
-    const headingPx = (isHook ? 92 : 72) * scale * shrink;
-    const bodyPx = 44 * scale * shrink;
-    const headingFont = `800 ${headingPx}px ${SLIDE_FONT_STACK}`;
-    const bodyFont = `400 ${bodyPx}px ${SLIDE_FONT_STACK}`;
-    const headingLines = slide.heading ? wrapText(ctx, slide.heading, headingFont, maxWidth, headingPx) : [];
-    const bodyLines = slide.body ? wrapText(ctx, slide.body, bodyFont, maxWidth, bodyPx) : [];
-    const headingLineH = (isHook ? 108 : 86) * scale * shrink;
-    const bodyLineH = 62 * scale * shrink;
-    const gap = 40 * scale * shrink;
-    const lead = (isHook ? 70 : 50) * scale * shrink;
-    const blockH = headingLines.length * headingLineH + (bodyLines.length ? gap + bodyLines.length * bodyLineH : 0);
+    const heading = copyStyle(HEADING_PX[role] * scale * shrink, 800, 900);
+    const body = copyStyle(42 * scale * shrink, 500, 800);
+    const headingLines = slide.heading ? wrapCopy(ctx, slide.heading, heading, maxWidth) : [];
+    const bodyLines = slide.body ? wrapCopy(ctx, slide.body, body, maxWidth) : [];
+    const headingLineH = heading.px * 1.1;
+    const bodyLineH = body.px * 1.42;
+    const gap = 30 * scale * shrink;
+    const kickerPx = 28 * scale * shrink;
+    const kickerH = role === "hook" ? 0 : kickerPx + 30 * scale * shrink;
+    const blockH =
+      kickerH + headingLines.length * headingLineH + (bodyLines.length ? gap + bodyLines.length * bodyLineH : 0);
 
-    const fitted = { headingPx, bodyPx, headingFont, bodyFont, headingLines, bodyLines, headingLineH, bodyLineH, gap, lead, blockH };
-    if (blockH + lead <= bandH || shrink <= MIN_COPY_SCALE || attempt >= 4) return fitted;
-    shrink = Math.max(MIN_COPY_SCALE, shrink * Math.max(0.72, (bandH - lead) / blockH));
+    const fitted = { heading, body, headingLines, bodyLines, headingLineH, bodyLineH, gap, kickerPx, kickerH, blockH };
+    if (blockH <= bandH || shrink <= MIN_COPY_SCALE || attempt >= 4) return fitted;
+    shrink = Math.max(MIN_COPY_SCALE, shrink * Math.max(0.72, bandH / blockH));
   }
 }
 
@@ -593,53 +661,149 @@ function drawXMark(ctx: SlideContext, x: number, y: number, size: number, ink: s
   ctx.restore();
 }
 
-/**
- * Both marks and both names, centred at the foot of the slide and deliberately
- * quiet. Measured and placed by hand rather than aligned, because the row is
- * two pictures and two pieces of copy that have to sit on one baseline.
- */
-function drawSignature(ctx: SlideContext, w: number, h: number, scale: number, onDark: boolean) {
-  // Each half is a mark and the copy that belongs to it, and each is drawn only
-  // if there is copy for it: a YouTube mark beside nothing is not a quieter
-  // signature, it is a logo floating on someone's slide.
+function drawSignature(ctx: SlideContext, scale: number, centerY: number, left: number, maxRight: number) {
   const { name, handle } = slideSignature;
   if (!name && !handle) return;
 
-  const fontPx = 30 * scale;
-  ctx.font = `600 ${fontPx}px ${SLIDE_FONT_STACK}`;
+  const fontPx = 26 * scale;
+  ctx.font = `700 ${fontPx}px ${SLIDE_FONT_STACK}`;
   ctx.textAlign = "left";
+  const ytW = 40 * scale;
+  const xW = 28 * scale;
+  const markGap = 12 * scale;
+  const itemGap = 32 * scale;
+  const part = (text: string, markW: number) => (text ? markW + markGap + ctx.measureText(text).width : 0);
+  const both = part(name, ytW) + part(handle, xW) + (name && handle ? itemGap : 0);
+  const room = maxRight - left;
+  const showName = Boolean(name) && (both <= room || !handle) && part(name, ytW) <= room;
+  const showHandle = Boolean(handle) && (showName ? both <= room : part(handle, xW) <= room);
 
-  const ytW = 46 * scale;
-  const xW = 32 * scale;
-  const markGap = 14 * scale;
-  const itemGap = 46 * scale;
-  const nameW = name ? ctx.measureText(name).width : 0;
-  const handleW = handle ? ctx.measureText(handle).width : 0;
-  const namePart = name ? ytW + markGap + nameW : 0;
-  const handlePart = handle ? xW + markGap + handleW : 0;
-  const total = namePart + handlePart + (namePart && handlePart ? itemGap : 0);
-
-  const ink = onDark ? "rgba(255,255,255,0.74)" : COLATERAL_THEME.counter;
-  const baseline = h - 56 * scale;
-  let cursor = (w - total) / 2;
-
-  if (name) {
-    drawYouTubeMark(ctx, cursor, baseline - 25 * scale, ytW, onDark ? 0.85 : 0.92);
+  const ink = COLATERAL_THEME.counter;
+  const baseline = centerY + fontPx * 0.36;
+  let cursor = left;
+  if (showName) {
+    drawYouTubeMark(ctx, cursor, centerY - ytW * 0.35, ytW, 0.92);
     cursor += ytW + markGap;
     ctx.fillStyle = ink;
     ctx.fillText(name, cursor, baseline);
-    cursor += nameW + (handle ? itemGap : 0);
+    cursor += ctx.measureText(name).width + itemGap;
   }
-
-  if (handle) {
-    drawXMark(ctx, cursor, baseline - 25 * scale, xW, ink);
+  if (showHandle) {
+    drawXMark(ctx, cursor, centerY - xW / 2, xW, ink);
     cursor += xW + markGap;
     ctx.fillStyle = ink;
     ctx.fillText(handle, cursor, baseline);
   }
 }
 
-/** Draws the channel base chrome (counter, heading, body, accent bar, signature). */
+const BEAMY_TONES: Record<string, string> = {
+  body: "#0078d4",
+  hi: "#5eb2f2",
+  shadow: "#005a9e",
+  ink: "#102a43",
+  hat: "#ffffff",
+  hatsh: "#a8c4de"
+};
+
+const BEAMY_SPRITE: Array<[string, number, number, number, number]> = [
+  ["hi", 8, 18, 2, 1], ["body", 6, 19, 3, 2], ["hi", 6, 19, 3, 1], ["body", 22, 18, 2, 1],
+  ["body", 23, 19, 3, 2], ["shadow", 23, 20, 3, 1], ["body", 6, 12, 20, 3], ["body", 10, 15, 12, 9],
+  ["body", 6, 24, 20, 2], ["hi", 6, 12, 20, 1], ["hi", 10, 15, 1, 9], ["hi", 6, 24, 20, 1],
+  ["shadow", 21, 15, 1, 9], ["shadow", 25, 12, 1, 3], ["shadow", 6, 25, 20, 1], ["shadow", 11, 26, 3, 1],
+  ["shadow", 10, 27, 3, 1], ["shadow", 18, 26, 3, 1], ["shadow", 19, 27, 3, 1], ["hat", 13, 6, 6, 1],
+  ["hat", 12, 7, 8, 1], ["hat", 11, 8, 10, 1], ["hat", 11, 9, 10, 1], ["hat", 11, 10, 10, 1],
+  ["hatsh", 18, 6, 1, 1], ["hatsh", 19, 7, 1, 1], ["hatsh", 20, 8, 1, 3], ["hat", 9, 11, 14, 1],
+  ["hatsh", 9, 12, 14, 1], ["ink", 13, 17, 2, 2], ["ink", 17, 17, 2, 2], ["ink", 13, 20, 1, 1],
+  ["ink", 18, 20, 1, 1], ["ink", 14, 21, 4, 1]
+];
+
+export function drawBeamBuddy(ctx: SlideContext, x: number, y: number, size: number) {
+  const unit = size / 22;
+  ctx.save();
+  for (const [tone, px, py, pw, ph] of BEAMY_SPRITE) {
+    ctx.fillStyle = BEAMY_TONES[tone];
+    ctx.fillRect(x + (px - 5) * unit, y + (py - 5.5) * unit, pw * unit, ph * unit);
+  }
+  ctx.restore();
+}
+
+function drawHeader(ctx: SlideContext, index: number, total: number, w: number, scale: number, onPicture: boolean) {
+  const margin = 72 * scale;
+  const top = 52 * scale;
+  const rowH = 64 * scale;
+  const mark = 44 * scale;
+  const pad = 18 * scale;
+  ctx.textAlign = "left";
+
+  ctx.font = `800 ${30 * scale}px ${SLIDE_FONT_STACK}`;
+  const wordmarkW = ctx.measureText("CoLateral").width;
+  if (onPicture) {
+    ctx.fillStyle = COLATERAL_THEME.chip;
+    roundedRectPath(ctx, margin - pad, top, mark + 14 * scale + wordmarkW + pad * 2, rowH, rowH / 2);
+    ctx.fill();
+  }
+  drawBeamBuddy(ctx, margin, top + (rowH - mark) / 2, mark);
+  ctx.fillStyle = COLATERAL_THEME.heading;
+  ctx.fillText("CoLateral", margin + mark + 14 * scale, top + rowH / 2 + 11 * scale);
+
+  const counter = `${index + 1}/${total}`;
+  ctx.font = `700 ${26 * scale}px ${SLIDE_FONT_STACK}`;
+  const counterW = ctx.measureText(counter).width;
+  const segGap = 6 * scale;
+  const segW = Math.max(10 * scale, Math.min(34 * scale, (220 * scale) / Math.max(1, total)));
+  const barW = total * segW + (total - 1) * segGap;
+  const rightW = barW + 18 * scale + counterW;
+  const rightX = w - margin - rightW;
+  if (onPicture) {
+    ctx.fillStyle = COLATERAL_THEME.chip;
+    roundedRectPath(ctx, rightX - pad, top, rightW + pad * 2, rowH, rowH / 2);
+    ctx.fill();
+  }
+  const segH = 7 * scale;
+  const segY = top + (rowH - segH) / 2;
+  for (let i = 0; i < total; i += 1) {
+    ctx.fillStyle = i <= index ? COLATERAL_THEME.accent : COLATERAL_THEME.track;
+    roundedRectPath(ctx, rightX + i * (segW + segGap), segY, segW, segH, segH / 2);
+    ctx.fill();
+  }
+  ctx.fillStyle = COLATERAL_THEME.counter;
+  ctx.fillText(counter, rightX + barW + 18 * scale, top + rowH / 2 + 9 * scale);
+}
+
+function drawArrow(ctx: SlideContext, x: number, y: number, size: number, ink: string) {
+  const t = size * 0.16;
+  ctx.fillStyle = ink;
+  ctx.fillRect(x, y - t / 2, size * 0.8, t);
+  fillPolygon(ctx, [
+    [x + size * 0.5, y - size * 0.4],
+    [x + size, y],
+    [x + size * 0.5, y + size * 0.4],
+    [x + size * 0.5, y + size * 0.18],
+    [x + size * 0.72, y],
+    [x + size * 0.5, y - size * 0.18]
+  ]);
+}
+
+function drawPill(ctx: SlideContext, label: string, right: number, centerY: number, scale: number, filled: boolean): number {
+  const fontPx = 28 * scale;
+  ctx.font = `800 ${fontPx}px ${SLIDE_FONT_STACK}`;
+  ctx.textAlign = "left";
+  const arrow = 26 * scale;
+  const padX = 28 * scale;
+  const pillH = 64 * scale;
+  const textW = ctx.measureText(label).width;
+  const pillW = padX * 2 + textW + 14 * scale + arrow;
+  const left = right - pillW;
+  ctx.fillStyle = filled ? COLATERAL_THEME.accentDeep : COLATERAL_THEME.chip;
+  roundedRectPath(ctx, left, centerY - pillH / 2, pillW, pillH, pillH / 2);
+  ctx.fill();
+  const ink = filled ? "#ffffff" : COLATERAL_THEME.accent;
+  ctx.fillStyle = ink;
+  ctx.fillText(label, left + padX, centerY + fontPx * 0.36);
+  drawArrow(ctx, left + padX + textW + 14 * scale, centerY, arrow, ink);
+  return pillW;
+}
+
 function drawBaseText(
   ctx: SlideContext,
   slide: CarouselSlide,
@@ -650,74 +814,58 @@ function drawBaseText(
   images: Map<string, SlideImage | null> | undefined
 ) {
   const scale = w / 1080;
-  const margin = 80 * scale;
-  const onDark = Boolean(slide.textBand);
+  const margin = 88 * scale;
+  const onPicture = Boolean(slide.textBand) || slideImageLayers(slide).length > 0;
+  const role = slideRole(index, total);
 
-  // The band the copy is centered inside — the whole slide unless a photo has
-  // claimed the top of it.
-  const bandTop = (slide.textBand?.top ?? 0) * h;
-  const bandBottom = (slide.textBand?.bottom ?? 1) * h;
+  drawHeader(ctx, index, total, w, scale, onPicture);
 
-  // Slide counter. On a photo slide it rides on a chip over the photo: dropped
-  // into the copy band instead, it ends up shoulder to shoulder with the
-  // heading, and a heading one word longer runs straight into it.
-  const counter = `${index + 1}/${total}`;
-  ctx.font = `600 ${34 * scale}px ${SLIDE_FONT_STACK}`;
-  ctx.textAlign = "right";
-  if (slide.textBand) {
-    const padX = 22 * scale;
-    const chipH = 60 * scale;
-    const chipW = ctx.measureText(counter).width + padX * 2;
-    ctx.fillStyle = "rgba(15,23,42,0.55)";
-    roundedRectPath(ctx, w - margin - chipW, 52 * scale, chipW, chipH, chipH / 2);
-    ctx.fill();
-    ctx.fillStyle = "rgba(255,255,255,0.94)";
-    ctx.fillText(counter, w - margin - padX, 52 * scale + chipH / 2 + 12 * scale);
-  } else {
-    ctx.fillStyle = COLATERAL_THEME.counter;
-    ctx.fillText(counter, w - margin - 0 * scale, 100 * scale);
-  }
-
-  const isHook = index === 0;
+  const footerY = h - 76 * scale;
+  const bandTop = slide.textBand ? slide.textBand.top * h : 160 * scale;
+  const bandBottom = slide.textBand ? Math.min(slide.textBand.bottom * h, footerY - 44 * scale) : footerY - 64 * scale;
   const maxWidth = w - margin * 2;
-  const fit = fitCopy(ctx, slide, isHook, scale, maxWidth, bandBottom - bandTop);
-  const { headingPx, bodyPx, headingFont, bodyFont, headingLines, bodyLines, headingLineH, bodyLineH, blockH } = fit;
+  const fit = fitCopy(ctx, slide, role, scale, maxWidth, bandBottom - bandTop);
 
-  // Centred in the band. `fitCopy` has already made sure the block is no taller
-  // than the band, so this cannot centre the copy out of it — up onto the
-  // picture the band exists to sit under, or down through the accent bar.
-  let y = bandTop + Math.max(0, bandBottom - bandTop - blockH) / 2 + fit.lead;
-
-  // Copy is centred on the slide's axis, and so are the accent bar and the
-  // signature under it — one column down the middle, under a picture that is
-  // itself centred in its frame. Ragged-left copy under a centred picture is
-  // the arrangement this replaced.
-  ctx.textAlign = "left";
-  ctx.font = headingFont;
-  ctx.fillStyle = slide.headingColor ?? COLATERAL_THEME.heading;
-  for (const line of headingLines) {
-    fillRuns(ctx, line, lineStart(ctx, line, headingPx, "center", margin, maxWidth), y, headingPx, images);
-    y += headingLineH;
+  const room = bandBottom - bandTop - fit.blockH;
+  const mascot = role === "cta" && !slide.textBand && room > 300 * scale ? 170 * scale : 0;
+  let y = bandTop + Math.max(0, room - (mascot ? mascot + 40 * scale : 0)) / 2;
+  if (mascot) {
+    drawBeamBuddy(ctx, margin - 6 * scale, y, mascot);
+    y += mascot + 40 * scale;
   }
-  if (bodyLines.length) {
+
+  if (fit.kickerH) {
+    const label = role === "cta" ? "WHAT'S NEXT" : String(index + 1).padStart(2, "0");
+    ctx.font = `800 ${fit.kickerPx}px ${SLIDE_FONT_STACK}`;
+    ctx.textAlign = "left";
+    ctx.fillStyle = COLATERAL_THEME.accent;
+    const baseline = y + fit.kickerPx * 0.86;
+    ctx.fillText(label, margin, baseline);
+    const labelW = ctx.measureText(label).width;
+    ctx.fillRect(margin + labelW + 16 * scale, baseline - fit.kickerPx * 0.36, 64 * scale, 4 * scale);
+    y += fit.kickerH;
+  }
+
+  const headingColors = { regular: slide.headingColor ?? COLATERAL_THEME.heading, strong: COLATERAL_THEME.accent };
+  for (const line of fit.headingLines) {
+    drawCopyLine(ctx, line, margin, y + fit.heading.px * 0.86, fit.heading, headingColors, images);
+    y += fit.headingLineH;
+  }
+  if (fit.bodyLines.length) {
     y += fit.gap;
-    ctx.font = bodyFont;
-    ctx.fillStyle = slide.bodyColor ?? COLATERAL_THEME.body;
-    for (const line of bodyLines) {
-      fillRuns(ctx, line, lineStart(ctx, line, bodyPx, "center", margin, maxWidth), y, bodyPx, images);
-      y += bodyLineH;
+    const bodyColors = { regular: slide.bodyColor ?? COLATERAL_THEME.body, strong: COLATERAL_THEME.strong };
+    for (const line of fit.bodyLines) {
+      drawCopyLine(ctx, line, margin, y + fit.body.px * 1.02, fit.body, bodyColors, images);
+      y += fit.bodyLineH;
     }
   }
 
-  // Accent rule, centred directly under the copy rather than pinned to the
-  // corner: it has to read as the end of the block it follows, and the foot of
-  // the slide now belongs to the signature.
-  const barW = 90 * scale;
-  const barY = Math.min(y + 14 * scale, h - 130 * scale);
-  ctx.fillStyle = COLATERAL_THEME.accent;
-  ctx.fillRect((w - barW) / 2, barY, barW, 8 * scale);
-
-  drawSignature(ctx, w, h, scale, onDark);
+  const right = w - 72 * scale;
+  const pill =
+    role === "cta"
+      ? drawPill(ctx, slideSignature.handle ? `Follow ${slideSignature.handle}` : "Follow for more", right, footerY, scale, true)
+      : drawPill(ctx, role === "hook" ? "Swipe" : "Next", right, footerY, scale, role === "hook");
+  drawSignature(ctx, scale, footerY, 72 * scale, right - pill - 28 * scale);
 }
 
 /**
@@ -828,6 +976,17 @@ export function paintSlide(
   }
 }
 
+let slideFonts: Promise<void> | null = null;
+
+function loadSlideFonts(): Promise<void> {
+  const fonts = typeof document === "undefined" ? undefined : (document as Document & { fonts?: FontFaceSet }).fonts;
+  if (!fonts?.load) return Promise.resolve();
+  slideFonts ??= Promise.all(SLIDE_FONT_WEIGHTS.map((weight) => fonts.load(`${weight} 40px Inter`)))
+    .then(() => undefined)
+    .catch(() => undefined);
+  return slideFonts;
+}
+
 /**
  * Renders one slide into a fresh canvas at the given aspect ratio's full
  * resolution, or at `options.width`. Async because image layers must decode
@@ -862,6 +1021,7 @@ export async function renderSlideCanvas(
       images.set(emojiImageKey(glyph), await loadEmojiImage(glyph));
     })
   );
+  loads.push(loadSlideFonts());
   await Promise.all(loads);
 
   paintSlide(ctx, { slide, index, total, width, height, images }, options);

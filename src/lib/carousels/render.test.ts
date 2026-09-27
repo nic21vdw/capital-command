@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { attachSlideImages, IMAGE_SLIDE_LAYOUT } from "@/lib/carousels/imageSlides";
-import { aspectSpec, FRAME_POSITION, FRAME_ZOOM, renderSlideCanvas, setSlideSignature } from "@/lib/carousels/render";
+import { aspectSpec, COLATERAL_THEME, FRAME_POSITION, FRAME_ZOOM, renderSlideCanvas, setSlideSignature } from "@/lib/carousels/render";
 import type { CarouselSlide } from "@/types/domain";
 
 /**
@@ -9,15 +9,18 @@ import type { CarouselSlide } from "@/types/domain";
  * through the middle of it, and nothing about a plain slide moves.
  */
 
-type Drawn = { text: string; x: number; y: number };
+type Drawn = { text: string; x: number; y: number; font?: string; fill?: unknown };
 type Painted = { x: number; y: number; w: number; h: number };
 
 const drawnText: Drawn[] = [];
 const drawnImages: Painted[] = [];
 
+const CHROME = /^(\d+\/\d+|CoLateral|\d{2}|WHAT'S NEXT|Swipe|Next|Follow .*)$/;
+const isCopy = (line: Drawn) => !CHROME.test(line.text.trim());
+
 function recordingContext() {
   const gradient = { addColorStop: () => undefined };
-  return {
+  const ctx = {
     canvas: { width: 0, height: 0 },
     font: "",
     fillStyle: "",
@@ -28,7 +31,7 @@ function recordingContext() {
     fill: () => undefined,
     // Roughly proportional, so wrapText splits long copy like a real font would.
     measureText: (text: string) => ({ width: text.length * 24 }),
-    fillText: (text: string, x: number, y: number) => drawnText.push({ text, x, y }),
+    fillText: (text: string, x: number, y: number) => drawnText.push({ text, x, y, font: ctx.font, fill: ctx.fillStyle }),
     drawImage: (_img: unknown, x: number, y: number, w: number, h: number) => drawnImages.push({ x, y, w, h }),
     save: () => undefined,
     restore: () => undefined,
@@ -41,6 +44,7 @@ function recordingContext() {
     closePath: () => undefined,
     clip: () => undefined
   };
+  return ctx;
 }
 
 beforeEach(() => {
@@ -88,8 +92,7 @@ describe("photo slide geometry", () => {
     expect(photo.h).toBeGreaterThanOrEqual(IMAGE_SLIDE_LAYOUT.imageHeight * portrait.height);
 
     const bandTop = IMAGE_SLIDE_LAYOUT.band.top * portrait.height;
-    // Everything except the slide counter, which deliberately rides the photo.
-    const copyLines = drawnText.filter((line) => !/^\d+\/\d+$/.test(line.text));
+    const copyLines = drawnText.filter(isCopy);
     expect(copyLines.length).toBeGreaterThan(1);
     for (const line of copyLines) expect(line.y).toBeGreaterThan(bandTop);
   });
@@ -126,12 +129,12 @@ describe("photo slide geometry", () => {
     expect(photo.h).toBeLessThan(portrait.height * IMAGE_SLIDE_LAYOUT.imageHeight);
   });
 
-  it("leaves a slide without a photo laid out as it always was", async () => {
+  it("lays a slide without a photo out on the whole slide, under the header", async () => {
     await renderSlideCanvas(copy, 2, 5, "portrait");
     const counter = drawnText.find((line) => line.text === "3/5");
-    // Top-right of the slide, in the channel's plain counter position.
-    expect(counter?.y).toBe(100);
-    const copyLines = drawnText.filter((line) => line !== counter);
+    expect(counter?.y).toBeLessThan(150);
+    const copyLines = drawnText.filter(isCopy);
+    expect(Math.min(...copyLines.map((line) => line.y))).toBeGreaterThan(150);
     // Centered on the whole slide, not pushed into a band.
     expect(Math.min(...copyLines.map((line) => line.y))).toBeLessThan(portrait.height / 2);
   });
@@ -142,7 +145,7 @@ describe("photo slide geometry", () => {
       drawnText.length = 0;
       await renderSlideCanvas(slide, 1, 5, ratio);
       const spec = aspectSpec(ratio);
-      const copyLines = drawnText.filter((line) => !/^\d+\/\d+$/.test(line.text));
+      const copyLines = drawnText.filter(isCopy);
       expect(copyLines.length).toBeGreaterThan(0);
       for (const line of copyLines) {
         expect(line.y).toBeGreaterThan(IMAGE_SLIDE_LAYOUT.band.top * spec.height);
@@ -177,7 +180,7 @@ describe("emoji in slide copy", () => {
 
   it("keeps the words either side of the emoji", async () => {
     await renderSlideCanvas(withEmoji, 0, 4, "portrait");
-    const copyLines = drawnText.filter((line) => !/^\d+\/\d+$/.test(line.text));
+    const copyLines = drawnText.filter(isCopy);
     expect(copyLines.map((line) => line.text).join("")).toContain("Ship it");
     expect(copyLines.map((line) => line.text).join("")).toContain("Momentum beats planning");
   });
@@ -273,7 +276,7 @@ describe("copy taller than its band", () => {
 
   it("never lets the copy climb above the band onto the picture", async () => {
     await renderSlideCanvas(long, 1, 8, "portrait");
-    const copyLines = drawnText.filter((line) => !/^\d+\/\d+$/.test(line.text));
+    const copyLines = drawnText.filter(isCopy);
     expect(copyLines.length).toBeGreaterThan(3);
     for (const line of copyLines) expect(line.y).toBeGreaterThan(band.top * 1350);
   });
@@ -282,7 +285,7 @@ describe("copy taller than its band", () => {
     const short = { ...long, body: "Short." };
     drawnText.length = 0;
     await renderSlideCanvas(short, 1, 8, "portrait");
-    const copyLines = drawnText.filter((line) => !/^\d+\/\d+$/.test(line.text));
+    const copyLines = drawnText.filter(isCopy);
     const first = Math.min(...copyLines.map((line) => line.y));
     // Off the top of the band, not flush against it.
     expect(first).toBeGreaterThan(band.top * 1350 + 60);
@@ -380,7 +383,7 @@ describe("the slide signature", () => {
 
   it("draws the channel this install belongs to", async () => {
     setSlideSignature({ name: "Someone Else", handle: "@someoneelse" });
-    await renderSlideCanvas(copy, 0, 5, "portrait");
+    await renderSlideCanvas(copy, 2, 5, "portrait");
     const text = drawnText.map((line) => line.text).join(" ");
     expect(text).toContain("Someone Else");
     expect(text).toContain("@someoneelse");
@@ -392,5 +395,22 @@ describe("the slide signature", () => {
     const text = drawnText.map((line) => line.text).join(" ");
     expect(text).toContain("Only A Name");
     expect(text).not.toContain("@");
+  });
+});
+
+describe("bold keywords", () => {
+  it("sets a **keyword** heavier and in the accent colour, and never paints the markers", async () => {
+    await renderSlideCanvas({ id: "b", heading: "Closed at **$3,195**", body: "The **agent** shipped it." }, 1, 5, "portrait");
+    const text = drawnText.map((line) => line.text).join(" ");
+    expect(text).not.toContain("**");
+    const money = drawnText.find((line) => line.text.includes("$3,195"))!;
+    const plain = drawnText.find((line) => line.text.includes("Closed at"))!;
+    expect(money.font).toMatch(/^900 /);
+    expect(plain.font).toMatch(/^800 /);
+    expect(money.fill).toBe(COLATERAL_THEME.accent);
+    expect(money.x).toBeGreaterThan(plain.x);
+    const agent = drawnText.find((line) => line.text.includes("agent"))!;
+    expect(agent.font).toMatch(/^800 /);
+    expect(agent.fill).toBe(COLATERAL_THEME.strong);
   });
 });

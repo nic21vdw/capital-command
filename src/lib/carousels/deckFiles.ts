@@ -78,7 +78,7 @@ function canonical(value: unknown): unknown {
  *
  * 2: emoji are drawn as Apple pictures instead of typed as glyphs.
  */
-const PAINTER_VERSION = 2;
+const PAINTER_VERSION = 3;
 
 /**
  * Everything that changes what a slide looks like: its own content, its

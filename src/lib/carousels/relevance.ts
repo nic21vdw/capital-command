@@ -1,4 +1,5 @@
 import { falConfigured } from "@/lib/music/fal";
+import { plainCopy } from "@/lib/carousels/emphasis";
 
 /**
  * Does this still actually show what the slide says?
@@ -44,7 +45,7 @@ export function frameRelevanceConfigured(): boolean {
 
 /** The question asked about one still. Pure, for tests. */
 export function buildRelevancePrompt(slide: { heading?: string; body?: string }): string {
-  const copy = [slide.heading?.trim(), slide.body?.trim()].filter(Boolean).join(" — ");
+  const copy = [plainCopy(slide.heading).trim(), plainCopy(slide.body).trim()].filter(Boolean).join(" — ");
   return [
     "This still will be used as the background of a social media slide, with the words below laid over it.",
     "",

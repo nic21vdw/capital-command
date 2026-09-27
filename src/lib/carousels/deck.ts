@@ -102,7 +102,7 @@ const BARE_DAY_COUNTER = /^day\s*\d+\s*(of\s+(vibe\s+coding|building|streaming))
  * costs a retry, which is cheap; a weak hook that ships costs the post.
  */
 export function hookProblem(hook: { heading?: string; body?: string } | undefined): string | null {
-  const heading = (hook?.heading ?? "").trim();
+  const heading = (hook?.heading ?? "").replace(/\*\*/g, "").trim();
   if (!heading) return "the hook slide has no heading";
   const bare = heading.replace(/[\p{Emoji_Presentation}\p{Extended_Pictographic}️]/gu, "").trim();
   if (!bare) return "the hook slide is nothing but emoji";
