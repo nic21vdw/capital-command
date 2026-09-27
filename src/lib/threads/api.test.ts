@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { accountUserId } from "@/lib/threads/api";
+import { accountUserId, createTextContainer } from "@/lib/threads/api";
 import type { ThreadsAccount, ThreadsConfig } from "@/lib/threads/config";
 
 function config(): ThreadsConfig {
@@ -20,7 +20,11 @@ function config(): ThreadsConfig {
     catchUp: true,
     catchUpMinGapMinutes: 20,
     catchUpMinShortfall: 2,
-    catchUpCooldownMinutes: 60
+    catchUpCooldownMinutes: 60,
+    plugReplies: true,
+    plugUrl: "https://colateralai.com",
+    plugDelayMinutes: 2,
+    plugWindowMinutes: 360
   };
 }
 
@@ -82,5 +86,16 @@ describe("accountUserId", () => {
 
     const [url] = fetchMock.mock.calls[0] as unknown as [string];
     expect(url).not.toContain("super-secret-token");
+  });
+});
+
+describe("createTextContainer", () => {
+  it("sends the Threads attribution link in place of the bare domain", async () => {
+    const fetchMock = stubFetch("container-1");
+
+    await createTextContainer(account({ userId: "1" }), "Try it: https://colateralai.com", config());
+
+    const body = (fetchMock.mock.calls[0] as unknown as [string, RequestInit])[1].body as URLSearchParams;
+    expect(body.get("text")).toBe("Try it: https://colateralai.com/th");
   });
 });

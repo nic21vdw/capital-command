@@ -1154,7 +1154,7 @@ export function ClipEditor({
         {/* Left: other clips from the same stream */}
         {binClips.length > 1 && onOpenClip && (
           <div className="hidden min-w-0 2xl:block">
-            <div className="space-y-2 rounded-xl border border-[var(--border)] bg-[var(--surface)] p-3">
+            <div className="space-y-2 glass rounded-xl border p-3">
               <p className="text-[11px] font-medium uppercase tracking-wider text-[var(--muted-foreground)]">
                 Clips from this stream
               </p>
@@ -1231,7 +1231,7 @@ export function ClipEditor({
             onFaceSourceChange={(rect) => patch({ faceSource: rect })}
             onScreenSourceChange={(rect) => patch({ screenSource: rect })}
           />
-          <div className="flex items-center gap-3 rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 py-2">
+          <div className="flex items-center gap-3 glass rounded-xl border px-3 py-2">
             <button
               type="button"
               onClick={togglePlay}
@@ -1299,7 +1299,7 @@ export function ClipEditor({
 
         {/* Right: tabbed editing panels */}
         <div className="min-w-0 space-y-3">
-          <div className="flex flex-wrap gap-1 rounded-xl border border-[var(--border)] bg-[var(--surface)] p-1">
+          <div className="flex flex-wrap gap-1 glass rounded-xl border p-1">
             {TABS.map((t) => {
               const Icon = t.icon;
               return (
@@ -1318,7 +1318,7 @@ export function ClipEditor({
               );
             })}
           </div>
-          <div key={tab} className="panel-enter rounded-xl border border-[var(--border)] bg-[var(--surface)] p-4">
+          <div key={tab} className="panel-enter glass rounded-xl border p-4">
             {renderPanel()}
           </div>
         </div>
@@ -1418,7 +1418,7 @@ function ScheduleShortMenu({
       {open && !pending && !submitting ? (
         <div
           role="menu"
-          className="absolute right-0 z-30 mt-2 w-72 rounded-xl border border-[var(--border)] bg-[var(--surface)] p-2 shadow-xl"
+          className="absolute right-0 z-30 mt-2 w-72 glass rounded-xl border p-2 shadow-xl"
         >
           {!publishEnabled ? (
             <p className="px-2 py-3 text-xs text-[var(--muted-foreground)]">

@@ -4,6 +4,7 @@ import {
   DEFAULT_SLOT_TIMES,
   DEFAULT_WEEKEND_SLOT_TIMES
 } from "@/lib/publisher/slots";
+import { DEFAULT_SHORTS_PER_DAY } from "@/lib/publisher/shortsCap";
 import { ALL_PLATFORMS, type PlatformId, type Visibility } from "@/lib/publisher/types";
 import { dataPath } from "@/lib/paths";
 
@@ -53,6 +54,8 @@ export type PublisherConfig = {
    * pipeline tried to add to it.
    */
   bookingHorizonDays: number;
+  /** Most short-form videos a new booking may put on one local calendar day. */
+  shortsPerDay: number;
   defaultVisibility: Visibility;
   /** Queue persistence: local JSON file, or the same JSON object stored in R2/S3 (required for GitHub Actions). */
   queueBackend: "file" | "r2";
@@ -243,6 +246,7 @@ export function publisherConfig(): PublisherConfig {
     slotTimes: timeList("PUBLISH_SLOT_TIMES", DEFAULT_SLOT_TIMES),
     weekendSlotTimes: timeList("PUBLISH_WEEKEND_SLOT_TIMES", DEFAULT_WEEKEND_SLOT_TIMES),
     bookingHorizonDays: num("PUBLISH_BOOKING_HORIZON_DAYS", DEFAULT_BOOKING_HORIZON_DAYS),
+    shortsPerDay: num("PUBLISH_SHORTS_PER_DAY", DEFAULT_SHORTS_PER_DAY),
     defaultVisibility,
     queueBackend: str("PUBLISH_QUEUE_BACKEND")?.toLowerCase() === "r2" ? "r2" : "file",
     maxAttempts: num("PUBLISH_MAX_ATTEMPTS", 5),

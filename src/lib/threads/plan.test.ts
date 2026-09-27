@@ -257,3 +257,32 @@ describe("fitToThreads", () => {
     expect(fitToThreads("x".repeat(600))).toHaveLength(500);
   });
 });
+
+describe("planBatch link replies", () => {
+  it("queues a link reply only for posts that name CoLateral", () => {
+    const { items } = planBatch({
+      pack: pack({
+        posts: [
+          { ...pack().posts[0], text: "Building CoLateral tonight", threadsVariant: "Another night on CoLateral" },
+          pack().posts[1]
+        ]
+      }),
+      config: config(),
+      now: beforeTheDay
+    });
+
+    const withPlug = items.filter((entry) => entry.plugText);
+    expect(withPlug.map((entry) => entry.slot)).toEqual([1, 1]);
+    for (const entry of withPlug) expect(entry.plugText).toContain("https://colateralai.com");
+  });
+
+  it("queues none when link replies are switched off", () => {
+    const { items } = planBatch({
+      pack: pack({ posts: [{ ...pack().posts[0], text: "Building CoLateral tonight" }] }),
+      config: config({ plugReplies: false }),
+      now: beforeTheDay
+    });
+
+    expect(items.some((entry) => entry.plugText)).toBe(false);
+  });
+});

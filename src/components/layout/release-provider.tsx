@@ -4,6 +4,7 @@ import { createContext, useCallback, useContext, useEffect, useRef, useState } f
 import type { ReleaseStatus, ReleaseWatch } from "@/lib/release/shared";
 import { watchRelease } from "@/lib/release/shared";
 import { fetchRelease, restartOutcome, type RestartStatus } from "@/lib/release/restart";
+import { UpdatingScreen } from "./updating-screen";
 
 export type ReleasePhase = "idle" | "checking" | "starting" | "updating";
 
@@ -176,6 +177,7 @@ export function ReleaseProvider({ children }: { children: React.ReactNode }) {
     ? watchRelease({
         step: status?.progress?.step ?? null,
         failed: status?.progress?.failed ?? null,
+        finished: status?.progress?.finished ?? false,
         startedAt,
         offline,
         now
@@ -186,15 +188,7 @@ export function ReleaseProvider({ children }: { children: React.ReactNode }) {
     <ReleaseContext.Provider
       value={{ status, phase, busy, error, checkedAt, watch, check, install }}
     >
-      {busy ? (
-        <main className="flex min-h-screen items-center justify-center bg-[var(--background)] p-6">
-          <section role="status" className="w-full max-w-lg space-y-3 rounded-xl border border-[var(--border)] bg-[var(--panel)] p-6">
-            <h1 className="text-lg font-semibold">Updating Capital Command</h1>
-            <p className="text-sm">{watch?.headline}</p>
-            <p className="text-sm text-[var(--muted-foreground)]">{watch?.detail}</p>
-          </section>
-        </main>
-      ) : children}
+      {busy ? <UpdatingScreen watch={watch} /> : children}
     </ReleaseContext.Provider>
   );
 }

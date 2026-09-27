@@ -1,5 +1,6 @@
 import { localCalendarParts, zonedToUtc } from "@/lib/publisher/time";
 import { MIN_GAP_MINUTES, THREADS_TEXT_LIMIT, type ThreadsAccount, type ThreadsConfig } from "@/lib/threads/config";
+import { plugReplyFor } from "@/lib/threads/plug";
 import type { ThreadsQueueItem } from "@/lib/threads/types";
 import { scheduleWindow } from "@/lib/x-posts/generator";
 import { stripDashes } from "@/lib/x-posts/voice";
@@ -202,6 +203,8 @@ export function planBatch({
     }
 
     for (const account of config.accounts) {
+      const text = fitToThreads(textFor(post, account));
+      const plugText = plugReplyFor(text, `${pack.date}:${post.slot}:${account.id}`, config);
       items.push({
         id: nextId(),
         batchDate: pack.date,
@@ -210,9 +213,10 @@ export function planBatch({
         version: account.posts,
         topic: post.topic,
         format: post.format,
-        text: fitToThreads(textFor(post, account)),
+        text,
         publishAt: new Date(slotAt.getTime() + account.offsetMinutes * 60_000).toISOString(),
         status: "pending",
+        ...(plugText ? { plugText } : {}),
         attempts: 0,
         createdAt
       });

@@ -280,6 +280,19 @@ export function planCaptions(transcript: CaptionSegment[]): LongformCaptions {
 }
 
 /**
+ * The whole-video captions carried past where the project's own transcript
+ * stops. A long stream is only transcribed as far as the hook needs, so its
+ * stored captions end minutes in; a render that reaches further (a topic
+ * segment, a best-of edit) takes the rest from the whole-recording transcript.
+ * Stored captions are kept as they are, because they may carry hand edits.
+ */
+export function extendCaptionSegments(stored: CaptionSegment[], fullTranscript: CaptionSegment[]): CaptionSegment[] {
+  const coveredUntil = stored.reduce((latest, segment) => Math.max(latest, segment.end), 0);
+  const rest = transcriptCaptions(fullTranscript).filter((segment) => segment.start >= coveredUntil - 0.001);
+  return [...stored, ...rest].map((segment, index) => ({ ...segment, id: `cap-${index + 1}` }));
+}
+
+/**
  * Moves an existing project's captions out of the middle of the frame. Every
  * project made before the styles changed still carries the old placement — the
  * hook across the middle, the body flush to the bottom edge — and a stored

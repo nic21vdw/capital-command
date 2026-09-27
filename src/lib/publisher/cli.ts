@@ -770,6 +770,76 @@ async function main() {
     return;
   }
 
+  if (command === "thin") {
+    const { readFile, writeFile } = await import("node:fs/promises");
+    const { FileQueueStore } = await import("@/lib/publisher/store");
+    const { PublishQueue } = await import("@/lib/publisher/queue");
+    const { shortsLimit } = await import("@/lib/publisher/shortsCap");
+    const thin = await import("@/lib/publisher/thin");
+    const queuePath = path.resolve(flagStr(args, "queue") ?? dataPath("publish-queue.json"));
+    const parkedPath = path.resolve(flagStr(args, "parked") ?? thin.defaultParkedPath(queuePath));
+    const queue = new PublishQueue(new FileQueueStore(queuePath), config);
+    const now = flagStr(args, "now") ? new Date(flagStr(args, "now")!) : new Date();
+    const apply = args.flags.has("apply");
+    const unpark = args.flags.has("unpark");
+
+    if (apply || unpark) {
+      const gate = thin.buildGate(process.cwd());
+      if (!gate.ok) {
+        console.error(`[publisher] refusing to write the queue: ${gate.reason}`);
+        process.exitCode = 1;
+        return;
+      }
+    }
+
+    if (unpark) {
+      const parked = await thin.readParked(parkedPath);
+      const ids = flagStr(args, "ids")?.split(",").map((id) => id.trim()).filter(Boolean);
+      const live = new Set((await queue.list()).map((item) => item.id));
+      const plan = thin.planUnpark(parked, live, { now, ids });
+      for (const skip of plan.skipped) console.log(`[publisher]   ${skip.id} not restored: ${skip.reason}`);
+      const restored = await queue.addMany(plan.restore, "cli-unpark");
+      await writeFile(parkedPath, JSON.stringify({ parked: plan.stay }, null, 2), "utf8");
+      console.log(`[publisher] restored ${restored.length} parked post${restored.length === 1 ? "" : "s"} to ${queuePath}; ${plan.stay.length} still parked.`);
+      return;
+    }
+
+    const limitRaw = Number(flagStr(args, "limit"));
+    const limit = Number.isFinite(limitRaw) && limitRaw > 0 ? Math.floor(limitRaw) : shortsLimit(config);
+    const jobsPath = path.resolve(flagStr(args, "jobs") ?? dataPath("clips", "jobs.json"));
+    const jobs = await readFile(jobsPath, "utf8").then((text) => JSON.parse(text) as unknown[]).catch(() => []);
+    const scores = thin.clipScoreIndex(Array.isArray(jobs) ? (jobs as Parameters<typeof thin.clipScoreIndex>[0]) : []);
+    const items = await queue.list();
+    const plan = thin.planThin(items, { now, timeZone: config.timezone, limit, scores });
+
+    console.log(`[publisher] thin ${queuePath} to ${limit} short${limit === 1 ? "" : "s"} a day (${config.timezone}); clip scores from ${scores.size ? jobsPath : "nowhere, so earliest wins"}.`);
+    console.log("[publisher]   day          before  after  locked  parked");
+    for (const day of plan.days) {
+      console.log(
+        `[publisher]   ${day.day}   ${String(day.before).padStart(6)}  ${String(day.after).padStart(5)}  ${String(day.locked).padStart(6)}  ${String(day.parked.length).padStart(6)}`
+      );
+    }
+    const before = plan.days.reduce((sum, day) => sum + day.before, 0);
+    const after = plan.days.reduce((sum, day) => sum + day.after, 0);
+    const overCap = plan.days.filter((day) => day.after > limit).length;
+    console.log(
+      `[publisher] ${plan.days.length} days with shorts from today on: ${before} shorts before, ${after} after, ${plan.park.length} to park.${overCap ? ` ${overCap} day${overCap === 1 ? "" : "s"} stay over the limit because of posts already sent or scheduled.` : ""}`
+    );
+
+    if (!apply) {
+      console.log(`[publisher] dry run — nothing written. --apply moves the ${plan.park.length} into ${parkedPath}; --unpark puts them back.`);
+      return;
+    }
+    if (plan.park.length === 0) return;
+    const existing = await thin.readParked(parkedPath);
+    const parkedAt = now.toISOString();
+    const entries = plan.park.map((item) => ({ parkedAt, reason: `over ${limit} shorts a day`, item }));
+    await writeFile(parkedPath, JSON.stringify({ parked: [...existing.parked, ...entries] }, null, 2), "utf8");
+    const removed = await queue.removeMany(plan.park.map((item) => item.id), "cli-thin");
+    console.log(`[publisher] parked ${removed.length} post${removed.length === 1 ? "" : "s"} in ${parkedPath}.`);
+    return;
+  }
+
   console.log(
     [
       "Publisher commands:",
@@ -786,6 +856,8 @@ async function main() {
       "  adopt [--write]                      record channel videos the queue has never heard of",
       "  shuffle [--repair] [--write] [--push] [--days <n>]",
       "                                       mix upcoming posts; --repair only unstacks double-booked slots",
+      "  thin [--apply] [--unpark [--ids a,b]] [--queue <file>] [--limit <n>]",
+      "                                       park shorts over the per-day limit (dry run by default)",
       "  remove <itemId>                      drop an item from the queue"
     ].join("\n")
   );

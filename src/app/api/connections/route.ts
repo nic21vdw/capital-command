@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { CONNECTIONS, CONNECTION_FIELD_NAMES } from "@/lib/publisher/connections";
 import { credentialsPresent, saveCredentials } from "@/lib/publisher/credentials";
+import { accountIdConfigured } from "@/lib/publisher/accounts";
+import { spotifyConnected } from "@/lib/spotify/auth";
 
 /**
  * What is connected, and the one place a credential is written.
@@ -10,7 +12,17 @@ import { credentialsPresent, saveCredentials } from "@/lib/publisher/credentials
  * neither can the browser's network tab.
  */
 export async function GET() {
-  return NextResponse.json({ present: await credentialsPresent(CONNECTION_FIELD_NAMES) });
+  return NextResponse.json(await connectionState());
+}
+
+async function connectionState() {
+  const [present, youtube, tiktok, spotify] = await Promise.all([
+    credentialsPresent(CONNECTION_FIELD_NAMES),
+    accountIdConfigured("youtube"),
+    accountIdConfigured("tiktok"),
+    spotifyConnected()
+  ]);
+  return { present, connected: { youtube, tiktok, spotify } };
 }
 
 export async function POST(request: Request) {
@@ -43,7 +55,7 @@ export async function POST(request: Request) {
 
   await saveCredentials(updates);
   return NextResponse.json({
-    present: await credentialsPresent(CONNECTION_FIELD_NAMES),
+    ...(await connectionState()),
     connections: CONNECTIONS.map((connection) => connection.id)
   });
 }

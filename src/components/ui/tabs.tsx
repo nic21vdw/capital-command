@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
+import { Suspense, useCallback, useMemo, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import type { LucideIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -32,17 +32,16 @@ function TabsInner({ tabs, paramKey = "tab" }: { tabs: TabItem[]; paramKey?: str
   const resolved = tabs.some((tab) => tab.id === fromUrl) ? (fromUrl as string) : tabs[0]?.id;
 
   const [active, setActive] = useState(resolved);
-  // Mount a tab the first time it (or its neighbor) is selected, then keep it
-  // mounted so scroll position, draft fields, and local UI state survive a
-  // click back — the old `key={current.id}` remount wiped all of that.
   const [visited, setVisited] = useState(() => nextVisitedTabs(new Set(), resolved ?? "", tabIds));
+  const [urlTab, setUrlTab] = useState(resolved);
 
-  // Browser back/forward and deep links update the URL; mirror that into state.
-  useEffect(() => {
-    if (!resolved || resolved === active) return;
-    setActive(resolved);
-    setVisited((current) => nextVisitedTabs(current, resolved, tabIds));
-  }, [resolved, active, tabIds]);
+  if (resolved !== urlTab) {
+    setUrlTab(resolved);
+    if (resolved) {
+      setActive(resolved);
+      setVisited((current) => nextVisitedTabs(current, resolved, tabIds));
+    }
+  }
 
   const select = useCallback(
     (id: string) => {
@@ -94,8 +93,6 @@ function TabsInner({ tabs, paramKey = "tab" }: { tabs: TabItem[]; paramKey?: str
             key={tab.id}
             role="tabpanel"
             hidden={!isActive}
-            // Keep inactive panels in the tree (scroll + drafts survive) but
-            // out of layout; only the newly shown panel gets the enter motion.
             className={cn(isActive && "panel-enter")}
           >
             {tab.content}

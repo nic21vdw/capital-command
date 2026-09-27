@@ -221,10 +221,17 @@ function CaptionLayer({
           style={{
             fontFamily: style.fontFamily,
             fontWeight: style.fontWeight,
+            fontStyle: style.italic ? "italic" : undefined,
             fontSize,
             color: style.textColor,
             background: bg,
-            textShadow: `0 ${Math.max(1, style.shadow)}px ${Math.max(2, style.shadow * 2)}px rgba(0,0,0,0.65)`,
+            textShadow: [
+              `0 ${Math.max(1, style.shadow)}px ${Math.max(2, style.shadow * 2)}px rgba(0,0,0,0.65)`,
+              style.glowColor ? `0 0 ${Math.round(fontSize * 0.25)}px ${style.glowColor}` : null,
+              style.glowColor ? `0 0 ${Math.round(fontSize * 0.5)}px ${style.glowColor}` : null
+            ]
+              .filter(Boolean)
+              .join(", "),
             WebkitTextStroke: style.outlineWidth > 0 ? `${style.outlineWidth * 0.45}px #000` : undefined,
             paintOrder: "stroke fill"
           }}
