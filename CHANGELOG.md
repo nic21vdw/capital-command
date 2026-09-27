@@ -18,6 +18,8 @@ already shipped.
 - **Filler words and dead air are cut inside every clip.** Um, uh, doubled words and long pauses between words come out, each clip starts on its first real word, and the captions leave the cut words out too. The Best-of tab shows how many of each were cut.
 - **Zoom cuts in the best-of edit, if you want them.** A switch in the Best-of tab makes a jump cut inside the same shot alternate between the wide frame and a punch-in. It starts off, and cuts to new material stay straight cuts.
 - **Building the edit no longer ties up the button.** It runs in the background with a progress bar that names the step it is on, and a failed build says why.
+- **Account setup has one clear place in the Uploading Center.** The duplicate YouTube connect controls are gone. Primary accounts now point to Settings for credentials and sign-in, while extra YouTube and TikTok accounts keep their own sign-in buttons. Instagram and Facebook reminders explain when credentials are needed.
+
 - **Switching social platforms feels instant.** YouTube, TikTok, Instagram and Facebook calendars stay mounted when you click between them, so scroll position and what you were typing are still there — and the background refresh no longer stacks up while you are on another window.
 - **Segment Deck downloads finish faster without losing quality.** Remotion no longer paints one frame at a time — it uses your spare CPU cores (capped safely) and still exports at full resolution with the same master encode quality as the rest of the app.
 - Other websites can no longer trigger app updates or start and revoke voice sessions through your local browser.

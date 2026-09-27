@@ -505,7 +505,6 @@ export function UploadingCenterPage() {
     [busy, handleSchedule, placingClip],
   );
 
-  const activeYoutubeAccount = activeAccountFor("youtube");
 
   // Read through the ref, not through `drafts`: the bulk actions below await
   // between clips, and each one has to see the captions the previous ones wrote.
@@ -668,7 +667,7 @@ export function UploadingCenterPage() {
             </div>
           ) : null}
           {id === "youtube" && !configured ? (
-            <ConnectYoutubeNotice accountId={activeAccount?.id} />
+            <ConnectYoutubeNotice accountId={activeAccount?.id} primary={activeAccount?.primary} />
           ) : null}
           {id === "youtube" && configured && channel?.needsReconnect ? (
             <ReconnectYoutubeNotice accountId={activeAccount?.id} />
@@ -680,18 +679,18 @@ export function UploadingCenterPage() {
             />
           ) : null}
           {id !== "youtube" && id !== "tiktok" && !configured ? (
-            <p className="flex items-center gap-2 rounded-lg border border-amber-400/25 bg-amber-400/8 px-3 py-2 text-xs text-amber-200">
-              <AlertTriangle className="h-4 w-4 shrink-0" />
-              {PLATFORM_LABELS[id]} isn&apos;t connected yet — assignments save
-              as <StatusChip status="manual" /> reminders. Automatic posting
-              arrives with the unified posting API.
-            </p>
+            <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-amber-400/25 bg-amber-400/8 px-3 py-2">
+              <p className="flex items-center gap-2 text-xs text-amber-200">
+                <AlertTriangle className="h-4 w-4 shrink-0" />
+                {activeAccount?.primary
+                  ? <>{PLATFORM_LABELS[id]} needs account credentials before automatic posting. Assignments stay as <StatusChip status="manual" /> reminders meanwhile.</>
+                  : <>Extra {PLATFORM_LABELS[id]} accounts use <StatusChip status="manual" /> reminders for now.</>}
+              </p>
+              {activeAccount?.primary ? <SettingsConnectionLink /> : null}
+            </div>
           ) : null}
           {id === "tiktok" && configured ? (
             <p className="rounded-lg border border-emerald-400/25 bg-emerald-400/8 px-3 py-2 text-xs text-emerald-200">
-              {activeAccount?.tiktok
-                ? `Connected as ${activeAccount.tiktok.title}. `
-                : "TikTok connected. "}
               Posts publish at their slot time through the Content Posting API.
               Until TikTok audits the app they land on your profile as private
               (SELF_ONLY) — flip TIKTOK_AUDITED=true after approval.
@@ -744,37 +743,7 @@ export function UploadingCenterPage() {
         eyebrow="Step 3 · Schedule"
         title="Uploading Center"
         description="Book your finished clips onto the posting schedule — one button fills the next free slots, or drag a clip onto any slot yourself."
-        actions={
-          <div className="flex w-full max-w-sm flex-col gap-2">
-            {activeYoutubeAccount?.connected ? (
-              <Badge className="self-start border-emerald-400/30 bg-emerald-400/10 text-emerald-300">
-                {activeYoutubeAccount.youtube?.thumbnail ? (
-                  // eslint-disable-next-line @next/next/no-img-element -- remote avatar host isn't in next.config images
-                  <img
-                    src={activeYoutubeAccount.youtube.thumbnail}
-                    alt=""
-                    className="mr-1.5 h-4 w-4 rounded-full"
-                  />
-                ) : (
-                  <CheckCircle2 className="mr-1.5 h-3.5 w-3.5" />
-                )}
-                {activeYoutubeAccount.youtube
-                  ? `Connected as ${activeYoutubeAccount.youtube.title}`
-                  : "YouTube connected"}
-              </Badge>
-            ) : (
-              <Button
-                onClick={() =>
-                  (window.location.href = connectUrl(activeYoutubeAccount?.id))
-                }
-                className="self-start"
-              >
-                <Youtube className="mr-2 h-4 w-4" /> Connect YouTube
-              </Button>
-            )}
-            {overview ? <QuotaMeter quota={overview.quota} /> : null}
-          </div>
-        }
+        actions={overview ? <div className="w-full max-w-sm"><QuotaMeter quota={overview.quota} /></div> : undefined}
       />
 
       {placingClip ? (
@@ -1031,6 +1000,14 @@ function tiktokConnectUrl(accountId?: string) {
     : "/api/auth/tiktok";
 }
 
+function SettingsConnectionLink() {
+  return (
+    <Link href="/settings#accounts" className="inline-flex h-8 shrink-0 items-center rounded-lg border border-[var(--border)] bg-white/5 px-3 text-xs font-medium text-white hover:bg-white/10">
+      Account settings
+    </Link>
+  );
+}
+
 function ConnectTiktokNotice({
   accountId,
   primary,
@@ -1043,16 +1020,14 @@ function ConnectTiktokNotice({
       <p className="flex items-center gap-2 text-xs text-amber-200">
         <AlertTriangle className="h-4 w-4 shrink-0" />
         {primary
-          ? "TikTok isn't connected — new assignments save as manual reminders instead of posting. Connecting needs TIKTOK_CLIENT_KEY and TIKTOK_CLIENT_SECRET in .env first."
-          : "This TikTok account isn't connected yet — sign in to the profile it posts as. Its own connection is kept separate, so connecting it leaves your other TikTok accounts alone."}
+          ? "TikTok needs setup in Settings. Assignments stay as manual reminders until the account is connected."
+          : "This TikTok account needs its own sign-in. Assignments stay as manual reminders until then."}
       </p>
-      <Button
-        variant="secondary"
-        className="h-8 px-3 text-xs"
-        onClick={() => (window.location.href = tiktokConnectUrl(accountId))}
-      >
-        Connect TikTok
-      </Button>
+      {primary ? <SettingsConnectionLink /> : (
+        <Button variant="secondary" className="h-8 px-3 text-xs" onClick={() => (window.location.href = tiktokConnectUrl(accountId))}>
+          Connect TikTok
+        </Button>
+      )}
     </div>
   );
 }
@@ -1076,21 +1051,20 @@ function ReconnectYoutubeNotice({ accountId }: { accountId?: string }) {
   );
 }
 
-function ConnectYoutubeNotice({ accountId }: { accountId?: string }) {
+function ConnectYoutubeNotice({ accountId, primary }: { accountId?: string; primary?: boolean }) {
   return (
     <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-amber-400/25 bg-amber-400/8 px-3 py-2">
       <p className="flex items-center gap-2 text-xs text-amber-200">
         <AlertTriangle className="h-4 w-4 shrink-0" />
-        This YouTube account isn&apos;t connected — new assignments save as
-        manual reminders instead of uploading.
+        {primary
+          ? "YouTube needs setup in Settings. Assignments stay as manual reminders until the account is connected."
+          : "This YouTube account needs its own sign-in. Assignments stay as manual reminders until then."}
       </p>
-      <Button
-        variant="secondary"
-        className="h-8 px-3 text-xs"
-        onClick={() => (window.location.href = connectUrl(accountId))}
-      >
-        Connect YouTube
-      </Button>
+      {primary ? <SettingsConnectionLink /> : (
+        <Button variant="secondary" className="h-8 px-3 text-xs" onClick={() => (window.location.href = connectUrl(accountId))}>
+          Connect YouTube
+        </Button>
+      )}
     </div>
   );
 }
