@@ -1,7 +1,7 @@
 import path from "node:path";
 import { NextRequest, NextResponse } from "next/server";
 import { generateLongformMetadata, longformMetadataConfigured } from "@/lib/longform/metadata";
-import { getProject, listProjects, projectOutputDir, updateProject } from "@/lib/longform/store";
+import { getProject, listProjects, projectOutputDir, updateProject, withFullTranscript } from "@/lib/longform/store";
 import type { LongformProject } from "@/lib/longform/types";
 import { episodeCandidates } from "@/lib/podcast/candidates";
 import { feedBlockers } from "@/lib/podcast/feed";
@@ -62,7 +62,7 @@ const SHOW_FIELDS: (keyof PodcastShow)[] = [
 async function episodeMetadata(project: LongformProject) {
   if (project.metadata) return project.metadata;
   if (!longformMetadataConfigured()) return undefined;
-  const metadata = await generateLongformMetadata(project);
+  const metadata = await generateLongformMetadata(project.highlight ? await withFullTranscript(project) : project);
   await updateProject(project.id, { metadata });
   return metadata;
 }

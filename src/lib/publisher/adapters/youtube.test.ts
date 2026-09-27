@@ -107,6 +107,47 @@ describe("youtube adapter", () => {
     expect(result.postId).toBe("vid-123");
   });
 
+  it("uploads a long-form video private with no publishAt even when visibility is public", async () => {
+    const requests = mockFetchRoutes([
+      { match: "oauth2.googleapis.com/token", respond: () => jsonResponse({ access_token: "at-1", expires_in: 3600 }) },
+      {
+        match: "uploadType=resumable",
+        respond: () => jsonResponse({}, { headers: { location: "https://upload.example/session-long" } })
+      },
+      { match: "upload.example/session-long", respond: () => jsonResponse({ id: "vid-long" }) }
+    ]);
+    const adapter = await loadAdapter();
+
+    const result = await adapter.publish(input({ visibility: "public", format: "long" }));
+
+    const body = JSON.parse(String(requests[1].body));
+    expect(body.status.privacyStatus).toBe("private");
+    expect(body.status.publishAt).toBeUndefined();
+    expect(result.status).toBe("published");
+    expect(result.detail).toMatch(/private for review/);
+  });
+
+  it("uploads a long-form file under data/longform private even without the format field", async () => {
+    const requests = mockFetchRoutes([
+      { match: "oauth2.googleapis.com/token", respond: () => jsonResponse({ access_token: "at-1", expires_in: 3600 }) },
+      {
+        match: "uploadType=resumable",
+        respond: () => jsonResponse({}, { headers: { location: "https://upload.example/session-path" } })
+      },
+      { match: "upload.example/session-path", respond: () => jsonResponse({ id: "vid-path" }) }
+    ]);
+    const adapter = await loadAdapter();
+
+    const result = await adapter.publish(
+      input({ visibility: "public", clipPath: "data/longform/outputs/proj/edit.mp4" })
+    );
+
+    const body = JSON.parse(String(requests[1].body));
+    expect(body.status.privacyStatus).toBe("private");
+    expect(body.status.publishAt).toBeUndefined();
+    expect(result.status).toBe("published");
+  });
+
   it("uploads directly as private (no publishAt) when visibility is private", async () => {
     const requests = mockFetchRoutes([
       { match: "oauth2.googleapis.com/token", respond: () => jsonResponse({ access_token: "at-1", expires_in: 3600 }) },
@@ -319,6 +360,60 @@ describe("youtube adapter", () => {
       // Token refresh + status check only — no videos.update.
       expect(requests).toHaveLength(2);
       expect(requests[1].method).toBe("GET");
+    });
+
+    it("keeps a long-form video private and clears publishAt instead of making it public", async () => {
+      const requests = mockFetchRoutes([
+        { match: "oauth2.googleapis.com/token", respond: () => jsonResponse({ access_token: "at-1", expires_in: 3600 }) },
+        {
+          match: "id=vid-long",
+          respond: () =>
+            jsonResponse({
+              items: [
+                {
+                  status: {
+                    privacyStatus: "private",
+                    publishAt: FUTURE,
+                    selfDeclaredMadeForKids: false,
+                    embeddable: true
+                  }
+                }
+              ]
+            })
+        },
+        { match: "youtube/v3/videos?part=status", respond: () => jsonResponse({ id: "vid-long" }) }
+      ]);
+      const adapter = await loadAdapter();
+      const item = testItem({ visibility: "public", format: "long", platformIds: ["youtube"] });
+
+      const result = await adapter.finalize!(item, { status: "scheduled", attempts: 0, postId: "vid-long" });
+
+      const update = requests[2];
+      expect(update.method).toBe("PUT");
+      const body = JSON.parse(String(update.body));
+      expect(body.status.privacyStatus).toBe("private");
+      expect(body.status.publishAt).toBeUndefined();
+      expect(body.status.embeddable).toBe(true);
+      expect(result.status).toBe("published");
+      expect(result.detail).toMatch(/kept private/);
+    });
+
+    it("does not pull a long-form video back to private once it is already public", async () => {
+      const requests = mockFetchRoutes([
+        { match: "oauth2.googleapis.com/token", respond: () => jsonResponse({ access_token: "at-1", expires_in: 3600 }) },
+        {
+          match: "id=vid-live",
+          respond: () => jsonResponse({ items: [{ status: { privacyStatus: "public" } }] })
+        }
+      ]);
+      const adapter = await loadAdapter();
+      const item = testItem({ visibility: "public", format: "long", platformIds: ["youtube"] });
+
+      const result = await adapter.finalize!(item, { status: "scheduled", attempts: 0, postId: "vid-live" });
+
+      expect(result.status).toBe("published");
+      expect(requests).toHaveLength(2);
+      expect(requests.some((request) => request.method === "PUT")).toBe(false);
     });
 
     it("forces privacyStatus public via videos.update when the video is still private", async () => {

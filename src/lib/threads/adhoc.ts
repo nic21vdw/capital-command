@@ -1,5 +1,6 @@
 import { dateTimeFormat } from "@/lib/publisher/intl";
 import { fitToThreads } from "@/lib/threads/plan";
+import { plugReplyFor } from "@/lib/threads/plug";
 import type { ThreadsConfig } from "@/lib/threads/config";
 import type { ThreadsQueueItem } from "@/lib/threads/types";
 
@@ -52,6 +53,7 @@ export function planAdhocPosts({
     while (taken.has(at.toISOString())) at = new Date(at.getTime() + spacingHours * HOUR);
     const publishAt = at.toISOString();
     taken.add(publishAt);
+    const plugText = plugReplyFor(text, publishAt, config);
     items.push({
       id: nextId(),
       batchDate: localDateKey(at, config.timezone),
@@ -65,6 +67,7 @@ export function planAdhocPosts({
       text,
       publishAt,
       status: "pending",
+      ...(plugText ? { plugText } : {}),
       attempts: 0,
       createdAt,
       origin: "pipeline",

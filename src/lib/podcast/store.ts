@@ -7,7 +7,7 @@ const podcastRoot = dataPath("podcast");
 const stateFile = path.join(podcastRoot, "show.json");
 
 export const DEFAULT_SHOW: PodcastShow = {
-  title: "Capital Command",
+  title: "CoLateral Marketing",
   description:
     "Live builds, AI agents and the business of shipping software. Every stream from the channel, in full, as audio.",
   author: "Nic",
@@ -17,7 +17,7 @@ export const DEFAULT_SHOW: PodcastShow = {
   category: "Technology",
   explicit: false,
   artworkUrl: "",
-  copyright: `© ${new Date().getFullYear()} Capital Command`
+  copyright: `© ${new Date().getFullYear()} CoLateral Marketing`
 };
 
 let writeChain = Promise.resolve();

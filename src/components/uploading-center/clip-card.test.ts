@@ -64,6 +64,15 @@ describe("summarizePlatformState", () => {
     expect(summary.note).toContain("quota exceeded");
   });
 
+  it("reports a published long-form video as private, not live", () => {
+    const summary = summarizePlatformState(
+      "youtube",
+      state({ status: "published", postId: "vid123", uploadedAt: "2026-07-14T10:00:05.000Z", publishedAt: "2026-07-15T19:30:00.000Z" }),
+      { ...item, format: "long" }
+    );
+    expect(summary.note).toBe("Private on YouTube - make it public after you review it");
+  });
+
   it("reports a published post as live", () => {
     const summary = summarizePlatformState(
       "youtube",

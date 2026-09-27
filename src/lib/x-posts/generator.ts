@@ -1,6 +1,6 @@
 import { aiConfigured, runAi } from "@/lib/ai";
 import { CHANNEL_CONTEXT } from "@/lib/clipping/keywords";
-import { POST_LIBRARY, REPLY_LIBRARY } from "@/lib/x-posts/library";
+import { COLATERAL_LIBRARY, POST_LIBRARY, REPLY_LIBRARY } from "@/lib/x-posts/library";
 import { humanize } from "@/lib/x-posts/voice";
 import { xDailyPackSchema } from "@/lib/storage/schemas";
 import type { XDailyPack, XPostFormat, XSuggestedPost, XSuggestedReply } from "@/types/domain";
@@ -17,6 +17,7 @@ import type { XDailyPack, XPostFormat, XSuggestedPost, XSuggestedReply } from "@
 
 export const POSTS_PER_PACK = 24;
 export const REPLIES_PER_PACK = 20;
+export const COLATERAL_POSTS_PER_PACK = 8;
 
 /**
  * Both versions of an idea post to Threads, so both could run to Threads' 500
@@ -160,7 +161,12 @@ export function libraryPack(date: string, focus: string, requestedAt?: string): 
   const pick = <T>(bank: T[], count: number, stride: number): T[] =>
     Array.from({ length: count }, (_, i) => bank[(dayIndex * stride + i * Math.max(1, Math.floor(bank.length / count))) % bank.length]);
 
-  const posts = pick(POST_LIBRARY, POSTS_PER_PACK, 7);
+  const colateral = pick(COLATERAL_LIBRARY, COLATERAL_POSTS_PER_PACK, 3);
+  const general = pick(POST_LIBRARY, POSTS_PER_PACK - COLATERAL_POSTS_PER_PACK, 7);
+  const every = Math.floor(POSTS_PER_PACK / COLATERAL_POSTS_PER_PACK);
+  const posts = Array.from({ length: POSTS_PER_PACK }, (_, index) =>
+    index % every === every - 1 ? colateral.shift()! : general.shift()!
+  );
   const replies = pick(REPLY_LIBRARY, REPLIES_PER_PACK, 5);
   return buildPack({ date, focus, source: "library", requestedAt, posts, replies });
 }
@@ -206,7 +212,7 @@ Today's optional focus topic: ${focusLine}
 
 Write today's content pack:
 
-1. Exactly ${POSTS_PER_PACK} ORIGINAL standalone posts. ONE thought each, said short. These have to stop a thumb mid scroll and give someone a reason to reply, so the first line has to earn the second and there is no room for a wind up. Every post takes a DIFFERENT angle, and no two circle the same idea. Vary the formats across the set: insight, contrarian, story, question, framework, observation. At most 4 of the ${POSTS_PER_PACK} may touch CoLateral, and only in passing. The rest are just him talking about building things with AI and about work.
+1. Exactly ${POSTS_PER_PACK} ORIGINAL standalone posts. ONE thought each, said short. These have to stop a thumb mid scroll and give someone a reason to reply, so the first line has to earn the second and there is no room for a wind up. Every post takes a DIFFERENT angle, and no two circle the same idea. Vary the formats across the set: insight, contrarian, story, question, framework, observation. Exactly ${COLATERAL_POSTS_PER_PACK} of the ${POSTS_PER_PACK} are about CoLateral, the thing he is building, and each of those names it as "CoLateral" in BOTH versions: something it does, why he is building it, a day of building it, a thing that broke in it, who it is for. Spread them through the day, never two in a row. They still read like a person talking about his own project, not an ad: no "check out", no "sign up", no feature lists, and never a link, because a reply with the link goes under each one automatically. The rest are just him talking about building things with AI and about work, and do not mention CoLateral.
 
 KEEP THEM SHORT. Short is the point. If a post needs a second idea to make sense, cut the second idea, not the words around it. One or two lines. Never a paragraph that fills the box.
 

@@ -96,7 +96,9 @@ export const longformProjectPatchSchema = z
     music: longformMusicSchema,
     sfx: sfxSettingsSchema,
     layout: z.enum(["wide", "vertical"]),
-    pace: longformPaceSchema
+    pace: longformPaceSchema,
+    // Punch in on jump cuts; absent keeps the default (on for a best-of edit).
+    zoomCuts: z.boolean()
   })
   .partial();
 
@@ -119,6 +121,28 @@ export const longformTopicPlanSchema = z
     targetMinutes: z.coerce.number().min(3).max(30).optional()
   })
   .default({});
+
+/** POST body for building (or rebuilding) the best-of edit. */
+export const longformHighlightBuildSchema = z
+  .object({
+    /** The runtime to aim for. Eight minutes is the long-form floor. */
+    targetMinutes: z.coerce.number().min(8).max(60).optional()
+  })
+  .default({});
+
+/** PATCH body for swapping passages in or out of the best-of edit, or renaming their chapters. */
+export const longformHighlightPatchSchema = z.object({
+  passages: z
+    .array(
+      z.object({
+        id: z.string().min(1).max(32),
+        enabled: z.boolean().optional(),
+        label: z.string().trim().min(1).max(60).optional()
+      })
+    )
+    .min(1)
+    .max(2000)
+});
 
 // A project starts from either a previously uploaded `sourceId` or a video
 // `url` (YouTube/VOD link) the server downloads itself. Exactly one is required.

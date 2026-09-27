@@ -314,7 +314,7 @@ export function CommandBar() {
     <div className="pointer-events-none fixed inset-x-0 bottom-0 z-40 flex justify-center px-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] sm:px-3 sm:pb-[max(1.5rem,env(safe-area-inset-bottom))]">
       <div className="pointer-events-auto w-full max-w-3xl">
         {open && lines.length ? (
-          <div className="mb-2 max-h-[45vh] overflow-y-auto rounded-2xl border border-[var(--border)] bg-[var(--panel)]/95 p-3 shadow-2xl backdrop-blur">
+          <div className="glass-popover mb-2 max-h-[45vh] overflow-y-auto rounded-2xl border p-3">
             <button
               type="button"
               onClick={() => setOpen(false)}
@@ -371,8 +371,8 @@ export function CommandBar() {
 
         <div
           className={cn(
-            "flex items-center gap-1.5 rounded-2xl border bg-[var(--panel)]/95 px-2 py-2 shadow-2xl backdrop-blur transition sm:gap-2 sm:px-3",
-            listening ? "border-red-400/60" : "border-[var(--border)]"
+            "glass-popover flex items-center gap-1.5 rounded-2xl border px-2 py-2 transition sm:gap-2 sm:px-3",
+            listening && "border-red-400/60"
           )}
         >
           {listening ? (

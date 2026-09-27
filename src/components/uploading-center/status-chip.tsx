@@ -1,5 +1,6 @@
 import { cn } from "@/lib/utils";
 import { pendingHint, pendingLabel } from "@/lib/publisher/nativeScheduling";
+import { youtubeHoldsForReview } from "@/lib/publisher/reviewHold";
 import type { PlatformId, PlatformStatus, QueueItem } from "@/lib/publisher/types";
 
 /**
@@ -38,15 +39,26 @@ export function StatusChip({
   /** The post itself, when there is one: a picture post and a slot beyond
    *  Facebook's 29-day window are both "posts at slot" on a platform that
    *  otherwise takes the upload early. */
-  item?: Pick<QueueItem, "mediaKind" | "publishAt">;
+  item?: Pick<QueueItem, "mediaKind" | "publishAt" | "format"> & { clipPath?: string };
   className?: string;
 }) {
   const chip = CHIPS[status];
-  const label = status === "pending" ? pendingLabel(platform, item) : chip.label;
+  const heldPrivate =
+    (status === "published" || status === "scheduled") &&
+    platform === "youtube" &&
+    item != null &&
+    youtubeHoldsForReview(item);
+  const label = status === "pending" ? pendingLabel(platform, item) : heldPrivate ? "Private" : chip.label;
   return (
     <span
-      title={status === "pending" ? pendingHint(platform, item) : undefined}
-      className={cn("chip", `tone-${chip.tone}`, className)}
+      title={
+        heldPrivate
+          ? "Uploaded private. Make it public on YouTube after you review it."
+          : status === "pending"
+            ? pendingHint(platform, item)
+            : undefined
+      }
+      className={cn("chip", `tone-${heldPrivate ? CHIPS.scheduled.tone : chip.tone}`, className)}
     >
       {label}
     </span>

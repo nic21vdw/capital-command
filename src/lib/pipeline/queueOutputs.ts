@@ -17,6 +17,8 @@ import { publishQueue } from "@/lib/publisher/queue";
 import { withPublishRunLock } from "@/lib/publisher/runLock";
 import { runDue } from "@/lib/publisher/runner";
 import { planScheduleRepair } from "@/lib/publisher/scheduleShuffle";
+import { localDateKey } from "@/lib/publisher/schedule";
+import { movesBreachShortsCap, shortsByDay, shortsLimit } from "@/lib/publisher/shortsCap";
 import { generateSlots, slotGrid } from "@/lib/publisher/slots";
 import type { PlatformId, QueueItem } from "@/lib/publisher/types";
 import type { Carousel } from "@/types/domain";
@@ -161,18 +163,17 @@ export async function planRunOutputs(runId: string): Promise<QueuePlan | null> {
     else if (booked.has(candidate.id)) candidate.heldBack = "removed";
   }
 
-  const taken = new Set(existing.map((item) => item.publishAt));
-  // `bookable`, not `!past`: a run's whole output never lands on the day it was
-  // booked, so the earliest slot offered is tomorrow's (see schedule.ts).
-  const openSlots = generateSlots({ timeZone: config.timezone, days: config.bookingHorizonDays, ...slotGrid(config) })
-    .filter((slot) => slot.bookable && !taken.has(slot.utc))
-    .map((slot) => slot.utc);
+  const openSlots = freeSlots(existing);
+  const preview = dealSlots(candidates, openSlots, shortsCapFor(existing))
+    .map((entry) => entry.publishAt)
+    .filter((publishAt): publishAt is string => Boolean(publishAt))
+    .sort((a, b) => a.localeCompare(b));
 
   return {
     runName: run.name,
     candidates,
     skipped,
-    openSlots: openSlots.slice(0, Math.max(candidates.length, 1)),
+    openSlots: candidates.length > 0 ? preview : openSlots.slice(0, 1),
     enabled: config.enabled,
     problem: config.enabled
       ? config.platforms.length === 0
@@ -337,18 +338,72 @@ async function collectCarousel(
 }
 
 /**
+ * Every bookable slot in the horizon that no post already holds. `bookable`,
+ * not `!past`: a run's whole output never lands on the day it was booked, so
+ * the earliest slot offered is tomorrow's (see schedule.ts).
+ */
+function freeSlots(existing: QueueItem[]): string[] {
+  const config = publisherConfig();
+  const taken = new Set(existing.map((item) => item.publishAt));
+  return generateSlots({ timeZone: config.timezone, days: config.bookingHorizonDays, ...slotGrid(config) })
+    .filter((slot) => slot.bookable && !taken.has(slot.utc))
+    .map((slot) => slot.utc);
+}
+
+export type ShortsCap = {
+  timeZone: string;
+  limit: number;
+  booked: Pick<QueueItem, "publishAt" | "mediaKind" | "format">[];
+};
+
+function shortsCapFor(existing: QueueItem[]): ShortsCap {
+  const config = publisherConfig();
+  return { timeZone: config.timezone, limit: shortsLimit(config), booked: existing };
+}
+
+const isShortCandidate = (candidate: QueueCandidate) => candidate.kind === "clip";
+
+/**
+ * Deals the outputs onto the slots in the order given. A short only takes a
+ * slot on a day that still has room under the shorts-per-day limit; long-form
+ * and picture posts take the next free slot whatever the day holds.
+ */
+function dealSlots(
+  ordered: QueueCandidate[],
+  slots: string[],
+  cap?: ShortsCap
+): { candidate: QueueCandidate; publishAt: string | undefined }[] {
+  const used = new Set<string>();
+  const shorts = cap ? shortsByDay(cap.booked, cap.timeZone) : new Map<string, number>();
+  const hasRoom = (slot: string) => !cap || (shorts.get(localDateKey(slot, cap.timeZone)) ?? 0) < cap.limit;
+  return ordered.map((candidate) => {
+    const short = isShortCandidate(candidate);
+    const publishAt = slots.find((slot) => !used.has(slot) && (!short || hasRoom(slot)));
+    if (publishAt) {
+      used.add(publishAt);
+      if (short && cap) {
+        const day = localDateKey(publishAt, cap.timeZone);
+        shorts.set(day, (shorts.get(day) ?? 0) + 1);
+      }
+    }
+    return { candidate, publishAt };
+  });
+}
+
+/**
  * One output per free slot, in random order, so a run's shorts are not booked
  * as three clips from the same stream in a row. Two outputs never share a
  * slot: the Uploading Center treats a taken slot as taken, and double-booking
- * is how a day ends up posting twice and another posts nothing.
+ * is how a day ends up posting twice and another posts nothing. Given a cap,
+ * no day ends up with more shorts than the limit allows.
  */
 export function assignSlots(
   candidates: QueueCandidate[],
   slots: string[],
-  seed: number = Date.now()
+  seed: number = Date.now(),
+  cap?: ShortsCap
 ): { candidate: QueueCandidate; publishAt: string | undefined }[] {
-  const ordered = shuffled(candidates, seed);
-  return ordered.map((candidate, index) => ({ candidate, publishAt: slots[index] }));
+  return dealSlots(shuffled(candidates, seed), slots, cap);
 }
 
 /**
@@ -388,6 +443,10 @@ async function settleSchedule(): Promise<void> {
     .map((slot) => slot.utc);
   const fix = planScheduleRepair(upcoming, now, { openSlots });
   if (fix.moves.length === 0) return;
+  if (movesBreachShortsCap(upcoming, fix.moves, config.timezone, shortsLimit(config))) {
+    console.warn("[pipeline] left the schedule as booked: settling it would put more shorts on a day than the limit allows");
+    return;
+  }
   await queue.applyPublishTimes(
     fix.moves.map((move) => ({ id: move.id, publishAt: move.to })),
     "pipeline-queue-outputs"
@@ -481,7 +540,9 @@ export async function queueRunOutputs(
           .map((item) => item.id)
       : [];
 
-  const slots = plan.openSlots;
+  const existing = await readQueue();
+  const cap = shortsCapFor(existing);
+  const slots = freeSlots(existing);
   const horizonMonths = Math.max(1, Math.round(publisherConfig().bookingHorizonDays / 30));
 
   const queued: QueueResult["queued"] = [];
@@ -489,14 +550,16 @@ export async function queueRunOutputs(
   // whatever random order the slots were dealt in.
   const problems = new Map<string, QueueResult["failed"][number]>();
   const bookedIds: string[] = [];
-  for (const { candidate, publishAt } of assignSlots(chosen, slots)) {
+  for (const { candidate, publishAt } of assignSlots(chosen, slots, Date.now(), cap)) {
     if (!publishAt) {
       // Naming the way out matters: the grid is his own configuration, not a
       // limit the platforms impose, and "the calendar is full" reads like the
       // latter. PUBLISH_SLOT_TIMES is how a day gets more room.
       problems.set(candidate.id, {
         title: candidate.title,
-        error: `Every slot in the next ${horizonMonths} months is taken — add another posting time to fit more into a day.`
+        error: isShortCandidate(candidate)
+          ? `Every slot in the next ${horizonMonths} months is taken or on a day that already has its ${cap.limit} shorts — raise PUBLISH_SHORTS_PER_DAY or add another posting time.`
+          : `Every slot in the next ${horizonMonths} months is taken — add another posting time to fit more into a day.`
       });
       continue;
     }
@@ -519,7 +582,7 @@ export async function queueRunOutputs(
               title: candidate.title,
               format: LONG_VIDEO_KINDS.has(candidate.kind) ? "long" : "short",
               platforms: candidate.platforms.length ? candidate.platforms : undefined,
-              visibility: "public",
+              visibility: LONG_VIDEO_KINDS.has(candidate.kind) ? "private" : "public",
               jobId: candidate.kind === "clip" ? candidate.id.split(":")[1] : undefined,
               runId: run.id,
               metadataSource: { streamTitle: plan.runName },

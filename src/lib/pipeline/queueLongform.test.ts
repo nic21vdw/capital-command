@@ -18,7 +18,7 @@ const state = {
   run: {} as PipelineRun,
   exports: [] as { id: string; status: string; file: string; title: string; durationSec?: number }[],
   clips: [] as { id: string; title: string }[],
-  added: [] as { title?: string; clipPath: string }[],
+  added: [] as { title?: string; clipPath: string; visibility?: string; format?: string }[],
   config: { enabled: true, platforms: ["youtube"], timezone: "America/Toronto", defaultVisibility: "public" }
 };
 
@@ -104,6 +104,8 @@ describe("booking a run's long-form edit", () => {
     // and its 16:9 shape are read and ignored.
     expect(state.added[0].clipPath.endsWith("longform.mp4")).toBe(true);
     expect(state.added[0].clipPath.endsWith("-vertical.mp4")).toBe(false);
+    expect(state.added[0].visibility).toBe("private");
+    expect(state.added[0].format).toBe("long");
   });
 
   // A forty-second "long-form" export is a short wearing the wrong name, and

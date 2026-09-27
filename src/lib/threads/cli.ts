@@ -65,7 +65,7 @@ async function call(method: "GET" | "POST", body?: unknown): Promise<Record<stri
     });
   } catch (error) {
     throw new Error(
-      `Could not reach Capital Command at ${baseUrl()} (${
+      `Could not reach CoLateral Marketing at ${baseUrl()} (${
         error instanceof Error ? error.message : String(error)
       }). The autopilot runs inside the app, so it has to be up. Start it with \`npm run start\`, or set APP_BASE_URL.`
     );

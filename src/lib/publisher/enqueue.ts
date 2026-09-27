@@ -22,7 +22,8 @@ import { withFacebookAlongsideInstagram } from "@/lib/publisher/metaPairing";
 import type { QueueWriter } from "@/lib/publisher/audit";
 import { newPlatformState, publishQueue, type PublishQueue } from "@/lib/publisher/queue";
 import { assertBookable } from "@/lib/publisher/schedule";
-import { nextBookableSlot } from "@/lib/publisher/slots";
+import { assertShortsRoom, firstSlotWithShortsRoom, shortsLimit } from "@/lib/publisher/shortsCap";
+import { generateSlots, nextBookableSlot } from "@/lib/publisher/slots";
 import { finalizeTitle } from "@/lib/title/finalize";
 import { resolvePublishAt } from "@/lib/publisher/time";
 import { prepareVerticalMedia, type PostFormat } from "@/lib/publisher/vertical";
@@ -228,6 +229,10 @@ export async function enqueue(options: EnqueueOptions): Promise<QueueItem> {
   // Checked before the vertical re-render below, which is minutes of ffmpeg: a
   // post that is refused for its time should be refused straight away.
   assertBookable(publishAtDate, new Date(), config.timezone, { allowSameDay: options.allowSameDay });
+  const format: PostFormat = options.format ?? "short";
+  if (format === "short") {
+    assertShortsRoom(await publishQueue(config).list(), publishAtDate, config.timezone, shortsLimit(config));
+  }
 
   // A short-form post is vertical (Shorts / Reels / TikTok), so a landscape
   // source is re-rendered vertical here — before hosting and before the queue
@@ -235,7 +240,6 @@ export async function enqueue(options: EnqueueOptions): Promise<QueueItem> {
   // aspect ratio and duration; a landscape upload would land as a long-form
   // video. A long-form post is meant to land exactly that way and passes
   // through untouched.
-  const format: PostFormat = options.format ?? "short";
   const prepared = await prepareVerticalMedia(absolute, platforms, format);
   if (prepared.converted) {
     console.log(`[publisher] ${path.basename(absolute)} is landscape — posting the 9:16 render ${path.basename(prepared.path)}`);
@@ -281,7 +285,8 @@ export async function enqueue(options: EnqueueOptions): Promise<QueueItem> {
     caption,
     hashtags,
     publishAt: publishAtDate.toISOString(),
-    visibility: options.visibility ?? config.defaultVisibility,
+    visibility: format === "long" ? "private" : (options.visibility ?? config.defaultVisibility),
+    ...(format === "long" ? { format } : {}),
     createdAt: new Date().toISOString(),
     jobId: options.jobId,
     ...(options.runId ? { runId: options.runId } : {}),
@@ -451,9 +456,10 @@ export async function enqueueImagePost(options: EnqueueImageOptions): Promise<Qu
  *
  * It used to schedule the post PUBLISH_AUTO_ENQUEUE_DELAY_MINUTES from now,
  * which is the same day — so every export of a batch queued itself for this
- * afternoon. It takes the first bookable slot instead (tomorrow's earliest,
- * free or not: `enqueue` refuses the duplicate, not the collision, and the
- * Uploading Center is where a slot clash is resolved).
+ * afternoon. It takes the first bookable slot instead, on the first day that
+ * still has room under the shorts-per-day limit (free or not: `enqueue`
+ * refuses the duplicate, not the collision, and the Uploading Center is where
+ * a slot clash is resolved).
  */
 export async function maybeAutoEnqueueExport(input: {
   jobId: string;
@@ -464,9 +470,15 @@ export async function maybeAutoEnqueueExport(input: {
   if (!config.enabled || !config.autoEnqueue) return null;
   try {
     const job = await getJob(input.jobId);
+    const slots = generateSlots({ timeZone: config.timezone, days: config.bookingHorizonDays })
+      .filter((slot) => slot.bookable)
+      .map((slot) => slot.utc);
+    const publishAt =
+      firstSlotWithShortsRoom(slots, await publishQueue(config).list(), config.timezone, shortsLimit(config)) ??
+      nextBookableSlot({ timeZone: config.timezone }).utc;
     const item = await enqueue({
       clipPath: input.exportPath,
-      publishAt: new Date(nextBookableSlot({ timeZone: config.timezone }).utc),
+      publishAt: new Date(publishAt),
       jobId: input.jobId,
       platforms: configuredPlatforms(config),
       metadataSource: {

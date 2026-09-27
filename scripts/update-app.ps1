@@ -525,5 +525,5 @@ if ((Invoke-Script "start-server.ps1" @("-Quiet") -TimeoutMinutes 90) -ne 0) {
 $port = if ($env:CAPITAL_COMMAND_PORT) { $env:CAPITAL_COMMAND_PORT } else { "3000" }
 
 Write-Log ""
-Write-Log "Capital Command is updated and running at http://localhost:$port (took $(Elapsed))"
+Write-Log "CoLateral Marketing is updated and running at http://localhost:$port (took $(Elapsed))"
 Write-Log "Now on: $((git log --oneline -1))"

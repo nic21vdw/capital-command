@@ -73,6 +73,22 @@ describe("publish queue state machine", () => {
     expect(queue.duePlatforms(item, new Date(DUE.getTime() + 60_000))).toEqual([]);
   });
 
+  it("a scheduled long-form YouTube upload is due immediately so its go-live time can be cleared", async () => {
+    const { queue } = makeQueue();
+    const byFormat = testItem({ publishAt: PUBLISH_AT, platformIds: ["youtube"], format: "long", visibility: "public" });
+    const byPath = testItem({
+      publishAt: PUBLISH_AT,
+      platformIds: ["youtube"],
+      visibility: "public",
+      clipPath: "data/longform/outputs/proj/edit.mp4"
+    });
+    for (const item of [byFormat, byPath]) {
+      item.platforms.youtube!.status = "scheduled";
+      item.platforms.youtube!.postId = "vid123";
+      expect(queue.duePlatforms(item, BEFORE)).toEqual(["youtube"]);
+    }
+  });
+
   it("stamps uploadedAt once on first success, for the quota meter", async () => {
     const { queue } = makeQueue();
     const item = testItem({ publishAt: PUBLISH_AT, platformIds: ["instagram"] });

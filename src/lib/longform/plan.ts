@@ -280,6 +280,19 @@ export function planCaptions(transcript: CaptionSegment[]): LongformCaptions {
 }
 
 /**
+ * The whole-video captions carried past where the project's own transcript
+ * stops. A long stream is only transcribed as far as the hook needs, so its
+ * stored captions end minutes in; a render that reaches further (a topic
+ * segment, a best-of edit) takes the rest from the whole-recording transcript.
+ * Stored captions are kept as they are, because they may carry hand edits.
+ */
+export function extendCaptionSegments(stored: CaptionSegment[], fullTranscript: CaptionSegment[]): CaptionSegment[] {
+  const coveredUntil = stored.reduce((latest, segment) => Math.max(latest, segment.end), 0);
+  const rest = transcriptCaptions(fullTranscript).filter((segment) => segment.start >= coveredUntil - 0.001);
+  return [...stored, ...rest].map((segment, index) => ({ ...segment, id: `cap-${index + 1}` }));
+}
+
+/**
  * Moves an existing project's captions out of the middle of the frame. Every
  * project made before the styles changed still carries the old placement — the
  * hook across the middle, the body flush to the bottom edge — and a stored
@@ -476,6 +489,12 @@ export function remapCaptionsToOutput(
   skipWindow: KeptRange | null = null
 ): CaptionSegment[] {
   const out: CaptionSegment[] = [];
+  // A word the edit does not play (a filler or stutter cut from between two
+  // kept words) must not be shown either, or the caption says "um" over a
+  // cut that removed it.
+  const { hookRange, bodyRanges } = exportRanges(segments, hook);
+  const played = hookRange ? [hookRange, ...bodyRanges] : bodyRanges;
+  const plays = (t: number) => played.some((range) => t >= range.start && t <= range.end);
   for (const seg of captions) {
     if (!seg.enabled || !seg.text.trim()) continue;
     let srcStart = seg.start;
@@ -494,15 +513,22 @@ export function remapCaptionsToOutput(
     const end = intervals[intervals.length - 1].end;
     if (end - start < 0.05) continue;
     const words: CaptionWord[] = [];
+    let droppedWord = false;
     for (const word of seg.words) {
       if (word.end <= srcStart || word.start >= srcEnd) continue;
+      if (!plays((word.start + word.end) / 2)) {
+        droppedWord = true;
+        continue;
+      }
       const wordStart = sourceTimeToOutput(Math.max(word.start, srcStart), segments, hook);
       const wordEnd = sourceTimeToOutput(word.end, segments, hook);
       if (wordStart === null || wordEnd === null) continue;
       const clampedStart = Math.min(Math.max(wordStart, start), end);
       words.push({ text: word.text, start: clampedStart, end: Math.min(Math.max(wordEnd, clampedStart), end) });
     }
-    out.push({ ...seg, id: `cap-${out.length + 1}`, start, end, words });
+    if (droppedWord && words.length === 0) continue;
+    const text = droppedWord ? words.map((word) => word.text.trim()).join(" ") : seg.text;
+    out.push({ ...seg, id: `cap-${out.length + 1}`, start, end, text, words });
   }
   return out;
 }

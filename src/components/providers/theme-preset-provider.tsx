@@ -1,13 +1,57 @@
 "use client";
 
-import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import type { ThemePreset } from "@/types/domain";
-import { DEFAULT_THEME, LEGACY_THEME_IDS, isThemePreset, normalizeThemePreset, themePresetIds } from "@/lib/themes";
+import { DEFAULT_THEME, isThemePreset, normalizeThemePreset } from "@/lib/themes";
 import { THEME_TOKEN_NAMES, sanitizeThemeTokens } from "@/lib/colateral/protocol";
+import {
+  DEFAULT_APPEARANCE,
+  HOST_THEME_KEY,
+  HOST_THEME_MESSAGE,
+  HOST_THEME_PARAM,
+  THEME_STORAGE_KEY,
+  applyHostAppearance,
+  carriesAppearance,
+  hostBootScript,
+  mergeHostAppearance,
+  readHostAppearance,
+  readStoredAppearance,
+  storeAppearance,
+  type HostAppearance,
+  type HostAppearanceInput,
+} from "@/lib/host-appearance";
 
-const STORAGE_KEY = "capital-command-theme";
-const HOST_KEY = "capital-command-host-theme";
-export const HOST_THEME_PARAM = "theme";
+export { HOST_THEME_MESSAGE, HOST_THEME_PARAM, HOST_SURFACE_PARAM, HOST_GLASS_LEVEL_PARAM, HOST_BACKDROP_PARAM, mergeHostAppearance } from "@/lib/host-appearance";
+export type { HostAppearance, HostSurface } from "@/lib/host-appearance";
+
+function applyAppearance(appearance: HostAppearance) {
+  if (typeof document === "undefined") return;
+  applyHostAppearance(document.documentElement, appearance);
+}
+
+function readHostAppearanceNow(): HostAppearance {
+  try {
+    return readHostAppearance(window.location.search, window.sessionStorage);
+  } catch {
+    return DEFAULT_APPEARANCE;
+  }
+}
+
+function readSessionAppearance(): HostAppearance {
+  try {
+    return readStoredAppearance(window.sessionStorage);
+  } catch {
+    return DEFAULT_APPEARANCE;
+  }
+}
+
+function storeSessionAppearance(appearance: HostAppearance) {
+  try {
+    storeAppearance(window.sessionStorage, appearance);
+  } catch {
+    return;
+  }
+}
 
 interface ThemePresetContextValue {
   theme: ThemePreset;
@@ -16,20 +60,8 @@ interface ThemePresetContextValue {
   hosted: boolean;
 }
 
-/**
- * The half of the provider the canvas bridge drives. It is a separate context
- * from the one Settings uses so a page cannot accidentally take the host's
- * seat: `applyHostTheme` is the only way in, and only the bridge calls it.
- */
 interface HostThemeContextValue {
-  /**
-   * Take a theme from the host. `theme` is a preset id when the host is on one
-   * of the seventeen shared palettes; `tokens` is its resolved colour palette,
-   * which is what makes a theme this app has never heard of paint correctly
-   * anyway. Either may be empty.
-   */
   applyHostTheme: (theme: string, tokens: Record<string, string>) => void;
-  /** True once a host has pushed a palette this app did not have a preset for. */
   customPalette: boolean;
 }
 
@@ -45,22 +77,6 @@ function applyTheme(theme: ThemePreset) {
   }
 }
 
-/**
- * Paint the host's own token values over whichever preset is active.
- * ---------------------------------------------------------------------------
- * A preset id only matches when the canvas is on a theme this app also ships.
- * CoLateral can be on a theme added after this app's last release, and it lets
- * the engineer recolour one; in both cases the id alone would leave the frame
- * visibly out of step with the card around it. So the host also sends the
- * resolved values, and they are written as inline custom properties on <html>,
- * where they beat every `[data-theme]` block in globals.css without editing one.
- *
- * Written one property at a time through `setProperty` rather than as a style
- * string: the names come from a fixed allowlist and the values are checked by
- * `sanitizeThemeTokens`, and this way there is no place a value could close a
- * declaration and open another. Clearing is by the same allowlist, so a host
- * that stops sending a token releases it back to the preset.
- */
 function applyHostTokens(tokens: Record<string, string>) {
   if (typeof document === "undefined") return false;
   const safe = sanitizeThemeTokens(tokens);
@@ -82,10 +98,10 @@ function readHostTheme(): ThemePreset | null {
   try {
     const param = new URLSearchParams(window.location.search).get(HOST_THEME_PARAM);
     if (isThemePreset(param)) {
-      window.sessionStorage.setItem(HOST_KEY, param);
+      window.sessionStorage.setItem(HOST_THEME_KEY, param);
       return param;
     }
-    const stored = window.sessionStorage.getItem(HOST_KEY);
+    const stored = window.sessionStorage.getItem(HOST_THEME_KEY);
     return isThemePreset(stored) ? stored : null;
   } catch {
     return null;
@@ -94,7 +110,7 @@ function readHostTheme(): ThemePreset | null {
 
 function readOwnTheme(): ThemePreset {
   try {
-    return normalizeThemePreset(window.localStorage.getItem(STORAGE_KEY));
+    return normalizeThemePreset(window.localStorage.getItem(THEME_STORAGE_KEY));
   } catch {
     return DEFAULT_THEME;
   }
@@ -104,14 +120,12 @@ export function ThemePresetProvider({ children }: { children: React.ReactNode })
   const [theme, setThemeState] = useState<ThemePreset>(DEFAULT_THEME);
   const [hosted, setHosted] = useState(false);
   const [customPalette, setCustomPalette] = useState(false);
-  // The host's palette outranks the picker, so a theme chosen in Settings while
-  // framed must not silently repaint half the app. `setTheme` clears it.
-  const hostTokens = useRef<Record<string, string>>({});
 
   useEffect(() => {
     const fromHost = readHostTheme();
     const next = fromHost ?? readOwnTheme();
     applyTheme(next);
+    applyAppearance(readHostAppearanceNow());
     const timer = window.setTimeout(() => {
       setThemeState(next);
       setHosted(fromHost !== null);
@@ -119,23 +133,26 @@ export function ThemePresetProvider({ children }: { children: React.ReactNode })
     return () => window.clearTimeout(timer);
   }, []);
 
-  // There is no `message` listener here any more. Inbound host messages are
-  // read in one place — ColateralBridgeProvider — which validates the sender
-  // and the shape once and then calls `applyHostTheme`. Two listeners for one
-  // message meant two different ideas of what a valid theme message was, and
-  // only one of them knew about token palettes.
+  useEffect(() => {
+    const onMessage = (event: MessageEvent) => {
+      const data = event.data as ({ type?: unknown } & HostAppearanceInput) | null;
+      if (!data || typeof data !== "object" || data.type !== HOST_THEME_MESSAGE) return;
+      if (!carriesAppearance(data)) return;
+      const appearance = mergeHostAppearance(readSessionAppearance(), data);
+      storeSessionAppearance(appearance);
+      applyAppearance(appearance);
+    };
+    window.addEventListener("message", onMessage);
+    return () => window.removeEventListener("message", onMessage);
+  }, []);
 
   const setTheme = useCallback((next: ThemePreset) => {
     setThemeState(next);
     applyTheme(next);
-    // Picking a theme in here is a decision about this app, so it releases the
-    // host's overlay: leaving it on would show the picker's name while the
-    // page kept the canvas's colours.
-    hostTokens.current = {};
     applyHostTokens({});
     setCustomPalette(false);
     try {
-      window.localStorage.setItem(STORAGE_KEY, next);
+      window.localStorage.setItem(THEME_STORAGE_KEY, next);
     } catch {
       /* private mode: the theme still applies for this page */
     }
@@ -144,7 +161,7 @@ export function ThemePresetProvider({ children }: { children: React.ReactNode })
   const applyHostTheme = useCallback((next: string, tokens: Record<string, string>) => {
     if (isThemePreset(next)) {
       try {
-        window.sessionStorage.setItem(HOST_KEY, next);
+        window.sessionStorage.setItem(HOST_THEME_KEY, next);
       } catch {
         /* a frame without storage still repaints */
       }
@@ -152,9 +169,6 @@ export function ThemePresetProvider({ children }: { children: React.ReactNode })
       setThemeState(next);
       setHosted(true);
     }
-    // An empty token map is a host saying "preset only", not a host saying
-    // nothing: it releases whatever overlay was painted before.
-    hostTokens.current = tokens;
     const painted = applyHostTokens(tokens);
     setCustomPalette(painted && !isThemePreset(next));
     if (painted) setHosted(true);
@@ -187,15 +201,5 @@ export function useThemePreset() {
  * host theme remembered for this tab, then the theme picked in Settings.
  */
 export function ThemePresetScript() {
-  const valid = JSON.stringify(themePresetIds);
-  const legacy = JSON.stringify(LEGACY_THEME_IDS);
-  const script =
-    `(function(){var valid=${valid};var legacy=${legacy};` +
-    `function ok(t){return valid.indexOf(t)>-1}` +
-    `var t=null;try{var p=new URLSearchParams(location.search).get('${HOST_THEME_PARAM}');` +
-    `if(ok(p)){t=p;sessionStorage.setItem('${HOST_KEY}',p)}` +
-    `if(!t){var h=sessionStorage.getItem('${HOST_KEY}');if(ok(h))t=h}` +
-    `if(!t){var s=localStorage.getItem('${STORAGE_KEY}');if(s&&legacy[s])s=legacy[s];if(ok(s))t=s}}catch(e){}` +
-    `document.documentElement.dataset.theme=t||'${DEFAULT_THEME}';})();`;
-  return <script dangerouslySetInnerHTML={{ __html: script }} />;
+  return <script dangerouslySetInnerHTML={{ __html: hostBootScript() }} />;
 }

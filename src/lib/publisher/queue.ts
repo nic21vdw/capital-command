@@ -2,6 +2,7 @@ import { recordQueueMutations, type QueueWriter } from "@/lib/publisher/audit";
 import { publisherConfig, type PublisherConfig } from "@/lib/publisher/config";
 import { mediaHost } from "@/lib/publisher/hosting";
 import { preSchedulesItem } from "@/lib/publisher/nativeScheduling";
+import { youtubeHoldsForReview } from "@/lib/publisher/reviewHold";
 import { rearmItem, type RearmScope } from "@/lib/publisher/rearm";
 import { FileQueueStore, R2QueueStore, type QueueStore } from "@/lib/publisher/store";
 import type { BufferState, PlatformId, PlatformState, PostResult, QueueItem } from "@/lib/publisher/types";
@@ -33,6 +34,7 @@ import type { BufferState, PlatformId, PlatformState, PostResult, QueueItem } fr
 export class PublishQueue {
   private items = new Map<string, QueueItem>();
   private loaded = false;
+  private version: string | null = null;
 
   constructor(
     private readonly store: QueueStore,
@@ -44,9 +46,13 @@ export class PublishQueue {
   }
 
   async load(): Promise<void> {
-    if (this.loaded) return;
+    if (this.loaded) {
+      if (!this.store.version || (await this.store.version()) === this.version) return;
+      this.items.clear();
+    }
     this.loaded = true;
     const raw = await this.store.load();
+    this.version = (await this.store.version?.()) ?? null;
     if (!raw) return;
     for (const item of JSON.parse(raw) as QueueItem[]) this.items.set(item.id, item);
   }
@@ -54,6 +60,7 @@ export class PublishQueue {
   async save(): Promise<void> {
     const list = [...this.items.values()].sort((a, b) => a.publishAt.localeCompare(b.publishAt));
     await this.store.save(JSON.stringify(list, null, 2));
+    this.version = (await this.store.version?.()) ?? null;
   }
 
   async list(): Promise<QueueItem[]> {
@@ -113,6 +120,37 @@ export class PublishQueue {
       ]);
     }
     return existed;
+  }
+
+  /** Removes several posts with one save. Returns the posts that were on the queue. */
+  async removeMany(ids: string[], writer: QueueWriter = "unattributed"): Promise<QueueItem[]> {
+    await this.load();
+    const removed: QueueItem[] = [];
+    for (const id of ids) {
+      const item = this.items.get(id);
+      if (item && this.items.delete(id)) removed.push(item);
+    }
+    if (removed.length > 0) {
+      await this.save();
+      await recordQueueMutations(
+        removed.map((item) => ({ action: "remove" as const, writer, id: item.id, clipPath: item.clipPath, publishAt: item.publishAt }))
+      );
+    }
+    return removed;
+  }
+
+  /** Adds several posts with one save, skipping any id already on the queue. Returns the posts added. */
+  async addMany(items: QueueItem[], writer: QueueWriter = "unattributed"): Promise<QueueItem[]> {
+    await this.load();
+    const added = items.filter((item) => !this.items.has(item.id));
+    for (const item of added) this.items.set(item.id, item);
+    if (added.length > 0) {
+      await this.save();
+      await recordQueueMutations(
+        added.map((item) => ({ action: "add" as const, writer, id: item.id, clipPath: item.clipPath, publishAt: item.publishAt }))
+      );
+    }
+    return added;
   }
 
   /**
@@ -196,16 +234,22 @@ export class PublishQueue {
    *  - Instagram/TikTok are due once publishAt <= now (no native scheduling);
    *  - "scheduled" posts come due again once publishAt <= now, so the runner
    *    can verify the platform really made them public (and force it if not);
+   *  - a scheduled long-form YouTube upload is due immediately, so the runner
+   *    can clear its go-live time and leave it private;
    *  - respects retry backoff (nextAttemptAt) and soft claims.
    */
   duePlatforms(item: QueueItem, now: Date): PlatformId[] {
     const due: PlatformId[] = [];
     for (const [platform, state] of Object.entries(item.platforms) as [PlatformId, PlatformState][]) {
-      const awaitingFlip = state.status === "scheduled";
-      if (isTerminalStatus(state.status) && !awaitingFlip) continue;
-      const timeDue = awaitingFlip
-        ? new Date(item.publishAt).getTime() <= now.getTime()
-        : preSchedulesItem(platform, item, now) || new Date(item.publishAt).getTime() <= now.getTime();
+      const heldReview =
+        platform === "youtube" && state.status === "scheduled" && youtubeHoldsForReview(item);
+      const awaitingFlip = state.status === "scheduled" && !heldReview;
+      if (isTerminalStatus(state.status) && !awaitingFlip && !heldReview) continue;
+      const timeDue = heldReview
+        ? true
+        : awaitingFlip
+          ? new Date(item.publishAt).getTime() <= now.getTime()
+          : preSchedulesItem(platform, item, now) || new Date(item.publishAt).getTime() <= now.getTime();
       if (!timeDue) continue;
       if (state.nextAttemptAt && new Date(state.nextAttemptAt).getTime() > now.getTime()) continue;
       if (state.claimedAt) {

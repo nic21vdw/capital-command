@@ -32,7 +32,7 @@ export function DescriptionDropdown({
   const summary = descValue.trim().split("\n")[0] || "No description yet";
 
   return (
-    <div className="rounded-xl border border-[var(--border)] bg-[var(--surface)]">
+    <div className="glass rounded-xl border">
       <button
         type="button"
         onClick={() => setOpen((prev) => !prev)}
