@@ -14,6 +14,13 @@ already shipped.
 
 ## Unreleased
 
+- **CoLateral Marketing on the canvas is now as see-through as your Terminal
+  Cards.** The app painted its own dark veil and near-solid panels over the
+  card's glass, so the two stacked and the card looked almost opaque next to a
+  terminal at the same setting. Inside a CoLateral card the page now leaves the
+  one fill to the card, and panels are a light tint with no extra blur. Menus
+  and pop-ups keep their fill so they stay readable.
+
 - **Agents on the CoLateral canvas can now work this app, not just look at it.**
   A Capital Command Card used to be a window: the canvas could frame the app and
   nothing more. It can now be asked to open a page, read what is on it, fill a

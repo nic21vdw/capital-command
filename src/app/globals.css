@@ -1329,41 +1329,35 @@ html:not([data-surface="classic"]):not([data-glass="flat"]) body {
     var(--background);
 }
 
-html {
-  --host-backdrop-cap: 30;
-}
-
-html[data-theme="light"] { --host-backdrop-cap: 45; }
-html[data-theme="dracula"] { --host-backdrop-cap: 28; }
-html[data-theme="catppuccin"] { --host-backdrop-cap: 24; }
-html[data-theme="nord"] { --host-backdrop-cap: 24; }
-html[data-theme="tokyonight"] { --host-backdrop-cap: 22; }
-html[data-theme="gruvbox"] { --host-backdrop-cap: 23; }
-html[data-theme="everforest"] { --host-backdrop-cap: 13; }
-html[data-theme="ayu"] { --host-backdrop-cap: 19; }
-html[data-theme="onedark"] { --host-backdrop-cap: 20; }
-html[data-theme="rosepine"] { --host-backdrop-cap: 28; }
-html[data-theme="solarized"] { --host-backdrop-cap: 25; }
-
 html[data-host-backdrop="clear"]:not([data-surface="classic"]):not([data-glass="flat"]) {
   background: transparent;
-  --host-see-through: min(var(--host-backdrop, 0), var(--host-backdrop-cap));
+  --host-panel-fill: 14%;
+  --host-inset-fill: 9%;
   --host-page-muted: color-mix(in srgb, var(--foreground) 80%, var(--muted-foreground));
-  --host-panel-muted: var(--muted-foreground);
+  --host-panel-muted: color-mix(in srgb, var(--foreground) 70%, var(--muted-foreground));
 }
 
 html[data-host-backdrop="clear"]:not([data-surface="classic"]):not([data-glass="flat"]) body {
   --muted-foreground: var(--host-page-muted);
-  --host-veil: calc(100% - var(--host-see-through) * 1%);
-  --host-glow: calc(var(--glass-glow) * (100 - var(--host-see-through)) / 100);
-  background:
-    radial-gradient(1100px 720px at 6% -12%, color-mix(in srgb, var(--accent) var(--host-glow), transparent), transparent 62%),
-    radial-gradient(900px 640px at 104% 108%, color-mix(in srgb, var(--accent) var(--host-glow), transparent), transparent 60%),
-    color-mix(in srgb, var(--background) var(--host-veil), transparent);
+  background: transparent;
 }
 
 html[data-host-backdrop="clear"]:not([data-surface="classic"]):not([data-glass="flat"]) :is(.glass, .glass-popover, .glass-inset) {
   --muted-foreground: var(--host-panel-muted);
+}
+
+@media (prefers-reduced-transparency: no-preference) {
+  html[data-host-backdrop="clear"]:not([data-surface="classic"]):not([data-glass="flat"]) .glass {
+    background-color: color-mix(in srgb, var(--glass-base) var(--host-panel-fill), transparent);
+    background-image: linear-gradient(var(--glass-tint, transparent), var(--glass-tint, transparent));
+    box-shadow: inset 0 1px 0 var(--glass-highlight);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+
+  html[data-host-backdrop="clear"]:not([data-surface="classic"]):not([data-glass="flat"]) :is(:where(.glass, .glass-popover) .glass, .glass-inset) {
+    background-color: color-mix(in srgb, var(--glass-base) var(--host-inset-fill), transparent);
+  }
 }
 
 @layer components {
