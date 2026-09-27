@@ -96,7 +96,9 @@ export const longformProjectPatchSchema = z
     music: longformMusicSchema,
     sfx: sfxSettingsSchema,
     layout: z.enum(["wide", "vertical"]),
-    pace: longformPaceSchema
+    pace: longformPaceSchema,
+    // Punch in on jump cuts; absent keeps the default (on for a best-of edit).
+    zoomCuts: z.boolean()
   })
   .partial();
 

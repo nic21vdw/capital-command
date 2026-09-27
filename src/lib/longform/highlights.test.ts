@@ -228,6 +228,40 @@ describe("buildHighlight", () => {
   });
 });
 
+describe("watching the passages", () => {
+  it("swaps out a passage whose picture does not work, and watches its replacement", async () => {
+    const transcript = streamTranscript();
+    const watchedIds: string[] = [];
+    let droppedId = "";
+    const built = await buildHighlight({
+      streamName: "Stream",
+      transcript,
+      baseSegments: wholeSegments(7200),
+      baseHook: baseHook(transcript),
+      watch: async (passage) => {
+        watchedIds.push(passage.id);
+        // The first passage watched is on a private message.
+        if (!droppedId) {
+          droppedId = passage.id;
+          return { verdict: "drop", score: 2, see: "Discord DMs", context: "", problem: "sensitive" };
+        }
+        return { verdict: "keep", score: 8, see: "VS Code", context: "", problem: "none" };
+      }
+    });
+    const { highlight } = built!;
+    expect(highlight.watched).toBe("vision");
+    const dropped = highlight.passages.find((passage) => passage.id === droppedId)!;
+    expect(dropped.enabled).toBe(false);
+    expect(dropped.visual).toMatchObject({ verdict: "drop", source: "vision" });
+    const kept = highlight.passages.filter((passage) => passage.enabled);
+    // Every passage in the edit was watched and passed.
+    expect(kept.every((passage) => passage.visual?.source === "vision" && passage.visual.verdict === "keep")).toBe(true);
+    expect(kept.every((passage) => watchedIds.includes(passage.id))).toBe(true);
+    // And the edit is still about the length asked for.
+    expect(highlightRuntimeSec(highlight, built!.segments)).toBeGreaterThan(15 * 60);
+  });
+});
+
 describe("applyHighlight", () => {
   it("re-picks the cold open when its passage is swapped out", async () => {
     const transcript = streamTranscript();

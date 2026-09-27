@@ -14,6 +14,10 @@ already shipped.
 
 ## Unreleased
 
+- **The best-of edit now finds the story and watches the footage.** It works out what the stream set out to do and cuts to that arc: it opens on the goal, ends on the result, and gives every passage a role. A passage that points back at something the edit skipped either brings that part in or goes. Every clip is watched before it goes in: with a vision key (Anthropic or fal), a model looks at six frames of it against what you are saying, and a blank, loading, off-topic or private screen is swapped for the next best passage. Without one, a scan of the footage still drops blank and "starting soon" screens and trims them off the ends of clips.
+- **Filler words and dead air are cut inside every clip.** Um, uh, doubled words and long pauses between words come out, each clip starts on its first real word, and the captions leave the cut words out too. The Best-of tab shows how many of each were cut.
+- **Zoom cuts in the best-of edit, if you want them.** A switch in the Best-of tab makes a jump cut inside the same shot alternate between the wide frame and a punch-in. It starts off, and cuts to new material stay straight cuts.
+- **Building the edit no longer ties up the button.** It runs in the background with a progress bar that names the step it is on, and a failed build says why.
 - **Account setup has one clear place in the Uploading Center.** The duplicate YouTube connect controls are gone. Primary accounts now point to Settings for credentials and sign-in, while extra YouTube and TikTok accounts keep their own sign-in buttons. Instagram and Facebook reminders explain when credentials are needed.
 
 - **Switching social platforms feels instant.** YouTube, TikTok, Instagram and Facebook calendars stay mounted when you click between them, so scroll position and what you were typing are still there — and the background refresh no longer stacks up while you are on another window.

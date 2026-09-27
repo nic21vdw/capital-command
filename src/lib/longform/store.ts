@@ -17,6 +17,8 @@ import {
 } from "@/lib/longform/plan";
 import { reviewHook } from "@/lib/longform/hook-review";
 import { DEFAULT_HIGHLIGHT_OPTIONS, applyHighlight, buildHighlight } from "@/lib/longform/highlights";
+import { reviewPassageVisually, visionReviewConfigured } from "@/lib/longform/vision-review";
+import { scanVisualTimeline } from "@/lib/longform/visual-scan";
 import { reviewTopicOpenings } from "@/lib/longform/segment-review";
 import { DEFAULT_TOPIC_OPTIONS, buildTopics, type TopicPlanOptions } from "@/lib/longform/topics";
 import type { OutputQuality } from "@/lib/pipeline/outputQuality";
@@ -95,6 +97,15 @@ async function loadProjects() {
       if (project.status === "processing") {
         project.status = "error";
         project.error = "The server restarted while this video was being analyzed. Upload it again or retry.";
+      }
+      if (project.highlightBuild?.state === "running") {
+        project.highlightBuild = {
+          ...project.highlightBuild,
+          state: "error",
+          stage: "Stopped",
+          progress: 0,
+          error: "The server restarted while the best-of edit was being built. Build it again."
+        };
       }
       for (const record of project.exports) {
         if (record.status === "processing") {
@@ -495,6 +506,14 @@ const NO_TRANSCRIPT_HIGHLIGHT_NOTE =
  * hook (manual timeline edits are reset, as a new pace resets them), so the
  * next export of the whole edit IS the best-of edit.
  */
+/**
+ * Cuts the recording down to its story at the target runtime: reads what the
+ * screen does, finds the story, picks and watches the passages that tell it,
+ * cleans each one up and stores the plan. Rewrites the segments and the hook
+ * (manual timeline edits are reset, as a new pace resets them), so the next
+ * export of the whole edit IS the best-of edit. Reports each step on
+ * `highlightBuild` so the editor can show it.
+ */
 export async function buildHighlightEdit(
   id: string,
   options: { targetSec?: number } = {}
@@ -503,27 +522,103 @@ export async function buildHighlightEdit(
   const project = projects.get(id);
   if (!project) return undefined;
   if (project.status !== "ready") throw new Error("This video is still being analyzed.");
-  const transcript = await fullSourceTranscript(project);
-  if (!transcript) throw new Error(NO_TRANSCRIPT_HIGHLIGHT_NOTE);
-  const baseSegments = buildSegments(project.durationSec, project.silences, project.pace);
-  const built = await buildHighlight({
-    streamName: project.name,
-    transcript,
-    baseSegments,
-    baseHook: project.hook,
-    options: { targetSec: options.targetSec ?? project.highlight?.targetSec ?? DEFAULT_HIGHLIGHT_OPTIONS.targetSec }
-  });
-  if (!built) throw new Error("Nothing in the transcript is long enough to build an edit from.");
-  await update(project, {
-    highlight: built.highlight,
-    segments: built.segments,
-    hook: built.hook,
-    hookReview: reviewHook(transcript, built.hook.start ?? 0, built.hook.end),
-    // The chapters are part of the description, so metadata written for the
-    // whole stream no longer describes the video.
-    metadata: undefined
-  });
+  const startedAt = new Date().toISOString();
+  const report = (stage: string, progress: number) =>
+    update(project, { highlightBuild: { state: "running", stage, progress, startedAt } }).catch(() => undefined);
+  try {
+    await report("Reading the whole stream", 5);
+    const transcript = await fullSourceTranscript(project);
+    if (!transcript) throw new Error(NO_TRANSCRIPT_HIGHLIGHT_NOTE);
+    const baseSegments = buildSegments(project.durationSec, project.silences, project.pace);
+
+    // What the screen does: a keyframe scan, cached per project. A missing
+    // source or a failed scan leaves the edit to the words alone rather than
+    // stopping it.
+    await report("Scanning the footage", 12);
+    const meta = await readSourceMeta(project.sourceId);
+    const srcPath = meta ? sourceFilePath(meta) : null;
+    const workDir = projectWorkDir(project.id);
+    await mkdir(workDir, { recursive: true });
+    const samples = srcPath
+      ? await scanVisualTimeline({ srcPath, workDir, durationSec: project.durationSec }).catch(() => [])
+      : [];
+
+    const built = await buildHighlight({
+      streamName: project.name,
+      transcript,
+      baseSegments,
+      baseHook: project.hook,
+      options: { targetSec: options.targetSec ?? project.highlight?.targetSec ?? DEFAULT_HIGHLIGHT_OPTIONS.targetSec },
+      samples,
+      watch:
+        srcPath && visionReviewConfigured()
+          ? (passage) => reviewPassageVisually({ ...passage, srcPath, workDir })
+          : undefined,
+      onStage: (stage, progress) => void report(stage, progress)
+    });
+    if (!built) throw new Error("Nothing in the transcript is long enough to build an edit from.");
+    await update(project, {
+      highlight: built.highlight,
+      highlightBuild: undefined,
+      segments: built.segments,
+      hook: built.hook,
+      hookReview: reviewHook(transcript, built.hook.start ?? 0, built.hook.end),
+      // The chapters are part of the description, so metadata written for the
+      // whole stream no longer describes the video.
+      metadata: undefined
+    });
+    return project;
+  } catch (error) {
+    await update(project, {
+      highlightBuild: {
+        state: "error",
+        stage: "Stopped",
+        progress: 0,
+        error: error instanceof Error ? error.message : String(error),
+        startedAt
+      }
+    });
+    throw error;
+  }
+}
+
+const highlightBuilds = new Map<string, Promise<LongformProject | undefined>>();
+
+/**
+ * Runs a best-of build, or joins the one already running for this project, so
+ * the editor's button and the Stream Pipeline can never build the same edit
+ * twice at once. Rejects with the build's error.
+ */
+export function runHighlightEdit(id: string, options: { targetSec?: number } = {}): Promise<LongformProject | undefined> {
+  const running = highlightBuilds.get(id);
+  if (running) return running;
+  const build = buildHighlightEdit(id, options).finally(() => highlightBuilds.delete(id));
+  highlightBuilds.set(id, build);
+  return build;
+}
+
+/**
+ * Starts a best-of build in the background and returns straight away: a build
+ * that watches its passages takes minutes. The editor follows it through
+ * `highlightBuild`, where a failure is recorded too.
+ */
+export async function startHighlightEdit(id: string, options: { targetSec?: number } = {}): Promise<LongformProject | undefined> {
+  await loadProjects();
+  const project = projects.get(id);
+  if (!project) return undefined;
+  if (project.status !== "ready") throw new Error("This video is still being analyzed.");
+  if (!highlightBuilds.has(id)) {
+    await update(project, {
+      highlightBuild: { state: "running", stage: "Starting", progress: 1, startedAt: new Date().toISOString() }
+    });
+    void runHighlightEdit(id, options).catch(() => undefined);
+  }
   return project;
+}
+
+/** Whether a best-of build is running in this process. */
+export function highlightBuildRunning(id: string): boolean {
+  return highlightBuilds.has(id);
 }
 
 /**
@@ -539,6 +634,7 @@ export async function updateHighlightPassages(
   const project = projects.get(id);
   if (!project) return undefined;
   if (!project.highlight) throw new Error("There is no best-of edit on this project yet.");
+  if (highlightBuilds.has(id)) throw new Error("The best-of edit is still being built. Try again when it finishes.");
   const byId = new Map(changes.map((change) => [change.id, change]));
   const passages = project.highlight.passages.map((passage) => {
     const change = byId.get(passage.id);
@@ -570,6 +666,7 @@ export async function clearHighlightEdit(id: string): Promise<LongformProject | 
   await loadProjects();
   const project = projects.get(id);
   if (!project) return undefined;
+  if (highlightBuilds.has(id)) throw new Error("The best-of edit is still being built. Try again when it finishes.");
   const segments = buildSegments(project.durationSec, project.silences, project.pace);
   const hook = planHook(project.transcript, project.durationSec);
   await update(project, {

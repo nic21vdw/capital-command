@@ -3,9 +3,9 @@ import { fixedChapters } from "@/lib/longform/metadata";
 import { highlightRuntimeSec } from "@/lib/longform/highlights";
 import { longformHighlightBuildSchema, longformHighlightPatchSchema } from "@/lib/longform/schemas";
 import {
-  buildHighlightEdit,
   clearHighlightEdit,
   getProject,
+  startHighlightEdit,
   updateHighlightPassages
 } from "@/lib/longform/store";
 import type { LongformProject } from "@/lib/longform/types";
@@ -19,6 +19,7 @@ type Params = { params: Promise<{ projectId: string }> };
 function payload(project: LongformProject) {
   return {
     highlight: project.highlight ?? null,
+    build: project.highlightBuild ?? null,
     runtimeSec: project.highlight ? highlightRuntimeSec(project.highlight, project.segments) : null,
     chapters: fixedChapters(project),
     project
@@ -32,7 +33,10 @@ export async function GET(_request: NextRequest, { params }: Params) {
   return NextResponse.json(payload(project));
 }
 
-/** Builds (or rebuilds) the best-of edit at the requested runtime. */
+/**
+ * Starts building (or rebuilding) the best-of edit at the requested runtime.
+ * Returns at once with `highlightBuild` running; the editor polls GET.
+ */
 export async function POST(request: NextRequest, { params }: Params) {
   const { projectId } = await params;
   const body = await request.json().catch(() => ({}));
@@ -42,9 +46,9 @@ export async function POST(request: NextRequest, { params }: Params) {
   }
   try {
     const targetSec = parsed.data.targetMinutes ? Math.round(parsed.data.targetMinutes * 60) : undefined;
-    const project = await buildHighlightEdit(projectId, { targetSec });
+    const project = await startHighlightEdit(projectId, { targetSec });
     if (!project) return NextResponse.json({ error: "Project not found." }, { status: 404 });
-    return NextResponse.json(payload(project));
+    return NextResponse.json(payload(project), { status: 202 });
   } catch (error) {
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Could not build the best-of edit." },

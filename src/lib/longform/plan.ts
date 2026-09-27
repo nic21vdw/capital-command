@@ -489,6 +489,12 @@ export function remapCaptionsToOutput(
   skipWindow: KeptRange | null = null
 ): CaptionSegment[] {
   const out: CaptionSegment[] = [];
+  // A word the edit does not play (a filler or stutter cut from between two
+  // kept words) must not be shown either, or the caption says "um" over a
+  // cut that removed it.
+  const { hookRange, bodyRanges } = exportRanges(segments, hook);
+  const played = hookRange ? [hookRange, ...bodyRanges] : bodyRanges;
+  const plays = (t: number) => played.some((range) => t >= range.start && t <= range.end);
   for (const seg of captions) {
     if (!seg.enabled || !seg.text.trim()) continue;
     let srcStart = seg.start;
@@ -507,15 +513,22 @@ export function remapCaptionsToOutput(
     const end = intervals[intervals.length - 1].end;
     if (end - start < 0.05) continue;
     const words: CaptionWord[] = [];
+    let droppedWord = false;
     for (const word of seg.words) {
       if (word.end <= srcStart || word.start >= srcEnd) continue;
+      if (!plays((word.start + word.end) / 2)) {
+        droppedWord = true;
+        continue;
+      }
       const wordStart = sourceTimeToOutput(Math.max(word.start, srcStart), segments, hook);
       const wordEnd = sourceTimeToOutput(word.end, segments, hook);
       if (wordStart === null || wordEnd === null) continue;
       const clampedStart = Math.min(Math.max(wordStart, start), end);
       words.push({ text: word.text, start: clampedStart, end: Math.min(Math.max(wordEnd, clampedStart), end) });
     }
-    out.push({ ...seg, id: `cap-${out.length + 1}`, start, end, words });
+    if (droppedWord && words.length === 0) continue;
+    const text = droppedWord ? words.map((word) => word.text.trim()).join(" ") : seg.text;
+    out.push({ ...seg, id: `cap-${out.length + 1}`, start, end, text, words });
   }
   return out;
 }

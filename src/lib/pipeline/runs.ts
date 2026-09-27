@@ -9,7 +9,7 @@ import { isExportRendering, startLongformExport } from "@/lib/longform/render";
 import { DEFAULT_HIGHLIGHT_OPTIONS } from "@/lib/longform/highlights";
 import { editedDurationSec } from "@/lib/longform/plan";
 import {
-  buildHighlightEdit,
+  runHighlightEdit,
   createProject,
   getProject,
   planProjectTopics,
@@ -398,7 +398,7 @@ export async function advanceRun(run: PipelineRun): Promise<void> {
       await update(run, { longformExportId: existing.id });
     } else if (gate === "build") {
       void step(run, "highlight", async () => {
-        await buildHighlightEdit(project.id);
+        await runHighlightEdit(project.id);
         await update(run, { highlightPlanned: true });
       }, async (message) => {
         // One shot: the render goes ahead as the whole edit, and says why.
