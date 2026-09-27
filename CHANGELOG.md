@@ -14,6 +14,18 @@ already shipped.
 
 ## Unreleased
 
+- **Carousels are rebuilt from the copy up.** Opus 5.5 now writes every deck
+  through Claude Code on this machine, as one story: a hook that makes a promise,
+  each slide leading into the next, a payoff and a follow-up that gives people a
+  reason to follow. Keywords are **bold** in CoLateral blue. After the stills are
+  cut, Opus looks at each picture next to its slide and rewrites the slide or
+  drops the picture when they don't match, and drops repeats of the same shot.
+  The slides themselves are redesigned in CoLateral's look: Inter type, a dark
+  blueprint grid, the Beam Buddy mark and a progress bar on every slide, a
+  Swipe cue, and a Follow button on the last one. If Claude Code isn't
+  available, carousels are written by the usual models as before. In the slide
+  editor, wrap a word in **double asterisks** to bold it.
+
 - **CoLateral Marketing on the canvas is now as see-through as your Terminal
   Cards.** The app painted its own dark veil and near-solid panels over the
   card's glass, so the two stacked and the card looked almost opaque next to a

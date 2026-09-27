@@ -152,6 +152,19 @@ describe("batches", () => {
     expect(prompts[0]).not.toMatch(/Angle for this carousel|of \d+ written from the SAME source/);
   });
 
+  it("asks Claude Code for the deck, with the story, bold and voice rules", async () => {
+    const { runAi } = mockAiWriting();
+    const { generateCarouselBatches, CAROUSEL_SYSTEM_PROMPT } = await import("@/lib/studio/carousel");
+    await generateCarouselBatches({ ...input, batchCount: 1 });
+    const request = (runAi.mock.calls[0] as unknown as [{ writer?: string; system?: string }])[0];
+    expect(request.writer).toBe("claude-code");
+    expect(request.system).toBe(CAROUSEL_SYSTEM_PROMPT);
+    expect(CAROUSEL_SYSTEM_PROMPT).toContain("ONE STORY told a slide at a time");
+    expect(CAROUSEL_SYSTEM_PROMPT).toContain("**double asterisks**");
+    expect(CAROUSEL_SYSTEM_PROMPT).toContain("Open a loop on every slide but the last");
+    expect(CAROUSEL_SYSTEM_PROMPT).toContain("first person");
+  });
+
   it("caps the batch count instead of firing an unbounded fan-out", async () => {
     mockAiWriting();
     const { generateCarouselBatches, MAX_BATCH_COUNT } = await import("@/lib/studio/carousel");

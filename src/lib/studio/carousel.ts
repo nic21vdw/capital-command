@@ -9,6 +9,7 @@ import { CHANNEL_CONTEXT, CHANNEL_KEYWORDS } from "@/lib/clipping/keywords";
 import type { ClipCandidate, ClipJob } from "@/lib/clipping/types";
 import { carouselSchema } from "@/lib/storage/schemas";
 import type { Carousel, CarouselBatch, CarouselSlide } from "@/types/domain";
+import { reviewCarouselStory } from "@/lib/carousels/storyReview";
 
 /**
  * Carousel copy for Instagram, Facebook, and TikTok. Turns a video's script or
@@ -56,23 +57,31 @@ export function carouselGenerationConfigured() {
 
 export const CAROUSEL_SYSTEM_PROMPT = `You write carousel copy for this channel. ${CHANNEL_CONTEXT} The same carousel is posted across Instagram, Facebook, and TikTok, so keep the copy platform-neutral - no "Instagram" / "IG"-only references, and nothing that only makes sense on one network. Channel keywords: ${CHANNEL_KEYWORDS.join(", ")}.
 
-A deck is the story of one session: what was built, what broke, what it cost, what was learned, what ships next. A reader who was not there should finish it knowing what happened that night.
+A carousel is ONE STORY told a slide at a time, and every slide exists to earn the next swipe. A reader who was not there should finish it knowing what happened, why it mattered, and what happens next.
+
+Plan before you write:
+- Find the through-line: the single question or conflict this session was really about (a thing that had to ship, a thing that broke, a bet, a number chased). Every slide advances that one thread. Moments that do not serve it are left out, however good.
+- Shape it as an arc: HOOK (the stake, stated so the reader needs the answer) -> SETUP (what was being attempted and why it mattered) -> TURNS (each middle slide is a step: an attempt, an obstacle, a discovery, a result — each one changing the situation) -> PAYOFF (what it came to: the result, the number, the lesson) -> CTA (what happens next, as the reason to follow).
+- Open a loop on every slide but the last. End a middle slide on something unresolved — the catch, the question, the thing about to go wrong — and resolve it on a later slide. Never resolve the hook's question before the payoff slide.
+- Read the finished deck back as a reader swiping it. If two slides could swap places, if one does not follow from the one before, or if the story would survive a slide being removed, rewrite until each slide is load-bearing.
 
 Carousel rules:
-- Slide 1 is the HOOK and it is the slide the whole deck lives or dies on. It must state a real stake from the session — a number, a thing that broke, a decision, a result — in max 12 words, with "body" empty or one short kicker. Take it from the STRONGEST moment anywhere in the session, not from whatever was said first. It does not have to be a sentence he said; write the hook the session earned.
+- Slide 1 is the HOOK and it is the slide the whole deck lives or dies on. It must state a real stake from the session — a number, a thing that broke, a decision, a result — in max 12 words, with "body" empty or one short kicker that deepens the curiosity. Take it from the STRONGEST moment anywhere in the session, not from whatever was said first. It does not have to be a sentence he said; write the hook the session earned. A good hook makes a promise the deck keeps.
 - BANNED as a hook, always: a greeting ("how are we tonight", "what's up chat"), a mic or audio check, "who wants it", "let's go", a bare day counter, or any opener that would fit any other episode unchanged.
-- Middle slides each carry ONE idea: "heading" max 8 words, "body" 1-3 short sentences (max 220 characters) that deliver — not tease — the idea.
+- Middle slides each carry ONE beat of the story: "heading" max 8 words, "body" 1-3 short sentences (max 200 characters) that deliver — not tease — the beat, then point at the next one.
 - Every slide must name something specific: a number, a tool, an error, a feature, a person, or a decision. If a slide could be dropped into a different episode without changing a word, it is filler — pick a different moment.
 - Stream logistics are not story beats. No slide about OBS, a terminal restart, a mic test, the internet connection, scene setup, or "let me pull that up" — unless it changed what got built, and then the slide says what it cost.
 - "$0 revenue" is not the point of a deck. Use at most one revenue line and at most one "Day N" line per deck, and only where that number IS the idea of that slide.
-- The body must add what the heading does not already say. Never leave a body empty, never restate the heading in other words.
+- The body must add what the heading does not already say. Never leave a body empty (except an optional empty hook body), never restate the heading in other words.
 - At least two thirds of the slides must be about the build — what was made, what broke, what was fixed, what was learned in the code. Mindset, health and lifestyle material is capped at two slides, and only where it ties back to the work.
 - No two slides may make the same point.
-- The last slide is the CTA: name what specifically comes next — the next feature, the next session's topic, the cliffhanger from this one — and put the invitation on top of it in one line. "Follow for more" on its own is not a valid slide.
-- The source is speech-to-text and it garbles names. Correct obvious mishearings against the real ones (Claude, Claude Code, Warp, Cursor, Grok, CoLateral, Streamer.bot, Remotion, Vandewetering). If you cannot work out what a garbled name was, write the slide without it or pick another moment — never publish the garble.
-- Never use these phrases or their variants: "building in public", "one vibe at a time", "big things coming", "this is only the beginning", "the grind", "follow the journey", "let's go".
-- Plain, confident language. No hashtags on slides, no invented facts or numbers.
-- Use emojis liberally to add energy and scroll-stopping personality — aim for one or two relevant emojis on most slides (in the heading, at the start of a body line, or as a bullet marker). Pick emojis that reinforce the idea (🚀 momentum, 🧠 insight, ⚡ speed, 💡 idea, 🔥 hot take, 📈 growth, 🤖 AI, 🛠️ building). Keep them tasteful — a couple per slide, never a wall of them.
+- The last slide is the CTA: close the story's loop in one line, then name what specifically comes next — the next feature, the next session's topic, the cliffhanger from this one — as the reason to follow. "Follow for more" on its own is not a valid slide.
+- KEYWORDS ARE BOLD. Wrap the words a skimming reader must not miss in **double asterisks**: the number, the tool or product name, the result, the thing that broke. One bolded phrase (1-3 words) in a heading at most; one to three in a body. Never bold a whole sentence, never bold filler words, and never nest or leave a ** unclosed. Bold is for the eye that only reads the bold — reading only the bold words across the deck should still tell the story.
+- The source is speech-to-text and it garbles names. Correct obvious mishearings against the real ones (Claude, Claude Code, Opus, Codex, Warp, Cursor, Grok, CoLateral, Streamer.bot, Remotion, Vandewetering). If you cannot work out what a garbled name was, write the slide without it or pick another moment — never publish the garble.
+- Never use these phrases or their variants: "building in public", "one vibe at a time", "big things coming", "this is only the beginning", "the grind", "follow the journey", "let's go", "game changer", "buckle up".
+- Write in Nic's own voice, first person: "I", "my", "we" for him and chat together. Never "he", "Nic" or "the creator" — the slides are posted from his account.
+- Plain, confident, human language — short words, active verbs, the way a sharp friend would retell the night. No hashtags on slides, no invented facts or numbers.
+- Emojis are optional seasoning: at most one per slide, only where it adds meaning (🚀 ship, 🐛 bug, 💸 money, 🤖 AI agent, ⚠️ problem, ✅ fixed), and never in place of a word. Most slides read better with none.
 
 You always return strict JSON.`;
 
@@ -392,7 +401,8 @@ export async function generateCarousel(
   for (let attempt = 1; attempt <= CAROUSEL_ATTEMPTS; attempt += 1) {
     try {
       const result = await runAi({
-        maxTokens: 3000,
+        maxTokens: 6000,
+        writer: "claude-code",
         system: CAROUSEL_SYSTEM_PROMPT,
         messages: [{ role: "user", content: prompt }]
       });
@@ -468,9 +478,14 @@ export async function illustrateFromRecording(input: {
         segments: input.transcript
       }).catch(() => null);
   if (!frames?.images.some(Boolean)) return { carousel: input.carousel, note: frames?.note ?? null };
+  const illustrated = { ...input.carousel, slides: attachSlideBackdrops(input.carousel.slides, frames.images) };
+  const reviewed = await reviewCarouselStory({ carousel: illustrated, system: CAROUSEL_SYSTEM_PROMPT }).catch(() => ({
+    carousel: illustrated,
+    note: null
+  }));
   return {
-    carousel: { ...input.carousel, slides: attachSlideBackdrops(input.carousel.slides, frames.images) },
-    note: frames.note
+    carousel: reviewed.carousel,
+    note: [frames.note, reviewed.note].filter(Boolean).join(" ") || null
   };
 }
 

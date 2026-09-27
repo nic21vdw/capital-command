@@ -51,6 +51,7 @@ export type AiRequest = {
   maxTokens?: number;
   /** Sampling temperature; defaults to 0.2 for stable JSON. */
   temperature?: number;
+  writer?: "claude-code";
 };
 
 export type AiResult = {
@@ -391,6 +392,16 @@ async function runAnthropic(req: AiRequest): Promise<AiResult | null> {
  * caller can use its own offline heuristic.
  */
 export async function runAi(req: AiRequest): Promise<AiResult | null> {
+  if (req.writer === "claude-code") {
+    const { claudeCodeEnabled, runClaudeCode } = await import("@/lib/ai/claudeCode");
+    if (claudeCodeEnabled()) {
+      const system = req.system?.trim() || "You return strict JSON.";
+      const prompt = req.messages.map((message) => message.content).join("\n\n");
+      const text = await runClaudeCode({ system, prompt }).catch(() => null);
+      if (text) return { text, refused: false };
+      console.warn("[ai] Claude Code did not answer — falling back to the configured models.");
+    }
+  }
   const primary = resolveProvider();
   const order: AiProvider[] = primary === "anthropic" ? ["anthropic", "deepseek"] : ["deepseek", "anthropic"];
   for (const provider of order) {

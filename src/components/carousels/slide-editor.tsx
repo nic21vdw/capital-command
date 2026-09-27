@@ -789,6 +789,9 @@ function Inspector({
               rows={3}
               className="w-full resize-none rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-2 py-1.5 text-xs text-white outline-none focus:border-[var(--accent)]"
             />
+            <p className="text-[11px] leading-snug text-[var(--muted-foreground)]">
+              Wrap a keyword in **double asterisks** to set it bold in the accent colour.
+            </p>
             <div className="flex items-center justify-between text-xs text-white">
               Heading color
               <ColorInput value={slide.headingColor ?? COLATERAL_THEME.heading} onChange={(value) => onPatchSlide((entry) => ({ ...entry, headingColor: value }))} />

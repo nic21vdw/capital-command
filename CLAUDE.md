@@ -840,10 +840,42 @@ the picker can promise what the server will do.
   angle from `CAROUSEL_ANGLES` and they run concurrently; a single batch is
   asked for with no angle and no batch record, which is what keeps the
   pipeline's unattended carousel exactly as it was.
-- Every slide is set in Arial (`SLIDE_FONT_STACK` in `src/lib/carousels/render.ts`,
-  with metric-compatible fallbacks behind it). The canvas renderer and the
-  editor's live text overlay both read that one constant — change it there, not
-  per call site, or what you drag stops matching what exports.
+- DECKS ARE WRITTEN BY OPUS 5.5 THROUGH CLAUDE CODE. `generateCarousel` asks
+  `runAi` with `writer: "claude-code"`, which runs `claude -p` headless
+  (`src/lib/ai/claudeCode.ts`) on the machine's own Claude login: no tools, no
+  settings, no MCP servers, and a scratch working folder so no CLAUDE.md is read
+  into the writer. If the CLI is missing or gives no answer, the call falls back
+  to the configured models exactly as before. `CAROUSEL_WRITER=off` turns it
+  off; `CLAUDE_CODE_MODEL` picks another model. It never spawns under test.
+- A deck is ONE STORY. `CAROUSEL_SYSTEM_PROMPT` plans a through-line and an arc
+  (hook, setup, turns, payoff, CTA), opens a loop on every slide but the last,
+  and is written first person in Nic's voice. The words a skimmer must catch are
+  wrapped in `**double asterisks**`; `src/lib/carousels/emphasis.ts` parses them,
+  the painter sets them heavier and in the accent colour, and anything that
+  matches slide copy as words (anchoring, the vision gate, the hook check) reads
+  it through `plainCopy`. A new reader of slide copy must do the same.
+- THEN THE DECK IS REVIEWED WITH ITS PICTURES. `illustrateFromRecording` ends in
+  `reviewCarouselStory` (`src/lib/carousels/storyReview.ts`): the stills are
+  copied to a temp folder and Opus opens each one with the Read tool beside its
+  slide, rewrites a slide to match what its picture shows or drops the picture,
+  drops repeats of an earlier shot, and tightens the story. Slide count and
+  order are fixed (pictures are positional) and a reply that changes them is
+  thrown away. It fails open: no CLI, no answer, the deck stands as written.
+- Every slide is set in Inter (`SLIDE_FONT_STACK` in `src/lib/carousels/render.ts`,
+  with Arial and its metric-compatible substitutes behind it). The canvas
+  renderer and the editor's live text overlay both read that one constant —
+  change it there, not per call site, or what you drag stops matching what
+  exports. The browser loads the app's own `InterVariable.woff2` and
+  `renderSlideCanvas` waits for it; the SERVER cannot use the variable font
+  (`@napi-rs/canvas` draws every weight as the default instance), so
+  `registerSlideFonts` in `renderDeck.ts` registers the static weights in
+  `public/fonts/slides`. A weight used by the painter must be in
+  `SLIDE_FONT_WEIGHTS` and have its file there, or the server sets it regular.
+- The look is CoLateral's: a dark navy ground with the canvas dot grid and an
+  Office Blue glow, a header with the Beam Buddy mark (drawn from its sprite,
+  never fetched), the wordmark and a progress bar, left-set copy, a numbered
+  kicker on middle slides, a Swipe/Next pill, and a filled Follow pill on the
+  CTA. Colours live in `COLATERAL_THEME`.
 - EMOJI ARE PICTURES, NOT GLYPHS. No font in that stack has an emoji in it, and
   the SERVER has no emoji font at all — a deck booked into the publish queue is
   painted by `@napi-rs/canvas`, so every emoji the copy asked for came out as

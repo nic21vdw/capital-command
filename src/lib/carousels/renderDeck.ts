@@ -1,6 +1,6 @@
 import { mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { createCanvas, loadImage } from "@napi-rs/canvas";
+import { createCanvas, GlobalFonts, loadImage } from "@napi-rs/canvas";
 import {
   DECK_MANIFEST_FILE,
   DECK_SLIDE_QUALITY,
@@ -11,7 +11,7 @@ import {
   type DeckManifest
 } from "@/lib/carousels/deckFiles";
 import { appleEmojiBytes } from "@/lib/carousels/emojiFiles";
-import { carouselEmoji, paintSlide, slideImageLayers, type SlideImage } from "@/lib/carousels/render";
+import { carouselEmoji, paintSlide, SLIDE_FONT_WEIGHTS, slideImageLayers, type SlideImage } from "@/lib/carousels/render";
 import { emojiImageKey } from "@/lib/emoji/apple";
 import { carouselImagePath, parseCarouselImageId } from "@/lib/carousels/uploads";
 import type { Carousel } from "@/types/domain";
@@ -30,6 +30,16 @@ import type { Carousel } from "@/types/domain";
  * and the browser download go through, given a Node canvas instead of the
  * browser's.
  */
+
+let slideFontsRegistered = false;
+
+export function registerSlideFonts(root = process.cwd()) {
+  if (slideFontsRegistered) return;
+  for (const weight of SLIDE_FONT_WEIGHTS) {
+    GlobalFonts.registerFromPath(path.join(root, "public", "fonts", "slides", `inter-${weight}.woff2`), "Inter");
+  }
+  slideFontsRegistered = true;
+}
 
 /** Turns a slide layer's `src` into bytes the Node canvas can decode. */
 async function readLayerSource(src: string): Promise<Buffer | null> {
@@ -91,6 +101,7 @@ export async function renderCarouselDeck(carousel: Carousel): Promise<string[]> 
   if (plan.render.length > 0) {
     const ratio = deckRatio(carousel);
     const { width, height } = deckPixelSize(ratio);
+    registerSlideFonts();
     const images = await decodeLayers(carousel);
     for (const index of plan.render) {
       const canvas = createCanvas(width, height);
