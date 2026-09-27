@@ -4,7 +4,7 @@ import { carouselAngle, clampBatchCount, hookProblem, MAX_SLIDES, resolveSlideCo
 import { attachSlideBackdrops, attachSlideImages, type CarouselImage } from "@/lib/carousels/imageSlides";
 import { deskFramesForDeck } from "@/lib/carousels/bRoll";
 import { footageKind } from "@/lib/carousels/footage";
-import { framesForSlides } from "@/lib/carousels/videoFrames";
+import { framesForSlides, framesForSource } from "@/lib/carousels/videoFrames";
 import { CHANNEL_CONTEXT, CHANNEL_KEYWORDS } from "@/lib/clipping/keywords";
 import type { ClipCandidate, ClipJob } from "@/lib/clipping/types";
 import { carouselSchema } from "@/lib/storage/schemas";
@@ -496,15 +496,32 @@ export async function illustrateFromRecording(input: {
   const illustrated = frames?.images.some(Boolean)
     ? { ...input.carousel, slides: attachSlideBackdrops(input.carousel.slides, frames.images) }
     : input.carousel;
-  const reviewed = await reviewStory(illustrated);
+  const hookCandidates = await framesForSource(input.sourceId, hookCandidateSeconds(input.transcript, input.drafts[0]?.atSeconds))
+    .then((cut) => cut.images.filter((image): image is CarouselImage => Boolean(image)))
+    .catch(() => []);
+  const reviewed = await reviewStory(illustrated, hookCandidates);
   return {
     carousel: reviewed.carousel,
     note: [frames?.note, reviewed.note].filter(Boolean).join(" ") || null
   };
 }
 
-function reviewStory(carousel: Carousel): Promise<{ carousel: Carousel; note: string | null }> {
-  return reviewCarouselStory({ carousel, system: CAROUSEL_SYSTEM_PROMPT }).catch(() => ({ carousel, note: null }));
+export const HOOK_CANDIDATES = 10;
+
+export function hookCandidateSeconds(transcript: TranscriptSegment[], hookSecond?: number | null): number[] {
+  const end = transcript.at(-1)?.end ?? 0;
+  if (end <= 0) return [];
+  const spread = Array.from({ length: HOOK_CANDIDATES - 1 }, (_, i) => end * (0.06 + (0.88 * i) / (HOOK_CANDIDATES - 2)));
+  const edges = [45, 110, 190, end - 150, end - 70].filter((second) => second > 0 && second < end);
+  const seconds = typeof hookSecond === "number" && hookSecond > 0 ? [hookSecond, ...edges, ...spread] : [...edges, ...spread];
+  return [...new Set(seconds.map((second) => Math.round(second * 10) / 10))];
+}
+
+function reviewStory(
+  carousel: Carousel,
+  hookCandidates: CarouselImage[] = []
+): Promise<{ carousel: Carousel; note: string | null }> {
+  return reviewCarouselStory({ carousel, system: CAROUSEL_SYSTEM_PROMPT, hookCandidates }).catch(() => ({ carousel, note: null }));
 }
 
 /**

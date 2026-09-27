@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { attachSlideImages, IMAGE_SLIDE_LAYOUT } from "@/lib/carousels/imageSlides";
-import { aspectSpec, COLATERAL_THEME, FRAME_POSITION, FRAME_ZOOM, renderSlideCanvas, setSlideSignature } from "@/lib/carousels/render";
+import { aspectSpec, COLATERAL_THEME, FRAME_POSITION, FRAME_ZOOM, renderSlideCanvas, setSlideSignature, setSlideTheme, SLIDE_THEMES, slideLayout } from "@/lib/carousels/render";
+import { attachHookBackdrop } from "@/lib/carousels/imageSlides";
 import type { CarouselSlide } from "@/types/domain";
 
 /**
@@ -103,15 +104,17 @@ describe("photo slide geometry", () => {
     for (const line of drawnText) expect(line.y).toBeLessThan(portrait.height);
   });
 
-  it("keeps the counter out of the copy, over the photo instead", async () => {
+  it("sets the brand strip and counter in the gap under the photo, above the copy", async () => {
     const [slide] = attachSlideImages([copy], [{ id: "a.png", url: "/api/studio/carousels/images/a.png" }]);
-    await renderSlideCanvas(slide, 0, 8, "portrait");
-    const counter = drawnText.find((line) => line.text === "1/8");
-    const copyLines = drawnText.filter(isCopy);
-    expect(counter).toBeDefined();
-    // Up on the photo, well above the first line of copy.
-    expect(counter!.y).toBeLessThan(Math.min(...copyLines.map((line) => line.y)));
-    expect(counter!.y).toBeLessThan(IMAGE_SLIDE_LAYOUT.imageHeight * portrait.height);
+    await renderSlideCanvas(slide, 1, 8, "portrait");
+    const counter = drawnText.find((line) => line.text === "2/8")!;
+    const site = drawnText.find((line) => line.text === "colateralai.com")!;
+    const copyLines = drawnText.filter((line) => isCopy(line) && line.y < portrait.height - 150);
+    const photoBottom = IMAGE_SLIDE_LAYOUT.imageHeight * portrait.height;
+    for (const chrome of [counter, site]) {
+      expect(chrome.y).toBeGreaterThan(photoBottom);
+      expect(chrome.y).toBeLessThan(Math.min(...copyLines.map((line) => line.y)));
+    }
   });
 
   it("paints the photo at a thumbnail render too, scaled to the smaller canvas", async () => {
@@ -436,5 +439,50 @@ describe("the CoLateral plug", () => {
     drawnText.length = 0;
     await renderSlideCanvas(copy, 3, 8, "portrait");
     expect(drawnText.some((line) => line.text === "Try it at colateralai.com")).toBe(false);
+  });
+});
+
+describe("the hook template", () => {
+  const hook = attachHookBackdrop({ id: "h", heading: "Why Did Every **CoLateral** Update Break?", body: "The answer was in my repo." }, {
+    id: "hook.jpg",
+    url: "/api/studio/carousels/images/hook.jpg"
+  });
+
+  it("lays a chosen stream frame across the whole slide", async () => {
+    expect(slideLayout(hook)).toBe("bleed");
+    await renderSlideCanvas(hook, 0, 8, "portrait");
+    expect(drawnImages[0]).toMatchObject({ x: expect.any(Number), y: expect.any(Number) });
+    expect(drawnImages[0].w).toBeGreaterThanOrEqual(1080);
+    expect(drawnImages[0].h).toBeGreaterThanOrEqual(1350);
+  });
+
+  it("sets the headline low over the frame, in white, with the keyword in a blue box", async () => {
+    await renderSlideCanvas(hook, 0, 8, "portrait");
+    const headline = drawnText.filter((line) => isCopy(line) && line.y < 1350 - 150);
+    expect(Math.min(...headline.map((line) => line.y))).toBeGreaterThan(1350 * 0.46);
+    const keyword = drawnText.find((line) => line.text.includes("CoLateral") && line.font?.startsWith("900"))!;
+    expect(keyword.fill).toBe("#ffffff");
+  });
+});
+
+describe("slide themes", () => {
+  afterEach(() => setSlideTheme("black"));
+
+  it("inks a plain slide dark on the light theme and white on the black one", async () => {
+    setSlideTheme("light");
+    await renderSlideCanvas(copy, 2, 5, "portrait");
+    const lightHeading = drawnText.find((line) => line.text.includes("failing test"))!;
+    expect(lightHeading.fill).toBe(SLIDE_THEMES.light.heading);
+    drawnText.length = 0;
+    setSlideTheme("black");
+    await renderSlideCanvas(copy, 2, 5, "portrait");
+    const darkHeading = drawnText.find((line) => line.text.includes("failing test"))!;
+    expect(darkHeading.fill).toBe(SLIDE_THEMES.black.heading);
+  });
+
+  it("falls back to black for a name it does not know", async () => {
+    setSlideTheme("neon");
+    await renderSlideCanvas(copy, 2, 5, "portrait");
+    expect(drawnText.find((line) => line.text.includes("failing test"))!.fill).toBe(SLIDE_THEMES.black.heading);
   });
 });

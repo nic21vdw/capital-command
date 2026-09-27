@@ -140,6 +140,7 @@ export const settingsSchema = z.object({
    * one, because the alternative was shipping someone else's.
    */
   clipDescription: z.string().default(""),
+  carouselTheme: z.enum(["black", "light"]).default("black"),
   /**
    * When the owner finished (or dismissed) first-run setup. Absent means a
    * fresh install that has not said who it belongs to yet, which is what the

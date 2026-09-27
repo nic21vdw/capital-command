@@ -11,7 +11,16 @@ import {
   type DeckManifest
 } from "@/lib/carousels/deckFiles";
 import { appleEmojiBytes } from "@/lib/carousels/emojiFiles";
-import { carouselEmoji, paintSlide, SLIDE_FONT_WEIGHTS, slideImageLayers, type SlideImage } from "@/lib/carousels/render";
+import {
+  carouselEmoji,
+  paintSlide,
+  setSlideSignature,
+  setSlideTheme,
+  SLIDE_FONT_WEIGHTS,
+  slideImageLayers,
+  type SlideImage
+} from "@/lib/carousels/render";
+import { readAppData } from "@/lib/storage/store";
 import { emojiImageKey } from "@/lib/emoji/apple";
 import { carouselImagePath, parseCarouselImageId } from "@/lib/carousels/uploads";
 import type { Carousel } from "@/types/domain";
@@ -92,6 +101,12 @@ async function readManifest(dir: string): Promise<DeckManifest | null> {
  */
 export async function renderCarouselDeck(carousel: Carousel): Promise<string[]> {
   if (carousel.slides.length === 0) return [];
+
+  const data = await readAppData().catch(() => null);
+  if (data) {
+    setSlideSignature({ name: data.creatorProfile.channelName, handle: data.creatorProfile.handle });
+    setSlideTheme(data.settings.carouselTheme);
+  }
 
   const dir = deckDir(carousel.id);
   await mkdir(dir, { recursive: true });
