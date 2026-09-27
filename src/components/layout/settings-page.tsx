@@ -92,6 +92,7 @@ export function SettingsPage() {
           <p className="mt-3 text-xs text-amber-200">{apiStatus.bookingBlockers[0]}</p>
         ) : null}
         <ClipDescriptionCard />
+        <CarouselThemeCard />
       </Card>
 
       <Card id="more" className="scroll-mt-6">
@@ -165,6 +166,36 @@ export function SettingsPage() {
         </div>
       </Card>
     </div>
+  );
+}
+
+const CAROUSEL_THEMES = [
+  { id: "black", label: "Black", hint: "Near-black with CoLateral blue and violet glows" },
+  { id: "light", label: "Light", hint: "White with a soft blue grid, like colateralai.com" }
+] as const;
+
+function CarouselThemeCard() {
+  const { data, mutate } = useAppData();
+  const current = data.settings.carouselTheme ?? "black";
+  return (
+    <details className="mt-4 rounded-xl border border-[var(--border)] p-4">
+      <summary className="cursor-pointer font-medium text-white">Carousel look</summary>
+      <p className="mt-3 text-sm text-[var(--muted-foreground)]">
+        The background every carousel slide is painted on. Decks already rendered repaint in the new look.
+      </p>
+      <div className="mt-4 flex flex-wrap gap-2">
+        {CAROUSEL_THEMES.map((theme) => (
+          <Button
+            key={theme.id}
+            variant={current === theme.id ? "primary" : "secondary"}
+            title={theme.hint}
+            onClick={() => void mutate("updateSettings", { ...data.settings, carouselTheme: theme.id }, { successMessage: "Carousel look saved." })}
+          >
+            {theme.label}
+          </Button>
+        ))}
+      </div>
+    </details>
   );
 }
 

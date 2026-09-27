@@ -14,6 +14,17 @@ already shipped.
 
 ## Unreleased
 
+- **New carousel template.** Slide 1 is now a full-screen frame from the
+  stream — Opus looks through frames from across the stream (including the
+  opening and closing minutes when you're on camera), picks the one most likely
+  to stop a scroll, and the headline goes over it in huge type with the key word
+  in a blue box. Under each screenshot, the Beam Buddy, CoLateral and
+  colateralai.com strip now sits in what used to be empty space. The flat navy
+  is gone: slides are black with blue and violet glows, a fine grid and grain,
+  or white and airy like colateralai.com — pick in **Settings → Carousel
+  look**. Posted carousels now carry your name and handle too; before, only the
+  in-app preview did.
+
 - **Carousels tell a better story and plug CoLateral.** Before writing, Opus
   now finds the story in the stream — what I needed, what got in the way, what
   changed, how it ended — and every slide ends on a line that makes you want

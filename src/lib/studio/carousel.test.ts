@@ -362,3 +362,14 @@ describe("the hook gate", () => {
     expect(result.hookRetries).toBe(2);
   });
 });
+
+describe("hook candidates", () => {
+  it("looks at the opening and closing minutes as well as across the stream", async () => {
+    const { hookCandidateSeconds } = await import("@/lib/studio/carousel");
+    const seconds = hookCandidateSeconds([{ start: 0, end: 9000, text: "x" }], 1234);
+    expect(seconds[0]).toBe(1234);
+    expect(seconds).toEqual(expect.arrayContaining([45, 110, 190, 8850, 8930]));
+    expect(Math.max(...seconds)).toBeLessThan(9000);
+    expect(hookCandidateSeconds([], 10)).toEqual([]);
+  });
+});

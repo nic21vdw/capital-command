@@ -3,7 +3,7 @@
 import { createContext, startTransition, useCallback, useContext, useEffect, useState } from "react";
 import { toast } from "sonner";
 import { derivePortfolioSummary } from "@/lib/derive";
-import { setSlideSignature } from "@/lib/carousels/render";
+import { setSlideSignature, setSlideTheme } from "@/lib/carousels/render";
 import { setClipDescription } from "@/lib/clipping/editor";
 import { localDateKey } from "@/lib/x-strategy/analytics";
 import { defaultXStrategy } from "@/lib/storage/schemas";
@@ -247,6 +247,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       handle: payload.data.creatorProfile.handle
     });
     setClipDescription(payload.data.settings.clipDescription ?? "");
+    setSlideTheme(payload.data.settings.carouselTheme);
   }, [payload]);
 
   const mutate = useCallback(async (action: string, payload?: unknown, options?: { successMessage?: string }) => {

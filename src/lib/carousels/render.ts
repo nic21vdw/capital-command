@@ -84,46 +84,126 @@ export function aspectSpec(ratio: CarouselAspectRatio | undefined): AspectRatioS
   return ASPECT_RATIOS[ratio ?? DEFAULT_ASPECT_RATIO];
 }
 
-export const COLATERAL_THEME = {
-  bgFrom: "#06101d",
-  bgTo: "#0b2442",
-  glow: "rgba(0,120,212,0.42)",
-  glowSoft: "rgba(77,166,255,0.12)",
-  grid: "rgba(148,197,255,0.11)",
-  accent: "#4da6ff",
-  accentDeep: "#0078d4",
-  strong: "#9fd2ff",
-  heading: "#ffffff",
-  body: "rgba(222,234,248,0.86)",
-  counter: "rgba(222,234,248,0.62)",
-  chip: "rgba(6,16,29,0.8)",
-  track: "rgba(222,234,248,0.18)",
-  siteFill: "rgba(77,166,255,0.18)"
-} as const;
+export type SlideThemeName = "black" | "light";
 
-export function paintDefaultBackground(ctx: SlideContext, w: number, h: number) {
+export type SlideTheme = {
+  name: SlideThemeName;
+  dark: boolean;
+  bgFrom: string;
+  bgTo: string;
+  grid: string;
+  glows: [string, string, string];
+  grain: string;
+  ghost: string;
+  accent: string;
+  accentDeep: string;
+  strong: string;
+  heading: string;
+  body: string;
+  counter: string;
+  chip: string;
+  track: string;
+  siteFill: string;
+};
+
+export const SLIDE_THEMES: Record<SlideThemeName, SlideTheme> = {
+  black: {
+    name: "black",
+    dark: true,
+    bgFrom: "#050507",
+    bgTo: "#0d0e14",
+    grid: "rgba(255,255,255,0.05)",
+    glows: ["rgba(0,120,212,0.62)", "rgba(124,58,237,0.34)", "rgba(34,211,238,0.2)"],
+    grain: "rgba(255,255,255,0.05)",
+    ghost: "rgba(255,255,255,0.05)",
+    accent: "#3ea6ff",
+    accentDeep: "#0078d4",
+    strong: "#8fcbff",
+    heading: "#ffffff",
+    body: "rgba(255,255,255,0.8)",
+    counter: "rgba(255,255,255,0.62)",
+    chip: "rgba(0,0,0,0.66)",
+    track: "rgba(255,255,255,0.2)",
+    siteFill: "rgba(62,166,255,0.16)"
+  },
+  light: {
+    name: "light",
+    dark: false,
+    bgFrom: "#ffffff",
+    bgTo: "#edf3fb",
+    grid: "rgba(11,18,32,0.06)",
+    glows: ["rgba(0,120,212,0.24)", "rgba(124,58,237,0.13)", "rgba(34,211,238,0.16)"],
+    grain: "rgba(11,18,32,0.035)",
+    ghost: "rgba(0,120,212,0.07)",
+    accent: "#0078d4",
+    accentDeep: "#0078d4",
+    strong: "#005a9e",
+    heading: "#0b1220",
+    body: "#3a4659",
+    counter: "rgba(11,18,32,0.56)",
+    chip: "rgba(255,255,255,0.86)",
+    track: "rgba(11,18,32,0.14)",
+    siteFill: "rgba(0,120,212,0.1)"
+  }
+};
+
+let activeTheme: SlideTheme = SLIDE_THEMES.black;
+
+export function setSlideTheme(name: SlideThemeName | string | undefined) {
+  activeTheme = SLIDE_THEMES[name as SlideThemeName] ?? SLIDE_THEMES.black;
+}
+
+export function slideTheme(): SlideTheme {
+  return activeTheme;
+}
+
+export const COLATERAL_THEME = SLIDE_THEMES.black;
+
+function seeded(seed: number) {
+  let state = (seed * 2654435761) >>> 0 || 1;
+  return () => {
+    state = (state + 0x6d2b79f5) >>> 0;
+    let t = state;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+export function paintDefaultBackground(ctx: SlideContext, w: number, h: number, index = 0) {
+  const theme = activeTheme;
+  const scale = w / 1080;
   const bg = ctx.createLinearGradient(0, 0, w, h);
-  bg.addColorStop(0, COLATERAL_THEME.bgFrom);
-  bg.addColorStop(1, COLATERAL_THEME.bgTo);
+  bg.addColorStop(0, theme.bgFrom);
+  bg.addColorStop(1, theme.bgTo);
   ctx.fillStyle = bg;
   ctx.fillRect(0, 0, w, h);
-  const scale = w / 1080;
-  const step = 44 * scale;
-  const dot = Math.max(1, 2.4 * scale);
-  ctx.fillStyle = COLATERAL_THEME.grid;
-  for (let y = step / 2; y < h; y += step) {
-    for (let x = step / 2; x < w; x += step) ctx.fillRect(x - dot / 2, y - dot / 2, dot, dot);
+
+  const drift = (index * 0.29) % 1;
+  const blobs: Array<[number, number, number, string]> = [
+    [0.78 + drift * 0.3 - 0.15, 0.06, 0.72, theme.glows[0]],
+    [0.08 - drift * 0.2 + 0.1, 0.92, 0.62, theme.glows[1]],
+    [0.96, 0.5 + drift * 0.3 - 0.15, 0.36, theme.glows[2]]
+  ];
+  for (const [bx, by, radius, color] of blobs) {
+    const r = Math.max(w, h) * radius;
+    const glow = ctx.createRadialGradient(w * bx, h * by, 10 * scale, w * bx, h * by, r);
+    glow.addColorStop(0, color);
+    glow.addColorStop(1, color.replace(/[\d.]+\)$/, "0)"));
+    ctx.fillStyle = glow;
+    ctx.fillRect(0, 0, w, h);
   }
-  const glow = ctx.createRadialGradient(w * 0.9, h * 0.04, 40 * scale, w * 0.9, h * 0.04, Math.max(w, h) * 0.62);
-  glow.addColorStop(0, COLATERAL_THEME.glow);
-  glow.addColorStop(1, "rgba(0,120,212,0)");
-  ctx.fillStyle = glow;
-  ctx.fillRect(0, 0, w, h);
-  const low = ctx.createRadialGradient(w * 0.05, h, 20 * scale, w * 0.05, h, Math.max(w, h) * 0.55);
-  low.addColorStop(0, COLATERAL_THEME.glowSoft);
-  low.addColorStop(1, "rgba(77,166,255,0)");
-  ctx.fillStyle = low;
-  ctx.fillRect(0, 0, w, h);
+
+  const step = 72 * scale;
+  const line = Math.max(1, 1.4 * scale);
+  ctx.fillStyle = theme.grid;
+  for (let x = step; x < w; x += step) ctx.fillRect(x, 0, line, h);
+  for (let y = step; y < h; y += step) ctx.fillRect(0, y, w, line);
+
+  const random = seeded(index + 7);
+  const speck = Math.max(1, 1.6 * scale);
+  ctx.fillStyle = theme.grain;
+  for (let i = 0; i < 2600; i += 1) ctx.fillRect(random() * w, random() * h, speck, speck);
 }
 
 /**
@@ -444,15 +524,25 @@ function drawTextLayer(
   ctx.restore();
 }
 
-function paintScrim(ctx: SlideContext, strength: number, w: number, h: number) {
-  const veil = Math.max(0, Math.min(1, strength));
-  const gradient = ctx.createLinearGradient(0, 0, 0, h);
-  gradient.addColorStop(0, `rgba(6,16,29,${(veil * 0.34).toFixed(3)})`);
-  gradient.addColorStop(0.42, `rgba(6,16,29,${(veil * 0.5).toFixed(3)})`);
-  gradient.addColorStop(0.6, `rgba(6,16,29,${Math.min(0.94, veil * 1.62).toFixed(3)})`);
-  gradient.addColorStop(1, `rgba(6,16,29,${Math.min(0.98, veil * 1.85).toFixed(3)})`);
-  ctx.fillStyle = gradient;
-  ctx.fillRect(0, 0, w, h);
+function paintBleedScrim(ctx: SlideContext, w: number, h: number) {
+  const top = ctx.createLinearGradient(0, 0, 0, h * 0.2);
+  top.addColorStop(0, "rgba(0,0,0,0.45)");
+  top.addColorStop(1, "rgba(0,0,0,0)");
+  ctx.fillStyle = top;
+  ctx.fillRect(0, 0, w, h * 0.2);
+  const low = ctx.createLinearGradient(0, h * 0.34, 0, h);
+  low.addColorStop(0, "rgba(0,0,0,0)");
+  low.addColorStop(0.45, "rgba(0,0,0,0.72)");
+  low.addColorStop(1, "rgba(0,0,0,0.94)");
+  ctx.fillStyle = low;
+  ctx.fillRect(0, h * 0.34, w, h * 0.66);
+}
+
+function withAlpha(hex: string, alpha: number): string {
+  const match = /^#([0-9a-f]{6})$/i.exec(hex);
+  if (!match) return hex;
+  const n = parseInt(match[1], 16);
+  return `rgba(${(n >> 16) & 255},${(n >> 8) & 255},${n & 255},${alpha})`;
 }
 
 const MIN_COPY_SCALE = 0.62;
@@ -514,15 +604,24 @@ function drawCopyLine(
   x: number,
   y: number,
   style: CopyStyle,
-  colors: { regular: string; strong: string },
+  colors: { regular: string; strong: string; box?: string },
   images: Map<string, SlideImage | null> | undefined
 ) {
   let cursor = x;
   for (const segment of lineSegments(line)) {
     ctx.font = segment.strong ? style.strong : style.regular;
+    const width = measureRuns(ctx, segment.text, style.px);
+    if (segment.strong && colors.box) {
+      const lead = segment.text.length - segment.text.trimStart().length;
+      const leadW = lead ? measureRuns(ctx, segment.text.slice(0, lead), style.px) : 0;
+      const padX = style.px * 0.14;
+      ctx.fillStyle = colors.box;
+      roundedRectPath(ctx, cursor + leadW - padX, y - style.px * 0.86, width - leadW + padX * 2, style.px * 1.06, style.px * 0.14);
+      ctx.fill();
+    }
     ctx.fillStyle = segment.strong ? colors.strong : colors.regular;
     fillRuns(ctx, segment.text, cursor, y, style.px, images);
-    cursor += measureRuns(ctx, segment.text, style.px);
+    cursor += width;
   }
 }
 
@@ -533,7 +632,7 @@ function slideRole(index: number, total: number): SlideRole {
   return index === total - 1 && total > 1 ? "cta" : "middle";
 }
 
-const HEADING_PX: Record<SlideRole, number> = { hook: 98, middle: 76, cta: 82 };
+const HEADING_PX: Record<SlideRole, number> = { hook: 104, middle: 76, cta: 80 };
 
 function fitCopy(
   ctx: SlideContext,
@@ -668,7 +767,7 @@ function drawXMark(ctx: SlideContext, x: number, y: number, size: number, ink: s
   ctx.restore();
 }
 
-function drawSignature(ctx: SlideContext, scale: number, centerY: number, left: number, maxRight: number) {
+function drawSignature(ctx: SlideContext, scale: number, centerY: number, left: number, maxRight: number, bleed = false) {
   const { name, handle } = slideSignature;
   if (!name && !handle) return;
 
@@ -685,7 +784,7 @@ function drawSignature(ctx: SlideContext, scale: number, centerY: number, left: 
   const showName = Boolean(name) && (both <= room || !handle) && part(name, ytW) <= room;
   const showHandle = Boolean(handle) && (showName ? both <= room : part(handle, xW) <= room);
 
-  const ink = COLATERAL_THEME.counter;
+  const ink = bleed ? "rgba(255,255,255,0.8)" : activeTheme.counter;
   const baseline = centerY + fontPx * 0.36;
   let cursor = left;
   if (showName) {
@@ -734,59 +833,122 @@ export function drawBeamBuddy(ctx: SlideContext, x: number, y: number, size: num
   ctx.restore();
 }
 
-function drawHeader(ctx: SlideContext, index: number, total: number, w: number, scale: number, onPicture: boolean) {
-  const margin = 72 * scale;
-  const top = 52 * scale;
-  const rowH = 64 * scale;
+export type SlideLayout = "bleed" | "framed" | "photo" | "plain";
+
+export function slideLayout(slide: CarouselSlide): SlideLayout {
+  const pictures = slideImageLayers(slide);
+  if (pictures.some((layer) => layer.fit === "cover" && layer.width >= 1 && layer.height >= 1 && layer.x <= 0 && layer.y <= 0)) {
+    return "bleed";
+  }
+  if (!slide.textBand) return "plain";
+  return pictures.some((layer) => layer.fit === "frame") ? "framed" : "photo";
+}
+
+function pictureBottom(
+  slide: CarouselSlide,
+  layout: SlideLayout,
+  w: number,
+  h: number,
+  images: Map<string, SlideImage | null> | undefined
+): number {
+  const band = (slide.textBand?.top ?? 0.6) * h;
+  const layer = slideImageLayers(slide).find((entry) => (layout === "framed" ? entry.fit === "frame" : entry.fit !== "frame"));
+  if (!layer) return band;
+  const lw = layer.width * w;
+  const lh = layer.height * h;
+  const ly = layer.y * h;
+  if (layout === "photo") return ly + lh;
+  const img = images?.get(layer.src) ?? { width: 1920, height: 1080 };
+  const contained = img.height * Math.min(lw / img.width, lh / img.height);
+  return ly + contained * frameZoom(img, lw, lh, ly, band);
+}
+
+function paintBand(ctx: SlideContext, top: number, w: number, h: number, index: number) {
+  ctx.save();
+  ctx.beginPath();
+  ctx.moveTo(0, top);
+  ctx.arcTo(w, top, w, h, 0);
+  ctx.arcTo(w, h, 0, h, 0);
+  ctx.arcTo(0, h, 0, top, 0);
+  ctx.arcTo(0, top, w, top, 0);
+  ctx.closePath();
+  ctx.clip();
+  paintDefaultBackground(ctx, w, h, index);
+  ctx.restore();
+  const theme = activeTheme;
+  const fade = ctx.createLinearGradient(0, top - 70 * (w / 1080), 0, top);
+  fade.addColorStop(0, withAlpha(theme.bgFrom, 0));
+  fade.addColorStop(1, withAlpha(theme.bgFrom, 1));
+  ctx.fillStyle = fade;
+  ctx.fillRect(0, top - 70 * (w / 1080), w, 70 * (w / 1080));
+  ctx.fillStyle = theme.accentDeep;
+  ctx.fillRect(0, top - 3 * (w / 1080), w, 3 * (w / 1080));
+}
+
+function drawBrand(ctx: SlideContext, left: number, top: number, rowH: number, scale: number, chip: boolean, dark: boolean) {
   const mark = 44 * scale;
   const pad = 18 * scale;
+  const divider = 18 * scale;
   ctx.textAlign = "left";
-
   ctx.font = `800 ${30 * scale}px ${SLIDE_FONT_STACK}`;
   const wordmarkW = ctx.measureText("CoLateral").width;
   ctx.font = `700 ${24 * scale}px ${SLIDE_FONT_STACK}`;
   const siteW = ctx.measureText(COLATERAL_SITE).width;
-  const divider = 18 * scale;
-  const leftW = mark + 14 * scale + wordmarkW + divider * 2 + 2 * scale + siteW;
-  if (onPicture) {
-    ctx.fillStyle = COLATERAL_THEME.chip;
-    roundedRectPath(ctx, margin - pad, top, leftW + pad * 2, rowH, rowH / 2);
+  const width = mark + 14 * scale + wordmarkW + divider * 2 + 2 * scale + siteW;
+  if (chip) {
+    ctx.fillStyle = dark ? SLIDE_THEMES.black.chip : activeTheme.chip;
+    roundedRectPath(ctx, left - pad, top, width + pad * 2, rowH, rowH / 2);
     ctx.fill();
   }
-  drawBeamBuddy(ctx, margin, top + (rowH - mark) / 2, mark);
+  drawBeamBuddy(ctx, left, top + (rowH - mark) / 2, mark);
+  const wordmarkX = left + mark + 14 * scale;
   ctx.font = `800 ${30 * scale}px ${SLIDE_FONT_STACK}`;
-  ctx.fillStyle = COLATERAL_THEME.heading;
-  const wordmarkX = margin + mark + 14 * scale;
+  ctx.fillStyle = dark ? "#ffffff" : activeTheme.heading;
   ctx.fillText("CoLateral", wordmarkX, top + rowH / 2 + 11 * scale);
   const dividerX = wordmarkX + wordmarkW + divider;
-  ctx.fillStyle = COLATERAL_THEME.track;
+  ctx.fillStyle = dark ? SLIDE_THEMES.black.track : activeTheme.track;
   ctx.fillRect(dividerX, top + rowH * 0.28, 2 * scale, rowH * 0.44);
   ctx.font = `700 ${24 * scale}px ${SLIDE_FONT_STACK}`;
-  ctx.fillStyle = COLATERAL_THEME.accent;
+  ctx.fillStyle = dark ? SLIDE_THEMES.black.accent : activeTheme.accent;
   ctx.fillText(COLATERAL_SITE, dividerX + 2 * scale + divider, top + rowH / 2 + 9 * scale);
+}
 
+function drawProgress(
+  ctx: SlideContext,
+  index: number,
+  total: number,
+  right: number,
+  top: number,
+  rowH: number,
+  scale: number,
+  chip: boolean,
+  dark: boolean
+) {
+  const pad = 18 * scale;
   const counter = `${index + 1}/${total}`;
+  ctx.textAlign = "left";
   ctx.font = `700 ${26 * scale}px ${SLIDE_FONT_STACK}`;
   const counterW = ctx.measureText(counter).width;
   const segGap = 6 * scale;
   const segW = Math.max(10 * scale, Math.min(34 * scale, (220 * scale) / Math.max(1, total)));
   const barW = total * segW + (total - 1) * segGap;
-  const rightW = barW + 18 * scale + counterW;
-  const rightX = w - margin - rightW;
-  if (onPicture) {
-    ctx.fillStyle = COLATERAL_THEME.chip;
-    roundedRectPath(ctx, rightX - pad, top, rightW + pad * 2, rowH, rowH / 2);
+  const width = barW + 18 * scale + counterW;
+  const left = right - width;
+  const palette = dark ? SLIDE_THEMES.black : activeTheme;
+  if (chip) {
+    ctx.fillStyle = palette.chip;
+    roundedRectPath(ctx, left - pad, top, width + pad * 2, rowH, rowH / 2);
     ctx.fill();
   }
   const segH = 7 * scale;
   const segY = top + (rowH - segH) / 2;
   for (let i = 0; i < total; i += 1) {
-    ctx.fillStyle = i <= index ? COLATERAL_THEME.accent : COLATERAL_THEME.track;
-    roundedRectPath(ctx, rightX + i * (segW + segGap), segY, segW, segH, segH / 2);
+    ctx.fillStyle = i <= index ? palette.accent : palette.track;
+    roundedRectPath(ctx, left + i * (segW + segGap), segY, segW, segH, segH / 2);
     ctx.fill();
   }
-  ctx.fillStyle = COLATERAL_THEME.counter;
-  ctx.fillText(counter, rightX + barW + 18 * scale, top + rowH / 2 + 9 * scale);
+  ctx.fillStyle = palette.counter;
+  ctx.fillText(counter, left + barW + 18 * scale, top + rowH / 2 + 9 * scale);
 }
 
 function drawArrow(ctx: SlideContext, x: number, y: number, size: number, ink: string) {
@@ -803,7 +965,15 @@ function drawArrow(ctx: SlideContext, x: number, y: number, size: number, ink: s
   ]);
 }
 
-function drawPill(ctx: SlideContext, label: string, right: number, centerY: number, scale: number, filled: boolean): number {
+function drawPill(
+  ctx: SlideContext,
+  label: string,
+  right: number,
+  centerY: number,
+  scale: number,
+  filled: boolean,
+  dark: boolean
+): number {
   const fontPx = 28 * scale;
   ctx.font = `800 ${fontPx}px ${SLIDE_FONT_STACK}`;
   ctx.textAlign = "left";
@@ -813,10 +983,11 @@ function drawPill(ctx: SlideContext, label: string, right: number, centerY: numb
   const textW = ctx.measureText(label).width;
   const pillW = padX * 2 + textW + 14 * scale + arrow;
   const left = right - pillW;
-  ctx.fillStyle = filled ? COLATERAL_THEME.accentDeep : COLATERAL_THEME.chip;
+  const palette = dark ? SLIDE_THEMES.black : activeTheme;
+  ctx.fillStyle = filled ? palette.accentDeep : palette.chip;
   roundedRectPath(ctx, left, centerY - pillH / 2, pillW, pillH, pillH / 2);
   ctx.fill();
-  const ink = filled ? "#ffffff" : COLATERAL_THEME.accent;
+  const ink = filled ? "#ffffff" : palette.accent;
   ctx.fillStyle = ink;
   ctx.fillText(label, left + padX, centerY + fontPx * 0.36);
   drawArrow(ctx, left + padX + textW + 14 * scale, centerY, arrow, ink);
@@ -833,12 +1004,29 @@ function drawSiteButton(ctx: SlideContext, left: number, top: number, scale: num
   const label = `Try it at ${COLATERAL_SITE}`;
   const textW = ctx.measureText(label).width;
   const pillW = padX * 2 + mark + 16 * scale + textW;
-  ctx.fillStyle = COLATERAL_THEME.siteFill;
+  ctx.fillStyle = activeTheme.siteFill;
   roundedRectPath(ctx, left, top, pillW, pillH, pillH / 2);
   ctx.fill();
   drawBeamBuddy(ctx, left + padX, top + (pillH - mark) / 2, mark);
-  ctx.fillStyle = COLATERAL_THEME.heading;
+  ctx.fillStyle = activeTheme.heading;
   ctx.fillText(label, left + padX + mark + 16 * scale, top + pillH / 2 + fontPx * 0.36);
+}
+
+function drawGhostNumber(ctx: SlideContext, label: string, w: number, h: number, scale: number) {
+  const px = 560 * scale;
+  ctx.font = `900 ${px}px ${SLIDE_FONT_STACK}`;
+  ctx.textAlign = "left";
+  ctx.fillStyle = activeTheme.ghost;
+  const width = ctx.measureText(label).width;
+  ctx.fillText(label, w - width + 40 * scale, h * 0.6 + px * 0.36);
+}
+
+const BACKDROP_INK = new Set(["#ffffff", "rgba(255,255,255,0.86)"]);
+
+function inkFor(custom: string | undefined, fallback: string, layout: SlideLayout): string {
+  if (!custom) return fallback;
+  if (layout !== "bleed" && BACKDROP_INK.has(custom)) return fallback;
+  return custom;
 }
 
 function drawBaseText(
@@ -850,32 +1038,58 @@ function drawBaseText(
   h: number,
   images: Map<string, SlideImage | null> | undefined
 ) {
-  const scale = w / 1080;
+  const scale = Math.min(w, h) / 1080;
   const margin = 88 * scale;
-  const onPicture = Boolean(slide.textBand) || slideImageLayers(slide).length > 0;
   const role = slideRole(index, total);
-
-  drawHeader(ctx, index, total, w, scale, onPicture);
-
+  const shape = slideLayout(slide);
+  const bottom = shape === "framed" || shape === "photo" ? pictureBottom(slide, shape, w, h, images) : 0;
+  const layout: SlideLayout = bottom > h * 0.66 ? "bleed" : shape;
+  if (layout === "bleed" && shape !== "bleed") paintBleedScrim(ctx, w, h);
+  const onDark = layout === "bleed" || activeTheme.dark;
+  const rowH = 64 * scale;
   const footerY = h - 76 * scale;
-  const bandTop = slide.textBand ? slide.textBand.top * h : 160 * scale;
-  const bandBottom = slide.textBand ? Math.min(slide.textBand.bottom * h, footerY - 44 * scale) : footerY - 64 * scale;
-  const maxWidth = w - margin * 2;
-  const fit = fitCopy(ctx, slide, role, scale, maxWidth, bandBottom - bandTop);
 
-  const room = bandBottom - bandTop - fit.blockH;
-  const mascot = role === "cta" && !slide.textBand && room > 300 * scale ? 170 * scale : 0;
-  let y = bandTop + Math.max(0, room - (mascot ? mascot + 40 * scale : 0)) / 2;
+  let copyTop: number;
+  let copyBottom: number;
+  let anchorBottom = false;
+
+  if (layout === "framed" || layout === "photo") {
+    paintBand(ctx, bottom, w, h, index);
+    const stripTop = bottom + 28 * scale;
+    drawBrand(ctx, 72 * scale, stripTop, rowH, scale, false, activeTheme.dark);
+    drawProgress(ctx, index, total, w - 72 * scale, stripTop, rowH, scale, false, activeTheme.dark);
+    copyTop = stripTop + rowH + 26 * scale;
+    copyBottom = footerY - 58 * scale;
+  } else if (layout === "bleed") {
+    drawBrand(ctx, 72 * scale, 52 * scale, rowH, scale, true, true);
+    drawProgress(ctx, index, total, w - 72 * scale, 52 * scale, rowH, scale, true, true);
+    copyTop = h * 0.46;
+    copyBottom = footerY - 70 * scale;
+    anchorBottom = true;
+  } else {
+    drawBrand(ctx, 72 * scale, 52 * scale, rowH, scale, false, activeTheme.dark);
+    drawProgress(ctx, index, total, w - 72 * scale, 52 * scale, rowH, scale, false, activeTheme.dark);
+    if (role === "middle") drawGhostNumber(ctx, String(index + 1).padStart(2, "0"), w, h, scale);
+    copyTop = 170 * scale;
+    copyBottom = footerY - 64 * scale;
+  }
+
+  const maxWidth = w - margin * 2;
+  const fit = fitCopy(ctx, slide, role, scale, maxWidth, copyBottom - copyTop);
+  const room = copyBottom - copyTop - fit.blockH;
+  const mascot = role === "cta" && layout === "plain" && room > 300 * scale ? 170 * scale : 0;
+  let y = anchorBottom ? copyBottom - fit.blockH : copyTop + Math.max(0, room - (mascot ? mascot + 40 * scale : 0)) / 2;
   if (mascot) {
     drawBeamBuddy(ctx, margin - 6 * scale, y, mascot);
     y += mascot + 40 * scale;
   }
 
+  const palette = layout === "bleed" ? SLIDE_THEMES.black : activeTheme;
   if (fit.kickerH) {
     const label = role === "cta" ? "WHAT'S NEXT" : String(index + 1).padStart(2, "0");
     ctx.font = `800 ${fit.kickerPx}px ${SLIDE_FONT_STACK}`;
     ctx.textAlign = "left";
-    ctx.fillStyle = COLATERAL_THEME.accent;
+    ctx.fillStyle = palette.accent;
     const baseline = y + fit.kickerPx * 0.86;
     ctx.fillText(label, margin, baseline);
     const labelW = ctx.measureText(label).width;
@@ -883,14 +1097,21 @@ function drawBaseText(
     y += fit.kickerH;
   }
 
-  const headingColors = { regular: slide.headingColor ?? COLATERAL_THEME.heading, strong: COLATERAL_THEME.accent };
+  const headingColors = {
+    regular: inkFor(slide.headingColor, layout === "bleed" ? "#ffffff" : palette.heading, layout),
+    strong: role === "hook" ? "#ffffff" : palette.accent,
+    box: role === "hook" ? palette.accentDeep : undefined
+  };
   for (const line of fit.headingLines) {
     drawCopyLine(ctx, line, margin, y + fit.heading.px * 0.86, fit.heading, headingColors, images);
     y += fit.headingLineH;
   }
   if (fit.bodyLines.length) {
     y += fit.gap;
-    const bodyColors = { regular: slide.bodyColor ?? COLATERAL_THEME.body, strong: COLATERAL_THEME.strong };
+    const bodyColors = {
+      regular: inkFor(slide.bodyColor, layout === "bleed" ? "rgba(255,255,255,0.88)" : palette.body, layout),
+      strong: palette.strong
+    };
     for (const line of fit.bodyLines) {
       drawCopyLine(ctx, line, margin, y + fit.body.px * 1.02, fit.body, bodyColors, images);
       y += fit.bodyLineH;
@@ -901,9 +1122,9 @@ function drawBaseText(
   const right = w - 72 * scale;
   const pill =
     role === "cta"
-      ? drawPill(ctx, slideSignature.handle ? `Follow ${slideSignature.handle}` : "Follow for more", right, footerY, scale, true)
-      : drawPill(ctx, role === "hook" ? "Swipe" : "Next", right, footerY, scale, role === "hook");
-  drawSignature(ctx, scale, footerY, 72 * scale, right - pill - 28 * scale);
+      ? drawPill(ctx, slideSignature.handle ? `Follow ${slideSignature.handle}` : "Follow for more", right, footerY, scale, true, onDark && layout === "bleed")
+      : drawPill(ctx, role === "hook" ? "Swipe" : "Next", right, footerY, scale, role === "hook", layout === "bleed");
+  drawSignature(ctx, scale, footerY, 72 * scale, right - pill - 28 * scale, layout === "bleed");
 }
 
 /**
@@ -988,7 +1209,7 @@ export function paintSlide(
       ctx.fillStyle = slide.background;
       ctx.fillRect(0, 0, width, height);
     } else {
-      paintDefaultBackground(ctx, width, height);
+      paintDefaultBackground(ctx, width, height, index);
     }
   }
 
@@ -1003,7 +1224,7 @@ export function paintSlide(
   // The veil goes on with the chrome, not with the pictures: in the editor the
   // image layers are live DOM under this canvas, so painting it here is what
   // keeps the stacked preview in the same z-order as the export.
-  if (!options.skipBaseText && slide.scrim) paintScrim(ctx, slide.scrim, width, height);
+  if (!options.skipBaseText && slideLayout(slide) === "bleed") paintBleedScrim(ctx, width, height);
 
   if (!options.skipBaseText && !slide.hideBaseText) drawBaseText(ctx, slide, index, total, width, height, input.images);
 

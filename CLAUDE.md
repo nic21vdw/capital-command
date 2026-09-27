@@ -882,11 +882,32 @@ the picker can promise what the server will do.
   `registerSlideFonts` in `renderDeck.ts` registers the static weights in
   `public/fonts/slides`. A weight used by the painter must be in
   `SLIDE_FONT_WEIGHTS` and have its file there, or the server sets it regular.
-- The look is CoLateral's: a dark navy ground with the canvas dot grid and an
-  Office Blue glow, a header with the Beam Buddy mark (drawn from its sprite,
-  never fetched), the wordmark and a progress bar, left-set copy, a numbered
-  kicker on middle slides, a Swipe/Next pill, and a filled Follow pill on the
-  CTA. Colours live in `COLATERAL_THEME`.
+- The look is CoLateral's, in one of two themes (`SLIDE_THEMES`, chosen in
+  Settings as `carouselTheme`, black by default): a gradient ground with
+  drifting Office Blue / violet / cyan glows, a fine grid and grain, the Beam
+  Buddy mark (drawn from its sprite, never fetched) with the wordmark and
+  colateralai.com, a progress bar, left-set copy, a numbered kicker and a ghost
+  slide number on middle slides, a Swipe/Next pill, and a Follow pill plus a
+  "Try it at colateralai.com" button on the CTA. `setSlideTheme` is module
+  state like the signature: the app provider sets both from the document, and
+  `renderCarouselDeck` sets both from app data before it plans, because the
+  deck fingerprint includes them. Before that, server-rendered (posted) decks
+  were never signed at all.
+- `slideLayout` decides the template per slide. `bleed`: a full-slide cover
+  image — the HOOK — with the headline low over a dark gradient and its bold
+  keyword in a blue box. `framed` / `photo`: the picture on top, then the
+  theme's ground painted from the picture's bottom edge down (so the blurred bed
+  never shows), the brand strip and progress bar set in the gap under the
+  picture, and the copy centred below it. A picture too tall to leave room (a
+  16:9 still on a 16:9 slide) falls back to `bleed`. `plain`: header on top.
+- THE HOOK IS A FRAME FROM THE STREAM. `illustrateFromRecording` cuts
+  `HOOK_CANDIDATES` stills across the stream plus the opening and closing
+  minutes (where Nic is usually on full camera — a small webcam inset over a
+  screen share never makes a hook) and hands them to the review, which picks
+  one and says where its subject sits (`hookFocus`). `cropForHook` cuts a 4:5
+  window around it so `cover` never slices the face, and
+  `attachHookBackdrop` makes slide 1 a `bleed`. Candidates that lose are
+  deleted from `data/carousel-images`.
 - EMOJI ARE PICTURES, NOT GLYPHS. No font in that stack has an emoji in it, and
   the SERVER has no emoji font at all — a deck booked into the publish queue is
   painted by `@napi-rs/canvas`, so every emoji the copy asked for came out as

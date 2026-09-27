@@ -105,3 +105,24 @@ export function attachSlideImages(slides: CarouselSlide[], images: CarouselImage
     };
   });
 }
+
+export function attachHookBackdrop(slide: CarouselSlide, image: CarouselImage): CarouselSlide {
+  const layer: SlideLayer = {
+    id: `layer-hook-${image.id}`,
+    type: "image",
+    src: image.url,
+    x: 0,
+    y: 0,
+    width: 1,
+    height: 1,
+    fit: "cover"
+  };
+  return {
+    ...slide,
+    scrim: undefined,
+    textBand: undefined,
+    headingColor: undefined,
+    bodyColor: undefined,
+    layers: [layer, ...(slide.layers ?? []).filter((entry) => entry.type !== "image")]
+  };
+}

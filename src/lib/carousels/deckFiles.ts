@@ -4,6 +4,7 @@ import { DEFAULT_ASPECT_RATIO, aspectSpec, slidePixelSize } from "@/lib/carousel
 import { dataPath } from "@/lib/paths";
 import { imagePostAspectAllowed, imagePostWidth } from "@/lib/publisher/images";
 import type { Carousel, CarouselAspectRatio, CarouselSlide } from "@/types/domain";
+import { slideSignatureOf, slideTheme } from "@/lib/carousels/render";
 
 /**
  * Where a rendered deck lives on disk, and which of its slides still need
@@ -78,7 +79,7 @@ function canonical(value: unknown): unknown {
  *
  * 2: emoji are drawn as Apple pictures instead of typed as glyphs.
  */
-const PAINTER_VERSION = 4;
+const PAINTER_VERSION = 5;
 
 /**
  * Everything that changes what a slide looks like: its own content, its
@@ -97,7 +98,9 @@ export function slideFingerprint(input: {
     index: input.index,
     total: input.total,
     ratio: input.ratio,
-    painter: PAINTER_VERSION
+    painter: PAINTER_VERSION,
+    theme: slideTheme().name,
+    signature: slideSignatureOf()
   });
   return createHash("sha1").update(JSON.stringify(payload)).digest("hex").slice(0, 16);
 }

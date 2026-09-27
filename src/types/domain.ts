@@ -172,6 +172,7 @@ export interface Settings {
   profile?: UserProfile;
   /** Standing description appended to every generated clip. Empty draws none. */
   clipDescription?: string;
+  carouselTheme?: "black" | "light";
   /** When first-run setup was finished or dismissed. Absent means a fresh install. */
   setupCompletedAt?: string;
   /** Show the personal finance screens. Off by default; they are not part of the pack. */

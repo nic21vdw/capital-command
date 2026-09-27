@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { attachSlideBackdrops } from "@/lib/carousels/imageSlides";
-import { applyReview, buildReviewPrompt, parseReview } from "@/lib/carousels/storyReview";
+import { applyReview, buildReviewPrompt, hookCropWindow, parseReview } from "@/lib/carousels/storyReview";
 import type { Carousel } from "@/types/domain";
 
 const written: Carousel = {
@@ -65,5 +65,27 @@ describe("the story review", () => {
     expect(hook.headingColor).toBeUndefined();
     expect(middle.body).toBe("The **agent** ran.");
     expect(middle.layers?.[0]).toMatchObject({ type: "image", src: "/api/studio/carousels/images/b.jpg" });
+  });
+});
+
+describe("choosing the hook frame", () => {
+  it("asks for the most scroll-stopping candidate and where its subject sits", () => {
+    const prompt = buildReviewPrompt(written.slides, [null, null, null], ["hook-01.jpg", "hook-02.jpg"]);
+    expect(prompt).toContain("hook-01.jpg, hook-02.jpg");
+    expect(prompt).toContain('"hookFocus"');
+    expect(prompt).toContain("small webcam box in a corner does not count");
+  });
+
+  it("reads the pick and clamps the focus", () => {
+    const reply = JSON.stringify({ hookPicture: "hook-02.jpg", hookFocus: 1.4, slides: written.slides.map((s) => ({ heading: s.heading, body: s.body || "x" })) });
+    expect(parseReview(reply, 3)).toMatchObject({ hookPicture: "hook-02.jpg", hookFocus: 1 });
+    const none = JSON.stringify({ hookPicture: "none", slides: written.slides.map((s) => ({ heading: s.heading, body: "x" })) });
+    expect(parseReview(none, 3)).toMatchObject({ hookPicture: null, hookFocus: 0.5 });
+  });
+
+  it("cuts a 4:5 window around the subject without leaving the frame", () => {
+    expect(hookCropWindow(1440, 810, 0.5)).toEqual({ x: 396, width: 648 });
+    expect(hookCropWindow(1440, 810, 0)).toEqual({ x: 0, width: 648 });
+    expect(hookCropWindow(1440, 810, 1)).toEqual({ x: 792, width: 648 });
   });
 });
