@@ -1,3 +1,4 @@
+import { mutationOriginAllowed } from "@/lib/security/mutation-origin";
 import { NextResponse } from "next/server";
 import { readReleaseStatus } from "@/lib/release/status";
 import { isReleaseInFlight, startRelease } from "@/lib/release/run";
@@ -18,7 +19,10 @@ export async function GET() {
   });
 }
 
-export async function POST() {
+export async function POST(request: Request) {
+  if (!mutationOriginAllowed(request)) {
+    return NextResponse.json({ error: "Cross-origin mutation refused." }, { status: 403 });
+  }
   const [status, progress] = await Promise.all([readReleaseStatus(), readReleaseProgress()]);
 
   // A release that wrote down why it stopped is over, whatever the in-process

@@ -14,6 +14,7 @@ already shipped.
 
 ## Unreleased
 
+- Other websites can no longer trigger app updates or start and revoke voice sessions through your local browser.
 - **Settings are easier to scan.** Profile, accounts and publishing controls now have clear sections and icons. Each platform opens only when you need its credentials, optional fields stay tucked away, and account badges distinguish saved credentials from a completed sign-in. Appearance, finance and data tools live under More settings.
 
 ## 2026-09-26
