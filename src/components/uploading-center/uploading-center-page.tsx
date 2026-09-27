@@ -151,7 +151,10 @@ export function UploadingCenterPage() {
   // The 60-second poll doubles as the TikTok/Instagram manual-reminder tick
   // (YouTube self-publishes); it's a no-op when nothing changed.
   useEffect(() => {
-    const timer = setInterval(() => void refresh(), 60_000);
+    const timer = setInterval(() => {
+      if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
+      void refresh();
+    }, 60_000);
     return () => clearInterval(timer);
   }, [refresh]);
 
