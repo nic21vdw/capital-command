@@ -1,4 +1,5 @@
 import { PermanentError, TransientError, fetchJson } from "@/lib/publisher/http";
+import { attributeLinks } from "@/lib/publisher/attribution";
 import { threadsConfig, type ThreadsAccount, type ThreadsConfig } from "@/lib/threads/config";
 
 /**
@@ -60,9 +61,11 @@ export async function accountUserId(account: ThreadsAccount, config: ThreadsConf
 export async function createTextContainer(
   account: ThreadsAccount,
   text: string,
-  config: ThreadsConfig = threadsConfig()
+  config: ThreadsConfig = threadsConfig(),
+  replyToId?: string
 ): Promise<string> {
-  const body = new URLSearchParams({ media_type: "TEXT", text, access_token: account.accessToken });
+  const body = new URLSearchParams({ media_type: "TEXT", text: attributeLinks(text, "threads"), access_token: account.accessToken });
+  if (replyToId) body.set("reply_to_id", replyToId);
   const userId = await accountUserId(account, config);
 
   const data = await fetchJson<CreateResponse>(endpoint(config, `${encodeURIComponent(userId)}/threads`), {
@@ -108,11 +111,12 @@ export type ThreadsPublishResult = { containerId: string; postId: string };
  * the runner's own backoff.
  */
 export async function postToThreads(
-  input: { account: ThreadsAccount; text: string; containerId?: string },
+  input: { account: ThreadsAccount; text: string; containerId?: string; replyToId?: string },
   config: ThreadsConfig = threadsConfig()
 ): Promise<ThreadsPublishResult> {
   const { account } = input;
-  const containerId = input.containerId ?? (await createTextContainer(account, input.text, config));
+  const containerId =
+    input.containerId ?? (await createTextContainer(account, input.text, config, input.replyToId));
 
   let lastError: unknown;
   for (let attempt = 0; attempt < 3; attempt += 1) {

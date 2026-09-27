@@ -14,7 +14,7 @@ import { animatedReframeChain } from "@/lib/clipping/render";
 import { readSourceMeta, sourceFilePath } from "@/lib/clipping/sources";
 import { getTrack, trackFilePath } from "@/lib/longform/music";
 import { overlayFilePath } from "@/lib/longform/overlays";
-import { editedDurationSec, exportRanges, projectForTopic, remapCaptionsToOutput, sourceTimeToOutput, sourceToOutputIntervals, type KeptRange } from "@/lib/longform/plan";
+import { editedDurationSec, exportRanges, extendCaptionSegments, projectForTopic, remapCaptionsToOutput, sourceTimeToOutput, sourceToOutputIntervals, type KeptRange } from "@/lib/longform/plan";
 import { getProject, projectOutputDir, projectWorkDir, setTopicExport, updateProject, withFullTranscript } from "@/lib/longform/store";
 import type { LongformExportRecord, LongformProject } from "@/lib/longform/types";
 import { DEFAULT_OUTPUT_QUALITY, normalizeOutputQuality, type OutputQuality } from "@/lib/pipeline/outputQuality";
@@ -23,6 +23,7 @@ import { planSfxCues } from "@/lib/sfx/cues";
 import { resolveSoundPath } from "@/lib/sfx/sounds";
 import type { SfxSoundId } from "@/types/domain";
 import { finalizeTitle } from "@/lib/title/finalize";
+import { assFilter } from "@/lib/clipping/caption-fonts";
 
 // The Long-Form Editor's export engine. The edited video is baked in stages:
 //   1. Hook — the opening seconds re-rendered with the punch-in zoom and the
@@ -311,8 +312,14 @@ async function runExport(projectId: string, recordId: string, signal: AbortSigna
   // of truth for what this export is.
   const topicId = stored.exports.find((item) => item.id === recordId)?.topicId;
   // A segment's hook captions are cut from the transcript at its own window,
-  // which on a long stream is past everything the project stored.
-  const source = topicId ? await withFullTranscript(stored) : stored;
+  // which on a long stream is past everything the project stored, and a
+  // best-of edit plays passages from the whole stream. Both read the whole
+  // recording's words, and the body captions are carried on from it.
+  const full = topicId || stored.highlight ? await withFullTranscript(stored) : stored;
+  const source =
+    full === stored || !stored.captions
+      ? full
+      : { ...full, captions: { ...full.captions, segments: extendCaptionSegments(stored.captions.segments, full.transcript) } };
   const project = exportTarget(source, topicId);
   const meta = await readSourceMeta(project.sourceId);
   if (!meta) throw new Error("The uploaded source file for this project is gone. Upload the video again.");
@@ -368,7 +375,7 @@ async function runExport(projectId: string, recordId: string, signal: AbortSigna
       const assDoc = buildAss(captions, project.hook.captionStyle, frameW, frameH, project.hook.highlightCurrentWord);
       const assPath = path.join(workDir, `export-${recordId}-hook.ass`);
       await writeFile(assPath, titleLine ? `${assDoc}${titleLine}\n` : `${assDoc}\n`, "utf8");
-      assArg = `ass='${escapeFilterPath(assPath)}',`;
+      assArg = `${assFilter(assPath, escapeFilterPath)},`;
     }
     // animatedReframeChain crops a zoomed cover of the frame around the focus
     // point, with a blurred fill behind so the punch-in never shows black
@@ -745,7 +752,7 @@ async function planBurnIns(
     );
     prev = label;
   });
-  if (assPath) filters.push(`[${prev}]ass='${escapeFilterPath(assPath)}'[vout]`);
+  if (assPath) filters.push(`[${prev}]${assFilter(assPath, escapeFilterPath)}[vout]`);
   return { inputs, filters };
 }
 

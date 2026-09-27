@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { generateLongformMetadata, longformMetadataConfigured } from "@/lib/longform/metadata";
-import { getProject, updateProject } from "@/lib/longform/store";
+import { getProject, updateProject, withFullTranscript } from "@/lib/longform/store";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -15,7 +15,9 @@ export async function POST(_request: NextRequest, { params }: { params: Promise<
   if (!project) {
     return NextResponse.json({ error: "Project not found." }, { status: 404 });
   }
-  const metadata = await generateLongformMetadata(project);
+  // A best-of edit plays passages from the whole stream, so it is described
+  // from the whole stream's words rather than the opening minutes.
+  const metadata = await generateLongformMetadata(project.highlight ? await withFullTranscript(project) : project);
   await updateProject(projectId, { metadata });
   return NextResponse.json({ metadata, configured: longformMetadataConfigured() });
 }

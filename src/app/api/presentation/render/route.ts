@@ -71,7 +71,6 @@ export async function GET(req: NextRequest) {
       composition,
       codec: REMOTION_EXPORT.codec,
       outputLocation: outPath,
-      // Full-res final export: never downscale; CRF matches the app master encode.
       scale: REMOTION_EXPORT.scale,
       crf: REMOTION_EXPORT.crf,
       imageFormat: REMOTION_EXPORT.imageFormat,

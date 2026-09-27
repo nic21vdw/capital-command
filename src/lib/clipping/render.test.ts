@@ -150,7 +150,7 @@ describe("renderCaptionedVertical", () => {
     expect(filter).toContain("boxblur=12:2");
     expect(filter).toContain("overlay=(W-w)/2:(H-h)/2");
     // Burns the caption/watermark document in.
-    expect(filter).toContain("ass='/tmp/caps.ass'[vout]");
+    expect(filter).toMatch(/ass='\/tmp\/caps\.ass':fontsdir='[^']+fonts\/captions'\[vout\]/);
   });
 
   it("renders the whole width when the punch-in is turned off", async () => {
@@ -186,7 +186,7 @@ describe("renderCaptionedVertical", () => {
     // A tracked crop that fills the frame — no blurred fill, no letterbox.
     expect(filter).toContain("[0:v]crop=614:1080:x='if(lt(t,4.00)");
     expect(filter).not.toContain("boxblur");
-    expect(filter).toContain("ass='/tmp/caps.ass'[vout]");
+    expect(filter).toMatch(/ass='\/tmp\/caps\.ass':fontsdir='[^']+fonts\/captions'\[vout\]/);
   });
 
   it("leads with the detected camera when the speaker is an overlay", async () => {

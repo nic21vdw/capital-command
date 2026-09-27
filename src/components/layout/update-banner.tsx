@@ -50,12 +50,12 @@ export function UpdateBanner() {
 
   if (!busy && shouldShowUpdated(status, status?.progress, { acknowledged })) {
     return (
-      <div className="mb-4 flex flex-wrap items-center gap-3 rounded-xl border border-emerald-500/40 bg-emerald-500/10 px-4 py-3">
+      <div className="glass mb-4 flex flex-wrap items-center gap-3 rounded-xl border px-4 py-3 [--glass-tint:color-mix(in_srgb,var(--color-emerald-500)_10%,transparent)]">
         <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-emerald-500/20 text-emerald-400">
           <CheckCircle2 className="h-4 w-4" />
         </span>
         <div className="min-w-0 flex-1">
-          <p className="text-sm font-semibold text-white">Capital Command is up to date</p>
+          <p className="text-sm font-semibold text-white">CoLateral Marketing is up to date</p>
           <p className="truncate text-xs text-[var(--muted-foreground)]">
             The update finished and the app restarted — now running{" "}
             {status?.runningShort ?? "the latest build"}.
@@ -109,7 +109,7 @@ export function UpdateBanner() {
             {busy
               ? watch?.tone === "lost"
                 ? watch.headline
-                : `Updating Capital Command… ${watch?.elapsed ?? ""}`.trim()
+                : `Updating CoLateral Marketing… ${watch?.elapsed ?? ""}`.trim()
               : `An update is ready — ${count} change${count === 1 ? "" : "s"} waiting`}
           </p>
           <p className={cn("text-xs text-[var(--muted-foreground)]", !lost && "truncate")}>

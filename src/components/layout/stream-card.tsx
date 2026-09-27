@@ -37,7 +37,7 @@ export function StreamCard({ collapsed = false }: { collapsed?: boolean }) {
   }
 
   return (
-    <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-2.5">
+    <div className="glass-inset rounded-lg border p-2.5">
       <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--muted-foreground)]">
         Working on
       </p>

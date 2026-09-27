@@ -6,7 +6,19 @@ import { createJobFromUpload, getJob } from "@/lib/clipping/jobs";
 import { readSourceMeta, saveSourceFromUrl } from "@/lib/clipping/sources";
 import type { ClipJob } from "@/lib/clipping/types";
 import { isExportRendering, startLongformExport } from "@/lib/longform/render";
-import { createProject, getProject, planProjectTopics, projectOutputDir, updateProject } from "@/lib/longform/store";
+import { DEFAULT_HIGHLIGHT_OPTIONS } from "@/lib/longform/highlights";
+import { editedDurationSec } from "@/lib/longform/plan";
+import {
+  buildHighlightEdit,
+  createProject,
+  getProject,
+  planProjectTopics,
+  projectOutputDir,
+  updateProject,
+  withFullTranscript
+} from "@/lib/longform/store";
+import { longformExportGate } from "@/lib/pipeline/highlight-gate";
+import type { CaptionSegment } from "@/types/domain";
 import type { LongformProject } from "@/lib/longform/types";
 import { generateLongformMetadata, longformMetadataConfigured } from "@/lib/longform/metadata";
 import { deliveryByRun, emptyDelivery } from "@/lib/pipeline/delivery";
@@ -284,6 +296,12 @@ function noticeText(message: string): string {
   return line.length > 300 ? `${line.slice(0, 300)}…` : line;
 }
 
+/** Whether a transcript reaches most of the way through the recording. */
+function transcriptCovers(transcript: CaptionSegment[], durationSec: number): boolean {
+  if (transcript.length === 0 || durationSec <= 0) return false;
+  return transcript[transcript.length - 1].end >= durationSec * 0.8;
+}
+
 /** Runs one advance step at most once at a time, tolerating failures. */
 async function step(
   run: PipelineRun,
@@ -362,8 +380,32 @@ export async function advanceRun(run: PipelineRun): Promise<void> {
     const existing = project.exports.find(
       (record) => !record.topicId && (record.status === "done" || record.status === "processing")
     );
+    // A long stream is cut down to its best passages before it renders, so
+    // the run's long-form video is an upload rather than the whole stream.
+    const gate = existing
+      ? "export"
+      : longformExportGate({
+          editedSec: editedDurationSec(project.segments, project.hook),
+          targetSec: DEFAULT_HIGHLIGHT_OPTIONS.targetSec,
+          hasHighlight: Boolean(project.highlight),
+          highlightTried: Boolean(run.highlightPlanned) || stuck(run, "highlight"),
+          transcriptReady:
+            transcriptCovers(project.transcript, project.durationSec) ||
+            transcriptCovers(job?.sourceCaptions ?? [], project.durationSec),
+          transcriptPending: Boolean(job && (job.status === "queued" || job.status === "processing"))
+        });
     if (existing) {
       await update(run, { longformExportId: existing.id });
+    } else if (gate === "build") {
+      void step(run, "highlight", async () => {
+        await buildHighlightEdit(project.id);
+        await update(run, { highlightPlanned: true });
+      }, async (message) => {
+        // One shot: the render goes ahead as the whole edit, and says why.
+        await update(run, { highlightPlanned: true, highlightNote: `The best-of edit could not be built (${message}), so the long-form video is the whole stream.` });
+      });
+    } else if (gate === "wait") {
+      // The clip job is still transcribing the stream; the next poll decides.
     } else if (!stuck(run, "export")) {
       void step(run, "export", async () => {
         const record = await startLongformExport(project);
@@ -424,7 +466,7 @@ export async function advanceRun(run: PipelineRun): Promise<void> {
         const metadata =
           project.metadata ??
           (longformMetadataConfigured()
-            ? await generateLongformMetadata(project)
+            ? await generateLongformMetadata(project.highlight ? await withFullTranscript(project) : project)
                 .then(async (written) => {
                   await updateProject(project.id, { metadata: written });
                   return written;

@@ -16,10 +16,11 @@ import {
   planHook
 } from "@/lib/longform/plan";
 import { reviewHook } from "@/lib/longform/hook-review";
+import { DEFAULT_HIGHLIGHT_OPTIONS, applyHighlight, buildHighlight } from "@/lib/longform/highlights";
 import { reviewTopicOpenings } from "@/lib/longform/segment-review";
 import { DEFAULT_TOPIC_OPTIONS, buildTopics, type TopicPlanOptions } from "@/lib/longform/topics";
 import type { OutputQuality } from "@/lib/pipeline/outputQuality";
-import type { LongformPace, LongformProject } from "@/lib/longform/types";
+import type { LongformHighlight, LongformPace, LongformProject } from "@/lib/longform/types";
 import { defaultSfxSettings } from "@/lib/sfx/types";
 import type { CaptionSegment } from "@/types/domain";
 
@@ -212,7 +213,23 @@ export async function deleteProject(id: string) {
  */
 function refreshHookReview(project: LongformProject) {
   if (!project.hook) return;
-  project.hookReview = reviewHook(project.transcript ?? [], project.hook.start ?? 0, project.hook.end);
+  // A cold open lifted from hours into a stream sits past what the project
+  // transcribed; its review was scored from the whole stream when it was
+  // placed, and re-scoring it here would call it dead air. Keep it while the
+  // window is where that review read it.
+  const transcript = project.transcript ?? [];
+  const transcribedUntil = transcript.length ? transcript[transcript.length - 1].end : 0;
+  const review = project.hookReview;
+  const start = project.hook.start ?? 0;
+  if (
+    review &&
+    start >= transcribedUntil &&
+    Math.abs(review.start - start) < 0.1 &&
+    Math.abs(review.end - project.hook.end) < 0.1
+  ) {
+    return;
+  }
+  project.hookReview = reviewHook(transcript, start, project.hook.end);
 }
 
 /**
@@ -447,7 +464,121 @@ export async function replanProject(id: string, pace: LongformPace): Promise<Lon
   }
 
   const segments = buildSegments(project.durationSec, silences, pace);
+  // A best-of edit is a selection over the cut plan, so a new pace is applied
+  // under it rather than silently turning the edit back into the whole stream.
+  if (project.highlight) {
+    const transcript = (await fullSourceTranscript(project)) ?? project.transcript;
+    const applied = applyHighlight({ highlight: project.highlight, baseSegments: segments, baseHook: project.hook, transcript });
+    await update(project, {
+      pace,
+      silences,
+      silenceDetection,
+      segments: applied.segments,
+      hook: applied.hook,
+      highlight: applied.highlight,
+      hookReview: reviewHook(transcript, applied.hook.start ?? 0, applied.hook.end)
+    });
+    return project;
+  }
   await update(project, { pace, segments, silences, silenceDetection });
+  return project;
+}
+
+// ----- The best-of edit -----
+
+const NO_TRANSCRIPT_HIGHLIGHT_NOTE =
+  "The best-of edit reads the whole stream to choose what to keep, and this one is long enough that only its opening minutes were transcribed. Run the same source through the Stream Pipeline (or the Clip Generator), which transcribes it end to end, then build the edit again.";
+
+/**
+ * Cuts the recording down to its strongest passages at the target runtime,
+ * opens it on a cold open and stores the plan. Rewrites the segments and the
+ * hook (manual timeline edits are reset, as a new pace resets them), so the
+ * next export of the whole edit IS the best-of edit.
+ */
+export async function buildHighlightEdit(
+  id: string,
+  options: { targetSec?: number } = {}
+): Promise<LongformProject | undefined> {
+  await loadProjects();
+  const project = projects.get(id);
+  if (!project) return undefined;
+  if (project.status !== "ready") throw new Error("This video is still being analyzed.");
+  const transcript = await fullSourceTranscript(project);
+  if (!transcript) throw new Error(NO_TRANSCRIPT_HIGHLIGHT_NOTE);
+  const baseSegments = buildSegments(project.durationSec, project.silences, project.pace);
+  const built = await buildHighlight({
+    streamName: project.name,
+    transcript,
+    baseSegments,
+    baseHook: project.hook,
+    options: { targetSec: options.targetSec ?? project.highlight?.targetSec ?? DEFAULT_HIGHLIGHT_OPTIONS.targetSec }
+  });
+  if (!built) throw new Error("Nothing in the transcript is long enough to build an edit from.");
+  await update(project, {
+    highlight: built.highlight,
+    segments: built.segments,
+    hook: built.hook,
+    hookReview: reviewHook(transcript, built.hook.start ?? 0, built.hook.end),
+    // The chapters are part of the description, so metadata written for the
+    // whole stream no longer describes the video.
+    metadata: undefined
+  });
+  return project;
+}
+
+/**
+ * Swaps passages in or out of the best-of edit (and renames their chapters)
+ * without re-reading the stream. Only `enabled` and `label` are taken from the
+ * request: the windows and scores are the planner's.
+ */
+export async function updateHighlightPassages(
+  id: string,
+  changes: Array<{ id: string; enabled?: boolean; label?: string }>
+): Promise<LongformProject | undefined> {
+  await loadProjects();
+  const project = projects.get(id);
+  if (!project) return undefined;
+  if (!project.highlight) throw new Error("There is no best-of edit on this project yet.");
+  const byId = new Map(changes.map((change) => [change.id, change]));
+  const passages = project.highlight.passages.map((passage) => {
+    const change = byId.get(passage.id);
+    if (!change) return passage;
+    const label = change.label?.trim();
+    return {
+      ...passage,
+      enabled: change.enabled ?? passage.enabled,
+      ...(label && label !== passage.label ? { label, labelSource: "ai" as const } : {})
+    };
+  });
+  if (!passages.some((passage) => passage.enabled)) throw new Error("Keep at least one passage in the edit.");
+  const transcript = (await fullSourceTranscript(project)) ?? project.transcript;
+  const baseSegments = buildSegments(project.durationSec, project.silences, project.pace);
+  const highlight: LongformHighlight = { ...project.highlight, passages };
+  const applied = applyHighlight({ highlight, baseSegments, baseHook: project.hook, transcript });
+  await update(project, {
+    highlight: applied.highlight,
+    segments: applied.segments,
+    hook: applied.hook,
+    hookReview: reviewHook(transcript, applied.hook.start ?? 0, applied.hook.end),
+    metadata: undefined
+  });
+  return project;
+}
+
+/** Goes back to the whole recording with its dead space cut. */
+export async function clearHighlightEdit(id: string): Promise<LongformProject | undefined> {
+  await loadProjects();
+  const project = projects.get(id);
+  if (!project) return undefined;
+  const segments = buildSegments(project.durationSec, project.silences, project.pace);
+  const hook = planHook(project.transcript, project.durationSec);
+  await update(project, {
+    highlight: undefined,
+    segments,
+    hook: { ...project.hook, start: hook.start, end: hook.end, captions: hook.captions },
+    hookReview: reviewHook(project.transcript, hook.start ?? 0, hook.end),
+    metadata: undefined
+  });
   return project;
 }
 
@@ -672,8 +803,10 @@ async function runAnalysis(project: LongformProject) {
     hookReview: reviewHook(transcript, hook.start ?? 0, hook.end),
     captions,
     transcript,
-    // A re-analysis re-reads the audio, so any earlier topic plan is stale.
+    // A re-analysis re-reads the audio, so any earlier topic plan is stale,
+    // and so is a best-of edit built over the old cut plan.
     topics: undefined,
+    highlight: undefined,
     segmentReviews: undefined,
     topicsNote: undefined,
     status: "ready",

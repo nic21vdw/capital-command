@@ -532,6 +532,8 @@ export interface CaptionStyle {
   wordsPerLine: number;
   animation: CaptionAnimation;
   uppercase: boolean;
+  italic?: boolean;
+  glowColor?: string;
   /**
    * Free placement set by dragging the caption on the preview: normalized
    * 0..1 center of the caption block. When both are set they override
@@ -541,7 +543,23 @@ export interface CaptionStyle {
   offsetY?: number;
 }
 
-export type CaptionPresetId = "minimal" | "bold-shorts" | "highlight-word" | "lower-third" | "colateral-purple";
+export type CaptionPresetId =
+  | "pop"
+  | "impact"
+  | "hype"
+  | "punch"
+  | "glow"
+  | "neon"
+  | "boxed"
+  | "sweep"
+  | "editorial"
+  | "paper"
+  | "subtle"
+  | "minimal"
+  | "bold-shorts"
+  | "highlight-word"
+  | "lower-third"
+  | "colateral-purple";
 
 export type OverlayKind = "text" | "image" | "logo" | "watermark";
 

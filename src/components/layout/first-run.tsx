@@ -50,7 +50,7 @@ export function FirstRun() {
     <div className="mx-auto flex min-h-screen w-full max-w-2xl flex-col justify-center gap-6 p-6">
       <div>
         <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[var(--muted-foreground)]">
-          Capital Command
+          CoLateral Marketing
         </p>
         <h1 className="mt-2 text-3xl font-bold text-white">Let&rsquo;s set this up</h1>
         <p className="mt-2 text-sm text-[var(--muted-foreground)]">

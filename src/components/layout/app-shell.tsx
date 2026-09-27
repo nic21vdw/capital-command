@@ -46,11 +46,12 @@ import { StreamProvider, useStream } from "@/components/providers/stream-provide
 import { streamHref } from "@/lib/pipeline/streams";
 import { PlatformIcon, PLATFORM_LABEL, type PlatformIconKey } from "@/components/ui/platform-icon";
 import { cn } from "@/lib/utils";
+import { ColateralMarketingMark } from "@/components/layout/colateral-marketing-mark";
 
 type NavItem = { href: string; label: string; icon: LucideIcon };
 
 /**
- * The sidebar IS the pipeline. Capital Command's whole point is one flow —
+ * The sidebar IS the pipeline. CoLateral Marketing's whole point is one flow —
  * import a stream, fan it out into every format, check each one, mass-schedule
  * the lot, then manage it all on the calendar — so the nav reads as that flow,
  * top to bottom, with numbered stages on a connecting rail.
@@ -142,7 +143,7 @@ const ALL_NAV_ITEMS = [...PIPELINE_STAGES.flatMap((stage) => stage.items), ...ST
 const SIDEBAR_COLLAPSED_KEY = "capital-command:sidebar-collapsed";
 const STUDIO_OPEN_KEY = "capital-command:studio-open";
 // Shown in the sidebar brand until a display name is saved in Settings.
-const DEFAULT_BRAND_NAME = "Capital Command";
+const DEFAULT_BRAND_NAME = "Your channel";
 
 /** "/" and "/pipeline" are the same screen, so either lights up Stream Pipeline. */
 function isActivePath(pathname: string, href: string): boolean {
@@ -756,7 +757,8 @@ function NarrowChrome({ pathname }: { pathname: string }) {
 
   return (
     <div className="mb-3 lg:hidden">
-      <div className="flex items-center gap-2 rounded-xl border border-[var(--border)] bg-[var(--panel)] p-1.5">
+      <div className="glass-inset flex items-center gap-2 rounded-xl border p-1.5">
+        <ColateralMarketingMark collapsed className="pl-1" />
         <div className="relative min-w-0 flex-1">
           <button
             type="button"
@@ -777,7 +779,7 @@ function NarrowChrome({ pathname }: { pathname: string }) {
                 onClick={() => setMenuOpen(false)}
                 className="fixed inset-0 z-40 cursor-default"
               />
-              <div className="absolute inset-x-0 top-full z-50 mt-1.5 max-h-[70vh] overflow-y-auto rounded-xl border border-[var(--border-strong)] bg-[var(--panel)] p-2 shadow-2xl">
+              <div className="glass-popover absolute inset-x-0 top-full z-50 mt-1.5 max-h-[70vh] overflow-y-auto rounded-xl border p-2">
                 {PIPELINE_STAGES.map((stage) => (
                   <div key={stage.step} className="pb-1.5">
                     <p className="flex items-center gap-1.5 px-1 pb-1 text-[10px] font-semibold uppercase tracking-wider text-[var(--muted-foreground)]">
@@ -942,11 +944,11 @@ function AppChrome({ children, frame }: { children: React.ReactNode; frame: bool
   return (
     <div className={cn("flex min-h-screen gap-6 px-2 py-2 sm:px-4 sm:py-4 lg:px-6", frame && "app-frame")}>
       <aside className={cn("hidden shrink-0 transition-[width] duration-300 lg:block", sidebarCollapsed ? "w-20" : "w-72")}>
-        <div className="sticky top-4 flex h-[calc(100vh-2rem)] flex-col rounded-xl border border-[var(--border)] bg-[var(--panel)] p-4">
+        <div className="glass glass-panel sticky top-4 flex h-[calc(100vh-2rem)] flex-col rounded-xl border p-4">
           {/* When collapsed the rail is too narrow for the brand and the toggle
               side by side, so stack them instead of letting them overflow. */}
           <div className={cn("flex pb-3", sidebarCollapsed ? "flex-col items-center gap-2" : "items-center justify-between gap-2 px-1")}>
-            <Brand collapsed={sidebarCollapsed} />
+            <ColateralMarketingMark collapsed={sidebarCollapsed} />
             <button
               type="button"
               onClick={toggleSidebar}
@@ -956,6 +958,10 @@ function AppChrome({ children, frame }: { children: React.ReactNode; frame: bool
             >
               {sidebarCollapsed ? <ChevronRight className="h-4 w-4" /> : <ChevronLeft className="h-4 w-4" />}
             </button>
+          </div>
+
+          <div className={cn("pb-3", !sidebarCollapsed && "px-1")}>
+            <Brand collapsed={sidebarCollapsed} />
           </div>
 
           {/* Who this pipeline publishes as — front and centre. */}

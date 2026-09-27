@@ -502,6 +502,117 @@ special case.
   it hide the video they are about. The hook still reads as a hook through size,
   weight and the push-in, not through where it sits.
 
+## The best-of edit (`highlights.ts`)
+
+The third answer to "what is the long-form video of this stream". The full edit
+is the whole recording with its dead space cut (a two-hour upload from a
+three-hour stream); topic segments carve it into several videos. The best-of
+edit is ONE upload at a target runtime (12, 20 or 30 minutes, 20 by default):
+the stream's strongest passages, in the order they happened, opening on a cold
+open, with chapters.
+
+- A PASSAGE is a run of complete sentences, 40 seconds to 4 minutes, closed on
+  a sentence end or a real pause and never across a dead stretch
+  (`buildPassageWindows`). Every candidate is stored on the project, picked or
+  not, so the editor can swap one in without re-reading the stream.
+- THE PICK is an editor pass (`runAi`, one call over every passage) that keeps
+  the story and cuts setup, waiting, stream trouble and repeats. It is only
+  used when it lands near the target; otherwise the offline scorer
+  (`scorePassage` + `selectPassages`: density, energy, standalone, opening,
+  channel keywords, with a continuity bonus) decides. The button always
+  produces an edit.
+- APPLYING IT IS JUST SEGMENTS AND A HOOK (`applyHighlight`). The cut plan is
+  rebuilt from the pace and restricted to the enabled passages
+  (`restrictSegments`: dead space inside a passage stays cut), and the hook is
+  re-pointed at the cold open. So the whole-edit export, the preview, the
+  podcast MP3 and the scheduler render it with no special case. Swapping a
+  passage, rebuilding, or a new pace resets manual timeline edits, the same way
+  a replan always has.
+- THE COLD OPEN is the strongest sentence in the edit (8-20 seconds), used only
+  when it beats the first passage's own opening by a margin. The body skips
+  the lifted window, as it skips any hook window.
+- CHAPTERS ARE DERIVED, NEVER STORED (`highlightChapters`). They are timed on
+  the edited runtime with `sourceTimeToOutput`, so a timeline edit moves them.
+  They follow YouTube's rules or are empty: first at 0:00, at least three, none
+  under ten seconds. `generateLongformMetadata` uses them instead of asking the
+  model for chapters.
+- THE PIPELINE BUILDS IT BEFORE IT RENDERS (`pipeline/highlight-gate.ts`) when
+  the edit runs over 1.25x the target. It needs the whole stream's words, so
+  the render waits while the clip job is still transcribing and falls back to
+  the whole edit when no transcript is coming. One attempt per run
+  (`highlightPlanned`); a failure is recorded in `highlightNote`.
+- Anything that describes or renders a best-of edit reads the whole-recording
+  transcript (`withFullTranscript`), because its passages come from hours past
+  what the project itself transcribed. The render also carries the body
+  captions on past the stored ones (`extendCaptionSegments`), which fixed the
+  same gap for topic segments.
+
+## The story edit (`src/lib/story`, `/editor?mode=story`)
+
+The fourth answer, and the only one that REORDERS: an 8-12 minute (aim 10)
+story cut of a stream, packaged and uploaded to YouTube as a private draft.
+It has its own project folder (`data/longform-story/<id>/`) and does not touch
+long-form projects, the pipeline run or the publish queue.
+
+- Run it with `npm run story:edit -- --url <link>` (or `--id <id>` to resume;
+  `--stages edit,render` to redo part; `--upload --tokens-file <path>` to push).
+  Stages are file-idempotent: analysis outputs that exist are reused.
+- ANALYSIS IS OUT OF PROCESS, in Python (`scripts/story/`): faster-whisper
+  large-v3 on the GPU with word timestamps and a filler-heavy initial prompt
+  (Whisper drops "um" otherwise), a 10 ms loudness envelope, and OpenCV YuNet
+  face detection + sharpness/exposure/motion on a 720p proxy at 2 fps, split
+  across six workers. The CUDA DLLs come from the pip `nvidia-*` wheels, which
+  `transcribe.py` adds to the DLL path itself. The face model lives at
+  `data/clips/bin/face_detection_yunet_2023mar.onnx`.
+- Every sentence unit is scored on what is SAID and what is SEEN
+  (`scoring.ts`); retakes are grouped and the best combined take wins.
+- The story editor (`ai.ts`, `runAi`) picks the hook from anywhere and the
+  sections; `fitRuntime` then forces the 8-12 minute window, and reports a
+  shortfall instead of padding with moments under the score floor.
+- Cuts are made between words only (`cleanRange`), snapped to the quietest 10 ms
+  in the gap, frame-aligned, with 15 ms crossfades. Silences go to ~0.22 s,
+  dramatic pauses before a new section keep up to 0.6 s.
+- WHISPER'S WORD EDGES ARE NOT GOOD ENOUGH TO CUT ON. Around fillers they ran
+  0.3-0.6 s early on Nic's streams, so a cut at the logged edge kept the "um"
+  (70% removal). `scripts/story/align.py` force-aligns the kept units with
+  wav2vec2 (torchaudio MMS_FA, CPU torch) and the EDL cuts on those edges
+  (99-100%). The envelope cannot stand in for it: his "um" is a -35 dB hum over
+  a -41 dB room.
+- The filler-primed transcriber writes "Um" at hard cuts where the audio is
+  silent, so `verify` only counts a re-transcribed filler with audible voice
+  under it, and aligns the render's words before measuring caption drift.
+- FRAMING IS A SHOT PLAN, NOT A ZOOM PER CUT (`shots.ts`). Nic's reviews:
+  zooming on every jump cut "bounces", and zooming into the middle of the
+  screen is lazy. The default is the WHOLE SCREEN. A screen zoom happens only on
+  a line that references something small ("look at this", "right here", a %, a
+  price) AND where the screen shows where he is pointing: a confident pointer
+  match (`scripts/story/cursor.py`, templates from his real cursor, 0.965+ and
+  two agreeing sightings) or a compact region that changed, such as a popup or a
+  hover (`focus.py`: at most 35% x 40% of the frame, zoom 1.3-1.6x sized to fit
+  it). Window capture often hides the cursor, which is why the change region
+  matters. Brief CAMERA reactions (1.5-3.5 s) are framed on the detected facecam
+  box and only where his face is really inside it.
+- EVERY JOIN IS CHECKED FOR DOUBLED AUDIO. Low-confidence alignments (< 0.3) put
+  word edges inside the previous word, so two pieces overlapped and a word played
+  twice ("goo-good energy"). `trustedAlignment` only accepts confident edges for
+  kept words (removed fillers always take the aligned span), `removeOverlaps`
+  forbids overlapping pieces, and `verify` reports any word repeated across a cut.
+- Yellow captions run through the whole video (`captionsAss`): big for the cold
+  open, smaller for the body, both lower third.
+- Natural breaths under 0.3 s are merged instead of cut (`mergeBreaths`), and
+  silences under 0.4 s are left alone. Together that took Day 61 from 353 cuts
+  to 225.
+- The render (`render.ts`) encodes source-order CHUNKS first (one decode per
+  chunk, so a hook lifted from hour four doesn't buffer four hours of frames),
+  then joins them with J-cuts at section starts, two-pass loudnorm to -14 LUFS.
+- PRIVATE IS HARD-CODED (`privacy.ts`). `assertPrivate` runs on every body
+  before it is sent and refuses anything else, including a `publishAt`;
+  `story.test.ts` pins it. After upload the video is read back with
+  `videos.list` and the run fails if YouTube does not say private.
+- Chapters come from the story sections on the FINAL timeline, and `verify`
+  re-transcribes the render to check fillers, caption drift, loudness and
+  that each chapter lands on the words it should.
+
 ## What a short ships as (`audio.ts`, `hook.ts`)
 
 Two things separate a clip that reads as a real short from one that reads as a
@@ -570,6 +681,25 @@ fallback when no API key is configured or the call fails.
   render burns it in (`writeClipDownloadAss` + `buildClipTitleDialogue` in
   `captions.ts`), and fresh editor projects seed the matching white text
   overlay (`makeTitleOverlay`).
+
+## Caption presets and bundled caption fonts
+
+The generator's caption styles are `CAPTION_PRESETS` in `captions.ts`, ported
+from BridgeClip's engine presets. Their faces (Montserrat, Poppins, Anton,
+Archivo Black, Instrument Serif, all SIL OFL with licence files alongside) live
+in `public/fonts/captions/`. The browser loads them through `@font-face` in
+`globals.css`; ffmpeg gets them because every `ass=` filter goes through
+`assFilter()` (`caption-fonts.ts`), which adds `fontsdir`. Add an `ass=` filter
+without it and libass silently falls back to a system face.
+
+- The ASS `Fontname` is the family's own name (`Montserrat Black`, not
+  `Montserrat` at weight 900), and `buildAss` turns Bold off for bundled faces,
+  or libass fakes bold on an already-heavy face.
+- A job's `captionPreset` decides the burned-in look; a job without one (every
+  Stream Pipeline run) keeps `defaultCaptionStyle`.
+- Boxed styles draw the plate in `backgroundColor` (BorderStyle 3 paints the box
+  in OutlineColour). A popped (scaled) word breaks the plate into steps, so
+  boxed presets fade instead.
 
 ## Clip previews: center + blur, always the whole frame
 

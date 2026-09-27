@@ -57,6 +57,14 @@ export type ThreadsQueueItem = {
   origin?: "autopilot" | "pipeline";
   /** The pipeline run whose stream this post was written from. */
   sourceRunId?: string;
+  /** Link reply posted under this one once it is live (see plug.ts). */
+  plugText?: string;
+  plugPostId?: string;
+  plugContainerId?: string;
+  plugAttempts?: number;
+  plugError?: string;
+  /** Set when the link reply was given up on, so it is never tried again. */
+  plugDropped?: boolean;
   attempts: number;
   /** Backoff gate — the runner ignores this item until this instant. */
   nextAttemptAt?: string;

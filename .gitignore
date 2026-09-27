@@ -17,6 +17,7 @@ data/snapshots/
 data/channel-ingest.json
 data/clips/
 data/longform/
+data/longform-story/
 data/pipeline/
 data/voiceover/
 .worktrees/
