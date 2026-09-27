@@ -122,6 +122,37 @@ export class PublishQueue {
     return existed;
   }
 
+  /** Removes several posts with one save. Returns the posts that were on the queue. */
+  async removeMany(ids: string[], writer: QueueWriter = "unattributed"): Promise<QueueItem[]> {
+    await this.load();
+    const removed: QueueItem[] = [];
+    for (const id of ids) {
+      const item = this.items.get(id);
+      if (item && this.items.delete(id)) removed.push(item);
+    }
+    if (removed.length > 0) {
+      await this.save();
+      await recordQueueMutations(
+        removed.map((item) => ({ action: "remove" as const, writer, id: item.id, clipPath: item.clipPath, publishAt: item.publishAt }))
+      );
+    }
+    return removed;
+  }
+
+  /** Adds several posts with one save, skipping any id already on the queue. Returns the posts added. */
+  async addMany(items: QueueItem[], writer: QueueWriter = "unattributed"): Promise<QueueItem[]> {
+    await this.load();
+    const added = items.filter((item) => !this.items.has(item.id));
+    for (const item of added) this.items.set(item.id, item);
+    if (added.length > 0) {
+      await this.save();
+      await recordQueueMutations(
+        added.map((item) => ({ action: "add" as const, writer, id: item.id, clipPath: item.clipPath, publishAt: item.publishAt }))
+      );
+    }
+    return added;
+  }
+
   /**
    * Stamps the moment a fully-failed post was first shown. The board calls
    * this on every read, so `failedSeenAt` is the proof that the failure has

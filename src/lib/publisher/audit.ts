@@ -47,6 +47,8 @@ export type QueueWriter =
   | "cli-shuffle"
   | "cli-frontload"
   | "cli-adopt"
+  | "cli-thin"
+  | "cli-unpark"
   | "runner-mirror"
   | "adopt-channel-videos"
   | "unattributed";
