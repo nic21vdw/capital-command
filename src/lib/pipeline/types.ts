@@ -1,5 +1,6 @@
 import type { RunDelivery } from "@/lib/pipeline/delivery";
 import type { OutputQuality } from "@/lib/pipeline/outputQuality";
+import type { RunPreviews } from "@/lib/pipeline/previews";
 
 // ----- Stream Pipeline -----
 // A pipeline run takes ONE stream (a VOD link or an uploaded file) and fans it
@@ -189,6 +190,8 @@ export type PipelineRunOverview = {
     end: number;
     prompt: string;
   };
+  /** Real frames and slide headings the page draws its thumbnails from. */
+  previews?: RunPreviews;
   /** How much of this run has been booked, and how much of that is live. */
   delivery: RunDelivery;
   /** Counts the schedule stage summarizes. */

@@ -23,6 +23,7 @@ import type { LongformProject } from "@/lib/longform/types";
 import { generateLongformMetadata, longformMetadataConfigured } from "@/lib/longform/metadata";
 import { deliveryByRun, emptyDelivery } from "@/lib/pipeline/delivery";
 import { generatePipelinePosts } from "@/lib/pipeline/posts";
+import { runPreviews } from "@/lib/pipeline/previews";
 import { repairableStages } from "@/lib/pipeline/repairable";
 import { nextSegmentToRender, segmentsRenderable } from "@/lib/pipeline/segments";
 import { podcastConfigured, publishEpisode } from "@/lib/podcast/publish";
@@ -866,12 +867,12 @@ function postsStage(run: PipelineRun): PipelineStage {
  * poll of nine runs take seconds, on a 2.5s poll interval.
  */
 export type OverviewContext = {
-  carousels: () => Promise<{ id: string; slides: unknown[] }[]>;
+  carousels: () => Promise<{ id: string; slides: { heading?: string }[] }[]>;
   queue: () => Promise<QueueItem[]>;
 };
 
 export function overviewContext(): OverviewContext {
-  let carousels: Promise<{ id: string; slides: unknown[] }[]> | undefined;
+  let carousels: Promise<{ id: string; slides: { heading?: string }[] }[]> | undefined;
   let queue: Promise<QueueItem[]> | undefined;
   return {
     carousels: () =>
@@ -907,9 +908,11 @@ export async function runOverview(run: PipelineRun, context?: OverviewContext): 
   const exportRecord = project?.exports.find((item) => item.id === run.longformExportId);
 
   let slideCount = 0;
+  let slideHeadings: { heading?: string }[] = [];
   if (run.carouselId) {
     const carousels = await ctx.carousels();
-    slideCount = carousels.find((c) => c.id === run.carouselId)?.slides.length ?? 0;
+    slideHeadings = carousels.find((c) => c.id === run.carouselId)?.slides ?? [];
+    slideCount = slideHeadings.length;
   }
 
   // Everything this run put in the publish queue, and how far each post got.
@@ -1012,6 +1015,7 @@ export async function runOverview(run: PipelineRun, context?: OverviewContext): 
     stages,
     retryable: run.status === "error" ? [] : repairableStages(stages, { longformStalled }),
     visualMoment,
+    previews: runPreviews({ projectId: project?.id, job, slides: slideHeadings }),
     delivery,
     schedulable: {
       clipsReady,

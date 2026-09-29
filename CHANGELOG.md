@@ -14,6 +14,16 @@ already shipped.
 
 ## Unreleased
 
+- **The home screen is a picture of the pipeline now.** Before a stream is sent
+  it shows the whole flow — one long video in, fanning out to a long-form edit,
+  shorts, podcast, carousel, posts and a visual ad, ending in the scheduler.
+  Once a run starts the same picture fills in with the real thing: the stream's
+  frame, the shorts' thumbnails, the carousel's first slide, the posts as
+  written, the wave moving while the podcast renders and a calendar filling as
+  things are booked. Click any tile for its steps; every button and retry is
+  still there under **Steps**. Earlier pipelines are thumbnail cards with a
+  ten-segment strip instead of a bar, so a stuck stage shows up red at a glance.
+
 - **New carousel template.** Slide 1 is now a full-screen frame from the
   stream — Opus looks through frames from across the stream (including the
   opening and closing minutes when you're on camera), picks the one most likely
