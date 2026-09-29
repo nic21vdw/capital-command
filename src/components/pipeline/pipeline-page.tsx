@@ -5,27 +5,17 @@ import Link from "next/link";
 import { PUBLISHING_OFF_MESSAGE } from "@/lib/publisher/enabledMessage";
 import { usePathname, useSearchParams } from "next/navigation";
 import {
-  AlertTriangle,
   ArrowLeft,
   ArrowUp,
-  AtSign,
   CalendarClock,
   Check,
-  Clapperboard,
   Copy,
   Download,
-  Images,
   Layers,
   Loader2,
   Plus,
-  Podcast,
-  Radio,
   RotateCcw,
-  Scissors,
-  Sparkles,
-  Trash2,
-  UploadCloud,
-  type LucideIcon
+  Trash2
 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -47,6 +37,8 @@ import {
   type OutputQuality
 } from "@/lib/pipeline/outputQuality";
 import { ChannelCoverageCard } from "@/components/pipeline/channel-coverage";
+import { PipelineBoard, RunThumb, StageStrip } from "@/components/pipeline/pipeline-visuals";
+import { STAGE_ICONS, STAGE_ORDER, STAGE_TITLES, NODE_STYLES, StatusChip } from "@/components/pipeline/stage-meta";
 import type { ChannelCoverage } from "@/lib/ingest/coverage";
 import { MAX_IMAGES_PER_POST } from "@/lib/publisher/images";
 import { useColateralSurface } from "@/lib/colateral/useSurface";
@@ -57,84 +49,8 @@ import type {
   PipelineRun,
   PipelineRunOverview,
   PipelineStage,
-  PipelineStageKey,
-  PipelineStageStatus
+  PipelineStageKey
 } from "@/lib/pipeline/types";
-
-const STATUS_LABELS: Record<PipelineStageStatus, string> = {
-  ready: "Done",
-  error: "Stuck",
-  running: "Working",
-  waiting: "Queued",
-  skipped: "Skipped"
-};
-
-const STATUS_TEXT: Record<PipelineStageStatus, string> = {
-  ready: "tone-success tone-text",
-  error: "tone-danger tone-text",
-  running: "text-[var(--accent)]",
-  waiting: "text-[var(--muted-foreground)]",
-  skipped: "text-[var(--muted-foreground)]"
-};
-
-const NODE_STYLES: Record<PipelineStageStatus, string> = {
-  ready: "tone-success tone-edge tone-soft tone-text",
-  error: "tone-danger tone-edge tone-soft tone-text",
-  running:
-    "pipeline-node-live border-[color-mix(in_srgb,var(--accent)_55%,transparent)] bg-[color-mix(in_srgb,var(--accent)_14%,transparent)] text-[var(--accent)]",
-  waiting: "border-[var(--border)] bg-[var(--panel)] text-[var(--muted-foreground)] opacity-60",
-  skipped: "border-dashed border-[var(--border)] bg-transparent text-[var(--muted-foreground)] opacity-50"
-};
-
-const TRACK_STYLES: Record<PipelineStageStatus, string> = {
-  ready: "bg-[color-mix(in_srgb,var(--success)_40%,transparent)]",
-  error: "bg-[color-mix(in_srgb,var(--danger)_40%,transparent)]",
-  running: "bg-[var(--border)]",
-  waiting: "bg-[var(--border)]",
-  skipped: "bg-[var(--border)]"
-};
-
-// What each stage is called wherever it is named — the row heading, the output
-// strip and the "these stopped short" summary must say the same word for the
-// same thing.
-const STAGE_TITLES: Record<PipelineStageKey, string> = {
-  source: "Stream source",
-  longform: "Long-form edit",
-  segments: "Topic segments",
-  clips: "Short-form clips",
-  audio: "Podcast MP3",
-  podcast: "Spotify episode",
-  images: "Carousel images",
-  visuals: "Realistic visual ads",
-  posts: "Text-only posts",
-  schedule: "Scheduler"
-};
-
-const STAGE_ICONS: Record<PipelineStageKey, LucideIcon> = {
-  source: UploadCloud,
-  longform: Clapperboard,
-  segments: Layers,
-  clips: Scissors,
-  audio: Podcast,
-  podcast: Radio,
-  images: Images,
-  visuals: Sparkles,
-  posts: AtSign,
-  schedule: CalendarClock
-};
-
-const STAGE_ORDER: PipelineStageKey[] = [
-  "source",
-  "longform",
-  "segments",
-  "clips",
-  "audio",
-  "podcast",
-  "images",
-  "visuals",
-  "posts",
-  "schedule"
-];
 
 const RUN_TONE_DOT: Record<RunTone, string> = {
   attention: "tone-warning tone-fill",
@@ -169,9 +85,9 @@ const LAUNCHING_STAGES: Record<PipelineStageKey, PipelineStage> = {
   schedule: { status: "waiting", detail: "Waiting for the first output." }
 };
 
-const LANDING_OUTPUTS: PipelineStageKey[] = ["longform", "clips", "audio", "images", "posts"];
-
 const SMALL_BUTTON = "px-3 py-1.5 text-xs";
+
+const STEP_ORDER = STAGE_ORDER.filter((key) => key !== "schedule");
 
 function formatStartedAt(iso: string) {
   const started = new Date(iso);
@@ -181,17 +97,6 @@ function formatStartedAt(iso: string) {
   const time = started.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
   if (sameDay) return `Today ${time}`;
   return `${started.toLocaleDateString(undefined, { month: "short", day: "numeric" })} ${time}`;
-}
-
-function StatusChip({ status }: { status: PipelineStageStatus }) {
-  return (
-    <span className={cn("inline-flex shrink-0 items-center gap-1 text-[11px] font-medium", STATUS_TEXT[status])}>
-      {status === "running" && <Loader2 className="h-3 w-3 animate-spin" />}
-      {status === "ready" && <Check className="h-3 w-3" />}
-      {status === "error" && <AlertTriangle className="h-3 w-3" />}
-      {STATUS_LABELS[status]}
-    </span>
-  );
 }
 
 function Spinner() {
@@ -340,115 +245,8 @@ function OutputQualityPicker({
   );
 }
 
-type OutputChip = { key: PipelineStageKey; label: string; status: PipelineStageStatus };
-
 function scrollToStage(key: PipelineStageKey) {
   document.getElementById(`stage-${key}`)?.scrollIntoView({ behavior: "smooth", block: "center" });
-}
-
-/**
- * Where the run has got to, at a glance: which stage is live, how much of the
- * run has settled, and one node per stage on a single track. Clicking a node
- * lands on that stage's row.
- */
-function RunProgressCard({
-  chips,
-  percent,
-  current
-}: {
-  chips: OutputChip[];
-  percent: number;
-  current: { key: PipelineStageKey; status: PipelineStageStatus } | null;
-}) {
-  const CurrentIcon = current ? STAGE_ICONS[current.key] : Check;
-  const tone = current?.status ?? "ready";
-  return (
-    <Card className={cn("p-4", tone === "running" && "pipeline-card-live")}>
-      <div className="flex items-center gap-3">
-        <div
-          className={cn(
-            "flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border",
-            NODE_STYLES[tone],
-            "opacity-100"
-          )}
-        >
-          <CurrentIcon className="h-5 w-5" />
-        </div>
-        <div className="min-w-0 flex-1">
-          <p className={cn("text-[11px] font-medium uppercase tracking-[0.14em]", STATUS_TEXT[tone])}>
-            {current
-              ? current.status === "error"
-                ? "Stuck on"
-                : current.status === "running"
-                  ? "Now"
-                  : "Up next"
-              : "Finished"}
-          </p>
-          <p className="truncate text-base font-semibold text-white">
-            {current ? STAGE_TITLES[current.key] : "Every stage has settled"}
-          </p>
-        </div>
-        <p className="shrink-0 text-2xl font-semibold tabular-nums text-white">
-          {percent}
-          <span className="text-sm text-[var(--muted-foreground)]">%</span>
-        </p>
-      </div>
-      <div className="mt-3 h-1 overflow-hidden rounded-full bg-white/8">
-        <div
-          className="h-full rounded-full bg-[var(--accent)] transition-all duration-700"
-          style={{ width: `${percent}%` }}
-        />
-      </div>
-      <div className="-mx-1 mt-4 overflow-x-auto pb-1">
-        <ol className="flex min-w-max items-start px-1">
-          {chips.map((chip, index) => {
-            const Icon = STAGE_ICONS[chip.key];
-            const next = chips[index + 1];
-            return (
-              <li key={chip.key} className="flex items-start">
-                <button
-                  type="button"
-                  onClick={() => scrollToStage(chip.key)}
-                  title={`${STAGE_TITLES[chip.key]}: ${STATUS_LABELS[chip.status]}`}
-                  className="group flex w-16 flex-col items-center gap-1.5"
-                >
-                  <span
-                    className={cn(
-                      "relative flex h-8 w-8 items-center justify-center rounded-full border transition group-hover:scale-110",
-                      NODE_STYLES[chip.status]
-                    )}
-                  >
-                    <Icon className="h-3.5 w-3.5" />
-                    {chip.status === "ready" ? (
-                      <Check className="absolute -bottom-0.5 -right-0.5 h-3 w-3 tone-success tone-fill rounded-full p-[1px] text-black" />
-                    ) : null}
-                  </span>
-                  <span
-                    className={cn(
-                      "max-w-full truncate text-[10px] leading-tight",
-                      chip.status === "waiting" || chip.status === "skipped"
-                        ? "text-[var(--muted-foreground)]"
-                        : "text-white/90"
-                    )}
-                  >
-                    {chip.label}
-                  </span>
-                </button>
-                {next ? (
-                  <span
-                    className={cn(
-                      "mt-4 h-px w-3 shrink-0",
-                      next.status === "running" ? "pipeline-track-live bg-[var(--border)]" : TRACK_STYLES[chip.status]
-                    )}
-                  />
-                ) : null}
-              </li>
-            );
-          })}
-        </ol>
-      </div>
-    </Card>
-  );
 }
 
 /**
@@ -1132,6 +930,7 @@ export function PipelinePage() {
         <div
           className={cn(
             "grid gap-2 sm:grid-cols-2",
+            !compact && "lg:grid-cols-3",
             compact && listed.length > 4 && "max-h-64 overflow-y-auto pr-1"
           )}
         >
@@ -1141,37 +940,28 @@ export function PipelinePage() {
             return (
               <div
                 key={entry.run.id}
-                className="group flex items-start gap-2 rounded-xl border border-[var(--border)] px-3 py-2 transition hover:border-[var(--border-strong)] hover:bg-white/4"
+                className="group relative flex items-start gap-2 rounded-xl border border-[var(--border)] p-2 transition hover:border-[var(--border-strong)] hover:bg-white/4"
               >
                 <button
                   type="button"
                   onClick={() => openRun(entry.run.id)}
-                  className="flex min-w-0 flex-1 items-start gap-2 text-left"
+                  className={cn("flex min-w-0 flex-1 gap-3 text-left", compact ? "items-start" : "flex-col")}
                   title={`Open ${entry.run.name}`}
                 >
-                  <span className={cn("mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full", RUN_TONE_DOT[status.tone])} />
-                  <span className="min-w-0 flex-1">
-                    <span className="block break-words text-xs font-medium text-white/90">{entry.run.name}</span>
-                    <span className={cn("mt-0.5 block text-[11px]", RUN_TONE_TEXT[status.tone])}>
+                  <RunThumb entry={entry} className={compact ? "w-24 shrink-0" : "w-full"} />
+                  <span className="min-w-0 w-full flex-1 px-0.5 pb-0.5">
+                    <span className="flex items-start gap-2">
+                      <span className={cn("mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full", RUN_TONE_DOT[status.tone])} />
+                      <span className="block break-words text-xs font-medium text-white/90">{entry.run.name}</span>
+                    </span>
+                    <span className={cn("mt-0.5 block pl-3.5 text-[11px]", RUN_TONE_TEXT[status.tone])}>
                       {status.label} · {formatStartedAt(entry.run.createdAt)}
                     </span>
-                    <span className="mt-1.5 block h-1 overflow-hidden rounded-full bg-white/8">
-                      <span
-                        className={cn(
-                          "block h-full rounded-full transition-all",
-                          status.tone === "attention"
-                            ? "tone-danger tone-fill"
-                            : progress.percent === 100
-                              ? "bg-[color-mix(in_srgb,var(--success)_60%,transparent)]"
-                              : "bg-[var(--accent)]"
-                        )}
-                        style={{ width: `${progress.percent}%` }}
-                      />
-                    </span>
+                    <StageStrip stages={entry.stages} className="mt-2" />
                     {progress.delivery && (
                       <span
                         className={cn(
-                          "mt-0.5 block text-[11px]",
+                          "mt-1 block text-[11px]",
                           entry.delivery.posted > 0 ? "tone-success tone-text" : "text-[var(--muted-foreground)]"
                         )}
                       >
@@ -1183,7 +973,7 @@ export function PipelinePage() {
                 <button
                   type="button"
                   onClick={() => void deleteRun(entry.run.id)}
-                  className="mt-0.5 shrink-0 text-[var(--muted-foreground)] opacity-0 transition hover:text-[var(--danger)] focus-visible:opacity-100 group-hover:opacity-100"
+                  className="absolute right-3 top-3 flex h-6 w-6 items-center justify-center rounded-full bg-black/50 text-[#ffffff] opacity-0 backdrop-blur-sm transition hover:bg-black/70 focus-visible:opacity-100 group-hover:opacity-100"
                   aria-label={`Remove ${entry.run.name}`}
                   title="Remove run"
                 >
@@ -1206,12 +996,12 @@ export function PipelinePage() {
           dragActive && "border-dashed border-[var(--accent)] bg-white/3"
         )}
       >
-        <div className="pipeline-hero-enter w-full max-w-2xl">
+        <div className="pipeline-hero-enter w-full max-w-3xl">
           {scanNotice}
           <h1 className="text-center text-3xl font-semibold tracking-tight text-white sm:text-4xl">
-            {dragActive ? "Drop it anywhere." : "Ready when you are."}
+            {dragActive ? "Drop it anywhere." : "Drop in a stream. The rest runs itself."}
           </h1>
-          <div className="mt-8">
+          <div className="mx-auto mt-8 max-w-2xl">
             <StreamSearchBar
               value={url}
               onChange={setUrl}
@@ -1223,16 +1013,8 @@ export function PipelinePage() {
           <div className="mt-4">
             <OutputQualityPicker value={outputQuality} onChange={setOutputQuality} disabled={busy} />
           </div>
-          <div className="mt-5 flex flex-wrap items-center justify-center gap-4 text-[var(--muted-foreground)]">
-            {LANDING_OUTPUTS.map((key) => {
-              const Icon = STAGE_ICONS[key];
-              return (
-                <span key={key} className="flex items-center gap-1.5 text-[11px]" title={STAGE_TITLES[key]}>
-                  <Icon className="h-3.5 w-3.5" />
-                  {STAGE_TITLES[key].split(" ")[0]}
-                </span>
-              );
-            })}
+          <div className="mt-8">
+            <PipelineBoard stages={null} onPickFile={() => uploadInputRef.current?.click()} />
           </div>
           {loaded ? (
             <ChannelCoverageCard
@@ -1259,48 +1041,6 @@ export function PipelinePage() {
       </div>
     );
   }
-
-  const chips: OutputChip[] = stages
-    ? [
-        { key: "source", label: "Source", status: stages.source.status },
-        {
-          key: "longform",
-          label: "Long-form",
-          status: stages.longform.status
-        },
-        {
-          key: "segments",
-          label:
-            schedulable && schedulable.segments > 0
-              ? `${schedulable.segmentsRendered}/${schedulable.segments} segments`
-              : "Segments",
-          status: stages.segments.status
-        },
-        {
-          key: "clips",
-          label: schedulable && schedulable.clipsReady > 0 ? `${schedulable.clipsReady} shorts` : "Shorts",
-          status: stages.clips.status
-        },
-        { key: "audio", label: "MP3", status: stages.audio.status },
-        { key: "podcast", label: "Spotify", status: stages.podcast.status },
-        {
-          key: "images",
-          label: schedulable && schedulable.carouselSlides > 0 ? `${schedulable.carouselSlides} slides` : "Carousel",
-          status: stages.images.status
-        },
-        { key: "visuals", label: "Visual ad", status: stages.visuals.status },
-        {
-          key: "posts",
-          label: schedulable && schedulable.posts > 0 ? `${schedulable.posts} posts` : "Posts",
-          status: stages.posts.status
-        },
-        {
-          key: "schedule",
-          label: schedulable && schedulable.queued > 0 ? `${schedulable.queued} scheduled` : "Schedule",
-          status: stages.schedule.status
-        }
-      ]
-    : [];
 
   const currentKey = stages
     ? (STAGE_ORDER.find((key) => stages[key].status === "running") ??
@@ -1598,7 +1338,7 @@ export function PipelinePage() {
         dragActive && "border-dashed border-[var(--accent)] bg-white/3"
       )}
     >
-      <div className="pipeline-hero-enter mx-auto max-w-3xl">
+      <div className="pipeline-hero-enter mx-auto max-w-4xl">
         <div className="flex items-start gap-3">
           <button
             type="button"
@@ -1628,14 +1368,9 @@ export function PipelinePage() {
             </button>
           ) : null}
         </div>
-        {chips.length > 0 ? (
-          <div className="mt-4">
-            <RunProgressCard chips={chips} percent={percent} current={currentStage} />
-          </div>
-        ) : null}
       </div>
 
-      <div className="mx-auto mt-6 max-w-3xl">
+      <div className="mx-auto mt-5 max-w-4xl">
         {scanNotice}
         {!stages ? (
           loaded ? (
@@ -1670,8 +1405,20 @@ export function PipelinePage() {
                 {notice}
               </p>
             ))}
+            <PipelineBoard
+              stages={stages}
+              run={run}
+              overview={active}
+              percent={percent}
+              current={currentStage}
+              onSelect={scrollToStage}
+              schedule={run && schedulable ? { action: stageAction("schedule"), body: stageBody("schedule") } : undefined}
+            />
+            <p className="mb-2 mt-8 text-[11px] font-medium uppercase tracking-[0.14em] text-[var(--muted-foreground)]">
+              Steps
+            </p>
             <div className="space-y-2">
-              {STAGE_ORDER.map((key, index) => {
+              {STEP_ORDER.map((key, index) => {
                 // The server decides what can be run again; the row only draws it.
                 const repairable = active?.retryable.some((item) => item.stage === key);
                 return (
