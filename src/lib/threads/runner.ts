@@ -4,6 +4,7 @@ import { ContainerPendingError, postToThreads } from "@/lib/threads/api";
 import { findAccount, threadsBlockedReason, threadsConfig, type ThreadsAccount, type ThreadsConfig } from "@/lib/threads/config";
 import { pruneOld, readQueue, writeQueue } from "@/lib/threads/queue";
 import type { ThreadsOutcome, ThreadsQueueItem, ThreadsRunReport } from "@/lib/threads/types";
+import { isAutomationPaused } from "@/lib/automations/store";
 
 /**
  * The runner: post everything that is due, leave everything else alone.
@@ -69,6 +70,9 @@ export async function runDue(
 
   const blocked = threadsBlockedReason(config);
   if (blocked) return { ...report(), note: blocked };
+  if (!dryRun && await isAutomationPaused("threads")) {
+    return { ...report(), note: "Threads automation is paused in Automations." };
+  }
 
   const deps = options.deps ?? defaultDeps(config);
   const loaded = await deps.read();
@@ -120,6 +124,7 @@ export async function runDue(
   };
 
   for (const item of items) {
+    if (!dryRun && await isAutomationPaused("threads")) break;
     if (item.status === "published") {
       await sendPlug(item);
       continue;

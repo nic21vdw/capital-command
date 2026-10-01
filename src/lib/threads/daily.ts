@@ -7,6 +7,7 @@ import { readThreadsState, recordThreadsState } from "@/lib/threads/state";
 import type { ThreadsPlanResult, ThreadsRunReport } from "@/lib/threads/types";
 import { ensureDailyPack } from "@/lib/x-posts/daily";
 import { localDateKey } from "@/lib/x-strategy/analytics";
+import { isAutomationPaused } from "@/lib/automations/store";
 
 /**
  * The daily half of the autopilot: make sure today's batch exists.
@@ -47,6 +48,10 @@ export async function planTodaysBatch(
   const log = options.log ?? ((line: string) => console.log(line));
   const date = options.date ?? localDateKey(now);
   const replace = Boolean(options.force || options.startNow);
+
+  if (await isAutomationPaused("threads")) {
+    return { date, created: 0, droppedPastSlots: 0, skipped: "Threads automation is paused in Automations." };
+  }
 
   const blocked = threadsBlockedReason(config);
   if (blocked) return { date, created: 0, droppedPastSlots: 0, skipped: blocked };
@@ -107,6 +112,9 @@ export async function planTodaysBatch(
   // every slot of the day, at identical times. So the last word goes to whoever
   // writes first: if today grew an item this call did not start with, the loser
   // throws its work away rather than doubling the feed.
+  if (await isAutomationPaused("threads")) {
+    return { date, created: 0, droppedPastSlots, skipped: "Threads automation was paused while planning." };
+  }
   const added = await mutateQueue((current) => {
     const raced = autopilotItemsForDate(current, date).some((item) => !alreadySeen.has(item.id));
     if (raced) return { items: current, result: false };
@@ -266,6 +274,13 @@ export async function threadsTick(
 ): Promise<ThreadsTickResult> {
   const config = options.config ?? threadsConfig();
   const now = options.now ?? new Date();
+  if (await isAutomationPaused("threads")) {
+    const note = "Threads automation is paused in Automations.";
+    return {
+      plan: { date: localDateKey(now), created: 0, droppedPastSlots: 0, skipped: note },
+      run: { ran: now.toISOString(), published: 0, failed: 0, skipped: 0, outcomes: [], dryRun: options.dryRun ?? false, note }
+    };
+  }
   const plan = await planTodaysBatch({ config, now, log: options.log });
   // Both of these change what is queued, so a dry run has to stay out of them.
   const ahead = options.dryRun ? null : await planTomorrow({ config, now, log: options.log });

@@ -1,6 +1,7 @@
 import { mkdtemp, stat } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { isAutomationPaused, recordAutomationOutcome } from "@/lib/automations/store";
 import { accountIdConfigured } from "@/lib/publisher/accounts";
 import { facebookAdapter } from "@/lib/publisher/adapters/facebook";
 import { instagramAdapter } from "@/lib/publisher/adapters/instagram";
@@ -182,6 +183,31 @@ async function resolveImageMedia(
 }
 
 export async function runDue(now: Date = new Date(), options: RunDueOptions = {}): Promise<RunReport> {
+  if (!options.dryRun && !options.itemId && await isAutomationPaused("publisher")) {
+    return { dryRun: false, now: now.toISOString(), queue: "Publisher paused in Automations.", authChecks: [], plans: [], outcomes: [] };
+  }
+  try {
+    const report = await runDueInternal(now, options);
+    if (!options.dryRun && !options.itemId) {
+      const failed = report.outcomes.filter((outcome) => outcome.outcome === "failed").length;
+      await recordAutomationOutcome("publisher", {
+        at: now.toISOString(),
+        status: failed ? "failed" : "completed",
+        detail: `${report.outcomes.length} platform outcomes, ${failed} failures.`
+      }).catch(() => undefined);
+    }
+    return report;
+  } catch (error) {
+    if (!options.dryRun && !options.itemId) {
+      await recordAutomationOutcome("publisher", {
+        at: now.toISOString(), status: "failed", detail: "The publisher tick failed. Check the publisher log and queue failures."
+      }).catch(() => undefined);
+    }
+    throw error;
+  }
+}
+
+async function runDueInternal(now: Date, options: RunDueOptions): Promise<RunReport> {
   const config = options.config ?? publisherConfig();
   const queue = options.queue ?? publishQueue(config);
   const adapters = { ...defaultAdapters, ...options.adapters };
@@ -268,6 +294,7 @@ export async function runDue(now: Date = new Date(), options: RunDueOptions = {}
   // so it cannot abort the direct publishes.
   const runBuffer = async () => {
     if (!config.buffer.enabled) return;
+    if (!options.itemId && await isAutomationPaused("publisher")) return;
     try {
       const bufferOutcomes = await syncDueToBuffer(now, { queue, config, log, itemId: options.itemId });
       if (bufferOutcomes.length > 0) report.bufferOutcomes = bufferOutcomes;
@@ -363,10 +390,12 @@ export async function runDue(now: Date = new Date(), options: RunDueOptions = {}
   let facebookPreschedulesLeft = options.force ? Number.POSITIVE_INFINITY : FACEBOOK_PRESCHEDULES_PER_RUN;
 
   for (const { item, platforms } of due) {
+    if (!options.itemId && await isAutomationPaused("publisher")) break;
     let localPath: string | null = null;
     let publicUrl: string | undefined;
     let images: PublishInput["images"];
     for (const platform of platforms) {
+      if (!options.itemId && await isAutomationPaused("publisher")) break;
       const adapter = adapters[platform];
       const record = (outcome: RunOutcome["outcome"], detail: string) => {
         report.outcomes.push({ itemId: item.id, clip: item.clipPath, platform, outcome, detail });
