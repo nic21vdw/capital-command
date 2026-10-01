@@ -394,7 +394,7 @@ export function PodcastPage() {
             </div>
             <p className="mt-2 text-xs text-[var(--muted-foreground)]">
               Cloudflare dashboard → R2 → your bucket → Settings → Public Development URL, or the custom domain you
-              attached. Saved here it is used immediately and kept for next time — the app does not need restarting, and queued podcast releases resume automatically once
+              attached. Saved here it is used immediately and kept for next time - the app does not need restarting, and queued podcast releases resume automatically once
               setup is complete.
             </p>
           </div>
