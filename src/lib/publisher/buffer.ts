@@ -1,3 +1,4 @@
+import { isAutomationPaused } from "@/lib/automations/store";
 import { bufferConfigured, publisherConfig, type PublisherConfig } from "@/lib/publisher/config";
 import { mediaHost } from "@/lib/publisher/hosting";
 import { PermanentError, fetchJson, isTransient } from "@/lib/publisher/http";
@@ -186,6 +187,7 @@ export async function syncDueToBuffer(
   if (options.itemId) items = items.filter((item) => item.id === options.itemId);
 
   for (const item of items) {
+    if (!options.itemId && await isAutomationPaused("publisher")) break;
     const action = bufferAction(item, now, config);
     if (!action) continue;
 

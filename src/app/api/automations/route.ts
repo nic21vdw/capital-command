@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { allowsRequestOrigin } from "@/lib/request-origin";
 import { z } from "zod";
 import { automationOverview } from "@/lib/automations/overview";
 import { setAutomationPaused } from "@/lib/automations/store";
@@ -24,8 +25,7 @@ export async function GET() {
 export async function PATCH(request: NextRequest) {
   const parsed = actionSchema.safeParse(await request.json().catch(() => null));
   if (!parsed.success) return NextResponse.json({ error: "Choose an automation and a boolean pause state, or change overnight scheduling." }, { status: 400 });
-  const origin = request.headers.get("origin");
-  if (origin && origin !== request.nextUrl.origin) return NextResponse.json({ error: "Automation controls must be changed from this app." }, { status: 403 });
+  if (!allowsRequestOrigin(request)) return NextResponse.json({ error: "Automation controls must be changed from this app." }, { status: 403 });
   try {
     if (parsed.data.action === "pause") {
       return NextResponse.json({ id: parsed.data.id, control: await setAutomationPaused(parsed.data.id, parsed.data.paused) });

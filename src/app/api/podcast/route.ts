@@ -1,5 +1,6 @@
 import path from "node:path";
 import { NextRequest, NextResponse } from "next/server";
+import { allowsRequestOrigin } from "@/lib/request-origin";
 import { generateLongformMetadata, longformMetadataConfigured } from "@/lib/longform/metadata";
 import { getProject, listProjects, projectOutputDir, updateProject, withFullTranscript } from "@/lib/longform/store";
 import type { LongformProject } from "@/lib/longform/types";
@@ -77,6 +78,9 @@ async function episodeMetadata(project: LongformProject) {
 }
 
 export async function POST(request: NextRequest) {
+  if (!allowsRequestOrigin(request)) {
+    return NextResponse.json({ error: "Podcast controls must be changed from this app." }, { status: 403 });
+  }
   const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;
   const action = String(body.action ?? "");
 

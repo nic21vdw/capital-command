@@ -77,6 +77,7 @@ export type RunReport = {
   outcomes: RunOutcome[];
   /** Present only when Buffer is enabled — one entry per item the Buffer pass acted on. */
   bufferOutcomes?: BufferOutcome[];
+  bufferError?: string;
 };
 
 export type RunDueOptions = {
@@ -189,11 +190,13 @@ export async function runDue(now: Date = new Date(), options: RunDueOptions = {}
   try {
     const report = await runDueInternal(now, options);
     if (!options.dryRun && !options.itemId) {
-      const failed = report.outcomes.filter((outcome) => outcome.outcome === "failed").length;
+      const outcomes = [...report.outcomes, ...(report.bufferOutcomes ?? [])];
+      const failed = outcomes.filter((outcome) => outcome.outcome === "failed").length + Number(Boolean(report.bufferError));
+      const attention = outcomes.filter((outcome) => outcome.outcome === "retrying" || outcome.outcome === "manual").length;
       await recordAutomationOutcome("publisher", {
         at: now.toISOString(),
-        status: failed ? "failed" : "completed",
-        detail: `${report.outcomes.length} platform outcomes, ${failed} failures.`
+        status: failed || attention ? "failed" : "completed",
+        detail: `${report.outcomes.length} platform outcomes, ${report.bufferOutcomes?.length ?? 0} Buffer outcomes, ${failed} failures, ${attention} requiring attention.${report.bufferError ? ` ${report.bufferError}` : ""}`
       }).catch(() => undefined);
     }
     return report;
@@ -299,6 +302,7 @@ async function runDueInternal(now: Date, options: RunDueOptions): Promise<RunRep
       const bufferOutcomes = await syncDueToBuffer(now, { queue, config, log, itemId: options.itemId });
       if (bufferOutcomes.length > 0) report.bufferOutcomes = bufferOutcomes;
     } catch (error) {
+      report.bufferError = "The Buffer pass failed. Check the publisher log and queue failures.";
       log(`[publisher]   buffer pass failed: ${error instanceof Error ? error.message : String(error)}`);
     }
   };

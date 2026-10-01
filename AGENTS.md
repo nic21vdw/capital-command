@@ -446,6 +446,10 @@ including pipeline advancement triggered by a status request. An enabled
 setting or a successful scheduler exit does not prove an automation completed.
 Pausing cannot recall posts already scheduled with an external platform.
 
+Local control APIs use `allowsRequestOrigin()` with the request Host header.
+NextURL normalizes `127.0.0.1` to `localhost`, so comparing Origin directly to
+`request.nextUrl.origin` rejects valid loopback browser requests.
+
 Podcast delivery uses a durable schedule and the server heartbeat. Feed
 publication and Spotify ingestion are separate outcomes: a browser login does
 not prove the app is connected or that Spotify has claimed the RSS feed.
