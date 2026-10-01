@@ -14,6 +14,10 @@ already shipped.
 
 ## Unreleased
 
+- Visual ads now start from a real stream frame, preserve the full picture and your likeness, and let you review the source, adjust the copy and export the finished ad.
+- Podcast episodes can be scheduled automatically, with saved delivery times, retries and clear hosting or Spotify setup blockers.
+- Automations has its own dashboard with persistent pause controls, upcoming work, scheduler status and recent outcomes for the pipeline, ingest, publishing, Threads and podcasts.
+
 ## 2026-09-30
 
 - **The home screen is a picture of the pipeline now.** Before a stream is sent

@@ -31,6 +31,7 @@ export const CAPITAL_COMMAND_ROUTES: RouteEntry[] = [
   { path: "/launch", label: "Launch Pad", group: "Formats" },
 
   { path: "/uploading-center", label: "Uploading Center", group: "Schedule" },
+  { path: "/automations", label: "Automations", group: "Schedule" },
   { path: "/distribution", label: "Distribution Centre", group: "Schedule" },
 
   { path: "/master-calendar", label: "Master Calendar", group: "Calendar" },

@@ -10,11 +10,14 @@ export type VisualMoment = {
 
 export type VisualAdFormat = "portrait" | "story" | "square" | "landscape";
 
-const FORMAT_SIZES: Record<VisualAdFormat, { width: number; height: number; label: string }> = {
+const FORMAT_SIZES: Record<
+  VisualAdFormat,
+  { width: number; height: number; label: string }
+> = {
   portrait: { width: 1080, height: 1350, label: "4:5 feed" },
   story: { width: 1080, height: 1920, label: "9:16 story" },
   square: { width: 1080, height: 1080, label: "1:1 square" },
-  landscape: { width: 1920, height: 1080, label: "16:9 landscape" }
+  landscape: { width: 1920, height: 1080, label: "16:9 landscape" },
 };
 
 function clean(value: string | undefined) {
@@ -39,7 +42,11 @@ export function speechWordCount(text: string): number {
 export const MIN_SPEECH_WORDS = 25;
 
 function fallbackHeadline(transcript: string) {
-  const words = transcript.replace(/[.!?].*$/, "").split(/\s+/).filter(Boolean).slice(0, 8);
+  const words = transcript
+    .replace(/[.!?].*$/, "")
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 8);
   const line = words.join(" ").replace(/^[,.:;\-]+|[,.:;\-]+$/g, "");
   return line || "The Moment Everything Clicked";
 }
@@ -47,7 +54,7 @@ function fallbackHeadline(transcript: string) {
 export function visualMomentFromClips(
   clips: ClipCandidate[],
   captions: CaptionSegment[] = [],
-  durationSec?: number
+  durationSec?: number,
 ): VisualMoment | null {
   const limit = durationSec && durationSec > 0 ? durationSec : Infinity;
   const ranked = [...clips]
@@ -58,9 +65,14 @@ export function visualMomentFromClips(
 
   const transcript = clean(
     captions
-      .filter((segment) => segment.end >= clip.start && segment.start <= clip.end && segment.start < limit)
+      .filter(
+        (segment) =>
+          segment.end >= clip.start &&
+          segment.start <= clip.end &&
+          segment.start < limit,
+      )
       .map((segment) => segment.text)
-      .join(" ")
+      .join(" "),
   );
   const hook = clean(clip.hookQuote);
   const spoken = transcript || hook;
@@ -73,7 +85,7 @@ export function visualMomentFromClips(
     headline: clean(clip.title) || fallbackHeadline(spoken),
     transcript: spoken,
     start: clip.start,
-    end: clip.end
+    end: clip.end,
   };
 }
 
@@ -83,14 +95,17 @@ export function realisticImagePrompt(moment: VisualMoment, streamName: string) {
     : `The selected livestream is titled "${clean(streamName)}".`;
 
   return [
-    "Use the attached livestream screenshot as a high-fidelity visual reference.",
+    "Retouch the attached original livestream screenshot as a high-fidelity visual reference. An original photograph of Nic is required; do not generate a replacement person from text alone.",
     context,
     `Advertising hook: "${moment.headline}".`,
-    "Create a photorealistic premium social ad that preserves the real creator, workstation, room, clothing, camera angle, and on-screen subject.",
-    "Improve only the commercial photography qualities: balanced exposure, natural skin texture, believable monitor light, clean composition, and restrained depth of field.",
-    "Leave intentional negative space for the hook. Do not render the hook or any other text inside the generated image.",
+    "Deliver a restrained photorealistic retouch of the existing photograph, preserving the real creator, workstation, room, clothing, camera angle, and on-screen subject.",
+    "Keep Nic's face, age, facial proportions, hair, facial hair, expression, skin texture, body shape, hands and pose exactly as photographed. Do not beautify, smooth skin, swap faces, or recreate any part of him.",
+    "Improve only exposure, white balance, subtle colour balance and mild noise reduction. Preserve the photographed lighting and every meaningful screen detail. Do not invent studio lighting, fake bokeh or a different setting.",
+    "Keep the complete original frame and its edges. The app places the headline in a separate copy band; do not crop out Nic, his hands or the actual product to make space.",
+    "Do not render the hook or any other new text inside the generated image. Preserve existing screen text without rewriting it.",
     "No invented logos, products, people, UI copy, or claims.",
-    "Avoid cartoons, illustrations, anime, 3D renders, CGI, plastic skin, fantasy interfaces, holograms, exaggerated neon, malformed hands, and illegible text."
+    "Avoid cartoons, illustrations, anime, 3D renders, CGI, plastic skin, fantasy interfaces, holograms, exaggerated neon, malformed hands, and illegible text.",
+    "If the face or screen cannot be preserved faithfully, return the unchanged original. A prompt cannot verify identity; compare the result beside the original before using it.",
   ].join("\n");
 }
 
@@ -102,15 +117,20 @@ export function fitCover(
   sourceWidth: number,
   sourceHeight: number,
   targetWidth: number,
-  targetHeight: number
+  targetHeight: number,
+  focusX = 0.5,
+  focusY = 0.5,
 ) {
-  const scale = Math.max(targetWidth / sourceWidth, targetHeight / sourceHeight);
+  const scale = Math.max(
+    targetWidth / sourceWidth,
+    targetHeight / sourceHeight,
+  );
   const width = sourceWidth * scale;
   const height = sourceHeight * scale;
   return {
-    x: (targetWidth - width) / 2,
-    y: (targetHeight - height) / 2,
+    x: (targetWidth - width) * Math.max(0, Math.min(1, focusX)),
+    y: (targetHeight - height) * Math.max(0, Math.min(1, focusY)),
     width,
-    height
+    height,
   };
 }

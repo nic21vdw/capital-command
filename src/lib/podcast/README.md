@@ -61,8 +61,22 @@ After that, nothing about a new episode is manual.
   `process.env`, because `next start` reads `.env` once at boot — that is what
   makes the change take effect with nothing to restart, and why `mediaHost()`
   caches on the settings that shape a URL rather than forever.
-- The pipeline's `podcast` stage calls `publishEpisode` as soon as the MP3 is
-  cut, one attempt only — `podcastNote` is the "do not retry" marker, same rule
-  as the extraction step above it, because the stage is driven by a 2.5s poll.
+- The pipeline's `podcast` stage books the finished MP3 through `scheduleEpisode`.
+  The default is one episode per day at 10:00 America/Toronto. The Podcast page
+  controls the time, zone and enabled switch, plus individual releases.
+- `schedule.ts` persists bookings in `show.json` alongside the feed state.
+  The existing 90-second server heartbeat drains at most one due episode per
+  tick, including when no pipeline is active and the page is closed. The app
+  must be running. Overdue episodes resume after restart.
+- Missing host or show settings remain visible setup blockers without spending
+  upload retries. After setup is fixed, due releases resume automatically.
+  Upload/feed failures back off from five minutes and stop after five attempts;
+  Retry delivery resets that bound. A 30-minute publishing lease recovers a
+  process restart. Global Automations pause and the enabled switch stop drains.
+- Export IDs deduplicate bookings, publication is serialized, and export-based
+  object keys survive interrupted uploads. A saved episode whose feed write
+  failed is republished into the feed on retry without uploading another MP3.
+- Daily booking reserves a local calendar date, including repeated autumn
+  hours. A nonexistent spring clock time skips to the next valid day.
 - `/api/podcast/rss` serves the same feed locally for validation. It is NOT the
   URL to give Spotify — this app is not on the public internet.

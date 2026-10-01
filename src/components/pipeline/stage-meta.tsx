@@ -51,9 +51,9 @@ export const STAGE_TITLES: Record<PipelineStageKey, string> = {
   segments: "Topic segments",
   clips: "Short-form clips",
   audio: "Podcast MP3",
-  podcast: "Spotify episode",
+  podcast: "Podcast release",
   images: "Carousel images",
-  visuals: "Realistic visual ads",
+  visuals: "Real-frame visual ads",
   posts: "Text-only posts",
   schedule: "Scheduler"
 };

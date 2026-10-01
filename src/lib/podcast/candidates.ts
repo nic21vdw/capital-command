@@ -1,5 +1,5 @@
 import type { LongformProject } from "@/lib/longform/types";
-import type { PodcastEpisode } from "@/lib/podcast/types";
+import type { PodcastDelivery, PodcastEpisode } from "@/lib/podcast/types";
 
 /**
  * A finished long-form export offered to the Podcast page as an episode. The
@@ -17,6 +17,7 @@ export type EpisodeCandidate = {
   hasAudio: boolean;
   /** Already in the feed, so publishing it again would change nothing. */
   published: boolean;
+  scheduled: boolean;
 };
 
 /**
@@ -24,8 +25,18 @@ export type EpisodeCandidate = {
  * marked rather than hidden — an episode disappearing from the list reads as
  * "the app lost it" when it actually means "already done".
  */
-export function episodeCandidates(projects: LongformProject[], episodes: PodcastEpisode[]): EpisodeCandidate[] {
-  const published = new Set(episodes.map((episode) => episode.exportId).filter(Boolean) as string[]);
+export function episodeCandidates(projects: LongformProject[], episodes: PodcastEpisode[],
+  deliveries: PodcastDelivery[] = [],
+): EpisodeCandidate[] {
+  const published = new Set(episodes.map((episode) => episode.exportId).filter(Boolean) as string[],
+  );
+  const scheduled = new Set(
+    deliveries
+      .filter(
+        (item) => item.status !== "cancelled" && item.status !== "published",
+      )
+      .map((item) => item.exportId),
+  );
   return projects
     .flatMap((project) =>
       project.exports
@@ -38,7 +49,8 @@ export function episodeCandidates(projects: LongformProject[], episodes: Podcast
           durationSec: record.durationSec ?? 0,
           createdAt: record.createdAt,
           hasAudio: Boolean(record.audioFile),
-          published: published.has(record.id)
+          published: published.has(record.id),
+          scheduled: scheduled.has(record.id),
         }))
     )
     .sort((a, b) => b.createdAt.localeCompare(a.createdAt));

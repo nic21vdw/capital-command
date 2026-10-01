@@ -28,7 +28,7 @@ export async function spotifyStatus(): Promise<SpotifyStatus> {
   const showId = state.show.spotifyShowId?.trim() || null;
   const base: SpotifyStatus = {
     configured,
-    connected,
+    connected: false,
     profile: null,
     show: null,
     showId,
@@ -38,7 +38,11 @@ export async function spotifyStatus(): Promise<SpotifyStatus> {
   };
   if (!configured) return base;
 
-  base.profile = connected ? await spotifyProfile().catch(() => null) : null;
+  base.profile = connected ? await spotifyProfile(true).catch(() => null) : null;
+  base.connected = Boolean(base.profile);
+  if (connected && !base.connected)
+    base.error =
+      "The saved Spotify connection could not be verified. Connect Spotify again to restore account checks.";
   if (!showId) return base;
 
   try {

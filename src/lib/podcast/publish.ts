@@ -1,5 +1,8 @@
 import { stat } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { isAutomationPaused } from "@/lib/automations/store";
 import { buildFeedXml, feedProblems } from "@/lib/podcast/feed";
+import { checkPublicBaseUrl } from "@/lib/podcast/publicUrl";
 import { addEpisode, readPodcastState } from "@/lib/podcast/store";
 import type { PodcastEpisode, PodcastState } from "@/lib/podcast/types";
 import { hostingConfigured, publisherConfig } from "@/lib/publisher/config";
@@ -29,6 +32,8 @@ function requireHost() {
       "The podcast feed needs a permanent public URL. Turn on public access for the R2 bucket (Cloudflare dashboard → R2 → the bucket → Settings → Public Development URL, or attach a custom domain) and paste that address into Public address of the bucket on the Podcast page."
     );
   }
+  const publicUrl = checkPublicBaseUrl(config.s3.publicBaseUrl ?? "");
+  if (!publicUrl.ok) throw new Error(publicUrl.problem);
   const host = mediaHost(config);
   if (!host) throw new Error("Media hosting is configured but could not be created.");
   return { host, config };
@@ -62,7 +67,27 @@ export type NewEpisode = {
  * export id, because the pipeline calls this from a poll that runs every few
  * seconds — the upload only happens for an episode the feed does not have.
  */
+let publishChain = Promise.resolve();
+
 export async function publishEpisode(input: NewEpisode): Promise<{ episode: PodcastEpisode; added: boolean; url: string }> {
+  const result = publishChain.then(
+    () => publishOneEpisode(input),
+    () => publishOneEpisode(input),
+  );
+  publishChain = result.then(
+    () => undefined,
+    () => undefined,
+  );
+  return result;
+}
+
+async function publishOneEpisode(
+  input: NewEpisode,
+): Promise<{ episode: PodcastEpisode; added: boolean; url: string }> {
+  if (await isAutomationPaused("podcast"))
+    throw new Error(
+      "Podcast delivery is paused in Automations. Resume it before publishing.",
+    );
   const { host } = requireHost();
   const state = await readPodcastState();
   const existing = input.exportId
@@ -74,7 +99,12 @@ export async function publishEpisode(input: NewEpisode): Promise<{ episode: Podc
   }
 
   const info = await stat(input.filePath);
-  const id = crypto.randomUUID();
+  const id = input.exportId
+    ? createHash("sha256")
+        .update(`${input.projectId ?? ""}:${input.exportId}`)
+        .digest("hex")
+        .slice(0, 32)
+    : crypto.randomUUID();
   const key = `podcast/episodes/${id}.mp3`;
   await host.upload(input.filePath, key);
 

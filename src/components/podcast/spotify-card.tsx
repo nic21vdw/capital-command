@@ -108,8 +108,9 @@ export function SpotifyCard({
           <p className="mt-1 text-sm text-[var(--muted-foreground)]">
             {status.connected
               ? `Connected as ${status.profile?.name ?? "your account"}${status.profile?.email ? ` (${status.profile.email})` : ""}.`
-              : "Connect the account to read the show through Spotify's own eyes."}{" "}
-            Publishing still happens through the feed — Spotify has no upload API for creators.
+              : "This app has no verified Spotify connection. Browser sign-in is separate; connect here once to reuse your account."}{" "}
+            Scheduled delivery uses the public podcast feed. This connection
+            checks which episodes are live on Spotify.
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -151,7 +152,7 @@ export function SpotifyCard({
             <div className="min-w-0">
               <p className="text-sm font-medium text-white">{status.show.name}</p>
               <p className="mt-1 text-xs text-[var(--muted-foreground)]">
-                {status.show.totalEpisodes} episode{status.show.totalEpisodes === 1 ? "" : "s"} on Spotify · {liveCount}{" "}
+                {status.show.totalEpisodes} episode{status.show.totalEpisodes === 1 ? "" : "s"} on Spotify · {" "}{liveCount}
                 of {episodeCount} from this feed are live
                 {status.pending.length > 0 ? ` · ${status.pending.length} still to be pulled in` : ""}
               </p>

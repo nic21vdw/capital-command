@@ -2,7 +2,7 @@
 
 import { useState, type ReactNode } from "react";
 import Link from "next/link";
-import { ArrowUpRight, AtSign, Loader2, Play, Podcast, Sparkles, UploadCloud, type LucideIcon } from "lucide-react";
+import { ArrowUpRight, AtSign, Camera, Loader2, Play, Podcast, UploadCloud, type LucideIcon } from "lucide-react";
 import { STAGE_ICONS, STAGE_ORDER, STAGE_TITLES, StatusChip, NODE_STYLES } from "@/components/pipeline/stage-meta";
 import { cn } from "@/lib/utils";
 import type {
@@ -191,14 +191,12 @@ function PostsArt({ posts }: { posts: string[] }) {
   );
 }
 
-function VisualArt({ headline }: { headline?: string }) {
+function VisualArt({ headline, poster }: { headline?: string; poster?: string }) {
   return (
     <div className="relative h-full w-full overflow-hidden rounded-lg border border-[var(--border)]">
-      <Fill>
-        <Sparkles className="h-6 w-6 text-[var(--accent)]" />
-      </Fill>
+      <Thumb src={poster} fallback={<Fill><Camera className="h-6 w-6 text-[var(--accent)]" /></Fill>} className="object-contain" />
       {headline ? (
-        <p className="absolute inset-x-2 bottom-1.5 line-clamp-2 text-[9px] font-semibold leading-tight text-[#ffffff] drop-shadow">
+        <p className="absolute inset-x-0 bottom-0 bg-black/80 px-2 py-1.5 line-clamp-2 text-[9px] font-semibold leading-tight text-[#ffffff]">
           {headline}
         </p>
       ) : null}
@@ -410,8 +408,8 @@ const TILES: TileSpec[] = [
     id: "visuals",
     keys: ["visuals"],
     title: "Visual ad",
-    ready: () => "Frame picked",
-    art: ({ overview }) => <VisualArt headline={overview?.visualMoment?.headline} />
+    ready: () => "Hook selected, draft to review",
+    art: ({ overview }) => <VisualArt headline={overview?.visualMoment?.headline} poster={overview?.previews?.poster} />
   }
 ];
 
