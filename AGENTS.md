@@ -438,6 +438,19 @@ still rebuilds. `src/instrumentation.ts` skips runtime initialization during
 live pipeline. `src/lib/release/server-start.test.ts` exercises the Windows
 launcher on an isolated fake server and verifies it outlives the launcher.
 
+## Automation controls and scheduled podcasts
+
+Automation controls live in `src/lib/automations` and are persisted through
+`dataPath()`. Automatic entry points must honor the same saved pause state,
+including pipeline advancement triggered by a status request. An enabled
+setting or a successful scheduler exit does not prove an automation completed.
+Pausing cannot recall posts already scheduled with an external platform.
+
+Podcast delivery uses a durable schedule and the server heartbeat. Feed
+publication and Spotify ingestion are separate outcomes: a browser login does
+not prove the app is connected or that Spotify has claimed the RSS feed.
+Keep the one-time feed setup visible, and retain failed deliveries for retry.
+
 ## Tests
 
 `npm test` is the suite (`vitest run`). It used to be a PowerShell script that
