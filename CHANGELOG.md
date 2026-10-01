@@ -14,6 +14,8 @@ already shipped.
 
 ## Unreleased
 
+## 2026-09-30
+
 - **The home screen is a picture of the pipeline now.** Before a stream is sent
   it shows the whole flow — one long video in, fanning out to a long-form edit,
   shorts, podcast, carousel, posts and a visual ad, ending in the scheduler.
