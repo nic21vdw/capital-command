@@ -6,9 +6,9 @@
    Skipping linting
    Collecting page data ...
    Generating static pages (0/47) ...
-   Generating static pages (11/47) 
-   Generating static pages (23/47) 
-   Generating static pages (35/47) 
+   Generating static pages (11/47)
+   Generating static pages (23/47)
+   Generating static pages (35/47)
  ✓ Generating static pages (47/47)
    Finalizing page optimization ...
    Collecting build traces ...
@@ -167,4 +167,3 @@ Route (app)                                                               Size  
 
 ○  (Static)   prerendered as static content
 ƒ  (Dynamic)  server-rendered on demand
-
