@@ -838,7 +838,7 @@ function imagesStage(run: PipelineRun, project: LongformProject | undefined, sli
 function visualsStage(run: PipelineRun, job: ClipJob | undefined, ready: boolean): PipelineStage {
   if (run.status !== "running") return stage("waiting", "Waiting for the source.");
   if (!job) return stage("waiting", "Waiting for the clip analysis.");
-  if (ready) return stage("ready", "Best transcript moment ready for a realistic screenshot ad");
+  if (ready) return stage("ready", "Ad brief ready - compose and review the real-frame draft before exporting.");
   // A settled job with no moment has none coming — the old `waiting` here left
   // the run unsettled for good on any stream without usable speech.
   if (job.status === "error" || job.status === "done") {
@@ -998,9 +998,8 @@ export async function runOverview(run: PipelineRun, context?: OverviewContext): 
       [
         `${bookable} output${bookable === 1 ? "" : "s"} ready to schedule`,
         posts > 0 ? `${posts} text post${posts === 1 ? "" : "s"}` : "",
-        byHand > 0 ? `${!carouselBookable && slideCount > 0 ? `${slideCount}-slide carousel` : ""}${
-          !carouselBookable && slideCount > 0 && visualMoment ? " and " : ""
-        }${visualMoment ? "visual ad" : ""} to post by hand` : "",
+        !carouselBookable && slideCount > 0 ? `${slideCount}-slide carousel to post by hand` : "",
+        visualMoment ? "visual ad brief ready to compose, review and export" : "",
         queued > 0 ? `${queued} already queued` : "",
         run.podcastEpisodeId || podcastDelivery?.status === "published"
           ? "podcast episode published" : run.podcastDeliveryId
@@ -1034,7 +1033,8 @@ export async function runOverview(run: PipelineRun, context?: OverviewContext): 
       audioReady,
       podcastPublished: Boolean(run.podcastEpisodeId || podcastDelivery?.status === "published"),
       carouselSlides: slideCount,
-      visualAdReady: Boolean(visualMoment),
+      visualAdReady: false,
+      visualAdBriefReady: Boolean(visualMoment),
       posts,
       queued
     },

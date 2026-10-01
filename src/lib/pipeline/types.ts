@@ -209,6 +209,7 @@ export type PipelineRunOverview = {
     podcastPublished: boolean;
     carouselSlides: number;
     visualAdReady: boolean;
+    visualAdBriefReady?: boolean;
     posts: number;
     /** Publish-queue items already created from this run. */
     queued: number;
