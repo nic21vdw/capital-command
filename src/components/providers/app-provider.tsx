@@ -2,6 +2,9 @@
 
 import { createContext, startTransition, useCallback, useContext, useEffect, useState } from "react";
 import { toast } from "sonner";
+import { usePathname } from "next/navigation";
+import { useColateralSurface } from "@/lib/colateral/useSurface";
+import { routeLabel } from "@/lib/colateral/routes";
 import { derivePortfolioSummary } from "@/lib/derive";
 import { setSlideSignature, setSlideTheme } from "@/lib/carousels/render";
 import { setClipDescription } from "@/lib/clipping/editor";
@@ -23,7 +26,7 @@ interface BootstrapPayload {
 
 interface AppContextValue extends BootstrapPayload {
   loading: boolean;
-  mutate: (action: string, payload?: unknown, options?: { successMessage?: string }) => Promise<void>;
+  mutate: (action: string, payload?: unknown, options?: { successMessage?: string; rethrow?: boolean }) => Promise<void>;
   refresh: () => Promise<void>;
 }
 
@@ -46,7 +49,7 @@ export class DataUnreadable extends Error {
 }
 
 async function readBootstrap(): Promise<BootstrapPayload> {
-  const response = await fetch("/api/bootstrap", { cache: "no-store" });
+  const response = await fetch("/api/bootstrap", { cache: "no-store", signal: AbortSignal.timeout(20_000) });
   if (!response.ok) {
     if (response.status === 503) {
       const body = (await response.json().catch(() => null)) as
@@ -60,9 +63,13 @@ async function readBootstrap(): Promise<BootstrapPayload> {
         );
       }
     }
-    throw new Error("Unable to load app data");
+    throw new Error(`The app server could not load your data (HTTP ${response.status}).`);
   }
-  return response.json();
+  const payload = await response.json() as BootstrapPayload;
+  if (!payload?.data?.settings || !payload.data.creatorProfile || !payload.summary || !payload.apiStatus) {
+    throw new Error("The app server returned an incomplete data response.");
+  }
+  return payload;
 }
 
 function describeSnapshotAge(savedAt: string): string {
@@ -100,7 +107,7 @@ async function describeFailure(response: Response, action: string): Promise<stri
   return `the server answered ${response.status} for "${action}"`;
 }
 
-function UnreadableScreen({ problem, onRetry }: { problem: DataUnreadable; onRetry: () => Promise<void> }) {
+function UnreadableScreen({ problem, onRetry, loading, loadError }: { problem: DataUnreadable; onRetry: () => Promise<void>; loading: boolean; loadError: string | null }) {
   const [confirming, setConfirming] = useState(false);
   const [restoring, setRestoring] = useState(false);
   const [failure, setFailure] = useState<string | null>(null);
@@ -187,11 +194,13 @@ function UnreadableScreen({ problem, onRetry }: { problem: DataUnreadable; onRet
 
         <button
           type="button"
+          disabled={loading}
           onClick={() => void onRetry()}
           className="mt-4 rounded-lg border border-white/15 px-3 py-1.5 text-sm text-white/80 transition hover:bg-white/5"
         >
-          Try again
+          {loading ? "Trying again..." : "Try again"}
         </button>
+        {loadError ? <p role="alert" className="mt-2 break-words text-sm text-[var(--danger)]">{loadError}</p> : null}
       </div>
     </div>
   );
@@ -201,9 +210,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [payload, setPayload] = useState<BootstrapPayload | null>(null);
   const [loading, setLoading] = useState(true);
   const [unreadable, setUnreadable] = useState<DataUnreadable | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
     setLoading(true);
+    setLoadError(null);
     try {
       const next = await readBootstrap();
       // Clear `loading` in the same transition that commits the payload —
@@ -223,7 +234,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         setLoading(false);
         return;
       }
-      toast.error("Unable to load CoLateral Marketing data.");
+      setLoadError(error instanceof Error && error.name === "TimeoutError"
+        ? "The app server took too long to load your data. Check that CoLateral Marketing is running, then try again."
+        : error instanceof TypeError
+          ? "The app server is not responding. Check that CoLateral Marketing is running, then try again."
+          : error instanceof Error ? error.message : "Your data could not be loaded. Try again.");
       setLoading(false);
     }
   }, []);
@@ -250,7 +265,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setSlideTheme(payload.data.settings.carouselTheme);
   }, [payload]);
 
-  const mutate = useCallback(async (action: string, payload?: unknown, options?: { successMessage?: string }) => {
+  const mutate = useCallback(async (action: string, payload?: unknown, options?: { successMessage?: string; rethrow?: boolean }) => {
     try {
       const response = await fetch("/api/data", {
         method: "POST",
@@ -291,22 +306,52 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             ? error.message
             : "";
       toast.error(reason ? `Could not ${describeAction(action)}: ${reason}` : `Could not ${describeAction(action)}.`);
+      if (options?.rethrow) throw error;
     }
   }, []);
 
   if (unreadable) {
-    return <UnreadableScreen problem={unreadable} onRetry={refresh} />;
+    return <UnreadableScreen problem={unreadable} onRetry={refresh} loading={loading} loadError={loadError} />;
   }
 
   if (!payload) {
-    return (
-      <AppContext.Provider value={{ ...payloadFallback, loading, mutate, refresh }}>
-        {children}
-      </AppContext.Provider>
-    );
+    return <BootstrapScreen loadError={loadError} onRetry={refresh} />;
   }
 
-  return <AppContext.Provider value={{ ...payload, loading, mutate, refresh }}>{children}</AppContext.Provider>;
+  return <AppContext.Provider value={{ ...payload, loading, mutate, refresh }}>
+    {loadError ? <div role="alert" className="flex flex-wrap items-center gap-3 border-b border-[var(--border)] bg-[var(--panel)] px-4 py-3 text-sm text-[var(--foreground)]">
+      <p className="min-w-0 flex-1 break-words">{loadError} Showing the last loaded data.</p>
+      <button type="button" onClick={() => void refresh()} className="rounded-lg border border-[var(--border)] px-3 py-1.5">Try again</button>
+    </div> : null}
+    {children}
+  </AppContext.Provider>;
+}
+
+function BootstrapScreen({ loadError, onRetry }: { loadError: string | null; onRetry: () => Promise<void> }) {
+  const route = usePathname() || "/";
+  useColateralSurface({
+    route,
+    title: routeLabel(route),
+    summary: loadError ? "The workspace data could not load. Retry before editing." : "The workspace data is loading. Wait before editing.",
+    fields: [],
+    controls: loadError ? [{ id: "retry-workspace", label: "Try again" }] : [],
+    readings: [{ label: "Workspace data", value: loadError || "Loading saved workspace" }],
+    click: (id) => id === "retry-workspace" ? onRetry() : false
+  });
+  return <main className="flex min-h-screen items-center justify-center p-4">
+        <div className="w-full max-w-md rounded-xl border border-[var(--border)] bg-[var(--panel)] p-5">
+          <h1 className="text-lg font-semibold text-[var(--foreground)]">
+            {loadError ? "CoLateral Marketing could not load" : "Loading CoLateral Marketing"}
+          </h1>
+          <p role={loadError ? "alert" : "status"} className="mt-2 break-words text-sm text-[var(--muted-foreground)]">
+            {loadError || "Opening your saved workspace..."}
+          </p>
+          {loadError ? <button type="button" onClick={() => void onRetry()}
+            className="mt-4 rounded-lg bg-[var(--accent)] px-4 py-2 text-sm font-medium text-[var(--accent-contrast)]">
+            Try again
+          </button> : null}
+        </div>
+      </main>;
 }
 
 const emptyCreatorProfile: CreatorProfile = {

@@ -73,7 +73,7 @@ export function ScheduleBoard({
     // The calendar grows as tall as it likes and the page's own scroller takes
     // it. It used to bound itself and scroll inside, which put a second
     // scrollbar next to the page's and left the two fighting over the wheel.
-    <div className="space-y-2 pr-1">
+    <div className="@container min-w-0 space-y-2 pr-1">
       <input
         ref={fileInputRef}
         type="file"
@@ -148,12 +148,12 @@ function DayBand({
     <div
       id={`agenda-day-${day.dateKey}`}
       className={cn(
-        "grid grid-cols-[6.5rem_minmax(0,1fr)] gap-3 rounded-xl border p-2.5",
+        "grid min-w-0 grid-cols-1 gap-3 rounded-xl border p-2.5 @min-[480px]:grid-cols-[6.5rem_minmax(0,1fr)]",
         today ? "border-[var(--accent)]/40 bg-[var(--accent)]/5" : "border-[var(--border)]",
         past && !today && "opacity-80"
       )}
     >
-      <div className="flex flex-col gap-1 pt-1">
+      <div className="flex flex-wrap items-center gap-2 pt-1 @min-[480px]:flex-col @min-[480px]:items-start @min-[480px]:gap-1">
         <span className={cn("text-xs font-semibold text-white", today && "text-[var(--accent)]")}>{day.dateLabel}</span>
         {today ? (
           <span className="w-fit rounded-full bg-[var(--accent)]/15 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-[var(--accent)]">
@@ -166,7 +166,7 @@ function DayBand({
           </span>
         ) : null}
       </div>
-      <div className="grid gap-2 [grid-template-columns:repeat(auto-fill,minmax(13.5rem,1fr))]">
+      <div className="grid min-w-0 gap-2 [grid-template-columns:repeat(auto-fill,minmax(min(13.5rem,100%),1fr))]">
         {entries.map((entry) =>
           entry.kind === "queue" ? (
             <QueueEntryCard
@@ -325,14 +325,14 @@ function QueueEntryCard({
           <EditableTitle title={item.title} onRename={(title) => onRename(item, title)} />
           <span className="ml-auto shrink-0 text-[10px] font-medium text-[var(--muted-foreground)]">{time}</span>
         </div>
-        <div className="mt-1.5 flex items-center gap-1.5">
-          <StatusChip status={state.status} platform={platform} item={item} />
+        <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+          <StatusChip status={state.status} platform={platform} item={item} className="shrink-0" />
           {pictures > 0 ? (
             <button
               type="button"
               onClick={() => setShowSlides((shown) => !shown)}
               title={showSlides ? "Hide the files" : "Show every slide file"}
-              className="rounded-full bg-white/10 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-[var(--muted-foreground)] transition hover:bg-white/20 hover:text-white"
+              className="shrink-0 rounded-full bg-white/10 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-[var(--muted-foreground)] transition hover:bg-white/20 hover:text-white"
             >
               {pictures > 1 ? `Carousel · ${pictures}` : "Image"}
             </button>
@@ -344,7 +344,7 @@ function QueueEntryCard({
               rel="noreferrer"
               aria-label="View the video"
               title="View the video"
-              className="text-[var(--accent)]"
+              className="shrink-0 text-[var(--accent)]"
             >
               <ExternalLink className="h-3.5 w-3.5" />
             </a>
@@ -356,7 +356,7 @@ function QueueEntryCard({
               rel="noreferrer"
               aria-label="Edit in YouTube Studio"
               title="Edit in YouTube Studio (title, description…)"
-              className="text-[var(--accent)]"
+              className="shrink-0 text-[var(--accent)]"
             >
               <Clapperboard className="h-3.5 w-3.5" />
             </a>
@@ -373,7 +373,7 @@ function QueueEntryCard({
                   aria-label={blocked ? "Retry this post" : "Publish now"}
                   title={blocked ? "Retry this post" : "Publish now"}
                   className={cn(
-                    "text-[var(--muted-foreground)] transition hover:text-white",
+                    "shrink-0 text-[var(--muted-foreground)] transition hover:text-white",
                     blocked &&
                       (state.status === "failed"
                         ? "hover:text-[var(--danger)] text-[var(--danger)]"
@@ -388,7 +388,7 @@ function QueueEntryCard({
                 onClick={() => onRemove(item)}
                 aria-label="Remove from schedule"
                 title="Remove from schedule"
-                className="text-[var(--muted-foreground)] transition hover:text-[var(--danger)]"
+                className="shrink-0 text-[var(--muted-foreground)] transition hover:text-[var(--danger)]"
               >
                 <Trash2 className="h-3.5 w-3.5" />
               </button>

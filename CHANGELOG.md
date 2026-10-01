@@ -14,6 +14,19 @@ already shipped.
 
 ## Unreleased
 
+- **Marketing fits the CoLateral array more reliably.** Compact cards use one
+  route menu, keep assistant controls clear of the content, and follow the
+  host's appearance. Keyboard navigation identifies the current page and
+  returns focus when dismissed. Populated clip and schedule controls fit
+  narrow panes, and the desktop assistant follows the content pane's gutters.
+
+- **Failed loads explain how to recover.** Startup waits for saved data instead
+  of briefly showing new-workspace controls. Failed workflow reads keep the
+  last loaded work visible with a Retry action. Calendar period failures no
+  longer look empty or show another period's events; filtered events have a
+  Show all sources action. First-run Settings opens, and a failed profile save
+  cannot mark setup complete.
+
 ## 2026-09-30
 
 - **The home screen is a picture of the pipeline now.** Before a stream is sent

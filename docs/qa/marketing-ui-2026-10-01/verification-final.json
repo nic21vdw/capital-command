@@ -1,0 +1,63 @@
+{
+  "results": [
+    {
+      "name": "Initial bootstrap failures stay visible and recover without fresh-install controls",
+      "passed": true
+    },
+    {
+      "name": "Malformed successful bootstrap responses are refused",
+      "passed": true
+    },
+    {
+      "name": "First-run Settings opens and failed profile save cannot finish setup",
+      "passed": true
+    },
+    {
+      "name": "Marketing screens fit a 400px pane and finish loading",
+      "passed": true
+    },
+    {
+      "name": "Keyboard navigation identifies Settings and restores trigger focus on Escape",
+      "passed": true
+    },
+    {
+      "name": "Desktop assistant aligns to content and collapsed sidebar remains reachable",
+      "passed": true
+    },
+    {
+      "name": "Workflow HTTP failures offer Retry and never claim an empty library",
+      "passed": true
+    },
+    {
+      "name": "Real card and app agree on routes, input values, live theme and responsive chrome",
+      "passed": true
+    },
+    {
+      "name": "Populated Longform and Uploading Center layouts fit compact panes",
+      "passed": true
+    },
+    {
+      "name": "Native iframe reload reconnects and zoomed array stages keep suitable chrome",
+      "passed": true
+    }
+  ],
+  "errors": [],
+  "consoleErrors": [
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "[capital-command] updateCreatorProfile failed Error: Test profile save failed\n    at http://127.0.0.1:3100/_next/static/chunks/1796-74ef2498f6e67589.js:1:52514\n    at async m (http://127.0.0.1:3100/_next/static/chunks/9299-fed3275551cf8e88.js:1:15395)",
+    "Failed to load resource: the server responded with a status of 503 (Service Unavailable)",
+    "Failed to load resource: the server responded with a status of 503 (Service Unavailable)",
+    "Failed to load resource: the server responded with a status of 503 (Service Unavailable)",
+    "Failed to load resource: the server responded with a status of 503 (Service Unavailable)",
+    "Failed to load resource: the server responded with a status of 503 (Service Unavailable)",
+    "Failed to load resource: the server responded with a status of 503 (Service Unavailable)",
+    "Failed to load resource: the server responded with a status of 404 (Not Found)",
+    "Failed to load resource: the server responded with a status of 404 (Not Found)",
+    "Failed to load resource: the server responded with a status of 404 (Not Found)",
+    "Failed to load resource: the server responded with a status of 404 (Not Found)",
+    "Failed to load resource: the server responded with a status of 404 (Not Found)",
+    "Failed to load resource: the server responded with a status of 404 (Not Found)",
+    "Failed to load resource: the server responded with a status of 404 (Not Found)"
+  ]
+}

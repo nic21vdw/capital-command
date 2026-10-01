@@ -26,21 +26,25 @@ export function FirstRun() {
   const [channelName, setChannelName] = useState(data.creatorProfile.channelName);
   const [handle, setHandle] = useState(data.creatorProfile.handle);
   const [saving, setSaving] = useState(false);
+  const [failure, setFailure] = useState<string | null>(null);
 
   const complete = async (withProfile: boolean) => {
     setSaving(true);
+    setFailure(null);
     try {
       if (withProfile) {
         await mutate("updateCreatorProfile", {
           ...data.creatorProfile,
           channelName: channelName.trim(),
           handle: handle.trim()
-        });
+        }, { rethrow: true });
       }
       await mutate("updateSettings", {
         ...data.settings,
         setupCompletedAt: new Date().toISOString()
-      });
+      }, { rethrow: true });
+    } catch (error) {
+      setFailure(error instanceof Error ? error.message : "Setup could not be saved. Try again.");
     } finally {
       setSaving(false);
     }
@@ -87,12 +91,13 @@ export function FirstRun() {
           to none of them until you do. You can come back to it — nothing is queued in the meantime.
         </p>
         <div className="mt-4">
-          <Link href="/settings">
-            <Button variant="secondary">Open Settings</Button>
+          <Link href="/settings" className="inline-flex items-center justify-center rounded-lg border border-[var(--border)] bg-[var(--surface)] px-4 py-2 text-sm font-medium text-[var(--foreground)] transition hover:border-[var(--border-strong)]">
+            Open Settings
           </Link>
         </div>
       </Card>
 
+      {failure ? <p role="alert" className="break-words text-sm text-[var(--danger)]">{failure}</p> : null}
       <div className="flex flex-wrap items-center gap-2">
         <Button disabled={saving} onClick={() => void complete(true)}>
           {saving ? "Saving…" : "Start"}

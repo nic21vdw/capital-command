@@ -120,7 +120,7 @@ export function ClipQueue({
       : "all captioned";
   const optionsSummary = `${PLATFORM_TARGET_LABELS[runDefaults.platform]} · ${captionSummary} · ${hashtagSummary}`;
   return (
-    <Card className="space-y-4">
+    <Card className="min-w-0 space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h2 className="text-sm font-semibold text-white">Clips in this run</h2>
         {jobs.length > 1 ? (

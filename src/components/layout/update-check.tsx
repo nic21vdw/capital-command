@@ -149,8 +149,8 @@ export function UpdateCheckButton({ collapsed = false }: { collapsed?: boolean }
         </span>
         {!collapsed && (
           <span className="flex min-w-0 flex-1 flex-col items-start leading-tight">
-            <span className="truncate">{look.label}</span>
-            <span className="truncate text-[11px] text-[var(--muted-foreground)]">
+            <span className="max-w-full truncate">{look.label}</span>
+            <span className="max-w-full truncate text-[11px] text-[var(--muted-foreground)]" title={error ?? look.detail}>
               {error ?? look.detail}
             </span>
           </span>

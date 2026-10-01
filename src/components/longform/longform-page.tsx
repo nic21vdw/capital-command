@@ -8,6 +8,8 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { PageHeader } from "@/components/ui/page-header";
+import { WorkflowLoadNotice } from "@/components/marketing/workflow-load-notice";
+import { loadWorkflowJson, workflowLoadMessage } from "@/lib/marketing/workflow-resource";
 import { Progress } from "@/components/ui/progress";
 import { AdvancedOptions } from "@/components/ui/advanced-options";
 import { LongformEditor } from "@/components/longform/longform-editor";
@@ -83,6 +85,11 @@ export function LongformStudioPage() {
   // weight — so the one being edited is fetched whole on its own.
   const [openProject, setOpenProject] = useState<LongformProject | null>(null);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
+  const refreshInFlight = useRef(false);
+  const [detailFailure, setDetailFailure] = useState<{ id: string; message: string } | null>(null);
+  const [detailRetry, setDetailRetry] = useState(0);
   const [uploadPct, setUploadPct] = useState<number | null>(null);
   const [creating, setCreating] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -96,18 +103,24 @@ export function LongformStudioPage() {
   const [segmentsOpen, setSegmentsOpen] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
+    if (refreshInFlight.current) return;
+    refreshInFlight.current = true;
+    setRefreshing(true);
     try {
-      const response = await fetch("/api/longform/projects", { cache: "no-store" });
-      if (!response.ok) return;
-      const { projects: list } = (await response.json()) as { projects: LongformProjectSummary[] };
+      const { projects: list } = await loadWorkflowJson<{ projects: LongformProjectSummary[] }>("/api/longform/projects", "projects");
       setProjects(list);
+      setLoadError(null);
+    } catch (error) {
+      setLoadError(workflowLoadMessage(error));
     } finally {
+      refreshInFlight.current = false;
+      setRefreshing(false);
       setLoading(false);
     }
   }, []);
 
   useEffect(() => {
-    void refresh().catch(() => undefined);
+    void refresh();
   }, [refresh]);
 
   // Poll while anything is analyzing so progress cards move on their own.
@@ -125,17 +138,23 @@ export function LongformStudioPage() {
   const openIsReady = projects.some((project) => project.id === openId && project.status === "ready");
   useEffect(() => {
     if (!openId || !openIsReady) return;
-    let cancelled = false;
-    void fetch(`/api/longform/projects/${encodeURIComponent(openId)}`, { cache: "no-store" })
-      .then((response) => (response.ok ? response.json() : null))
-      .then((data: { project?: LongformProject } | null) => {
-        if (!cancelled && data?.project) setOpenProject(data.project);
+    const controller = new AbortController();
+    void loadWorkflowJson<{ project?: LongformProject }>(`/api/longform/projects/${encodeURIComponent(openId)}`, undefined, controller.signal)
+      .then((data) => {
+        if (data.project?.id !== openId) throw new Error("The selected video could not be opened.");
+        if (!controller.signal.aborted) {
+          setOpenProject(data.project);
+          setDetailFailure(null);
+        }
       })
-      .catch(() => undefined);
-    return () => {
-      cancelled = true;
-    };
-  }, [openId, openIsReady]);
+      .catch((error) => {
+        if (!controller.signal.aborted) setDetailFailure({ id: openId, message: workflowLoadMessage(error) });
+      });
+    return () => controller.abort();
+  }, [openId, openIsReady, detailRetry]);
+
+  const selectedProject = openId ? projects.find((project) => project.id === openId) : null;
+  const detailError = detailFailure?.id === openId ? detailFailure.message : null;
 
   const setOpen = useCallback(
     (id: string | null, segmentId?: string) => {
@@ -164,7 +183,7 @@ export function LongformStudioPage() {
       };
       xhr.onerror = () => {
         setUploadPct(null);
-        toast.error("Upload failed. Is the dev server still running?");
+        toast.error("The recording could not be uploaded. Check your connection and try again.");
       };
       xhr.onload = async () => {
         setUploadPct(null);
@@ -324,13 +343,16 @@ export function LongformStudioPage() {
       }
     ],
     controls: [
+      ...(loadError ? [{ id: "retry-load", label: "Retry loading videos", group: "Recovery", disabled: refreshing }] : []),
+      ...(detailError ? [{ id: "retry-open", label: "Retry opening video", group: "Recovery" }] : []),
       { id: "import", label: "Import from link", group: "Add", disabled: busy || !url.trim() },
-      { id: "close-editor", label: "Back to projects", group: "Navigate", disabled: !openProject }
+      { id: "close-editor", label: "Back to projects", group: "Navigate", disabled: !openId }
     ],
     readings: [
+      { label: "Video data", value: loadError ? `Needs retry: ${loadError}` : loading ? "Loading…" : "Loaded" },
       { label: "Projects", value: String(projects.length) },
       { label: "Still analyzing", value: String(projects.filter((project) => project.status === "processing").length) },
-      { label: "Open project", value: openProject?.name ?? (openId ? "Loading…" : "None") }
+      { label: "Open project", value: detailError ? `Needs retry: ${detailError}` : selectedProject?.name ?? (openId ? "Loading…" : "None") }
     ],
     setField: (id, value) => {
       if (id === "url") {
@@ -341,13 +363,24 @@ export function LongformStudioPage() {
       return false;
     },
     click: (id) => {
+      if (id === "retry-load") {
+        if (refreshing) return false;
+        void refresh();
+        return true;
+      }
+      if (id === "retry-open") {
+        if (!detailError) return false;
+        setDetailFailure(null);
+        setDetailRetry((value) => value + 1);
+        return true;
+      }
       if (id === "import") {
         if (busy || !url.trim()) return false;
         void importUrl();
         return true;
       }
       if (id === "close-editor") {
-        if (!openProject) return false;
+        if (!openId) return false;
         setOpen(null);
         return true;
       }
@@ -375,36 +408,59 @@ export function LongformStudioPage() {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="min-w-0 space-y-6">
       <PageHeader
         eyebrow="Step 2 · Formats"
         title="Long-Form Video"
         description="Turn a raw recording into a finished long-form upload."
       />
+      {loadError ? <WorkflowLoadNotice title="Your videos could not be refreshed" message={loadError} retained={projects.length > 0} retrying={refreshing} onRetry={() => void refresh()} /> : null}
+      {openIsReady && openProject?.id !== openId ? (
+        detailError ? (
+          <WorkflowLoadNotice title="This video could not be opened" message={detailError} onRetry={() => {
+            setDetailFailure(null);
+            setDetailRetry((value) => value + 1);
+          }} />
+        ) : (
+          <Card className="flex items-center gap-2 text-sm text-[var(--muted-foreground)]" role="status">
+            <Loader2 className="h-4 w-4 animate-spin" /> Opening {selectedProject?.name ?? "your video"}…
+          </Card>
+        )
+      ) : null}
+      {openId && !loading && !loadError && !selectedProject ? (
+        <Card className="flex flex-wrap items-center justify-between gap-3 text-sm">
+          <p className="text-[var(--muted-foreground)]">This video is no longer in your project library.</p>
+          <Button variant="secondary" onClick={() => setOpen(null)}>Back to projects</Button>
+        </Card>
+      ) : null}
 
       {/* Analyzing state for the opened project */}
-      {openProject && openProject.status !== "ready" && (
+      {selectedProject && selectedProject.status !== "ready" && (
         <Card className="animate-in space-y-3">
           <div className="flex items-center justify-between gap-3">
             <div className="min-w-0">
-              <h2 className="truncate text-base font-semibold text-white">{openProject.name}</h2>
+              <h2 className="truncate text-base font-semibold text-white">{selectedProject.name}</h2>
               <p className="text-sm text-[var(--muted-foreground)]">
-                {openProject.status === "error"
-                  ? (openProject.error ?? "Something went wrong analyzing this video.")
-                  : `${STAGE_LABELS[openProject.stage]}… this runs fully on your machine.`}
+                {selectedProject.status === "error"
+                  ? (selectedProject.error ?? "Something went wrong analyzing this video.")
+                  : `${STAGE_LABELS[selectedProject.stage]}… this runs fully on your machine.`}
               </p>
             </div>
-            <Badge>{openProject.status === "error" ? "Error" : `${openProject.progress}%`}</Badge>
+            <Badge tone={selectedProject.status === "error" ? "danger" : "info"}>{selectedProject.status === "error" ? "Error" : `${selectedProject.progress}%`}</Badge>
           </div>
-          {openProject.status === "processing" && <Progress value={openProject.progress} />}
+          {selectedProject.status === "processing" && <Progress value={selectedProject.progress} />}
           <div className="flex gap-2">
-            {openProject.status === "error" && (
+            {selectedProject.status === "error" && (
               <Button
                 variant="secondary"
                 onClick={async () => {
-                  const response = await fetch(`/api/longform/projects/${openProject.id}`, { method: "POST" });
-                  if (response.ok) void refresh();
-                  else toast.error("Could not retry the analysis.");
+                  try {
+                    const response = await fetch(`/api/longform/projects/${selectedProject.id}`, { method: "POST" });
+                    if (response.ok) void refresh();
+                    else toast.error("Could not retry the analysis.");
+                  } catch {
+                    toast.error("CoLateral could not be reached. Try the analysis again.");
+                  }
                 }}
               >
                 Retry analysis
@@ -417,9 +473,9 @@ export function LongformStudioPage() {
         </Card>
       )}
 
-      <div className="grid gap-6 xl:grid-cols-[380px_minmax(0,1fr)]">
+      <div className="grid min-w-0 grid-cols-1 gap-6 xl:grid-cols-[380px_minmax(0,1fr)]">
         {/* Upload */}
-        <div className="space-y-4">
+        <div className="min-w-0 space-y-4">
           <Card>
             <h2 className="text-base font-semibold text-white">Add a recording</h2>
             <input
@@ -437,7 +493,10 @@ export function LongformStudioPage() {
               tabIndex={0}
               onClick={() => !busy && fileRef.current?.click()}
               onKeyDown={(event) => {
-                if ((event.key === "Enter" || event.key === " ") && !busy) fileRef.current?.click();
+                if ((event.key === "Enter" || event.key === " ") && !busy) {
+                  event.preventDefault();
+                  fileRef.current?.click();
+                }
               }}
               onDragEnter={(event) => {
                 event.preventDefault();
@@ -559,10 +618,10 @@ export function LongformStudioPage() {
         </div>
 
         {/* Project list */}
-        <div className="space-y-3">
+        <div className="min-w-0 space-y-3">
           <h2 className="text-base font-semibold text-white">Your videos</h2>
           {loading && <p className="text-sm text-[var(--muted-foreground)]">Loading…</p>}
-          {!loading && projects.length === 0 && (
+          {!loading && !loadError && projects.length === 0 && (
             <Card className="flex flex-col items-center gap-2 py-12 text-center">
               <Clapperboard className="h-8 w-8 text-[var(--muted-foreground)]" />
               <p className="text-sm text-[var(--muted-foreground)]">
@@ -570,7 +629,7 @@ export function LongformStudioPage() {
               </p>
             </Card>
           )}
-          <div className="grid gap-3 sm:grid-cols-2">
+          <div className="grid min-w-0 grid-cols-1 gap-3 sm:grid-cols-2">
             {projects.map((project) => {
               const editedSec = project.editedDurationSec;
               return (

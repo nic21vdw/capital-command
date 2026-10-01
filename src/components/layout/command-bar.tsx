@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   ChevronDown,
@@ -83,6 +83,8 @@ export function CommandBar() {
   const [speakReplies, setSpeakReplies] = useState(false);
   const [grant, setGrant] = useState<GrantView>(READ_ONLY_GRANT);
   const [grantId, setGrantId] = useState<string | null>(restored.grantId);
+  const [arming, setArming] = useState(false);
+  const transcriptId = useId();
 
   const inputRef = useRef<HTMLInputElement | null>(null);
   const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
@@ -289,32 +291,42 @@ export function CommandBar() {
     };
     recognition.onerror = () => setListening(false);
     recognitionRef.current = recognition;
-    recognition.start();
-    setListening(true);
-    setSpeakReplies(true);
+    try {
+      recognition.start();
+      setListening(true);
+      setSpeakReplies(true);
+    } catch {
+      recognitionRef.current = null;
+      toast.error("The microphone could not start. Check microphone permissions or type your command.");
+    }
   };
 
   async function toggleActions() {
+    if (arming) return;
     if (grant.armed) {
       setGrant(READ_ONLY_GRANT);
       setGrantId(null);
       return;
     }
-    const response = await fetch("/api/voice/ask", { method: "PUT" });
-    const data = (await response.json()) as { grantId?: string; expiresAt?: number };
-    if (!data.grantId) {
-      toast.error("Could not arm actions.");
-      return;
+    setArming(true);
+    try {
+      const response = await fetch("/api/voice/ask", { method: "PUT" });
+      const data = (await response.json()) as { grantId?: string; expiresAt?: number; error?: string };
+      if (!response.ok || !data.grantId) throw new Error(data.error || "Could not arm actions. Try again.");
+      setGrantId(data.grantId);
+      setGrant({ armed: true, expired: false, expiresAt: data.expiresAt ?? null });
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Could not arm actions. Check your connection and try again.");
+    } finally {
+      setArming(false);
     }
-    setGrantId(data.grantId);
-    setGrant({ armed: true, expired: false, expiresAt: data.expiresAt ?? null });
   }
 
   return (
-    <div className="pointer-events-none fixed inset-x-0 bottom-0 z-40 flex justify-center px-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] sm:px-3 sm:pb-[max(1.5rem,env(safe-area-inset-bottom))]">
+    <section aria-label="Marketing assistant" className="marketing-command-bar pointer-events-none fixed inset-x-0 bottom-0 z-40 flex justify-center px-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] sm:px-3 sm:pb-[max(1.5rem,env(safe-area-inset-bottom))]">
       <div className="pointer-events-auto w-full max-w-3xl">
         {open && lines.length ? (
-          <div className="glass-popover mb-2 max-h-[45vh] overflow-y-auto rounded-2xl border p-3">
+          <div id={transcriptId} className="glass-popover mb-2 max-h-[45dvh] overflow-y-auto rounded-2xl border p-3">
             <button
               type="button"
               onClick={() => setOpen(false)}
@@ -322,12 +334,12 @@ export function CommandBar() {
             >
               <ChevronDown className="h-3.5 w-3.5" /> hide
             </button>
-            <div className="space-y-2">
+            <div role="log" aria-label="Assistant conversation" aria-live="polite" className="space-y-2">
               {lines.map((line) => (
                 <div key={line.id}>
                   <div
                     className={cn(
-                      "rounded-lg px-3 py-2 text-sm leading-relaxed",
+                      "whitespace-pre-wrap break-words rounded-lg px-3 py-2 text-sm leading-relaxed [overflow-wrap:anywhere]",
                       line.role === "user"
                         ? "bg-white/[0.04] text-white"
                         : "border border-[var(--accent)]/25 bg-[var(--accent)]/8 text-white/90"
@@ -388,11 +400,15 @@ export function CommandBar() {
             onChange={(event) => setValue(event.target.value)}
             onFocus={() => lines.length && setOpen(true)}
             onKeyDown={(event) => {
+              if (event.key === "Escape") setOpen(false);
               if (event.key === "Enter") {
                 event.preventDefault();
                 submit(value);
               }
             }}
+            aria-label="Marketing assistant command"
+            aria-keyshortcuts="Control+K Meta+K"
+            aria-controls={open && lines.length ? transcriptId : undefined}
             placeholder={
               listening
                 ? "Listening — speak now"
@@ -406,6 +422,7 @@ export function CommandBar() {
           <button
             type="button"
             onClick={() => void toggleActions()}
+            disabled={arming}
             title={shield.title}
             className={cn(
               "flex shrink-0 items-center gap-1.5 rounded-lg border px-2 py-1.5 text-xs transition",
@@ -413,22 +430,25 @@ export function CommandBar() {
               shield.tone === "expired" && "border-red-400/50 bg-red-400/10 text-red-200 hover:bg-red-400/20",
               shield.tone === "read-only" && "border-[var(--border)] text-[var(--muted-foreground)] hover:text-white"
             )}
-            aria-label={shield.label}
+            aria-label={arming ? "Enabling assistant actions" : shield.label}
+            aria-busy={arming}
           >
-            {shield.tone === "armed" ? (
+            {arming ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : shield.tone === "armed" ? (
               <Unlock className="h-3.5 w-3.5" />
             ) : shield.tone === "expired" ? (
               <ShieldAlert className="h-3.5 w-3.5" />
             ) : (
               <ShieldCheck className="h-3.5 w-3.5" />
             )}
-            <span className="hidden sm:inline">{shield.label}</span>
+            <span className="hidden sm:inline">{arming ? "Enabling…" : shield.label}</span>
           </button>
 
           <button
             type="button"
             onClick={() => setSpeakReplies((current) => !current)}
             title={speakReplies ? "Answers are read out loud" : "Answers are silent"}
+            aria-label={speakReplies ? "Mute spoken answers" : "Read answers aloud"}
+            aria-pressed={speakReplies}
             className="hidden h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-[var(--border)] text-[var(--muted-foreground)] transition hover:text-white sm:flex"
           >
             {speakReplies ? <Volume2 className="h-4 w-4 text-[var(--accent)]" /> : <VolumeX className="h-4 w-4" />}
@@ -438,6 +458,8 @@ export function CommandBar() {
             type="button"
             onClick={toggleListening}
             title={listening ? "Listening — click to stop" : "Speak a command"}
+            aria-label={listening ? "Stop listening" : "Speak a command"}
+            aria-pressed={listening}
             className={cn(
               "flex shrink-0 items-center gap-1.5 rounded-lg border px-2 py-1.5 text-xs transition",
               listening
@@ -454,6 +476,7 @@ export function CommandBar() {
               type="button"
               onClick={stop}
               title="Stop"
+              aria-label="Stop command and clear queued commands"
               className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-red-400/40 bg-red-400/10 text-red-200 transition hover:bg-red-400/20"
             >
               <Square className="h-3.5 w-3.5 fill-current" />
@@ -463,6 +486,7 @@ export function CommandBar() {
               type="button"
               onClick={() => submit(value)}
               disabled={!value.trim()}
+              aria-label="Send command"
               className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-[var(--accent)] text-[var(--accent-contrast)] transition disabled:opacity-40"
             >
               <SendHorizonal className="h-4 w-4" />
@@ -471,12 +495,12 @@ export function CommandBar() {
         </div>
 
         {thinking ? (
-          <p className="mt-1 flex items-center gap-1.5 px-2 text-[11px] text-[var(--muted-foreground)]">
+          <p role="status" className="mt-1 flex items-center gap-1.5 px-2 text-[11px] text-[var(--muted-foreground)]">
             <Loader2 className="h-3 w-3 animate-spin" />
             Working{queued.length ? ` · ${queued.length} queued` : ""} — press stop to cancel
           </p>
         ) : null}
       </div>
-    </div>
+    </section>
   );
 }

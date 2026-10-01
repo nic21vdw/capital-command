@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import {
   AtSign,
   Bot,
@@ -135,12 +135,13 @@ const STUDIO_ITEMS: NavItem[] = [
  * them. Now the switch decides, and the switch puts them in the sidebar.
  */
 const FINANCE_ITEM: NavItem = { href: "/finance", label: "Personal Finance", icon: WalletCards };
+const SETTINGS_ITEM: NavItem = { href: "/settings", label: "Settings", icon: Settings };
 
 function studioItemsFor(personalDashboard: boolean | undefined): NavItem[] {
   return personalDashboard === true ? [...STUDIO_ITEMS, FINANCE_ITEM] : STUDIO_ITEMS;
 }
 
-const ALL_NAV_ITEMS = [...PIPELINE_STAGES.flatMap((stage) => stage.items), ...STUDIO_ITEMS, FINANCE_ITEM];
+const ALL_NAV_ITEMS = [...PIPELINE_STAGES.flatMap((stage) => stage.items), ...STUDIO_ITEMS, FINANCE_ITEM, SETTINGS_ITEM];
 const SIDEBAR_COLLAPSED_KEY = "capital-command:sidebar-collapsed";
 const STUDIO_OPEN_KEY = "capital-command:studio-open";
 // Shown in the sidebar brand until a display name is saved in Settings.
@@ -558,6 +559,8 @@ function NavLink({ item, active, collapsed = false }: { item: NavItem; active: b
   return (
     <Link
       href={href}
+      aria-current={active ? "page" : undefined}
+      aria-label={collapsed ? item.label : undefined}
       title={collapsed ? (attention > 0 ? `${item.label} — ${attention} needing attention` : item.label) : undefined}
       className={cn(
         "flex items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-sm transition",
@@ -743,29 +746,56 @@ function NarrowChrome({ pathname }: { pathname: string }) {
   const { data: appData } = useAppData();
   const studioItems = studioItemsFor(appData.settings.personalDashboard);
   const [menuOpen, setMenuOpen] = useState(false);
+  const menuId = useId();
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const menuRef = useRef<HTMLElement>(null);
 
   useEffect(() => {
     if (!menuOpen) return;
+    const first = menuRef.current?.querySelector<HTMLAnchorElement>("a[aria-current='page']")
+      ?? menuRef.current?.querySelector<HTMLAnchorElement>("a");
+    first?.focus();
     const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setMenuOpen(false);
+      if (event.key === "Escape") {
+        setMenuOpen(false);
+        triggerRef.current?.focus();
+      }
+    };
+    const onPointerDown = (event: PointerEvent) => {
+      const target = event.target;
+      if (target instanceof Node && !menuRef.current?.contains(target) && !triggerRef.current?.contains(target)) {
+        setMenuOpen(false);
+      }
     };
     window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
+    document.addEventListener("pointerdown", onPointerDown);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      document.removeEventListener("pointerdown", onPointerDown);
+    };
   }, [menuOpen]);
 
   const current = ALL_NAV_ITEMS.find((item) => isActivePath(pathname, item.href)) ?? ALL_NAV_ITEMS[0];
   const CurrentIcon = current.icon;
 
   return (
-    <div className="mb-3 lg:hidden">
-      <div className="glass-inset flex items-center gap-2 rounded-xl border p-1.5">
+    <div className="relative z-50 mb-3 lg:hidden">
+      <div className="glass-inset relative flex items-center gap-2 rounded-xl border p-1.5">
         <ColateralMarketingMark collapsed className="pl-1" />
-        <div className="relative min-w-0 flex-1">
+        <div className="min-w-0 flex-1">
           <button
+            ref={triggerRef}
             type="button"
             onClick={() => setMenuOpen((open) => !open)}
+            onKeyDown={(event) => {
+              if (event.key === "ArrowDown") {
+                event.preventDefault();
+                setMenuOpen(true);
+              }
+            }}
             aria-expanded={menuOpen}
-            aria-label={`${current.label} — open menu`}
+            aria-controls={menuId}
+            aria-label={`${current.label} — ${menuOpen ? "close" : "open"} navigation`}
             className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left transition hover:bg-white/5"
           >
             <CurrentIcon className="h-4 w-4 shrink-0 text-[var(--accent)]" />
@@ -773,14 +803,17 @@ function NarrowChrome({ pathname }: { pathname: string }) {
             <ChevronDown className={cn("h-4 w-4 shrink-0 text-[var(--muted-foreground)] transition", menuOpen && "rotate-180")} />
           </button>
           {menuOpen && (
-            <>
-              <button
-                type="button"
-                aria-label="Close menu"
-                onClick={() => setMenuOpen(false)}
-                className="fixed inset-0 z-40 cursor-default"
-              />
-              <div className="glass-popover absolute inset-x-0 top-full z-50 mt-1.5 max-h-[70vh] overflow-y-auto rounded-xl border p-2">
+              <nav
+                ref={menuRef}
+                id={menuId}
+                aria-label="Marketing navigation"
+                className="glass-popover absolute inset-x-0 top-full z-50 mt-1.5 max-h-[70dvh] overflow-y-auto rounded-xl border p-2"
+                onBlur={(event) => {
+                  if (!event.currentTarget.contains(event.relatedTarget) && event.relatedTarget !== triggerRef.current) {
+                    setMenuOpen(false);
+                  }
+                }}
+              >
                 {PIPELINE_STAGES.map((stage) => (
                   <div key={stage.step} className="pb-1.5">
                     <p className="flex items-center gap-1.5 px-1 pb-1 text-[10px] font-semibold uppercase tracking-wider text-[var(--muted-foreground)]">
@@ -813,14 +846,13 @@ function NarrowChrome({ pathname }: { pathname: string }) {
                       />
                     ))}
                     <NarrowNavItem
-                      item={{ href: "/settings", label: "Settings", icon: Settings }}
+                      item={SETTINGS_ITEM}
                       active={pathname === "/settings"}
                       onSelect={() => setMenuOpen(false)}
                     />
                   </div>
                 </div>
-              </div>
-            </>
+              </nav>
           )}
         </div>
         <MobileChannelChip />
@@ -838,13 +870,14 @@ function NarrowNavItem({ item, active, onSelect }: { item: NavItem; active: bool
     <Link
       href={streamHref(item.href, stream)}
       onClick={onSelect}
+      aria-current={active ? "page" : undefined}
       className={cn(
         "flex items-center gap-2 rounded-lg px-2 py-2 text-xs transition",
         active ? "bg-white/8 font-medium text-white" : "text-[var(--muted-foreground)] hover:bg-white/5 hover:text-white"
       )}
     >
       <Icon className={cn("h-4 w-4 shrink-0", active && "text-[var(--accent)]")} />
-      <span className="min-w-0 flex-1 truncate">{item.label}</span>
+      <span className="min-w-0 flex-1 leading-snug">{item.label}</span>
       {attention > 0 && <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-amber-400" />}
     </Link>
   );
@@ -907,7 +940,10 @@ export function AppShell({ children, frame = false }: { children: React.ReactNod
  */
 function SetupGate({ children }: { children: React.ReactNode }) {
   const { data } = useAppData();
-  if (!data.settings.setupCompletedAt) return <FirstRun />;
+  const pathname = usePathname();
+  // Setup itself offers Open Settings, so that recovery route must remain
+  // reachable before setup is finished.
+  if (!data.settings.setupCompletedAt && pathname !== "/settings") return <FirstRun />;
   return <>{children}</>;
 }
 
@@ -961,8 +997,10 @@ function AppChrome({ children, frame }: { children: React.ReactNode; frame: bool
 
   return (
     <div
+      data-sidebar={hostedBare ? "none" : sidebarCollapsed ? "collapsed" : "expanded"}
+      data-hosted={hosted ? "true" : undefined}
       className={cn(
-        "flex min-h-screen gap-6 px-2 py-2 sm:px-4 sm:py-4 lg:px-6",
+        "marketing-shell flex min-h-screen gap-6 px-2 py-2 sm:px-4 sm:py-4 lg:px-6",
         frame && "app-frame",
         hosted && "gap-4 px-2 py-2 sm:px-3 sm:py-3 lg:px-3"
       )}
@@ -974,7 +1012,7 @@ function AppChrome({ children, frame }: { children: React.ReactNode; frame: bool
           hostedBare && "lg:hidden"
         )}
       >
-        <div className="glass glass-panel sticky top-4 flex h-[calc(100vh-2rem)] flex-col rounded-xl border p-4">
+        <div className="marketing-sidebar glass glass-panel sticky top-4 flex h-[calc(100dvh-2rem)] flex-col rounded-xl border p-4">
           {/* When collapsed the rail is too narrow for the brand and the toggle
               side by side, so stack them instead of letting them overflow. */}
           <div className={cn("flex pb-3", sidebarCollapsed ? "flex-col items-center gap-2" : "items-center justify-between gap-2 px-1")}>
@@ -1004,7 +1042,7 @@ function AppChrome({ children, frame }: { children: React.ReactNode; frame: bool
             <StreamCard collapsed={sidebarCollapsed} />
           </div>
 
-          <nav className="flex-1 space-y-5 overflow-y-auto pr-0.5">
+          <nav aria-label="Marketing navigation" className="min-h-0 flex-1 space-y-5 overflow-y-auto pr-0.5">
             <div>
               <p
                 className={cn(
@@ -1036,7 +1074,7 @@ function AppChrome({ children, frame }: { children: React.ReactNode; frame: bool
           <div className="mt-4 space-y-3 border-t border-[var(--border)] pt-4">
             <UpdateCheckButton collapsed={sidebarCollapsed} />
             <NavLink
-              item={{ href: "/settings", label: "Settings", icon: Settings }}
+              item={SETTINGS_ITEM}
               active={settingsActive}
               collapsed={sidebarCollapsed}
             />
@@ -1048,7 +1086,7 @@ function AppChrome({ children, frame }: { children: React.ReactNode; frame: bool
         {/* Above everything, on every page: a release waiting on `dev` is the
             one thing worth interrupting whatever is on screen for. */}
         <UpdateBanner />
-        <NarrowChrome pathname={pathname} />
+        {!hosted && <NarrowChrome key={`navigation:${pathname}`} pathname={pathname} />}
         {/* Keyed on the route so each navigation pushes the new page in with an
             iOS-style transition. Query-param changes (e.g. tab switches) keep
             the same key and don't re-animate. */}
@@ -1058,11 +1096,10 @@ function AppChrome({ children, frame }: { children: React.ReactNode; frame: bool
           <StreamBanner />
           {children}
         </div>
-        <div className={cn((frame || hostedBare) && "app-frame-hide")}>
-          <AppFooter />
-          {/* Room for the command bar, which floats over everything. */}
-          <div className="h-24 sm:h-32" />
-        </div>
+        {!hostedBare && <div className={cn(frame && "app-frame-hide")}><AppFooter /></div>}
+        {/* Bare cards still have a command bar. Only a framed page with its
+            own padded scroll pane can replace this clearance. */}
+        <div aria-hidden="true" className={cn("marketing-command-clearance shrink-0", frame && "app-frame-hide")} />
       </main>
       <CommandBar />
     </div>

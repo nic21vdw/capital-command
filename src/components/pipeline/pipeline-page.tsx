@@ -1,6 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { WorkflowLoadNotice } from "@/components/marketing/workflow-load-notice";
+import { loadWorkflowJson, workflowLoadMessage } from "@/lib/marketing/workflow-resource";
 import Link from "next/link";
 import { PUBLISHING_OFF_MESSAGE } from "@/lib/publisher/enabledMessage";
 import { usePathname, useSearchParams } from "next/navigation";
@@ -363,6 +365,9 @@ export function PipelinePage() {
   const [overviews, setOverviews] = useState<PipelineRunOverview[]>([]);
   const [coverage, setCoverage] = useState<ChannelCoverage | null>(null);
   const [loaded, setLoaded] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
+  const refreshInFlight = useRef(false);
   const [activeRunId, setActiveRunId] = useState<string | null>(requestedRunId);
   // The app opens on the bare search bar; the flow only exists once a stream has
   // been sent through it (or a past run is picked up again).
@@ -404,14 +409,20 @@ export function PipelinePage() {
   }, [activeRunId, launching, overviews]);
 
   const refresh = useCallback(async () => {
+    if (refreshInFlight.current) return;
+    refreshInFlight.current = true;
+    setRefreshing(true);
     try {
-      const response = await fetch("/api/pipeline", { cache: "no-store" });
-      if (!response.ok) return;
-      const payload = (await response.json()) as { runs: PipelineRunOverview[]; coverage?: ChannelCoverage | null };
+      const payload = await loadWorkflowJson<{ runs: PipelineRunOverview[]; coverage?: ChannelCoverage | null }>("/api/pipeline", "runs");
       setOverviews(payload.runs);
       setCoverage(payload.coverage ?? null);
-    } finally {
       setLoaded(true);
+      setLoadError(null);
+    } catch (error) {
+      setLoadError(workflowLoadMessage(error));
+    } finally {
+      refreshInFlight.current = false;
+      setRefreshing(false);
     }
   }, []);
 
@@ -467,7 +478,7 @@ export function PipelinePage() {
       await startRun({ url: trimmed });
     } catch {
       setLaunching(false);
-      toast.error("Request failed. Is the dev server still running?");
+      toast.error("CoLateral could not be reached. Check your connection and try again.");
     } finally {
       setSubmitting(false);
     }
@@ -493,7 +504,7 @@ export function PipelinePage() {
         await startRun({ sourceId: payload.source.id });
       } catch {
         setLaunching(false);
-        toast.error("Upload failed. Is the dev server still running?");
+        toast.error("The recording could not be uploaded. Check your connection and try again.");
       } finally {
         setUploading(false);
       }
@@ -852,6 +863,7 @@ export function PipelinePage() {
       }
     ],
     controls: [
+      ...(loadError ? [{ id: "retry-load", label: "Retry loading pipeline runs", group: "Recovery", disabled: refreshing }] : []),
       { id: "submit", label: "Start pipeline", group: "Import", disabled: busy || !url.trim() },
       { id: "back-to-search", label: "Start a new stream", group: "Import", disabled: !showFlow },
       { id: "rescan", label: "Scan the channel now", group: "Channel", disabled: working === "scan" },
@@ -864,6 +876,7 @@ export function PipelinePage() {
       { id: "delete-active-run", label: "Remove this run", group: "Run", disabled: !run, destructive: true }
     ],
     readings: [
+      { label: "Pipeline data", value: loadError ? `Needs retry: ${loadError}` : loaded ? "Loaded" : "Loading…" },
       { label: "Runs in flight", value: String(overviews.filter((entry) => !entry.settled).length) },
       { label: "Total runs", value: String(overviews.length) },
       { label: "Active run", value: run?.name ?? "None" },
@@ -888,6 +901,11 @@ export function PipelinePage() {
       return false;
     },
     click: (id) => {
+      if (id === "retry-load") {
+        if (refreshing) return false;
+        void refresh();
+        return true;
+      }
       if (id === "submit") {
         if (busy || !url.trim()) return false;
         void submitUrl();
@@ -998,6 +1016,7 @@ export function PipelinePage() {
       >
         <div className="pipeline-hero-enter w-full max-w-3xl">
           {scanNotice}
+          {loadError ? <div className="mb-4"><WorkflowLoadNotice title="Your pipeline runs could not be refreshed" message={loadError} retained={loaded} retrying={refreshing} onRetry={() => void refresh()} /></div> : null}
           <h1 className="text-center text-3xl font-semibold tracking-tight text-white sm:text-4xl">
             {dragActive ? "Drop it anywhere." : "Drop in a stream. The rest runs itself."}
           </h1>
@@ -1027,7 +1046,7 @@ export function PipelinePage() {
           ) : null}
           {loaded ? (
             runList()
-          ) : (
+          ) : loadError ? null : (
             // Never render this screen as a bare "no runs" state. The first
             // fetch can be slow (or blocked behind heavy work), and an empty
             // landing page made a run that was mid-flight look like it had
@@ -1372,6 +1391,7 @@ export function PipelinePage() {
 
       <div className="mx-auto mt-5 max-w-4xl">
         {scanNotice}
+        {loadError ? <div className="mb-4"><WorkflowLoadNotice title="Your pipeline runs could not be refreshed" message={loadError} retained={loaded} retrying={refreshing} onRetry={() => void refresh()} /></div> : null}
         {!stages ? (
           loaded ? (
             <Card className="p-10 text-center text-sm text-[var(--muted-foreground)]">
