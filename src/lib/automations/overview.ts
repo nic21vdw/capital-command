@@ -3,9 +3,9 @@ import type { PipelineRun } from "@/lib/pipeline/types";
 import { readLedger, scanHealth } from "@/lib/ingest/ledger";
 import { activeIngestJob } from "@/lib/ingest/service";
 import type { IngestLedger } from "@/lib/ingest/types";
-import { hostingConfigured, publisherConfig, type PublisherConfig } from "@/lib/publisher/config";
+import { bufferConfigured, hostingConfigured, publisherConfig, type PublisherConfig } from "@/lib/publisher/config";
 import { publishQueue } from "@/lib/publisher/queue";
-import type { QueueItem } from "@/lib/publisher/types";
+import type { BufferState, QueueItem } from "@/lib/publisher/types";
 import { threadsBlockedReason, threadsConfig, type ThreadsConfig } from "@/lib/threads/config";
 import { readQueue } from "@/lib/threads/queue";
 import { readThreadsState, tickHealth, type ThreadsState } from "@/lib/threads/state";
@@ -110,15 +110,19 @@ export function buildAutomationOverview(input: AutomationInputs, now = new Date(
   const publisherTask = input.tasks.publisher;
   const publisherTick = input.outcomes.publisher;
   const pending = platformStates.filter(({ state }) => ["pending", "uploaded", "scheduled"].includes(state.status));
+  const bufferStates = input.queue.filter((item) => item.buffer || input.publisher.buffer.enabled).map((item): { item: QueueItem; state: BufferState } => ({ item, state: item.buffer ?? { status: "pending", attempts: 0 } }));
+  const bufferPending = bufferStates.filter(({ state }) => ["pending", "scheduled"].includes(state.status));
   const publisherIssues = platformStates.filter(({ state }) => Boolean(state.error)).map(({ item, platform, state }) => `${item.caption.slice(0, 60)} (${platform}): ${state.error}`).slice(0, 5);
+  publisherIssues.push(...bufferStates.filter(({ state }) => state.error || state.status === "manual").map(({ item, state }) => `${item.title} (Buffer): ${state.error ?? state.note ?? "Manual posting is required."}`).slice(0, 5));
   if (publisherTick?.status === "failed") publisherIssues.unshift(publisherTick.detail);
+  if (publisherTick && now.getTime() - Date.parse(publisherTick.at) > 15 * 60_000) publisherIssues.unshift("No publisher tick recorded in over 15 minutes.");
   const publisher = card("publisher", {
     title: "Video and image publisher", description: "Upload booked posts and check delivery at their scheduled slots.", href: "/uploading-center",
-    blockers: [...taskBlocker(publisherTask), ...(!input.publisher.enabled ? ["Publishing is switched off in Settings."] : []), ...(!input.publisher.platforms.length ? ["No publishing platforms are enabled."] : [])],
+    blockers: [...taskBlocker(publisherTask), ...(!input.publisher.enabled ? ["Publishing is switched off in Settings."] : []), ...(!input.publisher.platforms.length && !bufferConfigured(input.publisher) ? ["No publishing platforms or connected Buffer profiles are enabled."] : []), ...(input.publisher.buffer.enabled && !bufferConfigured(input.publisher) ? ["Buffer is enabled but its account and profiles are not configured."] : [])],
     schedule: publisherTask?.schedule ? `Windows task: ${publisherTask.schedule}` : "Windows task schedule not verified", timezone: input.publisher.timezone,
-    nextRunAt: publisherTask?.nextRunAt ?? null, nextItemAt: nextAt(pending.map(({ item, state }) => state.nextAttemptAt ?? item.publishAt)),
+    nextRunAt: publisherTask?.nextRunAt ?? null, nextItemAt: nextAt([...pending, ...bufferPending].map(({ item, state }) => state.nextAttemptAt ?? item.publishAt)),
     lastRunAt: publisherTick?.at ?? null, lastOutcome: publisherTick?.detail ?? null,
-    counts: [{ label: "Waiting platform deliveries", value: pending.length }, { label: "Published", value: platformStates.filter(({ state }) => state.status === "published").length }, { label: "Failed", value: platformStates.filter(({ state }) => state.status === "failed").length }],
+    counts: [{ label: "Waiting deliveries", value: pending.length + bufferPending.length }, { label: "Published", value: platformStates.filter(({ state }) => state.status === "published").length + bufferStates.filter(({ state }) => state.status === "published").length }, { label: "Failed", value: platformStates.filter(({ state }) => state.status === "failed").length + bufferStates.filter(({ state }) => state.status === "failed").length }],
     issues: publisherIssues, running: publisherTask?.state === "running"
   });
   const threadsTask = input.tasks.threads;
