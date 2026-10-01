@@ -161,9 +161,9 @@ async function fetchProfile(accessToken: string): Promise<SpotifyProfile> {
   };
 }
 
-export async function spotifyProfile(): Promise<SpotifyProfile | null> {
+export async function spotifyProfile(refresh = false): Promise<SpotifyProfile | null> {
   const cached = await getCachedToken(SPOTIFY_PROFILE_CACHE_KEY);
-  if (cached) {
+  if (cached && !refresh) {
     try {
       return JSON.parse(cached) as SpotifyProfile;
     } catch {

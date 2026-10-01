@@ -8,7 +8,13 @@ import { feedBlockers } from "@/lib/podcast/feed";
 import { feedUrl, podcastConfigured, publishEpisode, refreshFeed } from "@/lib/podcast/publish";
 import { checkPublicBaseUrl, writePublicBaseUrl } from "@/lib/podcast/publicUrl";
 import { readPodcastState, removeEpisode, updateShow } from "@/lib/podcast/store";
-import type { PodcastShow } from "@/lib/podcast/types";
+import {
+  managePodcastDelivery,
+  podcastAutomationStatus,
+  savePodcastAutomation,
+  scheduleEpisode,
+} from "@/lib/podcast/schedule";
+import type { PodcastAutomation, PodcastShow } from "@/lib/podcast/types";
 import { hostingConfigured, publisherConfig } from "@/lib/publisher/config";
 
 export const runtime = "nodejs";
@@ -31,7 +37,10 @@ async function payload(feedWarning?: string) {
       hosted: configured,
       bucketConnected: hostingConfigured(config)
     }),
-    candidates: episodeCandidates(await listProjects(), state.episodes),
+    candidates: episodeCandidates(await listProjects(), state.episodes,
+      state.deliveries,
+    ),
+    scheduling: await podcastAutomationStatus(),
     feedWarning
   });
 }
@@ -72,6 +81,27 @@ export async function POST(request: NextRequest) {
   const action = String(body.action ?? "");
 
   try {
+    if (action === "save-automation") {
+      await savePodcastAutomation(body.automation as PodcastAutomation);
+      return payload();
+    }
+
+    if (
+      action === "retry-delivery" ||
+      action === "cancel-delivery" ||
+      action === "reschedule-delivery"
+    ) {
+      await managePodcastDelivery(
+        String(body.deliveryId ?? ""),
+        action === "retry-delivery"
+          ? "retry"
+          : action === "cancel-delivery"
+            ? "cancel"
+            : "reschedule",
+        body.publishAt === undefined ? undefined : String(body.publishAt),
+      );
+      return payload();
+    }
     if (action === "save-show") {
       const patch: Partial<PodcastShow> = {};
       for (const field of SHOW_FIELDS) {
@@ -111,7 +141,7 @@ export async function POST(request: NextRequest) {
       return payload();
     }
 
-    if (action === "publish-export") {
+    if (action === "publish-export" || action === "schedule-export") {
       const projectId = String(body.projectId ?? "");
       const exportId = String(body.exportId ?? "");
       const project = await getProject(projectId);
@@ -126,14 +156,22 @@ export async function POST(request: NextRequest) {
         );
       }
       const metadata = await episodeMetadata(project);
-      await publishEpisode({
+      const input = {
         filePath: path.join(projectOutputDir(project.id), record.audioFile),
         title: record.title ?? metadata?.titles[0] ?? project.name,
         description: metadata?.description ?? project.name,
         durationSec: record.durationSec ?? 0,
         projectId: project.id,
         exportId: record.id
-      });
+      };
+      if (action === "schedule-export") {
+        await scheduleEpisode(
+          input,
+          body.publishAt === undefined ? undefined : String(body.publishAt),
+        );
+      } else {
+        await publishEpisode(input);
+      }
       return payload();
     }
 

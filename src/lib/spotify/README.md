@@ -64,6 +64,12 @@ title drifted between the feed and the show page. That is the place to look.
 - `match.ts` — pure title matching.
 - `status.ts` — what `/api/spotify` returns and what the Podcast page renders.
 
+Account readiness verifies the saved connection with a fresh token and profile
+read. A browser session signed into Spotify is separate from the app's saved
+OAuth grant. An expired or unreadable grant is shown as disconnected rather
+than claiming a cached profile is still connected. Feed delivery does not need
+this read-only account grant; claiming the public RSS feed once is still needed.
+
 The linked show's id lives on the podcast show record
 (`data/podcast/show.json` → `show.spotifyShowId`) rather than in a settings
 file of its own, because it belongs to the same show every other podcast

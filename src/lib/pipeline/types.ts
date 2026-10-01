@@ -73,6 +73,8 @@ export type PipelineRun = {
   audioNote?: string;
   /** Episode added to the Spotify RSS feed from this run's MP3. */
   podcastEpisodeId?: string;
+  podcastDeliveryId?: string;
+  podcastPublishAt?: string;
   /** Why the episode never reached the feed — also the "don't retry" marker. */
   podcastNote?: string;
   /** Carousel written from the transcript, once available. */
