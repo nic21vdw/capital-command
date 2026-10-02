@@ -365,7 +365,9 @@ export function ClipGeneratorPage() {
         posterFile: clip.posterFile,
         sourceUrl: job.sourceUrl,
         clipStart: clip.start,
-        clipEnd: clip.end
+        clipEnd: clip.end,
+        sourceFrame: clip.sourceFrame,
+        output: job.output
       });
       if (job.captionPreset) project.captionStyle = captionStyleForPreset(job.captionPreset);
       const [captions, silences] = await Promise.all([loadJobCaptions(job.id), loadJobSilences(job.id)]);

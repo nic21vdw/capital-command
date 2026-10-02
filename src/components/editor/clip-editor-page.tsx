@@ -46,7 +46,9 @@ function projectFromClip(
     posterFile: clip.posterFile,
     sourceUrl: job.sourceUrl,
     clipStart: clip.start,
-    clipEnd: clip.end
+    clipEnd: clip.end,
+    sourceFrame: clip.sourceFrame,
+    output: job.output
   });
   const windowed = windowSegments(captions, clip.start, clip.end);
   const words = windowed.flatMap((segment) => segment.words);

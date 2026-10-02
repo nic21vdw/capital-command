@@ -16,10 +16,10 @@ describe("remotionConcurrency", () => {
 });
 
 describe("REMOTION_EXPORT", () => {
-  it("ships at full scale and product CRF", () => {
-    expect(REMOTION_EXPORT.scale).toBe(1);
+  it("rasterizes 1080p artwork at 4K without an intermediate lossy JPEG", () => {
+    expect(REMOTION_EXPORT.scale).toBe(2);
     expect(REMOTION_EXPORT.crf).toBe(17);
     expect(REMOTION_EXPORT.codec).toBe("h264");
-    expect(REMOTION_EXPORT.jpegQuality).toBeGreaterThanOrEqual(90);
+    expect(REMOTION_EXPORT.imageFormat).toBe("png");
   });
 });

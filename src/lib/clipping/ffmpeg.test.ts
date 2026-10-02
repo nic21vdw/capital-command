@@ -24,18 +24,23 @@ const ROTATED = [
 
 describe("parseVideoStreamInfo", () => {
   it("reads dimensions and duration from a landscape stream", () => {
-    expect(parseVideoStreamInfo(LANDSCAPE)).toEqual({ width: 1920, height: 1080, durationSec: 27.43 });
+    expect(parseVideoStreamInfo(LANDSCAPE)).toEqual({ width: 1920, height: 1080, durationSec: 27.43, fps: 30 });
   });
 
   it("reads a vertical stream without SAR/DAR decoration", () => {
-    expect(parseVideoStreamInfo(VERTICAL)).toEqual({ width: 1080, height: 1920, durationSec: 62.1 });
+    expect(parseVideoStreamInfo(VERTICAL)).toEqual({ width: 1080, height: 1920, durationSec: 62.1, fps: 30 });
   });
 
   it("applies rotation metadata so rotated phone footage reads as vertical", () => {
-    expect(parseVideoStreamInfo(ROTATED)).toEqual({ width: 1080, height: 1920, durationSec: 14.9 });
+    expect(parseVideoStreamInfo(ROTATED)).toEqual({ width: 1080, height: 1920, durationSec: 14.9, fps: 29.97 });
   });
 
   it("returns null when there is no video stream", () => {
     expect(parseVideoStreamInfo("  Stream #0:0: Audio: mp3, 44100 Hz, stereo, fltp, 128 kb/s")).toBeNull();
+  });
+
+  it("reads fractional source cadence rather than the nominal tbr", () => {
+    const info = parseVideoStreamInfo(LANDSCAPE.replace("30 fps, 30 tbr", "59.94 fps, 60 tbr"));
+    expect(info?.fps).toBe(59.94);
   });
 });

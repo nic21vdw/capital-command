@@ -6,8 +6,8 @@ export function remotionConcurrency(cpus = os.cpus()?.length || 2): number {
 
 export const REMOTION_EXPORT = {
   codec: "h264" as const,
-  scale: 1,
+  // Scenes authored at 1080p are rasterized directly at 4K, including text.
+  scale: 2,
   crf: 17,
-  imageFormat: "jpeg" as const,
-  jpegQuality: 92
+  imageFormat: "png" as const
 } as const;

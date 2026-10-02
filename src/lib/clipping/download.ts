@@ -342,7 +342,7 @@ export async function downloadSection(
 
 /**
  * Downloads the whole video as a single MP4 at the best stream the host offers,
- * up to 4K (or lower, when the owner picked a smaller output), so a long-form
+ * retaining its original resolution (or lower, when the owner picked a smaller output), so a long-form
  * master is never a downscale — or, as it was until this was fixed, a 360p
  * muxed fallback — of a higher original. Returns the produced file path.
  */

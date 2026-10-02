@@ -7,7 +7,8 @@ import {
   masterAudioArgs,
   masterVideoArgs,
   resolveOutputFrame,
-  scaleFilter
+  scaleFilter,
+  type OutputFrame
 } from "@/lib/clipping/encode";
 import { probeVideoStream, runFfmpeg } from "@/lib/clipping/ffmpeg";
 import { DEFAULT_OUTPUT_QUALITY, type OutputQuality } from "@/lib/pipeline/outputQuality";
@@ -193,7 +194,7 @@ export async function renderPreviewAssets(inputPath: string, previewPath: string
 }
 
 /**
- * Renders the selected source range as a neutral 16:9 master clip. The full
+ * Renders the selected source range as a neutral master clip. The full
  * source frame is preserved with contain scaling so any later vertical,
  * square, or portrait crop can be made non-destructively from this file.
  *
@@ -212,7 +213,7 @@ export async function renderSourceClip(
   const frame = resolveOutputFrame(
     { width: probed?.width ?? 0, height: probed?.height ?? 0, fps: probed?.fps ?? 0 },
     quality,
-    "wide"
+    "source"
   );
   await runFfmpeg([
     "-y",
@@ -239,6 +240,7 @@ export async function renderSourceClip(
  * is already trimmed to the clip range, so the whole file is rendered.
  */
 export async function renderVertical(inputPath: string, outputPath: string, audioPresent: boolean) {
+  const frame = await verticalOutputFrame(inputPath);
   await runFfmpeg([
     "-y",
     "-i",
@@ -246,11 +248,10 @@ export async function renderVertical(inputPath: string, outputPath: string, audi
     "-filter_complex",
     // Downscale the blurred background before blurring (cheaper) and use a
     // lighter boxblur — visually equivalent to the old 24:4 but much faster.
-    "[0:v]split=2[bg][fg];" +
-      "[bg]scale=540:960:force_original_aspect_ratio=increase,crop=540:960,boxblur=12:2,eq=brightness=-0.08,scale=1080:1920[bgb];" +
-      `[fg]${scaleFilter(1080, -2)}[fgs];` +
-      "[bgb][fgs]overlay=(W-w)/2:(H-h)/2",
-    ...(audioPresent ? ["-af", shortsAudioFilter()] : []),
+    verticalCompositionChain(undefined, 1, frame),
+    "-map", "[vc]",
+    ...(audioPresent ? ["-map", "0:a?", "-af", shortsAudioFilter()] : []),
+    "-r", String(frame.fps),
     ...shortsVideoArgs(),
     ...(audioPresent ? shortsAudioArgs() : ["-an"]),
     "-movflags",
@@ -277,27 +278,43 @@ function escapeFilterPath(p: string): string {
  */
 export function verticalCompositionChain(
   framing?: ClipFramingSpec,
-  zoom: number = DEFAULT_CENTER_BLUR_ZOOM
+  zoom: number = DEFAULT_CENTER_BLUR_ZOOM,
+  frame: Pick<OutputFrame, "width" | "height"> = { width: FRAME_W, height: FRAME_H }
 ): string {
+  const { width, height } = frame;
   if (framing?.framing.mode === "subject-fill") {
-    return subjectFillChain(framing.framing, framing.target, "0:v", "vc");
+    return subjectFillChain(framing.framing, { ...framing.target, targetW: width, targetH: height }, "0:v", "vc");
   }
   if (framing?.framing.mode === "speaker-stack") {
     return stackedLayoutChain(
       SPEAKER_STACK_LAYOUT,
       undefined,
-      framing.target.targetW,
-      framing.target.targetH,
+      width,
+      height,
       framing.framing.faceSource
     ).replace(/\[vout\]$/, "[vc]");
   }
   const z = clampCenterBlurZoom(zoom).toFixed(4);
+  // The background is intentionally blurred. Keep its processing size bounded
+  // even when the sharp foreground and caption canvas ship at 4K.
+  const blurW = evenPixels(Math.min(540, width / 2));
+  const blurH = evenPixels(Math.min(960, height / 2));
   return (
     "[0:v]split=2[bg][fg];" +
-    "[bg]scale=540:960:force_original_aspect_ratio=increase,crop=540:960,boxblur=12:2,eq=brightness=-0.08,scale=1080:1920[bgb];" +
-    `[fg]${containScale(1080, 1920)},${scaleFilter(`iw*${z}`, `ih*${z}`)}[fgs];` +
+    `[bg]scale=${blurW}:${blurH}:force_original_aspect_ratio=increase,crop=${blurW}:${blurH},boxblur=12:2,eq=brightness=-0.08,scale=${width}:${height}[bgb];` +
+    `[fg]${containScale(width, height)},${scaleFilter(`iw*${z}`, `ih*${z}`)}[fgs];` +
     "[bgb][fgs]overlay=(W-w)/2:(H-h)/2,setsar=1[vc]"
   );
+}
+
+/** Source-sized delivery geometry, also used by the publisher's fallback. */
+async function verticalOutputFrame(inputPath: string): Promise<OutputFrame> {
+  const stream = await probeVideoStream(inputPath).catch(() => null);
+  return resolveOutputFrame({
+    width: stream?.width ?? 0,
+    height: stream?.height ?? 0,
+    fps: stream?.fps ?? 0
+  }, DEFAULT_OUTPUT_QUALITY, "vertical");
 }
 
 /**
@@ -322,9 +339,11 @@ export async function renderCaptionedVertical(
   audioPresent: boolean,
   framing?: ClipFramingSpec,
   zoom: number = DEFAULT_CENTER_BLUR_ZOOM,
-  startSec: number = 0
+  startSec: number = 0,
+  outputFrame?: OutputFrame
 ) {
-  const composition = verticalCompositionChain(framing, zoom);
+  const frame = outputFrame ?? (await verticalOutputFrame(inputPath));
+  const composition = verticalCompositionChain(framing, zoom, frame);
   const filter = assPath
     ? `${composition};[vc]${assFilter(assPath, escapeFilterPath)}[vout]`
     : `${composition};[vc]null[vout]`;
@@ -343,6 +362,7 @@ export async function renderCaptionedVertical(
     "-map",
     "[vout]",
     ...(audioPresent ? ["-map", "0:a?", "-af", shortsAudioFilter()] : []),
+    "-r", String(frame.fps),
     ...shortsVideoArgs(),
     ...(audioPresent ? shortsAudioArgs() : ["-an"]),
     "-movflags",
