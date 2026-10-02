@@ -369,7 +369,9 @@ export async function advanceRun(run: PipelineRun): Promise<void> {
   }
   if (!run.clipJobId && !stuck(run, "clips")) {
     await step(run, "clips", async () => {
-      const job = await createJobFromUpload(sourceId, undefined);
+      const job = await createJobFromUpload(sourceId, undefined, undefined, undefined, {
+        output: normalizeOutputQuality(run.output)
+      });
       await update(run, { clipJobId: job.id });
     });
   }

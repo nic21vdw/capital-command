@@ -6,7 +6,6 @@ import {
   MASTER_AUDIO_BITRATE,
   MASTER_CRF,
   MASTER_PRESET,
-  MAX_SOURCE_HEIGHT,
   clipSectionFormat,
   containScale,
   coverScale,
@@ -78,9 +77,9 @@ describe("intermediate encode", () => {
 });
 
 describe("source format selectors", () => {
-  it("asks for the best stream up to 4K when nothing is capped", () => {
-    expect(FULL_VIDEO_FORMAT).toContain(`bv*[height<=${MAX_SOURCE_HEIGHT}]+ba`);
-    expect(CLIP_SECTION_FORMAT).toContain(`bv*[height<=${MAX_SOURCE_HEIGHT}]+ba`);
+  it("keeps an available original above 4K when source quality is selected", () => {
+    expect(FULL_VIDEO_FORMAT).toBe("bv*+ba/b");
+    expect(CLIP_SECTION_FORMAT).toBe("bv*+ba/b");
   });
 
   /**
@@ -163,6 +162,29 @@ describe("resolveOutputFrame", () => {
       fps: 30
     });
     expect(resolveOutputFrame({ width: 640, height: 360, fps: 30 }, undefined, "vertical").width).toBe(640);
+  });
+
+  it("retains 4K delivery and fractional source cadence for vertical footage", () => {
+    expect(resolveOutputFrame({ width: 3840, height: 2160, fps: 59.94 }, undefined, "vertical"))
+      .toEqual({ width: 2160, height: 3840, fps: 59.94 });
+    expect(resolveOutputFrame({ width: 2160, height: 3840, fps: 60 }, undefined, "vertical"))
+      .toEqual({ width: 2160, height: 3840, fps: 60 });
+    expect(resolveOutputFrame({ width: 2160, height: 3840, fps: 60 }, { resolution: "2160", frameRate: "source" }, "vertical"))
+      .toEqual({ width: 2160, height: 3840, fps: 60 });
+    expect(resolveOutputFrame({ width: 3840, height: 2160, fps: 60 }, { resolution: "1080", frameRate: "30" }, "vertical"))
+      .toEqual({ width: 1080, height: 1920, fps: 30 });
+  });
+
+  it("retains a portrait original in the neutral master without a landscape pad", () => {
+    expect(resolveOutputFrame({ width: 2160, height: 3840, fps: 60 }, { resolution: "2160", frameRate: "source" }, "source"))
+      .toEqual({ width: 2160, height: 3840, fps: 60 });
+  });
+
+  it("preserves an 8K widescreen source without forcing an 8K social canvas", () => {
+    const source = { width: 7680, height: 4320, fps: 60 };
+    expect(resolveOutputFrame(source)).toEqual(source);
+    expect(resolveOutputFrame(source, undefined, "vertical"))
+      .toEqual({ width: 2160, height: 3840, fps: 60 });
   });
 
   it("falls back to 1080p30 when the source could not be probed", () => {

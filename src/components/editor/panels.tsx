@@ -938,8 +938,13 @@ export const ExportPanel = memo(function ExportPanel({ api }: { api: EditorApi }
         </div>
       )}
 
+      <p className="text-xs text-[var(--muted-foreground)]" aria-live="polite">
+        Export: {e.width} x {e.height} at {e.fps} fps. Detail depends on the original recording and crop.
+      </p>
+
       <div className="grid grid-cols-2 gap-3">
         <SelectField label="Frame rate" value={String(e.fps)} onChange={(v) => set({ fps: Number(v) })} options={[
+          ...([24, 30, 60].includes(e.fps) ? [] : [{ value: String(e.fps), label: `${e.fps} fps (source)` }]),
           { value: "24", label: "24 fps" },
           { value: "30", label: "30 fps" },
           { value: "60", label: "60 fps" }

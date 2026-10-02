@@ -1,5 +1,7 @@
 import { CAPTION_PRESETS } from "@/lib/clipping/captions";
 import { DEFAULT_CENTER_BLUR_ZOOM } from "@/lib/clipping/centerBlur";
+import { resolveOutputFrame, type SourceFrame } from "@/lib/clipping/encode";
+import type { OutputQuality } from "@/lib/pipeline/outputQuality";
 import { defaultSfxSettings } from "@/lib/sfx/types";
 import {
   defaultCaptionStyle,
@@ -344,7 +346,7 @@ export function makeTitleOverlay(project: ClipProject): Overlay {
 }
 
 /**
- * Builds a fresh clip project from a rendered 16:9 source master. Projects
+ * Builds a fresh clip project from a rendered full-frame source master. Projects
  * open Shorts/Reels-ready: 9:16 vertical, blur-filled framing, and word-synced
  * captions on — the goal is export-and-upload with zero extra setup.
  */
@@ -356,9 +358,13 @@ export function makeClipProject(input: {
   sourceUrl: string;
   clipStart: number;
   clipEnd: number;
+  sourceFrame?: SourceFrame;
+  output?: OutputQuality;
 }): ClipProject {
   const now = new Date().toISOString();
   const duration = Math.max(0.1, input.clipEnd - input.clipStart);
+  const source = input.sourceFrame ?? { width: 1920, height: 1080, fps: 30 };
+  const frame = resolveOutputFrame(source, input.output, "vertical");
   return {
     id: `clip-${crypto.randomUUID()}`,
     name: input.name,
@@ -367,8 +373,8 @@ export function makeClipProject(input: {
     posterFile: input.posterFile,
     sourceUrl: input.sourceUrl,
     baseDurationSec: duration,
-    baseWidth: 1920,
-    baseHeight: 1080,
+    baseWidth: source.width,
+    baseHeight: source.height,
     clipStart: input.clipStart,
     clipEnd: input.clipEnd,
     trimStart: 0,
@@ -387,7 +393,12 @@ export function makeClipProject(input: {
     overlays: [],
     audio: { ...defaultClipAudio },
     sfx: defaultSfxSettings(),
-    exportSettings: { ...defaultClipExportSettings },
+    exportSettings: {
+      ...defaultClipExportSettings,
+      width: frame.width,
+      height: frame.height,
+      fps: Math.min(120, frame.fps)
+    },
     suggestions: [],
     createdAt: now,
     updatedAt: now
