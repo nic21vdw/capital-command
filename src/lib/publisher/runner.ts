@@ -2,6 +2,7 @@ import { mkdtemp, stat } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { isAutomationPaused, recordAutomationOutcome } from "@/lib/automations/store";
+import { recordAutomationEventSafely } from "@/lib/automations/history";
 import { accountIdConfigured } from "@/lib/publisher/accounts";
 import { facebookAdapter } from "@/lib/publisher/adapters/facebook";
 import { instagramAdapter } from "@/lib/publisher/adapters/instagram";
@@ -401,8 +402,15 @@ async function runDueInternal(now: Date, options: RunDueOptions): Promise<RunRep
     for (const platform of platforms) {
       if (!options.itemId && await isAutomationPaused("publisher")) break;
       const adapter = adapters[platform];
-      const record = (outcome: RunOutcome["outcome"], detail: string) => {
+      const record = async (outcome: RunOutcome["outcome"], detail: string) => {
         report.outcomes.push({ itemId: item.id, clip: item.clipPath, platform, outcome, detail });
+        const state = item.platforms[platform];
+        const at = new Date().toISOString();
+        await recordAutomationEventSafely({
+          automationId: "publisher", scope: "delivery", kind: outcome === "published" ? "delivered" : outcome === "uploaded" ? "scheduled" : outcome === "deferred" ? "blocked" : outcome,
+          at, itemId: item.id, destination: platform, detail: `${item.title} (${platform}): ${detail || outcome}`,
+          nextAttemptAt: state?.nextAttemptAt, key: `${item.id}:${platform}:${state?.postId ?? state?.containerId ?? ""}:${state?.attempts ?? 0}:${outcome === "failed" || outcome === "retrying" ? at : ""}`
+        });
         log(`[publisher]   ${item.id} → ${platform}: ${outcome} — ${detail}`);
       };
       try {
@@ -433,7 +441,7 @@ async function runDueInternal(now: Date, options: RunDueOptions): Promise<RunRep
           // must never be stopped for looking like the video it IS.
           if (platform === "youtube") {
             if (youtubeUploadsLeft <= 0) {
-              record(
+              await record(
                 "deferred",
                 `YouTube's ${config.youtube.dailyUploadBudget} uploads for today are used — this one goes up on the next run after the quota resets.`
               );
@@ -445,7 +453,7 @@ async function runDueInternal(now: Date, options: RunDueOptions): Promise<RunRep
           }
           if (platform === "tiktok" && usesTiktokInbox(item)) {
             if (tiktokInboxLeft <= 0) {
-              record(
+              await record(
                 "deferred",
                 `${tiktokDraftsWaiting} clips are already waiting in your TikTok inbox — open the TikTok app and post or discard them, then this one goes up on the next run.`
               );
@@ -455,7 +463,7 @@ async function runDueInternal(now: Date, options: RunDueOptions): Promise<RunRep
           }
           if (platform === "facebook" && new Date(item.publishAt).getTime() > now.getTime()) {
             if (facebookPreschedulesLeft <= 0) {
-              record(
+              await record(
                 "deferred",
                 `${FACEBOOK_PRESCHEDULES_PER_RUN} Reels have already been handed to Facebook ahead of time this run — this one goes up on the next run.`
               );
@@ -503,28 +511,28 @@ async function runDueInternal(now: Date, options: RunDueOptions): Promise<RunRep
           }
         }
         await queue.recordSuccess(item, platform, result, now);
-        record(result.status, result.detail ?? "");
+        await record(result.status, result.detail ?? "");
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         if (error instanceof StillProcessingError) {
           // Media accepted, platform still processing: remember the handle so
           // the next run resumes polling instead of re-uploading.
           await queue.recordSuccess(item, platform, { status: "uploaded", containerId: error.containerId, detail: message }, now);
-          record("uploaded", message);
+          await record("uploaded", message);
           continue;
         }
         if (error instanceof ThrottledError) {
           // A wall that time takes down, not the item: keep its attempts and
           // come back when the platform's window has moved.
           await queue.deferAttempt(item, platform, message, error.retryAfterMinutes, now);
-          record("deferred", `${message} (next attempt ${item.platforms[platform]?.nextAttemptAt ?? "later"})`);
+          await record("deferred", `${message} (next attempt ${item.platforms[platform]?.nextAttemptAt ?? "later"})`);
           continue;
         }
         if (error instanceof AbandonedUploadError) await queue.clearDeadUpload(item, platform);
         const transient = isTransient(error);
         await queue.recordFailure(item, platform, { message, transient }, now);
         const state = item.platforms[platform];
-        record(
+        await record(
           state?.status === "failed" ? "failed" : "retrying",
           state?.status === "failed" ? message : `${message} (next attempt ${state?.nextAttemptAt ?? "soon"})`
         );

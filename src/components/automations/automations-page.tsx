@@ -6,6 +6,7 @@ import { Activity, ArrowUpRight, Clock3, Loader2, Pause, Play, RefreshCw, Triang
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { PageHeader } from "@/components/ui/page-header";
+import { AutomationHistoryPanel } from "@/components/automations/automation-history";
 import type { AutomationCard, AutomationOverview } from "@/lib/automations/types";
 import { cn } from "@/lib/utils";
 
@@ -140,6 +141,7 @@ export function AutomationsPage() {
         <p className="mb-5 text-xs text-[var(--muted-foreground)]">Resume allows the existing configured schedule to continue. Missing tasks, disconnected accounts and switched-off publishing still block work. A current action may finish before the next pause check.</p>
         <div className="grid gap-5 lg:grid-cols-2">{overview.cards.map((card) => <AutomationPanel key={card.id} card={card} stale={Boolean(error)} busy={busy !== null || refreshing} onPause={(selected) => void change(selected.id, { action: "pause", id: selected.id, paused: !selected.paused })} />)}</div>
       </>}
+      <AutomationHistoryPanel />
     </div>
   );
 }

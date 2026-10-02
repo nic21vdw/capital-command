@@ -7,7 +7,7 @@ import { readThreadsState, recordThreadsState } from "@/lib/threads/state";
 import type { ThreadsPlanResult, ThreadsRunReport } from "@/lib/threads/types";
 import { ensureDailyPack } from "@/lib/x-posts/daily";
 import { localDateKey } from "@/lib/x-strategy/analytics";
-import { isAutomationPaused } from "@/lib/automations/store";
+import { isAutomationPaused, recordAutomationOutcome } from "@/lib/automations/store";
 
 /**
  * The daily half of the autopilot: make sure today's batch exists.
@@ -270,6 +270,19 @@ export type ThreadsTickResult = {
  *   4. post whatever is due
  */
 export async function threadsTick(
+  options: Parameters<typeof threadsTickInternal>[0] = {}
+): Promise<ThreadsTickResult> {
+  try {
+    const result = await threadsTickInternal(options);
+    if (!options.dryRun) await recordAutomationOutcome("threads", { at: new Date().toISOString(), status: (await isAutomationPaused("threads")) ? "paused" : result.run.failed || result.run.outcomes.some((outcome) => outcome.outcome === "retrying") ? "failed" : "completed", detail: `${result.run.published} posts published, ${result.run.failed} failures.${result.run.note ? ` ${result.run.note}` : ""}` }).catch(() => undefined);
+    return result;
+  } catch (error) {
+    if (!options.dryRun) await recordAutomationOutcome("threads", { at: new Date().toISOString(), status: "failed", detail: error instanceof Error ? error.message : String(error) }).catch(() => undefined);
+    throw error;
+  }
+}
+
+async function threadsTickInternal(
   options: { config?: ThreadsConfig; now?: Date; dryRun?: boolean; log?: (line: string) => void } = {}
 ): Promise<ThreadsTickResult> {
   const config = options.config ?? threadsConfig();
