@@ -1,9 +1,17 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { PermanentError } from "@/lib/publisher/http";
-import { ContainerPendingError } from "@/lib/threads/api";
+import { ContainerPendingError, ContainerRejectedError, ThreadsPublishPausedError } from "@/lib/threads/api";
+import { isAutomationPaused } from "@/lib/automations/store";
+import { plugReplyFor } from "@/lib/threads/plug";
 import { threadsConfig, type ThreadsAccount, type ThreadsConfig } from "@/lib/threads/config";
 import { runDue, type ThreadsRunDeps } from "@/lib/threads/runner";
 import type { ThreadsQueueItem } from "@/lib/threads/types";
+
+vi.mock("@/lib/automations/store", () => ({ isAutomationPaused: vi.fn(async () => false) }));
+vi.mock("@/lib/automations/history", () => ({ recordAutomationEventSafely: vi.fn(async () => {}) }));
+afterEach(() => {
+  vi.mocked(isAutomationPaused).mockResolvedValue(false);
+});
 
 function account(overrides: Partial<ThreadsAccount> = {}): ThreadsAccount {
   return {
@@ -303,6 +311,7 @@ describe("runDue link replies", () => {
       status: "published",
       postId: "post-main",
       publishedAt: "2026-07-22T07:15:00.000Z",
+      text: "CoLateral is where I build my own tools.",
       plugText: "what I'm building: https://colateralai.com",
       ...overrides
     });
@@ -317,7 +326,7 @@ describe("runDue link replies", () => {
     await runDue(new Date("2026-07-22T07:20:00.000Z"), { config: config(), deps: runDeps, log: silent });
     await runDue(new Date("2026-07-22T07:25:00.000Z"), { config: config(), deps: runDeps, log: silent });
 
-    expect(replies).toEqual([{ text: "what I'm building: https://colateralai.com", replyToId: "post-main" }]);
+    expect(replies).toEqual([{ text: plugReplyFor(plugged().text, "item-1", config()), replyToId: "post-main" }]);
     expect(state.items[0]).toMatchObject({ status: "published", postId: "post-main", plugPostId: "post-reply" });
   });
 
@@ -346,5 +355,191 @@ describe("runDue link replies", () => {
     await runDue(new Date("2026-07-22T07:20:00.000Z"), { config: config(), deps: runDeps, log: silent });
 
     expect(state.items[0]).toMatchObject({ status: "published", postId: "post-main", plugDropped: true });
+  });
+});
+
+describe("runDue reply delivery reliability", () => {
+  const now = new Date("2026-07-22T07:20:00Z");
+  const published = (overrides: Partial<ThreadsQueueItem> = {}) => item({
+    status: "published", postId: "parent", publishedAt: "2026-07-22T07:15:00Z",
+    text: "CoLateral is where I build my own tools.", ...overrides
+  });
+
+  it("honours the live reply switch even when old copy is already queued", async () => {
+    const original = published({ plugText: "old reply" });
+    const { runDeps, state, posted } = deps([original]);
+    const report = await runDue(now, { config: config({ plugReplies: false }), deps: runDeps, log: silent });
+    expect(posted).toEqual([]);
+    expect(state.items[0]).toEqual(original);
+    expect(report.replies).toBeUndefined();
+  });
+
+  it("attaches reply copy to older pending posts before they are sent", async () => {
+    let saved = [item({ text: "CoLateral is where I build my own tools." })];
+    const post = vi.fn(async () => {
+      expect(saved[0].plugText).toBe(plugReplyFor(saved[0].text, saved[0].id, config()));
+      return { containerId: "container", postId: "main" };
+    });
+    const runDeps: ThreadsRunDeps = { read: async () => structuredClone(saved), write: async (next) => { saved = structuredClone(next); }, post };
+    await runDue(now, { config: config(), deps: runDeps, log: silent });
+    expect(post).toHaveBeenCalledTimes(1);
+    expect(saved[0].plugText).toContain("colateralai.com");
+  });
+
+  it("upgrades untouched replies to the current edited parent copy", async () => {
+    const { runDeps, state } = deps([published({ text: "CoLateral is the ADE I build in.", plugText: "old stale reply" })]);
+    await runDue(now, { config: config(), deps: runDeps, log: silent });
+    expect(state.items[0].plugText).toBe(plugReplyFor(state.items[0].text, state.items[0].id, config()));
+  });
+
+  it("keeps reply copy fixed once an attempt or container exists", async () => {
+    const { runDeps, state, posted } = deps([published({ plugText: "approved exact reply", plugAttempts: 1, plugContainerId: "old-container" })]);
+    await runDue(now, { config: config(), deps: runDeps, log: silent });
+    expect(posted[0].text).toBe("approved exact reply");
+    expect(state.items[0].plugText).toBe("approved exact reply");
+  });
+
+  it("backs off reply failures separately and reuses their container", async () => {
+    const post = vi.fn<ThreadsRunDeps["post"]>()
+      .mockRejectedValueOnce(new ContainerPendingError("reply-container", "not ready"))
+      .mockResolvedValueOnce({ containerId: "reply-container", postId: "reply" });
+    const { runDeps, state } = deps([published()], post);
+    const first = await runDue(now, { config: config(), deps: runDeps, log: silent });
+    expect(first).toMatchObject({ published: 0, failed: 0, replies: { retrying: 1, failed: 0 } });
+    expect(state.items[0]).toMatchObject({ status: "published", plugAttempts: 1, plugNextAttemptAt: "2026-07-22T07:25:00.000Z" });
+    await runDue(new Date("2026-07-22T07:21:00Z"), { config: config(), deps: runDeps, log: silent });
+    expect(post).toHaveBeenCalledTimes(1);
+    await runDue(new Date("2026-07-22T07:25:00Z"), { config: config(), deps: runDeps, log: silent });
+    expect(post).toHaveBeenLastCalledWith(expect.objectContaining({ containerId: "reply-container", replyToId: "parent" }));
+    expect(state.items[0].plugNextAttemptAt).toBeUndefined();
+    expect(state.items[0].plugPostId).toBe("reply");
+  });
+
+  it("respects a fresh reply lease and resumes an abandoned one", async () => {
+    const { runDeps, state, posted } = deps([published({ plugText: "claimed copy", plugClaimedAt: "2026-07-22T07:19:00Z", plugContainerId: "claimed-container" })]);
+    await runDue(now, { config: config(), deps: runDeps, log: silent });
+    expect(posted).toHaveLength(0);
+    await runDue(new Date("2026-07-22T07:30:00Z"), { config: config(), deps: runDeps, log: silent });
+    expect(posted).toHaveLength(1);
+    expect(state.items[0].plugClaimedAt).toBeUndefined();
+  });
+
+  it("preserves the handle on a permanent reply rejection", async () => {
+    const { runDeps, state } = deps([published()], async () => { throw new ContainerRejectedError("rejected-container", "invalid reply"); });
+    const report = await runDue(now, { config: config(), deps: runDeps, log: silent });
+    expect(report).toMatchObject({ published: 0, failed: 0, replies: { failed: 1 } });
+    expect(state.items[0]).toMatchObject({ status: "published", plugDropped: true, plugContainerId: "rejected-container", plugAttempts: 1 });
+  });
+
+  it("caps fresh historical reply sends and never backfills old or timestamp-less history", async () => {
+    const recent = Array.from({ length: 5 }, (_, index) => published({ id: `recent-${index}`, slot: index + 1 }));
+    const { runDeps, state, posted } = deps([...recent, published({ id: "old", publishedAt: "2026-07-21T07:15:00Z" }), published({ id: "unknown", publishedAt: undefined })]);
+    const report = await runDue(now, { config: config(), deps: runDeps, log: silent });
+    expect(posted).toHaveLength(3);
+    expect(report.replies?.published).toBe(3);
+    expect(state.items.find((entry) => entry.id === "old")?.plugText).toBeUndefined();
+    expect(state.items.find((entry) => entry.id === "unknown")?.plugText).toBeUndefined();
+  });
+
+  it("dry-runs reply delivery without changing or saving any queue fields", async () => {
+    const original = [published()];
+    const { runDeps, state, posted } = deps(original);
+    const write = vi.spyOn(runDeps, "write");
+    const report = await runDue(now, { config: config(), deps: runDeps, dryRun: true, log: silent });
+    expect(report.replies?.published).toBe(1);
+    expect(state.items).toEqual(original);
+    expect(write).not.toHaveBeenCalled();
+    expect(posted).toHaveLength(0);
+  });
+
+  it("pauses after container creation without consuming an attempt and resumes the handle", async () => {
+    const live = config();
+    const post = vi.fn<ThreadsRunDeps["post"]>()
+      .mockImplementationOnce(async (input) => {
+        await input.onContainerCreated?.("paused-container");
+        vi.mocked(isAutomationPaused).mockResolvedValue(true);
+        expect(await input.shouldPublish?.()).toBe(false);
+        throw new ThreadsPublishPausedError("paused-container");
+      })
+      .mockImplementationOnce(async (input) => {
+        expect(input.containerId).toBe("paused-container");
+        expect(await input.shouldPublish?.()).toBe(true);
+        return { containerId: "paused-container", postId: "reply" };
+      });
+    const { runDeps, state } = deps([published()], post);
+    await runDue(now, { config: live, deps: runDeps, log: silent });
+    expect(state.items[0]).toMatchObject({ status: "published", plugContainerId: "paused-container" });
+    expect(state.items[0].plugAttempts).toBeUndefined();
+    expect(state.items[0].plugClaimedAt).toBeUndefined();
+    vi.mocked(isAutomationPaused).mockResolvedValue(false);
+    await runDue(now, { config: live, deps: runDeps, log: silent });
+    expect(state.items[0].plugPostId).toBe("reply");
+    expect(post).toHaveBeenCalledTimes(2);
+  });
+
+  it("checks a switch changed during a network wait before publishing", async () => {
+    const live = config();
+    const post = vi.fn<ThreadsRunDeps["post"]>(async (input) => {
+      await input.onContainerCreated?.("stopped-container");
+      live.plugReplies = false;
+      expect(await input.shouldPublish?.()).toBe(false);
+      throw new ThreadsPublishPausedError("stopped-container");
+    });
+    const { runDeps, state } = deps([published()], post);
+    await runDue(now, { config: live, deps: runDeps, log: silent });
+    await runDue(now, { config: live, deps: runDeps, log: silent });
+    expect(post).toHaveBeenCalledTimes(1);
+    expect(state.items[0].plugAttempts).toBeUndefined();
+  });
+
+  it.each([false, true])("never ordinarily resends a known accepted receipt after a failed save (reply=%s)", async (reply) => {
+    let saved = [reply ? published() : item()];
+    let failReceiptSave = true;
+    const post = vi.fn<ThreadsRunDeps["post"]>(async (input) => {
+      await input.onContainerCreated?.("durable-container");
+      return { containerId: "durable-container", postId: "accepted" };
+    });
+    const runDeps: ThreadsRunDeps = {
+      read: async () => structuredClone(saved),
+      write: async (next) => {
+        const hasReceipt = reply ? next[0].plugPostId : next[0].postId;
+        if (hasReceipt && failReceiptSave) { failReceiptSave = false; throw new Error("disk unavailable"); }
+        saved = structuredClone(next);
+      },
+      post
+    };
+    const first = await runDue(now, { config: config(), deps: runDeps, log: silent });
+    expect(first.failed).toBe(0);
+    expect(first.persistenceError).toContain("disk unavailable");
+    expect(reply ? first.replies?.published : first.published).toBe(1);
+    expect(reply ? saved[0].plugContainerId : saved[0].containerId).toBe("durable-container");
+    expect(reply ? saved[0].plugAttempts : saved[0].attempts).toBe(reply ? undefined : 0);
+    await runDue(now, { config: config(), deps: runDeps, log: silent });
+    expect(post).toHaveBeenCalledTimes(1);
+    expect(reply ? saved[0].plugPostId : saved[0].postId).toBe("accepted");
+  });
+
+  it("stops before publishing on a failed container save and keeps API attempts unchanged", async () => {
+    let saved = [item()];
+    let failing = true;
+    const post = vi.fn<ThreadsRunDeps["post"]>(async (input) => {
+      if (!input.containerId) await input.onContainerCreated?.("created-container");
+      return { containerId: "created-container", postId: "accepted" };
+    });
+    const runDeps: ThreadsRunDeps = {
+      read: async () => structuredClone(saved),
+      write: async (next) => {
+        if (next[0].containerId && failing) throw new Error("cannot save handle");
+        saved = structuredClone(next);
+      }, post
+    };
+    const first = await runDue(now, { config: config(), deps: runDeps, log: silent });
+    expect(first).toMatchObject({ published: 0, failed: 0 });
+    expect(first.persistenceError).toContain("cannot save handle");
+    expect(saved[0].attempts).toBe(0);
+    failing = false;
+    await runDue(now, { config: config(), deps: runDeps, log: silent });
+    expect(post).toHaveBeenLastCalledWith(expect.objectContaining({ containerId: "created-container" }));
+    expect(saved[0].postId).toBe("accepted");
   });
 });

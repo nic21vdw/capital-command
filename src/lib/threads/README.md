@@ -203,18 +203,38 @@ prompt tells the model not to lift phrases from it.
 ## The CoLateral link goes in a reply
 
 Eight of the pack's 24 posts are about CoLateral and name it
-(`COLATERAL_POSTS_PER_PACK` in `generator.ts`; the fallback library puts one in
-every third slot). The posts themselves never carry a link. Instead, every
-queued post whose text names CoLateral gets a `plugText` at planning time
-(`plug.ts`), and once the post is live the runner replies to it from the same
-account with that text and https://colateralai.com (`reply_to_id` on the
-container).
+(`COLATERAL_POSTS_PER_PACK` in `generator.ts`). Generated daily posts keep the
+link in the follow-up. Every nonempty post from the daily pack or a stream now gets one short,
+contextual follow-up from the same account. The invitation connects its topic
+to the workspace, custom tools, agents, engineering, marketing, Arcade, or
+building in public, without claiming the parent describes a completed feature.
+The reply is previewed in X / Threads Posts before delivery.
+
+`plug.ts` chooses stable copy using the queue item's identity and parent text.
+Unstarted replies refresh after a parent edit or an update; a reply with an
+attempt or processing container keeps its exact saved copy. Existing pending
+posts and recently published posts inside the reply window can gain a reply;
+old history is not backfilled. A tick sends at most three replies, so waking
+up cannot dump all the exposure replies at once.
+
+CoLateral links keep the established `/th` homepage path and include UTM
+labels for Threads, the context angle and daily-versus-pipeline origin. They
+contain no account or post identifiers. Existing tracking tags and configured
+external destinations are preserved. Invalid or overlong links are refused
+instead of truncated. A URL label is attribution, not proof of a visit: this
+app does not invent click or conversion counts.
 
 The reply is a side effect, never a condition. It waits
 `THREADS_PLUG_DELAY_MINUTES` (2) after the post, is dropped rather than sent
 once `THREADS_PLUG_WINDOW_MINUTES` (360) have passed, and a failed reply never
-changes the post's own status. `THREADS_PLUG_REPLY=false` turns it off and
-`THREADS_PLUG_URL` changes the link.
+changes the post's own status. `THREADS_PLUG_REPLY=false` turns it off, including
+already queued replies, and `THREADS_PLUG_URL` changes the link. The Automations
+pause control stops both parent posts and replies. Reply failures and retry
+times appear separately from parent publication in the queue and worker
+outcome. Processing-container handles are saved before publication and reused
+after retries; claims and backoff protect repeated ticks. A remote acceptance
+whose response is lost can still require reconciliation: the API does not
+provide a transactional exactly-once guarantee with the local queue file.
 
 ## Two accounts, one version each
 
@@ -261,8 +281,8 @@ label, assigned version and offset, and nothing else.
 
 ## Setup
 
-1. Add the Threads API use case to your Meta app with `threads_basic` and
-   `threads_content_publish`.
+1. Add the Threads API use case to your Meta app with `threads_basic`,
+   `threads_content_publish`, and `threads_manage_replies` for replies.
 2. App roles → Add People → **Threads Tester** for each account, then accept
    each invite from that account (Threads → Settings → Website permissions →
    Invites). Being an app Administrator does not cover this, and each account

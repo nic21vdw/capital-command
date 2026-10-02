@@ -31,6 +31,11 @@ export async function queueRunPosts(runId: string): Promise<QueuePostsResult> {
 
   const now = new Date();
   const items = await mutateQueue((current) => {
+    // The queue is the durable handoff: another caller may have booked this
+    // run while we loaded it, or saving postsQueuedAt may have failed after
+    // booking. Reuse that handoff rather than duplicate every post and reply.
+    const existing = current.filter((item) => item.sourceRunId === runId && item.origin === "pipeline");
+    if (existing.length) return { items: current, result: existing };
     const taken = new Set(current.map((item) => item.publishAt));
     const planned = planAdhocPosts({
       texts: threadsPosts.map((post) => post.text),

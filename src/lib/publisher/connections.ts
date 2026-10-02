@@ -98,10 +98,10 @@ export const CONNECTIONS: Connection[] = [
   {
     id: "threads",
     label: "Threads",
-    purpose: "Posts the daily Threads packs.",
+    purpose: "Posts daily and stream-generated Threads posts with contextual CoLateral follow-up replies.",
     fields: [
       { name: "THREADS_USER_ID", label: "User ID", hint: "The access token normally identifies the account.", optional: true },
-      { name: "THREADS_ACCESS_TOKEN", label: "Access token", hint: "A long-lived token from the Meta console." }
+      { name: "THREADS_ACCESS_TOKEN", label: "Access token", hint: "A long-lived token with publishing and reply permissions from the Meta console." }
     ],
     manualNote: "Threads has no in-app sign-in yet: the token comes from Meta's console and is pasted here.",
     console: "https://developers.facebook.com/apps"

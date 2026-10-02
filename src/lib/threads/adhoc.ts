@@ -53,9 +53,10 @@ export function planAdhocPosts({
     while (taken.has(at.toISOString())) at = new Date(at.getTime() + spacingHours * HOUR);
     const publishAt = at.toISOString();
     taken.add(publishAt);
-    const plugText = plugReplyFor(text, publishAt, config);
+    const id = nextId();
+    const plugText = plugReplyFor(text, id, config, "pipeline");
     items.push({
-      id: nextId(),
+      id,
       batchDate: localDateKey(at, config.timezone),
       // Slot 0 marks a post that is not one of the day's numbered slots, so a
       // catch-up pass can never mistake it for a pack post that fell behind.

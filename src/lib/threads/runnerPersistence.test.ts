@@ -1,7 +1,7 @@
 import { unlink } from "node:fs/promises";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { threadsConfig } from "@/lib/threads/config";
-import { mergeQueueChanges, mutateQueue, queuePath, readQueue, writeQueue } from "@/lib/threads/queue";
+import { editItemText, mergeQueueChanges, mutateQueue, queuePath, readQueue, rescheduleItem, writeQueue } from "@/lib/threads/queue";
 import { runDue } from "@/lib/threads/runner";
 import type { ThreadsQueueItem } from "@/lib/threads/types";
 
@@ -64,4 +64,63 @@ describe("Threads runner saves while dashboard and pipeline change the queue", (
     expect(mergeQueueChanges([before], [], [edited])).toEqual([edited]);
     expect(mergeQueueChanges([before], [], [before])).toEqual([]);
   });
+
+  it.each(["edit", "reschedule", "remove"] as const)(
+    "honors a later due row's %s while an earlier upload is waiting", async (change) => {
+      vi.useFakeTimers({ toFake: ["Date"] });
+      vi.setSystemTime(NOW);
+      const originalText = "I built a tool to replace another spreadsheet chore.";
+      const revisedText = "My multiplayer game needs smoother character animations.";
+      await writeQueue([item("sending"), { ...item("later-due"), slot: 2, text: originalText }]);
+      let release!: () => void;
+      const waiting = new Promise<void>((resolve) => { release = resolve; });
+      let landed = 0;
+      post.mockImplementation(async (input) => {
+        if (input.text === "sending") await waiting;
+        return { containerId: `container-${++landed}`, postId: `post-${landed}` };
+      });
+      const config = {
+        ...threadsConfig(), enabled: true, plugReplies: true,
+        accounts: [{ id: "primary", label: "Test", userId: "test", accessToken: "test-token", posts: "text" as const, offsetMinutes: 0 }]
+      };
+      const running = runDue(NOW, { config, log: () => {} });
+      try {
+        await vi.waitFor(() => expect(post).toHaveBeenCalledTimes(1));
+        await mutateQueue((items) => {
+          if (change === "remove") {
+            return { items: items.filter((entry) => entry.id !== "later-due"), result: undefined };
+          }
+          const edited = change === "edit"
+            ? editItemText(items, "later-due", revisedText)
+            : rescheduleItem(items, "later-due", "2026-10-03T18:00:00.000Z");
+          expect(edited.changed).toBe(1);
+          return { items: edited.items, result: undefined };
+        });
+        release();
+        await running;
+        expect(post.mock.calls.some(([input]) => input.text === originalText)).toBe(false);
+        const saved = await readQueue();
+        if (change === "edit") {
+          expect(post).toHaveBeenCalledTimes(2);
+          expect(post.mock.calls[1][0]).toMatchObject({ text: revisedText });
+          const parent = saved.find((entry) => entry.id === "later-due")!;
+          expect(parent).toMatchObject({ text: revisedText, status: "published" });
+          expect(parent.plugText).toContain("utm_content=autopilot-games");
+          const afterDelay = new Date(Date.parse(parent.publishedAt!) + config.plugDelayMinutes * 60_000);
+          vi.setSystemTime(afterDelay);
+          await runDue(afterDelay, { config, log: () => {} });
+          const reply = post.mock.calls.find(([input]) => input.replyToId === parent.postId)?.[0];
+          expect(reply).toMatchObject({ text: parent.plugText, account: { id: "primary" } });
+        } else {
+          expect(post).toHaveBeenCalledTimes(1);
+          if (change === "remove") expect(saved.find((entry) => entry.id === "later-due")).toBeUndefined();
+          else expect(saved.find((entry) => entry.id === "later-due")).toMatchObject({ status: "pending", publishAt: "2026-10-03T18:00:00.000Z" });
+        }
+      } finally {
+        release();
+        await running;
+        vi.useRealTimers();
+      }
+    }
+  );
 });

@@ -204,9 +204,11 @@ export function planBatch({
 
     for (const account of config.accounts) {
       const text = fitToThreads(textFor(post, account));
-      const plugText = plugReplyFor(text, `${pack.date}:${post.slot}:${account.id}`, config);
+      if (!text) continue;
+      const id = nextId();
+      const plugText = plugReplyFor(text, id, config);
       items.push({
-        id: nextId(),
+        id,
         batchDate: pack.date,
         slot: post.slot,
         accountId: account.id,

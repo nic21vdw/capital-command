@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { threadsConfig, type ThreadsAccount, type ThreadsConfig } from "@/lib/threads/config";
 import { fitToThreads, planBatch } from "@/lib/threads/plan";
+import { plugReplyFor } from "@/lib/threads/plug";
 import type { XDailyPack } from "@/types/domain";
 
 function account(overrides: Partial<ThreadsAccount> = {}): ThreadsAccount {
@@ -259,7 +260,7 @@ describe("fitToThreads", () => {
 });
 
 describe("planBatch link replies", () => {
-  it("queues a link reply only for posts that name CoLateral", () => {
+  it("queues a relevant link reply for every nonempty account version, including non-brand posts", () => {
     const { items } = planBatch({
       pack: pack({
         posts: [
@@ -272,8 +273,15 @@ describe("planBatch link replies", () => {
     });
 
     const withPlug = items.filter((entry) => entry.plugText);
-    expect(withPlug.map((entry) => entry.slot)).toEqual([1, 1]);
-    for (const entry of withPlug) expect(entry.plugText).toContain("https://colateralai.com");
+    expect(withPlug.map((entry) => entry.slot)).toEqual([1, 1, 2, 2]);
+    expect(items.map((entry) => entry.text)).toEqual([
+      "Building CoLateral tonight", "Another night on CoLateral", "Second punchy line", "Second warmer rewrite"
+    ]);
+    for (const entry of withPlug) {
+      expect(entry.plugText).toContain("https://colateralai.com");
+      expect(entry.plugText).toBe(plugReplyFor(entry.text, entry.id, config()));
+      expect(entry.plugText!.length).toBeLessThanOrEqual(500);
+    }
   });
 
   it("queues none when link replies are switched off", () => {
@@ -284,5 +292,24 @@ describe("planBatch link replies", () => {
     });
 
     expect(items.some((entry) => entry.plugText)).toBe(false);
+  });
+
+  it("does not schedule a blank account version or give it a reply", () => {
+    const { items } = planBatch({
+      pack: pack({ posts: [{ ...pack().posts[0], text: " \n ", threadsVariant: "A useful workflow idea" }] }),
+      config: config(),
+      now: beforeTheDay
+    });
+    expect(items).toHaveLength(1);
+    expect(items[0].accountId).toBe("secondary");
+    expect(items[0].plugText).toBeDefined();
+  });
+
+  it("keeps parents and times intact when a configured destination is invalid", () => {
+    const { items } = planBatch({ pack: pack(), config: config({ plugUrl: "invalid" }), now: beforeTheDay });
+    expect(items).toHaveLength(4);
+    expect(items.every((item) => !item.plugText)).toBe(true);
+    expect(items[0].text).toBe("The punchy line");
+    expect(items[0].publishAt).toBe("2026-07-22T07:15:00.000Z");
   });
 });

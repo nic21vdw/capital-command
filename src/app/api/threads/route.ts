@@ -16,6 +16,8 @@ import {
 import { runDue } from "@/lib/threads/runner";
 import { readThreadsState, tickHealth } from "@/lib/threads/state";
 import { localCalendarParts } from "@/lib/publisher/time";
+import { isAutomationPaused } from "@/lib/automations/store";
+import { safeThreadsDetail, summarizeThreadsReplies, threadsReplyPolicy } from "@/lib/threads/reply-summary";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -37,7 +39,9 @@ export async function GET() {
   const config = threadsConfig();
   const items = await readQueue();
   const state = await readThreadsState();
-  const today = localCalendarParts(new Date(), config.timezone).dateKey;
+  const paused = await isAutomationPaused("threads");
+  const now = new Date();
+  const today = localCalendarParts(now, config.timezone).dateKey;
   return NextResponse.json({
     scheduler: { ...state, ...tickHealth(state) },
     enabled: config.enabled,
@@ -47,6 +51,7 @@ export async function GET() {
       timezone: config.timezone,
       postsPerDay: config.postsPerDay,
       lateGraceMinutes: config.lateGraceMinutes,
+      replyPolicy: threadsReplyPolicy(config, paused),
       // Credentials never leave the server — only what the dashboard shows.
       accounts: config.accounts.map((account) => ({
         id: account.id,
@@ -57,8 +62,13 @@ export async function GET() {
       unassignedVersions: unassignedVersions(config)
     },
     today: summarizeBatch(items, today),
+    replies: summarizeThreadsReplies(items, today, config, now, paused),
     batches: summarizeBatches(items),
-    items
+    items: items.map((item) => ({
+      ...item,
+      error: safeThreadsDetail(item.error, config),
+      plugError: safeThreadsDetail(item.plugError, config)
+    }))
   });
 }
 

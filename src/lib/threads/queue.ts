@@ -262,7 +262,15 @@ export function editItemText(items: ThreadsQueueItem[], id: string, text: string
   if (!editable(target) && !recoverable(target)) {
     return { items, changed: 0, error: `That post is already ${target.status}.` };
   }
+  if (target.postId || target.containerId || target.claimedAt) {
+    return { items, changed: 0, error: "This post has already started sending. Its saved copy cannot be changed during delivery." };
+  }
 
   target.text = trimmed.slice(0, THREADS_TEXT_LIMIT);
+  if (!target.plugPostId && !target.plugContainerId && !(target.plugAttempts ?? 0)) {
+    // The contextual follow-up is generated from the revised parent before
+    // delivery. An already-started reply retains its identity and copy.
+    delete target.plugText;
+  }
   return { items, changed: 1 };
 }
