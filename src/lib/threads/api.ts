@@ -1,4 +1,4 @@
-import { PermanentError, TransientError, fetchJson } from "@/lib/publisher/http";
+import { PermanentError, TransientError, fetchJson, isTransient } from "@/lib/publisher/http";
 import { attributeLinks } from "@/lib/publisher/attribution";
 import { threadsConfig, type ThreadsAccount, type ThreadsConfig } from "@/lib/threads/config";
 
@@ -24,6 +24,20 @@ export class ContainerPendingError extends TransientError {
     message: string
   ) {
     super(message);
+  }
+}
+
+/** A permanent rejection still carries the already-created container handle. */
+export class ContainerRejectedError extends PermanentError {
+  constructor(readonly containerId: string, message: string) {
+    super(message);
+  }
+}
+
+/** A control change interrupted delivery; it does not consume an attempt. */
+export class ThreadsPublishPausedError extends Error {
+  constructor(readonly containerId?: string) {
+    super("Threads delivery was paused or switched off before publishing.");
   }
 }
 
@@ -101,6 +115,17 @@ function sleep(ms: number): Promise<void> {
 
 export type ThreadsPublishResult = { containerId: string; postId: string };
 
+export type ThreadsPublishInput = {
+  account: ThreadsAccount;
+  text: string;
+  containerId?: string;
+  replyToId?: string;
+  /** Persist a fresh handle before a publish call can put it on the feed. */
+  onContainerCreated?: (containerId: string) => Promise<void>;
+  /** Re-check pause/settings after network waits and between publish retries. */
+  shouldPublish?: () => Promise<boolean>;
+};
+
 /**
  * Posts one piece of text as one account and returns the ids.
  *
@@ -111,19 +136,30 @@ export type ThreadsPublishResult = { containerId: string; postId: string };
  * the runner's own backoff.
  */
 export async function postToThreads(
-  input: { account: ThreadsAccount; text: string; containerId?: string; replyToId?: string },
+  input: ThreadsPublishInput,
   config: ThreadsConfig = threadsConfig()
 ): Promise<ThreadsPublishResult> {
-  const { account } = input;
-  const containerId =
-    input.containerId ?? (await createTextContainer(account, input.text, config, input.replyToId));
+  const checkControl = async (containerId?: string) => {
+    if (input.shouldPublish && !await input.shouldPublish()) throw new ThreadsPublishPausedError(containerId);
+  };
+  await checkControl(input.containerId);
+  // Resolve once, then check again: a token lookup can wait on the network
+  // while the user turns the automation off.
+  const account = { ...input.account, userId: await accountUserId(input.account, config) };
+  await checkControl(input.containerId);
+  const containerId = input.containerId ?? await createTextContainer(account, input.text, config, input.replyToId);
+  if (!input.containerId) await input.onContainerCreated?.(containerId);
 
   let lastError: unknown;
   for (let attempt = 0; attempt < 3; attempt += 1) {
     if (attempt > 0) await sleep(5_000);
+    await checkControl(containerId);
     try {
       return { containerId, postId: await publishContainer(account, containerId, config) };
     } catch (error) {
+      if (!isTransient(error)) {
+        throw new ContainerRejectedError(containerId, error instanceof Error ? error.message : String(error));
+      }
       lastError = error;
     }
   }

@@ -58,10 +58,14 @@ export async function planTodaysBatch(
   const before = await mutateQueue((items) => {
     const kept = pruneOld(items, now, config);
     if (!replace) return { items: kept, result: autopilotItemsForDate(kept, date) };
-    // A forced replan clears only what has not gone out yet — anything already
-    // published stays on the record.
+    // Keep every account's row for a slot that is published or has started
+    // sending. Removing an in-flight row would lose its container/receipt and
+    // let the replacement publish the same idea again.
+    const protectedSlots = new Set(autopilotItemsForDate(kept, date)
+      .filter((item) => item.status === "published" || item.postId || item.containerId || item.claimedAt)
+      .map((item) => item.slot));
     const cleared = kept.filter(
-      (item) => item.batchDate !== date || item.status !== "pending" || !isAutopilotItem(item)
+      (item) => item.batchDate !== date || item.status !== "pending" || !isAutopilotItem(item) || protectedSlots.has(item.slot)
     );
     return { items: cleared, result: autopilotItemsForDate(cleared, date) };
   });
@@ -79,7 +83,7 @@ export async function planTodaysBatch(
 
   // Anything already live keeps its slot out of the running: pressing "Schedule
   // from now" at noon must not put the morning's posts back through the feed.
-  const alreadyPosted = new Set(before.filter((item) => item.status === "published").map((item) => item.slot));
+  const alreadyPosted = new Set(before.filter((item) => item.status === "published" || item.postId || item.containerId || item.claimedAt).map((item) => item.slot));
 
   const { items, droppedPastSlots, startedAt, gapMinutes } = planBatch({
     pack,
@@ -96,7 +100,7 @@ export async function planTodaysBatch(
       created: 0,
       droppedPastSlots,
       skipped: nothingLeft
-        ? "Every post in today's pack has already gone out — press Write today's posts for a fresh day."
+        ? "Every slot in today's pack has already published or started sending."
         : options.startNow
           ? "Too little of the day is left to schedule anything — try again tomorrow."
           : "Every slot for today has already passed — the next batch starts tomorrow morning.",
@@ -273,7 +277,18 @@ export async function threadsTick(
 ): Promise<ThreadsTickResult> {
   try {
     const result = await threadsTickInternal(options);
-    if (!options.dryRun) await recordAutomationOutcome("threads", { at: new Date().toISOString(), status: (await isAutomationPaused("threads")) ? "paused" : result.run.failed || result.run.outcomes.some((outcome) => outcome.outcome === "retrying") ? "failed" : "completed", detail: `${result.run.published} posts published, ${result.run.failed} failures.${result.run.note ? ` ${result.run.note}` : ""}` }).catch(() => undefined);
+    if (!options.dryRun) {
+      const replies = result.run.replies;
+      const needsAttention = Boolean(result.run.persistenceError) || result.run.failed > 0 || result.run.outcomes.some((outcome) => outcome.outcome === "retrying")
+        || Boolean(replies && (replies.failed > 0 || replies.retrying > 0));
+      await recordAutomationOutcome("threads", {
+        at: new Date().toISOString(),
+        status: (await isAutomationPaused("threads")) ? "paused" : needsAttention ? "failed" : "completed",
+        detail: `${result.run.published} posts published, ${result.run.failed} post failures.`
+          + (replies ? ` ${replies.published} follow-up replies published, ${replies.failed} reply failures, ${replies.retrying} replies waiting to retry, ${replies.skipped} replies skipped.` : "")
+          + (result.run.note ? ` ${result.run.note}` : "")
+      }).catch(() => undefined);
+    }
     return result;
   } catch (error) {
     if (!options.dryRun) await recordAutomationOutcome("threads", { at: new Date().toISOString(), status: "failed", detail: error instanceof Error ? error.message : String(error) }).catch(() => undefined);

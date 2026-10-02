@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { planAdhocPosts } from "@/lib/threads/adhoc";
 import { autopilotItemsForDate, isAutopilotItem, itemsForDate } from "@/lib/threads/queue";
+import { plugReplyFor } from "@/lib/threads/plug";
 import type { ThreadsConfig } from "@/lib/threads/config";
 import type { ThreadsQueueItem } from "@/lib/threads/types";
 
@@ -63,5 +64,47 @@ describe("posts scheduled from a stream", () => {
     counter = 0;
     const items = planAdhocPosts({ texts: ["one"], config, now, taken: new Set(), newId });
     expect(items[0].slot).toBe(0);
+  });
+
+  it("adds contextual replies to non-brand pipeline posts without changing the parents", () => {
+    const settings = { ...config, plugReplies: true, plugUrl: "https://colateralai.com" };
+    const texts = ["Agents need clear review steps.", "Building your own workflow tools takes patience."];
+    const items = planAdhocPosts({ texts, config: settings, now, taken: new Set(), newId });
+    expect(items.map((item) => item.text)).toEqual(texts);
+    expect(items).toHaveLength(2);
+    for (const item of items) {
+      expect(item.plugText).toBe(plugReplyFor(item.text, item.id, settings, "pipeline"));
+      const url = new URL(item.plugText!.split("\n").at(-1)!);
+      expect(url.hostname).toBe("colateralai.com");
+      expect(url.searchParams.get("utm_content")).toMatch(/^pipeline-/);
+      expect(item.plugText!.length).toBeLessThanOrEqual(500);
+    }
+    expect(new URL(items[0].plugText!.split("\n").at(-1)!).searchParams.get("utm_content")).toBe("pipeline-agents");
+    expect(new URL(items[1].plugText!.split("\n").at(-1)!).searchParams.get("utm_content")).toBe("pipeline-custom-tools");
+  });
+
+  it("honors reply opt-out for pipeline posts", () => {
+    const items = planAdhocPosts({
+      texts: ["Building CoLateral", "A useful workflow idea"],
+      config: { ...config, plugReplies: false, plugUrl: "https://colateralai.com" },
+      now,
+      taken: new Set(),
+      newId
+    });
+    expect(items).toHaveLength(2);
+    expect(items.every((item) => !item.plugText)).toBe(true);
+  });
+
+  it("skips blank pipeline parents and leaves invalid destinations out of the reply", () => {
+    const items = planAdhocPosts({
+      texts: [" ", "A useful workflow idea"],
+      config: { ...config, plugReplies: true, plugUrl: "invalid" },
+      now,
+      taken: new Set(),
+      newId
+    });
+    expect(items).toHaveLength(1);
+    expect(items[0].text).toBe("A useful workflow idea");
+    expect(items[0].plugText).toBeUndefined();
   });
 });

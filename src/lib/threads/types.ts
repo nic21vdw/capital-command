@@ -63,6 +63,9 @@ export type ThreadsQueueItem = {
   plugContainerId?: string;
   plugAttempts?: number;
   plugError?: string;
+  /** Reply-specific retry time and lease; neither changes the parent post. */
+  plugNextAttemptAt?: string;
+  plugClaimedAt?: string;
   /** Set when the link reply was given up on, so it is never tried again. */
   plugDropped?: boolean;
   attempts: number;
@@ -90,9 +93,19 @@ export type ThreadsRunReport = {
   failed: number;
   skipped: number;
   outcomes: ThreadsOutcome[];
+  /** Link replies have their own tally so they never inflate published posts. */
+  replies?: {
+    published: number;
+    retrying: number;
+    failed: number;
+    skipped: number;
+    outcomes: ThreadsOutcome[];
+  };
   dryRun: boolean;
   /** Set when the run did nothing at all (disabled, no account connected). */
   note?: string;
+  /** Queue persistence stopped delivery independently of platform outcomes. */
+  persistenceError?: string;
 };
 
 /** One account's tally within a day. */

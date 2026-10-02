@@ -14,6 +14,8 @@ already shipped.
 
 ## Unreleased
 
+- Threads daily and stream posts now get a relevant CoLateral follow-up with tracked links, visible previews and delivery status. Pausing stops queued replies, retries keep their identity, and repeated stream scheduling no longer duplicates posts.
+
 - Clip editing recovers the newest complete draft, times out stalled saves so you can retry, and keeps renders recoverable until stopping is confirmed.
 
 - Production builds use the compatible Next.js compiler so native media tools do not block installation.
@@ -1625,4 +1627,3 @@ The evening that started with "none of the buttons are clicking".
 - **`npm test` runs the whole suite.** It used to compile one file and print
   "portfolio calculation tests passed", which is how a green `npm test` sat
   next to a dozen failures.
-

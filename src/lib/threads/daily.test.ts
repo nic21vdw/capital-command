@@ -90,6 +90,26 @@ function nowish(): Date {
 }
 
 describe("planTodaysBatch", () => {
+  it.each(["claimedAt", "containerId", "postId"] as const)("keeps an in-flight %s slot and the other account's pending version during replanning", async (handle) => {
+    const { planTodaysBatch } = await import("@/lib/threads/daily");
+    const { threadsConfig } = await import("@/lib/threads/config");
+    const now = nowish();
+    const config = threadsConfig();
+    config.accounts.push({ ...config.accounts[0], id: "secondary", label: "Second account", posts: "variant" });
+    const original: ThreadsQueueItem = {
+      id: "sending-primary", batchDate: todayKey(), slot: 1, accountId: "primary", version: "text",
+      topic: "verification", format: "insight", text: "Original copy", publishAt: now.toISOString(),
+      createdAt: now.toISOString(), status: "pending", attempts: 0,
+      [handle]: handle === "claimedAt" ? now.toISOString() : "durable-handle"
+    };
+    store.items = [original, { ...original, id: "waiting-secondary", accountId: "secondary", version: "variant", claimedAt: undefined, containerId: undefined, postId: undefined }];
+    const before = structuredClone(store.items);
+    const result = await planTodaysBatch({ now, config, startNow: true, log: () => undefined });
+    expect(result.created).toBe(0);
+    expect(result.skipped).toContain("started sending");
+    expect(store.items).toEqual(before);
+  });
+
   it("plans the configured timezone's day when it differs from the machine's day", async () => {
     const { planTodaysBatch } = await import("@/lib/threads/daily");
     const { threadsConfig } = await import("@/lib/threads/config");

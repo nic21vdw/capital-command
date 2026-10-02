@@ -172,6 +172,20 @@ describe("shiftBatch", () => {
 });
 
 describe("editItemText", () => {
+  it("clears an unstarted contextual reply when the parent topic changes", () => {
+    const items = [item({ plugText: "Explore the engineering tools: https://colateralai.com" })];
+    editItemText(items, "item-1", "A better way to organise a marketing campaign.");
+    expect(items[0].plugText).toBeUndefined();
+  });
+
+  it("refuses edits after the parent has a processing container or active claim", () => {
+    for (const state of [{ containerId: "processing" }, { claimedAt: "2026-10-02T15:00:00Z" }, { postId: "already-live" }]) {
+      const items = [item(state)];
+      expect(editItemText(items, "item-1", "changed copy").changed).toBe(0);
+      expect(items[0].text).not.toBe("changed copy");
+    }
+  });
+
   it("rewrites a pending post", () => {
     const items = [item()];
     expect(editItemText(items, "item-1", "  a better line  ").changed).toBe(1);

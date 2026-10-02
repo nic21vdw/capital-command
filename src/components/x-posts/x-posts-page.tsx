@@ -20,7 +20,7 @@ import { toast } from "sonner";
 import { useColateralSurface } from "@/lib/colateral/useSurface";
 import { useAppData } from "@/components/providers/app-provider";
 import { AdvancedOptions } from "@/components/ui/advanced-options";
-import { Badge } from "@/components/ui/badge";
+import { Badge, type BadgeTone } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -30,6 +30,7 @@ import { localDateKey } from "@/lib/x-strategy/analytics";
 import { exportBaseName, toThreadsCsv, toThreadsJson } from "@/lib/x-posts/export";
 import { cn } from "@/lib/utils";
 import type { ThreadsBatchSummary } from "@/lib/threads/types";
+import type { ThreadsReplyCounts, ThreadsReplyPolicy, ThreadsReplyPreview, ThreadsReplySummary } from "@/lib/threads/reply-summary";
 import type { XDailyPack, XPostFormat, XSuggestedPost, XSuggestedReply } from "@/types/domain";
 
 interface GenerateResponse {
@@ -47,11 +48,13 @@ interface AutopilotStatus {
     timezone: string;
     postsPerDay: number;
     lateGraceMinutes: number;
+    replyPolicy?: ThreadsReplyPolicy;
     accounts: Array<{ id: string; label: string; posts: "text" | "variant"; offsetMinutes: number }>;
     unassignedVersions: Array<"text" | "variant">;
   };
   scheduler?: { lastTickAt?: string; lastPostAt?: string; healthy: boolean; minutesSince: number | null };
   today: ThreadsBatchSummary;
+  replies?: ThreadsReplySummary;
   items: unknown[];
 }
 
@@ -514,6 +517,45 @@ function versionLabel(version: "text" | "variant"): string {
   return version === "text" ? "punchy version" : "warm rewrite";
 }
 
+const REPLY_STATES = ["delivered", "pending", "retrying", "dropped", "disabled"] as const;
+const REPLY_TONES: Record<(typeof REPLY_STATES)[number], BadgeTone> = {
+  delivered: "success", pending: "accent", retrying: "warning", dropped: "danger", disabled: "neutral"
+};
+
+function ReplyCounts({ counts }: { counts: ThreadsReplyCounts }) {
+  return (
+    <div className="flex flex-wrap gap-2" aria-label="Follow-up reply counts">
+      {REPLY_STATES.map((state) => (
+        <Badge key={state} tone={REPLY_TONES[state]}>{counts[state]} {state}</Badge>
+      ))}
+    </div>
+  );
+}
+
+function FollowUpReply({ reply, editing }: { reply: ThreadsReplyPreview; editing: boolean }) {
+  return (
+    <section aria-label="Follow-up reply" className="min-w-0 rounded-xl border border-[var(--border)] bg-[var(--panel)] p-3">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <p className="flex items-center gap-2 text-xs font-semibold text-[var(--foreground)]">
+          <MessagesSquare className="h-3.5 w-3.5" aria-hidden="true" />
+          Follow-up reply
+        </p>
+        <Badge tone={REPLY_TONES[reply.status]}>{reply.status}</Badge>
+      </div>
+      <p className="mt-2 whitespace-pre-wrap break-words text-sm text-[var(--foreground)]">{reply.text}</p>
+      <p className="mt-2 break-words text-xs text-[var(--muted-foreground)]">{reply.detail}</p>
+      {reply.error && reply.error !== reply.detail ? <p className="mt-1 break-words text-xs tone-danger tone-text">{reply.error}</p> : null}
+      {reply.nextAttemptAt && (reply.status === "pending" || reply.status === "retrying") ? (
+        <p className="mt-1 text-xs text-[var(--muted-foreground)]">
+          Earliest {formatStamp(reply.nextAttemptAt)} · sent on the next scheduler check
+          {reply.expiresAt ? ` · window ends ${formatStamp(reply.expiresAt)}` : ""}
+        </p>
+      ) : null}
+      {editing ? <p className="mt-2 text-xs text-[var(--muted-foreground)]">Save your edit to refresh this reply preview.</p> : null}
+    </section>
+  );
+}
+
 function AutopilotCard({ status }: { status: AutopilotProps["status"] }) {
   if (!status) return null;
 
@@ -553,6 +595,26 @@ function AutopilotCard({ status }: { status: AutopilotProps["status"] }) {
           {today.nextAt ? <Badge tone="accent">Next {clock(today.nextAt)}</Badge> : null}
         </div>
       </div>
+
+      {settings.replyPolicy ? (
+        <section aria-label="Today's follow-up replies" className="mt-4 space-y-2 border-t border-[var(--border)] pt-4">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <p className="text-sm font-semibold text-[var(--foreground)]">Today&apos;s follow-up replies</p>
+            <Badge tone={settings.replyPolicy.enabled ? "accent" : "warning"}>
+              {settings.replyPolicy.enabled ? "On" : "Off"}
+            </Badge>
+          </div>
+          <p className="text-xs text-[var(--muted-foreground)]">
+            {settings.replyPolicy.disabledReason ?? `A contextual link reply follows each eligible post after ${settings.replyPolicy.delayMinutes} min, within a ${settings.replyPolicy.windowMinutes} min window.`}
+          </p>
+          {settings.replyPolicy.url ? (
+            <a href={settings.replyPolicy.url} target="_blank" rel="noreferrer" className="block break-all text-xs text-[var(--accent)] underline">
+              {settings.replyPolicy.url}
+            </a>
+          ) : null}
+          {status.replies ? <ReplyCounts counts={status.replies.today} /> : null}
+        </section>
+      ) : null}
 
       <div
         className={cn(
@@ -603,6 +665,15 @@ function AutopilotTab({ status, busy, send }: AutopilotProps) {
     [items, active]
   );
   const pending = useMemo(() => batch.filter((item) => item.status === "pending"), [batch]);
+  const repliesByItem = useMemo(() => new Map((status?.replies?.items ?? []).map((reply) => [reply.itemId, reply])), [status]);
+  const replyCounts = useMemo(() => {
+    const counts: ThreadsReplyCounts = { total: 0, delivered: 0, pending: 0, retrying: 0, dropped: 0, disabled: 0 };
+    for (const item of batch) {
+      const reply = repliesByItem.get(item.id);
+      if (reply) { counts.total += 1; counts[reply.status] += 1; }
+    }
+    return counts;
+  }, [batch, repliesByItem]);
 
   if (!status) {
     return (
@@ -646,6 +717,13 @@ function AutopilotTab({ status, busy, send }: AutopilotProps) {
               : ""}
           </p>
         </div>
+
+        {status.replies ? (
+          <div className="mt-4 space-y-2">
+            <p className="text-xs font-semibold text-[var(--foreground)]">{replyCounts.total} follow-up replies for this day</p>
+            <ReplyCounts counts={replyCounts} />
+          </div>
+        ) : null}
 
         <div className="mt-4 flex flex-wrap items-center gap-2">
           <span className="text-xs text-[var(--muted-foreground)]">Move the whole batch:</span>
@@ -761,6 +839,8 @@ function AutopilotTab({ status, busy, send }: AutopilotProps) {
           {item.note && item.status !== "pending" ? (
             <p className="text-xs text-[var(--muted-foreground)]">{item.note}</p>
           ) : null}
+
+          {repliesByItem.has(item.id) ? <FollowUpReply reply={repliesByItem.get(item.id)!} editing={editing === item.id} /> : null}
 
           {(item.status === "failed" || item.status === "skipped") && editing !== item.id ? (
             // The copy was already written and approved; recovering it should

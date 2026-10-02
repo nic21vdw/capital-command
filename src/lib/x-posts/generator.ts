@@ -9,7 +9,7 @@ import type { XDailyPack, XPostFormat, XSuggestedPost, XSuggestedReply } from "@
  * Server-side generation of the Threads pack: 24 fresh original posts (each
  * written twice, short and slightly longer) spread across the waking day with
  * human jitter, plus 20 evergreen replies. Every press of Generate writes a brand
- * new pack. Prefers Claude (fresh writing against the positioning brief,
+ * new pack. Prefers fresh AI writing against the positioning brief,
  * avoiding topics from recent packs); degrades to the built-in idea library
  * when the API key is missing or the call fails, so the tool never comes up
  * empty.
@@ -114,6 +114,67 @@ interface RawReply {
   text?: unknown;
 }
 
+/**
+ * Prompts can drift, particularly on the free-model fallback ladder. Never
+ * publish a pack that breaks the account variants or turns its parents into
+ * link ads. Run this on the final voice-passed copy, not the raw model text.
+ * Semantic feature claims still need the grounding instructions in the prompt.
+ */
+function editorialIssue(pack: XDailyPack): string | null {
+  const hasLink = /\b(?:https?:\/\/|www\.|(?:[a-z0-9-]+\.)+(?:com|org|net|io|ai|dev|app|co)\b)/i;
+  const hasDecoration = /(?:\B#[\p{L}\p{N}_]+|\p{Extended_Pictographic})/u;
+  const retiredName = /\bcapital\s+command\b/i;
+  const normalize = (value: string) =>
+    value
+      .toLowerCase()
+      .replace(/['\u2019]/g, "")
+      .replace(/\s+/g, " ")
+      .trim();
+  let brandCount = 0;
+  const topics = new Set<string>();
+  const texts = new Set<string>();
+  const formats = new Set<XPostFormat>();
+
+  for (const post of pack.posts) {
+    if (post.text.length < PUNCHY_MIN || post.text.length > PUNCHY_CEILING)
+      return "a short post missed the length contract";
+    if (post.threadsVariant.length < WARM_MIN || post.threadsVariant.length > WARM_MAX)
+      return "a warm post missed the length contract";
+    const versions = [post.text, post.threadsVariant];
+    if (versions.some((version) => hasLink.test(version))) return "a parent post included a link";
+    if (versions.some((version) => hasDecoration.test(version))) return "a parent post included hashtags or emoji";
+    if (versions.some((version) => retiredName.test(version))) return "a parent post used a retired product name";
+    const mentions = versions.map((version) => /\bCoLateral\b/.test(version));
+    if (
+      mentions[0] !== mentions[1] ||
+      versions.some((version) => /\bcolateral\b/i.test(version) && !/\bCoLateral\b/.test(version))
+    ) {
+      return "the two versions disagreed about CoLateral";
+    }
+    if (mentions[0]) brandCount += 1;
+    if (mentions[0] && pack.posts[post.slot - 2]?.text.match(/\bCoLateral\b/)) return "CoLateral posts were adjacent";
+    const short = normalize(post.text);
+    if (normalize(post.threadsVariant).startsWith(short.slice(0, 40)))
+      return "a warm version repeated its short opening";
+    const topic = normalize(post.topic);
+    if (topics.has(topic) || texts.has(short)) return "the pack repeated an angle";
+    topics.add(topic);
+    texts.add(short);
+    formats.add(post.format);
+  }
+
+  if (brandCount !== COLATERAL_POSTS_PER_PACK) return "the pack missed the CoLateral post mix";
+  if (formats.size < 4) return "the pack did not vary its post formats";
+  if (
+    pack.replies.some(
+      (reply) => hasLink.test(reply.text) || hasDecoration.test(reply.text) || retiredName.test(reply.text)
+    )
+  ) {
+    return "an evergreen reply included a link, decoration or retired product name";
+  }
+  return null;
+}
+
 function buildPack(input: {
   date: string;
   focus: string;
@@ -212,7 +273,13 @@ Today's optional focus topic: ${focusLine}
 
 Write today's content pack:
 
-1. Exactly ${POSTS_PER_PACK} ORIGINAL standalone posts. ONE thought each, said short. These have to stop a thumb mid scroll and give someone a reason to reply, so the first line has to earn the second and there is no room for a wind up. Every post takes a DIFFERENT angle, and no two circle the same idea. Vary the formats across the set: insight, contrarian, story, question, framework, observation. Exactly ${COLATERAL_POSTS_PER_PACK} of the ${POSTS_PER_PACK} are about CoLateral, the thing he is building, and each of those names it as "CoLateral" in BOTH versions: something it does, why he is building it, a day of building it, a thing that broke in it, who it is for. Spread them through the day, never two in a row. They still read like a person talking about his own project, not an ad: no "check out", no "sign up", no feature lists, and never a link, because a reply with the link goes under each one automatically. The rest are just him talking about building things with AI and about work, and do not mention CoLateral.
+1. Exactly ${POSTS_PER_PACK} ORIGINAL standalone posts. ONE thought each, said short. The first line has to earn the second without a wind up. Every post takes a DIFFERENT angle, and no two circle the same idea. Use at least four formats across the set: insight, contrarian, story, question, framework, observation. Exactly ${COLATERAL_POSTS_PER_PACK} of the ${POSTS_PER_PACK} are about CoLateral, the thing he is building, and each of those names it as "CoLateral" in BOTH versions. Spread them through the day, never two in a row. The rest are useful thoughts about building things with AI and about work, and do not mention CoLateral.
+
+GIVE THE READER SOMETHING BEFORE THE LINK. Each parent must be useful on its own: a concrete check someone can try, a specific decision with a tradeoff, a small tool idea for a familiar annoying job, or a question that allows different real answers. A separate self-reply supplies a relevant invitation to colateralai.com. Do not put any URL, domain, "link below", "check out", "sign up", "read the reply", feature list or withheld answer in the parent. Avoid a disguised ad repeated eight times. Do not end every brand post with a question or begin every one with "I'm building". Vary the reason to care, not just the wording of the pitch.
+
+MAKE DISCOVERY FIT THE TOPIC. Across the eight CoLateral ideas, cover several reader needs: developers seeing how agents and project files fit together, creators keeping ideas beside the work, engineers inspecting inputs and assumptions, and people who want a small tool for a task they know. A custom tool example could be a file-cleanup helper or a calculator; it is an idea to build, not a claim that CoLateral already supplies it. Show the desktop project canvas as a place to do the work. Do not use "ADE" without explaining it in plain words. Games, modules, CoLateral Engineering and CoLateral Marketing can be angles when the supplied brief supports them, without turning an interest in that area into a claim about an available feature. Do not make every post the same point about AI producing more work to check.
+
+GROUND EVERY CLAIM. The verified shared positioning is: ${CHANNEL_CONTEXT} The brief and optional focus provide topics, not automatic proof that a requested feature has shipped. Distinguish a feature explicitly verified as working from an experiment, a design goal, or a plan. Write "I want", "I'm building toward", or a question for goals; never convert them to "you can now" or "it does". If no concrete event is supplied, write a useful observation or example instead of an invented story. Never invent personal anecdotes, tool counts, launch dates, prices, time savings, sales, users, fixes, account support, multiplayer availability or promised engineering outcomes. Never name a client or expose private project details. The current names are CoLateral, CoLateral Engineering and CoLateral Marketing. Never call it Capital Command. Engineering software helps qualified engineers inspect their work; never claim automatic approval, stamping or guaranteed compliance.
 
 KEEP THEM SHORT. Short is the point. If a post needs a second idea to make sense, cut the second idea, not the words around it. One or two lines. Never a paragraph that fills the box.
 
@@ -225,10 +292,10 @@ DO NOT SOUND LIKE A MODEL. These go out on a personal feed, and the giveaways ar
 - NEVER an em dash or an en dash. Not one, anywhere. Use a comma, a full stop, or a new line. It is the single clearest tell.
 - No "it's not X, it's Y" seesaws. No "here's the thing", no "the truth is", no "most people think". No rule-of-three lists where every item is the same length.
 - No wise closing line that restates the post as a law. Real posts just stop.
-- Vary the length hard. A long thought, then three words. Some posts are one line.
+- Vary the sentence lengths within the character ranges. A longer sentence can have a short aside. Some posts are one line.
 - Plain words over impressive ones. "use" not "leverage", "start" not "embark", "so" not "thus". No "delve", "robust", "seamless", "landscape", "testament", "crucial".
 - Contractions throughout. Start a sentence with And or But when it reads better. Trailing thoughts are fine.
-- Say the specific thing. A real number, a real hour of the day, a thing that actually broke. A small concrete detail reads as lived; vague authority reads as generated.
+- Say the specific thing using supported details. Without a supplied real event, use a concrete example someone can try, not a made-up number, hour or thing that broke.
 - No hashtags, no emoji.
 
 Write every post twice, both for Threads:
@@ -236,7 +303,7 @@ Write every post twice, both for Threads:
 - "threadsVariant" is the same idea with one more beat, a detail or an aside, ${WARM_MIN}-${WARM_MAX} characters. Longer than the punchy one but still short, and reworded from its first words so the two never read as the same post twice.
 Neither version may exceed ${THREADS_LIMIT} characters, and neither should come close.
 
-2. Exactly ${REPLIES_PER_PACK} evergreen REPLIES I can adapt when engaging with typical conversations in my space. For each, give "scenario" (one line describing the kind of post it answers, e.g. "Someone ships an impressive AI demo") and "text" (the reply, 1-3 short sentences, same plain voice as the posts, says something real from having done the work, never salesy, never a lecture).
+2. Exactly ${REPLIES_PER_PACK} evergreen REPLIES I can adapt when engaging with typical conversations in my space. These are separate from the automatic self-replies. For each, give "scenario" (one line describing the kind of post it answers, e.g. "Someone ships an impressive AI demo") and "text" (the reply, 1-3 short sentences, same plain voice as the posts, adds a relevant concrete idea or a useful question, never salesy, never a lecture). Answer the other person's topic rather than redirecting it to CoLateral. No links, invented personal experiences, or generic praise.
 
 Follow every voice rule: no hashtags, no emojis, no generic openers, no invented facts or numbers, no motivational-influencer tone.
 
@@ -250,7 +317,7 @@ Respond with ONLY valid JSON, no commentary, in exactly this shape:
       // skips a doomed first attempt that costs a minute and a half.
       maxTokens: 32000,
       system:
-        `You ghostwrite short social posts for this channel. ${CHANNEL_CONTEXT} You write the way Nic talks: short, plain, specific, a bit blunt. No jargon, no thought-leader voice, no essays. A post is one thought, one or two lines, and it leaves someone something to argue with. You write like a person typing on their phone, not like polished marketing copy: plain words, varied sentence length and contractions. Never use an em dash or en dash. Never fabricate facts, projects or numbers. Output strict JSON when asked.`,
+        `You ghostwrite short social posts for this channel. ${CHANNEL_CONTEXT} You write the way Nic talks: short, plain, specific, a bit blunt. No jargon, no thought-leader voice, no essays. A post is one useful thought, one or two lines, and it leaves room for a real conversation. You write like a person typing on their phone, not like polished marketing copy: plain words, varied sentence length and contractions. Never use an em dash or en dash. Never fabricate facts, projects, experiences or numbers. A goal is not a shipped feature. Parent posts have no links or bait; the separate self-reply handles a relevant invitation. Output strict JSON when asked.`,
       messages: [{ role: "user", content: userPrompt }]
     });
 
@@ -292,7 +359,22 @@ Respond with ONLY valid JSON, no commentary, in exactly this shape:
       replies.push({ scenario: fill.scenario, text: fill.text });
     }
 
-    return { pack: buildPack({ date, focus, source: "ai", requestedAt, posts, replies }), reason: null };
+    const pack = buildPack({
+      date,
+      focus,
+      source: "ai",
+      requestedAt,
+      posts,
+      replies
+    });
+    const issue = editorialIssue(pack);
+    if (issue) {
+      return {
+        pack: fallback,
+        reason: `AI writing missed the editorial contract (${issue}) — served the built-in idea library instead.`
+      };
+    }
+    return { pack, reason: null };
   } catch (error) {
     const message = error instanceof Error ? error.message : "unknown error";
     return {

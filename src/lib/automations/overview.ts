@@ -10,6 +10,8 @@ import { threadsBlockedReason, threadsConfig, type ThreadsConfig } from "@/lib/t
 import { readQueue } from "@/lib/threads/queue";
 import { readThreadsState, tickHealth, type ThreadsState } from "@/lib/threads/state";
 import type { ThreadsQueueItem } from "@/lib/threads/types";
+import { countThreadsReplies, summarizeThreadsReplies } from "@/lib/threads/reply-summary";
+import { localCalendarParts } from "@/lib/publisher/time";
 import { feedBlockers } from "@/lib/podcast/feed";
 import { podcastConfigured } from "@/lib/podcast/publish";
 import { podcastAutomationStatus } from "@/lib/podcast/schedule";
@@ -126,18 +128,25 @@ export function buildAutomationOverview(input: AutomationInputs, now = new Date(
     issues: publisherIssues, running: publisherTask?.state === "running"
   });
   const threadsTask = input.tasks.threads;
+  const threadsTick = input.outcomes.threads;
   const health = tickHealth(input.threadsState, now);
   const threadsBlock = threadsBlockedReason(input.threads);
+  const replySummary = summarizeThreadsReplies(input.threadsItems, localCalendarParts(now, input.threads.timezone).dateKey, input.threads, now, input.controls.threads?.paused);
+  const replyCounts = countThreadsReplies(replySummary.items);
   const threads = card("threads", {
-    title: "Threads autopilot", description: "Plan daily posts, maintain the queue and send each slot.", href: "/x-posts",
+    title: "Threads autopilot", description: "Plan daily and stream posts, send each slot and add contextual CoLateral follow-up replies.", href: "/x-posts",
     blockers: [...taskBlocker(threadsTask), ...(threadsBlock ? [threadsBlock] : [])],
     schedule: `${input.threads.postsPerDay} posts per day per account; check due posts ${threadsTask?.schedule ?? "on the Windows task"}`, timezone: input.threads.timezone,
     nextRunAt: threadsTask?.nextRunAt ?? null,
-    nextItemAt: nextAt(input.threadsItems.filter((item) => item.status === "pending").map((item) => item.nextAttemptAt ?? item.publishAt)),
-    lastRunAt: input.threadsState.lastTickAt ?? null,
-    lastOutcome: input.threadsState.lastPostAt ? `Last post sent ${input.threadsState.lastPostAt}` : input.threadsState.lastTickAt ? "A tick was recorded; no published post recorded yet." : null,
-    counts: [{ label: "Queued", value: input.threadsItems.filter((item) => item.status === "pending").length }, { label: "Published", value: input.threadsItems.filter((item) => item.status === "published").length }, { label: "Failed", value: input.threadsItems.filter((item) => item.status === "failed").length }],
-    issues: [...(!health.healthy && health.minutesSince !== null ? ["No Threads tick recorded in over 15 minutes."] : []), ...input.threadsItems.filter((item) => item.error || item.plugError).map((item) => `${item.topic}: ${item.error ?? item.plugError}`).slice(0, 5)],
+    nextItemAt: nextAt([
+      ...input.threadsItems.filter((item) => item.status === "pending").map((item) => item.nextAttemptAt ?? item.publishAt),
+      ...replySummary.items.filter((item) => item.status === "pending" || item.status === "retrying").map((item) => item.nextAttemptAt)
+    ]),
+    lastRunAt: threadsTick?.at ?? input.threadsState.lastTickAt ?? null,
+    lastOutcome: threadsTick?.detail ?? (input.threadsState.lastPostAt ? `Last post sent ${input.threadsState.lastPostAt}` : input.threadsState.lastTickAt ? "A tick was recorded; no published post recorded yet." : null),
+    counts: [{ label: "Queued", value: input.threadsItems.filter((item) => item.status === "pending").length }, { label: "Published", value: input.threadsItems.filter((item) => item.status === "published").length }, { label: "Failed", value: input.threadsItems.filter((item) => item.status === "failed").length },
+      { label: "Replies waiting", value: replyCounts.pending + replyCounts.retrying }, { label: "Replies published", value: replyCounts.delivered }, { label: "Replies dropped", value: replyCounts.dropped }],
+    issues: [...(threadsTick?.status === "failed" ? [threadsTick.detail] : []), ...(!health.healthy && health.minutesSince !== null ? ["No Threads tick recorded in over 15 minutes."] : []), ...input.threadsItems.filter((item) => item.error || item.plugError).map((item) => `${item.topic}: ${item.error ?? item.plugError}`).slice(0, 5)],
     running: threadsTask?.state === "running"
   });
   const lastPodcast = [...input.podcast.deliveries].filter((entry) => entry.lastAttemptAt).sort((a, b) => b.lastAttemptAt!.localeCompare(a.lastAttemptAt!))[0];

@@ -1,20 +1,11 @@
 import type { XPostFormat } from "@/types/domain";
 
 /**
- * Built-in idea library for the Threads daily planner. Used as the fallback
- * when ANTHROPIC_API_KEY isn't configured (or the AI call fails) so the tool
- * still produces a full, on-brand pack every day. Entries are written the way
- * the prompt asks for them: one thought, short, plain enough for someone
- * outside engineering, and open enough that a reader has something to say
- * back.
- *
- * Every entry holds the same two versions the generator writes, to the same
- * contract (see generator.ts): `text` is the short one, around 70-150
- * characters, and `threadsVariant` gives the same thought one more beat at
- * 180-280, clearly longer and reworded from its first words on. Two connected accounts post one version
- * each, so a variant that merely pads its punchy twin puts near-identical
- * wording on both feeds — which is the mirrored-spam read the pair exists to
- * avoid. A fallback pack has to hold that line too.
+ * Offline Threads ideas use the same two-version contract as the AI planner:
+ * a 70-150 character thought and a reworded 180-280 character version.
+ * Concrete examples are suggestions, never invented anecdotes or launch claims.
+ * Brand copy uses the shared desktop/project-canvas positioning; plans are
+ * explicitly phrased as goals. Parent posts stand alone without a sales link.
  */
 
 export interface LibraryPost {
@@ -32,360 +23,477 @@ export interface LibraryReply {
 export const POST_LIBRARY: LibraryPost[] = [
   {
     format: "insight",
-    topic: "checking is the slow part",
-    text: "A machine can write a week of work in an hour. It still takes me a week to check it. Nobody posts about that half.",
-    threadsVariant: "Everyone shares the hour it took to build the thing. Nobody shares the week of reading that came after, because a person still has to go through all of it and reading did not get faster this year. My output went up. My evenings did not."
+    topic: "one useful tool",
+    text: "A tiny tool that sorts one annoying file can be a better first AI project than a whole app. You can tell when it works.",
+    threadsVariant:
+      "Pick one file you keep cleaning up by hand. Ask an agent to handle that step, then compare its output with a copy you cleaned yourself. A small tool earns its place by getting a boring job right."
   },
   {
     format: "contrarian",
-    topic: "deciding is the expensive part",
-    text: "The code is the cheap part now. Deciding what to build is the expensive part, and most teams are staffed the other way round.",
-    threadsVariant: "An agent will build the wrong thing beautifully and never once ask why. That is the bit people miss. Making software got cheap this year, deciding what should exist did not, and most teams still have ten people building and nobody whose job is to say no."
+    topic: "what to build first",
+    text: "Your first AI project can be the task you keep putting off. Nobody needs another dashboard they forget to open.",
+    threadsVariant:
+      "The best starting point might be the dull job already sitting on your desk. Renaming files, cleaning a table, finding a missing field. You know what a good result looks like before the agent writes anything."
   },
   {
     format: "observation",
-    topic: "running agents in parallel",
-    text: "Ran four coding agents at once this week. Four times the code. About six times the reading.",
-    threadsVariant: "Four at once sounded great until the diffs landed. Each one was sensible on its own and none of them knew what the others had done, so I spent the afternoon making them agree with each other. Running them in parallel is free. The agreeing is not."
-  },
-  {
-    format: "insight",
-    topic: "who signs it off",
-    text: "Any tool can do the maths. The hard part is knowing who signs it off and what they want to see first.",
-    threadsVariant: "The maths was never the moat. What is hard is everything around it: who signs, what they check before they sign, and what has to be in front of them when they do. Build for the person signing and the calculation turns into a detail."
-  },
-  {
-    format: "story",
-    topic: "make it show its assumptions",
-    text: "I make every AI answer list what it assumed at the top. Checking it went from an hour to twenty minutes.",
-    threadsVariant: "Smallest change I made all year. Every answer has to open with what it assumed, before any of the working. Now I argue with the assumptions instead of hunting for them buried on page three. An hour of checking turned into about twenty minutes."
+    topic: "agents need separate jobs",
+    text: "Two agents editing the same file is a meeting without an agenda. Give each one a separate job before you press go.",
+    threadsVariant:
+      "Running agents together works better when each has a clear patch of the project to own. One can build a screen while another checks a different part. Otherwise you spend the afternoon settling arguments between files."
   },
   {
     format: "framework",
-    topic: "what agents are allowed to touch",
-    text: "My agents can write anything. They cannot send anything. That one line is most of my safety setup.",
-    threadsVariant: "People expect something clever here and it is not clever at all. Anything reversible is theirs. Anything that leaves the building, a post, an email, a delete, needs me. I have never once regretted the line being in that exact place."
+    topic: "show the agent an example",
+    text: "Give the agent one example of a good result and one that should fail. That explains more than another paragraph of instructions.",
+    threadsVariant:
+      "Before asking an agent to build something, show it an input and the result you expect. Add a bad input too. Now you have something concrete to check, and the agent has fewer gaps to fill with a guess."
+  },
+  {
+    format: "question",
+    topic: "a tool for your own job",
+    text: "What boring task at your job would you turn into a button? The one you do every week is probably more useful than a big app idea.",
+    threadsVariant:
+      "Forget the startup idea for a second. Think about the task you repeat at work, the one that takes a few clicks and always feels longer than it should. If you could make one button for it, what would it do?"
   },
   {
     format: "insight",
-    topic: "knowing which answer is wrong",
-    text: "Nobody is paying me for typing anymore. They are paying me for knowing which answer is quietly wrong.",
-    threadsVariant: "Typing was never really the job, it just looked like the job. Now a machine does that part, and what is left is spotting which of the four confident answers in front of you is wrong. That did not get cheaper. It got harder to fake."
-  },
-  {
-    format: "contrarian",
-    topic: "it is not the model",
-    text: "Same model, two setups. One gives me junk. One gives me work I can use. It was never the model.",
-    threadsVariant: "Two people run the same thing and get completely different results, then argue about which model is best. It is almost never the model. It is what you gave it, what it could actually see, and whether anything checks the answer before you do."
+    topic: "a source beside a number",
+    text: "A number without its source is homework for the next person. Put the assumption beside the result while you still remember it.",
+    threadsVariant:
+      "Someone reviewing a calculation needs to know what went into it. Keep the input and its source beside the result, even when it feels obvious today. The confusing part usually arrives after you have moved to another project."
   },
   {
     format: "observation",
-    topic: "the bill for vibe coding",
-    text: "Vibe coding is fine until someone has to fix it at 11pm. Usually that someone is me, three weeks later.",
-    threadsVariant: "Nothing against it, I do it constantly. The bill just arrives later than the fun does. Something breaks on a Tuesday night and whoever opens the file has no idea why any of it is shaped like that, and most of the time that person is me."
+    topic: "a broken link breaks the pitch",
+    text: "A good post can send someone to a bad first impression. Open the link on your phone before calling the campaign finished.",
+    threadsVariant:
+      "The caption can be great and the destination can still let it down. Try the link on a phone, see what loads first, and read the page as someone who has never heard of you. That is part of making the post."
   },
   {
     format: "contrarian",
-    topic: "counting the wrong thing",
-    text: "Lines of code was always a silly number. Now it is free to fake and people still put it in updates.",
-    threadsVariant: "A machine can produce ten thousand lines before lunch, so the number means even less than it used to, and I keep seeing it in weekly updates like it is an achievement. Better question, and nobody enjoys it: how much of that has anyone read."
-  },
-  {
-    format: "insight",
-    topic: "where did this come from",
-    text: "If you cannot say where a number came from, it is not a result. It is a guess with good formatting.",
-    threadsVariant: "In my job a number with no source is worth nothing no matter how tidy it looks, and AI is very good at tidy. So the first thing I ask anything it hands me is where this came from. If there is no answer it goes in the bin, however right it looks."
-  },
-  {
-    format: "story",
-    topic: "building without a dev team",
-    text: "One engineer, no dev team, and I shipped a real app this year. Five years ago that was a fantasy.",
-    threadsVariant: "No funding, no cofounder, no software people. Just someone who used to wait a year for a tool and now builds it in a weekend. I am not saying it is easy. I am saying the wall that used to stop people like me is gone, and it went pretty quietly."
+    topic: "games need a first minute",
+    text: "A game can look great in a screenshot and feel awful in the first minute. Start with moving, aiming and knowing what to do.",
+    threadsVariant:
+      "Before adding another map to a game, try the first minute with someone who has never played it. Watch where they get stuck. A clear start and controls that feel right give the rest of the game a chance."
   },
   {
     format: "framework",
-    topic: "say what done looks like",
-    text: "Half my bad results were me being vague. The agent did exactly what I asked. I asked badly.",
-    threadsVariant: "I blamed the model for a while, then started reading my own requests back the next morning. Most of them would have confused a person too. Now I write down what finished looks like before anything starts, and a lot of that problem went away."
+    topic: "ask an agent to explain the change",
+    text: "Ask the agent what changed and how it checked the result. A giant list of files is a pretty poor answer to either question.",
+    threadsVariant:
+      "When an agent finishes, ask for the behaviour it changed and the check that proved it. Then try that check yourself. Reading every file may still matter, but at least you know which claim you are trying to confirm."
+  },
+  {
+    format: "question",
+    topic: "the part that should stay manual",
+    text: "Which part of your job would you keep doing yourself even if an agent could do it? That answer says a lot about what you value.",
+    threadsVariant:
+      "There is usually one part of a job people want to keep, even when the rest could be automated. Maybe it is choosing the idea, talking to a client, or making the final call. I am curious where that line sits for you."
   },
   {
     format: "insight",
-    topic: "it can only use what it sees",
-    text: "An agent that cannot see your project is guessing politely. Most bad answers are missing information.",
-    threadsVariant: "When I get a bad answer it is usually not because the thing is stupid. It is because I asked about something it could not see, so it guessed, and a polite guess looks exactly like a real answer. Now I check what it had in front of it first."
-  },
-  {
-    format: "insight",
-    topic: "fast is not the product",
-    text: "In serious work nobody wants a faster answer. They want one somebody is willing to put their name on.",
-    threadsVariant: "This is the gap a lot of AI products never cross. In my industry an answer nobody will sign is worth exactly nothing, however quickly it arrived. Speed is what makes the demo look good. Someone signing it is the actual product."
+    topic: "a useful caption explains the moment",
+    text: "A clip needs enough context for someone who missed the stream. Explain what is happening before asking them to care about it.",
+    threadsVariant:
+      "People seeing a clip have not watched the hour before it. Give them the problem, the thing being tried, and a reason the result matters. The interesting moment still needs a small doorway for a new person to walk through."
   },
   {
     format: "observation",
-    topic: "tools that admit doubt",
-    text: "I trust a tool more when it tells me it is unsure. Certainty about everything is a warning sign.",
-    threadsVariant: "The ones I keep using are the ones that flinch sometimes. If it sounds equally confident about every answer then I am doing all the sorting myself, which is the work I wanted help with. I would rather it hesitate and be right about when."
-  },
-  {
-    format: "story",
-    topic: "the demo took an afternoon",
-    text: "The demo took an afternoon. Making it not embarrassing took two months. That ratio surprises people.",
-    threadsVariant: "First version of my app looked finished on day one, which was misleading. Two months went into the parts nobody films: what happens when it fails, when the file is weird, when someone does something nobody planned for. That is most of the job."
+    topic: "unfinished work can teach",
+    text: "A failed attempt can make a useful post if you explain what you changed next. The error message on its own is just homework.",
+    threadsVariant:
+      "Showing work in public gets more interesting when people can follow the decision after something breaks. What did you check? What did you change? That is the part another builder can take back to their own project."
   },
   {
     format: "contrarian",
-    topic: "approving what you did not read",
-    text: "If you approve a change you did not read, you did not save time. You moved it to future you.",
-    threadsVariant: "Skimming a diff and clicking approve feels like speed. It is a loan, and future you pays it back at a horrible hour, usually while working out why a thing that never worked has been live for a month. The interest on that is brutal."
-  },
-  {
-    format: "insight",
-    topic: "my name is on it",
-    text: "When it goes wrong, nobody accepts that the model wrote it. My name is on the drawing either way.",
-    threadsVariant: "People ask if I worry about AI taking my job. What I actually think about is that when something fails the model is not in the room and I am. That does not change based on how the work got made, which is either terrifying or clarifying."
+    topic: "knowing your field matters",
+    text: "Knowing a job well is an advantage when building with AI. You can spot the answer that looks tidy but would annoy everyone using it.",
+    threadsVariant:
+      "An agent can build a clean screen for a job it does not understand. The person who does that job can spot the missing step immediately. That is a good reason to start with a problem from a field you actually know."
   },
   {
     format: "framework",
-    topic: "what to hand over",
-    text: "Getting good at this is not prompt tricks. It is knowing what to hand over and what to keep.",
-    threadsVariant: "There is no secret phrase. The people getting real work out of these tools are just good at deciding what to give away and what to hold on to, and every one of them figured that out by handing over the wrong things first."
-  },
-  {
-    format: "observation",
-    topic: "the forty line tool",
-    text: "The software I use most is forty lines long. Nobody would pay for it. It saves me an hour a day.",
-    threadsVariant: "It does one boring thing I used to do by hand every morning and it will never be a product. An hour a day, out of forty lines. Most of the value in this stuff is that small and that unglamorous, which is why so little of it gets talked about."
+    topic: "use a copy for the first run",
+    text: "Try a new automation on a copy of the file first. Undo is a nicer feature when you have not already needed it.",
+    threadsVariant:
+      "A first run should be easy to inspect and easy to undo. Use a spare file, keep the original, and compare the result before letting an automation loose on the whole folder. You get to learn without rebuilding your morning."
   },
   {
     format: "insight",
-    topic: "who actually gets good at this",
-    text: "The people pulling ahead with AI are not the technical ones. They are the ones who came back after a bad answer.",
-    threadsVariant: "I keep watching who gets good at this and it is not who I expected. Almost everyone tries it, gets something rubbish, and quietly decides it is overhyped. The ones who came back the next day anyway are miles ahead now. That is the filter."
+    topic: "preview before publish",
+    text: "An automation that writes posts should let you read them before it publishes. Speed is less useful when the wrong sentence travels fast.",
+    threadsVariant:
+      "Writing and publishing are two different decisions. Let an automation prepare the post, then give yourself a clear place to check the wording and the destination. A fast draft should still leave room for a deliberate publish."
+  },
+  {
+    format: "question",
+    topic: "when the game feels good",
+    text: "What makes you keep playing a small game: the controls, the challenge, or the friend who refuses to lose? I suspect the last one cheats.",
+    threadsVariant:
+      "Small games do not always need a huge world to keep people around. Sometimes the controls feel right, sometimes the next attempt looks possible, and sometimes your friend is still talking about the last round. Which gets you back?"
+  },
+  {
+    format: "observation",
+    topic: "small tools need clear inputs",
+    text: "A custom tool should tell you what it needs before it gives an answer. Quietly choosing a missing input is a very expensive shortcut.",
+    threadsVariant:
+      "A missing input should be visible, whether you are building a calculator or a file sorter. Ask for what is missing, or show the assumption clearly. A neat answer becomes less useful when nobody knows what the tool quietly chose."
+  },
+  {
+    format: "insight",
+    topic: "give each project its own notes",
+    text: "Leave the next person a note about why you chose that approach. That person might be you after a weekend.",
+    threadsVariant:
+      "A useful project note explains the decision, not just the file you touched. What was the problem? Why this approach? What still needs checking? A few plain lines can save someone from having to rediscover the whole argument."
   },
   {
     format: "contrarian",
-    topic: "what cannot be copied",
-    text: "Anyone can wrap a model in a weekend. Nobody can copy twenty years of knowing what actually matters.",
-    threadsVariant: "So the wrapper is not the thing worth protecting. What is hard to copy is knowing which corners of a job are fine to cut and which ones quietly cause a failure two years later. You only get that by having done the job, badly, at some point."
-  },
-  {
-    format: "story",
-    topic: "docs written for a machine",
-    text: "I started writing notes for the AI, not for people. Turns out the people needed them too.",
-    threadsVariant: "The agents kept getting lost in my own projects, so I finally wrote down how the thing works. Now new work starts faster, and so do I after two weeks away. Wrote it for a machine. Should have written it years ago for me."
-  },
-  {
-    format: "insight",
-    topic: "checking does not scale",
-    text: "You can double the code overnight. You cannot double the number of people able to check it.",
-    threadsVariant: "Making things scales instantly now and checking them does not, because checking needs someone who knows what wrong looks like in your field. That is the whole squeeze. Everybody is racing to produce more and nobody is asking who reads it."
-  },
-  {
-    format: "observation",
-    topic: "teams that talk about failures",
-    text: "The teams doing well with AI talk about where it failed last week. The quiet ones are pretending.",
-    threadsVariant: "Best signal I have found. If a team only ever shares wins, either they are barely using it or nobody there feels safe saying it did not work. The ones swapping stories about what went sideways on Tuesday are actually learning something."
+    topic: "more features can hide the useful part",
+    text: "Another feature can make a tool harder to understand. The thing people came for should still be obvious when they open it.",
+    threadsVariant:
+      "Before adding another button, watch someone try the task the tool was built for. If they cannot find it, more options will probably bury it further. A useful tool needs a clear first move more than a crowded menu."
   },
   {
     format: "framework",
-    topic: "do it by hand three times",
-    text: "If I have not done it by hand three times, I do not automate it. I do not know what it is yet.",
-    threadsVariant: "First time you learn the thing. Second time you hit the edge case. Third time you finally see what changes between runs. Automate before that and you build a very efficient machine for doing the wrong job, which is worse than doing it by hand."
+    topic: "use one real example in a demo",
+    text: "Show one task from start to finish in a demo. People can judge a finished example more easily than a tour of ten menus.",
+    threadsVariant:
+      "Pick an ordinary task for a demo and finish it on screen. Show the input, the decision, and the result. Someone watching can then decide whether it fits their day, instead of guessing what all the buttons might add up to."
   },
   {
-    format: "insight",
-    topic: "the deciding takes the week",
-    text: "Most of my day is not building. It is working out what I am actually asking for.",
-    threadsVariant: "Someone asked what the work looks like now. Mostly deciding. Writing down what the thing should do, arguing with myself, cutting half of it. The building takes an hour. Working out what to build takes the rest of the week, and it always did."
+    format: "question",
+    topic: "a workspace should help you resume",
+    text: "When you reopen a project, what tells you where to start? A list of files rarely explains the decision you were halfway through.",
+    threadsVariant:
+      "Coming back to a project should not mean rereading every chat. I would want the open question and the last decision beside the work. What do you look for first when you return to something you left unfinished?"
   },
   {
     format: "observation",
-    topic: "nobody is building the checking tools",
-    text: "A hundred tools that write code for you. Almost none that help you work out if it is right.",
-    threadsVariant: "Another one launches every week and they all do the same half of the job. I can count on one hand the ones that help with whether the result is correct, which is where all the time goes now. Someone is going to make a lot of money there."
+    topic: "mobile controls need a real phone",
+    text: "A game working with a mouse tells you very little about playing it with two thumbs. Try the small screen before adding more buttons.",
+    threadsVariant:
+      "Touch controls take up some of the screen you are trying to see. Test a game on an actual phone and watch what your thumbs cover. A desktop layout squeezed smaller can hide exactly the thing a player needs to notice."
   },
   {
-    format: "story",
-    topic: "shipping something every day",
-    text: "Putting something out every day changed what I build. You stop planning things you never finish.",
-    threadsVariant: "Since I started shipping daily the work changed shape on its own. Big plans die quietly because they never fit inside a day, and what survives is small stuff that actually lands. I get more done and plan less, which is not the trade I expected."
+    format: "insight",
+    topic: "make the mistake visible",
+    text: "If an agent is waiting for an answer, make that obvious. A quiet pause can look exactly like work getting done.",
+    threadsVariant:
+      "The hard part of watching several agents is knowing which one needs you. A clear question or a visible pause helps more than another progress animation. Otherwise you can end up patiently watching something that has already stopped."
+  },
+  {
+    format: "contrarian",
+    topic: "boring automation earns trust",
+    text: "The best automation may be the one you stop thinking about. It handles the boring part and tells you clearly when it cannot.",
+    threadsVariant:
+      "An automation earns trust over ordinary days. It gets the expected job done, keeps a record you can read, and tells you when something needs attention. The dramatic demo is fun, but the uneventful Tuesday matters too."
+  },
+  {
+    format: "framework",
+    topic: "name the missing piece",
+    text: 'When an AI answer is wrong, point to the missing piece. "Try harder" leaves the agent guessing which part disappointed you.',
+    threadsVariant:
+      "A correction works better when it names the mismatch. The button should stay visible, the number needs a source, or the reply should answer this question. Give the agent something it can change and you can check afterwards."
+  },
+  {
+    format: "question",
+    topic: "a useful module starts with a job",
+    text: "If you could add one tool to the workspace you already use, what would it do? Start with the job, then worry about the name.",
+    threadsVariant:
+      "Think of an add-on as a small job someone already wants done. Maybe it cleans up a file or makes a result easier to inspect. What would you add to your usual workspace so you could stay there a little longer?"
+  },
+  {
+    format: "observation",
+    topic: "do not turn every post into a pitch",
+    text: "A post can teach something without ending in a sales line. Give people a useful thought and they have a reason to remember the builder.",
+    threadsVariant:
+      "If every post ends with the same pitch, people learn to skip the ending. Explain a real decision, share a useful check, or ask a question with room for different answers. Interest can start before anyone clicks a link."
+  },
+  {
+    format: "insight",
+    topic: "the first button decides a lot",
+    text: 'The first button in a tool should answer "where do I start?" If it needs a tour, the screen still has work to do.',
+    threadsVariant:
+      "A new user brings none of the notes you had while building the tool. Put the first useful action where they can find it and explain what happens next. A clear start is part of the product, even when the rest already works."
   }
 ];
 
 export const REPLY_LIBRARY: LibraryReply[] = [
   {
-    scenario: "Someone ships an impressive AI-built demo",
-    text: "Impressive build. The question I'd love a follow-up post on: what did it take to verify it does the right thing outside the happy path? That's the part most demos never show and always dominates the timeline."
+    scenario: "Someone shares an AI-built demo",
+    text: "What happens when you give it a bad input? A follow-up showing that would help people judge whether it fits their own work."
   },
   {
-    scenario: "Hot take that AI will replace engineers",
-    text: "It replaces the typing, not the accountability. Someone still has to define the problem, own the assumptions, and sign for the result when it's wrong. That role gets more valuable as output gets cheaper, not less."
+    scenario: "Someone asks whether AI replaces engineers",
+    text: "Someone still has to own the assumptions and the final decision. Faster calculations make that part of the job more visible."
   },
   {
-    scenario: "Someone asks how to get started with Claude Code / coding agents",
-    text: "Start with a task where you can verify the result quickly — a script you can run, a page you can see. The skill you're building isn't prompting, it's writing acceptance criteria and reviewing diffs fast."
+    scenario: "Someone asks how to start with coding agents",
+    text: "Pick a tiny task where you can tell whether the answer is right. Give the agent one example, then try its result on a copy of your file."
   },
   {
-    scenario: "Thread about agents producing huge amounts of code",
-    text: "Volume is the easy axis now. The number I'd track is verified output per reviewer-hour — that's the constraint that decides whether 10x generation is 10x progress or 10x backlog."
+    scenario: "Someone runs several coding agents together",
+    text: "Giving each agent a separate part to own helps. Otherwise the time saved writing code can turn into time spent making their changes agree."
   },
   {
-    scenario: "Someone frustrated their agent keeps getting things wrong",
-    text: "Worth checking whether it's a model problem or a handoff problem. When I state the acceptance criteria and constraints up front, failure rates drop dramatically. Agents fail loudest where the spec was silently missing."
+    scenario: "An agent keeps missing the request",
+    text: "Can you show it one example of the result you wanted? A concrete mismatch is easier to fix than asking it to be better."
   },
   {
-    scenario: "Post about AI in regulated/professional industries",
-    text: "The underrated hard part in regulated domains: the tool has to fit the review process, not just do the calculation. Whoever models the sign-off workflow — assumptions, traceability, responsibility — wins that vertical."
+    scenario: "Someone shows an AI tool for professional work",
+    text: "I would want to see the inputs and assumptions beside the answer. The person reviewing it needs more than a result that looks tidy."
   },
   {
-    scenario: "Debate about full agent autonomy",
-    text: "The autonomy debate gets simpler with one test: is a mistake cheap to detect and cheap to reverse? Where both are true, autonomy is fine today. Where either fails, you want a human gate regardless of how good the model is."
+    scenario: "Someone discusses giving an agent full control",
+    text: "How easy is it to catch a mistake and undo it? That would decide how much room I gave the agent on this task."
   },
   {
-    scenario: "Someone shares a vibe-coding success story",
-    text: "The weekend-prototype phase is genuinely magical. The interesting part is what happened next — hardening it to something others can depend on is where I've found the real lessons (and most of the hours) live."
+    scenario: "Someone builds their first app with AI",
+    text: "The next useful test might be watching a new person try it. You already know what all the buttons mean, which makes some problems hard to notice."
   },
   {
-    scenario: "Post about prompt engineering tips",
-    text: "The highest-leverage 'prompt technique' I know isn't phrasing — it's context selection. Same request with curated context beats a clever prompt with a context dump almost every time."
+    scenario: "Someone shares prompting advice",
+    text: "An example of the expected output helps a lot. Add a bad input too, so the agent knows when it should stop and ask."
   },
   {
-    scenario: "Someone claims a metric like '90% of our code is AI-written'",
-    text: "The companion stat that would make this meaningful: what share of it was verified, and by what process? Unvalidated generation is inventory, not progress — the verification rate is the real headline."
+    scenario: "Someone measures success by lines of AI code",
+    text: "I would also ask what changed for the person using it. A small useful change can be worth more than a very large diff."
   },
   {
-    scenario: "Discussion about AI hallucinations in serious applications",
-    text: "The failure that worries me more than hallucination is silent assumption-making. A wrong answer flagged as uncertain is manageable; a confident answer resting on a buried assumption is how professional workflows actually get burned."
+    scenario: "Someone worries about hidden AI assumptions",
+    text: "A missing input should show up as a question or a visible assumption. Quietly choosing one makes an answer hard to trust."
   },
   {
-    scenario: "Someone asks what skills matter in the AI era",
-    text: "Problem definition and verification. Generation sits between them and it's the part getting automated. If you can state what 'correct' looks like and check it efficiently, every model improvement works for you."
+    scenario: "Someone asks which skills matter when building with AI",
+    text: "Knowing what a good result looks like matters a lot. You can ask an agent for help with the build, but you still need a way to judge what comes back."
   },
   {
-    scenario: "Post about multi-agent / parallel agent workflows",
-    text: "Parallel agents multiplied my output and my review load — the diffs stop sharing context, so coherence becomes the tax. Explicit design intent and acceptance criteria per agent was the only thing that kept it net positive."
+    scenario: "Someone asks how to divide work between agents",
+    text: "Write down what each one owns and what it should leave alone. That gives you something concrete to check when the changes come back."
   },
   {
-    scenario: "Someone laments that software craftsmanship is dying",
-    text: "The craft is relocating, not dying. Less of it in the keystrokes, more in problem framing, review judgment, and knowing what not to build. Those were always the scarce parts — they're just visible now."
+    scenario: "Someone says AI removes the craft of building",
+    text: "There is still care in choosing the problem and checking the result. A tool doing the typing does not tell you which decisions were good."
   },
   {
-    scenario: "Post comparing AI models or benchmarks",
-    text: "Benchmarks tell you about the model; your harness decides the outcome. I've had the 'weaker' model win in practice because the workflow around it enforced assumptions and verification. The delta between models is smaller than the delta between harnesses."
+    scenario: "Someone compares AI models",
+    text: "Try them on the same small task with the same files. It is easier to judge a result you can inspect than a score from somebody else's test."
   },
   {
-    scenario: "Someone building a solo business with AI tools",
-    text: "Building solo with agents here too. The counterintuitive lesson: the discipline a team would force on you — reviews, scope control, written decisions — you have to impose on yourself, or the speed just produces mess faster."
+    scenario: "Someone builds a business on their own",
+    text: "A note about why you chose an approach can save you from reopening the same argument next week. Working alone still needs a record of decisions."
   },
   {
-    scenario: "Post about AI making mistakes in production",
-    text: "The instructive question after these incidents is rarely 'why was the model wrong' — it's 'why did the workflow have no cheap way to catch it.' Models will always have an error rate; systems decide whether it's survivable."
+    scenario: "Someone posts about an automation failure",
+    text: "How did you find out it had failed? A clear warning and a way to undo the change can make the next run much less stressful."
   },
   {
-    scenario: "Someone asks whether non-developers can really build software now",
-    text: "Yes, with an asterisk: building the first version is now accessible; owning it — debugging, verifying, deciding tradeoffs — still demands real judgment. Domain experts have an edge there people underestimate: they know what correct looks like."
+    scenario: "Someone asks whether beginners can build useful tools",
+    text: "A tool for a job you already know is a good place to start. You can spot what is missing and tell whether the result actually helps."
   },
   {
-    scenario: "Discussion about technical debt from AI code",
-    text: "AI code debt has a specific flavor: it's coherent locally and inconsistent globally, because each generation lacked memory of the last. Conventions written down and enforced in review are the cheapest fix I've found."
+    scenario: "Someone is overwhelmed by AI-written changes",
+    text: "Ask for a smaller change with one visible result. It is easier to review a finished job than a pile of improvements with no clear stopping point."
   },
   {
-    scenario: "Post about the future of professional engineering work",
-    text: "Traditional engineering already solved unreliable output a century ago: independent checks, documented assumptions, defined responsibility. The disciplines that adapt fastest to AI will be the ones that recognize they already own the playbook."
+    scenario: "Someone shares a custom calculator",
+    text: "Can you see where each input came from? Keeping the source near the number makes checking it a lot easier."
   },
   {
-    scenario: "Someone shows off automating their whole workflow",
-    text: "Nice system. One thing worth stress-testing: when a step silently fails, how do you find out? Every automation I've kept long-term earned it by failing loudly, not by working impressively."
+    scenario: "Someone automates a repetitive task",
+    text: "Try a run on a copy and compare the result with one you did by hand. That catches misunderstandings before the automation touches everything."
   },
   {
-    scenario: "Post about context windows / long context",
-    text: "Bigger windows raised the ceiling but didn't change the principle: relevance beats volume. A curated 10k of context still outperforms an indiscriminate 200k dump in my experience — attention is a budget whether or not the window fits."
+    scenario: "Someone gives an agent a large amount of context",
+    text: "Which parts does it actually need for this job? A few relevant files and a clear example can be easier to use than the whole history."
   },
   {
-    scenario: "Someone asks if they should learn to code in 2026",
-    text: "Learn it — but the payoff changed. You're not learning to type syntax, you're learning to read systems, judge correctness, and direct tools that write the syntax for you. That literacy compounds with every model release."
+    scenario: "Someone asks whether learning to code still helps",
+    text: "Being able to read what the agent changed helps you own the result. You do not need to type every line to benefit from understanding it."
   },
   {
-    scenario: "Post about evaluation / evals for AI systems",
-    text: "Evals are where AI products quietly become real. The teams I see succeed treat them like engineering acceptance tests: written before the feature, tied to actual failure costs, and owned by someone accountable for the result."
+    scenario: "Someone asks how to test an AI-built feature",
+    text: "Write down one thing it should do and one thing it should refuse. Then try both from the screen or file a real user will touch."
   },
   {
-    scenario: "Founder describes struggling to sell AI into an old-school industry",
-    text: "Selling into conservative industries usually stalls on trust mechanics, not features: show how your tool preserves their assumptions, exposes uncertainty, and fits their existing review chain. The buyer isn't resisting AI — they're protecting a sign-off they're liable for."
+    scenario: "Someone struggles to explain their tool",
+    text: "Show one ordinary job from start to finish. People can decide whether that helps them more easily than they can decode a menu tour."
   },
   {
-    scenario: "Someone posts about a big AI model release",
-    text: "The capability jump is real, but the binding constraint for most teams hasn't moved: verifying output still costs human judgment. Each release widens the gap between what we can generate and what we can responsibly accept."
+    scenario: "Someone announces a new AI model",
+    text: "The interesting question for me is which real task gets easier to finish and check. A concrete before and after would make the change clearer."
   },
   {
-    scenario: "Post about developers reviewing AI code poorly / rubber-stamping",
-    text: "Rubber-stamping is a workflow smell, not a character flaw — it means review is priced at zero in the process. Making verification a first-class task with time and credit attached fixes more than exhortations to 'review carefully' ever will."
+    scenario: "Someone shows a game they are building",
+    text: "Have you watched a new player try the first minute? The controls and knowing what to do next can matter before they notice the bigger world."
   },
   {
-    scenario: "Someone asks what to build as their first AI product",
-    text: "Pick a workflow you personally know end-to-end, ideally one with a review or sign-off step others find tedious. Depth in one real workflow beats breadth every time — and your judgment about 'correct' is the actual product."
+    scenario: "Someone asks what to build first",
+    text: "Pick the boring task you already repeat. You know how it should work, and a small useful result gives you a reason to keep building."
   }
 ];
 
 export const COLATERAL_LIBRARY: LibraryPost[] = [
   {
-    format: "story",
-    topic: "why CoLateral exists",
-    text: "I had six terminals, three chats and a folder of notes open for one project. That mess is why I started building CoLateral.",
-    threadsVariant: "Every project I worked on ended up spread across terminals, chat windows and a notes folder I never reopened. CoLateral started as me wanting all of it on one canvas I could actually look at, agents and files and ideas together."
-  },
-  {
     format: "observation",
-    topic: "agents on one canvas",
-    text: "Running two AI agents side by side on the same CoLateral canvas feels like having coworkers you can see.",
-    threadsVariant: "Something changed once my agents lived on the CoLateral canvas instead of in hidden tabs. I can see which one is stuck, which one is waiting on me, and which one quietly finished an hour ago while I was busy with something else."
+    topic: "CoLateral project canvas",
+    text: "CoLateral puts agents, files and ideas on one project canvas. The useful part is being able to see what belongs together.",
+    threadsVariant:
+      "A project can spread across chats, files and half-written notes quickly. CoLateral brings those pieces onto one canvas, so the question becomes where each piece belongs instead of which window you left it in."
   },
   {
     format: "insight",
-    topic: "building CoLateral with the tools it holds",
-    text: "Most of CoLateral gets written by the same AI agents it runs. Weird loop. Works better than I expected.",
-    threadsVariant: "A lot of CoLateral is built by Claude Code and Codex running inside CoLateral. So every rough edge I hit as a user turns into a fix the same afternoon, because I am the user who found it and the builder who has to live with it."
+    topic: "CoLateral custom tool ideas",
+    text: "A good custom tool starts with one annoying job. That is the kind of thing I want people building around CoLateral.",
+    threadsVariant:
+      "The tools I want people building around CoLateral start with a job they already understand. A file they keep cleaning, a result they keep checking, a tiny task repeated all week. It does not need to become a whole app."
   },
   {
     format: "question",
-    topic: "one workspace for everything",
-    text: "If your AI agents, files and notes all sat on one canvas, what would you want to see first when you opened it? Building that into CoLateral now.",
-    threadsVariant: "Honest question while I build CoLateral. When you open a project with agents, files and notes all on one canvas, what do you need to see first? Mine is whatever is waiting on me, but I am not sure that is true for everyone."
+    topic: "CoLateral for creators",
+    text: "Creators have drafts, clips and notes scattered everywhere. What would you put beside each other on a CoLateral project canvas?",
+    threadsVariant:
+      "If you make videos, there is usually more to a project than the final edit. Notes, titles, unfinished ideas, the thing you meant to look up. Which pieces would you want beside each other on a CoLateral canvas?"
   },
   {
     format: "story",
-    topic: "seeing the agent go wrong",
-    text: "When an agent goes wrong in CoLateral I see it happen on the canvas, not three hours later in a terminal I forgot about.",
-    threadsVariant: "The best bugs I catch while building CoLateral are the ones I watch happen. The agent is sitting right there on the canvas doing the wrong thing in plain sight, instead of buried in a terminal I minimised and forgot about."
+    topic: "CoLateral built in public",
+    text: "I build CoLateral live with AI agents. Seeing the decision after a mistake is usually more useful than watching a clean demo.",
+    threadsVariant:
+      "Building CoLateral live means there is room to show the thinking around the work. When something does not behave as expected, the useful bit is the next question and the next check. A clean demo skips that part."
   },
   {
     format: "contrarian",
-    topic: "a canvas beats a chat box",
-    text: "I don't think a chat box is the right shape for working with AI. That's the bet I'm making with CoLateral.",
-    threadsVariant: "A chat box is fine for one question. It falls apart for a real project with files, agents and a dozen loose ends. So CoLateral puts the whole thing on a canvas instead, and I am betting that shape wins once projects get big."
+    topic: "CoLateral desktop workspace",
+    text: "I'm building CoLateral as a desktop workspace. A project needs somewhere to live after the latest chat has scrolled away.",
+    threadsVariant:
+      "Chats are useful while you are asking a question. A bigger project also needs somewhere for its files and ideas to stay. That is the shape I am building around with CoLateral, a desktop workspace with one project canvas."
+  },
+  {
+    format: "framework",
+    topic: "CoLateral a small first project",
+    text: "For a first CoLateral project, think small: one job, its files, and an agent helping with it. You need something you can check.",
+    threadsVariant:
+      "A first project does not have to fill the whole CoLateral canvas. Start with a task you know well and put its files and notes beside the agent helping with it. A clear result gives you something to judge before you add more."
   },
   {
     format: "observation",
-    topic: "building CoLateral in public",
-    text: "Building CoLateral in public means you see the bad days too. I think those are the useful ones to watch.",
-    threadsVariant: "The deal with building CoLateral in public is that the rough days go on camera as well. I would rather show the part where something breaks and gets fixed than a clean demo nobody learns anything from."
-  },
-  {
-    format: "insight",
-    topic: "who CoLateral is for",
-    text: "I'm building CoLateral for people who have more AI agents running than they can keep track of. Which is most of us now.",
-    threadsVariant: "The people I have in mind for CoLateral are developers, creators and engineers who went from one AI helper to five in a year. Keeping track of what each one is doing became its own job, and that job is what the canvas is for."
-  },
-  {
-    format: "story",
-    topic: "no more copy and paste",
-    text: "The goal with CoLateral is simple. Stop copying and pasting between AI chats just to keep one project moving.",
-    threadsVariant: "Half my day used to be moving text between AI chats, a terminal and my notes so each one knew what the others were doing. CoLateral keeps them on one project canvas so that shuffling stops being my job."
+    topic: "CoLateral agent workspace",
+    text: "CoLateral is the workspace I'm building with the agents that help build it. The thing being tested is also the place I'm working.",
+    threadsVariant:
+      "Claude Code and Codex are part of how I build CoLateral live. That makes the workspace itself part of the work, rather than a screen I only open for a demo. A rough edge matters when it sits beside the job you are doing."
   },
   {
     format: "question",
-    topic: "what to build next in CoLateral",
-    text: "What's the most annoying part of running more than one AI agent at a time? Trying to fix exactly that in CoLateral.",
-    threadsVariant: "Genuinely asking because it decides what I build next in CoLateral. When you have more than one AI agent going at once, what is the part that wears you out? For me it is remembering which one I told what."
+    topic: "CoLateral for engineers",
+    text: "For engineers using CoLateral, I want the source beside the number. What else would you need in front of you when reviewing a result?",
+    threadsVariant:
+      "The engineering side of CoLateral is about keeping work easy to inspect. A result needs its inputs and assumptions close by. When you review a calculation, which missing detail makes you stop and ask another question?"
+  },
+  {
+    format: "insight",
+    topic: "CoLateral one project at a time",
+    text: "CoLateral is for developers, creators and engineers. Different jobs, same pile of files and ideas that need a place to live.",
+    threadsVariant:
+      "A developer, a creator and an engineer can have very different projects while sharing the same scattered desk. CoLateral is a desktop workspace for those people, with AI agents, files and ideas on one project canvas."
+  },
+  {
+    format: "question",
+    topic: "CoLateral next useful tool",
+    text: "What is the one tool you wish lived beside your project? That is a more useful CoLateral question than how many tools fit on a canvas.",
+    threadsVariant:
+      "While building CoLateral, I care more about the job a tool would help with than the size of the menu. What do you keep opening somewhere else because it is missing from the place you are already working?"
+  },
+  {
+    format: "contrarian",
+    topic: "CoLateral useful before crowded",
+    text: "I want CoLateral to feel useful before it feels busy. An empty canvas with a clear next step beats a screen full of mystery buttons.",
+    threadsVariant:
+      "A canvas can hold a lot without needing to show everything at once. With CoLateral, the goal is to make the next useful move clear. More room should help a project make sense, rather than give it more places to hide."
+  },
+  {
+    format: "framework",
+    topic: "CoLateral visible handoffs",
+    text: 'An agent helping with a CoLateral project needs a clear job and a clear finish. "Make it better" leaves a lot of room for guessing.',
+    threadsVariant:
+      "For an agent working on a CoLateral project, I want the request and the result close together. What should change, what should stay, and how will we check it? Keeping the job clear matters before running more agents."
+  },
+  {
+    format: "observation",
+    topic: "CoLateral seeing the whole job",
+    text: "The idea behind CoLateral is to see the whole project. A file on its own rarely explains why you were changing it.",
+    threadsVariant:
+      "A note explains a decision. A file holds the work. An agent helps move it along. CoLateral puts those pieces on one project canvas, where you can keep the reason for a change beside the thing you are changing."
+  },
+  {
+    format: "question",
+    topic: "CoLateral custom calculator idea",
+    text: "What would your own calculator need to show before you trusted it? That is a question I keep coming back to while building CoLateral.",
+    threadsVariant:
+      "A custom calculator is only useful if you can judge its answer. I want CoLateral projects to keep that question visible: what went in, what was assumed, and what still needs a person to check? What would you look for first?"
+  },
+  {
+    format: "insight",
+    topic: "CoLateral small tools before big apps",
+    text: "A tool for one awkward step can be worth building. CoLateral is the workspace I want around those small, useful projects.",
+    threadsVariant:
+      "You do not have to start with a business idea. Start with the task you are tired of doing by hand and work out what a good result looks like. CoLateral is the desktop workspace I am building around agents, files and ideas like those."
+  },
+  {
+    format: "story",
+    topic: "CoLateral decisions on stream",
+    text: "Building CoLateral live is a chance to show why a change was made. The finished screen only tells you half the story.",
+    threadsVariant:
+      "The part I want people to see while I build CoLateral is the decision behind the screen. What was confusing? What should happen instead? That gives another builder something to use, even if their project looks nothing like mine."
+  },
+  {
+    format: "question",
+    topic: "CoLateral workspace for game ideas",
+    text: "A game idea starts with notes and a lot of unfinished pieces. How would you lay those out on a CoLateral project canvas?",
+    threadsVariant:
+      "If you are building a game, there are ideas, files and questions long before there is a finished level. CoLateral puts agents, files and ideas on one canvas. What would you keep beside the part of the game you are working on?"
+  },
+  {
+    format: "contrarian",
+    topic: "CoLateral a canvas needs purpose",
+    text: "The CoLateral canvas needs to help you find the next job. Making room for more stuff is only half of building a workspace.",
+    threadsVariant:
+      "An infinite canvas sounds great until you cannot remember where anything is. While building CoLateral, the question is how the layout helps you return to the work. More space is useful when a project still makes sense inside it."
+  },
+  {
+    format: "framework",
+    topic: "CoLateral notes beside agents",
+    text: "A useful note beside a CoLateral agent explains the goal, not just the task. The agent still needs to know what a good result means.",
+    threadsVariant:
+      "Put the reason for the work beside the request. In a CoLateral project, that can be a note next to the agent and files: who is this for, what should it do, and what would make it wrong? Plain answers are enough to start."
+  },
+  {
+    format: "insight",
+    topic: "CoLateral show your workspace",
+    text: "When I show CoLateral, I want to show a project getting worked on. The workspace makes more sense with a real job in it.",
+    threadsVariant:
+      "A tour of a blank workspace can leave people guessing what they would do there. CoLateral is easier to explain with agents, files and ideas laid out around a job. The project gives the canvas a reason to exist."
+  },
+  {
+    format: "question",
+    topic: "CoLateral marketing project ideas",
+    text: "What part of making a post takes longer than people think? I'm building CoLateral for creators too, and the work starts before the caption.",
+    threadsVariant:
+      "Creators have a lot of decisions before a post goes out: which moment to use, what it means, what the audience needs to know. CoLateral is a workspace for creators as well as builders. Which part would you want help keeping track of?"
+  },
+  {
+    format: "observation",
+    topic: "CoLateral workspace versus answer",
+    text: "CoLateral is built around a project canvas because work keeps going after an AI answer. There is still a file to change and a choice to make.",
+    threadsVariant:
+      "An AI answer can be the start of a task rather than the end. There may be files to inspect and another decision waiting. CoLateral is a desktop workspace where those pieces and the agents helping with them share a project canvas."
+  },
+  {
+    format: "framework",
+    topic: "CoLateral build something checkable",
+    text: "If you are exploring CoLateral, bring a task you can judge. Your own idea of a good result is a useful place to start.",
+    threadsVariant:
+      "A project you know well makes it easier to judge what an agent gives you. That is a useful starting point for CoLateral: bring the files, keep your notes nearby, and work on a small result you can actually inspect."
   }
 ];

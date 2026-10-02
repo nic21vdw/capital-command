@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
+import type { ThreadsRunReport } from "@/lib/threads/types";
 
 /**
  * Threads autopilot CLI — what Windows Task Scheduler runs.
@@ -34,8 +35,7 @@ function loadDotEnv() {
 }
 loadDotEnv();
 
-type ThreadsOutcome = { slot: number; accountId: string; outcome: string; detail: string };
-type RunReport = { published: number; failed: number; skipped: number; outcomes: ThreadsOutcome[]; note?: string };
+type RunReport = ThreadsRunReport;
 type PlanResult = { date: string; created: number; droppedPastSlots: number; skipped?: string };
 type AccountSummary = { accountId: string; total: number; published: number; pending: number; failed: number };
 type BatchSummary = {
@@ -101,12 +101,18 @@ function printRun(run: RunReport | undefined) {
   if (!run) return;
   if (run.note) {
     console.log(`[threads] ${run.note}`);
-    return;
   }
   for (const outcome of run.outcomes) {
     console.log(`[threads]   slot ${outcome.slot} ${outcome.accountId} → ${outcome.outcome} — ${outcome.detail}`);
   }
   console.log(`[threads] posted ${run.published}, failed ${run.failed}, skipped ${run.skipped}`);
+  if (run.replies) {
+    for (const outcome of run.replies.outcomes) {
+      console.log(`[threads]   follow-up slot ${outcome.slot} ${outcome.accountId} → ${outcome.outcome} — ${outcome.detail}`);
+    }
+    console.log(`[threads] follow-up replies: ${run.replies.published} published, ${run.replies.failed} failed, ${run.replies.retrying} waiting to retry, ${run.replies.skipped} skipped`);
+  }
+  if (run.persistenceError || run.failed > 0 || (run.replies?.failed ?? 0) > 0) process.exitCode = 1;
 }
 
 function printBatch(batch: BatchSummary) {
