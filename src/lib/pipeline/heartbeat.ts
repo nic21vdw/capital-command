@@ -3,6 +3,11 @@ import { queueReadyOutputs, stopQueueingWhenSettled } from "@/lib/pipeline/queue
 import { recordQueueFailure } from "@/lib/pipeline/queueOutputs";
 import { queueRunPosts } from "@/lib/pipeline/queuePosts";
 import { listRuns, overviewContext, runOverview } from "@/lib/pipeline/runs";
+import {
+  isAutomationPaused,
+  recordAutomationOutcome,
+} from "@/lib/automations/store";
+import { processDuePodcastDeliveries } from "@/lib/podcast/schedule";
 
 // Polling the overview is what advances a run, and until now the only thing
 // polling was an open browser tab. A stream started at 11pm froze the moment
@@ -13,7 +18,8 @@ import { listRuns, overviewContext, runOverview } from "@/lib/pipeline/runs";
 const INTERVAL_MS = 90_000;
 const FIRST_TICK_MS = 8_000;
 
-type HeartbeatGlobal = typeof globalThis & { __pipelineHeartbeat?: NodeJS.Timeout };
+type HeartbeatGlobal = typeof globalThis & { __pipelineHeartbeat?: NodeJS.Timeout;
+};
 const g = globalThis as HeartbeatGlobal;
 
 /**
@@ -31,15 +37,30 @@ async function advanceMusicOnce(): Promise<number> {
 }
 
 export async function advancePipelineOnce(): Promise<number> {
+  if (await isAutomationPaused("pipeline")) return 0;
   const runs = await listRuns();
   const live = runs.filter((run) => run.status === "running" || run.status === "ingesting");
   if (live.length === 0) return 0;
   const context = overviewContext();
   const settledNow: string[] = [];
+  const failures: string[] = [];
   for (const run of live) {
-    const overview = await runOverview(run, context).catch(() => undefined);
+    const overview = await runOverview(run, context).catch((error) => {
+      failures.push(
+        `${run.name}: ${error instanceof Error ? error.message : String(error)}`,
+      );
+      return undefined;
+    });
     if (overview?.settled) settledNow.push(run.id);
+    const failed = Object.entries(overview?.stages ?? {}).filter(
+      ([, item]) => item.status === "error",
+    );
+    if (failed.length)
+      failures.push(
+        `${run.name}: ${failed.map(([name]) => name).join(", ")} need attention.`,
+      );
   }
+  if (await isAutomationPaused("pipeline")) return live.length;
   // Drain BEFORE ending the standing instruction. The tick that settles a run
   // is the tick its last export finished on — stopping first meant the final
   // segment was the one output never booked.
@@ -48,6 +69,7 @@ export async function advancePipelineOnce(): Promise<number> {
   for (const runId of settledNow) {
     await stopQueueingWhenSettled(runId, true).catch(() => undefined);
   }
+  if (failures.length) throw new Error(failures.join(" ").slice(0, 1000));
   return live.length;
 }
 
@@ -56,7 +78,8 @@ export async function advancePipelineOnce(): Promise<number> {
  * scan started, so the same standing instruction that books the videos has to
  * cover them — `postsQueuedAt` is what keeps it to once.
  */
-async function queueUnattendedPosts(runs: { id: string; unattended?: boolean; posts?: unknown[]; postsQueuedAt?: string }[]) {
+async function queueUnattendedPosts(runs: { id: string; unattended?: boolean; posts?: unknown[]; postsQueuedAt?: string;
+  }[]) {
   for (const run of runs) {
     if (!run.unattended || run.postsQueuedAt || !(run.posts?.length ?? 0)) continue;
     try {
@@ -73,7 +96,23 @@ async function queueUnattendedPosts(runs: { id: string; unattended?: boolean; po
 export function startPipelineHeartbeat() {
   if (g.__pipelineHeartbeat) return;
   const tick = () => {
-    void advancePipelineOnce().catch(() => undefined);
+    void advancePipelineOnce().then(async (count) =>
+        recordAutomationOutcome("pipeline", {
+          at: new Date().toISOString(),
+          status: (await isAutomationPaused("pipeline"))
+            ? "paused"
+            : "completed",
+          detail: `Checked ${count} pipeline runs.`,
+        }).catch(() => undefined),
+      )
+      .catch((error) =>
+        recordAutomationOutcome("pipeline", {
+          at: new Date().toISOString(),
+          status: "failed",
+          detail: error instanceof Error ? error.message : String(error),
+        }).catch(() => undefined),
+      );
+    void processDuePodcastDeliveries().catch(() => undefined);
     void advanceMusicOnce().catch(() => undefined);
   };
   g.__pipelineHeartbeat = setInterval(tick, INTERVAL_MS);

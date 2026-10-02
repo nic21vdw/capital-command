@@ -97,6 +97,7 @@ const PIPELINE_STAGES: PipelineStage[] = [
     items: [
       // Mass-schedule the finished outputs across accounts and platforms.
       { href: "/uploading-center", label: "Uploading Center", icon: UploadCloud },
+      { href: "/automations", label: "Automations", icon: Workflow },
       { href: "/distribution", label: "Distribution Centre", icon: Rocket }
     ]
   },

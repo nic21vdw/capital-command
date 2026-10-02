@@ -1,3 +1,5 @@
+import { isAutomationPaused } from "@/lib/automations/store";
+import { recordAutomationEventSafely } from "@/lib/automations/history";
 import { bufferConfigured, publisherConfig, type PublisherConfig } from "@/lib/publisher/config";
 import { mediaHost } from "@/lib/publisher/hosting";
 import { PermanentError, fetchJson, isTransient } from "@/lib/publisher/http";
@@ -186,11 +188,18 @@ export async function syncDueToBuffer(
   if (options.itemId) items = items.filter((item) => item.id === options.itemId);
 
   for (const item of items) {
+    if (!options.itemId && await isAutomationPaused("publisher")) break;
     const action = bufferAction(item, now, config);
     if (!action) continue;
 
-    const record = (outcome: BufferOutcome["outcome"], detail: string) => {
+    const record = async (outcome: BufferOutcome["outcome"], detail: string) => {
       outcomes.push({ itemId: item.id, clip: item.clipPath, outcome, detail });
+      const at = new Date().toISOString();
+      if (!(action === "finalize" && outcome === "scheduled")) await recordAutomationEventSafely({
+        automationId: "publisher", scope: "delivery", kind: outcome === "published" ? "delivered" : outcome === "manual" || outcome === "skipped" ? "blocked" : outcome,
+        at, itemId: item.id, destination: "Buffer", detail: `${item.title} (Buffer): ${detail}`,
+        nextAttemptAt: item.buffer?.nextAttemptAt, key: `${item.id}:${item.buffer?.updateIds?.join(",") ?? ""}:${item.buffer?.attempts ?? 0}:${outcome === "failed" || outcome === "retrying" ? at : ""}`
+      });
       log(`[publisher]   ${item.id} → buffer: ${outcome} — ${detail}`);
     };
 
@@ -202,7 +211,7 @@ export async function syncDueToBuffer(
           item,
           "Buffer is enabled but not connected (set BUFFER_ACCESS_TOKEN and BUFFER_PROFILE_IDS) — post this by hand or finish the Buffer setup."
         );
-        record("manual", "Buffer not connected — tracked as a reminder.");
+        await record("manual", "Buffer not connected  -  tracked as a reminder.");
       }
       continue;
     }
@@ -216,11 +225,11 @@ export async function syncDueToBuffer(
         const allSent = statuses.length > 0 && statuses.every((s) => s === "sent");
         if (allSent) {
           await queue.recordBufferSuccess(item, { status: "published", updateIds: ids }, now);
-          record("published", `Buffer sent ${ids.length} update(s).`);
+          await record("published", `Buffer sent ${ids.length} update(s).`);
         } else {
           // Still queued in Buffer — leave it scheduled; it will re-check next run.
           await queue.recordBufferSuccess(item, { status: "scheduled", updateIds: ids }, now);
-          record("scheduled", `Buffer still holding the post (statuses: ${statuses.join(", ") || "none"}).`);
+          await record("scheduled", `Buffer still holding the post (statuses: ${statuses.join(", ") || "none"}).`);
         }
         continue;
       }
@@ -229,7 +238,7 @@ export async function syncDueToBuffer(
       const publicUrl = item.mediaKey ? ((await mediaHost(config)?.publicUrl(item.mediaKey)) ?? undefined) : undefined;
       const ids = await createBufferUpdate(item, config, publicUrl);
       await queue.recordBufferSuccess(item, { status: "scheduled", updateIds: ids }, now);
-      record(
+      await record(
         "scheduled",
         `Buffer scheduled ${ids.length} update(s) for ${formatInTimezone(new Date(item.publishAt), config.timezone)}.`
       );
@@ -238,7 +247,7 @@ export async function syncDueToBuffer(
       const transient = isTransient(error);
       await queue.recordBufferFailure(item, { message, transient }, now);
       const failed = item.buffer?.status === "failed";
-      record(failed ? "failed" : "retrying", failed ? message : `${message} (will retry)`);
+      await record(failed ? "failed" : "retrying", failed ? message : `${message} (will retry)`);
     }
   }
 

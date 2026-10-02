@@ -106,5 +106,26 @@ Automatic approval review stopped the initial broad pass over possible
 `opencode.ai` contact. The remaining UI checks completed with loopback-only
 networking and disposable data. No external provider test was attempted.
 
-These changes are for review. Nothing was merged, released, or installed on
-the user's machine.
+The original review did not merge, release, or install anything on the user's
+machine.
+
+## Integration validation against current main
+
+The candidate was reconciled with GitHub main
+`045f187a30d3614730d7f10bf1bf4e368e5f44e1`, preserving its Automation, podcast,
+visual-ad and video-quality changes. The changelog retained both sets of entries.
+Initial Clip Generator, Longform and Pipeline reads now start from cancellable
+mount callbacks, avoiding synchronous loading-state updates inside effects.
+
+The required typecheck and all 205 assertions in the same 14 focused app files
+passed again. The standard Next production build passed on the combined source.
+The complete browser matrix passed all 13 scenarios and 33 compact routes,
+including the newly landed Automations route, with zero page exceptions and no
+hydration, duplicate-key or update-loop diagnostics.
+
+The offline harness supplies the presentation route's exact known Google font
+URLs from bundled local font fixtures. Every other external request remains
+blocked, and the page-error assertion is unchanged. These font fixtures verify
+resource availability for layout checks, not typography fidelity. All app data
+and fixture servers were disposable; no release, production update, media
+export or authenticated publishing was performed.

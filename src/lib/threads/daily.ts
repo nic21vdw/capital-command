@@ -7,6 +7,7 @@ import { readThreadsState, recordThreadsState } from "@/lib/threads/state";
 import type { ThreadsPlanResult, ThreadsRunReport } from "@/lib/threads/types";
 import { ensureDailyPack } from "@/lib/x-posts/daily";
 import { localDateKey } from "@/lib/x-strategy/analytics";
+import { isAutomationPaused, recordAutomationOutcome } from "@/lib/automations/store";
 
 /**
  * The daily half of the autopilot: make sure today's batch exists.
@@ -47,6 +48,10 @@ export async function planTodaysBatch(
   const log = options.log ?? ((line: string) => console.log(line));
   const date = options.date ?? localDateKey(now);
   const replace = Boolean(options.force || options.startNow);
+
+  if (await isAutomationPaused("threads")) {
+    return { date, created: 0, droppedPastSlots: 0, skipped: "Threads automation is paused in Automations." };
+  }
 
   const blocked = threadsBlockedReason(config);
   if (blocked) return { date, created: 0, droppedPastSlots: 0, skipped: blocked };
@@ -107,6 +112,9 @@ export async function planTodaysBatch(
   // every slot of the day, at identical times. So the last word goes to whoever
   // writes first: if today grew an item this call did not start with, the loser
   // throws its work away rather than doubling the feed.
+  if (await isAutomationPaused("threads")) {
+    return { date, created: 0, droppedPastSlots, skipped: "Threads automation was paused while planning." };
+  }
   const added = await mutateQueue((current) => {
     const raced = autopilotItemsForDate(current, date).some((item) => !alreadySeen.has(item.id));
     if (raced) return { items: current, result: false };
@@ -262,10 +270,30 @@ export type ThreadsTickResult = {
  *   4. post whatever is due
  */
 export async function threadsTick(
+  options: Parameters<typeof threadsTickInternal>[0] = {}
+): Promise<ThreadsTickResult> {
+  try {
+    const result = await threadsTickInternal(options);
+    if (!options.dryRun) await recordAutomationOutcome("threads", { at: new Date().toISOString(), status: (await isAutomationPaused("threads")) ? "paused" : result.run.failed || result.run.outcomes.some((outcome) => outcome.outcome === "retrying") ? "failed" : "completed", detail: `${result.run.published} posts published, ${result.run.failed} failures.${result.run.note ? ` ${result.run.note}` : ""}` }).catch(() => undefined);
+    return result;
+  } catch (error) {
+    if (!options.dryRun) await recordAutomationOutcome("threads", { at: new Date().toISOString(), status: "failed", detail: error instanceof Error ? error.message : String(error) }).catch(() => undefined);
+    throw error;
+  }
+}
+
+async function threadsTickInternal(
   options: { config?: ThreadsConfig; now?: Date; dryRun?: boolean; log?: (line: string) => void } = {}
 ): Promise<ThreadsTickResult> {
   const config = options.config ?? threadsConfig();
   const now = options.now ?? new Date();
+  if (await isAutomationPaused("threads")) {
+    const note = "Threads automation is paused in Automations.";
+    return {
+      plan: { date: localDateKey(now), created: 0, droppedPastSlots: 0, skipped: note },
+      run: { ran: now.toISOString(), published: 0, failed: 0, skipped: 0, outcomes: [], dryRun: options.dryRun ?? false, note }
+    };
+  }
   const plan = await planTodaysBatch({ config, now, log: options.log });
   // Both of these change what is queued, so a dry run has to stay out of them.
   const ahead = options.dryRun ? null : await planTomorrow({ config, now, log: options.log });

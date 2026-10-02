@@ -1,7 +1,9 @@
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { dataPath } from "@/lib/paths";
-import type { PodcastEpisode, PodcastShow, PodcastState } from "@/lib/podcast/types";
+import type {
+  PodcastAutomation,
+  PodcastEpisode, PodcastShow, PodcastState } from "@/lib/podcast/types";
 
 const podcastRoot = dataPath("podcast");
 const stateFile = path.join(podcastRoot, "show.json");
@@ -22,32 +24,56 @@ export const DEFAULT_SHOW: PodcastShow = {
 
 let writeChain = Promise.resolve();
 
+export const DEFAULT_PODCAST_AUTOMATION: PodcastAutomation = {
+  enabled: true,
+  time: "10:00",
+  timeZone: "America/Toronto",
+};
+
 export async function readPodcastState(): Promise<PodcastState> {
   try {
     const parsed = JSON.parse(await readFile(stateFile, "utf8")) as Partial<PodcastState>;
     return {
       show: { ...DEFAULT_SHOW, ...(parsed.show ?? {}) },
-      episodes: Array.isArray(parsed.episodes) ? parsed.episodes : []
+      episodes: Array.isArray(parsed.episodes) ? parsed.episodes : [],
+      automation: { ...DEFAULT_PODCAST_AUTOMATION, ...parsed.automation },
+      deliveries: Array.isArray(parsed.deliveries) ? parsed.deliveries : [],
     };
-  } catch {
-    return { show: { ...DEFAULT_SHOW }, episodes: [] };
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    return { show: { ...DEFAULT_SHOW }, episodes: [],
+      automation: { ...DEFAULT_PODCAST_AUTOMATION },
+      deliveries: [],
+    };
   }
 }
 
-async function writeState(state: PodcastState) {
+export async function mutatePodcastState<T>(
+  change: (state: PodcastState) => T,
+): Promise<{ state: PodcastState; result: T }> {
   const write = async () => {
+    const state = await readPodcastState();
+    const result = change(state);
     await mkdir(podcastRoot, { recursive: true });
-    await writeFile(stateFile, JSON.stringify(state, null, 2), "utf8");
+    const pendingFile = `${stateFile}.${process.pid}.tmp`;
+    await writeFile(pendingFile, JSON.stringify(state, null, 2), "utf8");
+    await rename(pendingFile, stateFile);
+    return { state, result };
   };
-  writeChain = writeChain.then(write, write);
-  await writeChain;
+  const result = writeChain.then(write, write);
+  writeChain = result.then(
+    () => undefined,
+    () => undefined,
+  );
+  return result;
 }
 
 export async function updateShow(patch: Partial<PodcastShow>): Promise<PodcastState> {
-  const state = await readPodcastState();
-  const next: PodcastState = { ...state, show: { ...state.show, ...patch } };
-  await writeState(next);
-  return next;
+  return (
+    await mutatePodcastState((state) => {
+      state.show = { ...state.show, ...patch };
+    })
+  ).state;
 }
 
 /**
@@ -56,21 +82,30 @@ export async function updateShow(patch: Partial<PodcastShow>): Promise<PodcastSt
  * duplicated guid is a duplicated episode in everyone's app.
  */
 export async function addEpisode(episode: PodcastEpisode): Promise<{ state: PodcastState; added: boolean }> {
-  const state = await readPodcastState();
-  const existing = state.episodes.find(
+  const { state, result: added } = await mutatePodcastState((state) => {
+    const existing = state.episodes.find(
     (item) => item.id === episode.id || (Boolean(episode.exportId) && item.exportId === episode.exportId)
   );
-  if (existing) return { state, added: false };
-  const next: PodcastState = { ...state, episodes: [episode, ...state.episodes] };
-  await writeState(next);
-  return { state: next, added: true };
+  if (existing) return false;
+    state.episodes.unshift(episode);
+    return true;
+  });
+  return { state, added };
 }
 
 export async function removeEpisode(id: string): Promise<PodcastState> {
-  const state = await readPodcastState();
-  const next: PodcastState = { ...state, episodes: state.episodes.filter((item) => item.id !== id) };
-  await writeState(next);
-  return next;
+  return (
+    await mutatePodcastState((state) => {
+      state.episodes = state.episodes.filter((item) => item.id !== id);
+      for (const delivery of state.deliveries.filter(
+        (item) => item.episodeId === id,
+      )) {
+        delivery.status = "cancelled";
+        delete delivery.episodeId;
+        delete delivery.completedAt;
+      }
+    })
+  ).state;
 }
 
 export function episodeForExport(state: PodcastState, exportId: string): PodcastEpisode | undefined {

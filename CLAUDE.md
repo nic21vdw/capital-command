@@ -149,9 +149,11 @@ to the same R2 bucket the publisher uses and Spotify pulls from it.
 - `feed.ts` is pure and holds every rule Spotify judges the feed on (tags,
   ordering, escaping, `feedProblems`), tested without a network. `publish.ts`
   does the upload; `store.ts` owns `data/podcast/show.json`.
-- The pipeline's `podcast` stage publishes as soon as the MP3 is cut, ONE
-  attempt only — `podcastNote` is the "do not retry" marker, same rule as the
-  extraction step above it, because a 2.5s poll drives both.
+- The pipeline's `podcast` stage schedules the finished MP3 in the durable
+  delivery queue. The server heartbeat publishes due episodes, keeps setup
+  blockers waiting without spending upload retries, and recovers expired
+  upload claims. Never call the scheduler from a separate process: the running
+  app owns this queue too.
 - Shorts never become episodes.
 - See `src/lib/podcast/README.md`.
 

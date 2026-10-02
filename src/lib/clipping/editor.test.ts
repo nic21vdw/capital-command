@@ -35,6 +35,24 @@ const baseProject = () =>
   });
 
 describe("makeClipProject", () => {
+  it("opens a 4K clip without resetting its delivery size or 59.94 fps cadence", () => {
+    const p = makeClipProject({
+      jobId: "job1", name: "4K clip", sourceFile: "4k.mp4", sourceUrl: "", clipStart: 0, clipEnd: 30,
+      sourceFrame: { width: 3840, height: 2160, fps: 59.94 }
+    });
+    expect([p.baseWidth, p.baseHeight]).toEqual([3840, 2160]);
+    expect([p.exportSettings.width, p.exportSettings.height, p.exportSettings.fps]).toEqual([2160, 3840, 59.94]);
+    expect(clipProjectSchema.parse(p).exportSettings.fps).toBe(59.94);
+  });
+
+  it("retains the job's explicit delivery ceiling when entering the editor", () => {
+    const p = makeClipProject({
+      jobId: "job1", name: "Capped clip", sourceFile: "4k.mp4", sourceUrl: "", clipStart: 0, clipEnd: 30,
+      sourceFrame: { width: 3840, height: 2160, fps: 60 }, output: { resolution: "720", frameRate: "24" }
+    });
+    expect([p.exportSettings.width, p.exportSettings.height, p.exportSettings.fps]).toEqual([720, 1280, 24]);
+  });
+
   it("derives duration from the clip window and opens Shorts-ready", () => {
     const p = baseProject();
     expect(p.baseDurationSec).toBeCloseTo(30);

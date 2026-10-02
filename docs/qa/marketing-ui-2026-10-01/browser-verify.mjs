@@ -13,6 +13,16 @@ console.log('Verification output: '+root+'/evidence');
 const require=createRequire(import.meta.url);
 const {chromium}=require(process.env.PLAYWRIGHT_MODULE_PATH||(process.env.CODEX_PRIMARY_RUNTIME_NODE_MODULES?process.env.CODEX_PRIMARY_RUNTIME_NODE_MODULES+'/playwright':'playwright'));
 const fixtures=JSON.parse(await readFile(qaDir+'/workflow-fixtures.json','utf8'));
+// The offline UI matrix needs valid fonts for the unchanged presentation route.
+// These explicit fixtures cover resource availability, not typography fidelity.
+// Every other external request is still refused, and page errors remain fatal.
+const fixtureFonts=new Map(),appRequire=createRequire(resolve(marketingRoot,'package.json'));
+const interFont=await readFile(resolve(marketingRoot,'public/fonts/InterVariable.woff2'));
+for(const weight of ['400','600','800'])fixtureFonts.set(appRequire('@remotion/google-fonts/Inter').getInfo().fonts.normal[weight].latin,{body:interFont,contentType:'font/woff2'});
+for(const weight of ['400','500','600','700','800','900']){
+ const body=await readFile(resolve(marketingRoot,'public/fonts/captions/'+(weight==='900'?'Poppins-Black.ttf':'Poppins-ExtraBold.ttf')));
+ fixtureFonts.set(appRequire('@remotion/google-fonts/Poppins').getInfo().fonts.normal[weight].latin,{body,contentType:'font/ttf'});
+}
 const results=[],errors=[],consoleErrors=[];const processes=[];let browser;
 function start(cwd,args,marker){
  const child=spawn(process.execPath,args,{cwd,env:{PATH:'',NODE_OPTIONS:'--require='+qaDir+'/qa-network-guard.cjs',CAPITAL_COMMAND_DATA_DIR:root+'/test-data',NEXT_TELEMETRY_DISABLED:'1'},stdio:['ignore','pipe','pipe']});processes.push(child);
@@ -20,7 +30,7 @@ function start(cwd,args,marker){
  return new Promise((resolve,reject)=>{const t=setTimeout(()=>reject(new Error('Server startup timed out')),60000);child.stdout.on('data',b=>{if(b.toString().includes(marker)){clearTimeout(t);resolve(child);}});child.on('exit',c=>{clearTimeout(t);reject(new Error('Server exited '+c));});});
 }
 async function check(name,fn){if(process.env.QA_CHECK_FILTER && !new RegExp(process.env.QA_CHECK_FILTER).test(name))return;await fn();results.push({name,passed:true});console.log('PASS '+name);}
-function monitor(page){page.route('**/*',r=>{const u=new URL(r.request().url());return ['127.0.0.1','localhost'].includes(u.hostname)||['data:','blob:'].includes(u.protocol)?r.continue():r.abort('blockedbyclient');});page.on('pageerror',e=>errors.push(e.message));page.on('console',m=>{if(m.type()==='error')consoleErrors.push(m.text());});}
+function monitor(page){page.route('**/*',r=>{const u=new URL(r.request().url()),font=fixtureFonts.get(u.href);if(font&&r.request().resourceType()==='font')return r.fulfill({...font,headers:{'access-control-allow-origin':'*'}});return ['127.0.0.1','localhost'].includes(u.hostname)||['data:','blob:'].includes(u.protocol)?r.continue():r.abort('blockedbyclient');});page.on('pageerror',e=>{errors.push(e.message);console.error('PAGE_EXCEPTION '+JSON.stringify({message:e.message,stack:e.stack,url:page.url()}));});page.on('console',m=>{if(m.type()==='error')consoleErrors.push(m.text());});}
 async function appPage(route='/',width=400,height=640){const page=await browser.newPage({viewport:{width,height}});monitor(page);await page.goto('http://127.0.0.1:3100'+route+'?theme=light',{waitUntil:'domcontentloaded',timeout:60000});await page.getByRole('region',{name:'Marketing assistant'}).waitFor({timeout:60000});return page;}
 try{
  await mkdir(root+'/evidence',{recursive:true});
@@ -73,7 +83,7 @@ try{
   await p.evaluate(()=>window.resizeCard(720,560));await p.screenshot({path:root+'/evidence/after-card-compact.png'});await p.close();
  });
  await check('All Marketing routes fit compact panes without runtime or reconciliation errors',async()=>{
-  const routes=['/','/pipeline','/longform','/clips','/editor','/carousels','/podcast','/x-posts','/facebook','/launch','/uploading-center','/distribution','/master-calendar','/day-summary','/agents','/ideas','/scripts','/outliers','/execution','/presentation','/voiceover','/music','/finance','/settings','/creator','/goals','/holdings','/insights','/notes','/thumbnails','/watchlist','/youtube'];
+  const routes=['/','/pipeline','/longform','/clips','/editor','/carousels','/podcast','/x-posts','/facebook','/launch','/uploading-center','/distribution','/master-calendar','/day-summary','/agents','/ideas','/scripts','/outliers','/execution','/presentation','/voiceover','/music','/finance','/settings','/automations','/creator','/goals','/holdings','/insights','/notes','/thumbnails','/watchlist','/youtube'];
   for(const route of routes){
    const p=await appPage(route,400,640);await p.waitForTimeout(1400);
    const geometry=await p.evaluate(()=>({width:innerWidth,scroll:document.documentElement.scrollWidth,title:document.querySelector('main h1')?.textContent}));

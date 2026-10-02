@@ -27,6 +27,12 @@ already shipped.
   Show all sources action. First-run Settings opens, and a failed profile save
   cannot mark setup complete.
 
+- Automations now keeps seven days of delivery and worker history, with filters, retry times and separate counts for successful deliveries, delivery failures and worker issues.
+- Video exports keep the best available source: Shorts can render at 4K vertical, new clip editor projects retain source size and frame rate, each pipeline keeps its chosen quality, and motion segments render sharp 4K text without an intermediate JPEG pass.
+- Visual ads now start from a real stream frame, preserve the full picture and your likeness, and let you review the source, adjust the copy and export the finished ad.
+- Podcast episodes can be scheduled automatically, with saved delivery times, retries and clear hosting or Spotify setup blockers.
+- Automations has its own dashboard with persistent pause controls, upcoming work, scheduler status and recent outcomes for the pipeline, ingest, publishing, Threads and podcasts.
+
 ## 2026-09-30
 
 - **The home screen is a picture of the pipeline now.** Before a stream is sent

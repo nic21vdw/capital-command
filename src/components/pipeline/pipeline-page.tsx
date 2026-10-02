@@ -427,7 +427,10 @@ export function PipelinePage() {
   }, []);
 
   useEffect(() => {
-    void refresh();
+    // Start loading outside the effect so its loading state does not cascade
+    // through the initial render. Cleanup cancels a superseded mount.
+    const kickoff = window.setTimeout(() => void refresh(), 0);
+    return () => window.clearTimeout(kickoff);
   }, [refresh]);
 
   // Polling the overview is what advances the run server-side, so keep a slow

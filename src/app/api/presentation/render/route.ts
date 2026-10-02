@@ -74,7 +74,6 @@ export async function GET(req: NextRequest) {
       scale: REMOTION_EXPORT.scale,
       crf: REMOTION_EXPORT.crf,
       imageFormat: REMOTION_EXPORT.imageFormat,
-      jpegQuality: REMOTION_EXPORT.jpegQuality,
       concurrency: remotionConcurrency(),
       browserExecutable,
       chromiumOptions: { ignoreCertificateErrors, gl: "swangle" }

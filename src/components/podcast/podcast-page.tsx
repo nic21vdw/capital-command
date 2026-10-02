@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { Check, Copy, ExternalLink, Loader2, Pencil, RefreshCw, Trash2, TriangleAlert, Upload } from "lucide-react";
 import { toast } from "sonner";
@@ -12,6 +12,10 @@ import { Input } from "@/components/ui/input";
 import { PageHeader } from "@/components/ui/page-header";
 import { Textarea } from "@/components/ui/textarea";
 import { SpotifyCard } from "@/components/podcast/spotify-card";
+import {
+  PodcastSchedulingCard,
+  type PodcastSchedulingStatus,
+} from "@/components/podcast/scheduling-card";
 import type { EpisodeCandidate } from "@/lib/podcast/candidates";
 import type { FeedBlocker } from "@/lib/podcast/feed";
 import type { PodcastEpisode, PodcastShow } from "@/lib/podcast/types";
@@ -26,10 +30,12 @@ type PodcastResponse = {
   bucketConnected: boolean;
   blockers: FeedBlocker[];
   candidates: EpisodeCandidate[];
+  scheduling: PodcastSchedulingStatus;
   feedWarning?: string;
 };
 
-const FIELDS: { key: keyof PodcastShow; label: string; hint?: string; long?: boolean }[] = [
+const FIELDS: { key: keyof PodcastShow; label: string; hint?: string; long?: boolean;
+}[] = [
   { key: "title", label: "Show title" },
   { key: "author", label: "Author" },
   { key: "email", label: "Owner email", hint: "Spotify emails this address to verify you own the show." },
@@ -58,19 +64,58 @@ export function PodcastPage() {
   const [hostDraft, setHostDraft] = useState("");
   const [changingHost, setChangingHost] = useState(false);
 
+  const [releaseAt, setReleaseAt] = useState("");
+  const statusEpoch = useRef(0);
+
   const handleSpotifyStatus = useCallback((next: SpotifyStatus) => setSpotify(next), []);
 
   const apply = useCallback((next: PodcastResponse) => {
+    statusEpoch.current++;
     setState(next);
     setDraft(next.show);
   }, []);
 
   useEffect(() => {
-    void fetch("/api/podcast")
-      .then((response) => response.json())
+    const controller = new AbortController();
+    void fetch("/api/podcast", { signal: controller.signal })
+      .then((response) => {
+        if (!response.ok) throw new Error("Podcast status unavailable.");
+        return response.json();
+      })
       .then(apply)
-      .catch(() => toast.error("Could not read the podcast feed."));
+      .catch(() => {
+        if (!controller.signal.aborted)
+          toast.error("Could not read the podcast feed.");
+      });
+    return () => controller.abort();
   }, [apply]);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    let pending = false;
+    const timer = setInterval(() => {
+      if (pending) return;
+      pending = true;
+      const epoch = statusEpoch.current;
+      void fetch("/api/podcast", { signal: controller.signal })
+        .then((response) => {
+          if (!response.ok) throw new Error("Podcast status unavailable.");
+          return response.json();
+        })
+        .then((next: PodcastResponse) => {
+          if (!controller.signal.aborted && statusEpoch.current === epoch)
+            setState(next);
+        })
+        .catch(() => undefined)
+        .finally(() => {
+          pending = false;
+        });
+    }, 30_000);
+    return () => {
+      clearInterval(timer);
+      controller.abort();
+    };
+  }, []);
 
   async function send(action: string, body: Record<string, unknown> = {}) {
     setBusy(action);
@@ -138,12 +183,15 @@ export function PodcastPage() {
         return;
       }
     }
-    const ok = await send("publish-export", { projectId: candidate.projectId, exportId: candidate.exportId });
-    if (ok) toast.success("Episode added to the feed");
+    const ok = await send("schedule-export", { projectId: candidate.projectId, exportId: candidate.exportId,
+      ...(releaseAt ? { publishAt: new Date(releaseAt).toISOString() } : {}),
+    });
+    if (ok) toast.success("Podcast release scheduled");
   }
 
   const ready = state ? state.blockers.length === 0 : false;
-  const unpublished = state ? state.candidates.filter((candidate) => !candidate.published) : [];
+  const unpublished = state ? state.candidates.filter((candidate) => !candidate.published && !candidate.scheduled,
+      ) : [];
   // `?project=` is the stream the sidebar handed this page. Pick its episode
   // rather than making him find it among every recording ever cut.
   const fromStream =
@@ -184,10 +232,11 @@ export function PodcastPage() {
             },
             {
               id: "publish-episode",
-              label: "Publish selected episode to the feed",
+              label: "Schedule selected podcast episode",
               group: "Episodes",
               destructive: true,
-              disabled: busy !== null || !selected || selected.published || !state.configured
+              disabled: busy !== null || !selected || selected.published ||
+                selected.scheduled,
             }
           ]
         : [],
@@ -224,7 +273,7 @@ export function PodcastPage() {
         return true;
       }
       if (id === "publish-episode") {
-        if (!selected || selected.published) return false;
+        if (!selected || selected.published || selected.scheduled) return false;
         void publishCandidate(selected);
         return true;
       }
@@ -245,14 +294,18 @@ export function PodcastPage() {
       <PageHeader
         eyebrow="Step 2 · Formats"
         title="Podcast / Spotify"
-        description="Spotify has no upload API, so the app publishes an RSS feed and Spotify pulls from it. Every long-form edit the pipeline finishes is added here automatically as an episode."
+        description="Every finished long-form edit becomes a scheduled podcast release. The app publishes it to the RSS feed at its due time, then Spotify pulls it in."
         actions={
           <Button
             variant="secondary"
             disabled={busy !== null || !state.configured}
             onClick={() => void send("refresh").then((ok) => ok && toast.success("Feed republished"))}
           >
-            {busy === "refresh" ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-2 h-4 w-4" />}
+            {busy === "refresh" ? (
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+            ) : (
+              <RefreshCw className="mr-2 h-4 w-4" />
+            )}
             Republish feed
           </Button>
         }
@@ -328,7 +381,9 @@ export function PodcastPage() {
                 }}
               />
               <Button disabled={busy !== null} onClick={() => void savePublicBaseUrl()}>
-                {busy === "set-public-url" ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                {busy === "set-public-url" ? (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                ) : null}
                 Save and use it
               </Button>
               {changingHost ? (
@@ -339,8 +394,8 @@ export function PodcastPage() {
             </div>
             <p className="mt-2 text-xs text-[var(--muted-foreground)]">
               Cloudflare dashboard → R2 → your bucket → Settings → Public Development URL, or the custom domain you
-              attached. Saved here it is used immediately and kept for next time — the app does not need restarting, and
-              any stream whose episode was skipped for this can be published under Publish an episode.
+              attached. Saved here it is used immediately and kept for next time - the app does not need restarting, and queued podcast releases resume automatically once
+              setup is complete.
             </p>
           </div>
         ) : null}
@@ -370,6 +425,13 @@ export function PodcastPage() {
         )}
       </Card>
 
+      <PodcastSchedulingCard
+        key={`${state.scheduling.automation.enabled}:${state.scheduling.automation.time}:${state.scheduling.automation.timeZone}`}
+        status={state.scheduling}
+        busy={busy !== null}
+        send={send}
+      />
+
       <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)]">
         <Card>
           <h2 className="text-sm font-semibold text-white">Show details</h2>
@@ -397,7 +459,9 @@ export function PodcastPage() {
                     onChange={(event) => setDraft({ ...draft, [field.key]: event.target.value })}
                   />
                 )}
-                {field.hint ? <p className="mt-1 text-xs text-[var(--muted-foreground)]">{field.hint}</p> : null}
+                {field.hint ? (
+                  <p className="mt-1 text-xs text-[var(--muted-foreground)]">{field.hint}</p>
+                ) : null}
               </div>
             ))}
             <div>
@@ -433,14 +497,17 @@ export function PodcastPage() {
             disabled={busy !== null}
             onClick={() => void send("save-show", { show: draft }).then((ok) => ok && toast.success("Show details saved"))}
           >
-            {busy === "save-show" ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+            {busy === "save-show" ? (
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+            ) : null}
             Save show details
           </Button>
         </Card>
 
         <Card>
           <h2 className="text-sm font-semibold text-white">
-            Episodes <span className="text-[var(--muted-foreground)]">({state.episodes.length})</span>
+            Episodes{" "}
+            <span className="text-[var(--muted-foreground)]">({state.episodes.length})</span>
           </h2>
           <p className="mt-1 text-xs text-[var(--muted-foreground)]">
             One per long-form edit. Shorts never come here — they are not episodes.
@@ -448,11 +515,11 @@ export function PodcastPage() {
 
           <div className="mt-4 rounded-lg border border-[var(--border)] bg-[var(--surface-2)] p-3">
             <p className="text-xs font-medium uppercase tracking-wider text-[var(--muted-foreground)]">
-              Publish an episode
+              Schedule an episode
             </p>
             <p className="mt-1 text-xs text-[var(--muted-foreground)]">
-              The pipeline adds each finished edit on its own. Use this when it could not — or for an older edit it never
-              saw.
+              The pipeline queues each finished edit at the next daily slot.
+              Choose an older export here, or set its release time below.
             </p>
             {state.candidates.length === 0 ? (
               <p className="mt-3 text-sm text-[var(--muted-foreground)]">
@@ -472,28 +539,45 @@ export function PodcastPage() {
                     <option
                       key={`${candidate.projectId}:${candidate.exportId}`}
                       value={`${candidate.projectId}:${candidate.exportId}`}
-                      disabled={candidate.published}
+                      disabled={candidate.published || candidate.scheduled}
                     >
                       {candidate.title} · {minutes(candidate.durationSec)}
-                      {candidate.published ? " · already an episode" : candidate.hasAudio ? "" : " · MP3 not cut yet"}
+                      {candidate.published ? " - already an episode"
+                        : candidate.scheduled
+                          ? " - release scheduled"
+                          : candidate.hasAudio ? "" : " - MP3 not cut yet"}
                     </option>
                   ))}
                 </select>
+                <label className="mt-3 block text-xs text-[var(--muted-foreground)]">
+                  Release time (browser local time; blank uses the next
+                  daily slot)
+                  <Input
+                    className="mt-1.5"
+                    type="datetime-local"
+                    value={releaseAt}
+                    onChange={(event) => setReleaseAt(event.target.value)}
+                  />
+                </label>
                 <Button
                   className="mt-3"
-                  disabled={busy !== null || !selected || selected.published || !state.configured}
+                  disabled={busy !== null || !selected || selected.published ||
+                    selected.scheduled
+                  }
                   onClick={() => selected && void publishCandidate(selected)}
                 >
-                  {busy === "publish-export" ? (
+                  {busy === "publish-export" || busy === "schedule-export" ? (
                     <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                   ) : (
                     <Upload className="mr-2 h-4 w-4" />
                   )}
-                  {selected && !selected.hasAudio ? "Cut the MP3 and publish" : "Publish to the feed"}
+                  {selected && !selected.hasAudio ? "Cut the MP3 and schedule"
+                    : "Schedule release"}
                 </Button>
                 {!state.configured ? (
                   <p className="mt-2 text-xs tone-warning tone-text">
-                    Nothing can be published until the feed has a permanent public URL — see the reasons above.
+                    Scheduling is available now. Due releases wait for the feed
+                    setup above, then resume automatically.
                   </p>
                 ) : null}
               </>
@@ -515,7 +599,8 @@ export function PodcastPage() {
                     <div className="min-w-0">
                       <p className="truncate text-sm font-medium text-white">{episode.title}</p>
                       <p className="mt-1 text-xs text-[var(--muted-foreground)]">
-                        {new Date(episode.publishedAt).toLocaleDateString()} · {minutes(episode.durationSec)} ·{" "}
+                        {new Date(episode.publishedAt).toLocaleDateString()} ·{" "}
+                        {minutes(episode.durationSec)} ·{" "}
                         {(episode.bytes / 1_000_000).toFixed(0)} MB
                       </p>
                       {spotify?.show ? (

@@ -6,6 +6,7 @@ import {
   reframeChain,
   renderCaptionedVertical,
   renderSourceClip,
+  renderVertical,
   stackedLayoutChain
 } from "./render";
 
@@ -138,6 +139,36 @@ describe("renderCaptionedVertical", () => {
     return args[args.indexOf("-filter_complex") + 1];
   }
 
+  it("uses a 4K canvas and source cadence for a 4K recording", async () => {
+    runFfmpeg.mockClear();
+    probeVideoStream.mockResolvedValueOnce({ width: 3840, height: 2160, durationSec: 30, fps: 59.94 });
+    await renderCaptionedVertical("in.mp4", "out.mp4", "/tmp/caps.ass", true);
+    const args = runFfmpeg.mock.calls[0][0] as string[];
+    expect(filterOf(runFfmpeg.mock.calls)).toContain("[fg]scale=2160:3840:force_original_aspect_ratio=decrease");
+    expect(filterOf(runFfmpeg.mock.calls)).toContain("scale=540:960:force_original_aspect_ratio=increase");
+    expect(args[args.indexOf("-r") + 1]).toBe("59.94");
+  });
+
+  it("honors a job's smaller delivery target even for a detected speaker", async () => {
+    runFfmpeg.mockClear();
+    await renderCaptionedVertical("in.mp4", "out.mp4", null, false, {
+      framing: { mode: "subject-fill", crop: { w: 0.32, h: 1 }, keyframes: [{ t: 0, x: 0.4, y: 0 }], confidence: 1, reason: "" },
+      target: { sourceW: 3840, sourceH: 2160, targetW: 2160, targetH: 3840 }
+    }, 1, 0, { width: 720, height: 1280, fps: 30 });
+    expect(filterOf(runFfmpeg.mock.calls)).toContain("scale=720:1280");
+    const args = runFfmpeg.mock.calls[0][0] as string[];
+    expect(args[args.indexOf("-r") + 1]).toBe("30");
+  });
+
+  it("keeps the publisher's fallback at the same high-resolution size", async () => {
+    runFfmpeg.mockClear();
+    probeVideoStream.mockResolvedValueOnce({ width: 3840, height: 2160, durationSec: 30, fps: 60 });
+    await renderVertical("in.mp4", "out.mp4", true);
+    expect(filterOf(runFfmpeg.mock.calls)).toContain("scale=2160:3840");
+    const args = runFfmpeg.mock.calls[0][0] as string[];
+    expect(args[args.indexOf("-r") + 1]).toBe("60");
+  });
+
   it("composes a centered 9:16 clip over a blurred fill and burns in the ass overlay", async () => {
     runFfmpeg.mockClear();
     await renderCaptionedVertical("in.mp4", "out.mp4", "/tmp/caps.ass", true);
@@ -219,6 +250,14 @@ describe("renderCaptionedVertical", () => {
 });
 
 describe("renderSourceClip", () => {
+  it("keeps portrait source pixels instead of shrinking them into a widescreen pad", async () => {
+    runFfmpeg.mockClear();
+    probeVideoStream.mockResolvedValueOnce({ width: 2160, height: 3840, durationSec: 30, fps: 60 });
+    await renderSourceClip("in.mp4", "out.mp4", false, { resolution: "2160", frameRate: "source" });
+    const filter = filterOf(runFfmpeg.mock.calls);
+    expect(filter).toContain("scale=2160:3840");
+    expect(filter).toContain("pad=2160:3840");
+  });
   function argsOf(calls: unknown[][]): string[] {
     return (calls[0]?.[0] ?? []) as string[];
   }

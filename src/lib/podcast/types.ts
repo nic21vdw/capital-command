@@ -49,4 +49,34 @@ export type PodcastEpisode = {
 export type PodcastState = {
   show: PodcastShow;
   episodes: PodcastEpisode[];
+  automation: PodcastAutomation;
+  deliveries: PodcastDelivery[];
+};
+
+export type PodcastAutomation = {
+  enabled: boolean;
+  time: string;
+  timeZone: string;
+};
+
+export type PodcastDelivery = {
+  id: string;
+  title: string;
+  description: string;
+  filePath: string;
+  durationSec: number;
+  exportId: string;
+  runId?: string;
+  projectId?: string;
+  link?: string;
+  publishAt: string;
+  createdAt: string;
+  status: "scheduled" | "publishing" | "failed" | "published" | "cancelled";
+  attempts: number;
+  lastAttemptAt?: string;
+  nextAttemptAt?: string;
+  lastError?: string;
+  blocked?: boolean;
+  episodeId?: string;
+  completedAt?: string;
 };

@@ -1,3 +1,4 @@
+import { recordAutomationEventSafely } from "@/lib/automations/history";
 import { decideUpload, explainDecision } from "@/lib/ingest/classify";
 import { DEFAULT_LOOKBACK_DAYS, scanChannelUploads } from "@/lib/ingest/channelScan";
 import { snapshotFromCandidates } from "@/lib/ingest/coverage";
@@ -21,6 +22,7 @@ import {
 import type { IngestLedger, IngestOutputs, IngestRecord, ScanCandidate } from "@/lib/ingest/types";
 import { WHOLE_RUN_FAILURE } from "@/lib/pipeline/types";
 import { publishQueue } from "@/lib/publisher/queue";
+import { isAutomationPaused } from "@/lib/automations/store";
 
 /**
  * The daily scan, end to end: read the channel, decide, hand what is new to the
@@ -113,6 +115,9 @@ export type RunOptions = {
  * noticed nothing had been ingested for days.
  */
 export async function runDailyScan(options: RunOptions = {}): Promise<ScanReport> {
+  if (!options.dryRun && await isAutomationPaused("ingest")) {
+    throw new Error("Channel ingest is paused in Automations.");
+  }
   const startedAt = new Date().toISOString();
   try {
     const report = await runScan(options);
@@ -122,8 +127,13 @@ export async function runDailyScan(options: RunOptions = {}): Promise<ScanReport
       ingested: report.ingested.length,
       dryRun: report.dryRun
     });
+    if (!report.dryRun) {
+      await recordAutomationEventSafely({ automationId: "ingest", scope: "worker", kind: report.configured && !report.needsReconnect ? "completed" : "blocked", at: new Date().toISOString(), detail: report.configured ? report.needsReconnect ? "Channel scan needs reconnection." : `Channel scan completed; ${report.ingested.length} streams processed.` : "Channel scan is not connected." });
+      for (const item of report.ingested) await recordAutomationEventSafely({ automationId: "ingest", scope: "worker", kind: item.outcome === "ready" ? "completed" : "failed", at: item.ingestedAt, itemId: item.videoId, detail: `${item.title}: ${item.outcome}${item.error ? `: ${item.error}` : ""}`, key: `${item.videoId}:${item.attempts}` });
+    }
     return report;
   } catch (error) {
+    if (!options.dryRun) await recordAutomationEventSafely({ automationId: "ingest", scope: "worker", kind: "failed", at: new Date().toISOString(), detail: error instanceof Error ? error.message : String(error) });
     await recordScanOutcome({
       at: startedAt,
       status: "failed",
@@ -253,6 +263,7 @@ async function runScan(options: RunOptions = {}): Promise<ScanReport> {
   log(`Handing streams to the pipeline at ${appBaseUrl()}.`);
 
   for (const candidate of toIngest.slice(0, limit)) {
+    if (await isAutomationPaused("ingest")) throw new Error("Channel ingest was paused in Automations.");
     const { upload } = candidate;
     const attempts = attemptsFor(ledger, upload.videoId) + 1;
     log(`Ingesting ${upload.videoId} (attempt ${attempts}/${MAX_INGEST_ATTEMPTS}): ${upload.title}`);

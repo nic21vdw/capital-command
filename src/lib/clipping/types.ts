@@ -46,8 +46,10 @@ export type ClipCandidate = {
   title?: string;
   /** First spoken words of the clip, shown to explain the hook score. */
   hookQuote?: string;
-  /** Neutral full-frame 16:9 source master filename, set once rendered. */
+  /** Neutral full-frame source master filename, set once rendered. */
   file?: string;
+  /** Probed neutral master's geometry, so opening the editor retains its quality. */
+  sourceFrame?: import("@/lib/clipping/encode").SourceFrame;
   /**
    * Ready-to-post download filename: a 9:16 vertical centered over a blurred
    * fill, with the word-synced captions burned in (no watermark by default).
@@ -129,6 +131,8 @@ export type ClipJob = {
   captionPreset?: import("@/types/domain").CaptionPresetId;
   /** Clip length range the selector aims for. Absent means "auto" (15-30s). */
   clipLength?: import("@/lib/clipping/clip-length").ClipLengthId;
+  /** Quality chosen for this job, retained across retries and later settings changes. */
+  output?: import("@/lib/pipeline/outputQuality").OutputQuality;
   renderLayout?: ClipLayoutPreset;
   renderVariants?: boolean;
   layoutOverrides?: ClipLayoutOverrides;

@@ -227,7 +227,10 @@ export function ClipGeneratorPage() {
   }, []);
 
   useEffect(() => {
-    void refresh();
+    // Start loading outside the effect so its loading state does not cascade
+    // through the initial render. Cleanup cancels a superseded mount.
+    const kickoff = window.setTimeout(() => void refresh(), 0);
+    return () => window.clearTimeout(kickoff);
   }, [refresh]);
 
   useEffect(() => {
@@ -377,7 +380,9 @@ export function ClipGeneratorPage() {
         posterFile: clip.posterFile,
         sourceUrl: job.sourceUrl,
         clipStart: clip.start,
-        clipEnd: clip.end
+        clipEnd: clip.end,
+        sourceFrame: clip.sourceFrame,
+        output: job.output
       });
       if (job.captionPreset) project.captionStyle = captionStyleForPreset(job.captionPreset);
       const [captions, silences] = await Promise.all([loadJobCaptions(job.id), loadJobSilences(job.id)]);

@@ -1,6 +1,8 @@
 import { mkdtemp, stat } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { isAutomationPaused, recordAutomationOutcome } from "@/lib/automations/store";
+import { recordAutomationEventSafely } from "@/lib/automations/history";
 import { accountIdConfigured } from "@/lib/publisher/accounts";
 import { facebookAdapter } from "@/lib/publisher/adapters/facebook";
 import { instagramAdapter } from "@/lib/publisher/adapters/instagram";
@@ -76,6 +78,7 @@ export type RunReport = {
   outcomes: RunOutcome[];
   /** Present only when Buffer is enabled — one entry per item the Buffer pass acted on. */
   bufferOutcomes?: BufferOutcome[];
+  bufferError?: string;
 };
 
 export type RunDueOptions = {
@@ -182,6 +185,33 @@ async function resolveImageMedia(
 }
 
 export async function runDue(now: Date = new Date(), options: RunDueOptions = {}): Promise<RunReport> {
+  if (!options.dryRun && !options.itemId && await isAutomationPaused("publisher")) {
+    return { dryRun: false, now: now.toISOString(), queue: "Publisher paused in Automations.", authChecks: [], plans: [], outcomes: [] };
+  }
+  try {
+    const report = await runDueInternal(now, options);
+    if (!options.dryRun && !options.itemId) {
+      const outcomes = [...report.outcomes, ...(report.bufferOutcomes ?? [])];
+      const failed = outcomes.filter((outcome) => outcome.outcome === "failed").length + Number(Boolean(report.bufferError));
+      const attention = outcomes.filter((outcome) => outcome.outcome === "retrying" || outcome.outcome === "manual").length;
+      await recordAutomationOutcome("publisher", {
+        at: now.toISOString(),
+        status: failed || attention ? "failed" : "completed",
+        detail: `${report.outcomes.length} platform outcomes, ${report.bufferOutcomes?.length ?? 0} Buffer outcomes, ${failed} failures, ${attention} requiring attention.${report.bufferError ? ` ${report.bufferError}` : ""}`
+      }).catch(() => undefined);
+    }
+    return report;
+  } catch (error) {
+    if (!options.dryRun && !options.itemId) {
+      await recordAutomationOutcome("publisher", {
+        at: now.toISOString(), status: "failed", detail: "The publisher tick failed. Check the publisher log and queue failures."
+      }).catch(() => undefined);
+    }
+    throw error;
+  }
+}
+
+async function runDueInternal(now: Date, options: RunDueOptions): Promise<RunReport> {
   const config = options.config ?? publisherConfig();
   const queue = options.queue ?? publishQueue(config);
   const adapters = { ...defaultAdapters, ...options.adapters };
@@ -268,10 +298,12 @@ export async function runDue(now: Date = new Date(), options: RunDueOptions = {}
   // so it cannot abort the direct publishes.
   const runBuffer = async () => {
     if (!config.buffer.enabled) return;
+    if (!options.itemId && await isAutomationPaused("publisher")) return;
     try {
       const bufferOutcomes = await syncDueToBuffer(now, { queue, config, log, itemId: options.itemId });
       if (bufferOutcomes.length > 0) report.bufferOutcomes = bufferOutcomes;
     } catch (error) {
+      report.bufferError = "The Buffer pass failed. Check the publisher log and queue failures.";
       log(`[publisher]   buffer pass failed: ${error instanceof Error ? error.message : String(error)}`);
     }
   };
@@ -363,13 +395,22 @@ export async function runDue(now: Date = new Date(), options: RunDueOptions = {}
   let facebookPreschedulesLeft = options.force ? Number.POSITIVE_INFINITY : FACEBOOK_PRESCHEDULES_PER_RUN;
 
   for (const { item, platforms } of due) {
+    if (!options.itemId && await isAutomationPaused("publisher")) break;
     let localPath: string | null = null;
     let publicUrl: string | undefined;
     let images: PublishInput["images"];
     for (const platform of platforms) {
+      if (!options.itemId && await isAutomationPaused("publisher")) break;
       const adapter = adapters[platform];
-      const record = (outcome: RunOutcome["outcome"], detail: string) => {
+      const record = async (outcome: RunOutcome["outcome"], detail: string) => {
         report.outcomes.push({ itemId: item.id, clip: item.clipPath, platform, outcome, detail });
+        const state = item.platforms[platform];
+        const at = new Date().toISOString();
+        await recordAutomationEventSafely({
+          automationId: "publisher", scope: "delivery", kind: outcome === "published" ? "delivered" : outcome === "uploaded" ? "scheduled" : outcome === "deferred" ? "blocked" : outcome,
+          at, itemId: item.id, destination: platform, detail: `${item.title} (${platform}): ${detail || outcome}`,
+          nextAttemptAt: state?.nextAttemptAt, key: `${item.id}:${platform}:${state?.postId ?? state?.containerId ?? ""}:${state?.attempts ?? 0}:${outcome === "failed" || outcome === "retrying" ? at : ""}`
+        });
         log(`[publisher]   ${item.id} → ${platform}: ${outcome} — ${detail}`);
       };
       try {
@@ -400,7 +441,7 @@ export async function runDue(now: Date = new Date(), options: RunDueOptions = {}
           // must never be stopped for looking like the video it IS.
           if (platform === "youtube") {
             if (youtubeUploadsLeft <= 0) {
-              record(
+              await record(
                 "deferred",
                 `YouTube's ${config.youtube.dailyUploadBudget} uploads for today are used — this one goes up on the next run after the quota resets.`
               );
@@ -412,7 +453,7 @@ export async function runDue(now: Date = new Date(), options: RunDueOptions = {}
           }
           if (platform === "tiktok" && usesTiktokInbox(item)) {
             if (tiktokInboxLeft <= 0) {
-              record(
+              await record(
                 "deferred",
                 `${tiktokDraftsWaiting} clips are already waiting in your TikTok inbox — open the TikTok app and post or discard them, then this one goes up on the next run.`
               );
@@ -422,7 +463,7 @@ export async function runDue(now: Date = new Date(), options: RunDueOptions = {}
           }
           if (platform === "facebook" && new Date(item.publishAt).getTime() > now.getTime()) {
             if (facebookPreschedulesLeft <= 0) {
-              record(
+              await record(
                 "deferred",
                 `${FACEBOOK_PRESCHEDULES_PER_RUN} Reels have already been handed to Facebook ahead of time this run — this one goes up on the next run.`
               );
@@ -470,28 +511,28 @@ export async function runDue(now: Date = new Date(), options: RunDueOptions = {}
           }
         }
         await queue.recordSuccess(item, platform, result, now);
-        record(result.status, result.detail ?? "");
+        await record(result.status, result.detail ?? "");
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         if (error instanceof StillProcessingError) {
           // Media accepted, platform still processing: remember the handle so
           // the next run resumes polling instead of re-uploading.
           await queue.recordSuccess(item, platform, { status: "uploaded", containerId: error.containerId, detail: message }, now);
-          record("uploaded", message);
+          await record("uploaded", message);
           continue;
         }
         if (error instanceof ThrottledError) {
           // A wall that time takes down, not the item: keep its attempts and
           // come back when the platform's window has moved.
           await queue.deferAttempt(item, platform, message, error.retryAfterMinutes, now);
-          record("deferred", `${message} (next attempt ${item.platforms[platform]?.nextAttemptAt ?? "later"})`);
+          await record("deferred", `${message} (next attempt ${item.platforms[platform]?.nextAttemptAt ?? "later"})`);
           continue;
         }
         if (error instanceof AbandonedUploadError) await queue.clearDeadUpload(item, platform);
         const transient = isTransient(error);
         await queue.recordFailure(item, platform, { message, transient }, now);
         const state = item.platforms[platform];
-        record(
+        await record(
           state?.status === "failed" ? "failed" : "retrying",
           state?.status === "failed" ? message : `${message} (next attempt ${state?.nextAttemptAt ?? "soon"})`
         );

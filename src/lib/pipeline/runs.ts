@@ -26,7 +26,10 @@ import { generatePipelinePosts } from "@/lib/pipeline/posts";
 import { runPreviews } from "@/lib/pipeline/previews";
 import { repairableStages } from "@/lib/pipeline/repairable";
 import { nextSegmentToRender, segmentsRenderable } from "@/lib/pipeline/segments";
-import { podcastConfigured, publishEpisode } from "@/lib/podcast/publish";
+import { scheduleEpisode } from "@/lib/podcast/schedule";
+import { readPodcastState } from "@/lib/podcast/store";
+import type { PodcastDelivery } from "@/lib/podcast/types";
+import { isAutomationPaused } from "@/lib/automations/store";
 import {
   MIN_SPEECH_WORDS,
   realisticImagePrompt,
@@ -350,6 +353,7 @@ function stuck(run: PipelineRun, key: string): boolean {
  * where the records left off. Every step is idempotent behind an id check.
  */
 export async function advanceRun(run: PipelineRun): Promise<void> {
+  if (await isAutomationPaused("pipeline")) return;
   if (run.status !== "running" || !run.sourceId) return;
   const sourceId = run.sourceId;
 
@@ -365,7 +369,9 @@ export async function advanceRun(run: PipelineRun): Promise<void> {
   }
   if (!run.clipJobId && !stuck(run, "clips")) {
     await step(run, "clips", async () => {
-      const job = await createJobFromUpload(sourceId, undefined);
+      const job = await createJobFromUpload(sourceId, undefined, undefined, undefined, {
+        output: normalizeOutputQuality(run.output)
+      });
       await update(run, { clipJobId: job.id });
     });
   }
@@ -448,22 +454,8 @@ export async function advanceRun(run: PipelineRun): Promise<void> {
     }
   }
 
-  // MP3 cut → push it to the podcast RSS feed Spotify reads. Spotify has no
-  // upload API, so the feed IS the delivery: adding the episode here is the
-  // whole automation, and Spotify pulls it on its next read of the feed.
-  if (project && exportRecord?.audioFile && !run.podcastEpisodeId && !run.podcastNote) {
-    if (!podcastConfigured()) {
-      await update(run, {
-        podcastNote:
-          "The podcast feed has nowhere public to live yet — set the bucket's public address on the Podcast page, then publish this episode from there. The MP3 is on disk either way."
-      });
-    } else {
+  if (project && exportRecord?.audioFile && !run.podcastDeliveryId && !run.podcastEpisodeId && !stuck(run, "podcast")) {
       void step(run, "podcast", async () => {
-        // Show notes, before the episode goes in the feed. Publishing first and
-        // describing later is why episodes shipped described by the raw stream
-        // name — a feed is read once and cached, so the description has to be
-        // right the first time. A failure here is not a reason to skip the
-        // episode: it falls back to the name, exactly as before.
         const metadata =
           project.metadata ??
           (longformMetadataConfigured()
@@ -474,7 +466,7 @@ export async function advanceRun(run: PipelineRun): Promise<void> {
                 })
                 .catch(() => undefined)
             : undefined);
-        const { episode } = await publishEpisode({
+        const delivery = await scheduleEpisode({
           filePath: path.join(projectOutputDir(project.id), exportRecord.audioFile!),
           title: exportRecord.title ?? metadata?.titles[0] ?? run.name,
           description: metadata?.description ?? run.name,
@@ -484,14 +476,15 @@ export async function advanceRun(run: PipelineRun): Promise<void> {
           exportId: exportRecord.id,
           link: run.sourceUrl
         });
-        await update(run, { podcastEpisodeId: episode.id });
+        await update(run, {
+          podcastDeliveryId: delivery.id,
+          podcastPublishAt: delivery.publishAt,
+          podcastEpisodeId: delivery.episodeId,
+          podcastNote: undefined,
+        });
       }, async () => {
-        // One shot, same as the extraction above: a feed push that fails on a
-        // 2.5s poll would republish the notice forever. The episode can still
-        // be added by hand from the Podcast page.
-        await update(run, { podcastNote: "The episode could not be added to the podcast feed. Add it from the Podcast page." });
+        await update(run, { podcastNote: "The episode could not be scheduled. Check Podcast / Spotify." });
       });
-    }
   }
 
   // The long-form analysis only transcribes the opening of a long stream (the
@@ -788,15 +781,27 @@ function audioStage(run: PipelineRun, project: LongformProject | undefined): Pip
   return stage("skipped", "Needs the long-form edit, which failed.");
 }
 
-function podcastStage(run: PipelineRun, project: LongformProject | undefined): PipelineStage {
+function podcastStage(run: PipelineRun, project: LongformProject | undefined, delivery?: PodcastDelivery): PipelineStage {
   if (run.status !== "running") return stage("waiting", "Waiting for the source.");
-  if (run.podcastEpisodeId) return stage("ready", "In the podcast feed — Spotify picks it up on its next read");
-  if (run.podcastNote) return stage("skipped", run.podcastNote);
+  if (delivery?.status === "failed")
+    return stage(
+      "error",
+      `${delivery.lastError ?? "Podcast delivery failed."} Retry in Podcast / Spotify.`,
+    );
+  if (delivery?.status === "cancelled")
+    return stage("skipped", "Podcast release cancelled in Podcast / Spotify.");
+  if (run.podcastEpisodeId || delivery?.status === "published") return stage("ready", "In the podcast feed - Spotify picks it up on its next read");
+  if (delivery || run.podcastDeliveryId)
+    return stage(
+      "ready",
+      `Podcast release scheduled for ${new Date(delivery?.publishAt ?? run.podcastPublishAt!).toLocaleString()}.`,
+    );
+  if (run.podcastNote) return gaveUp(run.podcastNote);
   if (run.audioNote) return stage("skipped", "No MP3 to publish.");
   const record = project?.exports.find((item) => item.id === run.longformExportId);
-  if (record?.audioFile) return stage("running", "Adding the episode to the feed…");
+  if (record?.audioFile) return stage("running", "Scheduling the podcast episode...");
   if (project?.status === "error") return stage("skipped", "Needs the long-form edit, which failed.");
-  return stage("waiting", "Published to the feed once the MP3 is cut.");
+  return stage("waiting", "Scheduled once the MP3 is cut.");
 }
 
 function imagesStage(run: PipelineRun, project: LongformProject | undefined, slideCount: number): PipelineStage {
@@ -835,7 +840,7 @@ function imagesStage(run: PipelineRun, project: LongformProject | undefined, sli
 function visualsStage(run: PipelineRun, job: ClipJob | undefined, ready: boolean): PipelineStage {
   if (run.status !== "running") return stage("waiting", "Waiting for the source.");
   if (!job) return stage("waiting", "Waiting for the clip analysis.");
-  if (ready) return stage("ready", "Best transcript moment ready for a realistic screenshot ad");
+  if (ready) return stage("ready", "Ad brief ready - compose and review the real-frame draft before exporting.");
   // A settled job with no moment has none coming — the old `waiting` here left
   // the run unsettled for good on any stream without usable speech.
   if (job.status === "error" || job.status === "done") {
@@ -906,6 +911,11 @@ export async function runOverview(run: PipelineRun, context?: OverviewContext): 
   const project = run.longformProjectId ? await getProject(run.longformProjectId) : undefined;
   const job = run.clipJobId ? await getJob(run.clipJobId) : undefined;
   const exportRecord = project?.exports.find((item) => item.id === run.longformExportId);
+  const podcastDelivery = run.podcastDeliveryId
+    ? (await readPodcastState()).deliveries.find(
+        (item) => item.id === run.podcastDeliveryId,
+      )
+    : undefined;
 
   let slideCount = 0;
   let slideHeadings: { heading?: string }[] = [];
@@ -942,7 +952,7 @@ export async function runOverview(run: PipelineRun, context?: OverviewContext): 
     segments: segmentsStage(run, project, segmentsRendered, job),
     clips: clipsStage(run, job),
     audio: audioStage(run, project),
-    podcast: podcastStage(run, project),
+    podcast: podcastStage(run, project, podcastDelivery),
     images: imagesStage(run, project, slideCount),
     visuals: visualsStage(run, job, Boolean(visualMoment)),
     posts: postsStage(run),
@@ -987,16 +997,16 @@ export async function runOverview(run: PipelineRun, context?: OverviewContext): 
   } else {
     stages.schedule = stage(
       upstreamSettled ? "ready" : "running",
-      // The podcast episode is reported separately because it is not waiting on
-      // anyone: it is already in the feed, and nothing about it gets scheduled.
       [
         `${bookable} output${bookable === 1 ? "" : "s"} ready to schedule`,
         posts > 0 ? `${posts} text post${posts === 1 ? "" : "s"}` : "",
-        byHand > 0 ? `${!carouselBookable && slideCount > 0 ? `${slideCount}-slide carousel` : ""}${
-          !carouselBookable && slideCount > 0 && visualMoment ? " and " : ""
-        }${visualMoment ? "visual ad" : ""} to post by hand` : "",
+        !carouselBookable && slideCount > 0 ? `${slideCount}-slide carousel to post by hand` : "",
+        visualMoment ? "visual ad brief ready to compose, review and export" : "",
         queued > 0 ? `${queued} already queued` : "",
-        run.podcastEpisodeId ? "podcast episode published" : ""
+        run.podcastEpisodeId || podcastDelivery?.status === "published"
+          ? "podcast episode published" : run.podcastDeliveryId
+            ? "podcast episode scheduled"
+            : ""
       ]
         .filter(Boolean)
         .join(" · ")
@@ -1023,9 +1033,10 @@ export async function runOverview(run: PipelineRun, context?: OverviewContext): 
       segments: topics.length,
       segmentsRendered,
       audioReady,
-      podcastPublished: Boolean(run.podcastEpisodeId),
+      podcastPublished: Boolean(run.podcastEpisodeId || podcastDelivery?.status === "published"),
       carouselSlides: slideCount,
-      visualAdReady: Boolean(visualMoment),
+      visualAdReady: false,
+      visualAdBriefReady: Boolean(visualMoment),
       posts,
       queued
     },
