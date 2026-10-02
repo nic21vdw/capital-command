@@ -248,7 +248,7 @@ export function watchRelease({
       label: `The update has not come back after ${elapsed}`,
       stage: releaseStage(step, offline, finished),
       detail: offline
-        ? "The rebuild may still be running. Check update-app.log in the CoLateral Marketing folder, and run update-capital-command.bat again if it has stopped."
+        ? "The rebuild may still be running. Check update-app.log in the CoLateral Marketing folder, and run Update CoLateral Marketing.bat again if it has stopped."
         : "It is still running but has been quiet for a long time — check update-app.log in the CoLateral Marketing folder.",
       elapsed,
       spin: false
@@ -311,3 +311,4 @@ export function shouldShowUpdated(
   if (progress.quietFor !== null && progress.quietFor > RELEASE_DONE_NOTICE_SECONDS) return false;
   return !(acknowledged && acknowledged === status.running);
 }
+

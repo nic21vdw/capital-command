@@ -137,7 +137,7 @@ describe("realisticImagePrompt", () => {
         start: 12,
         end: 30,
       },
-      "Capital Command Live",
+      "CoLateral Marketing Live",
     );
     expect(prompt).toContain("high-fidelity visual reference");
     expect(prompt).toContain("The real breakthrough");

@@ -59,6 +59,7 @@ export async function executeAgentAction(action: AgentAction): Promise<string> {
     });
     return `Saved content idea ${id}.`;
   }
+  if (action.type !== "start_pipeline") throw new Error("Unknown agent action.");
   const input = pipelineSchema.parse(action.payload);
   const run = await createRunFromUrl(input.url, input.name);
   return `Started pipeline run ${run.id}.`;

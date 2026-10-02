@@ -3,7 +3,7 @@
 /*
  * The app's end of the CoLateral canvas bridge.
  * ---------------------------------------------------------------------------
- * When Capital Command is framed by a Capital Command Card on the CoLateral
+ * When CoLateral Marketing is framed by a CoLateral Marketing Card on the CoLateral
  * project canvas, this is what answers. It does four things and nothing else:
  *
  *   1. Introduces the app to the card (`ready`), and keeps the card's header
@@ -44,7 +44,7 @@ const CHROME_ATTRIBUTE = "data-colateral-chrome";
 const HOSTED_ATTRIBUTE = "data-colateral-hosted";
 
 interface ColateralBridgeValue {
-  /** True when the app is inside a Capital Command Card. */
+  /** True when the app is inside a CoLateral Marketing Card. */
   hosted: boolean;
   chrome: ChromeMode;
 }
@@ -108,7 +108,7 @@ export function ColateralBridgeProvider({ children }: { children: React.ReactNod
     (request: HostRequest) => {
       const known = allRoutes().some((route) => route.path === request.route);
       if (!known) {
-        post(appResult(request.id, false, { error: `Capital Command has no page at ${request.route}.` }));
+        post(appResult(request.id, false, { error: `CoLateral Marketing has no page at ${request.route}.` }));
         return;
       }
       if (request.route === pathnameRef.current) {
@@ -356,4 +356,5 @@ export function ColateralBridgeProvider({ children }: { children: React.ReactNod
   const value = useMemo(() => ({ hosted, chrome }), [chrome, hosted]);
   return <ColateralBridgeContext.Provider value={value}>{children}</ColateralBridgeContext.Provider>;
 }
+
 

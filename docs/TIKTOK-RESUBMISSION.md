@@ -13,7 +13,7 @@ wrong, and fixing only the stated one gets a second rejection.
 reviewer's note: *"App will not be approved for personal or company internal
 use."* This is not only the description field. The Terms of Service and
 Privacy Policy URLs submitted with the app both open with the sentence
-"Capital Command is a personal content-operations dashboard, built and run by
+"CoLateral Marketing is a personal content-operations dashboard, built and run by
 …" — the reviewer read that. The registered website was a raw GitHub file, and
 the only redirect URI was `http://localhost:3000/api/auth/tiktok/callback`. All
 three say *internal tool* on their own.
@@ -85,7 +85,7 @@ the history.
 
 ## The framing that makes Lane B honest
 
-The original checklist assumed Capital Command would become a hosted service
+The original checklist assumed CoLateral Marketing would become a hosted service
 other creators sign into. It cannot be that without a build nobody has agreed
 to: there is no login, no user model, and every data path resolves from
 `process.cwd()` — one folder, one operator. Worse, the same app serves the
@@ -191,7 +191,7 @@ read it, change the app or change the sentence — do not submit it as-is.**
 
 ### App review notes (max 1000 characters)
 
-> Capital Command is self-hosted software for creators. It cuts long-form
+> CoLateral Marketing is self-hosted software for creators. It cuts long-form
 > video into clips and posts them to the TikTok account the creator
 > connects, on a schedule they set. Each creator runs their own copy, so
 > video, schedule and tokens stay on their machine.
@@ -326,3 +326,4 @@ run before pressing record.
 
 Reviews have come back anywhere from a day to a fortnight. The last one took
 under 24 hours — a no is fast.
+

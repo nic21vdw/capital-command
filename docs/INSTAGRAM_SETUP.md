@@ -36,7 +36,7 @@ with the four permissions below) before generating any token.
 
 1. Go to <https://developers.facebook.com/apps> and click **Create app**.
 2. Use case: **Other** → app type **Business** → give it a name
-   (e.g. "Capital Command Publisher") → create.
+   (e.g. "CoLateral Marketing Publisher") → create.
 3. On the app's dashboard, add the **Instagram** product (and **Facebook
    Login for Business**, if it isn't added for you).
 4. **App settings → Basic**: copy the **App ID** and click **Show** next to the
@@ -156,3 +156,4 @@ npm run publish:dry
 | CLI commands | `src/lib/publisher/cli.ts` (`instagram connect`, `instagram check`) |
 | Publishing adapter | `src/lib/publisher/adapters/instagram.ts` |
 | Config reader | `src/lib/publisher/config.ts` |
+

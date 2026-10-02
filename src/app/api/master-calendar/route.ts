@@ -11,6 +11,12 @@ const DATE_KEY_RE = /^\d{4}-\d{2}-\d{2}$/;
 /** A month grid is 42 cells; leave headroom without allowing huge scans. */
 const MAX_DAYS = 62;
 
+function validDateKey(value: string): boolean {
+  if (!DATE_KEY_RE.test(value)) return false;
+  const date = new Date(`${value}T12:00:00Z`);
+  return Number.isFinite(date.getTime()) && date.toISOString().slice(0, 10) === value;
+}
+
 /**
  * GET /api/master-calendar?start=YYYY-MM-DD&days=42 — every distribution
  * surface's events for the requested window of local calendar days, flattened
@@ -21,8 +27,8 @@ export async function GET(request: NextRequest) {
   const config = publisherConfig();
   const startRaw = request.nextUrl.searchParams.get("start");
   const daysRaw = Number(request.nextUrl.searchParams.get("days"));
-  const days = Number.isFinite(daysRaw) && daysRaw > 0 ? Math.min(Math.floor(daysRaw), MAX_DAYS) : 42;
-  const startKey = startRaw && DATE_KEY_RE.test(startRaw) ? startRaw : todayKeyIn(config.timezone);
+  const days = Number.isFinite(daysRaw) && daysRaw > 0 ? Math.min(Math.max(1, Math.floor(daysRaw)), MAX_DAYS) : 42;
+  const startKey = startRaw && validDateKey(startRaw) ? startRaw : todayKeyIn(config.timezone);
 
   const [data, queueItems] = await Promise.all([
     readAppData(),

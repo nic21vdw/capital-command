@@ -1,3 +1,4 @@
+import { parseByteRange } from "@/lib/clipping/byte-range";
 import { stat } from "node:fs/promises";
 import { Readable } from "node:stream";
 import { NextRequest, NextResponse } from "next/server";
@@ -27,14 +28,11 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
 
   const range = request.headers.get("range");
   if (range) {
-    const match = /bytes=(\d*)-(\d*)/.exec(range);
-    let start = match && match[1] ? Number(match[1]) : 0;
-    let end = match && match[2] ? Number(match[2]) : size - 1;
-    if (Number.isNaN(start) || start < 0) start = 0;
-    if (Number.isNaN(end) || end >= size) end = size - 1;
-    if (start > end) {
+    const parsed = parseByteRange(range, size);
+    if (!parsed) {
       return new NextResponse(null, { status: 416, headers: { "Content-Range": `bytes */${size}` } });
     }
+    const { start, end } = parsed;
     const stream = Readable.toWeb(openSourceRange(meta, start, end)) as ReadableStream;
     return new NextResponse(stream, {
       status: 206,
@@ -48,7 +46,7 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
     });
   }
 
-  const stream = Readable.toWeb(openSourceRange(meta, 0, size - 1)) as ReadableStream;
+  const stream = size > 0 ? Readable.toWeb(openSourceRange(meta, 0, size - 1)) as ReadableStream : null;
   return new NextResponse(stream, {
     headers: {
       "Content-Type": meta.mime,
@@ -58,3 +56,4 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
     }
   });
 }
+

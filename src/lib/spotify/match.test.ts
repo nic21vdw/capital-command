@@ -31,8 +31,8 @@ describe("matchEpisodes", () => {
 
   it("matches a title Spotify truncated", () => {
     const matches = matchEpisodes(
-      [{ id: "feed1", title: "Building Capital Command from scratch, part four" }],
-      [episode("sp2", "Building Capital Command from scratch")]
+      [{ id: "feed1", title: "Building CoLateral Marketing from scratch, part four" }],
+      [episode("sp2", "Building CoLateral Marketing from scratch")]
     );
     expect(matches.feed1?.id).toBe("sp2");
   });
@@ -50,3 +50,4 @@ describe("matchEpisodes", () => {
     expect(matches.feed1?.id).toBe("sp5");
   });
 });
+

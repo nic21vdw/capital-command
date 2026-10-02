@@ -6,7 +6,7 @@
 # scheduling is on in Settings, in which case the run books its own outputs into
 # the queues that post.
 #
-# The pipeline runs inside the app, so Capital Command has to be up. This script
+# The pipeline runs inside the app, so CoLateral Marketing has to be up. This script
 # starts it if nothing is listening, and leaves it running afterwards.
 #
 # Register it to run once a day, from the production folder:
@@ -173,3 +173,4 @@ if ($code -eq 78) {
 }
 
 exit $code
+

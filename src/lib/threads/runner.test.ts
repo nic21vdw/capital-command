@@ -66,6 +66,31 @@ function deps(items: ThreadsQueueItem[], post?: ThreadsRunDeps["post"]) {
 const silent = () => {};
 
 describe("runDue", () => {
+  it("does not send the same post twice when two runs read separate snapshots", async () => {
+    let saved = [item()];
+    let release!: () => void;
+    const blocked = new Promise<void>((resolve) => { release = resolve; });
+    const post = vi.fn(async () => {
+      await blocked;
+      return { containerId: "container-one", postId: "post-one" };
+    });
+    const runDeps: ThreadsRunDeps = {
+      read: async () => structuredClone(saved),
+      write: async (next) => { saved = structuredClone(next); },
+      post
+    };
+    const now = new Date("2026-07-22T07:16:00Z");
+    const first = runDue(now, { config: config(), deps: runDeps, log: silent });
+    await vi.waitFor(() => expect(post).toHaveBeenCalledTimes(1));
+    const overlapping = await runDue(now, { config: config(), deps: runDeps, log: silent });
+    expect(overlapping.note).toContain("already in progress");
+    expect(post).toHaveBeenCalledTimes(1);
+    release();
+    await first;
+    await runDue(now, { config: config(), deps: runDeps, log: silent });
+    expect(post).toHaveBeenCalledTimes(1);
+  });
+
   it("posts an item once its time has come, as its own account", async () => {
     const { runDeps, state, posted } = deps([item()]);
 

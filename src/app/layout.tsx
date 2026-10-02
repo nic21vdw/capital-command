@@ -29,7 +29,7 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
             The canvas bridge sits between the theme and the data: it needs
             `useHostTheme` from above it, and everything below it — the shell,
             the pages, the command bar — reads `useColateralBridge` to know
-            whether it is inside a Capital Command Card and how much room it
+            whether it is inside a CoLateral Marketing Card and how much room it
             has. It renders nothing of its own.
           */}
           <ColateralBridgeProvider>
@@ -43,3 +43,4 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
     </html>
   );
 }
+

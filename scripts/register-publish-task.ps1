@@ -24,7 +24,7 @@ $root = Split-Path -Parent $PSScriptRoot
 $script = Join-Path $root "scripts\publish-runner.ps1"
 
 if (-not (Test-Path $script)) {
-  throw "Could not find $script - run this from the capital-command checkout."
+  throw "Could not find $script - run this from the CoLateral Marketing checkout."
 }
 
 # -Hidden below only hides the task in the Task Scheduler UI; a task that runs
@@ -61,8 +61,9 @@ if (Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue) {
 }
 
 Register-ScheduledTask -TaskName $TaskName -Action $action -Trigger $trigger -Settings $settings `
-  -Description "Post whatever is due on the publish queue (Capital Command)" | Out-Null
+  -Description "Post whatever is due on the publish queue (CoLateral Marketing)" | Out-Null
 
 Write-Host "Registered '$TaskName' - every $IntervalMinutes minutes."
 Write-Host "Log: $(Join-Path $root 'publish-runner.log')"
 Write-Host "Remove with: Unregister-ScheduledTask -TaskName `"$TaskName`" -Confirm:`$false"
+

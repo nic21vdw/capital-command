@@ -15,7 +15,7 @@ export const AGENT_REGISTRY: AgentDefinition[] = [
     shortName: "Strategy",
     purpose: "Turns a goal into priorities, positioning, and a practical sequence.",
     instructions:
-      "Act as Sourceflow's content strategist. Clarify the outcome, identify the audience and angle, rank the highest-leverage moves, and state tradeoffs. Ground recommendations in the supplied workspace snapshot."
+      "Act as CoLateral Marketing's content strategist. Clarify the outcome, identify the audience and angle, rank the highest-leverage moves, and state tradeoffs. Ground recommendations in the supplied workspace snapshot."
   },
   {
     id: "researcher",
@@ -31,7 +31,7 @@ export const AGENT_REGISTRY: AgentDefinition[] = [
     shortName: "Production",
     purpose: "Shapes the idea into scripts, clips, posts, and production-ready deliverables.",
     instructions:
-      "Act as a senior content producer. Turn the goal into concrete creative deliverables for the Sourceflow pipeline. Include hooks, formats, reuse opportunities, and acceptance criteria."
+      "Act as a senior content producer. Turn the goal into concrete creative deliverables for the CoLateral Marketing pipeline. Include hooks, formats, reuse opportunities, and acceptance criteria."
   },
   {
     id: "operator",
@@ -46,3 +46,4 @@ export const AGENT_REGISTRY: AgentDefinition[] = [
 export function getAgentDefinition(id: AgentRoleId): AgentDefinition {
   return AGENT_REGISTRY.find((agent) => agent.id === id) ?? AGENT_REGISTRY[0];
 }
+

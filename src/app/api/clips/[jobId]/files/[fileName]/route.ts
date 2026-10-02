@@ -1,3 +1,4 @@
+import { parseByteRange } from "@/lib/clipping/byte-range";
 import { createReadStream } from "node:fs";
 import { stat } from "node:fs/promises";
 import path from "node:path";
@@ -87,14 +88,11 @@ export async function GET(
   // browser memory.
   const range = request.headers.get("range");
   if (range && !download) {
-    const match = /bytes=(\d*)-(\d*)/.exec(range);
-    let start = match && match[1] ? Number(match[1]) : 0;
-    let end = match && match[2] ? Number(match[2]) : size - 1;
-    if (Number.isNaN(start) || start < 0) start = 0;
-    if (Number.isNaN(end) || end >= size) end = size - 1;
-    if (start > end) {
+    const parsed = parseByteRange(range, size);
+    if (!parsed) {
       return new NextResponse(null, { status: 416, headers: { "Content-Range": `bytes */${size}` } });
     }
+    const { start, end } = parsed;
     const stream = Readable.toWeb(createReadStream(filePath, { start, end })) as ReadableStream;
     return new NextResponse(stream, {
       status: 206,
@@ -117,3 +115,4 @@ export async function GET(
   const stream = Readable.toWeb(createReadStream(filePath)) as ReadableStream;
   return new NextResponse(stream, { headers });
 }
+

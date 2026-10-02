@@ -45,7 +45,7 @@ if ($code -ne 0) { exit $code }
 # Approved. Make it impossible to miss.
 $marker = Join-Path ([Environment]::GetFolderPath("Desktop")) "TIKTOK-APPROVED.txt"
 @(
-  "TikTok approved the Capital Command app on $stamp.",
+  "TikTok approved the CoLateral Marketing app on $stamp.",
   "",
   "Direct Post is now open. To publish scheduled clips automatically:",
   "  1. Set TIKTOK_AUDITED=true in .env, alongside the production TIKTOK_CLIENT_KEY and TIKTOK_CLIENT_SECRET",
@@ -60,10 +60,11 @@ $marker = Join-Path ([Environment]::GetFolderPath("Desktop")) "TIKTOK-APPROVED.t
 try {
   Add-Type -AssemblyName System.Windows.Forms
   [System.Windows.Forms.MessageBox]::Show(
-    "TikTok approved the Capital Command app. Set TIKTOK_AUDITED=true to start publishing automatically.",
+    "TikTok approved the CoLateral Marketing app. Set TIKTOK_AUDITED=true to start publishing automatically.",
     "TikTok audit cleared") | Out-Null
 } catch {
   # Headless or no desktop session - the marker file and the log still carry it.
 }
 
 exit 0
+

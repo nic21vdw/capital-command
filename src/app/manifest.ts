@@ -3,7 +3,7 @@ import type { MetadataRoute } from "next";
 /**
  * What makes Chrome offer "Install CoLateral Marketing" — the app then gets its own
  * window, its own taskbar and Start Menu entry, and no address bar. The
- * launcher (Capital Command.bat) opens the same thing without installing, so
+ * launcher (CoLateral Marketing.bat) opens the same thing without installing, so
  * either route lands on a windowed app rather than a browser tab.
  */
 export default function manifest(): MetadataRoute.Manifest {
@@ -21,3 +21,4 @@ export default function manifest(): MetadataRoute.Manifest {
     ]
   };
 }
+

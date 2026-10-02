@@ -953,7 +953,7 @@ function AppChrome({ children, frame }: { children: React.ReactNode; frame: bool
   const settingsActive = pathname === "/settings";
   const { data } = useAppData();
   const studioItems = studioItemsFor(data.settings.personalDashboard);
-  // Inside a Capital Command Card the window is a card on a canvas, not a
+  // Inside a CoLateral Marketing Card the window is a card on a canvas, not a
   // browser tab. A 288px sidebar is most of a small card, so the host says how
   // much room it has and the shell sheds chrome to match: `compact` starts the
   // rail collapsed (everything still reachable, it just stops costing half the
@@ -1166,3 +1166,4 @@ function MobileChannelChip() {
     </span>
   );
 }
+

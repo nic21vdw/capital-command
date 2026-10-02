@@ -72,7 +72,7 @@ describe("splitRuns", () => {
     // © ® ™ are Extended_Pictographic but are typed as punctuation; swapping
     // them for a picture mid-sentence is the failure this rule prevents.
     expect(splitRuns("CoLateral© 2026")).toEqual([{ emoji: false, text: "CoLateral© 2026" }]);
-    expect(splitRuns("Capital Command™")).toEqual([{ emoji: false, text: "Capital Command™" }]);
+    expect(splitRuns("CoLateral Marketing™")).toEqual([{ emoji: false, text: "CoLateral Marketing™" }]);
   });
 
   it("takes a pictograph the copy explicitly asked to see as emoji", () => {
@@ -146,3 +146,4 @@ describe("subdivision flags", () => {
     expect(runs[1]).toEqual({ emoji: false, text: " Scotland" });
   });
 });
+

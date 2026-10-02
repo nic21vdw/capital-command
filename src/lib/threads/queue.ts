@@ -17,40 +17,86 @@ import { dataPath } from "@/lib/paths";
 
 const FILE_PATH = dataPath("threads-queue.json");
 
-/** Serializes writes made by this process; the rename makes each one atomic. */
+/** Serializes complete read-modify-writes made by this process. */
 let writeChain: Promise<unknown> = Promise.resolve();
+
+function withQueueWrite<T>(work: () => Promise<T>): Promise<T> {
+  const pending = writeChain.then(work, work);
+  writeChain = pending.catch(() => undefined);
+  return pending;
+}
 
 export async function readQueue(): Promise<ThreadsQueueItem[]> {
   try {
     const raw = await readFile(FILE_PATH, "utf8");
     const parsed = JSON.parse(raw) as unknown;
-    return Array.isArray(parsed) ? (parsed as ThreadsQueueItem[]) : [];
-  } catch {
-    return [];
+    if (!Array.isArray(parsed)) throw new Error("The saved Threads queue must be a list of posts.");
+    return parsed as ThreadsQueueItem[];
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
+    throw new Error("The Threads queue could not be read. Repair the saved queue before changing or posting its items.");
   }
 }
 
-export async function writeQueue(items: ThreadsQueueItem[]): Promise<void> {
+async function saveQueue(items: ThreadsQueueItem[]): Promise<void> {
   const sorted = [...items].sort(
     (a, b) => a.publishAt.localeCompare(b.publishAt) || a.slot - b.slot || a.accountId.localeCompare(b.accountId)
   );
-  const write = async () => {
-    await mkdir(path.dirname(FILE_PATH), { recursive: true });
-    const tmpPath = `${FILE_PATH}.${process.pid}.${Date.now()}.tmp`;
-    await writeFile(tmpPath, JSON.stringify(sorted, null, 2), "utf8");
-    await rename(tmpPath, FILE_PATH);
-  };
-  writeChain = writeChain.then(write, write);
-  await writeChain;
+  await mkdir(path.dirname(FILE_PATH), { recursive: true });
+  const tmpPath = `${FILE_PATH}.${process.pid}.${Date.now()}.tmp`;
+  await writeFile(tmpPath, JSON.stringify(sorted, null, 2), "utf8");
+  await rename(tmpPath, FILE_PATH);
+}
+
+export async function writeQueue(items: ThreadsQueueItem[]): Promise<void> {
+  await withQueueWrite(() => saveQueue(items));
 }
 
 /** Read-modify-write in one go, so callers never hold a stale copy. */
 export async function mutateQueue<T>(
   change: (items: ThreadsQueueItem[]) => { items: ThreadsQueueItem[]; result: T }
 ): Promise<T> {
-  const { items, result } = change(await readQueue());
-  await writeQueue(items);
-  return result;
+  return withQueueWrite(async () => {
+    const { items, result } = change(await readQueue());
+    await saveQueue(items);
+    return result;
+  });
+}
+
+/** Applies only a runner's changes over the latest queue, keeping edits made while it waited on Threads. */
+export function mergeQueueChanges(
+  before: ThreadsQueueItem[],
+  after: ThreadsQueueItem[],
+  current: ThreadsQueueItem[]
+): ThreadsQueueItem[] {
+  const previous = new Map(before.map((item) => [item.id, item]));
+  const updated = new Map(after.map((item) => [item.id, item]));
+  const merged: ThreadsQueueItem[] = [];
+  for (const item of current) {
+    const original = previous.get(item.id);
+    const changed = updated.get(item.id);
+    if (!original) {
+      merged.push(item);
+      continue;
+    }
+    if (!changed) {
+      // Pruning may retire an old row only if nobody rescheduled/edited it.
+      if (JSON.stringify(item) !== JSON.stringify(original)) merged.push(item);
+      continue;
+    }
+    const next = { ...item };
+    for (const key of new Set([...Object.keys(original), ...Object.keys(changed)]) as Set<keyof ThreadsQueueItem>) {
+      if (JSON.stringify(original[key]) !== JSON.stringify(changed[key])) {
+        Object.assign(next, { [key]: changed[key] });
+      }
+    }
+    merged.push(next);
+  }
+  // A row removed by hand is absent from current and stays removed.
+  for (const item of after) {
+    if (!previous.has(item.id) && !current.some((entry) => entry.id === item.id)) merged.push(item);
+  }
+  return merged;
 }
 
 export function queuePath(): string {

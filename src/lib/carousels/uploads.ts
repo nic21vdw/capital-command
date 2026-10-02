@@ -8,7 +8,7 @@ import { dataPath } from "@/lib/paths";
  *
  * The slide editor keeps a dropped image inline as a data URL, which is fine for
  * one logo. A batch of twenty photos is not: base64 of that goes into
- * `data/capital-command.json`, which is read and rewritten on every app-data
+ * the main app-data document, which is read and rewritten on every app-data
  * operation. So a batch lands on disk here and slides reference it by URL —
  * same-origin, so `canvas.toBlob()` still works when the slides export.
  */

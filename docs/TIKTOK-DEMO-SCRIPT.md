@@ -36,7 +36,7 @@ evasion would notice.
 On `nic21vdw.github.io/capital-command`, address bar visible. Scroll to "What
 the TikTok connection does" and hold.
 
-> "Capital Command is self-hosted software for creators. Each creator installs
+> "CoLateral Marketing is self-hosted software for creators. Each creator installs
 > their own copy and connects their own accounts. This page lists exactly what
 > the TikTok connection asks for and what each permission does."
 
@@ -117,3 +117,4 @@ Watch it once for the sidebar, the update banner, and any private screen in a
 reflection or a tab title. Then follow "Clicking through the portal" in
 [TIKTOK-RESUBMISSION.md](TIKTOK-RESUBMISSION.md) — the description, the
 995-character review notes and the three URLs are written out there.
+
