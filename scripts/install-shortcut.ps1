@@ -1,4 +1,4 @@
-# Puts Capital Command on the Desktop and in the Start Menu, with its icon, so
+# Puts CoLateral Marketing on the Desktop and in the Start Menu, with its icon, so
 # it launches like any other installed application.
 #
 #   npm run app:shortcut
@@ -43,7 +43,7 @@ if ($Remove) {
   exit 0
 }
 
-if (-not (Test-Path $script)) { throw "Could not find $script - run this from the capital-command checkout." }
+if (-not (Test-Path $script)) { throw "Could not find $script - run this from the CoLateral Marketing checkout." }
 
 $shell = New-Object -ComObject WScript.Shell
 
@@ -65,3 +65,4 @@ foreach ($target in $targets) {
 Write-Host ""
 Write-Host "CoLateral Marketing is on your Desktop and in the Start Menu." -ForegroundColor Green
 Write-Host "Remove them again with: npm run app:shortcut -- -Remove"
+

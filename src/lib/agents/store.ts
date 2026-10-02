@@ -5,6 +5,19 @@ import type { AgentRun } from "@/lib/agents/types";
 
 const runsPath = dataPath("agents", "runs.json");
 let writeQueue = Promise.resolve();
+const reviewQueues = new Map<string, Promise<void>>();
+
+/** Review one run at a time, including its action's side effect and save. */
+export async function withAgentRunReview<T>(runId: string, review: () => Promise<T>): Promise<T> {
+  const pending = (reviewQueues.get(runId) ?? Promise.resolve()).then(review, review);
+  const settled = pending.then(() => undefined, () => undefined);
+  reviewQueues.set(runId, settled);
+  try {
+    return await pending;
+  } finally {
+    if (reviewQueues.get(runId) === settled) reviewQueues.delete(runId);
+  }
+}
 
 export async function listAgentRuns(): Promise<AgentRun[]> {
   try {

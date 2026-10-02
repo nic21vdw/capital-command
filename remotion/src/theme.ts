@@ -18,7 +18,7 @@ export const THEMES: Record<
   ThemeName,
   { accent: string; accentSoft: string; bg: string; text: string; sub: string }
 > = {
-  // Nic's signature theme — matches Capital Command's "Dracula" preset.
+  // Nic's signature theme — matches CoLateral Marketing's "Dracula" preset.
   // bg #282a36 / surface #343746 / accent #bd93f9 from src/lib/themes.ts,
   // with authentic Dracula foreground (#f8f8f2) and comment (#6272a4).
   dracula: { accent: "#bd93f9", accentSoft: "#6272a4", bg: "#282a36", text: "#f8f8f2", sub: "#6272a4" },
@@ -32,3 +32,4 @@ export const THEMES: Record<
 
 export const FONT_STACK =
   '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif';
+

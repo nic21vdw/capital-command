@@ -65,4 +65,10 @@ describe("PATCH /api/publish/:id", () => {
   it("answers 404 for an unknown post", async () => {
     expect((await patch({ caption: "x" }, "missing")).status).toBe(404);
   });
+
+  it.each([null, false, 42, "caption", []])("rejects a non-object JSON body: %j", async (body) => {
+    expect((await patch(body)).status).toBe(400);
+    expect(add).not.toHaveBeenCalled();
+    expect(updateYoutubeVideoTitle).not.toHaveBeenCalled();
+  });
 });

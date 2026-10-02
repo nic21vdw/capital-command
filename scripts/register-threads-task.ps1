@@ -20,7 +20,7 @@ $root = Split-Path -Parent $PSScriptRoot
 $script = Join-Path $root "scripts\threads-autopilot.ps1"
 
 if (-not (Test-Path $script)) {
-  throw "Could not find $script - run this from the capital-command checkout."
+  throw "Could not find $script - run this from the CoLateral Marketing checkout."
 }
 
 # -Hidden below only hides the task in the Task Scheduler UI; a task that runs
@@ -75,7 +75,7 @@ $register = @{
   Action      = $action
   Trigger     = $trigger
   Settings    = $settings
-  Description = "Generate and post the daily Threads batch (Capital Command)"
+  Description = "Generate and post the daily Threads batch (CoLateral Marketing)"
 }
 if ($principal) { $register.Principal = $principal }
 
@@ -123,3 +123,4 @@ if ($null -ne $standby -and $standby -gt 0) {
 } else {
   Write-Host "Power plan: this PC does not sleep on idle - the overnight batch will post."
 }
+

@@ -1,4 +1,4 @@
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { dataPath, dataRoot } from "@/lib/paths";
 
@@ -24,6 +24,7 @@ import { dataPath, dataRoot } from "@/lib/paths";
 const FILE = "credentials.json";
 
 let cache: Record<string, string> | null = null;
+let writeQueue = Promise.resolve();
 
 /** Forget the cached file, so the next read sees what Settings just wrote. */
 export function forgetCredentials() {
@@ -84,22 +85,35 @@ export async function credentialsPresent(names: readonly string[]): Promise<Reco
  * every connected account down with it.
  */
 export async function saveCredentials(updates: Record<string, string>) {
-  const current = { ...(await load()) };
-  for (const [key, value] of Object.entries(updates)) {
-    const trimmed = (value ?? "").trim();
-    if (trimmed) current[key] = trimmed;
-    else delete current[key];
-  }
+  const requested = { ...updates };
+  const save = async () => {
+    // Queue the read together with the write: two connection forms can save
+    // at once, and neither may replace the other's newly entered credentials.
+    const current = { ...(await load()) };
+    for (const [key, value] of Object.entries(requested)) {
+      const trimmed = (value ?? "").trim();
+      if (trimmed) current[key] = trimmed;
+      else delete current[key];
+    }
 
-  await mkdir(dataRoot(), { recursive: true });
-  const target = dataPath(FILE);
-  const tmp = path.join(dataRoot(), `.${FILE}.tmp`);
-  await writeFile(tmp, JSON.stringify(current, null, 2), "utf8");
-  await rename(tmp, target);
+    await mkdir(dataRoot(), { recursive: true });
+    const target = dataPath(FILE);
+    const tmp = path.join(dataRoot(), `.${FILE}.${process.pid}.${crypto.randomUUID()}.tmp`);
+    try {
+      await writeFile(tmp, JSON.stringify(current, null, 2), "utf8");
+      await rename(tmp, target);
+    } catch (error) {
+      await rm(tmp, { force: true }).catch(() => undefined);
+      throw error;
+    }
 
-  cache = current;
-  for (const [key, value] of Object.entries(updates)) {
-    if (value.trim()) process.env[key] = value.trim();
-    else delete process.env[key];
-  }
+    cache = current;
+    for (const [key, value] of Object.entries(requested)) {
+      if (value.trim()) process.env[key] = value.trim();
+      else delete process.env[key];
+    }
+  };
+  const saved = writeQueue.then(save, save);
+  writeQueue = saved.then(() => undefined, () => undefined);
+  await saved;
 }

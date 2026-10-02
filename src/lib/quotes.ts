@@ -6,7 +6,7 @@ export interface Quote {
 /**
  * A curated set of inspirational quotes geared toward investing, discipline,
  * and the long game. Kept intentionally evergreen so the rotation always feels
- * relevant on the Capital Command dashboard.
+ * relevant on the CoLateral Marketing dashboard.
  */
 export const QUOTES: Quote[] = [
   { text: "The stock market is a device for transferring money from the impatient to the patient.", author: "Warren Buffett" },
@@ -60,3 +60,4 @@ export function getQuoteOfTheDay(date: Date = new Date()): Quote {
   const index = ((dayIndex(date) % QUOTES.length) + QUOTES.length) % QUOTES.length;
   return QUOTES[index];
 }
+

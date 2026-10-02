@@ -1,13 +1,13 @@
-# capital-command — how work reaches the app
+# CoLateral Marketing - how work reaches the app
 
-Capital Command is not a launched product. It is one person's private,
+CoLateral Marketing is not a launched product. It is one person's private,
 local command centre for running their own social media, and the copy in
 `C:\Users\nic21\Repos\capital-command` is that live system: the Windows
 scheduled tasks, the `.env`, the tokens and the whole `data\` folder (publish
 queue, Threads queue, clips, pipeline runs) live in that folder and nowhere
 else. It used to sit under `OneDrive\Documents\GitHub`, which is what the
 OneDrive warnings further down are about; production is no longer in a synced
-folder, and `Launch Capital Command.bat` in OneDrive still points at the old
+folder, and an older launcher in OneDrive still points at the old
 path.
 
 That is why the rules below exist. A change made directly in that folder
@@ -159,10 +159,10 @@ needs Opus.
 
 ## Opening production as a desktop app
 
-`Capital Command.bat` in the production folder starts the server if it isn't
+`CoLateral Marketing.bat` in the production folder starts the server if it isn't
 up and opens the app in a windowed browser — no tabs, no address bar, its own
 taskbar entry. `npm run app:shortcut` puts it on the Desktop and Start Menu
-with the icon; Chrome will also offer "Install Capital Command" because
+with the icon; Chrome will also offer "Install CoLateral Marketing" because
 `src/app/manifest.ts` declares it installable.
 
 Closing the window does NOT stop the server, and must not: the publish runner
@@ -175,7 +175,7 @@ would put a shortcut to port 3000 on your desktop that starts the wrong copy.
 
 ## The app you use is always a production build, never `next dev`
 
-Every launcher — `Capital Command.bat`, the Desktop shortcut,
+Every launcher — `CoLateral Marketing.bat`, the Desktop shortcut,
 `start-capital-command.bat`, `update-app.ps1` — goes through
 `scripts\start-server.ps1`, which runs `next build` and then `next start`.
 Keep it that way. A dev server serving port 3000 looks identical but compiles
@@ -484,3 +484,4 @@ token. `vitest.setup.ts` holds the three seams:
 - **Timezone.** Pinned to `America/Toronto`. The Execution dashboard works in
   local dates, so a fixture written as midnight UTC lands on the previous day
   here. Write fixture timestamps at midday.
+

@@ -97,6 +97,22 @@ describe("nothing is scheduled for the day it is booked", () => {
 });
 
 describe("nothing is queued twice", () => {
+  it("refuses a duplicate when both bookings finish preparation at the same time", async () => {
+    const { enqueueImagePost, publishQueue } = await load();
+    const before = (await publishQueue().list()).length;
+    const results = await Promise.allSettled([
+      enqueueImagePost({ ...COPY, imagePaths: [picture], publishAt: `${dateKeyIn(2)}T12:30` }),
+      enqueueImagePost({ ...COPY, imagePaths: [picture], publishAt: `${dateKeyIn(3)}T12:30` })
+    ]);
+    expect(results.filter((result) => result.status === "fulfilled")).toHaveLength(1);
+    const failed = results.find((result) => result.status === "rejected") as PromiseRejectedResult;
+    expect(failed.reason.message).toMatch(/already scheduled/i);
+    expect(await publishQueue().list()).toHaveLength(before + 1);
+    // A refused booking must not block the next legitimate one.
+    await enqueueImagePost({ ...COPY, imagePaths: [other], publishAt: `${dateKeyIn(4)}T12:30` });
+    expect(await publishQueue().list()).toHaveLength(before + 2);
+  });
+
   it("refuses a second post of a picture the queue already carries", async () => {
     const { enqueueImagePost, publishQueue } = await load();
     const first = await enqueueImagePost({ ...COPY, imagePaths: [picture], publishAt: `${dateKeyIn(2)}T12:30` });

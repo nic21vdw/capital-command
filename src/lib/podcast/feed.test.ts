@@ -3,16 +3,16 @@ import { buildFeedXml, feedBlockers, feedProblems, formatDuration, rfc2822 } fro
 import type { PodcastEpisode, PodcastShow } from "@/lib/podcast/types";
 
 const show: PodcastShow = {
-  title: "Capital Command",
+  title: "CoLateral Marketing",
   description: "Live builds & AI agents",
   author: "Nic",
   email: "nic@example.com",
-  link: "https://youtube.com/@capitalcommand",
+  link: "https://colateralai.com",
   language: "en",
   category: "Technology",
   explicit: false,
   artworkUrl: "https://cdn.example.com/podcast/cover.jpg",
-  copyright: "© 2026 Capital Command"
+  copyright: "© 2026 CoLateral Marketing"
 };
 
 function episode(overrides: Partial<PodcastEpisode> = {}): PodcastEpisode {

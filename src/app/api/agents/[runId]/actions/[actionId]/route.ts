@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { executeAgentAction } from "@/lib/agents/actions";
-import { getAgentRun, saveAgentRun } from "@/lib/agents/store";
+import { getAgentRun, saveAgentRun, withAgentRunReview } from "@/lib/agents/store";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -14,24 +14,28 @@ export async function PATCH(
   if (body?.decision !== "approve" && body?.decision !== "reject") {
     return NextResponse.json({ error: "Choose approve or reject." }, { status: 400 });
   }
-  const run = await getAgentRun(runId);
-  const action = run?.actions.find((item) => item.id === actionId);
-  if (!run || !action) return NextResponse.json({ error: "Unknown agent action." }, { status: 404 });
-  if (action.status !== "proposed") return NextResponse.json({ error: "That action was already reviewed." }, { status: 409 });
+  return withAgentRunReview(runId, async () => {
+    // Fetch inside the review queue: a double click must see the first
+    // decision, and two different approvals must preserve each other's state.
+    const run = await getAgentRun(runId);
+    const action = run?.actions.find((item) => item.id === actionId);
+    if (!run || !action) return NextResponse.json({ error: "Unknown agent action." }, { status: 404 });
+    if (action.status !== "proposed") return NextResponse.json({ error: "That action was already reviewed." }, { status: 409 });
 
-  if (body.decision === "reject") {
-    action.status = "rejected";
-    action.result = "Rejected by the user.";
-  } else {
-    try {
-      action.result = await executeAgentAction(action);
-      action.status = "approved";
-    } catch (error) {
-      action.status = "failed";
-      action.result = error instanceof Error ? error.message : String(error);
+    if (body.decision === "reject") {
+      action.status = "rejected";
+      action.result = "Rejected by the user.";
+    } else {
+      try {
+        action.result = await executeAgentAction(action);
+        action.status = "approved";
+      } catch (error) {
+        action.status = "failed";
+        action.result = error instanceof Error ? error.message : String(error);
+      }
     }
-  }
-  run.updatedAt = new Date().toISOString();
-  await saveAgentRun(run);
-  return NextResponse.json({ run });
+    run.updatedAt = new Date().toISOString();
+    await saveAgentRun(run);
+    return NextResponse.json({ run });
+  });
 }

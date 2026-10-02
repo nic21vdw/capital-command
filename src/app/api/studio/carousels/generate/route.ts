@@ -4,8 +4,8 @@ import { carouselImageExists, carouselImageUrl, MAX_BATCH_IMAGES, parseCarouselI
 import type { TranscriptSegment } from "@/lib/carousels/anchors";
 import { getJob } from "@/lib/clipping/jobs";
 import { clipCarouselSource } from "@/lib/studio/carousel";
-import { getProject } from "@/lib/longform/store";
-import { readAppData, writeAppData } from "@/lib/storage/store";
+import { getProject, withFullTranscript } from "@/lib/longform/store";
+import { mutateAppData, readAppData } from "@/lib/storage/store";
 import { defaultVideoStudio } from "@/lib/storage/schemas";
 import {
   carouselGenerationConfigured,
@@ -98,7 +98,10 @@ export async function POST(request: NextRequest) {
   } else if (longformId) {
     const project = await getProject(longformId);
     if (!project) return NextResponse.json({ error: "Long-form project not found." }, { status: 404 });
-    sourceText = project.transcript.map((segment) => segment.text).join(" ");
+    // Long recordings keep only their opening/hook transcript on the project.
+    // Use the shared source's words so this deck can cover the whole stream.
+    const sourceProject = await withFullTranscript(project);
+    sourceText = sourceProject.transcript.map((segment) => segment.text).join(" ");
     sourceTitle = sourceTitle || project.name;
     sourceType = "longform";
     sourceId = project.id;
@@ -109,7 +112,7 @@ export async function POST(request: NextRequest) {
     // own frames — the same slides the Stream Pipeline writes unattended. The
     // stills are cut AFTER the copy, at the moment each slide is about.
     if (images.length === 0 && project.sourceId) {
-      transcript = project.transcript;
+      transcript = sourceProject.transcript;
       recordingId = project.sourceId;
       imageMode = "backdrop";
     }
@@ -163,8 +166,13 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: reason ?? "Could not write a carousel." }, { status: 502 });
   }
 
-  // Batch 1 lands at the top of the list, its siblings directly under it.
-  await writeAppData({ ...data, videoStudio: { ...studio, carousels: [...carousels, ...studio.carousels] } });
+  // Model calls can take minutes, and several generators can finish together.
+  // Read and append inside the store's write queue so each batch preserves
+  // settings, edits and the decks that the previous writer just saved.
+  await mutateAppData((latestData) => {
+    const latestStudio = latestData.videoStudio ?? defaultVideoStudio;
+    return { ...latestData, videoStudio: { ...latestStudio, carousels: [...carousels, ...latestStudio.carousels] } };
+  });
   return NextResponse.json({
     carousels,
     reason: [reason, imageNote].filter(Boolean).join(" ") || null,

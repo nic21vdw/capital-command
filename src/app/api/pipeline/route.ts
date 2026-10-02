@@ -97,6 +97,9 @@ export async function POST(request: NextRequest) {
   } catch {
     return NextResponse.json({ error: "Expected a JSON body with a `url` or `sourceId` field." }, { status: 400 });
   }
+  if (!body || typeof body !== "object" || Array.isArray(body)) {
+    return NextResponse.json({ error: "Expected a JSON body with a `url` or `sourceId` field." }, { status: 400 });
+  }
 
   const url = typeof body.url === "string" ? body.url.trim() : "";
   const sourceId = typeof body.sourceId === "string" ? body.sourceId.trim() : "";

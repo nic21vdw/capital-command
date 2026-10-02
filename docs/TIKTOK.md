@@ -18,7 +18,7 @@ until TikTok approves the app — which it has already declined once.
 
 ## The review
 
-App `Capital Command` (`7667654582432024593`), submitted 2026-07-28,
+TikTok app `7667654582432024593`, submitted 2026-07-28,
 rejected by TikTok Admin on 2026-07-29. The reviewer's note:
 
 > App will not be approved for personal or company internal use. TikTok for

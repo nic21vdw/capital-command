@@ -82,6 +82,9 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Podcast controls must be changed from this app." }, { status: 403 });
   }
   const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;
+  if (!body || typeof body !== "object" || Array.isArray(body)) {
+    return NextResponse.json({ error: "Expected a JSON object with an `action` field." }, { status: 400 });
+  }
   const action = String(body.action ?? "");
 
   try {

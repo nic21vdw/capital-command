@@ -5,7 +5,7 @@ import { getAgentDefinition } from "@/lib/agents/registry";
 import { saveAgentRun } from "@/lib/agents/store";
 import type { AgentAction, AgentProviderId, AgentRoleId, AgentRun, AgentStep, WorkerResult } from "@/lib/agents/types";
 
-const SAFETY_PROMPT = `You are an agent working inside Sourceflow, Nic's private content operations system. You may inspect the supplied snapshot and prepare useful work. You must never claim that you published, scheduled, deleted, or changed anything. State-changing work must be proposed for human approval. Do not expose secrets or ask for tokens. Do not invent workspace facts.`;
+const SAFETY_PROMPT = `You are an agent working inside CoLateral Marketing, Nic's private content operations system. You may inspect the supplied snapshot and prepare useful work. You must never claim that you published, scheduled, deleted, or changed anything. State-changing work must be proposed for human approval. Do not expose secrets or ask for tokens. Do not invent workspace facts.`;
 
 export function newAgentRunId(): string {
   return `agent-run-${crypto.randomUUID()}`;
@@ -53,7 +53,7 @@ export async function runAgentTeam(input: {
         return callWorker(
           input.provider,
           `${SAFETY_PROMPT}\n\n${definition.instructions}`,
-          `User goal:\n${goal}\n\nCurrent Sourceflow snapshot:\n${context}`
+          `User goal:\n${goal}\n\nCurrent CoLateral Marketing snapshot:\n${context}`
         );
       })
     );
@@ -97,7 +97,7 @@ export async function runAgentTeam(input: {
     if (results.length > 1) {
       const synthesis = await callAgentModel(
         input.provider,
-        `${SAFETY_PROMPT}\n\nYou are the Sourceflow orchestrator. Reconcile specialist work into one direct answer. Remove duplication, surface disagreements, preserve concrete deliverables, and finish with a short recommended sequence. Do not add actions that the specialists did not propose.`,
+        `${SAFETY_PROMPT}\n\nYou are the CoLateral Marketing orchestrator. Reconcile specialist work into one direct answer. Remove duplication, surface disagreements, preserve concrete deliverables, and finish with a short recommended sequence. Do not add actions that the specialists did not propose.`,
         `User goal:\n${goal}\n\nSpecialist work:\n${results.map((item) => `## ${getAgentDefinition(item.id).name}\n${item.result.deliverable}`).join("\n\n")}`
       );
       answer = synthesis.text;
@@ -130,3 +130,4 @@ export async function runAgentTeam(input: {
     return run;
   }
 }
+

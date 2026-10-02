@@ -191,6 +191,27 @@ async function assertSchedulable(input: {
   if (duplicate) throw new DuplicatePostError(duplicateQueueMessage(duplicate), duplicate.item.id);
 }
 
+// Rendering, metadata and hosting can finish concurrently. The final check
+// and insertion share one short critical section so neither booking can miss
+// the other and queue the same file (or exceed the daily Shorts limit).
+let bookings = Promise.resolve();
+
+async function saveBooking(options: Parameters<typeof assertSchedulable>[0] & {
+  item: QueueItem;
+  writer: QueueWriter;
+  shortsPerDay?: number;
+}): Promise<void> {
+  const pending = bookings.then(async () => {
+    await assertSchedulable(options);
+    if (options.shortsPerDay !== undefined) {
+      assertShortsRoom(await options.queue.list(), options.publishAt, options.timeZone, options.shortsPerDay);
+    }
+    await options.queue.add(options.item, options.writer);
+  });
+  bookings = pending.catch(() => undefined);
+  await pending;
+}
+
 export async function enqueue(options: EnqueueOptions): Promise<QueueItem> {
   const config = publisherConfig();
   if (!config.enabled) {
@@ -302,7 +323,12 @@ export async function enqueue(options: EnqueueOptions): Promise<QueueItem> {
     item.mediaKey = hosted.key;
   }
 
-  await publishQueue(config).add(item, options.by ?? "enqueue");
+  await saveBooking({
+    queue: publishQueue(config), publishAt: publishAtDate, timeZone: config.timezone,
+    candidate: { paths: [prepared.path, absolute], jobId: options.jobId, title: options.title },
+    allowSameDay: options.allowSameDay, allowDuplicate: options.allowDuplicate,
+    item, writer: options.by ?? "enqueue", ...(format === "short" ? { shortsPerDay: shortsLimit(config) } : {})
+  });
   return item;
 }
 
@@ -445,7 +471,12 @@ export async function enqueueImagePost(options: EnqueueImageOptions): Promise<Qu
     item.mediaKey = item.imageKeys[0];
   }
 
-  await publishQueue(config).add(item, options.by ?? "enqueue-image");
+  await saveBooking({
+    queue: publishQueue(config), publishAt: publishAtDate, timeZone: config.timezone,
+    candidate: { paths: absolutePaths, jobId: options.jobId, title: options.title },
+    allowSameDay: options.allowSameDay, allowDuplicate: options.allowDuplicate,
+    item, writer: options.by ?? "enqueue-image"
+  });
   return item;
 }
 

@@ -20,7 +20,7 @@ $root = Split-Path -Parent $PSScriptRoot
 $script = Join-Path $root "scripts\tiktok-audit-watch.ps1"
 
 if (-not (Test-Path $script)) {
-  throw "Could not find $script - run this from the capital-command checkout."
+  throw "Could not find $script - run this from the CoLateral Marketing checkout."
 }
 
 # -Hidden below only hides the task in the Task Scheduler UI; a task that runs
@@ -52,9 +52,10 @@ if (Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue) {
 }
 
 Register-ScheduledTask -TaskName $TaskName -Action $action -Trigger $trigger -Settings $settings `
-  -Description "Check whether the TikTok app audit has cleared (Capital Command)" | Out-Null
+  -Description "Check whether the TikTok app audit has cleared (CoLateral Marketing)" | Out-Null
 
 Write-Host "Registered '$TaskName' - every $IntervalHours hours."
 Write-Host "Log: $(Join-Path $root 'tiktok-audit-watch.log')"
 Write-Host "On approval it writes TIKTOK-APPROVED.txt to your Desktop."
 Write-Host "Remove with: Unregister-ScheduledTask -TaskName `"$TaskName`" -Confirm:`$false"
+

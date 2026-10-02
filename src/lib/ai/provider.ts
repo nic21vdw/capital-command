@@ -1,5 +1,5 @@
 /**
- * The single AI gateway for Capital Command. Every feature that talks to a
+ * The single AI gateway for CoLateral Marketing. Every feature that talks to a
  * language model — clip moment selection, viral titles, upload metadata, idea
  * research, scripts, carousels, X posts, competitor insights, longform
  * metadata and the calendar planner — routes through `runAi` here instead of
@@ -416,3 +416,4 @@ export async function runAi(req: AiRequest): Promise<AiResult | null> {
   }
   return null;
 }
+

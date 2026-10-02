@@ -46,6 +46,65 @@ describe("reading a data file that cannot be parsed", () => {
   });
 });
 
+describe("atomic app-data mutations", () => {
+  it("initializes a missing document without enqueueing an initialization behind itself", async () => {
+    const { mutateAppData, readAppData } = await import("@/lib/storage/store");
+    const result = await mutateAppData((current) => ({ ...current, executionSeededAt: "first mutation" }));
+    expect(result.executionSeededAt).toBe("first mutation");
+    expect(result.contentItems).toEqual([]);
+    expect((await readAppData()).executionSeededAt).toBe("first mutation");
+    await waitForSnapshotOf("first mutation");
+  });
+
+  it("does not let a simultaneous first-run read erase the first mutation", async () => {
+    const { mutateAppData, readAppData } = await import("@/lib/storage/store");
+    await Promise.all([
+      readAppData(),
+      mutateAppData((current) => ({ ...current, executionSeededAt: "created during initialization" })),
+    ]);
+    expect((await readAppData()).executionSeededAt).toBe("created during initialization");
+    await waitForSnapshotOf("created during initialization");
+  });
+
+  it("serializes concurrent read-modify-write operations with preceding full saves", async () => {
+    const { readAppData, writeAppData, mutateAppData } = await import("@/lib/storage/store");
+    const initial = await readAppData();
+    const save = writeAppData({ ...initial, settings: { ...initial.settings, currency: "USD" }, executionSeededAt: "0" });
+    const mutations = Array.from({ length: 8 }, () => mutateAppData((current) => ({
+      ...current, executionSeededAt: String(Number(current.executionSeededAt) + 1),
+    })));
+    await Promise.all([save, ...mutations]);
+    const stored = await readAppData();
+    expect(stored.executionSeededAt).toBe("8");
+    expect(stored.settings.currency).toBe("USD");
+    await waitForSnapshotOf("8");
+  });
+
+  it("does not overwrite an unreadable document or call its updater", async () => {
+    const { readAppData, mutateAppData, AppDataUnreadableError } = await import("@/lib/storage/store");
+    await readAppData();
+    const broken = "{damaged document";
+    writeFileSync(dataFile(), broken, "utf8");
+    const update = vi.fn((current) => current);
+    await expect(mutateAppData(update)).rejects.toBeInstanceOf(AppDataUnreadableError);
+    expect(update).not.toHaveBeenCalled();
+    expect(readFileSync(dataFile(), "utf8")).toBe(broken);
+    expect(readdirSync(path.dirname(dataFile())).filter((name) => name.includes("unreadable"))).toHaveLength(1);
+  });
+
+  it("leaves the prior document intact after a rejected mutation and allows the next save", async () => {
+    const { readAppData, writeAppData, mutateAppData } = await import("@/lib/storage/store");
+    const initial = await readAppData();
+    await writeAppData({ ...initial, executionSeededAt: "before" });
+    const failed = mutateAppData(() => { throw new Error("Rejected edit"); });
+    const next = mutateAppData((current) => ({ ...current, executionSeededAt: `${current.executionSeededAt}-after` }));
+    await expect(failed).rejects.toThrow("Rejected edit");
+    await next;
+    expect((await readAppData()).executionSeededAt).toBe("before-after");
+    await waitForSnapshotOf("before-after");
+  });
+});
+
 describe("how many copies a corrupt file gets", () => {
   it("keeps one, however many reads fail", async () => {
     const { readAppData } = await import("@/lib/storage/store");

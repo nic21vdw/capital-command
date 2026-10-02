@@ -2,7 +2,7 @@
 
 What each release brought into the running app. Newest first.
 
-A "release" is one run of `update-capital-command.bat` (or the app's own
+A "release" is one run of `Update CoLateral Marketing.bat` (or the app's own
 **Install and restart**): it brings the running app up to what has landed on
 `main`, rebuilds, and restarts the server. Until you run it, nothing here has
 reached the app you use — that is the whole point of the split.
@@ -13,6 +13,14 @@ does that itself, so this file can never claim something is waiting that has
 already shipped.
 
 ## Unreleased
+
+- Production builds use the compatible Next.js compiler so native media tools do not block installation.
+- Video and music previews seek correctly, carousel generation uses the whole stream and preserves edits made while it writes, and invalid requests show helpful errors.
+- Saving connected accounts together now retains every connection, and repeated agent approvals cannot create duplicate work.
+- Scheduling and Threads autopilot preserve simultaneous edits, avoid duplicate bookings and uploads, and use the configured timezone consistently.
+- Stripe billing separates currencies and captured sales, includes every result page, and estimates recurring revenue from subscription prices instead of one-time purchases. Unavailable history is labelled clearly, and failed billing loads offer Retry.
+
+- CoLateral Marketing now uses the same name in canvas messages, startup and desktop launchers, package metadata and setup documentation. Existing saved data, canvas cards, connection tokens, shortcuts and scheduled-task identifiers remain compatible.
 
 - **Marketing fits the CoLateral array more reliably.** Compact cards use one
   route menu, keep assistant controls clear of the content, and follow the
@@ -85,9 +93,9 @@ already shipped.
   and pop-ups keep their fill so they stay readable.
 
 - **Agents on the CoLateral canvas can now work this app, not just look at it.**
-  A Capital Command Card used to be a window: the canvas could frame the app and
+  A CoLateral Marketing Card used to be a window: the canvas could frame the app and
   nothing more. It can now be asked to open a page, read what is on it, fill a
-  field in and press a button — so "put Capital Command on the uploading centre
+  field in and press a button — so "put CoLateral Marketing on the uploading centre
   and tell me what is queued" is one request rather than a description of clicks
   for you to do. Pages say for themselves what they offer, so an agent reports
   what the app actually says rather than guessing; anything that publishes or
@@ -126,13 +134,13 @@ already shipped.
 - **Shorts favour CoLateral on screen.** When clips are picked from a stream, moments where CoLateral is visibly working (an agent finishing, a card filling, a tool being built) now rank well above talk alone, and those clips start within three seconds of that moment. Each clip's score line in the Clip Generator shows its new "CoLateral" rating.
 - **No more than two Shorts a day.** New bookings, from the pipeline, the Uploading Center or an auto-queued export, never put more than two short-form videos on one day (Toronto time). Long-form uploads and picture posts do not count. A day that is already full says so instead of booking a third. The limit is `PUBLISH_SHORTS_PER_DAY` in `.env` (default 2). `npm run publish:thin` shows, day by day, how the queue already booked would look at two a day; `-- --apply` moves the extra ones (lowest clip score first, otherwise the latest) into `data/publish-queue.parked.json`, and `-- --unpark` puts them back. It never touches a post a platform already has, or anything whose time has passed, and it refuses to write unless the running app is on a build that reloads the queue.
 - **Every post now links to its own colateralai.com path.** When a post goes out, a bare colateralai.com link in its caption becomes colateralai.com/yt on YouTube, /ig on Instagram, /tt on TikTok, /fb on Facebook and /th on Threads, so the site can tell which platform sent a visitor. Links that already point somewhere (/download, /pricing) are left alone. Every YouTube description, Shorts and long-form, now opens with "Try CoLateral: https://colateralai.com/yt". Nothing in the queue is rewritten; this happens as each post is sent.
-- **Capital Command is now CoLateral Marketing.** The app wears the CoLateral look: Beam Buddy and the CoLateral wordmark with "Marketing" after it at the top of the sidebar, a Beam Buddy app icon and favicon, Beam Buddy on the update screen, and the new name in the window title, the install prompt, banners and messages. The public site (terms, privacy and the TikTok page) is restyled to match colateralai.com. Run `npm run app:shortcut` once after this release to swap the old Desktop and Start Menu shortcuts for CoLateral Marketing ones.
+- **The app is now CoLateral Marketing.** The app wears the CoLateral look: Beam Buddy and the CoLateral wordmark with "Marketing" after it at the top of the sidebar, a Beam Buddy app icon and favicon, Beam Buddy on the update screen, and the new name in the window title, the install prompt, banners and messages. The public site (terms, privacy and the TikTok page) is restyled to match colateralai.com. Run `npm run app:shortcut` once after this release to swap the old Desktop and Start Menu shortcuts for CoLateral Marketing ones.
 
 ## 2026-09-26
 
-- **Text stays readable at any CoLateral card transparency.** The canvas now shows through Capital Command only up to a limit set for each theme (30% on the dark theme, 45% on light), however high the card setting goes, and grey labels sitting straight on the page are drawn brighter while the card is see-through. They pass the WCAG AA contrast minimum over white and bright wallpaper. Text inside panels keeps its usual colour.
+- **Text stays readable at any CoLateral card transparency.** The canvas now shows through CoLateral Marketing only up to a limit set for each theme (30% on the dark theme, 45% on light), however high the card setting goes, and grey labels sitting straight on the page are drawn brighter while the card is see-through. They pass the WCAG AA contrast minimum over white and bright wallpaper. Text inside panels keeps its usual colour.
 
-- **The CoLateral canvas shows through Capital Command.** When CoLateral's agent card glass is set to see-through, the app's page background inside the card now lets the canvas wallpaper through by up to that amount, while panels, inputs and text keep their own fills. Solid (0), the Classic surface, flat glass and reduced transparency all stay opaque, and opening the app on its own is unchanged.
+- **The CoLateral canvas shows through CoLateral Marketing.** When CoLateral's agent card glass is set to see-through, the app's page background inside the card now lets the canvas wallpaper through by up to that amount, while panels, inputs and text keep their own fills. Solid (0), the Classic surface, flat glass and reduced transparency all stay opaque, and opening the app on its own is unchanged.
 
 ## 2026-09-26
 
@@ -144,7 +152,7 @@ already shipped.
 
 ## 2026-09-25
 
-- **The update screen shows how far along it is.** While Capital Command updates, a hopping CC badge and a four-step track (Check, Install, Rebuild, Reopen) show which part is running, next to the real step and the time elapsed. It still reopens by itself when the app restarts, and it keeps still if your system asks for reduced motion.
+- **The update screen shows how far along it is.** While CoLateral Marketing updates, a hopping CC badge and a four-step track (Check, Install, Rebuild, Reopen) show which part is running, next to the real step and the time elapsed. It still reopens by itself when the app restarts, and it keeps still if your system asks for reduced motion.
 
 ## 2026-09-24
 
@@ -163,7 +171,7 @@ already shipped.
 
 ## 2026-09-12
 
-- **Capital Command wears whatever theme you picked in CoLateral.** It carried
+- **CoLateral Marketing wears whatever theme you picked in CoLateral.** It carried
   two of CoLateral's palettes and six of its own; it now carries all seventeen
   of CoLateral's, under CoLateral's own names, so nothing is translated on the
   way across. Framed in the Command Centre the card hands the theme over on
@@ -216,7 +224,7 @@ already shipped.
 
 ## 2026-09-08
 
-- **Capital Command reads as part of CoLateral, not as a second app inside
+- **CoLateral Marketing reads as part of CoLateral, not as a second app inside
   it.** The palette already matched; the type did not — every screen was set
   in Segoe UI one panel away from CoLateral's Inter. Inter now ships with the
   app, so it looks the same framed in the Command Centre as it does on its
@@ -314,7 +322,7 @@ already shipped.
   and four chips in the podcast and uploading screens that were painting no
   background at all got the background back.
 
-- **The app calls itself Capital Command.** The browser tab, the sidebar before
+- **The app calls itself CoLateral Marketing.** The browser tab, the sidebar before
   you save a display name, the installed-app icon and five page titles all said
   "Nic Vandewetering", which is a person and not this product. They say Capital
   Command now, and the icon is CoLateral's blue rather than a purple NV.
@@ -626,7 +634,7 @@ already shipped.
   appears where it is true: YouTube posts say **Uploading** while the file goes
   up ahead of the slot, and Instagram, TikTok and Facebook — none of which
   accept a future post through their API — say **Posts at slot**, with a
-  hover explaining that Capital Command posts it itself at that time.
+  hover explaining that CoLateral Marketing posts it itself at that time.
 - **The six posting times are now evenly spaced, and the queue you already have
   fills them.** The six-a-day grid had a four-hour hole in the afternoon and two
   posts ninety minutes apart on a Saturday morning; every time is now 150
@@ -811,7 +819,7 @@ already shipped.
 
 ## 2026-08-12
 
-- **Double-clicking `update-capital-command.bat` works again.** Every release
+- **Double-clicking `Update CoLateral Marketing.bat` works again.** Every release
   run with no arguments died on `unknown revision 'g'` before it changed a
   thing: releasing `main` into `main` left the script with one branch name
   where it expected a list, and PowerShell handed git that name one letter at
@@ -1277,7 +1285,7 @@ already shipped.
   writes the code now uses both, and takes whichever one is genuinely further
   ahead.
 - **The window title carries what needs you.** When a run breaks, the taskbar
-  window reads "(1) Capital Command" — so a stage that failed while the app sat
+  window reads "(1) CoLateral Marketing" — so a stage that failed while the app sat
   behind something else is visible without opening it.
 
 - **The text posts a stream produced can be scheduled from the run.** They used
@@ -1420,7 +1428,7 @@ already shipped.
   it is on — merging, installing, building, waiting for the app — plus the
   reason in plain words if it stops.
 
-- **Double-clicking `update-capital-command.bat` releases what is actually
+- **Double-clicking `Update CoLateral Marketing.bat` releases what is actually
   waiting.** It was still releasing the old `dev` branch, which has been behind
   for six releases and no longer merges cleanly, so a double-click ended in
   "does not merge cleanly" and changed nothing. It releases `main` — where work
@@ -1493,7 +1501,7 @@ already shipped.
   check, so they can never disagree on screen or fetch twice.
 
 
-- **You can talk to Capital Command for nothing.** A "Talk to it" card on
+- **You can talk to CoLateral Marketing for nothing.** A "Talk to it" card on
   `/agents`: click the mic, say "check my channel for anything new", and it
   answers out loud — running on the free keyless model the app already used, so
   no vendor account, no key and no bill. Arm it and it can take a stream into
@@ -1509,7 +1517,7 @@ already shipped.
   only the fallback now. OpenAI has no equivalent — ChatGPT Plus does not cover
   its realtime API — so Grok is the default.
 
-- **You can talk to Capital Command.** `/agents` opens a live speech-to-speech
+- **You can talk to CoLateral Marketing.** `/agents` opens a live speech-to-speech
   session on OpenAI Realtime or Grok Voice. Say "check my channel" and it reads
   the channel and tells you what is new; say "take it in" and it puts every new
   stream through the whole Stream Pipeline while you listen — long-form edit,
@@ -1601,7 +1609,7 @@ The evening that started with "none of the buttons are clicking".
   relocated out of OneDrive for checkouts actually inside OneDrive, and the
   dependency link it needs is per-checkout instead of shared by all fifteen
   worktrees on the machine.
-- **Capital Command opens as a desktop app.** `Capital Command.bat`, a Desktop
+- **CoLateral Marketing opens as a desktop app.** `CoLateral Marketing.bat`, a Desktop
   and Start Menu shortcut (`npm run app:shortcut`), and a web manifest so
   Chrome offers to install it properly. Closing the window leaves the server
   running, because the publish runner and Threads autopilot post through it.
@@ -1615,3 +1623,4 @@ The evening that started with "none of the buttons are clicking".
 - **`npm test` runs the whole suite.** It used to compile one file and print
   "portfolio calculation tests passed", which is how a green `npm test` sat
   next to a dozen failures.
+

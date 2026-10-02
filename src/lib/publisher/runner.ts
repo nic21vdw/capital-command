@@ -427,7 +427,7 @@ async function runDueInternal(now: Date, options: RunDueOptions): Promise<RunRep
         // second copy of the same video. Resume, never re-create.
         if (state && (state.status === "scheduled" || state.postId)) {
           if (adapter.finalize) {
-            await queue.claim(item, platform, now);
+            if (!(await queue.claim(item, platform, now))) continue;
             result = await adapter.finalize(item, state);
           } else if (state.status === "scheduled") {
             continue;
@@ -471,7 +471,7 @@ async function runDueInternal(now: Date, options: RunDueOptions): Promise<RunRep
             }
             facebookPreschedulesLeft -= 1;
           }
-          await queue.claim(item, platform, now);
+          if (!(await queue.claim(item, platform, now))) continue;
           // Resolve media lazily and once per item, not per platform.
           if (isImagePost(item)) {
             images ??= await resolveImageMedia(item, config, queue);

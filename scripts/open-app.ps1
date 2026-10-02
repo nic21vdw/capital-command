@@ -1,8 +1,8 @@
-# Opens Capital Command as a desktop app: starts the server if it isn't already
+# Opens CoLateral Marketing as a desktop app: starts the server if it isn't already
 # up, waits for it to answer, then launches a windowed browser at it - no tabs,
 # no address bar, its own taskbar entry.
 #
-# Double-click "Capital Command.bat" rather than running this directly, and
+# Double-click "CoLateral Marketing.bat" rather than running this directly, and
 # `npm run app:shortcut` puts it on the Desktop and Start Menu with an icon.
 #
 # The server keeps running after the window is closed, which is deliberate: the
@@ -33,9 +33,9 @@ function Test-App {
 }
 
 if (Test-App) {
-  Write-Host "Capital Command is already running."
+  Write-Host "CoLateral Marketing is already running."
 } else {
-  Write-Host "Starting Capital Command..."
+  Write-Host "Starting CoLateral Marketing..."
   # start-server.ps1 builds in the foreground and only returns 0 once the port
   # answers, so its exit code is the answer. It has already explained any
   # failure, on screen and in a dialog - opening a window at a dead port on top
@@ -59,7 +59,7 @@ if (Test-App) {
 
 if ($NoWindow) { exit 0 }
 
-# An installed copy (Chrome's "Install Capital Command") wins if there is one,
+# An installed copy (Chrome's "Install CoLateral Marketing") wins if there is one,
 # because Windows already gave it a real app identity. Otherwise open a plain
 # app window, which looks and behaves the same without installing anything.
 $browsers = @(
@@ -78,3 +78,4 @@ if ($browser) {
   Write-Host "No Chrome or Edge found - opening in your default browser instead."
   Start-Process $url
 }
+

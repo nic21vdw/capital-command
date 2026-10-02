@@ -29,12 +29,12 @@ vi.mock("@/lib/threads/queue", async (importOriginal) => {
 
 /** Blocks pack generation on demand, so a second plan can start mid-flight. */
 let holdPack: Promise<void> | null = null;
-const ensureDailyPack = vi.fn(async () => {
+const ensureDailyPack = vi.fn(async (_options?: unknown) => {
   if (holdPack) await holdPack;
   return { pack: pack(), cached: false, reason: null };
 });
 
-vi.mock("@/lib/x-posts/daily", () => ({ ensureDailyPack: () => ensureDailyPack() }));
+vi.mock("@/lib/x-posts/daily", () => ({ ensureDailyPack: (options: unknown) => ensureDailyPack(options) }));
 
 function todayKey(): string {
   const now = new Date();
@@ -90,6 +90,20 @@ function nowish(): Date {
 }
 
 describe("planTodaysBatch", () => {
+  it("plans the configured timezone's day when it differs from the machine's day", async () => {
+    const { planTodaysBatch } = await import("@/lib/threads/daily");
+    const { threadsConfig } = await import("@/lib/threads/config");
+    ensureDailyPack.mockResolvedValueOnce({ pack: { ...pack(), date: "2026-10-03" }, cached: false, reason: null });
+    const result = await planTodaysBatch({
+      now: new Date("2026-10-02T20:00:00Z"),
+      config: { ...threadsConfig(), timezone: "Asia/Tokyo" },
+      log: () => {}
+    });
+    expect(result.date).toBe("2026-10-03");
+    expect(ensureDailyPack).toHaveBeenCalledWith(expect.objectContaining({ date: "2026-10-03" }));
+    expect(store.items[0].batchDate).toBe("2026-10-03");
+  });
+
   it("plans the day once", async () => {
     const { planTodaysBatch } = await import("@/lib/threads/daily");
 

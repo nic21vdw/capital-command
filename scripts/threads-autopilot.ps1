@@ -6,7 +6,7 @@
 # idempotent, so running this every few minutes gives you one new batch a day
 # and posts that go out on time, with nothing to click.
 #
-# The queue lives inside the app, so Capital Command has to be up. This script
+# The queue lives inside the app, so CoLateral Marketing has to be up. This script
 # starts it if nothing is listening, and leaves it running afterwards.
 #
 # Register it to run every 5 minutes, all day:
@@ -99,3 +99,4 @@ if ($DryRun) { $cliArgs += "--dry-run" }
   Add-Content -Path $log -Value $line -Encoding utf8
 }
 exit $LASTEXITCODE
+

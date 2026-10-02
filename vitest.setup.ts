@@ -41,6 +41,8 @@ const APP_PREFIXES = [
   "PUBLISH_",
   "R2_",
   "S3_",
+  "SPOTIFY_",
+  "STRIPE_",
   "THREADS_",
   "TIKTOK_",
   "XAI_",

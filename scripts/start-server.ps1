@@ -1,4 +1,4 @@
-# Builds Capital Command and starts the production server.
+# Builds CoLateral Marketing and starts the production server.
 #
 # The build runs in the foreground so a failure is caught here, with its output
 # in build.log, rather than disappearing into a detached console. That is not
@@ -53,7 +53,7 @@ function Show-Failure($summary, $logPath) {
     $tail = if (Test-Path $logPath) { (Get-Content $logPath -Tail 12) -join "`n" } else { "" }
     [System.Windows.Forms.MessageBox]::Show(
       "$summary`n`n$tail`n`nFull log: $logPath",
-      "Capital Command could not start",
+      "CoLateral Marketing could not start",
       [System.Windows.Forms.MessageBoxButtons]::OK,
       [System.Windows.Forms.MessageBoxIcon]::Error
     ) | Out-Null
@@ -62,7 +62,7 @@ function Show-Failure($summary, $logPath) {
 }
 
 if (Test-Port) {
-  Write-Output "Capital Command is already listening on port $port."
+  Write-Output "CoLateral Marketing is already listening on port $port."
   exit 0
 }
 
@@ -143,7 +143,7 @@ if ($skipBuild) {
   } finally { Pop-Location }
   $buildExit = 0
 } else {
-  Write-Host "Building Capital Command (a few minutes)..."
+  Write-Host "Building CoLateral Marketing (a few minutes)..."
   Set-BuildLock
   $buildExit = Invoke-Build $false
 }
@@ -206,3 +206,4 @@ if ($LASTEXITCODE -ne 0) {
   exit 1
 }
 Write-Output "Started server with PID $($process.Id)"
+

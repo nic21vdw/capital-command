@@ -1,7 +1,7 @@
 /*
- * Every page of Capital Command, as the canvas card lists them.
+ * Every page of CoLateral Marketing, as the canvas card lists them.
  * ---------------------------------------------------------------------------
- * The Capital Command Card in CoLateral draws a route rail down its left edge,
+ * The CoLateral Marketing Card in CoLateral draws a route rail down its left edge,
  * and it needs the same names and the same grouping the sidebar uses or the
  * card becomes a second, worse menu. This is that list, in the sidebar's own
  * order: the four pipeline stages, then the studio tools that feed them.
@@ -82,3 +82,4 @@ export function isKnownRoute(path: string): boolean {
 export function allRoutes(): RouteEntry[] {
   return [...CAPITAL_COMMAND_ROUTES, ...CAPITAL_COMMAND_SECONDARY_ROUTES];
 }
+

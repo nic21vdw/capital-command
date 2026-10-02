@@ -61,6 +61,26 @@ function setup() {
 }
 
 describe("runDue — one schedule for every platform", () => {
+  it("does not re-upload when Publish now overlaps an active scheduled upload", async () => {
+    const { queue, config, log } = setup();
+    const item = testItem({ clipPath, platformIds: ["youtube"] });
+    await queue.add(item);
+    let release!: () => void;
+    const blocked = new Promise<void>((resolve) => { release = resolve; });
+    const adapter = fakeAdapter("youtube", async () => {
+      await blocked;
+      return { status: "scheduled", postId: "only-upload" };
+    });
+    const first = runDue(DUE, { queue, config, log, adapters: { youtube: adapter } });
+    await vi.waitFor(() => expect(adapter.calls).toHaveLength(1));
+    const manual = await runDue(DUE, { queue, config, log, itemId: item.id, force: true, adapters: { youtube: adapter } });
+    expect(manual.outcomes).toEqual([]);
+    expect(adapter.calls).toHaveLength(1);
+    release();
+    await first;
+    expect((await queue.get(item.id))!.platforms.youtube?.postId).toBe("only-upload");
+  });
+
   // The point of the mirror pass: a clip only ever scheduled on YouTube is
   // already on Instagram and Facebook before its slot arrives, without anyone
   // keeping a second calendar.

@@ -121,6 +121,17 @@ afterEach(() => {
 });
 
 describe("planTomorrow", () => {
+  it("still writes tomorrow's daily batch when a pipeline post is already there", async () => {
+    const { planTomorrow, nextDateKey } = await import("@/lib/threads/daily");
+    const { threadsConfig } = await import("@/lib/threads/config");
+    const now = localAt(21, 30);
+    const tomorrow = nextDateKey(now, threadsConfig());
+    store.items = [{ ...dayWith(tomorrow, [])[0], id: "pipeline-post", origin: "pipeline" }];
+    const result = await planTomorrow({ now, log: () => {} });
+    expect(result?.created).toBe(POSTS_PER_DAY);
+    expect(store.items.some((item) => item.id === "pipeline-post")).toBe(true);
+  });
+
   it("writes the whole of tomorrow once the evening comes round", async () => {
     const { planTomorrow, nextDateKey } = await import("@/lib/threads/daily");
     const { threadsConfig } = await import("@/lib/threads/config");

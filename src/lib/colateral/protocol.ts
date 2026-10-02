@@ -1,7 +1,7 @@
 /*
  * The CoLateral canvas bridge — the wire format.
  * ---------------------------------------------------------------------------
- * Capital Command runs inside a Capital Command Card on the CoLateral project
+ * CoLateral Marketing runs inside a CoLateral Marketing Card on the CoLateral project
  * canvas, in a cross-origin iframe. The card and the app therefore share no
  * storage, no globals and no router: everything one says to the other goes
  * through `postMessage`, and this file is the only description of what those
@@ -16,7 +16,7 @@
  *
  * The verbs are CoLateral's own tool-card vocabulary (read, set fields, list
  * controls, click a control), and that is the point. An agent on the canvas
- * already knows how to drive a Tool Card; giving Capital Command the same four
+ * already knows how to drive a Tool Card; giving CoLateral Marketing the same four
  * verbs means the agent drives this app with the skills it already has instead
  * of a second, app-specific dialect.
  */
@@ -95,7 +95,7 @@ export interface SurfaceReading {
 }
 
 /**
- * What one page of Capital Command looks like to an agent. A page that
+ * What one page of CoLateral Marketing looks like to an agent. A page that
  * registers none of this is still framed and still navigable — it simply
  * cannot be typed into, which is the honest answer rather than a guess.
  */
@@ -312,3 +312,4 @@ export function appResult(
 ): AppResult {
   return { type: APP_MESSAGE.result, id, ok, ...extra };
 }
+

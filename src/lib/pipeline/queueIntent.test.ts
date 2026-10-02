@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { sep } from "node:path";
+import { resolve, sep } from "node:path";
 import type { PipelineRun } from "@/lib/pipeline/types";
 
 const state = {
@@ -21,7 +21,7 @@ vi.mock("@/lib/clipping/jobs", () => ({
     id: "job1",
     clips: state.candidates.map((candidate) => ({ id: candidate.id, title: candidate.title, file: `${candidate.id}.mp4` }))
   }),
-  outputDir: () => "C:/outputs/job1"
+  outputDir: () => resolve("outputs", "job1")
 }));
 
 vi.mock("@/lib/longform/store", () => ({ getProject: async () => undefined, projectOutputDir: () => "" }));
@@ -84,7 +84,7 @@ describe("what the standing instruction is allowed to book", () => {
     state.enqueued = [];
     state.candidates.push({ id: "late", title: "Rendered later", filePath: "late.mp4" });
     await queueReadyOutputs();
-    expect(state.enqueued.map((path) => path.split(sep).join("/"))).toEqual(["C:/outputs/job1/late.mp4"]);
+    expect(state.enqueued.map((path) => path.split(sep).join("/"))).toEqual([resolve("outputs", "job1", "late.mp4").split(sep).join("/")]);
   });
 });
 
@@ -111,7 +111,7 @@ describe("an output that appeared while the sheet was open", () => {
     state.enqueued = [];
     await queueReadyOutputs();
 
-    expect(state.enqueued.map((path) => path.split(sep).join("/"))).toEqual(["C:/outputs/job1/late.mp4"]);
+    expect(state.enqueued.map((path) => path.split(sep).join("/"))).toEqual([resolve("outputs", "job1", "late.mp4").split(sep).join("/")]);
   });
 
   // Without `seen` there is nothing to tell a late arrival from a real untick,

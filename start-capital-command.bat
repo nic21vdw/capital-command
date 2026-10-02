@@ -1,9 +1,9 @@
 @echo off
 setlocal enabledelayedexpansion
-title Capital Command - Local Launcher
+title CoLateral Marketing - Local Launcher
 
 REM ============================================================
-REM  Capital Command - one-click local launcher (Windows)
+REM  CoLateral Marketing - one-click local launcher (Windows)
 REM
 REM  You can run this file two ways:
 REM    * From inside a cloned/downloaded app folder, OR
@@ -26,7 +26,7 @@ cd /d "%~dp0"
 
 echo.
 echo ============================================
-echo   Capital Command - starting up
+echo   CoLateral Marketing - starting up
 echo ============================================
 echo.
 
@@ -158,7 +158,8 @@ if errorlevel 1 (
 )
 
 echo.
-echo Capital Command is running at http://localhost:3000
+echo CoLateral Marketing is running at http://localhost:3000
 echo To stop it: scripts\stop-server.ps1
 pause
 endlocal
+
