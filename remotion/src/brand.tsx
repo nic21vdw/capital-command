@@ -7,7 +7,7 @@ import {
 } from "remotion";
 import { FONT_STACK } from "./theme";
 
-// Dracula signature palette (matches Capital Command). Coral kept for optional
+// Dracula signature palette (matches CoLateral Marketing). Coral kept for optional
 // "Claude/Anthropic-topic" videos.
 export const DRACULA_PINK = "#ff79c6";
 export const DRACULA_PURPLE = "#bd93f9";
@@ -142,3 +142,4 @@ export const BrandDecor: React.FC<{
     </AbsoluteFill>
   );
 };
+

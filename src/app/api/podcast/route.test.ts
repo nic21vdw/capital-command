@@ -3,6 +3,14 @@ import { describe, expect, it } from "vitest";
 import { POST } from "@/app/api/podcast/route";
 
 describe("podcast control origin", () => {
+  it.each([null, [], "unsupported", 1, true])("rejects a non-object control body (%j)", async (body) => {
+    const response = await POST(new NextRequest("http://localhost:3100/api/podcast", {
+      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body)
+    }));
+    expect(response.status).toBe(400);
+    expect((await response.json()).error).toContain("JSON object");
+  });
+
   it.each(["save-automation", "retry-delivery", "cancel-delivery", "reschedule-delivery", "schedule-export"])("rejects cross-origin %s even with a simple text/plain request", async (action) => {
     const response = await POST(new NextRequest("http://localhost:3100/api/podcast", {
       method: "POST", headers: { origin: "https://untrusted.example", "content-type": "text/plain" }, body: JSON.stringify({ action })

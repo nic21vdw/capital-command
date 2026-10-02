@@ -10,13 +10,16 @@ export function BillingMetricCard({
   label,
   value,
   metric,
-  invertChange = false
+  invertChange = false,
+  showHistory = true
 }: {
   label: string;
   value: string;
   metric: BillingMetric;
   /** When true, a positive change is treated as unfavorable (e.g. churn). */
   invertChange?: boolean;
+  /** Hide comparisons when the provider has not supplied historical values. */
+  showHistory?: boolean;
 }) {
   const positive = invertChange ? metric.changePercent < 0 : metric.changePercent >= 0;
   const Icon = metric.changePercent >= 0 ? ArrowUpRight : ArrowDownRight;
@@ -25,7 +28,7 @@ export function BillingMetricCard({
     <Card className="flex flex-col gap-3">
       <div className="flex items-start justify-between gap-2">
         <p className="text-sm text-[var(--muted-foreground)]">{label}</p>
-        <span
+        {showHistory ? <span
           className={cn(
             "inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium",
             positive ? "tone-success tone-soft tone-text" : "tone-danger tone-soft tone-text"
@@ -33,10 +36,10 @@ export function BillingMetricCard({
         >
           <Icon className="h-3 w-3" />
           {Math.abs(metric.changePercent).toFixed(2)}%
-        </span>
+        </span> : null}
       </div>
       <p className="text-3xl font-semibold text-white">{value}</p>
-      <SparklineChart data={metric.trend} height={96} />
+      {showHistory ? <SparklineChart data={metric.trend} height={96} /> : null}
     </Card>
   );
 }

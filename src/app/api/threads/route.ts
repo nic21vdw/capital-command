@@ -15,7 +15,7 @@ import {
 } from "@/lib/threads/queue";
 import { runDue } from "@/lib/threads/runner";
 import { readThreadsState, tickHealth } from "@/lib/threads/state";
-import { localDateKey } from "@/lib/x-strategy/analytics";
+import { localCalendarParts } from "@/lib/publisher/time";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -37,7 +37,7 @@ export async function GET() {
   const config = threadsConfig();
   const items = await readQueue();
   const state = await readThreadsState();
-  const today = localDateKey();
+  const today = localCalendarParts(new Date(), config.timezone).dateKey;
   return NextResponse.json({
     scheduler: { ...state, ...tickHealth(state) },
     enabled: config.enabled,

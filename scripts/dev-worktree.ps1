@@ -1,4 +1,4 @@
-# Creates (or refreshes) the sandbox copy of Capital Command where changes get
+# Creates (or refreshes) the sandbox copy of CoLateral Marketing where changes get
 # made, so the copy that runs the workflow is never edited underneath you.
 #
 #   .\scripts\dev-worktree.ps1
@@ -164,8 +164,9 @@ Write-Host "  cd `"$Path`""
 Write-Host "  npm run dev:sandbox     # http://localhost:3100"
 Write-Host ""
 Write-Host "Work there, land it on main when a day's changes are ready, then run"
-Write-Host "update-capital-command.bat in the production folder."
+Write-Host "Update CoLateral Marketing.bat in the production folder."
 Write-Host ""
 Write-Host "No GitHub? This worktree shares the production repository, so the branch is"
 Write-Host "already there. Release it directly:"
 Write-Host "  .\scripts\update-app.ps1 -Branch $Branch"
+

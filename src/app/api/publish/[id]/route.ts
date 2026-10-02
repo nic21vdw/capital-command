@@ -21,7 +21,11 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
   }
   let body: { title?: unknown; caption?: unknown; hashtags?: unknown };
   try {
-    body = (await request.json()) as { title?: unknown; caption?: unknown; hashtags?: unknown };
+    const raw = await request.json();
+    if (raw === null || typeof raw !== "object" || Array.isArray(raw)) {
+      return NextResponse.json({ error: "Expected an object with a title, caption or hashtags." }, { status: 400 });
+    }
+    body = raw as { title?: unknown; caption?: unknown; hashtags?: unknown };
   } catch {
     return NextResponse.json({ error: "Invalid JSON body." }, { status: 400 });
   }

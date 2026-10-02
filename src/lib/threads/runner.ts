@@ -2,7 +2,7 @@ import { isTransient } from "@/lib/publisher/http";
 import { formatInTimezone } from "@/lib/publisher/time";
 import { ContainerPendingError, postToThreads } from "@/lib/threads/api";
 import { findAccount, threadsBlockedReason, threadsConfig, type ThreadsAccount, type ThreadsConfig } from "@/lib/threads/config";
-import { pruneOld, readQueue, writeQueue } from "@/lib/threads/queue";
+import { mergeQueueChanges, mutateQueue, pruneOld, readQueue } from "@/lib/threads/queue";
 import type { ThreadsOutcome, ThreadsQueueItem, ThreadsRunReport } from "@/lib/threads/types";
 import { isAutomationPaused } from "@/lib/automations/store";
 import { recordAutomationEventSafely } from "@/lib/automations/history";
@@ -29,9 +29,17 @@ export type ThreadsRunDeps = {
 };
 
 function defaultDeps(config: ThreadsConfig): ThreadsRunDeps {
+  let previous: ThreadsQueueItem[] = [];
   return {
-    read: readQueue,
-    write: writeQueue,
+    read: async () => {
+      const items = await readQueue();
+      previous = structuredClone(items);
+      return items;
+    },
+    write: async (items) => {
+      await mutateQueue((current) => ({ items: mergeQueueChanges(previous, items, current), result: undefined }));
+      previous = structuredClone(items);
+    },
     post: (input) => postToThreads(input, config)
   };
 }
@@ -55,6 +63,33 @@ export async function runDue(
     dryRun?: boolean;
     log?: (line: string) => void;
   } = {}
+): Promise<ThreadsRunReport> {
+  if (options.dryRun) return runDueInternal(now, options);
+  if (activeRun) {
+    return {
+      ran: now.toISOString(), published: 0, failed: 0, skipped: 0, outcomes: [], dryRun: false,
+      note: "A Threads publish run is already in progress. The next tick will pick up anything left."
+    };
+  }
+  const pending = runDueInternal(now, options);
+  activeRun = pending;
+  try {
+    return await pending;
+  } finally {
+    activeRun = null;
+  }
+}
+
+let activeRun: Promise<ThreadsRunReport> | null = null;
+
+async function runDueInternal(
+  now: Date,
+  options: {
+    config?: ThreadsConfig;
+    deps?: ThreadsRunDeps;
+    dryRun?: boolean;
+    log?: (line: string) => void;
+  }
 ): Promise<ThreadsRunReport> {
   const config = options.config ?? threadsConfig();
   const dryRun = options.dryRun ?? false;

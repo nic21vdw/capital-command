@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { PublishQueue } from "@/lib/publisher/queue";
 import { MemoryQueueStore, testConfig, testItem } from "@/lib/publisher/test-helpers";
 
@@ -146,6 +146,16 @@ describe("publish queue state machine", () => {
     expect(queue.duePlatforms(item, new Date(DUE.getTime() + 16 * 60_000))).toEqual(["instagram"]);
   });
 
+  it("only grants one claim when manual and scheduled runs overlap", async () => {
+    const { queue } = makeQueue();
+    const item = testItem({ platformIds: ["youtube"] });
+    await queue.add(item);
+
+    const claims = await Promise.all([queue.claim(item, "youtube", DUE), queue.claim(item, "youtube", DUE)]);
+    expect(claims).toEqual([true, false]);
+    expect(await queue.claim(item, "youtube", new Date(DUE.getTime() + 16 * 60_000))).toBe(true);
+  });
+
   it("uploaded (still processing) items stay resumable with their container id", async () => {
     const { queue } = makeQueue();
     const item = testItem({ publishAt: PUBLISH_AT, platformIds: ["tiktok"] });
@@ -240,5 +250,61 @@ describe("publish queue state machine", () => {
     expect(items).toHaveLength(1);
     expect(items[0].platforms.youtube?.status).toBe("scheduled");
     expect(items[0].platforms.youtube?.postId).toBe("vid123");
+  });
+
+  it("retries a failed initial read before adding, preserving the saved posts", async () => {
+    const { store, queue } = makeQueue();
+    store.text = JSON.stringify([testItem({ id: "existing" })]);
+    vi.spyOn(store, "load").mockRejectedValueOnce(new Error("temporarily unavailable"));
+
+    await expect(queue.list()).rejects.toThrow("temporarily unavailable");
+    await queue.add(testItem({ id: "new" }));
+    expect((await queue.list()).map((item) => item.id).sort()).toEqual(["existing", "new"]);
+    expect(JSON.parse(store.text!).map((item: { id: string }) => item.id).sort()).toEqual(["existing", "new"]);
+  });
+
+  it.each(["broken JSON", ""])("retries a failed parse instead of caching an empty queue: %j", async (raw) => {
+    const { store, queue } = makeQueue();
+    store.text = raw;
+    await expect(queue.list()).rejects.toThrow();
+    store.text = JSON.stringify([testItem({ id: "repaired" })]);
+    expect((await queue.list()).map((item) => item.id)).toEqual(["repaired"]);
+    expect(store.saves).toBe(0);
+  });
+
+  it("concurrent first reads all wait for the same complete snapshot", async () => {
+    const { store, queue } = makeQueue();
+    let release!: (raw: string) => void;
+    const read = vi.spyOn(store, "load").mockReturnValue(new Promise((resolve) => { release = resolve; }));
+    const first = queue.list();
+    const second = queue.list();
+    await vi.waitFor(() => expect(read).toHaveBeenCalledTimes(1));
+    release(JSON.stringify([testItem({ id: "existing" })]));
+    const lists = await Promise.all([first, second]);
+    expect(lists.map((items) => items.map((item) => item.id))).toEqual([["existing"], ["existing"]]);
+    expect(read).toHaveBeenCalledTimes(1);
+  });
+
+  it("serializes overlapping saves so an older snapshot cannot finish last", async () => {
+    const { store, queue } = makeQueue();
+    const item = testItem();
+    await queue.add(item);
+    let release!: () => void;
+    const blocked = new Promise<void>((resolve) => { release = resolve; });
+    const original = store.save.bind(store);
+    const save = vi.spyOn(store, "save").mockImplementationOnce(async (text) => {
+      await blocked;
+      await original(text);
+    });
+    item.caption = "First edit";
+    const first = queue.save();
+    await Promise.resolve();
+    item.caption = "Latest edit";
+    const second = queue.save();
+    await Promise.resolve();
+    expect(save).toHaveBeenCalledTimes(1);
+    release();
+    await Promise.all([first, second]);
+    expect(JSON.parse(store.text!)[0].caption).toBe("Latest edit");
   });
 });

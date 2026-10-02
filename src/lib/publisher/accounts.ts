@@ -1,4 +1,4 @@
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { configuredPlatforms, publisherConfig } from "@/lib/publisher/config";
 import { dataPath } from "@/lib/paths";
@@ -36,6 +36,13 @@ export type SocialAccount = {
 
 const FILE_PATH = dataPath("social-accounts.json");
 const R2_KEY = "publisher/social-accounts.json";
+let accountWrites = Promise.resolve();
+
+function serializeAccountWrite<T>(write: () => Promise<T>): Promise<T> {
+  const saved = accountWrites.then(write, write);
+  accountWrites = saved.then(() => undefined, () => undefined);
+  return saved;
+}
 
 export function primaryAccountId(platform: PlatformId): string {
   return `${platform}-primary`;
@@ -98,10 +105,12 @@ function primaryAccount(platform: PlatformId): SocialAccount {
 export function withPrimaries(stored: SocialAccount[]): SocialAccount[] {
   const extras = stored.filter(
     (account) =>
+      account &&
       (ALL_PLATFORMS as string[]).includes(account.platform) &&
+      typeof account.id === "string" && account.id.trim() &&
       !isPrimaryAccountId(account.id) &&
-      account.id &&
-      account.label
+      typeof account.label === "string" && account.label.trim() &&
+      typeof account.createdAt === "string"
   );
   const all = [...ALL_PLATFORMS.map(primaryAccount), ...extras];
   return all.sort(
@@ -114,12 +123,15 @@ export function withPrimaries(stored: SocialAccount[]): SocialAccount[] {
 async function readStored(): Promise<SocialAccount[]> {
   const config = publisherConfig();
   try {
+    let text: string | null;
     if (config.queueBackend === "r2") {
       const host = mediaHost(config);
-      const text = host ? await host.getObjectText(R2_KEY) : null;
-      return text ? (JSON.parse(text) as SocialAccount[]) : [];
+      text = host ? await host.getObjectText(R2_KEY) : null;
+    } else {
+      text = await readFile(FILE_PATH, "utf8");
     }
-    return JSON.parse(await readFile(FILE_PATH, "utf8")) as SocialAccount[];
+    const parsed: unknown = text ? JSON.parse(text) : [];
+    return Array.isArray(parsed) ? parsed as SocialAccount[] : [];
   } catch {
     return [];
   }
@@ -136,7 +148,14 @@ async function writeStored(accounts: SocialAccount[]): Promise<void> {
     }
   }
   await mkdir(path.dirname(FILE_PATH), { recursive: true });
-  await writeFile(FILE_PATH, text, "utf8");
+  const tmp = `${FILE_PATH}.${process.pid}.${crypto.randomUUID()}.tmp`;
+  try {
+    await writeFile(tmp, text, "utf8");
+    await rename(tmp, FILE_PATH);
+  } catch (error) {
+    await rm(tmp, { force: true }).catch(() => undefined);
+    throw error;
+  }
 }
 
 export async function listAccounts(): Promise<SocialAccount[]> {
@@ -156,20 +175,24 @@ export async function addAccount(platform: PlatformId, label: string): Promise<S
     label: trimmed,
     createdAt: new Date().toISOString()
   };
-  await writeStored([...(await readStored()), account]);
-  return account;
+  return serializeAccountWrite(async () => {
+    await writeStored([...(await readStored()), account]);
+    return account;
+  });
 }
 
 export async function renameAccount(accountId: string, label: string): Promise<SocialAccount> {
   const trimmed = label.trim().slice(0, 60);
   if (!trimmed) throw new Error("The account name cannot be empty.");
   if (isPrimaryAccountId(accountId)) throw new Error("The primary account cannot be renamed.");
-  const stored = await readStored();
-  const account = stored.find((candidate) => candidate.id === accountId);
-  if (!account) throw new Error("No such account.");
-  account.label = trimmed;
-  await writeStored(stored);
-  return account;
+  return serializeAccountWrite(async () => {
+    const stored = await readStored();
+    const account = stored.find((candidate) => candidate?.id === accountId);
+    if (!account) throw new Error("No such account.");
+    account.label = trimmed;
+    await writeStored(stored);
+    return account;
+  });
 }
 
 /**
@@ -182,9 +205,11 @@ export async function removeAccount(accountId: string, queueItems: QueueItem[]):
   if (queueItems.some((item) => item.accountId === accountId)) {
     throw new Error("This account still has scheduled posts — remove them from the calendar first.");
   }
-  const stored = await readStored();
-  if (!stored.some((candidate) => candidate.id === accountId)) throw new Error("No such account.");
-  await writeStored(stored.filter((candidate) => candidate.id !== accountId));
+  await serializeAccountWrite(async () => {
+    const stored = await readStored();
+    if (!stored.some((candidate) => candidate?.id === accountId)) throw new Error("No such account.");
+    await writeStored(stored.filter((candidate) => candidate?.id !== accountId));
+  });
 }
 
 /**

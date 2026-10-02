@@ -1,6 +1,6 @@
 # Wearing CoLateral's look: the page-by-page audit
 
-Capital Command is served from its own checkout and framed by an iframe inside
+CoLateral Marketing is served from its own checkout and framed by an iframe inside
 CoLateral's Command Centre card. Two applications sit edge to edge on one
 screen, so anything this app decides for itself — a colour, a typeface, an
 elevation — reads as a seam if it does not match what CoLateral decided.
@@ -125,7 +125,7 @@ is in `src/lib/host-appearance.test.ts`. The iframe
 element must use the same light or dark `color-scheme` as the theme, or
 Chromium paints the frame opaque.
 
-The ids are CoLateral's own. Capital Command's presets are exactly CoLateral's
+The ids are CoLateral's own. CoLateral Marketing's presets are exactly CoLateral's
 seventeen, under the same ids, so nothing is translated on the way across.
 Values a release before this one stored (`colateral`, `colateral-light`, and
 the six presets that were only ever this app's) are mapped in
@@ -139,3 +139,4 @@ its own, outside CoLateral, the app keeps the theme picked in Settings.
 `site/style.css` is the standalone marketing site under `site/`, not the app,
 and it carries its own colours. It is never framed by CoLateral, so it was out
 of this pass.
+

@@ -1,4 +1,4 @@
-# Releases finished work into the copy of Capital Command that actually runs
+# Releases finished work into the copy of CoLateral Marketing that actually runs
 # the social media workflow: it brings `main` up to date, rebuilds, and
 # restarts the app.
 #
@@ -517,7 +517,7 @@ Step "Building and starting the new version ($(Elapsed) in, takes a few minutes)
 if ((Invoke-Script "start-server.ps1" @("-Quiet") -TimeoutMinutes 90) -ne 0) {
   # It has already printed the reason and the tail of the log it failed in.
   # Waiting five minutes for a server that was never started only buries that.
-  Fail "The build did not finish. The app is still down - see build.log in $root, then run update-capital-command.bat again."
+  Fail "The build did not finish. The app is still down - see build.log in $root, then run Update CoLateral Marketing.bat again."
 }
 
 # start-server already verified the lightweight HTTP endpoint. Rechecking the
@@ -527,3 +527,4 @@ $port = if ($env:CAPITAL_COMMAND_PORT) { $env:CAPITAL_COMMAND_PORT } else { "300
 Write-Log ""
 Write-Log "CoLateral Marketing is updated and running at http://localhost:$port (took $(Elapsed))"
 Write-Log "Now on: $((git log --oneline -1))"
+

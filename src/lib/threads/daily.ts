@@ -1,12 +1,11 @@
 import { localCalendarParts, zonedToUtc } from "@/lib/publisher/time";
 import { threadsBlockedReason, threadsConfig, type ThreadsConfig } from "@/lib/threads/config";
 import { endOfLocalDay, planBatch } from "@/lib/threads/plan";
-import { autopilotItemsForDate, isAutopilotItem, itemsForDate, mutateQueue, pruneOld, readQueue } from "@/lib/threads/queue";
+import { autopilotItemsForDate, isAutopilotItem, mutateQueue, pruneOld, readQueue } from "@/lib/threads/queue";
 import { runDue } from "@/lib/threads/runner";
 import { readThreadsState, recordThreadsState } from "@/lib/threads/state";
 import type { ThreadsPlanResult, ThreadsRunReport } from "@/lib/threads/types";
 import { ensureDailyPack } from "@/lib/x-posts/daily";
-import { localDateKey } from "@/lib/x-strategy/analytics";
 import { isAutomationPaused, recordAutomationOutcome } from "@/lib/automations/store";
 
 /**
@@ -46,7 +45,7 @@ export async function planTodaysBatch(
   const config = options.config ?? threadsConfig();
   const now = options.now ?? new Date();
   const log = options.log ?? ((line: string) => console.log(line));
-  const date = options.date ?? localDateKey(now);
+  const date = options.date ?? localCalendarParts(now, config.timezone).dateKey;
   const replace = Boolean(options.force || options.startNow);
 
   if (await isAutomationPaused("threads")) {
@@ -172,7 +171,7 @@ export async function planTomorrow(
   if (!Number.isFinite(hour) || hour < config.planAheadHour) return null;
 
   const date = nextDateKey(now, config);
-  const existing = itemsForDate(await readQueue(), date);
+  const existing = autopilotItemsForDate(await readQueue(), date);
   if (existing.length > 0) return null;
 
   return planTodaysBatch({ ...options, config, now, date });
@@ -218,7 +217,7 @@ export async function catchUpToday(
   const now = options.now ?? new Date();
   if (!config.catchUp || threadsBlockedReason(config)) return null;
 
-  const date = localDateKey(now);
+  const date = localCalendarParts(now, config.timezone).dateKey;
   const standing = await slotsStillStanding(date, now);
   // Nothing planned at all is a day that hasn't been planned yet, not a day
   // that fell behind — leave that to the ordinary plan step.
@@ -290,7 +289,7 @@ async function threadsTickInternal(
   if (await isAutomationPaused("threads")) {
     const note = "Threads automation is paused in Automations.";
     return {
-      plan: { date: localDateKey(now), created: 0, droppedPastSlots: 0, skipped: note },
+      plan: { date: localCalendarParts(now, config.timezone).dateKey, created: 0, droppedPastSlots: 0, skipped: note },
       run: { ran: now.toISOString(), published: 0, failed: 0, skipped: 0, outcomes: [], dryRun: options.dryRun ?? false, note }
     };
   }

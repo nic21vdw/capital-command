@@ -122,7 +122,7 @@ export async function GET(request: NextRequest) {
     return new NextResponse(JSON.stringify(data, null, 2), {
       headers: {
         "Content-Type": "application/json",
-        "Content-Disposition": "attachment; filename=capital-command-export.json"
+        "Content-Disposition": "attachment; filename=colateral-marketing-export.json"
       }
     });
   }
@@ -131,7 +131,7 @@ export async function GET(request: NextRequest) {
     return new NextResponse(toCsv(data), {
       headers: {
         "Content-Type": "text/csv",
-        "Content-Disposition": "attachment; filename=capital-command-export.csv"
+        "Content-Disposition": "attachment; filename=colateral-marketing-export.csv"
       }
     });
   }

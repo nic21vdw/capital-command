@@ -296,7 +296,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         toast.success(options.successMessage);
       }
     } catch (error) {
-      console.error(`[capital-command] ${action} failed`, error);
+      console.error(`[CoLateral Marketing] ${action} failed`, error);
       // A TypeError here is fetch itself failing: the local server is down or
       // still rebuilding. Saying so beats blaming the action.
       const reason =
@@ -594,3 +594,4 @@ export function makeXActivity(input?: Partial<XActivity>): XActivity {
     createdAt: input?.createdAt ?? now
   };
 }
+

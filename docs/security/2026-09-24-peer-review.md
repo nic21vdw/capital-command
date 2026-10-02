@@ -1,4 +1,4 @@
-# Independent Capital Command guard review
+# Independent CoLateral Marketing guard review
 
 Reviewed capital-final.md, actual mutation-origin.ts, update POST, voice POST/DELETE, existing release/update-route.test.ts and the real Next HTTP fixture. Incoming Host is treated as browser authority only after strict loopback parsing and equality with the URL port. Exact serialized Origin comparison prevents path/userinfo aliases. Sec-Fetch-Site contradictions fail closed. Headerless CLI remains intentional local trust, not authentication.
 
@@ -8,6 +8,7 @@ One concrete regression was found: both existing tests in src/lib/release/update
 
 This patch covers only update POST and voice session POST/DELETE. Other API mutations, remote authentication, production execution and full-app/Windows validation remain outside these findings. No app-wide security score is assigned.
 
-Final scoped approval: 9/10 (effectiveness 3/3, regression protection 3/3, compatibility 1/2, independent evidence 2/2). Review loop found and repaired an existing-test regression rather than accepting only the new happy-path fixture. Production native environment and broader route coverage remain outstanding; this is approval of the three guarded handlers, not all Capital Command or CoLateral.
+Final scoped approval: 9/10 (effectiveness 3/3, regression protection 3/3, compatibility 1/2, independent evidence 2/2). Review loop found and repaired an existing-test regression rather than accepting only the new happy-path fixture. Production native environment and broader route coverage remain outstanding; this is approval of the three guarded handlers, not all CoLateral Marketing or CoLateral.
 
 Permanent coverage follow-up: independently reviewed mutation-origin.test.ts (17 hostile/positive cases) and updated update-route.test.ts (4 cases including hostile/null Origin side-effect refusal). Both match the existing default src/**/*.test.ts Vitest glob. Independently reran these two actual suites with locked Vitest 3.2.4: 21/21 tests pass, exit 0. Scoped approval remains 9/10.
+

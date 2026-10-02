@@ -35,6 +35,8 @@ export class PublishQueue {
   private items = new Map<string, QueueItem>();
   private loaded = false;
   private version: string | null = null;
+  private loading: Promise<void> | null = null;
+  private saves = Promise.resolve();
 
   constructor(
     private readonly store: QueueStore,
@@ -46,21 +48,42 @@ export class PublishQueue {
   }
 
   async load(): Promise<void> {
+    if (this.loading) return this.loading;
+    const pending = this.loadSnapshot();
+    this.loading = pending;
+    try {
+      await pending;
+    } finally {
+      this.loading = null;
+    }
+  }
+
+  private async loadSnapshot(): Promise<void> {
+    // A poll must not reload the file halfway through this process's own save.
+    await this.saves;
     if (this.loaded) {
       if (!this.store.version || (await this.store.version()) === this.version) return;
-      this.items.clear();
     }
-    this.loaded = true;
     const raw = await this.store.load();
-    this.version = (await this.store.version?.()) ?? null;
-    if (!raw) return;
-    for (const item of JSON.parse(raw) as QueueItem[]) this.items.set(item.id, item);
+    const items = new Map<string, QueueItem>();
+    if (raw !== null) {
+      for (const item of JSON.parse(raw) as QueueItem[]) items.set(item.id, item);
+    }
+    const version = (await this.store.version?.()) ?? null;
+    // A failed read/parse leaves the previous snapshot intact and retryable.
+    this.items = items;
+    this.version = version;
+    this.loaded = true;
   }
 
   async save(): Promise<void> {
-    const list = [...this.items.values()].sort((a, b) => a.publishAt.localeCompare(b.publishAt));
-    await this.store.save(JSON.stringify(list, null, 2));
-    this.version = (await this.store.version?.()) ?? null;
+    const pending = this.saves.then(async () => {
+      const list = [...this.items.values()].sort((a, b) => a.publishAt.localeCompare(b.publishAt));
+      await this.store.save(JSON.stringify(list, null, 2));
+      this.version = (await this.store.version?.()) ?? null;
+    });
+    this.saves = pending.catch(() => undefined);
+    await pending;
   }
 
   async list(): Promise<QueueItem[]> {
@@ -272,11 +295,16 @@ export class PublishQueue {
   }
 
   /** Marks a platform as being processed right now (soft lease). */
-  async claim(item: QueueItem, platform: PlatformId, now: Date): Promise<void> {
+  async claim(item: QueueItem, platform: PlatformId, now: Date): Promise<boolean> {
     const state = item.platforms[platform];
-    if (!state) return;
+    if (!state) return false;
+    if (state.claimedAt && now.getTime() - new Date(state.claimedAt).getTime() < this.config.claimTimeoutMinutes * 60_000) {
+      return false;
+    }
+    // Check and set before the first await: manual and scheduled runs can overlap.
     state.claimedAt = now.toISOString();
     await this.save();
+    return true;
   }
 
   /**

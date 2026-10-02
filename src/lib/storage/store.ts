@@ -45,7 +45,7 @@ export class AppDataUnreadableError extends Error {
  * file that genuinely does not exist gets a document written for it, and what
  * gets written is empty: a first run belongs to whoever is having it.
  */
-export async function readAppData(): Promise<AppData> {
+async function readStoredAppData(): Promise<AppData | null> {
   await ensureStore();
 
   for (let attempt = 0; attempt < 3; attempt += 1) {
@@ -54,8 +54,7 @@ export async function readAppData(): Promise<AppData> {
       return appDataSchema.parse(JSON.parse(raw));
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === "ENOENT") {
-        await writeAppData(emptyData);
-        return emptyData;
+        return null;
       }
       if (attempt < 2) {
         // A read can land mid-write; the retry is for that, not for damage.
@@ -71,6 +70,14 @@ export async function readAppData(): Promise<AppData> {
   }
 
   throw new AppDataUnreadableError("The app data file could not be read. Nothing has been changed.", null);
+}
+
+export async function readAppData(): Promise<AppData> {
+  const data = await readStoredAppData();
+  if (data) return data;
+  // Initialization is queued too: another save may create the document after
+  // the missing-file read, and must not then be replaced with an empty one.
+  return mutateAppData((current) => current);
 }
 
 /**
@@ -234,11 +241,11 @@ async function commit(data: AppData): Promise<string> {
 // superseded seconds later anyway.
 let queuedWrites = 0;
 
-export async function writeAppData(data: AppData) {
+async function enqueueWrite(commitWrite: () => Promise<string>) {
   queuedWrites += 1;
   const write = async () => {
     try {
-      return await commit(data);
+      return await commitWrite();
     } finally {
       queuedWrites -= 1;
     }
@@ -256,6 +263,29 @@ export async function writeAppData(data: AppData) {
     () => undefined
   );
   await committed;
+}
+
+export async function writeAppData(data: AppData) {
+  await enqueueWrite(() => commit(data));
+}
+
+/**
+ * Read, change and commit one document inside this process's existing write
+ * queue. The synchronous updater sees every write ahead of it, so concurrent
+ * append operations cannot replace each other's additions. It must not call
+ * store writes itself. This is not a lock shared with other processes.
+ */
+export async function mutateAppData(update: (current: AppData) => AppData): Promise<AppData> {
+  let updated!: AppData;
+  await enqueueWrite(async () => {
+    // Read directly here: readAppData's missing-file initializer would enqueue
+    // another write behind this one and wait on itself. Clone the empty schema
+    // defaults so an updater can never change the shared first-run template.
+    const current = (await readStoredAppData()) ?? appDataSchema.parse(emptyData);
+    updated = appDataSchema.parse(update(current));
+    return commit(updated);
+  });
+  return updated;
 }
 
 /**

@@ -23,7 +23,7 @@ $root = Split-Path -Parent $PSScriptRoot
 $script = Join-Path $root "scripts\daily-channel-scan.ps1"
 
 if (-not (Test-Path $script)) {
-  throw "Could not find $script - run this from the capital-command checkout."
+  throw "Could not find $script - run this from the CoLateral Marketing checkout."
 }
 
 # -Hidden below only hides the task in the Task Scheduler UI; a task that runs
@@ -56,10 +56,11 @@ if (Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue) {
 }
 
 Register-ScheduledTask -TaskName $TaskName -Action $action -Trigger $trigger -Settings $settings `
-  -Description "Run new YouTube live streams through the content pipeline (Capital Command)" | Out-Null
+  -Description "Run new YouTube live streams through the content pipeline (CoLateral Marketing)" | Out-Null
 
 Write-Host "Registered '$TaskName' - daily at $At."
 Write-Host "It will run from: $root"
 Write-Host "Log: $(Join-Path $root 'channel-scan.log')"
 Write-Host "It builds and starts the app if nothing is listening, and leaves it running."
 Write-Host "Remove with: Unregister-ScheduledTask -TaskName `"$TaskName`" -Confirm:`$false"
+

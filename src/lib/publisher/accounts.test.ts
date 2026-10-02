@@ -1,9 +1,15 @@
-import { describe, expect, it } from "vitest";
+import { mkdir, rm, writeFile } from "node:fs/promises";
+import path from "node:path";
+import { beforeEach, describe, expect, it } from "vitest";
+import { dataPath } from "@/lib/paths";
 import {
+  addAccount,
   isPrimaryAccountId,
   itemAccountId,
   itemBelongsToAccount,
   primaryAccountId,
+  listAccounts,
+  renameAccount,
   tiktokCreatorKey,
   tiktokRefreshTokenKey,
   withPrimaries,
@@ -13,6 +19,10 @@ import {
 } from "@/lib/publisher/accounts";
 import { newPlatformState } from "@/lib/publisher/queue";
 import type { QueueItem } from "@/lib/publisher/types";
+
+beforeEach(async () => {
+  await rm(dataPath("social-accounts.json"), { force: true });
+});
 
 function item(overrides: Partial<QueueItem> = {}): QueueItem {
   return {
@@ -28,6 +38,31 @@ function item(overrides: Partial<QueueItem> = {}): QueueItem {
     ...overrides
   };
 }
+
+describe("saved social accounts", () => {
+  it("retains accounts added concurrently and a simultaneous rename", async () => {
+    const [first, second] = await Promise.all([
+      addAccount("youtube", "Main channel"),
+      addAccount("tiktok", "Clips")
+    ]);
+    const [, third] = await Promise.all([
+      renameAccount(first.id, "Renamed channel"),
+      addAccount("youtube", "Second channel")
+    ]);
+    const accounts = await listAccounts();
+    expect(accounts.find((account) => account.id === first.id)?.label).toBe("Renamed channel");
+    expect(accounts.map((account) => account.id)).toEqual(expect.arrayContaining([first.id, second.id, third.id]));
+  });
+
+  it("keeps valid connections visible beside malformed saved entries", async () => {
+    const valid: SocialAccount = { id: "youtube-extra", platform: "youtube", label: "Extra", createdAt: "2026-10-02T12:00:00Z" };
+    await mkdir(path.dirname(dataPath("social-accounts.json")), { recursive: true });
+    await writeFile(dataPath("social-accounts.json"), JSON.stringify([null, {}, { ...valid, createdAt: null }, valid]));
+    expect(await listAccounts()).toEqual(expect.arrayContaining([valid]));
+    await writeFile(dataPath("social-accounts.json"), JSON.stringify({ oldFormat: true }));
+    expect((await listAccounts()).every((account) => isPrimaryAccountId(account.id))).toBe(true);
+  });
+});
 
 describe("primary accounts", () => {
   it("recognizes every platform's primary id and nothing else", () => {

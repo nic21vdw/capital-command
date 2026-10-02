@@ -3,6 +3,13 @@ import { executeAgentAction, normalizeProposedActions } from "@/lib/agents/actio
 import { readAppData } from "@/lib/storage/store";
 
 describe("agent action approval boundary", () => {
+  it("refuses an unknown saved action instead of treating it as a pipeline request", async () => {
+    await expect(executeAgentAction({
+      id: "unknown", type: "unknown" as "start_pipeline", title: "Unknown", reason: "Invalid saved action",
+      payload: { url: "https://example.com/video" }, status: "proposed"
+    })).rejects.toThrow("Unknown agent action.");
+  });
+
   it("drops unknown and malformed actions before they reach the approval inbox", () => {
     const actions = normalizeProposedActions([
       {

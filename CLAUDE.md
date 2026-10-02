@@ -1,4 +1,4 @@
-# capital-command
+# CoLateral Marketing
 
 Read `AGENTS.md` first. It covers how a change reaches the running app —
 the production checkout stays on `main` and is never edited; work happens
@@ -1047,3 +1047,4 @@ committed as a standalone project under `video/`.
   B-roll clips must keep both properties or they stop being interchangeable.
   Use the helpers in `src/motion.ts` (`enter`, `stagger`, `ramp`, `drift`)
   rather than hand-rolled easings, so the whole library moves as one system.
+

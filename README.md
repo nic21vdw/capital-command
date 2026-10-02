@@ -1,6 +1,6 @@
-# Nic Vandewetering
+# CoLateral Marketing
 
-Nic Vandewetering is a personal investment dashboard MVP built with Next.js, TypeScript, Tailwind CSS, and a local JSON persistence layer. It is designed for personal tracking and organization, not financial advice or trading.
+CoLateral Marketing is the CoLateral module for planning, producing and publishing content. It brings the pipeline, long-form edits, Shorts, carousels, podcasts, calendar, connected accounts and publish queue into one locally hosted workspace. Existing finance and channel tools remain available.
 
 ## Finance & Billing
 
@@ -24,59 +24,13 @@ If you prefer npm:
 1. `npm install`
 2. `npm run dev`
 
-## Local Command Dashboard Launcher
+## Open CoLateral Marketing on Windows
 
-If you are not a developer and just want to open the Command Dashboard on your
-own Windows PC, use the double-click launcher instead of typing commands.
+Double-click **`CoLateral Marketing.bat`** from your installed checkout. It starts the production server through `scripts/open-app.ps1` and opens the app in its own window at <http://127.0.0.1:3000>. The existing launcher remains compatible with saved shortcuts.
 
-### How to use the `.bat` file
+Run `npm run app:shortcut` from the production checkout to create the **CoLateral Marketing** Desktop and Start Menu shortcuts. Closing the app window leaves the server running so scheduled work can continue. Use the app's **Check for updates** and **Install and restart** controls when you are ready to install merged changes, or double-click `Update CoLateral Marketing.bat`.
 
-1. Open the project folder in File Explorer.
-2. Double-click **`launch-colateral-command-dashboard.bat`**.
-3. A black Command Prompt window opens and sets everything up for you.
-4. Your browser opens the dashboard at **<http://localhost:3000>**.
-   (If it doesn't open on its own, type that address into your browser.)
-
-The very first run installs the app's building blocks and can take a few
-minutes. After that, launches are fast because that step is skipped.
-
-### What command is being run behind the scenes
-
-The launcher simply runs the project's normal startup steps for you:
-
-- `npm install` — but **only the first time**, when the `node_modules` folder
-  is missing. On later runs this is skipped.
-- `npm run dev` — starts the local development server (Next.js) on port 3000.
-
-That's the same thing a developer would type by hand; the `.bat` file just
-remembers it for you.
-
-### How to stop the server
-
-The dashboard runs for as long as the black launcher window stays open. To
-stop it, either:
-
-- Press **Ctrl + C** inside that window, or
-- Simply **close the window**.
-
-Once it's stopped, <http://localhost:3000> will no longer load until you launch
-it again.
-
-### If the port is already in use
-
-If you see a message like *"port 3000 is already in use"*, it usually means the
-dashboard is already running in another window (or a previous run didn't fully
-close). To fix it:
-
-1. Find and close any older launcher / Command Prompt windows, then
-   double-click the `.bat` again.
-2. If that doesn't help, restart your PC to clear the leftover server, then
-   launch again.
-
-> Tip: there is also a `start-capital-command.bat` launcher. That one first
-> downloads the latest version of the app from GitHub before starting. Use
-> `launch-colateral-command-dashboard.bat` when you just want to run the copy
-> already on your PC.
+Development uses a separate sandbox worktree on port 3100. See `AGENTS.md` before starting servers, registering scheduled tasks, or changing live data.
 
 ## Environment
 
@@ -409,3 +363,4 @@ Remotion is free for solo creators (and teams of 3 or fewer) —
 ## Disclaimer
 
 This app is for personal tracking and educational organization only. It does not provide financial, tax, legal, or investment advice.
+
