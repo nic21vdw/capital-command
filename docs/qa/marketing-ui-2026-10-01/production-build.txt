@@ -1,0 +1,169 @@
+   ▲ Next.js 15.5.18
+
+   Creating an optimized production build ...
+ ✓ Compiled successfully in 21.3s
+   Skipping validation of types
+   Skipping linting
+   Collecting page data ...
+   Generating static pages (0/47) ...
+   Generating static pages (11/47)
+   Generating static pages (23/47)
+   Generating static pages (35/47)
+ ✓ Generating static pages (47/47)
+   Finalizing page optimization ...
+   Collecting build traces ...
+
+Route (app)                                                               Size  First Load JS
+┌ ○ /                                                                    142 B         221 kB
+├ ○ /_not-found                                                           1 kB         103 kB
+├ ○ /agents                                                            14.6 kB         210 kB
+├ ƒ /api/agents                                                          403 B         103 kB
+├ ƒ /api/agents/[runId]/actions/[actionId]                               403 B         103 kB
+├ ƒ /api/auth/google                                                     403 B         103 kB
+├ ƒ /api/auth/google/callback                                            403 B         103 kB
+├ ƒ /api/auth/spotify                                                    403 B         103 kB
+├ ƒ /api/auth/spotify/callback                                           403 B         103 kB
+├ ƒ /api/auth/tiktok                                                     403 B         103 kB
+├ ƒ /api/auth/tiktok/callback                                            403 B         103 kB
+├ ƒ /api/bootstrap                                                       403 B         103 kB
+├ ƒ /api/clip-projects/[id]                                              403 B         103 kB
+├ ƒ /api/clips                                                           403 B         103 kB
+├ ƒ /api/clips/[jobId]                                                   403 B         103 kB
+├ ƒ /api/clips/[jobId]/autoframe                                         403 B         103 kB
+├ ƒ /api/clips/[jobId]/captions                                          403 B         103 kB
+├ ƒ /api/clips/[jobId]/export                                            403 B         103 kB
+├ ƒ /api/clips/[jobId]/export/[exportId]                                 403 B         103 kB
+├ ƒ /api/clips/[jobId]/files/[fileName]                                  403 B         103 kB
+├ ƒ /api/clips/[jobId]/silences                                          403 B         103 kB
+├ ƒ /api/clips/[jobId]/thumbnail/[fileName]                              403 B         103 kB
+├ ƒ /api/clips/overlay-images/[file]                                     403 B         103 kB
+├ ƒ /api/clips/sources                                                   403 B         103 kB
+├ ƒ /api/clips/sources/[sourceId]                                        403 B         103 kB
+├ ƒ /api/clips/sources/[sourceId]/stream                                 403 B         103 kB
+├ ƒ /api/clips/sources/[sourceId]/waveform                               403 B         103 kB
+├ ƒ /api/connections                                                     403 B         103 kB
+├ ƒ /api/data                                                            403 B         103 kB
+├ ƒ /api/finance/overview                                                403 B         103 kB
+├ ƒ /api/ingest                                                          403 B         103 kB
+├ ƒ /api/instagram/webhook                                               403 B         103 kB
+├ ƒ /api/launch                                                          403 B         103 kB
+├ ƒ /api/longform/music                                                  403 B         103 kB
+├ ƒ /api/longform/music/[trackId]                                        403 B         103 kB
+├ ƒ /api/longform/projects                                               403 B         103 kB
+├ ƒ /api/longform/projects/[projectId]                                   403 B         103 kB
+├ ƒ /api/longform/projects/[projectId]/export                            403 B         103 kB
+├ ƒ /api/longform/projects/[projectId]/export/[exportId]                 403 B         103 kB
+├ ƒ /api/longform/projects/[projectId]/export/[exportId]/audio           403 B         103 kB
+├ ƒ /api/longform/projects/[projectId]/highlight                         403 B         103 kB
+├ ƒ /api/longform/projects/[projectId]/images                            403 B         103 kB
+├ ƒ /api/longform/projects/[projectId]/images/[imageId]                  403 B         103 kB
+├ ƒ /api/longform/projects/[projectId]/metadata                          403 B         103 kB
+├ ƒ /api/longform/projects/[projectId]/poster                            403 B         103 kB
+├ ƒ /api/longform/projects/[projectId]/replan                            403 B         103 kB
+├ ƒ /api/longform/projects/[projectId]/send-to-clips                     403 B         103 kB
+├ ƒ /api/longform/projects/[projectId]/thumbnail                         403 B         103 kB
+├ ƒ /api/longform/projects/[projectId]/thumbnail/candidates              403 B         103 kB
+├ ƒ /api/longform/projects/[projectId]/thumbnail/candidates/[frameId]    403 B         103 kB
+├ ƒ /api/longform/projects/[projectId]/thumbnail/hooks                   403 B         103 kB
+├ ƒ /api/longform/projects/[projectId]/topics                            403 B         103 kB
+├ ƒ /api/market/historical                                               403 B         103 kB
+├ ƒ /api/market/overview                                                 403 B         103 kB
+├ ƒ /api/market/quote                                                    403 B         103 kB
+├ ƒ /api/market/search                                                   403 B         103 kB
+├ ƒ /api/master-calendar                                                 403 B         103 kB
+├ ƒ /api/master-calendar/plan                                            403 B         103 kB
+├ ƒ /api/music                                                           403 B         103 kB
+├ ƒ /api/music/brief                                                     403 B         103 kB
+├ ƒ /api/pipeline                                                        403 B         103 kB
+├ ƒ /api/pipeline/[runId]                                                403 B         103 kB
+├ ƒ /api/podcast                                                         403 B         103 kB
+├ ƒ /api/podcast/artwork                                                 403 B         103 kB
+├ ƒ /api/podcast/rss                                                     403 B         103 kB
+├ ƒ /api/presentation/render                                             403 B         103 kB
+├ ƒ /api/publish                                                         403 B         103 kB
+├ ƒ /api/publish/[id]                                                    403 B         103 kB
+├ ƒ /api/publish/[id]/images/[index]                                     403 B         103 kB
+├ ƒ /api/publish/[id]/publish                                            403 B         103 kB
+├ ƒ /api/publish/[id]/thumbnail                                          403 B         103 kB
+├ ƒ /api/publish/accounts                                                403 B         103 kB
+├ ƒ /api/publish/accounts/[accountId]                                    403 B         103 kB
+├ ƒ /api/publish/ai-copy                                                 403 B         103 kB
+├ ƒ /api/publish/overview                                                403 B         103 kB
+├ ƒ /api/publish/run                                                     403 B         103 kB
+├ ƒ /api/publish/tiktok-avatar                                           403 B         103 kB
+├ ƒ /api/publish/tiktok/creator-info                                     403 B         103 kB
+├ ƒ /api/publish/upload                                                  403 B         103 kB
+├ ƒ /api/publish/youtube-channel                                         403 B         103 kB
+├ ƒ /api/publish/youtube-channel/duplicates                              403 B         103 kB
+├ ƒ /api/sfx                                                             403 B         103 kB
+├ ƒ /api/sfx/[soundId]                                                   403 B         103 kB
+├ ƒ /api/spotify                                                         403 B         103 kB
+├ ƒ /api/story                                                           403 B         103 kB
+├ ƒ /api/story/[id]                                                      403 B         103 kB
+├ ƒ /api/story/[id]/file                                                 403 B         103 kB
+├ ƒ /api/story/[id]/run                                                  403 B         103 kB
+├ ƒ /api/studio/carousels/[carouselId]                                   403 B         103 kB
+├ ƒ /api/studio/carousels/generate                                       403 B         103 kB
+├ ƒ /api/studio/carousels/images                                         403 B         103 kB
+├ ƒ /api/studio/carousels/images/[imageId]                               403 B         103 kB
+├ ƒ /api/studio/framework                                                403 B         103 kB
+├ ƒ /api/studio/ideas/[ideaId]                                           403 B         103 kB
+├ ƒ /api/studio/ideas/generate                                           403 B         103 kB
+├ ƒ /api/studio/overview                                                 403 B         103 kB
+├ ƒ /api/studio/scripts/[scriptId]                                       403 B         103 kB
+├ ƒ /api/studio/scripts/generate                                         403 B         103 kB
+├ ƒ /api/threads                                                         403 B         103 kB
+├ ƒ /api/update                                                          403 B         103 kB
+├ ƒ /api/update/progress                                                 403 B         103 kB
+├ ƒ /api/voice/ask                                                       403 B         103 kB
+├ ƒ /api/voice/session                                                   403 B         103 kB
+├ ƒ /api/voice/tool                                                      403 B         103 kB
+├ ƒ /api/voice/xai-auth                                                  403 B         103 kB
+├ ƒ /api/voiceover                                                       403 B         103 kB
+├ ƒ /api/voiceover/[id]                                                  403 B         103 kB
+├ ƒ /api/voiceover/[id]/audio                                            403 B         103 kB
+├ ƒ /api/x-posts/generate                                                403 B         103 kB
+├ ƒ /api/youtube/outliers                                                403 B         103 kB
+├ ƒ /api/youtube/outliers/competitor-insights                            403 B         103 kB
+├ ƒ /api/youtube/outliers/run                                            403 B         103 kB
+├ ƒ /api/youtube/watchlist                                               403 B         103 kB
+├ ○ /carousels                                                         17.4 kB         213 kB
+├ ○ /clips                                                             15.6 kB         211 kB
+├ ○ /creator                                                             403 B         103 kB
+├ ○ /day-summary                                                       4.43 kB         202 kB
+├ ○ /distribution                                                      4.93 kB         200 kB
+├ ƒ /editor                                                            38.8 kB         238 kB
+├ ○ /execution                                                         13.3 kB         209 kB
+├ ○ /facebook                                                          13.1 kB         209 kB
+├ ○ /finance                                                            129 kB         325 kB
+├ ○ /goals                                                               403 B         103 kB
+├ ○ /holdings                                                            403 B         103 kB
+├ ○ /icon.svg                                                              0 B            0 B
+├ ○ /ideas                                                             4.49 kB         200 kB
+├ ○ /insights                                                            403 B         103 kB
+├ ○ /launch                                                            8.68 kB         204 kB
+├ ○ /longform                                                          52.3 kB         252 kB
+├ ○ /manifest.webmanifest                                                403 B         103 kB
+├ ○ /master-calendar                                                   6.92 kB         205 kB
+├ ○ /music                                                             4.82 kB         200 kB
+├ ○ /notes                                                               403 B         103 kB
+├ ○ /outliers                                                          56.7 kB         252 kB
+├ ○ /pipeline                                                            143 B         221 kB
+├ ○ /podcast                                                           7.45 kB         203 kB
+├ ○ /presentation                                                      1.44 kB         197 kB
+├ ○ /scripts                                                           5.53 kB         201 kB
+├ ○ /settings                                                          8.59 kB         204 kB
+├ ○ /thumbnails                                                          403 B         103 kB
+├ ○ /uploading-center                                                  32.4 kB         228 kB
+├ ○ /voiceover                                                         2.59 kB         198 kB
+├ ○ /watchlist                                                           403 B         103 kB
+├ ○ /x-posts                                                           11.5 kB         207 kB
+└ ○ /youtube                                                             403 B         103 kB
++ First Load JS shared by all                                           102 kB
+  ├ chunks/1255-eae4096fb21f1304.js                                      46 kB
+  ├ chunks/4bd1b696-100b9d70ed4e49c1.js                                54.2 kB
+  └ other shared chunks (total)                                        2.09 kB
+
+
+○  (Static)   prerendered as static content
+ƒ  (Dynamic)  server-rendered on demand

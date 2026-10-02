@@ -25,6 +25,8 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { PageHeader } from "@/components/ui/page-header";
+import { WorkflowLoadNotice } from "@/components/marketing/workflow-load-notice";
+import { loadWorkflowJson, workflowLoadMessage } from "@/lib/marketing/workflow-resource";
 import { Progress } from "@/components/ui/progress";
 import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
@@ -126,7 +128,8 @@ function thumbnailUrl(jobId: string, fileName: string) {
 }
 
 function statusLabel(job: ClipJob) {
-  if (job.status === "queued" || job.status === "processing") return STAGE_LABELS[job.stage];
+  if (job.status === "queued") return "Queued";
+  if (job.status === "processing") return STAGE_LABELS[job.stage];
   if (job.status === "done") return "Ready";
   return "Needs attention";
 }
@@ -150,6 +153,9 @@ export function ClipGeneratorPage() {
   const clipProjects = data.clipProjects;
   const [jobs, setJobs] = useState<ClipJob[]>([]);
   const [loaded, setLoaded] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
+  const refreshInFlight = useRef(false);
   // `?job=` is how the sidebar and the Stream Pipeline hand this page the
   // stream you are working on, instead of opening on whatever ran last.
   const requestedJobId = useSearchParams().get("job");
@@ -204,18 +210,27 @@ export function ClipGeneratorPage() {
     activeJob?.status === "done" ? activeJob.clips.filter((clip) => !clip.file).length : 0;
 
   const refresh = useCallback(async () => {
+    if (refreshInFlight.current) return;
+    refreshInFlight.current = true;
+    setRefreshing(true);
     try {
-      const response = await fetch("/api/clips", { cache: "no-store" });
-      if (!response.ok) return;
-      const { jobs: list } = (await response.json()) as { jobs: ClipJob[] };
+      const { jobs: list } = await loadWorkflowJson<{ jobs: ClipJob[] }>("/api/clips", "jobs");
       setJobs(list);
-    } finally {
       setLoaded(true);
+      setLoadError(null);
+    } catch (error) {
+      setLoadError(workflowLoadMessage(error));
+    } finally {
+      refreshInFlight.current = false;
+      setRefreshing(false);
     }
   }, []);
 
   useEffect(() => {
-    void refresh();
+    // Start loading outside the effect so its loading state does not cascade
+    // through the initial render. Cleanup cancels a superseded mount.
+    const kickoff = window.setTimeout(() => void refresh(), 0);
+    return () => window.clearTimeout(kickoff);
   }, [refresh]);
 
   useEffect(() => {
@@ -255,7 +270,7 @@ export function ClipGeneratorPage() {
     try {
       await startJob({ url: trimmed, topic: brief.trim() || undefined, clipCount, autoFrame });
     } catch {
-      toast.error("Request failed. Is the dev server still running?");
+      toast.error("CoLateral could not be reached. Check your connection and try again.");
     } finally {
       setSubmitting(false);
     }
@@ -288,7 +303,7 @@ export function ClipGeneratorPage() {
         }
         await startJob({ sourceId: data.source.id, topic: brief.trim() || undefined, clipCount, autoFrame });
       } catch {
-        toast.error("Upload failed. Is the dev server still running?");
+        toast.error("The recording could not be uploaded. Check your connection and try again.");
       } finally {
         setUploading(false);
       }
@@ -447,7 +462,7 @@ export function ClipGeneratorPage() {
         toast.error(data.error ?? "Could not retry the missing clips.");
       }
     } catch {
-      toast.error("Retry failed. Is the dev server still running?");
+      toast.error("The retry could not be started. Check your connection and try again.");
     } finally {
       setRetryingJobId(null);
     }
@@ -465,7 +480,7 @@ export function ClipGeneratorPage() {
     ],
     controls: [
       { id: "submitUrl", label: "Find clips", group: "Add a stream", disabled: submitting || uploading || !url.trim() },
-      { id: "refresh", label: "Refresh streams", group: "Streams" },
+      { id: "refresh", label: loadError ? "Retry loading streams" : "Refresh streams", group: "Streams", disabled: refreshing },
       {
         id: "retryFailed",
         label: "Retry missing renders",
@@ -481,6 +496,7 @@ export function ClipGeneratorPage() {
       }
     ],
     readings: [
+      { label: "Stream data", value: loadError ? `Needs retry: ${loadError}` : loaded ? "Loaded" : "Loading…" },
       { label: "Streams", value: String(jobs.length) },
       { label: "Active stream", value: activeJob?.fileName ?? "None" },
       { label: "Status", value: activeJob ? statusLabel(activeJob) : "—" },
@@ -518,6 +534,7 @@ export function ClipGeneratorPage() {
         return true;
       }
       if (id === "refresh") {
+        if (refreshing) return false;
         void refresh();
         return true;
       }
@@ -560,6 +577,9 @@ export function ClipGeneratorPage() {
         title="Short Clips"
         description="Turn a stream into short, captioned clips ready for Shorts and Reels."
       />
+      {loadError ? (
+        <WorkflowLoadNotice title="Your streams could not be refreshed" message={loadError} retained={loaded} retrying={refreshing} onRetry={() => void refresh()} />
+      ) : null}
 
       <div className="grid gap-4 xl:grid-cols-[400px_minmax(0,1fr)]">
         <div className="min-w-0 space-y-4">
@@ -746,12 +766,12 @@ export function ClipGeneratorPage() {
           <Card className="p-4">
             <div className="mb-3 flex items-center justify-between gap-3">
               <h2 className="text-base font-semibold text-white">Your streams</h2>
-              <Button variant="ghost" className="px-2 py-1 text-xs" onClick={() => void refresh()}>
-                <RotateCw className="mr-1 h-3.5 w-3.5" />
-                Refresh
+              <Button variant="ghost" className="px-2 py-1 text-xs" disabled={refreshing} onClick={() => void refresh()}>
+                <RotateCw className={cn("mr-1 h-3.5 w-3.5", refreshing && "animate-spin")} />
+                {refreshing ? "Refreshing…" : "Refresh"}
               </Button>
             </div>
-            {!loaded ? (
+            {!loaded && loadError ? null : !loaded ? (
               <p className="text-sm text-[var(--muted-foreground)]">Loading...</p>
             ) : jobs.length === 0 ? (
               <p className="text-sm text-[var(--muted-foreground)]">
@@ -764,20 +784,24 @@ export function ClipGeneratorPage() {
                     key={job.id}
                     onClick={() => setActiveJobId(job.id)}
                     className={cn(
-                      "w-full cursor-pointer rounded-lg border p-3 text-left transition",
+                      "@container w-full cursor-pointer rounded-lg border p-3 text-left transition",
                       activeJob?.id === job.id
                         ? "border-[var(--accent)]/70 bg-[var(--accent)]/10"
                         : "border-white/10 bg-[var(--well)] hover:border-white/25"
                     )}
                   >
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="min-w-0">
-                        <p
+                    <div className="flex flex-col items-start gap-2 @min-[360px]:flex-row @min-[360px]:justify-between">
+                      <div className="min-w-0 w-full flex-1">
+                        <button
+                          type="button"
+                          onClick={() => setActiveJobId(job.id)}
+                          aria-pressed={activeJob?.id === job.id}
+                          aria-label={`Open stream ${job.fileName}`}
                           title={job.fileName}
-                          className="overflow-x-auto whitespace-nowrap text-sm font-medium text-white [scrollbar-width:thin] [&::-webkit-scrollbar]:h-1"
+                          className="block w-full overflow-x-auto whitespace-nowrap text-left text-sm font-medium text-white [scrollbar-width:thin] [&::-webkit-scrollbar]:h-1"
                         >
                           {job.fileName}
-                        </p>
+                        </button>
                         <p className="mt-1 flex items-center gap-1.5 text-xs text-[var(--muted-foreground)]">
                           <span
                             aria-hidden

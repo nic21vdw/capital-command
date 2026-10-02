@@ -14,6 +14,19 @@ already shipped.
 
 ## Unreleased
 
+- **Marketing fits the CoLateral array more reliably.** Compact cards use one
+  route menu, keep assistant controls clear of the content, and follow the
+  host's appearance. Keyboard navigation identifies the current page and
+  returns focus when dismissed. Populated clip and schedule controls fit
+  narrow panes, and the desktop assistant follows the content pane's gutters.
+
+- **Failed loads explain how to recover.** Startup waits for saved data instead
+  of briefly showing new-workspace controls. Failed workflow reads keep the
+  last loaded work visible with a Retry action. Calendar period failures no
+  longer look empty or show another period's events; filtered events have a
+  Show all sources action. First-run Settings opens, and a failed profile save
+  cannot mark setup complete.
+
 - Automations now keeps seven days of delivery and worker history, with filters, retry times and separate counts for successful deliveries, delivery failures and worker issues.
 - Video exports keep the best available source: Shorts can render at 4K vertical, new clip editor projects retain source size and frame rate, each pipeline keeps its chosen quality, and motion segments render sharp 4K text without an intermediate JPEG pass.
 - Visual ads now start from a real stream frame, preserve the full picture and your likeness, and let you review the source, adjust the copy and export the finished ad.

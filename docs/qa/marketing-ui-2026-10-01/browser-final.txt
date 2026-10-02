@@ -1,0 +1,13 @@
+ ✓ Ready in 671ms
+[serve] serving $WORKSPACE/colateral at http://localhost:5296/
+PASS Initial bootstrap failures stay visible and recover without fresh-install controls
+PASS Malformed successful bootstrap responses are refused
+PASS First-run Settings opens and failed profile save cannot finish setup
+PASS Marketing screens fit a 400px pane and finish loading
+PASS Keyboard navigation identifies Settings and restores trigger focus on Escape
+PASS Desktop assistant aligns to content and collapsed sidebar remains reachable
+PASS Workflow HTTP failures offer Retry and never claim an empty library
+PASS Real card and app agree on routes, input values, live theme and responsive chrome
+PASS Populated Longform and Uploading Center layouts fit compact panes
+PASS Native iframe reload reconnects and zoomed array stages keep suitable chrome
+ALL CHECKS PASS 10

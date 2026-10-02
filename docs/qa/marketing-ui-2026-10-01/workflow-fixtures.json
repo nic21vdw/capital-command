@@ -1,0 +1,795 @@
+{
+  "notes": [
+    "Synthetic UI fixtures only: no records, rendered media, account login, schedule or post is real.",
+    "Fulfill GETs in browser only; block all non-GET /api calls with a fixture response while exploring controls.",
+    "Mock missing fixture image/media/captions/waveform URLs; no playback/export/platform publishing verification claimed.",
+    "For period tests rewrite start/dateKey from the selected API range so the marker lands in the active period.",
+    "youtubeImageQueueStress is an intentionally impossible image-on-YouTube display stress case; normalInstagramImageQueue is the real supported image shape.",
+    "overview.enabled and calendar.publishEnabled are true only inside the intercepted synthetic payload so schedule layout is visible; no app setting is changed."
+  ],
+  "clips": {
+    "jobs": [
+      {
+        "id": "ui-review-job",
+        "fileName": "UI fixture \u2014 retained stream with a deliberately long descriptive title",
+        "sourceUrl": "upload://ui-review-source",
+        "sourceId": "ui-review-source",
+        "status": "done",
+        "stage": "finished",
+        "progress": 100,
+        "notices": [],
+        "createdAt": "2026-10-01T12:00:00.000Z",
+        "finishedAt": "2026-10-01T12:03:00.000Z",
+        "durationSec": 1800,
+        "clips": [
+          {
+            "id": "ui-review-clip",
+            "start": 30,
+            "end": 58,
+            "score": 92,
+            "breakdown": {
+              "hook": 90,
+              "pacing": 91,
+              "standalone": 95,
+              "intensity": 92
+            },
+            "rationale": "UI fixture for card layout and stale-data recovery; no media exists.",
+            "title": "UI fixture \u2014 retained clip",
+            "hookQuote": "A fixture used only for interface verification",
+            "file": "review-master.mp4",
+            "downloadFile": "review-short.mp4",
+            "posterFile": "review-poster.png"
+          }
+        ]
+      }
+    ]
+  },
+  "captions": {
+    "captions": []
+  },
+  "silences": {
+    "silences": []
+  },
+  "longformProjects": {
+    "projects": [
+      {
+        "id": "ui-review-project",
+        "name": "UI fixture \u2014 a long project title to verify compact library cards",
+        "sourceId": "ui-review-source",
+        "fileName": "review-recording.mp4",
+        "status": "ready",
+        "stage": "ready",
+        "progress": 100,
+        "notices": [],
+        "durationSec": 1800,
+        "width": 1920,
+        "height": 1080,
+        "hasAudio": true,
+        "hook": {
+          "enabled": true,
+          "start": 0,
+          "end": 7,
+          "zoom": 1.12,
+          "focusX": 0.5,
+          "focusY": 0.45,
+          "captionsEnabled": true,
+          "highlightCurrentWord": true,
+          "motionEnabled": true,
+          "captions": [],
+          "captionStyle": {
+            "fontFamily": "Inter, system-ui, sans-serif",
+            "fontScale": 0.062,
+            "fontWeight": 900,
+            "textColor": "#ffffff",
+            "highlightColor": "#fde047",
+            "backgroundColor": "#000000",
+            "backgroundOpacity": 0,
+            "outlineWidth": 4,
+            "shadow": 2,
+            "position": "lower-third",
+            "alignment": "center",
+            "maxWordsPerCaption": 3,
+            "wordsPerLine": 3,
+            "animation": "pop",
+            "uppercase": true
+          }
+        },
+        "overlays": [],
+        "music": {
+          "enabled": false,
+          "clips": [],
+          "videoVolume": 1,
+          "masterVolume": 1
+        },
+        "pace": {
+          "minSilenceSec": 0.7,
+          "paddingSec": 0.15
+        },
+        "exports": [
+          {
+            "id": "ui-review-export",
+            "status": "done",
+            "progress": 100,
+            "file": "review-export.mp4",
+            "durationSec": 1800,
+            "createdAt": "2026-10-01T12:00:00.000Z"
+          }
+        ],
+        "topics": [
+          {
+            "id": "ui-review-topic",
+            "title": "UI fixture \u2014 an independently rendered long segment with a deliberately long title",
+            "summary": "A fixture topic for compact selection and status checks.",
+            "start": 600,
+            "end": 1200,
+            "keywords": [
+              "fixture"
+            ],
+            "titleSource": "fallback"
+          }
+        ],
+        "hookReview": {
+          "score": 40,
+          "verdict": "weak",
+          "opening": "UI fixture weak opening",
+          "reasons": [
+            "Fixture for the review notice."
+          ],
+          "start": 0,
+          "end": 7
+        },
+        "segmentReviews": [
+          {
+            "topicId": "ui-review-topic",
+            "title": "UI fixture segment",
+            "start": 600,
+            "end": 607,
+            "runtimeSec": 600,
+            "score": 50,
+            "verdict": "weak",
+            "opening": "UI fixture opening",
+            "reasons": [
+              "Fixture for the segment review notice."
+            ],
+            "missingTreatment": [
+              "captions"
+            ]
+          }
+        ],
+        "createdAt": "2026-10-01T12:00:00.000Z",
+        "updatedAt": "2026-10-01T12:00:00.000Z",
+        "editedDurationSec": 1800
+      },
+      {
+        "id": "ui-review-processing",
+        "name": "UI fixture \u2014 analysis still in progress",
+        "sourceId": "ui-review-source",
+        "fileName": "review-recording.mp4",
+        "status": "processing",
+        "stage": "transcribing",
+        "progress": 45,
+        "notices": [],
+        "durationSec": 1800,
+        "width": 1920,
+        "height": 1080,
+        "hasAudio": true,
+        "hook": {
+          "enabled": true,
+          "start": 0,
+          "end": 7,
+          "zoom": 1.12,
+          "focusX": 0.5,
+          "focusY": 0.45,
+          "captionsEnabled": true,
+          "highlightCurrentWord": true,
+          "motionEnabled": true,
+          "captions": [],
+          "captionStyle": {
+            "fontFamily": "Inter, system-ui, sans-serif",
+            "fontScale": 0.062,
+            "fontWeight": 900,
+            "textColor": "#ffffff",
+            "highlightColor": "#fde047",
+            "backgroundColor": "#000000",
+            "backgroundOpacity": 0,
+            "outlineWidth": 4,
+            "shadow": 2,
+            "position": "lower-third",
+            "alignment": "center",
+            "maxWordsPerCaption": 3,
+            "wordsPerLine": 3,
+            "animation": "pop",
+            "uppercase": true
+          }
+        },
+        "overlays": [],
+        "music": {
+          "enabled": false,
+          "clips": [],
+          "videoVolume": 1,
+          "masterVolume": 1
+        },
+        "pace": {
+          "minSilenceSec": 0.7,
+          "paddingSec": 0.15
+        },
+        "exports": [],
+        "topics": [
+          {
+            "id": "ui-review-topic",
+            "title": "UI fixture \u2014 an independently rendered long segment with a deliberately long title",
+            "summary": "A fixture topic for compact selection and status checks.",
+            "start": 600,
+            "end": 1200,
+            "keywords": [
+              "fixture"
+            ],
+            "titleSource": "fallback"
+          }
+        ],
+        "hookReview": {
+          "score": 40,
+          "verdict": "weak",
+          "opening": "UI fixture weak opening",
+          "reasons": [
+            "Fixture for the review notice."
+          ],
+          "start": 0,
+          "end": 7
+        },
+        "segmentReviews": [
+          {
+            "topicId": "ui-review-topic",
+            "title": "UI fixture segment",
+            "start": 600,
+            "end": 607,
+            "runtimeSec": 600,
+            "score": 50,
+            "verdict": "weak",
+            "opening": "UI fixture opening",
+            "reasons": [
+              "Fixture for the segment review notice."
+            ],
+            "missingTreatment": [
+              "captions"
+            ]
+          }
+        ],
+        "createdAt": "2026-10-01T12:00:00.000Z",
+        "updatedAt": "2026-10-01T12:00:00.000Z",
+        "editedDurationSec": 1800
+      },
+      {
+        "id": "ui-review-failed",
+        "name": "UI fixture \u2014 failed analysis",
+        "sourceId": "ui-review-source",
+        "fileName": "review-recording.mp4",
+        "status": "error",
+        "stage": "analyzing",
+        "progress": 45,
+        "notices": [],
+        "durationSec": 1800,
+        "width": 1920,
+        "height": 1080,
+        "hasAudio": true,
+        "hook": {
+          "enabled": true,
+          "start": 0,
+          "end": 7,
+          "zoom": 1.12,
+          "focusX": 0.5,
+          "focusY": 0.45,
+          "captionsEnabled": true,
+          "highlightCurrentWord": true,
+          "motionEnabled": true,
+          "captions": [],
+          "captionStyle": {
+            "fontFamily": "Inter, system-ui, sans-serif",
+            "fontScale": 0.062,
+            "fontWeight": 900,
+            "textColor": "#ffffff",
+            "highlightColor": "#fde047",
+            "backgroundColor": "#000000",
+            "backgroundOpacity": 0,
+            "outlineWidth": 4,
+            "shadow": 2,
+            "position": "lower-third",
+            "alignment": "center",
+            "maxWordsPerCaption": 3,
+            "wordsPerLine": 3,
+            "animation": "pop",
+            "uppercase": true
+          }
+        },
+        "overlays": [],
+        "music": {
+          "enabled": false,
+          "clips": [],
+          "videoVolume": 1,
+          "masterVolume": 1
+        },
+        "pace": {
+          "minSilenceSec": 0.7,
+          "paddingSec": 0.15
+        },
+        "exports": [],
+        "topics": [
+          {
+            "id": "ui-review-topic",
+            "title": "UI fixture \u2014 an independently rendered long segment with a deliberately long title",
+            "summary": "A fixture topic for compact selection and status checks.",
+            "start": 600,
+            "end": 1200,
+            "keywords": [
+              "fixture"
+            ],
+            "titleSource": "fallback"
+          }
+        ],
+        "hookReview": {
+          "score": 40,
+          "verdict": "weak",
+          "opening": "UI fixture weak opening",
+          "reasons": [
+            "Fixture for the review notice."
+          ],
+          "start": 0,
+          "end": 7
+        },
+        "segmentReviews": [
+          {
+            "topicId": "ui-review-topic",
+            "title": "UI fixture segment",
+            "start": 600,
+            "end": 607,
+            "runtimeSec": 600,
+            "score": 50,
+            "verdict": "weak",
+            "opening": "UI fixture opening",
+            "reasons": [
+              "Fixture for the segment review notice."
+            ],
+            "missingTreatment": [
+              "captions"
+            ]
+          }
+        ],
+        "createdAt": "2026-10-01T12:00:00.000Z",
+        "updatedAt": "2026-10-01T12:00:00.000Z",
+        "editedDurationSec": 1800,
+        "error": "Fixture failure \u2014 retry analysis is available."
+      }
+    ]
+  },
+  "longformProject": {
+    "project": {
+      "id": "ui-review-project",
+      "name": "UI fixture \u2014 a long project title to verify compact library cards",
+      "sourceId": "ui-review-source",
+      "fileName": "review-recording.mp4",
+      "status": "ready",
+      "stage": "ready",
+      "progress": 100,
+      "notices": [],
+      "durationSec": 1800,
+      "width": 1920,
+      "height": 1080,
+      "hasAudio": true,
+      "transcript": [],
+      "silences": [],
+      "segments": [
+        {
+          "id": "ui-review-segment",
+          "start": 0,
+          "end": 1800,
+          "kind": "speech",
+          "enabled": true
+        }
+      ],
+      "hook": {
+        "enabled": true,
+        "start": 0,
+        "end": 7,
+        "zoom": 1.12,
+        "focusX": 0.5,
+        "focusY": 0.45,
+        "captionsEnabled": true,
+        "highlightCurrentWord": true,
+        "motionEnabled": true,
+        "captions": [],
+        "captionStyle": {
+          "fontFamily": "Inter, system-ui, sans-serif",
+          "fontScale": 0.062,
+          "fontWeight": 900,
+          "textColor": "#ffffff",
+          "highlightColor": "#fde047",
+          "backgroundColor": "#000000",
+          "backgroundOpacity": 0,
+          "outlineWidth": 4,
+          "shadow": 2,
+          "position": "lower-third",
+          "alignment": "center",
+          "maxWordsPerCaption": 3,
+          "wordsPerLine": 3,
+          "animation": "pop",
+          "uppercase": true
+        }
+      },
+      "captions": {
+        "enabled": false,
+        "highlightCurrentWord": true,
+        "segments": [],
+        "style": {
+          "fontFamily": "Inter, system-ui, sans-serif",
+          "fontScale": 0.062,
+          "fontWeight": 900,
+          "textColor": "#ffffff",
+          "highlightColor": "#fde047",
+          "backgroundColor": "#000000",
+          "backgroundOpacity": 0,
+          "outlineWidth": 4,
+          "shadow": 2,
+          "position": "lower-third",
+          "alignment": "center",
+          "maxWordsPerCaption": 3,
+          "wordsPerLine": 3,
+          "animation": "pop",
+          "uppercase": true
+        }
+      },
+      "overlays": [],
+      "music": {
+        "enabled": false,
+        "clips": [],
+        "videoVolume": 1,
+        "masterVolume": 1
+      },
+      "pace": {
+        "minSilenceSec": 0.7,
+        "paddingSec": 0.15
+      },
+      "exports": [
+        {
+          "id": "ui-review-export",
+          "status": "done",
+          "progress": 100,
+          "file": "review-export.mp4",
+          "durationSec": 1800,
+          "createdAt": "2026-10-01T12:00:00.000Z"
+        }
+      ],
+      "topics": [
+        {
+          "id": "ui-review-topic",
+          "title": "UI fixture \u2014 an independently rendered long segment with a deliberately long title",
+          "summary": "A fixture topic for compact selection and status checks.",
+          "start": 600,
+          "end": 1200,
+          "keywords": [
+            "fixture"
+          ],
+          "titleSource": "fallback"
+        }
+      ],
+      "hookReview": {
+        "score": 40,
+        "verdict": "weak",
+        "opening": "UI fixture weak opening",
+        "reasons": [
+          "Fixture for the review notice."
+        ],
+        "start": 0,
+        "end": 7
+      },
+      "segmentReviews": [
+        {
+          "topicId": "ui-review-topic",
+          "title": "UI fixture segment",
+          "start": 600,
+          "end": 607,
+          "runtimeSec": 600,
+          "score": 50,
+          "verdict": "weak",
+          "opening": "UI fixture opening",
+          "reasons": [
+            "Fixture for the segment review notice."
+          ],
+          "missingTreatment": [
+            "captions"
+          ]
+        }
+      ],
+      "createdAt": "2026-10-01T12:00:00.000Z",
+      "updatedAt": "2026-10-01T12:00:00.000Z"
+    }
+  },
+  "publish": {
+    "items": [
+      {
+        "id": "ui-review-queue",
+        "clipPath": "data/clips/outputs/ui-review-job/review-short.mp4",
+        "sourceClipPath": "data/clips/outputs/ui-review-job/review-master.mp4",
+        "title": "UI fixture \u2014 scheduled clip",
+        "caption": "UI-only fixture. No media or platform credentials exist.",
+        "hashtags": [],
+        "publishAt": "2026-10-02T15:30:00.000Z",
+        "visibility": "private",
+        "createdAt": "2026-10-01T12:00:00.000Z",
+        "jobId": "ui-review-job",
+        "platforms": {
+          "youtube": {
+            "status": "scheduled",
+            "attempts": 0,
+            "postId": "ui-review-video",
+            "uploadedAt": "2026-10-01T12:00:00.000Z"
+          }
+        }
+      }
+    ]
+  },
+  "youtubeImageQueueStress": {
+    "items": [
+      {
+        "id": "ui-review-carousel-queue",
+        "clipPath": "data/carousels/ui-review-deck/slide-01.jpg",
+        "sourceClipPath": null,
+        "title": "UI fixture \u2014 eight-image carousel with compact actions",
+        "caption": "UI-only fixture. No media or platform credentials exist.",
+        "hashtags": [],
+        "publishAt": "2026-10-02T15:30:00.000Z",
+        "visibility": "private",
+        "createdAt": "2026-10-01T12:00:00.000Z",
+        "jobId": "ui-review-job",
+        "platforms": {
+          "youtube": {
+            "status": "scheduled",
+            "attempts": 0,
+            "postId": "ui-review-video",
+            "uploadedAt": "2026-10-01T12:00:00.000Z"
+          }
+        },
+        "mediaKind": "image",
+        "imagePaths": [
+          "data/carousels/ui-review-deck/slide-01.jpg",
+          "data/carousels/ui-review-deck/slide-02.jpg",
+          "data/carousels/ui-review-deck/slide-03.jpg",
+          "data/carousels/ui-review-deck/slide-04.jpg",
+          "data/carousels/ui-review-deck/slide-05.jpg",
+          "data/carousels/ui-review-deck/slide-06.jpg",
+          "data/carousels/ui-review-deck/slide-07.jpg",
+          "data/carousels/ui-review-deck/slide-08.jpg"
+        ]
+      }
+    ]
+  },
+  "normalInstagramImageQueue": {
+    "items": [
+      {
+        "id": "ui-review-instagram-carousel",
+        "clipPath": "data/carousels/ui-review-deck/slide-01.jpg",
+        "sourceClipPath": null,
+        "title": "UI fixture \u2014 eight-image carousel with compact actions",
+        "caption": "UI-only fixture. No media or platform credentials exist.",
+        "hashtags": [],
+        "publishAt": "2026-10-02T15:30:00.000Z",
+        "visibility": "private",
+        "createdAt": "2026-10-01T12:00:00.000Z",
+        "jobId": "ui-review-job",
+        "platforms": {
+          "instagram": {
+            "status": "scheduled",
+            "attempts": 0,
+            "postId": "ui-review-media",
+            "uploadedAt": "2026-10-01T12:00:00.000Z"
+          }
+        },
+        "mediaKind": "image",
+        "imagePaths": [
+          "data/carousels/ui-review-deck/slide-01.jpg",
+          "data/carousels/ui-review-deck/slide-02.jpg",
+          "data/carousels/ui-review-deck/slide-03.jpg",
+          "data/carousels/ui-review-deck/slide-04.jpg",
+          "data/carousels/ui-review-deck/slide-05.jpg",
+          "data/carousels/ui-review-deck/slide-06.jpg",
+          "data/carousels/ui-review-deck/slide-07.jpg",
+          "data/carousels/ui-review-deck/slide-08.jpg"
+        ]
+      }
+    ]
+  },
+  "accounts": {
+    "accounts": [
+      {
+        "id": "youtube-primary",
+        "platform": "youtube",
+        "label": "UI fixture youtube",
+        "createdAt": "2026-10-01T12:00:00.000Z",
+        "primary": true,
+        "connected": false,
+        "profile": null,
+        "blocker": null,
+        "youtube": null,
+        "tiktok": null
+      },
+      {
+        "id": "tiktok-primary",
+        "platform": "tiktok",
+        "label": "UI fixture tiktok",
+        "createdAt": "2026-10-01T12:00:00.000Z",
+        "primary": true,
+        "connected": false,
+        "profile": null,
+        "blocker": null,
+        "youtube": null,
+        "tiktok": null
+      },
+      {
+        "id": "instagram-primary",
+        "platform": "instagram",
+        "label": "UI fixture instagram",
+        "createdAt": "2026-10-01T12:00:00.000Z",
+        "primary": true,
+        "connected": false,
+        "profile": null,
+        "blocker": null,
+        "youtube": null,
+        "tiktok": null
+      },
+      {
+        "id": "facebook-primary",
+        "platform": "facebook",
+        "label": "UI fixture facebook",
+        "createdAt": "2026-10-01T12:00:00.000Z",
+        "primary": true,
+        "connected": false,
+        "profile": null,
+        "blocker": null,
+        "youtube": null,
+        "tiktok": null
+      }
+    ]
+  },
+  "overview": {
+    "enabled": true,
+    "timezone": "America/Toronto",
+    "slotTimes": [
+      "11:30",
+      "15:30",
+      "19:30"
+    ],
+    "weekendSlotTimes": [
+      "12:30"
+    ],
+    "quota": {
+      "date": "2026-10-01",
+      "uploadsUsed": 0,
+      "uploadsPending": 0,
+      "projectedUploads": 0,
+      "budgetUploads": 6,
+      "usedUnits": 0,
+      "unitsPerUpload": 1600,
+      "dailyUnits": 10000,
+      "overBudget": false
+    }
+  },
+  "youtubeChannel": {
+    "configured": false,
+    "needsReconnect": false,
+    "fetchedAt": null,
+    "channelId": null,
+    "videos": [],
+    "error": null
+  },
+  "calendarOld": {
+    "timezone": "America/Toronto",
+    "publishEnabled": true,
+    "start": "2026-09-27",
+    "days": 7,
+    "events": [
+      {
+        "id": "shorts:ui-review-old",
+        "source": "shorts",
+        "dateKey": "2026-10-01",
+        "time": "11:30",
+        "title": "UI fixture \u2014 old period marker",
+        "platforms": [
+          "YouTube"
+        ],
+        "status": "scheduled",
+        "href": "/uploading-center?item=ui-review-queue"
+      },
+      {
+        "id": "x:ui-review-old",
+        "source": "x",
+        "dateKey": "2026-10-01",
+        "time": "12:30",
+        "title": "UI fixture \u2014 old Threads batch entry",
+        "platforms": [
+          "Threads"
+        ],
+        "status": "suggested"
+      },
+      {
+        "id": "x:ui-review-old-2",
+        "source": "x",
+        "dateKey": "2026-10-01",
+        "time": "13:30",
+        "title": "UI fixture \u2014 old second Threads entry",
+        "platforms": [
+          "Threads"
+        ],
+        "status": "suggested"
+      },
+      {
+        "id": "carousels:ui-review-old",
+        "source": "carousels",
+        "dateKey": "2026-10-01",
+        "time": "14:00",
+        "title": "UI fixture \u2014 old repeated carousel",
+        "platforms": [
+          "Instagram",
+          "Facebook",
+          "TikTok"
+        ],
+        "status": "scheduled",
+        "recurring": true
+      }
+    ]
+  },
+  "calendarNew": {
+    "timezone": "America/Toronto",
+    "publishEnabled": true,
+    "start": "2026-10-04",
+    "days": 7,
+    "events": [
+      {
+        "id": "shorts:ui-review-new",
+        "source": "shorts",
+        "dateKey": "2026-10-08",
+        "time": "11:30",
+        "title": "UI fixture \u2014 new period marker",
+        "platforms": [
+          "YouTube"
+        ],
+        "status": "scheduled",
+        "href": "/uploading-center?item=ui-review-queue"
+      },
+      {
+        "id": "x:ui-review-new",
+        "source": "x",
+        "dateKey": "2026-10-08",
+        "time": "12:30",
+        "title": "UI fixture \u2014 new Threads batch entry",
+        "platforms": [
+          "Threads"
+        ],
+        "status": "suggested"
+      },
+      {
+        "id": "x:ui-review-new-2",
+        "source": "x",
+        "dateKey": "2026-10-08",
+        "time": "13:30",
+        "title": "UI fixture \u2014 new second Threads entry",
+        "platforms": [
+          "Threads"
+        ],
+        "status": "suggested"
+      },
+      {
+        "id": "carousels:ui-review-new",
+        "source": "carousels",
+        "dateKey": "2026-10-08",
+        "time": "14:00",
+        "title": "UI fixture \u2014 new repeated carousel",
+        "platforms": [
+          "Instagram",
+          "Facebook",
+          "TikTok"
+        ],
+        "status": "scheduled",
+        "recurring": true
+      }
+    ]
+  }
+}

@@ -29,6 +29,7 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Modal } from "@/components/ui/modal";
 import { PageHeader } from "@/components/ui/page-header";
+import { WorkflowLoadNotice } from "@/components/marketing/workflow-load-notice";
 import { Tabs } from "@/components/ui/tabs";
 import { AccountSwitcher } from "@/components/uploading-center/account-switcher";
 import { ClipQueue } from "@/components/uploading-center/clip-queue";
@@ -88,6 +89,12 @@ export function UploadingCenterPage() {
 
   const {
     loaded,
+    loadError,
+    refreshing,
+    accountsError,
+    accountsRefreshing,
+    channelError,
+    channelRefreshing,
     overview,
     slots,
     slotOffsetDays,
@@ -680,6 +687,9 @@ export function UploadingCenterPage() {
           {id === "youtube" && configured && channel?.needsReconnect ? (
             <ReconnectYoutubeNotice accountId={activeAccount?.id} />
           ) : null}
+          {id === "youtube" && channelRefreshing && !channel ? (
+            <p className="flex items-center gap-2 text-xs text-[var(--muted-foreground)]" role="status"><Loader2 className="h-3.5 w-3.5 animate-spin" /> Loading this account&apos;s YouTube schedule…</p>
+          ) : null}
           {id === "tiktok" && !configured ? (
             <ConnectTiktokNotice
               accountId={activeAccount?.id}
@@ -728,14 +738,8 @@ export function UploadingCenterPage() {
             busy={busy}
             highlightedItemId={itemParam}
           />
-          {id === "youtube" && channel?.error ? (
-            <p
-              className="truncate text-[11px] text-[var(--muted-foreground)]"
-              title={channel.error}
-            >
-              Couldn&apos;t refresh the YouTube schedule — showing the last
-              known state.
-            </p>
+          {id === "youtube" && (channelError || channel?.error) ? (
+            <WorkflowLoadNotice title="The YouTube schedule could not be refreshed" message={channelError ?? channel?.error ?? "Try again."} retained={Boolean(channel?.fetchedAt)} retrying={channelRefreshing} onRetry={() => void refreshChannel({ force: true })} />
           ) : null}
         </div>
       ),
@@ -784,12 +788,13 @@ export function UploadingCenterPage() {
       },
     ],
     controls: [
+      ...(loadError || accountsError ? [{ id: "retry-load", label: "Retry loading clips and schedule", group: "Recovery", disabled: refreshing || accountsRefreshing }] : []),
       {
         id: "autoAssign",
         label: "Schedule at next free slots",
         group: "Queue",
         destructive: true,
-        disabled: bulkBusy || unscheduledCount === 0,
+        disabled: !loaded || bulkBusy || unscheduledCount === 0,
       },
       {
         id: "captionsForAll",
@@ -811,6 +816,7 @@ export function UploadingCenterPage() {
       },
     ],
     readings: [
+      { label: "Schedule data", value: loadError || accountsError ? `Needs retry: ${loadError ?? accountsError}` : loaded ? "Loaded" : "Loading…" },
       { label: "Clips in this run", value: String(readyClips.length) },
       { label: "Unscheduled clips", value: String(unscheduledCount) },
       { label: "Failed captions", value: String(failedCaptionClips.length) },
@@ -846,8 +852,14 @@ export function UploadingCenterPage() {
       return false;
     },
     click: (id) => {
+      if (id === "retry-load") {
+        if (refreshing || accountsRefreshing) return false;
+        void refresh();
+        void refreshAccounts();
+        return true;
+      }
       if (id === "autoAssign") {
-        if (bulkBusy || unscheduledCount === 0) return false;
+        if (!loaded || bulkBusy || unscheduledCount === 0) return false;
         void handleAutoAssign();
         return true;
       }
@@ -881,6 +893,8 @@ export function UploadingCenterPage() {
         description="Book your finished clips onto the posting schedule — one button fills the next free slots, or drag a clip onto any slot yourself."
         actions={overview ? <div className="w-full max-w-sm"><QuotaMeter quota={overview.quota} /></div> : undefined}
       />
+      {loadError ? <div className="mb-4"><WorkflowLoadNotice title="Your clips and posting schedule could not be refreshed" message={loadError} retained={loaded} retrying={refreshing} onRetry={() => void refresh()} /></div> : null}
+      {accountsError ? <div className="mb-4"><WorkflowLoadNotice title="Your social accounts could not be refreshed" message={accountsError} retained={loaded} retrying={accountsRefreshing} onRetry={() => void refreshAccounts()} /></div> : null}
 
       {placingClip ? (
         <div className="mb-4 flex flex-wrap items-center gap-3 rounded-lg border border-[var(--accent)]/40 bg-[var(--accent)]/10 px-3 py-2.5">
@@ -902,9 +916,10 @@ export function UploadingCenterPage() {
       ) : null}
 
       <div className="app-frame-scroll">
-        {!loaded ? (
-          <Card className="flex items-center justify-center py-16">
+        {!loaded && (loadError || accountsError) ? null : !loaded ? (
+          <Card className="flex items-center justify-center gap-2 py-16" role="status">
             <Loader2 className="h-5 w-5 animate-spin text-[var(--muted-foreground)]" />
+            <span className="text-sm text-[var(--muted-foreground)]">Loading your clips, accounts and schedule…</span>
           </Card>
         ) : overview && !overview.enabled ? (
           <Card className="tone-warning tone-edge space-y-2">
@@ -920,7 +935,7 @@ export function UploadingCenterPage() {
           </Card>
         ) : (
           <>
-            <div className="grid gap-6 xl:grid-cols-[minmax(22rem,1fr)_minmax(0,2.3fr)]">
+            <div className="grid min-w-0 grid-cols-1 gap-6 xl:grid-cols-[minmax(22rem,1fr)_minmax(0,2.3fr)]">
               <ClipQueue
                 jobs={jobsWithClips}
                 activeJob={activeJob}

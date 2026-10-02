@@ -911,6 +911,72 @@ input[type="datetime-local"],
   }
 }
 
+/* The command bar belongs to the content pane. At desktop widths, centering
+   it across the whole window covered the sidebar and left it off-centre. */
+.marketing-shell {
+  --marketing-shell-inset: 0.5rem;
+  --marketing-shell-gap: 1.5rem;
+  --marketing-command-offset: var(--marketing-shell-inset);
+}
+
+.marketing-shell[data-hosted="true"] {
+  --marketing-shell-gap: 1rem;
+}
+
+.marketing-command-bar {
+  left: var(--marketing-command-offset);
+  right: var(--marketing-shell-inset);
+}
+
+.marketing-command-clearance {
+  height: calc(7rem + env(safe-area-inset-bottom));
+}
+
+.marketing-shell :where(a, button, input, select, textarea, [tabindex]) {
+  scroll-margin-bottom: 8rem;
+}
+
+@media (min-width: 640px) {
+  .marketing-shell {
+    --marketing-shell-inset: 1rem;
+  }
+
+  .marketing-shell[data-hosted="true"] {
+    --marketing-shell-inset: 0.75rem;
+  }
+}
+
+@media (min-width: 1024px) {
+  .marketing-shell {
+    --marketing-shell-inset: 1.5rem;
+  }
+
+  .marketing-shell[data-hosted="true"] {
+    --marketing-shell-inset: 0.75rem;
+  }
+
+  .marketing-shell[data-sidebar="expanded"] {
+    --marketing-command-offset: calc(var(--marketing-shell-inset) + 18rem + var(--marketing-shell-gap));
+  }
+
+  .marketing-shell[data-sidebar="collapsed"] {
+    --marketing-command-offset: calc(var(--marketing-shell-inset) + 5rem + var(--marketing-shell-gap));
+  }
+}
+
+/* A wide canvas card can still be short. Let the whole rail scroll instead
+   of its fixed account/profile blocks squeezing navigation to zero height. */
+@media (max-height: 760px) {
+  .marketing-sidebar {
+    overflow-y: auto;
+  }
+
+  .marketing-sidebar > nav {
+    flex: none;
+    overflow-y: visible;
+  }
+}
+
 @media (min-height: 720px) {
   .app-frame {
     height: 100dvh;

@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
+import { loadWorkflowJson, workflowLoadMessage } from "@/lib/marketing/workflow-resource";
 import { nameClips } from "@/components/uploading-center/bulk";
 import { windowSegments } from "@/lib/clipping/captions";
 import { loadJobCaptions } from "@/lib/clipping/captions-client";
@@ -311,7 +312,7 @@ export function useUploadingCenter(clipProjects: ClipProject[] = []) {
   const [jobs, setJobs] = useState<ClipJob[]>([]);
   const [queueItems, setQueueItems] = useState<QueueItem[]>([]);
   const [overview, setOverview] = useState<Overview | null>(null);
-  const [channel, setChannel] = useState<ChannelSchedule | null>(null);
+  const [channelSnapshot, setChannelSnapshot] = useState<{ accountId: string; schedule: ChannelSchedule } | null>(null);
   const [accounts, setAccounts] = useState<SocialAccountView[]>([]);
   /**
    * Which account each platform's tab (and calendar) is showing. Defaults to
@@ -320,6 +321,15 @@ export function useUploadingCenter(clipProjects: ClipProject[] = []) {
    */
   const [activeAccountIds, setActiveAccountIds] = useState<Record<PlatformId, string>>(DEFAULT_ACTIVE_ACCOUNTS);
   const [loaded, setLoaded] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
+  const [accountsLoaded, setAccountsLoaded] = useState(false);
+  const [accountsError, setAccountsError] = useState<string | null>(null);
+  const [accountsRefreshing, setAccountsRefreshing] = useState(false);
+  const accountsInFlightRef = useRef(false);
+  const [channelFailure, setChannelFailure] = useState<{ accountId: string; message: string } | null>(null);
+  const [channelRefreshing, setChannelRefreshing] = useState(false);
+  const channelRequestRef = useRef(0);
   const [activeJobId, setActiveJobId] = useState<string | null>(null);
   /** Key of the action in flight ("schedule:<clipKey>", "publish:<id>", …). */
   const [busy, setBusy] = useState<string | null>(null);
@@ -366,6 +376,8 @@ export function useUploadingCenter(clipProjects: ClipProject[] = []) {
   );
 
   const activeYoutubeAccountId = activeAccountIds.youtube;
+  const channel = channelSnapshot?.accountId === activeYoutubeAccountId ? channelSnapshot.schedule : null;
+  const channelError = channelFailure?.accountId === activeYoutubeAccountId ? channelFailure.message : null;
 
   // The account the poll should read, without `refresh` changing identity every
   // time it moves — that identity is what the page's 60s timer is keyed on, and
@@ -383,8 +395,11 @@ export function useUploadingCenter(clipProjects: ClipProject[] = []) {
    * request that has to queue behind everything else the page is loading.
    */
   const refreshOverview = useCallback(async () => {
-    const res = await fetch("/api/publish/overview", { cache: "no-store" });
-    if (res.ok) setOverview((await res.json()) as Overview);
+    const next = await loadWorkflowJson<Overview>("/api/publish/overview");
+    if (typeof next.enabled !== "boolean" || typeof next.timezone !== "string" || !next.quota) {
+      throw new Error("The publishing settings could not be loaded.");
+    }
+    setOverview(next);
   }, []);
 
   /**
@@ -393,11 +408,19 @@ export function useUploadingCenter(clipProjects: ClipProject[] = []) {
    * on every tick — each account's view costs a profile lookup at its platform.
    */
   const refreshAccounts = useCallback(async () => {
+    if (accountsInFlightRef.current) return;
+    accountsInFlightRef.current = true;
+    setAccountsRefreshing(true);
     try {
-      const res = await fetch("/api/publish/accounts", { cache: "no-store" });
-      if (res.ok) setAccounts(((await res.json()) as { accounts?: SocialAccountView[] }).accounts ?? []);
-    } catch {
-      // Offline — the accounts already on screen stay.
+      const next = await loadWorkflowJson<{ accounts: SocialAccountView[] }>("/api/publish/accounts", "accounts");
+      setAccounts(next.accounts);
+      setAccountsLoaded(true);
+      setAccountsError(null);
+    } catch (error) {
+      setAccountsError(workflowLoadMessage(error));
+    } finally {
+      accountsInFlightRef.current = false;
+      setAccountsRefreshing(false);
     }
   }, []);
 
@@ -407,13 +430,20 @@ export function useUploadingCenter(clipProjects: ClipProject[] = []) {
    * appears at once.
    */
   const refreshChannel = useCallback(async (options?: { force?: boolean; accountId?: string }) => {
-    const params = new URLSearchParams({ account: options?.accountId ?? youtubeAccountRef.current });
+    const accountId = options?.accountId ?? youtubeAccountRef.current;
+    const request = ++channelRequestRef.current;
+    setChannelRefreshing(true);
+    const params = new URLSearchParams({ account: accountId });
     if (options?.force) params.set("refresh", "1");
     try {
-      const res = await fetch(`/api/publish/youtube-channel?${params.toString()}`, { cache: "no-store" });
-      if (res.ok) setChannel((await res.json()) as ChannelSchedule);
-    } catch {
-      // Offline, or the channel read timed out — the last known schedule stays.
+      const next = await loadWorkflowJson<ChannelSchedule>(`/api/publish/youtube-channel?${params.toString()}`, "videos");
+      if (request !== channelRequestRef.current) return;
+      setChannelSnapshot({ accountId, schedule: next });
+      setChannelFailure(null);
+    } catch (error) {
+      if (request === channelRequestRef.current) setChannelFailure({ accountId, message: workflowLoadMessage(error) });
+    } finally {
+      if (request === channelRequestRef.current) setChannelRefreshing(false);
     }
   }, []);
 
@@ -430,24 +460,33 @@ export function useUploadingCenter(clipProjects: ClipProject[] = []) {
    */
   const refresh = useCallback(
     async (options?: { channelRefresh?: boolean }) => {
-      if (refreshInFlightRef.current && !options?.channelRefresh) return;
+      if (refreshInFlightRef.current) {
+        if (options?.channelRefresh) void refreshChannel({ force: true });
+        return;
+      }
       refreshInFlightRef.current = true;
+      setRefreshing(true);
       void refreshChannel({ force: options?.channelRefresh });
       try {
-        await Promise.all([
-          fetch("/api/clips", { cache: "no-store" }).then(async (res) => {
-            if (res.ok) setJobs(((await res.json()) as { jobs: ClipJob[] }).jobs);
+        const results = await Promise.allSettled([
+          loadWorkflowJson<{ jobs: ClipJob[] }>("/api/clips", "jobs").then((next) => {
+            setJobs(next.jobs);
           }),
-          fetch("/api/publish", { cache: "no-store" }).then(async (res) => {
-            if (res.ok) setQueueItems(((await res.json()) as { items?: QueueItem[] }).items ?? []);
+          loadWorkflowJson<{ items: QueueItem[] }>("/api/publish", "items").then((next) => {
+            setQueueItems(next.items);
           }),
           refreshOverview()
         ]);
-      } catch {
-        // Offline or malformed payload — retry on the next tick.
+        const failures = results.flatMap((result) => result.status === "rejected" ? [workflowLoadMessage(result.reason)] : []);
+        if (failures.length > 0) {
+          setLoadError([...new Set(failures)].join(" "));
+        } else {
+          setLoaded(true);
+          setLoadError(null);
+        }
       } finally {
         refreshInFlightRef.current = false;
-        setLoaded(true);
+        setRefreshing(false);
       }
     },
     [refreshChannel, refreshOverview]
@@ -1235,7 +1274,13 @@ export function useUploadingCenter(clipProjects: ClipProject[] = []) {
   );
 
   return {
-    loaded,
+    loaded: loaded && accountsLoaded,
+    loadError,
+    refreshing,
+    accountsError,
+    accountsRefreshing,
+    channelError,
+    channelRefreshing,
     overview,
     slots,
     slotOffsetDays,

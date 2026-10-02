@@ -1,0 +1,8 @@
+Verification output: $WORKSPACE/final-host-run/evidence
+ ✓ Ready in 539ms
+[serve] serving $WORKSPACE/colateral at http://localhost:5296/
+PASS Keyboard navigation identifies Settings and restores trigger focus on Escape
+PASS Desktop assistant aligns to content and collapsed sidebar remains reachable
+PASS Real card and app agree on routes, input values, live theme and responsive chrome
+PASS Native iframe reload reconnects and zoomed array stages keep suitable chrome
+ALL CHECKS PASS 4

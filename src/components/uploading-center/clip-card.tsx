@@ -210,13 +210,13 @@ export function ClipCard({
         event.dataTransfer.effectAllowed = "copy";
       }}
       className={cn(
-        "rounded-xl border border-[var(--border)] bg-[var(--surface-2)] p-3 transition hover:border-[var(--border-strong)]",
+        "@container min-w-0 rounded-xl border border-[var(--border)] bg-[var(--surface-2)] p-3 transition hover:border-[var(--border-strong)]",
         captionFailed && "tone-warning tone-edge",
         highlighted && "border-[var(--accent)] ring-1 ring-[var(--accent)]/50"
       )}
     >
-      <div className="flex gap-3">
-        <div className="w-24 shrink-0 self-start">
+      <div className="flex flex-col gap-3 @min-[360px]:flex-row">
+        <div className="w-20 shrink-0 self-start @min-[360px]:w-24">
           <ClipPreview
             thumbnailUrl={clip.thumbnailUrl}
             previewUrl={clip.previewUrl}
@@ -241,7 +241,7 @@ export function ClipCard({
                 if (event.key === "Enter") event.currentTarget.blur();
               }}
               placeholder="Title"
-              className="field-sizing-content min-h-9 resize-none py-2"
+              className="field-sizing-content min-h-9 min-w-0 flex-1 resize-none py-2"
             />
           </div>
           {/* One-click hashtag suggestions, appended to the title like YouTube's
@@ -316,7 +316,7 @@ export function ClipCard({
             <Select
               value={draft.slotUtc}
               onChange={(event) => onDraftChange({ ...draft, slotUtc: event.target.value })}
-              className="h-9 w-auto min-w-40 flex-1"
+              className="h-9 w-auto min-w-0 flex-1 basis-40"
               aria-label="Schedule slot"
             >
               <option value="">{everywhere ? "Pick a slot open everywhere…" : "Pick a slot…"}</option>

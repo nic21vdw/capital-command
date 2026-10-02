@@ -1,0 +1,49 @@
+{
+  "results": [
+    {
+      "name": "All Marketing routes fit compact panes without runtime or reconciliation errors",
+      "passed": true
+    },
+    {
+      "name": "Retained streams stay visible during failed refreshes and recover",
+      "passed": true
+    },
+    {
+      "name": "Calendar period failures hide old events and recover without false empty states",
+      "passed": true
+    },
+    {
+      "name": "Verification stopped at first failure",
+      "passed": false,
+      "error": "/uploading-center?platform=instagram overflows {\"width\":400,\"scroll\":455}"
+    }
+  ],
+  "errors": [
+    "A network error occurred.",
+    "A network error occurred.",
+    "A network error occurred.",
+    "A network error occurred.",
+    "A network error occurred.",
+    "A network error occurred.",
+    "A network error occurred.",
+    "A network error occurred.",
+    "A network error occurred."
+  ],
+  "consoleErrors": [
+    "Failed to load resource: net::ERR_BLOCKED_BY_CLIENT.Inspector",
+    "Failed to load resource: net::ERR_BLOCKED_BY_CLIENT.Inspector",
+    "Failed to load resource: net::ERR_BLOCKED_BY_CLIENT.Inspector",
+    "Failed to load resource: net::ERR_BLOCKED_BY_CLIENT.Inspector",
+    "Failed to load resource: net::ERR_BLOCKED_BY_CLIENT.Inspector",
+    "Failed to load resource: net::ERR_BLOCKED_BY_CLIENT.Inspector",
+    "Failed to load resource: net::ERR_BLOCKED_BY_CLIENT.Inspector",
+    "Failed to load resource: the server responded with a status of 404 (Not Found)",
+    "Failed to load resource: the server responded with a status of 503 (Service Unavailable)",
+    "Failed to load resource: the server responded with a status of 503 (Service Unavailable)",
+    "Failed to load resource: the server responded with a status of 404 (Not Found)",
+    "Failed to load resource: the server responded with a status of 404 (Not Found)",
+    "Failed to load resource: the server responded with a status of 404 (Not Found)",
+    "Failed to load resource: the server responded with a status of 404 (Not Found)",
+    "Failed to load resource: the server responded with a status of 404 (Not Found)"
+  ]
+}

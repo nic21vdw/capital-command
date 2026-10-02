@@ -7,6 +7,8 @@ import { Badge, type BadgeTone } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { PageHeader } from "@/components/ui/page-header";
+import { WorkflowLoadNotice } from "@/components/marketing/workflow-load-notice";
+import { loadWorkflowJson, workflowLoadMessage } from "@/lib/marketing/workflow-resource";
 import {
   CALENDAR_SOURCES,
   CALENDAR_SOURCE_BY_ID,
@@ -104,6 +106,8 @@ function SourceGroupChip({ source, events }: { source: CalendarSource; events: M
         <button
           type="button"
           onClick={() => setOpen((value) => !value)}
+          aria-expanded={open}
+          aria-label={open ? `Collapse ${source.shortLabel}` : `Show ${events.length} ${source.shortLabel}`}
           title={open ? `Collapse ${source.shortLabel}` : `Show ${events.length} ${source.shortLabel}`}
           className="shrink-0 px-1 py-1 text-[var(--muted-foreground)] transition hover:text-white"
         >
@@ -172,6 +176,8 @@ function SourceGroupCard({ source, events }: { source: CalendarSource; events: M
         <button
           type="button"
           onClick={() => setOpen((value) => !value)}
+          aria-expanded={open}
+          aria-label={open ? `Collapse ${source.label}` : `Show all ${events.length} ${source.label}`}
           title={open ? `Collapse ${source.label}` : `Show all ${events.length}`}
           className="shrink-0 px-3 py-2.5 text-[var(--muted-foreground)] transition hover:text-white"
         >
@@ -198,10 +204,14 @@ export function MasterCalendarPage() {
   // The range the latest settled fetch was for; while it trails the visible
   // range the calendar is loading (previous events stay up to avoid flicker).
   const [fetchedRange, setFetchedRange] = useState<string | null>(null);
+  const [responseRange, setResponseRange] = useState<string | null>(null);
+  const [loadFailure, setLoadFailure] = useState<{ range: string; message: string } | null>(null);
+  const [reload, setReload] = useState(0);
   // AI planner: gap-fill suggestions for the visible window, fetched on demand.
   const [plan, setPlan] = useState<CalendarPlan | null>(null);
   const [planning, setPlanning] = useState(false);
   const [planRange, setPlanRange] = useState<string | null>(null);
+  const [planError, setPlanError] = useState<string | null>(null);
 
   // The window of days the current view needs. A month renders the standard
   // 6-week grid starting on the Sunday before the 1st.
@@ -211,28 +221,33 @@ export function MasterCalendarPage() {
     return { start: startOfWeek(`${anchor.slice(0, 8)}01`), days: 42 };
   }, [view, anchor]);
   const rangeId = `${range.start}:${range.days}`;
-  const loading = fetchedRange !== rangeId;
+  const requestId = `${rangeId}:${reload}`;
+  const loading = fetchedRange !== requestId;
+  const calendarAvailable = responseRange === rangeId;
+  const loadError = loadFailure?.range === rangeId ? loadFailure.message : null;
 
   useEffect(() => {
     const controller = new AbortController();
-    void fetch(`/api/master-calendar?start=${range.start}&days=${range.days}`, {
-      cache: "no-store",
-      signal: controller.signal
-    })
-      .then((res) => res.json())
-      .then((json: MasterCalendarResponse) => {
+    void loadWorkflowJson<MasterCalendarResponse>(`/api/master-calendar?start=${range.start}&days=${range.days}`, "events", controller.signal)
+      .then((json) => {
+        if (controller.signal.aborted) return;
         setResponse(json);
-        setFetchedRange(rangeId);
+        setResponseRange(rangeId);
+        setFetchedRange(requestId);
+        setLoadFailure(null);
       })
       .catch((error) => {
-        // Settle the range on real errors so the spinner doesn't run forever.
-        if (!(error instanceof DOMException && error.name === "AbortError")) setFetchedRange(rangeId);
+        if (controller.signal.aborted) return;
+        setFetchedRange(requestId);
+        setLoadFailure({ range: rangeId, message: workflowLoadMessage(error) });
       });
     return () => controller.abort();
-  }, [rangeId, range.start, range.days]);
+  }, [requestId, rangeId, range.start, range.days]);
 
-  const events = useMemo(() => response?.events ?? [], [response]);
+  // An earlier period's events must never claim to be the newly selected period.
+  const events = useMemo(() => calendarAvailable ? response?.events ?? [] : [], [response, calendarAvailable]);
   const visibleEvents = useMemo(() => events.filter((event) => !hidden.has(event.source)), [events, hidden]);
+  const allEventsHidden = events.length > 0 && visibleEvents.length === 0;
   const eventsByDay = useMemo(() => {
     const byDay = new Map<string, MasterCalendarEvent[]>();
     for (const event of visibleEvents) {
@@ -269,18 +284,19 @@ export function MasterCalendarPage() {
       return next;
     });
   };
+  const showAllSources = () => setHidden(new Set<CalendarSourceId>());
 
   // Ask the AI planner to fill gaps in the window currently on screen.
   const runPlan = async () => {
     setPlanning(true);
+    setPlanError(null);
     try {
-      const res = await fetch(`/api/master-calendar/plan?start=${range.start}&days=${range.days}`, { cache: "no-store" });
-      if (!res.ok) return;
-      const json = (await res.json()) as { plan: CalendarPlan };
+      const json = await loadWorkflowJson<{ plan: CalendarPlan }>(`/api/master-calendar/plan?start=${range.start}&days=${range.days}`);
+      if (!Array.isArray(json.plan?.suggestions)) throw new Error("The planner returned incomplete suggestions.");
       setPlan(json.plan);
       setPlanRange(rangeId);
-    } catch {
-      // Leave any prior plan up; the button can be pressed again.
+    } catch (error) {
+      setPlanError(workflowLoadMessage(error));
     } finally {
       setPlanning(false);
     }
@@ -348,14 +364,18 @@ export function MasterCalendarPage() {
       }))
     ],
     controls: [
+      ...(loadError ? [{ id: "retry-load", label: "Retry loading calendar", group: "Recovery", disabled: loading }] : []),
+      ...(allEventsHidden ? [{ id: "show-all-sources", label: "Show all sources", group: "View" }] : []),
       { id: "today", label: "Today", group: "View" },
       { id: "prev", label: "Previous period", group: "View" },
       { id: "next", label: "Next period", group: "View" },
-      { id: "plan", label: plan ? "Re-plan" : "Plan my week", group: "Planner", disabled: planning }
+      { id: "plan", label: plan ? "Re-plan" : "Plan my week", group: "Planner", disabled: planning || !calendarAvailable }
     ],
     readings: [
+      { label: "Calendar data", value: loadError ? `Needs retry: ${loadError}` : loading ? "Loading…" : "Loaded" },
       { label: "Period", value: periodLabel },
       { label: "Scheduled in view", value: String(events.length) },
+      { label: "Hidden by filters", value: String(events.length - visibleEvents.length) },
       { label: "Next post", value: nextPostReading },
       { label: "Failed", value: String(failedCount) }
     ],
@@ -387,6 +407,16 @@ export function MasterCalendarPage() {
       return false;
     },
     click: (id) => {
+      if (id === "show-all-sources") {
+        if (hidden.size === 0) return false;
+        showAllSources();
+        return true;
+      }
+      if (id === "retry-load") {
+        if (loading) return false;
+        setReload((value) => value + 1);
+        return true;
+      }
       if (id === "today") {
         setAnchor(todayKey);
         return true;
@@ -400,7 +430,7 @@ export function MasterCalendarPage() {
         return true;
       }
       if (id === "plan") {
-        if (planning) return false;
+        if (planning || !calendarAvailable) return false;
         void runPlan();
         return true;
       }
@@ -409,12 +439,13 @@ export function MasterCalendarPage() {
   });
 
   return (
-    <div>
+    <div className="@container min-w-0">
       <PageHeader
         eyebrow="Step 4 · Calendar"
         title="Master Calendar"
         description="Every distribution calendar in one place: scheduled shorts uploads, carousel schedules, Threads packs, FB/IG thread posts and dated long-form content — what goes out where, and when."
       />
+      {loadError ? <div className="mb-4"><WorkflowLoadNotice title="This calendar period could not be loaded" message={loadError} retained={calendarAvailable} retrying={loading} onRetry={() => setReload((value) => value + 1)} /></div> : null}
 
       {/* Source legend: toggle a source's visibility, or jump into its calendar. */}
       <div className="mb-4 flex flex-wrap items-center gap-2">
@@ -432,6 +463,7 @@ export function MasterCalendarPage() {
               <button
                 type="button"
                 onClick={() => toggleSource(source.id)}
+                aria-pressed={!isHidden}
                 title={isHidden ? `Show ${source.label}` : `Hide ${source.label}`}
                 className="flex items-center gap-1.5 py-1.5 pl-2.5 pr-1.5 transition hover:bg-white/10"
               >
@@ -441,6 +473,7 @@ export function MasterCalendarPage() {
               </button>
               <Link
                 href={source.href}
+                aria-label={`Open ${source.hrefLabel}`}
                 title={`Open ${source.hrefLabel}`}
                 className="border-l border-[var(--border)] px-1.5 py-1.5 text-[var(--muted-foreground)] transition hover:bg-white/10 hover:text-white"
               >
@@ -463,11 +496,12 @@ export function MasterCalendarPage() {
               </p>
             </div>
           </div>
-          <Button className="h-8 px-3 text-xs" onClick={() => void runPlan()} disabled={planning}>
+          <Button className="h-8 px-3 text-xs" onClick={() => void runPlan()} disabled={planning || !calendarAvailable}>
             {planning ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <Sparkles className="mr-1.5 h-3.5 w-3.5" />}
             {planning ? "Planning…" : plan ? "Re-plan" : "Plan my week"}
           </Button>
         </div>
+        {planError ? <div className="mt-3"><WorkflowLoadNotice title="Planning could not finish" message={planError} retained={plan !== null} retrying={planning} onRetry={() => void runPlan()} /></div> : null}
 
         {plan ? (
           <div className="mt-3 space-y-2 border-t border-[var(--border)] pt-3">
@@ -518,7 +552,7 @@ export function MasterCalendarPage() {
       <Card className="overflow-hidden p-0">
         {/* Toolbar: period navigation + view switch. */}
         <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[var(--border)] bg-gradient-to-r from-white/[0.04] to-transparent px-4 py-3">
-          <div className="flex items-center gap-2">
+          <div className="flex min-w-0 flex-wrap items-center gap-2">
             <div className="flex items-center overflow-hidden rounded-lg border border-[var(--border)]">
               <button
                 type="button"
@@ -544,7 +578,7 @@ export function MasterCalendarPage() {
                 <ChevronRight className="h-4 w-4" />
               </button>
             </div>
-            <span className="ml-2 flex items-center gap-2 text-sm font-semibold tracking-tight text-white">
+            <span className="flex min-w-0 flex-wrap items-center gap-2 text-sm font-semibold tracking-tight text-white">
               <CalendarDays className="h-4 w-4 text-[var(--accent)]" />
               {periodLabel}
               {visibleEvents.length > 0 ? (
@@ -561,6 +595,7 @@ export function MasterCalendarPage() {
                 key={mode}
                 type="button"
                 onClick={() => setView(mode)}
+                aria-pressed={view === mode}
                 className={cn(
                   "rounded-full px-3.5 py-1.5 text-xs font-medium capitalize transition-all",
                   view === mode
@@ -574,7 +609,12 @@ export function MasterCalendarPage() {
           </div>
         </div>
 
-        {view === "month" ? (
+        {view !== "day" && calendarAvailable ? <p className="border-b border-[var(--border)] px-4 py-2 text-xs text-[var(--muted-foreground)] @min-[900px]:hidden">Scroll sideways to see the full {view}, or choose Day for a compact view.</p> : null}
+        {!calendarAvailable ? (
+          <div className="flex items-center justify-center gap-2 px-4 py-12 text-sm text-[var(--muted-foreground)]" role="status">
+            {loading ? <><Loader2 className="h-4 w-4 animate-spin" /> Loading this calendar period…</> : "Calendar data is unavailable for this period. Retry above to load it."}
+          </div>
+        ) : view === "month" ? (
           <div className="panel-enter overflow-x-auto">
             <div className="min-w-[840px]">
               <div className="grid grid-cols-7 border-b border-[var(--border)] bg-[var(--well)]">
@@ -646,7 +686,7 @@ export function MasterCalendarPage() {
           </div>
         ) : null}
 
-        {view === "week" ? (
+        {calendarAvailable && view === "week" ? (
           <div className="panel-enter overflow-x-auto">
             <div className="grid min-w-[840px] grid-cols-7">
               {weekDays.map((dateKey, index) => {
@@ -696,7 +736,7 @@ export function MasterCalendarPage() {
           </div>
         ) : null}
 
-        {view === "day" ? (
+        {calendarAvailable && view === "day" ? (
           <div className="panel-enter space-y-1.5 p-4">
             <Link
               href={`/day-summary?date=${anchor}`}
@@ -712,16 +752,22 @@ export function MasterCalendarPage() {
             {(eventsByDay.get(anchor) ?? []).length === 0 && !loading ? (
               <div className="flex flex-col items-center gap-2 py-12 text-center">
                 <CalendarDays className="h-8 w-8 text-[var(--muted-foreground)]/50" />
-                <p className="text-sm text-[var(--muted-foreground)]">Nothing scheduled on this day.</p>
+                <p className="text-sm text-[var(--muted-foreground)]">{allEventsHidden ? "Items on this day are hidden by your source filters." : "Nothing scheduled on this day."}</p>
+                {allEventsHidden ? <Button type="button" variant="secondary" className="h-8 px-3 text-xs" onClick={showAllSources}>Show all sources</Button> : null}
               </div>
             ) : null}
           </div>
         ) : null}
       </Card>
 
-      {!loading && visibleEvents.length === 0 && view !== "day" ? (
+      {calendarAvailable && !loading && visibleEvents.length === 0 && view !== "day" ? (
         <Card className="mt-4 text-center">
-          <p className="text-sm text-[var(--muted-foreground)]">
+          {allEventsHidden ? (
+            <div className="flex flex-col items-center gap-2">
+              <p className="text-sm text-[var(--muted-foreground)]">Items in this period are hidden by your source filters.</p>
+              <Button type="button" variant="secondary" className="h-8 px-3 text-xs" onClick={showAllSources}>Show all sources</Button>
+            </div>
+          ) : <p className="text-sm text-[var(--muted-foreground)]">
             Nothing scheduled in this period yet. Schedule shorts in the{" "}
             <Link href="/uploading-center" className="text-[var(--accent)] hover:underline">
               Uploading Center
@@ -739,7 +785,7 @@ export function MasterCalendarPage() {
               FB/IG threads
             </Link>{" "}
             — everything lands here.
-          </p>
+          </p>}
         </Card>
       ) : null}
 

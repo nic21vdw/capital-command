@@ -28,6 +28,8 @@ import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { AdvancedOptions } from "@/components/ui/advanced-options";
 import { PageHeader } from "@/components/ui/page-header";
+import { WorkflowLoadNotice } from "@/components/marketing/workflow-load-notice";
+import { loadWorkflowJson, workflowLoadMessage } from "@/lib/marketing/workflow-resource";
 import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import {
@@ -98,8 +100,17 @@ export function CarouselsPage() {
 
   const [projects, setProjects] = useState<LongformListItem[]>([]);
   const [shorts, setShorts] = useState<ShortOption[]>([]);
+  const [sourceLoading, setSourceLoading] = useState(true);
+  const [sourceLoadError, setSourceLoadError] = useState<string | null>(null);
+  const sourceRequestInFlight = useRef(false);
   const [sourceType, setSourceType] = useState<SourceType>(presetLongform ? "longform" : "script");
   const [sourceId, setSourceId] = useState(presetLongform ?? "");
+  const [lastPreset, setLastPreset] = useState(presetLongform);
+  if (presetLongform !== lastPreset) {
+    setLastPreset(presetLongform);
+    setSourceType(presetLongform ? "longform" : "script");
+    setSourceId(presetLongform ?? "");
+  }
   const [customTitle, setCustomTitle] = useState("");
   const [customText, setCustomText] = useState("");
   const [slideCount, setSlideCount] = useState(8);
@@ -144,21 +155,18 @@ export function CarouselsPage() {
     summaryParts.push(imageNotes.trim() ? "described" : "no description");
   }
 
-  useEffect(() => {
-    void fetch("/api/longform/projects", { cache: "no-store" })
-      .then((response) => response.json())
-      .then((json: { projects?: LongformListItem[] }) => setProjects((json.projects ?? []).filter((p) => p.status === "ready")))
-      .catch(() => undefined);
-  }, []);
-
-  // Flatten every finished clip job into individual short-form videos to pick from.
-  useEffect(() => {
+  const refreshSources = useCallback(async () => {
+    if (sourceRequestInFlight.current) return;
+    sourceRequestInFlight.current = true;
+    setSourceLoading(true);
     type ClipJobListItem = { id: string; fileName: string; topic?: string; status: string; clips: Array<{ id: string; title?: string }> };
-    void fetch("/api/clips", { cache: "no-store" })
-      .then((response) => response.json())
-      .then((json: { jobs?: ClipJobListItem[] }) => {
+    try {
+      const results = await Promise.allSettled([
+        loadWorkflowJson<{ projects: LongformListItem[] }>("/api/longform/projects", "projects")
+          .then((json) => setProjects(json.projects.filter((project) => project.status === "ready"))),
+        loadWorkflowJson<{ jobs: ClipJobListItem[] }>("/api/clips", "jobs").then((json) => {
         const options: ShortOption[] = [];
-        for (const job of json.jobs ?? []) {
+        for (const job of json.jobs) {
           if (job.status !== "done") continue;
           job.clips.forEach((clip, index) => {
             options.push({
@@ -169,9 +177,19 @@ export function CarouselsPage() {
           });
         }
         setShorts(options);
-      })
-      .catch(() => undefined);
+        })
+      ]);
+      const failures = results.flatMap((result) => result.status === "rejected" ? [workflowLoadMessage(result.reason)] : []);
+      setSourceLoadError(failures.length > 0 ? [...new Set(failures)].join(" ") : null);
+    } finally {
+      sourceRequestInFlight.current = false;
+      setSourceLoading(false);
+    }
   }, []);
+
+  useEffect(() => {
+    void refreshSources();
+  }, [refreshSources]);
 
   const prepare = useCallback(
     async (carouselId: string) => {
@@ -314,10 +332,12 @@ export function CarouselsPage() {
       { id: "batchCount", label: "Batches to write", value: batchCount, kind: "number" }
     ],
     controls: [
+      ...(sourceLoadError ? [{ id: "retry-sources", label: "Retry loading video sources", group: "Recovery", disabled: sourceLoading }] : []),
       { id: "generate", label: "Generate", group: "Generate", disabled: generating },
       { id: "clearImages", label: "Clear photos", group: "Photos", disabled: images.length === 0 }
     ],
     readings: [
+      { label: "Video sources", value: sourceLoadError ? `Needs retry: ${sourceLoadError}` : sourceLoading ? "Loading…" : "Loaded" },
       { label: "Carousels", value: String(carousels.length) },
       { label: "Slides in next batch", value: String(deckSlides) },
       { label: "Photos attached", value: String(images.length) }
@@ -358,6 +378,10 @@ export function CarouselsPage() {
     },
     click: (id) => {
       switch (id) {
+        case "retry-sources":
+          if (sourceLoading) return false;
+          void refreshSources();
+          return true;
         case "generate":
           if (generating) return false;
           void generate();
@@ -379,13 +403,15 @@ export function CarouselsPage() {
         title="Carousels & Images"
         description="Turn a script, a video, a batch of photos, or pasted text into a swipeable carousel you can edit, download, and schedule."
       />
+      {sourceLoadError ? <div className="mb-4"><WorkflowLoadNotice title="Some video sources could not be loaded" message={sourceLoadError} retained={projects.length > 0 || shorts.length > 0} retrying={sourceLoading} onRetry={() => void refreshSources()} /></div> : null}
 
       <Card className="mb-6 space-y-3">
-        <div className="grid gap-3 sm:grid-cols-[1fr_auto]">
+        <div className="grid min-w-0 gap-3 sm:grid-cols-[minmax(0,1fr)_auto]">
           <Select
             value={sourceValue}
             onChange={(event) => pickSource(event.target.value)}
             aria-label="What to turn into slides"
+            className="min-w-0"
           >
             <option value="">Pick what to turn into slides…</option>
             {scripts.length > 0 ? (
@@ -435,6 +461,7 @@ export function CarouselsPage() {
             {generating ? "Writing…" : "Generate"}
           </Button>
         </div>
+        {sourceLoading ? <p className="flex items-center gap-2 text-xs text-[var(--muted-foreground)]" role="status"><Loader2 className="h-3.5 w-3.5 animate-spin" /> Loading your video sources…</p> : null}
 
         {sourceType === "custom" || sourceType === "images" ? (
           <Input placeholder="Carousel title" value={customTitle} onChange={(event) => setCustomTitle(event.target.value)} />

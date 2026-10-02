@@ -1,0 +1,17 @@
+ ✓ Ready in 576ms
+[serve] serving $WORKSPACE/colateral at http://localhost:5296/
+[serve] no Content-Security-Policy is being sent (--csp=off)
+PASS Real card and app agree on routes, input values, live theme and responsive chrome
+ROUTE / {"width":400,"scroll":400,"title":"Drop in a stream. The rest runs itself."}
+ROUTE /pipeline {"width":400,"scroll":400,"title":"Drop in a stream. The rest runs itself."}
+ROUTE /longform {"width":400,"scroll":400,"title":"Long-Form Video"}
+ROUTE /clips {"width":400,"scroll":400,"title":"Short Clips"}
+ROUTE /editor {"width":400,"scroll":400,"title":"Clip Editor"}
+ROUTE /carousels {"width":400,"scroll":400,"title":"Carousels & Images"}
+ROUTE /podcast {"width":400,"scroll":400,"title":"Podcast / Spotify"}
+ROUTE /x-posts {"width":400,"scroll":400,"title":"X / Threads Posts"}
+ROUTE /facebook {"width":400,"scroll":400,"title":"FB / IG Threads"}
+ROUTE /launch {"width":400,"scroll":400,"title":"Launch Pad"}
+ROUTE /uploading-center {"width":400,"scroll":400,"title":"Uploading Center"}
+ROUTE /distribution {"width":400,"scroll":400,"title":"Distribution Centre"}
+ROUTE /master-calendar {"width":400,"scroll":400,"title":"Master Calendar"}

@@ -1,0 +1,35 @@
+ ✓ Ready in 722ms
+[serve] serving $WORKSPACE/colateral at http://localhost:5296/
+ROUTE /day-summary {"width":400,"scroll":400,"title":"Day Summary"}
+ROUTE /agents {"width":400,"scroll":400,"title":"Sourceflow Agents"}
+ROUTE /ideas {"width":400,"scroll":400,"title":"Idea Lab"}
+ROUTE /scripts {"width":400,"scroll":400,"title":"Scripts"}
+ROUTE /outliers {"width":400,"scroll":400,"title":"Outlier Radar"}
+ROUTE /execution {"width":400,"scroll":400,"title":"Execution"}
+ROUTE /presentation {"width":400,"scroll":400,"title":"Manhattan Column Buckling"}
+ROUTE /voiceover {"width":400,"scroll":400,"title":"Voiceover"}
+ROUTE /music {"width":400,"scroll":400,"title":"Music Studio"}
+ROUTE /finance {"width":400,"scroll":400,"title":"Personal finance"}
+ROUTE /settings {"width":400,"scroll":400,"title":"Settings"}
+ROUTE /creator {"width":400,"scroll":400,"title":"Short Clips"}
+ROUTE /goals {"width":400,"scroll":400,"title":"Personal finance"}
+ROUTE /holdings {"width":400,"scroll":400,"title":"Personal finance"}
+ROUTE /insights {"width":400,"scroll":400,"title":"Personal finance"}
+ROUTE /notes {"width":400,"scroll":400,"title":"Short Clips"}
+ROUTE /thumbnails {"width":400,"scroll":400,"title":"Short Clips"}
+ROUTE /watchlist {"width":400,"scroll":400,"title":"Personal finance"}
+ROUTE /youtube {"width":400,"scroll":400,"title":"Short Clips"}
+PASS All Marketing routes fit compact panes without runtime or reconciliation errors
+PASS Retained streams stay visible during failed refreshes and recover
+PASS Calendar period failures hide old events and recover without false empty states
+AssertionError [ERR_ASSERTION]: /uploading-center?platform=instagram overflows {"width":400,"scroll":455}
+    at file://$WORKSPACE/browser-verify.mjs:106:137
+    at async check (file://$WORKSPACE/browser-verify.mjs:15:124)
+    at async file://$WORKSPACE/browser-verify.mjs:98:2 {
+  generatedMessage: false,
+  code: 'ERR_ASSERTION',
+  actual: false,
+  expected: true,
+  operator: '==',
+  diff: 'simple'
+}
