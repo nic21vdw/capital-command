@@ -854,7 +854,7 @@ const clipExportSettingsSchema = z.object({
   preset: z.enum(["shorts", "longform", "square", "portrait", "custom"]).default("shorts"),
   width: z.coerce.number().int().min(64).max(4096).default(1080),
   height: z.coerce.number().int().min(64).max(4096).default(1920),
-  fps: z.coerce.number().int().min(1).max(120).default(30),
+  fps: z.coerce.number().min(1).max(120).default(30),
   quality: z.enum(["high", "medium", "low"]).default("high"),
   format: z.enum(["mp4", "webm"]).default("mp4"),
   burnCaptions: z.coerce.boolean().default(true),

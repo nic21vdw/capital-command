@@ -50,18 +50,22 @@ export const SCALE_FLAGS = "lanczos+accurate_rnd+full_chroma_int";
 export const INTERMEDIATE_CRF = 14;
 export const INTERMEDIATE_PRESET = "fast";
 
-/** Tallest source the app will ask a host for — "source" means best, capped here. */
-export const MAX_SOURCE_HEIGHT = 2160;
+/** Highest short-side delivery size for a composed vertical export. */
+export const MAX_VERTICAL_SHORT_SIDE = 2160;
 
 /**
  * A yt-dlp format selector for a height ceiling. Every adaptive tier is tried
  * before any muxed one, because a muxed fallback is exactly how a 1440p stream
  * silently arrives as 360p.
  */
-function formatSelector(cap: number): string {
+function formatSelector(cap: number | null): string {
+  // Source quality must not discard an available 8K original before editing.
+  // A chosen delivery ceiling prefers a smaller download, but exhausts adaptive
+  // streams before accepting the host's often much smaller muxed fallback.
+  if (cap === null) return "bv*+ba/b";
   return [
     `bv*[height<=${cap}]+ba`,
-    `bv*[height<=${MAX_SOURCE_HEIGHT}]+ba`,
+    "bv*+ba",
     `b[height<=${cap}]`,
     "b"
   ].join("/");
@@ -69,12 +73,12 @@ function formatSelector(cap: number): string {
 
 /** Format selector for a clip-section download at the chosen output quality. */
 export function clipSectionFormat(quality: OutputQuality = DEFAULT_OUTPUT_QUALITY): string {
-  return formatSelector(outputHeightCap(quality) ?? MAX_SOURCE_HEIGHT);
+  return formatSelector(outputHeightCap(quality));
 }
 
 /** Format selector for a whole-VOD download at the chosen output quality. */
 export function fullVideoFormat(quality: OutputQuality = DEFAULT_OUTPUT_QUALITY): string {
-  return formatSelector(outputHeightCap(quality) ?? MAX_SOURCE_HEIGHT);
+  return formatSelector(outputHeightCap(quality));
 }
 
 export const CLIP_SECTION_FORMAT = clipSectionFormat();
@@ -129,34 +133,37 @@ export type OutputFrame = { width: number; height: number; fps: number };
 
 const FALLBACK_HEIGHT = 1080;
 const FALLBACK_FPS = 30;
-/** Short side of the 9:16 frame when the source has at least that much width. */
+/** Legacy delivery size retained for sources below full HD. */
 const VERTICAL_SHORT_SIDE = 1080;
 
 /**
  * The frame a render should target for a source and a quality choice.
  *
- * "source" keeps the recording's own height and frame rate. A numeric choice is
- * a CEILING, never a target: a 720p source asked for 4K stays 720p, and a 30 fps
- * source asked for 60 stays 30. Nothing here can upscale or interpolate, which
- * is the whole point — upscaling costs encode time and bitrate to add no detail,
- * and a render that invents frames judders.
+ * "source" keeps the recording's own geometry and frame rate. Numeric choices
+ * are ceilings: a 720p neutral master asked for 4K stays 720p, and a 30 fps
+ * source asked for 60 stays 30. A vertical composition may scale footage to
+ * fill its delivery canvas; those extra pixels cannot add source detail.
  *
  * `wide` returns a 16:9 canvas (letterboxed by the caller when the source is a
  * different shape, widened when the source is wider than 16:9 so an ultrawide
  * keeps its pixels). `vertical` returns a 9:16 canvas whose short side never
- * exceeds the source width.
+ * exceeds the source width, up to a 4K vertical delivery canvas. `source` keeps
+ * the original aspect ratio for a neutral master without padding.
  */
 export function resolveOutputFrame(
   source: SourceFrame,
   quality: OutputQuality = DEFAULT_OUTPUT_QUALITY,
-  shape: "wide" | "vertical" = "wide"
+  shape: "wide" | "vertical" | "source" = "wide"
 ): OutputFrame {
   const srcH = source.height > 0 ? source.height : FALLBACK_HEIGHT;
   const srcW = source.width > 0 ? source.width : Math.round((srcH * 16) / 9);
   const srcFps = source.fps > 0 ? source.fps : FALLBACK_FPS;
 
   const heightCap = outputHeightCap(quality);
-  const factor = heightCap ? Math.min(1, heightCap / srcH) : 1;
+  // A portrait recording's resolution is its short side, just as 2160p means
+  // 3840x2160 in landscape. Capping its long side would halve real 4K pixels.
+  const resolutionSide = shape === "wide" ? srcH : Math.min(srcW, srcH);
+  const factor = heightCap ? Math.min(1, heightCap / resolutionSide) : 1;
   const fitH = evenPixels(srcH * factor);
   const fitW = evenPixels(srcW * factor);
 
@@ -164,8 +171,13 @@ export function resolveOutputFrame(
   const fps = Math.round(Math.min(srcFps, fpsCap ?? srcFps) * 1000) / 1000;
 
   if (shape === "vertical") {
-    const width = evenPixels(Math.min(VERTICAL_SHORT_SIDE, fitW, heightCap ?? VERTICAL_SHORT_SIDE));
+    const width = evenPixels(Math.min(
+      MAX_VERTICAL_SHORT_SIDE,
+      fitW,
+      Math.max(VERTICAL_SHORT_SIDE, fitH),
+      heightCap ?? MAX_VERTICAL_SHORT_SIDE
+    ));
     return { width, height: evenPixels((width * 16) / 9), fps };
   }
-  return { width: Math.max(fitW, evenPixels((fitH * 16) / 9)), height: fitH, fps };
+  return { width: shape === "source" ? fitW : Math.max(fitW, evenPixels((fitH * 16) / 9)), height: fitH, fps };
 }

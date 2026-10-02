@@ -16,7 +16,8 @@ import { hookTrimSec, shiftSegments } from "@/lib/clipping/hook";
 import { generateViralTitles } from "@/lib/clipping/titles";
 import { copyClipsToDrive, driveDir } from "@/lib/clipping/drive";
 import { downloadAudio, downloadSection, fetchVideoMeta } from "@/lib/clipping/download";
-import { hasAudioStream, probeDimensions, probeDuration, runFfmpeg } from "@/lib/clipping/ffmpeg";
+import { hasAudioStream, probeDimensions, probeDuration, probeVideoStream, runFfmpeg } from "@/lib/clipping/ffmpeg";
+import { resolveOutputFrame, type OutputFrame } from "@/lib/clipping/encode";
 import { DOWNLOAD_FRAME_H, DOWNLOAD_FRAME_W, planClipFraming } from "@/lib/clipping/autoframe";
 import { centerBlurVideoTopFrac, DEFAULT_CENTER_BLUR_ZOOM } from "@/lib/clipping/centerBlur";
 import { framingVideoTopFrac } from "@/lib/clipping/framing";
@@ -32,7 +33,7 @@ import { transcribeSource } from "@/lib/clipping/source-transcript";
 import type { ClipCandidate, ClipJob } from "@/lib/clipping/types";
 import type { CaptionPresetId } from "@/types/domain";
 
-export type ClipJobOptions = { captionPreset?: CaptionPresetId; clipLength?: ClipLengthId };
+export type ClipJobOptions = { captionPreset?: CaptionPresetId; clipLength?: ClipLengthId; output?: OutputQuality };
 
 function jobOptions(options: ClipJobOptions): Pick<ClipJob, "captionPreset" | "clipLength"> {
   return {
@@ -409,6 +410,7 @@ export async function createJobFromUrl(
     clipCount: clampClipCount(clipCount),
     autoFrame: autoFrame !== false,
     ...jobOptions(options),
+    output: normalizeOutputQuality(options.output ?? (await settingsOutputQuality())),
     sourceUrl: url,
     status: "queued",
     stage: "downloading",
@@ -446,6 +448,7 @@ export async function createJobFromUpload(
     clipCount: clampClipCount(clipCount),
     autoFrame: autoFrame !== false,
     ...jobOptions(options),
+    output: normalizeOutputQuality(options.output ?? (await settingsOutputQuality())),
     sourceUrl: `upload://${sourceId}`,
     sourceId,
     status: "queued",
@@ -574,7 +577,7 @@ async function cutLocalSection(srcPath: string, start: number, end: number, dest
  *   1. Download just the audio (fast even for multi-hour streams).
  *   2. Read the FULL transcript and pick the best moments from anywhere in the
  *      stream (Claude), falling back to whole-stream energy analysis offline.
- *   3. Fetch each chosen range and render it as a neutral 16:9 source clip in parallel.
+ *   3. Fetch each chosen range and render it as a neutral full-frame source clip in parallel.
  */
 async function runPipeline(job: ClipJob, url: string) {
   // 1. Read metadata, then grab the audio track for analysis.
@@ -711,7 +714,8 @@ async function writeClipDownloadAss(
   index: number,
   sourceDims?: { width: number; height: number },
   framing?: ClipFramingSpec,
-  trimSec: number = 0
+  trimSec: number = 0,
+  frame: Pick<OutputFrame, "width" | "height"> = { width: DOWNLOAD_FRAME_W, height: DOWNLOAD_FRAME_H }
 ): Promise<string> {
   const style = captionStyleForPreset(job.captionPreset);
   // Window the source captions into clip-local time, then re-chunk the words the
@@ -720,7 +724,7 @@ async function writeClipDownloadAss(
   const windowed = shiftSegments(windowSegments(job.sourceCaptions ?? [], clip.start, clip.end), trimSec);
   const words = windowed.flatMap((segment) => segment.words);
   const captions = words.length ? chunkWords(words, style.maxWordsPerCaption) : windowed;
-  const captionDoc = buildAss(captions, style, DOWNLOAD_FRAME_W, DOWNLOAD_FRAME_H, true);
+  const captionDoc = buildAss(captions, style, frame.width, frame.height, true);
   // Every clip ships with its title burned in by default. Top edge of the
   // contain-fitted video: the source is scaled to the frame width, so its
   // on-frame height is frameW * (srcH/srcW), centered vertically.
@@ -733,11 +737,11 @@ async function writeClipDownloadAss(
     ? framingVideoTopFrac(framing.framing, framing.target)
     : centerBlurVideoTopFrac(
         { width: srcW, height: srcH },
-        { width: DOWNLOAD_FRAME_W, height: DOWNLOAD_FRAME_H }
+        frame
       );
   const title = clip.title?.trim() || generateClipTitle(windowed, "");
   const titleLine = title
-    ? `${buildClipTitleDialogue(title, DOWNLOAD_FRAME_W, DOWNLOAD_FRAME_H, 0, Math.max(0.1, clip.end - clip.start - trimSec), videoTopFrac)}\n`
+    ? `${buildClipTitleDialogue(title, frame.width, frame.height, 0, Math.max(0.1, clip.end - clip.start - trimSec), videoTopFrac)}\n`
     : "";
   const assPath = path.join(workDir(job.id), `caps-${String(index + 1).padStart(2, "0")}.ass`);
   await writeFile(assPath, `${captionDoc}${titleLine}`, "utf8");
@@ -771,7 +775,7 @@ export async function attachEditedClipRender(
 /**
  * Guarantees a Shorts-ready file for publishing: given any rendered file in a
  * job's output folder, returns the name of a 9:16 vertical version of it.
- * Vertical files pass through untouched; a widescreen file (e.g. the 16:9
+ * Edited and ready vertical files pass through untouched; a widescreen file (e.g. the 16:9
  * master of an older job whose ready render never happened) is composed into
  * the standard centered + blurred-fill vertical — with the clip's word-synced
  * captions burned in when the file is a clip's neutral master.
@@ -781,7 +785,6 @@ export async function ensureVerticalClipFile(jobId: string, fileName: string): P
   const job = jobs.get(jobId);
   const filePath = path.join(outputDir(jobId), fileName);
   const dims = await probeDimensions(filePath);
-  if (dims.height > dims.width) return fileName;
 
   const clip = job?.clips.find(
     (candidate) => candidate.file === fileName || candidate.downloadFile === fileName || candidate.editedFile === fileName
@@ -794,6 +797,9 @@ export async function ensureVerticalClipFile(jobId: string, fileName: string): P
     const ready = await probeDimensions(readyPath).catch(() => null);
     if (ready && ready.height > ready.width) return clip.downloadFile;
   }
+  // A native portrait master still needs its captioned ready render. Only
+  // delivery files can bypass composition based on their shape alone.
+  if (dims.height > dims.width && !isMaster) return fileName;
 
   const verticalName = `${path.parse(fileName).name}-vertical.mp4`;
   const verticalPath = path.join(outputDir(jobId), verticalName);
@@ -802,17 +808,20 @@ export async function ensureVerticalClipFile(jobId: string, fileName: string): P
     const audio = await hasAudioStream(filePath).catch(() => false);
     // Only the neutral master gets captions burned in; edited exports and
     // ready renders already carry theirs, and double-burning looks broken.
-    const framing = (await planClipFraming(filePath)) ?? undefined;
+    const stream = await probeVideoStream(filePath);
+    const quality = normalizeOutputQuality(job?.output ?? (await settingsOutputQuality()));
+    const frame = resolveOutputFrame({ ...stream, fps: stream.fps ?? 0 }, quality, "vertical");
+    const framing = (await planClipFraming(filePath, { targetW: frame.width, targetH: frame.height })) ?? undefined;
     let assPath: string | null = null;
     let trim = 0;
     if (job && clip && isMaster) {
       trim = clipHookTrim(job, clip);
-      assPath = await writeClipDownloadAss(job, clip, job.clips.indexOf(clip), dims, framing, trim).catch(() => null);
+      assPath = await writeClipDownloadAss(job, clip, job.clips.indexOf(clip), dims, framing, trim, frame).catch(() => null);
       // The ASS is what carries the shifted captions; without it the trim would
       // desync every line, so a failed caption write gives the trim up too.
       if (!assPath) trim = 0;
     }
-    await renderCaptionedVertical(filePath, verticalPath, assPath, audio, framing, DEFAULT_CENTER_BLUR_ZOOM, trim);
+    await renderCaptionedVertical(filePath, verticalPath, assPath, audio, framing, DEFAULT_CENTER_BLUR_ZOOM, trim, frame);
     if (job && clip && isMaster) clip.hookTrimSec = trim > 0 ? trim : undefined;
   }
   if (job && clip && isMaster) {
@@ -823,7 +832,7 @@ export async function ensureVerticalClipFile(jobId: string, fileName: string): P
 }
 
 async function renderClipIndexes(job: ClipJob, indexes: number[]) {
-  // Fetch each chosen range from the source and render a neutral 16:9 source clip. These are
+  // Fetch each chosen range from the source and render a neutral full-frame source clip. These are
   // network- and CPU-bound, so keep concurrency modest to avoid source throttles.
   let completed = 0;
   const total = indexes.length;
@@ -834,7 +843,8 @@ async function renderClipIndexes(job: ClipJob, indexes: number[]) {
   // What the owner asked the pipeline to render at. Read once for the whole
   // batch: it decides which stream is pulled for each section AND the frame the
   // master is encoded into, and neither may differ between clips of one job.
-  const quality = await settingsOutputQuality();
+  const quality = normalizeOutputQuality(job.output ?? (await settingsOutputQuality()));
+  job.output = quality;
   const renderOne = async (i: number) => {
     const clip = job.clips[i];
     const segPath = path.join(workDir(job.id), `seg-${String(i + 1).padStart(2, "0")}.mp4`);
@@ -867,6 +877,8 @@ async function renderClipIndexes(job: ClipJob, indexes: number[]) {
       }
       await renderSourceClip(produced, path.join(outputDir(job.id), primaryName), true, quality);
       clip.file = primaryName;
+      const stream = await probeVideoStream(produced);
+      clip.sourceFrame = resolveOutputFrame({ ...stream, fps: stream.fps ?? 0 }, quality, "source");
       // Poster frame for the clip card; fire-and-forget so a thumbnail
       // hiccup never fails the render (the card falls back to lazy
       // generation via the thumbnail route).
@@ -885,7 +897,10 @@ async function renderClipIndexes(job: ClipJob, indexes: number[]) {
         const downloadPath = path.join(outputDir(job.id), downloadName);
         // Where the speaker is decides the whole composition, so it is planned
         // once here and shared by the burned title and the render itself.
-        const framing = job.autoFrame === false ? undefined : ((await planClipFraming(produced)) ?? undefined);
+        const frame = resolveOutputFrame({ ...stream, fps: stream.fps ?? 0 }, quality, "vertical");
+        const framing = job.autoFrame === false
+          ? undefined
+          : ((await planClipFraming(produced, { targetW: frame.width, targetH: frame.height })) ?? undefined);
         if (framing) {
           clip.framing = {
             mode: framing.framing.mode,
@@ -898,11 +913,10 @@ async function renderClipIndexes(job: ClipJob, indexes: number[]) {
         // only part of a short a scrolling viewer is guaranteed to see.
         const trim = clipHookTrim(job, clip);
         try {
-          const dims = await probeDimensions(produced).catch(() => undefined);
-          const assPath = await writeClipDownloadAss(job, clip, i, dims, framing, trim);
-          await renderCaptionedVertical(produced, downloadPath, assPath, true, framing, DEFAULT_CENTER_BLUR_ZOOM, trim);
+          const assPath = await writeClipDownloadAss(job, clip, i, stream, framing, trim, frame);
+          await renderCaptionedVertical(produced, downloadPath, assPath, true, framing, DEFAULT_CENTER_BLUR_ZOOM, trim, frame);
         } catch {
-          await renderCaptionedVertical(produced, downloadPath, null, true, framing, DEFAULT_CENTER_BLUR_ZOOM, trim);
+          await renderCaptionedVertical(produced, downloadPath, null, true, framing, DEFAULT_CENTER_BLUR_ZOOM, trim, frame);
         }
         clip.downloadFile = downloadName;
         // Recorded so the Uploading Center's preview does not skip the dead air

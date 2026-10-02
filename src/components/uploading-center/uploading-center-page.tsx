@@ -466,6 +466,8 @@ export function UploadingCenterPage() {
         sourceUrl: activeJob.sourceUrl,
         clipStart: candidate.start,
         clipEnd: candidate.end,
+        sourceFrame: candidate.sourceFrame,
+        output: activeJob.output,
       });
       const windowed = windowSegments(activeCaptions, candidate.start, candidate.end);
       const words = windowed.flatMap((segment) => segment.words);

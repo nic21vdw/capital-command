@@ -77,12 +77,12 @@ describe("cleanYtDlpError", () => {
 });
 
 describe("source format selectors", () => {
-  it("pulls a clip section at the best stream on offer, up to 4K", () => {
-    expect(CLIP_SECTION_FORMAT).toContain("bv*[height<=2160]+ba");
+  it("pulls a clip section at original quality without a 4K ceiling", () => {
+    expect(CLIP_SECTION_FORMAT).toBe("bv*+ba/b");
   });
 
-  it("keeps a full VOD at the best stream on offer, up to 4K", () => {
-    expect(FULL_VIDEO_FORMAT).toContain("bv*[height<=2160]+ba");
+  it("keeps a full VOD at original quality without a 4K ceiling", () => {
+    expect(FULL_VIDEO_FORMAT).toBe("bv*+ba/b");
   });
 
   /**
