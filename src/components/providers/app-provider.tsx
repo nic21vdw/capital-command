@@ -26,7 +26,7 @@ interface BootstrapPayload {
 
 interface AppContextValue extends BootstrapPayload {
   loading: boolean;
-  mutate: (action: string, payload?: unknown, options?: { successMessage?: string; rethrow?: boolean }) => Promise<void>;
+  mutate: (action: string, payload?: unknown, options?: { successMessage?: string; rethrow?: boolean; signal?: AbortSignal }) => Promise<void>;
   refresh: () => Promise<void>;
 }
 
@@ -265,14 +265,16 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setSlideTheme(payload.data.settings.carouselTheme);
   }, [payload]);
 
-  const mutate = useCallback(async (action: string, payload?: unknown, options?: { successMessage?: string; rethrow?: boolean }) => {
+  const mutate = useCallback(async (action: string, payload?: unknown, options?: { successMessage?: string; rethrow?: boolean; signal?: AbortSignal }) => {
     try {
+      options?.signal?.throwIfAborted();
       const response = await fetch("/api/data", {
         method: "POST",
         headers: {
           "Content-Type": "application/json"
         },
-        body: JSON.stringify({ action, payload })
+        body: JSON.stringify({ action, payload }),
+        signal: options?.signal
       });
 
       if (!response.ok) {
@@ -280,6 +282,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       }
 
       const json = (await response.json()) as Partial<BootstrapPayload> & { duplicates?: string[] };
+      // Caller cancellation cannot undo a server write already accepted, but
+      // its late response must not replace the user's newer editor/app state.
+      options?.signal?.throwIfAborted();
       startTransition(() =>
         setPayload((current) => ({
           data: json.data ?? current?.data ?? payloadFallback.data,
@@ -296,6 +301,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         toast.success(options.successMessage);
       }
     } catch (error) {
+      if (options?.signal?.aborted) {
+        if (options.rethrow) throw error;
+        return;
+      }
       console.error(`[capital-command] ${action} failed`, error);
       // A TypeError here is fetch itself failing: the local server is down or
       // still rebuilding. Saying so beats blaming the action.

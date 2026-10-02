@@ -14,6 +14,8 @@ already shipped.
 
 ## Unreleased
 
+- Clip editing recovers the newest complete draft, times out stalled saves so you can retry, and keeps renders recoverable until stopping is confirmed.
+
 - **Marketing fits the CoLateral array more reliably.** Compact cards use one
   route menu, keep assistant controls clear of the content, and follow the
   host's appearance. Keyboard navigation identifies the current page and
