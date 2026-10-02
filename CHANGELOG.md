@@ -14,6 +14,8 @@ already shipped.
 
 ## Unreleased
 
+- Clip editing recovers the newest complete draft, times out stalled saves so you can retry, and keeps renders recoverable until stopping is confirmed.
+
 - Production builds use the compatible Next.js compiler so native media tools do not block installation.
 - Video and music previews seek correctly, carousel generation uses the whole stream and preserves edits made while it writes, and invalid requests show helpful errors.
 - Saving connected accounts together now retains every connection, and repeated agent approvals cannot create duplicate work.
