@@ -5,6 +5,7 @@ import { findAccount, threadsBlockedReason, threadsConfig, type ThreadsAccount, 
 import { pruneOld, readQueue, writeQueue } from "@/lib/threads/queue";
 import type { ThreadsOutcome, ThreadsQueueItem, ThreadsRunReport } from "@/lib/threads/types";
 import { isAutomationPaused } from "@/lib/automations/store";
+import { recordAutomationEventSafely } from "@/lib/automations/history";
 
 /**
  * The runner: post everything that is due, leave everything else alone.
@@ -79,8 +80,14 @@ export async function runDue(
   const items = runOrder(pruneOld(loaded, now, config));
   if (items.length !== loaded.length && !dryRun) await deps.write(items);
 
-  const record = (item: ThreadsQueueItem, outcome: ThreadsOutcome["outcome"], detail: string) => {
+  const record = async (item: ThreadsQueueItem, outcome: ThreadsOutcome["outcome"], detail: string) => {
     outcomes.push({ itemId: item.id, slot: item.slot, accountId: item.accountId, outcome, detail });
+    const at = new Date().toISOString();
+    if (!dryRun) await recordAutomationEventSafely({
+      automationId: "threads", scope: "delivery", kind: outcome === "published" ? "delivered" : outcome === "skipped" ? "blocked" : outcome,
+      at, itemId: item.id, destination: `Threads / ${item.accountId}`, detail: `${item.topic}: ${detail}`,
+      nextAttemptAt: item.nextAttemptAt, key: `${item.id}:${item.postId ?? ""}:${item.attempts}:${outcome === "failed" || outcome === "retrying" ? at : ""}`
+    });
     log(`[threads] slot ${item.slot} ${item.accountId} → ${outcome} — ${detail}`);
   };
 
@@ -121,6 +128,11 @@ export async function runDue(
       log(`[threads] slot ${item.slot} ${item.accountId} link reply failed: ${item.plugError}`);
     }
     await deps.write(items);
+    await recordAutomationEventSafely({
+      automationId: "threads", scope: "delivery", kind: item.plugPostId ? "delivered" : item.plugDropped || (item.plugAttempts ?? 0) >= config.maxAttempts ? "failed" : "retrying",
+      at: new Date().toISOString(), itemId: item.id, destination: `Threads / ${item.accountId}`, detail: `${item.topic}: link reply ${item.plugPostId ? "published" : item.plugError ?? "not delivered"}`,
+      key: `${item.id}:reply:${item.plugPostId ?? ""}:${item.plugAttempts ?? 0}:${item.plugPostId ? "" : new Date().toISOString()}`
+    });
   };
 
   for (const item of items) {
@@ -141,7 +153,7 @@ export async function runDue(
       delete item.nextAttemptAt;
       delete item.claimedAt;
       if (!dryRun) await deps.write(items);
-      record(item, "published", `Already on Threads as ${item.postId} — recorded instead of posting it again.`);
+      await record(item, "published", `Already on Threads as ${item.postId}  -  recorded instead of posting it again.`);
       continue;
     }
 
@@ -156,7 +168,7 @@ export async function runDue(
       )} min — skipped so the feed doesn't get a backlog all at once.`;
       delete item.claimedAt;
       if (!dryRun) await deps.write(items);
-      record(item, "skipped", item.note);
+      await record(item, "skipped", item.note);
       continue;
     }
 
@@ -172,12 +184,12 @@ export async function runDue(
       item.status = "skipped";
       item.note = `The "${item.accountId}" account is no longer connected, so this post was skipped.`;
       if (!dryRun) await deps.write(items);
-      record(item, "skipped", item.note);
+      await record(item, "skipped", item.note);
       continue;
     }
 
     if (dryRun) {
-      record(item, "published", `Would post as ${account.label}: "${item.text.slice(0, 60)}…"`);
+      await record(item, "published", `Would post as ${account.label}: "${item.text.slice(0, 60)}…"`);
       continue;
     }
 
@@ -194,7 +206,7 @@ export async function runDue(
       delete item.nextAttemptAt;
       delete item.claimedAt;
       await deps.write(items);
-      record(item, "published", `${account.label} posted ${result.postId}.`);
+      await record(item, "published", `${account.label} posted ${result.postId}.`);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       if (error instanceof ContainerPendingError) item.containerId = error.containerId;
@@ -205,12 +217,12 @@ export async function runDue(
       if (!isTransient(error) || item.attempts >= config.maxAttempts) {
         item.status = "failed";
         await deps.write(items);
-        record(item, "failed", message);
+        await record(item, "failed", message);
       } else {
         const wait = backoffMinutes(item.attempts, config);
         item.nextAttemptAt = new Date(now.getTime() + wait * 60_000).toISOString();
         await deps.write(items);
-        record(item, "retrying", `${message} (retrying in ${wait} min)`);
+        await record(item, "retrying", `${message} (retrying in ${wait} min)`);
       }
     }
   }

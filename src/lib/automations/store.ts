@@ -2,6 +2,7 @@ import { mkdir, readFile, rename, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { z } from "zod";
 import { dataPath } from "@/lib/paths";
+import { historyDetail, recordAutomationEventSafely } from "@/lib/automations/history";
 import { AUTOMATION_IDS, type AutomationControl, type AutomationId, type AutomationOutcome } from "@/lib/automations/types";
 
 const controlSchema = z.object({
@@ -47,17 +48,22 @@ export async function isAutomationPaused(id: AutomationId): Promise<boolean> {
 
 export async function setAutomationPaused(id: AutomationId, paused: boolean): Promise<AutomationControl> {
   const control = controlSchema.parse({ paused, changedAt: new Date().toISOString() });
+  let changed = false;
   const pending = writes.then(async () => {
     const controls = await readAutomationControls();
+    changed = (controls[id]?.paused ?? false) !== paused;
     await writeAtomic(dataPath("automations", "control.json"), { ...controls, [id]: control });
   });
   writes = pending.catch(() => undefined);
   await pending;
+  if (changed) await recordAutomationEventSafely({ automationId: id, scope: "control", kind: paused ? "paused" : "resumed", at: control.changedAt!, detail: paused ? "Automatic work paused." : "Automatic work resumed." });
   return control;
 }
 
 export async function recordAutomationOutcome(id: AutomationId, outcome: AutomationOutcome): Promise<void> {
-  await writeAtomic(dataPath("automations", `${id}-outcome.json`), outcomeSchema.parse(outcome));
+  const saved = outcomeSchema.parse({ ...outcome, detail: historyDetail(outcome.detail) });
+  await recordAutomationEventSafely({ automationId: id, scope: "worker", kind: saved.status, at: saved.at, detail: saved.detail, key: `${saved.at}:${saved.detail}` });
+  await writeAtomic(dataPath("automations", `${id}-outcome.json`), saved);
 }
 
 export async function readAutomationOutcome(id: AutomationId): Promise<AutomationOutcome | null> {

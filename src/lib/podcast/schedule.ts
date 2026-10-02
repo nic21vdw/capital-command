@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { recordAutomationEventSafely } from "@/lib/automations/history";
 import { isAutomationPaused } from "@/lib/automations/store";
 import { feedBlockers } from "@/lib/podcast/feed";
 import {
@@ -274,7 +275,12 @@ export async function processDuePodcastDeliveries(
           return { ...current };
         })
       ).result;
-      if (!delivery) continue;
+      if (!delivery) {
+        const waiting = (await readPodcastState()).deliveries.find((item) => item.id === candidate.id);
+        if (waiting?.blocked) await recordAutomationEventSafely({ automationId: "podcast", scope: "delivery", kind: "blocked", at: new Date().toISOString(), itemId: waiting.id, destination: "RSS feed", detail: `${waiting.title}: ${waiting.lastError ?? "Feed setup is incomplete."}`, nextAttemptAt: waiting.nextAttemptAt, key: `${waiting.id}:${waiting.lastError}` });
+        else if (waiting?.status === "failed" && waiting.attempts >= MAX_ATTEMPTS) await recordAutomationEventSafely({ automationId: "podcast", scope: "delivery", kind: "failed", at: new Date().toISOString(), itemId: waiting.id, destination: "RSS feed", detail: `${waiting.title}: ${waiting.lastError ?? "Delivery attempts exhausted."}`, key: `${waiting.id}:interrupted:${waiting.lastAttemptAt}` });
+        continue;
+      }
       attempted++;
       try {
         const { episode } = await publishEpisode({
@@ -291,8 +297,9 @@ export async function processDuePodcastDeliveries(
           delete current.lastError;
           delete current.nextAttemptAt;
         });
+        await recordAutomationEventSafely({ automationId: "podcast", scope: "delivery", kind: "delivered", at: new Date().toISOString(), itemId: delivery.id, destination: "RSS feed", detail: `${delivery.title}: published to the RSS feed. Spotify ingestion is not confirmed.`, key: `${delivery.id}:${episode.id}` });
       } catch (error) {
-        await mutatePodcastState((state) => {
+        const failed = await mutatePodcastState((state) => {
           const current = state.deliveries.find(
             (item) => item.id === delivery.id,
           )!;
@@ -308,10 +315,15 @@ export async function processDuePodcastDeliveries(
                 ),
             ).toISOString();
           } else delete current.nextAttemptAt;
+          return { ...current };
         });
+        await recordAutomationEventSafely({ automationId: "podcast", scope: "delivery", kind: failed.result.nextAttemptAt ? "retrying" : "failed", at: new Date().toISOString(), itemId: delivery.id, destination: "RSS feed", detail: `${delivery.title}: ${failed.result.lastError}`, nextAttemptAt: failed.result.nextAttemptAt, key: `${delivery.id}:${failed.result.attempts}:${delivery.lastAttemptAt}` });
       }
     }
     return attempted;
+  } catch (error) {
+    await recordAutomationEventSafely({ automationId: "podcast", scope: "worker", kind: "failed", at: new Date().toISOString(), detail: error instanceof Error ? error.message : String(error) });
+    throw error;
   } finally {
     draining = false;
   }

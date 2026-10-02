@@ -14,6 +14,7 @@ already shipped.
 
 ## Unreleased
 
+- Automations now keeps seven days of delivery and worker history, with filters, retry times and separate counts for successful deliveries, delivery failures and worker issues.
 - Visual ads now start from a real stream frame, preserve the full picture and your likeness, and let you review the source, adjust the copy and export the finished ad.
 - Podcast episodes can be scheduled automatically, with saved delivery times, retries and clear hosting or Spotify setup blockers.
 - Automations has its own dashboard with persistent pause controls, upcoming work, scheduler status and recent outcomes for the pipeline, ingest, publishing, Threads and podcasts.

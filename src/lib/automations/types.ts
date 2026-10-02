@@ -1,5 +1,29 @@
 export const AUTOMATION_IDS = ["pipeline", "ingest", "publisher", "threads", "podcast"] as const;
 
+export const AUTOMATION_EVENT_KINDS = ["completed", "failed", "retrying", "delivered", "scheduled", "blocked", "paused", "resumed"] as const;
+export type AutomationEventKind = (typeof AUTOMATION_EVENT_KINDS)[number];
+export type AutomationHistoryEvent = {
+  id: string;
+  at: string;
+  automationId: AutomationId;
+  scope: "worker" | "delivery" | "control";
+  kind: AutomationEventKind;
+  detail: string;
+  itemId?: string;
+  destination?: string;
+  nextAttemptAt?: string;
+};
+export type AutomationHistory = {
+  from: string;
+  to: string;
+  events: AutomationHistoryEvent[];
+  total: number;
+  page: number;
+  pages: number;
+  counts: { delivered: number; retrying: number; failed: number; workerIssues: number; scheduled: number };
+  warnings: string[];
+};
+
 export type AutomationId = (typeof AUTOMATION_IDS)[number];
 export type AutomationOutcome = {
   at: string;

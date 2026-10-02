@@ -1,3 +1,4 @@
+import { recordAutomationEventSafely } from "@/lib/automations/history";
 import { decideUpload, explainDecision } from "@/lib/ingest/classify";
 import { DEFAULT_LOOKBACK_DAYS, scanChannelUploads } from "@/lib/ingest/channelScan";
 import { snapshotFromCandidates } from "@/lib/ingest/coverage";
@@ -126,8 +127,13 @@ export async function runDailyScan(options: RunOptions = {}): Promise<ScanReport
       ingested: report.ingested.length,
       dryRun: report.dryRun
     });
+    if (!report.dryRun) {
+      await recordAutomationEventSafely({ automationId: "ingest", scope: "worker", kind: report.configured && !report.needsReconnect ? "completed" : "blocked", at: new Date().toISOString(), detail: report.configured ? report.needsReconnect ? "Channel scan needs reconnection." : `Channel scan completed; ${report.ingested.length} streams processed.` : "Channel scan is not connected." });
+      for (const item of report.ingested) await recordAutomationEventSafely({ automationId: "ingest", scope: "worker", kind: item.outcome === "ready" ? "completed" : "failed", at: item.ingestedAt, itemId: item.videoId, detail: `${item.title}: ${item.outcome}${item.error ? `: ${item.error}` : ""}`, key: `${item.videoId}:${item.attempts}` });
+    }
     return report;
   } catch (error) {
+    if (!options.dryRun) await recordAutomationEventSafely({ automationId: "ingest", scope: "worker", kind: "failed", at: new Date().toISOString(), detail: error instanceof Error ? error.message : String(error) });
     await recordScanOutcome({
       at: startedAt,
       status: "failed",

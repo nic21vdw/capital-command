@@ -446,6 +446,13 @@ including pipeline advancement triggered by a status request. An enabled
 setting or a successful scheduler exit does not prove an automation completed.
 Pausing cannot recall posts already scheduled with an external platform.
 
+Automation history uses daily append-only journals in `data/automations/history`
+so separate scheduler processes cannot overwrite one another's events. Record
+delivery transitions after queue state is saved; dry runs must not add history.
+Worker completion and scheduling handoffs are separate from confirmed delivery.
+Keep seven days, redact credentials, and let a history write failure leave the
+posting action intact.
+
 Local control APIs use `allowsRequestOrigin()` with the request Host header.
 NextURL normalizes `127.0.0.1` to `localhost`, so comparing Origin directly to
 `request.nextUrl.origin` rejects valid loopback browser requests.
