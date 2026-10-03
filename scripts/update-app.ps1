@@ -40,6 +40,7 @@ $ErrorActionPreference = "Stop"
 
 $root = Split-Path -Parent $PSScriptRoot
 Set-Location $root
+. (Join-Path $PSScriptRoot 'update-timing.ps1')
 
 if ($LogPath) {
   try {
@@ -117,6 +118,7 @@ function Invoke-Script {
   function Read-ScriptOutput {
     if (-not $reader) { return }
     while ($null -ne ($line = $reader.ReadLine())) {
+      Add-UpdateTimingDetail $line
       if ($line.Trim()) { Write-Log $line }
     }
   }
@@ -179,6 +181,7 @@ function Invoke-Script {
 }
 
 function Step($message) {
+  Start-UpdateStep $message
   Write-Log ""
   Write-Log "==> $message"
 }
@@ -189,12 +192,14 @@ function Step($message) {
 # still building. Every terminating error now writes the same ERROR line a
 # deliberate failure does.
 trap {
+  Complete-UpdateTiming 'failed'
   Write-Log ""
   Write-Log ("ERROR: The update stopped unexpectedly - " + (($_.Exception.Message -split "\r?\n") -join " ").Trim())
   exit 1
 }
 
 function Fail($message) {
+  Complete-UpdateTiming 'failed'
   Write-Log ""
   # One line. The banner shows the ERROR line and nothing after it, so a reason
   # written across three lines reached the screen cut off mid-word - and the
@@ -360,6 +365,7 @@ function Push-Everywhere($refspec, $what) {
 }
 
 $started = Get-Date
+if (-not $Check) { Initialize-UpdateTiming $root }
 function Elapsed {
   $span = (Get-Date) - $started
   return "{0:mm}m{0:ss}s" -f $span
@@ -442,7 +448,7 @@ if (Test-Path $buildCommitFile) {
 $incoming = git log --oneline "$from..$source"
 if (-not $incoming) {
   Write-Log "Nothing new on $Branch - the app is already running the latest."
-  if ($Check -or -not $Force) { exit 0 }
+  if ($Check -or -not $Force) { Complete-UpdateTiming 'unchanged'; exit 0 }
 } else {
   Write-Log ($incoming -join "`r`n")
 }
@@ -520,6 +526,7 @@ if ($lockHash -and $installedHash -eq $lockHash -and (Test-Path (Join-Path $root
 }
 
 if ($NoRestart) {
+  Complete-UpdateTiming 'prepared'
   Write-Log ""
   Write-Log "-NoRestart: leaving the running server alone. It is still on the old build."
   exit 0
@@ -542,4 +549,5 @@ $port = if ($env:CAPITAL_COMMAND_PORT) { $env:CAPITAL_COMMAND_PORT } else { "300
 Write-Log ""
 Write-Log "CoLateral Marketing is updated and running at http://localhost:$port (took $(Elapsed))"
 Write-Log "Now on: $((git log --oneline -1))"
+Complete-UpdateTiming 'completed'
 

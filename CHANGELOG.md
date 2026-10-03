@@ -14,6 +14,8 @@ already shipped.
 
 ## Unreleased
 
+- Update history saves how long each step took, separates compilation, retries and startup, and highlights the slowest step so future delays are easy to spot.
+
 - Marketing updates use the fast compiler again, isolate build settings from the running app, and stop retrying failures that clearing the cache cannot fix. Build output reaches the update log while it runs.
 
 ## 2026-10-02

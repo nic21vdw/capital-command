@@ -57,8 +57,9 @@ describe("production build isolation", () => {
     try {
       const source = readFileSync(join(scripts, "update-app.ps1"), "utf8");
       const invoke = source.slice(source.indexOf("function Invoke-Script"), source.indexOf("function Step"));
+      copyFileSync(join(scripts, "update-timing.ps1"), join(root, "update-timing.ps1"));
       writeFileSync(join(root, "fake.ps1"), "Write-Output 'compile started'\nStart-Sleep -Seconds 5\nWrite-Output 'compile failed'\nexit 7\n");
-      writeFileSync(join(root, "driver.ps1"), `$ErrorActionPreference = 'Stop'\nfunction Write-Log($message) { Add-Content (Join-Path $PSScriptRoot 'update.log') $message }\nfunction Elapsed { 'fixture' }\n${invoke}\nexit (Invoke-Script 'fake.ps1')\n`);
+      writeFileSync(join(root, "driver.ps1"), `$ErrorActionPreference = 'Stop'\n. (Join-Path $PSScriptRoot 'update-timing.ps1')\nfunction Write-Log($message) { Add-Content (Join-Path $PSScriptRoot 'update.log') $message }\nfunction Elapsed { 'fixture' }\n${invoke}\nexit (Invoke-Script 'fake.ps1')\n`);
       const output = openSync(join(root, "driver.log"), "w");
       child = spawn("powershell.exe", ["-NoProfile", "-File", join(root, "driver.ps1")], {
         cwd: root, windowsHide: true, stdio: ["ignore", output, output]
