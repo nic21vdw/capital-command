@@ -111,6 +111,15 @@ function Invoke-Script {
   $psi.Arguments = "/c `"$command`""
   $psi.UseShellExecute = $false
   $child = [System.Diagnostics.Process]::Start($psi)
+  $reader = $null
+  $timedOut = $false
+
+  function Read-ScriptOutput {
+    if (-not $reader) { return }
+    while ($null -ne ($line = $reader.ReadLine())) {
+      if ($line.Trim()) { Write-Log $line }
+    }
+  }
 
   # A heartbeat while it works, because `next build` says nothing for minutes at
   # a time and the only thing watching is a browser reading this file. Silence
@@ -121,6 +130,13 @@ function Invoke-Script {
   $beat = Get-Date
   $waited = Get-Date
   while (-not $child.WaitForExit(1000)) {
+    if (-not $reader -and (Test-Path $log)) {
+      try {
+        $stream = New-Object System.IO.FileStream($log, [System.IO.FileMode]::Open, [System.IO.FileAccess]::Read, [System.IO.FileShare]::ReadWrite)
+        $reader = New-Object System.IO.StreamReader($stream)
+      } catch { }
+    }
+    Read-ScriptOutput
     if (((Get-Date) - $beat).TotalSeconds -ge 30) {
       $beat = Get-Date
       Write-Log ("... still working on this step ($(Elapsed) into the update)")
@@ -132,10 +148,11 @@ function Invoke-Script {
     # gives up instead, kills only what this release started - by PID, never by
     # name - and lets the screen say what happened.
     if ($TimeoutMinutes -gt 0 -and ((Get-Date) - $waited).TotalMinutes -ge $TimeoutMinutes) {
-      Write-Log ("$Name has been running for $TimeoutMinutes minutes with nothing to show - stopping it.")
+      Write-Log ("$Name exceeded the $TimeoutMinutes minute limit - stopping it. See the build output above.")
       & taskkill.exe /PID $child.Id /T /F 2>&1 | ForEach-Object { Write-Log $_.ToString() }
       try { $child.WaitForExit(10000) | Out-Null } catch { }
-      return 1
+      $timedOut = $true
+      break
     }
   }
 
@@ -145,21 +162,19 @@ function Invoke-Script {
   # ended the release one step from the finish - after the app was already back
   # up, so the banner was left saying it was still building forever.
   try {
-    $stream = New-Object System.IO.FileStream($log, [System.IO.FileMode]::Open, [System.IO.FileAccess]::Read, [System.IO.FileShare]::ReadWrite)
-    try {
+    if (-not $reader) {
+      $stream = New-Object System.IO.FileStream($log, [System.IO.FileMode]::Open, [System.IO.FileAccess]::Read, [System.IO.FileShare]::ReadWrite)
       $reader = New-Object System.IO.StreamReader($stream)
-      while ($null -ne ($line = $reader.ReadLine())) {
-        if ($line.Trim()) { Write-Log $line }
-      }
-      $reader.Dispose()
-    } finally {
-      $stream.Dispose()
     }
+    Read-ScriptOutput
   } catch {
     Write-Log "(could not read $Name's output: $($_.Exception.Message))"
+  } finally {
+    if ($reader) { $reader.Dispose() }
   }
   Remove-Item $log -Force -ErrorAction SilentlyContinue
 
+  if ($timedOut) { return 1 }
   return $child.ExitCode
 }
 
@@ -514,7 +529,7 @@ Step "Stopping the running app ($(Elapsed) in)"
 Invoke-Script "stop-server.ps1" | Out-Null
 
 Step "Building and starting the new version ($(Elapsed) in, takes a few minutes)"
-if ((Invoke-Script "start-server.ps1" @("-Quiet") -TimeoutMinutes 90) -ne 0) {
+if ((Invoke-Script "start-server.ps1" @("-Quiet") -TimeoutMinutes 15) -ne 0) {
   # It has already printed the reason and the tail of the log it failed in.
   # Waiting five minutes for a server that was never started only buries that.
   Fail "The build did not finish. The app is still down - see build.log in $root, then run Update CoLateral Marketing.bat again."

@@ -95,7 +95,7 @@ function Test-BuildCurrent {
     $head = & git -C $root rev-parse HEAD 2>$null
     if ($LASTEXITCODE -ne 0 -or -not $head) { return $false }
     # Docs and launcher changes do not change a Next bundle.
-    $watched = @("src", "public", "remotion", "next.config.ts", "tsconfig.json", "postcss.config.mjs", "package.json", "package-lock.json", ".npmrc", "scripts/prepare-dev-cache.mjs", "scripts/stamp-build-commit.mjs")
+    $watched = @("src", "public", "remotion", "next.config.ts", "tsconfig.json", "postcss.config.mjs", "package.json", "package-lock.json", ".npmrc", "scripts/build-app.mjs", "scripts/prepare-dev-cache.mjs", "scripts/stamp-build-commit.mjs")
     & git -C $root diff --quiet $stamp.Trim() $head.Trim() -- $watched 2>$null
     if ($LASTEXITCODE -ne 0) { return $false }
     & git -C $root diff --quiet HEAD -- $watched 2>$null
@@ -122,7 +122,7 @@ function Invoke-Build($append) {
   # then comes back as [all 200 lines of output, 0] - which is not -eq 0, so the
   # release rebuilt from cold and then declared a build that had worked a
   # failure, leaving the app down.
-  & cmd.exe /c "cd /d `"$root`" && `"$node`" scripts\prepare-dev-cache.mjs && npm.cmd run build" 2>&1 |
+  & cmd.exe /c "cd /d `"$root`" && npm.cmd run build" 2>&1 |
     ForEach-Object { $_.ToString() } |
     Tee-Object -FilePath $buildLog -Append:$append |
     ForEach-Object { Write-Host $_ }
@@ -154,7 +154,7 @@ if ($skipBuild) {
 # from cold. That is worth one automatic retry, because the release has already
 # stopped the server by this point - the alternative is the app staying down
 # over a cache file.
-if ($buildExit -ne 0) {
+if ($buildExit -ne 0 -and (Select-String -Path $buildLog -Pattern 'Cannot find module for page|Cannot find module [''"]\./|reading ''call''' -Quiet)) {
   Write-Host "The build failed. Clearing the build cache and trying once more..."
   $nextDir = Join-Path $root ".next"
   # .next is a junction to a folder outside OneDrive in the production
@@ -167,7 +167,7 @@ if ($buildExit -ne 0) {
 if (-not $skipBuild) { Clear-BuildLock }
 
 if ($buildExit -ne 0) {
-  Show-Failure "The build failed twice (exit $buildExit), so the app was not started." $buildLog
+  Show-Failure "The build failed (exit $buildExit), so the app was not started." $buildLog
   exit 1
 }
 

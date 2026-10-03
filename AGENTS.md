@@ -422,6 +422,15 @@ API. A carousel for YouTube is posted by hand, from the rendered slides in
 
 ## Update and restart verification
 
+Production builds run through `scripts/build-app.mjs`. It sets `NODE_ENV` to
+`production` and clears inherited `TURBOPACK`, `NEXT_PHASE` and `NEXT_RUNTIME`.
+An update launched by a Turbopack server can inherit `TURBOPACK=1` even when
+the build command selects webpack, mixing compiler runtimes and failing on
+`/404` after a long compile. Keep `npm run build` on explicit `--turbopack`;
+`npm run build:webpack` is the manual compatibility fallback. Only recognized
+cache failures get an automatic clean retry. Release child output is streamed
+into the update log while it runs, and build/start has a 15-minute limit.
+
 `/api/update/progress` is the lightweight readiness endpoint. It reads the
 release log and the process identity captured by `releaseRuntime()` at server
 startup, without fetching Git remotes or rendering the home page. The card
