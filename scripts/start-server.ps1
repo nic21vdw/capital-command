@@ -111,6 +111,7 @@ function Test-BuildCurrent {
 }
 
 function Invoke-Build($append) {
+  $clock = [System.Diagnostics.Stopwatch]::StartNew()
   # `next build` writes progress and warnings to stderr. Under the Stop
   # preference PowerShell promotes each of those lines to a terminating error,
   # so a perfectly good build would abort here and a failed one would never
@@ -128,12 +129,15 @@ function Invoke-Build($append) {
     ForEach-Object { Write-Host $_ }
   $exit = $LASTEXITCODE
   $ErrorActionPreference = $previousPreference
+  $label = if ($append) { 'Retry build' } else { 'Compile build' }
+  Write-Host ('[update-timing] ' + (@{ label = $label; durationMs = $clock.ElapsedMilliseconds } | ConvertTo-Json -Compress))
   return $exit
 }
 
 $skipBuild = (-not $Rebuild) -and (Test-BuildCurrent)
 
 if ($skipBuild) {
+  $reuseClock = [System.Diagnostics.Stopwatch]::StartNew()
   Write-Host "The build inputs are unchanged - reusing the existing build."
   # This commit has identical app inputs, so it is covered by this build too.
   Push-Location $root
@@ -142,6 +146,7 @@ if ($skipBuild) {
     if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
   } finally { Pop-Location }
   $buildExit = 0
+  Write-Host ('[update-timing] ' + (@{ label = 'Reuse build'; durationMs = $reuseClock.ElapsedMilliseconds } | ConvertTo-Json -Compress))
 } else {
   Write-Host "Building CoLateral Marketing (a few minutes)..."
   Set-BuildLock
@@ -182,6 +187,7 @@ if (-not (Test-Path $buildId)) {
 # Give the server its own hidden console. Inheriting the updater's console
 # lets closing that console kill the server that just reported it was ready.
 $entry = Join-Path $root "node_modules\next\dist\bin\next"
+$startClock = [System.Diagnostics.Stopwatch]::StartNew()
 $process = Start-Process -FilePath $node -ArgumentList "`"$entry`" start --hostname 127.0.0.1 --port $port" -WorkingDirectory $root -WindowStyle Hidden -RedirectStandardOutput $stdout -RedirectStandardError $stderr -PassThru
 
 Set-Content -Path $pidFile -Value $process.Id
@@ -206,4 +212,5 @@ if ($LASTEXITCODE -ne 0) {
   exit 1
 }
 Write-Output "Started server with PID $($process.Id)"
+Write-Host ('[update-timing] ' + (@{ label = 'Start server'; durationMs = $startClock.ElapsedMilliseconds } | ConvertTo-Json -Compress))
 

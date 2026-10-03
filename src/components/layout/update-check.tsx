@@ -5,6 +5,7 @@ import { ArrowDownToLine, CheckCircle2, Loader2, RefreshCw, TriangleAlert } from
 import { useRelease, type ReleaseStatusWithProgress } from "@/components/layout/release-provider";
 import { updateCheckState, type ReleaseWatch } from "@/lib/release/shared";
 import { cn } from "@/lib/utils";
+import { UpdateHistory } from "./update-history";
 
 const FLASH_MS = 5000;
 
@@ -156,6 +157,7 @@ export function UpdateCheckButton({ collapsed = false }: { collapsed?: boolean }
           </span>
         )}
       </button>
+      <UpdateHistory collapsed={collapsed} />
     </div>
   );
 }

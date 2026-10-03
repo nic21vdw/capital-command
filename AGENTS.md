@@ -422,6 +422,15 @@ API. A carousel for YouTube is posted by hand, from the rendered slides in
 
 ## Update and restart verification
 
+Update history is recorded by `scripts/update-timing.ps1` in the configured
+data directory's `update-history` folder, one atomic JSON record per attempt.
+Use stopwatch durations, not the formatted elapsed clock, for step measurements.
+Child build/start timings use `[update-timing]` log entries that the updater
+stores under the active step. Do not save raw compiler output or credentials
+in history. A failed history write must never stop an update. The sidebar's
+Update history reads the latest 20 valid records without checking Git remotes;
+an attempt without a completion record must not be shown as successful.
+
 Production builds run through `scripts/build-app.mjs`. It sets `NODE_ENV` to
 `production` and clears inherited `TURBOPACK`, `NEXT_PHASE` and `NEXT_RUNTIME`.
 An update launched by a Turbopack server can inherit `TURBOPACK=1` even when
