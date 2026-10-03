@@ -14,6 +14,8 @@ already shipped.
 
 ## Unreleased
 
+- Marketing updates use the fast compiler again, isolate build settings from the running app, and stop retrying failures that clearing the cache cannot fix. Build output reaches the update log while it runs.
+
 ## 2026-10-02
 
 - Threads daily and stream posts now get a relevant CoLateral follow-up with tracked links, visible previews and delivery status. Pausing stops queued replies, retries keep their identity, and repeated stream scheduling no longer duplicates posts.
