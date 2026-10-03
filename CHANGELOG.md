@@ -14,6 +14,8 @@ already shipped.
 
 ## Unreleased
 
+## 2026-10-02
+
 - Threads daily and stream posts now get a relevant CoLateral follow-up with tracked links, visible previews and delivery status. Pausing stops queued replies, retries keep their identity, and repeated stream scheduling no longer duplicates posts.
 
 - Clip editing recovers the newest complete draft, times out stalled saves so you can retry, and keeps renders recoverable until stopping is confirmed.
