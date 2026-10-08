@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { pollWhileVisible } from "@/lib/visiblePolling";
 import { WorkflowLoadNotice } from "@/components/marketing/workflow-load-notice";
 import { loadWorkflowJson, workflowLoadMessage } from "@/lib/marketing/workflow-resource";
 import Link from "next/link";
@@ -426,21 +427,13 @@ export function PipelinePage() {
     }
   }, []);
 
+  // The server heartbeat advances work even while this window is hidden.
+  // Refresh immediately on return; settled pages still check for changes made
+  // in another tab. Depend on the cadence, not each newly fetched run array.
+  const pollInterval = overviews.some((entry) => !entry.settled) ? 2500 : 15000;
   useEffect(() => {
-    // Start loading outside the effect so its loading state does not cascade
-    // through the initial render. Cleanup cancels a superseded mount.
-    const kickoff = window.setTimeout(() => void refresh(), 0);
-    return () => window.clearTimeout(kickoff);
-  }, [refresh]);
-
-  // Polling the overview is what advances the run server-side, so keep a slow
-  // heartbeat even when everything looks settled — a stage the user retried in
-  // another tab (or a finished export) gets picked up without a reload.
-  useEffect(() => {
-    const busy = overviews.some((entry) => !entry.settled);
-    const timer = setInterval(() => void refresh(), busy ? 2500 : 15000);
-    return () => clearInterval(timer);
-  }, [overviews, refresh]);
+    return pollWhileVisible(refresh, pollInterval);
+  }, [pollInterval, refresh]);
 
   const startRun = useCallback(
     async (body: { url?: string; sourceId?: string; name?: string }) => {
@@ -1467,3 +1460,4 @@ export function PipelinePage() {
     </div>
   );
 }
+

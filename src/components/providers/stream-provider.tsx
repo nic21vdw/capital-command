@@ -3,6 +3,7 @@
 import { usePathname, useSearchParams } from "next/navigation";
 import { createContext, Suspense, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import { readPipelineSummary } from "@/lib/pipeline/summaryClient";
+import { pollWhileVisible } from "@/lib/visiblePolling";
 import type { StreamSummary } from "@/lib/pipeline/types";
 
 /**
@@ -87,11 +88,10 @@ export function StreamProvider({ children }: { children: React.ReactNode }) {
         // Cache is an optimisation; a full quota is not a failure.
       }
     };
-    void read();
-    const timer = setInterval(read, POLL_MS);
+    const stopPolling = pollWhileVisible(read, POLL_MS);
     return () => {
       alive = false;
-      clearInterval(timer);
+      stopPolling();
     };
   }, []);
 
@@ -138,3 +138,4 @@ function RunParamSync({ select }: { select: (id: string | null) => void }) {
 export function useStream() {
   return useContext(StreamContext);
 }
+
