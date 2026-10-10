@@ -1276,6 +1276,11 @@ export function PipelinePage() {
                               {candidate.kind === "clip" ? "short" : candidate.kind}
                             </span>
                             {candidate.title}
+                            {candidate.kind === "longform" || candidate.kind === "segment" ? (
+                              <span className="ml-1.5 text-[11px] text-[var(--muted-foreground)]">
+                                held private for review
+                              </span>
+                            ) : null}
                             {candidate.imagePaths ? (
                               <span className="ml-1.5 text-[var(--muted-foreground)]">
                                 {candidate.imagePaths.length} slides
@@ -1309,7 +1314,7 @@ export function PipelinePage() {
                     className={SMALL_BUTTON}
                   >
                     {working === "queue" ? <Spinner /> : null}
-                    Schedule {plan.candidates.length - dropped.length} now
+                    Book {plan.candidates.length - dropped.length} at the next free slots
                   </Button>
                   <Button variant="secondary" onClick={() => setPlan(null)} className={SMALL_BUTTON}>
                     Cancel

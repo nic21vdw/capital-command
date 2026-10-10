@@ -24,6 +24,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { PageHeader } from "@/components/ui/page-header";
+import { POSTING_MODES, PostingTag, type PostingMode } from "@/components/ui/posting-tag";
 import { useColateralSurface } from "@/lib/colateral/useSurface";
 import { cn } from "@/lib/utils";
 
@@ -159,46 +160,85 @@ const SOURCES: Array<{
 ];
 
 // Canonical metadata + destination tool for each output type.
+//
+// `posting` is the honest answer to "what happens when I schedule this": a
+// one-word mode plus where it really goes. Keep it in step with the code that
+// does the posting (publish queue, Threads autopilot), not with the tool's name.
 const OUTPUTS: Record<
   OutputKey,
-  { label: string; icon: LucideIcon; href: string; cta: string }
+  {
+    label: string;
+    icon: LucideIcon;
+    href: string;
+    cta: string;
+    posting: { mode: PostingMode; where: string };
+  }
 > = {
   longform: {
     label: "Long-form video",
     icon: Clapperboard,
     href: "/longform",
     cta: "Open editor",
+    posting: {
+      mode: "automatic",
+      where: "YouTube, uploaded private so you can review it before it goes public.",
+    },
   },
   shorts: {
     label: "Shorts / Reels",
     icon: Wand2,
     href: "/clips",
     cta: "Cut shorts",
+    posting: {
+      mode: "automatic",
+      where:
+        "YouTube, Instagram and Facebook. TikTok lands in your TikTok inbox: finish the post in the app.",
+    },
   },
   audio: {
     label: "Audio",
     icon: AudioLines,
     href: "/longform",
     cta: "Export audio",
+    posting: { mode: "manual", where: "You upload the mp3 to Spotify yourself." },
   },
-  x: { label: "X posts", icon: AtSign, href: "/x-posts", cta: "Write posts" },
+  x: {
+    label: "X posts",
+    icon: AtSign,
+    href: "/x-posts",
+    cta: "Write posts",
+    posting: { mode: "copy-only", where: "The app writes them; you copy and post on X." },
+  },
   threads: {
     label: "Thread posts",
     icon: MessageSquare,
     href: "/facebook",
     cta: "Write thread",
+    posting: {
+      mode: "manual",
+      where: "Facebook / Instagram Post Library: copy and paste, nothing is sent.",
+    },
   },
   text: {
     label: "Text-only post",
     icon: FileText,
     href: "/x-posts",
     cta: "Write post",
+    posting: {
+      mode: "automatic",
+      where: "Threads, sent through the day by the autopilot once it is armed.",
+    },
   },
   carousel: {
     label: "Carousel",
     icon: Images,
     href: "/carousels",
     cta: "Generate",
+    posting: {
+      mode: "automatic",
+      where:
+        "Instagram and Facebook when booked as a one-off. TikTok, YouTube and repeating schedules are reminders.",
+    },
   },
 };
 
@@ -243,7 +283,7 @@ const MATRIX: Record<SourceKey, Partial<Record<OutputKey, Capability>>> = {
     },
     carousel: {
       status: "ready",
-      note: "Generate a carousel (Instagram, Facebook, TikTok) from the video's ideas.",
+      note: "Generate a carousel (posts to Instagram and Facebook) from the video's ideas.",
     },
   },
   audio: {
@@ -529,6 +569,21 @@ export function DistributionPage() {
         description="Pick what you're starting with, then follow the pipeline down: your raw material becomes a clean master, and from there it fans out into every format you can post. Videos do everything; text and ideas set you up to record and unlock the rest."
       />
 
+      {/* The key to the one-word tags on every format below. */}
+      <Card className="mb-6 flex flex-wrap items-start gap-x-6 gap-y-2 py-3">
+        <p className="w-full text-[11px] font-medium uppercase tracking-wider text-[var(--muted-foreground)]">
+          What &ldquo;schedule&rdquo; means
+        </p>
+        {(Object.keys(POSTING_MODES) as PostingMode[]).map((mode) => (
+          <div key={mode} className="flex min-w-[220px] flex-1 items-start gap-2">
+            <PostingTag mode={mode} className="mt-0.5 shrink-0" />
+            <p className="text-xs text-[var(--muted-foreground)]">
+              {POSTING_MODES[mode].meaning}
+            </p>
+          </div>
+        ))}
+      </Card>
+
       {/* Big source tabs — the "what do you have?" selector / root of the tree. */}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
         {SOURCES.map((item) => {
@@ -763,6 +818,14 @@ function OutputCard({
         )}
       </div>
       <p className="text-xs text-[var(--muted-foreground)]">{cap.note}</p>
+      {isReady ? (
+        <div className="flex flex-col items-start gap-1">
+          <PostingTag mode={meta.posting.mode} />
+          <p className="text-[11px] text-[var(--muted-foreground)]">
+            {meta.posting.where}
+          </p>
+        </div>
+      ) : null}
       {stat ? (
         <p className="text-xs font-medium text-[var(--accent)]">{stat}</p>
       ) : null}

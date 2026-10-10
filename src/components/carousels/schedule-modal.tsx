@@ -34,7 +34,7 @@ function tomorrowKey(): string {
  * Plans a carousel post. A one-off to Instagram/Facebook is BOOKED: the page
  * sends it to the publish queue and it posts itself at the slot. Everything else
  * (a repeat, TikTok, YouTube) is a REMINDER saved on the carousel and shown on
- * the Upload Schedule - nothing posts automatically. The button says which.
+ * the Reminders list - nothing posts automatically. The button says which.
  */
 export function ScheduleModal({
   open,
@@ -183,7 +183,7 @@ export function ScheduleModal({
               ? "A repeating schedule is a reminder only - nothing posts automatically. Choose Once to book Instagram and Facebook."
               : `${label(plan.remind)} can't take picture posts from the app (manual - you post the slides yourself), so ${
                   plan.remind.length > 1 ? "those get" : "that gets"
-                } a reminder on the Upload Schedule instead.`}
+                } a reminder on the Reminders list instead.`}
           </p>
         ) : null}
 

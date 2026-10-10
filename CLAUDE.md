@@ -300,8 +300,10 @@ running must go through the app's own HTTP API, in-process:
 
 - `POST /api/publish` with an explicit `publishAt` books a video at a chosen
   slot, which is how to place something outside the earliest-free-slot order
-  `planRunOutputs` deals in. Carousels have no HTTP route — only the pipeline's
-  booking sheet books a deck.
+  `planRunOutputs` deals in. A carousel books through
+  `POST /api/studio/carousels/:id/book` (a one-off to Instagram/Facebook, via
+  `enqueueImagePost`) or the pipeline's booking sheet. TikTok, YouTube and
+  repeating carousel schedules are only reminders on `carousel.schedules`.
 - `PATCH /api/publish/:id` renames, `DELETE /api/publish/:id` removes.
 
 If a file-level edit is unavoidable, stop the server first or restart it after
