@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { describeFailure, describeWaiting, isConnectionFailure } from "@/lib/publisher/failure";
+import { describeFailure, describeWaiting, duplicateTitleCleared, isConnectionFailure } from "@/lib/publisher/failure";
 import { channelDuplicateMessage } from "@/lib/publisher/duplicateGuard";
 import { YOUTUBE_RECONNECT_FOR_SCOPE, YOUTUBE_RECONNECT_REQUIRED } from "@/lib/publisher/googleAuth";
 
@@ -184,5 +184,49 @@ describe("a leg that is waiting rather than failed", () => {
 
   it("shows a booked later attempt even with no error text", () => {
     expect(describeWaiting({ status: "pending", attempts: 0, nextAttemptAt: "2026-07-14T20:00:00.000Z" }, "tiktok")).not.toBeNull();
+  });
+});
+
+describe("which first step a failure kind asks for", () => {
+  const failed = (error?: string) => ({ status: "failed" as const, attempts: 3, error });
+
+  it("tells a retitle from a reconnect from a plain retry", () => {
+    const duplicate = describeFailure(failed(channelDuplicateMessage({ title: "Day 44", url: "https://youtu.be/x" })), "youtube");
+    expect(duplicate).toMatchObject({ kind: "duplicate-title", action: "none" });
+
+    expect(describeFailure(failed(YOUTUBE_RECONNECT_REQUIRED), "youtube")).toMatchObject({
+      kind: "connection-lapsed",
+      action: "reconnect"
+    });
+    expect(describeFailure({ status: "manual", attempts: 0 }, "tiktok")).toMatchObject({
+      kind: "not-connected",
+      action: "reconnect"
+    });
+    expect(describeFailure(failed("tiktok credentials are not configured for this account."), "tiktok").kind).toBe(
+      "not-connected"
+    );
+    expect(describeFailure(failed("Clip file data/x.mp4 is not on this machine"), "youtube").kind).toBe("missing-media");
+    expect(describeFailure(failed("Video is too long for a Short."), "instagram")).toMatchObject({
+      kind: "retryable",
+      action: "retry"
+    });
+  });
+});
+
+describe("duplicateTitleCleared", () => {
+  const error = channelDuplicateMessage({ title: "What I learned building in public", url: "https://youtu.be/x" });
+
+  it("is false while the post still carries the refused title, whatever its case", () => {
+    expect(duplicateTitleCleared(error, "What I learned building in public")).toBe(false);
+    expect(duplicateTitleCleared(error, "  what i learned BUILDING in public ")).toBe(false);
+  });
+
+  it("is true once the post has a different title", () => {
+    expect(duplicateTitleCleared(error, "What I learned building in public (part 2)")).toBe(true);
+  });
+
+  it("proves nothing from a message that quotes no title", () => {
+    expect(duplicateTitleCleared("already on the channel", "Anything")).toBe(false);
+    expect(duplicateTitleCleared(undefined, "Anything")).toBe(false);
   });
 });

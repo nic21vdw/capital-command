@@ -33,11 +33,25 @@ export function isConnectionFailure(state: PlatformState): boolean {
 
 export type FailureAction = "reconnect" | "retry" | "none";
 
+/**
+ * WHY a post is blocked, for a card that offers a different first step for each.
+ * `action` says which control family applies; `kind` says which one exactly:
+ *
+ * - `duplicate-title`  the title is already on the channel: rename, then retry
+ * - `not-connected`    no account/credentials exist: CONNECT it
+ * - `connection-lapsed` credentials existed and expired or were revoked: RECONNECT it
+ * - `missing-media`    the file is gone: nothing helps
+ * - `retryable`        anything a plain Retry may fix (abandoned upload, quota, a rejection)
+ */
+export type FailureKind = "duplicate-title" | "not-connected" | "connection-lapsed" | "missing-media" | "retryable";
+
 export type FailureAdvice = {
   /** One plain sentence about what happened. */
   headline: string;
   /** The control the card should offer for it. */
   action: FailureAction;
+  /** Which first step fixes it (see FailureKind). */
+  kind: FailureKind;
   /**
    * True when the fix lives in Settings (every platform but YouTube, which has
    * its own Reconnect button on the card). The card links there.
@@ -47,7 +61,7 @@ export type FailureAdvice = {
   raw?: string;
 };
 
-const PLATFORM_LABELS: Record<PlatformId, string> = {
+export const PLATFORM_LABELS: Record<PlatformId, string> = {
   youtube: "YouTube",
   instagram: "Instagram",
   tiktok: "TikTok",
@@ -113,6 +127,7 @@ export function describeFailure(state: PlatformState, platform: PlatformId, cont
       return {
         headline: `Not connected - post this by hand at ${context?.when ?? "its slot"}, or connect ${label} in Settings.`,
         action: "reconnect",
+        kind: "not-connected",
         viaSettings,
         raw: state.note?.trim() || raw
       };
@@ -122,6 +137,7 @@ export function describeFailure(state: PlatformState, platform: PlatformId, cont
         platform === "youtube" ? "Connect one and this post goes out on its own." : "Connect it in Settings, then press Retry."
       }`,
       action: "reconnect",
+      kind: "not-connected",
       viaSettings,
       raw: state.note?.trim() || raw
     };
@@ -131,6 +147,7 @@ export function describeFailure(state: PlatformState, platform: PlatformId, cont
     return {
       headline: "A video with this title is already on your YouTube channel, so it wasn't posted a second time. Retitle the post, then book it again.",
       action: "none",
+      kind: "duplicate-title",
       raw
     };
   }
@@ -141,6 +158,7 @@ export function describeFailure(state: PlatformState, platform: PlatformId, cont
         platform === "youtube" ? "Connect it and this post goes out on its own." : "Add its connection in Settings, then press Retry."
       }`,
       action: "reconnect",
+      kind: "not-connected",
       viaSettings,
       raw
     };
@@ -150,6 +168,7 @@ export function describeFailure(state: PlatformState, platform: PlatformId, cont
     return {
       headline: `The ${label} connection expired or was revoked. ${afterConnecting(platform)}`,
       action: "reconnect",
+      kind: "connection-lapsed",
       viaSettings,
       raw
     };
@@ -159,6 +178,7 @@ export function describeFailure(state: PlatformState, platform: PlatformId, cont
     return {
       headline: "The video file for this post isn't on this machine any more, so it can't be uploaded.",
       action: "none",
+      kind: "missing-media",
       raw
     };
   }
@@ -167,15 +187,31 @@ export function describeFailure(state: PlatformState, platform: PlatformId, cont
     return {
       headline: `${label} took the upload and then never fetched the video, so nothing was posted. Sending it again is the fix.`,
       action: "retry",
+      kind: "retryable",
       raw
     };
   }
 
   if (raw && WORTH_RETRYING.test(raw)) {
-    return { headline: `${label} couldn't take it just then — worth another go.`, action: "retry", raw };
+    return { headline: `${label} couldn't take it just then — worth another go.`, action: "retry", kind: "retryable", raw };
   }
 
-  return { headline: `${label} rejected this upload.`, action: "retry", raw };
+  return { headline: `${label} rejected this upload.`, action: "retry", kind: "retryable", raw };
+}
+
+/**
+ * True once a duplicate-title failure has been answered by retitling the post.
+ *
+ * The duplicate guard's message always quotes the title it refused
+ * (`channelDuplicateMessage`), so "the title in the error is no longer the
+ * title on the post" is the whole proof - and it survives a reload, which a flag
+ * held on the card would not. A message that quotes nothing proves nothing, so
+ * it stays uncleared.
+ */
+export function duplicateTitleCleared(error: string | undefined, currentTitle: string): boolean {
+  const quoted = error?.match(/^\s*"([^"]+)"/)?.[1];
+  if (!quoted) return false;
+  return quoted.trim().toLowerCase() !== currentTitle.trim().toLowerCase();
 }
 
 /**
