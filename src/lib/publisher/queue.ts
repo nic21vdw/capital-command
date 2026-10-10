@@ -496,6 +496,11 @@ export function newPlatformState(): PlatformState {
   return { status: "pending", attempts: 0 };
 }
 
+/** A platform leg added by the mirror: pending, and marked as following `lead`. */
+export function mirroredPlatformState(lead: PlatformId): PlatformState {
+  return { status: "pending", attempts: 0, mirroredFrom: lead };
+}
+
 export function newBufferState(): BufferState {
   return { status: "pending", attempts: 0 };
 }

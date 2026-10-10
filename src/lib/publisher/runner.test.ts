@@ -104,6 +104,10 @@ describe("runDue — one schedule for every platform", () => {
     const stored = await queue.get("future");
     expect(Object.keys(stored!.platforms).sort()).toEqual(["facebook", "instagram", "youtube"]);
     expect(stored!.platforms.instagram?.status).toBe("pending");
+    // The board tags these legs, so a post on a platform nobody picked says why.
+    expect(stored!.platforms.instagram?.mirroredFrom).toBe("youtube");
+    expect(stored!.platforms.facebook?.mirroredFrom).toBe("youtube");
+    expect(stored!.platforms.youtube?.mirroredFrom).toBeUndefined();
   });
 
   it("leaves slots that already passed alone", async () => {

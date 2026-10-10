@@ -157,7 +157,9 @@ export function ClipCard({
   onEditClip,
   onTailorCaption,
   tailoring = false,
-  captionError
+  captionError,
+  targetLabels = PLATFORM_TARGET_LABELS,
+  scheduleDisabledReason
 }: {
   clip: ReadyClip;
   draft: ClipDraft;
@@ -182,6 +184,10 @@ export function ClipCard({
   tailoring?: boolean;
   /** Why this clip's AI caption failed, when it did. */
   captionError?: string;
+  /** The platform picker's wording (names the YouTube mirror when it is on). */
+  targetLabels?: Record<PlatformTarget, string>;
+  /** Set while posting is switched off: Schedule is disabled and this says why. */
+  scheduleDisabledReason?: string;
 }) {
   const titleRef = useRef<HTMLTextAreaElement>(null);
   // `bookable` excludes today as well as the past: nothing is scheduled for the
@@ -307,9 +313,9 @@ export function ClipCard({
               className="h-9 w-auto min-w-28"
               aria-label="Platform"
             >
-              {(Object.keys(PLATFORM_TARGET_LABELS) as PlatformTarget[]).map((target) => (
+              {(Object.keys(targetLabels) as PlatformTarget[]).map((target) => (
                 <option key={target} value={target}>
-                  {PLATFORM_TARGET_LABELS[target]}
+                  {targetLabels[target]}
                 </option>
               ))}
             </Select>
@@ -328,10 +334,12 @@ export function ClipCard({
             </Select>
             <Button
               onClick={onSchedule}
-              disabled={scheduling || !draft.slotUtc || Boolean(consentBlocker)}
+              disabled={scheduling || !draft.slotUtc || Boolean(consentBlocker) || Boolean(scheduleDisabledReason)}
               className="h-9 px-3"
               title={
-                consentBlocker
+                scheduleDisabledReason
+                  ? scheduleDisabledReason
+                  : consentBlocker
                   ? consentBlocker
                   : everywhere
                   ? "Schedules this clip on YouTube, TikTok, Instagram and Facebook at that slot"

@@ -1,11 +1,12 @@
 "use client";
 
+import Link from "next/link";
 import { Film, Loader2, RotateCcw, Sparkles, TriangleAlert, Wand2 } from "lucide-react";
 import { AdvancedOptions } from "@/components/ui/advanced-options";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Select } from "@/components/ui/select";
-import { autoAssignableCount } from "@/components/uploading-center/bulk";
+import { bulkBookingLabel, planAutoAssign, type ShortsCap } from "@/components/uploading-center/bulk";
 import { ClipCard, SUGGESTED_HASHTAGS } from "@/components/uploading-center/clip-card";
 import type { RunDefaults } from "@/components/uploading-center/run-defaults";
 import {
@@ -22,10 +23,10 @@ import { cn } from "@/lib/utils";
 /**
  * The clips produced by the current run (newest job with rendered clips by
  * default; older runs are reachable from the picker). One button books the
- * whole run at the next free slots; the run's platform, hashtags and the
- * caption pass sit behind Customise, summarised so what they are set to is
- * readable without opening it. Each card can still be scheduled inline or
- * dragged onto the board.
+ * whole run at the next free slots, with the run's platform picker right beside
+ * it; the hashtags and the caption pass sit behind Customise, summarised so what
+ * they are set to is readable without opening it. Each card can still be
+ * scheduled inline or dragged onto the board.
  */
 export function ClipQueue({
   jobs,
@@ -52,7 +53,12 @@ export function ClipQueue({
   captionProgress,
   captionFailures,
   failedCaptionCount,
-  onRetryCaptions
+  onRetryCaptions,
+  targetLabels = PLATFORM_TARGET_LABELS,
+  shortsCap,
+  tomorrowKey,
+  isSlotUnavailable,
+  readOnlyReason
 }: {
   jobs: ClipJob[];
   activeJob: ClipJob | null;
@@ -86,6 +92,16 @@ export function ClipQueue({
   failedCaptionCount: number;
   /** Write the failed clips' captions again — nothing else is touched. */
   onRetryCaptions: () => void;
+  /** The platform picker's wording; names the mirror when YouTube is copied to Instagram and Facebook. */
+  targetLabels?: Record<PlatformTarget, string>;
+  /** The shorts-a-day limit and what each day already holds, so the plan stops at it. */
+  shortsCap?: ShortsCap;
+  /** Tomorrow's date key in the publish timezone, for "from tomorrow". */
+  tomorrowKey?: string;
+  /** Slot picker filter for the cards: taken slots plus days at the shorts limit. */
+  isSlotUnavailable?: (target: PlatformTarget, slotUtc: string) => boolean;
+  /** Set while posting is switched off: nothing can be booked, and this says why. */
+  readOnlyReason?: string;
 }) {
   const autoAssigning = busy === "auto-assign";
   const writingCaptions = busy === "captions-all";
@@ -97,17 +113,19 @@ export function ClipQueue({
     onRunDefaultsChange({ ...runDefaults, hashtags });
   };
   const unscheduled = clips.filter((clip) => itemsForClip(clip).length === 0).length;
-  // What the click will really book — see `autoAssignableCount`. Counted with
-  // the failures already known, so it agrees with the warning below it; a
-  // caption that fails during the run itself cannot be foreseen here.
-  const bookable = autoAssignableCount({
+  // What the click will really book — see `planAutoAssign`. Counted with the
+  // failures already known, so it agrees with the warning below it; a caption
+  // that fails during the run itself cannot be foreseen here.
+  const plan = planAutoAssign({
     clips,
     draftFor,
     isScheduled: (clip) => itemsForClip(clip).length > 0,
     slots,
     isTargetSlotTaken: isSlotTaken,
-    skipKeys: new Set(Object.keys(captionFailures))
+    skipKeys: new Set(Object.keys(captionFailures)),
+    shortsCap
   });
+  const bulkLabel = bulkBookingLabel(plan, slots, tomorrowKey);
   const shownHashtags = runDefaults.hashtags.slice(0, 3);
   const extraHashtags = runDefaults.hashtags.length - shownHashtags.length;
   const hashtagSummary =
@@ -118,7 +136,7 @@ export function ClipQueue({
     captionsMissing > 0
       ? `AI writes ${captionsMissing} caption${captionsMissing === 1 ? "" : "s"}`
       : "all captioned";
-  const optionsSummary = `${PLATFORM_TARGET_LABELS[runDefaults.platform]} · ${captionSummary} · ${hashtagSummary}`;
+  const optionsSummary = `${captionSummary} · ${hashtagSummary}`;
   return (
     <Card className="min-w-0 space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -141,40 +159,57 @@ export function ClipQueue({
 
       {clips.length > 0 ? (
         <div className="space-y-2.5 rounded-xl border border-[var(--border)] bg-[var(--surface-2)] p-3">
-          {/* Disabled only when there is genuinely nothing left to book. When
-              clips are unscheduled but none can be booked, the press is what
-              explains why — a dead button would leave that unsaid. */}
-          <Button className="h-11 w-full" onClick={onAutoAssign} disabled={bulkBusy || unscheduled === 0}>
-            {autoAssigning ? (
-              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-            ) : (
-              <Wand2 className="mr-2 h-4 w-4" />
-            )}
-            {unscheduled === 0
-              ? "Every clip here is scheduled"
-              : bookable > 0
-                ? `Schedule ${bookable} clip${bookable === 1 ? "" : "s"} at the next free slots`
-                : "Schedule at the next free slots"}
-          </Button>
+          {/* The run's platform sits beside the button it steers: it used to be
+              behind Customise, so a whole run went to YouTube without anyone
+              having looked at where. */}
+          <div className="flex flex-wrap items-center gap-2">
+            <Select
+              value={runDefaults.platform}
+              onChange={(event) =>
+                onRunDefaultsChange({ ...runDefaults, platform: event.target.value as PlatformTarget })
+              }
+              className="h-11 w-auto min-w-28 max-w-full flex-1 basis-44"
+              aria-label="Platform for this run"
+              title="Where every clip in this run is posted. You can still change a single clip on its card."
+            >
+              {(Object.keys(targetLabels) as PlatformTarget[]).map((target) => (
+                <option key={target} value={target}>
+                  {targetLabels[target]}
+                </option>
+              ))}
+            </Select>
+            {/* Disabled only when there is genuinely nothing left to book.
+                When clips are unscheduled but none can be booked, the press is
+                what explains why — a dead button would leave that unsaid. */}
+            <Button
+              className="h-11 min-w-0 flex-[3] basis-56"
+              onClick={onAutoAssign}
+              disabled={bulkBusy || unscheduled === 0 || Boolean(readOnlyReason)}
+              title={readOnlyReason}
+            >
+              {autoAssigning ? (
+                <Loader2 className="mr-2 h-4 w-4 shrink-0 animate-spin" />
+              ) : (
+                <Wand2 className="mr-2 h-4 w-4 shrink-0" />
+              )}
+              <span className="truncate">
+                {readOnlyReason
+                  ? "Posting is off"
+                  : unscheduled === 0
+                    ? "Every clip here is scheduled"
+                    : (bulkLabel ?? "Schedule at the next free slots")}
+              </span>
+            </Button>
+          </div>
+          {plan.capBlocked > 0 && shortsCap ? (
+            <p className="text-[11px] text-[var(--muted-foreground)]">
+              {plan.capBlocked} clip{plan.capBlocked === 1 ? "" : "s"} won&apos;t fit in this window: every open day
+              already holds {shortsCap.limit} short{shortsCap.limit === 1 ? "" : "s"}. Page the calendar forward to
+              book {plan.capBlocked === 1 ? "it" : "them"} later.
+            </p>
+          ) : null}
           <AdvancedOptions id="uploading-center-run" summary={optionsSummary}>
             <div className="flex flex-wrap items-center gap-2">
-              <span className="text-[11px] font-medium uppercase tracking-wide text-[var(--muted-foreground)]">
-                For this run
-              </span>
-              <Select
-                value={runDefaults.platform}
-                onChange={(event) =>
-                  onRunDefaultsChange({ ...runDefaults, platform: event.target.value as PlatformTarget })
-                }
-                className="h-9 w-auto min-w-28"
-                aria-label="Default platform for this run"
-              >
-                {(Object.keys(PLATFORM_TARGET_LABELS) as PlatformTarget[]).map((target) => (
-                  <option key={target} value={target}>
-                    {PLATFORM_TARGET_LABELS[target]}
-                  </option>
-                ))}
-              </Select>
               <span className="flex-1" />
               <Button
                 variant="secondary"
@@ -215,8 +250,7 @@ export function ClipQueue({
               })}
             </div>
             <p className="text-[11px] text-[var(--muted-foreground)]">
-              Every clip in this run posts to {PLATFORM_TARGET_LABELS[runDefaults.platform]} with these hashtags on its
-              title. Changing them here updates the cards below.
+              These hashtags go on the title of every clip in this run. Changing them here updates the cards below.
             </p>
           </AdvancedOptions>
           {failedCaptionCount > 0 ? (
@@ -254,7 +288,12 @@ export function ClipQueue({
         <div className="flex flex-col items-center gap-2 rounded-lg border border-dashed border-[var(--border)] py-10 text-center">
           <Film className="h-6 w-6 text-[var(--muted-foreground)]" />
           <p className="text-sm text-[var(--muted-foreground)]">No clips in current run.</p>
-          <p className="text-xs text-[var(--muted-foreground)]">Generate clips first, then schedule them here.</p>
+          <p className="text-xs text-[var(--muted-foreground)]">
+            <Link href="/clips" className="font-medium text-[var(--accent)] underline-offset-2 hover:underline">
+              Generate clips
+            </Link>{" "}
+            first, then schedule them here.
+          </p>
         </div>
       ) : (
         <div className="space-y-3">
@@ -265,7 +304,9 @@ export function ClipQueue({
               draft={draftFor(clip)}
               tiktokAccountId={tiktokAccountId}
               slots={slots}
-              isSlotTaken={isSlotTaken}
+              isSlotTaken={isSlotUnavailable ?? isSlotTaken}
+              targetLabels={targetLabels}
+              scheduleDisabledReason={readOnlyReason}
               scheduledItems={itemsForClip(clip)}
               scheduling={busy === `schedule:${clip.key}`}
               highlighted={clip.key === highlightedKey}

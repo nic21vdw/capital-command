@@ -41,6 +41,12 @@ export type AgendaDay = {
   entries: AgendaEntry[];
   /** Slot times still open for a drop/upload (future, uncovered), in order. */
   openSlots: ScheduleSlot[];
+  /**
+   * The day already holds its limit of shorts (PUBLISH_SHORTS_PER_DAY), so
+   * `openSlots` is empty and the board says why instead of offering a target
+   * the booking would refuse.
+   */
+  shortsFull: boolean;
 };
 
 export function buildAgenda(options: {
@@ -51,8 +57,10 @@ export function buildAgenda(options: {
   channelVideos: ChannelVideo[];
   timeZone: string;
   toleranceMs?: number;
+  /** Local days (YYYY-MM-DD) that cannot take another short. */
+  shortsFullDays?: ReadonlySet<string>;
 }): AgendaDay[] {
-  const { slots, queueItems, channelVideos, timeZone, toleranceMs = AGENDA_SLOT_TOLERANCE_MS } = options;
+  const { slots, queueItems, channelVideos, timeZone, toleranceMs = AGENDA_SLOT_TOLERANCE_MS, shortsFullDays } = options;
 
   // Ordered, unique day skeleton straight from the slot window — the agenda
   // only ever shows days the window covers; anything else is reached by paging.
@@ -96,10 +104,11 @@ export function buildAgenda(options: {
       (a, b) => a.utc.localeCompare(b.utc) || a.time.localeCompare(b.time)
     );
     const entryMs = entries.map((entry) => new Date(entry.utc).getTime());
+    const full = shortsFullDays?.has(dateKey) ?? false;
     const openSlots = slotsForDay.filter((slot) => {
       // Not `past`: today's remaining slots are off limits too, so the board
       // never offers a drop target that the booking would then refuse.
-      if (!slot.bookable) return false;
+      if (!slot.bookable || full) return false;
       const slotMs = new Date(slot.utc).getTime();
       return !entryMs.some((ms) => Math.abs(ms - slotMs) <= toleranceMs);
     });
@@ -110,7 +119,10 @@ export function buildAgenda(options: {
       today: meta.today,
       past: slotsForDay.every((slot) => slot.past),
       entries,
-      openSlots
+      openSlots,
+      // Only a day that could otherwise be booked: a past day or today is
+      // closed for its own reason, and says so already.
+      shortsFull: full && slotsForDay.some((slot) => slot.bookable)
     };
   });
 }

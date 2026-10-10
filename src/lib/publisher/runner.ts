@@ -17,7 +17,7 @@ import { describeMirrorPlan, planMirror } from "@/lib/publisher/mirror";
 import { AbandonedUploadError, PermanentError, StillProcessingError, ThrottledError, isTransient } from "@/lib/publisher/http";
 import { remainingYoutubeUploads } from "@/lib/publisher/quota";
 import { outstandingTiktokDrafts, usesTiktokInbox } from "@/lib/publisher/tiktokInbox";
-import { PublishQueue, isTerminalStatus, newPlatformState, publishQueue } from "@/lib/publisher/queue";
+import { PublishQueue, isTerminalStatus, mirroredPlatformState, publishQueue } from "@/lib/publisher/queue";
 import { formatInTimezone } from "@/lib/publisher/time";
 import type { PlatformAdapter, PlatformId, PlatformState, PostResult, PublishInput, PublishPlan, QueueItem } from "@/lib/publisher/types";
 
@@ -327,7 +327,7 @@ async function runDueInternal(now: Date, options: RunDueOptions): Promise<RunRep
         for (const add of plan.additions) {
           const item = await queue.get(add.itemId);
           if (!item || item.platforms[add.platform]) continue;
-          item.platforms[add.platform] = newPlatformState();
+          item.platforms[add.platform] = mirroredPlatformState(config.mirror.lead);
           await queue.add(item, "runner-mirror");
         }
         // Shuffled slots hold a different clip per platform, which one item
@@ -341,7 +341,7 @@ async function runDueInternal(now: Date, options: RunDueOptions): Promise<RunRep
               id: crypto.randomUUID().slice(0, 8),
               publishAt: entry.publishAt,
               createdAt: new Date().toISOString(),
-              platforms: { [entry.platform]: newPlatformState() }
+              platforms: { [entry.platform]: mirroredPlatformState(config.mirror.lead) }
             },
             "runner-mirror"
           );

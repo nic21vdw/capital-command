@@ -4,6 +4,13 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { loadWorkflowJson, workflowLoadMessage } from "@/lib/marketing/workflow-resource";
 import { nameClips } from "@/components/uploading-center/bulk";
+import {
+  bookedResult,
+  refusedResult,
+  summarizeSchedule,
+  type PlatformResult,
+  type RunOutcome
+} from "@/components/uploading-center/schedule-summary";
 import { windowSegments } from "@/lib/clipping/captions";
 import { loadJobCaptions } from "@/lib/clipping/captions-client";
 import { leadingSilenceSec } from "@/lib/clipping/editor";
@@ -15,6 +22,11 @@ import { placeChannelVideos, type ChannelPlacement } from "@/lib/publisher/chann
 import type { ChannelSchedule, ChannelVideo } from "@/lib/publisher/channelVideos";
 import { captionRequestFields } from "@/lib/publisher/captionTags";
 import { indexQueueByClip } from "@/lib/publisher/clipQueueIndex";
+import {
+  mirroredNote,
+  type PublishMirrorOverview,
+  type PublisherAutomationOverview
+} from "@/lib/publisher/publishOverview";
 import { generateSlots } from "@/lib/publisher/slots";
 import { remoteUrlFor } from "@/lib/publisher/remoteUrl";
 import type { YoutubeQuota } from "@/lib/publisher/quota";
@@ -62,6 +74,12 @@ export type Overview = {
   timezone: string;
   slotTimes?: string[];
   weekendSlotTimes?: string[];
+  /** Most short-form posts the server will book on one local day (PUBLISH_SHORTS_PER_DAY). */
+  shortsPerDay?: number;
+  /** Whether the runner copies YouTube's schedule onto Instagram and Facebook. */
+  mirror?: PublishMirrorOverview;
+  /** Whether the publisher is paused, and whether its runner is installed and running. */
+  automation?: PublisherAutomationOverview;
   quota: YoutubeQuota;
 };
 
@@ -232,6 +250,16 @@ export const PLATFORM_TARGET_LABELS: Record<PlatformTarget, string> = {
 };
 
 /**
+ * The picker's wording once the mirror is known: with PUBLISH_MIRROR on, a
+ * YouTube booking also reaches Instagram and Facebook (the runner copies it
+ * over), so the picker says so rather than letting those posts surprise him.
+ */
+export function platformTargetLabels(mirror?: PublishMirrorOverview): Record<PlatformTarget, string> {
+  const note = mirroredNote(mirror, PLATFORM_LABELS);
+  return mirror && note ? { ...PLATFORM_TARGET_LABELS, [mirror.lead]: note } : PLATFORM_TARGET_LABELS;
+}
+
+/**
  * The platform whose copy an "all platforms" caption is written for. One
  * caption goes out to every platform (the queue stores one caption per post and
  * the draft holds one), so it is written for the MOST RESTRICTIVE of them:
@@ -276,6 +304,21 @@ function clipFiles(clip: ClipCandidate): string[] {
 
 // The link builder lives in lib/publisher so the calendars can use it too.
 export { remoteUrlFor };
+
+/**
+ * Scrolls to a post on the board and opens its inline title editor - the same
+ * one its pencil opens. The post can be on more than one platform tab (one
+ * element per tab), so the one actually on screen is the one used.
+ */
+export function focusRenameOnBoard(itemId: string): boolean {
+  if (typeof document === "undefined") return false;
+  const cards = Array.from(document.querySelectorAll<HTMLElement>(`[id="queue-item-${itemId}"]`));
+  const card = cards.find((candidate) => candidate.offsetParent !== null) ?? cards[0];
+  if (!card) return false;
+  card.scrollIntoView({ behavior: "smooth", block: "center" });
+  card.querySelector<HTMLButtonElement>('button[aria-label="Rename video"]')?.click();
+  return true;
+}
 
 /** The channel's "Content" page in YouTube Studio (Studio home when unknown). */
 export function studioContentUrl(channelId: string | null | undefined): string {
@@ -802,45 +845,62 @@ export function useUploadingCenter(clipProjects: ClipProject[] = []) {
    * Scheduled in YouTube Studio) and reports how that went; TikTok/Instagram
    * just queue.
    */
-  const announceScheduleOutcome = useCallback(async (response: Response, platform: PlatformId) => {
-    const { item, report } = (await response.json()) as {
-      item?: QueueItem;
-      report?: { outcomes: Array<{ platform: string; outcome: string; detail: string }> };
-    };
-    const outcome = report?.outcomes.find((entry) => entry.platform === platform);
-    const postId = platform === "youtube" ? item?.platforms.youtube?.postId : undefined;
-    const videoUrl = remoteUrlFor(platform, postId);
-    if ((outcome?.outcome === "scheduled" || outcome?.outcome === "published") && item && videoUrl) {
-      // The confirmation dialog (video link + YouTube Studio button)
-      // replaces the plain toast for a completed YouTube upload.
-      setUploadSuccess({ title: item.title, videoUrl, status: outcome.outcome, publishAt: item.publishAt, postId });
-    } else if (outcome?.outcome === "scheduled") {
-      toast.success("Uploaded to YouTube — it now shows as Scheduled on your channel.");
-    } else if (outcome?.outcome === "published") {
-      toast.success(`Published to ${PLATFORM_LABELS[platform]}.`);
-    } else if (
-      platform === "youtube" &&
-      outcome?.outcome === "failed" &&
-      outcome.detail.includes("YouTube connection expired")
-    ) {
-      const accountId = item?.accountId ?? primaryAccountIdFor("youtube");
-      toast.error("Your YouTube connection expired. Reconnect once and Command will resume this upload automatically.", {
-        duration: Infinity,
-        action: {
-          label: "Reconnect YouTube",
-          onClick: () => {
-            window.location.href = `/api/auth/google?account=${encodeURIComponent(accountId)}`;
+  const announceScheduleOutcome = useCallback(
+    async (
+      response: Response,
+      platform: PlatformId,
+      /**
+       * Part of a multi-platform booking: the one summary toast carries the
+       * words, so only what a toast cannot say is kept here - the YouTube
+       * confirmation dialog and the reconnect prompt.
+       */
+      options?: { summary?: boolean }
+    ): Promise<{ item?: QueueItem; result: PlatformResult }> => {
+      const { item, report } = (await response.json()) as {
+        item?: QueueItem;
+        report?: { outcomes: RunOutcome[] };
+      };
+      const outcome = report?.outcomes.find((entry) => entry.platform === platform);
+      const result = bookedResult(platform, item, outcome);
+      const postId = platform === "youtube" ? item?.platforms.youtube?.postId : undefined;
+      const videoUrl = remoteUrlFor(platform, postId);
+      const quiet = options?.summary === true;
+      if ((outcome?.outcome === "scheduled" || outcome?.outcome === "published") && item && videoUrl) {
+        // The confirmation dialog (video link + YouTube Studio button)
+        // replaces the plain toast for a completed YouTube upload.
+        setUploadSuccess({ title: item.title, videoUrl, status: outcome.outcome, publishAt: item.publishAt, postId });
+      } else if (
+        platform === "youtube" &&
+        outcome?.outcome === "failed" &&
+        outcome.detail.includes("YouTube connection expired")
+      ) {
+        const accountId = item?.accountId ?? primaryAccountIdFor("youtube");
+        toast.error("Your YouTube connection expired. Reconnect once and Command will resume this upload automatically.", {
+          duration: Infinity,
+          action: {
+            label: "Reconnect YouTube",
+            onClick: () => {
+              window.location.href = `/api/auth/google?account=${encodeURIComponent(accountId)}`;
+            }
           }
-        }
-      });
-    } else if (outcome?.outcome === "retrying") {
-      toast.warning(`Upload interrupted — Command will retry automatically. ${outcome.detail || ""}`.trim());
-    } else if (outcome?.outcome === "failed") {
-      toast.error(`Upload failed: ${outcome.detail || "The platform rejected the upload."}`);
-    } else {
-      toast.success(`Scheduled for ${PLATFORM_LABELS[platform]}.`);
-    }
-  }, []);
+        });
+      } else if (quiet) {
+        // Said in the summary.
+      } else if (outcome?.outcome === "scheduled") {
+        toast.success("Uploaded to YouTube — it now shows as Scheduled on your channel.");
+      } else if (outcome?.outcome === "published") {
+        toast.success(`Published to ${PLATFORM_LABELS[platform]}.`);
+      } else if (outcome?.outcome === "retrying") {
+        toast.warning(`Upload interrupted — Command will retry automatically. ${outcome.detail || ""}`.trim());
+      } else if (outcome?.outcome === "failed") {
+        toast.error(`Upload failed: ${outcome.detail || "The platform rejected the upload."}`);
+      } else {
+        toast.success(`Scheduled for ${PLATFORM_LABELS[platform]}.`);
+      }
+      return { item, result };
+    },
+    []
+  );
 
   /**
    * The clip's most recently edited Clip Editor project, used to bake its trim
@@ -999,55 +1059,66 @@ export function useUploadingCenter(clipProjects: ClipProject[] = []) {
         // account. Sequential: the queue store isn't safe under concurrent
         // writes. A platform that fails never blocks the rest.
         const platforms = schedulePlatforms(draft.platform);
-        let scheduled = 0;
+        const several = platforms.length > 1;
+        const results: PlatformResult[] = [];
         let firstError: string | null = null;
         for (const platform of platforms) {
-          const response = await fetch("/api/publish", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              jobId: clip.jobId,
-              file,
-              publishAt: draft.slotUtc,
-              title: draft.title.trim() || undefined,
-              // The AI caption's hashtag line travels as `hashtags`; left inside the
-              // caption, enqueue generated a second set on top of it.
-              ...captionRequestFields(draft.caption),
-              platforms: [platform],
-              // "public" is what makes YouTube honor publishAt: the video is
-              // uploaded private and YouTube flips it live at the slot time.
-              visibility: "public",
-              // The post lands on the account the platform's tab is showing.
-              accountId: activeAccountIds[platform],
-              // Only TikTok has consent to carry, and only when the creator
-              // chose to post straight to the profile.
-              ...(platform === "tiktok" && draft.tiktok ? { tiktok: draft.tiktok } : {})
-            })
-          });
-          if (!response.ok) {
-            firstError ??= await readError(response);
+          let response: Response;
+          try {
+            response = await fetch("/api/publish", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                jobId: clip.jobId,
+                file,
+                publishAt: draft.slotUtc,
+                title: draft.title.trim() || undefined,
+                // The AI caption's hashtag line travels as `hashtags`; left inside the
+                // caption, enqueue generated a second set on top of it.
+                ...captionRequestFields(draft.caption),
+                platforms: [platform],
+                // "public" is what makes YouTube honor publishAt: the video is
+                // uploaded private and YouTube flips it live at the slot time.
+                visibility: "public",
+                // The post lands on the account the platform's tab is showing.
+                accountId: activeAccountIds[platform],
+                // Only TikTok has consent to carry, and only when the creator
+                // chose to post straight to the profile.
+                ...(platform === "tiktok" && draft.tiktok ? { tiktok: draft.tiktok } : {})
+              })
+            });
+          } catch {
+            firstError ??= "Network error while scheduling.";
+            results.push(refusedResult(platform, "network error while scheduling"));
             continue;
           }
-          scheduled += 1;
-          // YouTube's outcome always gets the full treatment (the upload
-          // confirmation dialog, the reconnect prompt); the other platforms
-          // fold into the summary below when several were targeted.
-          if (platforms.length === 1 || platform === "youtube") {
-            await announceScheduleOutcome(response, platform);
+          if (!response.ok) {
+            const error = await readError(response);
+            firstError ??= error;
+            results.push(refusedResult(platform, error));
+            continue;
           }
+          // The outcome of each request (the YouTube confirmation dialog, the
+          // reconnect prompt) is announced as it lands; with several platforms
+          // the words wait for the one summary below.
+          const { result } = await announceScheduleOutcome(response, platform, { summary: several });
+          results.push(result);
         }
-        if (scheduled === 0) {
+        const booked = results.filter((result) => result.booked);
+        if (!several && booked.length === 0) {
           toast.error(firstError ?? "Couldn't schedule this clip.");
           return false;
         }
-        if (platforms.length > 1) {
-          if (scheduled === platforms.length) {
-            toast.success(`Scheduled on all ${scheduled} platforms.`);
-          } else {
-            toast.warning(
-              `Scheduled on ${scheduled} of ${platforms.length} platforms${firstError ? ` — ${firstError}` : "."}`
-            );
-          }
+        if (several) {
+          // One toast, a line per platform: "scheduled everywhere" used to hide
+          // which platform refused and why.
+          const summary = summarizeSchedule(results);
+          toast[summary.level](summary.title, {
+            description: summary.lines.join("\n"),
+            duration: summary.level === "success" ? 8000 : 15000,
+            style: { whiteSpace: "pre-line" }
+          });
+          if (booked.length === 0) return false;
         }
         await refresh({ channelRefresh: platforms.includes("youtube") });
         return true;
@@ -1083,8 +1154,17 @@ export function useUploadingCenter(clipProjects: ClipProject[] = []) {
           toast.error(await readError(response));
           return false;
         }
-        await announceScheduleOutcome(response, draft.platform);
+        const { item } = await announceScheduleOutcome(response, draft.platform);
         await refresh({ channelRefresh: draft.platform === "youtube" });
+        // The title and caption were written from the file's name, so say what
+        // they came out as, and where to change it, before it goes live.
+        if (item) {
+          toast(`Titled “${item.title}” from the file name.`, {
+            description: "Rename it on the board if that isn't what you want to post.",
+            duration: 12000,
+            action: { label: "Rename", onClick: () => focusRenameOnBoard(item.id) }
+          });
+        }
         return true;
       } catch {
         toast.error("Network error while uploading the video.");
@@ -1287,6 +1367,54 @@ export function useUploadingCenter(clipProjects: ClipProject[] = []) {
     [refresh, refreshAccounts, setActiveAccount]
   );
 
+  /**
+   * "Retry connection failures": puts every post that failed because its
+   * connection lapsed (and every "manual" reminder waiting on one) back to
+   * pending for the given platforms, across all of their accounts. Rejected
+   * videos stay failed, and a post that already reached the platform resumes
+   * rather than uploading twice (rearm.ts). The next runner pass, or Publish
+   * now, sends them - so reconnect first or they fail the same way again.
+   */
+  const rearmConnectionFailures = useCallback(
+    async (platforms: PlatformId[]) => {
+      if (platforms.length === 0) return 0;
+      setBusy("rearm");
+      let recovered = 0;
+      let firstError: string | null = null;
+      try {
+        for (const platform of platforms) {
+          try {
+            const response = await fetch("/api/publish", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ action: "rearm", platform })
+            });
+            if (!response.ok) {
+              firstError ??= await readError(response);
+              continue;
+            }
+            const body = (await response.json()) as { recovered?: number };
+            recovered += body.recovered ?? 0;
+          } catch {
+            firstError ??= "Network error while retrying.";
+          }
+        }
+        if (recovered > 0 && !firstError) {
+          toast.success(`Put ${recovered} post${recovered === 1 ? "" : "s"} back in the queue. They go out on the next publisher pass.`);
+        } else if (recovered > 0) {
+          toast.warning(`Put ${recovered} post${recovered === 1 ? "" : "s"} back in the queue, but not all: ${firstError}`);
+        } else {
+          toast.error(firstError ?? "Nothing was waiting on a connection.");
+        }
+        await refresh();
+        return recovered;
+      } finally {
+        setBusy(null);
+      }
+    },
+    [refresh]
+  );
+
   return {
     loaded: loaded && accountsLoaded,
     loadError,
@@ -1337,6 +1465,7 @@ export function useUploadingCenter(clipProjects: ClipProject[] = []) {
     autoAssign,
     publishNow,
     remove,
+    rearmConnectionFailures,
     refresh,
     refreshOverview,
     refreshAccounts,

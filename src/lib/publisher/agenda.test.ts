@@ -139,4 +139,33 @@ describe("buildAgenda", () => {
     });
     expect(today.entries.map((e) => e.time)).toEqual(["08:00", "15:00", "19:00"]);
   });
+
+  // PUBLISH_SHORTS_PER_DAY: the booking would refuse a third short, so the day
+  // offers no target and says why instead.
+  it("offers no open slot on a day already at the shorts limit, and flags it", () => {
+    const [past, today, next] = buildAgenda({
+      slots: baseSlots(),
+      queueItems: [],
+      channelVideos: [],
+      timeZone: "UTC",
+      shortsFullDays: new Set([PAST_DAY, DAY, NEXT_DAY])
+    });
+    expect(next.openSlots).toHaveLength(0);
+    expect(next.shortsFull).toBe(true);
+    // Past and today are closed for their own reasons, not for being full.
+    expect(past.shortsFull).toBe(false);
+    expect(today.shortsFull).toBe(false);
+  });
+
+  it("leaves a day under the limit alone", () => {
+    const [, , next] = buildAgenda({
+      slots: baseSlots(),
+      queueItems: [],
+      channelVideos: [],
+      timeZone: "UTC",
+      shortsFullDays: new Set(["2030-01-01"])
+    });
+    expect(next.openSlots).toHaveLength(3);
+    expect(next.shortsFull).toBe(false);
+  });
 });

@@ -5,7 +5,7 @@ import { Clapperboard, ExternalLink, Images, Image as ImageIcon, Loader2, Pencil
 import { toast } from "sonner";
 import { StatusChip } from "@/components/uploading-center/status-chip";
 import { CLIP_DRAG_TYPE } from "@/components/uploading-center/clip-card";
-import { primaryAccountIdFor, remoteUrlFor, studioVideoUrl } from "@/components/uploading-center/use-uploading-center";
+import { PLATFORM_LABELS, primaryAccountIdFor, remoteUrlFor, studioVideoUrl } from "@/components/uploading-center/use-uploading-center";
 import { cn } from "@/lib/utils";
 import { describeFailure } from "@/lib/publisher/failure";
 import { imagePathsOf, imagePostUrl, isImagePost } from "@/lib/publisher/images";
@@ -41,7 +41,9 @@ export function ScheduleBoard({
   onRemove,
   onRename,
   busy,
-  highlightedItemId
+  highlightedItemId,
+  shortsPerDay,
+  readOnly = false
 }: {
   platform: PlatformId;
   /** The visible window, one entry per day, already placed and sorted. */
@@ -57,6 +59,10 @@ export function ScheduleBoard({
   onRename: (item: QueueItem, title: string) => void;
   busy: string | null;
   highlightedItemId?: string | null;
+  /** The daily short-form limit, named on days that have reached it. */
+  shortsPerDay?: number;
+  /** Posting is switched off: the schedule stays visible, but nothing on it can be acted on. */
+  readOnly?: boolean;
 }) {
   const [dragOverSlot, setDragOverSlot] = useState<string | null>(null);
 
@@ -73,6 +79,13 @@ export function ScheduleBoard({
     // The calendar grows as tall as it likes and the page's own scroller takes
     // it. It used to bound itself and scroll inside, which put a second
     // scrollbar next to the page's and left the two fighting over the wheel.
+    // A disabled fieldset switches off every button and input under it, which is
+    // exactly what a read-only board needs without threading a flag through each
+    // card. Links (View the video, Studio) stay live.
+    <fieldset
+      disabled={readOnly}
+      className="m-0 block min-w-0 border-0 p-0 [&:disabled_button]:cursor-not-allowed [&:disabled_button]:opacity-50"
+    >
     <div className="@container min-w-0 space-y-2 pr-1">
       <input
         ref={fileInputRef}
@@ -104,9 +117,11 @@ export function ScheduleBoard({
           onRename={onRename}
           busy={busy}
           highlightedItemId={highlightedItemId}
+          shortsPerDay={shortsPerDay}
         />
       ))}
     </div>
+    </fieldset>
   );
 }
 
@@ -125,7 +140,8 @@ function DayBand({
   onRemove,
   onRename,
   busy,
-  highlightedItemId
+  highlightedItemId,
+  shortsPerDay
 }: {
   platform: PlatformId;
   day: AgendaDay;
@@ -141,14 +157,15 @@ function DayBand({
   onRename: (item: QueueItem, title: string) => void;
   busy: string | null;
   highlightedItemId?: string | null;
+  shortsPerDay?: number;
 }) {
-  const { today, past, entries, openSlots } = day;
-  const empty = entries.length === 0 && openSlots.length === 0;
+  const { today, past, entries, openSlots, shortsFull } = day;
+  const empty = entries.length === 0 && openSlots.length === 0 && !shortsFull;
   return (
     <div
       id={`agenda-day-${day.dateKey}`}
       className={cn(
-        "grid min-w-0 grid-cols-1 gap-3 rounded-xl border p-2.5 @min-[480px]:grid-cols-[6.5rem_minmax(0,1fr)]",
+        "grid min-w-0 scroll-mt-2 grid-cols-1 gap-3 rounded-xl border p-2.5 @min-[480px]:grid-cols-[6.5rem_minmax(0,1fr)]",
         today ? "border-[var(--accent)]/40 bg-[var(--accent)]/5" : "border-[var(--border)]",
         past && !today && "opacity-80"
       )}
@@ -201,6 +218,17 @@ function DayBand({
             busy={busy}
           />
         ))}
+        {shortsFull ? (
+          <div
+            className="flex min-h-14 flex-col justify-center rounded-lg border border-dashed border-[var(--border)] px-3 text-[11px] text-[var(--muted-foreground)]"
+            title="Each day takes a limited number of short videos (PUBLISH_SHORTS_PER_DAY). Pick another day."
+          >
+            <span className="font-medium text-white">
+              Day full{shortsPerDay ? ` (${shortsPerDay} shorts)` : ""}
+            </span>
+            <span>No more shorts can be booked here. Pick another day.</span>
+          </div>
+        ) : null}
         {empty ? (
           <div className="flex min-h-14 items-center rounded-lg border border-dashed border-[var(--border)] px-3 text-[11px] text-[var(--muted-foreground)] opacity-60">
             {/* Today never offers a slot — nothing is scheduled for the day it
@@ -327,6 +355,14 @@ function QueueEntryCard({
         </div>
         <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
           <StatusChip status={state.status} platform={platform} item={item} className="shrink-0" />
+          {state.mirroredFrom ? (
+            <span
+              title={`Added automatically: ${PLATFORM_LABELS[state.mirroredFrom]}'s schedule is copied onto this platform (PUBLISH_MIRROR).`}
+              className="shrink-0 rounded-full bg-white/10 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-[var(--muted-foreground)]"
+            >
+              Mirrored from {PLATFORM_LABELS[state.mirroredFrom]}
+            </span>
+          ) : null}
           {pictures > 0 ? (
             <button
               type="button"
