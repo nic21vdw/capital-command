@@ -26,7 +26,7 @@ import {
   publishedRemovalNote,
   removalImpact
 } from "@/lib/publisher/boardActions";
-import { describeFailure, describeWaiting } from "@/lib/publisher/failure";
+import { describeFailure, describeWaiting, duplicateTitleCleared } from "@/lib/publisher/failure";
 import { TIKTOK_INBOX_ACTION, isTiktokInboxDraft } from "@/lib/publisher/nativeScheduling";
 import { formatGoLive } from "@/lib/publisher/outcomeCopy";
 import { imagePathsOf, imagePostUrl, isImagePost } from "@/lib/publisher/images";
@@ -80,11 +80,14 @@ export function ScheduleBoard({
   shortsPerDay,
   readOnly = false,
   collapseEarlier = false,
+  focusDateKey = null,
   onShowEarlier
 }: {
   platform: PlatformId;
   /** Days before today stay behind a "Show earlier days" row until this is false. */
   collapseEarlier?: boolean;
+  /** A day something asked to be shown: kept even when it is empty and earlier. */
+  focusDateKey?: string | null;
   onShowEarlier?: () => void;
   /** The visible window, one entry per day, already placed and sorted. */
   days: AgendaDay[];
@@ -119,7 +122,7 @@ export function ScheduleBoard({
 }) {
   const [dragOverSlot, setDragOverSlot] = useState<string | null>(null);
   const nowMs = useMinuteClock();
-  const { earlier, shown, earlierPosts } = splitEarlierDays(days, collapseEarlier);
+  const { earlier, shown, earlierPosts } = splitEarlierDays(days, collapseEarlier, focusDateKey);
 
   // One hidden file input for the whole board; the slot whose Upload button
   // opened the picker is remembered so the chosen file lands on it.
@@ -162,8 +165,8 @@ export function ScheduleBoard({
           className="flex w-full items-center justify-center gap-2 rounded-xl border border-dashed border-[var(--border)] px-3 py-2 text-xs text-[var(--muted-foreground)] transition hover:border-[var(--accent)] hover:text-[var(--accent)]"
         >
           <ChevronUp className="h-3.5 w-3.5" />
-          Show {earlier.length} earlier day{earlier.length === 1 ? "" : "s"}
-          {earlierPosts > 0 ? ` (${earlierPosts} post${earlierPosts === 1 ? "" : "s"})` : ""}
+          Show {earlier.length} earlier day{earlier.length === 1 ? "" : "s"} with posts
+          {` (${earlierPosts} post${earlierPosts === 1 ? "" : "s"})`}
         </button>
       ) : null}
       {shown.map((day) => (
@@ -397,10 +400,17 @@ function QueueEntryCard({
   const targets = publishNowTargets(item);
   // Publish now also reaches a post YouTube/Facebook is holding for its slot
   // (status "scheduled"): that is the case where it makes the post public now.
-  // A manual reminder on an account that is still not connected would turn into
-  // a failure on Retry, so it is not offered until the account is connected.
-  const unconnectedManual = state.status === "manual" && !connected;
-  const actionable = targets.includes(platform) || (blocked && advice?.action !== "none" && !unconnectedManual);
+  // A leg blocked on a connection this account does not have would only fail
+  // again on Retry, so it is not offered until the account is connected - the
+  // card offers Connect instead.
+  const needsConnection = advice?.action === "reconnect" && !connected;
+  // A duplicate-title refusal is answered by retitling. Once the post carries a
+  // different title than the one the channel refused, Retry is the next step.
+  const duplicateTitle = advice?.kind === "duplicate-title";
+  const retitled = duplicateTitle && duplicateTitleCleared(state.error, item.title);
+  const needsRename = duplicateTitle && !retitled;
+  const actionable =
+    targets.includes(platform) || (blocked && (advice?.action !== "none" || retitled) && !needsConnection);
   const working = busy === `publish:${item.id}` || busy === `remove:${item.id}`;
   // A picture post has no poster frame — its own first slide IS the thumbnail,
   // served by position out of the queue so the card can reach files that live
@@ -410,12 +420,18 @@ function QueueEntryCard({
   const [showRaw, setShowRaw] = useState(false);
   const [confirm, setConfirm] = useState<"publish" | "remove" | null>(null);
   const [editingCaption, setEditingCaption] = useState(false);
+  const [renaming, setRenaming] = useState(false);
   const [captionDraft, setCaptionDraft] = useState(item.caption ?? "");
   const slotPassed = new Date(item.publishAt).getTime() <= nowMs;
   const retryLabel = slotPassed ? "Retry now" : "Retry at slot";
   const retryHint = slotPassed
     ? `Put ${PLATFORM_LABELS[platform]} back in the queue and post it now. The post's other platforms are not touched.`
     : `Put ${PLATFORM_LABELS[platform]} back in the queue. It posts at its slot (${time}); the post's other platforms are not touched.`;
+  // Connect when nothing was ever set up, Reconnect when credentials existed and
+  // lapsed. A leg whose account has been connected since needs no link at all
+  // unless the credentials themselves are stale.
+  const connectVerb = advice?.kind === "connection-lapsed" ? "Reconnect" : "Connect";
+  const showConnect = advice?.action === "reconnect" && (!connected || advice.kind === "connection-lapsed");
   const everyLegPublished = Object.values(item.platforms).every((leg) => leg?.status === "published");
   const youtubeVideoId = item.platforms.youtube?.postId;
 
@@ -465,7 +481,12 @@ function QueueEntryCard({
       ) : null}
       <div className="min-w-0 flex-1">
         <div className="flex items-baseline gap-1.5">
-          <EditableTitle title={item.title} onRename={(title) => onRename(item, title)} />
+          <EditableTitle
+            title={item.title}
+            editing={renaming}
+            onEditingChange={setRenaming}
+            onRename={(title) => onRename(item, title)}
+          />
           <span className="ml-auto shrink-0 text-[10px] font-medium text-[var(--muted-foreground)]">{time}</span>
         </div>
         <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
@@ -643,23 +664,32 @@ function QueueEntryCard({
                 advice && state.status === "failed" ? "tone-danger tone-text" : "tone-warning tone-text"
               )}
             >
-              {advice?.headline ?? waitingLine}
+              {retitled
+                ? `Renamed to "${item.title}". ${slotPassed ? "Retry now to post it." : `Retry at slot to post it at ${time}.`}`
+                : (advice?.headline ?? waitingLine)}
             </p>
             <div className="flex flex-wrap items-center gap-2">
-              {advice?.action === "reconnect" && platform === "youtube" ? (
+              {needsRename ? (
+                <button
+                  type="button"
+                  onClick={() => setRenaming(true)}
+                  title="Give the post a new title, then retry it"
+                  className={INLINE_ACTION}
+                >
+                  <Pencil className="h-3 w-3" /> Rename and retry
+                </button>
+              ) : null}
+              {showConnect && platform === "youtube" ? (
                 <a
                   href={`/api/auth/google?account=${encodeURIComponent(item.accountId ?? primaryAccountIdFor("youtube"))}`}
-                  className="inline-flex items-center gap-1 rounded-md border border-[var(--accent)]/50 px-1.5 py-0.5 text-[10px] font-medium text-[var(--accent)] transition hover:bg-[var(--accent)]/10"
+                  className={INLINE_ACTION}
                 >
-                  <Plug className="h-3 w-3" /> {connected ? "Reconnect YouTube" : "Connect YouTube"}
+                  <Plug className="h-3 w-3" /> {connectVerb} YouTube
                 </a>
               ) : null}
-              {advice?.action === "reconnect" && advice.viaSettings ? (
-                <Link
-                  href="/settings#accounts"
-                  className="inline-flex items-center gap-1 rounded-md border border-[var(--accent)]/50 px-1.5 py-0.5 text-[10px] font-medium text-[var(--accent)] transition hover:bg-[var(--accent)]/10"
-                >
-                  <Plug className="h-3 w-3" /> Open Settings
+              {showConnect && advice?.viaSettings ? (
+                <Link href="/settings#accounts" className={INLINE_ACTION}>
+                  <Plug className="h-3 w-3" /> {connectVerb} {PLATFORM_LABELS[platform]}
                 </Link>
               ) : null}
               {detailRaw ? (
@@ -764,6 +794,10 @@ function QueueEntryCard({
     </div>
   );
 }
+
+/** The accent-outlined action under a card's failure line (Rename and retry, Connect TikTok, ...). */
+const INLINE_ACTION =
+  "inline-flex items-center gap-1 rounded-md border border-[var(--accent)]/50 px-1.5 py-0.5 text-[10px] font-medium text-[var(--accent)] transition hover:bg-[var(--accent)]/10";
 
 /** The text-labelled action buttons on a post card. */
 const ACTION_BUTTON =
@@ -954,34 +988,50 @@ function OpenSlotCard({
 }
 
 /**
- * The clip's title on a filled slot, editable in place: click to edit, Enter
- * or blur commits (which renames the video on YouTube too when it's already
- * up), Escape cancels. Capped at YouTube's 100-character title limit.
+ * The clip's title on a filled slot, editable in place: click the title or its
+ * pencil to edit, Enter or blur commits (which renames the video on YouTube too
+ * when it's already up), Escape cancels. Capped at YouTube's 100-character title
+ * limit. The card owns `editing` so its own "Rename and retry" can open it too.
+ *
+ * The pencil is always drawn: it only appeared on hover, so on touch (and for
+ * anyone who had not hovered the title) nothing said the title could be changed.
  */
-function EditableTitle({ title, onRename }: { title: string; onRename: (title: string) => void }) {
-  const [editing, setEditing] = useState(false);
-  const [draft, setDraft] = useState(title);
-
+function EditableTitle({
+  title,
+  editing,
+  onEditingChange,
+  onRename
+}: {
+  title: string;
+  editing: boolean;
+  onEditingChange: (editing: boolean) => void;
+  onRename: (title: string) => void;
+}) {
   if (!editing) {
     return (
       <button
         type="button"
-        onClick={() => {
-          setDraft(title);
-          setEditing(true);
-        }}
+        onClick={() => onEditingChange(true)}
         aria-label="Rename video"
-        title="Rename video"
-        className="group flex min-w-0 flex-1 items-center gap-1 text-left"
+        title="Rename"
+        className="group flex min-w-0 flex-1 items-center gap-1 rounded text-left focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--accent)]"
       >
         <span className="min-w-0 truncate text-xs font-medium text-white">{title}</span>
-        <Pencil className="h-3 w-3 shrink-0 text-[var(--muted-foreground)] opacity-0 transition group-hover:opacity-100" />
+        <span className="inline-flex shrink-0 items-center rounded p-0.5 text-[var(--muted-foreground)] transition group-hover:bg-white/10 group-hover:text-white group-focus-visible:text-white">
+          <Pencil className="h-3.5 w-3.5" aria-hidden />
+        </span>
       </button>
     );
   }
 
+  return <TitleInput title={title} onDone={() => onEditingChange(false)} onRename={onRename} />;
+}
+
+/** Mounted only while editing, so every edit starts from the title as it is now. */
+function TitleInput({ title, onDone, onRename }: { title: string; onDone: () => void; onRename: (title: string) => void }) {
+  const [draft, setDraft] = useState(title);
   const commit = () => {
-    setEditing(false);
+    onDone();
     const trimmed = draft.trim();
     if (trimmed && trimmed !== title) onRename(trimmed);
   };
@@ -999,7 +1049,7 @@ function EditableTitle({ title, onRename }: { title: string; onRename: (title: s
           commit();
         } else if (event.key === "Escape") {
           setDraft(title);
-          setEditing(false);
+          onDone();
         }
       }}
       aria-label="Video title"

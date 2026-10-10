@@ -14,6 +14,9 @@ already shipped.
 
 ## Unreleased
 
+- **Failed posts on the Uploading Center tell you the fix.** A post's title now has a visible pencil (Rename), a post the channel refused as a duplicate offers "Rename and retry", and a post blocked on a missing connection offers "Connect TikTok" or "Reconnect YouTube" instead of a Retry that fails again. The bulk button is now "Retry N posts that lost their connection", is greyed out with "Connect TikTok first, then retry" while the platform is not connected, and its message names what happened on each platform; the Failed strip says which tab it will open.
+- **The schedule board stops showing empty history.** "Show earlier days" counts and opens only the days that have posts (no more rows of "No posts this day"), and a hidden platform tab no longer keeps a second copy of the board in the page.
+
 - **The Schedule dialogs stay put.** On Carousels the Schedule window used to open halfway down the page, scroll away with it and hide Cancel and Book post behind the next card or the command bar. Every dialog now opens over the whole screen, above the command bar, with its buttons always in view (it scrolls inside on a phone) and Tab kept inside it.
 
 - **Sidebar chips agree with Settings, and a failed sign-in stays where you were.** Instagram and Facebook with a saved token now show a muted "saved, not verified" in the sidebar instead of a green dot, the same as Settings. A sign-in that fails no longer bounces you from 127.0.0.1 to localhost, which looked like the app had forgotten your place.

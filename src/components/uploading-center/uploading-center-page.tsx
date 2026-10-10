@@ -37,9 +37,12 @@ import { ClipQueue } from "@/components/uploading-center/clip-queue";
 import { clipsNeedingCaption, nameClips, planAutoAssign, type ShortsCap } from "@/components/uploading-center/bulk";
 import {
   collectFailedLegs,
-  connectionFailurePlatforms,
   failureCounts,
+  planConnectionRetry,
+  retryConnectionHelp,
+  retryConnectionLabel,
   tabLabelWithFailures,
+  type ConnectionRetryPlan,
   type FailedLeg,
 } from "@/components/uploading-center/failures";
 import {
@@ -61,6 +64,7 @@ import {
   NO_AI_CAPTION_NOTICE,
   PLATFORM_LABELS,
   PLATFORM_TARGET_LABELS,
+  REARM_MAX_SLOT_AGE_HOURS,
   SLOT_WINDOW_DAYS,
   copyPlatformFor,
   copyTargetLabel,
@@ -118,6 +122,7 @@ export function UploadingCenterPage() {
     channelVideos,
     channelVideosBySlot,
     itemsByPlatform,
+    accounts,
     activeAccountIds,
     accountsFor,
     activeAccountFor,
@@ -424,11 +429,14 @@ export function UploadingCenterPage() {
   // Something asked to be shown (?item=, ?day=) on a day before today: the
   // folded "earlier days" must be open for it to be on the page at all. Derived
   // at render, not set from the effect below, so it needs no extra pass.
-  const focusIsEarlier = useMemo(() => {
+  const { focusIsEarlier, focusDateKey } = useMemo(() => {
     const timeZone = overview?.timezone ?? "America/Toronto";
     const queued = itemParam ? [...itemsByPlatform.values()].flat().find((entry) => entry.id === itemParam) : undefined;
     const dateKey = queued ? localCalendarParts(queued.publishAt, timeZone).dateKey : dayParam;
-    return Boolean(dateKey && dateKey < localCalendarParts(new Date(), timeZone).dateKey);
+    return {
+      focusIsEarlier: Boolean(dateKey && dateKey < localCalendarParts(new Date(), timeZone).dateKey),
+      focusDateKey: dateKey ?? null,
+    };
   }, [dayParam, itemParam, itemsByPlatform, overview?.timezone]);
 
   useEffect(() => {
@@ -789,7 +797,22 @@ export function UploadingCenterPage() {
   // list them all and each tab can say how many it holds.
   const failedLegs = useMemo(() => collectFailedLegs(queueItems), [queueItems]);
   const failedByPlatform = useMemo(() => failureCounts(failedLegs), [failedLegs]);
-  const connectionFailurePlatformIds = useMemo(() => connectionFailurePlatforms(failedLegs), [failedLegs]);
+  // What "retry the connection failures" can really do: only accounts that are
+  // connected NOW, so a platform still waiting on its credentials is named, not retried.
+  const retryPlan = useMemo(
+    () =>
+      planConnectionRetry(failedLegs, {
+        now: new Date(),
+        maxSlotAgeHours: REARM_MAX_SLOT_AGE_HOURS,
+        isConnected: (platform, accountId) =>
+          accounts.some((account) => account.platform === platform && account.id === accountId && account.connected),
+      }),
+    [accounts, failedLegs],
+  );
+  // The platform tab on screen, read the way the tab strip reads it (?platform=).
+  const platformParam = searchParams.get("platform");
+  const activePlatform: PlatformId =
+    PLATFORM_TABS.find(({ id }) => id === platformParam)?.id ?? PLATFORM_TABS[0]!.id;
 
   const tabs = PLATFORM_TABS.map(({ id, icon }) => {
     const activeAccount = activeAccountFor(id);
@@ -801,7 +824,7 @@ export function UploadingCenterPage() {
       id,
       label: tabLabelWithFailures(PLATFORM_LABELS[id], failedByPlatform[id]),
       icon,
-      content: (
+      content: (boardActive: boolean) => (
         <div className="space-y-4">
           <AccountSwitcher
             platform={id}
@@ -868,6 +891,10 @@ export function UploadingCenterPage() {
             slots={slots}
             onChange={setSlotOffsetDays}
           />
+          {/* Only the tab on screen draws its board. Neighbouring tabs stay mounted
+              so a switch is instant, but a hidden board is a second "Show earlier
+              days" button, a second copy of every post id, in the page. */}
+          {boardActive ? (
           <ScheduleBoard
             platform={id}
             days={days}
@@ -893,8 +920,10 @@ export function UploadingCenterPage() {
             shortsPerDay={shortsPerDay}
             readOnly={!publishingOn}
             collapseEarlier={!showEarlierDays && !focusIsEarlier}
+            focusDateKey={focusDateKey}
             onShowEarlier={() => setShowEarlierDays(true)}
           />
+          ) : null}
           {id === "youtube" && (channelError || channel?.error) ? (
             <WorkflowLoadNotice title="The YouTube schedule could not be refreshed" message={channelError ?? channel?.error ?? "Try again."} retained={Boolean(channel?.fetchedAt)} retrying={channelRefreshing} onRetry={() => void refreshChannel({ force: true })} />
           ) : null}
@@ -1089,10 +1118,12 @@ export function UploadingCenterPage() {
                 legs={failedLegs}
                 counts={failedByPlatform}
                 timezone={timezone}
-                canRetry={publishingOn && connectionFailurePlatformIds.length > 0}
+                plan={retryPlan}
+                postingOn={publishingOn}
+                activePlatform={activePlatform}
                 retrying={busy === "rearm"}
                 onShow={jumpToFailure}
-                onRetryConnection={() => void rearmConnectionFailures(connectionFailurePlatformIds)}
+                onRetryConnection={() => void rearmConnectionFailures(retryPlan.targets)}
               />
             ) : null}
             <div className="grid min-w-0 grid-cols-1 gap-6 xl:grid-cols-[minmax(22rem,1fr)_minmax(0,2.3fr)]">
@@ -1468,7 +1499,9 @@ function FailedStrip({
   legs,
   counts,
   timezone,
-  canRetry,
+  plan,
+  postingOn,
+  activePlatform,
   retrying,
   onShow,
   onRetryConnection,
@@ -1476,7 +1509,11 @@ function FailedStrip({
   legs: FailedLeg[];
   counts: Record<PlatformId, number>;
   timezone: string;
-  canRetry: boolean;
+  /** What the bulk retry can do right now, per connected account. */
+  plan: ConnectionRetryPlan;
+  postingOn: boolean;
+  /** The platform tab on screen: a failure on another one switches tabs. */
+  activePlatform: PlatformId;
   retrying: boolean;
   onShow: (leg: FailedLeg) => void;
   onRetryConnection: () => void;
@@ -1486,6 +1523,9 @@ function FailedStrip({
   const byPlatform = PLATFORM_TABS.filter(({ id }) => counts[id] > 0)
     .map(({ id }) => `${PLATFORM_LABELS[id]} ${counts[id]}`)
     .join(" · ");
+  const hasConnectionFailures = plan.count > 0 || plan.needConnection.length > 0 || plan.tooOld > 0;
+  const canRetry = postingOn && plan.count > 0;
+  const help = retryConnectionHelp(plan);
   const when = (leg: FailedLeg) =>
     dateTimeFormat("en-US", {
       timeZone: timezone,
@@ -1506,23 +1546,37 @@ function FailedStrip({
         </h2>
         <span className="text-[11px] text-[var(--muted-foreground)]">{byPlatform}</span>
         <span className="flex-1" />
-        {canRetry ? (
+        {hasConnectionFailures ? (
           <Button
             variant="secondary"
             className="h-8 px-3 text-xs"
             onClick={onRetryConnection}
-            disabled={retrying}
-            title="Puts posts that failed because a connection lapsed back in the queue. Posts more than a day overdue stay failed, to retry one by one. Reconnect the account first, or they fail the same way again."
+            disabled={retrying || !canRetry}
+            title={
+              canRetry
+                ? "Puts these posts back in the queue for the accounts that are connected now. Posts more than a day past their slot stay failed, to retry one by one."
+                : (help ?? undefined)
+            }
           >
             {retrying ? (
               <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
             ) : (
               <RotateCcw className="mr-1.5 h-3.5 w-3.5" />
             )}
-            Retry connection failures
+            {retryConnectionLabel(plan.count)}
           </Button>
         ) : null}
       </div>
+      {help ? (
+        <p className="flex flex-wrap items-center gap-x-2 text-[11px] text-[var(--muted-foreground)]">
+          <span>{help}</span>
+          {plan.needConnection.length > 0 ? (
+            <Link href="/settings#accounts" className="font-medium text-[var(--accent)] underline-offset-2 hover:underline">
+              Open Settings &rarr; Accounts
+            </Link>
+          ) : null}
+        </p>
+      ) : null}
       <ul className="space-y-1">
         {shown.map((leg) => (
           <li key={`${leg.item.id}:${leg.platform}`} className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 text-xs">
@@ -1537,7 +1591,7 @@ function FailedStrip({
               onClick={() => onShow(leg)}
               className="shrink-0 font-medium text-[var(--accent)] underline-offset-2 hover:underline"
             >
-              Show on the board
+              {leg.platform === activePlatform ? "Show on the board" : `Show on the ${PLATFORM_LABELS[leg.platform]} tab`}
             </button>
           </li>
         ))}

@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast, type ExternalToast } from "sonner";
 import { loadWorkflowJson, workflowLoadMessage } from "@/lib/marketing/workflow-resource";
 import { nameClips } from "@/components/uploading-center/bulk";
+import { describeRearmResults, type RearmPlatformResult } from "@/components/uploading-center/failures";
 import {
   bookedResult,
   isManualLeg,
@@ -1567,25 +1568,28 @@ export function useUploadingCenter(clipProjects: ClipProject[] = []) {
   );
 
   /**
-   * "Retry connection failures": puts every post that FAILED because its
-   * connection lapsed back to pending for the given platforms, across all of
-   * their accounts. "manual" reminders are not touched (the user may have posted
-   * those by hand), rejected videos stay failed, and a failure whose slot is
-   * more than REARM_MAX_SLOT_AGE_HOURS gone stays failed too: re-armed, it would
-   * post the moment the runner next ran. Those are counted so the toast can say
-   * to retry them one by one. A post that already reached the platform resumes
-   * rather than uploading twice (rearm.ts). The next runner pass, or Publish
-   * now, sends them - so reconnect first or they fail the same way again.
+   * "Retry posts that lost their connection": puts the posts that FAILED
+   * because their connection lapsed back to pending, for exactly the accounts
+   * the strip says are connected now (planConnectionRetry) - never a platform
+   * with no connection, where the posts would only fail again. "manual"
+   * reminders are not touched (the user may have posted those by hand),
+   * rejected videos stay failed, and a failure whose slot is more than
+   * REARM_MAX_SLOT_AGE_HOURS gone stays failed too: re-armed, it would post the
+   * moment the runner next ran. A post that already reached the platform
+   * resumes rather than uploading twice (rearm.ts). The next runner pass, or
+   * Publish now, sends them.
+   *
+   * The toast says what happened platform by platform (describeRearmResults).
    */
   const rearmConnectionFailures = useCallback(
-    async (platforms: PlatformId[]) => {
-      if (platforms.length === 0) return 0;
+    async (targets: Array<{ platform: PlatformId; accountId: string }>) => {
+      if (targets.length === 0) return 0;
       setBusy("rearm");
-      let recovered = 0;
-      let skippedOld = 0;
-      let firstError: string | null = null;
+      const byPlatform = new Map<PlatformId, RearmPlatformResult>();
       try {
-        for (const platform of platforms) {
+        for (const { platform, accountId } of targets) {
+          const result = byPlatform.get(platform) ?? { platform, recovered: 0, skippedOld: 0 };
+          byPlatform.set(platform, result);
           try {
             const response = await fetch("/api/publish", {
               method: "POST",
@@ -1593,42 +1597,29 @@ export function useUploadingCenter(clipProjects: ClipProject[] = []) {
               body: JSON.stringify({
                 action: "rearm",
                 platform,
+                accountId,
                 statuses: ["failed"],
                 maxSlotAgeHours: REARM_MAX_SLOT_AGE_HOURS
               })
             });
             if (!response.ok) {
-              firstError ??= await readError(response);
+              result.error ??= await readError(response);
               continue;
             }
             const body = (await response.json()) as { recovered?: number; skippedOld?: number };
-            recovered += body.recovered ?? 0;
-            skippedOld += body.skippedOld ?? 0;
+            result.recovered += body.recovered ?? 0;
+            result.skippedOld += body.skippedOld ?? 0;
           } catch {
-            firstError ??= "Network error while retrying.";
+            result.error ??= "Network error while retrying.";
           }
         }
-        const older =
-          skippedOld > 0
-            ? `${skippedOld} older post${skippedOld === 1 ? "" : "s"} left as failed - retry them one by one.`
-            : "";
-        if (recovered > 0 && !firstError) {
-          const back = `Put ${recovered} post${recovered === 1 ? "" : "s"} back in the queue. They go out on the next publisher pass.`;
-          if (older) toast.warning(`${back} ${older}`);
-          else toast.success(back);
-        } else if (recovered > 0) {
-          toast.warning(
-            `Put ${recovered} post${recovered === 1 ? "" : "s"} back in the queue, but not all: ${firstError}${older ? ` ${older}` : ""}`
-          );
-        } else if (firstError) {
-          errorToast(`${firstError}${older ? ` ${older}` : ""}`);
-        } else if (older) {
-          toast.warning(`Nothing was put back. ${older}`);
-        } else {
-          errorToast("Nothing was waiting on a connection.");
-        }
+        const results = [...byPlatform.values()];
+        const { tone, message } = describeRearmResults(results);
+        if (tone === "success") toast.success(message);
+        else if (tone === "warning") toast.warning(message);
+        else errorToast(message);
         await refresh();
-        return recovered;
+        return results.reduce((sum, result) => sum + result.recovered, 0);
       } finally {
         setBusy(null);
       }
