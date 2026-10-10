@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { hasFreshClaim, publishNowTargets, removalImpact } from "@/lib/publisher/boardActions";
+import { hasFreshClaim, publishNowTargets, publishedRemovalNote, removalImpact } from "@/lib/publisher/boardActions";
 import type { PlatformState } from "@/lib/publisher/types";
 
 const leg = (over: Partial<PlatformState>): PlatformState => ({ status: "pending", attempts: 0, ...over });
@@ -31,6 +31,42 @@ describe("what Remove touches", () => {
       postId: "fb1"
     });
     expect(removalImpact({ platforms: { facebook: leg({ status: "pending" }) } }).facebook).toBeNull();
+  });
+});
+
+describe("Remove on a post that is already live", () => {
+  const names = { youtube: "YouTube", instagram: "Instagram", tiktok: "TikTok", facebook: "Facebook" };
+
+  it("lists the platforms that are live, and says a fully published post has nothing left to remove", () => {
+    const impact = removalImpact({
+      platforms: { youtube: leg({ status: "published", postId: "v" }), instagram: leg({ status: "published" }) }
+    });
+    expect(impact.published).toEqual(["youtube", "instagram"]);
+    expect(impact.fullyPublished).toBe(true);
+  });
+
+  it("is only partly published while any leg is still waiting", () => {
+    const impact = removalImpact({
+      platforms: { youtube: leg({ status: "published", postId: "v" }), tiktok: leg({ status: "pending" }) }
+    });
+    expect(impact.published).toEqual(["youtube"]);
+    expect(impact.fullyPublished).toBe(false);
+  });
+
+  it("is not published at all for a post that has not gone up", () => {
+    const impact = removalImpact({ platforms: { youtube: leg({}) } });
+    expect(impact.published).toEqual([]);
+    expect(impact.fullyPublished).toBe(false);
+    expect(removalImpact({ platforms: {} }).fullyPublished).toBe(false);
+  });
+
+  it("words the note so Remove cannot be read as taking the post down", () => {
+    expect(publishedRemovalNote(["youtube"], names)).toBe(
+      "Already live on YouTube. Removing only clears it from this schedule; the posts stay up."
+    );
+    expect(publishedRemovalNote(["youtube", "instagram", "facebook"], names)).toBe(
+      "Already live on YouTube, Instagram and Facebook. Removing only clears it from this schedule; the posts stay up."
+    );
   });
 });
 

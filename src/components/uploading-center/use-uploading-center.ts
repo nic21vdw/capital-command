@@ -1,12 +1,14 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { toast } from "sonner";
+import { toast, type ExternalToast } from "sonner";
 import { loadWorkflowJson, workflowLoadMessage } from "@/lib/marketing/workflow-resource";
 import { nameClips } from "@/components/uploading-center/bulk";
 import {
   bookedResult,
+  isManualLeg,
   refusedResult,
+  summarizeAutoAssign,
   summarizeSchedule,
   type PlatformResult,
   type RunOutcome
@@ -20,7 +22,7 @@ import type { ClipCandidate, ClipJob } from "@/lib/clipping/types";
 import type { CaptionSegment, ClipProject } from "@/types/domain";
 import { placeChannelVideos, type ChannelPlacement } from "@/lib/publisher/channelPlacement";
 import { describeFailure } from "@/lib/publisher/failure";
-import { describeRunOutcome, formatGoLive, type OutcomeLine, type RunOutcomeLike } from "@/lib/publisher/outcomeCopy";
+import { describeRunOutcome, formatGoLive, manualReminderCopy, type OutcomeLine, type RunOutcomeLike } from "@/lib/publisher/outcomeCopy";
 import { FACEBOOK_SCHEDULED_POSTS_URL } from "@/lib/publisher/boardActions";
 import type { ChannelSchedule, ChannelVideo } from "@/lib/publisher/channelVideos";
 import { captionRequestFields } from "@/lib/publisher/captionTags";
@@ -337,6 +339,16 @@ export function studioVideoUrl(videoId: string): string {
 }
 
 /** What the post-upload confirmation dialog shows after a YouTube upload. */
+/**
+ * An error toast with a stable id. The same failure repeated (three clips
+ * refused for the same reason, a retry that fails the same way) UPDATES the
+ * toast already on screen instead of stacking a copy of it, which is how three
+ * identical red toasts ended up overlapping.
+ */
+export function errorToast(message: string, options?: ExternalToast) {
+  return toast.error(message, { id: `error:${message}`, ...options });
+}
+
 export type UploadSuccess = {
   title: string;
   videoUrl: string;
@@ -349,8 +361,13 @@ export type UploadSuccess = {
 
 /** Either the platform-ready caption, or why it couldn't be written. */
 export type TailoredCaption =
-  | { ok: true; caption: string; bestTime?: string; note?: string }
+  | { ok: true; caption: string; bestTime?: string; note?: string; source: "ai" | "fallback" }
   | { ok: false; error: string };
+
+/** What the screen says when no AI key is set and the clip title stood in. */
+export const NO_AI_CAPTION_NOTICE = "No AI key set - used the clip title as the caption. Edit it before booking.";
+export const NO_AI_CAPTION_NOTICE_PLURAL =
+  "No AI key set - used the clip titles as the captions. Edit them before booking.";
 
 /** One clip a bulk caption pass could not write copy for, and why. */
 export type CaptionFailure = { clip: ReadyClip; error: string };
@@ -775,7 +792,7 @@ export function useUploadingCenter(clipProjects: ClipProject[] = []) {
         });
         if (!response.ok) throw new Error(await readError(response));
       } catch {
-        toast.error("Could not save the clip title.");
+        errorToast("Could not save the clip title.");
         await refresh();
       }
     },
@@ -811,7 +828,7 @@ export function useUploadingCenter(clipProjects: ClipProject[] = []) {
           toast.success("Title saved. It uploads with this title.");
         }
       } catch (error) {
-        toast.error(error instanceof Error ? error.message : "Could not rename the post.");
+        errorToast(error instanceof Error ? error.message : "Could not rename the post.");
         await refresh();
       }
     },
@@ -884,7 +901,7 @@ export function useUploadingCenter(clipProjects: ClipProject[] = []) {
         outcome.detail.includes("YouTube connection expired")
       ) {
         const accountId = item?.accountId ?? primaryAccountIdFor("youtube");
-        toast.error("Your YouTube connection expired. Reconnect once and CoLateral Marketing will resume this upload automatically.", {
+        errorToast("Your YouTube connection expired. Reconnect once and CoLateral Marketing will resume this upload automatically.", {
           duration: Infinity,
           action: {
             label: "Reconnect YouTube",
@@ -902,9 +919,12 @@ export function useUploadingCenter(clipProjects: ClipProject[] = []) {
       } else if (outcome?.outcome === "retrying") {
         toast.warning(`Upload interrupted — CoLateral Marketing will retry automatically. ${outcome.detail || ""}`.trim());
       } else if (outcome?.outcome === "failed") {
-        toast.error(
+        errorToast(
           `Upload failed: ${describeFailure({ status: "failed", attempts: 0, error: outcome.detail }, platform).headline}`
         );
+      } else if (result.manual) {
+        // Booked, but only as a reminder: nothing posts by itself. Amber, not green.
+        toast.warning(manualReminderCopy(platform));
       } else {
         toast.success(`Scheduled for ${PLATFORM_LABELS[platform]}.`);
       }
@@ -943,11 +963,12 @@ export function useUploadingCenter(clipProjects: ClipProject[] = []) {
           })
         });
         if (!response.ok) return { ok: false, error: await readError(response) };
-        const { copy } = (await response.json()) as {
+        const { copy, source } = (await response.json()) as {
           copy: { caption: string; hashtags: string[]; bestTime?: string; note?: string };
+          source?: "ai" | "fallback";
         };
         const caption = copy.hashtags.length ? `${copy.caption}\n\n${copy.hashtags.join(" ")}` : copy.caption;
-        return { ok: true, caption, bestTime: copy.bestTime, note: copy.note };
+        return { ok: true, caption, bestTime: copy.bestTime, note: copy.note, source: source ?? "ai" };
       } catch {
         return { ok: false, error: "Couldn't tailor the caption — try again." };
       }
@@ -960,12 +981,12 @@ export function useUploadingCenter(clipProjects: ClipProject[] = []) {
       clip: ReadyClip,
       platform: PlatformId,
       title: string
-    ): Promise<{ caption: string; bestTime?: string; note?: string } | null> => {
+    ): Promise<{ caption: string; bestTime?: string; note?: string; source: "ai" | "fallback" } | null> => {
       setBusy(`tailor:${clip.key}`);
       try {
         const result = await fetchTailoredCaption(clip, platform, title);
         if (!result.ok) {
-          toast.error(result.error);
+          errorToast(result.error);
           setCaptionFailures((current) => ({ ...current, [clip.key]: result.error }));
           return null;
         }
@@ -1000,6 +1021,7 @@ export function useUploadingCenter(clipProjects: ClipProject[] = []) {
       setBusy("captions-all");
       setCaptionProgress({ done: 0, total: targets.length });
       let filled = 0;
+      let usedTitle = 0;
       const failed: CaptionFailure[] = [];
       try {
         for (const [index, target] of targets.entries()) {
@@ -1008,6 +1030,7 @@ export function useUploadingCenter(clipProjects: ClipProject[] = []) {
             failed.push({ clip: target.clip, error: result.error });
           } else {
             filled += 1;
+            if (result.source === "fallback") usedTitle += 1;
             onCaption(target.clip, result.caption);
           }
           setCaptionProgress({ done: index + 1, total: targets.length });
@@ -1019,14 +1042,17 @@ export function useUploadingCenter(clipProjects: ClipProject[] = []) {
           return next;
         });
         const names = nameClips(failed.map((failure) => failure.clip.headline));
-        if (failed.length === 0) {
+        if (failed.length === 0 && usedTitle > 0) {
+          // No model answered: the "captions" are the clip titles. Say so.
+          toast.warning(NO_AI_CAPTION_NOTICE_PLURAL, { id: "caption-fallback" });
+        } else if (failed.length === 0) {
           toast.success(`Wrote ${filled} caption${filled === 1 ? "" : "s"}.`);
         } else if (filled > 0) {
           toast.warning(
             `Wrote ${filled} of ${targets.length} captions. No caption for ${names} — ${failed[0].error}`
           );
         } else {
-          toast.error(`Couldn't write a caption for ${names} — ${failed[0].error}`);
+          errorToast(`Couldn't write a caption for ${names} — ${failed[0].error}`);
         }
         return { filled, failed };
       } finally {
@@ -1040,7 +1066,7 @@ export function useUploadingCenter(clipProjects: ClipProject[] = []) {
   const schedule = useCallback(
     async (clip: ReadyClip, draft: ClipDraft) => {
       if (!draft.slotUtc) {
-        toast.error("Pick a schedule slot first.");
+        errorToast("Pick a schedule slot first.");
         return false;
       }
       setBusy(`schedule:${clip.key}`);
@@ -1052,14 +1078,14 @@ export function useUploadingCenter(clipProjects: ClipProject[] = []) {
         if (clip.needsRerender) {
           const project = projectForClip(clip);
           if (!project) {
-            toast.error("Open this clip in the editor and hit Schedule Short to bake in your edits first.");
+            errorToast("Open this clip in the editor and hit Schedule Short to bake in your edits first.");
             return false;
           }
           const bakeToast = toast.loading("Baking your trim before scheduling…");
           try {
             file = await bakeProject(project);
           } catch (error) {
-            toast.error(`Couldn't render the trimmed clip: ${error instanceof Error ? error.message : "render failed"}.`, {
+            errorToast(`Couldn't render the trimmed clip: ${error instanceof Error ? error.message : "render failed"}.`, {
               id: bakeToast
             });
             return false;
@@ -1117,7 +1143,7 @@ export function useUploadingCenter(clipProjects: ClipProject[] = []) {
         }
         const booked = results.filter((result) => result.booked);
         if (!several && booked.length === 0) {
-          toast.error(firstError ?? "Couldn't schedule this clip.");
+          errorToast(firstError ?? "Couldn't schedule this clip.");
           return false;
         }
         if (several) {
@@ -1162,7 +1188,7 @@ export function useUploadingCenter(clipProjects: ClipProject[] = []) {
           body: file
         });
         if (!response.ok) {
-          toast.error(await readError(response));
+          errorToast(await readError(response));
           return false;
         }
         const { item } = await announceScheduleOutcome(response, draft.platform);
@@ -1178,7 +1204,7 @@ export function useUploadingCenter(clipProjects: ClipProject[] = []) {
         }
         return true;
       } catch {
-        toast.error("Network error while uploading the video.");
+        errorToast("Network error while uploading the video.");
         return false;
       } finally {
         setBusy(null);
@@ -1205,6 +1231,8 @@ export function useUploadingCenter(clipProjects: ClipProject[] = []) {
       // three, the Instagram one carrying Facebook with it.
       const total = assignments.reduce((sum, { draft }) => sum + schedulePlatforms(draft.platform).length, 0);
       let scheduled = 0;
+      let manual = 0;
+      const manualPlatforms: string[] = [];
       let firstError: string | null = null;
       try {
         for (const { clip, draft } of assignments) {
@@ -1246,6 +1274,12 @@ export function useUploadingCenter(clipProjects: ClipProject[] = []) {
                 continue;
               }
               scheduled += 1;
+              // A platform with no connected account is booked as a reminder.
+              const booked = (await response.json().catch(() => null)) as { item?: QueueItem } | null;
+              if (isManualLeg(booked?.item, platform)) {
+                manual += 1;
+                manualPlatforms.push(PLATFORM_LABELS[platform]);
+              }
             } catch {
               firstError ??= "Network error while scheduling.";
             }
@@ -1256,15 +1290,8 @@ export function useUploadingCenter(clipProjects: ClipProject[] = []) {
               heldBack.map((clip) => clip.headline)
             )}.`
           : "";
-        if (scheduled === total && !held) {
-          toast.success(`Auto-assigned ${scheduled} post${scheduled === 1 ? "" : "s"} to the next open slots.`);
-        } else if (scheduled === total) {
-          toast.warning(`Auto-assigned ${scheduled} post${scheduled === 1 ? "" : "s"}.${held}`);
-        } else if (scheduled > 0) {
-          toast.warning(`Auto-assigned ${scheduled} of ${total} posts${firstError ? ` — ${firstError}` : "."}${held}`);
-        } else {
-          toast.error(`${firstError ?? "Auto assign failed."}${held}`);
-        }
+        const summary = summarizeAutoAssign({ scheduled, manual, total, manualPlatforms, firstError, held });
+        toast[summary.level](summary.message, summary.level === "success" ? undefined : { duration: 12000 });
         await refresh();
       } finally {
         setBusy(null);
@@ -1276,7 +1303,7 @@ export function useUploadingCenter(clipProjects: ClipProject[] = []) {
   /** Shows each run outcome as the toast its tone calls for. */
   const showOutcomes = useCallback((lines: OutcomeLine[]) => {
     for (const line of lines) {
-      if (line.tone === "error") toast.error(line.text);
+      if (line.tone === "error") errorToast(line.text);
       else if (line.tone === "warning") toast.warning(line.text);
       else if (line.tone === "info") toast.info(line.text);
       else toast.success(line.text);
@@ -1298,7 +1325,7 @@ export function useUploadingCenter(clipProjects: ClipProject[] = []) {
           body: JSON.stringify({ mode: "now" })
         });
         if (!response.ok) {
-          toast.error(await readError(response));
+          errorToast(await readError(response));
           return;
         }
         const { report } = (await response.json()) as {
@@ -1330,11 +1357,11 @@ export function useUploadingCenter(clipProjects: ClipProject[] = []) {
           body: JSON.stringify({ action: "retry", itemId: item.id, platform })
         }).catch(() => null);
         if (!rearm) {
-          toast.error("Network error while retrying that post.");
+          errorToast("Network error while retrying that post.");
           return;
         }
         if (!rearm.ok) {
-          toast.error(await readError(rearm));
+          errorToast(await readError(rearm));
           return;
         }
         const slotPassed = new Date(item.publishAt).getTime() <= Date.now();
@@ -1387,12 +1414,12 @@ export function useUploadingCenter(clipProjects: ClipProject[] = []) {
             detail?.code === "uploading" ||
             detail?.code === "youtube-may-exist"
           ) {
-            toast.error(message, {
+            errorToast(message, {
               duration: Infinity,
               action: { label: "Remove anyway", onClick: () => void remove(item, { anyway: true }) }
             });
           } else {
-            toast.error(message);
+            errorToast(message);
           }
         } else {
           const result = (await response.json().catch(() => ({}))) as {
@@ -1468,7 +1495,7 @@ export function useUploadingCenter(clipProjects: ClipProject[] = []) {
             : undefined
         });
       } catch (error) {
-        toast.error(error instanceof Error ? error.message : "Could not save the caption.");
+        errorToast(error instanceof Error ? error.message : "Could not save the caption.");
         await refresh();
       }
     },
@@ -1503,7 +1530,7 @@ export function useUploadingCenter(clipProjects: ClipProject[] = []) {
           body: JSON.stringify({ platform, label })
         });
         if (!response.ok) {
-          toast.error(await readError(response));
+          errorToast(await readError(response));
           return false;
         }
         const { account } = (await response.json()) as { account: SocialAccountView };
@@ -1525,7 +1552,7 @@ export function useUploadingCenter(clipProjects: ClipProject[] = []) {
       try {
         const response = await fetch(`/api/publish/accounts/${account.id}`, { method: "DELETE" });
         if (!response.ok) {
-          toast.error(await readError(response));
+          errorToast(await readError(response));
           return false;
         }
         setActiveAccount(account.platform, primaryAccountIdFor(account.platform));
@@ -1594,11 +1621,11 @@ export function useUploadingCenter(clipProjects: ClipProject[] = []) {
             `Put ${recovered} post${recovered === 1 ? "" : "s"} back in the queue, but not all: ${firstError}${older ? ` ${older}` : ""}`
           );
         } else if (firstError) {
-          toast.error(`${firstError}${older ? ` ${older}` : ""}`);
+          errorToast(`${firstError}${older ? ` ${older}` : ""}`);
         } else if (older) {
           toast.warning(`Nothing was put back. ${older}`);
         } else {
-          toast.error("Nothing was waiting on a connection.");
+          errorToast("Nothing was waiting on a connection.");
         }
         await refresh();
         return recovered;

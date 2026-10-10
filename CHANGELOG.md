@@ -14,6 +14,10 @@ already shipped.
 
 ## Unreleased
 
+- **The Uploading Center says what really happened.** Booking onto an account that is not connected now shows an amber "Saved as a manual reminder for <platform>" instead of a green "Scheduled", and Auto Assign counts booked posts and reminders separately. The AI caption button says when no AI key is set and it only copied the clip title, a manual reminder before its slot reads "post this by hand at <time>" instead of "never went out", and a post that is already live explains that Remove only clears it from the schedule (and is not offered when every platform has it).
+
+- **The Uploading Center opens at the top.** The page used to land scrolled down to today, past the Failed strip, the platform tabs and the bulk button; now days before today sit behind "Show earlier days" and "Show on the board" jumps straight to the post. The bulk button reads "Schedule 3 clips" with the pace underneath, the clip card no longer squashes its AI caption button or overlaps Edit clip, "Connect YouTube" is offered (not "Reconnect") for an account that was never connected, and repeated error toasts collapse into one instead of stacking.
+
 - **Retry and Remove no longer catch you out.** "Retry connection failures" only touches posts that failed (not reminders you may have posted by hand) and leaves anything more than a day overdue as failed, saying how many to retry one by one, so nothing old posts all at once. Remove now stops while a post is uploading or a YouTube video may already exist, and "Remove anyway" is there if you mean it. Publish now never goes out early by accident, and Retry is not offered on a reminder for an account that is not connected.
 
 - **A post that fails again tells you again.** A retry that fails a second time now raises a new alert instead of being treated as the one you already saw, for publish posts and Threads.

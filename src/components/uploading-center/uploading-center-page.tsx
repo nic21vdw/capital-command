@@ -58,6 +58,7 @@ import { ScheduleBoard } from "@/components/uploading-center/schedule-board";
 import { StatusChip } from "@/components/uploading-center/status-chip";
 import {
   DEFAULT_SLOT_OFFSET_DAYS,
+  NO_AI_CAPTION_NOTICE,
   PLATFORM_LABELS,
   PLATFORM_TARGET_LABELS,
   SLOT_WINDOW_DAYS,
@@ -281,6 +282,11 @@ export function UploadingCenterPage() {
       if (!result) return;
       putDraft(clip, { ...(draftsRef.current[clip.key] ?? draft), caption: result.caption });
       const label = copyTargetLabel(draft.platform);
+      if (result.source === "fallback") {
+        // No model answered; the caption is the clip title. Never call that "tailored".
+        toast.warning(NO_AI_CAPTION_NOTICE, { id: "caption-fallback" });
+        return;
+      }
       if (result.bestTime) {
         toast.success(
           `Tailored for ${label}. Best time to post${draft.platform === "all" ? " on TikTok" : ""}: ~${result.bestTime}.`
@@ -399,6 +405,8 @@ export function UploadingCenterPage() {
   const dayParam = searchParams.get("day");
   const jobParamConsumed = useRef(false);
   const focusKeyRef = useRef<string | null>(null);
+  // Days before today are folded away on load so the page opens at its top.
+  const [showEarlierDays, setShowEarlierDays] = useState(false);
   // Bumped to run the "scroll to the post" effect again for the same ?item=,
   // which is what pressing a failure's Show button twice needs.
   const [focusNonce, setFocusNonce] = useState(0);
@@ -412,6 +420,16 @@ export function UploadingCenterPage() {
     const next = params.toString();
     router.replace(next ? `/uploading-center?${next}` : "/uploading-center");
   }, [dayParam, itemParam, jobParam, router, searchParams, setActiveJobId]);
+
+  // Something asked to be shown (?item=, ?day=) on a day before today: the
+  // folded "earlier days" must be open for it to be on the page at all. Derived
+  // at render, not set from the effect below, so it needs no extra pass.
+  const focusIsEarlier = useMemo(() => {
+    const timeZone = overview?.timezone ?? "America/Toronto";
+    const queued = itemParam ? [...itemsByPlatform.values()].flat().find((entry) => entry.id === itemParam) : undefined;
+    const dateKey = queued ? localCalendarParts(queued.publishAt, timeZone).dateKey : dayParam;
+    return Boolean(dateKey && dateKey < localCalendarParts(new Date(), timeZone).dateKey);
+  }, [dayParam, itemParam, itemsByPlatform, overview?.timezone]);
 
   useEffect(() => {
     if (!loaded) return;
@@ -433,16 +451,29 @@ export function UploadingCenterPage() {
       setSlotOffsetDays(offset);
       return;
     }
-    // No wait for the window to arrive: the grid is built from the offset, so
-    // by the time this runs again the day being scrolled to is already drawn.
-    // A post on several platforms is drawn once per tab, and only one of those
-    // tabs is showing - scroll to the one that is.
+    // (A day before today is folded behind "Show earlier days"; `focusIsEarlier`
+    // above opens it while something asks to be shown there.)
+    // The board is drawn by the tab that is showing, a frame or two after the
+    // tab/account switch and the window change land, so look for the post for
+    // a few frames rather than once. A post on several platforms is drawn once
+    // per tab and only one of those tabs is showing - scroll to that one.
+    // INSTANT, not smooth: a smooth scroll is cancelled by the layout shifts
+    // that follow (images, the board re-rendering) and ends nowhere near.
     const targetId = itemParam ? `queue-item-${itemParam}` : `agenda-day-${dateKey}`;
-    const candidates = Array.from(document.querySelectorAll<HTMLElement>(`[id="${targetId}"]`));
-    const target = candidates.find((candidate) => candidate.offsetParent !== null) ?? candidates[0];
-    if (!target) return;
-    focusKeyRef.current = focusKey;
-    target.scrollIntoView({ behavior: "smooth", block: "center" });
+    let frame = 0;
+    let tries = 0;
+    const attempt = () => {
+      const candidates = Array.from(document.querySelectorAll<HTMLElement>(`[id="${targetId}"]`));
+      const target = candidates.find((candidate) => candidate.offsetParent !== null);
+      if (target) {
+        focusKeyRef.current = focusKey;
+        target.scrollIntoView({ behavior: "auto", block: "center" });
+      } else if ((tries += 1) < 40) {
+        frame = requestAnimationFrame(attempt);
+      }
+    };
+    attempt();
+    return () => cancelAnimationFrame(frame);
   }, [
     dayParam,
     focusNonce,
@@ -455,32 +486,10 @@ export function UploadingCenterPage() {
     slotOffsetDays
   ]);
 
-  // Open on today, not on last week: the window starts seven days back so
-  // history stays reachable, which used to mean every visit began a screen or
-  // two above the part of the calendar that matters. Only when nothing asked to
-  // be shown (?item=, ?day=), and once.
-  const scrolledToTodayRef = useRef(false);
-  useEffect(() => {
-    if (!loaded || scrolledToTodayRef.current || itemParam || dayParam) return;
-    const todayKey = slots.find((slot) => slot.today)?.dateKey;
-    if (!todayKey) return;
-    // The board is drawn by the tab that is showing, which can land a frame
-    // after `loaded` flips, so look a few times before giving up.
-    let frame = 0;
-    let tries = 0;
-    const attempt = () => {
-      const candidates = Array.from(document.querySelectorAll<HTMLElement>(`[id="agenda-day-${todayKey}"]`));
-      const target = candidates.find((candidate) => candidate.offsetParent !== null);
-      if (target) {
-        scrolledToTodayRef.current = true;
-        target.scrollIntoView({ behavior: "auto", block: "start" });
-      } else if ((tries += 1) < 10) {
-        frame = requestAnimationFrame(attempt);
-      }
-    };
-    attempt();
-    return () => cancelAnimationFrame(frame);
-  }, [dayParam, itemParam, loaded, slots]);
+  // The board opens ON today: the days before it sit behind "Show earlier
+  // days" (see earlier-days.ts) instead of the page being scrolled down to
+  // today, which left the Failed strip, the platform tabs and the bulk button
+  // above the fold.
 
   // The Failed strip's Show button: switch to the failure's platform tab and
   // account, then bring the post into view through the ?item= route above.
@@ -883,6 +892,8 @@ export function UploadingCenterPage() {
             highlightedItemId={itemParam}
             shortsPerDay={shortsPerDay}
             readOnly={!publishingOn}
+            collapseEarlier={!showEarlierDays && !focusIsEarlier}
+            onShowEarlier={() => setShowEarlierDays(true)}
           />
           {id === "youtube" && (channelError || channel?.error) ? (
             <WorkflowLoadNotice title="The YouTube schedule could not be refreshed" message={channelError ?? channel?.error ?? "Try again."} retained={Boolean(channel?.fetchedAt)} retrying={channelRefreshing} onRetry={() => void refreshChannel({ force: true })} />

@@ -155,16 +155,20 @@ export function planAutoAssign({
 }
 
 /**
- * What the bulk button says it will do, counted through the same plan the click
- * runs: "Schedule 7 clips: 2 a day from tomorrow". `tomorrowKey` is tomorrow's
- * date in the publish timezone; without it the first day is named by its date.
- * Null when the plan books nothing, so the caller keeps its own wording.
+ * What the bulk button says it will do, in two lines: the action ("Schedule 7
+ * clips") and the pace under it ("2 a day from tomorrow"). Counted through the
+ * same plan the click runs. `tomorrowKey` is tomorrow's date in the publish
+ * timezone; without it the first day is named by its date. Null when the plan
+ * books nothing, so the caller keeps its own wording.
+ *
+ * Two lines because the one-line form ("Schedule 3 clips: 1 a day from Mon,
+ * Oct 12 - 2 shorts a day max") did not fit the button and was cut mid-word.
  */
-export function bulkBookingLabel(
+export function bulkBookingParts(
   plan: Pick<AutoAssignPlan, "assignments">,
   slots: ScheduleSlot[],
   tomorrowKey?: string
-): string | null {
+): { primary: string; secondary: string | null; separator: ": " | " " } | null {
   if (plan.assignments.length === 0) return null;
   const slotByUtc = new Map(slots.map((candidate) => [candidate.utc, candidate]));
   const perDay = new Map<string, number>();
@@ -176,9 +180,22 @@ export function bulkBookingLabel(
     if (!first || placed.utc < first.utc) first = placed;
   }
   const count = plan.assignments.length;
-  const noun = `${count} clip${count === 1 ? "" : "s"}`;
-  if (!first) return `Schedule ${noun}`;
+  const primary = `Schedule ${count} clip${count === 1 ? "" : "s"}`;
+  if (!first) return { primary, secondary: null, separator: " " };
   const from = first.dateKey === tomorrowKey ? "tomorrow" : first.dateLabel;
-  if (perDay.size < 2) return `Schedule ${noun} ${first.dateKey === tomorrowKey ? "for" : "on"} ${from}`;
-  return `Schedule ${noun}: ${Math.max(...perDay.values())} a day from ${from}`;
+  if (perDay.size < 2) {
+    return { primary, secondary: `${first.dateKey === tomorrowKey ? "for" : "on"} ${from}`, separator: " " };
+  }
+  return { primary, secondary: `${Math.max(...perDay.values())} a day from ${from}`, separator: ": " };
+}
+
+/** The same wording on one line, for a tooltip or a screen reader. */
+export function bulkBookingLabel(
+  plan: Pick<AutoAssignPlan, "assignments">,
+  slots: ScheduleSlot[],
+  tomorrowKey?: string
+): string | null {
+  const parts = bulkBookingParts(plan, slots, tomorrowKey);
+  if (!parts) return null;
+  return parts.secondary ? `${parts.primary}${parts.separator}${parts.secondary}` : parts.primary;
 }

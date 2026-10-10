@@ -89,12 +89,34 @@ function afterConnecting(platform: PlatformId): string {
     : "Reconnect it in Settings, then press Retry.";
 }
 
-export function describeFailure(state: PlatformState, platform: PlatformId): FailureAdvice {
+/**
+ * Where the post is in time. Only a manual reminder reads differently before its
+ * slot than after: "it never went out" is false of a post whose time has not come.
+ */
+export type FailureContext = {
+  /** The post's go-live instant, UTC ISO-8601. */
+  publishAt: string;
+  /** That instant as the screen writes it ("Tue, Oct 14, 3:00 PM"); defaults to "its slot". */
+  when?: string;
+  now?: Date;
+};
+
+export function describeFailure(state: PlatformState, platform: PlatformId, context?: FailureContext): FailureAdvice {
   const label = PLATFORM_LABELS[platform];
   const raw = state.error?.trim() || undefined;
   const viaSettings = platform !== "youtube" || undefined;
 
   if (state.status === "manual") {
+    const slotMs = context ? new Date(context.publishAt).getTime() : Number.NaN;
+    const upcoming = Number.isFinite(slotMs) && slotMs > (context?.now ?? new Date()).getTime();
+    if (upcoming) {
+      return {
+        headline: `Not connected - post this by hand at ${context?.when ?? "its slot"}, or connect ${label} in Settings.`,
+        action: "reconnect",
+        viaSettings,
+        raw: state.note?.trim() || raw
+      };
+    }
     return {
       headline: `No ${label} account was connected when this was scheduled, so it never went out. ${
         platform === "youtube" ? "Connect one and this post goes out on its own." : "Connect it in Settings, then press Retry."

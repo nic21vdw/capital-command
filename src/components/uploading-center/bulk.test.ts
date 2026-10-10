@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   autoAssignableCount,
   bulkBookingLabel,
+  bulkBookingParts,
   clipsNeedingCaption,
   nameClips,
   planAutoAssign
@@ -411,5 +412,15 @@ describe("bulkBookingLabel", () => {
 
   it("is null when nothing would be booked", () => {
     expect(bulkBookingLabel({ assignments: [] }, slots, "2026-08-06")).toBeNull();
+  });
+
+  it("splits the action from the pace so the button can stack them", () => {
+    expect(bulkBookingParts(plan(7, 2), slots, "2026-08-06")).toEqual({
+      primary: "Schedule 6 clips",
+      secondary: "2 a day from tomorrow",
+      separator: ": "
+    });
+    expect(bulkBookingParts(plan(1, 2), slots, "2026-08-05")?.primary).toBe("Schedule 1 clip");
+    expect(bulkBookingParts({ assignments: [] }, slots)).toBeNull();
   });
 });

@@ -3,13 +3,14 @@
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import Link from "next/link";
-import { Clapperboard, ExternalLink, Images, Image as ImageIcon, Loader2, Pencil, Plug, RotateCcw, Send, Trash2, Upload } from "lucide-react";
+import { ChevronUp, Clapperboard, ExternalLink, Images, Image as ImageIcon, Loader2, Pencil, Plug, RotateCcw, Send, Trash2, Upload } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Modal } from "@/components/ui/modal";
 import { Textarea } from "@/components/ui/textarea";
 import { StatusChip } from "@/components/uploading-center/status-chip";
 import { CLIP_DRAG_TYPE } from "@/components/uploading-center/clip-card";
+import { splitEarlierDays } from "@/components/uploading-center/earlier-days";
 import {
   PLATFORM_LABELS,
   primaryAccountIdFor,
@@ -22,6 +23,7 @@ import {
   UPLOADING_NOW_MESSAGE,
   YOUTUBE_MAY_EXIST_MESSAGE,
   publishNowTargets,
+  publishedRemovalNote,
   removalImpact
 } from "@/lib/publisher/boardActions";
 import { describeFailure, describeWaiting } from "@/lib/publisher/failure";
@@ -76,9 +78,14 @@ export function ScheduleBoard({
   busy,
   highlightedItemId,
   shortsPerDay,
-  readOnly = false
+  readOnly = false,
+  collapseEarlier = false,
+  onShowEarlier
 }: {
   platform: PlatformId;
+  /** Days before today stay behind a "Show earlier days" row until this is false. */
+  collapseEarlier?: boolean;
+  onShowEarlier?: () => void;
   /** The visible window, one entry per day, already placed and sorted. */
   days: AgendaDay[];
   thumbnailForItem: (item: QueueItem) => string | null;
@@ -112,6 +119,7 @@ export function ScheduleBoard({
 }) {
   const [dragOverSlot, setDragOverSlot] = useState<string | null>(null);
   const nowMs = useMinuteClock();
+  const { earlier, shown, earlierPosts } = splitEarlierDays(days, collapseEarlier);
 
   // One hidden file input for the whole board; the slot whose Upload button
   // opened the picker is remembered so the chosen file lands on it.
@@ -147,7 +155,18 @@ export function ScheduleBoard({
           if (file && slotUtc) onUploadVideo(slotUtc, file);
         }}
       />
-      {days.map((day) => (
+      {earlier.length > 0 ? (
+        <button
+          type="button"
+          onClick={onShowEarlier}
+          className="flex w-full items-center justify-center gap-2 rounded-xl border border-dashed border-[var(--border)] px-3 py-2 text-xs text-[var(--muted-foreground)] transition hover:border-[var(--accent)] hover:text-[var(--accent)]"
+        >
+          <ChevronUp className="h-3.5 w-3.5" />
+          Show {earlier.length} earlier day{earlier.length === 1 ? "" : "s"}
+          {earlierPosts > 0 ? ` (${earlierPosts} post${earlierPosts === 1 ? "" : "s"})` : ""}
+        </button>
+      ) : null}
+      {shown.map((day) => (
         <DayBand
           key={day.dateKey}
           platform={platform}
@@ -353,7 +372,13 @@ function QueueEntryCard({
   // "failed" and "manual" are terminal until something un-blocks them, so the
   // send button re-arms the post first; the rest go straight out.
   const blocked = state.status === "failed" || state.status === "manual";
-  const advice = blocked ? describeFailure(state, platform) : null;
+  const advice = blocked
+    ? describeFailure(state, platform, {
+        publishAt: item.publishAt,
+        when: formatGoLive(item.publishAt),
+        now: new Date(nowMs)
+      })
+    : null;
   // A leg that is not failed but is not simply waiting: an error on record or a
   // later attempt booked. Without this line it reads exactly like a healthy one.
   const waiting = blocked ? null : describeWaiting(state, platform);
@@ -531,6 +556,9 @@ function QueueEntryCard({
                   {blocked ? retryLabel : "Publish now"}
                 </button>
               ) : null}
+              {/* A post that is live everywhere has nothing to cancel, and the queue's
+                  record of it is what stops the channel scan taking it back in as new. */}
+              {!everyLegPublished ? (
               <button
                 type="button"
                 onClick={() => setConfirm("remove")}
@@ -541,6 +569,7 @@ function QueueEntryCard({
                 <Trash2 className="h-3.5 w-3.5" />
                 Remove
               </button>
+              ) : null}
             </>
           )}
         </div>
@@ -622,7 +651,7 @@ function QueueEntryCard({
                   href={`/api/auth/google?account=${encodeURIComponent(item.accountId ?? primaryAccountIdFor("youtube"))}`}
                   className="inline-flex items-center gap-1 rounded-md border border-[var(--accent)]/50 px-1.5 py-0.5 text-[10px] font-medium text-[var(--accent)] transition hover:bg-[var(--accent)]/10"
                 >
-                  <Plug className="h-3 w-3" /> Reconnect YouTube
+                  <Plug className="h-3 w-3" /> {connected ? "Reconnect YouTube" : "Connect YouTube"}
                 </a>
               ) : null}
               {advice?.action === "reconnect" && advice.viaSettings ? (
@@ -722,7 +751,12 @@ function QueueEntryCard({
               </a>
             </p>
           ) : null}
-          {!impact.youtube && !impact.facebook && !impact.youtubeMayExist && !impact.uploading ? (
+          {impact.published.length > 0 ? <p>{publishedRemovalNote(impact.published, PLATFORM_LABELS)}</p> : null}
+          {impact.published.length === 0 &&
+          !impact.youtube &&
+          !impact.facebook &&
+          !impact.youtubeMayExist &&
+          !impact.uploading ? (
             <p>Nothing has gone up yet, so nothing is left on any platform.</p>
           ) : null}
         </ConfirmDialog>

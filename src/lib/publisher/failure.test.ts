@@ -40,6 +40,26 @@ describe("what a blocked post says on the board", () => {
     expect(advice.raw).toBe("TikTok isn't connected yet.");
   });
 
+  it("does not say a manual post never went out before its slot has come", () => {
+    const now = new Date("2026-10-10T12:00:00.000Z");
+    const before = describeFailure({ status: "manual", attempts: 0 }, "tiktok", {
+      publishAt: "2026-10-12T14:00:00.000Z",
+      when: "Mon, Oct 12, 10:00 AM",
+      now
+    });
+    expect(before.headline).toBe(
+      "Not connected - post this by hand at Mon, Oct 12, 10:00 AM, or connect TikTok in Settings."
+    );
+    expect(before.headline).not.toMatch(/never went out/);
+    expect(before.action).toBe("reconnect");
+
+    const after = describeFailure({ status: "manual", attempts: 0 }, "tiktok", {
+      publishAt: "2026-10-09T14:00:00.000Z",
+      now
+    });
+    expect(after.headline).toContain("No TikTok account was connected when this was scheduled, so it never went out.");
+  });
+
   it("offers a retry when the platform simply wouldn't take it", () => {
     const rejected = describeFailure({ status: "failed", attempts: 1, error: '{"error":{"code":400,"reason":"badRequest"}}' }, "youtube");
     expect(rejected.action).toBe("retry");

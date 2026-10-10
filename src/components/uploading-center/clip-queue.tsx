@@ -6,7 +6,7 @@ import { AdvancedOptions } from "@/components/ui/advanced-options";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Select } from "@/components/ui/select";
-import { bulkBookingLabel, planAutoAssign, type ShortsCap } from "@/components/uploading-center/bulk";
+import { bulkBookingLabel, bulkBookingParts, planAutoAssign, type ShortsCap } from "@/components/uploading-center/bulk";
 import { ClipCard, SUGGESTED_HASHTAGS } from "@/components/uploading-center/clip-card";
 import type { RunDefaults } from "@/components/uploading-center/run-defaults";
 import {
@@ -126,6 +126,17 @@ export function ClipQueue({
     shortsCap
   });
   const bulkLabel = bulkBookingLabel(plan, slots, tomorrowKey);
+  const bulkParts = bulkBookingParts(plan, slots, tomorrowKey);
+  // The pace under the button's label, with the daily limit it is bound by.
+  const bulkSubline = bulkParts?.secondary
+    ? `${bulkParts.secondary}${shortsCap ? ` · ${shortsCap.limit} short${shortsCap.limit === 1 ? "" : "s"} a day max` : ""}`
+    : null;
+  const bulkPrimary = readOnlyReason
+    ? "Posting is off"
+    : unscheduled === 0
+      ? "Every clip here is scheduled"
+      : (bulkParts?.primary ?? "Schedule at the next free slots");
+  const bulkSecondary = readOnlyReason || unscheduled === 0 ? null : bulkSubline;
   const shownHashtags = runDefaults.hashtags.slice(0, 3);
   const extraHashtags = runDefaults.hashtags.length - shownHashtags.length;
   const hashtagSummary =
@@ -182,22 +193,21 @@ export function ClipQueue({
                 When clips are unscheduled but none can be booked, the press is
                 what explains why — a dead button would leave that unsaid. */}
             <Button
-              className="h-11 min-w-0 flex-[3] basis-56"
+              className="h-auto min-h-11 min-w-0 flex-[3] basis-56 py-1.5"
               onClick={onAutoAssign}
               disabled={bulkBusy || unscheduled === 0 || Boolean(readOnlyReason)}
-              title={readOnlyReason}
+              title={readOnlyReason ?? bulkLabel ?? undefined}
             >
               {autoAssigning ? (
                 <Loader2 className="mr-2 h-4 w-4 shrink-0 animate-spin" />
               ) : (
                 <Wand2 className="mr-2 h-4 w-4 shrink-0" />
               )}
-              <span className="truncate">
-                {readOnlyReason
-                  ? "Posting is off"
-                  : unscheduled === 0
-                    ? "Every clip here is scheduled"
-                    : (bulkLabel ?? "Schedule at the next free slots")}
+              <span className="flex min-w-0 flex-col items-start text-left leading-tight">
+                <span className="max-w-full truncate">{bulkPrimary}</span>
+                {bulkSecondary ? (
+                  <span className="max-w-full text-[11px] font-normal opacity-80">{bulkSecondary}</span>
+                ) : null}
               </span>
             </Button>
           </div>
