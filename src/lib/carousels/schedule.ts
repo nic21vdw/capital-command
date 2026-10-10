@@ -30,9 +30,41 @@ export const IMAGE_CAPABLE_PLATFORMS: CarouselPlatformId[] = ["instagram", "face
 /** The pair a new schedule starts with: the two networks that really post. */
 export const DEFAULT_CAROUSEL_PLATFORMS: CarouselPlatformId[] = ["instagram", "facebook"];
 
-/** One word for what scheduling to a network does, shown next to its button. */
-export function platformPostingMode(platform: CarouselPlatformId): "automatic" | "manual" {
-  return IMAGE_CAPABLE_PLATFORMS.includes(platform) ? "automatic" : "manual";
+/**
+ * Which accounts are signed in, by network. `undefined` for a network means the
+ * answer is not known yet (still loading, or the check failed), which must not
+ * read as "not connected".
+ */
+export type PlatformConnectionMap = Partial<Record<CarouselPlatformId, boolean>>;
+
+/**
+ * One word for what scheduling to a network does, shown next to its button.
+ * "reminder" is a network the publisher COULD post to but has no sign-in for:
+ * the queue saves it as manual, so promising "Automatic" there is a lie.
+ */
+export function platformPostingMode(
+  platform: CarouselPlatformId,
+  connected?: PlatformConnectionMap
+): "automatic" | "reminder" | "manual" {
+  if (!IMAGE_CAPABLE_PLATFORMS.includes(platform)) return "manual";
+  return connected?.[platform] === false ? "reminder" : "automatic";
+}
+
+/**
+ * Whether a one-off booking can really post itself: at least one selected
+ * network is image-capable and not known to be disconnected.
+ */
+export function anyPlatformPostsItself(platforms: CarouselPlatformId[], connected?: PlatformConnectionMap): boolean {
+  return platforms.some((id) => platformPostingMode(id, connected) === "automatic");
+}
+
+/**
+ * Did the booking route leave any network for the owner to post by hand? The
+ * queue marks a network "manual" when it has no sign-in, so this reads the
+ * statuses the route returned instead of the message text.
+ */
+export function bookingNeedsHands(statuses: Partial<Record<CarouselPlatformId, string>>): boolean {
+  return Object.values(statuses).some((status) => status === "manual");
 }
 
 /**

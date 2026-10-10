@@ -437,8 +437,8 @@ export function DaySummaryPage({ initialDate }: { initialDate?: string }) {
 
       <Card className="mb-4 p-0">
         <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-3">
-          <div className="flex items-center gap-3">
-            <div className="flex items-center overflow-hidden rounded-lg border border-[var(--border)]">
+          <div className="flex min-w-0 max-w-full flex-wrap items-center gap-x-3 gap-y-2">
+            <div className="flex max-w-full items-center overflow-hidden rounded-lg border border-[var(--border)]">
               <button
                 type="button"
                 onClick={() => setDateKey((current) => shiftDayKey(current, -1))}
@@ -477,7 +477,7 @@ export function DaySummaryPage({ initialDate }: { initialDate?: string }) {
                 <ChevronRight className="h-4 w-4" />
               </button>
             </div>
-            <span className="flex items-center gap-2 text-sm font-semibold tracking-tight text-white">
+            <span className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5 text-sm font-semibold tracking-tight text-white">
               <CalendarDays className="h-4 w-4 text-[var(--accent)]" />
               {relative}
               <span className="font-normal text-[var(--muted-foreground)]">{dayLabel}</span>

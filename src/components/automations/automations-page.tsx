@@ -56,6 +56,34 @@ function KeepAwake() {
   );
 }
 
+/** Two warnings are a glance; a wall of them is noise, so the rest sit behind a disclosure. */
+const VISIBLE_WARNINGS = 2;
+
+function Warning({ text }: { text: string }) {
+  return <p className="flex gap-2"><TriangleAlert className="mt-0.5 h-3.5 w-3.5 shrink-0" /><span className="min-w-0 break-words">{text}</span></p>;
+}
+
+function WarningList({ warnings }: { warnings: string[] }) {
+  const shown = warnings.slice(0, VISIBLE_WARNINGS);
+  const rest = warnings.slice(VISIBLE_WARNINGS);
+  return (
+    <div className="mt-4 space-y-2 rounded-xl border border-amber-500/20 bg-amber-500/5 p-3 text-sm text-amber-200">
+      {shown.map((warning, index) => <Warning key={`${index}-${warning}`} text={warning} />)}
+      {rest.length > 0 && (
+        <details className="group">
+          <summary className="cursor-pointer text-xs font-medium text-amber-300 hover:text-amber-100">
+            <span className="group-open:hidden">+{rest.length} more</span>
+            <span className="hidden group-open:inline">Show fewer</span>
+          </summary>
+          <div className="mt-2 space-y-2">
+            {rest.map((warning, index) => <Warning key={`${index}-${warning}`} text={warning} />)}
+          </div>
+        </details>
+      )}
+    </div>
+  );
+}
+
 function AutomationPanel({ card, busy, stale, onPause }: {
   card: AutomationCard; busy: boolean; stale: boolean; onPause: (card: AutomationCard) => void;
 }) {
@@ -90,9 +118,7 @@ function AutomationPanel({ card, busy, stale, onPause }: {
       </dl>
       {card.taskLastRunAt && <p className="mt-3 text-xs text-[var(--muted-foreground)]">Windows task last started {at(card.taskLastRunAt, card.timezone)} and <span title={`Scheduler result code: ${card.taskLastResult ?? "none"}`} className="underline decoration-dotted underline-offset-2">{describeTaskResult(card.taskLastResult)}</span>. That does not confirm a post went out; the history below does.</p>}
       {(card.blockers.length > 0 || card.issues.length > 0) && (
-        <div className="mt-4 space-y-2 rounded-xl border border-amber-500/20 bg-amber-500/5 p-3 text-sm text-amber-200">
-          {[...card.blockers, ...card.issues].map((issue, index) => <p key={`${index}-${issue}`} className="flex gap-2"><TriangleAlert className="mt-0.5 h-3.5 w-3.5 shrink-0" />{issue}</p>)}
-        </div>
+        <WarningList warnings={[...card.blockers, ...card.issues]} />
       )}
       {missingTask && card.registerCommand && <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-[var(--muted-foreground)]"><span>To install it, run in the app folder:</span><CopyCommand text={card.registerCommand} /></div>}
       {(card.id === "publisher" || card.id === "threads") && <KeepAwake />}

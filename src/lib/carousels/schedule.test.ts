@@ -6,7 +6,9 @@ import {
   expandOccurrences,
   IMAGE_CAPABLE_PLATFORMS,
   planCarouselSchedule,
-  platformPostingMode
+  platformPostingMode,
+  anyPlatformPostsItself,
+  bookingNeedsHands
 } from "@/lib/carousels/schedule";
 import type { Carousel } from "@/types/domain";
 
@@ -87,5 +89,26 @@ describe("expandOccurrences", () => {
     const found = expandOccurrences([carousel], new Date(2026, 9, 10), 28);
     expect(found).toHaveLength(1);
     expect(found[0]).toMatchObject({ dateKey: "2026-10-12", platforms: ["tiktok"] });
+  });
+});
+
+describe("connection-aware posting mode", () => {
+  it("calls an unconnected Instagram/Facebook a reminder, not automatic", () => {
+    expect(platformPostingMode("instagram", { instagram: false })).toBe("reminder");
+    expect(platformPostingMode("instagram", { instagram: true })).toBe("automatic");
+    // Unknown (still loading) is never read as disconnected.
+    expect(platformPostingMode("facebook", {})).toBe("automatic");
+    expect(platformPostingMode("tiktok", { tiktok: true })).toBe("manual");
+  });
+
+  it("only promises posting when a selected network is really connected", () => {
+    expect(anyPlatformPostsItself(["instagram", "facebook"], { instagram: false, facebook: false })).toBe(false);
+    expect(anyPlatformPostsItself(["instagram", "facebook"], { instagram: false, facebook: true })).toBe(true);
+  });
+
+  it("reads manual legs from the route's statuses", () => {
+    expect(bookingNeedsHands({ instagram: "manual", facebook: "manual" })).toBe(true);
+    expect(bookingNeedsHands({ instagram: "pending", facebook: "manual" })).toBe(true);
+    expect(bookingNeedsHands({ instagram: "pending", facebook: "pending" })).toBe(false);
   });
 });

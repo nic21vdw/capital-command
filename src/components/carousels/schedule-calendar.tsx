@@ -62,9 +62,9 @@ export function ScheduleCalendar({
 
       <div className="space-y-3">
         {grouped.map(([dateKey, occurrences]) => (
-          <div key={dateKey} className="grid gap-2 sm:grid-cols-[7rem_1fr]">
+          <div key={dateKey} className="grid grid-cols-[minmax(0,1fr)] gap-2 sm:grid-cols-[7rem_minmax(0,1fr)]">
             <div className="pt-1 text-xs font-medium text-white">{labelForDate(dateKey, todayKey)}</div>
-            <div className="space-y-1.5">
+            <div className="min-w-0 space-y-1.5">
               {occurrences.map((occurrence) => (
                 <div
                   key={`${occurrence.scheduleId}-${occurrence.dateKey}`}
