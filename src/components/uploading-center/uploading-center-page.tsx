@@ -78,6 +78,7 @@ import { buildAgenda } from "@/lib/publisher/agenda";
 import { dateTimeFormat } from "@/lib/publisher/intl";
 import { publisherBannerLine } from "@/lib/publisher/publishOverview";
 import { EARLIEST_PUBLISH_DAY_OFFSET, addDaysToDateKey } from "@/lib/publisher/schedule";
+import { clearConnectFailure, connectErrorMessage, rememberConnectFailure } from "@/lib/publisher/connectErrors";
 import { shortsByDay } from "@/lib/publisher/shortsCap";
 import { slotOffsetForDateKey } from "@/lib/publisher/slotWindow";
 import {
@@ -306,6 +307,7 @@ export function UploadingCenterPage() {
     if (oauthToastShown.current) return;
     const connected = searchParams.get("connected");
     const connectError = searchParams.get("connect_error");
+    if (connected === "tiktok" || connected === "youtube") clearConnectFailure(connected);
     if (connected === "tiktok") {
       oauthToastShown.current = true;
       toast.success(
@@ -327,9 +329,16 @@ export function UploadingCenterPage() {
       );
     } else if (connectError) {
       oauthToastShown.current = true;
-      toast.error(`Connect failed: ${connectError}`);
+      // Plain words and the fix, and the same message waits in the platform's
+      // row in Settings > Accounts after this toast is gone.
+      const platform = searchParams.get("connect");
+      if (platform) rememberConnectFailure(platform, connectError);
+      toast.error(connectErrorMessage(connectError, platform), {
+        duration: 12000,
+        action: { label: "Open Settings", onClick: () => router.push("/settings#accounts") },
+      });
     }
-  }, [searchParams, setActiveAccount]);
+  }, [searchParams, setActiveAccount, router]);
 
   // Auto Assign avoids double-booking a slot: it's taken by a queue item or —
   // on YouTube — by a video already scheduled/published on the channel itself

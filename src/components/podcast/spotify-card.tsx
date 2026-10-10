@@ -8,6 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { clearConnectFailure, connectErrorMessage, rememberConnectFailure } from "@/lib/publisher/connectErrors";
 import type { SpotifyShow } from "@/lib/spotify/api";
 import type { SpotifyStatus } from "@/lib/spotify/status";
 
@@ -42,9 +43,15 @@ export function SpotifyCard({
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
-    if (params.get("connected") === "spotify") toast.success("Spotify connected");
+    if (params.get("connected") === "spotify") {
+      clearConnectFailure("spotify");
+      toast.success("Spotify connected");
+    }
     const error = params.get("connect_error");
-    if (error) toast.error(error);
+    if (error) {
+      rememberConnectFailure("spotify", error);
+      toast.error(connectErrorMessage(error, "spotify"), { duration: 12000 });
+    }
     if (params.has("connected") || params.has("connect_error")) {
       window.history.replaceState({}, "", window.location.pathname);
     }

@@ -17,6 +17,7 @@ export async function GET(request: NextRequest) {
   const denied = request.nextUrl.searchParams.get("error");
   if (denied || !code) {
     target.searchParams.set("connect_error", denied || "Spotify returned no authorization code.");
+    target.searchParams.set("connect", "spotify");
     return redirectWithinApp(target);
   }
   try {
@@ -24,6 +25,7 @@ export async function GET(request: NextRequest) {
     target.searchParams.set("connected", "spotify");
   } catch (error) {
     target.searchParams.set("connect_error", error instanceof Error ? error.message : String(error));
+    target.searchParams.set("connect", "spotify");
   }
   return redirectWithinApp(target);
 }

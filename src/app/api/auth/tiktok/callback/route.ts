@@ -21,6 +21,7 @@ export async function GET(request: NextRequest) {
   const denied = request.nextUrl.searchParams.get("error_description") ?? request.nextUrl.searchParams.get("error");
   if (denied || !code) {
     target.searchParams.set("connect_error", denied || "TikTok returned no authorization code.");
+    target.searchParams.set("connect", "tiktok");
     return redirectWithinApp(target);
   }
   try {
@@ -31,6 +32,7 @@ export async function GET(request: NextRequest) {
     if (publisherConfig().tiktok.audited) target.searchParams.set("audited", "1");
   } catch (error) {
     target.searchParams.set("connect_error", error instanceof Error ? error.message : String(error));
+    target.searchParams.set("connect", "tiktok");
   }
   return redirectWithinApp(target);
 }

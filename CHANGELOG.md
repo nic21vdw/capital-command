@@ -14,6 +14,9 @@ already shipped.
 
 ## Unreleased
 
+- **Settings > Accounts now tells a new install where to start.** A "Get started" strip lists every platform with where it stands and one next step, with YouTube recommended first; click a line and that row opens. Once one platform is connected it says "You're set up". The redirect address under YouTube and TikTok now says it is the one the app sends, and warns when the address bar differs (127.0.0.1 versus localhost).
+- **A failed sign-in explains itself and stays until you dismiss it.** "access_denied", "redirect_uri_mismatch" and "invalid_client" now read as plain sentences with the fix, and the message stays in that platform's row on Settings > Accounts until you dismiss it or a later sign-in works. The sidebar's "Sign in with YouTube" prompt, which read like a login wall on every page, is now a quiet "Connect accounts" link that only shows while nothing is connected.
+
 - **The Schedule dialogs stay put.** On Carousels the Schedule window used to open halfway down the page, scroll away with it and hide Cancel and Book post behind the next card or the command bar. Every dialog now opens over the whole screen, above the command bar, with its buttons always in view (it scrolls inside on a phone) and Tab kept inside it.
 
 - **Sidebar chips agree with Settings, and a failed sign-in stays where you were.** Instagram and Facebook with a saved token now show a muted "saved, not verified" in the sidebar instead of a green dot, the same as Settings. A sign-in that fails no longer bounces you from 127.0.0.1 to localhost, which looked like the app had forgotten your place.
