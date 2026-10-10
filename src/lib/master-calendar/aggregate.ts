@@ -3,6 +3,7 @@ import type { AppData, Carousel, ContentItem, FbPost, XDailyPack } from "@/types
 import { isImagePost } from "@/lib/publisher/images";
 import { remoteUrlFor } from "@/lib/publisher/remoteUrl";
 import { youtubeHoldsForReview } from "@/lib/publisher/reviewHold";
+import { isVideoId } from "@/lib/publisher/youtubeStatsShared";
 import type { PlatformId, QueueItem } from "@/lib/publisher/types";
 import type { ThreadsQueueItem } from "@/lib/threads/types";
 import type { CalendarSourceId, MasterCalendarEvent } from "@/lib/master-calendar/types";
@@ -158,6 +159,11 @@ function shortsEvents(
     const failed = platformsIn(item, "failed");
     const manual = platformsIn(item, "manual");
     const liveLinks = liveLinksFor(item);
+    const youtubeLeg = item.platforms.youtube;
+    const youtubeVideo =
+      !picture && !youtubeHoldsForReview(item) && youtubeLeg?.status === "published" && youtubeLeg.postId && isVideoId(youtubeLeg.postId)
+        ? youtubeLeg.postId
+        : null;
     events.push({
       id: `${picture ? "queued-carousels" : "shorts"}:${item.id}`,
       source: picture ? "queued-carousels" : "shorts",
@@ -191,7 +197,8 @@ function shortsEvents(
             }))
           }
         : {}),
-      ...(liveLinks.length > 0 ? { liveLinks } : {})
+      ...(liveLinks.length > 0 ? { liveLinks } : {}),
+      ...(youtubeVideo ? { youtube: { itemId: item.id, videoId: youtubeVideo } } : {})
     });
   }
   return events;

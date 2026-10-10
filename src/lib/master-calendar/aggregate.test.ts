@@ -133,6 +133,17 @@ describe("links to the live post", () => {
     ]);
   });
 
+  it("names the YouTube video only once that leg is published", () => {
+    const [published] = events([
+      item({ id: "q7", platforms: { youtube: { status: "published", postId: "abc123XYZ_-", attempts: 1 } } })
+    ]);
+    expect(published.youtube).toEqual({ itemId: "q7", videoId: "abc123XYZ_-" });
+    const [scheduled] = events([
+      item({ platforms: { youtube: { status: "scheduled", postId: "abc123XYZ_-", attempts: 1 } } })
+    ]);
+    expect(scheduled.youtube).toBeUndefined();
+  });
+
   it("does not link a Facebook post that has not gone live yet", () => {
     const [event] = events([item({ platforms: { facebook: { status: "scheduled", postId: "1234_5678", attempts: 1 } } })]);
     expect(event.liveLinks).toBeUndefined();

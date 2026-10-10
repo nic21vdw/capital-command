@@ -27,6 +27,7 @@ import { SourceIcon } from "@/components/master-calendar/source-icon";
 import { sourceHrefForDay } from "@/lib/master-calendar/aggregate";
 import { formatDayKey, localTodayKey, relativeDayLabel, shiftDayKey } from "@/lib/master-calendar/day-keys";
 import { buildDaySummary, summaryState, type DaySummary, type SummaryState } from "@/lib/master-calendar/day-summary";
+import { YoutubeStatsLine } from "@/components/publisher/youtube-stats-line";
 import { PlatformIcon, type PlatformIconKey } from "@/components/ui/platform-icon";
 import {
   eventHref,
@@ -36,6 +37,8 @@ import {
   type MasterCalendarResponse
 } from "@/lib/master-calendar/types";
 import { useColateralSurface } from "@/lib/colateral/useSurface";
+import { useYoutubeStats, type StatsTarget } from "@/lib/publisher/useYoutubeStats";
+import { compactCount, studioAnalyticsUrl, totalViews } from "@/lib/publisher/youtubeStatsShared";
 import { cn } from "@/lib/utils";
 
 /**
@@ -106,6 +109,11 @@ function PieceCard({ event }: { event: MasterCalendarEvent }) {
   // A clip that is no longer on this machine 404s its frame, and a broken
   // image reads as "this piece is broken" when only the file has moved.
   const [frameMissing, setFrameMissing] = useState(false);
+  // Published YouTube legs carry their video; the numbers are read once per page
+  // and shared (see useYoutubeStats).
+  const youtube = event.youtube;
+  const { stats: youtubeStats, status: youtubeStatus } = useYoutubeStats(youtube ? [youtube] : []);
+  const youtubeStat = youtube ? youtubeStats[youtube.videoId] : undefined;
   return (
     // The card is a stretched link (the title's ::before covers it), so the
     // "Open on <platform>" links can sit on top of it without nesting anchors.
@@ -164,9 +172,10 @@ function PieceCard({ event }: { event: MasterCalendarEvent }) {
         {event.platforms.length > 0 ? (
           <p className="mt-1.5 truncate text-xs text-[var(--muted-foreground)]">{event.platforms.join(" · ")}</p>
         ) : null}
-        {event.liveLinks && event.liveLinks.length > 0 ? (
+        {youtubeStat ? <YoutubeStatsLine stat={youtubeStat} status={youtubeStatus} className="mt-1.5" /> : null}
+        {(event.liveLinks && event.liveLinks.length > 0) || youtube ? (
           <div className="relative z-10 mt-1.5 flex flex-wrap gap-x-3 gap-y-1">
-            {event.liveLinks.map((link) => (
+            {(event.liveLinks ?? []).map((link) => (
               <a
                 key={link.platform}
                 href={link.url}
@@ -178,6 +187,17 @@ function PieceCard({ event }: { event: MasterCalendarEvent }) {
                 <ExternalLink className="h-3 w-3" />
               </a>
             ))}
+            {youtube ? (
+              <a
+                href={studioAnalyticsUrl(youtube.videoId)}
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex items-center gap-1 text-xs text-[var(--accent)] hover:underline"
+              >
+                Analytics in Studio
+                <ExternalLink className="h-3 w-3" />
+              </a>
+            ) : null}
           </div>
         ) : null}
       </div>
@@ -303,6 +323,17 @@ export function DaySummaryPage({ initialDate }: { initialDate?: string }) {
     [dateKey, fetchedDate, response]
   );
 
+  // The day's published YouTube videos. PieceCard asks for its own too; the store
+  // batches both into one request, and this is what the yesterday strip adds up.
+  const youtubeTargets = useMemo<StatsTarget[]>(
+    () => summary.sections.flatMap((section) => section.events.flatMap((event) => (event.youtube ? [event.youtube] : []))),
+    [summary]
+  );
+  const youtube = useYoutubeStats(youtubeTargets);
+  const youtubeIds = youtubeTargets.map((target) => target.videoId);
+  const youtubeTotals = totalViews(youtube.stats, youtubeIds);
+  const youtubeMissing = youtubeIds.some((id) => !youtube.stats[id]);
+
   const relative = relativeDayLabel(dateKey, todayKey);
   const dayLabel = formatDayKey(dateKey, { weekday: "long", month: "long", day: "numeric" });
   const window =
@@ -393,7 +424,15 @@ export function DaySummaryPage({ initialDate }: { initialDate?: string }) {
         }
       />
       <p className="-mt-2 mb-4 text-xs text-[var(--muted-foreground)]">
-        Shows posting status only. Views and likes live on each platform - use the Open on links.
+        Shows YouTube views and likes; other platforms show posting status - use the Open on links for their numbers.
+        {youtubeTargets.length > 0 && youtube.status === "not-connected" && youtubeMissing ? (
+          <>
+            {" "}
+            <Link href="/settings#accounts" className="text-[var(--accent)] hover:underline">
+              Connect YouTube to see views here
+            </Link>
+          </>
+        ) : null}
       </p>
 
       <Card className="mb-4 p-0">
@@ -455,6 +494,25 @@ export function DaySummaryPage({ initialDate }: { initialDate?: string }) {
           />
         </div>
       </Card>
+
+      {dateKey < todayKey && youtubeTotals.videos > 0 ? (
+        <Card className="mb-4 py-3">
+          <p className="text-xs uppercase tracking-wider text-[var(--muted-foreground)]">
+            {relative === "Yesterday" ? "Yesterday on YouTube" : `${dayLabel} on YouTube`}
+          </p>
+          <p className="mt-1 text-sm text-white">
+            <span className="text-lg font-semibold">{compactCount(youtubeTotals.views)}</span>{" "}
+            {youtubeTotals.views === 1 ? "view" : "views"} · {compactCount(youtubeTotals.likes)}{" "}
+            {youtubeTotals.likes === 1 ? "like" : "likes"}
+            <span className="text-[var(--muted-foreground)]">
+              {" "}
+              across {youtubeTotals.videos} {youtubeTotals.videos === 1 ? "video" : "videos"} posted that day
+              {youtubeMissing ? " (some have no numbers yet)" : ""}
+              {youtube.status !== "ok" && youtube.status !== "loading" ? " - not refreshed, see each video's date" : ""}
+            </span>
+          </p>
+        </Card>
+      ) : null}
 
       <Card className="mb-4">
         <div className="flex flex-wrap items-end justify-between gap-6">
