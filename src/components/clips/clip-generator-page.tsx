@@ -1,9 +1,11 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
   AlertTriangle,
+  CalendarClock,
   Check,
   Download,
   Film,
@@ -1291,6 +1293,15 @@ function ClipCard({
               <SquarePlay className="mr-1.5 h-3.5 w-3.5" />
               Edit
             </Button>
+            {/* Clips lead on to the next step: the Uploading Center opens on this run. */}
+            <Link
+              href={`/uploading-center?job=${encodeURIComponent(jobId)}`}
+              className="inline-flex flex-1 items-center justify-center rounded-lg border border-[var(--border)] px-2 py-1.5 text-xs font-medium text-[var(--muted-foreground)] transition hover:border-[var(--border-strong)] hover:text-white"
+              title="Book this run's clips on the posting schedule"
+            >
+              <CalendarClock className="mr-1.5 h-3.5 w-3.5" />
+              Schedule
+            </Link>
             {downloadName && (
               <a
                 href={fileUrl(jobId, downloadName, true)}

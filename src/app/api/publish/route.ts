@@ -15,17 +15,25 @@ export const dynamic = "force-dynamic";
 // The post-enqueue upload streams the whole clip to YouTube.
 export const maxDuration = 300;
 
-/** GET /api/publish — the queue with per-platform status. */
+/**
+ * GET /api/publish — the queue with per-platform status.
+ *
+ * Reading never needs posting to be on: while it is off the board still shows
+ * what is queued (YouTube and Facebook go on publishing what they already hold),
+ * so this answers with the list and `enabled: false`. Only the stamping and the
+ * sweep below write to the queue, so they run only while posting is on; every
+ * write route (POST, PATCH, DELETE, publish, upload, run) still refuses.
+ */
 export async function GET() {
   const config = publisherConfig();
+  const queue = publishQueue(config);
   if (!config.enabled) {
-    return NextResponse.json({ enabled: false, items: [] });
+    return NextResponse.json({ enabled: false, items: await queue.list() });
   }
   // A permanently-failed post STAYS on the board with its reason, so the
   // failure is something you see and can retry rather than something that
   // silently emptied its slot. Reading the board is what stamps the failure as
   // seen; only a seen failure older than the retention window is swept.
-  const queue = publishQueue(config);
   const now = new Date();
   await queue.markFailedSeen(now);
   const purged = await queue.purgeFailed(now);

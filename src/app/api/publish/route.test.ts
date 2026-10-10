@@ -2,15 +2,26 @@ import { NextRequest } from "next/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const enqueue = vi.fn();
+const state = vi.hoisted(() => ({
+  enabled: true,
+  items: [{ id: "queued-1" }] as Array<{ id: string }>,
+  markFailedSeen: vi.fn(async () => []),
+  purgeFailed: vi.fn(async () => [])
+}));
 
 vi.mock("@/lib/publisher/config", () => ({
-  publisherConfig: () => ({ enabled: true, timezone: "America/Toronto" })
+  publisherConfig: () => ({ enabled: state.enabled, timezone: "America/Toronto" })
 }));
 vi.mock("@/lib/publisher/enqueue", () => ({ enqueue }));
 vi.mock("@/lib/publisher/runner", () => ({ runDue: vi.fn(async () => undefined) }));
 vi.mock("@/lib/publisher/queue", () => ({
   FAILED_RETENTION_DAYS: 7,
-  publishQueue: () => ({ get: async (id: string) => ({ id }) })
+  publishQueue: () => ({
+    get: async (id: string) => ({ id }),
+    list: async () => state.items,
+    markFailedSeen: state.markFailedSeen,
+    purgeFailed: state.purgeFailed
+  })
 }));
 vi.mock("@/lib/clipping/jobs", () => ({
   ensureVerticalClipFile: vi.fn(),
@@ -53,5 +64,41 @@ describe("POST /api/publish format", () => {
 
     expect(response.status).toBe(400);
     expect(enqueue).not.toHaveBeenCalled();
+  });
+});
+
+describe("posting switched off", () => {
+  beforeEach(() => {
+    enqueue.mockReset();
+    state.markFailedSeen.mockClear();
+    state.purgeFailed.mockClear();
+    state.enabled = false;
+  });
+
+  it("still lists the queue, read-only, so the board can stay on screen", async () => {
+    const { GET } = await import("@/app/api/publish/route");
+    const response = await GET();
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ enabled: false, items: [{ id: "queued-1" }] });
+    // Stamping a failure as seen and sweeping old ones both write the queue.
+    expect(state.markFailedSeen).not.toHaveBeenCalled();
+    expect(state.purgeFailed).not.toHaveBeenCalled();
+  });
+
+  it("keeps refusing to book", async () => {
+    const response = await post(base);
+
+    expect(response.status).toBe(400);
+    expect(enqueue).not.toHaveBeenCalled();
+  });
+
+  it("stamps failures as seen once posting is on again", async () => {
+    state.enabled = true;
+    const { GET } = await import("@/app/api/publish/route");
+    const response = await GET();
+
+    expect((await response.json()).enabled).toBe(true);
+    expect(state.markFailedSeen).toHaveBeenCalledTimes(1);
   });
 });

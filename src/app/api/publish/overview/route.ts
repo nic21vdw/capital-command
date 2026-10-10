@@ -1,5 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
+import { isAutomationPaused } from "@/lib/automations/store";
+import { readAutomationTasks } from "@/lib/automations/tasks";
 import { publisherConfig } from "@/lib/publisher/config";
+import type { PublisherAutomationOverview } from "@/lib/publisher/publishOverview";
+import { shortsLimit } from "@/lib/publisher/shortsCap";
 import { youtubeQuota } from "@/lib/publisher/quota";
 import { publishQueue } from "@/lib/publisher/queue";
 import { generateSlots, slotGrid } from "@/lib/publisher/slots";
@@ -17,7 +21,8 @@ const MAX_OFFSET_DAYS = 3650;
  * `offsetDays` moves the slot window relative to today so the UI can page
  * through past and future scheduling periods (negative = earlier).
  *
- * Everything here is read from local config and the queue file — no social
+ * Everything here is read from local config, the queue file, the automation
+ * pause switch and (on Windows) the scheduled-task registry — no social
  * network is contacted. Who each account posts as lives on
  * /api/publish/accounts, which is where the UI reads it from; this route used
  * to report the same profiles again from four live API calls that the whole
@@ -29,6 +34,23 @@ const MAX_OFFSET_DAYS = 3650;
  * timezone and the offset, so its calendar builds the grid in the browser and
  * paging costs no request at all.
  */
+/** Whether the publisher is paused and whether its runner is installed — read-only. */
+async function publisherAutomation(): Promise<PublisherAutomationOverview> {
+  const [paused, tasks] = await Promise.all([
+    isAutomationPaused("publisher"),
+    readAutomationTasks().catch(() => ({}))
+  ]);
+  const task = (tasks as Awaited<ReturnType<typeof readAutomationTasks>>).publisher;
+  return {
+    paused,
+    task: {
+      state: task?.state ?? "unknown",
+      lastRunAt: task?.lastRunAt ?? null,
+      nextRunAt: task?.nextRunAt ?? null
+    }
+  };
+}
+
 export async function GET(request: NextRequest) {
   const config = publisherConfig();
   const daysRaw = Number(request.nextUrl.searchParams.get("days"));
@@ -51,7 +73,9 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ enabled: config.enabled, timezone: config.timezone, slotOffsetDays: offsetDays, slots });
   }
 
-  const items = config.enabled ? await publishQueue(config).list() : [];
+  // Read even while posting is off: the quota meter should show what YouTube
+  // already holds, and listing the queue changes nothing.
+  const items = await publishQueue(config).list();
 
   return NextResponse.json({
     enabled: config.enabled,
@@ -62,6 +86,12 @@ export async function GET(request: NextRequest) {
     // server booking six shows gaps that are not there.
     slotTimes: config.slotTimes,
     weekendSlotTimes: config.weekendSlotTimes,
+    // The cap enqueue() enforces per local day (PUBLISH_SHORTS_PER_DAY), so the
+    // screen can plan around it instead of discovering it one refusal at a time.
+    shortsPerDay: shortsLimit(config),
+    // The YouTube lead's copy onto Instagram and Facebook, which is on by default.
+    mirror: { enabled: config.mirror.enabled, lead: config.mirror.lead, targets: config.mirror.targets },
+    automation: await publisherAutomation(),
     quota: youtubeQuota(items, now, config)
   });
 }

@@ -57,6 +57,14 @@ export type PlatformState = {
   uploadedAt?: string;
   /** Human note for the UI (e.g. why a post is "manual"). Not an error. */
   note?: string;
+  /**
+   * Set when the runner (or `publish:mirror`) added this platform to the post
+   * by copying the lead platform's schedule, rather than the user choosing it.
+   * The board tags such legs "Mirrored from YouTube" so a post showing up on a
+   * platform nobody picked has an explanation. Absent on every leg booked by
+   * hand, and on mirror legs added before this field existed.
+   */
+  mirroredFrom?: PlatformId;
 };
 
 /**
