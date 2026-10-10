@@ -23,6 +23,7 @@ export async function GET(request: NextRequest) {
   const accountId = request.nextUrl.searchParams.get("state") || primaryAccountId("youtube");
   if (denied || !code) {
     target.searchParams.set("connect_error", denied || "Google returned no authorization code.");
+    target.searchParams.set("connect", "youtube");
     return redirectWithinApp(target);
   }
   try {
@@ -50,6 +51,7 @@ export async function GET(request: NextRequest) {
     if (!isPrimaryAccountId(accountId)) target.searchParams.set("account", accountId);
   } catch (error) {
     target.searchParams.set("connect_error", error instanceof Error ? error.message : String(error));
+    target.searchParams.set("connect", "youtube");
   }
   return redirectWithinApp(target);
 }

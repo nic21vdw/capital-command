@@ -16,6 +16,7 @@ import {
   Images,
   LayoutList,
   Lightbulb,
+  Link2,
   Megaphone,
   Mic,
   Music4,
@@ -260,11 +261,6 @@ type Connections = {
   channel: ChannelSummary | null;
   /** The non-YouTube platforms, in the order the sidebar lists them. */
   others: PlatformConnection[];
-  /**
-   * The YouTube client ID or secret is not saved yet, so "Sign in with YouTube"
-   * has nowhere to go but Settings. False when unknown (the check failed).
-   */
-  youtubeSetupMissing: boolean;
 };
 
 type AccountRow = {
@@ -314,7 +310,7 @@ function PlatformBadge({ platform, className }: { platform: PlatformKey; classNa
 const CHANNEL_CACHE_KEY = "capital-command:connected-accounts";
 const CHANNEL_CACHE_TTL_MS = 60_000;
 
-const EMPTY_CONNECTIONS: Connections = { loaded: false, channel: null, others: [], youtubeSetupMissing: false };
+const EMPTY_CONNECTIONS: Connections = { loaded: false, channel: null, others: [] };
 
 function profileOf(account: AccountRow): Profile | null {
   return account.profile ?? account.youtube ?? account.tiktok ?? null;
@@ -324,7 +320,7 @@ function connectedOn(accounts: AccountRow[], platform: string) {
   return accounts.filter((account) => account.platform === platform && account.connected);
 }
 
-function summarize(accounts: AccountRow[], youtubeSetupMissing = false): Connections {
+function summarize(accounts: AccountRow[]): Connections {
   const youtube = connectedOn(accounts, "youtube").filter((account) => profileOf(account));
   // The primary channel is the face of the app; any primary-connected account
   // wins, otherwise the first connected one does.
@@ -332,7 +328,6 @@ function summarize(accounts: AccountRow[], youtubeSetupMissing = false): Connect
   const leadProfile = lead ? profileOf(lead) : null;
   return {
     loaded: true,
-    youtubeSetupMissing,
     channel: leadProfile
       ? { ...leadProfile, extraConnected: youtube.length - 1, reconnect: Boolean(lead?.needsReconnect) }
       : null,
@@ -364,28 +359,13 @@ function handleLabel(profile: Profile | null, fallback: string): string {
 // the request is shared rather than fired twice.
 let inFlight: Promise<Connections> | null = null;
 
-/**
- * Whether the YouTube client ID and secret are both unsaved. A failed check
- * answers false: sending someone to Settings on a guess is worse than letting
- * the sign-in route say what is missing.
- */
-function youtubeSetupMissing(): Promise<boolean> {
-  return fetch("/api/connections", { cache: "no-store" })
-    .then((res) => (res.ok ? res.json() : null))
-    .then((json: { present?: Record<string, boolean> } | null) =>
-      json?.present ? !(json.present.YOUTUBE_CLIENT_ID && json.present.YOUTUBE_CLIENT_SECRET) : false
-    )
-    .catch(() => false);
-}
-
 function loadConnections(): Promise<Connections> {
   if (!inFlight) {
-    inFlight = Promise.all([
+    inFlight = (
       fetch("/api/publish/accounts", { cache: "no-store" })
-        .then((res) => (res.ok ? res.json() : Promise.reject(new Error(`${res.status}`)))) as Promise<{ accounts?: AccountRow[] }>,
-      youtubeSetupMissing()
-    ])
-      .then(([json, missing]) => summarize(json.accounts ?? [], missing))
+        .then((res) => (res.ok ? res.json() : Promise.reject(new Error(`${res.status}`)))) as Promise<{ accounts?: AccountRow[] }>
+    )
+      .then((json) => summarize(json.accounts ?? []))
       .finally(() => {
         inFlight = null;
       });
@@ -439,12 +419,14 @@ function useConnections(): Connections {
 }
 
 /**
- * Where "Sign in with YouTube" goes. With no client ID and secret saved Google
- * has nothing to authorise, so the button leads to the Accounts section that
- * collects them instead of starting a flow that cannot finish.
+ * Whether any publishing account is connected at all. The "Connect accounts"
+ * entry is for a brand-new install only: once one platform is up its chip
+ * already says what is connected, and a YouTube-only prompt on every page read
+ * like a login wall for an app that works without it.
  */
-const YOUTUBE_SIGN_IN_HREF = (state: Connections) =>
-  state.youtubeSetupMissing ? "/settings#accounts" : "/api/auth/google";
+function nothingConnected(state: Connections): boolean {
+  return !state.channel && state.others.every((row) => row.connected === 0);
+}
 
 /** The channel avatar circle, shared by the sidebar card and the mobile bar. */
 function ChannelAvatar({ channel, className }: { channel: ChannelSummary; className?: string }) {
@@ -515,26 +497,24 @@ function ChannelCard({ collapsed = false }: { collapsed?: boolean }) {
             </span>
           </span>
         </Link>
-      ) : (
-        <a
-          href={YOUTUBE_SIGN_IN_HREF(state)}
-          title={collapsed ? "Sign in with YouTube" : undefined}
+      ) : nothingConnected(state) ? (
+        <Link
+          href="/settings#accounts"
+          title={collapsed ? "Connect accounts" : undefined}
           className={cn(
-            "group flex items-center gap-3 rounded-xl border border-dashed border-[var(--border-strong)] px-3 py-2.5 transition hover:border-[#ff0000]/60 hover:bg-white/[0.04]",
+            "group flex items-center gap-3 rounded-xl border border-dashed border-[var(--border-strong)] px-3 py-2.5 transition hover:border-[var(--accent)]/60 hover:bg-white/[0.04]",
             collapsed && "justify-center px-2"
           )}
         >
-          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[#ff0000]/15 text-[#ff4d4d] transition group-hover:bg-[#ff0000]/25">
-            <PlatformIcon platform="youtube" />
+          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[var(--accent)]/15 text-[var(--accent)] transition group-hover:bg-[var(--accent)]/25">
+            <Link2 className="h-4 w-4" aria-hidden="true" />
           </span>
           <span className={cn("flex min-w-0 flex-1 flex-col leading-tight", collapsed && "hidden")}>
-            <span className="text-sm font-semibold text-white">Sign in with YouTube</span>
-            <span className="text-xs text-[var(--muted-foreground)]">
-              {state.youtubeSetupMissing ? "Add your Google credentials in Settings" : "Connect your channel to publish"}
-            </span>
+            <span className="text-sm font-semibold text-white">Connect accounts</span>
+            <span className="text-xs text-[var(--muted-foreground)]">Pick where posts go. Start with YouTube.</span>
           </span>
-        </a>
-      )}
+        </Link>
+      ) : null}
       <ConnectionRows state={state} collapsed={collapsed} />
     </div>
   );
@@ -1238,16 +1218,16 @@ function MobileChannelChip() {
         >
           <ChannelAvatar channel={state.channel} className="h-7 w-7" />
         </Link>
-      ) : (
-        <a
-          href={YOUTUBE_SIGN_IN_HREF(state)}
-          aria-label="Sign in with YouTube"
-          title="Sign in with YouTube"
-          className="flex h-7 w-7 items-center justify-center rounded-full bg-[#ff0000]/15 text-[#ff4d4d] transition hover:bg-[#ff0000]/25"
+      ) : nothingConnected(state) ? (
+        <Link
+          href="/settings#accounts"
+          aria-label="Connect accounts"
+          title="Connect accounts"
+          className="flex h-7 w-7 items-center justify-center rounded-full bg-[var(--accent)]/15 text-[var(--accent)] transition hover:bg-[var(--accent)]/25"
         >
-          <PlatformIcon platform="youtube" />
-        </a>
-      )}
+          <Link2 className="h-3.5 w-3.5" aria-hidden="true" />
+        </Link>
+      ) : null}
       {others.map((row) => {
         const style = PLATFORM_STYLE[row.platform];
         const label = `${style.label} — ${row.blocker ?? handleLabel(row.profile, style.label)}`;
