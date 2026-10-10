@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { isPrimaryAccountId, primaryAccountId } from "@/lib/publisher/accounts";
+import { publisherConfig } from "@/lib/publisher/config";
 import { exchangeTiktokCode, tiktokRedirectUri } from "@/lib/publisher/tiktokAuth";
 
 export const runtime = "nodejs";
@@ -24,6 +25,9 @@ export async function GET(request: NextRequest) {
   try {
     await exchangeTiktokCode(code, tiktokRedirectUri(request.nextUrl.origin), accountId);
     target.searchParams.set("connected", "tiktok");
+    // The landing toast promises automatic posting only when TikTok has audited
+    // the app; until then clips go to the creator inbox (see TIKTOK_AUDIT_BLOCKER).
+    if (publisherConfig().tiktok.audited) target.searchParams.set("audited", "1");
   } catch (error) {
     target.searchParams.set("connect_error", error instanceof Error ? error.message : String(error));
   }

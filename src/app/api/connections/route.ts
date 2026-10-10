@@ -1,8 +1,10 @@
 import { NextResponse } from "next/server";
 import { CONNECTIONS, CONNECTION_FIELD_NAMES } from "@/lib/publisher/connections";
-import { credentialsPresent, saveCredentials } from "@/lib/publisher/credentials";
+import { credentialSources, credentialsPresent, saveCredentials } from "@/lib/publisher/credentials";
 import { accountIdConfigured } from "@/lib/publisher/accounts";
-import { spotifyConnected } from "@/lib/spotify/auth";
+import { googleRedirectUri } from "@/lib/publisher/googleAuth";
+import { tiktokRedirectUri } from "@/lib/publisher/tiktokAuth";
+import { spotifyConnected, spotifyRedirectUri } from "@/lib/spotify/auth";
 
 /**
  * What is connected, and the one place a credential is written.
@@ -11,18 +13,33 @@ import { spotifyConnected } from "@/lib/spotify/auth";
  * never leave the machine, so a screenshot of Settings cannot leak a token and
  * neither can the browser's network tab.
  */
-export async function GET() {
-  return NextResponse.json(await connectionState());
+export async function GET(request: Request) {
+  return NextResponse.json(await connectionState(new URL(request.url).origin));
 }
 
-async function connectionState() {
-  const [present, youtube, tiktok, spotify] = await Promise.all([
+/**
+ * The redirect URI to register in each provider's console, built by the same
+ * helpers the sign-in routes use so it is the one the provider will be sent.
+ * Computed here rather than in the browser because TikTok and Spotify each
+ * have an environment override and Spotify rewrites localhost.
+ */
+function redirectUris(origin: string) {
+  return {
+    youtube: googleRedirectUri(origin),
+    tiktok: tiktokRedirectUri(origin),
+    spotify: spotifyRedirectUri(origin)
+  };
+}
+
+async function connectionState(origin: string) {
+  const [present, sources, youtube, tiktok, spotify] = await Promise.all([
     credentialsPresent(CONNECTION_FIELD_NAMES),
+    credentialSources(CONNECTION_FIELD_NAMES),
     accountIdConfigured("youtube"),
     accountIdConfigured("tiktok"),
     spotifyConnected()
   ]);
-  return { present, connected: { youtube, tiktok, spotify } };
+  return { present, sources, connected: { youtube, tiktok, spotify }, redirectUris: redirectUris(origin) };
 }
 
 export async function POST(request: Request) {
@@ -53,9 +70,20 @@ export async function POST(request: Request) {
     updates[name] = value;
   }
 
+  // A value that .env also sets is read from .env on every start, so saving it
+  // here would look like it worked and then revert after the next restart.
+  const sources = await credentialSources(Object.keys(updates));
+  const fromEnv = Object.keys(updates).filter((name) => sources[name] === "env");
+  if (fromEnv.length > 0) {
+    return NextResponse.json(
+      { error: `${fromEnv.join(", ")} ${fromEnv.length === 1 ? "is" : "are"} set in .env - edit ${fromEnv.length === 1 ? "it" : "them"} there.` },
+      { status: 409 }
+    );
+  }
+
   await saveCredentials(updates);
   return NextResponse.json({
-    ...(await connectionState()),
+    ...(await connectionState(new URL(request.url).origin)),
     connections: CONNECTIONS.map((connection) => connection.id)
   });
 }

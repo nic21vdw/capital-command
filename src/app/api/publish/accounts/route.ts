@@ -10,10 +10,16 @@ import {
   instagramProfile,
   type MetaProfile
 } from "@/lib/publisher/metaProfile";
+import { publishQueue } from "@/lib/publisher/queue";
+import { reconnectBlocker } from "@/lib/publisher/connections";
+import { needsReconnect } from "@/lib/publisher/reconnectNeeded";
+import type { QueueItem } from "@/lib/publisher/types";
 import { TIKTOK_AUDIT_BLOCKER, tiktokCreatorInfo, type TiktokCreatorInfo } from "@/lib/publisher/tiktokAuth";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+
+const PLATFORM_LABEL = { youtube: "YouTube", instagram: "Instagram", tiktok: "TikTok", facebook: "Facebook" } as const;
 
 /** Who an account posts as: display name, @handle and avatar. */
 export type ConnectedProfile = MetaProfile;
@@ -26,6 +32,11 @@ export type SocialAccountView = SocialAccount & {
   profile: ConnectedProfile | null;
   /** Connected, but something still stops it publishing unattended. */
   blocker: string | null;
+  /**
+   * Credentials exist but the account's latest finished post failed on the
+   * connection (expired or revoked), so "connected" is no longer true in practice.
+   */
+  needsReconnect: boolean;
   /** Connected YouTube channel's name/avatar, when known. */
   youtube: YoutubeChannelInfo | null;
   /** Connected TikTok profile's display name/avatar, when known. */
@@ -50,17 +61,21 @@ async function profileFor(
   };
 }
 
-async function accountView(account: SocialAccount): Promise<SocialAccountView> {
+async function accountView(account: SocialAccount, queueItems: readonly QueueItem[]): Promise<SocialAccountView> {
   const connected = await accountIdConfigured(account.platform, account.id);
   const { profile, blocker } = connected
     ? await profileFor(account)
     : { profile: null, blocker: null };
+  // A token that exists is not a token that works. The queue records why each
+  // post failed, so a dead connection shows here rather than only on a card.
+  const reconnect = connected && needsReconnect(queueItems, account.platform, account.id);
   return {
     ...account,
     primary: isPrimaryAccountId(account.id),
     connected,
     profile,
-    blocker,
+    blocker: reconnect ? reconnectBlocker(PLATFORM_LABEL[account.platform]) : blocker,
+    needsReconnect: reconnect,
     youtube: account.platform === "youtube" ? (profile as YoutubeChannelInfo | null) : null,
     tiktok: account.platform === "tiktok" ? (profile as TiktokCreatorInfo | null) : null
   };
@@ -69,7 +84,9 @@ async function accountView(account: SocialAccount): Promise<SocialAccountView> {
 /** GET /api/publish/accounts — every social account across all platforms. */
 export async function GET() {
   const accounts = await listAccounts();
-  return NextResponse.json({ accounts: await Promise.all(accounts.map(accountView)) });
+  // A queue that cannot be read must not take the account list down with it.
+  const queueItems = await publishQueue().list().catch(() => [] as QueueItem[]);
+  return NextResponse.json({ accounts: await Promise.all(accounts.map((account) => accountView(account, queueItems))) });
 }
 
 const createSchema = z.object({
@@ -87,7 +104,7 @@ export async function POST(request: NextRequest) {
   }
   try {
     const account = await addAccount(body.platform, body.label);
-    return NextResponse.json({ account: await accountView(account) }, { status: 201 });
+    return NextResponse.json({ account: await accountView(account, []) }, { status: 201 });
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : String(error) }, { status: 400 });
   }

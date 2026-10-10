@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useEffect, useId, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState, useSyncExternalStore } from "react";
 import {
   AtSign,
   Bot,
@@ -45,6 +45,7 @@ import { useAppData } from "@/components/providers/app-provider";
 import { useColateralBridge } from "@/components/providers/colateral-bridge-provider";
 import { StreamProvider, useStream } from "@/components/providers/stream-provider";
 import { streamHref } from "@/lib/pipeline/streams";
+import { reconnectBlocker } from "@/lib/publisher/connections";
 import { PlatformIcon, PLATFORM_LABEL, type PlatformIconKey } from "@/components/ui/platform-icon";
 import { cn } from "@/lib/utils";
 import { ColateralMarketingMark } from "@/components/layout/colateral-marketing-mark";
@@ -195,13 +196,15 @@ function Brand({ collapsed = false }: { collapsed?: boolean }) {
   const { data } = useAppData();
   const connections = useConnections();
   const profile = data.settings.profile;
-  const displayName = profile?.displayName?.trim() || DEFAULT_BRAND_NAME;
+  // The channel name typed at first-run is the fallback, so a name given there
+  // is not shadowed by "Your channel" for want of a second field.
+  const displayName = profile?.displayName?.trim() || data.creatorProfile.channelName.trim() || DEFAULT_BRAND_NAME;
   const avatar = profile?.avatar;
   const initials = initialsFrom(displayName) || "?";
   const handle = leadHandle(connections);
 
   return (
-    <Link href="/" className={cn("flex items-center gap-3", collapsed && "justify-center")} title="Dashboard">
+    <Link href="/" className={cn("flex items-center gap-3", collapsed && "justify-center")} title="Stream Pipeline">
       <span
         className={cn(
           "flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-lg text-sm font-bold tracking-tight text-white",
@@ -218,7 +221,7 @@ function Brand({ collapsed = false }: { collapsed?: boolean }) {
       <span className={cn("flex min-w-0 flex-col leading-tight", collapsed && "hidden")}>
         <span className="truncate text-sm font-semibold text-white">{displayName}</span>
         <span className="truncate text-xs text-[var(--muted-foreground)]">
-          {handle ? `Welcome, @${handle}` : "YouTube creator tools"}
+          {handle ? `Welcome, @${handle}` : "Social media workspace"}
         </span>
       </span>
     </Link>
@@ -239,11 +242,15 @@ type PlatformConnection = {
   connected: number;
   /** Signed in, but something still stops it publishing unattended. */
   blocker: string | null;
+  /** The account whose last post died on an expired or revoked connection, if any. */
+  reconnectAccountId: string | null;
 };
 
 type ChannelSummary = Profile & {
   /** How many other connected YouTube accounts exist beyond this one. */
   extraConnected: number;
+  /** Set when this channel's last post failed on the connection: "connected" is no longer true in practice. */
+  reconnect: boolean;
 };
 
 /** Every platform the app can publish as, and whether it is signed in. */
@@ -253,6 +260,11 @@ type Connections = {
   channel: ChannelSummary | null;
   /** The non-YouTube platforms, in the order the sidebar lists them. */
   others: PlatformConnection[];
+  /**
+   * The YouTube client ID or secret is not saved yet, so "Sign in with YouTube"
+   * has nowhere to go but Settings. False when unknown (the check failed).
+   */
+  youtubeSetupMissing: boolean;
 };
 
 type AccountRow = {
@@ -262,6 +274,7 @@ type AccountRow = {
   connected: boolean;
   profile?: Profile | null;
   blocker?: string | null;
+  needsReconnect?: boolean;
   youtube: Profile | null;
   tiktok?: Profile | null;
 };
@@ -301,7 +314,7 @@ function PlatformBadge({ platform, className }: { platform: PlatformKey; classNa
 const CHANNEL_CACHE_KEY = "capital-command:connected-accounts";
 const CHANNEL_CACHE_TTL_MS = 60_000;
 
-const EMPTY_CONNECTIONS: Connections = { loaded: false, channel: null, others: [] };
+const EMPTY_CONNECTIONS: Connections = { loaded: false, channel: null, others: [], youtubeSetupMissing: false };
 
 function profileOf(account: AccountRow): Profile | null {
   return account.profile ?? account.youtube ?? account.tiktok ?? null;
@@ -311,7 +324,7 @@ function connectedOn(accounts: AccountRow[], platform: string) {
   return accounts.filter((account) => account.platform === platform && account.connected);
 }
 
-function summarize(accounts: AccountRow[]): Connections {
+function summarize(accounts: AccountRow[], youtubeSetupMissing = false): Connections {
   const youtube = connectedOn(accounts, "youtube").filter((account) => profileOf(account));
   // The primary channel is the face of the app; any primary-connected account
   // wins, otherwise the first connected one does.
@@ -319,14 +332,18 @@ function summarize(accounts: AccountRow[]): Connections {
   const leadProfile = lead ? profileOf(lead) : null;
   return {
     loaded: true,
-    channel: leadProfile ? { ...leadProfile, extraConnected: youtube.length - 1 } : null,
+    youtubeSetupMissing,
+    channel: leadProfile
+      ? { ...leadProfile, extraConnected: youtube.length - 1, reconnect: Boolean(lead?.needsReconnect) }
+      : null,
     others: OTHER_PLATFORMS.map((platform) => {
       const signedIn = connectedOn(accounts, platform);
       return {
         platform,
         profile: signedIn.map(profileOf).find(Boolean) ?? null,
         connected: signedIn.length,
-        blocker: signedIn.map((account) => account.blocker).find(Boolean) ?? null
+        blocker: signedIn.map((account) => account.blocker).find(Boolean) ?? null,
+        reconnectAccountId: signedIn.find((account) => account.needsReconnect)?.id ?? null
       };
     })
   };
@@ -347,11 +364,28 @@ function handleLabel(profile: Profile | null, fallback: string): string {
 // the request is shared rather than fired twice.
 let inFlight: Promise<Connections> | null = null;
 
+/**
+ * Whether the YouTube client ID and secret are both unsaved. A failed check
+ * answers false: sending someone to Settings on a guess is worse than letting
+ * the sign-in route say what is missing.
+ */
+function youtubeSetupMissing(): Promise<boolean> {
+  return fetch("/api/connections", { cache: "no-store" })
+    .then((res) => (res.ok ? res.json() : null))
+    .then((json: { present?: Record<string, boolean> } | null) =>
+      json?.present ? !(json.present.YOUTUBE_CLIENT_ID && json.present.YOUTUBE_CLIENT_SECRET) : false
+    )
+    .catch(() => false);
+}
+
 function loadConnections(): Promise<Connections> {
   if (!inFlight) {
-    inFlight = fetch("/api/publish/accounts", { cache: "no-store" })
-      .then((res) => (res.ok ? res.json() : Promise.reject(new Error(`${res.status}`))))
-      .then((json: { accounts?: AccountRow[] }) => summarize(json.accounts ?? []))
+    inFlight = Promise.all([
+      fetch("/api/publish/accounts", { cache: "no-store" })
+        .then((res) => (res.ok ? res.json() : Promise.reject(new Error(`${res.status}`)))) as Promise<{ accounts?: AccountRow[] }>,
+      youtubeSetupMissing()
+    ])
+      .then(([json, missing]) => summarize(json.accounts ?? [], missing))
       .finally(() => {
         inFlight = null;
       });
@@ -404,6 +438,14 @@ function useConnections(): Connections {
   return state;
 }
 
+/**
+ * Where "Sign in with YouTube" goes. With no client ID and secret saved Google
+ * has nothing to authorise, so the button leads to the Accounts section that
+ * collects them instead of starting a flow that cannot finish.
+ */
+const YOUTUBE_SIGN_IN_HREF = (state: Connections) =>
+  state.youtubeSetupMissing ? "/settings#accounts" : "/api/auth/google";
+
 /** The channel avatar circle, shared by the sidebar card and the mobile bar. */
 function ChannelAvatar({ channel, className }: { channel: ChannelSummary; className?: string }) {
   return (
@@ -451,8 +493,13 @@ function ChannelCard({ collapsed = false }: { collapsed?: boolean }) {
     <div className="space-y-2">
       {channel ? (
         <Link
-          href="/uploading-center"
-          title={collapsed ? `${channel.title} — YouTube` : "Manage channel accounts in the Uploading Center"}
+          href={channel.reconnect ? "/api/auth/google" : "/uploading-center"}
+          prefetch={channel.reconnect ? false : undefined}
+          title={
+            channel.reconnect
+              ? reconnectBlocker("YouTube")
+              : collapsed ? `${channel.title} — YouTube` : "Manage channel accounts in the Uploading Center"
+          }
           className={cn(
             "group flex items-center gap-3 rounded-xl border border-[var(--border)] bg-gradient-to-br from-white/[0.06] to-transparent px-3 py-2.5 transition hover:border-[var(--border-strong)] hover:from-white/[0.09]",
             collapsed && "justify-center px-2"
@@ -462,15 +509,15 @@ function ChannelCard({ collapsed = false }: { collapsed?: boolean }) {
           <span className={cn("flex min-w-0 flex-1 flex-col leading-tight", collapsed && "hidden")}>
             <span className="truncate text-sm font-semibold text-white">{channel.title}</span>
             <span className="flex items-center gap-1.5 text-xs text-[var(--muted-foreground)]">
-              <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-emerald-400" />
-              <span className="truncate">{handleLabel(channel, "YouTube")}</span>
+              <span className={cn("h-1.5 w-1.5 shrink-0 rounded-full", channel.reconnect ? "bg-amber-400" : "bg-emerald-400")} />
+              <span className="truncate">{channel.reconnect ? "Reconnect YouTube" : handleLabel(channel, "YouTube")}</span>
               {channel.extraConnected > 0 ? <span className="shrink-0">+{channel.extraConnected}</span> : null}
             </span>
           </span>
         </Link>
       ) : (
         <a
-          href="/api/auth/google"
+          href={YOUTUBE_SIGN_IN_HREF(state)}
           title={collapsed ? "Sign in with YouTube" : undefined}
           className={cn(
             "group flex items-center gap-3 rounded-xl border border-dashed border-[var(--border-strong)] px-3 py-2.5 transition hover:border-[#ff0000]/60 hover:bg-white/[0.04]",
@@ -482,13 +529,31 @@ function ChannelCard({ collapsed = false }: { collapsed?: boolean }) {
           </span>
           <span className={cn("flex min-w-0 flex-1 flex-col leading-tight", collapsed && "hidden")}>
             <span className="text-sm font-semibold text-white">Sign in with YouTube</span>
-            <span className="text-xs text-[var(--muted-foreground)]">Connect your channel to publish</span>
+            <span className="text-xs text-[var(--muted-foreground)]">
+              {state.youtubeSetupMissing ? "Add your Google credentials in Settings" : "Connect your channel to publish"}
+            </span>
           </span>
         </a>
       )}
       <ConnectionRows state={state} collapsed={collapsed} />
     </div>
   );
+}
+
+/**
+ * Where a platform chip goes. A not-connected chip leads to Settings > Accounts,
+ * which is where every platform is connected; sending it to the Uploading Center
+ * dropped people on a screen that cannot add credentials. A chip whose last post
+ * died on the connection goes straight to that platform's sign-in where it has
+ * one, and otherwise to Settings.
+ */
+function chipHref(row: PlatformConnection): string {
+  if (row.reconnectAccountId) {
+    return row.platform === "tiktok"
+      ? `/api/auth/tiktok?account=${encodeURIComponent(row.reconnectAccountId)}`
+      : "/settings#accounts";
+  }
+  return row.connected > 0 ? "/uploading-center" : "/settings#accounts";
 }
 
 /**
@@ -509,12 +574,15 @@ function ConnectionRows({ state, collapsed }: { state: Connections; collapsed: b
         const style = PLATFORM_STYLE[row.platform];
         const connected = row.connected > 0;
         const held = connected && Boolean(row.blocker);
-        const detail = connected ? handleLabel(row.profile, style.label) : `${style.label} · not connected`;
+        const detail = row.reconnectAccountId
+          ? `Reconnect ${style.label}`
+          : connected ? handleLabel(row.profile, style.label) : `${style.label} · not connected`;
         const dot = held ? "bg-amber-400" : connected ? "bg-emerald-400" : "bg-white/20";
         return (
           <Link
             key={row.platform}
-            href="/uploading-center"
+            href={chipHref(row)}
+            prefetch={row.reconnectAccountId ? false : undefined}
             title={row.blocker ? `${style.label} — ${row.blocker}` : `${style.label} — ${detail}`}
             className={cn(
               "flex items-center gap-2.5 rounded-lg border px-2.5 py-1.5 transition hover:border-[var(--border-strong)] hover:bg-white/[0.04]",
@@ -964,10 +1032,27 @@ export function AppShell({ children, frame = false }: { children: React.ReactNod
 function SetupGate({ children }: { children: React.ReactNode }) {
   const { data } = useAppData();
   const pathname = usePathname();
+  const oauthReturn = useSyncExternalStore(subscribeNever, hasOauthResult, () => false);
+  // Latched for the rest of the visit: the landing screen clears the query once
+  // its toast has shown, and the setup screen must not swallow it a moment later.
+  const [sawOauthReturn, setSawOauthReturn] = useState(false);
+  if (oauthReturn && !sawOauthReturn) setSawOauthReturn(true);
   // Setup itself offers Open Settings, so that recovery route must remain
-  // reachable before setup is finished.
-  if (!data.settings.setupCompletedAt && pathname !== "/settings") return <FirstRun />;
+  // reachable before setup is finished. A route reached from a sign-in callback
+  // is exempt too: the callbacks land on the Uploading Center and the Podcast
+  // page, and covering them hides the "connected" or "connect failed" toast the
+  // person has just been sent there to read.
+  if (!data.settings.setupCompletedAt && pathname !== "/settings" && !sawOauthReturn) return <FirstRun />;
   return <>{children}</>;
+}
+
+// The address bar is read directly rather than through useSearchParams, which
+// would force every page under this shell to prerender as an empty fallback.
+const subscribeNever = () => () => undefined;
+
+function hasOauthResult(): boolean {
+  const params = new URLSearchParams(window.location.search);
+  return params.has("connected") || params.has("connect_error");
 }
 
 function AppChrome({ children, frame }: { children: React.ReactNode; frame: boolean }) {
@@ -1140,15 +1225,16 @@ function MobileChannelChip() {
     <span className="flex items-center gap-1.5">
       {state.channel ? (
         <Link
-          href="/uploading-center"
-          aria-label={`${state.channel.title} — YouTube`}
-          title={handleLabel(state.channel, "YouTube")}
+          href={state.channel.reconnect ? "/api/auth/google" : "/uploading-center"}
+          prefetch={state.channel.reconnect ? false : undefined}
+          aria-label={state.channel.reconnect ? reconnectBlocker("YouTube") : `${state.channel.title} — YouTube`}
+          title={state.channel.reconnect ? "Reconnect YouTube" : handleLabel(state.channel, "YouTube")}
         >
           <ChannelAvatar channel={state.channel} className="h-7 w-7" />
         </Link>
       ) : (
         <a
-          href="/api/auth/google"
+          href={YOUTUBE_SIGN_IN_HREF(state)}
           aria-label="Sign in with YouTube"
           title="Sign in with YouTube"
           className="flex h-7 w-7 items-center justify-center rounded-full bg-[#ff0000]/15 text-[#ff4d4d] transition hover:bg-[#ff0000]/25"
@@ -1162,7 +1248,8 @@ function MobileChannelChip() {
         return (
           <Link
             key={row.platform}
-            href="/uploading-center"
+            href={chipHref(row)}
+            prefetch={row.reconnectAccountId ? false : undefined}
             aria-label={label}
             title={label}
             className="relative block h-6 w-6 shrink-0"

@@ -241,7 +241,7 @@ async function runDueInternal(now: Date, options: RunDueOptions): Promise<RunRep
     for (const platform of config.platforms) {
       const adapter = adapters[platform];
       if (!adapter.configured()) {
-        report.authChecks.push({ platform, ok: false, detail: "not configured (missing credentials in .env)" });
+        report.authChecks.push({ platform, ok: false, detail: "not configured (add credentials in Settings > Accounts)" });
         continue;
       }
       try {

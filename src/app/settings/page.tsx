@@ -30,10 +30,14 @@ export default function Page() {
       .then((body: { present?: Record<string, boolean> } | null) => {
         if (cancelled || !body?.present) return;
         const present = body.present;
-        const ready = CONNECTIONS.filter((connection) =>
-          connection.fields.every((field) => present[field.name])
+        // Accounts only: Media hosting is a requirement of two of them, not one.
+        // Optional fields do not count against a row, or YouTube could never
+        // be "ready" without an optional value.
+        const accounts = CONNECTIONS.filter((connection) => connection.id !== "media-hosting");
+        const ready = accounts.filter((connection) =>
+          connection.fields.filter((field) => !field.optional).every((field) => present[field.name])
         ).length;
-        setConnected({ ready, total: CONNECTIONS.length });
+        setConnected({ ready, total: accounts.length });
       })
       .catch(() => undefined);
     return () => {

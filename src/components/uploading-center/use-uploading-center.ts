@@ -881,7 +881,7 @@ export function useUploadingCenter(clipProjects: ClipProject[] = []) {
         outcome.detail.includes("YouTube connection expired")
       ) {
         const accountId = item?.accountId ?? primaryAccountIdFor("youtube");
-        toast.error("Your YouTube connection expired. Reconnect once and Command will resume this upload automatically.", {
+        toast.error("Your YouTube connection expired. Reconnect once and CoLateral Marketing will resume this upload automatically.", {
           duration: Infinity,
           action: {
             label: "Reconnect YouTube",
@@ -897,7 +897,7 @@ export function useUploadingCenter(clipProjects: ClipProject[] = []) {
       } else if (outcome?.outcome === "published") {
         toast.success(`Published to ${PLATFORM_LABELS[platform]}.`);
       } else if (outcome?.outcome === "retrying") {
-        toast.warning(`Upload interrupted — Command will retry automatically. ${outcome.detail || ""}`.trim());
+        toast.warning(`Upload interrupted — CoLateral Marketing will retry automatically. ${outcome.detail || ""}`.trim());
       } else if (outcome?.outcome === "failed") {
         toast.error(
           `Upload failed: ${describeFailure({ status: "failed", attempts: 0, error: outcome.detail }, platform).headline}`
