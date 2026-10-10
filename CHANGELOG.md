@@ -14,6 +14,8 @@ already shipped.
 
 ## Unreleased
 
+- **See how a YouTube post did.** Day Summary and the Uploading Center now show views, likes and comments beside each published YouTube post, with how recent they are and an Analytics in Studio link. Yesterday shows a total at the top. Other platforms still show posting status only - use their Open on links for numbers.
+
 - **The Schedule dialogs stay put.** On Carousels the Schedule window used to open halfway down the page, scroll away with it and hide Cancel and Book post behind the next card or the command bar. Every dialog now opens over the whole screen, above the command bar, with its buttons always in view (it scrolls inside on a phone) and Tab kept inside it.
 
 - **Sidebar chips agree with Settings, and a failed sign-in stays where you were.** Instagram and Facebook with a saved token now show a muted "saved, not verified" in the sidebar instead of a green dot, the same as Settings. A sign-in that fails no longer bounces you from 127.0.0.1 to localhost, which looked like the app had forgotten your place.

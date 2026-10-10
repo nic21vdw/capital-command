@@ -52,7 +52,7 @@ export const CONNECTIONS: Connection[] = [
   {
     id: "youtube",
     label: "YouTube",
-    purpose: "Uploads long-form videos and Shorts, and reads the channel's own stats.",
+    purpose: "Uploads long-form videos and Shorts, and reads views and likes for your posts.",
     fields: [
       { name: "YOUTUBE_CLIENT_ID", label: "Client ID", hint: "Google Cloud console, OAuth 2.0 Client IDs." },
       { name: "YOUTUBE_CLIENT_SECRET", label: "Client secret" }

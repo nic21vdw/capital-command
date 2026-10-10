@@ -52,6 +52,12 @@ export type MasterCalendarEvent = {
   manual?: { platform: string; href: string; fileUrl?: string }[];
   /** "Open on <platform>" links for legs that are live and whose URL shape is known. */
   liveLinks?: { platform: string; url: string }[];
+  /**
+   * The published YouTube video behind this post, when there is one. It is how
+   * the Day Summary asks /api/publish/youtube-stats for its numbers; the queue
+   * item id lets the server pick the right channel.
+   */
+  youtube?: { itemId: string; videoId: string };
 };
 
 /** The Day Summary and the calendar chips treat these as failures. */

@@ -8,6 +8,7 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Modal } from "@/components/ui/modal";
 import { Textarea } from "@/components/ui/textarea";
+import { YoutubeCardStats } from "@/components/publisher/youtube-stats-line";
 import { StatusChip } from "@/components/uploading-center/status-chip";
 import { CLIP_DRAG_TYPE } from "@/components/uploading-center/clip-card";
 import { splitEarlierDays } from "@/components/uploading-center/earlier-days";
@@ -468,6 +469,9 @@ function QueueEntryCard({
           <EditableTitle title={item.title} onRename={(title) => onRename(item, title)} />
           <span className="ml-auto shrink-0 text-[10px] font-medium text-[var(--muted-foreground)]">{time}</span>
         </div>
+        {platform === "youtube" && state.status === "published" && state.postId ? (
+          <YoutubeCardStats itemId={item.id} videoId={state.postId} />
+        ) : null}
         <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
           <StatusChip
             status={state.status}
