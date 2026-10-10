@@ -58,10 +58,34 @@ describe("summarizePlatformState", () => {
     expect(summarizePlatformState("tiktok", state({ status: "manual" }), item).uploaded).toBeNull();
   });
 
-  it("surfaces the failure reason instead of an upload day", () => {
+  it("surfaces the failure in words instead of an upload day, keeping the platform's own text for the tooltip", () => {
     const summary = summarizePlatformState("youtube", state({ status: "failed", error: "quota exceeded" }), item);
     expect(summary.uploaded).toBeNull();
-    expect(summary.note).toContain("quota exceeded");
+    expect(summary.note).toBe("Upload failed - YouTube couldn't take it just then — worth another go.");
+    expect(summary.detail).toBe("quota exceeded");
+  });
+
+  it("does not offer a retry for a duplicate-title refusal", () => {
+    const summary = summarizePlatformState(
+      "youtube",
+      state({ status: "failed", error: '"My clip" is already on the channel (https://x) — this upload was stopped rather than posting it a second time.' }),
+      item
+    );
+    expect(summary.note).toContain("Retitle");
+  });
+
+  it("uses the board's wording for a post that has not gone up: only YouTube is 'Uploading'", () => {
+    expect(summarizePlatformState("youtube", state({ status: "pending" }), item).note).toMatch(/^Uploading · slot /);
+    const instagram = summarizePlatformState("instagram", state({ status: "pending" }), item);
+    expect(instagram.note).toMatch(/^Posts at slot · slot /);
+    expect(instagram.detail).toContain("no scheduling API");
+  });
+
+  it("does not call a TikTok inbox draft 'live' or 'nothing else needed'", () => {
+    const summary = summarizePlatformState("tiktok", state({ status: "scheduled", postId: "p1" }), item);
+    expect(summary.note).toBe("In your TikTok inbox - Finish it in the TikTok app");
+    const direct = summarizePlatformState("tiktok", state({ status: "scheduled" }), { ...item, tiktok: { delivery: "direct" } });
+    expect(direct.note).toMatch(/^Goes live /);
   });
 
   it("reports a published long-form video as private, not live", () => {

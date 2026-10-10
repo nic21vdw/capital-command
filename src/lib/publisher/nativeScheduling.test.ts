@@ -1,5 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { facebookLead, pendingHint, pendingLabel, preSchedules, preSchedulesItem } from "@/lib/publisher/nativeScheduling";
+import {
+  facebookLead,
+  isTiktokInboxDraft,
+  pendingHint,
+  pendingLabel,
+  preSchedules,
+  preSchedulesItem,
+  TIKTOK_INBOX_CHIP
+} from "@/lib/publisher/nativeScheduling";
 
 describe("which platforms take a post before its time", () => {
   it("hands YouTube the upload ahead of the slot", () => {
@@ -84,5 +92,50 @@ describe("what a waiting post says on the board", () => {
   it("explains why nothing is on the platform yet", () => {
     expect(pendingHint("instagram")).toContain("no scheduling API");
     expect(pendingHint("youtube")).toContain("ahead of time");
+  });
+});
+
+describe("TikTok delivered to the inbox", () => {
+  const now = new Date("2026-08-19T12:00:00.000Z");
+  const publishAt = new Date(now.getTime() + 3 * 24 * 60 * 60_000).toISOString();
+  const inbox = { publishAt, tiktok: { delivery: "inbox" as const } };
+  const direct = { publishAt, tiktok: { delivery: "direct" as const } };
+
+  it("does not say nothing else is needed when the last step is a tap in the TikTok app", () => {
+    expect(pendingHint("tiktok", inbox, now)).toContain("finish the post in the TikTok app");
+    expect(pendingHint("tiktok", inbox, now)).not.toContain("Nothing else is needed");
+    expect(pendingLabel("tiktok", inbox, now)).toBe("To inbox at slot");
+  });
+
+  it("treats a post with no recorded delivery as the inbox, which is the default", () => {
+    expect(pendingHint("tiktok", { publishAt }, now)).toContain("TikTok inbox");
+  });
+
+  it("keeps the plain wording for a direct post, which really does need nothing else", () => {
+    expect(pendingHint("tiktok", direct, now)).toContain("Nothing else is needed");
+    expect(pendingLabel("tiktok", direct, now)).toBe("Posts at slot");
+  });
+
+  it("recognises a recorded 'scheduled' as an unfinished draft only for inbox delivery", () => {
+    expect(isTiktokInboxDraft("tiktok", "scheduled", inbox)).toBe(true);
+    expect(isTiktokInboxDraft("tiktok", "scheduled", direct)).toBe(false);
+    expect(isTiktokInboxDraft("tiktok", "published", inbox)).toBe(false);
+    expect(isTiktokInboxDraft("youtube", "scheduled", inbox)).toBe(false);
+    expect(isTiktokInboxDraft("tiktok", "scheduled", undefined)).toBe(false);
+    expect(TIKTOK_INBOX_CHIP).toContain("inbox");
+  });
+});
+
+describe("a YouTube post held back by the daily upload limit", () => {
+  it("says it is waiting for the quota instead of 'Uploading' and 'it goes up now'", () => {
+    expect(pendingLabel("youtube", undefined, undefined, { youtubeQuotaFull: true })).toBe("Waiting for quota");
+    const hint = pendingHint("youtube", undefined, undefined, { youtubeQuotaFull: true });
+    expect(hint).toContain("quota resets");
+    expect(hint).not.toContain("goes up now");
+  });
+
+  it("changes nothing for the other platforms or when the allowance is not spent", () => {
+    expect(pendingLabel("youtube")).toBe("Uploading");
+    expect(pendingLabel("instagram", undefined, undefined, { youtubeQuotaFull: true })).toBe("Posts at slot");
   });
 });

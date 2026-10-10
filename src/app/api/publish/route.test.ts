@@ -67,6 +67,11 @@ describe("POST /api/publish format", () => {
   });
 });
 
+const getBoard = async (query = "") => {
+  const { GET } = await import("@/app/api/publish/route");
+  return GET(new NextRequest(`http://localhost:3000/api/publish${query}`));
+};
+
 describe("posting switched off", () => {
   beforeEach(() => {
     enqueue.mockReset();
@@ -76,8 +81,7 @@ describe("posting switched off", () => {
   });
 
   it("still lists the queue, read-only, so the board can stay on screen", async () => {
-    const { GET } = await import("@/app/api/publish/route");
-    const response = await GET();
+    const response = await getBoard("?board=1");
 
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({ enabled: false, items: [{ id: "queued-1" }] });
@@ -95,10 +99,26 @@ describe("posting switched off", () => {
 
   it("stamps failures as seen once posting is on again", async () => {
     state.enabled = true;
-    const { GET } = await import("@/app/api/publish/route");
-    const response = await GET();
+    const response = await getBoard("?board=1");
 
     expect((await response.json()).enabled).toBe(true);
+    expect(state.markFailedSeen).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("GET /api/publish", () => {
+  beforeEach(() => {
+    state.enabled = true;
+    state.markFailedSeen.mockClear();
+  });
+
+  it("does not mark failures as seen for a reader that is not the board (the Clip Editor)", async () => {
+    expect((await getBoard()).status).toBe(200);
+    expect(state.markFailedSeen).not.toHaveBeenCalled();
+  });
+
+  it("marks failures as seen when the Uploading Center board reads", async () => {
+    await getBoard("?board=1");
     expect(state.markFailedSeen).toHaveBeenCalledTimes(1);
   });
 });

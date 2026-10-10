@@ -92,7 +92,9 @@ export type RunDueOptions = {
   /**
    * With itemId: process every non-terminal platform immediately, ignoring
    * publishAt and retry backoff. Instagram/TikTok then post right away
-   * instead of waiting for their scheduled time.
+   * instead of waiting for their scheduled time, and a YouTube video waiting
+   * for its slot is made public now. Only an explicit "Publish now" passes
+   * this - a retry runs without it so a future slot keeps waiting.
    */
   force?: boolean;
 };
@@ -362,8 +364,11 @@ async function runDueInternal(now: Date, options: RunDueOptions): Promise<RunRep
       const item = await queue.get(options.itemId);
       const platforms = item
         ? (Object.entries(item.platforms) as [PlatformId, PlatformState][])
-            // "scheduled" is included so "publish now" flips the video public
-            // immediately instead of waiting for the slot time.
+            // "scheduled" is included so an explicit "publish now" reaches a
+            // video YouTube is holding for its slot: the forced run passes
+            // publishNow down to the adapter, which flips it public now. A
+            // retry never gets here - it runs WITHOUT force, so a future
+            // slot keeps waiting.
             .filter(([, state]) => !isTerminalStatus(state.status) || state.status === "scheduled")
             .map(([platform]) => platform)
         : [];
@@ -393,6 +398,9 @@ async function runDueInternal(now: Date, options: RunDueOptions): Promise<RunRep
     : Math.max(0, config.tiktok.inboxLimit - tiktokDraftsWaiting);
   let facebookPollMsLeft = FACEBOOK_POLL_BUDGET_MS_PER_RUN;
   let facebookPreschedulesLeft = options.force ? Number.POSITIVE_INFINITY : FACEBOOK_PRESCHEDULES_PER_RUN;
+  // The board's explicit "Publish now" on one post (itemId + force) - the only
+  // run allowed to take a held YouTube video public ahead of its slot.
+  const forcedNow = Boolean(options.force && options.itemId);
 
   for (const { item, platforms } of due) {
     if (!options.itemId && await isAutomationPaused("publisher")) break;
@@ -428,7 +436,7 @@ async function runDueInternal(now: Date, options: RunDueOptions): Promise<RunRep
         if (state && (state.status === "scheduled" || state.postId)) {
           if (adapter.finalize) {
             if (!(await queue.claim(item, platform, now))) continue;
-            result = await adapter.finalize(item, state);
+            result = await adapter.finalize(item, state, { publishNow: forcedNow });
           } else if (state.status === "scheduled") {
             continue;
           } else {
@@ -497,6 +505,7 @@ async function runDueInternal(now: Date, options: RunDueOptions): Promise<RunRep
             localPath,
             publicUrl,
             images,
+            publishNow: forcedNow,
             onHandle: (handle) => queue.recordHandle(item, platform, handle),
             pollBudgetMs:
               platform === "facebook"

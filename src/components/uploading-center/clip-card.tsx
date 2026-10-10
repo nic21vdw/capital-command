@@ -16,6 +16,8 @@ import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { ClipPreview } from "@/components/uploading-center/clip-preview";
 import { StatusChip } from "@/components/uploading-center/status-chip";
+import { describeFailure } from "@/lib/publisher/failure";
+import { isTiktokInboxDraft, pendingHint, pendingLabel, TIKTOK_INBOX_ACTION, TIKTOK_INBOX_HINT } from "@/lib/publisher/nativeScheduling";
 import { youtubeHoldsForReview } from "@/lib/publisher/reviewHold";
 import {
   PLATFORM_LABELS,
@@ -87,8 +89,10 @@ export type PlatformSummary = {
    * before anything has been sent.
    */
   uploaded: string | null;
-  /** Secondary context: go-live time, reminder time, or the failure reason. */
+  /** Secondary context: go-live time, reminder time, or the failure in words. */
   note: string;
+  /** Longer text for the note's tooltip: what the wait means, or the platform's own error. */
+  detail?: string;
 };
 
 /**
@@ -104,7 +108,7 @@ export type PlatformSummary = {
 export function summarizePlatformState(
   platform: PlatformId,
   state: PlatformState,
-  item: { publishAt: string; createdAt: string; format?: "short" | "long"; clipPath?: string }
+  item: Pick<QueueItem, "publishAt" | "createdAt" | "mediaKind" | "tiktok"> & { format?: "short" | "long"; clipPath?: string }
 ): PlatformSummary {
   const goLive = formatStamp(item.publishAt);
   const uploadIso = state.uploadedAt ?? (state.postId ? item.createdAt : null);
@@ -112,6 +116,11 @@ export function summarizePlatformState(
   const heldPrivate = platform === "youtube" && youtubeHoldsForReview(item);
   switch (state.status) {
     case "scheduled":
+      // A TikTok inbox delivery is recorded as "scheduled" but is a draft the
+      // creator still has to finish in the app; "Goes live" would be a lie.
+      if (isTiktokInboxDraft(platform, state.status, item)) {
+        return { uploaded, note: `In your TikTok inbox - ${TIKTOK_INBOX_ACTION}`, detail: TIKTOK_INBOX_HINT };
+      }
       return {
         uploaded,
         note: heldPrivate ? "Private on YouTube - make it public after you review it" : `Goes live ${goLive}`
@@ -126,11 +135,20 @@ export function summarizePlatformState(
     case "uploaded":
       return { uploaded, note: `Processing · goes live ${goLive}` };
     case "pending":
-      return { uploaded: null, note: `Uploading… · scheduled for ${goLive}` };
+      // The same words the board's chip uses: "Uploading" is only true on a
+      // platform that takes the file ahead of time; the rest post at the slot.
+      return {
+        uploaded: null,
+        note: `${pendingLabel(platform, item)} · slot ${goLive}`,
+        detail: pendingHint(platform, item)
+      };
     case "manual":
       return { uploaded: null, note: `Manual reminder for ${goLive}` };
-    case "failed":
-      return { uploaded: null, note: state.error ? `Upload failed — ${state.error}` : "Upload failed" };
+    case "failed": {
+      if (!state.error) return { uploaded: null, note: "Upload failed" };
+      const advice = describeFailure(state, platform);
+      return { uploaded: null, note: `Upload failed - ${advice.headline}`, detail: advice.raw };
+    }
     default:
       return { uploaded, note: `Scheduled for ${goLive}` };
   }
@@ -272,7 +290,9 @@ export function ClipCard({
             ))}
           </div>
           <div className="flex items-center justify-between gap-2 pl-6">
-            <span className="text-[11px] text-[var(--muted-foreground)]">Caption</span>
+            <span className="text-[11px] text-[var(--muted-foreground)]">
+              {scheduledItems.length > 0 ? "Caption - draft for new bookings (edit scheduled posts on the board)" : "Caption"}
+            </span>
             {onTailorCaption ? (
               <button
                 type="button"
@@ -289,7 +309,11 @@ export function ClipCard({
           <Textarea
             value={draft.caption}
             onChange={(event) => onDraftChange({ ...draft, caption: event.target.value })}
-            placeholder="Caption — leave empty to auto-generate on schedule"
+            placeholder={
+              scheduledItems.length > 0
+                ? "Draft for new bookings - this does not change posts already scheduled"
+                : "Caption — leave empty to auto-generate on schedule"
+            }
             className={cn("min-h-16 py-2", captionFailed && "tone-warning tone-edge")}
           />
           {captionFailed ? (
@@ -402,7 +426,9 @@ export function ClipCard({
                             </a>
                           ) : null}
                         </div>
-                        <span className="block truncate pl-0.5 text-[var(--muted-foreground)]">{summary.note}</span>
+                        <span className="block truncate pl-0.5 text-[var(--muted-foreground)]" title={summary.detail}>
+                          {summary.note}
+                        </span>
                       </div>
                     );
                   }

@@ -23,8 +23,13 @@ export const maxDuration = 300;
  * so this answers with the list and `enabled: false`. Only the stamping and the
  * sweep below write to the queue, so they run only while posting is on; every
  * write route (POST, PATCH, DELETE, publish, upload, run) still refuses.
+ *
+ * `?board=1` is sent only by the Uploading Center's board, and only a read from
+ * there counts as someone seeing a failure. The Clip Editor reads this too
+ * (to find a clip's bookings), and a failure it passed over unseen used to start
+ * its 30-day sweep clock before anyone had looked at the board.
  */
-export async function GET() {
+export async function GET(request: NextRequest) {
   const config = publisherConfig();
   const queue = publishQueue(config);
   if (!config.enabled) {
@@ -32,10 +37,11 @@ export async function GET() {
   }
   // A permanently-failed post STAYS on the board with its reason, so the
   // failure is something you see and can retry rather than something that
-  // silently emptied its slot. Reading the board is what stamps the failure as
-  // seen; only a seen failure older than the retention window is swept.
+  // silently emptied its slot. Reading the board (and only the board) is what
+  // stamps the failure as seen; only a seen failure older than the retention
+  // window is swept.
   const now = new Date();
-  await queue.markFailedSeen(now);
+  if (request.nextUrl.searchParams.get("board") === "1") await queue.markFailedSeen(now);
   const purged = await queue.purgeFailed(now);
   if (purged.length > 0) {
     console.log(
