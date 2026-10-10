@@ -792,7 +792,7 @@ export function MasterCalendarPage() {
       {response ? (
         <p className="mt-3 text-xs text-[var(--muted-foreground)]">
           Times shown in {response.timezone}
-          {!response.publishEnabled ? " · Shorts publisher is not configured, so scheduled uploads are not included yet." : ""}
+          {!response.publishEnabled ? " · Video and picture posting is off in Settings, so scheduled uploads are not shown." : ""}
         </p>
       ) : null}
     </div>

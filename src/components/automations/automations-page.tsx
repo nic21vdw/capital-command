@@ -2,27 +2,65 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Activity, ArrowUpRight, Clock3, Loader2, Pause, Play, RefreshCw, TriangleAlert } from "lucide-react";
+import { Activity, ArrowUpRight, Check, Clock3, Copy, ExternalLink, Loader2, Moon, Pause, Play, RefreshCw, TriangleAlert } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { PageHeader } from "@/components/ui/page-header";
 import { AutomationHistoryPanel } from "@/components/automations/automation-history";
-import type { AutomationCard, AutomationOverview } from "@/lib/automations/types";
+import { describeTaskResult } from "@/lib/automations/format";
+import { useColateralSurface } from "@/lib/colateral/useSurface";
+import type { AutomationCard, AutomationId, AutomationOverview, CadenceRow, HeldPost } from "@/lib/automations/types";
 import { cn } from "@/lib/utils";
 
 const stateLabels = {
-  paused: "Paused", blocked: "Blocked", running: "Running", ready: "Scheduled", attention: "Needs attention", unknown: "No run observed"
+  paused: "Paused", blocked: "Blocked", running: "Running", ready: "Idle - waiting for next run", attention: "Needs attention", unknown: "Has not run yet"
 };
 
+/** The automations that put things on the public internet; "Pause all posting" covers exactly these. */
+const POSTING_IDS: AutomationId[] = ["publisher", "threads", "podcast"];
+
+/** Run from an Administrator PowerShell once; the advice is the register script's own. */
+const KEEP_AWAKE = ["powercfg /change standby-timeout-ac 0", "powercfg /change standby-timeout-dc 0", "powercfg /change hibernate-timeout-ac 0", "powercfg /change hibernate-timeout-dc 0"];
+
 function at(value: string | null, timezone: string): string {
-  if (!value || !Number.isFinite(Date.parse(value))) return "Not recorded";
+  if (!value || !Number.isFinite(Date.parse(value))) return "Not yet";
   return new Intl.DateTimeFormat(undefined, { timeZone: timezone, month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }).format(new Date(value));
+}
+
+function CopyCommand({ text }: { text: string }) {
+  const [copied, setCopied] = useState(false);
+  return (
+    <span className="inline-flex items-center gap-2 rounded-lg bg-black/30 py-1 pl-3 pr-1 font-mono text-xs text-white">
+      {text}
+      <button
+        type="button"
+        className="inline-flex items-center gap-1 rounded-md px-2 py-1 font-sans text-[11px] text-[var(--accent)] hover:bg-white/10"
+        onClick={() => {
+          void navigator.clipboard.writeText(text).then(() => { setCopied(true); setTimeout(() => setCopied(false), 1500); }, () => toast.error("Clipboard unavailable - select and copy the command."));
+        }}
+      >
+        {copied ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}{copied ? "Copied" : "Copy"}
+      </button>
+    </span>
+  );
+}
+
+function KeepAwake() {
+  return (
+    <details className="mt-4 rounded-xl border border-[var(--border)] p-3 text-xs text-[var(--muted-foreground)]">
+      <summary className="flex cursor-pointer items-center gap-2 font-medium text-white"><Moon className="h-3.5 w-3.5 text-[var(--accent)]" />Keep this PC awake</summary>
+      <p className="mt-2">A sleeping PC posts nothing, and the failure is silent: the night&apos;s slots are simply missed. The scheduled task cannot wake the machine itself. To keep it awake (the screen can still turn off), run these once in PowerShell:</p>
+      <ul className="mt-2 space-y-1">{KEEP_AWAKE.map((command) => <li key={command}><CopyCommand text={command} /></li>)}</ul>
+      <p className="mt-2">The task also only runs while you are logged on unless it was registered from an Administrator PowerShell.</p>
+    </details>
+  );
 }
 
 function AutomationPanel({ card, busy, stale, onPause }: {
   card: AutomationCard; busy: boolean; stale: boolean; onPause: (card: AutomationCard) => void;
 }) {
   const needsAttention = card.state === "blocked" || card.state === "attention";
+  const missingTask = Boolean(card.registerCommand) && card.blockers.some((blocker) => blocker.startsWith("No Windows scheduled task is registered"));
   return (
     <section className="rounded-2xl border border-[var(--border)] bg-[var(--card)] p-5">
       <div className="flex flex-wrap items-start justify-between gap-3">
@@ -45,23 +83,66 @@ function AutomationPanel({ card, busy, stale, onPause }: {
       </div>
       <dl className="mt-5 grid grid-cols-2 gap-x-4 gap-y-3 border-t border-[var(--border)] pt-4 text-sm">
         <div className="col-span-2"><dt className="text-xs text-[var(--muted-foreground)]">Schedule</dt><dd className="mt-1 text-white">{card.schedule} <span className="text-[var(--muted-foreground)]">({card.timezone})</span></dd></div>
-        <div><dt className="text-xs text-[var(--muted-foreground)]">Next check / delivery</dt><dd className="mt-1 text-white">{card.paused ? "Paused" : at(card.nextRunAt, card.timezone)}</dd></div>
+        <div><dt className="text-xs text-[var(--muted-foreground)]">Next run</dt><dd className="mt-1 text-white">{card.paused ? "Paused" : at(card.nextRunAt, card.timezone)}</dd></div>
         <div><dt className="text-xs text-[var(--muted-foreground)]">Next queued item</dt><dd className="mt-1 text-white">{at(card.nextItemAt, card.timezone)}</dd></div>
-        <div><dt className="text-xs text-[var(--muted-foreground)]">Last worker evidence</dt><dd className="mt-1 text-white">{at(card.lastRunAt, card.timezone)}</dd></div>
-        <div><dt className="text-xs text-[var(--muted-foreground)]">Last outcome</dt><dd className="mt-1 text-white">{card.lastOutcome ?? "No outcome recorded"}</dd></div>
+        <div><dt className="text-xs text-[var(--muted-foreground)]">Last ran</dt><dd className="mt-1 text-white">{at(card.lastRunAt, card.timezone)}</dd></div>
+        <div><dt className="text-xs text-[var(--muted-foreground)]">Last outcome</dt><dd className="mt-1 text-white">{card.lastOutcome ?? "Nothing recorded yet"}</dd></div>
       </dl>
-      {card.taskLastRunAt && <p className="mt-3 text-xs text-[var(--muted-foreground)]">Windows task last started {at(card.taskLastRunAt, card.timezone)}; scheduler result {card.taskLastResult ?? "unknown"}. A task result does not confirm a post succeeded.</p>}
+      {card.taskLastRunAt && <p className="mt-3 text-xs text-[var(--muted-foreground)]">Windows task last started {at(card.taskLastRunAt, card.timezone)} and <span title={`Scheduler result code: ${card.taskLastResult ?? "none"}`} className="underline decoration-dotted underline-offset-2">{describeTaskResult(card.taskLastResult)}</span>. That does not confirm a post went out; the history below does.</p>}
       {(card.blockers.length > 0 || card.issues.length > 0) && (
         <div className="mt-4 space-y-2 rounded-xl border border-amber-500/20 bg-amber-500/5 p-3 text-sm text-amber-200">
           {[...card.blockers, ...card.issues].map((issue, index) => <p key={`${index}-${issue}`} className="flex gap-2"><TriangleAlert className="mt-0.5 h-3.5 w-3.5 shrink-0" />{issue}</p>)}
         </div>
       )}
+      {missingTask && card.registerCommand && <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-[var(--muted-foreground)]"><span>To install it, run in the app folder:</span><CopyCommand text={card.registerCommand} /></div>}
+      {(card.id === "publisher" || card.id === "threads") && <KeepAwake />}
+      {card.id === "pipeline" && <p className="mt-4 text-xs text-[var(--muted-foreground)]">Pause stops all stream processing: advancing outputs and fulfilling standing schedules, not only auto-booking.</p>}
       {card.id === "publisher" && <p className="mt-4 text-xs text-[var(--muted-foreground)]">Pause stops future worker actions. Posts already scheduled with a platform or Buffer can still go live; manage those posts on the platform. Explicit per-post Publish now remains available.</p>}
       {card.id === "podcast" && <p className="mt-4 text-xs text-[var(--muted-foreground)]">An episode in the feed has been handed off. Spotify decides when it becomes live; check its delivery on Podcast / Spotify.</p>}
       <div className="mt-4 flex flex-wrap items-center justify-between gap-2 text-xs">
         <span className="text-[var(--muted-foreground)]">{card.changedAt ? `Control saved ${at(card.changedAt, card.timezone)}` : "No pause override saved"}</span>
-        <Link href={card.href} className="inline-flex items-center gap-1 font-medium text-[var(--accent)]">Manage details <ArrowUpRight className="h-3.5 w-3.5" /></Link>
+        <Link href={card.itemHref ?? card.href} className="inline-flex items-center gap-1 font-medium text-[var(--accent)]">Manage details <ArrowUpRight className="h-3.5 w-3.5" /></Link>
       </div>
+    </section>
+  );
+}
+
+function HeldPanel({ held, total, timezone }: { held: HeldPost[]; total: number; timezone: string }) {
+  return (
+    <section className="mb-5 rounded-xl border border-[var(--border)] bg-[var(--card)] p-4" aria-labelledby="held-title">
+      <h2 id="held-title" className="font-semibold text-white">Still going live - cancel these on the platform</h2>
+      <p className="mt-1 max-w-3xl text-sm text-[var(--muted-foreground)]">YouTube, Facebook and Buffer already hold these and publish them at their time by themselves. Pausing here cannot stop them; cancel or edit them on the platform.</p>
+      {!held.length ? <p className="mt-3 text-sm text-[var(--muted-foreground)]">Nothing is waiting on a platform. Once the publisher is paused, nothing else will go live from the queue.</p> : <>
+        <ul className="mt-3 divide-y divide-[var(--border)]">
+          {held.map((post) => (
+            <li key={post.id} className="flex flex-wrap items-center gap-x-3 gap-y-1 py-2 text-sm">
+              <span className="rounded-full bg-white/10 px-2 py-0.5 text-[11px] font-medium text-white">{post.platform}</span>
+              <Link href={post.href} className="min-w-0 flex-1 truncate text-white hover:text-[var(--accent)]">{post.title}</Link>
+              <time dateTime={post.goesLiveAt} className="text-xs tabular-nums text-[var(--muted-foreground)]">Goes live {at(post.goesLiveAt, timezone)}</time>
+              {post.externalUrl && <a href={post.externalUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-xs font-medium text-[var(--accent)]">{post.externalLabel ?? "Open"}<ExternalLink className="h-3 w-3" /></a>}
+            </li>
+          ))}
+        </ul>
+        {total > held.length && <p className="mt-2 text-xs text-[var(--muted-foreground)]">Showing the next {held.length} of {total}.</p>}
+      </>}
+    </section>
+  );
+}
+
+function CadencePanel({ rows }: { rows: CadenceRow[] }) {
+  return (
+    <section className="mt-5 rounded-xl border border-[var(--border)] bg-[var(--card)] p-4" aria-labelledby="cadence-title">
+      <h2 id="cadence-title" className="font-semibold text-white">Cadence</h2>
+      <p className="mt-1 max-w-3xl text-sm text-[var(--muted-foreground)]">When and how often things post. Read-only here: change a value in the app&apos;s <code className="rounded bg-black/30 px-1">.env</code> file using the name shown, then restart the app.</p>
+      <dl className="mt-3 grid gap-x-6 gap-y-3 sm:grid-cols-2">
+        {rows.map((row) => (
+          <div key={row.env}>
+            <dt className="text-xs text-[var(--muted-foreground)]">{row.label}</dt>
+            <dd className="mt-0.5 text-sm text-white">{row.value} <code className="ml-1 rounded bg-black/30 px-1.5 py-0.5 text-[10px] text-[var(--muted-foreground)]">{row.env}</code></dd>
+            {row.note && <dd className="text-xs text-[var(--muted-foreground)]">{row.note}</dd>}
+          </div>
+        ))}
+      </dl>
     </section>
   );
 }
@@ -96,18 +177,24 @@ export function AutomationsPage() {
     return () => { clearTimeout(first); clearInterval(timer); };
   }, [load]);
 
+  async function patch(body: object): Promise<Record<string, unknown> & { id?: string; control?: { paused: boolean; changedAt: string | null } }> {
+    const response = await fetch("/api/automations", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body), signal: AbortSignal.timeout(10_000) });
+    const payload = await response.json();
+    if (!response.ok) throw new Error(payload.error ?? "Automation controls could not be saved.");
+    return payload;
+  }
+
   async function change(id: string, body: object) {
     if (changing.current || inflight.current) return;
     changing.current = true;
     setBusy(id);
     try {
-      const response = await fetch("/api/automations", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body), signal: AbortSignal.timeout(10_000) });
-      const payload = await response.json();
-      if (!response.ok) throw new Error(payload.error ?? "Automation controls could not be saved.");
-      if ("control" in payload) {
-        setOverview((current) => current ? { ...current, cards: current.cards.map((card) => card.id === payload.id ? { ...card, ...payload.control, state: payload.control.paused ? "paused" : "unknown" } : card) } : current);
+      const payload = await patch(body);
+      if ("control" in payload && payload.control) {
+        const control = payload.control;
+        setOverview((current) => current ? { ...current, cards: current.cards.map((card) => card.id === payload.id ? { ...card, ...control, state: control.paused ? "paused" : "unknown" } : card) } : current);
       } else {
-        setOverview((current) => current ? { ...current, autoScheduleOvernight: payload.autoScheduleOvernight } : current);
+        setOverview((current) => current ? { ...current, autoScheduleOvernight: payload.autoScheduleOvernight as boolean } : current);
       }
       toast.success("Automation control saved.");
       changing.current = false;
@@ -120,8 +207,44 @@ export function AutomationsPage() {
     }
   }
 
+  /** Pause or resume the three automations that post publicly, one existing PATCH each. */
+  async function setAllPosting(paused: boolean) {
+    if (changing.current || inflight.current || !overview) return;
+    const targets = overview.cards.filter((card) => POSTING_IDS.includes(card.id) && card.paused !== paused);
+    if (!targets.length) return;
+    changing.current = true;
+    setBusy("all");
+    const failed: string[] = [];
+    for (const card of targets) {
+      try { await patch({ action: "pause", id: card.id, paused }); } catch { failed.push(card.title); }
+    }
+    if (failed.length) toast.error(`${paused ? "Pause" : "Resume"} did not save for: ${failed.join(", ")}.`);
+    else toast.success(paused ? "Publisher, Threads and podcast are paused." : "Publisher, Threads and podcast are resumed.");
+    changing.current = false;
+    try { await load(); } finally { setBusy(null); }
+  }
+
   const blocked = overview?.cards.filter((card) => card.state === "blocked" || card.state === "attention").length ?? 0;
   const paused = overview?.cards.filter((card) => card.paused).length ?? 0;
+  const posting = overview?.cards.filter((card) => POSTING_IDS.includes(card.id)) ?? [];
+  const anyPostingRunning = posting.some((card) => !card.paused);
+  const anyPostingPaused = posting.some((card) => card.paused);
+
+  useColateralSurface({
+    route: "/automations",
+    title: "Automations",
+    summary: "Background workers that publish for you: which are paused, what failed or posted today, and what the platforms still hold.",
+    fields: [],
+    controls: [],
+    readings: [
+      { label: "Paused automations", value: overview ? (overview.cards.filter((card) => card.paused).map((card) => card.title).join(", ") || "None") : "-" },
+      { label: "Failed today", value: overview ? String(overview.today.failed) : "-" },
+      { label: "Posted today", value: overview ? String(overview.today.delivered) : "-" },
+      { label: "Need attention", value: overview ? String(blocked) : "-" },
+      { label: "Held by platforms", value: overview ? String(overview.heldTotal) : "-" }
+    ]
+  });
+
   return (
     <div className="mx-auto max-w-6xl p-4 sm:p-6">
       <PageHeader eyebrow="CoLateral Marketing" title="Automations" description="See what runs in the background, when it runs, what happened last and what needs fixing. Pause controls are saved and read by the workers." actions={<Button variant="secondary" onClick={() => void load()} disabled={refreshing || busy !== null}><RefreshCw className={cn("mr-2 h-4 w-4", refreshing && "animate-spin")} />Refresh</Button>} />
@@ -135,11 +258,20 @@ export function AutomationsPage() {
           <span className="ml-auto inline-flex items-center gap-2 text-xs text-[var(--muted-foreground)]"><Clock3 className="h-3.5 w-3.5" />Checked {at(overview.checkedAt, Intl.DateTimeFormat().resolvedOptions().timeZone)}</span>
         </div>
         <section className="mb-5 flex flex-wrap items-center justify-between gap-4 rounded-xl border border-[var(--border)] bg-[var(--card)] p-4">
-          <div><h2 className="font-semibold text-white">Auto-book new overnight streams</h2><p className="mt-1 max-w-2xl text-sm text-[var(--muted-foreground)]">{overview.autoScheduleOvernight ? "New overnight ingests may book finished outputs into future video and Threads slots." : "New overnight ingests stop at ready to schedule."} Existing standing instructions stay with their streams. Pause Stream Pipeline to stop their automatic booking.</p></div>
-          <Button variant="secondary" disabled={busy !== null || refreshing || Boolean(error)} onClick={() => void change("overnight", { action: "overnight-scheduling", enabled: !overview.autoScheduleOvernight })}>{busy === "overnight" ? "Saving..." : overview.autoScheduleOvernight ? "Turn off" : "Enable overnight scheduling"}</Button>
+          <div><h2 className="font-semibold text-white">Pause all posting</h2><p className="mt-1 max-w-2xl text-sm text-[var(--muted-foreground)]">Pauses the publisher, the Threads autopilot and the podcast in one go. Stream Pipeline and Channel ingest keep running. Posts a platform already holds still go live (listed below).</p></div>
+          <div className="flex flex-wrap gap-2">
+            {anyPostingRunning && <Button variant="secondary" disabled={busy !== null || refreshing || Boolean(error)} onClick={() => void setAllPosting(true)}>{busy === "all" ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Pause className="mr-2 h-4 w-4" />}Pause all posting</Button>}
+            {anyPostingPaused && <Button variant="secondary" disabled={busy !== null || refreshing || Boolean(error)} onClick={() => void setAllPosting(false)}>{busy === "all" ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Play className="mr-2 h-4 w-4" />}Resume all</Button>}
+          </div>
+        </section>
+        <HeldPanel held={overview.held} total={overview.heldTotal} timezone={posting.find((card) => card.id === "publisher")?.timezone ?? Intl.DateTimeFormat().resolvedOptions().timeZone} />
+        <section className="mb-5 flex flex-wrap items-center justify-between gap-4 rounded-xl border border-[var(--border)] bg-[var(--card)] p-4">
+          <div><h2 className="font-semibold text-white">Auto-book overnight streams</h2><p className="mt-1 max-w-2xl text-sm text-[var(--muted-foreground)]">{overview.autoScheduleOvernight ? "New overnight streams may book their finished outputs into future video and Threads slots." : "New overnight streams stop at ready to schedule."} Existing standing instructions stay with their streams. Pausing Stream Pipeline below stops all stream processing, not only this booking.</p></div>
+          <Button variant="secondary" disabled={busy !== null || refreshing || Boolean(error)} onClick={() => void change("overnight", { action: "overnight-scheduling", enabled: !overview.autoScheduleOvernight })}>{busy === "overnight" ? "Saving..." : overview.autoScheduleOvernight ? "Turn off" : "Turn on"}</Button>
         </section>
         <p className="mb-5 text-xs text-[var(--muted-foreground)]">Resume allows the existing configured schedule to continue. Missing tasks, disconnected accounts and switched-off publishing still block work. A current action may finish before the next pause check.</p>
         <div className="grid gap-5 lg:grid-cols-2">{overview.cards.map((card) => <AutomationPanel key={card.id} card={card} stale={Boolean(error)} busy={busy !== null || refreshing} onPause={(selected) => void change(selected.id, { action: "pause", id: selected.id, paused: !selected.paused })} />)}</div>
+        <CadencePanel rows={overview.cadence} />
       </>}
       <AutomationHistoryPanel />
     </div>

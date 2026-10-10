@@ -26,8 +26,8 @@ export const CAPITAL_COMMAND_ROUTES: RouteEntry[] = [
   { path: "/editor", label: "Clip Editor", group: "Formats" },
   { path: "/carousels", label: "Carousels & Images", group: "Formats" },
   { path: "/podcast", label: "Podcast / Spotify", group: "Formats" },
-  { path: "/x-posts", label: "X / Threads Posts", group: "Formats" },
-  { path: "/facebook", label: "FB / IG Threads", group: "Formats" },
+  { path: "/x-posts", label: "Threads Autopilot", group: "Formats" },
+  { path: "/facebook", label: "FB / IG Post Library", group: "Formats" },
   { path: "/launch", label: "Launch Pad", group: "Formats" },
 
   { path: "/uploading-center", label: "Uploading Center", group: "Schedule" },

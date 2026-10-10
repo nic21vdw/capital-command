@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useState } from "react";
 import { AtSign, Download, Palette, Send, SlidersHorizontal, UserRound } from "lucide-react";
 import { ConnectionsSettings } from "@/components/layout/connections-settings";
@@ -57,9 +58,11 @@ export function SettingsPage() {
         <div className="mt-5 divide-y divide-[var(--border)] rounded-xl border border-[var(--border)] px-4">
           <label className="flex cursor-pointer items-start justify-between gap-4 py-4 text-sm text-white">
             <span>
-              <span className="block font-medium">Allow posting</span>
+              <span className="block font-medium">Allow video and picture posting</span>
               <span className="mt-1 block text-xs text-[var(--muted-foreground)]">
-                Turn off to stop every automatic post. Work can still be created and queued.
+                When off, nothing new can be booked and the publisher sends nothing. Threads and the podcast have their own Pause on{" "}
+                <Link href="/automations" className="font-medium text-[var(--accent)] underline-offset-2 hover:underline">Automations</Link>.
+                Posts YouTube or Facebook already hold still go live.
               </span>
             </span>
             <input
@@ -73,16 +76,16 @@ export function SettingsPage() {
           </label>
           <label className="flex cursor-pointer items-start justify-between gap-4 py-4 text-sm text-white">
             <span>
-              <span className="block font-medium">Schedule overnight results</span>
+              <span className="block font-medium">Auto-book overnight streams</span>
               <span className="mt-1 block text-xs text-[var(--muted-foreground)]">
-                When off, stream content waits for review in the Stream Pipeline.
+                When on, new overnight streams are booked into future slots on their own. When off, stream content waits for review in the Stream Pipeline.
               </span>
             </span>
             <input
               type="checkbox"
               checked={data.settings.autoScheduleOvernight === true}
               onChange={(event) => void mutate("updateSettings", { ...data.settings, autoScheduleOvernight: event.target.checked }, {
-                successMessage: event.target.checked ? "Overnight scheduling is on." : "Overnight results will wait for review."
+                successMessage: event.target.checked ? "Overnight streams will be auto-booked." : "Overnight streams will wait for review."
               })}
               className="mt-0.5 h-5 w-5 shrink-0 accent-[var(--accent)]"
             />

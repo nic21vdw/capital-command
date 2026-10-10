@@ -125,4 +125,65 @@ describe("automation dashboard evidence", () => {
     expect(card.state).toBe("attention");
     expect(card.issues.join(" ")).toContain("No publisher tick recorded in over 15 minutes");
   });
+
+  it("tells Nic the exact command for a missing task and shows the interval in words", () => {
+    const input = inputs();
+    input.tasks.publisher = { state: "missing", nextRunAt: null, lastRunAt: null, lastResult: null, schedule: null };
+    input.tasks.threads = { state: "missing", nextRunAt: null, lastRunAt: null, lastResult: null, schedule: null };
+    input.tasks.ingest = { state: "missing", nextRunAt: null, lastRunAt: null, lastResult: null, schedule: null };
+    const cards = buildAutomationOverview(input, now).cards;
+    expect(cards.find((card) => card.id === "publisher")!.blockers.join(" ")).toContain('"npm run publish:register" in the app folder');
+    expect(cards.find((card) => card.id === "threads")!.blockers.join(" ")).toContain('"npm run threads:register"');
+    expect(cards.find((card) => card.id === "ingest")!.blockers.join(" ")).toContain('"npm run ingest:register"');
+    expect(cards.find((card) => card.id === "podcast")!.registerCommand).toBeUndefined();
+    input.tasks.publisher = { state: "ready", nextRunAt: null, lastRunAt: null, lastResult: 0, schedule: "PT5M" };
+    expect(buildAutomationOverview(input, now).cards.find((card) => card.id === "publisher")!.schedule).toBe("Windows task runs every 5 min");
+  });
+
+  it("explains a failed scan in words and never prints the raw exit code in the issue", () => {
+    const input = inputs();
+    input.tasks.ingest = { state: "ready", nextRunAt: null, lastRunAt: now.toISOString(), lastResult: 1, schedule: "PT1H" };
+    const card = buildAutomationOverview(input, now).cards.find((entry) => entry.id === "ingest")!;
+    expect(card.issues.join(" ")).toContain("ended with an error");
+    expect(card.issues.join(" ")).not.toMatch(/code \d/);
+    input.tasks.ingest = { ...input.tasks.ingest, lastResult: 267011 };
+    expect(buildAutomationOverview(input, now).cards.find((entry) => entry.id === "ingest")!.issues).toEqual([]);
+  });
+
+  it("lists what YouTube, Facebook and Buffer already hold, soonest first, with Studio links", () => {
+    const input = inputs();
+    const youtube = testItem({ id: "yt", title: "Held on YouTube", platformIds: ["youtube"], publishAt: "2026-10-03T15:00:00Z" });
+    youtube.platforms.youtube = { status: "scheduled", attempts: 1, postId: "abc123" };
+    const facebook = testItem({ id: "fb", title: "Held on Facebook", platformIds: ["facebook"], publishAt: "2026-10-02T15:00:00Z" });
+    facebook.platforms.facebook = { status: "uploaded", attempts: 1 };
+    const buffer = testItem({ id: "buf", title: "Held on Buffer", platformIds: [], publishAt: "2026-10-04T15:00:00Z", buffer: { status: "scheduled", attempts: 1 } });
+    const waiting = testItem({ id: "wait", platformIds: ["youtube"] });
+    input.queue = [youtube, facebook, buffer, waiting];
+    const overview = buildAutomationOverview(input, now);
+    expect(overview.heldTotal).toBe(3);
+    expect(overview.held.map((post) => post.platform)).toEqual(["Facebook", "YouTube", "Buffer"]);
+    expect(overview.held[1]).toMatchObject({ externalUrl: "https://studio.youtube.com/video/abc123/edit", href: "/uploading-center?item=yt&platform=youtube" });
+  });
+
+  it("reports the cadence with the .env name of each value", () => {
+    const rows = buildAutomationOverview(inputs(), now).cadence;
+    const byEnv = Object.fromEntries(rows.map((row) => [row.env, row.value]));
+    expect(byEnv.PUBLISH_SLOT_TIMES).toBe("07:30, 10:00, 12:30, 15:00, 17:30, 20:00");
+    expect(byEnv.PUBLISH_SHORTS_PER_DAY).toBe("2");
+    expect(byEnv.PUBLISH_TIMEZONE).toBe("America/Toronto");
+    expect(byEnv.THREADS_POSTS_PER_DAY).toBe("24");
+    expect(byEnv["THREADS_DAY_START / THREADS_DAY_END"]).toBe("00:20 to 23:20");
+  });
+
+  it("points the publisher card at its failed post, else its next due post", () => {
+    const input = inputs();
+    const due = testItem({ id: "due", platformIds: ["youtube"], publishAt: "2026-10-02T15:00:00Z" });
+    const later = testItem({ id: "later", platformIds: ["youtube"], publishAt: "2026-10-05T15:00:00Z" });
+    input.queue = [later, due];
+    expect(buildAutomationOverview(input, now).cards.find((card) => card.id === "publisher")!.itemHref).toBe("/uploading-center?item=due&platform=youtube");
+    later.platforms.youtube = { status: "failed", attempts: 3, error: "Quota" };
+    expect(buildAutomationOverview(input, now).cards.find((card) => card.id === "publisher")!.itemHref).toBe("/uploading-center?item=later&platform=youtube");
+    input.queue = [];
+    expect(buildAutomationOverview(input, now).cards.find((card) => card.id === "publisher")!.itemHref).toBeUndefined();
+  });
 });
