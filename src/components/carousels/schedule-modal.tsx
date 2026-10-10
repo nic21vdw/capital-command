@@ -10,10 +10,13 @@ import {
   CAROUSEL_PLATFORMS,
   DEFAULT_CAROUSEL_PLATFORMS,
   planCarouselSchedule,
+  anyPlatformPostsItself,
   platformPostingMode,
   WEEKDAY_LABELS,
+  type PlatformConnectionMap,
   type CarouselPlatformId
 } from "@/lib/carousels/schedule";
+import { usePlatformConnections } from "@/lib/publisher/usePlatformConnections";
 import { cn } from "@/lib/utils";
 import type { CarouselSchedule, ScheduleRecurrence } from "@/types/domain";
 
@@ -56,6 +59,12 @@ export function ScheduleModal({
   const [weekday, setWeekday] = useState(new Date().getDay());
   const [caption, setCaption] = useState("");
 
+  const links = usePlatformConnections();
+  // Unknown (still loading) stays undefined so nothing is called disconnected on a guess.
+  const connected: PlatformConnectionMap | undefined = links
+    ? Object.fromEntries(CAROUSEL_PLATFORMS.map((p) => [p.id, links[p.id]?.connected ?? false]))
+    : undefined;
+
   const togglePlatform = (id: CarouselPlatformId) =>
     setPlatforms((current) => (current.includes(id) ? current.filter((p) => p !== id) : [...current, id]));
 
@@ -75,8 +84,13 @@ export function ScheduleModal({
   };
 
   const plan = planCarouselSchedule(platforms, recurrence);
-  const books = plan.book.length > 0;
+  const bookable = plan.book.filter((id) => platformPostingMode(id, connected) === "automatic");
+  const unlinked = plan.book.filter((id) => platformPostingMode(id, connected) === "reminder");
+  // The route still books a disconnected network (as a manual reminder in the queue), but
+  // the owner should only be told the post "posts itself" when something really will.
+  const books = plan.book.length > 0 && anyPlatformPostsItself(plan.book, connected);
   const label = (ids: CarouselPlatformId[]) => ids.map((p) => CAROUSEL_PLATFORMS.find((c) => c.id === p)?.label).join(", ");
+  const sentence = (ids: CarouselPlatformId[]) => label(ids).replace(/, ([^,]*)$/, " and $1");
 
   return (
     <Modal
@@ -104,10 +118,14 @@ export function ScheduleModal({
                   )}
                 >
                   <span className="h-2 w-2 rounded-full" style={{ background: platform.color }} />
-                  <span className="flex flex-col items-start leading-tight">
+                  <span className="flex flex-col items-start text-left leading-tight">
                     {platform.label}
                     <span className="text-[9px] font-normal uppercase tracking-wide text-[var(--muted-foreground)]">
-                      {platformPostingMode(platform.id) === "automatic" ? "Automatic" : "Manual"}
+                      {{
+                        automatic: "Automatic",
+                        reminder: "Not connected - saved as a reminder",
+                        manual: "Manual"
+                      }[platformPostingMode(platform.id, connected)]}
                     </span>
                   </span>
                 </button>
@@ -173,8 +191,15 @@ export function ScheduleModal({
 
         {books ? (
           <p className="tone-info tone-edge tone-soft tone-text rounded-lg border p-2.5 text-[11px]">
-            {label(plan.book)} will be booked in the publish queue and post by themselves at that time. Nothing can be
+            {label(bookable)} will be booked in the publish queue and post by themselves at that time. Nothing can be
             booked for today - the earliest is tomorrow.
+          </p>
+        ) : null}
+        {unlinked.length > 0 ? (
+          <p className="tone-warning tone-edge tone-soft tone-text rounded-lg border p-2.5 text-[11px]">
+            {sentence(unlinked)} {unlinked.length > 1 ? "aren't" : "isn't"} connected, so {unlinked.length > 1 ? "they are" : "it is"}{" "}
+            saved as a reminder and you post the slides by hand. Connect {unlinked.length > 1 ? "them" : "it"} in Settings to
+            have {unlinked.length > 1 ? "them" : "it"} post by itself.
           </p>
         ) : null}
         {plan.remind.length > 0 ? (

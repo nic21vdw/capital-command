@@ -21,7 +21,8 @@ import { readAppData } from "@/lib/storage/store";
 import { readAutomationControls, readAutomationOutcome } from "@/lib/automations/store";
 import { readAutomationTasks } from "@/lib/automations/tasks";
 import { buildCadence } from "@/lib/automations/cadence";
-import { describeInterval, describeTaskResult, truncateAtWord } from "@/lib/automations/format";
+import { describeInterval, describeTaskResult } from "@/lib/automations/format";
+import { issueLine } from "@/lib/automations/plain";
 import { HELD_LIMIT, heldPosts } from "@/lib/automations/held";
 import { readAutomationHistory } from "@/lib/automations/history";
 import { uploadingCenterHref } from "@/lib/automations/links";
@@ -117,7 +118,7 @@ export function buildAutomationOverview(input: AutomationInputs, now = new Date(
     ...(run.carouselGaveUp ? [`${run.name}: ${run.carouselNote ?? "Carousel generation failed."}`] : []),
     ...(run.postsGaveUp ? [`${run.name}: ${run.postsNote ?? "Post generation failed."}`] : []),
     ...Object.entries(run.failures ?? {}).filter(([, attempts]) => attempts >= 3).map(([stage]) => `${run.name}: ${stage} has repeatedly failed.`),
-    ...(run.queueFailures ?? []).map((failure) => `${run.name}: ${failure.title}: ${failure.error}`)
+    ...(run.queueFailures ?? []).map((failure) => `${run.name}: ${issueLine(failure.title, failure.error)}`)
   ]).slice(0, 5);
   if (tick?.status === "failed") pipelineIssues.unshift(tick.detail);
   if (tick && now.getTime() - Date.parse(tick.at) > 300_000) pipelineIssues.unshift("The pipeline heartbeat has not reported in over five minutes.");
@@ -148,8 +149,8 @@ export function buildAutomationOverview(input: AutomationInputs, now = new Date(
   const pending = platformStates.filter(({ state }) => ["pending", "uploaded", "scheduled"].includes(state.status));
   const bufferStates = input.queue.filter((item) => item.buffer || input.publisher.buffer.enabled).map((item): { item: QueueItem; state: BufferState } => ({ item, state: item.buffer ?? { status: "pending", attempts: 0 } }));
   const bufferPending = bufferStates.filter(({ state }) => ["pending", "scheduled"].includes(state.status));
-  const publisherIssues = platformStates.filter(({ state }) => Boolean(state.error)).map(({ item, platform, state }) => `${truncateAtWord(item.title || item.caption, 60)} (${platform}): ${state.error}`).slice(0, 5);
-  publisherIssues.push(...bufferStates.filter(({ state }) => state.error || state.status === "manual").map(({ item, state }) => `${item.title} (Buffer): ${state.error ?? state.note ?? "Manual posting is required."}`).slice(0, 5));
+  const publisherIssues = platformStates.filter(({ state }) => Boolean(state.error)).map(({ item, platform, state }) => issueLine(item.title || item.caption, state.error ?? "", platform)).slice(0, 5);
+  publisherIssues.push(...bufferStates.filter(({ state }) => state.error || state.status === "manual").map(({ item, state }) => issueLine(item.title, state.error ?? state.note ?? "Manual posting is required.", "buffer")).slice(0, 5));
   if (publisherTick?.status === "failed") publisherIssues.unshift(publisherTick.detail);
   if (publisherTick && now.getTime() - Date.parse(publisherTick.at) > 15 * 60_000) publisherIssues.unshift("No publisher tick recorded in over 15 minutes.");
   const publisher = card("publisher", {
@@ -183,7 +184,7 @@ export function buildAutomationOverview(input: AutomationInputs, now = new Date(
     lastOutcome: threadsTick?.detail ?? (input.threadsState.lastPostAt ? `Last post sent ${input.threadsState.lastPostAt}` : input.threadsState.lastTickAt ? "A tick was recorded; no published post recorded yet." : null),
     counts: [{ label: "Queued", value: input.threadsItems.filter((item) => item.status === "pending").length }, { label: "Published", value: input.threadsItems.filter((item) => item.status === "published").length }, { label: "Failed", value: input.threadsItems.filter((item) => item.status === "failed").length },
       { label: "Replies waiting", value: replyCounts.pending + replyCounts.retrying }, { label: "Replies published", value: replyCounts.delivered }, { label: "Replies dropped", value: replyCounts.dropped }],
-    issues: [...(threadsTick?.status === "failed" ? [threadsTick.detail] : []), ...(!health.healthy && health.minutesSince !== null ? ["No Threads tick recorded in over 15 minutes."] : []), ...input.threadsItems.filter((item) => item.error || item.plugError).map((item) => `${item.topic}: ${item.error ?? item.plugError}`).slice(0, 5)],
+    issues: [...(threadsTick?.status === "failed" ? [threadsTick.detail] : []), ...(!health.healthy && health.minutesSince !== null ? ["No Threads tick recorded in over 15 minutes."] : []), ...input.threadsItems.filter((item) => item.error || item.plugError).map((item) => issueLine(item.topic, (item.error ?? item.plugError) as string, "threads")).slice(0, 5)],
     running: threadsTask?.state === "running"
   });
   const lastPodcast = [...input.podcast.deliveries].filter((entry) => entry.lastAttemptAt).sort((a, b) => b.lastAttemptAt!.localeCompare(a.lastAttemptAt!))[0];
@@ -195,7 +196,7 @@ export function buildAutomationOverview(input: AutomationInputs, now = new Date(
     lastRunAt: lastPodcast?.lastAttemptAt ?? null,
     lastOutcome: lastPodcast ? `${lastPodcast.title}: ${lastPodcast.status}` : null,
     counts: [{ label: "Scheduled", value: input.podcast.deliveries.filter((entry) => entry.status === "scheduled").length }, { label: "In feed", value: input.episodes }, { label: "Failed", value: input.podcast.deliveries.filter((entry) => entry.status === "failed").length }],
-    issues: [...(!input.episodes ? ["Publish the first episode before claiming the feed in Spotify. A scheduled first delivery can create it."] : []), ...(!input.spotifyConnected ? ["No Spotify account connection is stored in this app. Feed delivery still uses the linked show."] : []), ...input.podcast.deliveries.filter((entry) => entry.lastError).map((entry) => `${entry.title}: ${entry.lastError}`).slice(0, 5)],
+    issues: [...(!input.episodes ? ["Publish the first episode before claiming the feed in Spotify. A scheduled first delivery can create it."] : []), ...(!input.spotifyConnected ? ["No Spotify account connection is stored in this app. Feed delivery still uses the linked show."] : []), ...input.podcast.deliveries.filter((entry) => entry.lastError).map((entry) => issueLine(entry.title, entry.lastError as string, "podcast")).slice(0, 5)],
     running: input.podcast.deliveries.some((entry) => entry.status === "publishing")
   });
   const held = heldPosts(input.queue);

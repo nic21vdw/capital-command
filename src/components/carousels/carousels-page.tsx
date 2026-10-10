@@ -40,7 +40,15 @@ import {
   resolveSlideCount
 } from "@/lib/carousels/deck";
 import type { CarouselImage } from "@/lib/carousels/imageSlides";
-import { bookingMessage, PLATFORM_LABEL, planCarouselSchedule, type CarouselPlatformId } from "@/lib/carousels/schedule";
+import {
+  anyPlatformPostsItself,
+  bookingMessage,
+  bookingNeedsHands,
+  PLATFORM_LABEL,
+  planCarouselSchedule,
+  type CarouselPlatformId
+} from "@/lib/carousels/schedule";
+import { usePlatformConnections } from "@/lib/publisher/usePlatformConnections";
 import {
   ASPECT_RATIO_LIST,
   aspectSpec,
@@ -722,6 +730,16 @@ function CarouselCard({
   const [saving, setSaving] = useState(false);
   const [editor, setEditor] = useState<{ index: number; mode: "preview" | "edit" } | null>(null);
   const [scheduleOpen, setScheduleOpen] = useState(false);
+  const links = usePlatformConnections();
+  // The tag next to Schedule must not promise "Automatic" while neither network is signed in.
+  const scheduleTag = !links
+    ? "IG/FB"
+    : anyPlatformPostsItself(["instagram", "facebook"], {
+          instagram: links.instagram?.connected ?? false,
+          facebook: links.facebook?.connected ?? false
+        })
+      ? "Automatic IG/FB"
+      : "Reminder only";
   const previewRefs = useRef<Array<HTMLCanvasElement | null>>([]);
 
   const spec = aspectSpec(ratio);
@@ -796,6 +814,9 @@ function CarouselCard({
     const plan = planCarouselSchedule(schedule.platforms as CarouselPlatformId[], schedule.recurrence);
     setSaving(true);
     let booked: string | null = null;
+    // True only when the route left every booked network queued for automatic
+    // posting AND nothing else was left as a reminder.
+    let allAutomatic = true;
     try {
       if (plan.book.length > 0) {
         const response = await fetch(`/api/studio/carousels/${carousel.id}/book`, {
@@ -817,6 +838,7 @@ function CarouselCard({
           return;
         }
         booked = bookingMessage(result.item.platforms, result.item.publishAt, result.timeZone ?? "UTC");
+        allAutomatic = !bookingNeedsHands(result.item.platforms);
         // It is in the queue now; the modal's job is done even if the reminder
         // for the other networks below fails to save.
         setScheduleOpen(false);
@@ -825,13 +847,14 @@ function CarouselCard({
         await patchCarousel({ schedules: [...(carousel.schedules ?? []), { ...schedule, platforms: plan.remind }] });
       }
       const reminded = plan.remind.map((id) => PLATFORM_LABEL[id]).join(", ");
-      toast.success(
-        booked
-          ? plan.remind.length > 0
-            ? `${booked} Reminder saved for ${reminded} - nothing posts there automatically.`
-            : booked
-          : "Reminder saved - nothing posts automatically"
-      );
+      const message = booked
+        ? plan.remind.length > 0
+          ? `${booked} Reminder saved for ${reminded} - nothing posts there automatically.`
+          : booked
+        : "Reminder saved - nothing posts automatically";
+      // Green only when something really is queued to post itself and nothing was left to do by hand.
+      if (booked && allAutomatic && plan.remind.length === 0) toast.success(message);
+      else toast.warning(message);
       setScheduleOpen(false);
     } catch {
       toast.error(booked ? `${booked} But the reminder could not be saved.` : "Could not save the reminder.");
@@ -959,7 +982,7 @@ function CarouselCard({
             title="A one-off post to Instagram and Facebook is booked and posts itself. TikTok, YouTube and repeating schedules are reminders only."
           >
             <CalendarClock className="h-3.5 w-3.5" /> Schedule
-            <span className="text-[10px] font-normal opacity-70">Automatic IG/FB</span>
+            <span className="text-[10px] font-normal opacity-70">{scheduleTag}</span>
           </Button>
           <Button variant="danger" className="px-3 py-1.5 text-xs" onClick={() => void remove()} aria-label="Delete carousel">
             <Trash2 className="h-3.5 w-3.5" />

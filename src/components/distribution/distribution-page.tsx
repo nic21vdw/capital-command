@@ -26,6 +26,8 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { PageHeader } from "@/components/ui/page-header";
 import { POSTING_MODES, PostingTag, type PostingMode } from "@/components/ui/posting-tag";
+import type { AutomationCard } from "@/lib/automations/types";
+import { setupNeed, type SetupInputs } from "@/lib/distribution/setup";
 import { useColateralSurface } from "@/lib/colateral/useSurface";
 import { dateTimeFormat } from "@/lib/publisher/intl";
 import { cn } from "@/lib/utils";
@@ -506,6 +508,16 @@ export function DistributionPage() {
   const [overview, setOverview] = useState<Overview | null>(null);
   const [loading, setLoading] = useState(true);
   const [source, setSource] = useState<SourceKey>("video");
+  // The Automations cards say whether the podcast and Threads runners are blocked.
+  // Unknown (still loading, or the call failed) must never read as blocked.
+  const [cards, setCards] = useState<AutomationCard[] | null>(null);
+
+  useEffect(() => {
+    void fetch("/api/automations", { cache: "no-store" })
+      .then((response) => (response.ok ? response.json() : null))
+      .then((json: { cards?: AutomationCard[] } | null) => setCards(json?.cards ?? null))
+      .catch(() => undefined);
+  }, []);
 
   useEffect(() => {
     void fetch("/api/studio/overview", { cache: "no-store" })
@@ -573,6 +585,11 @@ export function DistributionPage() {
     );
   }
 
+  const setupInputs: SetupInputs = {
+    configuredPlatforms: overview.publish.configuredPlatforms,
+    publishEnabled: overview.publish.enabled,
+    cards,
+  };
   const pipeline = PIPELINE[source];
   const caps = MATRIX[source];
   const spoken = SPOKEN_SOURCES.includes(source);
@@ -695,6 +712,7 @@ export function DistributionPage() {
                   outputKey={key}
                   cap={caps[key]!}
                   stat={statFor(key, overview)}
+                  inputs={setupInputs}
                 />
               </div>
             ))}
@@ -715,6 +733,7 @@ export function DistributionPage() {
                         outputKey={key}
                         cap={caps[key]!}
                         stat={statFor(key, overview)}
+                        inputs={setupInputs}
                       />
                     </div>
                   ))}
@@ -806,12 +825,16 @@ function OutputCard({
   outputKey,
   cap,
   stat,
+  inputs,
 }: {
   outputKey: OutputKey;
   cap: Capability;
   stat?: string;
+  inputs: SetupInputs;
 }) {
   const meta = OUTPUTS[outputKey];
+  // "Automatic" is what happens once everything is connected; say so when it is not.
+  const need = meta.posting.mode === "automatic" ? setupNeed(outputKey, inputs) : null;
   const Icon = meta.icon;
   const isReady = cap.status === "ready";
   const href = cap.href ?? (isReady ? meta.href : undefined);
@@ -854,7 +877,27 @@ function OutputCard({
       <p className="text-xs text-[var(--muted-foreground)]">{cap.note}</p>
       {isReady ? (
         <div className="flex flex-col items-start gap-1">
-          <PostingTag mode={meta.posting.mode} />
+          <div className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5">
+            <PostingTag mode={meta.posting.mode} />
+            {need ? (
+              <Link
+                href={need.href}
+                title={`${need.reason} - fix it in ${need.hrefLabel}`}
+                className="text-[11px] font-medium text-amber-300 underline decoration-dotted underline-offset-2 hover:text-amber-200"
+              >
+                (needs setup)
+              </Link>
+            ) : null}
+          </div>
+          {need ? (
+            <p className="text-[11px] text-amber-300/90">
+              {need.reason.charAt(0).toUpperCase() + need.reason.slice(1)}
+              {/[.\u2026]$/.test(need.reason) ? "" : "."}{" "}
+              <Link href={need.href} className="underline underline-offset-2 hover:text-amber-200">
+                Open {need.hrefLabel}
+              </Link>
+            </p>
+          ) : null}
           <p className="text-[11px] text-[var(--muted-foreground)]">
             {meta.posting.where}
           </p>

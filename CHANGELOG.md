@@ -14,6 +14,9 @@ already shipped.
 
 ## Unreleased
 
+- **Carousel booking and Distribution stop promising "Automatic" with nothing connected.** Saving a carousel for Instagram and Facebook while neither is signed in now shows an amber warning, labels them "Not connected - saved as a reminder" and the button says Save reminder; Distribution marks formats whose accounts or runners are missing "(needs setup)" with a link to Settings or Automations. On a phone, Carousels and Day Summary no longer push past the screen edge.
+- **Automations shows two warnings per card, in plain words.** The rest sit behind "+N more", and lines read "Post title: Threads connection expired - reconnect in Settings" instead of a raw API error.
+
 - **The Schedule dialogs stay put.** On Carousels the Schedule window used to open halfway down the page, scroll away with it and hide Cancel and Book post behind the next card or the command bar. Every dialog now opens over the whole screen, above the command bar, with its buttons always in view (it scrolls inside on a phone) and Tab kept inside it.
 
 - **Sidebar chips agree with Settings, and a failed sign-in stays where you were.** Instagram and Facebook with a saved token now show a muted "saved, not verified" in the sidebar instead of a green dot, the same as Settings. A sign-in that fails no longer bounces you from 127.0.0.1 to localhost, which looked like the app had forgotten your place.
