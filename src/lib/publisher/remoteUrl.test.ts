@@ -18,6 +18,15 @@ describe("remoteUrlFor", () => {
     expect(remoteUrlFor("tiktok", "7300000000", "published")).toBeNull();
   });
 
+  it("links Instagram only from a stored shortcode or permalink, never a numeric media id", () => {
+    expect(remoteUrlFor("instagram", "CxYz12AbCdE", "published")).toBe("https://www.instagram.com/p/CxYz12AbCdE/");
+    expect(remoteUrlFor("instagram", "CxYz12AbCdE", "scheduled")).toBeNull();
+    expect(remoteUrlFor("instagram", "17900000000000000", "published")).toBeNull();
+    expect(remoteUrlFor("instagram", "https://www.instagram.com/p/CxYz12AbCdE/", "published")).toBe(
+      "https://www.instagram.com/p/CxYz12AbCdE/"
+    );
+  });
+
   it("uses a full URL when one was stored", () => {
     expect(remoteUrlFor("tiktok", "https://www.tiktok.com/@me/video/1", "published")).toBe(
       "https://www.tiktok.com/@me/video/1"

@@ -60,7 +60,7 @@ function AutomationPanel({ card, busy, stale, onPause }: {
   card: AutomationCard; busy: boolean; stale: boolean; onPause: (card: AutomationCard) => void;
 }) {
   const needsAttention = card.state === "blocked" || card.state === "attention";
-  const missingTask = Boolean(card.registerCommand) && card.blockers.some((blocker) => blocker.startsWith("No Windows scheduled task is registered"));
+  const missingTask = Boolean(card.registerCommand) && card.blockers.some((blocker) => blocker.includes(" not installed - "));
   return (
     <section className="rounded-2xl border border-[var(--border)] bg-[var(--card)] p-5">
       <div className="flex flex-wrap items-start justify-between gap-3">

@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { AlertTriangle, ArrowUpRight, CalendarDays, ChevronLeft, ChevronRight, LayoutList, Loader2, Lock, Repeat, Sparkles } from "lucide-react";
+import { AlertTriangle, ArrowUpRight, Bell, CalendarDays, ChevronLeft, ChevronRight, LayoutList, Loader2, Lock, Repeat, Sparkles } from "lucide-react";
 import { Badge, type BadgeTone } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -13,7 +13,9 @@ import {
   CALENDAR_SOURCES,
   CALENDAR_SOURCE_BY_ID,
   eventHref,
+  eventStatusLabel,
   isFailedEventStatus,
+  isReminderEventStatus,
   type CalendarSource,
   type CalendarSourceId,
   type MasterCalendarEvent,
@@ -50,7 +52,17 @@ type ViewMode = "day" | "week" | "month";
 
 const WEEKDAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
-/** Sunday of the week containing `key`. */
+/**
+ * The week view is a rolling seven days that STARTS at the chosen day. A
+ * Sunday-to-Saturday week opened on a Saturday showed one live day and six
+ * that were over, so the schedule - the point of the screen - was off to the
+ * right. Today opens as the first column; arrows move a whole week at a time.
+ */
+function weekWindowStart(anchor: string): string {
+  return anchor;
+}
+
+/** Sunday of the week containing `key` (the month grid's rows). */
 function startOfWeek(key: string): string {
   return shiftDayKey(key, -weekdayOfDayKey(key));
 }
@@ -67,6 +79,7 @@ const HELD_NOTE = "Stays private - publish by hand after review";
 /** What a tooltip adds about an event beyond its title: a lost leg, a hold. */
 function eventNote(event: MasterCalendarEvent): string {
   const notes: string[] = [];
+  if (isReminderEventStatus(event.status)) notes.push("Reminder - post it by hand, the app does not publish this");
   if (event.failedPlatforms?.length) notes.push(`${event.status} on ${event.failedPlatforms.join(", ")}`);
   if (event.heldForReview) notes.push(HELD_NOTE);
   return notes.length ? ` (${notes.join("; ")})` : "";
@@ -75,16 +88,20 @@ function eventNote(event: MasterCalendarEvent): string {
 /** A single event as a compact clickable row (month/week cells). */
 function EventChip({ event }: { event: MasterCalendarEvent }) {
   const source = CALENDAR_SOURCE_BY_ID[event.source];
+  const reminder = isReminderEventStatus(event.status);
   return (
     <Link
       href={eventHref(event)}
       title={`${event.time ? `${event.time} · ` : ""}${event.title}${eventNote(event)} — open ${source.hrefLabel}`}
-      className="flex items-center gap-1.5 rounded-md border-l-2 bg-white/5 px-1.5 py-1 text-[11px] leading-tight transition hover:translate-x-0.5 hover:bg-white/10"
-      style={{ borderLeftColor: source.color }}
+      className={cn(
+        "flex items-center gap-1.5 rounded-md px-1.5 py-1 text-[11px] leading-tight transition hover:translate-x-0.5 hover:bg-white/10",
+        reminder ? "border border-dashed border-[var(--border-strong)] bg-transparent opacity-80" : "border-l-2 bg-white/5"
+      )}
+      style={reminder ? undefined : { borderLeftColor: source.color }}
     >
-      <SourceIcon source={event.source} className="h-3 w-3" />
+      {reminder ? <Bell className="h-3 w-3 shrink-0 text-[var(--muted-foreground)]" aria-label="Reminder" /> : <SourceIcon source={event.source} className="h-3 w-3" />}
       {event.time ? <span className="shrink-0 font-semibold text-[var(--muted-foreground)]">{event.time}</span> : null}
-      <span className="min-w-0 truncate text-white">{event.title}</span>
+      <span className={cn("min-w-0 truncate", reminder ? "text-[var(--muted-foreground)]" : "text-white")}>{event.title}</span>
       {isFailedEventStatus(event.status) ? <AlertTriangle className="h-2.5 w-2.5 shrink-0 text-red-300" aria-label={event.status} /> : null}
       {event.heldForReview ? <Lock className="h-2.5 w-2.5 shrink-0 text-amber-300" aria-label={HELD_NOTE} /> : null}
       {event.recurring ? <Repeat className="h-2.5 w-2.5 shrink-0 text-[var(--muted-foreground)]" /> : null}
@@ -141,11 +158,15 @@ function SourceGroupChip({ source, events }: { source: CalendarSource; events: M
 /** A single event as a full row with platforms + status (day view). */
 function EventCard({ event }: { event: MasterCalendarEvent }) {
   const source = CALENDAR_SOURCE_BY_ID[event.source];
+  const reminder = isReminderEventStatus(event.status);
   return (
     <Link
       href={eventHref(event)}
-      className="group flex items-center gap-3 rounded-lg border border-[var(--border)] border-l-2 bg-white/5 px-3 py-2.5 transition hover:border-[var(--border-strong)] hover:bg-white/10"
-      style={{ borderLeftColor: source.color }}
+      className={cn(
+        "group flex items-center gap-3 rounded-lg border px-3 py-2.5 transition hover:border-[var(--border-strong)] hover:bg-white/10",
+        reminder ? "border-dashed border-[var(--border-strong)] bg-transparent opacity-85" : "border-[var(--border)] border-l-2 bg-white/5"
+      )}
+      style={reminder ? undefined : { borderLeftColor: source.color }}
     >
       <span className="w-12 shrink-0 text-sm font-semibold text-[var(--accent)]">{event.time ?? "—"}</span>
       <SourceIcon source={event.source} className="h-4 w-4" />
@@ -154,6 +175,7 @@ function EventCard({ event }: { event: MasterCalendarEvent }) {
         <span className="mt-0.5 block text-xs text-[var(--muted-foreground)]">
           {source.shortLabel}
           {event.platforms.length > 0 ? ` · ${event.platforms.join(", ")}` : ""}
+          {reminder ? " · post it by hand" : ""}
         </span>
         {event.failedPlatforms?.length ? (
           <span className="mt-0.5 block text-xs text-red-300">Failed on {event.failedPlatforms.join(", ")}</span>
@@ -161,7 +183,7 @@ function EventCard({ event }: { event: MasterCalendarEvent }) {
         {event.heldForReview ? <span className="mt-0.5 block text-xs text-amber-300">{HELD_NOTE}</span> : null}
       </span>
       {event.recurring ? <Repeat className="h-3.5 w-3.5 shrink-0 text-[var(--muted-foreground)]" /> : null}
-      <Badge tone={statusTone(event.status)} className="shrink-0 capitalize">{event.status}</Badge>
+      <Badge tone={statusTone(event.status)} className={cn("shrink-0 capitalize", reminder && "border-dashed")}>{eventStatusLabel(event.status)}</Badge>
       <ArrowUpRight className="h-3.5 w-3.5 shrink-0 text-[var(--muted-foreground)] opacity-0 transition group-hover:opacity-100" />
     </Link>
   );
@@ -234,7 +256,7 @@ export function MasterCalendarPage() {
   // 6-week grid starting on the Sunday before the 1st.
   const range = useMemo(() => {
     if (view === "day") return { start: anchor, days: 1 };
-    if (view === "week") return { start: startOfWeek(anchor), days: 7 };
+    if (view === "week") return { start: weekWindowStart(anchor), days: 7 };
     return { start: startOfWeek(`${anchor.slice(0, 8)}01`), days: 42 };
   }, [view, anchor]);
   const rangeId = `${range.start}:${range.days}`;
@@ -347,7 +369,7 @@ export function MasterCalendarPage() {
   const periodLabel = useMemo(() => {
     if (view === "day") return formatDayKey(anchor, { weekday: "long", month: "long", day: "numeric", year: "numeric" });
     if (view === "week") {
-      const start = startOfWeek(anchor);
+      const start = weekWindowStart(anchor);
       const end = shiftDayKey(start, 6);
       return `${formatDayKey(start, { month: "short", day: "numeric" })} – ${formatDayKey(end, { month: "short", day: "numeric", year: "numeric" })}`;
     }
@@ -355,7 +377,7 @@ export function MasterCalendarPage() {
   }, [view, anchor]);
 
   const weekDays = useMemo(() => {
-    const start = startOfWeek(anchor);
+    const start = weekWindowStart(anchor);
     return Array.from({ length: 7 }, (_, i) => shiftDayKey(start, i));
   }, [anchor]);
 
@@ -848,6 +870,7 @@ export function MasterCalendarPage() {
         <p className="mt-3 text-xs text-[var(--muted-foreground)]">
           Times shown in {response.timezone}
           {!response.publishEnabled ? " · Video and picture posting is off in Settings, so scheduled uploads are not shown." : ""}
+          {events.some((event) => isReminderEventStatus(event.status)) ? " · Dashed bell items are reminders to post by hand, not scheduled posts." : ""}
         </p>
       ) : null}
     </div>

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { describeInterval, describeTaskResult } from "@/lib/automations/format";
+import { describeInterval, truncateAtWord, describeTaskResult } from "@/lib/automations/format";
 
 describe("describeInterval", () => {
   it("turns ISO durations into plain words", () => {
@@ -29,5 +29,24 @@ describe("describeTaskResult", () => {
     expect(describeTaskResult(267011)).toBe("has not run yet");
     expect(describeTaskResult(1)).toBe("ended with an error");
     expect(describeTaskResult(null)).toBe("no result recorded");
+  });
+});
+
+describe("truncateAtWord", () => {
+  it("leaves short text alone", () => {
+    expect(truncateAtWord("Day 42 full edit", 60)).toBe("Day 42 full edit");
+  });
+
+  it("cuts on a word boundary with an ellipsis, never mid-word", () => {
+    const out = truncateAtWord("Three agents, one repo, here is the truth about how I stop merge fights", 40);
+    expect(out.endsWith("…")).toBe(true);
+    expect(out.length).toBeLessThanOrEqual(40);
+    expect(out).toBe("Three agents, one repo, here is the…");
+  });
+
+  it("collapses whitespace and survives one very long word", () => {
+    expect(truncateAtWord("a\n\n  b", 10)).toBe("a b");
+    expect(truncateAtWord("x".repeat(80), 20)).toBe(`${"x".repeat(19)}…`);
+    expect(truncateAtWord(undefined, 10)).toBe("");
   });
 });

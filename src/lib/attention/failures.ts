@@ -1,4 +1,5 @@
 import { describeFailure } from "@/lib/publisher/failure";
+import { countFailedLegs, failedLegPlatforms } from "@/lib/publisher/failedLegs";
 import type { PlatformId, QueueItem } from "@/lib/publisher/types";
 import type { ThreadsQueueItem } from "@/lib/threads/types";
 import type { AppNotification } from "@/lib/colateral/protocol";
@@ -13,24 +14,23 @@ import type { AppNotification } from "@/lib/colateral/protocol";
  * GET /api/pipeline?summary=1, which is the one request the shell already makes
  * every minute.
  *
- * What counts:
- *  - A publish-queue post with ANY failed leg (YouTube, Instagram, TikTok,
- *    Facebook, or Buffer), not only one where every leg failed.
- *  - Unless it is fully failed AND already on screen (`failedSeenAt`, stamped
- *    when the Uploading Center loads): that is the same "seen" proof the
- *    retention sweep waits for, and a failure he has looked at stops nagging.
- *    A partly failed post is never stamped (queue.test.ts pins that), so it
- *    counts until it is retried or ages out.
- *  - A Threads post whose status is `failed`. The queue keeps no "seen" mark,
- *    so it counts until it is retried or ages out.
- *  - Only failures from the last ATTENTION_WINDOW_DAYS, by their slot: an old
- *    failure that was never cleared is history, not news. Future slots count
- *    (an upload that already failed ahead of its slot still needs a hand).
+ * THE COUNT IS UNRESOLVED FAILURES, and nothing else. It is the number on the
+ * Uploading Center's "Failed (N)" strip - both read `failedLegPlatforms` - plus
+ * the Threads posts that are failed. A failure stops counting only when it is
+ * fixed: retried, removed, or swept by retention. Opening the page does not
+ * clear it, and neither does age; a badge that reads 0 over a strip that says
+ * 14 is a badge nobody trusts.
+ *
+ *  - One per failed platform leg (YouTube, Instagram, TikTok, Facebook), so a
+ *    post that lost two networks is two things to fix.
+ *  - A Threads post whose status is `failed`.
  *  - "manual" legs do not count. They are reminders, not failures, and they are
  *    listed as to-dos on Day Summary instead.
+ *
+ * What "seen" still does: `failedSeenAt` (stamped when the Uploading Center
+ * loads) stops a fully failed post being sent to the host AGAIN as a
+ * notification. It never lowers the count.
  */
-
-export const ATTENTION_WINDOW_DAYS = 7;
 
 /** At most this many individual failures are sent to the host per poll. */
 export const MAX_FAILURES_LISTED = 10;
@@ -57,26 +57,23 @@ const PLATFORM_LABELS: Record<PlatformId, string> = {
   facebook: "Facebook"
 };
 
-const PLATFORM_ORDER: PlatformId[] = ["youtube", "instagram", "tiktok", "facebook"];
-
-function withinWindow(publishAt: string, now: Date): boolean {
-  const slot = new Date(publishAt).getTime();
-  if (!Number.isFinite(slot)) return false;
-  return slot >= now.getTime() - ATTENTION_WINDOW_DAYS * 86_400_000;
-}
-
 function isFullyFailed(item: QueueItem): boolean {
   const states = Object.values(item.platforms);
   return states.length > 0 && states.every((state) => state?.status === "failed") && (!item.buffer || item.buffer.status === "failed");
 }
 
-/** True when this queue post is asking for attention. */
-export function publishNeedsAttention(item: QueueItem, now: Date): boolean {
-  if (!withinWindow(item.publishAt, now)) return false;
-  const failedLeg =
-    Object.values(item.platforms).some((state) => state?.status === "failed") || item.buffer?.status === "failed";
-  if (!failedLeg) return false;
-  return !(isFullyFailed(item) && item.failedSeenAt);
+/** True when this queue post has a failure nobody has fixed yet. */
+export function publishNeedsAttention(item: QueueItem): boolean {
+  return failedLegPlatforms(item).length > 0 || item.buffer?.status === "failed";
+}
+
+/**
+ * True when the host should be TOLD about this post's failure: it has one, and
+ * it is not a fully failed post the board has already shown. This is about not
+ * repeating a notification; the count ignores it.
+ */
+function worthNotifying(item: QueueItem): boolean {
+  return publishNeedsAttention(item) && !(isFullyFailed(item) && item.failedSeenAt);
 }
 
 function shortTitle(text: string, max = 80): string {
@@ -85,13 +82,13 @@ function shortTitle(text: string, max = 80): string {
 }
 
 /** The failing posts, one entry per failed leg, newest slot first. */
-export function publishFailures(queue: QueueItem[], now: Date): AttentionFailure[] {
+export function publishFailures(queue: QueueItem[]): AttentionFailure[] {
   const failures: AttentionFailure[] = [];
   for (const item of queue) {
-    if (!publishNeedsAttention(item, now)) continue;
-    for (const platform of PLATFORM_ORDER) {
+    if (!worthNotifying(item)) continue;
+    for (const platform of failedLegPlatforms(item)) {
       const state = item.platforms[platform];
-      if (!state || state.status !== "failed") continue;
+      if (!state) continue;
       const advice = describeFailure(state, platform);
       const label = PLATFORM_LABELS[platform];
       // A reconnect headline already says what to do; the others need pointing
@@ -132,20 +129,24 @@ export function publishFailures(queue: QueueItem[], now: Date): AttentionFailure
   return failures.sort((a, b) => b.at.localeCompare(a.at));
 }
 
-/** Posts (not legs) in the publish queue asking for attention. */
-export function countPublishAttention(queue: QueueItem[], now: Date): number {
-  return queue.filter((item) => publishNeedsAttention(item, now)).length;
+/**
+ * Failed legs in the publish queue: exactly the number on the Uploading
+ * Center's "Failed (N)" strip. (A Buffer hand-off that failed still raises a
+ * notification, but it has no leg on the strip, so it is not added here.)
+ */
+export function countPublishAttention(queue: QueueItem[]): number {
+  return countFailedLegs(queue);
 }
 
 const THREADS_CONNECTION = /reconnect|expired|revoked|unauthoriz|unauthentic|invalid.*token|\b401\b|\b190\b/i;
 
-/** Failed Threads posts inside the window. */
-export function threadsFailedItems(items: ThreadsQueueItem[], now: Date): ThreadsQueueItem[] {
-  return items.filter((item) => item.status === "failed" && withinWindow(item.publishAt, now));
+/** Failed Threads posts: the queue's own retention decides how long they stay. */
+export function threadsFailedItems(items: ThreadsQueueItem[]): ThreadsQueueItem[] {
+  return items.filter((item) => item.status === "failed");
 }
 
-export function threadsFailures(items: ThreadsQueueItem[], now: Date): AttentionFailure[] {
-  return threadsFailedItems(items, now)
+export function threadsFailures(items: ThreadsQueueItem[]): AttentionFailure[] {
+  return threadsFailedItems(items)
     .map((item): AttentionFailure => {
       const reconnect = Boolean(item.error && THREADS_CONNECTION.test(item.error));
       return {
@@ -176,11 +177,10 @@ export function attentionSummary(input: {
   pipeline: number;
   queue: QueueItem[];
   threadsItems: ThreadsQueueItem[];
-  now: Date;
 }): { needsAttention: number; breakdown: AttentionBreakdown; failures: AttentionFailure[] } {
-  const publish = countPublishAttention(input.queue, input.now);
-  const threads = threadsFailedItems(input.threadsItems, input.now).length;
-  const failures = [...publishFailures(input.queue, input.now), ...threadsFailures(input.threadsItems, input.now)]
+  const publish = countPublishAttention(input.queue);
+  const threads = threadsFailedItems(input.threadsItems).length;
+  const failures = [...publishFailures(input.queue), ...threadsFailures(input.threadsItems)]
     .sort((a, b) => b.at.localeCompare(a.at))
     .slice(0, MAX_FAILURES_LISTED);
   return {

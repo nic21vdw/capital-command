@@ -30,6 +30,8 @@ import { buildDaySummary, summaryState, type DaySummary, type SummaryState } fro
 import { PlatformIcon, type PlatformIconKey } from "@/components/ui/platform-icon";
 import {
   eventHref,
+  eventStatusLabel,
+  isReminderEventStatus,
   type MasterCalendarEvent,
   type MasterCalendarResponse
 } from "@/lib/master-calendar/types";
@@ -137,7 +139,9 @@ function PieceCard({ event }: { event: MasterCalendarEvent }) {
           <ArrowUpRight className="mt-0.5 h-3.5 w-3.5 shrink-0 text-[var(--muted-foreground)] opacity-0 transition group-hover:opacity-100" />
         </div>
         <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
-          <Badge tone={STATE_TONES[state]} className="capitalize">{event.status}</Badge>
+          <Badge tone={STATE_TONES[state]} className={cn("capitalize", isReminderEventStatus(event.status) && "border-dashed")}>
+            {eventStatusLabel(event.status)}
+          </Badge>
           {event.recurring ? (
             <Badge className="gap-1 border-white/10 bg-white/5 text-[var(--muted-foreground)]">
               <Repeat className="h-3 w-3" />

@@ -27,6 +27,7 @@ import { Card } from "@/components/ui/card";
 import { PageHeader } from "@/components/ui/page-header";
 import { POSTING_MODES, PostingTag, type PostingMode } from "@/components/ui/posting-tag";
 import { useColateralSurface } from "@/lib/colateral/useSurface";
+import { dateTimeFormat } from "@/lib/publisher/intl";
 import { cn } from "@/lib/utils";
 
 /**
@@ -89,6 +90,8 @@ type Overview = {
   xPack: { posts: number; replies: number; date: string } | null;
   publish: {
     enabled: boolean;
+    /** The publish time zone every slot is read in (PUBLISH_TIMEZONE). */
+    timezone?: string;
     configuredPlatforms: string[];
     queued: number;
     scheduled: number;
@@ -98,6 +101,24 @@ type Overview = {
     nextDue: { title: string; publishAt: string } | null;
   };
 };
+
+/**
+ * "Sat, Oct 10, 1:30 AM America/Toronto": the same short stamp the board uses,
+ * read in the PUBLISH time zone. The bare toLocaleString() printed the browser's
+ * zone in a US numeric format ("10/11/2026, 1:30:00 AM"), which is a different
+ * hour from the one the board shows whenever the two zones differ.
+ */
+function formatNextDue(iso: string, timeZone?: string): string {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return iso;
+  const options: Intl.DateTimeFormatOptions = { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" };
+  try {
+    const stamp = dateTimeFormat("en-US", timeZone ? { ...options, timeZone } : options).format(date);
+    return timeZone ? `${stamp} (${timeZone})` : stamp;
+  } catch {
+    return dateTimeFormat("en-US", options).format(date);
+  }
+}
 
 type SourceKey = "video" | "audio" | "carousel" | "text" | "idea";
 type OutputKey =
@@ -713,7 +734,7 @@ export function DistributionPage() {
                 Next scheduled: {overview.publish.nextDue.title}
               </p>
               <p className="text-xs text-[var(--muted-foreground)]">
-                {new Date(overview.publish.nextDue.publishAt).toLocaleString()}
+                {formatNextDue(overview.publish.nextDue.publishAt, overview.publish.timezone)}
               </p>
             </div>
           </div>

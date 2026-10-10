@@ -21,7 +21,7 @@ import { readAppData } from "@/lib/storage/store";
 import { readAutomationControls, readAutomationOutcome } from "@/lib/automations/store";
 import { readAutomationTasks } from "@/lib/automations/tasks";
 import { buildCadence } from "@/lib/automations/cadence";
-import { describeInterval, describeTaskResult } from "@/lib/automations/format";
+import { describeInterval, describeTaskResult, truncateAtWord } from "@/lib/automations/format";
 import { HELD_LIMIT, heldPosts } from "@/lib/automations/held";
 import { readAutomationHistory } from "@/lib/automations/history";
 import { uploadingCenterHref } from "@/lib/automations/links";
@@ -67,11 +67,17 @@ function nextAt(values: (string | undefined)[]): string | null {
   return values.filter((value): value is string => Boolean(value && Number.isFinite(Date.parse(value)))).sort()[0] ?? null;
 }
 
-function taskBlocker(task: AutomationTask | undefined, command?: string): string[] {
-  if (!task || task.state === "unknown") return ["Windows task status could not be checked. No scheduler heartbeat is assumed."];
+/** The schedule line when no Windows task is known: say why, in plain words. */
+function taskSchedule(task: AutomationTask | undefined): string {
+  if (task?.state === "missing") return "Not scheduled - the Windows task is not installed";
+  return "Can't check the Windows task from here";
+}
+
+function taskBlocker(task: AutomationTask | undefined, command?: string, noun = "Runner"): string[] {
+  if (!task || task.state === "unknown") return ["This page can't read the Windows task, so it can't tell whether the runner is installed."];
   if (task.state === "other-checkout") return ["The Windows task runs a different checkout. This sandbox has no scheduler."];
   if (task.state === "missing") {
-    return [`No Windows scheduled task is registered for this automation.${command ? ` In PowerShell, run "${command}" in the app folder, then press Refresh. The app never registers tasks itself.` : ""}`];
+    return [command ? `${noun} not installed - run ${command} in the app folder, then press Refresh. The app never installs it itself.` : `${noun} not installed - the Windows scheduled task is missing.`];
   }
   if (task.state === "disabled") return ["The Windows scheduled task is disabled."];
   return [];
@@ -127,8 +133,8 @@ export function buildAutomationOverview(input: AutomationInputs, now = new Date(
   const scanTask = input.tasks.ingest;
   const ingest = card("ingest", {
     title: "Channel ingest", description: "Find new stream recordings and hand them to the pipeline.", href: "/agents",
-    blockers: [...taskBlocker(scanTask, REGISTER_COMMANDS.ingest), ...(scan?.status === "not-connected" || scan?.status === "needs-reconnect" ? [scan.error ?? "Reconnect the YouTube channel."] : [])],
-    schedule: scanTask?.schedule ? `Windows task runs ${describeInterval(scanTask.schedule)}` : "Windows task schedule not verified", timezone: input.publisher.timezone,
+    blockers: [...taskBlocker(scanTask, REGISTER_COMMANDS.ingest, "Channel scan"), ...(scan?.status === "not-connected" || scan?.status === "needs-reconnect" ? [scan.error ?? "Reconnect the YouTube channel."] : [])],
+    schedule: scanTask?.schedule ? `Windows task runs ${describeInterval(scanTask.schedule)}` : taskSchedule(scanTask), timezone: input.publisher.timezone,
     registerCommand: REGISTER_COMMANDS.ingest,
     nextRunAt: scanTask?.nextRunAt ?? null, nextItemAt: null, lastRunAt: input.ledger.lastScanAt ?? null,
     lastOutcome: scan ? `${scan.status}${scan.ingested !== undefined ? `, ${scan.ingested} streams taken in` : ""}${scan.dryRun ? " (dry run)" : ""}` : null,
@@ -142,14 +148,14 @@ export function buildAutomationOverview(input: AutomationInputs, now = new Date(
   const pending = platformStates.filter(({ state }) => ["pending", "uploaded", "scheduled"].includes(state.status));
   const bufferStates = input.queue.filter((item) => item.buffer || input.publisher.buffer.enabled).map((item): { item: QueueItem; state: BufferState } => ({ item, state: item.buffer ?? { status: "pending", attempts: 0 } }));
   const bufferPending = bufferStates.filter(({ state }) => ["pending", "scheduled"].includes(state.status));
-  const publisherIssues = platformStates.filter(({ state }) => Boolean(state.error)).map(({ item, platform, state }) => `${item.caption.slice(0, 60)} (${platform}): ${state.error}`).slice(0, 5);
+  const publisherIssues = platformStates.filter(({ state }) => Boolean(state.error)).map(({ item, platform, state }) => `${truncateAtWord(item.title || item.caption, 60)} (${platform}): ${state.error}`).slice(0, 5);
   publisherIssues.push(...bufferStates.filter(({ state }) => state.error || state.status === "manual").map(({ item, state }) => `${item.title} (Buffer): ${state.error ?? state.note ?? "Manual posting is required."}`).slice(0, 5));
   if (publisherTick?.status === "failed") publisherIssues.unshift(publisherTick.detail);
   if (publisherTick && now.getTime() - Date.parse(publisherTick.at) > 15 * 60_000) publisherIssues.unshift("No publisher tick recorded in over 15 minutes.");
   const publisher = card("publisher", {
     title: "Video and image publisher", description: "Upload booked posts and check delivery at their scheduled slots.", href: "/uploading-center",
     blockers: [...taskBlocker(publisherTask, REGISTER_COMMANDS.publisher), ...(!input.publisher.enabled ? ["Video and picture posting is switched off in Settings."] : []), ...(!input.publisher.platforms.length && !bufferConfigured(input.publisher) ? ["No publishing platforms or connected Buffer profiles are enabled."] : []), ...(input.publisher.buffer.enabled && !bufferConfigured(input.publisher) ? ["Buffer is enabled but its account and profiles are not configured."] : [])],
-    schedule: publisherTask?.schedule ? `Windows task runs ${describeInterval(publisherTask.schedule)}` : "Windows task schedule not verified", timezone: input.publisher.timezone,
+    schedule: publisherTask?.schedule ? `Windows task runs ${describeInterval(publisherTask.schedule)}` : taskSchedule(publisherTask), timezone: input.publisher.timezone,
     registerCommand: REGISTER_COMMANDS.publisher,
     itemHref: publisherItemHref(platformStates, pending),
     nextRunAt: publisherTask?.nextRunAt ?? null, nextItemAt: nextAt([...pending, ...bufferPending].map(({ item, state }) => state.nextAttemptAt ?? item.publishAt)),
@@ -165,8 +171,8 @@ export function buildAutomationOverview(input: AutomationInputs, now = new Date(
   const replyCounts = countThreadsReplies(replySummary.items);
   const threads = card("threads", {
     title: "Threads autopilot", description: "Plan daily and stream posts, send each slot and add contextual CoLateral follow-up replies.", href: "/x-posts",
-    blockers: [...taskBlocker(threadsTask, REGISTER_COMMANDS.threads), ...(threadsBlock ? [threadsBlock] : [])],
-    schedule: `${input.threads.postsPerDay} posts per day per account; check due posts ${describeInterval(threadsTask?.schedule) ?? "on the Windows task"}`, timezone: input.threads.timezone,
+    blockers: [...taskBlocker(threadsTask, REGISTER_COMMANDS.threads, "Autopilot runner"), ...(threadsBlock ? [threadsBlock] : [])],
+    schedule: `${input.threads.postsPerDay} posts per day per account; check due posts ${describeInterval(threadsTask?.schedule) ?? "on the Windows task (not checked from here)"}`, timezone: input.threads.timezone,
     registerCommand: REGISTER_COMMANDS.threads,
     nextRunAt: threadsTask?.nextRunAt ?? null,
     nextItemAt: nextAt([

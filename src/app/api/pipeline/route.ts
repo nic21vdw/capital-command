@@ -50,8 +50,7 @@ export async function GET(request: NextRequest) {
     const { needsAttention, breakdown, failures } = attentionSummary({
       pipeline: pipelineAttention,
       queue,
-      threadsItems,
-      now: new Date()
+      threadsItems
     });
     return NextResponse.json({
       needsAttention,
