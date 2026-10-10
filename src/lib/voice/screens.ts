@@ -4,19 +4,23 @@ export type Screen = {
   label: string;
   /** What the screen is for, so the model picks the right one from a phrase. */
   purpose: string;
+  /** Hidden from the command bar until that setting is on, like the sidebar item. */
+  needs?: "personalDashboard";
 };
 
 export const SCREENS: Screen[] = [
-  { id: "dashboard", href: "/", label: "Dashboard", purpose: "the overview: what is in flight and what is due" },
+  { id: "dashboard", href: "/", label: "Stream Pipeline (home)", purpose: "the home screen: the Stream Pipeline, what is in flight and what is due" },
   { id: "pipeline", href: "/pipeline", label: "Stream Pipeline", purpose: "one stream in, every format out; where runs live" },
   { id: "longform", href: "/longform", label: "Long-Form Video", purpose: "the long-form edit and its topic segments" },
   { id: "clips", href: "/clips", label: "Short Clips", purpose: "the clip generator and finished shorts" },
   { id: "editor", href: "/editor", label: "Clip Editor", purpose: "editing a single clip: cuts, captions, overlays" },
   { id: "carousels", href: "/carousels", label: "Carousels & Images", purpose: "carousel decks and image posts" },
-  { id: "x-posts", href: "/x-posts", label: "X / Threads Posts", purpose: "text posts for X and Threads" },
-  { id: "facebook", href: "/facebook", label: "FB / IG Threads", purpose: "Facebook and Instagram thread posts" },
+  { id: "podcast", href: "/podcast", label: "Podcast / Spotify", purpose: "the long-form edit as audio, delivered to Spotify by RSS" },
+  { id: "x-posts", href: "/x-posts", label: "Threads Autopilot", purpose: "the daily Threads posts, their schedule, and the X wording to copy" },
+  { id: "facebook", href: "/facebook", label: "FB / IG Post Library", purpose: "Facebook and Instagram hook-and-comment-thread posts" },
   { id: "distribution", href: "/distribution", label: "Distribution Centre", purpose: "the publish queue and what is scheduled" },
   { id: "uploading-center", href: "/uploading-center", label: "Uploading Center", purpose: "connected channels and uploads" },
+  { id: "automations", href: "/automations", label: "Automations", purpose: "background workers: pause or resume posting, last runs, what still goes live" },
   { id: "master-calendar", href: "/master-calendar", label: "Master Calendar", purpose: "the content calendar" },
   { id: "day-summary", href: "/day-summary", label: "Day Summary", purpose: "one day's output as a briefing" },
   { id: "agents", href: "/agents", label: "Sourceflow Agents", purpose: "agent team settings and approvals" },
@@ -25,20 +29,28 @@ export const SCREENS: Screen[] = [
   { id: "music", href: "/music", label: "Music Studio", purpose: "background music" },
   { id: "voiceover", href: "/voiceover", label: "Voiceover", purpose: "generated voiceover" },
   { id: "outliers", href: "/outliers", label: "Outlier Radar", purpose: "competitor and outlier research" },
+  { id: "execution", href: "/execution", label: "Execution", purpose: "recurring content, networking and build goals" },
   { id: "launch", href: "/launch", label: "Launch Pad", purpose: "Product Hunt launch planning" },
   { id: "presentation", href: "/presentation", label: "Segment Deck", purpose: "motion video segments" },
+  { id: "finance", href: "/finance", label: "Personal Finance", purpose: "personal finance screens", needs: "personalDashboard" },
   { id: "settings", href: "/settings", label: "Settings", purpose: "app settings" }
 ];
 
-export function findScreen(target: string): Screen | null {
+/** The screens the command bar may open, given the settings the sidebar also reads. */
+export function visibleScreens(options: { personalDashboard?: boolean } = {}): Screen[] {
+  return SCREENS.filter((screen) => screen.needs !== "personalDashboard" || options.personalDashboard === true);
+}
+
+export function findScreen(target: string, options: { personalDashboard?: boolean } = {}): Screen | null {
   const value = target.trim().toLowerCase();
   if (!value) return null;
+  const screens = visibleScreens(options);
   return (
-    SCREENS.find((screen) => screen.id === value) ??
-    SCREENS.find((screen) => screen.href === value || screen.href === `/${value}`) ??
-    SCREENS.find((screen) => screen.label.toLowerCase() === value) ??
-    SCREENS.find((screen) => screen.label.toLowerCase().includes(value)) ??
-    SCREENS.find((screen) => value.includes(screen.id)) ??
+    screens.find((screen) => screen.id === value) ??
+    screens.find((screen) => screen.href === value || screen.href === `/${value}`) ??
+    screens.find((screen) => screen.label.toLowerCase() === value) ??
+    screens.find((screen) => screen.label.toLowerCase().includes(value)) ??
+    screens.find((screen) => value.includes(screen.id)) ??
     null
   );
 }

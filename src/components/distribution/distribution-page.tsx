@@ -146,7 +146,7 @@ const SOURCES: Array<{
     icon: PenLine,
     tagline: "A written post — no audio or video yet.",
     startHref: "/x-posts",
-    startCta: "Open Threads",
+    startCta: "Add a Threads post",
   },
   {
     key: "idea",
@@ -192,7 +192,7 @@ const OUTPUTS: Record<
     label: "Text-only post",
     icon: FileText,
     href: "/x-posts",
-    cta: "Write post",
+    cta: "Add a Threads post",
   },
   carousel: {
     label: "Carousel",

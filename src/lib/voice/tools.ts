@@ -11,7 +11,8 @@ import { renderNextSegment, repairRun } from "@/lib/pipeline/repair";
 import { REPAIRABLE_STAGES } from "@/lib/pipeline/repairable";
 import { createRunFromUrl, getRun, listRuns, runOverview } from "@/lib/pipeline/runs";
 import type { PipelineRun } from "@/lib/pipeline/types";
-import { SCREENS, findScreen, screenHref } from "@/lib/voice/screens";
+import { SCREENS, findScreen, screenHref, visibleScreens } from "@/lib/voice/screens";
+import { readAppData } from "@/lib/storage/store";
 
 export type VoiceToolDefinition = {
   name: string;
@@ -26,7 +27,7 @@ export const VOICE_TOOLS: VoiceToolDefinition[] = [
   {
     name: "open_screen",
     description: `Take Nic to a screen — this is how you SHOW him something rather than describing it. Call it whenever he says show me, take me to, pull up, open, or go to. Screens: ${SCREENS.map(
-      (screen) => `${screen.id} (${screen.purpose})`
+      (screen) => `${screen.id} (${screen.purpose}${screen.needs ? "; only when switched on in Settings" : ""})`
     ).join("; ")}. With target pipeline, pass runId — or runName, part of the run's name — to open that one run.`,
     parameters: {
       type: "object",
@@ -207,7 +208,7 @@ export function runReferenceFrom(args: Record<string, unknown>): RunReference {
  */
 export function toolDestination(screenId: string, runId?: string): { href: string; label: string } {
   const screen = findScreen(screenId);
-  if (!screen) return { href: "/", label: "Dashboard" };
+  if (!screen) return { href: "/", label: "Stream Pipeline" };
   return { href: screenHref(screen, runId), label: screen.label };
 }
 
@@ -347,9 +348,12 @@ export async function runVoiceTool(
       // navigation flaky for no reason.
       const named = args as Record<string, unknown>;
       const target = String(named.target ?? named.screen ?? named.page ?? named.name ?? named.to ?? "");
-      const screen = findScreen(target);
+      // Finance is in the sidebar only when the setting is on; the command bar
+      // follows the same rule so it never opens a screen the sidebar hides.
+      const personalDashboard = await readAppData().then((data) => data.settings.personalDashboard === true, () => false);
+      const screen = findScreen(target, { personalDashboard });
       if (!screen) {
-        return { ok: false, error: `There is no screen called ${target}. Try one of: ${SCREENS.map((item) => item.id).join(", ")}.` };
+        return { ok: false, error: `There is no screen called ${target}. Try one of: ${visibleScreens({ personalDashboard }).map((item) => item.id).join(", ")}.` };
       }
       // Nic says the stream's name, not its id, so a named run is looked up the
       // same way the pipeline tools look it up. `name` is deliberately not read

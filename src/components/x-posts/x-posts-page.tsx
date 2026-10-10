@@ -1,7 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useSearchParams } from "next/navigation";
+import Link from "next/link";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
   BookOpen,
   CalendarClock,
@@ -9,9 +10,11 @@ import {
   Clock,
   Copy,
   Download,
+  Eye,
   MessageSquare,
   MessagesSquare,
   RefreshCw,
+  PenLine,
   RotateCcw,
   ShieldCheck,
   Sparkles
@@ -24,12 +27,14 @@ import { Badge, type BadgeTone } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { PageHeader } from "@/components/ui/page-header";
 import { Tabs } from "@/components/ui/tabs";
 import { localDateKey } from "@/lib/x-strategy/analytics";
 import { exportBaseName, toThreadsCsv, toThreadsJson } from "@/lib/x-posts/export";
 import { cn } from "@/lib/utils";
-import type { ThreadsBatchSummary } from "@/lib/threads/types";
+import { tomorrowReady } from "@/lib/threads/tomorrow";
+import type { ThreadsBatchSummary, ThreadsOutcome } from "@/lib/threads/types";
 import type { ThreadsReplyCounts, ThreadsReplyPolicy, ThreadsReplyPreview, ThreadsReplySummary } from "@/lib/threads/reply-summary";
 import type { XDailyPack, XPostFormat, XSuggestedPost, XSuggestedReply } from "@/types/domain";
 
@@ -42,6 +47,8 @@ interface GenerateResponse {
 
 interface AutopilotStatus {
   enabled: boolean;
+  /** The Automations pause switch; a paused autopilot sends nothing. */
+  paused?: boolean;
   configured: boolean;
   blockedReason: string | null;
   settings: {
@@ -62,9 +69,14 @@ interface AutopilotActionResponse {
   error?: string;
   checks?: Array<{ accountId: string; label: string; ok: boolean; username?: string | null; error?: string }>;
   plan?: { created: number; skipped?: string; startedAt?: string; gapMinutes?: number; droppedPastSlots?: number };
-  run?: { published: number; failed?: number; skipped: number; note?: string };
+  run?: { published: number; failed?: number; skipped: number; note?: string; outcomes?: ThreadsOutcome[]; dryRun?: boolean };
   moved?: number;
+  added?: { id: string; publishAt: string; batchDate: string };
+  paused?: boolean;
 }
+
+/** Where the Automations page lives; pausing and resuming happen there. */
+const AUTOMATIONS_HREF = "/automations";
 
 /** Threads' own limit — the only one that matters here. */
 const THREADS_LIMIT = 500;
@@ -160,7 +172,8 @@ export function XPostsPage() {
   const autopilot = useAutopilot();
   // Until the status has loaded, claim nothing: an unarmed autopilot briefly
   // promising to post is the wrong way round to be wrong.
-  const autopilotArmed = autopilot.status ? !autopilot.status.blockedReason : false;
+  const autopilotPaused = autopilot.status?.paused === true;
+  const autopilotArmed = autopilot.status ? !autopilot.status.blockedReason && !autopilotPaused : false;
 
   // Keep the "generated Xm ago" freshness read-out live so a stale, cached pack
   // is visibly old — the whole point is not to copy something from before.
@@ -203,11 +216,26 @@ export function XPostsPage() {
     void generate(false);
   }, [loading, storedPack, generate]);
 
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchString = useSearchParams().toString();
+  // The banner's button: pick tomorrow's date pill and open the tab it lives on.
+  const { setSelectedDate } = autopilot;
+  const reviewTomorrow = useCallback(
+    (date: string) => {
+      setSelectedDate(date);
+      const params = new URLSearchParams(searchString);
+      params.set("tab", "autopilot");
+      router.replace(`${pathname}?${params.toString()}`, { scroll: false });
+    },
+    [setSelectedDate, pathname, router, searchString]
+  );
+
   // Let an agent on the CoLateral canvas read and drive this page: the same
   // three actions the buttons below trigger, plus what the page is reporting.
   useColateralSurface({
     route: "/x-posts",
-    title: "X / Threads Posts",
+    title: "Threads Autopilot",
     summary: "Write a day of Threads posts and replies, then let the autopilot send them one at a time through the day.",
     fields: [],
     controls: [
@@ -245,7 +273,7 @@ export function XPostsPage() {
           : "—"
       },
       { label: "Queued", value: String(autopilot.status?.today.pending ?? 0) },
-      { label: "Autopilot", value: autopilotArmed ? "Armed" : "Idle" }
+      { label: "Autopilot", value: autopilotPaused ? "Paused" : autopilotArmed ? "Armed" : "Idle" }
     ],
     click: (id) => {
       if (id === "generate") {
@@ -276,12 +304,14 @@ export function XPostsPage() {
     <div>
       <PageHeader
         eyebrow="Step 2 · Formats"
-        title="X / Threads Posts"
+        title="Threads Autopilot"
         description={
           // Promising that they post themselves is only true when autopilot is
           // actually armed. Said unconditionally, the header contradicted the
           // card right below it explaining why nothing was going out.
-          autopilotArmed
+          autopilotPaused
+            ? "Press Write today's posts and the app drafts 24 posts plus 20 replies from your positioning brief. The autopilot is paused on Automations, so nothing goes out until you resume it."
+            : autopilotArmed
             ? "Write a day of Threads posts and let them go out on their own — press Write today's posts and the app drafts 24 posts plus 20 replies from your positioning brief, then posts them for you one at a time through the day."
             : "Press Write today's posts and the app drafts 24 posts plus 20 replies from your positioning brief. Connect an account below to have them go out on their own."
         }
@@ -296,6 +326,8 @@ export function XPostsPage() {
       {reason ? (
         <div className="mb-6 rounded-2xl border p-3 text-xs tone-warning tone-soft tone-edge tone-text">{reason}</div>
       ) : null}
+
+      <TomorrowBanner status={autopilot.status} onReview={reviewTomorrow} />
 
       {activePack ? <PackSummary pack={activePack} now={now} /> : null}
 
@@ -344,6 +376,11 @@ export function XPostsPage() {
         <AutopilotCard status={autopilot.status} />
       </div>
 
+      <div className="mt-6 grid gap-6 lg:grid-cols-2">
+        <NextRunPreview {...autopilot} />
+        <AddPostCard {...autopilot} />
+      </div>
+
       <div className="mt-6">
         {activePack ? (
           <Tabs
@@ -376,7 +413,7 @@ export function XPostsPage() {
                 id: "playbook",
                 label: "How this works",
                 icon: BookOpen,
-                content: <PlaybookTab />
+                content: <PlaybookTab lateGraceMinutes={autopilot.status?.settings.lateGraceMinutes} />
               }
             ]}
           />
@@ -439,6 +476,8 @@ function friendlyDate(dateKey: string): string {
 function useAutopilot() {
   const [status, setStatus] = useState<AutopilotStatus | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
+  // Lives here, not in the tab, so the "tomorrow is ready" banner can pick the pill.
+  const [selectedDate, setSelectedDate] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -497,7 +536,7 @@ function useAutopilot() {
     [send]
   );
 
-  return { status, busy, reload: load, send, scheduleNow };
+  return { status, busy, reload: load, send, scheduleNow, selectedDate, setSelectedDate };
 }
 
 function describePlan(plan: AutopilotActionResponse["plan"]): string {
@@ -560,6 +599,7 @@ function AutopilotCard({ status }: { status: AutopilotProps["status"] }) {
   if (!status) return null;
 
   const { today, settings, blockedReason, scheduler } = status;
+  const paused = status.paused === true;
   const expected = settings.postsPerDay * Math.max(1, settings.accounts.length);
   const minutesSince = scheduler?.minutesSince;
   const heartbeat =
@@ -588,7 +628,13 @@ function AutopilotCard({ status }: { status: AutopilotProps["status"] }) {
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
-          <Badge tone={blockedReason ? "warning" : "accent"}>{blockedReason ? "Idle" : "Armed"}</Badge>
+          {paused ? (
+            <Link href={AUTOMATIONS_HREF} title="Resume it on Automations" className="rounded-full focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--accent)]">
+              <Badge tone="warning">Paused - resume on Automations</Badge>
+            </Link>
+          ) : (
+            <Badge tone={blockedReason ? "warning" : "accent"}>{blockedReason ? "Idle" : "Armed"}</Badge>
+          )}
           {today.pending ? <Badge>{today.pending} queued</Badge> : null}
           {today.failed ? <Badge tone="danger">{today.failed} failed</Badge> : null}
           {today.skipped ? <Badge>{today.skipped} skipped</Badge> : null}
@@ -635,6 +681,13 @@ function AutopilotCard({ status }: { status: AutopilotProps["status"] }) {
         </span>
       </div>
 
+      {paused ? (
+        <p className="mt-3 rounded-xl border px-3 py-2 text-xs tone-warning tone-soft tone-edge tone-text">
+          The autopilot is paused, so nothing is planned or sent and the queued posts below are waiting. Resume it on{" "}
+          <Link href={AUTOMATIONS_HREF} className="font-medium underline">Automations</Link>.
+        </p>
+      ) : null}
+
       {blockedReason ? (
         <p className="mt-3 rounded-xl border px-3 py-2 text-xs tone-warning tone-soft tone-edge tone-text">
           {blockedReason}
@@ -651,9 +704,152 @@ function AutopilotCard({ status }: { status: AutopilotProps["status"] }) {
   );
 }
 
+/** Tomorrow's batch is written in the evening; this says so, and jumps to it. */
+function TomorrowBanner({ status, onReview }: { status: AutopilotProps["status"]; onReview: (date: string) => void }) {
+  if (!status) return null;
+  const ready = tomorrowReady(status.items as Parameters<typeof tomorrowReady>[0], status.today.date);
+  if (!ready) return null;
+  return (
+    <div role="status" className="mb-6 flex flex-wrap items-center justify-between gap-3 rounded-2xl border px-4 py-3 text-sm tone-accent tone-soft tone-edge">
+      <p className="text-white">
+        <span className="font-semibold">Tomorrow&apos;s {ready.posts} posts are ready - review them.</span>{" "}
+        <span className="text-[var(--muted-foreground)]">
+          {status.paused
+            ? "The autopilot is paused, so they will not go out until you resume it."
+            : "They go out on their own from the first slot; edit or remove any before then."}
+        </span>
+      </p>
+      <Button variant="secondary" className="shrink-0 px-3 py-1.5 text-xs" onClick={() => onReview(ready.date)}>
+        Review tomorrow
+      </Button>
+    </div>
+  );
+}
+
+/**
+ * "What would the next check send?" - a dry run of the due-post step. It posts
+ * nothing, plans nothing and writes nothing, and it works while paused so a
+ * paused autopilot can still be inspected before it is resumed.
+ */
+function NextRunPreview({ status, busy, send }: AutopilotProps) {
+  const [result, setResult] = useState<{ outcomes: ThreadsOutcome[]; note?: string } | null>(null);
+  const upcoming = useMemo(
+    () => ((status?.items ?? []) as QueueItemView[]).filter((item) => item.status === "pending").sort((a, b) => a.publishAt.localeCompare(b.publishAt)).slice(0, 3),
+    [status]
+  );
+  const preview = async () => {
+    const json = await send({ action: "run-due", dryRun: true }, "preview");
+    if (json?.run) setResult({ outcomes: json.run.outcomes ?? [], note: json.run.note });
+  };
+  return (
+    <Card className="space-y-3">
+      <div className="flex items-center gap-2 text-white">
+        <Eye className="h-4 w-4 text-[var(--accent)]" />
+        <h3 className="font-semibold">Preview next run</h3>
+      </div>
+      <p className="text-xs text-[var(--muted-foreground)]">
+        Shows what the next check would send right now. Nothing is posted, planned or changed.
+        {status?.paused ? " The autopilot is paused, so this is what would go out once it is resumed." : ""}
+      </p>
+      <Button variant="secondary" onClick={() => void preview()} disabled={busy !== null || !status}>
+        <Eye className="mr-2 h-4 w-4" />
+        {busy === "preview" ? "Checking…" : "Preview next run"}
+      </Button>
+      {result ? (
+        <div className="space-y-2 rounded-xl border border-[var(--border)] bg-[var(--well)] p-3 text-xs">
+          {result.outcomes.length ? (
+            <ul className="space-y-1.5">
+              {result.outcomes.map((outcome) => (
+                <li key={`${outcome.itemId}-${outcome.outcome}`} className="break-words text-white/90">
+                  <span className="font-semibold">Slot {outcome.slot}:</span> {outcome.detail}
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="text-[var(--muted-foreground)]">{result.note ?? "Nothing is due this minute."}</p>
+          )}
+        </div>
+      ) : null}
+      {upcoming.length ? (
+        <div className="space-y-1.5 border-t border-[var(--border)] pt-3">
+          <p className="text-xs font-semibold text-[var(--foreground)]">Coming up next</p>
+          <ul className="space-y-1.5">
+            {upcoming.map((item) => (
+              <li key={item.id} className="text-xs text-[var(--muted-foreground)]">
+                <span className="tabular-nums text-white">{clock(item.publishAt)}</span>
+                {item.batchDate !== localDateKey() ? ` (${friendlyDate(item.batchDate)})` : ""} · {item.text.length > 140 ? `${item.text.slice(0, 140)}…` : item.text}
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+    </Card>
+  );
+}
+
+/** Write one Threads post by hand and put it on the same queue the autopilot drains. */
+function AddPostCard({ status, busy, send }: AutopilotProps) {
+  const [text, setText] = useState("");
+  const [when, setWhen] = useState<"soon" | "time">("soon");
+  const [at, setAt] = useState("");
+  const trimmed = text.trim();
+  const over = trimmed.length > THREADS_LIMIT;
+  const needsTime = when === "time" && !at;
+  const blocked = status?.blockedReason ?? null;
+  const submit = async () => {
+    const instant = when === "time" ? new Date(at) : null;
+    if (instant && Number.isNaN(instant.getTime())) return;
+    const json = await send({ action: "add", text: trimmed, ...(instant ? { at: instant.toISOString() } : {}) }, "add", (response) =>
+      response.added
+        ? `Queued for ${clock(response.added.publishAt)} on ${friendlyDate(response.added.batchDate).toLowerCase()}.${response.paused ? " The autopilot is paused, so it waits until you resume." : ""}`
+        : "Queued."
+    );
+    if (json) setText("");
+  };
+  return (
+    <Card className="space-y-3">
+      <div className="flex items-center gap-2 text-white">
+        <PenLine className="h-4 w-4 text-[var(--accent)]" />
+        <h3 className="font-semibold">Add a post</h3>
+      </div>
+      <p className="text-xs text-[var(--muted-foreground)]">
+        Write your own Threads post. It joins the queue and goes out from the first connected account at the time you choose; edit or remove it on Scheduled &amp; sent.
+      </p>
+      <Textarea
+        value={text}
+        onChange={(event) => setText(event.target.value)}
+        rows={4}
+        aria-label="New Threads post"
+        placeholder="What do you want to say?"
+        disabled={Boolean(blocked)}
+      />
+      <div className="flex flex-wrap items-center gap-3">
+        <label className="flex items-center gap-1.5 text-xs text-[var(--muted-foreground)]">
+          <input type="radio" name="add-when" checked={when === "soon"} onChange={() => setWhen("soon")} className="accent-[var(--accent)]" />
+          In about 2 hours
+        </label>
+        <label className="flex items-center gap-1.5 text-xs text-[var(--muted-foreground)]">
+          <input type="radio" name="add-when" checked={when === "time"} onChange={() => setWhen("time")} className="accent-[var(--accent)]" />
+          At a time
+        </label>
+        {when === "time" ? (
+          <Input type="datetime-local" value={at} onChange={(event) => setAt(event.target.value)} aria-label="Post at" className="w-52" />
+        ) : null}
+        <span className={cn("ml-auto text-xs tabular-nums", over ? "tone-danger tone-text" : "text-[var(--muted-foreground)]")}>
+          {trimmed.length}/{THREADS_LIMIT}
+        </span>
+      </div>
+      {blocked ? <p className="text-xs tone-warning tone-text">{blocked}</p> : null}
+      <Button onClick={() => void submit()} disabled={busy !== null || !trimmed || over || needsTime || Boolean(blocked)}>
+        <PenLine className="mr-2 h-4 w-4" />
+        {busy === "add" ? "Adding…" : "Add to the queue"}
+      </Button>
+    </Card>
+  );
+}
+
 /** The batch board: what is going out, when, and every knob to change it. */
-function AutopilotTab({ status, busy, send }: AutopilotProps) {
-  const [selected, setSelected] = useState<string | null>(null);
+function AutopilotTab({ status, busy, send, selectedDate: selected, setSelectedDate: setSelected }: AutopilotProps) {
   const [editing, setEditing] = useState<string | null>(null);
   const [draft, setDraft] = useState("");
 
@@ -1014,6 +1210,21 @@ function PostCard({ post }: { post: XSuggestedPost }) {
 
         <p className="whitespace-pre-wrap text-sm leading-relaxed text-white/90">{text}</p>
 
+        {post.text && post.text !== text ? (
+          <div className="space-y-2 rounded-xl border border-[var(--border)] bg-[var(--well)] p-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <p className="text-xs font-semibold text-[var(--foreground)]">
+                X wording <span className="font-normal text-[var(--muted-foreground)]">- copy it and post it on X yourself; the app never posts to X</span>
+              </p>
+              <Button variant="secondary" className="px-3 py-1.5 text-xs" onClick={() => copy(`${post.id}:x`, post.text)}>
+                {copiedId === `${post.id}:x` ? <Check className="mr-1.5 h-3.5 w-3.5" /> : <Copy className="mr-1.5 h-3.5 w-3.5" />}
+                Copy X wording
+              </Button>
+            </div>
+            <p className="whitespace-pre-wrap text-sm leading-relaxed text-white/80">{post.text}</p>
+          </div>
+        ) : null}
+
         <div className="flex flex-wrap items-center justify-end gap-3">
           <span
             className={cn(
@@ -1029,7 +1240,7 @@ function PostCard({ post }: { post: XSuggestedPost }) {
             ) : (
               <Copy className="mr-1.5 h-3.5 w-3.5" />
             )}
-            Copy
+            Copy Threads wording
           </Button>
         </div>
       </Card>
@@ -1163,8 +1374,8 @@ const GUARDRAILS: Array<{ title: string; body: string }> = [
     body: "Slot times carry a few minutes of daily jitter, and each account posts on its own offset. Posting exactly on the hour, every hour, every day is a classic automation fingerprint — drift a little, skip a slot when life happens."
   },
   {
-    title: "A missed slot is skipped, never fired late",
-    body: "If the machine was asleep all morning, those posts are dropped rather than dumped into the feed on waking. Fourteen posts landing in one minute is the single most obvious spam signal there is."
+    title: "A badly missed slot is skipped, not dumped later",
+    body: "A post that is only a little late still goes out (up to {grace} minutes after its slot). If the machine was off for longer, the app spreads what is left of the day across the hours remaining at a wide spacing instead of posting it all at once, and what no longer fits is dropped. Fourteen posts landing in one minute is the single most obvious spam signal there is."
   },
   {
     title: "Two accounts never post the same words",
@@ -1192,7 +1403,7 @@ const GUARDRAILS: Array<{ title: string; body: string }> = [
   }
 ];
 
-function PlaybookTab() {
+function PlaybookTab({ lateGraceMinutes }: { lateGraceMinutes?: number }) {
   return (
     <div className="space-y-6">
       <Card className="space-y-3">
@@ -1231,7 +1442,7 @@ function PlaybookTab() {
           {GUARDRAILS.map((rail) => (
             <Card key={rail.title} className="space-y-1.5">
               <h4 className="text-sm font-semibold text-white">{rail.title}</h4>
-              <p className="text-sm text-[var(--muted-foreground)]">{rail.body}</p>
+              <p className="text-sm text-[var(--muted-foreground)]">{rail.body.replace("{grace}", String(lateGraceMinutes ?? 45))}</p>
             </Card>
           ))}
         </div>

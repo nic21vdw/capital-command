@@ -82,10 +82,10 @@ const PIPELINE_STAGES: PipelineStage[] = [
       { href: "/carousels", label: "Carousels & Images", icon: Images },
       // The long-form edit again as audio, delivered to Spotify by RSS.
       { href: "/podcast", label: "Podcast / Spotify", icon: Podcast },
-      { href: "/x-posts", label: "X / Threads Posts", icon: AtSign },
+      { href: "/x-posts", label: "Threads Autopilot", icon: AtSign },
       // Thread-format content engine for Facebook/Instagram (hook post +
       // numbered comment thread + CTA comment).
-      { href: "/facebook", label: "FB / IG Threads", icon: Facebook },
+      { href: "/facebook", label: "FB / IG Post Library", icon: Facebook },
       // Product Hunt launch: a playbook dated backwards from launch day, the
       // listing copy, and the live standing once the listing is up.
       { href: "/launch", label: "Launch Pad", icon: Megaphone }

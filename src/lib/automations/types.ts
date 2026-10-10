@@ -22,6 +22,8 @@ export type AutomationHistory = {
   pages: number;
   counts: { delivered: number; retrying: number; failed: number; workerIssues: number; scheduled: number };
   warnings: string[];
+  /** Present when the caller asked for a time zone: delivery outcomes since local midnight. */
+  today?: { delivered: number; failed: number };
 };
 
 export type AutomationId = (typeof AUTOMATION_IDS)[number];
@@ -63,10 +65,40 @@ export type AutomationCard = {
   taskLastResult?: number | null;
   counts: { label: string; value: number }[];
   issues: string[];
+  /** Exact command that installs this automation's Windows task, when it has one. */
+  registerCommand?: string;
+  /** Deep link to the item that most needs a look (failed first, then next due), when there is one. */
+  itemHref?: string;
+};
+
+/** One read-only line of the Cadence block: a value, and the .env name that sets it. */
+export type CadenceRow = { label: string; value: string; env: string; note?: string };
+
+/**
+ * A post a platform already holds. Pausing the publisher does not stop these:
+ * YouTube, Facebook and Buffer publish them at their slot by themselves.
+ */
+export type HeldPost = {
+  id: string;
+  title: string;
+  platform: "YouTube" | "Facebook" | "Buffer";
+  status: "uploaded" | "scheduled";
+  goesLiveAt: string;
+  /** The item in the Uploading Center. */
+  href: string;
+  /** Where to cancel it on the platform, when a link is known. */
+  externalUrl?: string;
+  externalLabel?: string;
 };
 
 export type AutomationOverview = {
   checkedAt: string;
   cards: AutomationCard[];
   autoScheduleOvernight: boolean;
+  cadence: CadenceRow[];
+  /** Soonest first, capped; `heldTotal` is the full count. */
+  held: HeldPost[];
+  heldTotal: number;
+  /** Delivery outcomes recorded since local midnight. */
+  today: { delivered: number; failed: number };
 };

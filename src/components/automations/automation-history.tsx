@@ -1,8 +1,10 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useState } from "react";
-import { ChevronLeft, ChevronRight, History, Loader2, RefreshCw } from "lucide-react";
+import { ArrowUpRight, ChevronLeft, ChevronRight, History, Loader2, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { historyItemHref } from "@/lib/automations/links";
 import { AUTOMATION_IDS, type AutomationEventKind, type AutomationHistory, type AutomationId } from "@/lib/automations/types";
 import { cn } from "@/lib/utils";
 
@@ -78,7 +80,7 @@ export function AutomationHistoryPanel() {
         {!data.total ? <p className="mt-5 rounded-xl border border-dashed border-[var(--border)] p-5 text-sm text-[var(--muted-foreground)]">No matching events recorded in the last seven days. New worker activity appears automatically; earlier activity is not reconstructed.</p> : <ol className="mt-5 divide-y divide-[var(--border)]">
           {data.events.map((event) => <li key={event.id} className="py-4">
             <div className="flex flex-wrap items-center gap-x-3 gap-y-1"><span className={cn("rounded-full px-2 py-1 text-xs font-medium", event.kind === "failed" || event.kind === "blocked" ? "bg-amber-500/10 text-amber-300" : event.kind === "delivered" ? "bg-emerald-500/10 text-emerald-300" : "bg-white/10 text-[var(--muted-foreground)]")}>{event.kind === "delivered" && event.destination === "RSS feed" ? "In feed" : labels[event.kind]}</span><span className="text-sm font-medium text-white">{names[event.automationId]}</span>{event.destination && <span className="text-xs text-[var(--muted-foreground)]">{event.destination}</span>}<time dateTime={event.at} className="ml-auto text-xs tabular-nums text-[var(--muted-foreground)]">{at(event.at)}</time></div>
-            <p className="mt-2 break-words text-sm text-[var(--muted-foreground)]">{event.detail}</p>
+            <p className="mt-2 break-words text-sm text-[var(--muted-foreground)]">{event.detail}{historyItemHref(event.automationId, event.itemId) && <Link href={historyItemHref(event.automationId, event.itemId)!} className="ml-2 inline-flex items-center gap-0.5 whitespace-nowrap font-medium text-[var(--accent)]">Open post<ArrowUpRight className="h-3 w-3" /></Link>}</p>
             {event.nextAttemptAt && <p className="mt-1 text-xs text-amber-200">Next attempt {at(event.nextAttemptAt)}</p>}
           </li>)}
         </ol>}

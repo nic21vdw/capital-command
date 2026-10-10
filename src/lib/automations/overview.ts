@@ -20,6 +20,12 @@ import { spotifyConnected } from "@/lib/spotify/auth";
 import { readAppData } from "@/lib/storage/store";
 import { readAutomationControls, readAutomationOutcome } from "@/lib/automations/store";
 import { readAutomationTasks } from "@/lib/automations/tasks";
+import { buildCadence } from "@/lib/automations/cadence";
+import { describeInterval, describeTaskResult } from "@/lib/automations/format";
+import { HELD_LIMIT, heldPosts } from "@/lib/automations/held";
+import { readAutomationHistory } from "@/lib/automations/history";
+import { uploadingCenterHref } from "@/lib/automations/links";
+import { scheduleWindow } from "@/lib/x-posts/generator";
 import { AUTOMATION_IDS, type AutomationCard, type AutomationControl, type AutomationId, type AutomationOutcome, type AutomationOverview, type AutomationTask } from "@/lib/automations/types";
 
 type PodcastSnapshot = {
@@ -46,22 +52,43 @@ export type AutomationInputs = {
   spotifyShowLinked: boolean;
   episodes: number;
   autoScheduleOvernight: boolean;
+  /** Delivery outcomes since local midnight; absent when history could not be read. */
+  today?: { delivered: number; failed: number };
 };
+
+/** The command that installs each Windows task. Registration stays manual: the app only names it. */
+export const REGISTER_COMMANDS = {
+  publisher: "npm run publish:register",
+  threads: "npm run threads:register",
+  ingest: "npm run ingest:register"
+} as const;
 
 function nextAt(values: (string | undefined)[]): string | null {
   return values.filter((value): value is string => Boolean(value && Number.isFinite(Date.parse(value)))).sort()[0] ?? null;
 }
 
-function taskBlocker(task: AutomationTask | undefined): string[] {
+function taskBlocker(task: AutomationTask | undefined, command?: string): string[] {
   if (!task || task.state === "unknown") return ["Windows task status could not be checked. No scheduler heartbeat is assumed."];
   if (task.state === "other-checkout") return ["The Windows task runs a different checkout. This sandbox has no scheduler."];
-  if (task.state === "missing") return ["No Windows scheduled task is registered for this automation."];
+  if (task.state === "missing") {
+    return [`No Windows scheduled task is registered for this automation.${command ? ` In PowerShell, run "${command}" in the app folder, then press Refresh. The app never registers tasks itself.` : ""}`];
+  }
   if (task.state === "disabled") return ["The Windows scheduled task is disabled."];
   return [];
 }
 
 function safeDetail(value: string): string {
   return value.replace(/[\u2014]/g, " - ").replace(/Bearer\s+\S+/gi, "Bearer [hidden]").replace(/([?&](?:access_token|refresh_token|token|secret|key)=)[^\s&]+/gi, "$1[hidden]").slice(0, 450);
+}
+
+type PlatformRow = { item: QueueItem; platform: string; state: { status: string; nextAttemptAt?: string } };
+
+/** The post that most needs a look: the first failed one, else the next one due. */
+function publisherItemHref(all: PlatformRow[], pending: PlatformRow[]): string | undefined {
+  const failed = all.find(({ state }) => state.status === "failed");
+  const next = [...pending].sort((a, b) => Date.parse(a.state.nextAttemptAt ?? a.item.publishAt) - Date.parse(b.state.nextAttemptAt ?? b.item.publishAt))[0];
+  const target = failed ?? next;
+  return target ? uploadingCenterHref(target.item) : undefined;
 }
 
 export function buildAutomationOverview(input: AutomationInputs, now = new Date()): AutomationOverview {
@@ -100,12 +127,13 @@ export function buildAutomationOverview(input: AutomationInputs, now = new Date(
   const scanTask = input.tasks.ingest;
   const ingest = card("ingest", {
     title: "Channel ingest", description: "Find new stream recordings and hand them to the pipeline.", href: "/agents",
-    blockers: [...taskBlocker(scanTask), ...(scan?.status === "not-connected" || scan?.status === "needs-reconnect" ? [scan.error ?? "Reconnect the YouTube channel."] : [])],
-    schedule: scanTask?.schedule ? `Windows task: ${scanTask.schedule}` : "Windows task schedule not verified", timezone: input.publisher.timezone,
+    blockers: [...taskBlocker(scanTask, REGISTER_COMMANDS.ingest), ...(scan?.status === "not-connected" || scan?.status === "needs-reconnect" ? [scan.error ?? "Reconnect the YouTube channel."] : [])],
+    schedule: scanTask?.schedule ? `Windows task runs ${describeInterval(scanTask.schedule)}` : "Windows task schedule not verified", timezone: input.publisher.timezone,
+    registerCommand: REGISTER_COMMANDS.ingest,
     nextRunAt: scanTask?.nextRunAt ?? null, nextItemAt: null, lastRunAt: input.ledger.lastScanAt ?? null,
     lastOutcome: scan ? `${scan.status}${scan.ingested !== undefined ? `, ${scan.ingested} streams taken in` : ""}${scan.dryRun ? " (dry run)" : ""}` : null,
     counts: [{ label: "Recorded ingests", value: input.ledger.records.length }, { label: "Failed / timed out", value: input.ledger.records.filter((entry) => entry.outcome !== "ready").length }],
-    issues: [scan?.error, ...(scan?.status === "stale" ? ["The recorded channel scan is stale."] : []), ...(scanTask?.lastResult && scanTask.lastResult !== 267009 ? [`The Windows task last exited with code ${scanTask.lastResult}.`] : [])].filter((value): value is string => Boolean(value)),
+    issues: [scan?.error, ...(scan?.status === "stale" ? ["The recorded channel scan is stale."] : []), ...(scanTask?.lastResult && scanTask.lastResult !== 267009 && scanTask.lastResult !== 267011 ? [`The scheduled scan's last run ${describeTaskResult(scanTask.lastResult)}.`] : [])].filter((value): value is string => Boolean(value)),
     running: input.ingestRunning || scanTask?.state === "running"
   });
   const platformStates = input.queue.flatMap((item) => Object.entries(item.platforms).map(([platform, state]) => ({ item, platform, state })));
@@ -120,8 +148,10 @@ export function buildAutomationOverview(input: AutomationInputs, now = new Date(
   if (publisherTick && now.getTime() - Date.parse(publisherTick.at) > 15 * 60_000) publisherIssues.unshift("No publisher tick recorded in over 15 minutes.");
   const publisher = card("publisher", {
     title: "Video and image publisher", description: "Upload booked posts and check delivery at their scheduled slots.", href: "/uploading-center",
-    blockers: [...taskBlocker(publisherTask), ...(!input.publisher.enabled ? ["Publishing is switched off in Settings."] : []), ...(!input.publisher.platforms.length && !bufferConfigured(input.publisher) ? ["No publishing platforms or connected Buffer profiles are enabled."] : []), ...(input.publisher.buffer.enabled && !bufferConfigured(input.publisher) ? ["Buffer is enabled but its account and profiles are not configured."] : [])],
-    schedule: publisherTask?.schedule ? `Windows task: ${publisherTask.schedule}` : "Windows task schedule not verified", timezone: input.publisher.timezone,
+    blockers: [...taskBlocker(publisherTask, REGISTER_COMMANDS.publisher), ...(!input.publisher.enabled ? ["Video and picture posting is switched off in Settings."] : []), ...(!input.publisher.platforms.length && !bufferConfigured(input.publisher) ? ["No publishing platforms or connected Buffer profiles are enabled."] : []), ...(input.publisher.buffer.enabled && !bufferConfigured(input.publisher) ? ["Buffer is enabled but its account and profiles are not configured."] : [])],
+    schedule: publisherTask?.schedule ? `Windows task runs ${describeInterval(publisherTask.schedule)}` : "Windows task schedule not verified", timezone: input.publisher.timezone,
+    registerCommand: REGISTER_COMMANDS.publisher,
+    itemHref: publisherItemHref(platformStates, pending),
     nextRunAt: publisherTask?.nextRunAt ?? null, nextItemAt: nextAt([...pending, ...bufferPending].map(({ item, state }) => state.nextAttemptAt ?? item.publishAt)),
     lastRunAt: publisherTick?.at ?? null, lastOutcome: publisherTick?.detail ?? null,
     counts: [{ label: "Waiting deliveries", value: pending.length + bufferPending.length }, { label: "Published", value: platformStates.filter(({ state }) => state.status === "published").length + bufferStates.filter(({ state }) => state.status === "published").length }, { label: "Failed", value: platformStates.filter(({ state }) => state.status === "failed").length + bufferStates.filter(({ state }) => state.status === "failed").length }],
@@ -135,8 +165,9 @@ export function buildAutomationOverview(input: AutomationInputs, now = new Date(
   const replyCounts = countThreadsReplies(replySummary.items);
   const threads = card("threads", {
     title: "Threads autopilot", description: "Plan daily and stream posts, send each slot and add contextual CoLateral follow-up replies.", href: "/x-posts",
-    blockers: [...taskBlocker(threadsTask), ...(threadsBlock ? [threadsBlock] : [])],
-    schedule: `${input.threads.postsPerDay} posts per day per account; check due posts ${threadsTask?.schedule ?? "on the Windows task"}`, timezone: input.threads.timezone,
+    blockers: [...taskBlocker(threadsTask, REGISTER_COMMANDS.threads), ...(threadsBlock ? [threadsBlock] : [])],
+    schedule: `${input.threads.postsPerDay} posts per day per account; check due posts ${describeInterval(threadsTask?.schedule) ?? "on the Windows task"}`, timezone: input.threads.timezone,
+    registerCommand: REGISTER_COMMANDS.threads,
     nextRunAt: threadsTask?.nextRunAt ?? null,
     nextItemAt: nextAt([
       ...input.threadsItems.filter((item) => item.status === "pending").map((item) => item.nextAttemptAt ?? item.publishAt),
@@ -161,21 +192,30 @@ export function buildAutomationOverview(input: AutomationInputs, now = new Date(
     issues: [...(!input.episodes ? ["Publish the first episode before claiming the feed in Spotify. A scheduled first delivery can create it."] : []), ...(!input.spotifyConnected ? ["No Spotify account connection is stored in this app. Feed delivery still uses the linked show."] : []), ...input.podcast.deliveries.filter((entry) => entry.lastError).map((entry) => `${entry.title}: ${entry.lastError}`).slice(0, 5)],
     running: input.podcast.deliveries.some((entry) => entry.status === "publishing")
   });
-  return { checkedAt: now.toISOString(), cards: [pipeline, ingest, publisher, threads, podcast], autoScheduleOvernight: input.autoScheduleOvernight };
+  const held = heldPosts(input.queue);
+  return {
+    checkedAt: now.toISOString(), cards: [pipeline, ingest, publisher, threads, podcast], autoScheduleOvernight: input.autoScheduleOvernight,
+    cadence: buildCadence(input.publisher, input.threads, scheduleWindow()),
+    held: held.slice(0, HELD_LIMIT), heldTotal: held.length,
+    today: input.today ?? { delivered: 0, failed: 0 }
+  };
 }
 
 export async function automationOverview(): Promise<AutomationOverview> {
   const config = publisherConfig();
-  const [controls, tasks, runs, ledger, queue, threadsItems, threadsState, podcast, state, data, connected, outcomes] = await Promise.all([
+  const now = new Date();
+  const [controls, tasks, runs, ledger, queue, threadsItems, threadsState, podcast, state, data, connected, outcomes, history] = await Promise.all([
     readAutomationControls(), readAutomationTasks(), listRuns(), readLedger(), publishQueue(config).list(), readQueue(),
     readThreadsState(), podcastAutomationStatus(), readPodcastState(), readAppData(), spotifyConnected(),
-    Promise.all(AUTOMATION_IDS.map(async (id) => [id, await readAutomationOutcome(id)] as const))
+    Promise.all(AUTOMATION_IDS.map(async (id) => [id, await readAutomationOutcome(id)] as const)),
+    readAutomationHistory({ timeZone: config.timezone }, now).catch(() => null)
   ]);
   return buildAutomationOverview({
     controls, tasks, runs, ledger, queue, publisher: config, threads: threadsConfig(), threadsItems, threadsState, podcast,
     outcomes: Object.fromEntries(outcomes), ingestRunning: Boolean(activeIngestJob()),
     podcastBlockers: feedBlockers(state.show, state.episodes, { hosted: podcastConfigured(config), bucketConnected: hostingConfigured(config) }).filter((blocker) => blocker.code !== "episodes").map((blocker) => `${blocker.problem} ${blocker.fix}`),
     spotifyConnected: connected, spotifyShowLinked: Boolean(state.show.spotifyShowId), episodes: state.episodes.length,
-    autoScheduleOvernight: data.settings.autoScheduleOvernight === true
-  });
+    autoScheduleOvernight: data.settings.autoScheduleOvernight === true,
+    today: history?.today
+  }, now);
 }

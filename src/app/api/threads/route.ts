@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { checkAllAccounts } from "@/lib/threads/api";
 import { threadsBlockedReason, threadsConfig, threadsConfigured, unassignedVersions } from "@/lib/threads/config";
+import { planAddedPost } from "@/lib/threads/addPost";
 import { planTodaysBatch, threadsTick } from "@/lib/threads/daily";
 import {
   editItemText,
@@ -45,6 +46,8 @@ export async function GET() {
   return NextResponse.json({
     scheduler: { ...state, ...tickHealth(state) },
     enabled: config.enabled,
+    /** The Automations pause switch. A paused autopilot is not "armed", whatever the config says. */
+    paused,
     configured: threadsConfigured(config),
     blockedReason: threadsBlockedReason(config),
     settings: {
@@ -84,18 +87,19 @@ const actionSchema = z.object({
     "remove",
     "reschedule",
     "shift",
-    "edit"
+    "edit",
+    "add"
   ]),
   force: z.boolean().optional(),
   focus: z.string().optional(),
   dryRun: z.boolean().optional(),
   id: z.string().min(1).optional(),
-  /** reschedule: the new instant, ISO-8601. */
+  /** reschedule, add: the instant, ISO-8601. */
   at: z.string().min(1).optional(),
   /** shift: which batch, and by how many minutes (negative moves earlier). */
   date: z.string().min(1).optional(),
   minutes: z.number().optional(),
-  /** edit: the replacement copy. */
+  /** edit: the replacement copy. add: the new post. */
   text: z.string().optional()
 });
 
@@ -118,6 +122,10 @@ const actionSchema = z.object({
  *   reschedule move one queued post to a new time
  *   shift      move a whole day's pending posts by N minutes
  *   edit       rewrite one queued post's copy
+ *   add        queue one hand-written post (`text`, optional `at`)
+ *
+ * `run-due` with `dryRun` is the preview: it reports what would go out at this
+ * moment and posts nothing, plans nothing and writes nothing.
  */
 export async function POST(request: NextRequest) {
   let body: unknown;
@@ -156,6 +164,20 @@ export async function POST(request: NextRequest) {
 
     if (action === "tick") {
       return NextResponse.json(await threadsTick({ config, dryRun }));
+    }
+
+    if (action === "add") {
+      const now = new Date();
+      const outcome = await mutateQueue((items) => {
+        const result = planAddedPost({ text, at, config, now, taken: new Set(items.map((entry) => entry.publishAt)) });
+        return { items: result.ok ? [...items, result.item] : items, result };
+      });
+      if (!outcome.ok) return NextResponse.json({ error: outcome.error }, { status: 400 });
+      return NextResponse.json({
+        ok: true,
+        added: { id: outcome.item.id, publishAt: outcome.item.publishAt, batchDate: outcome.item.batchDate },
+        paused: await isAutomationPaused("threads")
+      });
     }
 
     if (action === "shift") {

@@ -139,7 +139,7 @@ export function FacebookPage() {
   // what the library is currently reporting.
   useColateralSurface({
     route: "/facebook",
-    title: "FB / IG Threads",
+    title: "FB / IG Post Library",
     summary:
       "Draft Facebook/Instagram hook-and-comment-thread posts, save them to the library, and track logged results.",
     fields: [{ id: "brief", label: "Content brief", value: brief, kind: "longtext" }],
@@ -162,7 +162,7 @@ export function FacebookPage() {
     <div>
       <PageHeader
         eyebrow="Step 2 · Formats"
-        title="FB / IG Threads"
+        title="FB / IG Post Library"
         description="Write a Facebook or Instagram post — a hook in the main post, the real content as numbered comments underneath — and Save this post files it in your library ready to paste up; nothing here posts for you."
       />
 
