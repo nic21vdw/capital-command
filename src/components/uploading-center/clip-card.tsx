@@ -290,8 +290,15 @@ export function ClipCard({
             ))}
           </div>
           <div className="flex items-center justify-between gap-2 pl-6">
-            <span className="text-[11px] text-[var(--muted-foreground)]">
-              {scheduledItems.length > 0 ? "Caption - draft for new bookings (edit scheduled posts on the board)" : "Caption"}
+            <span
+              className="min-w-0 text-[11px] text-[var(--muted-foreground)]"
+              title={
+                scheduledItems.length > 0
+                  ? "Draft caption - used for new bookings. Edit scheduled posts on the board."
+                  : undefined
+              }
+            >
+              {scheduledItems.length > 0 ? "Draft caption" : "Caption"}
             </span>
             {onTailorCaption ? (
               <button
@@ -299,7 +306,7 @@ export function ClipCard({
                 onClick={onTailorCaption}
                 disabled={tailoring}
                 title={`Write a caption + hashtags tailored to ${targetLabel} (free AI)`}
-                className="inline-flex items-center gap-1 rounded-full border border-[var(--border)] bg-[var(--surface)] px-2 py-0.5 text-[11px] text-[var(--muted-foreground)] transition hover:border-[var(--accent)] hover:text-[var(--accent)] disabled:opacity-60"
+                className="inline-flex shrink-0 items-center gap-1 whitespace-nowrap rounded-full border border-[var(--border)] bg-[var(--surface)] px-2 py-0.5 text-[11px] text-[var(--muted-foreground)] transition hover:border-[var(--accent)] hover:text-[var(--accent)] disabled:opacity-60"
               >
                 {tailoring ? <Loader2 className="h-3 w-3 animate-spin" /> : <Sparkles className="h-3 w-3" />}
                 {tailoring ? "Writing…" : `AI caption for ${targetLabel}`}
@@ -395,11 +402,11 @@ export function ClipCard({
               </span>
             </button>
           ) : null}
-          <div className="flex items-start justify-between gap-2">
+          <div className="flex flex-wrap items-start justify-between gap-2">
             {scheduledItems.length === 0 ? (
               <StatusChip status="draft" />
             ) : (
-              <div className="min-w-0 flex-1 space-y-1.5">
+              <div className="min-w-48 flex-1 space-y-1.5">
                 {scheduledItems.map((item) =>
                 (Object.entries(item.platforms) as [PlatformId, NonNullable<QueueItem["platforms"][PlatformId]>][]).map(
                   ([platform, state]) => {
@@ -407,7 +414,7 @@ export function ClipCard({
                     const summary = summarizePlatformState(platform, state, item);
                     return (
                       <div key={`${item.id}:${platform}`} className="space-y-0.5 text-xs">
-                        <div className="flex items-center gap-2 text-[var(--muted-foreground)]">
+                        <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[var(--muted-foreground)]">
                           <StatusChip status={state.status} platform={platform} item={item} />
                           <span className="truncate font-medium text-white">{PLATFORM_LABELS[platform]}</span>
                           {summary.uploaded ? (
@@ -426,7 +433,7 @@ export function ClipCard({
                             </a>
                           ) : null}
                         </div>
-                        <span className="block truncate pl-0.5 text-[var(--muted-foreground)]" title={summary.detail}>
+                        <span className="block break-words pl-0.5 text-[var(--muted-foreground)]" title={summary.detail}>
                           {summary.note}
                         </span>
                       </div>
@@ -439,7 +446,7 @@ export function ClipCard({
             <Button
               variant="secondary"
               onClick={onEditClip}
-              className="h-8 shrink-0 px-2.5 text-xs"
+              className="ml-auto h-8 shrink-0 px-2.5 text-xs"
               title="Open this clip in the Clip Editor to trim, caption, and lay it out"
             >
               <Scissors className="mr-1.5 h-3.5 w-3.5" />

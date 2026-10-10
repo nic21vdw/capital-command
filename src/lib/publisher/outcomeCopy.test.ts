@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { describeRunOutcome, formatGoLive } from "@/lib/publisher/outcomeCopy";
+import { describeRunOutcome, manualReminderCopy, formatGoLive } from "@/lib/publisher/outcomeCopy";
 
 // 3:00 PM on 2026-07-14 in Toronto (UTC-4).
 const SLOT = "2026-07-14T19:00:00.000Z";
@@ -59,5 +59,13 @@ describe("what a run outcome says in a toast", () => {
 
   it("formats a same-day time without the date", () => {
     expect(formatGoLive(SLOT, "America/Toronto", new Date("2026-07-14T12:00:00.000Z"))).toBe("3:00 PM");
+  });
+});
+
+describe("a post booked onto an unconnected platform", () => {
+  it("says it is a manual reminder and what to do about it", () => {
+    expect(manualReminderCopy("youtube")).toBe(
+      "Saved as a manual reminder for YouTube - connect it in Settings to post automatically."
+    );
   });
 });

@@ -35,7 +35,7 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
           <ColateralBridgeProvider>
             <AppProvider>
               {children}
-              <Toaster richColors position="top-right" />
+              <Toaster richColors position="top-right" visibleToasts={3} expand />
             </AppProvider>
           </ColateralBridgeProvider>
         </ThemePresetProvider>

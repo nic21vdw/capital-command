@@ -21,6 +21,13 @@ export type PlatformCopy = {
   bestTime?: string;
   /** One line on why that time / angle fits the platform. */
   note?: string;
+  /**
+   * Where the words came from: "ai" when a model wrote them for this platform,
+   * "fallback" when no model answered and the clip's own title stands in. The
+   * screen must say which, or a title copied into the caption box reads as
+   * tailored copy.
+   */
+  source?: "ai" | "fallback";
 };
 
 export type CopySource = {
@@ -128,7 +135,7 @@ export function fallbackPlatformCopy(source: CopySource, platform: PlatformId): 
     ["AI", "vibecoding", "coding", "buildinpublic", "startup"],
     PLATFORM_HASHTAG_TARGET[platform]
   );
-  return { caption: base.slice(0, MAX_CAPTION_CHARS), hashtags };
+  return { caption: base.slice(0, MAX_CAPTION_CHARS), hashtags, source: "fallback" };
 }
 
 /**
@@ -151,7 +158,7 @@ export async function generatePlatformCopy(
     });
     if (!result || result.refused) return fallback;
     const parsed = parsePlatformCopy(result.text);
-    return parsed ?? fallback;
+    return parsed ? { ...parsed, source: "ai" } : fallback;
   } catch {
     return fallback;
   }

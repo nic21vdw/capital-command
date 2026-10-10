@@ -48,6 +48,13 @@ export type RemovalImpact = {
   youtube: PlatformHold | null;
   /** The Facebook post that stays scheduled on the Page, if there is one. */
   facebook: PlatformHold | null;
+  /**
+   * Platforms where this post is already live. Removing never takes those down;
+   * the confirmation says so instead of "nothing has gone up yet".
+   */
+  published: PlatformId[];
+  /** Every leg is live, so Remove would only erase the schedule's record of it. */
+  fullyPublished: boolean;
 };
 
 const ORDER: PlatformId[] = ["youtube", "instagram", "tiktok", "facebook"];
@@ -78,8 +85,11 @@ export function removalImpact(
   const present = ORDER.filter((platform) => item.platforms[platform]);
   const youtube = item.platforms.youtube;
   const facebook = item.platforms.facebook;
+  const published = present.filter((platform) => item.platforms[platform]?.status === "published");
   return {
     platforms: present,
+    published,
+    fullyPublished: present.length > 0 && published.length === present.length,
     uploading: hasFreshClaim(item, options.now, options.claimTimeoutMinutes),
     youtubeMayExist: Boolean(youtube?.containerId && !youtube.postId && youtube.status !== "published"),
     youtube: holdsPost(youtube) ? { platform: "youtube", postId: youtube.postId } : null,
@@ -91,6 +101,13 @@ export function removalImpact(
         ? { platform: "facebook", postId: facebook.postId }
         : null
   };
+}
+
+/** What Remove says about the posts that are already live: it clears the schedule, not the platform. */
+export function publishedRemovalNote(published: PlatformId[], names: Record<PlatformId, string>): string {
+  const labels = published.map((platform) => names[platform]);
+  const list = labels.length <= 1 ? (labels[0] ?? "") : `${labels.slice(0, -1).join(", ")} and ${labels[labels.length - 1]}`;
+  return `Already live on ${list}. Removing only clears it from this schedule; the posts stay up.`;
 }
 
 /** Meta Business Suite's calendar - where a Page's scheduled posts can be cancelled. */
