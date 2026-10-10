@@ -1,5 +1,6 @@
 import type { QueueItem } from "@/lib/publisher/types";
 import type { HeldPost } from "@/lib/automations/types";
+import { truncateAtWord } from "@/lib/automations/format";
 import { uploadingCenterHref } from "@/lib/automations/links";
 
 const FACEBOOK_SCHEDULED = "https://business.facebook.com/latest/posts/scheduled_posts";
@@ -15,7 +16,7 @@ export const HELD_LIMIT = 25;
 export function heldPosts(queue: QueueItem[]): HeldPost[] {
   const rows: HeldPost[] = [];
   for (const item of queue) {
-    const title = (item.title || item.caption || "Untitled post").slice(0, 90);
+    const title = truncateAtWord(item.title || item.caption || "Untitled post", 90);
     const base = { id: item.id, title, href: uploadingCenterHref(item) };
     const youtube = item.platforms.youtube;
     if (youtube && (youtube.status === "uploaded" || youtube.status === "scheduled")) {

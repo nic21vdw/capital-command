@@ -77,6 +77,7 @@ interface AutopilotActionResponse {
 
 /** Where the Automations page lives; pausing and resuming happen there. */
 const AUTOMATIONS_HREF = "/automations";
+const ACCOUNTS_HREF = "/settings#accounts";
 
 /** Threads' own limit — the only one that matters here. */
 const THREADS_LIMIT = 500;
@@ -313,7 +314,7 @@ export function XPostsPage() {
             ? "Press Write today's posts and the app drafts 24 posts plus 20 replies from your positioning brief. The autopilot is paused on Automations, so nothing goes out until you resume it."
             : autopilotArmed
             ? "Write a day of Threads posts and let them go out on their own — press Write today's posts and the app drafts 24 posts plus 20 replies from your positioning brief, then posts them for you one at a time through the day."
-            : "Press Write today's posts and the app drafts 24 posts plus 20 replies from your positioning brief. Connect Threads in Settings > Accounts to have them go out on their own."
+            : "Press Write today's posts and the app drafts 24 posts plus 20 replies from your positioning brief."
         }
         actions={
           <Button onClick={() => generate(true)} disabled={generating || autopilot.busy !== null} className="shrink-0">
@@ -326,6 +327,8 @@ export function XPostsPage() {
       {reason ? (
         <div className="mb-6 rounded-2xl border p-3 text-xs tone-warning tone-soft tone-edge tone-text">{reason}</div>
       ) : null}
+
+      <BlockedNotice status={autopilot.status} />
 
       <TomorrowBanner status={autopilot.status} onReview={reviewTomorrow} />
 
@@ -601,6 +604,7 @@ function AutopilotCard({ status }: { status: AutopilotProps["status"] }) {
   const { today, settings, blockedReason, scheduler } = status;
   const paused = status.paused === true;
   const expected = settings.postsPerDay * Math.max(1, settings.accounts.length);
+  const noAccount = settings.accounts.length === 0;
   const minutesSince = scheduler?.minutesSince;
   const heartbeat =
     minutesSince === null || minutesSince === undefined
@@ -624,7 +628,7 @@ function AutopilotCard({ status }: { status: AutopilotProps["status"] }) {
           <p className="mt-1 text-xs text-[var(--muted-foreground)]">
             {settings.postsPerDay} slots a day in {settings.timezone} ·{" "}
             {settings.accounts.map((account) => `${account.label} (${versionLabel(account.posts)})`).join(", ") ||
-              "no account connected"}
+              "no account yet"}
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -651,7 +655,7 @@ function AutopilotCard({ status }: { status: AutopilotProps["status"] }) {
             </Badge>
           </div>
           <p className="text-xs text-[var(--muted-foreground)]">
-            {settings.replyPolicy.disabledReason ?? `A contextual link reply follows each eligible post after ${settings.replyPolicy.delayMinutes} min, within a ${settings.replyPolicy.windowMinutes} min window.`}
+            {(noAccount ? "Starts once an account is connected." : settings.replyPolicy.disabledReason) ?? `A contextual link reply follows each eligible post after ${settings.replyPolicy.delayMinutes} min, within a ${settings.replyPolicy.windowMinutes} min window.`}
           </p>
           {settings.replyPolicy.url ? (
             <a href={settings.replyPolicy.url} target="_blank" rel="noreferrer" className="block break-all text-xs text-[var(--accent)] underline">
@@ -688,12 +692,6 @@ function AutopilotCard({ status }: { status: AutopilotProps["status"] }) {
         </p>
       ) : null}
 
-      {blockedReason ? (
-        <p className="mt-3 rounded-xl border px-3 py-2 text-xs tone-warning tone-soft tone-edge tone-text">
-          {blockedReason}
-        </p>
-      ) : null}
-
       {settings.unassignedVersions.length > 0 && !blockedReason ? (
         <p className="mt-3 rounded-xl border px-3 py-2 text-xs tone-warning tone-soft tone-edge tone-text">
           No account posts the {settings.unassignedVersions.map(versionLabel).join(" or ")} — that half of each
@@ -701,6 +699,31 @@ function AutopilotCard({ status }: { status: AutopilotProps["status"] }) {
         </p>
       ) : null}
     </Card>
+  );
+}
+
+/**
+ * The ONE place the page says why the autopilot cannot post. It used to be
+ * repeated in the header, the autopilot card and the add-a-post form, which
+ * read as three separate problems.
+ */
+function BlockedNotice({ status }: { status: AutopilotProps["status"] }) {
+  if (!status?.blockedReason) return null;
+  const noAccount = status.settings.accounts.length === 0;
+  return (
+    <p role="status" className="mb-6 rounded-2xl border px-4 py-3 text-sm tone-warning tone-soft tone-edge tone-text">
+      {noAccount ? (
+        <>
+          No Threads account is connected, so nothing goes out yet. Add the access token in{" "}
+          <Link href={ACCOUNTS_HREF} className="font-medium underline">
+            Settings &gt; Accounts
+          </Link>
+          .
+        </>
+      ) : (
+        status.blockedReason
+      )}
+    </p>
   );
 }
 
@@ -716,7 +739,20 @@ function TomorrowBanner({ status, onReview }: { status: AutopilotProps["status"]
         <span className="text-[var(--muted-foreground)]">
           {status.paused
             ? "The autopilot is paused, so they will not go out until you resume it."
-            : "They go out on their own from the first slot; edit or remove any before then."}
+            : status.blockedReason
+              ? status.settings.accounts.length === 0
+                ? null
+                : "They will not go out until the autopilot is switched on; edit or remove any before then."
+              : "They go out on their own from the first slot; edit or remove any before then."}
+          {!status.paused && status.settings.accounts.length === 0 ? (
+            <>
+              They will go out once Threads is connected in{" "}
+              <Link href={ACCOUNTS_HREF} className="font-medium text-[var(--accent)] underline">
+                Settings &gt; Accounts
+              </Link>
+              ; edit or remove any before then.
+            </>
+          ) : null}
         </span>
       </p>
       <Button variant="secondary" className="shrink-0 px-3 py-1.5 text-xs" onClick={() => onReview(ready.date)}>
@@ -839,7 +875,7 @@ function AddPostCard({ status, busy, send }: AutopilotProps) {
           {trimmed.length}/{THREADS_LIMIT}
         </span>
       </div>
-      {blocked ? <p className="text-xs tone-warning tone-text">{blocked}</p> : null}
+      {blocked ? <p className="text-xs tone-warning tone-text">Adding posts is off until the notice at the top of the page is sorted out.</p> : null}
       <Button onClick={() => void submit()} disabled={busy !== null || !trimmed || over || needsTime || Boolean(blocked)}>
         <PenLine className="mr-2 h-4 w-4" />
         {busy === "add" ? "Adding…" : "Add to the queue"}

@@ -10,8 +10,14 @@ import type { PlatformId, PlatformStatus } from "@/lib/publisher/types";
  *   Facebook  facebook.com/<id>, but only once the post is published: a
  *             scheduled one has an id and no public page yet, so `status` has
  *             to say "published".
- *   Instagram / TikTok  the stored id is a media or publish id, not something a
- *             URL can be made from. A full URL is used if one was ever stored.
+ *   Instagram the Graph API hands back a NUMERIC media id, which no URL can be
+ *             made from, so that answers null. A post page is built only when
+ *             a real shortcode was stored (letters in it, never digits alone),
+ *             once published; a full permalink is used as stored. The profile
+ *             is not a fallback: no handle is kept on the machine, and a link
+ *             to a guessed profile is worse than no link.
+ *   TikTok    the stored id is a publish id, not something a URL can be made
+ *             from. A full URL is used if one was ever stored.
  *
  * Pure and client-safe: the schedule board, the calendars and the Day Summary
  * all link through it.
@@ -27,6 +33,9 @@ export function remoteUrlFor(
   if (platform === "youtube") return `https://www.youtube.com/watch?v=${encodeURIComponent(id)}`;
   if (platform === "facebook" && status === "published" && /^[\w.-]+$/.test(id)) {
     return `https://www.facebook.com/${id}`;
+  }
+  if (platform === "instagram" && status === "published" && /^(?=.*[A-Za-z_-])[A-Za-z0-9_-]{8,14}$/.test(id)) {
+    return `https://www.instagram.com/p/${id}/`;
   }
   return null;
 }

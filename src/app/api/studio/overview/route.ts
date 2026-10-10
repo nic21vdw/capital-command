@@ -91,6 +91,7 @@ export async function GET() {
     xPack: todayPack ? { posts: todayPack.posts.length, replies: todayPack.replies.length, date: todayPack.date } : null,
     publish: {
       enabled: config.enabled,
+      timezone: config.timezone,
       configuredPlatforms: configuredPlatforms(config),
       queued: queueItems.length,
       scheduled: platformStates.filter((state) => state?.status === "scheduled" || state?.status === "uploaded").length,

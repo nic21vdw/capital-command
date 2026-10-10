@@ -14,6 +14,12 @@ already shipped.
 
 ## Unreleased
 
+- **The red badge now matches the Failed strip.** The number in the sidebar and the browser tab counts every failed post that is still waiting for you, exactly like "Failed (N)" on the Uploading Center, and opening the page no longer makes it drop to zero. Threads Autopilot says once, at the top, when no Threads account is connected, and no longer promises tomorrow's posts will go out on their own while there is none.
+
+- **The Master Calendar opens on the days ahead.** The week view starts at today instead of ending on it, repeating carousel reminders look like reminders (dashed, with a bell) instead of scheduled posts, and the Distribution Centre shows the next scheduled time in your publishing time zone.
+
+- **Automations reads like plain English.** Failure lines use the post's title cut at a whole word instead of half a caption, and a missing Windows task says "Runner not installed - run npm run publish:register in the app folder". Instagram posts link out only when a real post address was saved, never a guessed one.
+
 - **Retry and Remove no longer catch you out.** "Retry connection failures" only touches posts that failed (not reminders you may have posted by hand) and leaves anything more than a day overdue as failed, saying how many to retry one by one, so nothing old posts all at once. Remove now stops while a post is uploading or a YouTube video may already exist, and "Remove anyway" is there if you mean it. Publish now never goes out early by accident, and Retry is not offered on a reminder for an account that is not connected.
 
 - **A post that fails again tells you again.** A retry that fails a second time now raises a new alert instead of being treated as the one you already saw, for publish posts and Threads.

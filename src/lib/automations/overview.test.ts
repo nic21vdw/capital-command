@@ -132,9 +132,9 @@ describe("automation dashboard evidence", () => {
     input.tasks.threads = { state: "missing", nextRunAt: null, lastRunAt: null, lastResult: null, schedule: null };
     input.tasks.ingest = { state: "missing", nextRunAt: null, lastRunAt: null, lastResult: null, schedule: null };
     const cards = buildAutomationOverview(input, now).cards;
-    expect(cards.find((card) => card.id === "publisher")!.blockers.join(" ")).toContain('"npm run publish:register" in the app folder');
-    expect(cards.find((card) => card.id === "threads")!.blockers.join(" ")).toContain('"npm run threads:register"');
-    expect(cards.find((card) => card.id === "ingest")!.blockers.join(" ")).toContain('"npm run ingest:register"');
+    expect(cards.find((card) => card.id === "publisher")!.blockers.join(" ")).toContain("Runner not installed - run npm run publish:register in the app folder");
+    expect(cards.find((card) => card.id === "threads")!.blockers.join(" ")).toContain("run npm run threads:register in the app folder");
+    expect(cards.find((card) => card.id === "ingest")!.blockers.join(" ")).toContain("run npm run ingest:register in the app folder");
     expect(cards.find((card) => card.id === "podcast")!.registerCommand).toBeUndefined();
     input.tasks.publisher = { state: "ready", nextRunAt: null, lastRunAt: null, lastResult: 0, schedule: "PT5M" };
     expect(buildAutomationOverview(input, now).cards.find((card) => card.id === "publisher")!.schedule).toBe("Windows task runs every 5 min");

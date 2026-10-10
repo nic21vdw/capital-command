@@ -141,3 +141,16 @@ export type MasterCalendarResponse = {
   days: number;
   events: MasterCalendarEvent[];
 };
+
+/**
+ * A repeating carousel schedule is a note to post by hand, not something the
+ * app will publish. It must never be drawn like a booked post.
+ */
+export function isReminderEventStatus(status: string): boolean {
+  return status.toLowerCase() === "reminder";
+}
+
+/** What a status reads as on screen: "reminder" is capitalised, the rest as stored. */
+export function eventStatusLabel(status: string): string {
+  return isReminderEventStatus(status) ? "Reminder" : status;
+}

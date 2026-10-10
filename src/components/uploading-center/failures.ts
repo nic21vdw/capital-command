@@ -1,4 +1,5 @@
 import { describeFailure, isConnectionFailure } from "@/lib/publisher/failure";
+import { failedLegPlatforms } from "@/lib/publisher/failedLegs";
 import { ALL_PLATFORMS, type PlatformId, type PlatformState, type QueueItem } from "@/lib/publisher/types";
 
 /**
@@ -24,9 +25,9 @@ export type FailedLeg = {
 export function collectFailedLegs(items: QueueItem[]): FailedLeg[] {
   const legs: FailedLeg[] = [];
   for (const item of items) {
-    for (const platform of ALL_PLATFORMS) {
+    for (const platform of failedLegPlatforms(item)) {
       const state = item.platforms[platform];
-      if (!state || state.status !== "failed") continue;
+      if (!state) continue;
       legs.push({
         item,
         platform,

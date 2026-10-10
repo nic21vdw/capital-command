@@ -44,3 +44,20 @@ export function describeTaskResult(code: number | null | undefined): string {
   if (code === 267014) return "was stopped before it finished";
   return "ended with an error";
 }
+
+/**
+ * A title cut to fit, on a word boundary with an ellipsis, never mid-word.
+ * Failure lines used to slice a caption at a fixed length ("... Here is the tr
+ * (tiktok):"), which read as a bug. Whitespace is collapsed first.
+ */
+export function truncateAtWord(text: string | null | undefined, max: number): string {
+  const clean = (text ?? "").trim().replace(/\s+/g, " ");
+  if (clean.length <= max) return clean;
+  const room = Math.max(1, max - 1);
+  const cut = clean.slice(0, room + 1);
+  const space = cut.lastIndexOf(" ");
+  // Only back up to a space when that keeps a useful amount; one very long
+  // word is better cut than left as just an ellipsis.
+  const head = space >= room * 0.5 ? cut.slice(0, space) : clean.slice(0, room);
+  return `${head.replace(/[\s,;:.\-]+$/, "")}\u2026`;
+}
