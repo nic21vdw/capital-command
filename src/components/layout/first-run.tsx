@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useAppData } from "@/components/providers/app-provider";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -23,26 +23,35 @@ import { Input } from "@/components/ui/input";
  */
 export function FirstRun() {
   const { data, mutate } = useAppData();
+  const router = useRouter();
   const [channelName, setChannelName] = useState(data.creatorProfile.channelName);
   const [handle, setHandle] = useState(data.creatorProfile.handle);
   const [saving, setSaving] = useState(false);
   const [failure, setFailure] = useState<string | null>(null);
 
-  const complete = async (withProfile: boolean) => {
+  // `then` is where to go once setup is saved. Open Settings used to navigate
+  // without finishing setup, and the setup screen covers every route but
+  // /settings - so the first sign-in's return trip landed back on this screen.
+  const complete = async (withProfile: boolean, then?: string) => {
     setSaving(true);
     setFailure(null);
     try {
+      const name = channelName.trim();
       if (withProfile) {
         await mutate("updateCreatorProfile", {
           ...data.creatorProfile,
-          channelName: channelName.trim(),
+          channelName: name,
           handle: handle.trim()
         }, { rethrow: true });
       }
       await mutate("updateSettings", {
         ...data.settings,
+        // The sidebar reads the display name, not the channel name, so without
+        // this it keeps saying "Your channel" after the owner typed theirs.
+        ...(withProfile && name ? { profile: { ...data.settings.profile, displayName: name } } : {}),
         setupCompletedAt: new Date().toISOString()
       }, { rethrow: true });
+      if (then) router.push(then);
     } catch (error) {
       setFailure(error instanceof Error ? error.message : "Setup could not be saved. Try again.");
     } finally {
@@ -87,13 +96,14 @@ export function FirstRun() {
       <Card>
         <h2 className="text-lg font-semibold text-white">Where may it post?</h2>
         <p className="mt-1 text-sm text-[var(--muted-foreground)]">
-          YouTube, TikTok, Spotify, Instagram, Facebook and Threads are each connected in Settings, and this app posts
-          to none of them until you do. You can come back to it — nothing is queued in the meantime.
+          YouTube, TikTok, Instagram, Facebook and Threads are each connected in Settings, and this app posts to none
+          of them until you do. Spotify is only read, for podcast stats, and X is copy-only: the app writes the post
+          and you paste it. You can come back to it — nothing is queued in the meantime.
         </p>
         <div className="mt-4">
-          <Link href="/settings" className="inline-flex items-center justify-center rounded-lg border border-[var(--border)] bg-[var(--surface)] px-4 py-2 text-sm font-medium text-[var(--foreground)] transition hover:border-[var(--border-strong)]">
-            Open Settings
-          </Link>
+          <Button variant="secondary" disabled={saving} onClick={() => void complete(true, "/settings#accounts")}>
+            {saving ? "Saving…" : "Save and open Settings"}
+          </Button>
         </div>
       </Card>
 

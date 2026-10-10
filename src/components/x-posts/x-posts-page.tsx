@@ -283,7 +283,7 @@ export function XPostsPage() {
           // card right below it explaining why nothing was going out.
           autopilotArmed
             ? "Write a day of Threads posts and let them go out on their own — press Write today's posts and the app drafts 24 posts plus 20 replies from your positioning brief, then posts them for you one at a time through the day."
-            : "Press Write today's posts and the app drafts 24 posts plus 20 replies from your positioning brief. Connect an account below to have them go out on their own."
+            : "Press Write today's posts and the app drafts 24 posts plus 20 replies from your positioning brief. Connect Threads in Settings > Accounts to have them go out on their own."
         }
         actions={
           <Button onClick={() => generate(true)} disabled={generating || autopilot.busy !== null} className="shrink-0">

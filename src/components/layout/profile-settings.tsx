@@ -42,6 +42,8 @@ export function ProfileSettings() {
   const { data, mutate } = useAppData();
   const profile = data.settings.profile;
   const [name, setName] = useState(profile?.displayName ?? "");
+  const [channelName, setChannelName] = useState(data.creatorProfile.channelName);
+  const [handle, setHandle] = useState(data.creatorProfile.handle);
   const [uploading, setUploading] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
 
@@ -53,6 +55,16 @@ export function ProfileSettings() {
       "updateSettings",
       { ...data.settings, profile: { ...data.settings.profile, ...next } },
       { successMessage: "Profile updated." }
+    );
+
+  const channelDirty =
+    channelName.trim() !== data.creatorProfile.channelName.trim() || handle.trim() !== data.creatorProfile.handle.trim();
+  // The same call first-run makes, so what is typed there can be changed here.
+  const saveChannel = () =>
+    mutate(
+      "updateCreatorProfile",
+      { ...data.creatorProfile, channelName: channelName.trim(), handle: handle.trim() },
+      { successMessage: "Channel updated." }
     );
 
   const handleFile = async (file: File | undefined) => {
@@ -81,7 +93,9 @@ export function ProfileSettings() {
         </span>
         <div>
           <h2 className="text-lg font-semibold text-white">Profile</h2>
-          <p className="mt-1 text-sm text-[var(--muted-foreground)]">Your name and photo in the sidebar.</p>
+          <p className="mt-1 text-sm text-[var(--muted-foreground)]">
+            Your name and photo in the sidebar, and the channel name and handle signed onto rendered carousels.
+          </p>
         </div>
       </div>
       <div className="mt-4 flex flex-col gap-5 sm:flex-row sm:items-start">
@@ -121,6 +135,24 @@ export function ProfileSettings() {
               disabled={trimmedName === (profile?.displayName ?? "").trim()}
             >
               Save name
+            </Button>
+          </div>
+          <div className="mt-5 grid gap-3 sm:grid-cols-2">
+            <label className="block text-sm text-[var(--muted-foreground)]">
+              <span className="mb-2 block">Channel name</span>
+              <Input value={channelName} onChange={(event) => setChannelName(event.target.value)} placeholder="Your channel" />
+            </label>
+            <label className="block text-sm text-[var(--muted-foreground)]">
+              <span className="mb-2 block">Handle</span>
+              <Input value={handle} onChange={(event) => setHandle(event.target.value)} placeholder="@you" />
+            </label>
+          </div>
+          <p className="mt-2 text-xs text-[var(--muted-foreground)]">
+            Leave them blank and carousels go out unsigned.
+          </p>
+          <div className="mt-3">
+            <Button onClick={() => void saveChannel()} disabled={!channelDirty}>
+              Save channel
             </Button>
           </div>
         </div>

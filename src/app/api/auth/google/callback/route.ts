@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { isPrimaryAccountId, primaryAccountId } from "@/lib/publisher/accounts";
-import { exchangeGoogleCode } from "@/lib/publisher/googleAuth";
+import { exchangeGoogleCode, googleRedirectUri } from "@/lib/publisher/googleAuth";
 import { publishQueue } from "@/lib/publisher/queue";
 import { connectRearmScope, rearmItems } from "@/lib/publisher/rearm";
 import { runDue } from "@/lib/publisher/runner";
@@ -25,7 +25,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.redirect(target);
   }
   try {
-    await exchangeGoogleCode(code, `${request.nextUrl.origin}/api/auth/google/callback`, accountId);
+    await exchangeGoogleCode(code, googleRedirectUri(request.nextUrl.origin), accountId);
 
     // A revoked refresh token is permanent until the user reconnects. Once a
     // fresh token is stored, revive only this account's uploads that were

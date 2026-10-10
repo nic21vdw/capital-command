@@ -1,5 +1,6 @@
 import { primaryAccountId, youtubeChannelKey, youtubeRefreshTokenKey } from "@/lib/publisher/accounts";
 import { publisherConfig } from "@/lib/publisher/config";
+import { missingCredentialsMessage } from "@/lib/publisher/connectStart";
 import { fetchJson } from "@/lib/publisher/http";
 import { getCachedToken, setCachedToken } from "@/lib/publisher/tokens";
 
@@ -67,13 +68,19 @@ export function isYoutubeReconnectRequired(error: unknown): boolean {
 
 export type YoutubeChannelInfo = { title: string; thumbnail: string | null; handle: string | null };
 
+/**
+ * The redirect URI Google sends the browser back to. It has to be registered
+ * on the OAuth client character for character, so the start route, the
+ * callback and Settings all build it here rather than each spelling it out.
+ */
+export function googleRedirectUri(origin: string): string {
+  return `${origin}/api/auth/google/callback`;
+}
+
 export function googleAuthUrl(redirectUri: string, accountId: string = primaryAccountId("youtube")): string {
   const { youtube } = publisherConfig();
   if (!youtube.clientId || !youtube.clientSecret) {
-    throw new Error(
-      "Set YOUTUBE_CLIENT_ID and YOUTUBE_CLIENT_SECRET in .env first (Google Cloud Console → OAuth client, type Web application, redirect URI " +
-        `${redirectUri}).`
-    );
+    throw new Error(missingCredentialsMessage("youtube"));
   }
   const params = new URLSearchParams({
     client_id: youtube.clientId,

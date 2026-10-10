@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import Link from "next/link";
 import { Check, ExternalLink, Link2, Loader2, RefreshCw, Search, Unlink } from "lucide-react";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
@@ -91,8 +92,10 @@ export function SpotifyCard({
       <Card className="mb-5">
         <h2 className="text-sm font-semibold text-white">Spotify</h2>
         <p className="mt-1 text-sm text-[var(--muted-foreground)]">
-          Put SPOTIFY_CLIENT_ID and SPOTIFY_CLIENT_SECRET in .env (developer.spotify.com/dashboard → your app) and this
-          page can tell you which episodes Spotify has actually pulled in.
+          Add your Spotify client ID and secret in{" "}
+          <Link href="/settings#accounts" className="text-[var(--accent)] underline">Settings &gt; Accounts</Link>{" "}
+          (developer.spotify.com/dashboard → your app) and this page can tell you which episodes Spotify has actually
+          pulled in.
         </p>
       </Card>
     );

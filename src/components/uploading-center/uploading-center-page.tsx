@@ -284,7 +284,9 @@ export function UploadingCenterPage() {
     if (connected === "tiktok") {
       oauthToastShown.current = true;
       toast.success(
-        "TikTok connected — scheduled posts will publish automatically.",
+        searchParams.get("audited") === "1"
+          ? "TikTok connected — scheduled posts will publish automatically."
+          : "TikTok connected — clips land in your TikTok inbox to finish in the app.",
       );
     } else if (connected === "youtube") {
       oauthToastShown.current = true;
@@ -709,9 +711,9 @@ export function UploadingCenterPage() {
           ) : null}
           {id === "tiktok" && configured ? (
             <p className="tone-success tone-edge tone-soft tone-text rounded-lg border px-3 py-2 text-xs">
-              Posts publish at their slot time through the Content Posting API.
-              Until TikTok audits the app they land on your profile as private
-              (SELF_ONLY) — flip TIKTOK_AUDITED=true after approval.
+              Until TikTok audits the app, clips land in your TikTok inbox to
+              finish in the app instead of posting. Set TIKTOK_AUDITED=true once
+              approved.
             </p>
           ) : null}
           <SchedulePeriodNav
