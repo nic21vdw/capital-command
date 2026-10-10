@@ -38,3 +38,22 @@ export function connectErrorUrl(origin: string, platform: OAuthPlatform, message
   target.hash = "accounts";
   return target;
 }
+
+/**
+ * A redirect that stays on whatever origin the browser is already on.
+ *
+ * `request.nextUrl.origin` is NOT the address the page was opened at: Next
+ * builds it from the server's configured hostname, so a page opened at
+ * 127.0.0.1:3100 was sent to http://localhost:3100 on a failed sign-in - a
+ * different origin, with a different localStorage (stream selection, sidebar
+ * state, caches), which read as the app forgetting everything. A relative
+ * `Location` is resolved by the browser against the page it is on, so it can
+ * never switch origin. Use this for every in-app redirect on a sign-in route;
+ * only the hop out to the provider needs an absolute URL.
+ */
+export function redirectWithinApp(target: URL): Response {
+  return new Response(null, {
+    status: 307,
+    headers: { Location: `${target.pathname}${target.search}${target.hash}` }
+  });
+}

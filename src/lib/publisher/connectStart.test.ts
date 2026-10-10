@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { PublisherConfig } from "./config";
-import { connectErrorUrl, missingCredentialsMessage, oauthCredentialsMissing } from "./connectStart";
+import { connectErrorUrl, missingCredentialsMessage, oauthCredentialsMissing, redirectWithinApp } from "./connectStart";
 
 const config = (patch: Partial<Record<"youtube" | "tiktok" | "spotify", Record<string, string | null>>>) =>
   ({
@@ -29,5 +29,16 @@ describe("starting a sign-in before the app credentials are saved", () => {
     expect(url.hash).toBe("#accounts");
     expect(url.searchParams.get("connect_error")).toBe("Add the YouTube client ID and secret in Settings > Accounts first.");
     expect(url.searchParams.get("connect")).toBe("youtube");
+  });
+});
+
+describe("redirectWithinApp", () => {
+  it("answers with a relative Location so the origin the page was opened at is kept", () => {
+    // The server believes it is localhost; the person opened 127.0.0.1.
+    const response = redirectWithinApp(connectErrorUrl("http://localhost:3100", "youtube", "Add the keys"));
+    expect(response.status).toBe(307);
+    const location = response.headers.get("location") ?? "";
+    expect(location).toBe("/settings?connect_error=Add+the+keys&connect=youtube#accounts");
+    expect(new URL(location, "http://127.0.0.1:3100").origin).toBe("http://127.0.0.1:3100");
   });
 });

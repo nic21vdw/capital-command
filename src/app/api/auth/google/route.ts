@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAccount, primaryAccountId } from "@/lib/publisher/accounts";
-import { connectErrorUrl, missingCredentialsMessage, oauthCredentialsMissing } from "@/lib/publisher/connectStart";
+import { connectErrorUrl, missingCredentialsMessage, oauthCredentialsMissing, redirectWithinApp } from "@/lib/publisher/connectStart";
 import { googleAuthUrl, googleRedirectUri } from "@/lib/publisher/googleAuth";
 
 export const runtime = "nodejs";
@@ -19,7 +19,7 @@ export async function GET(request: NextRequest) {
   // Before the client id and secret are saved there is nothing to send Google
   // to; say where to add them instead of answering with a page of JSON.
   if (oauthCredentialsMissing("youtube")) {
-    return NextResponse.redirect(connectErrorUrl(origin, "youtube", missingCredentialsMessage("youtube")));
+    return redirectWithinApp(connectErrorUrl(origin, "youtube", missingCredentialsMessage("youtube")));
   }
   try {
     const account = await getAccount(accountId);
@@ -28,6 +28,6 @@ export async function GET(request: NextRequest) {
     }
     return NextResponse.redirect(googleAuthUrl(redirectUri, accountId));
   } catch (error) {
-    return NextResponse.redirect(connectErrorUrl(origin, "youtube", error instanceof Error ? error.message : String(error)));
+    return redirectWithinApp(connectErrorUrl(origin, "youtube", error instanceof Error ? error.message : String(error)));
   }
 }

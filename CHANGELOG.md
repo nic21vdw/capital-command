@@ -14,6 +14,10 @@ already shipped.
 
 ## Unreleased
 
+- **The Schedule dialogs stay put.** On Carousels the Schedule window used to open halfway down the page, scroll away with it and hide Cancel and Book post behind the next card or the command bar. Every dialog now opens over the whole screen, above the command bar, with its buttons always in view (it scrolls inside on a phone) and Tab kept inside it.
+
+- **Sidebar chips agree with Settings, and a failed sign-in stays where you were.** Instagram and Facebook with a saved token now show a muted "saved, not verified" in the sidebar instead of a green dot, the same as Settings. A sign-in that fails no longer bounces you from 127.0.0.1 to localhost, which looked like the app had forgotten your place.
+
 - **Retry and Remove no longer catch you out.** "Retry connection failures" only touches posts that failed (not reminders you may have posted by hand) and leaves anything more than a day overdue as failed, saying how many to retry one by one, so nothing old posts all at once. Remove now stops while a post is uploading or a YouTube video may already exist, and "Remove anyway" is there if you mean it. Publish now never goes out early by accident, and Retry is not offered on a reminder for an account that is not connected.
 
 - **A post that fails again tells you again.** A retry that fails a second time now raises a new alert instead of being treated as the one you already saw, for publish posts and Threads.
