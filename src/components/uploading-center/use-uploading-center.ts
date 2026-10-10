@@ -13,6 +13,7 @@ import type { ClipCandidate, ClipJob } from "@/lib/clipping/types";
 import type { CaptionSegment, ClipProject } from "@/types/domain";
 import { placeChannelVideos, type ChannelPlacement } from "@/lib/publisher/channelPlacement";
 import type { ChannelSchedule, ChannelVideo } from "@/lib/publisher/channelVideos";
+import { captionRequestFields } from "@/lib/publisher/captionTags";
 import { indexQueueByClip } from "@/lib/publisher/clipQueueIndex";
 import { generateSlots } from "@/lib/publisher/slots";
 import type { YoutubeQuota } from "@/lib/publisher/quota";
@@ -231,11 +232,22 @@ export const PLATFORM_TARGET_LABELS: Record<PlatformTarget, string> = {
 
 /**
  * The platform whose copy an "all platforms" caption is written for. One
- * caption goes out to every platform, so it is tailored to the longest-form
- * of them rather than to a single short-form feed.
+ * caption goes out to every platform (the queue stores one caption per post and
+ * the draft holds one), so it is written for the MOST RESTRICTIVE of them:
+ * TikTok's short, punchy copy with five hashtags fits a YouTube description, an
+ * Instagram caption and a Facebook post. It used to be written for YouTube,
+ * which is the one platform where long copy is rewarded, and then posted
+ * everywhere.
  */
 export function copyPlatformFor(target: PlatformTarget): PlatformId {
-  return target === ALL_PLATFORMS_TARGET ? "youtube" : target;
+  return target === ALL_PLATFORMS_TARGET ? "tiktok" : target;
+}
+
+/** What a toast calls the audience of an AI caption, so "all" is not a silent fib. */
+export function copyTargetLabel(target: PlatformTarget): string {
+  return target === ALL_PLATFORMS_TARGET
+    ? "all platforms (short copy written to fit all of them)"
+    : PLATFORM_TARGET_LABELS[target];
 }
 
 // Keep in sync with the Clip Generator's headline: the creator/auto title on
@@ -1000,7 +1012,9 @@ export function useUploadingCenter(clipProjects: ClipProject[] = []) {
               file,
               publishAt: draft.slotUtc,
               title: draft.title.trim() || undefined,
-              caption: draft.caption.trim() || undefined,
+              // The AI caption's hashtag line travels as `hashtags`; left inside the
+              // caption, enqueue generated a second set on top of it.
+              ...captionRequestFields(draft.caption),
               platforms: [platform],
               // "public" is what makes YouTube honor publishAt: the video is
               // uploaded private and YouTube flips it live at the slot time.
@@ -1129,7 +1143,9 @@ export function useUploadingCenter(clipProjects: ClipProject[] = []) {
                   file,
                   publishAt: draft.slotUtc,
                   title: draft.title.trim() || undefined,
-                  caption: draft.caption.trim() || undefined,
+                  // The AI caption's hashtag line travels as `hashtags`; left inside the
+              // caption, enqueue generated a second set on top of it.
+              ...captionRequestFields(draft.caption),
                   platforms: [platform],
                   visibility: "public",
                   accountId: activeAccountIds[platform],

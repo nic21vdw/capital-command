@@ -54,6 +54,7 @@ import {
   PLATFORM_TARGET_LABELS,
   SLOT_WINDOW_DAYS,
   copyPlatformFor,
+  copyTargetLabel,
   studioContentUrl,
   studioVideoUrl,
   targetPlatforms,
@@ -263,9 +264,11 @@ export function UploadingCenterPage() {
       const result = await tailorCaption(clip, copyPlatformFor(draft.platform), draft.title);
       if (!result) return;
       putDraft(clip, { ...(draftsRef.current[clip.key] ?? draft), caption: result.caption });
-      const label = draft.platform === "all" ? "all platforms" : draft.platform;
+      const label = copyTargetLabel(draft.platform);
       if (result.bestTime) {
-        toast.success(`Tailored for ${label}. Best time to post: ~${result.bestTime}.`);
+        toast.success(
+          `Tailored for ${label}. Best time to post${draft.platform === "all" ? " on TikTok" : ""}: ~${result.bestTime}.`
+        );
       } else {
         toast.success(`Caption tailored for ${label}.`);
       }
