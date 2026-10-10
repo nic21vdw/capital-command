@@ -632,7 +632,7 @@ export function MasterCalendarPage() {
               {failedCount > 0 ? (
                 <Link
                   href={failedHref}
-                  title={`${failedCount} ${failedCount === 1 ? "post" : "posts"} failed or partly failed in this view — open ${failedHref === "/x-posts" ? "Threads Posts" : "the Uploading Center"} to retry`}
+                  title={`${failedCount} ${failedCount === 1 ? "post" : "posts"} failed or partly failed in this view; open ${failedHref === "/x-posts" ? "Threads Autopilot" : "the Uploading Center"} to retry`}
                   className="inline-flex"
                 >
                   <Badge tone="danger" className="gap-1 text-[10px]">

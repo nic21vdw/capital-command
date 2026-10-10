@@ -246,8 +246,10 @@ export async function enqueue(options: EnqueueOptions): Promise<QueueItem> {
     config.queueBackend === "r2" ||
     process.env.TIKTOK_UPLOAD_MODE?.trim().toLowerCase() === "url";
   if (igAutomated && !hostingConfigured(config)) {
+    // Instagram pulls the clip from a public HTTPS URL. The S3_* variables
+    // (Cloudflare R2 free tier) are what make the app host it.
     throw new Error(
-      "Instagram needs the clip at a public HTTPS URL. Configure S3_ENDPOINT/S3_BUCKET/S3_ACCESS_KEY_ID/S3_SECRET_ACCESS_KEY (Cloudflare R2 free tier) or drop instagram from the platforms."
+      "Add Media hosting in Settings > Accounts first (Instagram and Facebook need a public link to each video)."
     );
   }
 
@@ -428,8 +430,10 @@ export async function enqueueImagePost(options: EnqueueImageOptions): Promise<Qu
   // automated image post cannot exist without hosting. Say so now.
   const needsHosting = configured.size > 0 || config.queueBackend === "r2";
   if (configured.size > 0 && !hostingConfigured(config)) {
+    // Operator detail (the S3_* variables and the R2 free tier) belongs here,
+    // not in the message the user reads.
     throw new Error(
-      "Instagram and Facebook download pictures from a public HTTPS URL. Configure S3_ENDPOINT/S3_BUCKET/S3_ACCESS_KEY_ID/S3_SECRET_ACCESS_KEY (Cloudflare R2 free tier) before scheduling picture posts."
+      "Add Media hosting in Settings > Accounts first (Instagram and Facebook need a public link to each picture)."
     );
   }
 
