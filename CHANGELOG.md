@@ -14,6 +14,38 @@ already shipped.
 
 ## Unreleased
 
+- **Retry waits for its slot.** Retry on the Uploading Center board puts back only the platform that failed and waits for that platform's slot. If the slot has already passed, it posts right away. The post's other platforms are no longer published early.
+
+- **Publish now and Remove ask first, and list every platform.** Publish now really makes a held YouTube video public, and the message says what happened. Remove keeps a video YouTube already holds private instead of letting it go live, and warns about any Facebook posts it cannot cancel.
+
+- **The board edits captions and says what really happens.** You can edit a scheduled post's caption from the board. YouTube's description isn't changed, and the board says so. Renaming a post confirms it. TikTok inbox drafts read "In TikTok inbox", posts waiting on a retry or on YouTube's upload limit say so, failure messages are plain, and the advice is right for each platform.
+
+- **Bulk "Schedule N clips" respects the shorts-a-day limit.** It spreads clips across days, so "Schedule 6 clips: 2 a day from tomorrow" does what it says. Full days show "Day full", and pressing it again no longer gets stuck. The limit now counts videos, so one clip booked to every platform counts once.
+
+- **Scheduling is easier to follow.** "Schedule everywhere" gives one summary with a line per platform. YouTube-to-Instagram/Facebook mirroring is named on the platform picker and on mirrored posts. The picker sits next to the schedule button, the page opens on today, and /clips cards have a Schedule link. Distribution Centre tells you what posts where (Automatic, Reminder, Copy-only or Manual) for each format, and the same word appears next to Schedule buttons. The editor's Schedule Short says YouTube only. The pipeline sheet says "Book N at the next free slots", and long-form is marked "held private for review".
+
+- **Carousel Schedule now really posts.** A one-off carousel to Instagram and Facebook is booked and goes out at the time you pick, with the default set to Once, tomorrow. TikTok, YouTube and repeating schedules are clearly labelled reminders instead of "Upload scheduled."
+
+- **"AI caption for all platforms" writes short copy that fits every platform.** Its hashtags are no longer posted twice on Instagram, TikTok and Facebook.
+
+- **Turning posting off no longer hides the Uploading Center.** The schedule, accounts and Connect buttons stay visible read-only under a banner that says what stopped. Posts YouTube or Facebook already hold still go live. "Allow posting" is now "Allow video and picture posting" and says what it stops.
+
+- **Automations can pause and resume all posting.** "Pause all posting" and "Resume all" are there now. A list shows the posts YouTube, Facebook and Buffer will still publish by themselves, with links to each. A read-only Cadence panel shows the posting times, and the .env setting behind each one.
+
+- **Automation status reads in plain words.** Runners show "every 5 min" and "Last ran" instead of engineering labels. A missing background task shows the exact command to install it, plus how to keep the PC awake.
+
+- **Failures are easier to find.** Uploading Center has a "Failed (N)" strip across all platforms, with a jump to each post and a "Retry connection failures" button. A line says whether the publisher is paused, not installed, or when it last ran. The sidebar badge and the "(N)" window title count posts that failed when due (including ones where only one platform failed) and failed Threads posts. Uploading Center and Threads get their own badges, and when the app is open in CoLateral, each new failure also lands in its notification bell.
+
+- **Threads Autopilot says what it is doing.** The Threads page is renamed Threads Autopilot, and it says "Paused" instead of "Armed" when paused. It announces "Tomorrow's N posts are ready" and has "Preview next run", which posts nothing. You can write and queue your own Threads post, and each post shows its X wording with a Copy button. "FB / IG Threads" is renamed FB / IG Post Library.
+
+- **The command bar opens more screens.** It now opens Podcast, Automations, Execution and Finance (when shown).
+
+- **Master Calendar and Day Summary show what really happened.** Threads posts show their real status instead of "suggested". A post that lost one platform reads "partly failed" and opens that platform, and a red "N failed" chip shows on Master Calendar and Distribution. Day Summary has a Yesterday button, "Open on YouTube / Facebook" links, posts to make by hand, and long-form held for review says so. "Plan this week/month" plans from today and links each suggestion to its day.
+
+- **Signing in is clearer.** Signing in with YouTube, TikTok or Spotify before saving app keys now goes to Settings > Accounts with a plain message instead of a raw error page. Finishing a connection no longer lands you back on the setup screen. Sidebar chips turn amber with "Reconnect <platform>" when the last post failed because the connection expired.
+
+- **Settings explains each connection.** Settings > Accounts shows the exact redirect address for Google, TikTok and Spotify, and says where each value comes from ("Set in .env - edit it there"). Pasted Instagram and Facebook tokens show as "Saved - not verified", and there is a Media hosting row. Channel name and handle can be changed in Settings > Profile. The unused YouTube API key field is gone.
+
 ## 2026-10-04
 
 - Update history saves how long each step took, separates compilation, retries and startup, and highlights the slowest step so future delays are easy to spot.
