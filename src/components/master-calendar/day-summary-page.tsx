@@ -11,10 +11,14 @@ import {
   ChevronLeft,
   ChevronRight,
   Clock,
+  ExternalLink,
+  HandHelping,
   Loader2,
+  Lock,
   PencilLine,
   Repeat,
-  Send
+  Send,
+  SkipForward
 } from "lucide-react";
 import { Badge, type BadgeTone } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
@@ -45,6 +49,7 @@ const STATE_LABELS: Record<SummaryState, string> = {
   published: "Published",
   scheduled: "Scheduled",
   pending: "In progress",
+  skipped: "Skipped",
   failed: "Failed"
 };
 
@@ -52,6 +57,7 @@ const STATE_TONES: Record<SummaryState, BadgeTone> = {
   published: "success",
   scheduled: "info",
   pending: "warning",
+  skipped: "neutral",
   failed: "danger"
 };
 
@@ -59,8 +65,12 @@ const STATE_ICONS: Record<SummaryState, typeof CheckCircle2> = {
   published: CheckCircle2,
   scheduled: Send,
   pending: PencilLine,
+  skipped: SkipForward,
   failed: AlertTriangle
 };
+
+/** Failed first, then the day's progress; the order every roll-up reads in. */
+const STATE_ORDER: SummaryState[] = ["failed", "published", "scheduled", "pending", "skipped"];
 
 const PLATFORM_ICON_KEYS: Record<string, PlatformIconKey> = {
   YouTube: "youtube",
@@ -71,7 +81,7 @@ const PLATFORM_ICON_KEYS: Record<string, PlatformIconKey> = {
 
 /** The state tally as a row of chips; zero counts are left out. */
 function StateChips({ states, className }: { states: Record<SummaryState, number>; className?: string }) {
-  const shown = (["failed", "published", "scheduled", "pending"] as SummaryState[]).filter((state) => states[state] > 0);
+  const shown = STATE_ORDER.filter((state) => states[state] > 0);
   if (shown.length === 0) return null;
   return (
     <div className={cn("flex flex-wrap items-center gap-1.5", className)}>
@@ -95,10 +105,9 @@ function PieceCard({ event }: { event: MasterCalendarEvent }) {
   // image reads as "this piece is broken" when only the file has moved.
   const [frameMissing, setFrameMissing] = useState(false);
   return (
-    <Link
-      href={eventHref(event)}
-      className="group flex gap-3 rounded-xl border border-[var(--border)] bg-white/[0.03] p-2.5 transition hover:border-[var(--border-strong)] hover:bg-white/[0.07]"
-    >
+    // The card is a stretched link (the title's ::before covers it), so the
+    // "Open on <platform>" links can sit on top of it without nesting anchors.
+    <div className="group relative flex gap-3 rounded-xl border border-[var(--border)] bg-white/[0.03] p-2.5 transition hover:border-[var(--border-strong)] hover:bg-white/[0.07]">
       <div className="relative h-20 w-14 shrink-0 overflow-hidden rounded-lg border border-[var(--border)] bg-black/40">
         {event.thumbnailUrl && !frameMissing ? (
           // eslint-disable-next-line @next/next/no-img-element -- local frame from our own route, not a next/image loader
@@ -120,7 +129,11 @@ function PieceCard({ event }: { event: MasterCalendarEvent }) {
       </div>
       <div className="min-w-0 flex-1">
         <div className="flex items-start gap-2">
-          <p className="min-w-0 flex-1 text-sm font-medium leading-snug text-white">{event.title}</p>
+          <p className="min-w-0 flex-1 text-sm font-medium leading-snug text-white">
+            <Link href={eventHref(event)} className="before:absolute before:inset-0 before:rounded-xl before:content-['']">
+              {event.title}
+            </Link>
+          </p>
           <ArrowUpRight className="mt-0.5 h-3.5 w-3.5 shrink-0 text-[var(--muted-foreground)] opacity-0 transition group-hover:opacity-100" />
         </div>
         <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
@@ -132,11 +145,89 @@ function PieceCard({ event }: { event: MasterCalendarEvent }) {
             </Badge>
           ) : null}
         </div>
+        {event.failedPlatforms && event.failedPlatforms.length > 0 ? (
+          <p className="mt-1.5 flex items-start gap-1 text-xs text-red-300">
+            <AlertTriangle className="mt-0.5 h-3 w-3 shrink-0" />
+            Failed on {event.failedPlatforms.join(", ")}
+          </p>
+        ) : null}
+        {event.heldForReview ? (
+          <p className="mt-1.5 flex items-start gap-1 text-xs text-amber-300">
+            <Lock className="mt-0.5 h-3 w-3 shrink-0" />
+            Stays private - publish by hand after review
+          </p>
+        ) : null}
         {event.platforms.length > 0 ? (
           <p className="mt-1.5 truncate text-xs text-[var(--muted-foreground)]">{event.platforms.join(" · ")}</p>
         ) : null}
+        {event.liveLinks && event.liveLinks.length > 0 ? (
+          <div className="relative z-10 mt-1.5 flex flex-wrap gap-x-3 gap-y-1">
+            {event.liveLinks.map((link) => (
+              <a
+                key={link.platform}
+                href={link.url}
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex items-center gap-1 text-xs text-[var(--accent)] hover:underline"
+              >
+                Open on {link.platform}
+                <ExternalLink className="h-3 w-3" />
+              </a>
+            ))}
+          </div>
+        ) : null}
       </div>
-    </Link>
+    </div>
+  );
+}
+
+/**
+ * Posts nobody can make for him: a platform with no connected account tracks
+ * the post as a reminder. They used to be visible only on the Uploading
+ * Center, and a toast that fired only while it was open.
+ */
+function ByHandTodos({ todos }: { todos: DaySummary["todos"] }) {
+  if (todos.length === 0) return null;
+  return (
+    <Card className="mb-4 border-amber-400/30">
+      <div className="flex items-center gap-2">
+        <HandHelping className="h-4 w-4 text-amber-300" />
+        <p className="text-sm font-semibold text-white">
+          {todos.length} {todos.length === 1 ? "post" : "posts"} to make by hand
+        </p>
+      </div>
+      <ul className="mt-3 space-y-2">
+        {todos.map((todo) => (
+          <li
+            key={`${todo.eventId}:${todo.platform}`}
+            className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg border border-[var(--border)] bg-white/[0.03] px-3 py-2 text-sm"
+          >
+            <span className="min-w-0 flex-1">
+              <span className="font-medium text-white">
+                Post by hand on {todo.platform}
+                {todo.time ? ` at ${todo.time}` : ""}
+              </span>
+              <span className="block truncate text-xs text-[var(--muted-foreground)]">{todo.title}</span>
+            </span>
+            {todo.fileUrl ? (
+              <a
+                href={todo.fileUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex items-center gap-1 text-xs text-[var(--accent)] hover:underline"
+              >
+                Open slides
+                <ExternalLink className="h-3 w-3" />
+              </a>
+            ) : null}
+            <Link href={todo.href} className="inline-flex items-center gap-1 text-xs text-[var(--accent)] hover:underline">
+              Open the post
+              <ArrowUpRight className="h-3 w-3" />
+            </Link>
+          </li>
+        ))}
+      </ul>
+    </Card>
   );
 }
 
@@ -220,8 +311,7 @@ export function DaySummaryPage({ initialDate }: { initialDate?: string }) {
   // "N published/scheduled/pending/failed", non-zero states only — the same
   // roll-up StateChips renders, read back as one line for an agent.
   const stateSummary =
-    (["failed", "published", "scheduled", "pending"] as SummaryState[])
-      .filter((state) => summary.states[state] > 0)
+    STATE_ORDER.filter((state) => summary.states[state] > 0)
       .map((state) => `${summary.states[state]} ${STATE_LABELS[state].toLowerCase()}`)
       .join(" · ") || "Nothing scheduled";
   const networksSummary =
@@ -234,6 +324,7 @@ export function DaySummaryPage({ initialDate }: { initialDate?: string }) {
     fields: [{ id: "date", label: "Date", value: dateKey, kind: "date" }],
     controls: [
       { id: "prev-day", label: "Previous day", group: "Day" },
+      { id: "yesterday", label: "Yesterday", group: "Day" },
       { id: "today", label: "Today", group: "Day" },
       { id: "tomorrow", label: "Tomorrow", group: "Day" },
       { id: "next-day", label: "Next day", group: "Day" }
@@ -243,6 +334,10 @@ export function DaySummaryPage({ initialDate }: { initialDate?: string }) {
       { label: "By state", value: stateSummary },
       { label: "Posting window", value: window },
       { label: "Failed", value: String(summary.states.failed) },
+      {
+        label: "To post by hand",
+        value: summary.todos.map((todo) => `${todo.platform}${todo.time ? ` at ${todo.time}` : ""}: ${todo.title}`).join("; ") || "None"
+      },
       { label: "Networks", value: networksSummary }
     ],
     setField: (id, value) => {
@@ -253,6 +348,10 @@ export function DaySummaryPage({ initialDate }: { initialDate?: string }) {
       return true;
     },
     click: (id) => {
+      if (id === "yesterday") {
+        setDateKey(shiftDayKey(todayKey, -1));
+        return true;
+      }
       if (id === "today") {
         setDateKey(todayKey);
         return true;
@@ -301,6 +400,13 @@ export function DaySummaryPage({ initialDate }: { initialDate?: string }) {
                 className="flex h-8 w-8 items-center justify-center text-[var(--muted-foreground)] transition hover:bg-white/10 hover:text-white"
               >
                 <ChevronLeft className="h-4 w-4" />
+              </button>
+              <button
+                type="button"
+                onClick={() => setDateKey(shiftDayKey(todayKey, -1))}
+                className="border-l border-[var(--border)] px-3 text-xs font-medium leading-8 text-[var(--muted-foreground)] transition hover:bg-white/10 hover:text-white"
+              >
+                Yesterday
               </button>
               <button
                 type="button"
@@ -394,6 +500,8 @@ export function DaySummaryPage({ initialDate }: { initialDate?: string }) {
           </div>
         </div>
       </Card>
+
+      <ByHandTodos todos={summary.todos} />
 
       <div className="space-y-4">
         {summary.sections.map((section) => (

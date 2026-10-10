@@ -3,9 +3,12 @@ import {
   APP_MESSAGE,
   HOST_MESSAGE,
   appResult,
+  buildNotifyMessage,
+  createNotifier,
   emptySurface,
   isSafeTokenValue,
   normalizeChrome,
+  normalizeNotificationRoute,
   normalizeRoute,
   parseHostMessage,
   sanitizeThemeTokens
@@ -144,5 +147,103 @@ describe("emptySurface", () => {
       controls: [],
       readings: []
     });
+  });
+});
+
+describe("capital-command:notify", () => {
+  const failure = {
+    id: "publish-failed:q1:youtube:3",
+    level: "error",
+    title: "A YouTube post failed",
+    body: "The YouTube connection expired. Reconnect it in Settings.",
+    route: "/uploading-center?item=q1&platform=youtube"
+  };
+
+  it("has the exact wire shape the host reads", () => {
+    expect(APP_MESSAGE.notify).toBe("capital-command:notify");
+    expect(buildNotifyMessage(failure)).toEqual({ type: "capital-command:notify", notification: failure });
+  });
+
+  it("leaves the route off when there is none, or when it is not a path in the app", () => {
+    const { route: _route, ...withoutRoute } = failure;
+    void _route;
+    expect(buildNotifyMessage(withoutRoute)?.notification).not.toHaveProperty("route");
+    for (const route of ["https://evil.example", "//evil.example/x", "/a/../b", "javascript:alert(1)", "/x?y=<script>"]) {
+      expect(buildNotifyMessage({ ...failure, route })?.notification).not.toHaveProperty("route");
+    }
+  });
+
+  it("keeps a query on a notification route, which a page route would drop", () => {
+    expect(normalizeNotificationRoute("/uploading-center?item=q1&platform=youtube")).toBe(
+      "/uploading-center?item=q1&platform=youtube"
+    );
+    expect(normalizeNotificationRoute("/x-posts")).toBe("/x-posts");
+  });
+
+  it("cuts a title past 200 characters and a body past 1000 instead of refusing them", () => {
+    const message = buildNotifyMessage({ ...failure, title: "t".repeat(500), body: "b".repeat(5000) });
+    expect(message?.notification.title).toHaveLength(200);
+    expect(message?.notification.body).toHaveLength(1000);
+  });
+
+  it("refuses what the host could not dedupe or read", () => {
+    expect(buildNotifyMessage({ ...failure, id: "" })).toBeNull();
+    expect(buildNotifyMessage({ ...failure, level: "fatal" })).toBeNull();
+    expect(buildNotifyMessage({ ...failure, title: "   " })).toBeNull();
+    expect(buildNotifyMessage(null)).toBeNull();
+    expect(buildNotifyMessage("nope")).toBeNull();
+  });
+});
+
+describe("createNotifier", () => {
+  const note = (id: string) => ({ id, level: "error", title: "A post failed", body: "Retry it." });
+
+  it("sends each id once for the session, however often it is offered", () => {
+    const posted: string[] = [];
+    const notifier = createNotifier((message) => {
+      posted.push(message.notification.id);
+      return true;
+    });
+    expect(notifier.send(note("a"))).toBe(true);
+    expect(notifier.send(note("a"))).toBe(true);
+    expect(notifier.send(note("b"))).toBe(true);
+    expect(notifier.send(note("a"))).toBe(true);
+    expect(posted).toEqual(["a", "b"]);
+  });
+
+  it("does not remember an id that never went out, so it is delivered once the bridge is ready", () => {
+    let ready = false;
+    const posted: string[] = [];
+    const notifier = createNotifier((message) => {
+      if (!ready) return false;
+      posted.push(message.notification.id);
+      return true;
+    });
+    expect(notifier.send(note("a"))).toBe(false);
+    expect(notifier.hasSent("a")).toBe(false);
+    ready = true;
+    expect(notifier.send(note("a"))).toBe(true);
+    expect(posted).toEqual(["a"]);
+  });
+
+  it("treats a retried-and-failed-again post (new attempt in the id) as a new event", () => {
+    const posted: string[] = [];
+    const notifier = createNotifier((message) => {
+      posted.push(message.notification.id);
+      return true;
+    });
+    notifier.send(note("publish-failed:q1:youtube:1"));
+    notifier.send(note("publish-failed:q1:youtube:2"));
+    expect(posted).toHaveLength(2);
+  });
+
+  it("never posts a malformed notification", () => {
+    const posted: unknown[] = [];
+    const notifier = createNotifier((message) => {
+      posted.push(message);
+      return true;
+    });
+    expect(notifier.send({ id: "", level: "error", title: "x", body: "" })).toBe(false);
+    expect(posted).toEqual([]);
   });
 });

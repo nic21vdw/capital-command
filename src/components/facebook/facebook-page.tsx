@@ -120,6 +120,9 @@ export function FacebookPage() {
   const [editing, setEditing] = useState<FbPost | null>(null);
   const searchParams = useSearchParams();
   const openPostId = searchParams.get("open");
+  // `log=1` opens that post's "Log results" form, so the calendars can link
+  // straight to where a posted piece's numbers are entered.
+  const openLog = searchParams.get("log") === "1";
   const dateParam = searchParams.get("date");
 
   const savePost = useCallback(
@@ -185,6 +188,7 @@ export function FacebookPage() {
                 savePost={savePost}
                 deletePost={(id) => mutate("deleteFbPost", id, { successMessage: "Post deleted." })}
                 highlightedId={openPostId}
+                openLog={openLog}
                 dateKey={dateParam}
               />
             )
@@ -857,6 +861,7 @@ function LibraryTab({
   savePost,
   deletePost,
   highlightedId,
+  openLog,
   dateKey
 }: {
   posts: FbPost[];
@@ -864,6 +869,7 @@ function LibraryTab({
   savePost: (post: FbPost, message: string) => Promise<void>;
   deletePost: (id: string) => void;
   highlightedId?: string | null;
+  openLog?: boolean;
   dateKey?: string | null;
 }) {
   const [platformFilter, setPlatformFilter] = useState<"all" | FbPlatform>("all");
@@ -925,6 +931,7 @@ function LibraryTab({
               savePost={savePost}
               deletePost={deletePost}
               highlighted={highlightedId === post.id}
+              openLog={openLog && highlightedId === post.id}
             />
           ))}
         </div>
@@ -938,17 +945,19 @@ function LibraryCard({
   onEdit,
   savePost,
   deletePost,
-  highlighted
+  highlighted,
+  openLog
 }: {
   post: FbPost;
   onEdit: (post: FbPost) => void;
   savePost: (post: FbPost, message: string) => Promise<void>;
   deletePost: (id: string) => void;
   highlighted?: boolean;
+  openLog?: boolean;
 }) {
   const { copiedId, copy } = useCopy();
   const [expanded, setExpanded] = useState(false);
-  const [logging, setLogging] = useState(false);
+  const [logging, setLogging] = useState(Boolean(openLog));
   const [metrics, setMetrics] = useState({
     views: post.views?.toString() ?? "",
     reactions: post.reactions?.toString() ?? "",

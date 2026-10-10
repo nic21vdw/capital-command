@@ -1,7 +1,10 @@
 import { dateTimeFormat } from "@/lib/publisher/intl";
 import type { AppData, Carousel, ContentItem, FbPost, XDailyPack } from "@/types/domain";
 import { isImagePost } from "@/lib/publisher/images";
+import { remoteUrlFor } from "@/lib/publisher/remoteUrl";
+import { youtubeHoldsForReview } from "@/lib/publisher/reviewHold";
 import type { PlatformId, QueueItem } from "@/lib/publisher/types";
+import type { ThreadsQueueItem } from "@/lib/threads/types";
 import type { CalendarSourceId, MasterCalendarEvent } from "@/lib/master-calendar/types";
 
 /**
@@ -74,11 +77,23 @@ export function carouselIdFromQueuePath(filePath: string): string | undefined {
   return match?.[1];
 }
 
-function uploadingCenterHref(item: QueueItem): string {
+const PLATFORM_ORDER: PlatformId[] = ["youtube", "instagram", "tiktok", "facebook"];
+
+/**
+ * The card for one queue item. The tab is the platform that needs a look: the
+ * one that failed, then the one waiting on a hand-post, then the first the post
+ * targets. Opening YouTube for a post whose Instagram leg failed showed a tab
+ * that looked perfectly healthy.
+ */
+function uploadingCenterHref(item: QueueItem, platform?: PlatformId): string {
   const params = new URLSearchParams();
   params.set("item", item.id);
-  const platform = (["youtube", "instagram", "tiktok", "facebook"] as PlatformId[]).find((id) => item.platforms[id]);
-  if (platform) params.set("platform", platform);
+  const target =
+    platform ??
+    PLATFORM_ORDER.find((id) => item.platforms[id]?.status === "failed") ??
+    PLATFORM_ORDER.find((id) => item.platforms[id]?.status === "manual") ??
+    PLATFORM_ORDER.find((id) => item.platforms[id]);
+  if (target) params.set("platform", target);
   return `/uploading-center?${params.toString()}`;
 }
 
@@ -92,15 +107,35 @@ export function sourceHrefForDay(source: CalendarSourceId, dateKey: string): str
 
 /**
  * One overall status for a queue item across its per-platform states:
- * everything landed → published, everything dead → failed, anything already
- * uploaded/natively scheduled → scheduled, otherwise still queued.
+ * everything landed → published, everything dead → failed, some dead →
+ * "partly failed" (it must not read as scheduled while one leg is lost),
+ * anything already uploaded/natively scheduled → scheduled, otherwise still
+ * queued.
  */
-function queueItemStatus(item: QueueItem): string {
+export function queueItemStatus(item: QueueItem): string {
   const states = Object.values(item.platforms);
   if (states.length > 0 && states.every((state) => state?.status === "published")) return "published";
   if (states.length > 0 && states.every((state) => state?.status === "failed")) return "failed";
+  if (states.some((state) => state?.status === "failed")) return "partly failed";
   if (states.some((state) => state?.status === "scheduled" || state?.status === "uploaded")) return "scheduled";
   return "queued";
+}
+
+/** Platforms of a queue item in a given state, as display labels. */
+function platformsIn(item: QueueItem, status: "failed" | "manual"): PlatformId[] {
+  return PLATFORM_ORDER.filter((id) => item.platforms[id]?.status === status);
+}
+
+/** "Open on <platform>" links for the legs that are live and whose URL shape is known. */
+function liveLinksFor(item: QueueItem): { platform: string; url: string }[] {
+  const links: { platform: string; url: string }[] = [];
+  for (const id of PLATFORM_ORDER) {
+    const state = item.platforms[id];
+    if (!state || state.status !== "published") continue;
+    const url = remoteUrlFor(id, state.postId, state.status);
+    if (url) links.push({ platform: PLATFORM_LABELS[id], url });
+  }
+  return links;
 }
 
 function shortsEvents(
@@ -120,6 +155,9 @@ function shortsEvents(
     // for it.
     const picture = isImagePost(item);
     const carouselId = picture ? carouselIdFromQueuePath(item.clipPath) : undefined;
+    const failed = platformsIn(item, "failed");
+    const manual = platformsIn(item, "manual");
+    const liveLinks = liveLinksFor(item);
     events.push({
       id: `${picture ? "queued-carousels" : "shorts"}:${item.id}`,
       source: picture ? "queued-carousels" : "shorts",
@@ -133,11 +171,27 @@ function shortsEvents(
       // A frame of the file itself, served by the same routes the uploading
       // board uses: the clip's poster frame, or slide one of a picture post.
       thumbnailUrl: picture ? `/api/publish/${item.id}/images/0` : `/api/publish/${item.id}/thumbnail`,
-      href: picture
+      href: picture && failed.length === 0
         ? carouselId
           ? `/carousels?open=${encodeURIComponent(carouselId)}`
           : "/carousels"
-        : uploadingCenterHref(item)
+        : uploadingCenterHref(item),
+      ...(failed.length > 0 ? { failedPlatforms: failed.map((id) => PLATFORM_LABELS[id]) } : {}),
+      // A long-form upload goes up private and stays private until it is made
+      // public by hand. Only the YouTube leg is held: nothing else carries one.
+      ...(item.platforms.youtube && youtubeHoldsForReview(item) ? { heldForReview: true } : {}),
+      ...(manual.length > 0
+        ? {
+            manual: manual.map((id) => ({
+              platform: PLATFORM_LABELS[id],
+              href: uploadingCenterHref(item, id),
+              // A picture post's slides are rendered files the app serves; a
+              // video clip has no download route, so the card is the way in.
+              ...(picture ? { fileUrl: `/api/publish/${item.id}/images/0` } : {})
+            }))
+          }
+        : {}),
+      ...(liveLinks.length > 0 ? { liveLinks } : {})
     });
   }
   return events;
@@ -196,22 +250,105 @@ function carouselEvents(carousels: Carousel[], startKey: string, endKey: string,
   return events;
 }
 
-function xEvents(packs: XDailyPack[], startKey: string, endKey: string): MasterCalendarEvent[] {
+/**
+ * One status for the Threads queue items behind a single pack slot (one per
+ * connected account). Mirrors the shorts roll-up: all sent → published, all
+ * dead → failed, some dead → "partly failed", still waiting → queued. A slot
+ * whose time passed while nothing was running is "skipped" on purpose, so it
+ * must not read as failed or as sent.
+ */
+export function threadsSlotStatus(items: Pick<ThreadsQueueItem, "status">[]): string {
+  const statuses = items.map((item) => item.status);
+  if (statuses.length === 0) return "planned";
+  if (statuses.every((status) => status === "published")) return "published";
+  if (statuses.every((status) => status === "skipped")) return "skipped";
+  if (statuses.every((status) => status === "failed")) return "failed";
+  if (statuses.some((status) => status === "failed")) return "partly failed";
+  if (statuses.some((status) => status === "pending")) return "queued";
+  // Sent on some accounts and skipped on the rest.
+  return "published";
+}
+
+/**
+ * Threads, from two stores that each know half of it. The X pack says what was
+ * planned for the day (every slot, its topic and its suggested time); the
+ * Threads queue says what actually happened to each post. A slot with queue
+ * items takes their real status and time; a slot with none is still only
+ * "planned". Queue items with no pack behind them (the pack was pruned, or the
+ * post came from a stream) get an event of their own so the day is never missing
+ * a post that went out.
+ */
+function xEvents(
+  packs: XDailyPack[],
+  threadsItems: ThreadsQueueItem[],
+  timeZone: string,
+  startKey: string,
+  endKey: string
+): MasterCalendarEvent[] {
   const events: MasterCalendarEvent[] = [];
+  // Only the autopilot's own items belong to a pack slot; a post added from a
+  // stream carries its own slot numbering.
+  const bySlot = new Map<string, ThreadsQueueItem[]>();
+  for (const item of threadsItems) {
+    if (item.origin === "pipeline") continue;
+    const key = `${item.batchDate}:${item.slot}`;
+    if (!bySlot.has(key)) bySlot.set(key, []);
+    bySlot.get(key)!.push(item);
+  }
+  const claimed = new Set<string>();
+
+  const earliestTime = (items: ThreadsQueueItem[]): string | undefined => {
+    const instants = items
+      .map((item) => new Date(item.publishAt))
+      .filter((date) => !Number.isNaN(date.getTime()))
+      .sort((a, b) => a.getTime() - b.getTime());
+    return instants[0] ? localDateTime(instants[0], timeZone).time : undefined;
+  };
+
   for (const pack of packs) {
     if (!inRange(pack.date, startKey, endKey)) continue;
     for (const post of pack.posts) {
+      const key = `${pack.date}:${post.slot}`;
+      const queued = bySlot.get(key) ?? [];
+      if (queued.length > 0) claimed.add(key);
       events.push({
         id: `x:${pack.id}:${post.id}`,
         source: "x",
         dateKey: pack.date,
-        time: post.time,
+        // A start-now batch is laid out from the button press, not at the
+        // pack's suggested times, so the queue's own time is the true one.
+        time: (queued.length > 0 ? earliestTime(queued) : undefined) ?? post.time,
         title: truncate(post.topic || post.text),
-        platforms: ["X", "Threads"],
-        status: "suggested",
-        href: `/x-posts?date=${encodeURIComponent(pack.date)}`
+        platforms: queued.length > 0 ? ["Threads"] : ["X", "Threads"],
+        status: threadsSlotStatus(queued),
+        href: `/x-posts?date=${encodeURIComponent(pack.date)}`,
+        ...(queued.length > 0 && threadsSlotStatus(queued).endsWith("failed") ? { failedPlatforms: ["Threads"] } : {})
       });
     }
+  }
+
+  const unclaimed = new Map<string, ThreadsQueueItem[]>();
+  for (const [key, items] of bySlot) {
+    if (!claimed.has(key)) unclaimed.set(key, items);
+  }
+  for (const item of threadsItems) {
+    if (item.origin === "pipeline") unclaimed.set(`pipeline:${item.id}`, [item]);
+  }
+  for (const [key, items] of unclaimed) {
+    const first = items[0];
+    if (!inRange(first.batchDate, startKey, endKey)) continue;
+    const status = threadsSlotStatus(items);
+    events.push({
+      id: `x:queue:${key}`,
+      source: "x",
+      dateKey: first.batchDate,
+      time: earliestTime(items),
+      title: truncate(first.topic || first.text),
+      platforms: ["Threads"],
+      status,
+      href: `/x-posts?date=${encodeURIComponent(first.batchDate)}`,
+      ...(status.endsWith("failed") ? { failedPlatforms: ["Threads"] } : {})
+    });
   }
   return events;
 }
@@ -226,7 +363,9 @@ function fbEvents(posts: FbPost[], startKey: string, endKey: string): MasterCale
       title: truncate(post.hook || post.body),
       platforms: [post.platform === "facebook" ? "Facebook" : "Instagram"],
       status: post.status,
-      href: `/facebook?tab=library&open=${encodeURIComponent(post.id)}`
+      // A post that is already up has nothing left to edit; what is missing is
+      // how it did, so the link opens the card with its "Log results" form.
+      href: `/facebook?tab=library&open=${encodeURIComponent(post.id)}${post.status === "posted" ? "&log=1" : ""}`
     }));
 }
 
@@ -253,17 +392,21 @@ function contentEvents(items: ContentItem[], startKey: string, endKey: string): 
 export function buildMasterCalendarEvents(options: {
   data: AppData;
   queueItems: QueueItem[];
+  /** The Threads autopilot's queue; absent or empty leaves Threads as the pack's plan. */
+  threadsItems?: ThreadsQueueItem[];
+  /** Zone the Threads queue's instants are read in; defaults to `timeZone`. */
+  threadsTimeZone?: string;
   timeZone: string;
   startKey: string;
   days: number;
 }): MasterCalendarEvent[] {
-  const { data, queueItems, timeZone, startKey, days } = options;
+  const { data, queueItems, threadsItems = [], threadsTimeZone, timeZone, startKey, days } = options;
   const endKey = addDaysToKey(startKey, days);
 
   const events = [
     ...shortsEvents(queueItems, timeZone, startKey, endKey),
     ...carouselEvents(data.videoStudio?.carousels ?? [], startKey, endKey, days),
-    ...xEvents(data.xPlanner?.packs ?? [], startKey, endKey),
+    ...xEvents(data.xPlanner?.packs ?? [], threadsItems, threadsTimeZone ?? timeZone, startKey, endKey),
     ...fbEvents(data.fbStrategy?.posts ?? [], startKey, endKey),
     ...contentEvents(data.contentItems ?? [], startKey, endKey)
   ];

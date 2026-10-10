@@ -54,17 +54,15 @@ export const CAPITAL_COMMAND_ROUTES: RouteEntry[] = [
  * Pages that exist and are reachable, but are not sidebar destinations: they
  * are opened from inside another screen. The card lists them so an agent can
  * still send someone there, under a heading that says they are secondary.
+ *
+ * Redirect stubs are NOT listed. /youtube, /creator, /notes and /thumbnails
+ * send you to /clips, and /goals, /holdings, /insights and /watchlist send you
+ * to a tab of /finance (personal finance, not marketing). Listing them gave an
+ * agent a "page" whose label promised something the route does not do; point it
+ * at the real destination instead.
  */
 export const CAPITAL_COMMAND_SECONDARY_ROUTES: RouteEntry[] = [
-  { path: "/pipeline", label: "Stream Pipeline (alias)", group: "System" },
-  { path: "/creator", label: "Creator", group: "System" },
-  { path: "/goals", label: "Goals", group: "System" },
-  { path: "/holdings", label: "Holdings", group: "System" },
-  { path: "/insights", label: "Insights", group: "System" },
-  { path: "/notes", label: "Notes", group: "System" },
-  { path: "/thumbnails", label: "Thumbnails", group: "System" },
-  { path: "/watchlist", label: "Watchlist", group: "System" },
-  { path: "/youtube", label: "YouTube", group: "System" }
+  { path: "/pipeline", label: "Stream Pipeline (alias)", group: "System" }
 ];
 
 const BY_PATH = new Map<string, RouteEntry>(

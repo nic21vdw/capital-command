@@ -20,9 +20,11 @@ export type MasterCalendarEvent = {
   /** Display labels of the networks this event targets. */
   platforms: string[];
   /**
-   * Source-native status, lowercased: published/scheduled/queued/failed for
-   * shorts, draft/posted for FB/IG, suggested for X packs, the content
-   * tracker's pipeline stages, and "scheduled" for carousel occurrences.
+   * Source-native status, lowercased: published/scheduled/queued/failed/
+   * "partly failed" for shorts, draft/posted for FB/IG, planned (pack only) or
+   * the Threads queue's own outcome (queued/published/failed/skipped) for
+   * Threads, the content tracker's pipeline stages, and "scheduled" for
+   * carousel occurrences.
    */
   status: string;
   /** True for occurrences expanded from a repeating carousel schedule. */
@@ -35,7 +37,28 @@ export type MasterCalendarEvent = {
   thumbnailUrl?: string;
   /** Deep link into the screen that owns this item. Falls back to the source href. */
   href?: string;
+  /** Display labels of the platforms whose leg failed. Absent when nothing failed. */
+  failedPlatforms?: string[];
+  /**
+   * A long-form upload that goes up private and stays private until it is made
+   * public by hand after review. Without this it reads like any other booked post.
+   */
+  heldForReview?: boolean;
+  /**
+   * Platforms with nobody to post for them: the post is tracked as a reminder
+   * and must be posted by hand. `href` is that platform's card in the Uploading
+   * Center; `fileUrl` is the rendered picture, when the item exposes one.
+   */
+  manual?: { platform: string; href: string; fileUrl?: string }[];
+  /** "Open on <platform>" links for legs that are live and whose URL shape is known. */
+  liveLinks?: { platform: string; url: string }[];
 };
+
+/** The Day Summary and the calendar chips treat these as failures. */
+export function isFailedEventStatus(status: string): boolean {
+  const value = status.toLowerCase();
+  return value === "failed" || value === "error" || value === "partly failed";
+}
 
 export type CalendarSource = {
   id: CalendarSourceId;

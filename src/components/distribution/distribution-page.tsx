@@ -3,6 +3,7 @@
 import { useEffect, useState, type ReactNode } from "react";
 import Link from "next/link";
 import {
+  AlertTriangle,
   ArrowRight,
   AtSign,
   AudioLines,
@@ -569,6 +570,15 @@ export function DistributionPage() {
         description="Pick what you're starting with, then follow the pipeline down: your raw material becomes a clean master, and from there it fans out into every format you can post. Videos do everything; text and ideas set you up to record and unlock the rest."
       />
 
+      {overview.publish.failed > 0 ? (
+        <Link
+          href="/uploading-center"
+          className="mb-4 inline-flex items-center gap-1.5 rounded-full border border-red-400/40 bg-red-500/10 px-3 py-1 text-xs font-medium text-red-300 transition hover:bg-red-500/20"
+        >
+          <AlertTriangle className="h-3.5 w-3.5" />
+          {overview.publish.failed} failed - open the Uploading Center to retry
+        </Link>
+      ) : null}
       {/* The key to the one-word tags on every format below. */}
       <Card className="mb-6 flex flex-wrap items-start gap-x-6 gap-y-2 py-3">
         <p className="w-full text-[11px] font-medium uppercase tracking-wider text-[var(--muted-foreground)]">

@@ -13,12 +13,25 @@ import {
  */
 
 /** What a source-native status means once it is only about "is this done". */
-export type SummaryState = "published" | "scheduled" | "failed" | "pending";
+export type SummaryState = "published" | "scheduled" | "failed" | "skipped" | "pending";
 
 export type DaySummarySection = {
   source: CalendarSource;
   events: MasterCalendarEvent[];
   states: Record<SummaryState, number>;
+};
+
+/** A post that has to be made by hand on one platform. */
+export type DaySummaryTodo = {
+  eventId: string;
+  title: string;
+  platform: string;
+  /** Wall-clock HH:mm the post is due, when it has one. */
+  time?: string;
+  /** The post's card in the Uploading Center. */
+  href: string;
+  /** The rendered slides, when the item exposes a file. */
+  fileUrl?: string;
 };
 
 export type DaySummary = {
@@ -33,14 +46,19 @@ export type DaySummary = {
   lastTime?: string;
   /** Pieces with no time of day (drafts, tracked content, day-level packs). */
   untimed: number;
+  /** Platforms nobody can post to for the app: the day's by-hand to-dos, in clock order. */
+  todos: DaySummaryTodo[];
 };
 
 const PUBLISHED = new Set(["published", "posted", "live", "done", "complete", "completed"]);
-const FAILED = new Set(["failed", "error"]);
+// "partly failed" is a post with one lost leg: the day still has to be looked at.
+const FAILED = new Set(["failed", "error", "partly failed"]);
+// Deliberately not posted (a Threads slot whose time passed while nothing ran).
+const SKIPPED = new Set(["skipped"]);
 const SCHEDULED = new Set(["scheduled", "queued", "uploaded", "processing"]);
 
 /**
- * A source-native status as one of four states. Anything the app has not
+ * A source-native status as one of five states. Anything the app has not
  * committed to a time yet — a draft FB post, a suggested Threads pack, a
  * tracker stage like "editing" — is pending: real work for the day, but not
  * something the publisher will fire on its own.
@@ -49,12 +67,13 @@ export function summaryState(status: string): SummaryState {
   const value = status.toLowerCase();
   if (PUBLISHED.has(value)) return "published";
   if (FAILED.has(value)) return "failed";
+  if (SKIPPED.has(value)) return "skipped";
   if (SCHEDULED.has(value)) return "scheduled";
   return "pending";
 }
 
 function emptyStates(): Record<SummaryState, number> {
-  return { published: 0, scheduled: 0, failed: 0, pending: 0 };
+  return { published: 0, scheduled: 0, failed: 0, skipped: 0, pending: 0 };
 }
 
 /** Timed pieces in clock order, then day-level ones — how the day plays out. */
@@ -80,6 +99,19 @@ export function buildDaySummary(dateKey: string, allEvents: MasterCalendarEvent[
     bySource.get(event.source)!.push(event);
   }
 
+  const todos: DaySummaryTodo[] = events
+    .flatMap((event) =>
+      (event.manual ?? []).map((entry) => ({
+        eventId: event.id,
+        title: event.title,
+        platform: entry.platform,
+        time: event.time,
+        href: entry.href,
+        ...(entry.fileUrl ? { fileUrl: entry.fileUrl } : {})
+      }))
+    )
+    .sort((a, b) => (a.time && b.time ? a.time.localeCompare(b.time) : a.time ? -1 : b.time ? 1 : 0));
+
   const times = events.map((event) => event.time).filter((time): time is string => Boolean(time)).sort();
 
   return {
@@ -97,6 +129,7 @@ export function buildDaySummary(dateKey: string, allEvents: MasterCalendarEvent[
     }),
     firstTime: times[0],
     lastTime: times[times.length - 1],
-    untimed: events.length - times.length
+    untimed: events.length - times.length,
+    todos
   };
 }

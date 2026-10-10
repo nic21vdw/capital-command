@@ -4,7 +4,7 @@
  * The app's end of the CoLateral canvas bridge.
  * ---------------------------------------------------------------------------
  * When CoLateral Marketing is framed by a CoLateral Marketing Card on the CoLateral
- * project canvas, this is what answers. It does four things and nothing else:
+ * project canvas, this is what answers. It does five things and nothing else:
  *
  *   1. Introduces the app to the card (`ready`), and keeps the card's header
  *      honest by announcing every route change the user makes in here.
@@ -14,6 +14,8 @@
  *      registered with `useColateralSurface`.
  *   4. Takes the host's theme, and now its whole token palette, so a canvas on
  *      a theme this app has never heard of still paints the frame to match.
+ *   5. Passes on notifications (`capital-command:notify`): a failed post tells
+ *      the host's bell, once per event, and only after the host has spoken.
  *
  * Security posture: only `window.parent` is listened to, only the message types
  * in ./protocol are acted on, and every value is normalised by `parseHostMessage`
@@ -29,8 +31,10 @@ import {
   BRIDGE_PROTOCOL_VERSION,
   HOST_MESSAGE,
   appResult,
+  createNotifier,
   normalizeChrome,
   parseHostMessage,
+  type AppNotification,
   type ChromeMode,
   type HostRequest,
   type PageSurface
@@ -47,9 +51,22 @@ interface ColateralBridgeValue {
   /** True when the app is inside a CoLateral Marketing Card. */
   hosted: boolean;
   chrome: ChromeMode;
+  /** True once the host has spoken, so the app knows where to address a reply. */
+  ready: boolean;
+  /**
+   * Tell the host's notification bell about something. A no-op (returns false)
+   * when the app is not framed or the host has not spoken yet; sends each `id`
+   * at most once per session. Never prompts for OS notification permission.
+   */
+  notify: (notification: AppNotification) => boolean;
 }
 
-const ColateralBridgeContext = createContext<ColateralBridgeValue>({ hosted: false, chrome: "full" });
+const ColateralBridgeContext = createContext<ColateralBridgeValue>({
+  hosted: false,
+  chrome: "full",
+  ready: false,
+  notify: () => false
+});
 
 export function useColateralBridge(): ColateralBridgeValue {
   return useContext(ColateralBridgeContext);
@@ -71,6 +88,7 @@ export function ColateralBridgeProvider({ children }: { children: React.ReactNod
   const { applyHostTheme } = useHostTheme();
   const [hosted, setHosted] = useState(false);
   const [chrome, setChrome] = useState<ChromeMode>("full");
+  const [ready, setReady] = useState(false);
 
   // The origin the host wrote from. Until a host message has arrived the app
   // has no idea who framed it, so the only thing it will broadcast is `ready`,
@@ -88,6 +106,24 @@ export function ColateralBridgeProvider({ children }: { children: React.ReactNod
     } catch {
       /* a host that has gone away is not an error worth surfacing */
     }
+  }, []);
+
+  // One notifier for the life of the app, so "already sent" survives route
+  // changes. It posts only to a pinned host origin: unlike `ready` it has no
+  // broadcast fallback, because a notification carries the user's own post
+  // titles and a page that merely framed this app must not receive them.
+  const notifierRef = useRef<ReturnType<typeof createNotifier> | null>(null);
+  const notify = useCallback((notification: AppNotification) => {
+    notifierRef.current ??= createNotifier((message) => {
+      if (typeof window === "undefined" || !framed() || !hostOrigin.current) return false;
+      try {
+        window.parent.postMessage(message, hostOrigin.current);
+        return true;
+      } catch {
+        return false;
+      }
+    });
+    return notifierRef.current.send(notification);
   }, []);
 
   const currentSurface = useCallback((): PageSurface => {
@@ -265,6 +301,7 @@ export function ColateralBridgeProvider({ children }: { children: React.ReactNod
       // replies, which is what it already had.
       if (!hostOrigin.current && event.origin && event.origin !== "null") {
         hostOrigin.current = event.origin;
+        setReady(true);
       }
 
       if (request.chrome) {
@@ -353,7 +390,7 @@ export function ColateralBridgeProvider({ children }: { children: React.ReactNod
     root.setAttribute(CHROME_ATTRIBUTE, normalizeChrome(chrome));
   }, [chrome, hosted]);
 
-  const value = useMemo(() => ({ hosted, chrome }), [chrome, hosted]);
+  const value = useMemo(() => ({ hosted, chrome, ready, notify }), [chrome, hosted, ready, notify]);
   return <ColateralBridgeContext.Provider value={value}>{children}</ColateralBridgeContext.Provider>;
 }
 
