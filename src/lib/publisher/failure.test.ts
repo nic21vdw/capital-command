@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { describeFailure, isConnectionFailure } from "@/lib/publisher/failure";
+import { describeFailure, describeWaiting, isConnectionFailure } from "@/lib/publisher/failure";
+import { channelDuplicateMessage } from "@/lib/publisher/duplicateGuard";
 import { YOUTUBE_RECONNECT_FOR_SCOPE, YOUTUBE_RECONNECT_REQUIRED } from "@/lib/publisher/googleAuth";
 
 describe("failures a fresh connection fixes", () => {
@@ -79,5 +80,89 @@ describe("what a blocked post says on the board", () => {
 
     expect(advice.headline).not.toContain("{");
     expect(advice.raw).toBe(raw);
+  });
+});
+
+describe("advice that has to be true", () => {
+  it("tells a duplicate-title refusal to retitle instead of offering a retry that fails again", () => {
+    const error = channelDuplicateMessage({ title: "My clip", url: "https://youtube.com/watch?v=abc" });
+    const advice = describeFailure({ status: "failed", attempts: 1, error }, "youtube");
+
+    expect(advice.action).toBe("none");
+    expect(advice.headline).toContain("Retitle");
+    expect(advice.headline).not.toContain("rejected");
+    expect(advice.raw).toBe(error);
+  });
+
+  it("calls a platform that was never set up a setup problem, not an expired or revoked grant", () => {
+    const facebook = describeFailure(
+      { status: "failed", attempts: 1, error: "Facebook is not configured. Set FB_PAGE_ID and FB_PAGE_ACCESS_TOKEN." },
+      "facebook"
+    );
+    expect(facebook.headline).toContain("isn't set up");
+    expect(facebook.headline).not.toMatch(/expired|revoked/);
+    expect(facebook.viaSettings).toBe(true);
+    expect(facebook.action).toBe("reconnect");
+
+    const tiktok = describeFailure(
+      { status: "failed", attempts: 1, error: "tiktok credentials are not configured for this account." },
+      "tiktok"
+    );
+    expect(tiktok.headline).toContain("isn't set up");
+  });
+
+  it("only promises an automatic re-send for YouTube, the one platform a reconnect re-queues", () => {
+    const youtube = describeFailure({ status: "failed", attempts: 3, error: YOUTUBE_RECONNECT_REQUIRED }, "youtube");
+    expect(youtube.headline).toContain("goes out on its own");
+    expect(youtube.viaSettings).toBeUndefined();
+
+    for (const platform of ["tiktok", "instagram", "facebook"] as const) {
+      const advice = describeFailure({ status: "failed", attempts: 3, error: "401 unauthorized" }, platform);
+      expect(advice.headline).not.toContain("goes out on its own");
+      expect(advice.headline).toContain("Settings");
+      expect(advice.headline).toContain("Retry");
+      expect(advice.viaSettings).toBe(true);
+    }
+  });
+
+  it("says the same for a manual post: only YouTube sends itself once connected", () => {
+    expect(describeFailure({ status: "manual", attempts: 0 }, "youtube").headline).toContain("goes out on its own");
+    expect(describeFailure({ status: "manual", attempts: 0 }, "instagram").headline).toContain("press Retry");
+  });
+
+  it("still counts an unconfigured platform as something a connection fixes (the re-arm scope)", () => {
+    expect(isConnectionFailure({ status: "failed", attempts: 1, error: "Facebook is not configured." })).toBe(true);
+  });
+});
+
+describe("a leg that is waiting rather than failed", () => {
+  it("is silent for a healthy pending leg", () => {
+    expect(describeWaiting({ status: "pending", attempts: 0 }, "youtube")).toBeNull();
+  });
+
+  it("is silent for a failed or manual leg, which have their own advice", () => {
+    expect(describeWaiting({ status: "failed", attempts: 3, error: "x" }, "youtube")).toBeNull();
+    expect(describeWaiting({ status: "manual", attempts: 0 }, "youtube")).toBeNull();
+  });
+
+  it("explains a backoff in a clause that follows 'Retrying at 3:00 PM - '", () => {
+    const waiting = describeWaiting(
+      { status: "pending", attempts: 1, error: "YouTube video upload network error", nextAttemptAt: "2026-07-14T20:00:00.000Z" },
+      "youtube"
+    );
+    expect(waiting?.headline).toBe("YouTube couldn't take it just then");
+    expect(waiting?.raw).toBe("YouTube video upload network error");
+  });
+
+  it("names the upload limit when that is what is holding it", () => {
+    const waiting = describeWaiting(
+      { status: "pending", attempts: 0, error: "quotaExceeded: daily limit", nextAttemptAt: "2026-07-14T20:00:00.000Z" },
+      "youtube"
+    );
+    expect(waiting?.headline).toContain("upload limit");
+  });
+
+  it("shows a booked later attempt even with no error text", () => {
+    expect(describeWaiting({ status: "pending", attempts: 0, nextAttemptAt: "2026-07-14T20:00:00.000Z" }, "tiktok")).not.toBeNull();
   });
 });

@@ -10,11 +10,17 @@ export const dynamic = "force-dynamic";
 export const maxDuration = 300;
 
 /**
- * POST /api/publish/:id/publish — push one queue item to its providers right
- * now (YouTube uploads immediately with status.publishAt; Instagram/TikTok
- * post immediately instead of waiting for their slot).
+ * POST /api/publish/:id/publish — push one queue item to its providers.
+ *
+ * Default (and `{ "mode": "now" }`): "Publish now" means now. Every platform
+ * not yet finished posts immediately, and a YouTube video held for its slot is
+ * made public. Only the board's confirmed Publish now sends this.
+ *
+ * `{ "mode": "slot" }`: what Retry sends after re-arming a leg. The run is
+ * scoped to this post but NOT forced, so a slot that has passed posts now, a
+ * future slot keeps waiting, and the post's other platforms are left alone.
  */
-export async function POST(_request: Request, { params }: { params: Promise<{ id: string }> }) {
+export async function POST(request: Request, { params }: { params: Promise<{ id: string }> }) {
   const config = publisherConfig();
   if (!config.enabled) {
     return NextResponse.json({ error: PUBLISHING_OFF_MESSAGE }, { status: 400 });
@@ -24,7 +30,13 @@ export async function POST(_request: Request, { params }: { params: Promise<{ id
   if (!(await queue.get(id))) {
     return NextResponse.json({ error: "No such scheduled post." }, { status: 404 });
   }
-  const report = await runDue(new Date(), { itemId: id, force: true });
+  let mode: unknown;
+  try {
+    mode = ((await request.json()) as { mode?: unknown } | null)?.mode;
+  } catch {
+    // No body: the original Publish now call.
+  }
+  const report = await runDue(new Date(), { itemId: id, force: mode !== "slot" });
   const item = await queue.get(id);
   return NextResponse.json({ report, item });
 }

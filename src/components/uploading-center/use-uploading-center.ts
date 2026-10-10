@@ -12,6 +12,9 @@ import { indexProjectsBySource, newestProjectFor, type ClipProjectIndex } from "
 import type { ClipCandidate, ClipJob } from "@/lib/clipping/types";
 import type { CaptionSegment, ClipProject } from "@/types/domain";
 import { placeChannelVideos, type ChannelPlacement } from "@/lib/publisher/channelPlacement";
+import { describeFailure } from "@/lib/publisher/failure";
+import { describeRunOutcome, formatGoLive, type OutcomeLine, type RunOutcomeLike } from "@/lib/publisher/outcomeCopy";
+import { FACEBOOK_SCHEDULED_POSTS_URL } from "@/lib/publisher/boardActions";
 import type { ChannelSchedule, ChannelVideo } from "@/lib/publisher/channelVideos";
 import { indexQueueByClip } from "@/lib/publisher/clipQueueIndex";
 import { generateSlots } from "@/lib/publisher/slots";
@@ -472,7 +475,7 @@ export function useUploadingCenter(clipProjects: ClipProject[] = []) {
           loadWorkflowJson<{ jobs: ClipJob[] }>("/api/clips", "jobs").then((next) => {
             setJobs(next.jobs);
           }),
-          loadWorkflowJson<{ items: QueueItem[] }>("/api/publish", "items").then((next) => {
+          loadWorkflowJson<{ items: QueueItem[] }>("/api/publish?board=1", "items").then((next) => {
             setQueueItems(next.items);
           }),
           refreshOverview()
@@ -747,6 +750,9 @@ export function useUploadingCenter(clipProjects: ClipProject[] = []) {
           toast.success("Title updated on YouTube.");
         } else if (youtube === "error") {
           toast.warning(`Title saved here, but YouTube didn't take it: ${youtubeError ?? "unknown error"}`);
+        } else {
+          // Not on YouTube yet: the new title is simply what it uploads with.
+          toast.success("Title saved. It uploads with this title.");
         }
       } catch (error) {
         toast.error(error instanceof Error ? error.message : "Could not rename the post.");
@@ -826,7 +832,9 @@ export function useUploadingCenter(clipProjects: ClipProject[] = []) {
     } else if (outcome?.outcome === "retrying") {
       toast.warning(`Upload interrupted — Command will retry automatically. ${outcome.detail || ""}`.trim());
     } else if (outcome?.outcome === "failed") {
-      toast.error(`Upload failed: ${outcome.detail || "The platform rejected the upload."}`);
+      toast.error(
+        `Upload failed: ${describeFailure({ status: "failed", attempts: 0, error: outcome.detail }, platform).headline}`
+      );
     } else {
       toast.success(`Scheduled for ${PLATFORM_LABELS[platform]}.`);
     }
@@ -1168,11 +1176,30 @@ export function useUploadingCenter(clipProjects: ClipProject[] = []) {
     [activeAccountIds, projectForClip, refresh]
   );
 
+  /** Shows each run outcome as the toast its tone calls for. */
+  const showOutcomes = useCallback((lines: OutcomeLine[]) => {
+    for (const line of lines) {
+      if (line.tone === "error") toast.error(line.text);
+      else if (line.tone === "warning") toast.warning(line.text);
+      else if (line.tone === "info") toast.info(line.text);
+      else toast.success(line.text);
+    }
+  }, []);
+
+  /**
+   * Publish now, confirmed on the board first: every platform on the post that
+   * has not finished goes out immediately, and a YouTube video held for its slot
+   * is made public. The toast says what happened to each, in words.
+   */
   const publishNow = useCallback(
     async (item: QueueItem) => {
       setBusy(`publish:${item.id}`);
       try {
-        const response = await fetch(`/api/publish/${item.id}/publish`, { method: "POST" });
+        const response = await fetch(`/api/publish/${item.id}/publish`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ mode: "now" })
+        });
         if (!response.ok) {
           toast.error(await readError(response));
           return;
@@ -1180,13 +1207,127 @@ export function useUploadingCenter(clipProjects: ClipProject[] = []) {
         const { report } = (await response.json()) as {
           report: { outcomes: Array<{ platform: string; outcome: string; detail: string }> };
         };
-        for (const outcome of report.outcomes) {
-          const line = `${PLATFORM_LABELS[outcome.platform as PlatformId]}: ${outcome.outcome}`;
-          if (outcome.outcome === "failed") toast.error(`${line} — ${outcome.detail}`);
-          else toast.success(line);
-        }
+        showOutcomes(report.outcomes.map((outcome) => describeRunOutcome(outcome, { publishAt: item.publishAt, timeZone: timezone })));
         if (report.outcomes.length === 0) toast.info("Nothing left to publish on that post.");
         await refresh({ channelRefresh: true });
+      } finally {
+        setBusy(null);
+      }
+    },
+    [refresh, showOutcomes, timezone]
+  );
+
+  /**
+   * Retry one platform of a post. Puts only that platform's leg back in the
+   * queue, then runs the post WITHOUT force: a slot that has passed posts now,
+   * a slot still ahead waits for it, and the post's other platforms are left
+   * exactly as they were (a forced run would publish them all early).
+   */
+  const retryQueueItem = useCallback(
+    async (item: QueueItem, platform: PlatformId) => {
+      setBusy(`publish:${item.id}`);
+      try {
+        const rearm = await fetch("/api/publish", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action: "retry", itemId: item.id, platform })
+        }).catch(() => null);
+        if (!rearm) {
+          toast.error("Network error while retrying that post.");
+          return;
+        }
+        if (!rearm.ok) {
+          toast.error(await readError(rearm));
+          return;
+        }
+        const slotPassed = new Date(item.publishAt).getTime() <= Date.now();
+        const run = await fetch(`/api/publish/${item.id}/publish`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ mode: "slot" })
+        }).catch(() => null);
+        const report = run?.ok
+          ? ((await run.json().catch(() => null)) as { report?: { outcomes: RunOutcomeLike[] } } | null)?.report
+          : undefined;
+        const outcomes = report?.outcomes ?? [];
+        if (!report) {
+          toast.warning(
+            `${PLATFORM_LABELS[platform]} is back in the queue, but the run did not start. It is picked up on the next pass.`
+          );
+        } else if (outcomes.length === 0) {
+          toast.success(
+            slotPassed
+              ? `${PLATFORM_LABELS[platform]} is back in the queue and posts on the next run.`
+              : `${PLATFORM_LABELS[platform]} is back in the queue. It posts at its slot, ${formatGoLive(item.publishAt, timezone)} - the post's other platforms were not touched.`
+          );
+        } else {
+          showOutcomes(outcomes.map((outcome) => describeRunOutcome(outcome, { publishAt: item.publishAt, timeZone: timezone })));
+        }
+        await refresh({ channelRefresh: true });
+      } finally {
+        setBusy(null);
+      }
+    },
+    [refresh, showOutcomes, timezone]
+  );
+
+  /**
+   * Removes the whole post (every platform on it). The board has already asked
+   * and listed the platforms. The server keeps a YouTube video the channel
+   * already holds private instead of leaving it to go live, and reports a
+   * Facebook post it cannot cancel; the toast says which happened.
+   */
+  const remove = useCallback(
+    async (item: QueueItem, options: { anyway?: boolean } = {}) => {
+      setBusy(`remove:${item.id}`);
+      try {
+        const response = await fetch(`/api/publish/${item.id}${options.anyway ? "?anyway=1" : ""}`, { method: "DELETE" });
+        if (!response.ok) {
+          const detail = (await response.json().catch(() => null)) as { error?: string; code?: string } | null;
+          const message = detail?.error ?? "Could not remove that post.";
+          if (detail?.code === "youtube-hold-failed") {
+            toast.error(message, {
+              duration: Infinity,
+              action: { label: "Remove anyway", onClick: () => void remove(item, { anyway: true }) }
+            });
+          } else {
+            toast.error(message);
+          }
+        } else {
+          const result = (await response.json().catch(() => ({}))) as {
+            youtube?: string;
+            youtubeVideoId?: string;
+            facebookPostId?: string;
+          };
+          const studio = result.youtubeVideoId
+            ? { label: "Open in Studio", onClick: () => window.open(studioVideoUrl(result.youtubeVideoId!), "_blank", "noopener") }
+            : undefined;
+          if (result.youtube === "held" || result.youtube === "already-private") {
+            toast.success("Removed from the schedule. The YouTube video was kept private - it is not deleted.", {
+              description: "To post it later, set a time or make it public in YouTube Studio.",
+              action: studio
+            });
+          } else if (result.youtube === "already-public") {
+            toast.warning("Removed from the schedule, but the YouTube video is already public.", {
+              description: "Delete or hide it in YouTube Studio if you do not want it up.",
+              action: studio
+            });
+          } else if (result.youtube === "unchecked") {
+            toast.warning("Removed from the schedule, but YouTube was not told. The video may still go live at its time.", {
+              action: studio
+            });
+          } else {
+            toast.success("Removed from the schedule.");
+          }
+          if (result.facebookPostId) {
+            toast.warning("Facebook already holds this post and will still publish it at its time.", {
+              description: "Facebook posts cannot be cancelled from here.",
+              duration: 12_000,
+              action: { label: "Open Facebook", onClick: () => window.open(FACEBOOK_SCHEDULED_POSTS_URL, "_blank", "noopener") }
+            });
+          }
+        }
+        await refresh();
       } finally {
         setBusy(null);
       }
@@ -1194,16 +1335,34 @@ export function useUploadingCenter(clipProjects: ClipProject[] = []) {
     [refresh]
   );
 
-  const remove = useCallback(
-    async (item: QueueItem) => {
-      setBusy(`remove:${item.id}`);
+  /**
+   * Edits the caption of a queued post. This changes the QUEUE only: the
+   * platforms read the caption when they post, so legs that have not gone out
+   * pick it up; a YouTube video already uploaded keeps the description it was
+   * uploaded with, and the toast says so with a Studio link.
+   */
+  const editQueueCaption = useCallback(
+    async (item: QueueItem, caption: string) => {
+      const trimmed = caption.trim();
+      if (!trimmed || trimmed === (item.caption ?? "").trim()) return;
+      setQueueItems((prev) => prev.map((candidate) => (candidate.id === item.id ? { ...candidate, caption: trimmed } : candidate)));
       try {
-        const response = await fetch(`/api/publish/${item.id}`, { method: "DELETE" });
-        if (!response.ok) toast.error(await readError(response));
-        else toast.success("Removed from the schedule.");
+        const response = await fetch(`/api/publish/${item.id}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ caption: trimmed })
+        });
+        if (!response.ok) throw new Error(await readError(response));
+        const youtubeId = item.platforms.youtube?.postId;
+        toast.success("Caption saved on the queued post.", {
+          description: youtubeId ? "YouTube's description is not changed - edit it in YouTube Studio." : undefined,
+          action: youtubeId
+            ? { label: "Open in Studio", onClick: () => window.open(studioVideoUrl(youtubeId), "_blank", "noopener") }
+            : undefined
+        });
+      } catch (error) {
+        toast.error(error instanceof Error ? error.message : "Could not save the caption.");
         await refresh();
-      } finally {
-        setBusy(null);
       }
     },
     [refresh]
@@ -1322,6 +1481,8 @@ export function useUploadingCenter(clipProjects: ClipProject[] = []) {
     uploadToSlot,
     autoAssign,
     publishNow,
+    retryQueueItem,
+    editQueueCaption,
     remove,
     refresh,
     refreshOverview,

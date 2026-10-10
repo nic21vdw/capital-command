@@ -15,19 +15,27 @@ export const dynamic = "force-dynamic";
 // The post-enqueue upload streams the whole clip to YouTube.
 export const maxDuration = 300;
 
-/** GET /api/publish — the queue with per-platform status. */
-export async function GET() {
+/**
+ * GET /api/publish — the queue with per-platform status.
+ *
+ * `?board=1` is sent only by the Uploading Center's board, and only a read from
+ * there counts as someone seeing a failure. The Clip Editor reads this too
+ * (to find a clip's bookings), and a failure it passed over unseen used to start
+ * its 30-day sweep clock before anyone had looked at the board.
+ */
+export async function GET(request: NextRequest) {
   const config = publisherConfig();
   if (!config.enabled) {
     return NextResponse.json({ enabled: false, items: [] });
   }
   // A permanently-failed post STAYS on the board with its reason, so the
   // failure is something you see and can retry rather than something that
-  // silently emptied its slot. Reading the board is what stamps the failure as
-  // seen; only a seen failure older than the retention window is swept.
+  // silently emptied its slot. Reading the board (and only the board) is what
+  // stamps the failure as seen; only a seen failure older than the retention
+  // window is swept.
   const queue = publishQueue(config);
   const now = new Date();
-  await queue.markFailedSeen(now);
+  if (request.nextUrl.searchParams.get("board") === "1") await queue.markFailedSeen(now);
   const purged = await queue.purgeFailed(now);
   if (purged.length > 0) {
     console.log(

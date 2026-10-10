@@ -215,6 +215,9 @@ export type PublishPlan = {
   notes: string[];
 };
 
+/** Options for `PlatformAdapter.finalize`; see `PublishInput.publishNow`. */
+export type FinalizeOptions = { publishNow?: boolean };
+
 export type PublishInput = {
   item: QueueItem;
   /** Absolute path to the media file, already resolved/downloaded by the runner. */
@@ -238,6 +241,13 @@ export type PublishInput = {
    * next run can resume instead of starting a second upload.
    */
   onHandle?: (handle: string) => Promise<void>;
+  /**
+   * True only for the board's explicit "Publish now" (the forced run). An
+   * adapter that can hold a post for its slot (YouTube) then goes live at once
+   * instead. Never set by a retry or the scheduler - they must keep a future
+   * slot's post waiting.
+   */
+  publishNow?: boolean;
   /**
    * How long this adapter may spend waiting on the platform to finish
    * processing before it gives the run back. The runner shares one budget
@@ -267,5 +277,5 @@ export interface PlatformAdapter {
    * made it public and force it public if not. Must be idempotent and must
    * not re-upload media. Returns "published" on success.
    */
-  finalize?(item: QueueItem, state: PlatformState): Promise<PostResult>;
+  finalize?(item: QueueItem, state: PlatformState, options?: FinalizeOptions): Promise<PostResult>;
 };

@@ -1,3 +1,4 @@
+import { usesTiktokInbox } from "@/lib/publisher/tiktokInbox";
 import type { PlatformId, QueueItem } from "@/lib/publisher/types";
 
 /**
@@ -82,6 +83,21 @@ export function preSchedulesItem(
   return facebookLead(item.publishAt, now) === "schedulable";
 }
 
+/** What the board knows beyond the post itself. */
+export type PendingContext = {
+  /**
+   * YouTube's upload allowance for today is spent, so a YouTube post that has
+   * not gone up yet is waiting for the quota to reset rather than "uploading".
+   * The runner leaves such a post untouched (state stays pending), so this is
+   * the only place the wait can be told apart from a few seconds of upload.
+   */
+  youtubeQuotaFull?: boolean;
+};
+
+type PendingItem = Pick<QueueItem, "mediaKind" | "publishAt"> & Partial<Pick<QueueItem, "tiktok">>;
+
+const QUOTA_WAIT_LABEL = "Waiting for quota";
+
 /**
  * What "pending" means on the board. "Queued" reads as nothing has happened
  * yet, which is true for a platform this app has to post to itself and
@@ -95,10 +111,13 @@ export function preSchedulesItem(
  */
 export function pendingLabel(
   platform?: PlatformId,
-  item?: Pick<QueueItem, "mediaKind" | "publishAt">,
-  now: Date = new Date()
+  item?: PendingItem,
+  now: Date = new Date(),
+  context: PendingContext = {}
 ): string {
   if (!platform) return "Queued";
+  if (platform === "youtube" && context.youtubeQuotaFull) return QUOTA_WAIT_LABEL;
+  if (platform === "tiktok" && item && usesTiktokInbox(item)) return "To inbox at slot";
   if (item) return preSchedulesItem(platform, item, now) ? "Uploading" : "Posts at slot";
   return preSchedules(platform) ? "Uploading" : "Posts at slot";
 }
@@ -110,19 +129,46 @@ const PLATFORM_NAMES: Record<PlatformId, string> = {
   facebook: "Facebook"
 };
 
+/**
+ * TikTok's inbox delivery ends with a draft only a tap in the TikTok app can
+ * finish; the adapter records it as "scheduled" (adapters/tiktok.ts), which on
+ * its own reads as done.
+ */
+export const TIKTOK_INBOX_CHIP = "In TikTok inbox";
+/** The line shown beside the chip: a chip is one unbroken line and this is the part that needs room. */
+export const TIKTOK_INBOX_ACTION = "Finish it in the TikTok app";
+export const TIKTOK_INBOX_HINT =
+  "TikTok has this as a draft in your inbox. Open the TikTok app and tap the notification to finish the post - it is not live until you do.";
+
+/** True when this TikTok leg is a draft waiting in the creator's inbox. */
+export function isTiktokInboxDraft(
+  platform: PlatformId | undefined,
+  status: string,
+  item?: Partial<Pick<QueueItem, "tiktok">>
+): boolean {
+  return platform === "tiktok" && status === "scheduled" && Boolean(item) && usesTiktokInbox(item!);
+}
+
 export function pendingHint(
   platform?: PlatformId,
-  item?: Pick<QueueItem, "mediaKind" | "publishAt">,
-  now: Date = new Date()
+  item?: PendingItem,
+  now: Date = new Date(),
+  context: PendingContext = {}
 ): string {
   if (!platform) return "Waiting for the publish runner.";
   const name = PLATFORM_NAMES[platform];
+  if (platform === "youtube" && context.youtubeQuotaFull) {
+    return "YouTube's upload limit for today is used up, so this waits and goes up after the quota resets (midnight Pacific). Nothing is lost.";
+  }
   // Only a slot BEYOND the window gets the "further out than Facebook will
   // hold it" wording. One that is inside a quarter of an hour, or already past,
   // is also not pre-scheduled - and telling someone their overdue post is too
   // far in the future is worse than saying nothing.
   if (item && platform === "facebook" && facebookLead(item.publishAt, now) === "too-far") {
     return "This slot is further out than Facebook will hold a post (29 days), so it goes up as soon as it is inside that window.";
+  }
+  if (platform === "tiktok" && item && usesTiktokInbox(item)) {
+    return "TikTok has no scheduling API, so CoLateral Marketing sends this to your TikTok inbox at this slot. You then finish the post in the TikTok app.";
   }
   return (item ? preSchedulesItem(platform, item, now) : preSchedules(platform))
     ? `${name} takes the upload ahead of time — it goes up now and ${name} publishes it at this slot.`

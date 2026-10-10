@@ -2,6 +2,7 @@ import { NextRequest } from "next/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const enqueue = vi.fn();
+const markFailedSeen = vi.fn(async () => []);
 
 vi.mock("@/lib/publisher/config", () => ({
   publisherConfig: () => ({ enabled: true, timezone: "America/Toronto" })
@@ -10,7 +11,12 @@ vi.mock("@/lib/publisher/enqueue", () => ({ enqueue }));
 vi.mock("@/lib/publisher/runner", () => ({ runDue: vi.fn(async () => undefined) }));
 vi.mock("@/lib/publisher/queue", () => ({
   FAILED_RETENTION_DAYS: 7,
-  publishQueue: () => ({ get: async (id: string) => ({ id }) })
+  publishQueue: () => ({
+    get: async (id: string) => ({ id }),
+    markFailedSeen,
+    purgeFailed: async () => [],
+    list: async () => []
+  })
 }));
 vi.mock("@/lib/clipping/jobs", () => ({
   ensureVerticalClipFile: vi.fn(),
@@ -53,5 +59,24 @@ describe("POST /api/publish format", () => {
 
     expect(response.status).toBe(400);
     expect(enqueue).not.toHaveBeenCalled();
+  });
+});
+
+describe("GET /api/publish", () => {
+  const get = async (query = "") => {
+    const { GET } = await import("@/app/api/publish/route");
+    return GET(new NextRequest(`http://localhost:3000/api/publish${query}`));
+  };
+
+  beforeEach(() => markFailedSeen.mockClear());
+
+  it("does not mark failures as seen for a reader that is not the board (the Clip Editor)", async () => {
+    expect((await get()).status).toBe(200);
+    expect(markFailedSeen).not.toHaveBeenCalled();
+  });
+
+  it("marks failures as seen when the Uploading Center board reads", async () => {
+    await get("?board=1");
+    expect(markFailedSeen).toHaveBeenCalledTimes(1);
   });
 });

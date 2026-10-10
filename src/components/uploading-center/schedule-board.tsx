@@ -1,13 +1,26 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
+import Link from "next/link";
 import { Clapperboard, ExternalLink, Images, Image as ImageIcon, Loader2, Pencil, Plug, RotateCcw, Send, Trash2, Upload } from "lucide-react";
 import { toast } from "sonner";
+import { Button } from "@/components/ui/button";
+import { Modal } from "@/components/ui/modal";
+import { Textarea } from "@/components/ui/textarea";
 import { StatusChip } from "@/components/uploading-center/status-chip";
 import { CLIP_DRAG_TYPE } from "@/components/uploading-center/clip-card";
-import { primaryAccountIdFor, remoteUrlFor, studioVideoUrl } from "@/components/uploading-center/use-uploading-center";
+import {
+  PLATFORM_LABELS,
+  primaryAccountIdFor,
+  remoteUrlFor,
+  studioVideoUrl
+} from "@/components/uploading-center/use-uploading-center";
 import { cn } from "@/lib/utils";
-import { describeFailure } from "@/lib/publisher/failure";
+import { FACEBOOK_SCHEDULED_POSTS_URL, publishNowTargets, removalImpact } from "@/lib/publisher/boardActions";
+import { describeFailure, describeWaiting } from "@/lib/publisher/failure";
+import { TIKTOK_INBOX_ACTION, isTiktokInboxDraft } from "@/lib/publisher/nativeScheduling";
+import { formatGoLive } from "@/lib/publisher/outcomeCopy";
 import { imagePathsOf, imagePostUrl, isImagePost } from "@/lib/publisher/images";
 import type { AgendaDay, AgendaEntry } from "@/lib/publisher/agenda";
 import type { ScheduleSlot } from "@/lib/publisher/slots";
@@ -30,6 +43,16 @@ function isVideoFile(file: File) {
   return file.type.startsWith("video/") || /\.(mp4|mov|m4v|webm|mkv|avi)$/i.test(file.name);
 }
 
+/** The current time, refreshed each minute, so "Retry now" turns from "Retry at slot" while the page sits open. */
+function useMinuteClock(): number {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), 60_000);
+    return () => clearInterval(id);
+  }, []);
+  return now;
+}
+
 export function ScheduleBoard({
   platform,
   days,
@@ -38,8 +61,11 @@ export function ScheduleBoard({
   onUploadVideo,
   onSelectSlot,
   onPublishNow,
+  onRetry,
+  onEditCaption,
   onRemove,
   onRename,
+  youtubeQuotaFull,
   busy,
   highlightedItemId
 }: {
@@ -52,13 +78,22 @@ export function ScheduleBoard({
   onUploadVideo: (slotUtc: string, file: File) => void;
   /** When set (a clip is being placed), open slots become click targets. */
   onSelectSlot?: (slotUtc: string) => void;
+  /** Publish now - asked for confirmation by the card first. */
   onPublishNow: (item: QueueItem) => void;
+  /** Re-queue one platform's failed leg and run it WITHOUT force. */
+  onRetry: (item: QueueItem, platform: PlatformId) => void;
+  /** Save a new caption on the queued post (the queue only). */
+  onEditCaption: (item: QueueItem, caption: string) => void;
+  /** Remove the whole post - asked for confirmation by the card first. */
   onRemove: (item: QueueItem) => void;
   onRename: (item: QueueItem, title: string) => void;
+  /** YouTube's upload allowance for today is spent: posts waiting to upload are waiting for the quota. */
+  youtubeQuotaFull?: boolean;
   busy: string | null;
   highlightedItemId?: string | null;
 }) {
   const [dragOverSlot, setDragOverSlot] = useState<string | null>(null);
+  const nowMs = useMinuteClock();
 
   // One hidden file input for the whole board; the slot whose Upload button
   // opened the picker is remembered so the chosen file lands on it.
@@ -100,8 +135,12 @@ export function ScheduleBoard({
           onRequestUpload={requestUpload}
           onSelectSlot={onSelectSlot}
           onPublishNow={onPublishNow}
+          onRetry={onRetry}
+          onEditCaption={onEditCaption}
           onRemove={onRemove}
           onRename={onRename}
+          youtubeQuotaFull={youtubeQuotaFull}
+          nowMs={nowMs}
           busy={busy}
           highlightedItemId={highlightedItemId}
         />
@@ -122,8 +161,12 @@ function DayBand({
   onRequestUpload,
   onSelectSlot,
   onPublishNow,
+  onRetry,
+  onEditCaption,
   onRemove,
   onRename,
+  youtubeQuotaFull,
+  nowMs,
   busy,
   highlightedItemId
 }: {
@@ -137,8 +180,12 @@ function DayBand({
   onRequestUpload: (slotUtc: string) => void;
   onSelectSlot?: (slotUtc: string) => void;
   onPublishNow: (item: QueueItem) => void;
+  onRetry: (item: QueueItem, platform: PlatformId) => void;
+  onEditCaption: (item: QueueItem, caption: string) => void;
   onRemove: (item: QueueItem) => void;
   onRename: (item: QueueItem, title: string) => void;
+  youtubeQuotaFull?: boolean;
+  nowMs: number;
   busy: string | null;
   highlightedItemId?: string | null;
 }) {
@@ -177,8 +224,12 @@ function DayBand({
               thumbnailForItem={thumbnailForItem}
               today={today}
               onPublishNow={onPublishNow}
+              onRetry={onRetry}
+              onEditCaption={onEditCaption}
               onRemove={onRemove}
               onRename={onRename}
+              youtubeQuotaFull={youtubeQuotaFull}
+              nowMs={nowMs}
               busy={busy}
               highlighted={highlightedItemId === entry.item.id}
             />
@@ -226,8 +277,12 @@ function QueueEntryCard({
   thumbnailForItem,
   today,
   onPublishNow,
+  onRetry,
+  onEditCaption,
   onRemove,
   onRename,
+  youtubeQuotaFull,
+  nowMs,
   busy,
   highlighted
 }: {
@@ -237,8 +292,12 @@ function QueueEntryCard({
   thumbnailForItem: (item: QueueItem) => string | null;
   today: boolean;
   onPublishNow: (item: QueueItem) => void;
+  onRetry: (item: QueueItem, platform: PlatformId) => void;
+  onEditCaption: (item: QueueItem, caption: string) => void;
   onRemove: (item: QueueItem) => void;
   onRename: (item: QueueItem, title: string) => void;
+  youtubeQuotaFull?: boolean;
+  nowMs: number;
   busy: string | null;
   highlighted?: boolean;
 }) {
@@ -249,41 +308,51 @@ function QueueEntryCard({
   // send button re-arms the post first; the rest go straight out.
   const blocked = state.status === "failed" || state.status === "manual";
   const advice = blocked ? describeFailure(state, platform) : null;
-  const actionable =
-    state.status === "pending" || state.status === "uploaded" || (blocked && advice?.action !== "none");
+  // A leg that is not failed but is not simply waiting: an error on record or a
+  // later attempt booked. Without this line it reads exactly like a healthy one.
+  const waiting = blocked ? null : describeWaiting(state, platform);
+  const quotaWait = platform === "youtube" && state.status === "pending" && !state.postId && Boolean(youtubeQuotaFull);
+  const inboxDraft = isTiktokInboxDraft(platform, state.status, item);
+  const waitingLine = waiting
+    ? state.nextAttemptAt
+      ? `Retrying at ${formatGoLive(state.nextAttemptAt)} - ${waiting.headline}`
+      : `Will retry - ${waiting.headline}`
+    : quotaWait
+      ? "YouTube's upload limit for today is used up. This goes up after the quota resets, nothing is lost."
+      : inboxDraft
+        ? `${TIKTOK_INBOX_ACTION} - it is not live until you do.`
+        : null;
+  const detailRaw = advice?.raw ?? waiting?.raw;
+  const targets = publishNowTargets(item);
+  // Publish now also reaches a post YouTube/Facebook is holding for its slot
+  // (status "scheduled"): that is the case where it makes the post public now.
+  const actionable = targets.includes(platform) || (blocked && advice?.action !== "none");
   const working = busy === `publish:${item.id}` || busy === `remove:${item.id}`;
   // A picture post has no poster frame — its own first slide IS the thumbnail,
   // served by position out of the queue so the card can reach files that live
   // under data/ and never appear in a URL.
   const pictures = isImagePost(item) ? imagePathsOf(item).length : 0;
   const [showSlides, setShowSlides] = useState(false);
-  const [retrying, setRetrying] = useState(false);
   const [showRaw, setShowRaw] = useState(false);
+  const [confirm, setConfirm] = useState<"publish" | "remove" | null>(null);
+  const [editingCaption, setEditingCaption] = useState(false);
+  const [captionDraft, setCaptionDraft] = useState(item.caption ?? "");
+  const slotPassed = new Date(item.publishAt).getTime() <= nowMs;
+  const retryLabel = slotPassed ? "Retry now" : "Retry at slot";
+  const retryHint = slotPassed
+    ? `Put ${PLATFORM_LABELS[platform]} back in the queue and post it now. The post's other platforms are not touched.`
+    : `Put ${PLATFORM_LABELS[platform]} back in the queue. It posts at its slot (${time}); the post's other platforms are not touched.`;
+  const everyLegPublished = Object.values(item.platforms).every((leg) => leg?.status === "published");
+  const youtubeVideoId = item.platforms.youtube?.postId;
 
-  const send = async () => {
-    if (!blocked) {
-      onPublishNow(item);
-      return;
-    }
-    setRetrying(true);
-    try {
-      const response = await fetch("/api/publish", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "retry", itemId: item.id, platform })
-      });
-      if (!response.ok) {
-        const detail = (await response.json().catch(() => null)) as { error?: string } | null;
-        toast.error(detail?.error ?? "Could not put that post back in the queue.");
-        return;
-      }
-    } catch {
-      toast.error("Network error while retrying that post.");
-      return;
-    } finally {
-      setRetrying(false);
-    }
-    onPublishNow(item);
+  const send = () => {
+    if (blocked) onRetry(item, platform);
+    else setConfirm("publish");
+  };
+  const impact = removalImpact(item);
+  const labelList = (platforms: PlatformId[]) => {
+    const names = platforms.map((id) => PLATFORM_LABELS[id]);
+    return names.length <= 1 ? (names[0] ?? "") : `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`;
   };
   return (
     <div
@@ -326,7 +395,13 @@ function QueueEntryCard({
           <span className="ml-auto shrink-0 text-[10px] font-medium text-[var(--muted-foreground)]">{time}</span>
         </div>
         <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
-          <StatusChip status={state.status} platform={platform} item={item} className="shrink-0" />
+          <StatusChip
+            status={state.status}
+            platform={platform}
+            item={item}
+            youtubeQuotaFull={quotaWait}
+            className="shrink-0"
+          />
           {pictures > 0 ? (
             <button
               type="button"
@@ -362,18 +437,33 @@ function QueueEntryCard({
             </a>
           ) : null}
           <span className="flex-1" />
-          {working || retrying ? (
+          {working ? (
             <Loader2 className="h-3.5 w-3.5 animate-spin text-[var(--muted-foreground)]" />
           ) : (
             <>
+              {!everyLegPublished ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setCaptionDraft(item.caption ?? "");
+                    setEditingCaption((open) => !open);
+                  }}
+                  aria-label="Edit caption"
+                  title="Edit the caption of the queued post"
+                  className={cn(ACTION_BUTTON, editingCaption && "text-white")}
+                >
+                  <Pencil className="h-3.5 w-3.5" />
+                  Caption
+                </button>
+              ) : null}
               {actionable ? (
                 <button
                   type="button"
-                  onClick={() => void send()}
-                  aria-label={blocked ? "Retry this post" : "Publish now"}
-                  title={blocked ? "Retry this post" : "Publish now"}
+                  onClick={send}
+                  aria-label={blocked ? retryLabel : "Publish now"}
+                  title={blocked ? retryHint : "Publish this post to all its unfinished platforms right now"}
                   className={cn(
-                    "shrink-0 text-[var(--muted-foreground)] transition hover:text-white",
+                    ACTION_BUTTON,
                     blocked &&
                       (state.status === "failed"
                         ? "hover:text-[var(--danger)] text-[var(--danger)]"
@@ -381,20 +471,68 @@ function QueueEntryCard({
                   )}
                 >
                   {blocked ? <RotateCcw className="h-3.5 w-3.5" /> : <Send className="h-3.5 w-3.5" />}
+                  {blocked ? retryLabel : "Publish now"}
                 </button>
               ) : null}
               <button
                 type="button"
-                onClick={() => onRemove(item)}
-                aria-label="Remove from schedule"
-                title="Remove from schedule"
-                className="shrink-0 text-[var(--muted-foreground)] transition hover:text-[var(--danger)]"
+                onClick={() => setConfirm("remove")}
+                aria-label="Remove post from every platform"
+                title="Remove this post from the schedule on every platform"
+                className={cn(ACTION_BUTTON, "hover:text-[var(--danger)]")}
               >
                 <Trash2 className="h-3.5 w-3.5" />
+                Remove
               </button>
             </>
           )}
         </div>
+        {editingCaption ? (
+          <div className="mt-1.5 space-y-1">
+            <Textarea
+              value={captionDraft}
+              onChange={(event) => setCaptionDraft(event.target.value)}
+              aria-label="Caption"
+              rows={3}
+              className="min-h-16 px-2 py-1.5 text-xs"
+            />
+            {(item.hashtags ?? []).length > 0 ? (
+              <p className="text-[10px] text-[var(--muted-foreground)]">Hashtags added after it: {item.hashtags.join(" ")}</p>
+            ) : null}
+            <p className="text-[10px] leading-snug text-[var(--muted-foreground)]">
+              Changes the queued post.{" "}
+              {youtubeVideoId ? (
+                <>
+                  YouTube&apos;s description is not changed -{" "}
+                  <a
+                    href={studioVideoUrl(youtubeVideoId)}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="text-[var(--accent)] underline-offset-2 hover:underline"
+                  >
+                    edit it in YouTube Studio
+                  </a>
+                  .
+                </>
+              ) : null}
+            </p>
+            <div className="flex items-center gap-1.5">
+              <Button
+                className="h-7 px-2.5 text-[11px]"
+                disabled={!captionDraft.trim() || captionDraft.trim() === (item.caption ?? "").trim()}
+                onClick={() => {
+                  onEditCaption(item, captionDraft);
+                  setEditingCaption(false);
+                }}
+              >
+                Save caption
+              </Button>
+              <Button variant="ghost" className="h-7 px-2.5 text-[11px]" onClick={() => setEditingCaption(false)}>
+                Cancel
+              </Button>
+            </div>
+          </div>
+        ) : null}
         {showSlides && pictures > 0 ? (
           <div className="mt-1.5 flex flex-wrap items-center gap-1">
             <span className="text-[10px] text-[var(--muted-foreground)]">Rendered and ready:</span>
@@ -411,18 +549,18 @@ function QueueEntryCard({
             ))}
           </div>
         ) : null}
-        {advice ? (
+        {advice || waitingLine ? (
           <div className="mt-1 space-y-1">
             <p
               className={cn(
                 "text-[11px] leading-snug",
-                state.status === "failed" ? "tone-danger tone-text" : "tone-warning tone-text"
+                advice && state.status === "failed" ? "tone-danger tone-text" : "tone-warning tone-text"
               )}
             >
-              {advice.headline}
+              {advice?.headline ?? waitingLine}
             </p>
             <div className="flex flex-wrap items-center gap-2">
-              {advice.action === "reconnect" && platform === "youtube" ? (
+              {advice?.action === "reconnect" && platform === "youtube" ? (
                 <a
                   href={`/api/auth/google?account=${encodeURIComponent(item.accountId ?? primaryAccountIdFor("youtube"))}`}
                   className="inline-flex items-center gap-1 rounded-md border border-[var(--accent)]/50 px-1.5 py-0.5 text-[10px] font-medium text-[var(--accent)] transition hover:bg-[var(--accent)]/10"
@@ -430,7 +568,15 @@ function QueueEntryCard({
                   <Plug className="h-3 w-3" /> Reconnect YouTube
                 </a>
               ) : null}
-              {advice.raw ? (
+              {advice?.action === "reconnect" && advice.viaSettings ? (
+                <Link
+                  href="/settings#accounts"
+                  className="inline-flex items-center gap-1 rounded-md border border-[var(--accent)]/50 px-1.5 py-0.5 text-[10px] font-medium text-[var(--accent)] transition hover:bg-[var(--accent)]/10"
+                >
+                  <Plug className="h-3 w-3" /> Open Settings
+                </Link>
+              ) : null}
+              {detailRaw ? (
                 <button
                   type="button"
                   onClick={() => setShowRaw((shown) => !shown)}
@@ -440,15 +586,118 @@ function QueueEntryCard({
                 </button>
               ) : null}
             </div>
-            {showRaw && advice.raw ? (
+            {showRaw && detailRaw ? (
               <pre className="max-h-24 overflow-auto whitespace-pre-wrap break-words rounded-md bg-black/30 p-1.5 text-[10px] leading-snug text-[var(--muted-foreground)]">
-                {advice.raw}
+                {detailRaw}
               </pre>
             ) : null}
           </div>
         ) : null}
       </div>
+      {confirm === "publish" ? (
+        <ConfirmDialog
+          title="Publish now?"
+          description={`Publish "${item.title}" to ${labelList(targets) || PLATFORM_LABELS[platform]} now?`}
+          confirmLabel="Publish now"
+          onCancel={() => setConfirm(null)}
+          onConfirm={() => {
+            setConfirm(null);
+            onPublishNow(item);
+          }}
+        >
+          <p>
+            This does not wait for the slot ({time}). Every platform above that has not finished posts immediately
+            {targets.includes("youtube") ? ", and a YouTube video held for its slot is made public right away" : ""}.
+          </p>
+        </ConfirmDialog>
+      ) : null}
+      {confirm === "remove" ? (
+        <ConfirmDialog
+          title="Remove from the schedule?"
+          description={`Remove "${item.title}" from ${labelList(impact.platforms)}? Remove covers the whole post, not just this tab.`}
+          confirmLabel={impact.platforms.length > 1 ? "Remove from all" : "Remove"}
+          danger
+          onCancel={() => setConfirm(null)}
+          onConfirm={() => {
+            setConfirm(null);
+            onRemove(item);
+          }}
+        >
+          {impact.youtube ? (
+            <p>
+              YouTube already has this video and would publish it at {time}. Removing keeps it private on your channel;
+              it is not deleted.{" "}
+              <a
+                href={studioVideoUrl(impact.youtube.postId)}
+                target="_blank"
+                rel="noreferrer"
+                className="text-[var(--accent)] underline-offset-2 hover:underline"
+              >
+                Open in YouTube Studio
+              </a>
+            </p>
+          ) : null}
+          {impact.facebook ? (
+            <p className="tone-warning tone-text">
+              Facebook already holds this post and will still publish it at {time}. Facebook posts cannot be cancelled
+              from here.{" "}
+              <a
+                href={FACEBOOK_SCHEDULED_POSTS_URL}
+                target="_blank"
+                rel="noreferrer"
+                className="text-[var(--accent)] underline-offset-2 hover:underline"
+              >
+                Cancel it in Meta Business Suite
+              </a>
+            </p>
+          ) : null}
+          {!impact.youtube && !impact.facebook ? <p>Nothing has gone up yet, so nothing is left on any platform.</p> : null}
+        </ConfirmDialog>
+      ) : null}
     </div>
+  );
+}
+
+/** The text-labelled action buttons on a post card. */
+const ACTION_BUTTON =
+  "inline-flex shrink-0 items-center gap-1 rounded-md px-1 py-0.5 text-[10px] font-medium text-[var(--muted-foreground)] transition hover:bg-white/8 hover:text-white";
+
+/**
+ * A confirmation for an action that cannot be taken back from the board. It is
+ * portalled to the page: a past day's band is dimmed with opacity, which makes
+ * it a stacking context, and a dialog left inside it could sit under the next
+ * band.
+ */
+function ConfirmDialog({
+  title,
+  description,
+  confirmLabel,
+  danger = false,
+  onConfirm,
+  onCancel,
+  children
+}: {
+  title: string;
+  description: string;
+  confirmLabel: string;
+  danger?: boolean;
+  onConfirm: () => void;
+  onCancel: () => void;
+  children?: React.ReactNode;
+}) {
+  return createPortal(
+    <Modal open title={title} description={description} onClose={onCancel}>
+      <div className="space-y-2 text-sm text-[var(--muted-foreground)]">{children}</div>
+      <div className="mt-5 flex justify-end gap-2">
+        <Button variant="ghost" onClick={onCancel}>
+          Cancel
+        </Button>
+        <Button variant={danger ? "danger" : "primary"} onClick={onConfirm} autoFocus>
+          {confirmLabel}
+        </Button>
+      </div>
+    </Modal>,
+    document.body
   );
 }
 

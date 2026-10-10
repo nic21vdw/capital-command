@@ -130,6 +130,8 @@ export function UploadingCenterPage() {
     uploadToSlot,
     autoAssign,
     publishNow,
+    retryQueueItem,
+    editQueueCaption,
     remove,
     refresh,
     refreshAccounts,
@@ -733,8 +735,11 @@ export function UploadingCenterPage() {
                 : undefined
             }
             onPublishNow={(item) => void publishNow(item)}
+            onRetry={(item, retryPlatform) => void retryQueueItem(item, retryPlatform)}
+            onEditCaption={(item, caption) => void editQueueCaption(item, caption)}
             onRemove={(item) => void remove(item)}
             onRename={(item, title) => void renameQueueItem(item, title)}
+            youtubeQuotaFull={Boolean(overview && overview.quota.uploadsUsed >= overview.quota.budgetUploads)}
             busy={busy}
             highlightedItemId={itemParam}
           />

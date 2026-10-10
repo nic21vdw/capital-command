@@ -38,6 +38,11 @@ export type FailureAdvice = {
   headline: string;
   /** The control the card should offer for it. */
   action: FailureAction;
+  /**
+   * True when the fix lives in Settings (every platform but YouTube, which has
+   * its own Reconnect button on the card). The card links there.
+   */
+  viaSettings?: boolean;
   /** The provider's own words, when there are any worth keeping. */
   raw?: string;
 };
@@ -58,22 +63,72 @@ const WORTH_RETRYING = /quota|rate limit|too many requests|timed out|timeout|tem
 /** The platform opened an upload and then never took the video. */
 const ABANDONED_UPLOAD = /never fetched the video|upload expired before publishing/i;
 
+/**
+ * The duplicate guard's own refusal (duplicateGuard.ts): the title is already
+ * on the channel, so the upload was stopped on purpose. Sending it again fails
+ * the same way until the post is retitled.
+ */
+const DUPLICATE_TITLE = /already on the channel|stopped rather than posting it a second time/i;
+
+/**
+ * No credentials exist for this account at all. A reconnect-style failure for
+ * the re-arm scope (connecting it fixes the post), but not an expired or revoked
+ * grant: the account was never set up, so the advice is to set it up.
+ */
+const NOT_SET_UP = /not configured|is not connected|credentials are not configured/i;
+
+/**
+ * What to do once the connection is back. Only Google's sign-in re-queues the
+ * posts that were blocked on it (api/auth/google/callback), so only YouTube
+ * can promise the post goes out by itself; every other platform needs the
+ * Retry button after the reconnect.
+ */
+function afterConnecting(platform: PlatformId): string {
+  return platform === "youtube"
+    ? "Reconnect and this post goes out on its own."
+    : "Reconnect it in Settings, then press Retry.";
+}
+
 export function describeFailure(state: PlatformState, platform: PlatformId): FailureAdvice {
   const label = PLATFORM_LABELS[platform];
   const raw = state.error?.trim() || undefined;
+  const viaSettings = platform !== "youtube" || undefined;
 
   if (state.status === "manual") {
     return {
-      headline: `No ${label} account was connected when this was scheduled, so it never went out.`,
+      headline: `No ${label} account was connected when this was scheduled, so it never went out. ${
+        platform === "youtube" ? "Connect one and this post goes out on its own." : "Connect it in Settings, then press Retry."
+      }`,
       action: "reconnect",
+      viaSettings,
       raw: state.note?.trim() || raw
+    };
+  }
+
+  if (raw && DUPLICATE_TITLE.test(raw)) {
+    return {
+      headline: "A video with this title is already on your YouTube channel, so it wasn't posted a second time. Retitle the post, then book it again.",
+      action: "none",
+      raw
+    };
+  }
+
+  if (raw && NOT_SET_UP.test(raw) && !/expired or revoked/i.test(raw)) {
+    return {
+      headline: `${label} isn't set up for this account yet. ${
+        platform === "youtube" ? "Connect it and this post goes out on its own." : "Add its connection in Settings, then press Retry."
+      }`,
+      action: "reconnect",
+      viaSettings,
+      raw
     };
   }
 
   if (isConnectionFailure(state)) {
     return {
-      headline: `The ${label} connection expired or was revoked. Reconnect and this post goes out on its own.`,
+      headline: `The ${label} connection expired or was revoked. ${afterConnecting(platform)}`,
       action: "reconnect",
+      viaSettings,
       raw
     };
   }
@@ -99,4 +154,28 @@ export function describeFailure(state: PlatformState, platform: PlatformId): Fai
   }
 
   return { headline: `${label} rejected this upload.`, action: "retry", raw };
+}
+
+/**
+ * A leg that is not failed but is not simply waiting either: it has an error on
+ * record and/or a later attempt booked (backoff after a transient failure, or a
+ * throttle the platform asked us to wait out). Null for a leg with neither, so
+ * a healthy pending post reads as healthy. The headline is a clause, written to
+ * follow "Retrying at 3:00 PM - ".
+ */
+export function describeWaiting(state: PlatformState, platform: PlatformId): { headline: string; raw?: string } | null {
+  if (state.status === "failed" || state.status === "manual") return null;
+  if (!state.error && !state.nextAttemptAt) return null;
+  const label = PLATFORM_LABELS[platform];
+  const raw = state.error?.trim() || undefined;
+  if (raw && /quota|uploads for today are used/i.test(raw)) {
+    return { headline: `${label}'s upload limit for today is used up`, raw };
+  }
+  if (raw && /rate limit|too many requests|throttl|spam_risk|inbox/i.test(raw)) {
+    return { headline: `${label} asked us to slow down`, raw };
+  }
+  if (raw && (isConnectionFailure({ ...state, status: "failed" }) || NOT_SET_UP.test(raw))) {
+    return { headline: `the ${label} connection needs attention`, raw };
+  }
+  return { headline: `${label} couldn't take it just then`, raw };
 }

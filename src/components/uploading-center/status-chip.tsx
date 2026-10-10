@@ -1,5 +1,11 @@
 import { cn } from "@/lib/utils";
-import { pendingHint, pendingLabel } from "@/lib/publisher/nativeScheduling";
+import {
+  isTiktokInboxDraft,
+  pendingHint,
+  pendingLabel,
+  TIKTOK_INBOX_CHIP,
+  TIKTOK_INBOX_HINT
+} from "@/lib/publisher/nativeScheduling";
 import { youtubeHoldsForReview } from "@/lib/publisher/reviewHold";
 import type { PlatformId, PlatformStatus, QueueItem } from "@/lib/publisher/types";
 
@@ -14,6 +20,10 @@ import type { PlatformId, PlatformStatus, QueueItem } from "@/lib/publisher/type
  * there is nothing to hand over early, so the post is delivered by this app at
  * its slot and "Queued" reads as if the booking never took. Given the
  * platform, the chip says which one it is.
+ *
+ * A TikTok post delivered to the inbox is recorded as "scheduled" too, but it
+ * is not done: it is a draft that only a tap in the TikTok app turns into a
+ * post. Given the post, the chip says so.
  */
 
 export type ChipStatus = PlatformStatus | "draft";
@@ -32,6 +42,7 @@ export function StatusChip({
   status,
   platform,
   item,
+  youtubeQuotaFull,
   className
 }: {
   status: ChipStatus;
@@ -39,7 +50,9 @@ export function StatusChip({
   /** The post itself, when there is one: a picture post and a slot beyond
    *  Facebook's 29-day window are both "posts at slot" on a platform that
    *  otherwise takes the upload early. */
-  item?: Pick<QueueItem, "mediaKind" | "publishAt" | "format"> & { clipPath?: string };
+  item?: Pick<QueueItem, "mediaKind" | "publishAt" | "format"> & Partial<Pick<QueueItem, "tiktok">> & { clipPath?: string };
+  /** YouTube's upload allowance for today is spent (see PendingContext). */
+  youtubeQuotaFull?: boolean;
   className?: string;
 }) {
   const chip = CHIPS[status];
@@ -48,15 +61,26 @@ export function StatusChip({
     platform === "youtube" &&
     item != null &&
     youtubeHoldsForReview(item);
-  const label = status === "pending" ? pendingLabel(platform, item) : heldPrivate ? "Private" : chip.label;
+  const inboxDraft = isTiktokInboxDraft(platform, status, item);
+  const context = { youtubeQuotaFull };
+  const label =
+    status === "pending"
+      ? pendingLabel(platform, item, new Date(), context)
+      : heldPrivate
+        ? "Private"
+        : inboxDraft
+          ? TIKTOK_INBOX_CHIP
+          : chip.label;
   return (
     <span
       title={
         heldPrivate
           ? "Uploaded private. Make it public on YouTube after you review it."
-          : status === "pending"
-            ? pendingHint(platform, item)
-            : undefined
+          : inboxDraft
+            ? TIKTOK_INBOX_HINT
+            : status === "pending"
+              ? pendingHint(platform, item, new Date(), context)
+              : undefined
       }
       className={cn("chip", `tone-${heldPrivate ? CHIPS.scheduled.tone : chip.tone}`, className)}
     >
