@@ -6,9 +6,14 @@ import { toast } from "sonner";
 import { Modal } from "@/components/ui/modal";
 import { Button } from "@/components/ui/button";
 import { Select } from "@/components/ui/select";
-import { CAROUSEL_PLATFORMS, IMAGE_CAPABLE_PLATFORMS, WEEKDAY_LABELS, type CarouselPlatformId } from "@/lib/carousels/schedule";
-// A carousel is one post distributed to every image-capable network, so a new
-// schedule defaults to Instagram + Facebook + TikTok rather than IG alone.
+import {
+  CAROUSEL_PLATFORMS,
+  DEFAULT_CAROUSEL_PLATFORMS,
+  planCarouselSchedule,
+  platformPostingMode,
+  WEEKDAY_LABELS,
+  type CarouselPlatformId
+} from "@/lib/carousels/schedule";
 import { cn } from "@/lib/utils";
 import type { CarouselSchedule, ScheduleRecurrence } from "@/types/domain";
 
@@ -19,10 +24,17 @@ function todayKey(): string {
   return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
 }
 
+function tomorrowKey(): string {
+  const next = new Date();
+  next.setDate(next.getDate() + 1);
+  return `${next.getFullYear()}-${String(next.getMonth() + 1).padStart(2, "0")}-${String(next.getDate()).padStart(2, "0")}`;
+}
+
 /**
- * Schedules a carousel upload to one or more networks — once, daily, or
- * weekly at a fixed time (e.g. 12:00 PM every day). The schedule is saved on
- * the carousel and expanded onto the Upload Schedule calendar.
+ * Plans a carousel post. A one-off to Instagram/Facebook is BOOKED: the page
+ * sends it to the publish queue and it posts itself at the slot. Everything else
+ * (a repeat, TikTok, YouTube) is a REMINDER saved on the carousel and shown on
+ * the Upload Schedule - nothing posts automatically. The button says which.
  */
 export function ScheduleModal({
   open,
@@ -37,10 +49,10 @@ export function ScheduleModal({
   onCreate: (schedule: CarouselSchedule) => void | Promise<void>;
   saving: boolean;
 }) {
-  const [platforms, setPlatforms] = useState<CarouselPlatformId[]>([...IMAGE_CAPABLE_PLATFORMS]);
+  const [platforms, setPlatforms] = useState<CarouselPlatformId[]>([...DEFAULT_CAROUSEL_PLATFORMS]);
   const [time, setTime] = useState("12:00");
-  const [recurrence, setRecurrence] = useState<ScheduleRecurrence>("daily");
-  const [date, setDate] = useState(todayKey());
+  const [recurrence, setRecurrence] = useState<ScheduleRecurrence>("once");
+  const [date, setDate] = useState(tomorrowKey());
   const [weekday, setWeekday] = useState(new Date().getDay());
   const [caption, setCaption] = useState("");
 
@@ -62,10 +74,17 @@ export function ScheduleModal({
     await onCreate(schedule);
   };
 
-  const manualOnly = platforms.filter((p) => !IMAGE_CAPABLE_PLATFORMS.includes(p));
+  const plan = planCarouselSchedule(platforms, recurrence);
+  const books = plan.book.length > 0;
+  const label = (ids: CarouselPlatformId[]) => ids.map((p) => CAROUSEL_PLATFORMS.find((c) => c.id === p)?.label).join(", ");
 
   return (
-    <Modal open={open} title="Schedule upload" description={`Plan when “${carouselTitle}” goes out.`} onClose={onClose}>
+    <Modal
+      open={open}
+      title="Schedule carousel"
+      description={`Book “${carouselTitle}” to post itself, or save a reminder.`}
+      onClose={onClose}
+    >
       <div className="space-y-4">
         <div>
           <p className="mb-2 text-xs font-medium uppercase tracking-wider text-[var(--muted-foreground)]">Platforms</p>
@@ -85,7 +104,12 @@ export function ScheduleModal({
                   )}
                 >
                   <span className="h-2 w-2 rounded-full" style={{ background: platform.color }} />
-                  {platform.label}
+                  <span className="flex flex-col items-start leading-tight">
+                    {platform.label}
+                    <span className="text-[9px] font-normal uppercase tracking-wide text-[var(--muted-foreground)]">
+                      {platformPostingMode(platform.id) === "automatic" ? "Automatic" : "Manual"}
+                    </span>
+                  </span>
                 </button>
               );
             })}
@@ -118,6 +142,7 @@ export function ScheduleModal({
             <input
               type="date"
               value={date}
+              min={tomorrowKey()}
               onChange={(event) => setDate(event.target.value)}
               className="mt-1 h-11 w-full rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-3 text-sm text-white outline-none focus:border-[var(--accent)]"
             />
@@ -136,21 +161,29 @@ export function ScheduleModal({
         ) : null}
 
         <label className="block text-xs text-[var(--muted-foreground)]">
-          Caption (optional)
+          Caption (optional, written for you if left empty)
           <textarea
             value={caption}
             onChange={(event) => setCaption(event.target.value)}
             rows={2}
-            placeholder="First-comment caption / post copy…"
+            placeholder="Post copy..."
             className="mt-1 w-full resize-none rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-3 py-2 text-sm text-white outline-none focus:border-[var(--accent)]"
           />
         </label>
 
-        {manualOnly.length > 0 ? (
+        {books ? (
+          <p className="tone-info tone-edge tone-soft tone-text rounded-lg border p-2.5 text-[11px]">
+            {label(plan.book)} will be booked in the publish queue and post by themselves at that time. Nothing can be
+            booked for today - the earliest is tomorrow.
+          </p>
+        ) : null}
+        {plan.remind.length > 0 ? (
           <p className="tone-warning tone-edge tone-soft tone-text rounded-lg border p-2.5 text-[11px]">
-            {manualOnly.map((p) => CAROUSEL_PLATFORMS.find((c) => c.id === p)?.label).join(", ")} doesn&apos;t take image
-            carousels through the auto-publisher yet — those occurrences are tracked as reminders to post by hand at the
-            scheduled time.
+            {recurrence !== "once"
+              ? "A repeating schedule is a reminder only - nothing posts automatically. Choose Once to book Instagram and Facebook."
+              : `${label(plan.remind)} can't take picture posts from the app (manual - you post the slides yourself), so ${
+                  plan.remind.length > 1 ? "those get" : "that gets"
+                } a reminder on the Upload Schedule instead.`}
           </p>
         ) : null}
 
@@ -160,7 +193,7 @@ export function ScheduleModal({
           </Button>
           <Button onClick={() => void create()} disabled={saving} className="gap-1.5">
             {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <CalendarClock className="h-4 w-4" />}
-            Schedule
+            {books ? "Book post" : "Save reminder"}
           </Button>
         </div>
       </div>

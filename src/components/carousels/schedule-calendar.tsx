@@ -20,9 +20,9 @@ function labelForDate(dateKey: string, todayKey: string): string {
 }
 
 /**
- * Upload Schedule: every scheduled carousel occurrence for the next four
- * weeks, grouped by day. Recurring schedules (e.g. daily at 12:00) fan out
- * into one row per day so the calendar reads like a real posting plan.
+ * Reminders: every saved carousel reminder for the next four weeks, grouped by
+ * day. A real booking lives in the publish queue instead. Recurring reminders
+ * (e.g. daily at 12:00) fan out into one row per day.
  */
 export function ScheduleCalendar({
   carousels,
@@ -54,8 +54,10 @@ export function ScheduleCalendar({
     <Card className="space-y-4">
       <div className="flex items-center gap-2">
         <CalendarDays className="h-4 w-4 text-[var(--accent)]" />
-        <h3 className="font-semibold text-white">Upload Schedule</h3>
-        <span className="text-xs text-[var(--muted-foreground)]">next 4 weeks</span>
+        <h3 className="font-semibold text-white">Reminders</h3>
+        <span className="text-xs text-[var(--muted-foreground)]">
+          next 4 weeks - nothing here posts automatically. Booked Instagram and Facebook posts are in the Uploading Center.
+        </span>
       </div>
 
       <div className="space-y-3">
@@ -112,8 +114,8 @@ export function ScheduleCalendar({
                   <button
                     type="button"
                     onClick={() => onUnschedule(occurrence.carouselId, occurrence.scheduleId)}
-                    aria-label="Remove schedule"
-                    title="Remove this schedule"
+                    aria-label="Remove reminder"
+                    title="Remove this reminder"
                     className="shrink-0 text-[var(--muted-foreground)] transition hover:text-[var(--danger)]"
                   >
                     <Trash2 className="h-3.5 w-3.5" />

@@ -172,7 +172,9 @@ function carouselEvents(carousels: Carousel[], startKey: string, endKey: string,
         time: schedule.time,
         title: truncate(carousel.title || "Carousel"),
         platforms,
-        status: "scheduled",
+        // A carousel schedule is a reminder to post by hand; the posts the
+        // app really publishes come in through the publish queue instead.
+        status: "reminder",
         href: `/carousels?open=${encodeURIComponent(carousel.id)}`
       };
       const recurrence = schedule.recurrence ?? "once";

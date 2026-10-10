@@ -40,6 +40,7 @@ import {
   resolveSlideCount
 } from "@/lib/carousels/deck";
 import type { CarouselImage } from "@/lib/carousels/imageSlides";
+import { bookingMessage, PLATFORM_LABEL, planCarouselSchedule, type CarouselPlatformId } from "@/lib/carousels/schedule";
 import {
   ASPECT_RATIO_LIST,
   aspectSpec,
@@ -221,10 +222,10 @@ export function CarouselsPage() {
         body: JSON.stringify({ schedules: next })
       });
       if (response.ok) {
-        toast.success("Schedule removed.");
+        toast.success("Reminder removed.");
         void refresh();
       } else {
-        toast.error("Could not update the schedule.");
+        toast.error("Could not update the reminders.");
       }
     },
     [carousels, refresh]
@@ -789,14 +790,51 @@ function CarouselCard({
     }
   };
 
+  // A one-off to Instagram/Facebook is booked in the publish queue and posts
+  // itself; a repeat, TikTok and YouTube stay reminders saved on the carousel.
   const createSchedule = async (schedule: CarouselSchedule) => {
+    const plan = planCarouselSchedule(schedule.platforms as CarouselPlatformId[], schedule.recurrence);
     setSaving(true);
+    let booked: string | null = null;
     try {
-      await patchCarousel({ schedules: [...(carousel.schedules ?? []), schedule] });
-      toast.success("Upload scheduled.");
+      if (plan.book.length > 0) {
+        const response = await fetch(`/api/studio/carousels/${carousel.id}/book`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            publishAt: `${schedule.date}T${schedule.time}`,
+            caption: schedule.caption,
+            platforms: plan.book
+          })
+        });
+        const result = (await response.json().catch(() => ({}))) as {
+          error?: string;
+          timeZone?: string;
+          item?: { publishAt: string; platforms: Partial<Record<CarouselPlatformId, string>> };
+        };
+        if (!response.ok || !result.item) {
+          toast.error(result.error ?? "Could not book the post.");
+          return;
+        }
+        booked = bookingMessage(result.item.platforms, result.item.publishAt, result.timeZone ?? "UTC");
+        // It is in the queue now; the modal's job is done even if the reminder
+        // for the other networks below fails to save.
+        setScheduleOpen(false);
+      }
+      if (plan.remind.length > 0) {
+        await patchCarousel({ schedules: [...(carousel.schedules ?? []), { ...schedule, platforms: plan.remind }] });
+      }
+      const reminded = plan.remind.map((id) => PLATFORM_LABEL[id]).join(", ");
+      toast.success(
+        booked
+          ? plan.remind.length > 0
+            ? `${booked} Reminder saved for ${reminded} - nothing posts there automatically.`
+            : booked
+          : "Reminder saved - nothing posts automatically"
+      );
       setScheduleOpen(false);
     } catch {
-      toast.error("Could not schedule the upload.");
+      toast.error(booked ? `${booked} But the reminder could not be saved.` : "Could not save the reminder.");
     } finally {
       setSaving(false);
     }
@@ -914,8 +952,14 @@ function CarouselCard({
             ) : null}
           </div>
 
-          <Button variant="secondary" className="gap-1.5 px-3 py-1.5 text-xs" onClick={() => setScheduleOpen(true)}>
+          <Button
+            variant="secondary"
+            className="gap-1.5 px-3 py-1.5 text-xs"
+            onClick={() => setScheduleOpen(true)}
+            title="A one-off post to Instagram and Facebook is booked and posts itself. TikTok, YouTube and repeating schedules are reminders only."
+          >
             <CalendarClock className="h-3.5 w-3.5" /> Schedule
+            <span className="text-[10px] font-normal opacity-70">Automatic IG/FB</span>
           </Button>
           <Button variant="danger" className="px-3 py-1.5 text-xs" onClick={() => void remove()} aria-label="Delete carousel">
             <Trash2 className="h-3.5 w-3.5" />

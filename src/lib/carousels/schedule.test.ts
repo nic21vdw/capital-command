@@ -1,0 +1,91 @@
+import { describe, expect, it } from "vitest";
+import {
+  bookingMessage,
+  bookingTimeLabel,
+  DEFAULT_CAROUSEL_PLATFORMS,
+  expandOccurrences,
+  IMAGE_CAPABLE_PLATFORMS,
+  planCarouselSchedule,
+  platformPostingMode
+} from "@/lib/carousels/schedule";
+import type { Carousel } from "@/types/domain";
+
+describe("which carousel networks really post", () => {
+  it("lists only Instagram and Facebook, because the publisher refuses TikTok and YouTube pictures", () => {
+    expect(IMAGE_CAPABLE_PLATFORMS).toEqual(["instagram", "facebook"]);
+    expect(DEFAULT_CAROUSEL_PLATFORMS).toEqual(["instagram", "facebook"]);
+    expect(platformPostingMode("instagram")).toBe("automatic");
+    expect(platformPostingMode("tiktok")).toBe("manual");
+    expect(platformPostingMode("youtube")).toBe("manual");
+  });
+});
+
+describe("planCarouselSchedule", () => {
+  it("books a one-off to Instagram and Facebook", () => {
+    expect(planCarouselSchedule(["instagram", "facebook"], "once")).toEqual({
+      book: ["instagram", "facebook"],
+      remind: []
+    });
+  });
+
+  it("splits a one-off that also names TikTok and YouTube into a booking and a reminder", () => {
+    expect(planCarouselSchedule(["instagram", "tiktok", "youtube"], "once")).toEqual({
+      book: ["instagram"],
+      remind: ["tiktok", "youtube"]
+    });
+  });
+
+  it("never books a repeating schedule: it is a reminder on every network", () => {
+    expect(planCarouselSchedule(["instagram", "facebook"], "daily")).toEqual({
+      book: [],
+      remind: ["instagram", "facebook"]
+    });
+    expect(planCarouselSchedule(["instagram"], "weekly").book).toEqual([]);
+  });
+
+  it("ignores a repeated platform", () => {
+    expect(planCarouselSchedule(["instagram", "instagram"], "once").book).toEqual(["instagram"]);
+  });
+});
+
+describe("bookingMessage", () => {
+  // 2026-10-13 19:00Z is Tuesday 3:00 PM in Toronto (EDT).
+  const at = "2026-10-13T19:00:00.000Z";
+
+  it("reads the day and time in the publish timezone", () => {
+    expect(bookingTimeLabel(at, "America/Toronto")).toBe("Tue 3:00 PM");
+  });
+
+  it("confirms a booking on both networks", () => {
+    expect(bookingMessage({ instagram: "pending", facebook: "pending" }, at, "America/Toronto")).toBe(
+      "Booked on Instagram and Facebook for Tue 3:00 PM"
+    );
+  });
+
+  it("does not say booked for a network that is not connected", () => {
+    expect(bookingMessage({ instagram: "pending", facebook: "manual" }, at, "America/Toronto")).toBe(
+      "Booked on Instagram for Tue 3:00 PM. Facebook isn't connected - post those by hand."
+    );
+    expect(bookingMessage({ instagram: "manual", facebook: "manual" }, at, "America/Toronto")).toContain(
+      "Instagram and Facebook aren't connected"
+    );
+  });
+});
+
+describe("expandOccurrences", () => {
+  it("still expands a schedule saved before reminders were renamed", () => {
+    const carousel = {
+      id: "c1",
+      title: "Deck",
+      sourceType: "script",
+      slides: [],
+      createdAt: "2026-01-01T00:00:00.000Z",
+      schedules: [
+        { id: "s1", platforms: ["tiktok"], time: "12:00", recurrence: "once", date: "2026-10-12", createdAt: "x" }
+      ]
+    } as Carousel;
+    const found = expandOccurrences([carousel], new Date(2026, 9, 10), 28);
+    expect(found).toHaveLength(1);
+    expect(found[0]).toMatchObject({ dateKey: "2026-10-12", platforms: ["tiktok"] });
+  });
+});
