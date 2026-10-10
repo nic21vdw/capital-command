@@ -45,7 +45,7 @@ import { useAppData } from "@/components/providers/app-provider";
 import { useColateralBridge } from "@/components/providers/colateral-bridge-provider";
 import { StreamProvider, useStream } from "@/components/providers/stream-provider";
 import { streamHref } from "@/lib/pipeline/streams";
-import { reconnectBlocker } from "@/lib/publisher/connections";
+import { reconnectBlocker, signInVerifiable } from "@/lib/publisher/connections";
 import { PlatformIcon, PLATFORM_LABEL, type PlatformIconKey } from "@/components/ui/platform-icon";
 import { cn } from "@/lib/utils";
 import { ColateralMarketingMark } from "@/components/layout/colateral-marketing-mark";
@@ -574,23 +574,29 @@ function ConnectionRows({ state, collapsed }: { state: Connections; collapsed: b
         const style = PLATFORM_STYLE[row.platform];
         const connected = row.connected > 0;
         const held = connected && Boolean(row.blocker);
+        // Same notion Settings uses: a pasted token (Instagram, Facebook) is only
+        // saved, never verified, so it must not read as a working green sign-in.
+        const unverified = connected && !signInVerifiable(row.platform);
         const detail = row.reconnectAccountId
           ? `Reconnect ${style.label}`
-          : connected ? handleLabel(row.profile, style.label) : `${style.label} · not connected`;
-        const dot = held ? "bg-amber-400" : connected ? "bg-emerald-400" : "bg-white/20";
+          : connected
+            ? unverified ? `${style.label} · saved, not verified` : handleLabel(row.profile, style.label)
+            : `${style.label} · not connected`;
+        const dot = held ? "bg-amber-400" : unverified ? "bg-white/30" : connected ? "bg-emerald-400" : "bg-white/20";
         return (
           <Link
             key={row.platform}
             href={chipHref(row)}
             prefetch={row.reconnectAccountId ? false : undefined}
-            title={row.blocker ? `${style.label} — ${row.blocker}` : `${style.label} — ${detail}`}
+            title={row.blocker ? `${style.label} — ${row.blocker}` : unverified ? detail : `${style.label} — ${detail}`}
+            aria-label={collapsed || unverified ? detail : undefined}
             className={cn(
               "flex items-center gap-2.5 rounded-lg border px-2.5 py-1.5 transition hover:border-[var(--border-strong)] hover:bg-white/[0.04]",
-              connected ? "border-[var(--border)]" : "border-dashed border-[var(--border)]",
+              connected && !unverified ? "border-[var(--border)]" : "border-dashed border-[var(--border)]",
               collapsed && "justify-center px-2"
             )}
           >
-            <span className={cn("relative h-6 w-6 shrink-0", !connected && "opacity-50")}>
+            <span className={cn("relative h-6 w-6 shrink-0", (!connected || unverified) && "opacity-50")}>
               <span
                 className={cn(
                   "flex h-full w-full items-center justify-center overflow-hidden rounded-full",
@@ -610,7 +616,7 @@ function ConnectionRows({ state, collapsed }: { state: Connections; collapsed: b
                 <span
                   className={cn(
                     "absolute -right-0.5 -top-0.5 h-2 w-2 rounded-full border border-[var(--panel)]",
-                    held ? "bg-amber-400" : "bg-emerald-400"
+                    held ? "bg-amber-400" : unverified ? "bg-white/30" : "bg-emerald-400"
                   )}
                 />
               )}

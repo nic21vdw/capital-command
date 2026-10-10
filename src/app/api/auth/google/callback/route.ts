@@ -1,4 +1,5 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest } from "next/server";
+import { redirectWithinApp } from "@/lib/publisher/connectStart";
 import { isPrimaryAccountId, primaryAccountId } from "@/lib/publisher/accounts";
 import { exchangeGoogleCode, googleRedirectUri } from "@/lib/publisher/googleAuth";
 import { publishQueue } from "@/lib/publisher/queue";
@@ -22,7 +23,7 @@ export async function GET(request: NextRequest) {
   const accountId = request.nextUrl.searchParams.get("state") || primaryAccountId("youtube");
   if (denied || !code) {
     target.searchParams.set("connect_error", denied || "Google returned no authorization code.");
-    return NextResponse.redirect(target);
+    return redirectWithinApp(target);
   }
   try {
     await exchangeGoogleCode(code, googleRedirectUri(request.nextUrl.origin), accountId);
@@ -50,5 +51,5 @@ export async function GET(request: NextRequest) {
   } catch (error) {
     target.searchParams.set("connect_error", error instanceof Error ? error.message : String(error));
   }
-  return NextResponse.redirect(target);
+  return redirectWithinApp(target);
 }

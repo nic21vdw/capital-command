@@ -179,3 +179,14 @@ export const CONNECTION_FIELD_NAMES: string[] = CONNECTIONS.flatMap((connection)
 export function reconnectBlocker(label: string): string {
   return `Reconnect ${label}: its last post failed because the connection expired or was revoked.`;
 }
+
+/**
+ * Whether signing in can PROVE a platform works. YouTube, TikTok and Spotify
+ * finish with a browser sign-in that mints the token; Instagram, Facebook and
+ * Threads are a pasted token that nothing checks until a post goes out. Settings
+ * and the sidebar chips both ask this, so a saved-but-untested token never turns
+ * green in one place while the other says "not verified".
+ */
+export function signInVerifiable(id: string): boolean {
+  return Boolean(CONNECTIONS.find((connection) => connection.id === id)?.oauth);
+}

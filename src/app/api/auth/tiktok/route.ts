@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAccount, primaryAccountId } from "@/lib/publisher/accounts";
-import { connectErrorUrl, missingCredentialsMessage, oauthCredentialsMissing } from "@/lib/publisher/connectStart";
+import { connectErrorUrl, missingCredentialsMessage, oauthCredentialsMissing, redirectWithinApp } from "@/lib/publisher/connectStart";
 import { tiktokAuthUrl, tiktokRedirectUri } from "@/lib/publisher/tiktokAuth";
 
 export const runtime = "nodejs";
@@ -16,7 +16,7 @@ export async function GET(request: NextRequest) {
   const origin = request.nextUrl.origin;
   const accountId = request.nextUrl.searchParams.get("account") || primaryAccountId("tiktok");
   if (oauthCredentialsMissing("tiktok")) {
-    return NextResponse.redirect(connectErrorUrl(origin, "tiktok", missingCredentialsMessage("tiktok")));
+    return redirectWithinApp(connectErrorUrl(origin, "tiktok", missingCredentialsMessage("tiktok")));
   }
   try {
     const account = await getAccount(accountId);
@@ -25,6 +25,6 @@ export async function GET(request: NextRequest) {
     }
     return NextResponse.redirect(await tiktokAuthUrl(tiktokRedirectUri(origin), accountId));
   } catch (error) {
-    return NextResponse.redirect(connectErrorUrl(origin, "tiktok", error instanceof Error ? error.message : String(error)));
+    return redirectWithinApp(connectErrorUrl(origin, "tiktok", error instanceof Error ? error.message : String(error)));
   }
 }

@@ -187,7 +187,7 @@ export function ScheduleModal({
           </p>
         ) : null}
 
-        <div className="flex justify-end gap-2 pt-1">
+        <div className="sticky -bottom-6 -mx-6 -mb-6 flex justify-end gap-2 border-t border-[var(--border)] bg-[var(--panel)] px-6 py-3">
           <Button variant="secondary" onClick={onClose} disabled={saving}>
             Cancel
           </Button>

@@ -1,4 +1,5 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest } from "next/server";
+import { redirectWithinApp } from "@/lib/publisher/connectStart";
 import { isPrimaryAccountId, primaryAccountId } from "@/lib/publisher/accounts";
 import { publisherConfig } from "@/lib/publisher/config";
 import { exchangeTiktokCode, tiktokRedirectUri } from "@/lib/publisher/tiktokAuth";
@@ -20,7 +21,7 @@ export async function GET(request: NextRequest) {
   const denied = request.nextUrl.searchParams.get("error_description") ?? request.nextUrl.searchParams.get("error");
   if (denied || !code) {
     target.searchParams.set("connect_error", denied || "TikTok returned no authorization code.");
-    return NextResponse.redirect(target);
+    return redirectWithinApp(target);
   }
   try {
     await exchangeTiktokCode(code, tiktokRedirectUri(request.nextUrl.origin), accountId);
@@ -31,5 +32,5 @@ export async function GET(request: NextRequest) {
   } catch (error) {
     target.searchParams.set("connect_error", error instanceof Error ? error.message : String(error));
   }
-  return NextResponse.redirect(target);
+  return redirectWithinApp(target);
 }

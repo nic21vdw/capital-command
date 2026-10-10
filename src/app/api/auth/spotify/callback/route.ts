@@ -1,4 +1,5 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest } from "next/server";
+import { redirectWithinApp } from "@/lib/publisher/connectStart";
 import { exchangeSpotifyCode, spotifyRedirectUri } from "@/lib/spotify/auth";
 
 export const runtime = "nodejs";
@@ -16,7 +17,7 @@ export async function GET(request: NextRequest) {
   const denied = request.nextUrl.searchParams.get("error");
   if (denied || !code) {
     target.searchParams.set("connect_error", denied || "Spotify returned no authorization code.");
-    return NextResponse.redirect(target);
+    return redirectWithinApp(target);
   }
   try {
     await exchangeSpotifyCode(code, state, spotifyRedirectUri(request.nextUrl.origin));
@@ -24,5 +25,5 @@ export async function GET(request: NextRequest) {
   } catch (error) {
     target.searchParams.set("connect_error", error instanceof Error ? error.message : String(error));
   }
-  return NextResponse.redirect(target);
+  return redirectWithinApp(target);
 }
