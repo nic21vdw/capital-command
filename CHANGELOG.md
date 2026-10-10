@@ -14,6 +14,10 @@ already shipped.
 
 ## Unreleased
 
+- **Retry and Remove no longer catch you out.** "Retry connection failures" only touches posts that failed (not reminders you may have posted by hand) and leaves anything more than a day overdue as failed, saying how many to retry one by one, so nothing old posts all at once. Remove now stops while a post is uploading or a YouTube video may already exist, and "Remove anyway" is there if you mean it. Publish now never goes out early by accident, and Retry is not offered on a reminder for an account that is not connected.
+
+- **A post that fails again tells you again.** A retry that fails a second time now raises a new alert instead of being treated as the one you already saw, for publish posts and Threads.
+
 - **Retry waits for its slot.** Retry on the Uploading Center board puts back only the platform that failed and waits for that platform's slot. If the slot has already passed, it posts right away. The post's other platforms are no longer published early.
 
 - **Publish now and Remove ask first, and list every platform.** Publish now really makes a held YouTube video public, and the message says what happened. Remove keeps a video YouTube already holds private instead of letting it go live, and warns about any Facebook posts it cannot cancel.

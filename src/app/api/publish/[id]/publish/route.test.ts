@@ -25,12 +25,22 @@ describe("POST /api/publish/:id/publish", () => {
     runDue.mockResolvedValue({ outcomes: [] });
   });
 
-  it("forces the run for Publish now, with or without a body", async () => {
+  it("forces the run only when Publish now says so", async () => {
     await post({ mode: "now" });
-    await post();
 
-    expect(runDue).toHaveBeenNthCalledWith(1, expect.any(Date), { itemId: "a1", force: true });
-    expect(runDue).toHaveBeenNthCalledWith(2, expect.any(Date), { itemId: "a1", force: true });
+    expect(runDue).toHaveBeenCalledWith(expect.any(Date), { itemId: "a1", force: true });
+  });
+
+  it.each([
+    ["no body", undefined],
+    ["an empty object", {}],
+    ["an unknown mode", { mode: "everything" }],
+    ["a non-string mode", { mode: true }],
+    ["a null body", null]
+  ])("runs the safe slot mode for %s, never publishing early", async (_label, body) => {
+    await post(body);
+
+    expect(runDue).toHaveBeenCalledWith(expect.any(Date), { itemId: "a1", force: false });
   });
 
   it("never forces the run for a retry - a future slot keeps waiting and nothing else posts early", async () => {

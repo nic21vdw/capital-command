@@ -23,9 +23,27 @@ import type { PlatformId, PlatformState, QueueItem } from "@/lib/publisher/types
 
 export type PlatformHold = { platform: PlatformId; postId: string };
 
+/** The queue's default claim lease (config `claimTimeoutMinutes`); the board has no config. */
+export const DEFAULT_CLAIM_TIMEOUT_MINUTES = 15;
+
+/** What Remove says while a runner holds a fresh claim on one of the post's legs. */
+export const UPLOADING_NOW_MESSAGE = "This post is uploading right now - try again in a minute.";
+
+/**
+ * What Remove says when a YouTube upload was started but no video id came back.
+ * The upload session is recorded before any bytes move, so the video may exist
+ * on the channel without the queue knowing; Remove cannot hold it private.
+ */
+export const YOUTUBE_MAY_EXIST_MESSAGE =
+  "A video may already exist on YouTube for this post (an upload was started but never confirmed). Removing it here cannot keep that video private. Check YouTube Studio first.";
+
 export type RemovalImpact = {
   /** Every platform on the item, in the order it will be listed. */
   platforms: PlatformId[];
+  /** A runner holds a fresh claim on a leg: the upload is in flight right now. */
+  uploading: boolean;
+  /** A YouTube upload session exists but no video id was recorded. */
+  youtubeMayExist: boolean;
   /** The YouTube video that would still go live at its slot, if there is one. */
   youtube: PlatformHold | null;
   /** The Facebook post that stays scheduled on the Page, if there is one. */
@@ -40,12 +58,30 @@ function holdsPost(state: PlatformState | undefined): state is PlatformState & {
   return state.status === "uploaded" || state.status === "scheduled" || state.status === "pending" || state.status === "failed";
 }
 
-export function removalImpact(item: Pick<QueueItem, "platforms">): RemovalImpact {
+/** True when any leg was claimed within the claim timeout, i.e. a runner is working on it. */
+export function hasFreshClaim(
+  item: Pick<QueueItem, "platforms">,
+  now: Date = new Date(),
+  claimTimeoutMinutes: number = DEFAULT_CLAIM_TIMEOUT_MINUTES
+): boolean {
+  return Object.values(item.platforms).some((state) => {
+    if (!state?.claimedAt) return false;
+    const age = now.getTime() - new Date(state.claimedAt).getTime();
+    return Number.isFinite(age) && age < claimTimeoutMinutes * 60_000;
+  });
+}
+
+export function removalImpact(
+  item: Pick<QueueItem, "platforms">,
+  options: { now?: Date; claimTimeoutMinutes?: number } = {}
+): RemovalImpact {
   const present = ORDER.filter((platform) => item.platforms[platform]);
   const youtube = item.platforms.youtube;
   const facebook = item.platforms.facebook;
   return {
     platforms: present,
+    uploading: hasFreshClaim(item, options.now, options.claimTimeoutMinutes),
+    youtubeMayExist: Boolean(youtube?.containerId && !youtube.postId && youtube.status !== "published"),
     youtube: holdsPost(youtube) ? { platform: "youtube", postId: youtube.postId } : null,
     // Facebook's handle is the post id (a Reel's video id, a photo post's id).
     // Only a post it actually holds counts; a leg that never got that far has
@@ -70,11 +106,12 @@ export function publishNowTargets(item: Pick<QueueItem, "platforms"> & Partial<P
   return ORDER.filter((platform) => {
     const state = item.platforms[platform];
     if (!state) return false;
+    // A long-form video is held private for review by design, so Publish now
+    // would not publish it, whatever state its leg is in; do not offer what it
+    // will not do.
+    if (platform === "youtube" && youtubeHoldsForReview(item)) return false;
     if (state.status === "pending" || state.status === "uploaded") return true;
     if (state.status !== "scheduled") return false;
-    // A long-form video is held private for review by design, so Publish now
-    // would not publish it; do not offer what it will not do.
-    if (platform === "youtube") return !youtubeHoldsForReview(item);
-    return platform === "facebook";
+    return platform === "youtube" || platform === "facebook";
   });
 }

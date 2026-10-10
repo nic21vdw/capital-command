@@ -382,6 +382,7 @@ export class PublishQueue {
     if (!state) return;
     state.attempts += 1;
     state.error = error.message;
+    state.lastFailedAt = now.toISOString();
     state.claimedAt = undefined;
     if (!error.transient || state.attempts >= this.config.maxAttempts) {
       state.status = "failed";

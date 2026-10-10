@@ -166,6 +166,24 @@ describe("the notifications for failures", () => {
     expect(first).toBe("publish-failed:q1:youtube:2");
   });
 
+  it("gives a failure after a re-arm a new id even though attempts is back to the same count", () => {
+    const failed = (lastFailedAt?: string) =>
+      post({ platforms: { youtube: { status: "failed", attempts: 1, lastFailedAt } } });
+    const first = publishFailures([failed("2026-10-09T10:00:00.000Z")], NOW)[0].id;
+    const again = publishFailures([failed("2026-10-10T09:00:00.000Z")], NOW)[0].id;
+    expect(again).not.toBe(first);
+    expect(first).toBe("publish-failed:q1:youtube:2026-10-09T10:00:00.000Z");
+    // The same failure keeps its id, and a leg from before lastFailedAt existed keeps the attempts id.
+    expect(publishFailures([failed("2026-10-09T10:00:00.000Z")], NOW)[0].id).toBe(first);
+    expect(publishFailures([failed()], NOW)[0].id).toBe("publish-failed:q1:youtube:1");
+  });
+
+  it("does the same for Threads, whose retry also resets attempts", () => {
+    const id = (lastFailedAt?: string) => threadsFailures([thread({ attempts: 1, lastFailedAt })], NOW)[0].id;
+    expect(id("2026-10-09T10:00:00.000Z")).not.toBe(id("2026-10-10T09:00:00.000Z"));
+    expect(id()).toBe("threads-failed:t1:1");
+  });
+
   it("sends Threads failures to the Threads page", () => {
     const [failure] = threadsFailures([thread({})], NOW);
     expect(failure.title).toBe("A Threads post failed");

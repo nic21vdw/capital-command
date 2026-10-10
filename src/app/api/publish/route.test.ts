@@ -6,7 +6,10 @@ const state = vi.hoisted(() => ({
   enabled: true,
   items: [{ id: "queued-1" }] as Array<{ id: string }>,
   markFailedSeen: vi.fn(async () => []),
-  purgeFailed: vi.fn(async () => [])
+  purgeFailed: vi.fn(async () => []),
+  save: vi.fn(async () => undefined),
+  connectRearmScope: vi.fn<(platform: string, accountId?: string, options?: unknown) => object>(() => ({})),
+  rearmItems: vi.fn()
 }));
 
 vi.mock("@/lib/publisher/config", () => ({
@@ -19,6 +22,7 @@ vi.mock("@/lib/publisher/queue", () => ({
   publishQueue: () => ({
     get: async (id: string) => ({ id }),
     list: async () => state.items,
+    save: state.save,
     markFailedSeen: state.markFailedSeen,
     purgeFailed: state.purgeFailed
   })
@@ -27,7 +31,10 @@ vi.mock("@/lib/clipping/jobs", () => ({
   ensureVerticalClipFile: vi.fn(),
   outputDir: (jobId: string) => `/jobs/${jobId}`
 }));
-vi.mock("@/lib/publisher/rearm", () => ({ connectRearmScope: vi.fn(), rearmItems: vi.fn() }));
+vi.mock("@/lib/publisher/rearm", () => ({
+  connectRearmScope: state.connectRearmScope,
+  rearmItems: state.rearmItems
+}));
 
 const post = async (body: unknown) => {
   const { POST } = await import("@/app/api/publish/route");
@@ -120,5 +127,64 @@ describe("GET /api/publish", () => {
   it("marks failures as seen when the Uploading Center board reads", async () => {
     await getBoard("?board=1");
     expect(state.markFailedSeen).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("POST /api/publish rearm", () => {
+  beforeEach(() => {
+    state.enabled = true;
+    state.save.mockClear();
+    state.connectRearmScope.mockClear();
+    state.rearmItems.mockReset();
+    state.rearmItems.mockReturnValue([]);
+  });
+
+  it("passes the board's narrower request through and reports the older posts it left failed", async () => {
+    state.rearmItems.mockImplementation((_items: unknown, scope: { onSkipped?: () => void }) => {
+      const options = state.connectRearmScope.mock.calls[0][2] as { onSkipped: () => void };
+      expect(scope).toBeDefined();
+      options.onSkipped();
+      options.onSkipped();
+      return [{ item: { id: "q1" }, platforms: ["youtube"] }];
+    });
+
+    const response = await post({ action: "rearm", platform: "youtube", statuses: ["failed"], maxSlotAgeHours: 24 });
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(state.connectRearmScope).toHaveBeenCalledWith(
+      "youtube",
+      undefined,
+      expect.objectContaining({ statuses: ["failed"], maxSlotAgeMs: 24 * 3_600_000 })
+    );
+    expect(body).toMatchObject({ ok: true, recovered: 1, skippedOld: 2, itemIds: ["q1"] });
+    expect(state.save).toHaveBeenCalledTimes(1);
+  });
+
+  it("scopes to one account when given one", async () => {
+    await post({ action: "rearm", platform: "tiktok", accountId: "tiktok-second", statuses: ["failed"] });
+
+    expect(state.connectRearmScope).toHaveBeenCalledWith(
+      "tiktok",
+      "tiktok-second",
+      expect.objectContaining({ statuses: ["failed"], maxSlotAgeMs: undefined })
+    );
+  });
+
+  it("without the new options it asks for everything the connect flow does", async () => {
+    await post({ action: "rearm", platform: "youtube" });
+
+    expect(state.connectRearmScope).toHaveBeenCalledWith(
+      "youtube",
+      undefined,
+      expect.objectContaining({ statuses: undefined, maxSlotAgeMs: undefined })
+    );
+  });
+
+  it("rejects a status that cannot be re-armed", async () => {
+    const response = await post({ action: "rearm", platform: "youtube", statuses: ["published"] });
+
+    expect(response.status).toBe(400);
+    expect(state.rearmItems).not.toHaveBeenCalled();
   });
 });

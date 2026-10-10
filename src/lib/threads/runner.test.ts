@@ -261,6 +261,7 @@ describe("runDue", () => {
     });
 
     expect(state.items[0].status).toBe("failed");
+    expect(state.items[0].lastFailedAt).toBe("2026-07-22T07:16:00.000Z");
   });
 
   it("reports what it would do without posting on a dry run", async () => {

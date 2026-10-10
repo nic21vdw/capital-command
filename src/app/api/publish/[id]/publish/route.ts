@@ -12,13 +12,15 @@ export const maxDuration = 300;
 /**
  * POST /api/publish/:id/publish — push one queue item to its providers.
  *
- * Default (and `{ "mode": "now" }`): "Publish now" means now. Every platform
- * not yet finished posts immediately, and a YouTube video held for its slot is
- * made public. Only the board's confirmed Publish now sends this.
+ * `{ "mode": "now" }`: "Publish now" means now. Every platform not yet
+ * finished posts immediately, and a YouTube video held for its slot is made
+ * public. Only the board's confirmed Publish now sends this, and it must say so
+ * explicitly: a forced run publishes early, so it is never the default.
  *
- * `{ "mode": "slot" }`: what Retry sends after re-arming a leg. The run is
- * scoped to this post but NOT forced, so a slot that has passed posts now, a
- * future slot keeps waiting, and the post's other platforms are left alone.
+ * `{ "mode": "slot" }`, no body, or any other mode: what Retry sends after
+ * re-arming a leg. The run is scoped to this post but NOT forced, so a slot
+ * that has passed posts now, a future slot keeps waiting, and the post's other
+ * platforms are left alone.
  */
 export async function POST(request: Request, { params }: { params: Promise<{ id: string }> }) {
   const config = publisherConfig();
@@ -34,9 +36,9 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   try {
     mode = ((await request.json()) as { mode?: unknown } | null)?.mode;
   } catch {
-    // No body: the original Publish now call.
+    // No body: the safe slot mode below.
   }
-  const report = await runDue(new Date(), { itemId: id, force: mode !== "slot" });
+  const report = await runDue(new Date(), { itemId: id, force: mode === "now" });
   const item = await queue.get(id);
   return NextResponse.json({ report, item });
 }

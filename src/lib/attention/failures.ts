@@ -104,10 +104,12 @@ export function publishFailures(queue: QueueItem[], now: Date): AttentionFailure
             : " Open the post in the Uploading Center to see what to do.";
       failures.push({
         kind: "publish",
-        // `attempts` moves on every failed try, so a post that is retried and
-        // fails again is a new event while an unchanged failure keeps its id
-        // and the host can dedupe it.
-        id: `publish-failed:${item.id}:${platform}:${state.attempts ?? 0}`,
+        // A post that is retried and fails again is a new event, while an
+        // unchanged failure keeps its id so the host can dedupe it. `attempts`
+        // alone cannot tell: a re-arm resets it to 0, so the same count comes
+        // round again. The failure time moves on every failed try; legs from
+        // before it was recorded fall back to the count.
+        id: `publish-failed:${item.id}:${platform}:${state.lastFailedAt ?? state.attempts ?? 0}`,
         level: "error",
         title: `A ${label} post failed`,
         body: `"${shortTitle(item.title || item.caption || "Untitled post")}": ${advice.headline}${next}`,
@@ -148,7 +150,9 @@ export function threadsFailures(items: ThreadsQueueItem[], now: Date): Attention
       const reconnect = Boolean(item.error && THREADS_CONNECTION.test(item.error));
       return {
         kind: "threads",
-        id: `threads-failed:${item.id}:${item.attempts ?? 0}`,
+        // Same as the publish ids: a retry resets `attempts`, the failure time
+        // does not repeat.
+        id: `threads-failed:${item.id}:${item.lastFailedAt ?? item.attempts ?? 0}`,
         level: "error",
         title: "A Threads post failed",
         body: `"${shortTitle(item.topic || item.text || "Untitled post")}": ${

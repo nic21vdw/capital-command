@@ -6,7 +6,7 @@ const updateYoutubeVideoTitle = vi.fn();
 const holdYoutubeVideoPrivate = vi.fn();
 let stored: Record<string, unknown>;
 
-vi.mock("@/lib/publisher/config", () => ({ publisherConfig: () => ({ enabled: true }) }));
+vi.mock("@/lib/publisher/config", () => ({ publisherConfig: () => ({ enabled: true, claimTimeoutMinutes: 15 }) }));
 vi.mock("@/lib/publisher/adapters/youtube", () => ({ updateYoutubeVideoTitle, holdYoutubeVideoPrivate }));
 vi.mock("@/lib/publisher/queue", () => ({
   publishQueue: () => ({ get: async (id: string) => (id === "a1" ? stored : undefined), add, remove })
@@ -144,6 +144,89 @@ describe("DELETE /api/publish/:id", () => {
 
     expect(holdYoutubeVideoPrivate).not.toHaveBeenCalled();
     expect(body).toMatchObject({ removed: true, youtube: "none", facebookPostId: "fb1" });
+  });
+
+  describe("while an upload may be in flight", () => {
+    const minutesAgo = (minutes: number) => new Date(Date.now() - minutes * 60_000).toISOString();
+
+    it("refuses with 409 when a leg has a fresh claim, and removes nothing", async () => {
+      stored = {
+        id: "a1",
+        platforms: { instagram: { status: "pending", attempts: 0, claimedAt: minutesAgo(2) } }
+      };
+
+      const response = await del();
+      const body = await response.json();
+
+      expect(response.status).toBe(409);
+      expect(body).toMatchObject({
+        code: "uploading",
+        error: "This post is uploading right now - try again in a minute."
+      });
+      expect(remove).not.toHaveBeenCalled();
+      expect(holdYoutubeVideoPrivate).not.toHaveBeenCalled();
+    });
+
+    it("treats a claim older than the claim timeout as abandoned", async () => {
+      stored = {
+        id: "a1",
+        platforms: { instagram: { status: "pending", attempts: 0, claimedAt: minutesAgo(16) } }
+      };
+
+      expect((await del()).status).toBe(200);
+      expect(remove).toHaveBeenCalled();
+    });
+
+    it("removes it anyway with ?anyway=1", async () => {
+      stored = {
+        id: "a1",
+        platforms: { instagram: { status: "pending", attempts: 0, claimedAt: minutesAgo(2) } }
+      };
+
+      expect((await del("?anyway=1")).status).toBe(200);
+      expect(remove).toHaveBeenCalled();
+    });
+
+    it("asks for confirmation when a YouTube upload session exists but no video id came back", async () => {
+      stored = {
+        id: "a1",
+        platforms: { youtube: { status: "pending", attempts: 1, containerId: "https://upload.example/session" } }
+      };
+
+      const response = await del();
+      const body = await response.json();
+
+      expect(response.status).toBe(409);
+      expect(body.code).toBe("youtube-may-exist");
+      expect(body.error).toContain("may already exist on YouTube");
+      expect(body.error).toContain("YouTube Studio");
+      expect(remove).not.toHaveBeenCalled();
+    });
+
+    it("removes it with ?anyway=1 and says a video may exist", async () => {
+      stored = {
+        id: "a1",
+        platforms: { youtube: { status: "failed", attempts: 3, containerId: "https://upload.example/session" } }
+      };
+
+      const body = await (await del("?anyway=1")).json();
+
+      expect(remove).toHaveBeenCalled();
+      expect(body).toMatchObject({ removed: true, youtube: "none", youtubeMayExist: true });
+    });
+
+    it("does not stop a YouTube leg that has its video id: that one is held private as before", async () => {
+      holdYoutubeVideoPrivate.mockResolvedValue("held");
+      stored = {
+        id: "a1",
+        platforms: { youtube: { status: "scheduled", attempts: 0, postId: "yt1", containerId: "https://upload.example/session" } }
+      };
+
+      const response = await del();
+
+      expect(response.status).toBe(200);
+      expect(holdYoutubeVideoPrivate).toHaveBeenCalledWith("yt1", undefined);
+    });
   });
 
   it("answers 404 for an unknown post", async () => {

@@ -17,7 +17,13 @@ import {
   studioVideoUrl
 } from "@/components/uploading-center/use-uploading-center";
 import { cn } from "@/lib/utils";
-import { FACEBOOK_SCHEDULED_POSTS_URL, publishNowTargets, removalImpact } from "@/lib/publisher/boardActions";
+import {
+  FACEBOOK_SCHEDULED_POSTS_URL,
+  UPLOADING_NOW_MESSAGE,
+  YOUTUBE_MAY_EXIST_MESSAGE,
+  publishNowTargets,
+  removalImpact
+} from "@/lib/publisher/boardActions";
 import { describeFailure, describeWaiting } from "@/lib/publisher/failure";
 import { TIKTOK_INBOX_ACTION, isTiktokInboxDraft } from "@/lib/publisher/nativeScheduling";
 import { formatGoLive } from "@/lib/publisher/outcomeCopy";
@@ -66,6 +72,7 @@ export function ScheduleBoard({
   onRemove,
   onRename,
   youtubeQuotaFull,
+  connected = true,
   busy,
   highlightedItemId,
   shortsPerDay,
@@ -91,6 +98,11 @@ export function ScheduleBoard({
   onRename: (item: QueueItem, title: string) => void;
   /** YouTube's upload allowance for today is spent: posts waiting to upload are waiting for the quota. */
   youtubeQuotaFull?: boolean;
+  /**
+   * The account this board shows is connected. A `manual` leg on one that is
+   * not cannot be retried: it would only fail, so the card offers no Retry.
+   */
+  connected?: boolean;
   busy: string | null;
   highlightedItemId?: string | null;
   /** The daily short-form limit, named on days that have reached it. */
@@ -153,6 +165,7 @@ export function ScheduleBoard({
           onRemove={onRemove}
           onRename={onRename}
           youtubeQuotaFull={youtubeQuotaFull}
+          connected={connected}
           nowMs={nowMs}
           busy={busy}
           highlightedItemId={highlightedItemId}
@@ -181,6 +194,7 @@ function DayBand({
   onRemove,
   onRename,
   youtubeQuotaFull,
+  connected,
   nowMs,
   busy,
   highlightedItemId,
@@ -201,6 +215,7 @@ function DayBand({
   onRemove: (item: QueueItem) => void;
   onRename: (item: QueueItem, title: string) => void;
   youtubeQuotaFull?: boolean;
+  connected: boolean;
   nowMs: number;
   busy: string | null;
   highlightedItemId?: string | null;
@@ -246,6 +261,7 @@ function DayBand({
               onRemove={onRemove}
               onRename={onRename}
               youtubeQuotaFull={youtubeQuotaFull}
+              connected={connected}
               nowMs={nowMs}
               busy={busy}
               highlighted={highlightedItemId === entry.item.id}
@@ -310,6 +326,7 @@ function QueueEntryCard({
   onRemove,
   onRename,
   youtubeQuotaFull,
+  connected,
   nowMs,
   busy,
   highlighted
@@ -325,6 +342,7 @@ function QueueEntryCard({
   onRemove: (item: QueueItem) => void;
   onRename: (item: QueueItem, title: string) => void;
   youtubeQuotaFull?: boolean;
+  connected: boolean;
   nowMs: number;
   busy: string | null;
   highlighted?: boolean;
@@ -354,7 +372,10 @@ function QueueEntryCard({
   const targets = publishNowTargets(item);
   // Publish now also reaches a post YouTube/Facebook is holding for its slot
   // (status "scheduled"): that is the case where it makes the post public now.
-  const actionable = targets.includes(platform) || (blocked && advice?.action !== "none");
+  // A manual reminder on an account that is still not connected would turn into
+  // a failure on Retry, so it is not offered until the account is connected.
+  const unconnectedManual = state.status === "manual" && !connected;
+  const actionable = targets.includes(platform) || (blocked && advice?.action !== "none" && !unconnectedManual);
   const working = busy === `publish:${item.id}` || busy === `remove:${item.id}`;
   // A picture post has no poster frame — its own first slide IS the thumbnail,
   // served by position out of the queue so the card can reach files that live
@@ -377,7 +398,7 @@ function QueueEntryCard({
     if (blocked) onRetry(item, platform);
     else setConfirm("publish");
   };
-  const impact = removalImpact(item);
+  const impact = removalImpact(item, { now: new Date(nowMs) });
   const labelList = (platforms: PlatformId[]) => {
     const names = platforms.map((id) => PLATFORM_LABELS[id]);
     return names.length <= 1 ? (names[0] ?? "") : `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`;
@@ -659,6 +680,20 @@ function QueueEntryCard({
             onRemove(item);
           }}
         >
+          {impact.uploading ? <p className="tone-warning tone-text">{UPLOADING_NOW_MESSAGE}</p> : null}
+          {impact.youtubeMayExist ? (
+            <p className="tone-warning tone-text">
+              {YOUTUBE_MAY_EXIST_MESSAGE}{" "}
+              <a
+                href="https://studio.youtube.com"
+                target="_blank"
+                rel="noreferrer"
+                className="text-[var(--accent)] underline-offset-2 hover:underline"
+              >
+                Open YouTube Studio
+              </a>
+            </p>
+          ) : null}
           {impact.youtube ? (
             <p>
               YouTube already has this video and would publish it at {time}. Removing keeps it private on your channel;
@@ -687,7 +722,9 @@ function QueueEntryCard({
               </a>
             </p>
           ) : null}
-          {!impact.youtube && !impact.facebook ? <p>Nothing has gone up yet, so nothing is left on any platform.</p> : null}
+          {!impact.youtube && !impact.facebook && !impact.youtubeMayExist && !impact.uploading ? (
+            <p>Nothing has gone up yet, so nothing is left on any platform.</p>
+          ) : null}
         </ConfirmDialog>
       ) : null}
     </div>

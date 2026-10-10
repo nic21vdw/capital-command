@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { publishNowTargets, removalImpact } from "@/lib/publisher/boardActions";
+import { hasFreshClaim, publishNowTargets, removalImpact } from "@/lib/publisher/boardActions";
 import type { PlatformState } from "@/lib/publisher/types";
 
 const leg = (over: Partial<PlatformState>): PlatformState => ({ status: "pending", attempts: 0, ...over });
@@ -34,6 +34,36 @@ describe("what Remove touches", () => {
   });
 });
 
+describe("Remove while an upload may be in flight", () => {
+  const NOW = new Date("2026-10-10T12:00:00.000Z");
+  const claimed = (minutesAgo: number) => new Date(NOW.getTime() - minutesAgo * 60_000).toISOString();
+
+  it("sees a fresh claim on any leg, and lets an old one go", () => {
+    const item = (minutesAgo: number) => ({ platforms: { instagram: leg({ claimedAt: claimed(minutesAgo) }) } });
+    expect(removalImpact(item(5), { now: NOW }).uploading).toBe(true);
+    expect(removalImpact(item(14), { now: NOW }).uploading).toBe(true);
+    expect(removalImpact(item(15), { now: NOW }).uploading).toBe(false);
+    expect(removalImpact(item(60), { now: NOW }).uploading).toBe(false);
+    expect(removalImpact({ platforms: { instagram: leg({}) } }, { now: NOW }).uploading).toBe(false);
+  });
+
+  it("uses the claim timeout it is given", () => {
+    const item = { platforms: { tiktok: leg({ claimedAt: claimed(20) }) } };
+    expect(hasFreshClaim(item, NOW, 30)).toBe(true);
+    expect(hasFreshClaim(item, NOW, 10)).toBe(false);
+  });
+
+  it("flags a YouTube upload session with no video id as a video that may exist", () => {
+    const youtube = (over: Partial<PlatformState>) => ({ platforms: { youtube: leg(over) } });
+    expect(removalImpact(youtube({ containerId: "https://upload/session" })).youtubeMayExist).toBe(true);
+    expect(removalImpact(youtube({ status: "failed", containerId: "https://upload/session" })).youtubeMayExist).toBe(true);
+    expect(removalImpact(youtube({ containerId: "s", postId: "vid1", status: "scheduled" })).youtubeMayExist).toBe(false);
+    expect(removalImpact(youtube({})).youtubeMayExist).toBe(false);
+    // Another platform's container is not a YouTube upload.
+    expect(removalImpact({ platforms: { instagram: leg({ containerId: "c1" }) } }).youtubeMayExist).toBe(false);
+  });
+});
+
 describe("what Publish now touches", () => {
   it("is every unfinished platform of the post, not just the tab it was pressed on", () => {
     expect(
@@ -53,6 +83,24 @@ describe("what Publish now touches", () => {
       publishNowTargets({ format: "long", platforms: { youtube: leg({ status: "scheduled", postId: "v" }) } })
     ).toEqual([]);
   });
+
+  it.each(["pending", "uploaded", "scheduled", "failed", "manual"] as const)(
+    "does not offer a long-form YouTube leg in any status (%s)",
+    (status) => {
+      expect(
+        publishNowTargets({
+          format: "long",
+          platforms: { youtube: leg({ status, postId: "v" }), instagram: leg({ status: "pending" }) }
+        })
+      ).toEqual(["instagram"]);
+      expect(
+        publishNowTargets({
+          clipPath: "data/longform/outputs/a/edit.mp4",
+          platforms: { youtube: leg({ status }) }
+        })
+      ).toEqual([]);
+    }
+  );
 
   it("leaves finished, failed and manual legs alone (Retry's job), and a TikTok draft already in the inbox", () => {
     expect(

@@ -48,6 +48,12 @@ export type PlatformState = {
   childContainerIds?: string[];
   error?: string;
   attempts: number;
+  /**
+   * When this leg last failed (ISO). `attempts` goes back to 0 on a re-arm, so
+   * a repeat failure would otherwise look like the one already alerted; the
+   * attention id uses this instead. Absent on legs that failed before it existed.
+   */
+  lastFailedAt?: string;
   /** Backoff gate — the runner skips this platform until this instant. */
   nextAttemptAt?: string;
   /** Soft lease so overlapping runners don't double-process one item. */

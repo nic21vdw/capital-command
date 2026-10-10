@@ -878,6 +878,7 @@ export function UploadingCenterPage() {
             onRemove={(item) => void remove(item)}
             onRename={(item, title) => void renameQueueItem(item, title)}
             youtubeQuotaFull={Boolean(overview && overview.quota.uploadsUsed >= overview.quota.budgetUploads)}
+            connected={configured}
             busy={busy}
             highlightedItemId={itemParam}
             shortsPerDay={shortsPerDay}
@@ -1500,7 +1501,7 @@ function FailedStrip({
             className="h-8 px-3 text-xs"
             onClick={onRetryConnection}
             disabled={retrying}
-            title="Puts posts that failed because a connection lapsed back in the queue. Reconnect the account first, or they fail the same way again."
+            title="Puts posts that failed because a connection lapsed back in the queue. Posts more than a day overdue stay failed, to retry one by one. Reconnect the account first, or they fail the same way again."
           >
             {retrying ? (
               <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />

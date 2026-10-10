@@ -198,6 +198,9 @@ function computeNeedsRerender(clip: ClipCandidate, jobId: string, projects: Clip
  */
 export const ALL_PLATFORMS_TARGET = "all";
 
+/** "Retry connection failures" leaves failures whose slot is older than this for one-by-one retry. */
+export const REARM_MAX_SLOT_AGE_HOURS = 24;
+
 export type PlatformTarget = PlatformId | typeof ALL_PLATFORMS_TARGET;
 
 export function targetPlatforms(target: PlatformTarget): PlatformId[] {
@@ -1379,7 +1382,11 @@ export function useUploadingCenter(clipProjects: ClipProject[] = []) {
         if (!response.ok) {
           const detail = (await response.json().catch(() => null)) as { error?: string; code?: string } | null;
           const message = detail?.error ?? "Could not remove that post.";
-          if (detail?.code === "youtube-hold-failed") {
+          if (
+            detail?.code === "youtube-hold-failed" ||
+            detail?.code === "uploading" ||
+            detail?.code === "youtube-may-exist"
+          ) {
             toast.error(message, {
               duration: Infinity,
               action: { label: "Remove anyway", onClick: () => void remove(item, { anyway: true }) }
@@ -1391,6 +1398,7 @@ export function useUploadingCenter(clipProjects: ClipProject[] = []) {
           const result = (await response.json().catch(() => ({}))) as {
             youtube?: string;
             youtubeVideoId?: string;
+            youtubeMayExist?: boolean;
             facebookPostId?: string;
           };
           const studio = result.youtubeVideoId
@@ -1412,6 +1420,11 @@ export function useUploadingCenter(clipProjects: ClipProject[] = []) {
             });
           } else {
             toast.success("Removed from the schedule.");
+          }
+          if (result.youtubeMayExist) {
+            toast.warning("A video may still be on YouTube for this post. Check YouTube Studio.", {
+              action: { label: "Open Studio", onClick: () => window.open("https://studio.youtube.com", "_blank", "noopener") }
+            });
           }
           if (result.facebookPostId) {
             toast.warning("Facebook already holds this post and will still publish it at its time.", {
@@ -1527,10 +1540,13 @@ export function useUploadingCenter(clipProjects: ClipProject[] = []) {
   );
 
   /**
-   * "Retry connection failures": puts every post that failed because its
-   * connection lapsed (and every "manual" reminder waiting on one) back to
-   * pending for the given platforms, across all of their accounts. Rejected
-   * videos stay failed, and a post that already reached the platform resumes
+   * "Retry connection failures": puts every post that FAILED because its
+   * connection lapsed back to pending for the given platforms, across all of
+   * their accounts. "manual" reminders are not touched (the user may have posted
+   * those by hand), rejected videos stay failed, and a failure whose slot is
+   * more than REARM_MAX_SLOT_AGE_HOURS gone stays failed too: re-armed, it would
+   * post the moment the runner next ran. Those are counted so the toast can say
+   * to retry them one by one. A post that already reached the platform resumes
    * rather than uploading twice (rearm.ts). The next runner pass, or Publish
    * now, sends them - so reconnect first or they fail the same way again.
    */
@@ -1539,6 +1555,7 @@ export function useUploadingCenter(clipProjects: ClipProject[] = []) {
       if (platforms.length === 0) return 0;
       setBusy("rearm");
       let recovered = 0;
+      let skippedOld = 0;
       let firstError: string | null = null;
       try {
         for (const platform of platforms) {
@@ -1546,24 +1563,42 @@ export function useUploadingCenter(clipProjects: ClipProject[] = []) {
             const response = await fetch("/api/publish", {
               method: "POST",
               headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ action: "rearm", platform })
+              body: JSON.stringify({
+                action: "rearm",
+                platform,
+                statuses: ["failed"],
+                maxSlotAgeHours: REARM_MAX_SLOT_AGE_HOURS
+              })
             });
             if (!response.ok) {
               firstError ??= await readError(response);
               continue;
             }
-            const body = (await response.json()) as { recovered?: number };
+            const body = (await response.json()) as { recovered?: number; skippedOld?: number };
             recovered += body.recovered ?? 0;
+            skippedOld += body.skippedOld ?? 0;
           } catch {
             firstError ??= "Network error while retrying.";
           }
         }
+        const older =
+          skippedOld > 0
+            ? `${skippedOld} older post${skippedOld === 1 ? "" : "s"} left as failed - retry them one by one.`
+            : "";
         if (recovered > 0 && !firstError) {
-          toast.success(`Put ${recovered} post${recovered === 1 ? "" : "s"} back in the queue. They go out on the next publisher pass.`);
+          const back = `Put ${recovered} post${recovered === 1 ? "" : "s"} back in the queue. They go out on the next publisher pass.`;
+          if (older) toast.warning(`${back} ${older}`);
+          else toast.success(back);
         } else if (recovered > 0) {
-          toast.warning(`Put ${recovered} post${recovered === 1 ? "" : "s"} back in the queue, but not all: ${firstError}`);
+          toast.warning(
+            `Put ${recovered} post${recovered === 1 ? "" : "s"} back in the queue, but not all: ${firstError}${older ? ` ${older}` : ""}`
+          );
+        } else if (firstError) {
+          toast.error(`${firstError}${older ? ` ${older}` : ""}`);
+        } else if (older) {
+          toast.warning(`Nothing was put back. ${older}`);
         } else {
-          toast.error(firstError ?? "Nothing was waiting on a connection.");
+          toast.error("Nothing was waiting on a connection.");
         }
         await refresh();
         return recovered;

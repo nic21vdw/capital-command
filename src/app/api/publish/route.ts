@@ -61,13 +61,19 @@ export async function GET(request: NextRequest) {
  *          board's Publish now (or the next scheduler pass) acts on it again
  *   rearm  the same across the queue for one platform+account — what a connect
  *          flow calls once credentials exist, so work blocked as "manual" or
- *          by a dead token comes back instead of needing to be re-scheduled
+ *          by a dead token comes back instead of needing to be re-scheduled.
+ *          `statuses` narrows which states come back and `maxSlotAgeHours`
+ *          leaves older slots failed (counted in `skippedOld`)
  */
 const actionSchema = z.object({
   action: z.enum(["retry", "rearm"]),
   itemId: z.string().min(1).optional(),
   platform: z.enum(["youtube", "instagram", "tiktok", "facebook"]).optional(),
-  accountId: z.string().min(1).optional()
+  accountId: z.string().min(1).optional(),
+  /** "rearm" only: which blocked states to revive (default: the connect flow's, failed and manual). */
+  statuses: z.array(z.enum(["failed", "manual"])).min(1).optional(),
+  /** "rearm" only: leave legs whose slot is further in the past than this many hours failed. */
+  maxSlotAgeHours: z.number().positive().finite().optional()
 });
 
 const enqueueSchema = z.object({
@@ -205,7 +211,7 @@ export async function POST(request: NextRequest) {
 }
 
 async function handleAction(
-  { action, itemId, platform, accountId }: z.infer<typeof actionSchema>,
+  { action, itemId, platform, accountId, statuses, maxSlotAgeHours }: z.infer<typeof actionSchema>,
   config: ReturnType<typeof publisherConfig>
 ) {
   const queue = publishQueue(config);
@@ -224,11 +230,25 @@ async function handleAction(
   if (!platform) return NextResponse.json({ error: '"rearm" needs a platform.' }, { status: 400 });
   // Scoped to failures a connection fixes: a rejected video stays rejected, or
   // one reconnect would march every dead post back into the queue.
-  const changed = rearmItems(await queue.list(), connectRearmScope(platform, accountId));
+  // The board's bulk retry asks for failed legs only (a `manual` leg may have
+  // been posted by hand) and not for slots long past, which would post at once;
+  // the connect callback passes neither and keeps its wider behaviour.
+  let skippedOld = 0;
+  const changed = rearmItems(
+    await queue.list(),
+    connectRearmScope(platform, accountId, {
+      statuses,
+      maxSlotAgeMs: maxSlotAgeHours === undefined ? undefined : maxSlotAgeHours * 3_600_000,
+      onSkipped: () => {
+        skippedOld += 1;
+      }
+    })
+  );
   if (changed.length > 0) await queue.save();
   return NextResponse.json({
     ok: true,
     recovered: changed.length,
+    skippedOld,
     itemIds: changed.map((entry) => entry.item.id)
   });
 }

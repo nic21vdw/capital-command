@@ -3,7 +3,7 @@ import { holdYoutubeVideoPrivate, updateYoutubeVideoTitle } from "@/lib/publishe
 import { publisherConfig } from "@/lib/publisher/config";
 import { PUBLISHING_OFF_MESSAGE } from "@/lib/publisher/enabled";
 import { publishQueue } from "@/lib/publisher/queue";
-import { removalImpact } from "@/lib/publisher/boardActions";
+import { UPLOADING_NOW_MESSAGE, YOUTUBE_MAY_EXIST_MESSAGE, removalImpact } from "@/lib/publisher/boardActions";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -80,6 +80,13 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
  *    `?anyway=1` removes it regardless.
  *  - Facebook: a Reel or picture post it holds cannot be cancelled from here.
  *    The response flags it so the board can say so and link Meta Business Suite.
+ *  - An upload in flight: a leg with a fresh claim is being sent by a runner
+ *    right now, and removing the item under it would orphan whatever it
+ *    creates. 409 `uploading`; try again in a minute.
+ *  - A YouTube upload session with no video id: the bytes may have landed, so a
+ *    video may exist that the queue cannot find to hold private. 409
+ *    `youtube-may-exist`; check YouTube Studio.
+ *    `?anyway=1` skips both refusals.
  */
 export async function DELETE(request: Request, { params }: { params: Promise<{ id: string }> }) {
   const config = publisherConfig();
@@ -91,7 +98,14 @@ export async function DELETE(request: Request, { params }: { params: Promise<{ i
   const item = await queue.get(id);
   if (!item) return NextResponse.json({ error: "No such scheduled post." }, { status: 404 });
 
-  const impact = removalImpact(item);
+  const anyway = new URL(request.url).searchParams.get("anyway") === "1";
+  const impact = removalImpact(item, { claimTimeoutMinutes: config.claimTimeoutMinutes });
+  if (!anyway && impact.uploading) {
+    return NextResponse.json({ error: UPLOADING_NOW_MESSAGE, code: "uploading" }, { status: 409 });
+  }
+  if (!anyway && impact.youtubeMayExist) {
+    return NextResponse.json({ error: YOUTUBE_MAY_EXIST_MESSAGE, code: "youtube-may-exist" }, { status: 409 });
+  }
   let youtube: "none" | "held" | "already-private" | "already-public" | "missing" | "unchecked" = "none";
   let youtubeError: string | undefined;
   if (impact.youtube) {
@@ -99,7 +113,7 @@ export async function DELETE(request: Request, { params }: { params: Promise<{ i
       youtube = await holdYoutubeVideoPrivate(impact.youtube.postId, item.accountId);
     } catch (error) {
       youtubeError = error instanceof Error ? error.message : String(error);
-      if (new URL(request.url).searchParams.get("anyway") !== "1") {
+      if (!anyway) {
         return NextResponse.json(
           {
             error: `Not removed: YouTube already has this video and it could not be kept private (${youtubeError}). It would still go live at its slot.`,
@@ -120,6 +134,7 @@ export async function DELETE(request: Request, { params }: { params: Promise<{ i
     youtube,
     youtubeVideoId: impact.youtube?.postId,
     youtubeError,
+    youtubeMayExist: impact.youtubeMayExist || undefined,
     facebookPostId: impact.facebook?.postId
   });
 }
