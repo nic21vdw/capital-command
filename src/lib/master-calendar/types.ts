@@ -104,7 +104,7 @@ export const CALENDAR_SOURCES: CalendarSource[] = [
     shortLabel: "Threads",
     color: "#38bdf8",
     href: "/x-posts",
-    hrefLabel: "Threads Posts"
+    hrefLabel: "Threads Autopilot"
   },
   {
     id: "fb",
@@ -112,7 +112,7 @@ export const CALENDAR_SOURCES: CalendarSource[] = [
     shortLabel: "FB / IG",
     color: "#1877f2",
     href: "/facebook",
-    hrefLabel: "FB / IG Threads"
+    hrefLabel: "FB / IG Post Library"
   },
   {
     id: "content",

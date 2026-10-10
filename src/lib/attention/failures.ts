@@ -158,7 +158,7 @@ export function threadsFailures(items: ThreadsQueueItem[], now: Date): Attention
         body: `"${shortTitle(item.topic || item.text || "Untitled post")}": ${
           reconnect
             ? "The Threads connection expired or was revoked. Reconnect it in Settings, then retry the post."
-            : "Threads would not take this post. Open Threads Posts and retry it."
+            : "Threads would not take this post. Open Threads Autopilot and retry it."
         }`,
         route: "/x-posts",
         at: item.publishAt

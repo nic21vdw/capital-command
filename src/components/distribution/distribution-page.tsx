@@ -201,7 +201,10 @@ const OUTPUTS: Record<
     icon: AudioLines,
     href: "/longform",
     cta: "Export audio",
-    posting: { mode: "manual", where: "You upload the mp3 to Spotify yourself." },
+    posting: {
+      mode: "automatic",
+      where: "Spotify, through the podcast feed the app publishes (one-time feed claim in Spotify).",
+    },
   },
   x: {
     label: "X posts",

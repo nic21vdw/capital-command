@@ -388,6 +388,9 @@ export function DaySummaryPage({ initialDate }: { initialDate?: string }) {
           </Link>
         }
       />
+      <p className="-mt-2 mb-4 text-xs text-[var(--muted-foreground)]">
+        Shows posting status only. Views and likes live on each platform - use the Open on links.
+      </p>
 
       <Card className="mb-4 p-0">
         <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-3">

@@ -147,7 +147,7 @@ export const CONNECTIONS: Connection[] = [
     ],
     manualNote: "Threads has no in-app sign-in yet: the token comes from Meta's console and is pasted here.",
     console: "https://developers.facebook.com/apps",
-    more: { href: "/x-posts", label: "Check the Threads connection on the X / Threads page" }
+    more: { href: "/x-posts", label: "Check the Threads connection on the Threads Autopilot page" }
   },
   {
     id: "media-hosting",
