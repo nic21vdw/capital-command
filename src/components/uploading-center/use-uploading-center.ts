@@ -15,6 +15,7 @@ import { placeChannelVideos, type ChannelPlacement } from "@/lib/publisher/chann
 import type { ChannelSchedule, ChannelVideo } from "@/lib/publisher/channelVideos";
 import { indexQueueByClip } from "@/lib/publisher/clipQueueIndex";
 import { generateSlots } from "@/lib/publisher/slots";
+import { remoteUrlFor } from "@/lib/publisher/remoteUrl";
 import type { YoutubeQuota } from "@/lib/publisher/quota";
 import { DEFAULT_SLOT_OFFSET_DAYS, SLOT_WINDOW_DAYS } from "@/lib/publisher/slotWindow";
 import { ALL_PLATFORMS, type PlatformId, type QueueItem, type TiktokPostOptions } from "@/lib/publisher/types";
@@ -261,11 +262,8 @@ function clipFiles(clip: ClipCandidate): string[] {
   return files;
 }
 
-export function remoteUrlFor(platform: PlatformId, postId: string | undefined): string | null {
-  if (!postId) return null;
-  if (platform === "youtube") return `https://www.youtube.com/watch?v=${postId}`;
-  return null;
-}
+// The link builder lives in lib/publisher so the calendars can use it too.
+export { remoteUrlFor };
 
 /** The channel's "Content" page in YouTube Studio (Studio home when unknown). */
 export function studioContentUrl(channelId: string | null | undefined): string {

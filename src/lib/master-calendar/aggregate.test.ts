@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { buildMasterCalendarEvents } from "@/lib/master-calendar/aggregate";
 import type { QueueItem } from "@/lib/publisher/types";
+import type { ThreadsQueueItem } from "@/lib/threads/types";
 import type { AppData } from "@/types/domain";
 
 const emptyData = { contentItems: [] } as unknown as AppData;
@@ -71,5 +72,222 @@ describe("carouselIdFromQueuePath", () => {
     const { carouselIdFromQueuePath } = await import("@/lib/master-calendar/aggregate");
     expect(carouselIdFromQueuePath("data/carousels/carousel-abc/slide-01.jpg")).toBe("carousel-abc");
     expect(carouselIdFromQueuePath("C:\\data\\carousels\\carousel-abc\\slide-01.jpg")).toBe("carousel-abc");
+  });
+});
+
+describe("a post with one lost leg", () => {
+  const partly = item({
+    platforms: {
+      youtube: { status: "published", postId: "abc123", attempts: 1 },
+      instagram: { status: "failed", error: "boom", attempts: 3 }
+    }
+  });
+
+  it("reads partly failed, not scheduled or published", () => {
+    const [event] = events([partly]);
+    expect(event.status).toBe("partly failed");
+    expect(event.failedPlatforms).toEqual(["Instagram"]);
+  });
+
+  it("opens the tab that failed instead of the healthy YouTube one", () => {
+    const [event] = events([partly]);
+    expect(event.href).toBe("/uploading-center?item=q1&platform=instagram");
+  });
+
+  it("only says failed when every leg is dead", () => {
+    const [event] = events([
+      item({ platforms: { youtube: { status: "failed", attempts: 3 }, tiktok: { status: "failed", attempts: 3 } } })
+    ]);
+    expect(event.status).toBe("failed");
+    expect(event.failedPlatforms).toEqual(["YouTube", "TikTok"]);
+  });
+
+  it("sends a failed picture post to its Uploading Center card, where Retry is", () => {
+    const [event] = events([
+      item({
+        id: "q9",
+        clipPath: "data/carousels/deck-1/slide-01.jpg",
+        mediaKind: "image",
+        platforms: { instagram: { status: "failed", attempts: 3 } }
+      } as Partial<QueueItem>)
+    ]);
+    expect(event.href).toBe("/uploading-center?item=q9&platform=instagram");
+  });
+});
+
+describe("links to the live post", () => {
+  it("builds Open links for published legs whose URL shape is known", () => {
+    const [event] = events([
+      item({
+        platforms: {
+          youtube: { status: "published", postId: "abc123", attempts: 1 },
+          facebook: { status: "published", postId: "1234_5678", attempts: 1 },
+          instagram: { status: "published", postId: "17900000000", attempts: 1 },
+          tiktok: { status: "published", postId: "7300000000", attempts: 1 }
+        }
+      })
+    ]);
+    expect(event.liveLinks).toEqual([
+      { platform: "YouTube", url: "https://www.youtube.com/watch?v=abc123" },
+      { platform: "Facebook", url: "https://www.facebook.com/1234_5678" }
+    ]);
+  });
+
+  it("does not link a Facebook post that has not gone live yet", () => {
+    const [event] = events([item({ platforms: { facebook: { status: "scheduled", postId: "1234_5678", attempts: 1 } } })]);
+    expect(event.liveLinks).toBeUndefined();
+  });
+
+  it("uses a stored full URL for Instagram or TikTok", () => {
+    const [event] = events([
+      item({ platforms: { instagram: { status: "published", postId: "https://www.instagram.com/reel/Cxyz/", attempts: 1 } } })
+    ]);
+    expect(event.liveLinks).toEqual([{ platform: "Instagram", url: "https://www.instagram.com/reel/Cxyz/" }]);
+  });
+});
+
+describe("a long-form upload held for review", () => {
+  it("is flagged so it does not read as a normal scheduled post", () => {
+    const [event] = events([item({ format: "long", clipPath: "data/longform/p1/export.mp4" })]);
+    expect(event.heldForReview).toBe(true);
+  });
+
+  it("also catches rows queued before the format was stamped", () => {
+    const [event] = events([item({ clipPath: "data/longform/p1/export.mp4" })]);
+    expect(event.heldForReview).toBe(true);
+  });
+
+  it("leaves shorts alone", () => {
+    const [event] = events([item({})]);
+    expect(event.heldForReview).toBeUndefined();
+  });
+
+  it("does not flag a long-form post that has no YouTube leg", () => {
+    const [event] = events([
+      item({ format: "long", platforms: { facebook: { status: "scheduled", attempts: 0 } } })
+    ]);
+    expect(event.heldForReview).toBeUndefined();
+  });
+});
+
+describe("posts to make by hand", () => {
+  it("lists the manual legs with their card, and the slides for a picture post", () => {
+    const [video] = events([
+      item({ platforms: { youtube: { status: "scheduled", attempts: 0 }, tiktok: { status: "manual", attempts: 0 } } })
+    ]);
+    expect(video.manual).toEqual([{ platform: "TikTok", href: "/uploading-center?item=q1&platform=tiktok" }]);
+
+    const [picture] = events([
+      item({
+        id: "q3",
+        clipPath: "data/carousels/deck-1/slide-01.jpg",
+        mediaKind: "image",
+        platforms: { instagram: { status: "manual", attempts: 0 } }
+      } as Partial<QueueItem>)
+    ]);
+    expect(picture.manual).toEqual([
+      { platform: "Instagram", href: "/uploading-center?item=q3&platform=instagram", fileUrl: "/api/publish/q3/images/0" }
+    ]);
+  });
+
+  it("opens a manual-only post on the platform that needs the hand", () => {
+    const [event] = events([item({ platforms: { youtube: { status: "published", attempts: 1 }, facebook: { status: "manual", attempts: 0 } } })]);
+    expect(event.href).toBe("/uploading-center?item=q1&platform=facebook");
+  });
+});
+
+describe("Threads on the calendar", () => {
+  const pack = {
+    id: "pack-1",
+    date: "2026-08-08",
+    source: "ai",
+    createdAt: "2026-08-08T00:00:00.000Z",
+    replies: [],
+    posts: [1, 2, 3, 4].map((slot) => ({
+      id: `p${slot}`,
+      slot,
+      time: `${String(8 + slot).padStart(2, "0")}:00`,
+      format: "hot-take",
+      topic: `Topic ${slot}`,
+      text: `Text ${slot}`,
+      threadsVariant: `Variant ${slot}`
+    }))
+  };
+  const data = { contentItems: [], xPlanner: { packs: [pack] } } as unknown as AppData;
+  const thread = (over: Partial<ThreadsQueueItem>): ThreadsQueueItem => ({
+    id: "t1",
+    batchDate: "2026-08-08",
+    slot: 1,
+    accountId: "acct-a",
+    version: "text",
+    topic: "Topic 1",
+    format: "hot-take",
+    text: "Text 1",
+    publishAt: "2026-08-08T14:05:00.000Z",
+    status: "pending",
+    attempts: 0,
+    createdAt: "2026-08-08T00:00:00.000Z",
+    ...over
+  });
+  const xEvents = (threadsItems?: ThreadsQueueItem[]) =>
+    buildMasterCalendarEvents({
+      data,
+      queueItems: [],
+      threadsItems,
+      timeZone: "America/Toronto",
+      startKey: "2026-08-08",
+      days: 1
+    }).filter((event) => event.source === "x");
+
+  it("keeps a slot nobody queued as planned, for X and Threads", () => {
+    const result = xEvents([]);
+    expect(result.map((event) => event.status)).toEqual(["planned", "planned", "planned", "planned"]);
+    expect(result[0].platforms).toEqual(["X", "Threads"]);
+    expect(xEvents(undefined).map((event) => event.status)).toEqual(["planned", "planned", "planned", "planned"]);
+  });
+
+  it("shows what really happened to each slot", () => {
+    const result = xEvents([
+      thread({ id: "t1", slot: 1, status: "published" }),
+      thread({ id: "t2", slot: 2, status: "failed", error: "token expired" }),
+      thread({ id: "t3", slot: 3, status: "skipped" }),
+      thread({ id: "t4", slot: 4, status: "pending" })
+    ]);
+    expect(result.map((event) => event.status)).toEqual(["published", "failed", "skipped", "queued"]);
+    expect(result[0].platforms).toEqual(["Threads"]);
+    expect(result[1].failedPlatforms).toEqual(["Threads"]);
+    expect(result[0].failedPlatforms).toBeUndefined();
+  });
+
+  it("rolls the accounts of one slot into one event, and calls a split result partly failed", () => {
+    const result = xEvents([
+      thread({ id: "a", accountId: "acct-a", status: "published" }),
+      thread({ id: "b", accountId: "acct-b", status: "failed" })
+    ]);
+    expect(result).toHaveLength(4);
+    expect(result.find((event) => event.title === "Topic 1")?.status).toBe("partly failed");
+  });
+
+  it("takes the real time from the queue, in the Threads time zone", () => {
+    const first = xEvents([thread({ publishAt: "2026-08-08T14:05:00.000Z" })]).find((event) => event.title === "Topic 1");
+    expect(first?.time).toBe("10:05");
+  });
+
+  it("adds a post that has no pack behind it, and a post from a stream", () => {
+    const result = xEvents([
+      thread({ id: "old", batchDate: "2026-08-08", slot: 9, topic: "Pruned pack", status: "published" }),
+      thread({ id: "stream", batchDate: "2026-08-08", slot: 1, origin: "pipeline", topic: "From a stream", status: "failed" })
+    ]);
+    expect(result).toHaveLength(6);
+    const stream = result.find((event) => event.title === "From a stream");
+    expect(stream?.status).toBe("failed");
+    // The stream post must not take over the autopilot's slot 1.
+    expect(result.find((event) => event.title === "Topic 1")?.status).toBe("planned");
+    expect(result.find((event) => event.title === "Pruned pack")?.status).toBe("published");
+  });
+
+  it("ignores queue items outside the window", () => {
+    const result = xEvents([thread({ id: "far", batchDate: "2026-08-20", slot: 9 })]);
+    expect(result).toHaveLength(4);
   });
 });

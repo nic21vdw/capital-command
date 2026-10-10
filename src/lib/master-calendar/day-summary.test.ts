@@ -56,11 +56,51 @@ describe("what a day adds up to", () => {
       event({ id: "c", status: "queued" }),
       event({ id: "d", source: "fb", status: "draft", time: undefined })
     ]);
-    expect(summary.states).toEqual({ failed: 1, published: 1, scheduled: 1, pending: 1 });
+    expect(summary.states).toEqual({ failed: 1, published: 1, scheduled: 1, skipped: 0, pending: 1 });
+  });
+});
+
+describe("the by-hand to-dos", () => {
+  it("lists every manual leg with its card, in clock order", () => {
+    const summary = buildDaySummary("2026-08-22", [
+      event({
+        id: "late",
+        time: "18:00",
+        title: "Evening clip",
+        manual: [{ platform: "TikTok", href: "/uploading-center?item=q2&platform=tiktok" }]
+      }),
+      event({
+        id: "early",
+        time: "07:00",
+        title: "Deck",
+        manual: [
+          { platform: "Instagram", href: "/uploading-center?item=q1&platform=instagram", fileUrl: "/api/publish/q1/images/0" },
+          { platform: "Facebook", href: "/uploading-center?item=q1&platform=facebook", fileUrl: "/api/publish/q1/images/0" }
+        ]
+      }),
+      event({ id: "auto", time: "12:00" })
+    ]);
+    expect(summary.todos.map((todo) => `${todo.time} ${todo.platform}`)).toEqual([
+      "07:00 Instagram",
+      "07:00 Facebook",
+      "18:00 TikTok"
+    ]);
+    expect(summary.todos[0].fileUrl).toBe("/api/publish/q1/images/0");
+    expect(summary.todos[2].fileUrl).toBeUndefined();
+  });
+
+  it("is empty when nothing needs a hand", () => {
+    expect(buildDaySummary("2026-08-22", [event({ id: "a" })]).todos).toEqual([]);
   });
 });
 
 describe("summaryState", () => {
+  it("counts a partly failed post as failed and a skipped slot as neither done nor pending", () => {
+    expect(summaryState("partly failed")).toBe("failed");
+    expect(summaryState("skipped")).toBe("skipped");
+    expect(summaryState("planned")).toBe("pending");
+  });
+
   it("treats anything not yet committed to a time as still in progress", () => {
     expect(summaryState("posted")).toBe("published");
     expect(summaryState("uploaded")).toBe("scheduled");

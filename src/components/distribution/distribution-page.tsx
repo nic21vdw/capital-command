@@ -3,6 +3,7 @@
 import { useEffect, useState, type ReactNode } from "react";
 import Link from "next/link";
 import {
+  AlertTriangle,
   ArrowRight,
   AtSign,
   AudioLines,
@@ -528,6 +529,16 @@ export function DistributionPage() {
         title="Distribution Centre"
         description="Pick what you're starting with, then follow the pipeline down: your raw material becomes a clean master, and from there it fans out into every format you can post. Videos do everything; text and ideas set you up to record and unlock the rest."
       />
+
+      {overview.publish.failed > 0 ? (
+        <Link
+          href="/uploading-center"
+          className="mb-4 inline-flex items-center gap-1.5 rounded-full border border-red-400/40 bg-red-500/10 px-3 py-1 text-xs font-medium text-red-300 transition hover:bg-red-500/20"
+        >
+          <AlertTriangle className="h-3.5 w-3.5" />
+          {overview.publish.failed} failed - open the Uploading Center to retry
+        </Link>
+      ) : null}
 
       {/* Big source tabs — the "what do you have?" selector / root of the tree. */}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">

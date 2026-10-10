@@ -162,6 +162,22 @@ function isPipelineHref(href: string): boolean {
   return href === "/" || href === "/pipeline";
 }
 
+/**
+ * What the sidebar badges count for one nav item. The total in the window
+ * title spans everything; each badge shows only what that page can fix, so a
+ * failed post lights Uploading Center and a failed Threads post lights Threads
+ * rather than all of them lighting the Pipeline.
+ */
+function navAttention(
+  href: string,
+  breakdown: { pipeline: number; publish: number; threads: number }
+): { count: number; noun: string } {
+  if (isPipelineHref(href)) return { count: breakdown.pipeline, noun: "needing attention" };
+  if (href === "/uploading-center") return { count: breakdown.publish, noun: "failed" };
+  if (href === "/x-posts") return { count: breakdown.threads, noun: "failed" };
+  return { count: 0, noun: "" };
+}
+
 function initialsFrom(name: string) {
   const parts = name.trim().split(/\s+/).filter(Boolean);
   if (parts.length === 0) return "";
@@ -550,8 +566,8 @@ function NavLink({ item, active, collapsed = false }: { item: NavItem; active: b
   const Icon = item.icon;
   // A stage that broke overnight has to be visible from wherever he is, not
   // only from the run he would have to think to open.
-  const { needsAttention } = usePipelineAttention();
-  const attention = isPipelineHref(item.href) ? needsAttention : 0;
+  const { breakdown } = usePipelineAttention();
+  const { count: attention, noun } = navAttention(item.href, breakdown);
   // Walking down the flow keeps the stream you are working on. Every screen
   // below used to open on everything the app had ever made, so following the
   // sidebar meant hunting for your own recording on each one.
@@ -562,7 +578,13 @@ function NavLink({ item, active, collapsed = false }: { item: NavItem; active: b
       href={href}
       aria-current={active ? "page" : undefined}
       aria-label={collapsed ? item.label : undefined}
-      title={collapsed ? (attention > 0 ? `${item.label} — ${attention} needing attention` : item.label) : undefined}
+      title={
+        attention > 0
+          ? `${item.label}: ${attention} ${noun}`
+          : collapsed
+            ? item.label
+            : undefined
+      }
       className={cn(
         "flex items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-sm transition",
         collapsed && "justify-center px-2 py-2",
@@ -864,9 +886,9 @@ function NarrowChrome({ pathname }: { pathname: string }) {
 
 function NarrowNavItem({ item, active, onSelect }: { item: NavItem; active: boolean; onSelect: () => void }) {
   const Icon = item.icon;
-  const { needsAttention } = usePipelineAttention();
+  const { breakdown } = usePipelineAttention();
   const { stream } = useStream();
-  const attention = isPipelineHref(item.href) ? needsAttention : 0;
+  const { count: attention } = navAttention(item.href, breakdown);
   return (
     <Link
       href={streamHref(item.href, stream)}

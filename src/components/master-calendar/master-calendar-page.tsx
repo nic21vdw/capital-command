@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { ArrowUpRight, CalendarDays, ChevronLeft, ChevronRight, LayoutList, Loader2, Repeat, Sparkles } from "lucide-react";
+import { AlertTriangle, ArrowUpRight, CalendarDays, ChevronLeft, ChevronRight, LayoutList, Loader2, Lock, Repeat, Sparkles } from "lucide-react";
 import { Badge, type BadgeTone } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -13,6 +13,7 @@ import {
   CALENDAR_SOURCES,
   CALENDAR_SOURCE_BY_ID,
   eventHref,
+  isFailedEventStatus,
   type CalendarSource,
   type CalendarSourceId,
   type MasterCalendarEvent,
@@ -56,9 +57,19 @@ function startOfWeek(key: string): string {
 
 function statusTone(status: string): BadgeTone {
   if (status === "published" || status === "posted") return "success";
-  if (status === "failed") return "danger";
+  if (isFailedEventStatus(status)) return "danger";
   if (status === "scheduled") return "info";
   return "neutral";
+}
+
+const HELD_NOTE = "Stays private - publish by hand after review";
+
+/** What a tooltip adds about an event beyond its title: a lost leg, a hold. */
+function eventNote(event: MasterCalendarEvent): string {
+  const notes: string[] = [];
+  if (event.failedPlatforms?.length) notes.push(`${event.status} on ${event.failedPlatforms.join(", ")}`);
+  if (event.heldForReview) notes.push(HELD_NOTE);
+  return notes.length ? ` (${notes.join("; ")})` : "";
 }
 
 /** A single event as a compact clickable row (month/week cells). */
@@ -67,13 +78,15 @@ function EventChip({ event }: { event: MasterCalendarEvent }) {
   return (
     <Link
       href={eventHref(event)}
-      title={`${event.time ? `${event.time} · ` : ""}${event.title} — open ${source.hrefLabel}`}
+      title={`${event.time ? `${event.time} · ` : ""}${event.title}${eventNote(event)} — open ${source.hrefLabel}`}
       className="flex items-center gap-1.5 rounded-md border-l-2 bg-white/5 px-1.5 py-1 text-[11px] leading-tight transition hover:translate-x-0.5 hover:bg-white/10"
       style={{ borderLeftColor: source.color }}
     >
       <SourceIcon source={event.source} className="h-3 w-3" />
       {event.time ? <span className="shrink-0 font-semibold text-[var(--muted-foreground)]">{event.time}</span> : null}
       <span className="min-w-0 truncate text-white">{event.title}</span>
+      {isFailedEventStatus(event.status) ? <AlertTriangle className="h-2.5 w-2.5 shrink-0 text-red-300" aria-label={event.status} /> : null}
+      {event.heldForReview ? <Lock className="h-2.5 w-2.5 shrink-0 text-amber-300" aria-label={HELD_NOTE} /> : null}
       {event.recurring ? <Repeat className="h-2.5 w-2.5 shrink-0 text-[var(--muted-foreground)]" /> : null}
     </Link>
   );
@@ -142,6 +155,10 @@ function EventCard({ event }: { event: MasterCalendarEvent }) {
           {source.shortLabel}
           {event.platforms.length > 0 ? ` · ${event.platforms.join(", ")}` : ""}
         </span>
+        {event.failedPlatforms?.length ? (
+          <span className="mt-0.5 block text-xs text-red-300">Failed on {event.failedPlatforms.join(", ")}</span>
+        ) : null}
+        {event.heldForReview ? <span className="mt-0.5 block text-xs text-amber-300">{HELD_NOTE}</span> : null}
       </span>
       {event.recurring ? <Repeat className="h-3.5 w-3.5 shrink-0 text-[var(--muted-foreground)]" /> : null}
       <Badge tone={statusTone(event.status)} className="shrink-0 capitalize">{event.status}</Badge>
@@ -221,6 +238,26 @@ export function MasterCalendarPage() {
     return { start: startOfWeek(`${anchor.slice(0, 8)}01`), days: 42 };
   }, [view, anchor]);
   const rangeId = `${range.start}:${range.days}`;
+  // What "Plan this ..." plans. A month grid is 42 days and runs into the
+  // neighbouring months, so planning it would fill days that belong to another
+  // month (and the planner caps a request at 31 days); plan the month itself.
+  const planWindow = useMemo(() => {
+    let window = range;
+    if (view === "month") {
+      const [year, month] = anchor.split("-").map(Number);
+      window = { start: `${anchor.slice(0, 8)}01`, days: new Date(Date.UTC(year, month, 0)).getUTCDate() };
+    }
+    // A plan for days that are already over is no use: start from today when
+    // today falls inside the window.
+    const end = shiftDayKey(window.start, window.days);
+    if (todayKey > window.start && todayKey < end) {
+      const elapsed = Math.round((Date.parse(`${todayKey}T00:00:00Z`) - Date.parse(`${window.start}T00:00:00Z`)) / 86_400_000);
+      return { start: todayKey, days: window.days - elapsed };
+    }
+    return window;
+  }, [view, anchor, range, todayKey]);
+  const planId = `${planWindow.start}:${planWindow.days}`;
+  const planLabel = `Plan this ${view}`;
   const requestId = `${rangeId}:${reload}`;
   const loading = fetchedRange !== requestId;
   const calendarAvailable = responseRange === rangeId;
@@ -291,17 +328,17 @@ export function MasterCalendarPage() {
     setPlanning(true);
     setPlanError(null);
     try {
-      const json = await loadWorkflowJson<{ plan: CalendarPlan }>(`/api/master-calendar/plan?start=${range.start}&days=${range.days}`);
+      const json = await loadWorkflowJson<{ plan: CalendarPlan }>(`/api/master-calendar/plan?start=${planWindow.start}&days=${planWindow.days}`);
       if (!Array.isArray(json.plan?.suggestions)) throw new Error("The planner returned incomplete suggestions.");
       setPlan(json.plan);
-      setPlanRange(rangeId);
+      setPlanRange(planId);
     } catch (error) {
       setPlanError(workflowLoadMessage(error));
     } finally {
       setPlanning(false);
     }
   };
-  const planIsStale = plan !== null && planRange !== rangeId;
+  const planIsStale = plan !== null && planRange !== planId;
 
   /** The calendar source whose colour/link fits a suggestion's kind. */
   const sourceForKind = (kind: CalendarPlan["suggestions"][number]["kind"]) =>
@@ -342,7 +379,13 @@ export function MasterCalendarPage() {
         return 0;
       })[0];
   }, [events, todayKey]);
-  const failedCount = useMemo(() => events.filter((event) => event.status === "failed").length, [events]);
+  const failedCount = useMemo(() => events.filter((event) => isFailedEventStatus(event.status)).length, [events]);
+  // Where the failures are fixed: Threads posts retry on their own page, every
+  // other leg on the Uploading Center.
+  const failedHref = useMemo(() => {
+    const failed = events.filter((event) => isFailedEventStatus(event.status));
+    return failed.length > 0 && failed.every((event) => event.source === "x") ? "/x-posts" : "/uploading-center";
+  }, [events]);
   const nextPostReading = nextEvent
     ? `${formatDayKey(nextEvent.dateKey, { weekday: "short", month: "short", day: "numeric" })}${
         nextEvent.time ? ` ${nextEvent.time}` : ""
@@ -369,7 +412,7 @@ export function MasterCalendarPage() {
       { id: "today", label: "Today", group: "View" },
       { id: "prev", label: "Previous period", group: "View" },
       { id: "next", label: "Next period", group: "View" },
-      { id: "plan", label: plan ? "Re-plan" : "Plan my week", group: "Planner", disabled: planning || !calendarAvailable }
+      { id: "plan", label: plan ? "Re-plan" : planLabel, group: "Planner", disabled: planning || !calendarAvailable }
     ],
     readings: [
       { label: "Calendar data", value: loadError ? `Needs retry: ${loadError}` : loading ? "Loading…" : "Loaded" },
@@ -490,15 +533,15 @@ export function MasterCalendarPage() {
           <div className="flex items-center gap-2">
             <Sparkles className="h-4 w-4 text-[var(--accent)]" />
             <div>
-              <p className="text-sm font-semibold text-white">Plan this window</p>
+              <p className="text-sm font-semibold text-white">{planLabel[0].toUpperCase() + planLabel.slice(1)}</p>
               <p className="text-xs text-[var(--muted-foreground)]">
-                Spot scheduling gaps and fill them from your idea board — free, powered by DeepSeek Flash.
+                Spot scheduling gaps in the {view} on screen and fill them from your idea board.
               </p>
             </div>
           </div>
           <Button className="h-8 px-3 text-xs" onClick={() => void runPlan()} disabled={planning || !calendarAvailable}>
             {planning ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <Sparkles className="mr-1.5 h-3.5 w-3.5" />}
-            {planning ? "Planning…" : plan ? "Re-plan" : "Plan my week"}
+            {planning ? "Planning…" : plan ? "Re-plan" : planLabel}
           </Button>
         </div>
         {planError ? <div className="mt-3"><WorkflowLoadNotice title="Planning could not finish" message={planError} retained={plan !== null} retrying={planning} onRetry={() => void runPlan()} /></div> : null}
@@ -534,8 +577,8 @@ export function MasterCalendarPage() {
                         </p>
                       </div>
                       <Link
-                        href={source.href}
-                        title={`Open ${source.hrefLabel}`}
+                        href={sourceHrefForDay(source.id, suggestion.dateKey)}
+                        title={`Open ${source.hrefLabel} on ${formatDayKey(suggestion.dateKey, { month: "short", day: "numeric" })}`}
                         className="mt-0.5 shrink-0 text-[var(--muted-foreground)] transition hover:text-white"
                       >
                         <ArrowUpRight className="h-3.5 w-3.5" />
@@ -585,6 +628,18 @@ export function MasterCalendarPage() {
                 <Badge className="border-white/10 bg-white/5 text-[10px] text-[var(--muted-foreground)]">
                   {visibleEvents.length} scheduled
                 </Badge>
+              ) : null}
+              {failedCount > 0 ? (
+                <Link
+                  href={failedHref}
+                  title={`${failedCount} ${failedCount === 1 ? "post" : "posts"} failed or partly failed in this view — open ${failedHref === "/x-posts" ? "Threads Posts" : "the Uploading Center"} to retry`}
+                  className="inline-flex"
+                >
+                  <Badge tone="danger" className="gap-1 text-[10px]">
+                    <AlertTriangle className="h-3 w-3" />
+                    {failedCount} failed
+                  </Badge>
+                </Link>
               ) : null}
               {loading ? <Loader2 className="h-3.5 w-3.5 animate-spin text-[var(--muted-foreground)]" /> : null}
             </span>
