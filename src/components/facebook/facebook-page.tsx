@@ -99,6 +99,10 @@ function formatViews(views: number): string {
   return String(views);
 }
 
+function counted(count: number, one: string, many: string): string {
+  return `${count} ${count === 1 ? one : many}`;
+}
+
 function useCopy() {
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const copy = useCallback(async (id: string, text: string) => {
@@ -240,20 +244,22 @@ function DashboardTab({ posts }: { posts: FbPost[] }) {
   const viewsByFormat = FORMATS.map((format) => ({
     format,
     posts: posts.filter((post) => post.format === format).length,
+    logged: posts.filter((post) => post.format === format && post.views !== undefined).length,
     views: posts.filter((post) => post.format === format).reduce((sum, post) => sum + (post.views ?? 0), 0)
   }));
+  const drafts = posts.length - posted.length;
   const textShare = totalViews > 0 ? ((viewsByFormat[0]?.views ?? 0) / totalViews) * 100 : null;
   const recent = [...posts].sort((a, b) => b.date.localeCompare(a.date)).slice(0, 5);
 
   return (
     <div className="space-y-6">
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <StatCard label="Posts in library" value={String(posts.length)} detail={`${posted.length} posted · ${posts.length - posted.length} drafts`} icon={<Library className="h-5 w-5" />} />
+        <StatCard label="Posts in library" value={String(posts.length)} detail={`${posted.length} posted · ${counted(drafts, "draft", "drafts")}`} icon={<Library className="h-5 w-5" />} />
         <StatCard label="Total logged views" value={formatViews(totalViews)} detail="Across all posted content" icon={<Eye className="h-5 w-5" />} />
         <StatCard
           label="Text-only view share"
           value={textShare === null ? "—" : `${textShare.toFixed(1)}%`}
-          detail={`Benchmark: ${TEXT_VIEW_BENCHMARK}% of the 1.4B-view account`}
+          detail={`For comparison: a 1.4B-view reference account got ${TEXT_VIEW_BENCHMARK}% of its views from text-only posts`}
           icon={<Type className="h-5 w-5" />}
         />
         <StatCard
@@ -270,16 +276,20 @@ function DashboardTab({ posts }: { posts: FbPost[] }) {
           <Badge>Views logged per format vs. the 78.2% text-only benchmark</Badge>
         </div>
         <div className="space-y-3">
-          {viewsByFormat.map(({ format, posts: count, views }) => {
+          {viewsByFormat.map(({ format, posts: count, logged, views }) => {
             const meta = FORMAT_META[format];
             const share = totalViews > 0 ? (views / totalViews) * 100 : 0;
+            const summary =
+              count === 0
+                ? "No posts yet"
+                : logged === 0
+                  ? `${counted(count, "post", "posts")} · No results logged yet`
+                  : `${counted(count, "post", "posts")} · ${formatViews(views)} views${totalViews > 0 ? ` · ${share.toFixed(1)}%` : ""}`;
             return (
               <div key={format} className="space-y-1.5">
                 <div className="flex items-center justify-between gap-2 text-sm">
                   <span className={cn("rounded-full border px-2.5 py-0.5 text-[11px] font-medium", meta.chip)}>{meta.label}</span>
-                  <span className="text-xs tabular-nums text-[var(--muted-foreground)]">
-                    {count} posts · {formatViews(views)} views{totalViews > 0 ? ` · ${share.toFixed(1)}%` : ""}
-                  </span>
+                  <span className="text-xs tabular-nums text-[var(--muted-foreground)]">{summary}</span>
                 </div>
                 <div className="h-2 w-full overflow-hidden rounded-full bg-white/10">
                   <div className="h-full rounded-full bg-[var(--accent)] transition-[width] duration-500 ease-out" style={{ width: `${Math.min(100, share)}%` }} />

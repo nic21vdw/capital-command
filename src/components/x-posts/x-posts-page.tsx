@@ -628,7 +628,7 @@ function AutopilotCard({ status }: { status: AutopilotProps["status"] }) {
           <p className="mt-1 text-xs text-[var(--muted-foreground)]">
             {settings.postsPerDay} slots a day in {settings.timezone} ·{" "}
             {settings.accounts.map((account) => `${account.label} (${versionLabel(account.posts)})`).join(", ") ||
-              "no account yet"}
+              "Waiting for an account"}
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -655,7 +655,7 @@ function AutopilotCard({ status }: { status: AutopilotProps["status"] }) {
             </Badge>
           </div>
           <p className="text-xs text-[var(--muted-foreground)]">
-            {(noAccount ? "Starts once an account is connected." : settings.replyPolicy.disabledReason) ?? `A contextual link reply follows each eligible post after ${settings.replyPolicy.delayMinutes} min, within a ${settings.replyPolicy.windowMinutes} min window.`}
+            {(noAccount ? "Waiting for an account" : settings.replyPolicy.disabledReason) ?? `A contextual link reply follows each eligible post after ${settings.replyPolicy.delayMinutes} min, within a ${settings.replyPolicy.windowMinutes} min window.`}
           </p>
           {settings.replyPolicy.url ? (
             <a href={settings.replyPolicy.url} target="_blank" rel="noreferrer" className="block break-all text-xs text-[var(--accent)] underline">
@@ -744,7 +744,7 @@ function TomorrowBanner({ status, onReview }: { status: AutopilotProps["status"]
                 ? null
                 : "They will not go out until the autopilot is switched on; edit or remove any before then."
               : "They go out on their own from the first slot; edit or remove any before then."}
-          {!status.paused && status.settings.accounts.length === 0 ? (
+          {!status.paused && !status.blockedReason && status.settings.accounts.length === 0 ? (
             <>
               They will go out once Threads is connected in{" "}
               <Link href={ACCOUNTS_HREF} className="font-medium text-[var(--accent)] underline">
