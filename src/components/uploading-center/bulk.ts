@@ -1,7 +1,6 @@
 import type { ScheduleSlot } from "@/lib/publisher/slots";
 import type { PlatformId } from "@/lib/publisher/types";
 import {
-  schedulePlatforms,
   targetPlatforms,
   type ClipDraft,
   type PlatformTarget,
@@ -47,12 +46,12 @@ export function nameClips(headlines: string[], limit = 3): string {
 /**
  * The daily short-form cap `enqueue` enforces (shortsCap.ts), as the plan needs
  * it: the limit, and how many shorts each local day already holds (that is
- * `shortsByDay` over the whole queue, every platform and account, because the
- * server counts queue items rather than platforms).
+ * `shortsByDay` over the whole queue, every platform and account). The server
+ * counts distinct VIDEOS, so a clip booked to all platforms is one short.
  */
 export type ShortsCap = {
   limit: number;
-  /** Local day (YYYY-MM-DD in the publish timezone) -> shorts already booked. */
+  /** Local day (YYYY-MM-DD in the publish timezone) -> distinct short videos already booked. */
   booked: ReadonlyMap<string, number>;
 };
 
@@ -129,10 +128,9 @@ export function planAutoAssign({
     }
     const draft = draftFor(clip);
     const platforms: PlatformId[] = targetPlatforms(draft.platform);
-    // The server counts queue ITEMS toward the day's cap, and one clip aimed at
-    // several platforms is one item per request (`schedulePlatforms`), so a
-    // clip can take more than one of the day's places.
-    const itemsNeeded = schedulePlatforms(draft.platform).length;
+    // The server counts distinct VIDEOS toward the day's cap. One clip aimed at
+    // several platforms is one queue item per request (`schedulePlatforms`) but
+    // still one video, so it takes exactly one of the day's places.
     const free = (candidate: ScheduleSlot) =>
       // `bookable`, not `!past`: auto-assign is exactly the button that used
       // to fill the rest of today with a whole batch of shorts.
@@ -141,7 +139,7 @@ export function planAutoAssign({
       !isTargetSlotTaken(draft.platform, candidate.utc);
     const roomOnDay = (candidate: ScheduleSlot) =>
       !shortsCap ||
-      (shortsCap.booked.get(candidate.dateKey) ?? 0) + (planned.get(candidate.dateKey) ?? 0) + itemsNeeded <=
+      (shortsCap.booked.get(candidate.dateKey) ?? 0) + (planned.get(candidate.dateKey) ?? 0) + 1 <=
         shortsCap.limit;
     const slot = slots.find((candidate) => free(candidate) && roomOnDay(candidate));
     if (!slot) {
@@ -150,7 +148,7 @@ export function planAutoAssign({
       continue;
     }
     for (const platform of platforms) consumed.add(`${platform}:${slot.utc}`);
-    planned.set(slot.dateKey, (planned.get(slot.dateKey) ?? 0) + itemsNeeded);
+    planned.set(slot.dateKey, (planned.get(slot.dateKey) ?? 0) + 1);
     assignments.push({ clip, draft: { ...draft, slotUtc: slot.utc } });
   }
   return { assignments, unslotted, capBlocked, heldBack };

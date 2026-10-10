@@ -80,7 +80,7 @@ export function describeRunOutcome(
     case "uploaded":
       return { tone: "info", text: `${label}: uploaded and still processing - it finishes on the next run` };
     case "retrying":
-      return { tone: "warning", text: `${label}: hit a snag - Command will try again automatically`, raw: detail || undefined };
+      return { tone: "warning", text: `${label}: hit a snag - CoLateral Marketing will try again automatically`, raw: detail || undefined };
     case "deferred":
       return {
         tone: "warning",

@@ -339,18 +339,33 @@ describe("planAutoAssign with the shorts-a-day cap", () => {
   });
 
   // One clip aimed at "All platforms" is a queue item per request (YouTube,
-  // TikTok, and Instagram carrying Facebook), and the server counts items.
-  it("charges a clip for every post it makes", () => {
+  // TikTok, and Instagram carrying Facebook), but the server counts distinct
+  // videos, so it is still one short.
+  it("charges a clip once however many platforms it posts to", () => {
     const plan = planAutoAssign({
-      clips: [clip("a"), clip("b")],
-      draftFor: (candidate) => draft({ platform: candidate.clipId === "a" ? "all" : "youtube" }),
+      clips: [clip("a"), clip("b"), clip("c")],
+      draftFor: (candidate) => draft({ platform: candidate.clipId === "c" ? "youtube" : "all" }),
       isScheduled: never,
       slots,
       isTargetSlotTaken: never,
-      shortsCap: { limit: 3, booked: new Map() }
+      shortsCap: { limit: 2, booked: new Map() }
     });
-    expect(plan.assignments[0].draft.slotUtc.slice(0, 10)).toBe("2026-08-06");
-    expect(plan.assignments[1].draft.slotUtc.slice(0, 10)).toBe("2026-08-07");
+    expect(plan.assignments).toHaveLength(3);
+    expect(plan.unslotted).toBe(0);
+    expect(perDay(plan)).toEqual({ "2026-08-06": 2, "2026-08-07": 1 });
+  });
+
+  it("fits two All-platforms clips on a day and moves the third to the next", () => {
+    const plan = planAutoAssign({
+      clips: [clip("a"), clip("b"), clip("c"), clip("d")],
+      draftFor: () => draft({ platform: "all" }),
+      isScheduled: never,
+      slots,
+      isTargetSlotTaken: never,
+      shortsCap: { limit: 2, booked: new Map() }
+    });
+    expect(plan.capBlocked).toBe(0);
+    expect(perDay(plan)).toEqual({ "2026-08-06": 2, "2026-08-07": 2 });
   });
 
   it("is unchanged when no cap is given", () => {

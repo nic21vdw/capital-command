@@ -64,7 +64,6 @@ import {
   copyPlatformFor,
   copyTargetLabel,
   platformTargetLabels,
-  schedulePlatforms,
   studioContentUrl,
   studioVideoUrl,
   targetPlatforms,
@@ -349,8 +348,9 @@ export function UploadingCenterPage() {
   );
 
   // The daily short-form cap the server enforces, as the screen needs it: what
-  // each local day already holds (every platform and account, because the cap
-  // counts queue items), the days that are full, and a check the pickers share.
+  // each local day already holds (every platform and account; the cap counts
+  // distinct videos, so one clip on three platforms is one short), the days that
+  // are full, and a check the pickers share.
   const publishingOn = overview?.enabled !== false;
   const shortsPerDay = overview?.shortsPerDay;
   const timezone = overview?.timezone ?? "UTC";
@@ -371,14 +371,14 @@ export function UploadingCenterPage() {
     return today ? addDaysToDateKey(today, EARLIEST_PUBLISH_DAY_OFFSET) : undefined;
   }, [slots]);
   // For the cards' slot pickers: a slot is unavailable when it is taken, or when
-  // its day cannot take the posts this target makes (one per platform request).
+  // its day is full: a new clip is one short however many platforms it targets.
   const isSlotUnavailable = useCallback(
     (target: PlatformTarget, slotUtc: string) => {
       if (isTargetSlotTaken(target, slotUtc)) return true;
       if (!shortsCap) return false;
       const day = slotDayKey.get(slotUtc);
       if (!day) return false;
-      return (shortsCap.booked.get(day) ?? 0) + schedulePlatforms(target).length > shortsCap.limit;
+      return (shortsCap.booked.get(day) ?? 0) >= shortsCap.limit;
     },
     [isTargetSlotTaken, shortsCap, slotDayKey],
   );

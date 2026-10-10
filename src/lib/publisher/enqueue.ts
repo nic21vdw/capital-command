@@ -204,7 +204,13 @@ async function saveBooking(options: Parameters<typeof assertSchedulable>[0] & {
   const pending = bookings.then(async () => {
     await assertSchedulable(options);
     if (options.shortsPerDay !== undefined) {
-      assertShortsRoom(await options.queue.list(), options.publishAt, options.timeZone, options.shortsPerDay);
+      assertShortsRoom(
+        await options.queue.list(),
+        options.publishAt,
+        options.timeZone,
+        options.shortsPerDay,
+        options.item.sourceClipPath ?? options.item.clipPath
+      );
     }
     await options.queue.add(options.item, options.writer);
   });
@@ -252,7 +258,16 @@ export async function enqueue(options: EnqueueOptions): Promise<QueueItem> {
   assertBookable(publishAtDate, new Date(), config.timezone, { allowSameDay: options.allowSameDay });
   const format: PostFormat = options.format ?? "short";
   if (format === "short") {
-    assertShortsRoom(await publishQueue(config).list(), publishAtDate, config.timezone, shortsLimit(config));
+    // The video being booked: another platform of a clip already on the day is
+    // not another short. Keyed by the file named here, which is what a
+    // re-rendered item records as its `sourceClipPath`.
+    assertShortsRoom(
+      await publishQueue(config).list(),
+      publishAtDate,
+      config.timezone,
+      shortsLimit(config),
+      path.relative(process.cwd(), absolute)
+    );
   }
 
   // A short-form post is vertical (Shorts / Reels / TikTok), so a landscape
@@ -505,7 +520,13 @@ export async function maybeAutoEnqueueExport(input: {
       .filter((slot) => slot.bookable)
       .map((slot) => slot.utc);
     const publishAt =
-      firstSlotWithShortsRoom(slots, await publishQueue(config).list(), config.timezone, shortsLimit(config)) ??
+      firstSlotWithShortsRoom(
+        slots,
+        await publishQueue(config).list(),
+        config.timezone,
+        shortsLimit(config),
+        path.relative(process.cwd(), path.isAbsolute(input.exportPath) ? input.exportPath : path.join(process.cwd(), input.exportPath))
+      ) ??
       nextBookableSlot({ timeZone: config.timezone }).utc;
     const item = await enqueue({
       clipPath: input.exportPath,
