@@ -2,7 +2,9 @@ import { describe, expect, it } from "vitest";
 import {
   alreadyBookedMessage,
   bookedChipText,
+  bookedPlatformStatus,
   bookedWhen,
+  publishZoneLabel,
   bookingsByCarousel,
   carouselIdFromImagePaths
 } from "@/lib/carousels/booked";
@@ -56,16 +58,40 @@ describe("bookingsByCarousel", () => {
 
 describe("wording", () => {
   it("shows the slot in the publish time zone", () => {
-    expect(bookedWhen("2026-10-13T16:30:00.000Z", "America/Toronto")).toBe("Tue, Oct 13, 12:30 PM");
-    expect(alreadyBookedMessage("2026-10-13T16:30:00.000Z", "America/Toronto")).toBe(
+    expect(bookedWhen("2026-10-13T16:30:00.000Z", "America/Toronto", "America/Toronto")).toBe("Tue, Oct 13, 12:30 PM");
+    expect(alreadyBookedMessage("2026-10-13T16:30:00.000Z", "America/Toronto", "America/Toronto")).toBe(
       "This carousel is already booked for Tue, Oct 13 at 12:30 PM."
     );
   });
 
   it("builds the chip", () => {
     const booking = { itemId: "p1", publishAt: "2026-10-13T16:30:00.000Z", platforms: ["instagram", "facebook"] as const, posted: false };
-    expect(bookedChipText({ ...booking, platforms: [...booking.platforms] }, "America/Toronto")).toBe(
+    expect(bookedChipText({ ...booking, platforms: [...booking.platforms] }, "America/Toronto", "America/Toronto")).toBe(
       "Booked Tue, Oct 13, 12:30 PM · Instagram + Facebook"
     );
+  });
+});
+
+describe("zone label", () => {
+  const at = "2026-10-13T16:30:00.000Z";
+  const booking = { itemId: "p1", publishAt: at, platforms: ["instagram", "facebook"] as ("instagram" | "facebook")[], posted: false };
+
+  it("adds the publish zone's short name when the viewer is in another zone", () => {
+    expect(bookedWhen(at, "America/Toronto", "UTC")).toBe("Tue, Oct 13, 12:30 PM EDT");
+    expect(bookedChipText(booking, "America/Toronto", "UTC")).toBe("Booked Tue, Oct 13, 12:30 PM EDT · Instagram + Facebook");
+    expect(alreadyBookedMessage(at, "America/Toronto", "Asia/Tokyo")).toBe(
+      "This carousel is already booked for Tue, Oct 13 at 12:30 PM EDT."
+    );
+    expect(bookedPlatformStatus(booking, "America/Toronto", "UTC")).toBe("Booked Tue, Oct 13, 12:30 PM EDT");
+  });
+
+  it("stays quiet when the viewer reads the same clock", () => {
+    expect(publishZoneLabel(at, "America/Toronto", "America/Toronto")).toBe("");
+    expect(publishZoneLabel(at, "America/Toronto", "America/New_York")).toBe("");
+    expect(publishZoneLabel(at, "UTC", "Etc/UTC")).toBe("");
+  });
+
+  it("stays quiet when the viewer's zone is unknown", () => {
+    expect(bookedWhen(at, "America/Toronto", null)).toBe("Tue, Oct 13, 12:30 PM");
   });
 });

@@ -81,8 +81,14 @@ export type WeekSummary = {
   youtube: {
     /** Videos with numbers behind the totals. */
     videos: number;
-    /** Published videos this week with nothing cached yet. */
+    /** Tracked videos this week with nothing cached yet. */
     missing: number;
+    /**
+     * Published YouTube posts that are not tracked at all, so no numbers can ever
+     * be asked for: a long-form upload still held private for review, or a leg
+     * that never recorded a usable video id.
+     */
+    untracked: { heldForReview: number; noVideoId: number };
     views: number;
     likes: number;
     /** The newest reading behind the totals; null when there are none. */
@@ -203,6 +209,14 @@ export function buildWeekSummary(options: {
   const videoIds = youtubeTargets.map((target) => target.videoId);
   const { views, likes, videos } = totalViews(stats, videoIds);
   const uniqueIds = new Set(videoIds);
+  const untracked = { heldForReview: 0, noVideoId: 0 };
+  for (const event of events) {
+    if (event.youtube) continue;
+    const published = legsOf(event).some((leg) => leg.platform === "youtube" && leg.outcome === "published");
+    if (!published) continue;
+    if (event.heldForReview) untracked.heldForReview += 1;
+    else untracked.noVideoId += 1;
+  }
 
   let top: WeekTopPost | null = null;
   for (const event of events) {
@@ -238,6 +252,7 @@ export function buildWeekSummary(options: {
     youtube: {
       videos,
       missing: [...uniqueIds].filter((id) => !stats[id] || stats[id].views === null).length,
+      untracked,
       views,
       likes,
       fetchedAt: newestFetchedAt(stats, [...uniqueIds])
@@ -245,4 +260,30 @@ export function buildWeekSummary(options: {
     top,
     youtubeTargets
   };
+}
+
+/**
+ * "1 video has no numbers yet (long-form held private for review)": the videos
+ * the totals leave out, and why. Null when every published video is counted.
+ * `connected: false` is YouTube's own "cannot be read" answer, which is the
+ * reason a tracked video has nothing cached.
+ */
+export function youtubeNoNumbersNote(youtube: WeekSummary["youtube"], connected = true): string | null {
+  const reasons: { count: number; one: string; many: string }[] = [
+    {
+      count: youtube.untracked.heldForReview,
+      one: "long-form held private for review",
+      many: "held private for review"
+    },
+    { count: youtube.untracked.noVideoId, one: "no video id on record", many: "with no video id on record" },
+    {
+      count: youtube.missing,
+      one: connected ? "not read from YouTube yet" : "YouTube is not connected",
+      many: connected ? "not read from YouTube yet" : "YouTube is not connected"
+    }
+  ].filter((reason) => reason.count > 0);
+  const total = reasons.reduce((sum, reason) => sum + reason.count, 0);
+  if (total === 0) return null;
+  const detail = total === 1 ? reasons[0].one : reasons.map((reason) => `${reason.count} ${reason.many}`).join(", ");
+  return `${total} ${total === 1 ? "video has" : "videos have"} no numbers yet (${detail})`;
 }

@@ -71,7 +71,48 @@ export function bookingsByCarousel(items: QueueItem[], now: Date = new Date()): 
   return result;
 }
 
-function zonedParts(publishAt: string, timeZone: string) {
+/** The browser's own time zone, or null where it cannot be read (server, old engine). */
+export function browserTimeZone(): string | null {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone || null;
+  } catch {
+    return null;
+  }
+}
+
+const WALL_CLOCK = (timeZone: string): Intl.DateTimeFormat =>
+  new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    year: "numeric",
+    month: "numeric",
+    day: "numeric",
+    hour: "numeric",
+    minute: "numeric"
+  });
+
+/**
+ * "EDT" - the short zone name for an instant - but only when the viewer is
+ * reading the slot in a DIFFERENT zone from the one it is booked in. A browser in
+ * Toronto reading a Toronto slot needs no label; one in UTC would otherwise take
+ * "12:30 PM" for its own clock. Zones are compared by what the clock reads at that
+ * instant, so aliases (Etc/UTC and UTC, Toronto and New York) do not count as a
+ * difference. `viewerZone` undefined reads the browser's; null means unknown.
+ */
+export function publishZoneLabel(publishAt: string, timeZone: string, viewerZone?: string | null): string {
+  const date = new Date(publishAt);
+  if (Number.isNaN(date.getTime())) return "";
+  const viewer = viewerZone === undefined ? browserTimeZone() : viewerZone;
+  if (!viewer) return "";
+  try {
+    if (WALL_CLOCK(viewer).format(date) === WALL_CLOCK(timeZone).format(date)) return "";
+    const named = new Intl.DateTimeFormat("en-US", { timeZone, timeZoneName: "short" }).formatToParts(date);
+    return named.find((part) => part.type === "timeZoneName")?.value ?? "";
+  } catch {
+    return "";
+  }
+}
+
+function zonedParts(publishAt: string, timeZone: string, viewerZone?: string | null) {
   const date = new Date(publishAt);
   if (Number.isNaN(date.getTime())) return null;
   try {
@@ -84,24 +125,25 @@ function zonedParts(publishAt: string, timeZone: string) {
       minute: "2-digit"
     }).formatToParts(date);
     const get = (type: string) => parts.find((part) => part.type === type)?.value ?? "";
+    const zone = publishZoneLabel(publishAt, timeZone, viewerZone);
     return {
       day: `${get("weekday")}, ${get("month")} ${get("day")}`,
-      time: `${get("hour")}:${get("minute")} ${get("dayPeriod")}`.trim()
+      time: `${get("hour")}:${get("minute")} ${get("dayPeriod")}${zone ? ` ${zone}` : ""}`.trim()
     };
   } catch {
     return null;
   }
 }
 
-/** "Tue, Oct 13, 12:30 PM" in the publish time zone. */
-export function bookedWhen(publishAt: string, timeZone: string): string {
-  const parts = zonedParts(publishAt, timeZone);
+/** "Tue, Oct 13, 12:30 PM" in the publish time zone, plus "EDT" when the viewer is in another. */
+export function bookedWhen(publishAt: string, timeZone: string, viewerZone?: string | null): string {
+  const parts = zonedParts(publishAt, timeZone, viewerZone);
   return parts ? `${parts.day}, ${parts.time}` : publishAt;
 }
 
 /** "Tue, Oct 13 at 12:30 PM" - the form that reads inside a sentence. */
-export function bookedWhenInSentence(publishAt: string, timeZone: string): string {
-  const parts = zonedParts(publishAt, timeZone);
+export function bookedWhenInSentence(publishAt: string, timeZone: string, viewerZone?: string | null): string {
+  const parts = zonedParts(publishAt, timeZone, viewerZone);
   return parts ? `${parts.day} at ${parts.time}` : publishAt;
 }
 
@@ -118,14 +160,22 @@ export function bookedPlatformsLabel(platforms: PlatformId[]): string {
 }
 
 /** "Booked Tue, Oct 13, 12:30 PM · Instagram + Facebook" (or "Posted ..."). */
-export function bookedChipText(booking: CarouselBooking, timeZone: string): string {
+export function bookedChipText(booking: CarouselBooking, timeZone: string, viewerZone?: string | null): string {
   const platforms = bookedPlatformsLabel(booking.platforms);
-  return `${booking.posted ? "Posted" : "Booked"} ${bookedWhen(booking.publishAt, timeZone)}${platforms ? ` · ${platforms}` : ""}`;
+  return `${booking.posted ? "Posted" : "Booked"} ${bookedWhen(booking.publishAt, timeZone, viewerZone)}${platforms ? ` · ${platforms}` : ""}`;
 }
 
 /** The plain-words refusal for a second booking of the same deck. */
-export function alreadyBookedMessage(publishAt: string | undefined, timeZone: string): string {
+export function alreadyBookedMessage(publishAt: string | undefined, timeZone: string, viewerZone?: string | null): string {
   return publishAt
-    ? `This carousel is already booked for ${bookedWhenInSentence(publishAt, timeZone)}.`
+    ? `This carousel is already booked for ${bookedWhenInSentence(publishAt, timeZone, viewerZone)}.`
     : "This carousel is already booked.";
+}
+
+/**
+ * What a platform button says once the deck is booked on it: "Booked Tue, Oct 13,
+ * 12:30 PM" (or "Posted ..."), without the platform list the chip carries.
+ */
+export function bookedPlatformStatus(booking: CarouselBooking, timeZone: string, viewerZone?: string | null): string {
+  return `${booking.posted ? "Posted" : "Booked"} ${bookedWhen(booking.publishAt, timeZone, viewerZone)}`;
 }

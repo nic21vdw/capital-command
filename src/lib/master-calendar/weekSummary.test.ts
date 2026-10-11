@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildWeekSummary } from "@/lib/master-calendar/weekSummary";
+import { buildWeekSummary, youtubeNoNumbersNote } from "@/lib/master-calendar/weekSummary";
 import type { MasterCalendarEvent } from "@/lib/master-calendar/types";
 import type { YoutubeStat } from "@/lib/publisher/youtubeStatsShared";
 
@@ -144,5 +144,40 @@ describe("YouTube totals and the top post", () => {
   it("does not rank a video whose views YouTube hides", () => {
     const summary = buildWeekSummary({ endKey: "2026-10-11", events: videos, stats: { "vid-aaaaaa": stat(null) } });
     expect(summary.top).toBeNull();
+  });
+});
+
+describe("videos with no numbers", () => {
+  const tracked = (id: string, day: string) =>
+    event({ id, dateKey: day, youtube: { itemId: `i${id}`, videoId: `vid-${id}xxxx` }, legs: [{ platform: "YouTube", status: "published" }] });
+  const held = event({ id: "h", dateKey: "2026-10-10", heldForReview: true, legs: [{ platform: "YouTube", status: "published" }] });
+
+  it("counts a published video that is not tracked, so 3 published is not 'across 2 videos' unexplained", () => {
+    const summary = buildWeekSummary({
+      endKey: "2026-10-11",
+      events: [tracked("a", "2026-10-08"), tracked("b", "2026-10-09"), held],
+      stats: { "vid-axxxx": stat(100, 5), "vid-bxxxx": stat(200, 6) }
+    });
+    expect(row(summary, "youtube").published).toBe(3);
+    expect(summary.youtube).toMatchObject({ videos: 2, missing: 0, untracked: { heldForReview: 1, noVideoId: 0 } });
+    expect(youtubeNoNumbersNote(summary.youtube)).toBe(
+      "1 video has no numbers yet (long-form held private for review)"
+    );
+  });
+
+  it("tells a missing video id from one that has not been read yet", () => {
+    const noId = event({ id: "n", legs: [{ platform: "YouTube", status: "published" }] });
+    const summary = buildWeekSummary({ endKey: "2026-10-11", events: [tracked("a", "2026-10-08"), noId], stats: {} });
+    expect(summary.youtube).toMatchObject({ missing: 1, untracked: { heldForReview: 0, noVideoId: 1 } });
+    expect(youtubeNoNumbersNote(summary.youtube)).toBe(
+      "2 videos have no numbers yet (1 with no video id on record, 1 not read from YouTube yet)"
+    );
+    expect(youtubeNoNumbersNote(summary.youtube, false)).toContain("1 YouTube is not connected");
+  });
+
+  it("says nothing when every published video is counted, and ignores unpublished ones", () => {
+    const queued = event({ id: "q", legs: [{ platform: "YouTube", status: "scheduled" }], heldForReview: true });
+    const summary = buildWeekSummary({ endKey: "2026-10-11", events: [tracked("a", "2026-10-08"), queued], stats: { "vid-axxxx": stat(1) } });
+    expect(youtubeNoNumbersNote(summary.youtube)).toBeNull();
   });
 });

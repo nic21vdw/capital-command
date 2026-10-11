@@ -2,6 +2,9 @@ import { describe, expect, it } from "vitest";
 import {
   bookingMessage,
   bookingTimeLabel,
+  activePlatformPicks,
+  platformsClosedByBooking,
+  scheduleFooterMode,
   DEFAULT_CAROUSEL_PLATFORMS,
   expandOccurrences,
   IMAGE_CAPABLE_PLATFORMS,
@@ -55,20 +58,27 @@ describe("bookingMessage", () => {
   const at = "2026-10-13T19:00:00.000Z";
 
   it("reads the day and time in the publish timezone", () => {
-    expect(bookingTimeLabel(at, "America/Toronto")).toBe("Tue 3:00 PM");
+    expect(bookingTimeLabel(at, "America/Toronto", "America/Toronto")).toBe("Tue 3:00 PM");
+  });
+
+  it("names the publish zone when the browser is in another", () => {
+    expect(bookingTimeLabel(at, "America/Toronto", "UTC")).toBe("Tue 3:00 PM EDT");
+    expect(bookingMessage({ instagram: "pending" }, at, "America/Toronto", "Europe/London")).toBe(
+      "Booked on Instagram for Tue 3:00 PM EDT"
+    );
   });
 
   it("confirms a booking on both networks", () => {
-    expect(bookingMessage({ instagram: "pending", facebook: "pending" }, at, "America/Toronto")).toBe(
+    expect(bookingMessage({ instagram: "pending", facebook: "pending" }, at, "America/Toronto", "America/Toronto")).toBe(
       "Booked on Instagram and Facebook for Tue 3:00 PM"
     );
   });
 
   it("does not say booked for a network that is not connected", () => {
-    expect(bookingMessage({ instagram: "pending", facebook: "manual" }, at, "America/Toronto")).toBe(
+    expect(bookingMessage({ instagram: "pending", facebook: "manual" }, at, "America/Toronto", "America/Toronto")).toBe(
       "Booked on Instagram for Tue 3:00 PM. Facebook isn't connected - post those by hand."
     );
-    expect(bookingMessage({ instagram: "manual", facebook: "manual" }, at, "America/Toronto")).toContain(
+    expect(bookingMessage({ instagram: "manual", facebook: "manual" }, at, "America/Toronto", "America/Toronto")).toContain(
       "Instagram and Facebook aren't connected"
     );
   });
@@ -110,5 +120,20 @@ describe("connection-aware posting mode", () => {
     expect(bookingNeedsHands({ instagram: "manual", facebook: "manual" })).toBe(true);
     expect(bookingNeedsHands({ instagram: "pending", facebook: "manual" })).toBe(true);
     expect(bookingNeedsHands({ instagram: "pending", facebook: "pending" })).toBe(false);
+  });
+});
+
+describe("a deck that is already booked", () => {
+  it("closes both picture networks and leaves the reminder ones", () => {
+    expect(platformsClosedByBooking(true)).toEqual(["instagram", "facebook"]);
+    expect(platformsClosedByBooking(false)).toEqual([]);
+    expect(activePlatformPicks(["instagram", "facebook", "tiktok"], true)).toEqual(["tiktok"]);
+    expect(activePlatformPicks(["instagram", "facebook"], false)).toEqual(["instagram", "facebook"]);
+  });
+
+  it("offers Save only once a reminder network is picked", () => {
+    expect(scheduleFooterMode(true, ["instagram", "facebook"])).toBe("close-only");
+    expect(scheduleFooterMode(true, ["instagram", "facebook", "youtube"])).toBe("save");
+    expect(scheduleFooterMode(false, [])).toBe("save");
   });
 });

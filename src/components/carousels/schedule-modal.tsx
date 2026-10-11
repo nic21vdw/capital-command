@@ -11,13 +11,16 @@ import {
   CAROUSEL_PLATFORMS,
   DEFAULT_CAROUSEL_PLATFORMS,
   planCarouselSchedule,
+  activePlatformPicks,
+  platformsClosedByBooking,
+  scheduleFooterMode,
   anyPlatformPostsItself,
   platformPostingMode,
   WEEKDAY_LABELS,
   type PlatformConnectionMap,
   type CarouselPlatformId
 } from "@/lib/carousels/schedule";
-import { bookedChipText, bookedWhenInSentence, type CarouselBooking } from "@/lib/carousels/booked";
+import { bookedChipText, bookedPlatformStatus, bookedWhenInSentence, type CarouselBooking } from "@/lib/carousels/booked";
 import { usePlatformConnections } from "@/lib/publisher/usePlatformConnections";
 import { cn } from "@/lib/utils";
 import type { CarouselSchedule, ScheduleRecurrence } from "@/types/domain";
@@ -60,7 +63,7 @@ export function ScheduleModal({
   onCreate: (schedule: CarouselSchedule) => void | Promise<void>;
   saving: boolean;
 }) {
-  const [platforms, setPlatforms] = useState<CarouselPlatformId[]>([...DEFAULT_CAROUSEL_PLATFORMS]);
+  const [picked, setPlatforms] = useState<CarouselPlatformId[]>([...DEFAULT_CAROUSEL_PLATFORMS]);
   const [time, setTime] = useState("12:00");
   const [recurrence, setRecurrence] = useState<ScheduleRecurrence>("once");
   const [date, setDate] = useState(tomorrowKey());
@@ -72,6 +75,12 @@ export function ScheduleModal({
   const connected: PlatformConnectionMap | undefined = links
     ? Object.fromEntries(CAROUSEL_PLATFORMS.map((p) => [p.id, links[p.id]?.connected ?? false]))
     : undefined;
+
+  const isBooked = Boolean(booking);
+  const closed = platformsClosedByBooking(isBooked);
+  // A booked deck's Instagram and Facebook are spoken for, so they never count as picked.
+  const platforms = activePlatformPicks(picked, isBooked);
+  const closeOnly = scheduleFooterMode(isBooked, picked) === "close-only";
 
   const togglePlatform = (id: CarouselPlatformId) =>
     setPlatforms((current) => (current.includes(id) ? current.filter((p) => p !== id) : [...current, id]));
@@ -93,7 +102,7 @@ export function ScheduleModal({
 
   const plan = planCarouselSchedule(platforms, recurrence);
   // A deck already in the queue cannot be booked a second time; reminders for other networks still can.
-  const blockedByBooking = Boolean(booking) && plan.book.length > 0;
+  const blockedByBooking = isBooked && plan.book.length > 0;
   const zone = timeZone ?? "UTC";
   const bookable = plan.book.filter((id) => platformPostingMode(id, connected) === "automatic");
   const unlinked = plan.book.filter((id) => platformPostingMode(id, connected) === "reminder");
@@ -130,27 +139,37 @@ export function ScheduleModal({
           <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
             {CAROUSEL_PLATFORMS.map((platform) => {
               const active = platforms.includes(platform.id);
+              const locked = closed.includes(platform.id);
+              const bookedHere = Boolean(booking) && locked && booking!.platforms.includes(platform.id);
               return (
                 <button
                   key={platform.id}
                   type="button"
+                  disabled={locked}
+                  aria-pressed={locked ? undefined : active}
                   onClick={() => togglePlatform(platform.id)}
                   className={cn(
-                    "flex items-center justify-center gap-1.5 rounded-lg border px-2 py-2 text-xs font-medium transition",
-                    active
-                      ? "border-[var(--accent)] bg-[var(--accent)]/15 text-white"
-                      : "border-[var(--border)] bg-white/5 text-[var(--muted-foreground)] hover:text-white"
+                    "flex items-center justify-center gap-1.5 rounded-lg border px-2 py-2 text-xs font-medium transition disabled:cursor-not-allowed",
+                    locked
+                      ? "border-[var(--border)] bg-white/[0.03] text-[var(--muted-foreground)] opacity-80"
+                      : active
+                        ? "border-[var(--accent)] bg-[var(--accent)]/15 text-white"
+                        : "border-[var(--border)] bg-white/5 text-[var(--muted-foreground)] hover:text-white"
                   )}
                 >
                   <span className="h-2 w-2 rounded-full" style={{ background: platform.color }} />
                   <span className="flex flex-col items-start text-left leading-tight">
                     {platform.label}
                     <span className="text-[9px] font-normal uppercase tracking-wide text-[var(--muted-foreground)]">
-                      {{
-                        automatic: "Automatic",
-                        reminder: "Not connected - saved as a reminder",
-                        manual: "Manual"
-                      }[platformPostingMode(platform.id, connected)]}
+                      {locked
+                        ? bookedHere && booking
+                          ? bookedPlatformStatus(booking, zone)
+                          : "Change it in the Uploading Center"
+                        : {
+                            automatic: "Automatic",
+                            reminder: "Not connected - saved as a reminder",
+                            manual: "Manual"
+                          }[platformPostingMode(platform.id, connected)]}
                     </span>
                   </span>
                 </button>
@@ -159,60 +178,64 @@ export function ScheduleModal({
           </div>
         </div>
 
-        <div className="grid gap-3 sm:grid-cols-2">
+        {closeOnly ? null : (
+          <>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <label className="block text-xs text-[var(--muted-foreground)]">
+              Repeat
+              <Select value={recurrence} onChange={(event) => setRecurrence(event.target.value as ScheduleRecurrence)} className="mt-1">
+                <option value="once">Once</option>
+                <option value="daily">Every day</option>
+                <option value="weekly">Every week</option>
+              </Select>
+            </label>
+            <label className="block text-xs text-[var(--muted-foreground)]">
+              Time
+              <input
+                type="time"
+                value={time}
+                onChange={(event) => setTime(event.target.value)}
+                className="mt-1 h-11 w-full rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-3 text-sm text-white outline-none focus:border-[var(--accent)]"
+              />
+            </label>
+          </div>
+
+          {recurrence === "once" ? (
+            <label className="block text-xs text-[var(--muted-foreground)]">
+              Date
+              <input
+                type="date"
+                value={date}
+                min={tomorrowKey()}
+                onChange={(event) => setDate(event.target.value)}
+                className="mt-1 h-11 w-full rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-3 text-sm text-white outline-none focus:border-[var(--accent)]"
+              />
+            </label>
+          ) : recurrence === "weekly" ? (
+            <label className="block text-xs text-[var(--muted-foreground)]">
+              Weekday
+              <Select value={weekday} onChange={(event) => setWeekday(Number(event.target.value))} className="mt-1">
+                {WEEKDAY_LABELS.map((label, i) => (
+                  <option key={label} value={i}>
+                    {label}
+                  </option>
+                ))}
+              </Select>
+            </label>
+          ) : null}
+
           <label className="block text-xs text-[var(--muted-foreground)]">
-            Repeat
-            <Select value={recurrence} onChange={(event) => setRecurrence(event.target.value as ScheduleRecurrence)} className="mt-1">
-              <option value="once">Once</option>
-              <option value="daily">Every day</option>
-              <option value="weekly">Every week</option>
-            </Select>
-          </label>
-          <label className="block text-xs text-[var(--muted-foreground)]">
-            Time
-            <input
-              type="time"
-              value={time}
-              onChange={(event) => setTime(event.target.value)}
-              className="mt-1 h-11 w-full rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-3 text-sm text-white outline-none focus:border-[var(--accent)]"
+            Caption (optional, written for you if left empty)
+            <textarea
+              value={caption}
+              onChange={(event) => setCaption(event.target.value)}
+              rows={2}
+              placeholder="Post copy..."
+              className="mt-1 w-full resize-none rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-3 py-2 text-sm text-white outline-none focus:border-[var(--accent)]"
             />
           </label>
-        </div>
-
-        {recurrence === "once" ? (
-          <label className="block text-xs text-[var(--muted-foreground)]">
-            Date
-            <input
-              type="date"
-              value={date}
-              min={tomorrowKey()}
-              onChange={(event) => setDate(event.target.value)}
-              className="mt-1 h-11 w-full rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-3 text-sm text-white outline-none focus:border-[var(--accent)]"
-            />
-          </label>
-        ) : recurrence === "weekly" ? (
-          <label className="block text-xs text-[var(--muted-foreground)]">
-            Weekday
-            <Select value={weekday} onChange={(event) => setWeekday(Number(event.target.value))} className="mt-1">
-              {WEEKDAY_LABELS.map((label, i) => (
-                <option key={label} value={i}>
-                  {label}
-                </option>
-              ))}
-            </Select>
-          </label>
-        ) : null}
-
-        <label className="block text-xs text-[var(--muted-foreground)]">
-          Caption (optional, written for you if left empty)
-          <textarea
-            value={caption}
-            onChange={(event) => setCaption(event.target.value)}
-            rows={2}
-            placeholder="Post copy..."
-            className="mt-1 w-full resize-none rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-3 py-2 text-sm text-white outline-none focus:border-[var(--accent)]"
-          />
-        </label>
+          </>
+        )}
 
         {books && !blockedByBooking ? (
           <p className="tone-info tone-edge tone-soft tone-text rounded-lg border p-2.5 text-[11px]">
@@ -239,7 +262,7 @@ export function ScheduleModal({
 
         <div className="sticky -bottom-6 -mx-6 -mb-6 flex justify-end gap-2 border-t border-[var(--border)] bg-[var(--panel)] px-6 py-3">
           <Button variant="secondary" onClick={onClose} disabled={saving}>
-            Cancel
+            {closeOnly ? "Close" : "Cancel"}
           </Button>
           {booking ? (
             <Link
@@ -249,16 +272,17 @@ export function ScheduleModal({
               Open in Uploading Center <ExternalLink className="h-4 w-4" />
             </Link>
           ) : null}
-          <Button
-            variant={booking ? "secondary" : undefined}
-            onClick={() => void create()}
-            disabled={saving || blockedByBooking}
-            className="gap-1.5"
-            title={blockedByBooking ? "Already booked - open it in the Uploading Center to change it." : undefined}
-          >
-            {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <CalendarClock className="h-4 w-4" />}
-            {blockedByBooking ? "Already booked" : books ? "Book post" : "Save reminder"}
-          </Button>
+          {closeOnly ? null : (
+            <Button
+              variant={booking ? "secondary" : undefined}
+              onClick={() => void create()}
+              disabled={saving || blockedByBooking}
+              className="gap-1.5"
+            >
+              {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <CalendarClock className="h-4 w-4" />}
+              {books ? "Book post" : "Save reminder"}
+            </Button>
+          )}
         </div>
       </div>
     </Modal>
