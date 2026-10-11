@@ -89,7 +89,7 @@ export type HeldPost = {
   /**
    * Set when the slot has passed and the platform should have published it
    * already, so "goes live <time>" would be false. `hint` is the line that says
-   * what to do ("Should be live - check YouTube"); `linkLabel` names the link.
+   * what happened ("Its slot passed - YouTube should have published it by now."); `linkLabel` names the link.
    */
   shouldBeLive?: { hint: string; linkLabel: string; platform: "YouTube" | "Facebook" | "Buffer" };
   /** The item in the Uploading Center. */

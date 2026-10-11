@@ -207,7 +207,7 @@ describe("automation dashboard evidence", () => {
     const overview = buildAutomationOverview(input, now);
     expect(overview.shouldBeLive.map((post) => post.id)).toEqual(["gone:youtube", "noid:facebook"]);
     expect(overview.shouldBeLiveTotal).toBe(2);
-    expect(overview.shouldBeLive[0].shouldBeLive).toMatchObject({ hint: "Should be live - check YouTube", linkLabel: "Check YouTube" });
+    expect(overview.shouldBeLive[0].shouldBeLive).toMatchObject({ hint: "Its slot passed - YouTube should have published it by now.", linkLabel: "Check YouTube" });
     expect(overview.shouldBeLive[0].externalUrl).toBe("https://studio.youtube.com/video/abc123/edit");
     expect(overview.shouldBeLive[1].shouldBeLive).toMatchObject({ platform: "Facebook", linkLabel: "Check Facebook" });
     // Inside the grace window, held for review (never goes live by itself) and still ahead stay where they were.

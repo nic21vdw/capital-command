@@ -49,7 +49,7 @@ export function heldPosts(queue: QueueItem[], now: Date = new Date()): HeldPost[
     }
     if (item.buffer?.status === "scheduled") {
       rows.push({ ...base, id: `${item.id}:buffer`, platform: "Buffer", status: "scheduled", goesLiveAt: item.publishAt,
-        ...(slotOverdue(item.publishAt, now) ? { shouldBeLive: { hint: "Should be live - check Buffer", linkLabel: "Check Buffer", platform: "Buffer" as const } } : {}),
+        ...(slotOverdue(item.publishAt, now) ? { shouldBeLive: { hint: "Its slot passed - Buffer should have published it by now.", linkLabel: "Check Buffer", platform: "Buffer" as const } } : {}),
         externalUrl: BUFFER_QUEUE, externalLabel: "Open Buffer" });
     }
   }
