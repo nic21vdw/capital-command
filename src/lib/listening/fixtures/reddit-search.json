@@ -1,0 +1,40 @@
+{
+  "kind": "Listing",
+  "data": {
+    "children": [
+      {
+        "kind": "t3",
+        "data": {
+          "title": "Claude Code worktrees are great but I have too many terminals",
+          "selftext": "Running parallel AI coding agents on three worktrees. Any GUI for this?",
+          "permalink": "/r/ClaudeAI/comments/abc123/claude_code_worktrees_are_great/",
+          "subreddit": "ClaudeAI",
+          "author": "dev_dan",
+          "created_utc": 1791640000
+        }
+      },
+      {
+        "kind": "t3",
+        "data": {
+          "title": "Tired of every AI tool being a subscription - any one-time license AI apps?",
+          "selftext": "",
+          "permalink": "/r/SaaS/comments/def456/tired_of_every_ai_tool/",
+          "subreddit": "SaaS",
+          "author": "frugal_fran",
+          "created_utc": 1791550000
+        }
+      },
+      {
+        "kind": "t3",
+        "data": {
+          "title": "My cat walked across the keyboard",
+          "selftext": "Nothing to do with anything.",
+          "permalink": "/r/cats/comments/ghi789/my_cat/",
+          "subreddit": "cats",
+          "author": "cat_person",
+          "created_utc": 1791550000
+        }
+      }
+    ]
+  }
+}
