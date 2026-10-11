@@ -45,6 +45,7 @@ import type { ChannelCoverage } from "@/lib/ingest/coverage";
 import { MAX_IMAGES_PER_POST } from "@/lib/publisher/images";
 import { useColateralSurface } from "@/lib/colateral/useSurface";
 import { routeLabel } from "@/lib/colateral/routes";
+import { formatSlotDateTime, formatSlotTime } from "@/lib/timeFormat";
 import { cn } from "@/lib/utils";
 import type {
   PipelinePost,
@@ -96,9 +97,9 @@ function formatStartedAt(iso: string) {
   if (Number.isNaN(started.getTime())) return "Unknown date";
   const today = new Date();
   const sameDay = started.toDateString() === today.toDateString();
-  const time = started.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
-  if (sameDay) return `Today ${time}`;
-  return `${started.toLocaleDateString(undefined, { month: "short", day: "numeric" })} ${time}`;
+  // A run starts on this machine, so it reads in the browser's own zone (no zone passed), in the house 12-hour style.
+  if (sameDay) return `Today ${formatSlotTime(started)}`;
+  return formatSlotDateTime(started);
 }
 
 function Spinner() {

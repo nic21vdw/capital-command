@@ -844,7 +844,7 @@ function BlockedNotice({ status }: { status: AutopilotProps["status"] }) {
       {noAccount ? (
         <>
           No Threads account is connected, so nothing goes out yet. Add the access token in{" "}
-          <Link href={ACCOUNTS_HREF} className="font-medium underline">
+          <Link href={ACCOUNTS_HREF} className="font-medium underline max-sm:inline-flex max-sm:min-h-10 max-sm:items-center">
             Settings &gt; Accounts
           </Link>
           .
@@ -876,7 +876,7 @@ function TomorrowBanner({ status, onReview }: { status: AutopilotProps["status"]
           {!status.paused && !status.blockedReason && status.settings.accounts.length === 0 ? (
             <>
               They will go out once Threads is connected in{" "}
-              <Link href={ACCOUNTS_HREF} className="font-medium text-[var(--accent)] underline">
+              <Link href={ACCOUNTS_HREF} className="font-medium text-[var(--accent)] underline max-sm:inline-flex max-sm:min-h-10 max-sm:items-center">
                 Settings &gt; Accounts
               </Link>
               ; edit or remove any before then.
@@ -1015,7 +1015,7 @@ function AddPostCard({ status, busy, send }: AutopilotProps) {
           {status && status.settings.accounts.length === 0 ? (
             <>
               Connect a Threads account in{" "}
-              <Link href={ACCOUNTS_HREF} className="font-medium underline">
+              <Link href={ACCOUNTS_HREF} className="font-medium underline max-sm:inline-flex max-sm:min-h-10 max-sm:items-center">
                 Settings &gt; Accounts
               </Link>{" "}
               first.
@@ -1107,7 +1107,7 @@ function AutopilotTab({
                 key={date}
                 onClick={() => setSelected(date)}
                 className={cn(
-                  "rounded-full border px-3 py-1 text-xs font-medium transition",
+                  "rounded-full border px-3 py-1 text-xs font-medium transition max-sm:min-h-10",
                   date === active
                     ? "border-[var(--accent)] bg-[var(--accent)]/15 text-white"
                     : "border-[var(--border)] text-[var(--muted-foreground)] hover:text-white"
@@ -1173,6 +1173,7 @@ function AutopilotTab({
             {item.status === "pending" ? (
               <Input
                 type="datetime-local"
+                aria-label={`Post time for post ${postNumbers.get(item.id) ?? item.slot}`}
                 defaultValue={toZonedInput(item.publishAt, zone)}
                 onBlur={(event) => {
                   const next = fromZonedInput(event.target.value, zone);
@@ -1198,7 +1199,7 @@ function AutopilotTab({
                 href={`https://www.threads.com/@${handle}`}
                 target="_blank"
                 rel="noreferrer"
-                className="text-xs text-[var(--accent)] underline"
+                className="text-xs text-[var(--accent)] underline max-sm:inline-flex max-sm:min-h-10 max-sm:items-center"
               >
                 view on Threads
               </a>

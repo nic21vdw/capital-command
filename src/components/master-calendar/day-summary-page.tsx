@@ -112,7 +112,7 @@ function StateChips({ states, className }: { states: Record<SummaryState, number
       {shown.map((state) => {
         const Icon = STATE_ICONS[state];
         return (
-          <Badge key={state} tone={STATE_TONES[state]} className="gap-1">
+          <Badge key={state} tone={STATE_TONES[state]} className="gap-1 whitespace-nowrap">
             <Icon className="h-3 w-3" />
             {states[state]} {STATE_LABELS[state].toLowerCase()}
           </Badge>
@@ -133,7 +133,7 @@ function LegStatusLines({ lines, mixed }: { lines: LegGroupLine[]; mixed: boolea
     mixed ? line.kind !== "failed" : line.kind === "needsConnection" || line.kind === "overdue" || line.kind === "shouldBeLive"
   );
   if (shown.length === 0) return null;
-  const link = "inline-flex items-center gap-0.5 whitespace-nowrap font-medium text-[var(--accent)] hover:underline";
+  const link = "inline-flex items-center gap-0.5 whitespace-nowrap font-medium text-[var(--accent)] hover:underline max-sm:min-h-10";
   return (
     <ul className="relative z-10 mt-1.5 space-y-1">
       {shown.map((line) => {
@@ -240,7 +240,7 @@ function PieceCard({ event, cachedStat }: { event: MasterCalendarEvent; cachedSt
                     <span className="font-medium">{failure.platform}: </span>
                   )}
                   {failure.reason}{" "}
-                  <Link href={failure.href} className="inline-flex items-center gap-0.5 whitespace-nowrap font-medium text-[var(--accent)] hover:underline">
+                  <Link href={failure.href} className="inline-flex items-center gap-0.5 whitespace-nowrap font-medium text-[var(--accent)] hover:underline max-sm:min-h-10">
                     {failure.fixLabel ??
                       (event.failures!.length > 1 ? `Fix ${failure.platform} in Uploading Center` : "Fix in Uploading Center")}
                     <ArrowUpRight className="h-3 w-3" />
@@ -274,7 +274,7 @@ function PieceCard({ event, cachedStat }: { event: MasterCalendarEvent; cachedSt
                 href={link.url}
                 target="_blank"
                 rel="noreferrer"
-                className="inline-flex items-center gap-1 text-xs text-[var(--accent)] hover:underline"
+                className="inline-flex items-center gap-1 text-xs text-[var(--accent)] hover:underline max-sm:min-h-10"
               >
                 Open on {link.platform}
                 <ExternalLink className="h-3 w-3" />
@@ -285,7 +285,7 @@ function PieceCard({ event, cachedStat }: { event: MasterCalendarEvent; cachedSt
                 href={studioAnalyticsUrl(youtube.videoId)}
                 target="_blank"
                 rel="noreferrer"
-                className="inline-flex items-center gap-1 text-xs text-[var(--accent)] hover:underline"
+                className="inline-flex items-center gap-1 text-xs text-[var(--accent)] hover:underline max-sm:min-h-10"
               >
                 Analytics in Studio
                 <ExternalLink className="h-3 w-3" />
@@ -331,13 +331,13 @@ function ByHandTodos({ todos }: { todos: DaySummary["todos"] }) {
                 href={todo.fileUrl}
                 target="_blank"
                 rel="noreferrer"
-                className="inline-flex items-center gap-1 text-xs text-[var(--accent)] hover:underline"
+                className="inline-flex items-center gap-1 text-xs text-[var(--accent)] hover:underline max-sm:min-h-10"
               >
                 Open slides
                 <ExternalLink className="h-3 w-3" />
               </a>
             ) : null}
-            <Link href={todo.href} className="inline-flex items-center gap-1 text-xs text-[var(--accent)] hover:underline">
+            <Link href={todo.href} className="inline-flex items-center gap-1 text-xs text-[var(--accent)] hover:underline max-sm:min-h-10">
               Open the post
               <ArrowUpRight className="h-3 w-3" />
             </Link>
@@ -374,7 +374,7 @@ function SourceSection({
         </div>
         <Link
           href={sourceHrefForDay(source.id, dateKey)}
-          className="flex shrink-0 items-center gap-1 rounded-lg border border-[var(--border)] px-2.5 py-1.5 text-xs font-medium text-[var(--muted-foreground)] transition hover:bg-white/10 hover:text-white max-sm:min-h-10"
+          className="flex shrink-0 items-center gap-1 rounded-lg border border-[var(--border)] px-2.5 py-1.5 text-xs font-medium text-[var(--muted-foreground)] transition hover:bg-white/10 hover:text-white max-sm:min-h-10 max-sm:w-full max-sm:justify-center"
         >
           Manage in {source.hrefLabel}
           <ArrowUpRight className="h-3 w-3" />
@@ -442,7 +442,7 @@ function YoutubeDayStrip({
           {status === "not-connected" ? (
             <>
               {" "}
-              <Link href="/settings#accounts" className="text-[var(--accent)] hover:underline">
+              <Link href="/settings#accounts" className="text-[var(--accent)] hover:underline max-sm:inline-flex max-sm:min-h-10 max-sm:items-center">
                 Connect YouTube to see views here
               </Link>
             </>

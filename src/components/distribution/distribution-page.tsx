@@ -936,7 +936,7 @@ function OutputCard({
             <p className="text-[11px] text-amber-300/90">
               {need.reason.charAt(0).toUpperCase() + need.reason.slice(1)}
               {/[.\u2026]$/.test(need.reason) ? "" : "."}{" "}
-              <Link href={need.href} className="underline underline-offset-2 hover:text-amber-200">
+              <Link href={need.href} className="underline underline-offset-2 hover:text-amber-200 max-sm:inline-flex max-sm:min-h-10 max-sm:items-center">
                 Open {need.hrefLabel}
               </Link>
             </p>

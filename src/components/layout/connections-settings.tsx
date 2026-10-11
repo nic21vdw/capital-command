@@ -170,7 +170,7 @@ function YoutubeConsoleSteps({ redirectUri }: { redirectUri: string | undefined 
           href={YOUTUBE_CONSOLE_URL}
           target="_blank"
           rel="noopener"
-          className="inline-flex items-center gap-1 rounded-lg px-3 py-2 text-sm font-medium text-[var(--accent)] hover:underline"
+          className="inline-flex items-center gap-1 rounded-lg px-3 py-2 text-sm font-medium text-[var(--accent)] hover:underline max-sm:min-h-10"
         >
           Open Google Cloud console <ExternalLink className="h-3.5 w-3.5" aria-hidden="true" />
         </a>
@@ -539,7 +539,7 @@ export function ConnectionsSettings() {
                   </div>
                   {connection.fields.some((field) => field.optional) ? (
                     <details className="mt-4 text-sm text-[var(--muted-foreground)]">
-                      <summary className="cursor-pointer text-white/90">Optional fields</summary>
+                      <summary className="cursor-pointer text-white/90 max-sm:flex max-sm:min-h-10 max-sm:items-center">Optional fields</summary>
                       <div className="mt-3 grid gap-3 sm:grid-cols-2">
                         {connection.fields.filter((field) => field.optional).map((field) => (
                           <FieldInput key={field.name} field={field} state={state} drafts={drafts} setDrafts={setDrafts} />
@@ -562,12 +562,12 @@ export function ConnectionsSettings() {
                       </a>
                     ) : null}
                     {connection.console ? (
-                      <a href={connection.console} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 px-2 py-2 text-xs text-[var(--accent)] hover:underline">
+                      <a href={connection.console} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 px-2 py-2 text-xs text-[var(--accent)] hover:underline max-sm:min-h-10">
                         Find credentials <ExternalLink className="h-3.5 w-3.5" aria-hidden="true" />
                       </a>
                     ) : null}
                     {connection.more ? (
-                      <Link href={connection.more.href} className="inline-flex items-center gap-1 px-2 py-2 text-xs text-[var(--accent)] hover:underline">
+                      <Link href={connection.more.href} className="inline-flex items-center gap-1 px-2 py-2 text-xs text-[var(--accent)] hover:underline max-sm:min-h-10">
                         {connection.more.label} <ArrowRight className="h-3.5 w-3.5" aria-hidden="true" />
                       </Link>
                     ) : null}

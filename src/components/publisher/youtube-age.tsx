@@ -12,7 +12,7 @@ export function YoutubeAge({ status, fetchedAt, now }: { status: YoutubeStatsSta
       {connect ? (
         <>
           {" - "}
-          <Link href="/settings#accounts" className="text-[var(--accent)] hover:underline">
+          <Link href="/settings#accounts" className="text-[var(--accent)] hover:underline max-sm:inline-flex max-sm:min-h-10 max-sm:items-center">
             {CONNECT_TO_REFRESH}
           </Link>
         </>

@@ -1882,4 +1882,13 @@ html[data-host-backdrop="clear"]:not([data-surface="classic"]):not([data-glass="
 }
 .app-toaster [data-sonner-toast] [data-cancel] + [data-button] {
   margin-left: 0;
+ * The Remotion player draws its own control bar (not a native <video controls>),
+ * with inline-styled buttons 16-25px wide. On a phone each one is a 40px target;
+ * !important is the only way past an inline style.
+ */
+@media (max-width: 639px) {
+  .deck-player button {
+    min-width: 40px !important;
+    min-height: 40px !important;
+  }
 }

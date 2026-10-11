@@ -117,7 +117,7 @@ function EventChip({ event }: { event: MasterCalendarEvent }) {
       href={eventHref(event)}
       title={`${event.time ? `${formatClockTime(event.time)} · ` : ""}${event.title}${eventNote(event)} — open ${source.hrefLabel}`}
       className={cn(
-        "flex items-start gap-1.5 rounded-md px-1.5 py-1 text-[11px] leading-tight transition hover:translate-x-0.5 hover:bg-white/10",
+        "flex items-start gap-1.5 rounded-md px-1.5 py-1 text-[11px] leading-tight transition hover:translate-x-0.5 hover:bg-white/10 max-sm:min-h-10",
         reminder ? "border border-dashed border-[var(--border-strong)] bg-transparent opacity-80" : "border-l-2 bg-white/5"
       )}
       style={reminder ? undefined : { borderLeftColor: source.color }}
@@ -157,7 +157,7 @@ function SourceGroupChip({ source, events }: { source: CalendarSource; events: M
         <Link
           href={sourceHrefForDay(source.id, events[0].dateKey)}
           title={`Open ${source.hrefLabel}`}
-          className="flex min-w-0 flex-1 items-center gap-1.5 px-1.5 py-1 transition hover:bg-white/10"
+          className="flex min-w-0 flex-1 items-center gap-1.5 px-1.5 py-1 transition hover:bg-white/10 max-sm:min-h-10"
         >
           <SourceIcon source={source.id} className="h-3 w-3" />
           <span className="shrink-0 font-semibold text-white">{events.length}</span>
@@ -169,7 +169,7 @@ function SourceGroupChip({ source, events }: { source: CalendarSource; events: M
           aria-expanded={open}
           aria-label={open ? `Collapse ${source.shortLabel}` : `Show ${events.length} ${source.shortLabel}`}
           title={open ? `Collapse ${source.shortLabel}` : `Show ${events.length} ${source.shortLabel}`}
-          className="shrink-0 px-1 py-1 text-[var(--muted-foreground)] transition hover:text-white"
+          className="shrink-0 px-1 py-1 text-[var(--muted-foreground)] transition hover:text-white max-sm:flex max-sm:min-h-10 max-sm:min-w-10 max-sm:items-center max-sm:justify-center"
         >
           <ChevronRight className={cn("h-3 w-3 transition", open && "rotate-90")} />
         </button>
@@ -754,7 +754,7 @@ function MasterCalendarBody({ todayKey, seed }: { todayKey: string; seed: Master
                 <Link
                   href={failedHref}
                   title={`${failedCount} ${failedCount === 1 ? "post" : "posts"} failed or partly failed in this view; open ${failedHref === "/x-posts" ? "Threads Autopilot" : "the Uploading Center"} to retry`}
-                  className="inline-flex"
+                  className="inline-flex items-center max-sm:min-h-10"
                 >
                   <Badge tone="danger" className="gap-1 text-[10px]">
                     <AlertTriangle className="h-3 w-3" />
@@ -828,7 +828,7 @@ function MasterCalendarBody({ todayKey, seed }: { todayKey: string; seed: Master
                         onClick={() => openDay(dateKey)}
                         title="Open day view"
                         className={cn(
-                          "flex h-6 w-6 items-center justify-center rounded-full text-xs transition hover:bg-white/10",
+                          "flex h-6 w-6 items-center justify-center rounded-full text-xs transition hover:bg-white/10 max-sm:h-10 max-sm:w-10",
                           isToday
                             ? "bg-[var(--accent)] font-semibold text-[var(--accent-contrast)] shadow-[0_0_10px_color-mix(in_srgb,var(--accent)_50%,transparent)]"
                             : "text-[var(--muted-foreground)] hover:text-white"
@@ -845,7 +845,7 @@ function MasterCalendarBody({ todayKey, seed }: { todayKey: string; seed: Master
                             type="button"
                             onClick={() => openDay(dateKey)}
                             title={`${sourceEvents.length} ${source.shortLabel} — open day`}
-                            className="flex w-full items-center gap-1.5 rounded-md border-l-2 bg-white/5 px-1.5 py-1 text-[11px] leading-tight transition hover:bg-white/10"
+                            className="flex w-full items-center gap-1.5 rounded-md border-l-2 bg-white/5 px-1.5 py-1 text-[11px] leading-tight transition hover:bg-white/10 max-sm:min-h-10"
                             style={{ borderLeftColor: source.color }}
                           >
                             <SourceIcon source={source.id} className="h-3 w-3" />

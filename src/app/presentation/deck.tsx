@@ -315,7 +315,7 @@ export const PresentationDeck: React.FC = () => {
               in, so switching segments reads as a transition, not a swap */}
           <div
             key={`${project.id}:${slide.id}`}
-            className="panel-enter flex items-center justify-center overflow-hidden rounded-xl border border-[var(--border)] bg-black/60 p-3"
+            className="panel-enter deck-player flex items-center justify-center overflow-hidden rounded-xl border border-[var(--border)] bg-black/60 p-3"
           >
             <Player
               // key remounts the player on project/slide change -> restarts + autoplays

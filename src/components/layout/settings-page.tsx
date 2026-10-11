@@ -110,7 +110,7 @@ export function SettingsPage() {
               <span className="block font-medium">Allow video and picture posting</span>
               <span className="mt-1 block text-xs text-[var(--muted-foreground)]">
                 When off, nothing new can be booked and the publisher sends nothing. Threads and the podcast have their own Pause on{" "}
-                <Link href="/automations" className="font-medium text-[var(--accent)] underline-offset-2 hover:underline">Automations</Link>.
+                <Link href="/automations" className="font-medium text-[var(--accent)] underline-offset-2 hover:underline max-sm:inline-flex max-sm:min-h-10 max-sm:items-center">Automations</Link>.
                 Posts YouTube or Facebook already hold still go live.
               </span>
             </span>
@@ -208,8 +208,8 @@ export function SettingsPage() {
             </summary>
             <p className="mt-4 text-sm text-[var(--muted-foreground)]">Download a copy of your app data.</p>
             <div className="mt-3 flex flex-wrap gap-2">
-              <a href="/api/data?format=json" className="inline-flex rounded-lg bg-[var(--accent)] px-4 py-2 text-sm font-medium text-[var(--accent-contrast)] hover:bg-[var(--accent-strong)]">Export JSON</a>
-              <a href="/api/data?format=csv" className="inline-flex rounded-lg border border-[var(--border)] bg-white/5 px-4 py-2 text-sm font-medium text-white hover:bg-white/10">Export CSV</a>
+              <a href="/api/data?format=json" className="inline-flex items-center rounded-lg bg-[var(--accent)] px-4 py-2 text-sm font-medium text-[var(--accent-contrast)] hover:bg-[var(--accent-strong)] max-sm:min-h-10">Export JSON</a>
+              <a href="/api/data?format=csv" className="inline-flex items-center rounded-lg border border-[var(--border)] bg-white/5 px-4 py-2 text-sm font-medium text-white hover:bg-white/10 max-sm:min-h-10">Export CSV</a>
             </div>
             <div className="mt-5 border-t border-[var(--border)] pt-4">
               <p className="text-sm font-medium text-red-200">Reset data</p>

@@ -458,6 +458,7 @@ export function ClipCard({
                 if (event.key === "Enter") event.currentTarget.blur();
               }}
               placeholder="Title"
+              aria-label="Post title"
               className="field-sizing-content min-h-9 min-w-0 flex-1 resize-none py-2"
             />
           </div>
@@ -522,6 +523,7 @@ export function ClipCard({
                 ) : null}
               </div>
               <Textarea
+                aria-label="Caption"
                 value={draft.caption}
                 onChange={(event) => onDraftChange({ ...draft, caption: event.target.value })}
                 placeholder={

@@ -26,6 +26,7 @@ import { readJson, useOutlierRadar, type RadarState } from "@/components/outlier
 import { channelGroupOptions, DEFAULT_COMPETITION_GROUP, normalizeGroupLabel } from "@/lib/youtube/competitor-trends";
 import { useColateralSurface } from "@/lib/colateral/useSurface";
 import { cn } from "@/lib/utils";
+import { formatSlotDateTime } from "@/lib/timeFormat";
 import {
   buildOutlierInsights,
   formatDurationSeconds,
@@ -50,7 +51,8 @@ function formatCount(value: number): string {
 
 function formatDate(iso: string | null | undefined): string {
   if (!iso) return "—";
-  return new Date(iso).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+  // When a video went up is read in the viewer's own zone, in the house 12-hour style.
+  return formatSlotDateTime(iso);
 }
 
 function formatDay(iso: string): string {
@@ -356,6 +358,7 @@ export function OutliersPage() {
             <Input
               value={channelInput}
               onChange={(event) => setChannelInput(event.target.value)}
+              aria-label="Channel to add"
               placeholder="Channel URL, @handle, or UC… channel id"
               disabled={adding}
             />
