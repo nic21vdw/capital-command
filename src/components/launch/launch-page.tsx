@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Check, Copy, Loader2, Plus, RefreshCw, Rocket, Trash2, TriangleAlert } from "lucide-react";
+import { Check, Copy, ExternalLink, Loader2, Plus, RefreshCw, Rocket, Trash2, TriangleAlert } from "lucide-react";
 import { toast } from "sonner";
 import { useAppData } from "@/components/providers/app-provider";
 import { Badge, type BadgeTone } from "@/components/ui/badge";
@@ -16,6 +16,7 @@ import { useColateralSurface } from "@/lib/colateral/useSurface";
 import { todayLocal } from "@/lib/execution/dates";
 import { buildLaunchPlan } from "@/lib/launch/playbook";
 import { cn } from "@/lib/utils";
+import type { LaunchTask } from "@/lib/launch/types";
 import type { LaunchCopy, LaunchStats, LaunchStatus, ProductLaunch } from "@/types/domain";
 
 type EditableField = "product" | "productUrl" | "hunter" | "slug" | "notes";
@@ -73,6 +74,54 @@ function CopyBlock({ label, value, hint }: { label: string; value: string; hint?
         {value}
       </p>
       {hint ? <p className="mt-1.5 text-xs text-[var(--muted-foreground)]">{hint}</p> : null}
+    </div>
+  );
+}
+
+/** One checklist row. Directory tasks also carry the link to where the submission happens. */
+function TaskRow({ task, onToggle }: { task: LaunchTask; onToggle: () => void }) {
+  return (
+    <div
+      className={cn(
+        "flex w-full gap-3 rounded-lg border transition-colors",
+        task.done
+          ? "tone-success tone-edge tone-soft"
+          : task.overdue
+            ? "tone-warning tone-edge tone-soft hover:border-[color-mix(in_srgb,var(--warning)_50%,transparent)]"
+            : "border-[var(--border)] bg-[var(--surface-2)] hover:border-[var(--border-strong)]"
+      )}
+    >
+      <button type="button" onClick={onToggle} className="flex min-w-0 flex-1 gap-3 p-3 text-left">
+        <span
+          className={cn(
+            "mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded border",
+            task.done ? "tone-success tone-edge tone-soft tone-text" : "border-white/20"
+          )}
+        >
+          {task.done ? <Check className="h-3.5 w-3.5" /> : null}
+        </span>
+        <span className="min-w-0 flex-1">
+          <span className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
+            <span className={cn("text-sm font-medium", task.done ? "text-[var(--muted-foreground)] line-through" : "text-white")}>
+              {task.label}
+            </span>
+            <span className="text-xs text-[var(--muted-foreground)]">{task.dueDate}</span>
+            {task.overdue ? <Badge tone="warning">Overdue</Badge> : null}
+          </span>
+          <span className="mt-1 block text-sm text-[var(--muted-foreground)]">{task.detail}</span>
+        </span>
+      </button>
+      {task.url ? (
+        <a
+          href={task.url}
+          target="_blank"
+          rel="noreferrer"
+          aria-label={`Open ${task.label} in a new tab`}
+          className="flex shrink-0 items-start p-3 text-[var(--muted-foreground)] transition-colors hover:text-white"
+        >
+          <ExternalLink className="h-4 w-4" />
+        </a>
+      ) : null}
     </div>
   );
 }
@@ -236,6 +285,10 @@ export function LaunchPage() {
       { label: "Days until launch", value: plan ? daysLabel(plan.daysUntilLaunch) : "—" },
       { label: "Playbook progress", value: plan ? `${plan.completed}/${plan.total}` : "—" },
       { label: "Overdue tasks", value: plan ? String(plan.overdueCount) : "—" },
+      {
+        label: "Directory submissions",
+        value: plan ? `${plan.directories.filter((task) => task.done).length}/${plan.directories.length} submitted` : "—"
+      },
       { label: "Product Hunt votes", value: selected?.stats ? `${selected.stats.votes} votes` : "No stats read yet" }
     ],
     setField: (id, value) => {
@@ -464,7 +517,7 @@ export function LaunchPage() {
                 <span className="text-xs font-medium uppercase tracking-wider text-[var(--muted-foreground)]">Who it is for</span>
                 <Textarea
                   className="mt-1.5 min-h-20"
-                  placeholder="Structural engineers at small consultancies"
+                  placeholder="Developers running Claude Code, Codex and Gemini in a pile of terminals"
                   value={brief.audience}
                   onChange={(event) => setBrief((current) => ({ ...current, audience: event.target.value }))}
                 />
@@ -473,7 +526,7 @@ export function LaunchPage() {
                 <span className="text-xs font-medium uppercase tracking-wider text-[var(--muted-foreground)]">What it does</span>
                 <Textarea
                   className="mt-1.5 min-h-20"
-                  placeholder="Turns a set of drawings into a checked design package"
+                  placeholder="Runs every coding agent side by side on one canvas, on your own AI subscriptions"
                   value={brief.whatItDoes}
                   onChange={(event) => setBrief((current) => ({ ...current, whatItDoes: event.target.value }))}
                 />
@@ -484,7 +537,7 @@ export function LaunchPage() {
                 </span>
                 <Textarea
                   className="mt-1.5 min-h-20"
-                  placeholder="Built by a practising engineer, not a generic AI wrapper"
+                  placeholder="The all-in-one agentic workspace: bring your own subscriptions, pay once"
                   value={brief.differentiator}
                   onChange={(event) => setBrief((current) => ({ ...current, differentiator: event.target.value }))}
                 />
@@ -552,43 +605,36 @@ export function LaunchPage() {
                   <p className="text-xs font-medium uppercase tracking-wider text-[var(--muted-foreground)]">{group.title}</p>
                   <div className="mt-2 space-y-2">
                     {group.tasks.map((task) => (
-                      <button
+                      <TaskRow
                         key={task.id}
-                        type="button"
-                        onClick={() =>
-                          void mutate("toggleLaunchTask", { launchId: selected.id, taskId: task.id, done: !task.done })
-                        }
-                        className={cn(
-                          "flex w-full gap-3 rounded-lg border p-3 text-left transition-colors",
-                          task.done
-                            ? "tone-success tone-edge tone-soft"
-                            : task.overdue
-                              ? "tone-warning tone-edge tone-soft hover:border-[color-mix(in_srgb,var(--warning)_50%,transparent)]"
-                              : "border-[var(--border)] bg-[var(--surface-2)] hover:border-[var(--border-strong)]"
-                        )}
-                      >
-                        <span
-                          className={cn(
-                            "mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded border",
-                            task.done ? "tone-success tone-edge tone-soft tone-text" : "border-white/20"
-                          )}
-                        >
-                          {task.done ? <Check className="h-3.5 w-3.5" /> : null}
-                        </span>
-                        <span className="min-w-0 flex-1">
-                          <span className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
-                            <span className={cn("text-sm font-medium", task.done ? "text-[var(--muted-foreground)] line-through" : "text-white")}>
-                              {task.label}
-                            </span>
-                            <span className="text-xs text-[var(--muted-foreground)]">{task.dueDate}</span>
-                            {task.overdue ? <Badge tone="warning">Overdue</Badge> : null}
-                          </span>
-                          <span className="mt-1 block text-sm text-[var(--muted-foreground)]">{task.detail}</span>
-                        </span>
-                      </button>
+                        task={task}
+                        onToggle={() => void mutate("toggleLaunchTask", { launchId: selected.id, taskId: task.id, done: !task.done })}
+                      />
                     ))}
                   </div>
                 </div>
+              ))}
+            </div>
+          </Card>
+
+          <Card>
+            <div className="flex flex-wrap items-baseline justify-between gap-2">
+              <h2 className="text-lg font-semibold text-white">Directory submissions</h2>
+              <p className="text-sm text-[var(--muted-foreground)]">
+                {plan.directories.filter((task) => task.done).length}/{plan.directories.length} submitted
+              </p>
+            </div>
+            <p className="mt-1 text-sm text-[var(--muted-foreground)]">
+              The directories and communities around the Product Hunt launch, each dated off {selected.launchDate}. Requirements
+              and prices change, so treat each note as what to have ready and the site&apos;s own form as the rules.
+            </p>
+            <div className="mt-4 space-y-2">
+              {plan.directories.map((task) => (
+                <TaskRow
+                  key={task.id}
+                  task={task}
+                  onToggle={() => void mutate("toggleLaunchTask", { launchId: selected.id, taskId: task.id, done: !task.done })}
+                />
               ))}
             </div>
           </Card>

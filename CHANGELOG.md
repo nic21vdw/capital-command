@@ -14,6 +14,12 @@ already shipped.
 
 ## Unreleased
 
+- New **Outreach** page (Studio): keep a list of the creators, newsletters and podcasts you want to offer CoLateral to, filter it by where each conversation stands, see who is due a follow-up and whether you are on pace for 5-10 contacts a week, and copy a message personalised with their name and recent video. Paste a JSON list on the page or run `npm run outreach:import -- <file>` to bring in researched contacts; duplicates are merged by url and nothing you wrote is overwritten. It is a tracker only - it never sends anything.
+
+- New **Listening** page (Studio): press **Scan now** to find the last week's Hacker News and Reddit threads where people describe juggling coding agents, look for a Cursor or Warp alternative, or complain about AI subscriptions. Mark each one replied or ignored with a note, edit the keyword groups, and follow the reply checklist on the page. If Reddit or Hacker News refuses the scan, the page says so instead of quietly showing nothing. `npm run listening:scan` runs the same scan from a terminal.
+
+- Launch Pad now has a **Directory submissions** checklist next to the Product Hunt playbook: BetaList, DevHunt, Uneed, AlternativeTo, There's An AI For That, Futurepedia, Show HN and Peerlist, each dated off your launch day with a link and what to have ready. Launches you already planned keep their progress.
+
 - Marketing stops refreshing the pipeline screen and stream list while its window is hidden, refreshes as soon as you return, and recovers from a stalled server read without requiring a reload. Background automation and taskbar alerts keep running.
 
 ## 2026-10-04
