@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { PageHeader } from "@/components/ui/page-header";
 import { AutomationHistoryPanel } from "@/components/automations/automation-history";
 import { describeTaskResult } from "@/lib/automations/format";
+import { orderWarnings } from "@/lib/automations/warnings";
 import { useColateralSurface } from "@/lib/colateral/useSurface";
 import type { AutomationCard, AutomationId, AutomationOverview, CadenceRow, HeldPost } from "@/lib/automations/types";
 import { cn } from "@/lib/utils";
@@ -49,9 +50,9 @@ function KeepAwake() {
   return (
     <details className="mt-4 rounded-xl border border-[var(--border)] p-3 text-xs text-[var(--muted-foreground)]">
       <summary className="flex cursor-pointer items-center gap-2 font-medium text-white"><Moon className="h-3.5 w-3.5 text-[var(--accent)]" />Keep this PC awake</summary>
-      <p className="mt-2">A sleeping PC posts nothing, and the failure is silent: the night&apos;s slots are simply missed. The scheduled task cannot wake the machine itself. To keep it awake (the screen can still turn off), run these once in PowerShell:</p>
+      <p className="mt-2">A sleeping PC posts nothing, and the failure is silent: the night&apos;s slots are simply missed. The background runner cannot wake the machine itself. To keep it awake (the screen can still turn off), run these once in PowerShell:</p>
       <ul className="mt-2 space-y-1">{KEEP_AWAKE.map((command) => <li key={command}><CopyCommand text={command} /></li>)}</ul>
-      <p className="mt-2">The task also only runs while you are logged on unless it was registered from an Administrator PowerShell.</p>
+      <p className="mt-2">The runner also only works while you are signed in to Windows, unless it was installed from an Administrator PowerShell.</p>
     </details>
   );
 }
@@ -64,15 +65,16 @@ function Warning({ text }: { text: string }) {
 }
 
 function WarningList({ warnings }: { warnings: string[] }) {
-  const shown = warnings.slice(0, VISIBLE_WARNINGS);
-  const rest = warnings.slice(VISIBLE_WARNINGS);
+  const ordered = orderWarnings(warnings);
+  const shown = ordered.slice(0, VISIBLE_WARNINGS);
+  const rest = ordered.slice(VISIBLE_WARNINGS);
   return (
     <div className="mt-4 space-y-2 rounded-xl border border-amber-500/20 bg-amber-500/5 p-3 text-sm text-amber-200">
       {shown.map((warning, index) => <Warning key={`${index}-${warning}`} text={warning} />)}
       {rest.length > 0 && (
         <details className="group">
           <summary className="cursor-pointer text-xs font-medium text-amber-300 hover:text-amber-100">
-            <span className="group-open:hidden">+{rest.length} more</span>
+            <span className="group-open:hidden">Show {rest.length} more {rest.length === 1 ? "warning" : "warnings"}</span>
             <span className="hidden group-open:inline">Show fewer</span>
           </summary>
           <div className="mt-2 space-y-2">
@@ -116,14 +118,14 @@ function AutomationPanel({ card, busy, stale, onPause }: {
         <div><dt className="text-xs text-[var(--muted-foreground)]">Last ran</dt><dd className="mt-1 text-white">{at(card.lastRunAt, card.timezone)}</dd></div>
         <div><dt className="text-xs text-[var(--muted-foreground)]">Last outcome</dt><dd className="mt-1 text-white">{card.lastOutcome ?? "Nothing recorded yet"}</dd></div>
       </dl>
-      {card.taskLastRunAt && <p className="mt-3 text-xs text-[var(--muted-foreground)]">Windows task last started {at(card.taskLastRunAt, card.timezone)} and <span title={`Scheduler result code: ${card.taskLastResult ?? "none"}`} className="underline decoration-dotted underline-offset-2">{describeTaskResult(card.taskLastResult)}</span>. That does not confirm a post went out; the history below does.</p>}
+      {card.taskLastRunAt && <p className="mt-3 text-xs text-[var(--muted-foreground)]">The background runner last started {at(card.taskLastRunAt, card.timezone)} and <span title={`Windows result code: ${card.taskLastResult ?? "none"}`} className="underline decoration-dotted underline-offset-2">{describeTaskResult(card.taskLastResult)}</span>. That does not confirm a post went out; the history below does.</p>}
       {(card.blockers.length > 0 || card.issues.length > 0) && (
         <WarningList warnings={[...card.blockers, ...card.issues]} />
       )}
       {missingTask && card.registerCommand && <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-[var(--muted-foreground)]"><span>To install it, run in the app folder:</span><CopyCommand text={card.registerCommand} /></div>}
       {(card.id === "publisher" || card.id === "threads") && <KeepAwake />}
       {card.id === "pipeline" && <p className="mt-4 text-xs text-[var(--muted-foreground)]">Pause stops all stream processing: advancing outputs and fulfilling standing schedules, not only auto-booking.</p>}
-      {card.id === "publisher" && <p className="mt-4 text-xs text-[var(--muted-foreground)]">Pause stops future worker actions. Posts already scheduled with a platform or Buffer can still go live; manage those posts on the platform. Explicit per-post Publish now remains available.</p>}
+      {card.id === "publisher" && <p className="mt-4 text-xs text-[var(--muted-foreground)]">Pause stops anything new from being sent. Posts already scheduled with a platform or Buffer can still go live; manage those posts on the platform. Explicit per-post Publish now remains available.</p>}
       {card.id === "podcast" && <p className="mt-4 text-xs text-[var(--muted-foreground)]">An episode in the feed has been handed off. Spotify decides when it becomes live; check its delivery on Podcast / Spotify.</p>}
       <div className="mt-4 flex flex-wrap items-center justify-between gap-2 text-xs">
         <span className="text-[var(--muted-foreground)]">{card.changedAt ? `Control saved ${at(card.changedAt, card.timezone)}` : "No pause override saved"}</span>
@@ -159,7 +161,7 @@ function CadencePanel({ rows }: { rows: CadenceRow[] }) {
   return (
     <section className="mt-5 rounded-xl border border-[var(--border)] bg-[var(--card)] p-4" aria-labelledby="cadence-title">
       <h2 id="cadence-title" className="font-semibold text-white">Cadence</h2>
-      <p className="mt-1 max-w-3xl text-sm text-[var(--muted-foreground)]">When and how often things post. Read-only here: change a value in the app&apos;s <code className="rounded bg-black/30 px-1">.env</code> file using the name shown, then restart the app.</p>
+      <p className="mt-1 max-w-3xl text-sm text-[var(--muted-foreground)]">When and how often things post. Read-only here: these come from settings in the app&apos;s <code className="rounded bg-black/30 px-1">.env</code> file (advanced). To change one, edit the setting named beside it, then restart the app.</p>
       <dl className="mt-3 grid gap-x-6 gap-y-3 sm:grid-cols-2">
         {rows.map((row) => (
           <div key={row.env}>
@@ -259,7 +261,7 @@ export function AutomationsPage() {
   useColateralSurface({
     route: "/automations",
     title: "Automations",
-    summary: "Background workers that publish for you: which are paused, what failed or posted today, and what the platforms still hold.",
+    summary: "Background jobs that publish for you: which are paused, what failed or posted today, and what the platforms still hold.",
     fields: [],
     controls: [],
     readings: [
@@ -273,9 +275,9 @@ export function AutomationsPage() {
 
   return (
     <div className="mx-auto max-w-6xl p-4 sm:p-6">
-      <PageHeader eyebrow="CoLateral Marketing" title="Automations" description="See what runs in the background, when it runs, what happened last and what needs fixing. Pause controls are saved and read by the workers." actions={<Button variant="secondary" onClick={() => void load()} disabled={refreshing || busy !== null}><RefreshCw className={cn("mr-2 h-4 w-4", refreshing && "animate-spin")} />Refresh</Button>} />
-      {error && <div role="alert" className="mb-5 rounded-xl border border-amber-500/30 bg-amber-500/10 p-4 text-sm text-amber-200">Status is unavailable: {error} {overview ? "The last snapshot is shown below; controls are disabled until status returns." : "No worker status is assumed."}</div>}
-      {!overview && !error && <p className="flex items-center gap-2 py-10 text-sm text-[var(--muted-foreground)]"><Loader2 className="h-4 w-4 animate-spin" />Loading saved controls and worker evidence...</p>}
+      <PageHeader eyebrow="CoLateral Marketing" title="Automations" description="See what runs in the background, when it runs, what happened last and what needs fixing. Pause switches are saved, and each background job checks them before it acts." actions={<Button variant="secondary" onClick={() => void load()} disabled={refreshing || busy !== null}><RefreshCw className={cn("mr-2 h-4 w-4", refreshing && "animate-spin")} />Refresh</Button>} />
+      {error && <div role="alert" className="mb-5 rounded-xl border border-amber-500/30 bg-amber-500/10 p-4 text-sm text-amber-200">Status is unavailable: {error} {overview ? "The last snapshot is shown below; controls are disabled until status returns." : "Nothing is assumed about what is running."}</div>}
+      {!overview && !error && <p className="flex items-center gap-2 py-10 text-sm text-[var(--muted-foreground)]"><Loader2 className="h-4 w-4 animate-spin" />Loading saved switches and recent activity...</p>}
       {overview && <>
         <div className="mb-5 flex flex-wrap gap-5 rounded-xl border border-[var(--border)] bg-[var(--card)] p-4 text-sm">
           <span className="inline-flex items-center gap-2 text-white"><Activity className="h-4 w-4 text-[var(--accent)]" />{overview.cards.length} automations</span>

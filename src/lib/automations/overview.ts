@@ -8,6 +8,7 @@ import { publishQueue } from "@/lib/publisher/queue";
 import type { BufferState, QueueItem } from "@/lib/publisher/types";
 import { threadsBlockedReason, threadsConfig, type ThreadsConfig } from "@/lib/threads/config";
 import { readQueue } from "@/lib/threads/queue";
+import { formatThreadsStamp, summarizeThreadsToday } from "@/lib/threads/todaySummary";
 import { readThreadsState, tickHealth, type ThreadsState } from "@/lib/threads/state";
 import type { ThreadsQueueItem } from "@/lib/threads/types";
 import { countThreadsReplies, summarizeThreadsReplies } from "@/lib/threads/reply-summary";
@@ -57,7 +58,7 @@ export type AutomationInputs = {
   today?: { delivered: number; failed: number };
 };
 
-/** The command that installs each Windows task. Registration stays manual: the app only names it. */
+/** The command that installs each background runner (a Windows scheduled task). Registration stays manual: the app only names it. */
 export const REGISTER_COMMANDS = {
   publisher: "npm run publish:register",
   threads: "npm run threads:register",
@@ -68,19 +69,19 @@ function nextAt(values: (string | undefined)[]): string | null {
   return values.filter((value): value is string => Boolean(value && Number.isFinite(Date.parse(value)))).sort()[0] ?? null;
 }
 
-/** The schedule line when no Windows task is known: say why, in plain words. */
+/** The schedule line when the background runner is not known: say why, in plain words. */
 function taskSchedule(task: AutomationTask | undefined): string {
-  if (task?.state === "missing") return "Not scheduled - the Windows task is not installed";
-  return "Can't check the Windows task from here";
+  if (task?.state === "missing") return "Not scheduled - the background runner is not installed";
+  return "Can't check the background runner from here";
 }
 
 function taskBlocker(task: AutomationTask | undefined, command?: string, noun = "Runner"): string[] {
-  if (!task || task.state === "unknown") return ["This page can't read the Windows task, so it can't tell whether the runner is installed."];
-  if (task.state === "other-checkout") return ["The Windows task runs a different checkout. This sandbox has no scheduler."];
+  if (!task || task.state === "unknown") return ["This page can't check the background runner, so it can't tell whether it is installed."];
+  if (task.state === "other-checkout") return ["The background runner belongs to a different copy of the app. This copy has no runner of its own."];
   if (task.state === "missing") {
-    return [command ? `${noun} not installed - run ${command} in the app folder, then press Refresh. The app never installs it itself.` : `${noun} not installed - the Windows scheduled task is missing.`];
+    return [command ? `${noun} not installed - run ${command} in the app folder, then press Refresh. The app never installs it itself.` : `${noun} not installed - its Windows scheduled task is missing.`];
   }
-  if (task.state === "disabled") return ["The Windows scheduled task is disabled."];
+  if (task.state === "disabled") return ["The background runner is turned off in Windows Task Scheduler. Turn it back on there."];
   return [];
 }
 
@@ -121,7 +122,7 @@ export function buildAutomationOverview(input: AutomationInputs, now = new Date(
     ...(run.queueFailures ?? []).map((failure) => `${run.name}: ${issueLine(failure.title, failure.error)}`)
   ]).slice(0, 5);
   if (tick?.status === "failed") pipelineIssues.unshift(tick.detail);
-  if (tick && now.getTime() - Date.parse(tick.at) > 300_000) pipelineIssues.unshift("The pipeline heartbeat has not reported in over five minutes.");
+  if (tick && now.getTime() - Date.parse(tick.at) > 300_000) pipelineIssues.unshift("The stream pipeline has not checked in for over five minutes.");
   const pipeline = card("pipeline", {
     title: "Stream Pipeline", description: "Advance stream outputs and fulfil standing scheduling instructions.", href: "/",
     blockers: [], schedule: "Every 90 seconds while the app is running", timezone: input.publisher.timezone,
@@ -135,12 +136,12 @@ export function buildAutomationOverview(input: AutomationInputs, now = new Date(
   const ingest = card("ingest", {
     title: "Channel ingest", description: "Find new stream recordings and hand them to the pipeline.", href: "/agents",
     blockers: [...taskBlocker(scanTask, REGISTER_COMMANDS.ingest, "Channel scan"), ...(scan?.status === "not-connected" || scan?.status === "needs-reconnect" ? [scan.error ?? "Reconnect the YouTube channel."] : [])],
-    schedule: scanTask?.schedule ? `Windows task runs ${describeInterval(scanTask.schedule)}` : taskSchedule(scanTask), timezone: input.publisher.timezone,
+    schedule: scanTask?.schedule ? `Background runner runs ${describeInterval(scanTask.schedule)}` : taskSchedule(scanTask), timezone: input.publisher.timezone,
     registerCommand: REGISTER_COMMANDS.ingest,
     nextRunAt: scanTask?.nextRunAt ?? null, nextItemAt: null, lastRunAt: input.ledger.lastScanAt ?? null,
     lastOutcome: scan ? `${scan.status}${scan.ingested !== undefined ? `, ${scan.ingested} streams taken in` : ""}${scan.dryRun ? " (dry run)" : ""}` : null,
     counts: [{ label: "Recorded ingests", value: input.ledger.records.length }, { label: "Failed / timed out", value: input.ledger.records.filter((entry) => entry.outcome !== "ready").length }],
-    issues: [scan?.error, ...(scan?.status === "stale" ? ["The recorded channel scan is stale."] : []), ...(scanTask?.lastResult && scanTask.lastResult !== 267009 && scanTask.lastResult !== 267011 ? [`The scheduled scan's last run ${describeTaskResult(scanTask.lastResult)}.`] : [])].filter((value): value is string => Boolean(value)),
+    issues: [scan?.error, ...(scan?.status === "stale" ? ["The last channel scan is out of date."] : []), ...(scanTask?.lastResult && scanTask.lastResult !== 267009 && scanTask.lastResult !== 267011 ? [`The background runner's last channel scan ${describeTaskResult(scanTask.lastResult)}.`] : [])].filter((value): value is string => Boolean(value)),
     running: input.ingestRunning || scanTask?.state === "running"
   });
   const platformStates = input.queue.flatMap((item) => Object.entries(item.platforms).map(([platform, state]) => ({ item, platform, state })));
@@ -152,11 +153,11 @@ export function buildAutomationOverview(input: AutomationInputs, now = new Date(
   const publisherIssues = platformStates.filter(({ state }) => Boolean(state.error)).map(({ item, platform, state }) => issueLine(item.title || item.caption, state.error ?? "", platform)).slice(0, 5);
   publisherIssues.push(...bufferStates.filter(({ state }) => state.error || state.status === "manual").map(({ item, state }) => issueLine(item.title, state.error ?? state.note ?? "Manual posting is required.", "buffer")).slice(0, 5));
   if (publisherTick?.status === "failed") publisherIssues.unshift(publisherTick.detail);
-  if (publisherTick && now.getTime() - Date.parse(publisherTick.at) > 15 * 60_000) publisherIssues.unshift("No publisher tick recorded in over 15 minutes.");
+  if (publisherTick && now.getTime() - Date.parse(publisherTick.at) > 15 * 60_000) publisherIssues.unshift("The publisher has not run in over 15 minutes.");
   const publisher = card("publisher", {
     title: "Video and image publisher", description: "Upload booked posts and check delivery at their scheduled slots.", href: "/uploading-center",
     blockers: [...taskBlocker(publisherTask, REGISTER_COMMANDS.publisher), ...(!input.publisher.enabled ? ["Video and picture posting is switched off in Settings."] : []), ...(!input.publisher.platforms.length && !bufferConfigured(input.publisher) ? ["No publishing platforms or connected Buffer profiles are enabled."] : []), ...(input.publisher.buffer.enabled && !bufferConfigured(input.publisher) ? ["Buffer is enabled but its account and profiles are not configured."] : [])],
-    schedule: publisherTask?.schedule ? `Windows task runs ${describeInterval(publisherTask.schedule)}` : taskSchedule(publisherTask), timezone: input.publisher.timezone,
+    schedule: publisherTask?.schedule ? `Background runner runs ${describeInterval(publisherTask.schedule)}` : taskSchedule(publisherTask), timezone: input.publisher.timezone,
     registerCommand: REGISTER_COMMANDS.publisher,
     itemHref: publisherItemHref(platformStates, pending),
     nextRunAt: publisherTask?.nextRunAt ?? null, nextItemAt: nextAt([...pending, ...bufferPending].map(({ item, state }) => state.nextAttemptAt ?? item.publishAt)),
@@ -170,21 +171,22 @@ export function buildAutomationOverview(input: AutomationInputs, now = new Date(
   const threadsBlock = threadsBlockedReason(input.threads);
   const replySummary = summarizeThreadsReplies(input.threadsItems, localCalendarParts(now, input.threads.timezone).dateKey, input.threads, now, input.controls.threads?.paused);
   const replyCounts = countThreadsReplies(replySummary.items);
+  // The same numbers the Threads page shows: see todaySummary.ts for what counts.
+  const threadsToday = summarizeThreadsToday(input.threadsItems, localCalendarParts(now, input.threads.timezone).dateKey);
+  const accountCount = input.threads.accounts.length;
   const threads = card("threads", {
     title: "Threads autopilot", description: "Plan daily and stream posts, send each slot and add contextual CoLateral follow-up replies.", href: "/x-posts",
     blockers: [...taskBlocker(threadsTask, REGISTER_COMMANDS.threads, "Autopilot runner"), ...(threadsBlock ? [threadsBlock] : [])],
-    schedule: `${input.threads.postsPerDay} posts per day per account; check due posts ${describeInterval(threadsTask?.schedule) ?? "on the Windows task (not checked from here)"}`, timezone: input.threads.timezone,
+    schedule: `${input.threads.postsPerDay} posts a day${accountCount > 1 ? ` on each of ${accountCount} accounts` : ""}; the background runner checks for due posts ${describeInterval(threadsTask?.schedule) ?? "every few minutes (not checked from here)"}`, timezone: input.threads.timezone,
     registerCommand: REGISTER_COMMANDS.threads,
     nextRunAt: threadsTask?.nextRunAt ?? null,
-    nextItemAt: nextAt([
-      ...input.threadsItems.filter((item) => item.status === "pending").map((item) => item.nextAttemptAt ?? item.publishAt),
-      ...replySummary.items.filter((item) => item.status === "pending" || item.status === "retrying").map((item) => item.nextAttemptAt)
-    ]),
+    // The next post, by its own time, then any reply still to send - the Threads page's "Next post" is the same row.
+    nextItemAt: threadsToday.next?.at ?? nextAt(replySummary.items.filter((item) => item.status === "pending" || item.status === "retrying").map((item) => item.nextAttemptAt)),
     lastRunAt: threadsTick?.at ?? input.threadsState.lastTickAt ?? null,
-    lastOutcome: threadsTick?.detail ?? (input.threadsState.lastPostAt ? `Last post sent ${input.threadsState.lastPostAt}` : input.threadsState.lastTickAt ? "A tick was recorded; no published post recorded yet." : null),
-    counts: [{ label: "Queued", value: input.threadsItems.filter((item) => item.status === "pending").length }, { label: "Published", value: input.threadsItems.filter((item) => item.status === "published").length }, { label: "Failed", value: input.threadsItems.filter((item) => item.status === "failed").length },
+    lastOutcome: threadsTick?.detail ?? (input.threadsState.lastPostAt ? `Last post sent ${formatThreadsStamp(input.threadsState.lastPostAt, input.threads.timezone)}` : input.threadsState.lastTickAt ? "The autopilot has run; it has not sent a post yet." : null),
+    counts: [{ label: "Sent today", value: threadsToday.sent }, { label: "Waiting today", value: threadsToday.waiting }, { label: "Queued, all days", value: input.threadsItems.filter((item) => item.status === "pending").length }, { label: "Failed, all days", value: input.threadsItems.filter((item) => item.status === "failed").length },
       { label: "Replies waiting", value: replyCounts.pending + replyCounts.retrying }, { label: "Replies published", value: replyCounts.delivered }, { label: "Replies dropped", value: replyCounts.dropped }],
-    issues: [...(threadsTick?.status === "failed" ? [threadsTick.detail] : []), ...(!health.healthy && health.minutesSince !== null ? ["No Threads tick recorded in over 15 minutes."] : []), ...input.threadsItems.filter((item) => item.error || item.plugError).map((item) => issueLine(item.topic, (item.error ?? item.plugError) as string, "threads")).slice(0, 5)],
+    issues: [...(threadsTick?.status === "failed" ? [threadsTick.detail] : []), ...(!health.healthy && health.minutesSince !== null ? ["The Threads autopilot has not run in over 15 minutes."] : []), ...input.threadsItems.filter((item) => item.error || item.plugError).map((item) => issueLine(item.topic, (item.error ?? item.plugError) as string, "threads")).slice(0, 5)],
     running: threadsTask?.state === "running"
   });
   const lastPodcast = [...input.podcast.deliveries].filter((entry) => entry.lastAttemptAt).sort((a, b) => b.lastAttemptAt!.localeCompare(a.lastAttemptAt!))[0];
