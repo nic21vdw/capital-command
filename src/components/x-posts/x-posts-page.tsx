@@ -36,6 +36,7 @@ import { cn } from "@/lib/utils";
 import { tomorrowReady } from "@/lib/threads/tomorrow";
 import type { ThreadsBatchSummary, ThreadsOutcome } from "@/lib/threads/types";
 import { browserTimeZone, fromZonedInput, threadsClock, toZonedInput, zoneNote, zonedDateKey } from "@/lib/threads/zone";
+import { cadenceBadge, isEarlierPack, packSizeNote } from "@/lib/threads/packCadence";
 import { autopilotHeader, formatThreadsStamp, summarizeThreadsToday, todayHeadline, todaySendsNote } from "@/lib/threads/todaySummary";
 import type { ThreadsReplyCounts, ThreadsReplyPolicy, ThreadsReplyPreview, ThreadsReplySummary } from "@/lib/threads/reply-summary";
 import type { XDailyPack, XPostFormat, XSuggestedPost, XSuggestedReply } from "@/types/domain";
@@ -56,6 +57,7 @@ interface AutopilotStatus {
   settings: {
     timezone: string;
     postsPerDay: number;
+    postingWindow?: { start: number; end: number };
     lateGraceMinutes: number;
     replyPolicy?: ThreadsReplyPolicy;
     accounts: Array<{ id: string; label: string; posts: "text" | "variant"; offsetMinutes: number }>;
@@ -350,7 +352,13 @@ export function XPostsPage() {
 
       <TomorrowBanner status={autopilot.status} onReview={reviewTomorrow} />
 
-      {activePack ? <PackSummary pack={activePack} now={now} timeZone={pageZone(autopilot.status)} /> : null}
+      {activePack ? <PackSummary
+          pack={activePack}
+          now={now}
+          timeZone={pageZone(autopilot.status)}
+          today={today}
+          settings={autopilot.status?.settings ?? null}
+        /> : null}
 
       <div className="mt-6">
         <AdvancedOptions
@@ -898,7 +906,21 @@ function AddPostCard({ status, busy, send }: AutopilotProps) {
           {trimmed.length}/{THREADS_LIMIT}
         </span>
       </div>
-      {blocked ? <p className="text-xs tone-warning tone-text">Adding posts is off until the notice at the top of the page is sorted out.</p> : null}
+      {blocked ? (
+        <p className="text-xs tone-warning tone-text">
+          {status && status.settings.accounts.length === 0 ? (
+            <>
+              Connect a Threads account in{" "}
+              <Link href={ACCOUNTS_HREF} className="font-medium underline">
+                Settings &gt; Accounts
+              </Link>{" "}
+              first.
+            </>
+          ) : (
+            `Adding posts is off: ${blocked}`
+          )}
+        </p>
+      ) : null}
       <Button onClick={() => void submit()} disabled={busy !== null || !trimmed || over || needsTime || Boolean(blocked)}>
         <PenLine className="mr-2 h-4 w-4" />
         {busy === "add" ? "Adding…" : "Add to the queue"}
@@ -1169,25 +1191,40 @@ function AutopilotTab({ status, busy, send, selectedDate: selected, setSelectedD
   );
 }
 
-function PackSummary({ pack, now, timeZone }: { pack: XDailyPack; now: number; timeZone: string }) {
+function PackSummary({
+  pack,
+  now,
+  timeZone,
+  today,
+  settings
+}: {
+  pack: XDailyPack;
+  now: number;
+  timeZone: string;
+  today: string | null;
+  settings: AutopilotStatus["settings"] | null;
+}) {
   const first = pack.posts[0];
   const last = pack.posts[pack.posts.length - 1];
-  const ageMs = now - new Date(pack.createdAt).getTime();
-  // A pack older than an hour is almost certainly a cached earlier run — flag it
-  // amber so it's obvious you'd be copying yesterday-morning's batch.
-  const stale = Number.isFinite(ageMs) && ageMs > 60 * 60 * 1000;
+  // An earlier batch is one from a day that has ended in the autopilot's zone -
+  // by its DATE, not its age: a pack written at 6 AM is still today's at 3 PM.
+  const stale = isEarlierPack(pack.date, today);
+  const isToday = today !== null && pack.date === today;
+  const cadence = cadenceBadge({ postsPerDay: settings?.postsPerDay, accounts: settings?.accounts.length, window: settings?.postingWindow });
+  const sizeNote = packSizeNote({ packPosts: pack.posts.length, postsPerDay: settings?.postsPerDay, label: isToday ? "Today" : "This pack" });
   const relative = relativeFrom(pack.createdAt, now);
   const took = durationSeconds(pack.requestedAt, pack.createdAt);
   return (
     <Card>
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <p className="text-xs uppercase tracking-[0.28em] text-[var(--muted-foreground)]">Today&apos;s pack · {pack.date}</p>
+          <p className="text-xs uppercase tracking-[0.28em] text-[var(--muted-foreground)]">{isToday || today === null ? "Today's pack" : "Pack"} · {pack.date}</p>
           <h2 className="mt-1 text-xl font-semibold text-white">
             {pack.posts.length} posts · {pack.replies.length} replies
           </h2>
           <p className="mt-1 text-xs text-[var(--muted-foreground)]">
             A pack is one day&apos;s posts and replies, all written in a single run.
+            {sizeNote ? ` ${sizeNote}` : ""}
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -1196,7 +1233,7 @@ function PackSummary({ pack, now, timeZone }: { pack: XDailyPack; now: number; t
               {formatTime(first.time)} → {formatTime(last.time)}
             </Badge>
           ) : null}
-          <Badge>~every 40 min</Badge>
+          {cadence ? <Badge>{cadence}</Badge> : null}
           {pack.focus ? <Badge tone="accent">Focus: {pack.focus}</Badge> : null}
           <Badge tone={pack.source === "ai" ? "accent" : "neutral"}>
             {pack.source === "ai" ? "Claude-written" : "Idea library"}

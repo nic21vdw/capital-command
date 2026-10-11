@@ -1,0 +1,66 @@
+import { describe, expect, it } from "vitest";
+import { cadenceBadge, gapText, isEarlierPack, packSizeNote, windowClock } from "@/lib/threads/packCadence";
+import { zonedDateKey } from "@/lib/threads/zone";
+
+describe("cadenceBadge", () => {
+  const whole = { start: 20, end: 1400 };
+  it("derives the gap and the window from the configuration", () => {
+    expect(cadenceBadge({ postsPerDay: 24, window: whole })).toBe("24 a day, about every 60 min, 12:20 AM to 11:20 PM");
+  });
+  it("says per account with several accounts", () => {
+    expect(cadenceBadge({ postsPerDay: 24, accounts: 2, window: whole })).toContain("24 a day per account");
+  });
+  it("reads a pulled-back window and a wider gap in hours", () => {
+    expect(cadenceBadge({ postsPerDay: 4, window: { start: 540, end: 1260 } })).toBe("4 a day, about every 4 h, 9:00 AM to 9:00 PM");
+  });
+  it("drops what it cannot derive instead of guessing", () => {
+    expect(cadenceBadge({ postsPerDay: null })).toBeNull();
+    expect(cadenceBadge({ postsPerDay: 0 })).toBeNull();
+    expect(cadenceBadge({ postsPerDay: 24 })).toBe("24 a day");
+    expect(cadenceBadge({ postsPerDay: 1, window: whole })).toBe("1 a day, 12:20 AM to 11:20 PM");
+    expect(cadenceBadge({ postsPerDay: 24, window: { start: 600, end: 600 } })).toBe("24 a day");
+  });
+  it("never says the old hard-coded 40 minutes", () => {
+    expect(cadenceBadge({ postsPerDay: 24, window: whole })).not.toContain("40");
+  });
+});
+
+describe("packSizeNote", () => {
+  it("names both numbers when the pack is not the configured day", () => {
+    expect(packSizeNote({ packPosts: 6, postsPerDay: 24, label: "Today" })).toBe("Today: 6 posts in the pack; the autopilot posts up to 24 a day.");
+    expect(packSizeNote({ packPosts: 1, postsPerDay: 24, label: "Today" })).toContain("1 post in the pack");
+  });
+  it("is silent when they agree or the cadence is unknown", () => {
+    expect(packSizeNote({ packPosts: 24, postsPerDay: 24, label: "Today" })).toBeNull();
+    expect(packSizeNote({ packPosts: 6, postsPerDay: undefined, label: "Today" })).toBeNull();
+  });
+});
+
+describe("isEarlierPack", () => {
+  it("is false for today's pack however old it is, true only for a past date", () => {
+    expect(isEarlierPack("2026-10-11", "2026-10-11")).toBe(false);
+    expect(isEarlierPack("2026-10-10", "2026-10-11")).toBe(true);
+    expect(isEarlierPack("2026-10-12", "2026-10-11")).toBe(false);
+  });
+  it("claims nothing when a date is unknown or malformed", () => {
+    expect(isEarlierPack("2026-10-10", null)).toBe(false);
+    expect(isEarlierPack("yesterday", "2026-10-11")).toBe(false);
+  });
+  it("reads today in the Threads zone: 8 PM Toronto is still the same day though UTC has moved on", () => {
+    const evening = new Date("2026-10-12T00:30:00Z"); // 8:30 PM on Oct 11 in Toronto
+    const today = zonedDateKey("America/Toronto", evening);
+    expect(today).toBe("2026-10-11");
+    expect(isEarlierPack("2026-10-11", today)).toBe(false);
+    expect(isEarlierPack("2026-10-11", zonedDateKey("UTC", evening))).toBe(true);
+  });
+});
+
+describe("clock words", () => {
+  it("formats minutes", () => {
+    expect(windowClock(20)).toBe("12:20 AM");
+    expect(windowClock(1400)).toBe("11:20 PM");
+    expect(windowClock(1440)).toBe("midnight");
+    expect(gapText(54.6)).toBe("55 min");
+    expect(gapText(150)).toBe("2 h 30 min");
+  });
+});
