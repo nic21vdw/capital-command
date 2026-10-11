@@ -35,6 +35,7 @@ import { exportBaseName, toThreadsCsv, toThreadsJson } from "@/lib/x-posts/expor
 import { cn } from "@/lib/utils";
 import { tomorrowReady } from "@/lib/threads/tomorrow";
 import type { ThreadsBatchSummary, ThreadsOutcome } from "@/lib/threads/types";
+import { autopilotHeader, formatThreadsStamp, summarizeThreadsToday, todayHeadline, todaySendsNote } from "@/lib/threads/todaySummary";
 import type { ThreadsReplyCounts, ThreadsReplyPolicy, ThreadsReplyPreview, ThreadsReplySummary } from "@/lib/threads/reply-summary";
 import type { XDailyPack, XPostFormat, XSuggestedPost, XSuggestedReply } from "@/types/domain";
 
@@ -175,6 +176,11 @@ export function XPostsPage() {
   // promising to post is the wrong way round to be wrong.
   const autopilotPaused = autopilot.status?.paused === true;
   const autopilotArmed = autopilot.status ? !autopilot.status.blockedReason && !autopilotPaused : false;
+  // One definition of "today" for the header, the card and the surface readings.
+  const todaySummary = useMemo(
+    () => (autopilot.status ? summarizeThreadsToday(autopilot.status.items as Parameters<typeof summarizeThreadsToday>[0], autopilot.status.today.date) : null),
+    [autopilot.status]
+  );
 
   // Keep the "generated Xm ago" freshness read-out live so a stale, cached pack
   // is visibly old — the whole point is not to copy something from before.
@@ -262,18 +268,10 @@ export function XPostsPage() {
       }
     ],
     readings: [
-      { label: "Posts today", value: String(activePack?.posts.length ?? 0) },
-      { label: "Replies ready", value: String(activePack?.replies.length ?? 0) },
-      {
-        label: "Posted today",
-        value: autopilot.status
-          ? `${autopilot.status.today.published}/${
-              autopilot.status.today.total ||
-              autopilot.status.settings.postsPerDay * Math.max(1, autopilot.status.settings.accounts.length)
-            }`
-          : "—"
-      },
-      { label: "Queued", value: String(autopilot.status?.today.pending ?? 0) },
+      { label: "Posts in the written pack", value: String(activePack?.posts.length ?? 0) },
+      { label: "Replies in the written pack", value: String(activePack?.replies.length ?? 0) },
+      { label: "Sent today", value: todaySummary ? `${todaySummary.sent} of ${todaySummary.posts} posts` : "—" },
+      { label: "Waiting today", value: String(todaySummary?.waiting ?? 0) },
       { label: "Autopilot", value: autopilotPaused ? "Paused" : autopilotArmed ? "Armed" : "Idle" }
     ],
     click: (id) => {
@@ -308,13 +306,19 @@ export function XPostsPage() {
         title="Threads Autopilot"
         description={
           // Promising that they post themselves is only true when autopilot is
-          // actually armed. Said unconditionally, the header contradicted the
-          // card right below it explaining why nothing was going out.
-          autopilotPaused
-            ? "Press Write today's posts and the app drafts 24 posts plus 20 replies from your positioning brief. The autopilot is paused on Automations, so nothing goes out until you resume it."
-            : autopilotArmed
-            ? "Write a day of Threads posts and let them go out on their own — press Write today's posts and the app drafts 24 posts plus 20 replies from your positioning brief, then posts them for you one at a time through the day."
-            : "Press Write today's posts and the app drafts 24 posts plus 20 replies from your positioning brief."
+          // actually armed, and the numbers are the configured cadence and the
+          // pack actually written - not the generator's ideal of a full pack.
+          autopilotHeader({
+            postsPerDay: autopilot.status?.settings.postsPerDay ?? 0,
+            accounts: autopilot.status?.settings.accounts.length ?? 0,
+            linkReplies: autopilot.status?.settings.replyPolicy?.enabled === true,
+            paused: autopilotPaused,
+            armed: autopilotArmed,
+            pack: activePack
+              ? { posts: activePack.posts.length, replies: activePack.replies.length, label: activePack.date === today ? "Today's pack" : `The pack for ${activePack.date}` }
+              : null,
+            known: autopilot.status !== null
+          })
         }
         actions={
           <Button onClick={() => generate(true)} disabled={generating || autopilot.busy !== null} className="shrink-0">
@@ -426,8 +430,8 @@ export function XPostsPage() {
               <Sparkles className="h-8 w-8 text-[var(--accent)]" />
               <p className="text-sm text-[var(--muted-foreground)]">
                 {generating || loading
-                  ? "Writing 24 fresh posts and twenty replies…"
-                  : "Nothing written yet — press Write today's posts for a fresh day of 24."}
+                  ? "Writing a fresh day of posts and replies…"
+                  : "Nothing written yet — press Write today's posts for a fresh day."}
               </p>
             </div>
           </Card>
@@ -499,7 +503,7 @@ function useAutopilot() {
     void load();
   }, [load]);
 
-  // The scheduler keeps ticking while this page is open; without a refresh the
+  // The autopilot keeps running while this page is open; without a refresh the
   // times and tallies on screen quietly go stale.
   useEffect(() => {
     const id = window.setInterval(() => void load(), 60_000);
@@ -589,7 +593,7 @@ function FollowUpReply({ reply, editing }: { reply: ThreadsReplyPreview; editing
       {reply.error && reply.error !== reply.detail ? <p className="mt-1 break-words text-xs tone-danger tone-text">{reply.error}</p> : null}
       {reply.nextAttemptAt && (reply.status === "pending" || reply.status === "retrying") ? (
         <p className="mt-1 text-xs text-[var(--muted-foreground)]">
-          Earliest {formatStamp(reply.nextAttemptAt)} · sent on the next scheduler check
+          Earliest {formatStamp(reply.nextAttemptAt)} · sent on the autopilot&apos;s next run
           {reply.expiresAt ? ` · window ends ${formatStamp(reply.expiresAt)}` : ""}
         </p>
       ) : null}
@@ -603,15 +607,16 @@ function AutopilotCard({ status }: { status: AutopilotProps["status"] }) {
 
   const { today, settings, blockedReason, scheduler } = status;
   const paused = status.paused === true;
-  const expected = settings.postsPerDay * Math.max(1, settings.accounts.length);
+  const summary = summarizeThreadsToday(status.items as Parameters<typeof summarizeThreadsToday>[0], today.date);
+  const sendsNote = todaySendsNote(summary);
   const noAccount = settings.accounts.length === 0;
   const minutesSince = scheduler?.minutesSince;
   const heartbeat =
     minutesSince === null || minutesSince === undefined
-      ? "never run"
+      ? "The autopilot hasn't run yet on this computer"
       : minutesSince < 1
-        ? "just now"
-        : `${Math.round(minutesSince)} min ago`;
+        ? "The autopilot ran just now"
+        : `The autopilot last ran ${Math.round(minutesSince)} min ago`;
 
   return (
     <Card>
@@ -619,14 +624,14 @@ function AutopilotCard({ status }: { status: AutopilotProps["status"] }) {
         <div>
           <p className="text-xs uppercase tracking-[0.28em] text-[var(--muted-foreground)]">Threads autopilot</p>
           <h2 className="mt-1 text-xl font-semibold text-white">
-            {today.published}/{today.total || expected} posted today
+            {todayHeadline(summary)}
           </h2>
           <p className="mt-1 text-xs text-[var(--muted-foreground)]">
-            The autopilot sends today&apos;s posts for you, one at each slot — a slot is one fixed posting time in the
-            day.
+            The autopilot sends today&apos;s posts for you, one at each posting time.
+            {sendsNote ? ` ${sendsNote}` : ""}
           </p>
           <p className="mt-1 text-xs text-[var(--muted-foreground)]">
-            {settings.postsPerDay} slots a day in {settings.timezone} ·{" "}
+            {settings.postsPerDay} posts a day per account in {settings.timezone} ·{" "}
             {settings.accounts.map((account) => `${account.label} (${versionLabel(account.posts)})`).join(", ") ||
               "Waiting for an account"}
           </p>
@@ -639,10 +644,10 @@ function AutopilotCard({ status }: { status: AutopilotProps["status"] }) {
           ) : (
             <Badge tone={blockedReason ? "warning" : "accent"}>{blockedReason ? "Idle" : "Armed"}</Badge>
           )}
-          {today.pending ? <Badge>{today.pending} queued</Badge> : null}
-          {today.failed ? <Badge tone="danger">{today.failed} failed</Badge> : null}
-          {today.skipped ? <Badge>{today.skipped} skipped</Badge> : null}
-          {today.nextAt ? <Badge tone="accent">Next {clock(today.nextAt)}</Badge> : null}
+          {summary.waiting ? <Badge>{summary.waiting} waiting</Badge> : null}
+          {summary.failed ? <Badge tone="danger">{summary.failed} failed</Badge> : null}
+          {summary.skipped ? <Badge>{summary.skipped} skipped</Badge> : null}
+          {summary.next ? <Badge tone="accent">Next post {formatThreadsStamp(summary.next.at, settings.timezone)}</Badge> : null}
         </div>
       </div>
 
@@ -676,12 +681,14 @@ function AutopilotCard({ status }: { status: AutopilotProps["status"] }) {
       >
         <span className="flex items-center gap-1.5 font-medium">
           <Clock className="h-3.5 w-3.5" />
-          Scheduler checked {heartbeat}
+          {heartbeat}
         </span>
         <span className="text-[var(--muted-foreground)]">
           {scheduler?.healthy
-            ? "Ticking every 5 minutes."
-            : "Expected every 5 minutes — the scheduled task may be off, or the PC asleep."}
+            ? "It checks for due posts every 5 minutes."
+            : minutesSince === null || minutesSince === undefined
+              ? "It runs every 5 minutes once its background runner is installed - see Automations."
+              : "It should run every 5 minutes - its background runner may be off, or the PC asleep."}
         </span>
       </div>
 
@@ -943,7 +950,7 @@ function AutopilotTab({ status, busy, send, selectedDate: selected, setSelectedD
             ))}
           </div>
           <p className="text-xs text-[var(--muted-foreground)]">
-            {pending.length} still to post
+            {pending.length} still to send
             {pending.length > 0
               ? ` · ${clock(pending[0].publishAt)} → ${clock(pending[pending.length - 1].publishAt)}`
               : ""}
@@ -1085,7 +1092,7 @@ function AutopilotTab({ status, busy, send, selectedDate: selected, setSelectedD
                       ? "Posted."
                       : json.run?.failed
                         ? "It failed again — the reason is on the post."
-                        : "Back in the queue for the next tick."
+                        : "Back in the queue - it goes out on the autopilot's next run."
                   )
                 }
                 disabled={busy !== null}
@@ -1195,7 +1202,7 @@ function PackSummary({ pack, now }: { pack: XDailyPack; now: number }) {
           {took !== null ? ` · took ${took}s` : ""}
         </span>
         {stale ? (
-          <span className="font-medium">This is an earlier batch — press Write today&apos;s posts for a fresh 24.</span>
+          <span className="font-medium">This is an earlier batch — press Write today&apos;s posts for a fresh day.</span>
         ) : null}
       </div>
     </Card>
@@ -1376,7 +1383,7 @@ function RepliesTab({ replies }: { replies: XSuggestedReply[] }) {
   return (
     <div>
       <p className="mb-4 text-sm text-[var(--muted-foreground)]">
-        Twenty adaptable replies for when you&apos;re scrolling — each is keyed to a kind of conversation you&apos;ll run
+        {replies.length} adaptable replies for when you&apos;re scrolling — each is keyed to a kind of conversation you&apos;ll run
         into. Personalize a detail before posting so it reads as written in the moment, and never paste the same reply
         twice.
       </p>
@@ -1448,7 +1455,7 @@ function PlaybookTab({ lateGraceMinutes }: { lateGraceMinutes?: number }) {
           <h3 className="font-semibold">The daily system</h3>
         </div>
         <ol className="list-decimal space-y-2 pl-5 text-sm text-[var(--muted-foreground)]">
-          <li>Write today&apos;s posts — a fresh day of posts plus 20 replies, written against your positioning brief.</li>
+          <li>Write today&apos;s posts — a fresh day of posts and replies to adapt, written against your positioning brief.</li>
           <li>
             Each one is then sent at its own slot — a fixed posting time — and Scheduled &amp; sent shows what has gone
             out.

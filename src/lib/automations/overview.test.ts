@@ -38,10 +38,10 @@ describe("automation dashboard evidence", () => {
     };
     input.threadsItems = [
       { ...original, plugAttempts: 1, plugNextAttemptAt: "2026-10-01T15:05:00Z", plugError: "Waiting for Threads" },
-      { ...original, id: "reply-delivered", postId: "parent-2", plugPostId: "reply-2" }
+      { ...original, id: "reply-delivered", slot: 2, postId: "parent-2", plugPostId: "reply-2" }
     ];
     const card = buildAutomationOverview(input, now).cards.find((entry) => entry.id === "threads")!;
-    expect(card.counts.find((count) => count.label === "Published")?.value).toBe(2);
+    expect(card.counts.find((count) => count.label === "Sent today")?.value).toBe(2);
     expect(card.counts.find((count) => count.label === "Replies published")?.value).toBe(1);
     expect(card.counts.find((count) => count.label === "Replies waiting")?.value).toBe(1);
     expect(card.nextItemAt).toBe("2026-10-01T15:05:00.000Z");
@@ -49,6 +49,32 @@ describe("automation dashboard evidence", () => {
     const disabled = buildAutomationOverview(input, now).cards.find((entry) => entry.id === "threads")!;
     expect(disabled.counts.find((count) => count.label === "Replies waiting")?.value).toBe(0);
     expect(disabled.counts.find((count) => count.label === "Replies published")?.value).toBe(1);
+  });
+
+  it("puts the Threads card's Next line on the same row the Threads page calls the next post", () => {
+    const input = inputs();
+    input.threads.accounts = [{ id: "primary", label: "Test", userId: "user", accessToken: "test-token", posts: "text", offsetMinutes: 0 }];
+    const base = { batchDate: "2026-10-01", accountId: "primary", version: "text" as const, topic: "T", format: "insight", text: "x", createdAt: "2026-10-01T10:00:00Z", attempts: 0 };
+    input.threadsItems = [
+      { ...base, id: "done", slot: 1, status: "published", publishAt: "2026-10-01T13:00:00Z" },
+      { ...base, id: "later", slot: 3, status: "pending", publishAt: "2026-10-01T19:00:00Z" },
+      { ...base, id: "soon", slot: 2, status: "pending", publishAt: "2026-10-01T17:00:00Z", nextAttemptAt: "2026-10-01T23:00:00Z" },
+      { ...base, id: "by-hand", slot: 0, origin: "pipeline", status: "pending", publishAt: "2026-10-01T21:00:00Z" }
+    ];
+    const card = buildAutomationOverview(input, now).cards.find((entry) => entry.id === "threads")!;
+    expect(card.nextItemAt).toBe("2026-10-01T17:00:00.000Z");
+    expect(card.counts.find((count) => count.label === "Sent today")?.value).toBe(1);
+    expect(card.counts.find((count) => count.label === "Waiting today")?.value).toBe(3);
+  });
+
+  it("keeps plain words on the cards: no Windows task, heartbeat or tick", () => {
+    const input = inputs();
+    input.outcomes.pipeline = { at: "2026-10-01T14:00:00Z", status: "completed", detail: "ok" };
+    input.threadsState = { lastTickAt: "2026-10-01T10:00:00Z" };
+    input.queue = [testItem({ platformIds: ["tiktok"] })];
+    input.queue[0].platforms.tiktok = { status: "failed", attempts: 1, error: "invalid_grant" };
+    const text = JSON.stringify(buildAutomationOverview(input, now).cards);
+    expect(text).not.toMatch(/Windows task|heartbeat|\btick\b|scheduler/i);
   });
 
   it("shows unknown pipeline and missing task evidence instead of claiming workers are running", () => {
@@ -123,7 +149,7 @@ describe("automation dashboard evidence", () => {
     input.outcomes.publisher = { at: "2026-10-01T14:30:00Z", status: "completed", detail: "An old tick ran." };
     const card = buildAutomationOverview(input, now).cards.find((entry) => entry.id === "publisher")!;
     expect(card.state).toBe("attention");
-    expect(card.issues.join(" ")).toContain("No publisher tick recorded in over 15 minutes");
+    expect(card.issues.join(" ")).toContain("The publisher has not run in over 15 minutes");
   });
 
   it("tells Nic the exact command for a missing task and shows the interval in words", () => {
@@ -137,7 +163,7 @@ describe("automation dashboard evidence", () => {
     expect(cards.find((card) => card.id === "ingest")!.blockers.join(" ")).toContain("run npm run ingest:register in the app folder");
     expect(cards.find((card) => card.id === "podcast")!.registerCommand).toBeUndefined();
     input.tasks.publisher = { state: "ready", nextRunAt: null, lastRunAt: null, lastResult: 0, schedule: "PT5M" };
-    expect(buildAutomationOverview(input, now).cards.find((card) => card.id === "publisher")!.schedule).toBe("Windows task runs every 5 min");
+    expect(buildAutomationOverview(input, now).cards.find((card) => card.id === "publisher")!.schedule).toBe("Background runner runs every 5 min");
   });
 
   it("explains a failed scan in words and never prints the raw exit code in the issue", () => {
