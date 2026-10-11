@@ -190,7 +190,30 @@ export function summarizeAutoAssign(input: {
   /** The slots (UTC) of the posts that WILL post, for "Mon-Thu". */
   bookedSlots?: string[];
   timeZone?: string;
+  /**
+   * A sentence that must stay with the booking until dismissed (the no-AI-key
+   * notice). Only said when something was booked, and it makes a green summary
+   * amber: the posts are fine, but there is something to read.
+   */
+  note?: string;
 }): { level: "success" | "warning" | "error"; message: string } {
+  const result = summarizeBooking(input);
+  const note = input.note?.trim();
+  if (!note || input.scheduled === 0) return result;
+  return {
+    level: result.level === "success" ? "warning" : result.level,
+    message: `${result.message}${/[.!?]$/.test(result.message) ? "" : "."} ${note}`
+  };
+}
+
+/** What Auto Assign says when the captions are the clip titles because no AI key answered. */
+export const NO_AI_CAPTION_SUMMARY_NOTE =
+  "Captions are the clip titles (no AI key) - edit them from each post's Caption button.";
+
+function summarizeBooking(input: Parameters<typeof summarizeAutoAssign>[0]): {
+  level: "success" | "warning" | "error";
+  message: string;
+} {
   const { scheduled, manual, total, manualPlatforms, firstError, held, bookedSlots = [], timeZone = "UTC" } = input;
   const automatic = scheduled - manual;
   const names = [...new Set(manualPlatforms)];

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { bookedDaysLabel, bookedResult, refusedResult, summarizeAutoAssign, summarizeSchedule, zoneTimeLabel } from "@/components/uploading-center/schedule-summary";
+import { NO_AI_CAPTION_SUMMARY_NOTE, bookedDaysLabel, bookedResult, refusedResult, summarizeAutoAssign, summarizeSchedule, zoneTimeLabel } from "@/components/uploading-center/schedule-summary";
 
 describe("one summary for a multi-platform booking", () => {
   it("counts Instagram as Instagram and Facebook, and says so", () => {
@@ -144,6 +144,33 @@ describe("Auto Assign summary", () => {
     const summary = summarizeAutoAssign({ ...base, held: " 1 clip left unscheduled." });
     expect(summary.level).toBe("warning");
     expect(summary.message).toBe("3 booked. 1 clip left unscheduled.");
+  });
+});
+
+describe("the no-AI-key note in the booking summary", () => {
+  const base = { scheduled: 4, manual: 0, total: 4, manualPlatforms: [], firstError: null, held: "" };
+
+  it("rides at the end of the persisted summary, amber, so it outlives the toast", () => {
+    const summary = summarizeAutoAssign({ ...base, note: NO_AI_CAPTION_SUMMARY_NOTE });
+    expect(NO_AI_CAPTION_SUMMARY_NOTE).toBe(
+      "Captions are the clip titles (no AI key) - edit them from each post's Caption button."
+    );
+    expect(summary.level).toBe("warning");
+    expect(summary.message).toBe(`4 booked. ${NO_AI_CAPTION_SUMMARY_NOTE}`);
+  });
+
+  it("is said after every other line, and never turns a red summary any other colour", () => {
+    const mixed = summarizeAutoAssign({ ...base, scheduled: 3, firstError: "Slot taken.", note: NO_AI_CAPTION_SUMMARY_NOTE });
+    expect(mixed.message.endsWith(NO_AI_CAPTION_SUMMARY_NOTE)).toBe(true);
+    expect(mixed.level).toBe("warning");
+    const unbooked = summarizeAutoAssign({ ...base, scheduled: 0, firstError: "Slot taken.", note: NO_AI_CAPTION_SUMMARY_NOTE });
+    // Nothing was booked, so there are no posts to edit a caption on.
+    expect(unbooked.level).toBe("error");
+    expect(unbooked.message).not.toContain("Caption button");
+  });
+
+  it("changes nothing when there is no note", () => {
+    expect(summarizeAutoAssign(base)).toEqual({ level: "success", message: "4 booked" });
   });
 });
 

@@ -19,6 +19,8 @@ import { StatusChip } from "@/components/uploading-center/status-chip";
 import { describeFailure } from "@/lib/publisher/failure";
 import {
   isTiktokInboxDraft,
+  legInFlight,
+  pastSlotMarker,
   pendingHint,
   pendingLabel,
   POST_BY_HAND_LABEL,
@@ -129,8 +131,11 @@ export function summarizePlatformState(
   const uploadIso = state.uploadedAt ?? (state.postId ? item.createdAt : null);
   const uploaded = uploadIso ? `Uploaded ${formatDay(uploadIso, timeZone)}` : null;
   const heldPrivate = platform === "youtube" && youtubeHoldsForReview(item);
+  const marker = pastSlotMarker(platform, state, item, now, { inFlight: legInFlight(state, now) });
   switch (state.status) {
     case "scheduled":
+      // Past its slot on a platform that publishes by itself: it should be live by now.
+      if (marker?.kind === "should-be-live") return { uploaded, note: `${marker.hint} (slot ${goLive})` };
       // A TikTok inbox delivery is recorded as "scheduled" but is a draft the
       // creator still has to finish in the app; "Goes live" would be a lie.
       if (isTiktokInboxDraft(platform, state.status, item)) {
@@ -154,8 +159,8 @@ export function summarizePlatformState(
       // platform that takes the file ahead of time; the rest post at the slot.
       return {
         uploaded: null,
-        note: `${pendingLabel(platform, item)} · slot ${goLive}`,
-        detail: pendingHint(platform, item)
+        note: `${pendingLabel(platform, item, now, { inFlight: legInFlight(state, now) })} · slot ${goLive}`,
+        detail: pendingHint(platform, item, now, { inFlight: legInFlight(state, now) })
       };
     case "manual":
       // Before the slot it is waiting for a connection (the chip's words); after
@@ -441,7 +446,7 @@ export function ClipCard({
                     return (
                       <div key={`${item.id}:${platform}`} className="space-y-0.5 text-xs">
                         <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[var(--muted-foreground)]">
-                          <StatusChip status={state.status} platform={platform} item={item} />
+                          <StatusChip status={state.status} platform={platform} item={item} leg={state} />
                           <span className="truncate font-medium text-white">{PLATFORM_LABELS[platform]}</span>
                           {summary.uploaded ? (
                             <span className="tone-success tone-text inline-flex items-center gap-1 whitespace-nowrap">

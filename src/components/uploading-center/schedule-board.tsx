@@ -32,7 +32,12 @@ import {
   removalImpact
 } from "@/lib/publisher/boardActions";
 import { describeFailure, describeWaiting, duplicateTitleCleared } from "@/lib/publisher/failure";
-import { TIKTOK_INBOX_ACTION, isTiktokInboxDraft, waitingForConnectionHint } from "@/lib/publisher/nativeScheduling";
+import {
+  TIKTOK_INBOX_ACTION,
+  isTiktokInboxDraft,
+  pastSlotMarker,
+  waitingForConnectionHint
+} from "@/lib/publisher/nativeScheduling";
 import { formatGoLive } from "@/lib/publisher/outcomeCopy";
 import { imagePathsOf, imagePostUrl, isImagePost } from "@/lib/publisher/images";
 import type { AgendaDay, AgendaEntry } from "@/lib/publisher/agenda";
@@ -412,6 +417,12 @@ function QueueEntryCard({
   const quotaWait = platform === "youtube" && state.status === "pending" && !state.postId && Boolean(youtubeQuotaFull);
   const inboxDraft = isTiktokInboxDraft(platform, state.status, item);
   const awaitingConnection = state.status === "pending" && !connected;
+  // A slot that passed with the post still pending (or still "scheduled" on a platform
+  // that should have published it): the chip says so, and this line says what to do.
+  const pastSlot = pastSlotMarker(platform, state, item, new Date(nowMs), {
+    connected: state.status === "pending" ? connected : undefined,
+    youtubeQuotaFull: quotaWait
+  });
   const waitingLine = awaitingConnection
     ? waitingForConnectionHint(platform, slotLabel)
     : waiting
@@ -422,7 +433,7 @@ function QueueEntryCard({
       ? "YouTube's upload limit for today is used up. This goes up after the quota resets, nothing is lost."
       : inboxDraft
         ? `${TIKTOK_INBOX_ACTION} - it is not live until you do.`
-        : null;
+        : (pastSlot?.hint ?? null);
   const detailRaw = advice?.raw ?? waiting?.raw;
   // Publish now also reaches a post YouTube/Facebook is holding for its slot
   // (status "scheduled"): that is the case where it makes the post public now.
@@ -542,6 +553,7 @@ function QueueEntryCard({
             youtubeQuotaFull={quotaWait}
             connected={state.status === "pending" || state.status === "manual" ? connected : undefined}
             slotLabel={slotLabel}
+            leg={state}
             className="shrink-0"
           />
           {state.mirroredFrom ? (
@@ -735,6 +747,21 @@ function QueueEntryCard({
                 >
                   <Pencil className="h-3 w-3" /> {controls?.needsConnection ? "Rename" : "Rename and retry"}
                 </button>
+              ) : null}
+              {pastSlot?.kind === "overdue" ? (
+                <Link href={pastSlot.href} className={INLINE_ACTION}>
+                  {pastSlot.linkLabel}
+                </Link>
+              ) : null}
+              {pastSlot?.kind === "should-be-live" && remoteUrlFor(platform, state.postId, state.status) ? (
+                <a
+                  href={remoteUrlFor(platform, state.postId, state.status) ?? undefined}
+                  target="_blank"
+                  rel="noreferrer"
+                  className={INLINE_ACTION}
+                >
+                  <ExternalLink className="h-3 w-3" /> {pastSlot.linkLabel}
+                </a>
               ) : null}
               {showConnect && platform === "youtube" ? (
                 <a
