@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { threadsSlotStatus } from "@/lib/master-calendar/aggregate";
-import { autopilotHeader, formatThreadsStamp, postState, summarizeThreadsToday, todayHeadline } from "@/lib/threads/todaySummary";
+import { autopilotHeader, formatThreadsStamp, packSplitNote, postState, summarizeThreadsToday, todayHeadline } from "@/lib/threads/todaySummary";
 import type { ThreadsQueueItem } from "@/lib/threads/types";
 
 type Row = Parameters<typeof summarizeThreadsToday>[0] extends (infer R)[] | undefined ? R : never;
@@ -27,6 +27,14 @@ describe("today's Threads numbers", () => {
     // 6 pack slots on two accounts (12 rows) + 1 hand-added post (1 row) = 7 posts, however many rows send them.
     expect(summary).toMatchObject({ posts: 7, sent: 3, waiting: 4, failed: 0, skipped: 0 });
     expect(summary).not.toHaveProperty("sends");
+  });
+
+  it("splits the day into the pack's posts and the ones added outside it", () => {
+    const summary = summarizeThreadsToday(fixtureDay(), "2026-10-10");
+    expect(summary).toMatchObject({ posts: 7, fromPack: 6, added: 1 });
+    expect(packSplitNote(summary)).toBe("6 from today's pack + 1 added by hand or from a stream = 7 posts today.");
+    // Nothing added: the pack and the day agree, so there is nothing to explain.
+    expect(packSplitNote(summarizeThreadsToday(fixtureDay().filter((item) => item.id !== "adhoc"), "2026-10-10"))).toBeNull();
   });
 
   it("makes the next post the earliest pending row by its own time, on any day, with its account", () => {
@@ -94,7 +102,7 @@ describe("the page header", () => {
   });
   it("does not say it is set to post when no account is connected", () => {
     const text = autopilotHeader({ ...base, accounts: 0, armed: false, pack: null });
-    expect(text).toContain("Once a Threads account is connected it will post 24 times a day.");
+    expect(text).toContain("Once a Threads account is connected it will post up to 24 times a day.");
     expect(text).not.toContain("sends them");
   });
   it("mentions link replies only when they are on, and says when it is paused or has no pack", () => {

@@ -34,6 +34,10 @@ export type ThreadsTodaySummary = {
   dateKey: string;
   /** Distinct posts today: a pack slot across all accounts, or one hand-added post. */
   posts: number;
+  /** Of `posts`, the ones that came from the day's written pack (a slot across all accounts). */
+  fromPack: number;
+  /** Of `posts`, the ones added outside the pack: written by hand or made by a stream (origin "pipeline"). */
+  added: number;
   sent: number;
   /** Posts still scheduled: at least one account's version has not gone out yet. */
   waiting: number;
@@ -71,11 +75,14 @@ export function summarizeThreadsToday(items: Row[] | undefined, dateKey: string)
     const key = item.origin === "pipeline" ? `pipeline:${item.id}` : `slot:${item.slot}`;
     groups.set(key, [...(groups.get(key) ?? []), item]);
   }
+  const added = [...groups.keys()].filter((key) => key.startsWith("pipeline:")).length;
   const tally: Record<ThreadsPostState, number> = { sent: 0, waiting: 0, failed: 0, skipped: 0 };
   for (const group of groups.values()) tally[postState(group.map((item) => item.status))] += 1;
   return {
     dateKey,
     posts: groups.size,
+    fromPack: groups.size - added,
+    added,
     ...tally,
     next: nextPending(all)
   };
@@ -89,6 +96,17 @@ export function formatThreadsStamp(iso: string | null | undefined, timeZone: str
 
 function plural(count: number, one: string, many = `${one}s`): string {
   return `${count} ${count === 1 ? one : many}`;
+}
+
+/**
+ * One short sentence that reconciles the pack's size with today's count when a
+ * post was added outside the pack: "6 from the pack + 1 added by hand or from a
+ * stream = 7 posts today". Null when nothing was added, so the two numbers agree
+ * and there is nothing to explain.
+ */
+export function packSplitNote(summary: Pick<ThreadsTodaySummary, "posts" | "fromPack" | "added">): string | null {
+  if (summary.added <= 0) return null;
+  return `${summary.fromPack} from today's pack + ${summary.added} added by hand or from a stream = ${plural(summary.posts, "post")} today.`;
 }
 
 /**
@@ -136,7 +154,7 @@ export function autopilotHeader(input: {
   const who = input.accounts > 1 ? "each of your accounts" : "your account";
   const cadence =
     input.accounts === 0
-      ? `Once a Threads account is connected it will post ${plural(input.postsPerDay, "time")} a day.`
+      ? `Once a Threads account is connected it will post up to ${plural(input.postsPerDay, "time")} a day.`
       : `The autopilot is set to post on ${who}${input.linkReplies ? ", each post followed by a link reply" : ""}.`;
   const pack = input.pack
     ? `${input.pack.label} is written - copy anything from it to post by hand.`

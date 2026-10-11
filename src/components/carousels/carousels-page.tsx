@@ -51,6 +51,7 @@ import {
   type CarouselPlatformId
 } from "@/lib/carousels/schedule";
 import { bookedChipText, type CarouselBooking } from "@/lib/carousels/booked";
+import { statusTone } from "@/lib/statusTone";
 import { usePlatformConnections } from "@/lib/publisher/usePlatformConnections";
 import {
   ASPECT_RATIO_LIST,
@@ -946,7 +947,7 @@ function CarouselCard({
               <Link
                 href={`/uploading-center?item=${encodeURIComponent(booking.itemId)}`}
                 title="Open this post in the Uploading Center"
-                className="tone-success tone-edge tone-soft tone-text inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-medium hover:brightness-125 max-sm:min-h-10 max-sm:px-3"
+                className={cn(`tone-${statusTone(booking.posted ? "posted" : "scheduled")}`, "tone-edge tone-soft tone-text inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-medium hover:brightness-125 max-sm:min-h-10 max-sm:px-3")}
               >
                 <CalendarCheck className="h-3 w-3" /> {bookedChipText(booking, timeZone)}
               </Link>

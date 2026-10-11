@@ -5,20 +5,20 @@ import { zonedDateKey } from "@/lib/threads/zone";
 describe("cadenceBadge", () => {
   const whole = { start: 20, end: 1400 };
   it("derives the gap and the window from the configuration", () => {
-    expect(cadenceBadge({ postsPerDay: 24, window: whole })).toBe("24 a day, about every 60 min, 12:20 AM to 11:20 PM");
+    expect(cadenceBadge({ postsPerDay: 24, window: whole })).toBe("up to 24 a day, about every 60 min at that rate, 12:20 AM to 11:20 PM");
   });
   it("says per account with several accounts", () => {
-    expect(cadenceBadge({ postsPerDay: 24, accounts: 2, window: whole })).toContain("24 a day per account");
+    expect(cadenceBadge({ postsPerDay: 24, accounts: 2, window: whole })).toContain("up to 24 a day per account");
   });
   it("reads a pulled-back window and a wider gap in hours", () => {
-    expect(cadenceBadge({ postsPerDay: 4, window: { start: 540, end: 1260 } })).toBe("4 a day, about every 4 h, 9:00 AM to 9:00 PM");
+    expect(cadenceBadge({ postsPerDay: 4, window: { start: 540, end: 1260 } })).toBe("up to 4 a day, about every 4 h at that rate, 9:00 AM to 9:00 PM");
   });
   it("drops what it cannot derive instead of guessing", () => {
     expect(cadenceBadge({ postsPerDay: null })).toBeNull();
     expect(cadenceBadge({ postsPerDay: 0 })).toBeNull();
-    expect(cadenceBadge({ postsPerDay: 24 })).toBe("24 a day");
+    expect(cadenceBadge({ postsPerDay: 24 })).toBe("up to 24 a day");
     expect(cadenceBadge({ postsPerDay: 1, window: whole })).toBe("1 a day, 12:20 AM to 11:20 PM");
-    expect(cadenceBadge({ postsPerDay: 24, window: { start: 600, end: 600 } })).toBe("24 a day");
+    expect(cadenceBadge({ postsPerDay: 24, window: { start: 600, end: 600 } })).toBe("up to 24 a day");
   });
   it("never says the old hard-coded 40 minutes", () => {
     expect(cadenceBadge({ postsPerDay: 24, window: whole })).not.toContain("40");

@@ -33,17 +33,19 @@ export function gapText(minutes: number): string {
 }
 
 /**
- * The configured cadence as one badge: "24 a day, about every 60 min,
- * 12:20 AM to 11:20 PM". Null when the autopilot's settings are not known (a
+ * The configured cadence as one badge: "up to 24 a day, about every 60 min at
+ * that rate, 12:20 AM to 11:20 PM". The 24 is a ceiling (THREADS_POSTS_PER_DAY
+ * caps what a pack may schedule), not what a pack holds, so the gap is only what
+ * a full day would be. Null when the autopilot's settings are not known (a
  * number that cannot be derived is left off, not guessed). With several accounts
  * the figure is per account, as everywhere else on the page.
  */
 export function cadenceBadge(input: { postsPerDay: number | null | undefined; accounts?: number; window?: PostingWindow | null }): string | null {
   const { postsPerDay, window } = input;
   if (postsPerDay === null || postsPerDay === undefined || !Number.isFinite(postsPerDay) || postsPerDay < 1) return null;
-  const parts = [`${postsPerDay} a day${(input.accounts ?? 0) > 1 ? " per account" : ""}`];
+  const parts = [`${postsPerDay > 1 ? "up to " : ""}${postsPerDay} a day${(input.accounts ?? 0) > 1 ? " per account" : ""}`];
   if (window && Number.isFinite(window.start) && Number.isFinite(window.end) && window.end > window.start) {
-    if (postsPerDay > 1) parts.push(`about every ${gapText((window.end - window.start) / (postsPerDay - 1))}`);
+    if (postsPerDay > 1) parts.push(`about every ${gapText((window.end - window.start) / (postsPerDay - 1))} at that rate`);
     parts.push(`${windowClock(window.start)} to ${windowClock(window.end)}`);
   }
   return parts.join(", ");

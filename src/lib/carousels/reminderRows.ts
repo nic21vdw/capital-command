@@ -1,9 +1,11 @@
 import { CAROUSEL_PLATFORMS, PLATFORM_LABEL, WEEKDAY_LABELS, type CarouselPlatformId } from "@/lib/carousels/schedule";
+import { formatClockTime } from "@/lib/timeFormat";
 import type { Carousel } from "@/types/domain";
 
 /**
  * One row for a repeating weekly reminder: the same weekday and time, across
- * every date it fires, with the networks it targets listed together.
+ * every date it fires, with the networks it targets listed together. `time`
+ * stays the stored "HH:mm" (it sorts and keys the row); only the label is 12-hour.
  */
 export type WeeklyReminderRow = {
   key: string;
@@ -55,7 +57,7 @@ export function weeklyReminderRows(carousels: Carousel[]): WeeklyReminderRow[] {
     .map(({ order, ...row }) => {
       const platforms = platformOrder.filter((id) => order.has(id));
       const names = platforms.map((id) => PLATFORM_LABEL[id]).join(", ");
-      return { ...row, platforms, label: `Every ${WEEKDAY_LABELS[row.weekday]} ${row.time}${names ? ` · ${names}` : ""}` };
+      return { ...row, platforms, label: `Every ${WEEKDAY_LABELS[row.weekday]} ${formatClockTime(row.time)}${names ? ` · ${names}` : ""}` };
     })
     .sort((a, b) => ((a.weekday + 6) % 7) - ((b.weekday + 6) % 7) || a.time.localeCompare(b.time) || a.carouselTitle.localeCompare(b.carouselTitle));
 }

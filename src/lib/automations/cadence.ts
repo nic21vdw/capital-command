@@ -1,6 +1,8 @@
 import type { PublisherConfig } from "@/lib/publisher/config";
 import type { ThreadsConfig } from "@/lib/threads/config";
 import type { CadenceRow } from "@/lib/automations/types";
+import { windowClock } from "@/lib/threads/packCadence";
+import { formatClockTime } from "@/lib/timeFormat";
 
 /**
  * What changing Threads posts per day does, read off the planner. `threadsConfig()`
@@ -15,13 +17,9 @@ export const THREADS_POSTS_NOTE = "Applies from the next batch the autopilot pla
 /** Shown while editing, when the new number is higher than the current one. */
 export const THREADS_POSTS_RAISE_NOTE = "Raising it can make the autopilot re-space the rest of today's unsent posts to fit the extra ones. Posts already published stay.";
 
-function clock(minutes: number): string {
-  if (minutes >= 1440) return "midnight";
-  return `${String(Math.floor(minutes / 60)).padStart(2, "0")}:${String(minutes % 60).padStart(2, "0")}`;
-}
-
+/** Slot times are stored as "HH:mm"; the screen says them the way every other screen does ("6:00 PM"). */
 function times(list: string[]): string {
-  return list.length ? list.join(", ") : "none";
+  return list.length ? list.map(formatClockTime).join(", ") : "none";
 }
 
 /**
@@ -40,7 +38,7 @@ export function buildCadence(publisher: PublisherConfig, threads: ThreadsConfig,
     { label: "Time zone", value: publisher.timezone, env: "PUBLISH_TIMEZONE", note: "Slot times and \"today\" for bookings." },
     { label: "Booking reach", value: `${publisher.bookingHorizonDays} days ahead`, env: "PUBLISH_BOOKING_HORIZON_DAYS" },
     { label: "Threads posts per day", value: `${threads.postsPerDay}${accounts > 1 ? ` per account (${accounts} accounts)` : ""}`, env: "THREADS_POSTS_PER_DAY", editable: true, note: THREADS_POSTS_NOTE },
-    { label: "Threads posting window", value: `${clock(window.start)} to ${clock(window.start + window.span)}`, env: "THREADS_DAY_START / THREADS_DAY_END", note: "Posts are spread evenly across this window." },
+    { label: "Threads posting window", value: `${windowClock(window.start)} to ${windowClock(window.start + window.span)}`, env: "THREADS_DAY_START / THREADS_DAY_END", note: "Posts are spread evenly across this window." },
     { label: "Threads time zone", value: threads.timezone, env: "THREADS_TIMEZONE", note: "Falls back to the publishing time zone." },
     { label: "Threads late grace", value: `${threads.lateGraceMinutes} min`, env: "THREADS_LATE_GRACE_MINUTES", note: "A post this late or less still goes out; later than that is skipped or re-spaced." }
   ];

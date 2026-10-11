@@ -43,9 +43,9 @@ import { cadenceBadge, isEarlierPack, orderPackPosts, packOrderNote, packSizeNot
 import { accountChipLabel, boardNeedsAccountChips, defaultBatchDate, numberBatchPosts } from "@/lib/threads/board";
 import { formatDayKey } from "@/lib/master-calendar/day-keys";
 import { formatClockTime, formatSlotDateTime } from "@/lib/timeFormat";
-import { statusTone, statusWord } from "@/lib/statusTone";
+import { SCHEDULED_WORD, statusTone, statusWord } from "@/lib/statusTone";
 import { rewriteDecision } from "@/lib/threads/rewrite";
-import { autopilotHeader, summarizeThreadsToday, todayHeadline } from "@/lib/threads/todaySummary";
+import { autopilotHeader, packSplitNote, summarizeThreadsToday, todayHeadline, type ThreadsTodaySummary } from "@/lib/threads/todaySummary";
 import type { ThreadsReplyCounts, ThreadsReplyPolicy, ThreadsReplyPreview, ThreadsReplySummary } from "@/lib/threads/reply-summary";
 import type { XDailyPack, XPostFormat, XSuggestedPost, XSuggestedReply } from "@/types/domain";
 
@@ -451,6 +451,7 @@ export function XPostsPage() {
 
       {activePack ? <PackSummary
           pack={activePack}
+          todaySummary={todaySummary}
           now={now}
           timeZone={pageZone(autopilot.status)}
           today={today}
@@ -680,9 +681,10 @@ function versionLabel(version: "text" | "variant"): string {
 }
 
 const REPLY_STATES = ["delivered", "pending", "retrying", "dropped", "disabled"] as const;
-const REPLY_TONES: Record<(typeof REPLY_STATES)[number], BadgeTone> = {
-  delivered: "success", pending: "accent", retrying: "warning", dropped: "danger", disabled: "neutral"
-};
+// The same status colours as every other screen: a reply waiting to send is "scheduled" (blue), not the accent.
+const REPLY_TONES: Record<(typeof REPLY_STATES)[number], BadgeTone> = Object.fromEntries(
+  REPLY_STATES.map((state) => [state, statusTone(state)])
+) as Record<(typeof REPLY_STATES)[number], BadgeTone>;
 
 function ReplyCounts({ counts }: { counts: ThreadsReplyCounts }) {
   return (
@@ -759,7 +761,8 @@ function AutopilotCard({ status }: { status: AutopilotProps["status"] }) {
               <Badge tone="warning">Paused - resume on Automations</Badge>
             </Link>
           ) : (
-            <Badge tone={blockedReason ? "warning" : "accent"}>{blockedReason ? "Idle" : "Armed"}</Badge>
+            // Idle is not a problem (the notice above says why), so it is neutral, not amber.
+            <Badge tone={blockedReason ? "neutral" : "accent"}>{blockedReason ? "Idle" : "Armed"}</Badge>
           )}
           {summary.failed ? <Badge tone="danger">{summary.failed} failed</Badge> : null}
           {summary.skipped ? <Badge>{summary.skipped} skipped</Badge> : null}
@@ -1110,11 +1113,11 @@ function AutopilotTab({
               </button>
             ))}
           </div>
-          <p className="text-xs text-[var(--muted-foreground)]">
-            {scheduledPosts} {scheduledPosts === 1 ? "post" : "posts"} scheduled
-            {pending.length > 0
-              ? ` · ${clock(pending[0].publishAt, zone)} → ${clock(pending[pending.length - 1].publishAt, zone)}`
-              : ""}
+          <p className="flex flex-wrap items-center gap-2 text-xs text-[var(--muted-foreground)]">
+            <Badge tone={scheduledPosts > 0 ? statusTone(SCHEDULED_WORD) : "neutral"}>
+              {scheduledPosts} {scheduledPosts === 1 ? "post" : "posts"} scheduled
+            </Badge>
+            {pending.length > 0 ? <span>{clock(pending[0].publishAt, zone)} → {clock(pending[pending.length - 1].publishAt, zone)}</span> : null}
           </p>
         </div>
 
@@ -1323,9 +1326,11 @@ function PackSummary({
   now,
   timeZone,
   today,
-  settings
+  settings,
+  todaySummary
 }: {
   pack: XDailyPack;
+  todaySummary: ThreadsTodaySummary | null;
   now: number;
   timeZone: string;
   today: string | null;
@@ -1338,13 +1343,15 @@ function PackSummary({
   const isToday = today !== null && pack.date === today;
   const cadence = cadenceBadge({ postsPerDay: settings?.postsPerDay, accounts: settings?.accounts.length, window: settings?.postingWindow });
   const sizeNote = packSizeNote({ packPosts: pack.posts.length, postsPerDay: settings?.postsPerDay, label: isToday ? "Today" : "This pack" });
+  // Only today's pack is held up against today's count; another day's pack has no "today" to reconcile with.
+  const splitNote = isToday && todaySummary?.dateKey === pack.date ? packSplitNote(todaySummary) : null;
   const relative = relativeFrom(pack.createdAt, now);
   const took = durationSeconds(pack.requestedAt, pack.createdAt);
   return (
     <Card>
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <p className="text-xs uppercase tracking-[0.28em] text-[var(--muted-foreground)]">{isToday || today === null ? "Today's pack" : "Pack"} · {pack.date}</p>
+          <p className="text-xs uppercase tracking-[0.28em] text-[var(--muted-foreground)]">{isToday || today === null ? "Today's pack" : "Pack"} · {formatDayKey(pack.date, { month: "short", day: "numeric" })}</p>
           <h2 className="mt-1 text-xl font-semibold text-white">
             {/* "Ideas", not "posts": today's count of posts is on the autopilot card below, and it also holds hand-added ones. */}
             {pack.posts.length} post {pack.posts.length === 1 ? "idea" : "ideas"} · {pack.replies.length} {pack.replies.length === 1 ? "reply" : "replies"}
@@ -1352,6 +1359,7 @@ function PackSummary({
           <p className="mt-1 text-xs text-[var(--muted-foreground)]">
             A pack is one day&apos;s posts and replies, all written in a single run.
             {sizeNote ? ` ${sizeNote}` : ""}
+            {splitNote ? ` ${splitNote}` : ""}
           </p>
         </div>
         <div className="flex flex-wrap gap-2">

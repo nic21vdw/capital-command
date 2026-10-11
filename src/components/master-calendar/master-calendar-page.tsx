@@ -26,7 +26,7 @@ import {
 } from "@/lib/master-calendar/types";
 import { summarizeEventStatus } from "@/lib/master-calendar/legSummary";
 import { formatClockTime } from "@/lib/timeFormat";
-import { statusTone } from "@/lib/statusTone";
+import { SCHEDULED_WORD, statusTone } from "@/lib/statusTone";
 import type { CalendarPlan } from "@/lib/master-calendar/planner";
 import { sourceHrefForDay } from "@/lib/master-calendar/aggregate";
 import { defaultCalendarView, viewportIsNarrow } from "@/lib/master-calendar/default-view";
@@ -731,7 +731,7 @@ function MasterCalendarBody({ todayKey, seed }: { todayKey: string; seed: Master
               <CalendarDays className="h-4 w-4 text-[var(--accent)]" />
               {periodLabel}
               {visibleEvents.length > 0 ? (
-                <Badge className="border-white/10 bg-white/5 text-[10px] text-[var(--muted-foreground)]">
+                <Badge tone={statusTone(SCHEDULED_WORD)} className="text-[10px]">
                   {visibleEvents.length} scheduled
                 </Badge>
               ) : null}

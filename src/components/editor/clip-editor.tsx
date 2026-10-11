@@ -59,6 +59,7 @@ import type { ClipCandidate, ClipJob } from "@/lib/clipping/types";
 import type { EditorApi } from "@/components/editor/types";
 import type { ScheduleSlot } from "@/lib/publisher/slots";
 import type { ChannelSchedule } from "@/lib/publisher/channelVideos";
+import { formatClockTime } from "@/lib/timeFormat";
 
 // One open slot offered in the Schedule Short dropdown for one-click scheduling.
 // It carries no "today" flag: today is never on offer.
@@ -884,7 +885,7 @@ export function ClipEditor({
           // `bookable` also drops today's remaining slots — nothing is scheduled
           // for the day it is booked (src/lib/publisher/schedule.ts).
           .filter((slot) => slot.bookable && !occupancy.taken.has(slot.utc) && !channelBySlot.has(slot.utc))
-          .map((slot) => ({ utc: slot.utc, label: `${slot.dateLabel} · ${slot.time}` }));
+          .map((slot) => ({ utc: slot.utc, label: `${slot.dateLabel} · ${formatClockTime(slot.time)}` }));
         loadedOffsetRef.current = target;
         setSlotOptions(open);
       } catch {
