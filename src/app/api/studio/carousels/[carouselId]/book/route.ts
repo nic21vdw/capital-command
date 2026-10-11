@@ -99,7 +99,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       // The queue's own wording carries a raw UTC stamp and a post id; say when, in the publish time zone.
       const existing = await publishQueue(config).get(error.existingItemId).catch(() => undefined);
       return NextResponse.json(
-        { error: alreadyBookedMessage(existing?.publishAt, config.timezone), itemId: error.existingItemId },
+        { error: alreadyBookedMessage(existing?.publishAt, config.timezone, null), itemId: error.existingItemId },
         { status: 409 }
       );
     }

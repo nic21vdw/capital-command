@@ -1,4 +1,5 @@
 import type { Carousel, CarouselSchedule } from "@/types/domain";
+import { publishZoneLabel } from "@/lib/carousels/booked";
 
 /** The four networks a carousel can be scheduled to, in display order. */
 export const CAROUSEL_PLATFORMS = [
@@ -68,6 +69,31 @@ export function bookingNeedsHands(statuses: Partial<Record<CarouselPlatformId, s
 }
 
 /**
+ * Once a deck is in the publish queue it cannot be booked again, so both
+ * networks that take a picture post are closed to a new action: the ones it is
+ * booked on show their slot, the other says where to change it. What is left to
+ * choose is the reminder-only networks.
+ */
+export function platformsClosedByBooking(booked: boolean): CarouselPlatformId[] {
+  return booked ? [...IMAGE_CAPABLE_PLATFORMS] : [];
+}
+
+/** The picks that still mean something: a booked deck drops the closed networks. */
+export function activePlatformPicks(picks: CarouselPlatformId[], booked: boolean): CarouselPlatformId[] {
+  const closed = platformsClosedByBooking(booked);
+  return picks.filter((id) => !closed.includes(id));
+}
+
+/**
+ * The form's last button. On a booked deck there is nothing to save until a
+ * reminder network is picked, so the footer is just Close and the link to the
+ * booking; everywhere else Cancel and the save button stay.
+ */
+export function scheduleFooterMode(booked: boolean, picks: CarouselPlatformId[]): "save" | "close-only" {
+  return booked && activePlatformPicks(picks, booked).length === 0 ? "close-only" : "save";
+}
+
+/**
  * What saving the schedule form does. Only a one-off to Instagram/Facebook is a
  * real booking in the publish queue; a repeat, or a network the publisher
  * cannot post a picture to, stays a reminder saved on the carousel.
@@ -84,8 +110,12 @@ export function planCarouselSchedule(
   };
 }
 
-/** "Tue 3:00 PM" for an instant, as seen in the publish timezone. */
-export function bookingTimeLabel(publishAt: string, timeZone: string): string {
+/**
+ * "Tue 3:00 PM" for an instant, as seen in the publish timezone - "Tue 3:00 PM
+ * EDT" when the viewer's browser is in another zone, so the time is not taken
+ * for their own clock.
+ */
+export function bookingTimeLabel(publishAt: string, timeZone: string, viewerZone?: string | null): string {
   const date = new Date(publishAt);
   if (Number.isNaN(date.getTime())) return publishAt;
   try {
@@ -96,7 +126,8 @@ export function bookingTimeLabel(publishAt: string, timeZone: string): string {
       minute: "2-digit"
     }).formatToParts(date);
     const get = (type: string) => parts.find((part) => part.type === type)?.value ?? "";
-    return `${get("weekday")} ${get("hour")}:${get("minute")} ${get("dayPeriod")}`.trim();
+    const zone = publishZoneLabel(publishAt, timeZone, viewerZone);
+    return `${get("weekday")} ${get("hour")}:${get("minute")} ${get("dayPeriod")}${zone ? ` ${zone}` : ""}`.trim();
   } catch {
     return publishAt;
   }
@@ -111,9 +142,10 @@ export function bookingTimeLabel(publishAt: string, timeZone: string): string {
 export function bookingMessage(
   statuses: Partial<Record<CarouselPlatformId, string>>,
   publishAt: string,
-  timeZone: string
+  timeZone: string,
+  viewerZone?: string | null
 ): string {
-  const when = bookingTimeLabel(publishAt, timeZone);
+  const when = bookingTimeLabel(publishAt, timeZone, viewerZone);
   const names = (ids: CarouselPlatformId[]) => {
     const labels = ids.map((id) => PLATFORM_LABEL[id]);
     return labels.length > 1 ? `${labels.slice(0, -1).join(", ")} and ${labels[labels.length - 1]}` : (labels[0] ?? "");

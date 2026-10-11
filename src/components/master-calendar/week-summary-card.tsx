@@ -8,7 +8,7 @@ import { Card } from "@/components/ui/card";
 import { PlatformIcon, type PlatformIconKey } from "@/components/ui/platform-icon";
 import { SourceIcon } from "@/components/master-calendar/source-icon";
 import { formatDayKey } from "@/lib/master-calendar/day-keys";
-import { WEEK_PLATFORMS, type WeekPlatformRow, type WeekSummary } from "@/lib/master-calendar/weekSummary";
+import { WEEK_PLATFORMS, youtubeNoNumbersNote, type WeekPlatformRow, type WeekSummary } from "@/lib/master-calendar/weekSummary";
 import { YoutubeAge } from "@/components/publisher/youtube-age";
 import { compactCount, type YoutubeStatsStatus } from "@/lib/publisher/youtubeStatsShared";
 import { cn } from "@/lib/utils";
@@ -119,6 +119,7 @@ export function WeekSummaryCard({
     ? `${formatDayKey(summary.startKey, { month: "short", day: "numeric" })} - ${formatDayKey(summary.endKey, { month: "short", day: "numeric" })}`
     : "";
   const yt = summary?.youtube;
+  const noNumbers = yt ? youtubeNoNumbersNote(yt, statsStatus !== "not-connected") : null;
 
   return (
     <Card className="mb-4 p-0" aria-busy={state === "loading"}>
@@ -187,16 +188,18 @@ export function WeekSummaryCard({
                   <span className="text-[var(--muted-foreground)]">
                     {" "}
                     across {yt.videos} {yt.videos === 1 ? "video" : "videos"}
-                    {yt.missing > 0 ? ` (${yt.missing} with no numbers yet)` : ""}
                   </span>
                 </p>
               ) : (
                 <p className="mt-1 text-sm text-[var(--muted-foreground)]">
-                  {summary.youtubeTargets.length === 0
+                  {summary.youtubeTargets.length === 0 && !noNumbers
                     ? "No YouTube videos went out this week."
                     : "No numbers for this week's YouTube videos yet."}
                 </p>
               )}
+              {noNumbers && (yt?.videos ?? 0) > 0 ? (
+                <p className="mt-0.5 text-xs text-[var(--muted-foreground)]">{noNumbers}</p>
+              ) : null}
               {yt?.fetchedAt ? (
                 <p className="mt-1 text-xs text-[var(--muted-foreground)]">
                   <YoutubeAge status={statsStatus} fetchedAt={yt.fetchedAt} now={now} />
