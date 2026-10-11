@@ -64,10 +64,17 @@ export function explainConnectError(raw: string, platform?: string | null): Conn
     );
   }
   if (lower.includes("denied")) {
+    // Only the providers that actually gate a new app say why it was refused.
+    const gate =
+      platform === "youtube"
+        ? " If Google says the app is unverified, choose Advanced, then continue, and make sure your own account is listed as a test user."
+        : platform === "tiktok"
+          ? " If TikTok says the app is in sandbox mode, add your account as a test user in the TikTok developer portal."
+          : "";
     return make(
       "denied",
       `The ${label} sign-in was cancelled, or access was not granted.`,
-      `Try again and approve every permission ${label} asks for. If Google says the app is unverified, choose Advanced, then continue, and make sure your own account is listed as a test user.`
+      `Try again and approve every permission ${label} asks for.${gate}`
     );
   }
   if (lower.includes("redirect_uri_mismatch") || lower.includes("redirect uri") || lower.includes("redirect_uri")) {

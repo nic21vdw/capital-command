@@ -66,9 +66,17 @@ describe("redirectUriNote", () => {
     expect(redirectUriNote("youtube", uri, "http://localhost:3100")).toMatch(/Register exactly this address/);
   });
 
-  it("names both hosts when the address bar differs from what the app sends", () => {
+  it("explains a localhost address when the app was opened at 127.0.0.1", () => {
     const note = redirectUriNote("youtube", uri, "http://127.0.0.1:3100") ?? "";
-    expect(note).toContain("127.0.0.1:3100");
+    expect(note).toBe(
+      "Register this exact address in the Google Cloud console. It says localhost even though you opened the app at 127.0.0.1 - that's expected."
+    );
+    expect(redirectUriNote("tiktok", "http://localhost:3100/x", "http://127.0.0.1:3100")).toContain("in the TikTok console.");
+  });
+
+  it("names both hosts when the address bar differs from what the app sends otherwise", () => {
+    const note = redirectUriNote("youtube", uri, "http://192.168.1.5:3100") ?? "";
+    expect(note).toContain("192.168.1.5:3100");
     expect(note).toContain("localhost:3100");
     expect(note).toMatch(/Register the address above/);
   });

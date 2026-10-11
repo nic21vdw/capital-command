@@ -160,6 +160,10 @@ export function redirectUriNote(connectionId: string, uri: string, browserOrigin
   } catch {
     browser = null;
   }
+  if (browser && browser.hostname === "127.0.0.1" && sent.hostname === "localhost") {
+    const console = connectionId === "youtube" ? "Google Cloud console" : `${label} console`;
+    return `Register this exact address in the ${console}. It says localhost even though you opened the app at 127.0.0.1 - that's expected.`;
+  }
   if (browser && browser.host !== sent.host) {
     return (
       `You opened the app at ${browser.host}, but it sends ${sent.host} to ${label}. Register the address above, not one built from ${browser.host}. ` +

@@ -30,6 +30,24 @@ describe("explainConnectError", () => {
     expect(explainConnectError("The user denied the authorization request", "tiktok").kind).toBe("denied");
   });
 
+  it("mentions the Google verification step only for YouTube", () => {
+    const youtube = explainConnectError("access_denied", "youtube").fix;
+    expect(youtube).toContain("If Google says the app is unverified");
+    expect(youtube).toContain("test user");
+  });
+
+  it("gives TikTok its own sandbox-mode step, never the Google one", () => {
+    const tiktok = explainConnectError("access_denied", "tiktok").fix;
+    expect(tiktok).toContain("If TikTok says the app is in sandbox mode, add your account as a test user in the TikTok developer portal.");
+    expect(tiktok).not.toContain("unverified");
+    expect(tiktok).not.toContain("Google");
+  });
+
+  it("omits the platform-specific step for Spotify", () => {
+    const spotify = explainConnectError("access_denied", "spotify").fix;
+    expect(spotify).toBe("Try again and approve every permission Spotify asks for.");
+  });
+
   it("explains a redirect mismatch and points at the redirect URI in the row", () => {
     const result = explainConnectError('Google OAuth code exchange failed: 400 {"error":"redirect_uri_mismatch"}', "youtube");
     expect(result.kind).toBe("redirect-mismatch");
