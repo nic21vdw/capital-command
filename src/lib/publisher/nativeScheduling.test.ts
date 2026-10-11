@@ -6,7 +6,9 @@ import {
   pendingLabel,
   preSchedules,
   preSchedulesItem,
-  TIKTOK_INBOX_CHIP
+  TIKTOK_INBOX_CHIP,
+  waitingForConnectionHint,
+  waitingForConnectionLabel
 } from "@/lib/publisher/nativeScheduling";
 
 describe("which platforms take a post before its time", () => {
@@ -137,5 +139,34 @@ describe("a YouTube post held back by the daily upload limit", () => {
   it("changes nothing for the other platforms or when the allowance is not spent", () => {
     expect(pendingLabel("youtube")).toBe("Uploading");
     expect(pendingLabel("instagram", undefined, undefined, { youtubeQuotaFull: true })).toBe("Posts at slot");
+  });
+});
+
+describe("a pending leg whose account is not connected", () => {
+  const now = new Date("2026-10-11T12:00:00.000Z");
+  const future = { publishAt: "2026-10-14T11:30:00.000Z" };
+
+  it("is waiting for the connection, never 'Uploading' or 'Posts at slot'", () => {
+    expect(pendingLabel("youtube", future, now, { connected: false })).toBe("Waiting for YouTube connection");
+    expect(pendingLabel("instagram", future, now, { connected: false })).toBe("Waiting for Instagram connection");
+    expect(pendingLabel("tiktok", { ...future, tiktok: { delivery: "inbox" } }, now, { connected: false })).toBe(
+      "Waiting for TikTok connection"
+    );
+    expect(pendingLabel("youtube", future, now, { connected: true })).toBe("Uploading");
+    expect(pendingLabel("youtube", future, now, {})).toBe("Uploading");
+  });
+
+  it("wins over the quota wait: nothing uploads before it is connected", () => {
+    expect(pendingLabel("youtube", future, now, { connected: false, youtubeQuotaFull: true })).toBe(
+      "Waiting for YouTube connection"
+    );
+  });
+
+  it("explains the way out", () => {
+    expect(pendingHint("youtube", future, now, { connected: false })).toBe(waitingForConnectionHint("youtube"));
+    expect(waitingForConnectionHint("youtube")).toBe(
+      "Connect YouTube in Settings to post this automatically, or it becomes a reminder to post by hand."
+    );
+    expect(waitingForConnectionLabel("facebook")).toBe("Waiting for Facebook connection");
   });
 });

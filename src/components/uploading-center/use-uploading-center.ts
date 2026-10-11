@@ -1317,13 +1317,14 @@ export function useUploadingCenter(clipProjects: ClipProject[] = []) {
    * is made public. The toast says what happened to each, in words.
    */
   const publishNow = useCallback(
-    async (item: QueueItem) => {
+    async (item: QueueItem, platforms?: PlatformId[]) => {
       setBusy(`publish:${item.id}`);
       try {
         const response = await fetch(`/api/publish/${item.id}/publish`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ mode: "now" })
+          // `platforms` leaves out legs whose account is not connected: they stay waiting.
+          body: JSON.stringify(platforms ? { mode: "now", platforms } : { mode: "now" })
         });
         if (!response.ok) {
           errorToast(await readError(response));

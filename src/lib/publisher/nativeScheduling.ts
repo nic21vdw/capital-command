@@ -92,6 +92,13 @@ export type PendingContext = {
    * the only place the wait can be told apart from a few seconds of upload.
    */
   youtubeQuotaFull?: boolean;
+  /**
+   * False when the account this post belongs to has no connection. A pending
+   * leg on it cannot upload or post, whatever the platform could do ahead of
+   * time, so the chip must not say "Uploading" or "Posts at slot". Absent means
+   * the board does not know, and the platform's own wording stands.
+   */
+  connected?: boolean;
 };
 
 type PendingItem = Pick<QueueItem, "mediaKind" | "publishAt"> & Partial<Pick<QueueItem, "tiktok">>;
@@ -116,6 +123,7 @@ export function pendingLabel(
   context: PendingContext = {}
 ): string {
   if (!platform) return "Queued";
+  if (context.connected === false) return waitingForConnectionLabel(platform);
   if (platform === "youtube" && context.youtubeQuotaFull) return QUOTA_WAIT_LABEL;
   if (platform === "tiktok" && item && usesTiktokInbox(item)) return "To inbox at slot";
   if (item) return preSchedulesItem(platform, item, now) ? "Uploading" : "Posts at slot";
@@ -128,6 +136,16 @@ const PLATFORM_NAMES: Record<PlatformId, string> = {
   tiktok: "TikTok",
   facebook: "Facebook"
 };
+
+/** The chip for a pending leg whose account is not connected: it cannot go anywhere yet. */
+export function waitingForConnectionLabel(platform: PlatformId): string {
+  return `Waiting for ${PLATFORM_NAMES[platform]} connection`;
+}
+
+/** The line that explains it, and the way out. */
+export function waitingForConnectionHint(platform: PlatformId): string {
+  return `Connect ${PLATFORM_NAMES[platform]} in Settings to post this automatically, or it becomes a reminder to post by hand.`;
+}
 
 /**
  * TikTok's inbox delivery ends with a draft only a tap in the TikTok app can
@@ -157,6 +175,7 @@ export function pendingHint(
 ): string {
   if (!platform) return "Waiting for the publish runner.";
   const name = PLATFORM_NAMES[platform];
+  if (context.connected === false) return waitingForConnectionHint(platform);
   if (platform === "youtube" && context.youtubeQuotaFull) {
     return "YouTube's upload limit for today is used up, so this waits and goes up after the quota resets (midnight Pacific). Nothing is lost.";
   }
