@@ -52,6 +52,17 @@ export function platformPostingMode(
 }
 
 /**
+ * The words on a network's tile for each posting mode. The enum value stays
+ * "manual" (the queue and the tests speak it); the owner reads what actually
+ * happens: nothing posts, a reminder is saved.
+ */
+export const PLATFORM_MODE_LABELS = {
+  automatic: "Automatic",
+  reminder: "Not connected - saved as a reminder",
+  manual: "Reminder only"
+} as const;
+
+/**
  * Whether a one-off booking can really post itself: at least one selected
  * network is image-capable and not known to be disconnected.
  */

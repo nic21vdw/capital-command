@@ -30,6 +30,13 @@ describe("setupNeed", () => {
     expect(setupNeed("text", { ...ready, cards: [card("threads", ["No Threads account is connected."], true)] })).toBeNull();
   });
 
+  it("says 'isn't confirmed running' instead of leaking the background-runner jargon", () => {
+    const cards = [card("threads", ["This page can't check the background runner, so it can't tell whether it is installed."])];
+    const need = setupNeed("text", { ...ready, cards });
+    expect(need).toEqual({ reason: "The Threads autopilot isn't confirmed running", href: "/automations", hrefLabel: "Automations" });
+    expect(JSON.stringify(need)).not.toMatch(/background runner|installed/i);
+  });
+
   it("links to Settings > Accounts when that is where the fix is, so text and link agree", () => {
     const threads = setupNeed("text", {
       ...ready,

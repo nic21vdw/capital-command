@@ -64,6 +64,8 @@ import { StatusChip } from "@/components/uploading-center/status-chip";
 import {
   DEFAULT_SLOT_OFFSET_DAYS,
   NO_AI_CAPTION_NOTICE,
+  NO_AI_CAPTION_NOTICE_PLURAL,
+  NO_AI_CAPTION_NOTICE_BOOKED,
   PLATFORM_LABELS,
   PLATFORM_TARGET_LABELS,
   REARM_MAX_SLOT_AGE_HOURS,
@@ -668,14 +670,18 @@ export function UploadingCenterPage() {
   // "AI captions for all": write a caption for every unscheduled clip that
   // hasn't got one, tailored to whatever platform each card targets.
   const fillCaptions = useCallback(
-    async (clips: ReadyClip[]) => {
+    async (clips: ReadyClip[], options?: { deferFallbackNotice?: boolean }) => {
       const targets = clips.map((clip) => {
         const draft = latestDraftFor(clip);
         return { clip, platform: copyPlatformFor(draft.platform), title: draft.title };
       });
-      return tailorCaptionsForAll(targets, (clip, caption) => {
-        putDraft(clip, { ...latestDraftFor(clip), caption });
-      });
+      return tailorCaptionsForAll(
+        targets,
+        (clip, caption) => {
+          putDraft(clip, { ...latestDraftFor(clip), caption });
+        },
+        options,
+      );
     },
     [latestDraftFor, putDraft, tailorCaptionsForAll],
   );
@@ -712,7 +718,15 @@ export function UploadingCenterPage() {
       return;
     }
     const missing = clipsNeedingCaption({ clips: readyClips, draftFor: latestDraftFor, isScheduled });
-    const pass = missing.length > 0 ? await fillCaptions(missing) : null;
+    // Booking follows, so the "no AI key" notice waits and is worded for what is true then:
+    // before booking it asks for an edit, after booking it points at each post's Caption button.
+    const pass = missing.length > 0 ? await fillCaptions(missing, { deferFallbackNotice: true }) : null;
+    const usedTitles = (pass?.usedTitle ?? 0) > 0 && (pass?.failed.length ?? 0) === 0;
+    const sayNoAiKey = (booked: boolean) => {
+      if (usedTitles) {
+        toast.warning(booked ? NO_AI_CAPTION_NOTICE_BOOKED : NO_AI_CAPTION_NOTICE_PLURAL, { id: "caption-fallback" });
+      }
+    };
     // A clip whose caption failed is NOT scheduled. Posting it anyway would send
     // fallback copy under a success toast, which is indistinguishable from a
     // clip that was captioned properly — the retry button is the way back.
@@ -732,6 +746,7 @@ export function UploadingCenterPage() {
       ? `Every open day in this window already holds ${shortsCap.limit} short${shortsCap.limit === 1 ? "" : "s"} - page the calendar forward to book later.`
       : "";
     if (assignments.length === 0) {
+      sayNoAiKey(false);
       if (heldBack.length > 0) {
         toast.error(
           `Nothing scheduled — no AI caption for ${nameClips(heldBack.map((clip) => clip.headline))}. Retry the captions, or write them yourself.`,
@@ -755,6 +770,7 @@ export function UploadingCenterPage() {
       );
     }
     await autoAssign(assignments, heldBack);
+    sayNoAiKey(true);
   }, [
     autoAssign,
     fillCaptions,
@@ -889,11 +905,9 @@ export function UploadingCenterPage() {
           ) : null}
           {id !== "youtube" && id !== "tiktok" && !configured ? (
             <div className="tone-warning tone-edge tone-soft flex flex-wrap items-center justify-between gap-3 rounded-lg border px-3 py-2">
-              <p className="tone-text flex items-center gap-2 text-xs">
-                <AlertTriangle className="h-4 w-4 shrink-0" />
-                {activeAccount?.primary
-                  ? <>{PLATFORM_LABELS[id]} needs account credentials before automatic posting. Assignments stay as <StatusChip status="manual" /> reminders meanwhile.</>
-                  : <>Extra {PLATFORM_LABELS[id]} accounts use <StatusChip status="manual" /> reminders for now.</>}
+              <p className="tone-text flex items-start gap-2 text-xs">
+                <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+                <ReminderSentence platform={id} extraAccount={!activeAccount?.primary} />
               </p>
               {activeAccount?.primary ? <SettingsConnectionLink /> : null}
             </div>
@@ -1403,6 +1417,22 @@ function SettingsConnectionLink() {
   );
 }
 
+/**
+ * The one sentence every "not connected" banner says. It is ONE element: a text
+ * node and an inline chip placed straight into a `flex` paragraph become three
+ * columns, which is how the Instagram banner broke into "...stay as | chip |
+ * reminders meanwhile". The icon stays its own flex child beside this span.
+ */
+function ReminderSentence({ platform, extraAccount }: { platform: PlatformId; extraAccount?: boolean }) {
+  return (
+    <span className="min-w-0">
+      Bookings for {extraAccount ? `this ${PLATFORM_LABELS[platform]} account` : PLATFORM_LABELS[platform]} are saved as
+      reminders until it&apos;s connected - each shows{" "}
+      <StatusChip status="manual" platform={platform} connected={false} className="align-middle" />.
+    </span>
+  );
+}
+
 function ConnectTiktokNotice({
   accountId,
   primary,
@@ -1412,11 +1442,9 @@ function ConnectTiktokNotice({
 }) {
   return (
     <div className="tone-warning tone-edge tone-soft flex flex-wrap items-center justify-between gap-3 rounded-lg border px-3 py-2">
-      <p className="tone-warning tone-text flex items-center gap-2 text-xs">
-        <AlertTriangle className="h-4 w-4 shrink-0" />
-        {primary
-          ? "TikTok needs setup in Settings. Bookings are saved as reminders until the account is connected."
-          : "This TikTok account needs its own sign-in. Bookings are saved as reminders until then."}
+      <p className="tone-warning tone-text flex items-start gap-2 text-xs">
+        <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+        <ReminderSentence platform="tiktok" extraAccount={!primary} />
       </p>
       {primary ? <SettingsConnectionLink /> : (
         <Button variant="secondary" className="h-8 px-3 text-xs" onClick={() => (window.location.href = tiktokConnectUrl(accountId))}>
@@ -1449,11 +1477,9 @@ function ReconnectYoutubeNotice({ accountId }: { accountId?: string }) {
 function ConnectYoutubeNotice({ accountId, primary }: { accountId?: string; primary?: boolean }) {
   return (
     <div className="tone-warning tone-edge tone-soft flex flex-wrap items-center justify-between gap-3 rounded-lg border px-3 py-2">
-      <p className="tone-warning tone-text flex items-center gap-2 text-xs">
-        <AlertTriangle className="h-4 w-4 shrink-0" />
-        {primary
-          ? "YouTube needs setup in Settings. Bookings are saved as reminders until the account is connected."
-          : "This YouTube account needs its own sign-in. Bookings are saved as reminders until then."}
+      <p className="tone-warning tone-text flex items-start gap-2 text-xs">
+        <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+        <ReminderSentence platform="youtube" extraAccount={!primary} />
       </p>
       {primary ? <SettingsConnectionLink /> : (
         <Button variant="secondary" className="h-8 px-3 text-xs" onClick={() => (window.location.href = connectUrl(accountId))}>
