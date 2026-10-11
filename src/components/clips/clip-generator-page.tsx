@@ -50,6 +50,7 @@ import { buildClipSegments, buildClipSegmentsFromSilences } from "@/lib/clipping
 import { writeDraftProject } from "@/components/editor/drafts";
 import { useColateralSurface } from "@/lib/colateral/useSurface";
 import { cn, safeFilename } from "@/lib/utils";
+import { formatSlotTime } from "@/lib/timeFormat";
 import type { ClipCandidate, ClipJob, ClipJobStage, ClipJobStatus } from "@/lib/clipping/types";
 import type { CaptionPresetId } from "@/types/domain";
 
@@ -597,6 +598,7 @@ export function ClipGeneratorPage() {
             </div>
             <div className="mt-4 space-y-3">
               <Input
+                aria-label="Video link to import"
                 placeholder="https://youtube.com/watch?v=..."
                 value={url}
                 onChange={(event) => setUrl(event.target.value)}
@@ -1416,7 +1418,7 @@ function RunStats({ job }: { job: ClipJob }) {
       note: speed && speed >= 1 ? `${speed.toFixed(speed >= 10 ? 0 : 1)}x faster than real time` : job.durationSec ? `for ${formatTimestamp(job.durationSec)} of video` : "run time"
     },
     { label: "API cost", value: "$0", note: "Local Whisper, free models" },
-    { label: "Created", value: new Date(job.createdAt).toLocaleDateString(undefined, { month: "short", day: "numeric" }), note: new Date(job.createdAt).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" }) }
+    { label: "Created", value: new Date(job.createdAt).toLocaleDateString(undefined, { month: "short", day: "numeric" }), note: formatSlotTime(job.createdAt) }
   ];
   return (
     <dl className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4">

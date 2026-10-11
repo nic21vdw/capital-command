@@ -34,6 +34,7 @@ import {
   buildExecutionView
 } from "@/lib/execution/view-model";
 import { cn } from "@/lib/utils";
+import { formatSlotTime } from "@/lib/timeFormat";
 import type { ExecutionCompletion } from "@/types/domain";
 
 function pct(value: number): string {
@@ -356,8 +357,7 @@ function TodaySection({
                         aria-label={filled ? "Undo completion" : "Mark complete"}
                         onClick={() => (filled ? onUndo(task.goal.id, key) : onLog(task.goal.id, today))}
                         className={cn(
-                          "h-6 w-6 rounded-lg border transition",
-                          interactive && "max-sm:h-10 max-sm:w-10",
+                          "h-6 w-6 rounded-lg border transition max-sm:h-10 max-sm:w-10",
                           filled
                             ? "border-[var(--accent)] bg-[var(--accent)]"
                             : "border-white/15 bg-transparent hover:border-[var(--accent)]/60",
@@ -525,7 +525,7 @@ function WeeklyGoalsSection({
                       {entries.map((entry) => (
                         <div key={entry.id} className="flex items-center justify-between gap-2 rounded-lg bg-[var(--well)] px-2 py-1 text-xs">
                           <span className="text-[var(--muted-foreground)]">
-                            {weekdayLabel(entry.date)} {new Date(entry.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                            {weekdayLabel(entry.date)} {formatSlotTime(entry.timestamp)}
                           </span>
                           <button
                             type="button"

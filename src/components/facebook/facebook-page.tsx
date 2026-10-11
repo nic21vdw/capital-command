@@ -440,7 +440,7 @@ function PostForm({
           </div>
 
           <Field label="Target date" hint="The day you plan to put this up — it only sorts your library.">
-            <Input type="date" value={date} onChange={(event) => setDate(event.target.value)} className="sm:w-48" />
+            <Input type="date" aria-label="Target date" value={date} onChange={(event) => setDate(event.target.value)} className="sm:w-48" />
           </Field>
         </AdvancedOptions>
 
@@ -448,7 +448,7 @@ function PostForm({
           label="Hook (main post)"
           hint="Clickbait headline promising a concrete outcome. End with 👇 so the eye drops into the comments."
         >
-          <Textarea value={hook} onChange={(event) => setHook(event.target.value)} placeholder="This one single hack just… 👇" />
+          <Textarea aria-label="Hook (main post)" value={hook} onChange={(event) => setHook(event.target.value)} placeholder="This one single hack just… 👇" />
           {!hook.includes("👇") && hook.trim() ? (
             <button
               type="button"
@@ -475,7 +475,7 @@ function PostForm({
 
         {format !== "text" || body ? (
           <Field label={bodyLabel}>
-            <Textarea value={body} onChange={(event) => setBody(event.target.value)} placeholder={format === "reel" ? "Hook line, beats, on-screen text…" : "The text that goes on the image…"} />
+            <Textarea aria-label={bodyLabel} value={body} onChange={(event) => setBody(event.target.value)} placeholder={format === "reel" ? "Hook line, beats, on-screen text…" : "The text that goes on the image…"} />
           </Field>
         ) : null}
 
@@ -496,6 +496,7 @@ function PostForm({
             <div key={comment.id} className="flex gap-2">
               <span className="mt-3 w-8 shrink-0 text-right text-sm font-semibold tabular-nums text-[var(--accent)]">{index + 1}/</span>
               <Textarea
+                aria-label={`Comment thread step ${index + 1}`}
                 value={comment.text}
                 onChange={(event) =>
                   setComments((current) => current.map((item) => (item.id === comment.id ? { ...item, text: event.target.value } : item)))
@@ -519,7 +520,7 @@ function PostForm({
           label={`Call to action (final comment · ${comments.filter((comment) => comment.text.trim()).length + 1}/)`}
           hint="The back-end system: every post drives subscribers, affiliate sales, or product traffic. Links live here, never in the hook."
         >
-          <Textarea value={cta} onChange={(event) => setCta(event.target.value)} placeholder="If you want the exact system, grab it here: [link]" className="min-h-20" />
+          <Textarea aria-label="Call to action (final comment)" value={cta} onChange={(event) => setCta(event.target.value)} placeholder="If you want the exact system, grab it here: [link]" className="min-h-20" />
         </Field>
 
         <div className="flex justify-end">
@@ -578,7 +579,7 @@ function SegmentedControl<T extends string>({
               type="button"
               onClick={() => onChange(option)}
               className={cn(
-                "flex flex-1 items-center justify-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs transition",
+                "flex flex-1 items-center justify-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs transition max-sm:min-h-10",
                 active ? "bg-white/10 font-medium text-white" : "text-[var(--muted-foreground)] hover:text-white"
               )}
             >
@@ -1165,7 +1166,7 @@ function PlaybookTab({ brief, onSaveBrief }: { brief: string; onSaveBrief: (next
         <p className="text-xs text-[var(--muted-foreground)]">
           Your positioning, voice, and hook rules for Facebook/Instagram — edit it here and use it as the source of truth when drafting threads.
         </p>
-        <Textarea value={draft} onChange={(event) => setDraft(event.target.value)} className="min-h-72 font-mono text-xs" />
+        <Textarea aria-label="Positioning brief" value={draft} onChange={(event) => setDraft(event.target.value)} className="min-h-72 font-mono text-xs" />
       </Card>
     </div>
   );

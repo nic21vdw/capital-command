@@ -433,6 +433,7 @@ export function AgentCommandPage() {
               ) : null}
             </div>
             <Textarea
+              aria-label="Command for the agent team"
               value={prompt}
               onChange={(event) => setPrompt(event.target.value)}
               onKeyDown={(event) => {

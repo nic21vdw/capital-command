@@ -100,7 +100,7 @@ function SpotifyCardBody({ showTitle, episodeCount, onStatus }: SpotifyCardProps
         <h2 className="text-sm font-semibold text-white">Spotify</h2>
         <p className="mt-1 text-sm text-[var(--muted-foreground)]">
           Add your Spotify client ID and secret in{" "}
-          <Link href="/settings#accounts" className="text-[var(--accent)] underline">Settings &gt; Accounts</Link>{" "}
+          <Link href="/settings#accounts" className="text-[var(--accent)] underline max-sm:inline-flex max-sm:min-h-10 max-sm:items-center">Settings &gt; Accounts</Link>{" "}
           (developer.spotify.com/dashboard → your app) and this page can tell you which episodes Spotify has actually
           pulled in.
         </p>

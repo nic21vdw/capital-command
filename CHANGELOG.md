@@ -14,6 +14,10 @@ already shipped.
 
 ## Unreleased
 
+- **Every link and button on a phone is a full-size tap target.** A sweep that opens every screen at phone width, expands every section and tab and measures what it finds turned up the small ones it used to miss: Day Summary fix and connect links, Automations "Open post", Execution check-offs, the Master Calendar "failed" pill, calendar day numbers and chips, Distribution and Settings links, the podcast player's controls and the "Show all" on a failed-posts strip. All are at least 40px tall now; desktop is unchanged.
+- **Every form field has a name.** The nine Podcast show fields, the clip link box, Threads post times, Facebook/IG drafts, caption and title boxes, Scripts, Idea Lab, Outlier Radar, Voiceover and Music fields are now labelled for screen readers and for tapping the label to focus the box.
+- **Day Summary headers keep their chips whole on a phone.** The "Manage in ..." button drops under the header and each status chip ("1 published", "6 scheduled") wraps as a unit instead of splitting mid-label.
+- **The last 24-hour and locale-dependent clocks read like the rest of the app.** Execution history, Pipeline run times, the Clip Generator job details and Outlier Radar upload times now say "9:05 AM" in the house 12-hour style.
 - **The YouTube setup says why it needs a Google key and walks the first step.** Settings > Accounts opens step 1 with one plain sentence on why, four bullets for the Google Cloud console, a "Copy redirect URI" button that copies the exact address the app sends (with a "Copied" confirmation) and an "Open Google Cloud console" link.
 - **A failed card's filled button is the one that fixes the failure.** A post YouTube refused for a duplicate title now leads with Rename (Connect is the quieter button beside it); Connect is the filled one only when the connection is what broke.
 - **A booked clip says what the board says.** A clip waiting on a YouTube connection reads "Needs YouTube connection" in amber instead of a green "Booked", and a healthy one says "Scheduled", the app's word for booked and not yet posted.

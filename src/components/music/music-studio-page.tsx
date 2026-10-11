@@ -344,7 +344,7 @@ export function MusicStudioPage() {
               />
             </div>
 
-            <Input placeholder="Track title (optional)" value={title} onChange={(event) => setTitle(event.target.value)} />
+            <Input aria-label="Track title" placeholder="Track title (optional)" value={title} onChange={(event) => setTitle(event.target.value)} />
 
             <div className="flex flex-wrap items-center gap-4">
               <label className="flex items-center gap-2 text-sm text-white max-sm:min-h-10">

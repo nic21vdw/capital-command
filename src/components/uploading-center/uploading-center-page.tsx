@@ -1753,7 +1753,7 @@ function FailedStrip({
         <button
           type="button"
           onClick={() => setExpanded((open) => !open)}
-          className="text-[11px] font-medium text-[var(--muted-foreground)] underline-offset-2 hover:text-white hover:underline"
+          className="text-[11px] font-medium text-[var(--muted-foreground)] underline-offset-2 hover:text-white hover:underline max-sm:inline-flex max-sm:min-h-10 max-sm:items-center"
         >
           {expanded ? "Show fewer" : `Show all ${legs.length}`}
         </button>
