@@ -14,6 +14,7 @@ already shipped.
 
 ## Unreleased
 
+- **Day Summary shows the week platform by platform, and the "vs previous 7 days" change no longer hides.** "This week by platform" sits under the Last 7 days headline (still visible on a phone with the card closed, with Refresh beside the numbers): posted, scheduled and failed per platform, each failed count linking to the card that fixes it, plus an Analytics link where the platform has a stable page (YouTube Studio, TikTok Studio, Meta Business Suite). The change against the previous 7 days now uses the videos that have numbers and says "based on 5 of 6 videos" when some are missing.
 - **The YouTube setup says why it needs a Google key and walks the first step.** Settings > Accounts opens step 1 with one plain sentence on why, four bullets for the Google Cloud console, a "Copy redirect URI" button that copies the exact address the app sends (with a "Copied" confirmation) and an "Open Google Cloud console" link.
 - **A failed card's filled button is the one that fixes the failure.** A post YouTube refused for a duplicate title now leads with Rename (Connect is the quieter button beside it); Connect is the filled one only when the connection is what broke.
 - **A booked clip says what the board says.** A clip waiting on a YouTube connection reads "Needs YouTube connection" in amber instead of a green "Booked", and a healthy one says "Scheduled", the app's word for booked and not yet posted.

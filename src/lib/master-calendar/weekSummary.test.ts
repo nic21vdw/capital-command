@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildWeekSummary, youtubeNoNumbersNote } from "@/lib/master-calendar/weekSummary";
+import { buildWeekSummary, trendBasisNote, youtubeNoNumbersNote } from "@/lib/master-calendar/weekSummary";
 import type { MasterCalendarEvent } from "@/lib/master-calendar/types";
 import type { YoutubeStat } from "@/lib/publisher/youtubeStatsShared";
 
@@ -295,7 +295,7 @@ describe("the comparison with the 7 days before", () => {
       events,
       stats: { vidaaaaaa1: stat(1500), vidbbbbbb1: stat(600), vidcccccc1: stat(400) }
     });
-    expect(summary.trend).toEqual({ previousViews: 1000, previousVideos: 2, change: 500, percent: 50 });
+    expect(summary.trend).toEqual({ videosCounted: 3, videosTotal: 3, previousViews: 1000, previousVideos: 2, change: 500, percent: 50 });
     // The earlier videos stay out of this week's own totals.
     expect(summary.youtube.views).toBe(1500);
     expect(summary.youtube.videos).toBe(1);
@@ -310,9 +310,32 @@ describe("the comparison with the 7 days before", () => {
     expect(summary.trend).toMatchObject({ change: -500, percent: -50 });
   });
 
-  it("shows nothing when a video on either side has no numbers", () => {
-    expect(buildWeekSummary({ endKey: "2026-10-11", events, stats: { vidaaaaaa1: stat(1500), vidbbbbbb1: stat(600) } }).trend).toBeNull();
+  it("leaves a video with no numbers out of its side and says how many it used", () => {
+    // One of the two earlier videos has nothing cached: the comparison runs on the other.
+    const summary = buildWeekSummary({ endKey: "2026-10-11", events, stats: { vidaaaaaa1: stat(1500), vidbbbbbb1: stat(600) } });
+    expect(summary.trend).toEqual({ videosCounted: 2, videosTotal: 3, previousViews: 600, previousVideos: 1, change: 900, percent: 150 });
+    expect(trendBasisNote(summary.trend!)).toBe("based on 2 of 3 videos");
+    // A video this week with a null view count is left out the same way.
+    const withNull = buildWeekSummary({
+      endKey: "2026-10-11",
+      events: [...events, yt("d", "2026-10-09", "vidddddd01")],
+      stats: { vidaaaaaa1: stat(1500), vidddddd01: stat(null), vidbbbbbb1: stat(600), vidcccccc1: stat(400) }
+    });
+    expect(withNull.trend).toMatchObject({ videosCounted: 3, videosTotal: 4, change: 500 });
+  });
+
+  it("has no footnote when every video was counted", () => {
+    const summary = buildWeekSummary({
+      endKey: "2026-10-11",
+      events,
+      stats: { vidaaaaaa1: stat(1500), vidbbbbbb1: stat(600), vidcccccc1: stat(400) }
+    });
+    expect(trendBasisNote(summary.trend!)).toBeNull();
+  });
+
+  it("shows nothing when either side has no video with numbers", () => {
     expect(buildWeekSummary({ endKey: "2026-10-11", events, stats: { vidbbbbbb1: stat(600), vidcccccc1: stat(400) } }).trend).toBeNull();
+    expect(buildWeekSummary({ endKey: "2026-10-11", events, stats: { vidaaaaaa1: stat(1500) } }).trend).toBeNull();
   });
 
   it("shows nothing when nothing was posted before, or the earlier videos have no views to compare with", () => {
@@ -320,5 +343,66 @@ describe("the comparison with the 7 days before", () => {
     expect(
       buildWeekSummary({ endKey: "2026-10-11", events, stats: { vidaaaaaa1: stat(10), vidbbbbbb1: stat(0), vidcccccc1: stat(0) } }).trend
     ).toBeNull();
+  });
+});
+
+describe("the per-platform strip", () => {
+  it("points a failed count at the newest failed card on its own platform", () => {
+    const summary = buildWeekSummary({
+      endKey: "2026-10-11",
+      events: [
+        event({
+          id: "old",
+          dateKey: "2026-10-07",
+          platforms: ["TikTok"],
+          status: "failed",
+          legs: [{ platform: "TikTok", status: "failed", href: "/uploading-center?item=old&platform=tiktok" }]
+        }),
+        event({
+          id: "new",
+          dateKey: "2026-10-10",
+          platforms: ["TikTok", "Instagram"],
+          status: "partly failed",
+          legs: [
+            { platform: "TikTok", status: "failed", href: "/uploading-center?item=new&platform=tiktok" },
+            { platform: "Instagram", status: "published" }
+          ]
+        })
+      ]
+    });
+    expect(row(summary, "tiktok")).toMatchObject({ failed: 2, failedHref: "/uploading-center?item=new&platform=tiktok" });
+    expect(row(summary, "instagram").failedHref).toBeUndefined();
+  });
+
+  it("falls back to the event's failure card when a leg carries no link", () => {
+    const summary = buildWeekSummary({
+      endKey: "2026-10-11",
+      events: [
+        event({
+          source: "x",
+          platforms: ["Threads"],
+          status: "failed",
+          failedPlatforms: ["Threads"],
+          failures: [{ platform: "Threads", reason: "Token expired", href: "/x-posts?date=2026-10-09" }]
+        })
+      ]
+    });
+    expect(row(summary, "threads")).toMatchObject({ failed: 1, failedHref: "/x-posts?date=2026-10-09" });
+  });
+
+  it("offers analytics only where a stable address exists", () => {
+    const summary = buildWeekSummary({
+      endKey: "2026-10-11",
+      events: [event({ legs: [{ platform: "YouTube", status: "published" }], youtube: { itemId: "q1", videoId: "vidaaaaaa1" } })],
+      stats: { vidaaaaaa1: stat(100) }
+    });
+    expect(row(summary, "youtube").analytics?.url).toBe("https://studio.youtube.com/video/vidaaaaaa1/analytics/tab-overview/period-default");
+    expect(row(summary, "tiktok").analytics?.url).toContain("tiktok.com");
+    expect(row(summary, "instagram").analytics?.url).toContain("business.facebook.com");
+    expect(row(summary, "threads").analytics).toBeUndefined();
+  });
+
+  it("gives YouTube no analytics link when no video went out", () => {
+    expect(row(buildWeekSummary({ endKey: "2026-10-11", events: [] }), "youtube").analytics).toBeUndefined();
   });
 });

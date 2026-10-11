@@ -63,6 +63,13 @@ export type WeekPlatformRow = {
    * ahead of it, it will not go on its own. Counted here and not again in `scheduled`.
    */
   needsConnection: number;
+  /**
+   * The card to open to fix the newest failed post, when any failed. With
+   * several, it is the most recent one: fixing it lands the person where the rest are.
+   */
+  failedHref?: string;
+  /** This platform's own analytics, only where a stable address exists. */
+  analytics?: { url: string; label: string };
   /** Where this platform's numbers live. */
   numbersNote: string;
   /** The most recent published post, for a one-click way to its numbers. */
@@ -86,9 +93,15 @@ export type WeekTopPost = {
  * This week's YouTube views against the videos posted in the 7 days before it.
  * The app caches each video's lifetime count, not a history, so this compares
  * two groups of videos by what each has earned SO FAR - the earlier group has
- * had longer to earn it. It exists only when both groups are fully counted.
+ * had longer to earn it. A video with no numbers yet is left out of its group
+ * (and said so in `videosCounted` / `videosTotal`); it exists only when both
+ * groups have at least one video with numbers.
  */
 export type WeekTrend = {
+  /** Videos behind the comparison, both weeks together. */
+  videosCounted: number;
+  /** Videos in both weeks, including those with no numbers yet. */
+  videosTotal: number;
   previousViews: number;
   previousVideos: number;
   /** views this week minus views for the previous 7 days. */
@@ -119,7 +132,7 @@ export type WeekSummary = {
     fetchedAt: string | null;
   };
   top: WeekTopPost | null;
-  /** Null when either group has a video with no numbers, or there is nothing before to compare with. */
+  /** Null when either group has no video with numbers, or the earlier group has no views to compare with. */
   trend: WeekTrend | null;
   /** The published YouTube videos of the week, for the stats request. */
   youtubeTargets: { itemId: string; videoId: string }[];
@@ -140,6 +153,18 @@ const LEG_OUTCOMES: Record<string, Outcome> = {
 };
 
 type Leg = { platform: WeekPlatformId; outcome: Outcome; url?: string; href?: string };
+
+/**
+ * Where a platform's own analytics live, for the platforms that have one address
+ * that does not depend on an id this app does not hold. YouTube's is per video
+ * (see `studioAnalyticsUrl`). Instagram and Facebook share Meta Business Suite.
+ * Threads insights exist only inside the app, so there is no link to give.
+ */
+export const PLATFORM_ANALYTICS: Partial<Record<WeekPlatformId, { url: string; label: string }>> = {
+  instagram: { url: "https://business.facebook.com/latest/insights", label: "Analytics in Meta Business Suite" },
+  facebook: { url: "https://business.facebook.com/latest/insights", label: "Analytics in Meta Business Suite" },
+  tiktok: { url: "https://www.tiktok.com/tiktokstudio/analytics", label: "Analytics in TikTok Studio" }
+};
 
 /** What one calendar event did on each platform it targets. */
 function legsOf(event: MasterCalendarEvent): Leg[] {
@@ -223,11 +248,21 @@ export function buildWeekSummary(options: {
   }));
   const rowOf = new Map(rows.map((row) => [row.id, row]));
   const latestAt = new Map<WeekPlatformId, MasterCalendarEvent>();
+  const latestFailed = new Map<WeekPlatformId, MasterCalendarEvent>();
 
   for (const event of events) {
     for (const leg of legsOf(event)) {
       const row = rowOf.get(leg.platform)!;
       row[leg.outcome] += 1;
+      if (leg.outcome === "failed") {
+        const worst = latestFailed.get(leg.platform);
+        if (!worst || laterThan(event, worst)) {
+          latestFailed.set(leg.platform, event);
+          const failure = event.failures?.find((entry) => platformIdOf(entry.platform) === leg.platform);
+          row.failedHref = leg.href ?? failure?.href ?? eventHref(event);
+        }
+        continue;
+      }
       if (leg.outcome !== "published") continue;
       const best = latestAt.get(leg.platform);
       if (best && !laterThan(event, best)) continue;
@@ -268,7 +303,7 @@ export function buildWeekSummary(options: {
   }
 
   const trend = weekTrend({
-    current: { videos, views, missing: [...uniqueIds].filter((id) => !stats[id] || stats[id].views === null).length },
+    current: { videos, views, tracked: uniqueIds.size },
     previousIds: options.events
       .filter((event) => event.dateKey >= shiftDayKey(startKey, -days) && event.dateKey < startKey)
       .flatMap((event) => (event.youtube ? [event.youtube.videoId] : [])),
@@ -301,6 +336,18 @@ export function buildWeekSummary(options: {
     };
   }
 
+  for (const row of rows) {
+    const fixed = PLATFORM_ANALYTICS[row.id];
+    if (fixed) row.analytics = fixed;
+  }
+  // YouTube's page is per video: the week's best, else the newest one that went out.
+  const youtubeRow = rowOf.get("youtube")!;
+  const newestYoutube = [...events]
+    .filter((event) => event.youtube)
+    .sort((a, b) => (laterThan(a, b) ? -1 : 1))[0];
+  const studioVideoId = top?.videoId ?? newestYoutube?.youtube?.videoId;
+  if (studioVideoId) youtubeRow.analytics = { url: studioAnalyticsUrl(studioVideoId), label: "Analytics in YouTube Studio" };
+
   return {
     startKey,
     endKey,
@@ -320,25 +367,36 @@ export function buildWeekSummary(options: {
   };
 }
 
-/** The comparison with the 7 days before, or null when it would be a guess. */
+/**
+ * The comparison with the 7 days before, or null when it would be a guess.
+ * Videos with no numbers yet are left out of their side rather than blocking
+ * the whole comparison; `videosCounted` of `videosTotal` says how many it used.
+ */
 export function weekTrend(options: {
-  current: { videos: number; views: number; missing: number };
+  current: { videos: number; views: number; tracked: number };
   previousIds: string[];
   stats: Record<string, YoutubeStat>;
 }): WeekTrend | null {
   const { current, previousIds, stats } = options;
-  if (current.videos === 0 || current.missing > 0) return null;
+  if (current.videos === 0) return null;
   const unique = [...new Set(previousIds)];
-  if (unique.length === 0 || unique.some((id) => !stats[id] || stats[id].views === null)) return null;
   const previous = totalViews(stats, unique);
-  if (previous.views <= 0) return null;
+  if (previous.videos === 0 || previous.views <= 0) return null;
   const change = current.views - previous.views;
   return {
+    videosCounted: current.videos + previous.videos,
+    videosTotal: current.tracked + unique.length,
     previousViews: previous.views,
     previousVideos: previous.videos,
     change,
     percent: Math.round((change / previous.views) * 100)
   };
+}
+
+/** "based on 5 of 6 videos" when some had no numbers to use; null when every video was counted. */
+export function trendBasisNote(trend: Pick<WeekTrend, "videosCounted" | "videosTotal">): string | null {
+  if (trend.videosCounted >= trend.videosTotal) return null;
+  return `based on ${trend.videosCounted} of ${trend.videosTotal} videos`;
 }
 
 /**

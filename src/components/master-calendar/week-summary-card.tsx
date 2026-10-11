@@ -9,7 +9,8 @@ import { PlatformIcon, type PlatformIconKey } from "@/components/ui/platform-ico
 import { SourceIcon } from "@/components/master-calendar/source-icon";
 import { formatDayKey } from "@/lib/master-calendar/day-keys";
 import { WEEK_VIEWS_LABEL } from "@/lib/master-calendar/viewsCopy";
-import { WEEK_PLATFORMS, latestPostLinkLabel, youtubeNoNumbersNote, type WeekPlatformRow, type WeekSummary } from "@/lib/master-calendar/weekSummary";
+import { latestPostLinkLabel, trendBasisNote, youtubeNoNumbersNote, type WeekPlatformRow, type WeekSummary } from "@/lib/master-calendar/weekSummary";
+import { statusTone } from "@/lib/statusTone";
 import { YoutubeAge } from "@/components/publisher/youtube-age";
 import { compactCount, percentChangeLabel, type YoutubeStatsStatus } from "@/lib/publisher/youtubeStatsShared";
 import { cn } from "@/lib/utils";
@@ -29,90 +30,129 @@ const ICONS: Partial<Record<WeekPlatformRow["id"], PlatformIconKey>> = {
   tiktok: "tiktok"
 };
 
-function Counts({ row, className }: { row: Pick<WeekPlatformRow, "published" | "failed" | "byHand" | "scheduled" | "shouldBeLive" | "overdue" | "needsConnection">; className?: string }) {
+/** The tap target for a link that sits inside a count badge: 40px tall on a phone. */
+const BADGE_LINK = "inline-flex rounded-full focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent)] max-sm:min-h-10 max-sm:items-center";
+
+function Counts({
+  row,
+  className,
+  failedHref,
+  emptyNote = "Nothing this week"
+}: {
+  row: Pick<WeekPlatformRow, "published" | "failed" | "byHand" | "scheduled" | "shouldBeLive" | "overdue" | "needsConnection">;
+  className?: string;
+  /** Where the failed count leads, when it can be fixed from here. */
+  failedHref?: string;
+  emptyNote?: string;
+}) {
   const none = row.published + row.failed + row.byHand + row.scheduled + row.shouldBeLive + row.overdue + row.needsConnection === 0;
   return (
     <div className={cn("flex flex-wrap items-center gap-1.5", className)}>
       {row.published > 0 ? (
-        <Badge tone="success" className="gap-1">
+        <Badge tone={statusTone("published")} className="gap-1">
           <CheckCircle2 className="h-3 w-3" />
           {row.published} published
         </Badge>
       ) : null}
       {row.failed > 0 ? (
-        <Badge tone="danger" className="gap-1">
-          <AlertTriangle className="h-3 w-3" />
-          {row.failed} failed
-        </Badge>
+        failedHref ? (
+          <Link href={failedHref} className={BADGE_LINK} aria-label={`${row.failed} failed - open it to fix`}>
+            <Badge tone={statusTone("failed")} className="gap-1">
+              <AlertTriangle className="h-3 w-3" />
+              {row.failed} failed
+              <span className="underline underline-offset-2">Fix</span>
+              <ArrowRight className="h-3 w-3" aria-hidden />
+            </Badge>
+          </Link>
+        ) : (
+          <Badge tone={statusTone("failed")} className="gap-1">
+            <AlertTriangle className="h-3 w-3" />
+            {row.failed} failed
+          </Badge>
+        )
       ) : null}
       {row.byHand > 0 ? (
-        <Badge tone="warning" className="gap-1">
+        <Badge tone={statusTone("overdue")} className="gap-1">
           <HandHelping className="h-3 w-3" />
           {row.byHand} to post by hand
         </Badge>
       ) : null}
       {row.needsConnection > 0 ? (
-        <Badge tone="warning" className="gap-1">
+        <Badge tone={statusTone("overdue")} className="gap-1">
           <AlertTriangle className="h-3 w-3" />
           {row.needsConnection} need connection
         </Badge>
       ) : null}
       {row.overdue > 0 ? (
-        <Badge tone="warning" className="gap-1">
+        <Badge tone={statusTone("overdue")} className="gap-1">
           <AlertTriangle className="h-3 w-3" />
           {row.overdue} overdue
         </Badge>
       ) : null}
       {row.shouldBeLive > 0 ? (
-        <Badge tone="warning" className="gap-1">
+        <Badge tone={statusTone("overdue")} className="gap-1">
           <Clock className="h-3 w-3" />
           {row.shouldBeLive} should be live
         </Badge>
       ) : null}
       {row.scheduled > 0 ? (
-        <Badge tone="info" className="gap-1">
+        <Badge tone={statusTone("scheduled")} className="gap-1">
           <Send className="h-3 w-3" />
           {row.scheduled} scheduled
         </Badge>
       ) : null}
-      {none ? <span className="text-xs text-[var(--muted-foreground)]">Nothing this week</span> : null}
+      {none ? <span className="text-xs text-[var(--muted-foreground)]">{emptyNote}</span> : null}
     </div>
   );
 }
 
+/** True when the platform had any post in the window, whatever became of it. */
+function hasPosts(row: WeekPlatformRow): boolean {
+  return row.published + row.failed + row.byHand + row.scheduled + row.shouldBeLive + row.overdue + row.needsConnection > 0;
+}
+
+const STRIP_LINK =
+  "inline-flex items-center gap-1 text-xs text-[var(--accent)] hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent)] max-sm:min-h-10";
+
+/** One platform of "This week": counts, a way to fix what failed, and a way to its numbers. */
 function PlatformRow({ row }: { row: WeekPlatformRow }) {
   const icon = ICONS[row.id];
   const link = row.latest ? (row.latest.url ?? row.latest.href) : null;
   const external = Boolean(row.latest?.url);
   const internalLabel = link && !external ? latestPostLinkLabel(link) : null;
   return (
-    <li className="py-2.5">
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
+    <li className="py-2" data-platform={row.id}>
+      {/* Phone: name and links on one line, the counts under them. From sm up: name, counts, links in a row. */}
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5">
         <span className="flex w-24 shrink-0 items-center gap-1.5 text-sm font-medium text-white">
           {icon ? <PlatformIcon platform={icon} className="h-3.5 w-3.5" /> : <SourceIcon source="x" className="h-3.5 w-3.5" />}
           {row.label}
         </span>
-        <Counts row={row} className="min-w-0 flex-1" />
-      </div>
-      <p className="mt-1 pl-0 text-xs text-[var(--muted-foreground)] sm:pl-[108px]">
-        {row.numbersNote}
-        {row.id !== "youtube" && link ? (
-          <>
-            {" · "}
-            {external ? (
-              <a href={link} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-[var(--accent)] hover:underline">
-                Open latest post
+        {row.analytics || (row.id !== "youtube" && link) ? (
+          <p className="ml-auto flex flex-wrap items-center justify-end gap-x-4 sm:order-3">
+            {row.analytics ? (
+              <a href={row.analytics.url} target="_blank" rel="noreferrer" aria-label={row.analytics.label} className={STRIP_LINK}>
+                Analytics
                 <ExternalLink className="h-3 w-3" aria-hidden />
               </a>
-            ) : (
-              <Link href={link} className="inline-flex items-center gap-1 text-[var(--accent)] hover:underline">
-                {internalLabel}
-                <ArrowRight className="h-3 w-3" aria-hidden />
-              </Link>
-            )}
-          </>
+            ) : null}
+            {row.id !== "youtube" && link ? (
+              external ? (
+                <a href={link} target="_blank" rel="noreferrer" className={STRIP_LINK}>
+                  Latest post
+                  <ExternalLink className="h-3 w-3" aria-hidden />
+                </a>
+              ) : (
+                <Link href={link} className={STRIP_LINK} title={internalLabel ?? undefined} aria-label={`Latest post - ${internalLabel}`}>
+                  Latest post
+                  <ArrowRight className="h-3 w-3" aria-hidden />
+                </Link>
+              )
+            ) : null}
+          </p>
         ) : null}
-      </p>
+        <Counts row={row} failedHref={row.failedHref} className="min-w-0 basis-full sm:order-2 sm:basis-0 sm:flex-1" />
+      </div>
     </li>
   );
 }
@@ -148,6 +188,7 @@ export function WeekSummaryCard({
     : "";
   const yt = summary?.youtube;
   const noNumbers = yt ? youtubeNoNumbersNote(yt, statsStatus !== "not-connected") : null;
+  const stripRows = summary ? summary.rows.filter(hasPosts) : [];
 
   return (
     <Card className="mb-4 p-0" aria-busy={state === "loading"}>
@@ -192,8 +233,48 @@ export function WeekSummaryCard({
                 </span>
               </span>
             ) : null}
+            {onRefresh ? (
+              <button
+                type="button"
+                onClick={onRefresh}
+                disabled={refreshing}
+                aria-label="Refresh YouTube numbers"
+                className="ml-auto inline-flex min-h-10 shrink-0 items-center gap-1.5 rounded-lg border border-[var(--border)] bg-white/5 px-3 text-sm font-medium text-white transition hover:bg-white/10 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent)] disabled:opacity-60"
+              >
+                <RefreshCw className={cn("h-3.5 w-3.5", refreshing && "animate-spin")} aria-hidden="true" />
+                {refreshing ? "Refreshing..." : "Refresh"}
+              </button>
+            ) : null}
           </div>
         )}
+        {state === "ready" && summary && refreshNote ? (
+          <p role="status" className={cn("mt-1 text-xs", refreshNote.ok ? "text-emerald-300" : "text-amber-300")}>
+            {refreshNote.text}
+          </p>
+        ) : null}
+      </div>
+
+      {/* The per-platform strip is always on show, closed card or not: it is the performance read. */}
+      <div className="border-t border-[var(--border)] px-4 pb-1 pt-2" data-testid="week-platform-strip">
+        <p className="text-xs font-medium uppercase tracking-wide text-[var(--muted-foreground)]">This week by platform</p>
+        {state === "ready" && summary ? (
+          stripRows.length > 0 ? (
+            <ul className="divide-y divide-[var(--border)]">
+              {stripRows.map((row) => (
+                <PlatformRow key={row.id} row={row} />
+              ))}
+            </ul>
+          ) : (
+            <p className="py-2 text-xs text-[var(--muted-foreground)]">Nothing was posted or booked on any platform this week.</p>
+          )
+        ) : state === "loading" ? (
+          <div className="space-y-2 py-2" role="status">
+            <span className="sr-only">Loading the platforms</span>
+            <Skeleton className="h-8 w-full" />
+            <Skeleton className="h-8 w-full" />
+            <Skeleton className="h-8 w-full" />
+          </div>
+        ) : null}
       </div>
 
       <div
@@ -210,18 +291,6 @@ export function WeekSummaryCard({
             <div className="rounded-lg border border-[var(--border)] bg-white/[0.03] px-3 py-3">
               <div className="flex flex-wrap items-start justify-between gap-x-3 gap-y-2">
                 <p className="min-w-0 flex-1 text-xs text-[var(--muted-foreground)]">{WEEK_VIEWS_LABEL}</p>
-                {onRefresh ? (
-                  <button
-                    type="button"
-                    onClick={onRefresh}
-                    disabled={refreshing}
-                    aria-label="Refresh YouTube numbers"
-                    className="inline-flex min-h-9 shrink-0 items-center gap-1.5 rounded-lg border border-[var(--border)] bg-white/5 px-3 text-sm font-medium text-white transition hover:bg-white/10 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent)] disabled:opacity-60"
-                  >
-                    <RefreshCw className={cn("h-3.5 w-3.5", refreshing && "animate-spin")} aria-hidden="true" />
-                    {refreshing ? "Refreshing..." : "Refresh"}
-                  </button>
-                ) : null}
               </div>
               {yt && yt.videos > 0 ? (
                 <>
@@ -255,6 +324,7 @@ export function WeekSummaryCard({
                       </span>
                       <span className="text-xs text-[var(--muted-foreground)]">
                         the {summary.trend.previousVideos} {summary.trend.previousVideos === 1 ? "video" : "videos"} posted before it have {compactCount(summary.trend.previousViews)} views
+                        {trendBasisNote(summary.trend) ? ` (${trendBasisNote(summary.trend)})` : ""}
                       </span>
                     </p>
                   ) : null}
@@ -278,11 +348,6 @@ export function WeekSummaryCard({
                   <Link href="/settings#accounts" className="text-[var(--accent)] hover:underline">
                     Connect YouTube to see views here
                   </Link>
-                </p>
-              ) : null}
-              {refreshNote ? (
-                <p role="status" className={cn("mt-1 text-xs", refreshNote.ok ? "text-emerald-300" : "text-amber-300")}>
-                  {refreshNote.text}
                 </p>
               ) : null}
               {summary.top ? (
@@ -321,24 +386,16 @@ export function WeekSummaryCard({
                 </div>
               ) : null}
             </div>
-            <ul className="mt-1 divide-y divide-[var(--border)]">
-              {summary.rows.map((row) => (
-                <PlatformRow key={row.id} row={row} />
-              ))}
-            </ul>
-            <p className="mt-1 text-[11px] text-[var(--muted-foreground)]">
+            <p className="mt-2 text-[11px] text-[var(--muted-foreground)]">
               Counted per platform: one video sent to three networks is three posts. Only YouTube reports views here.
             </p>
           </>
         ) : state === "loading" ? (
-          // Roughly the height of the finished body (totals box, five rows), so
-          // the day below does not jump when the week lands.
+          // Roughly the height of the finished body (the totals box), so the
+          // day below does not jump when the week lands.
           <div className="space-y-2.5" role="status">
             <span className="sr-only">Loading the week</span>
             <Skeleton className="h-[150px] w-full" />
-            {WEEK_PLATFORMS.map((platform) => (
-              <Skeleton key={platform.id} className="h-[54px] w-full" />
-            ))}
           </div>
         ) : null}
       </div>
