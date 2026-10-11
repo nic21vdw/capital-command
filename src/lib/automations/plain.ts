@@ -20,6 +20,16 @@ const PLATFORM_LABELS: Record<string, string> = {
 const DEAD_TOKEN = /\(190\)|\berror 190\b|oauthexception|invalid_grant|token[^.]{0,40}(expired|invalid|revoked)|(expired|revoked)[^.]{0,40}token|reconnect/i;
 
 /**
+ * Is this error a dead or missing login, the kind only reconnecting fixes? The
+ * one answer behind the "reconnect in Settings" wording, so a surface that
+ * links somewhere (Settings, not the post) agrees with the sentence it shows.
+ */
+export function isConnectionProblem(raw: string, platform?: string): boolean {
+  const text = raw.replace(/\s+/g, " ").trim();
+  return DEAD_TOKEN.test(text) || (platform ? isConnectionFailure({ status: "failed", attempts: 0, error: text }) : false);
+}
+
+/**
  * One plain clause for why a post or episode is stuck, from the platform's own
  * error text. An error the owner can act on says what to do in the same breath
  * (reconnect in Settings); anything not recognised is kept short rather than
@@ -37,10 +47,7 @@ export function plainReason(raw: string, platform?: string): string {
   if (/quota|uploads for today are used/i.test(text)) return `${label}'s upload limit for today is used up`;
   if (/rate limit|too many requests|throttl/i.test(text)) return `${label} asked us to slow down`;
   if (/is not on this machine|no hosted copy|ENOENT|no such file/i.test(text)) return "the video file is no longer on this machine";
-  const connection =
-    DEAD_TOKEN.test(text) ||
-    (platform ? isConnectionFailure({ status: "failed", attempts: 0, error: text }) : false);
-  if (connection) return `${label} connection expired - reconnect in Settings`;
+  if (isConnectionProblem(text, platform)) return `${label} connection expired - reconnect in Settings`;
   if (platform && platform in PLATFORM_LABELS && platform !== "threads" && platform !== "buffer") {
     const headline = describeFailure({ status: "failed", attempts: 0, error: text }, platform as PlatformId).headline;
     // describeFailure's catch-all only says "rejected" and drops the reason; keep the original words then.

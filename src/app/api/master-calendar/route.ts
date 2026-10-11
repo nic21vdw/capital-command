@@ -75,6 +75,8 @@ export async function GET(request: NextRequest) {
 
   return NextResponse.json({
     timezone: config.timezone,
+    // The publish zone's today: what "Today" means on every screen that reads this.
+    today: todayKeyIn(config.timezone),
     publishEnabled: config.enabled,
     start: startKey,
     days,

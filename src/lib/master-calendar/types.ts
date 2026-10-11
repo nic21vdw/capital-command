@@ -46,7 +46,13 @@ export type MasterCalendarEvent = {
    * card on that platform's tab where it is fixed. Parallel to `failedPlatforms`
    * (same order); absent for sources that carry no per-leg error.
    */
-  failures?: { platform: string; reason: string; href: string }[];
+  failures?: {
+    platform: string;
+    reason: string;
+    href: string;
+    /** What the link says when it is not the Uploading Center ("Fix in Threads Autopilot"). */
+    fixLabel?: string;
+  }[];
   /**
    * A long-form upload that goes up private and stays private until it is made
    * public by hand after review. Without this it reads like any other booked post.
@@ -70,9 +76,11 @@ export type MasterCalendarEvent = {
    * What happened on each platform, for events that come from the publish
    * queue (the event's own `status` is one roll-up of these). `status` is the
    * queue's per-platform status as stored: pending, uploaded, scheduled,
-   * published, failed or manual. `url` is the live post, when its shape is known.
+   * published, failed or manual. `url` is the live post, when its shape is known;
+   * `href` is that platform's own card in the app, so a row for Instagram never
+   * opens the TikTok tab.
    */
-  legs?: { platform: string; status: string; url?: string }[];
+  legs?: { platform: string; status: string; url?: string; href?: string }[];
 };
 
 /** The Day Summary and the calendar chips treat these as failures. */
@@ -159,6 +167,12 @@ export type MasterCalendarResponse = {
   publishEnabled: boolean;
   /** First day of the returned window, YYYY-MM-DD. */
   start: string;
+  /**
+   * Today's calendar day in `timezone`, YYYY-MM-DD. The Day Summary's "Today"
+   * is this, not the browser's clock: a browser in UTC is a day ahead of the
+   * publish zone for hours every evening.
+   */
+  today?: string;
   days: number;
   events: MasterCalendarEvent[];
   /**

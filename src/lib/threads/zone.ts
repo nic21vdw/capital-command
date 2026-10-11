@@ -34,7 +34,7 @@ export function zonedDateKey(timeZone: string, now: Date = new Date()): string {
 }
 
 /** "Toronto" from "America/Toronto". */
-function placeName(timeZone: string): string {
+export function placeName(timeZone: string): string {
   const last = timeZone.split("/").pop() ?? timeZone;
   return last.replace(/_/g, " ");
 }

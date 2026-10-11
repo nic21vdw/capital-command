@@ -30,6 +30,11 @@ describe("calendar request windows", () => {
     expect(await response.json()).toMatchObject({ start: "2026-10-02", days: 42, publishEnabled: false });
   });
 
+  it("says which day is today in the publish zone, whatever window was asked for", async () => {
+    const response = await GET(new NextRequest("http://localhost/api/master-calendar?start=2026-09-01&days=1"));
+    expect(await response.json()).toMatchObject({ timezone: "America/Toronto", today: "2026-10-02", start: "2026-09-01" });
+  });
+
   it("keeps a valid leap day and at least one day for fractional requests", async () => {
     const response = await GET(new NextRequest("http://localhost/api/master-calendar?start=2028-02-29&days=0.5"));
     expect(await response.json()).toMatchObject({ start: "2028-02-29", days: 1 });

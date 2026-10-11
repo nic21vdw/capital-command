@@ -49,3 +49,33 @@ export function numberBatchPosts(items: Row[]): Map<string, number> {
   ordered.forEach(([, group], index) => group.ids.forEach((id) => numbers.set(id, index + 1)));
   return numbers;
 }
+
+/** The two account slots config.ts reads, in order: "Account 1" and "Account 2". */
+const ACCOUNT_SLOT_IDS = ["primary", "secondary"];
+
+/**
+ * What the account chip on a board row says. The label from the API's account
+ * list wins when someone gave it one; an account never named (its label is just
+ * its id, "primary") reads "Account 1" / "Account 2" rather than a config key.
+ */
+export function accountChipLabel(accountId: string, accounts: ReadonlyArray<{ id: string; label: string }>): string {
+  const label = accounts.find((account) => account.id === accountId)?.label.trim();
+  if (label && label !== accountId) return label;
+  const index = ACCOUNT_SLOT_IDS.indexOf(accountId);
+  if (index >= 0) return `Account ${index + 1}`;
+  const listed = accounts.findIndex((account) => account.id === accountId);
+  return listed >= 0 ? `Account ${listed + 1}` : accountId;
+}
+
+/**
+ * Do the rows need an account chip? Two accounts post every idea, so two rows
+ * share a number and a topic and only the account tells them apart. That is
+ * decided by what is ON the board as well as by what is configured: a queue
+ * written by two accounts still has pairs when one has since been disconnected.
+ */
+export function boardNeedsAccountChips(
+  items: ReadonlyArray<Pick<ThreadsQueueItem, "accountId">>,
+  accounts: ReadonlyArray<{ id: string }>
+): boolean {
+  return accounts.length > 1 || new Set(items.map((item) => item.accountId)).size > 1;
+}

@@ -181,3 +181,51 @@ describe("videos with no numbers", () => {
     expect(youtubeNoNumbersNote(summary.youtube)).toBeNull();
   });
 });
+
+describe("Open latest post goes to the row's own platform", () => {
+  it("opens Instagram's tab even when the post's failed TikTok leg is what its own link points at", () => {
+    const summary = buildWeekSummary({
+      endKey: "2026-10-11",
+      events: [
+        event({
+          id: "shorts:fxa102c4",
+          platforms: ["Instagram", "TikTok"],
+          status: "partly failed",
+          href: "/uploading-center?item=fxa102c4&platform=tiktok",
+          legs: [
+            { platform: "Instagram", status: "published", href: "/uploading-center?item=fxa102c4&platform=instagram" },
+            { platform: "TikTok", status: "failed", href: "/uploading-center?item=fxa102c4&platform=tiktok" }
+          ]
+        })
+      ]
+    });
+    expect(row(summary, "instagram").latest?.href).toBe("/uploading-center?item=fxa102c4&platform=instagram");
+  });
+
+  it("prefers the stored permalink and keeps each platform's own card as the in-app link", () => {
+    const summary = buildWeekSummary({
+      endKey: "2026-10-11",
+      events: [
+        event({
+          platforms: ["YouTube", "Facebook"],
+          legs: [
+            { platform: "YouTube", status: "published", url: "https://www.youtube.com/shorts/abc", href: "/uploading-center?item=q1&platform=youtube" },
+            { platform: "Facebook", status: "published", url: "https://www.facebook.com/reel/1", href: "/uploading-center?item=q1&platform=facebook" }
+          ]
+        })
+      ]
+    });
+    expect(row(summary, "facebook").latest).toMatchObject({
+      url: "https://www.facebook.com/reel/1",
+      href: "/uploading-center?item=q1&platform=facebook"
+    });
+  });
+
+  it("falls back to the event's link for a leg that carries none", () => {
+    const summary = buildWeekSummary({
+      endKey: "2026-10-11",
+      events: [event({ platforms: ["Instagram"], legs: [{ platform: "Instagram", status: "published" }], href: "/uploading-center?item=q1&platform=instagram" })]
+    });
+    expect(row(summary, "instagram").latest?.href).toBe("/uploading-center?item=q1&platform=instagram");
+  });
+});

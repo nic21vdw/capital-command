@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { cadenceBadge, gapText, isEarlierPack, packSizeNote, packTimeRange, windowClock } from "@/lib/threads/packCadence";
+import { cadenceBadge, gapText, isEarlierPack, orderPackPosts, packOrderNote, packSizeNote, packTimeRange, windowClock } from "@/lib/threads/packCadence";
 import { zonedDateKey } from "@/lib/threads/zone";
 
 describe("cadenceBadge", () => {
@@ -79,5 +79,68 @@ describe("packTimeRange", () => {
     expect(packTimeRange([{ time: "08:10" }])).toBe("8:10 AM");
     expect(packTimeRange([])).toBeNull();
     expect(packTimeRange([{ time: "soon" }, { time: "25:00" }])).toBeNull();
+  });
+});
+
+describe("orderPackPosts", () => {
+  const wrapped = [
+    ["a", 1, "09:05"],
+    ["b", 2, "12:20"],
+    ["c", 3, "15:40"],
+    ["d", 4, "23:45"],
+    ["e", 5, "01:20"],
+    ["f", 6, "02:55"]
+  ].map(([id, slot, time]) => ({ id: id as string, slot: slot as number, time: time as string }));
+
+  it("lists a pack by the clock and names the posts the slot order had put after midnight", () => {
+    const { ordered, early, reordered } = orderPackPosts(wrapped);
+    expect(ordered.map((post) => post.id)).toEqual(["e", "f", "a", "b", "c", "d"]);
+    expect([...early]).toEqual(["e", "f"]);
+    expect(reordered).toBe(true);
+  });
+
+  it("leaves a pack that already runs in clock order alone", () => {
+    const tidy = wrapped.filter((post) => post.time >= "09:00");
+    const { ordered, early, reordered } = orderPackPosts(tidy);
+    expect(ordered.map((post) => post.id)).toEqual(["a", "b", "c", "d"]);
+    expect(early.size).toBe(0);
+    expect(reordered).toBe(false);
+  });
+
+  it("keeps a time that is not a time at the end instead of guessing", () => {
+    const { ordered } = orderPackPosts([
+      { id: "x", slot: 1, time: "soon" },
+      { id: "y", slot: 2, time: "08:00" }
+    ]);
+    expect(ordered.map((post) => post.id)).toEqual(["y", "x"]);
+  });
+
+  it("breaks a tie on the slot", () => {
+    const { ordered } = orderPackPosts([
+      { id: "two", slot: 2, time: "10:00" },
+      { id: "one", slot: 1, time: "10:00" }
+    ]);
+    expect(ordered.map((post) => post.id)).toEqual(["one", "two"]);
+  });
+});
+
+describe("packOrderNote", () => {
+  it("says the early posts are that same morning, not after midnight", () => {
+    const posts = [
+      { id: "a", time: "09:05" },
+      { id: "e", time: "01:20" },
+      { id: "f", time: "02:55" }
+    ];
+    const note = packOrderNote({ posts, early: new Set(["e", "f"]), dayLabel: "Saturday, Oct 10", zoneName: "Toronto" });
+    expect(note).toContain("2 posts are timed for 1:20 AM, 2:55 AM");
+    expect(note).toContain("early morning of Saturday, Oct 10 itself in Toronto time, not after midnight");
+    expect(note).toContain("clock order");
+  });
+
+  it("reads right for a single post and an unknown zone", () => {
+    const note = packOrderNote({ posts: [{ id: "e", time: "01:20" }], early: new Set(["e"]), dayLabel: "Saturday, Oct 10" });
+    expect(note).toContain("One post is timed for 1:20 AM");
+    expect(note).toContain("it sits before");
+    expect(note).not.toContain(" time,");
   });
 });

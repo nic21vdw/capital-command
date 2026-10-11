@@ -2,6 +2,7 @@ import { dateTimeFormat } from "@/lib/publisher/intl";
 import type { AppData, Carousel, ContentItem, FbPost, XDailyPack } from "@/types/domain";
 import { isImagePost } from "@/lib/publisher/images";
 import { describeFailure } from "@/lib/publisher/failure";
+import { isConnectionProblem, plainReason } from "@/lib/automations/plain";
 import { remoteUrlFor } from "@/lib/publisher/remoteUrl";
 import { youtubeHoldsForReview } from "@/lib/publisher/reviewHold";
 import { isVideoId } from "@/lib/publisher/youtubeStatsShared";
@@ -141,11 +142,19 @@ function liveLinksFor(item: QueueItem): { platform: string; url: string }[] {
 }
 
 /** Every platform the queue item targets with where it stands, for per-platform roll-ups. */
-function legsFor(item: QueueItem): { platform: string; status: string; url?: string }[] {
+function legsFor(item: QueueItem): { platform: string; status: string; url?: string; href: string }[] {
   return PLATFORM_ORDER.filter((id) => item.platforms[id]).map((id) => {
     const state = item.platforms[id]!;
     const url = state.status === "published" ? remoteUrlFor(id, state.postId, state.status) : null;
-    return { platform: PLATFORM_LABELS[id], status: state.status, ...(url ? { url } : {}) };
+    return {
+      platform: PLATFORM_LABELS[id],
+      status: state.status,
+      ...(url ? { url } : {}),
+      // Each leg opens ITS platform's tab. The event's own href points at the
+      // platform that needs a look (a failed or hand-post leg), which is the
+      // wrong place to send a row about a different network.
+      href: uploadingCenterHref(item, id)
+    };
   });
 }
 
@@ -299,6 +308,33 @@ export function threadsSlotStatus(items: Pick<ThreadsQueueItem, "status">[]): st
 }
 
 /**
+ * Why a Threads slot failed and where to fix it, in the words the Automations
+ * page already uses ("Threads connection expired - reconnect in Settings").
+ * One line per distinct reason, so two accounts failing the same way read once.
+ * A dead login is fixed in Settings > Accounts; anything else is a post to retry
+ * on the Autopilot board for that day.
+ */
+function threadsFailures(items: ThreadsQueueItem[], dateKey: string): NonNullable<MasterCalendarEvent["failures"]> {
+  const out: NonNullable<MasterCalendarEvent["failures"]> = [];
+  const seen = new Set<string>();
+  for (const item of items) {
+    if (item.status !== "failed") continue;
+    const raw = item.error?.trim() ?? "";
+    const reason = raw ? plainReason(raw, "threads") : "no reason was recorded";
+    if (seen.has(reason)) continue;
+    seen.add(reason);
+    const connection = raw ? isConnectionProblem(raw, "threads") : false;
+    out.push({
+      platform: "Threads",
+      reason,
+      href: connection ? "/settings#accounts" : `/x-posts?date=${encodeURIComponent(dateKey)}`,
+      fixLabel: connection ? "Open Accounts in Settings" : "Fix in Threads Autopilot"
+    });
+  }
+  return out;
+}
+
+/**
  * Threads, from two stores that each know half of it. The X pack says what was
  * planned for the day (every slot, its topic and its suggested time); the
  * Threads queue says what actually happened to each post. A slot with queue
@@ -351,7 +387,9 @@ function xEvents(
         platforms: queued.length > 0 ? ["Threads"] : ["X", "Threads"],
         status: threadsSlotStatus(queued),
         href: `/x-posts?date=${encodeURIComponent(pack.date)}`,
-        ...(queued.length > 0 && threadsSlotStatus(queued).endsWith("failed") ? { failedPlatforms: ["Threads"] } : {})
+        ...(queued.length > 0 && threadsSlotStatus(queued).endsWith("failed")
+          ? { failedPlatforms: ["Threads"], failures: threadsFailures(queued, pack.date) }
+          : {})
       });
     }
   }
@@ -376,7 +414,9 @@ function xEvents(
       platforms: ["Threads"],
       status,
       href: `/x-posts?date=${encodeURIComponent(first.batchDate)}`,
-      ...(status.endsWith("failed") ? { failedPlatforms: ["Threads"] } : {})
+      ...(status.endsWith("failed")
+        ? { failedPlatforms: ["Threads"], failures: threadsFailures(items, first.batchDate) }
+        : {})
     });
   }
   return events;

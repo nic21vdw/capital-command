@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import {
   AlertTriangle,
@@ -171,13 +171,18 @@ function PieceCard({ event, cachedStat }: { event: MasterCalendarEvent; cachedSt
         </div>
         {event.failures && event.failures.length > 0 ? (
           <ul className="relative z-10 mt-1.5 space-y-1.5">
-            {event.failures.map((failure) => (
-              <li key={failure.platform} className="flex items-start gap-1 text-xs text-red-300">
+            {event.failures.map((failure, index) => (
+              <li key={`${failure.platform}:${index}`} className="flex items-start gap-1 text-xs text-red-300">
                 <AlertTriangle className="mt-0.5 h-3 w-3 shrink-0" />
                 <span className="min-w-0">
-                  <span className="font-medium">{failure.platform}:</span> {failure.reason}{" "}
+                  {/* A reason that already names its platform ("Threads connection expired...") needs no prefix. */}
+                  {failure.reason.toLowerCase().startsWith(failure.platform.toLowerCase()) ? null : (
+                    <span className="font-medium">{failure.platform}: </span>
+                  )}
+                  {failure.reason}{" "}
                   <Link href={failure.href} className="inline-flex items-center gap-0.5 whitespace-nowrap font-medium text-[var(--accent)] hover:underline">
-                    {event.failures!.length > 1 ? `Fix ${failure.platform} in Uploading Center` : "Fix in Uploading Center"}
+                    {failure.fixLabel ??
+                      (event.failures!.length > 1 ? `Fix ${failure.platform} in Uploading Center` : "Fix in Uploading Center")}
                     <ArrowUpRight className="h-3 w-3" />
                   </Link>
                 </span>
@@ -407,16 +412,66 @@ function YoutubeDayStrip({
   );
 }
 
+/**
+ * "Today" is the publish time zone's today, which only the server knows: the
+ * calendar API answers with it. A browser in UTC is already on tomorrow for
+ * hours every evening, and the rest of the app (queue slots, the Threads board)
+ * speaks the publish zone. So the first read decides the day, and the page holds
+ * its place until it lands; that read is also the day's data when no other day
+ * was asked for, so it is not repeated.
+ */
 export function DaySummaryPage({ initialDate }: { initialDate?: string }) {
-  const todayKey = useMemo(() => localTodayKey(), []);
+  const [seed, setSeed] = useState<{ today: string; response: MasterCalendarResponse | null } | null>(null);
+  useEffect(() => {
+    const controller = new AbortController();
+    const start = initialDate && DATE_KEY_RE.test(initialDate) ? `start=${initialDate}&` : "";
+    void fetch(`/api/master-calendar?${start}days=1`, { cache: "no-store", signal: controller.signal })
+      .then((res) => res.json())
+      .then((json: MasterCalendarResponse) => setSeed({ today: json.today ?? json.start, response: json }))
+      .catch((error) => {
+        if (error instanceof DOMException && error.name === "AbortError") return;
+        // The browser's clock is the last resort, only for a server that cannot be asked.
+        setSeed({ today: localTodayKey(), response: null });
+      });
+    return () => controller.abort();
+  }, [initialDate]);
+
+  if (!seed) {
+    return (
+      <div aria-busy="true">
+        <PageHeader
+          eyebrow="Step 4 · Calendar"
+          title="Day Summary"
+          description="One day's output as a briefing: everything going out, what state it is in, and a way straight into the screen that owns each piece."
+        />
+        <Card className="mb-4 h-[58px] animate-pulse bg-white/[0.03]" />
+      </div>
+    );
+  }
+  return <DaySummaryBody initialDate={initialDate} todayKey={seed.today} seed={seed.response} />;
+}
+
+function DaySummaryBody({
+  initialDate,
+  todayKey,
+  seed
+}: {
+  initialDate?: string;
+  todayKey: string;
+  seed: MasterCalendarResponse | null;
+}) {
   const [dateKey, setDateKey] = useState(initialDate && DATE_KEY_RE.test(initialDate) ? initialDate : todayKey);
-  const [response, setResponse] = useState<MasterCalendarResponse | null>(null);
+  const [response, setResponse] = useState<MasterCalendarResponse | null>(seed);
   // The day the latest settled fetch was for; while it trails the chosen day
   // the page is loading, and the previous day's cards stay up to avoid flicker.
-  const [fetchedDate, setFetchedDate] = useState<string | null>(null);
+  const [fetchedDate, setFetchedDate] = useState<string | null>(seed?.start ?? null);
+  const seededDay = useRef(seed?.start ?? null);
   const loading = fetchedDate !== dateKey;
 
   useEffect(() => {
+    // The day the page opened on arrived with the seed.
+    if (seededDay.current === dateKey) return;
+    seededDay.current = null;
     const controller = new AbortController();
     void fetch(`/api/master-calendar?start=${dateKey}&days=1`, { cache: "no-store", signal: controller.signal })
       .then((res) => res.json())
@@ -442,6 +497,7 @@ export function DaySummaryPage({ initialDate }: { initialDate?: string }) {
     response: null
   });
   useEffect(() => {
+    if (!todayKey) return;
     const controller = new AbortController();
     const start = shiftDayKey(todayKey, -(WEEK_DAYS - 1));
     void fetch(`/api/master-calendar?start=${start}&days=${WEEK_DAYS}`, { cache: "no-store", signal: controller.signal })

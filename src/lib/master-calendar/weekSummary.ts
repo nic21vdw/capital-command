@@ -41,7 +41,7 @@ export type WeekLatestPost = {
   dateKey: string;
   /** The post on its own platform, when its URL can be built. */
   url?: string;
-  /** The post's card inside the app - always there. */
+  /** The post's card inside the app, on THIS platform's tab where it has one - always there. */
   href: string;
 };
 
@@ -113,7 +113,7 @@ const LEG_OUTCOMES: Record<string, Outcome> = {
   pending: "scheduled"
 };
 
-type Leg = { platform: WeekPlatformId; outcome: Outcome; url?: string };
+type Leg = { platform: WeekPlatformId; outcome: Outcome; url?: string; href?: string };
 
 /** What one calendar event did on each platform it targets. */
 function legsOf(event: MasterCalendarEvent): Leg[] {
@@ -125,7 +125,9 @@ function legsOf(event: MasterCalendarEvent): Leg[] {
     for (const leg of event.legs) {
       const platform = platformIdOf(leg.platform);
       const outcome = LEG_OUTCOMES[leg.status];
-      if (platform && outcome) out.push({ platform, outcome, ...(leg.url ? { url: leg.url } : {}) });
+      if (platform && outcome) {
+        out.push({ platform, outcome, ...(leg.url ? { url: leg.url } : {}), ...(leg.href ? { href: leg.href } : {}) });
+      }
     }
     return out;
   }
@@ -191,7 +193,9 @@ export function buildWeekSummary(options: {
       row.latest = {
         title: event.title,
         dateKey: event.dateKey,
-        href: eventHref(event),
+        // The leg's own card when it has one: the event's href points at whichever
+        // platform needs a look, which is not this row's platform.
+        href: leg.href ?? eventHref(event),
         ...(leg.url ? { url: leg.url } : {})
       };
     }

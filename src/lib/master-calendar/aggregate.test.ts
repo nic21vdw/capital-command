@@ -57,9 +57,14 @@ describe("what a booked queue item reads as on the calendar", () => {
       })
     ]);
     expect(event.legs).toEqual([
-      { platform: "YouTube", status: "published", url: "https://www.youtube.com/watch?v=abcdefghijk" },
-      { platform: "Instagram", status: "published" },
-      { platform: "TikTok", status: "manual" }
+      {
+        platform: "YouTube",
+        status: "published",
+        url: "https://www.youtube.com/watch?v=abcdefghijk",
+        href: "/uploading-center?item=q1&platform=youtube"
+      },
+      { platform: "Instagram", status: "published", href: "/uploading-center?item=q1&platform=instagram" },
+      { platform: "TikTok", status: "manual", href: "/uploading-center?item=q1&platform=tiktok" }
     ]);
   });
 
@@ -153,6 +158,28 @@ describe("a post with one lost leg", () => {
       } as Partial<QueueItem>)
     ]);
     expect(event.href).toBe("/uploading-center?item=q9&platform=instagram");
+  });
+});
+
+describe("each platform's leg opens its own tab", () => {
+  it("never sends an Instagram row to the TikTok tab that failed", () => {
+    const [event] = events([
+      item({
+        platforms: {
+          youtube: { status: "published", postId: "abc123", attempts: 1 },
+          instagram: { status: "published", postId: "ig1", attempts: 1 },
+          tiktok: { status: "failed", error: "boom", attempts: 3 }
+        }
+      })
+    ]);
+    // The event itself opens the platform that needs a look...
+    expect(event.href).toBe("/uploading-center?item=q1&platform=tiktok");
+    // ...but each leg opens its own.
+    expect(event.legs?.map((leg) => [leg.platform, leg.href])).toEqual([
+      ["YouTube", "/uploading-center?item=q1&platform=youtube"],
+      ["Instagram", "/uploading-center?item=q1&platform=instagram"],
+      ["TikTok", "/uploading-center?item=q1&platform=tiktok"]
+    ]);
   });
 });
 
@@ -290,6 +317,60 @@ describe("Threads on the calendar", () => {
       startKey: "2026-08-08",
       days: 1
     }).filter((event) => event.source === "x");
+
+  describe("why a Threads post failed", () => {
+    const failedSlot = (error?: string, extra: Partial<ThreadsQueueItem> = {}) =>
+      xEvents([thread({ id: "t2", slot: 2, status: "failed", error, ...extra })]).find((event) => event.title === "Topic 2")!;
+
+    it("says a dead login in the Automations wording and links to Settings", () => {
+      const event = failedSlot("Threads API error (190): the access token has expired. Reconnect the account.");
+      expect(event.failures).toEqual([
+        {
+          platform: "Threads",
+          reason: "Threads connection expired - reconnect in Settings",
+          href: "/settings#accounts",
+          fixLabel: "Open Accounts in Settings"
+        }
+      ]);
+    });
+
+    it("links any other failure to that day on the Autopilot board, with a plain reason", () => {
+      const event = failedSlot("Threads API error (4): Application request limit reached");
+      expect(event.failures).toHaveLength(1);
+      expect(event.failures![0]).toMatchObject({
+        platform: "Threads",
+        href: "/x-posts?date=2026-08-08",
+        fixLabel: "Fix in Threads Autopilot"
+      });
+      expect(event.failures![0].reason).not.toBe("");
+    });
+
+    it("says so when no reason was recorded, and reads one line for two accounts failing alike", () => {
+      expect(failedSlot(undefined).failures?.[0].reason).toBe("no reason was recorded");
+      const two = xEvents([
+        thread({ id: "a", slot: 2, accountId: "acct-a", status: "failed", error: "the access token has expired" }),
+        thread({ id: "b", slot: 2, accountId: "acct-b", status: "failed", error: "the access token has expired" })
+      ]).find((event) => event.title === "Topic 2")!;
+      expect(two.failures).toHaveLength(1);
+    });
+
+    it("names the failed account's reason on a partly failed slot, and none on a healthy one", () => {
+      const partly = xEvents([
+        thread({ id: "a", slot: 1, accountId: "acct-a", status: "published" }),
+        thread({ id: "b", slot: 1, accountId: "acct-b", status: "failed", error: "OAuthException" })
+      ]).find((event) => event.title === "Topic 1")!;
+      expect(partly.status).toBe("partly failed");
+      expect(partly.failures?.[0].fixLabel).toBe("Open Accounts in Settings");
+      expect(xEvents([thread({ status: "published" })])[0].failures).toBeUndefined();
+    });
+
+    it("also explains a failed post that has no pack behind it", () => {
+      const event = xEvents([thread({ id: "old", slot: 9, topic: "Pruned pack", status: "failed", error: "OAuthException" })]).find(
+        (e) => e.title === "Pruned pack"
+      )!;
+      expect(event.failures?.[0].reason).toBe("Threads connection expired - reconnect in Settings");
+    });
+  });
 
   it("keeps a slot nobody queued as planned, for X and Threads", () => {
     const result = xEvents([]);

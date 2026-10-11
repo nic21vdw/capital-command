@@ -91,3 +91,63 @@ export function packTimeRange(posts: Array<{ time: string }>): string | null {
   const last = windowClock(minutes[minutes.length - 1]);
   return first === last ? first : `${first} to ${last}`;
 }
+
+function clockMinutes(time: string): number | null {
+  const match = /^(\d{1,2}):(\d{2})$/.exec(time);
+  if (!match) return null;
+  const value = Number(match[1]) * 60 + Number(match[2]);
+  return value >= 0 && value < 1440 ? value : null;
+}
+
+/**
+ * The pack's posts in the order they actually go out.
+ *
+ * A pack's time is a wall-clock time ON THE PACK'S OWN DATE in the autopilot's
+ * zone: `planBatch` turns "01:20" on 2026-10-10 into 1:20 AM that morning, never
+ * into the night after. Nothing is ever carried past midnight. A pack whose
+ * slots were written 9:05 AM ... 11:45 PM, 1:20 AM, 2:55 AM therefore has its
+ * last two posts BEFORE the first, and reading the list in slot order made them
+ * look like they came after midnight. So the list is sorted by the clock, and
+ * `early` names the posts that the slot order had placed after a later time -
+ * the ones that need saying.
+ */
+export function orderPackPosts<T extends { id: string; slot: number; time: string }>(
+  posts: T[]
+): { ordered: T[]; early: Set<string>; reordered: boolean } {
+  const early = new Set<string>();
+  let latest = -1;
+  for (const post of posts) {
+    const minutes = clockMinutes(post.time);
+    if (minutes === null) continue;
+    if (minutes < latest) early.add(post.id);
+    latest = Math.max(latest, minutes);
+  }
+  const ordered = [...posts].sort((a, b) => {
+    const left = clockMinutes(a.time);
+    const right = clockMinutes(b.time);
+    if (left === null || right === null) return left === right ? 0 : left === null ? 1 : -1;
+    return left - right || a.slot - b.slot;
+  });
+  return { ordered, early, reordered: early.size > 0 };
+}
+
+/**
+ * The one muted line that goes with a reordered pack. `dayLabel` is the pack's
+ * date as words ("Saturday, Oct 10"); `zoneName` the autopilot's place ("Toronto").
+ */
+export function packOrderNote(input: {
+  posts: Array<{ id: string; time: string }>;
+  early: Set<string>;
+  dayLabel: string;
+  zoneName?: string | null;
+}): string {
+  const times = input.posts
+    .filter((post) => input.early.has(post.id))
+    .map((post) => clockMinutes(post.time))
+    .filter((value): value is number => value !== null)
+    .sort((a, b) => a - b)
+    .map(windowClock);
+  const zone = input.zoneName ? ` in ${input.zoneName} time` : "";
+  const who = times.length === 1 ? `One post is timed for ${times[0]}` : `${times.length} posts are timed for ${times.join(", ")}`;
+  return `${who} - the early morning of ${input.dayLabel} itself${zone}, not after midnight - so ${times.length === 1 ? "it sits" : "they sit"} before the daytime posts. Posts are listed in clock order.`;
+}

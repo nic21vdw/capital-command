@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { defaultBatchDate, numberBatchPosts } from "@/lib/threads/board";
+import { accountChipLabel, boardNeedsAccountChips, defaultBatchDate, numberBatchPosts } from "@/lib/threads/board";
 
 describe("defaultBatchDate", () => {
   const dates = ["2026-10-12", "2026-10-11", "2026-10-10"];
@@ -51,5 +51,32 @@ describe("numberBatchPosts", () => {
     ]);
     expect(numbers.get("early")).toBe(1);
     expect(numbers.get("late")).toBe(2);
+  });
+});
+
+describe("the account chip on a board row", () => {
+  it("uses the label the account list gives, and Account 1 / 2 for an account never named", () => {
+    const accounts = [
+      { id: "primary", label: "nicbuilds" },
+      { id: "secondary", label: "secondary" }
+    ];
+    expect(accountChipLabel("primary", accounts)).toBe("nicbuilds");
+    expect(accountChipLabel("secondary", accounts)).toBe("Account 2");
+  });
+
+  it("still names a row whose account is no longer in the list", () => {
+    expect(accountChipLabel("primary", [])).toBe("Account 1");
+    expect(accountChipLabel("secondary", [])).toBe("Account 2");
+    expect(accountChipLabel("acct-z", [])).toBe("acct-z");
+    expect(accountChipLabel("acct-z", [{ id: "x", label: "x" }, { id: "acct-z", label: "acct-z" }])).toBe("Account 2");
+  });
+
+  it("shows chips when two accounts are configured, or when the board holds rows from two", () => {
+    const rows = [{ accountId: "primary" }, { accountId: "secondary" }];
+    expect(boardNeedsAccountChips(rows, [{ id: "primary" }, { id: "secondary" }])).toBe(true);
+    // One account connected now, but the day was written by two: the pairs still need telling apart.
+    expect(boardNeedsAccountChips(rows, [{ id: "primary" }])).toBe(true);
+    expect(boardNeedsAccountChips(rows, [])).toBe(true);
+    expect(boardNeedsAccountChips([{ accountId: "primary" }, { accountId: "primary" }], [{ id: "primary" }])).toBe(false);
   });
 });

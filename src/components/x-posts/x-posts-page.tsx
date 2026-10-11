@@ -37,9 +37,10 @@ import { exportBaseName, toThreadsCsv, toThreadsJson } from "@/lib/x-posts/expor
 import { cn } from "@/lib/utils";
 import { tomorrowReady } from "@/lib/threads/tomorrow";
 import type { ThreadsBatchSummary, ThreadsOutcome } from "@/lib/threads/types";
-import { browserTimeZone, fromZonedInput, threadsClock, toZonedInput, zoneNote, zonedDateKey } from "@/lib/threads/zone";
-import { cadenceBadge, isEarlierPack, packSizeNote, packTimeRange } from "@/lib/threads/packCadence";
-import { defaultBatchDate, numberBatchPosts } from "@/lib/threads/board";
+import { browserTimeZone, fromZonedInput, placeName, threadsClock, toZonedInput, zoneNote, zonedDateKey } from "@/lib/threads/zone";
+import { cadenceBadge, isEarlierPack, orderPackPosts, packOrderNote, packSizeNote, packTimeRange } from "@/lib/threads/packCadence";
+import { accountChipLabel, boardNeedsAccountChips, defaultBatchDate, numberBatchPosts } from "@/lib/threads/board";
+import { formatDayKey } from "@/lib/master-calendar/day-keys";
 import { rewriteDecision } from "@/lib/threads/rewrite";
 import { autopilotHeader, formatThreadsStamp, summarizeThreadsToday, todayHeadline, todaySendsNote } from "@/lib/threads/todaySummary";
 import type { ThreadsReplyCounts, ThreadsReplyPolicy, ThreadsReplyPreview, ThreadsReplySummary } from "@/lib/threads/reply-summary";
@@ -514,7 +515,7 @@ export function XPostsPage() {
                 id: "schedule",
                 label: "Today's posts",
                 icon: Clock,
-                content: <ScheduleTab posts={activePack.posts} />
+                content: <ScheduleTab posts={activePack.posts} date={activePack.date} timeZone={autopilot.status?.settings.timezone ?? null} />
               },
               {
                 id: "autopilot",
@@ -1070,6 +1071,9 @@ function AutopilotTab({
   }
 
   const handle = status.settings.accounts[0]?.label ?? "";
+  // Two accounts post every idea, so two rows share a number and a topic: the
+  // chip is what tells them apart.
+  const showAccountChips = boardNeedsAccountChips(batch, status.settings.accounts);
 
   // Deleting a queued post cannot be undone, and it sits beside Skip, which can
   // (via Retry now) - so it asks first and says how the two differ.
@@ -1187,9 +1191,9 @@ function AutopilotTab({
               {item.status}
             </Badge>
             <Badge>{item.topic}</Badge>
-            {status.settings.accounts.length > 1 ? (
-              <Badge tone="accent">
-                {status.settings.accounts.find((account) => account.id === item.accountId)?.label ?? item.accountId}
+            {showAccountChips ? (
+              <Badge tone="accent" title="The account that posts this row">
+                {accountChipLabel(item.accountId, status.settings.accounts)}
               </Badge>
             ) : null}
             {item.postId && handle ? (
@@ -1401,19 +1405,33 @@ function PackSummary({
   );
 }
 
-function ScheduleTab({ posts }: { posts: XSuggestedPost[] }) {
+function ScheduleTab({ posts, date, timeZone }: { posts: XSuggestedPost[]; date: string; timeZone: string | null }) {
+  // Listed by the clock, not by slot: a pack time is a wall-clock time on the
+  // pack's own date, so a 1:20 AM slot is that morning, before the 9:05 AM one.
+  const { ordered, early, reordered } = useMemo(() => orderPackPosts(posts), [posts]);
+  const note = reordered
+    ? packOrderNote({
+        posts,
+        early,
+        dayLabel: formatDayKey(date, { weekday: "long", month: "short", day: "numeric" }),
+        zoneName: timeZone ? placeName(timeZone) : null
+      })
+    : null;
   return (
-    <div className="relative space-y-4">
-      {/* Timeline rail behind the time chips. */}
-      <div aria-hidden className="absolute bottom-6 left-[52px] top-6 hidden w-px bg-white/10 sm:block" />
-      {posts.map((post) => (
-        <PostCard key={post.id} post={post} />
-      ))}
+    <div className="space-y-4">
+      {note ? <p className="text-xs text-[var(--muted-foreground)]">{note}</p> : null}
+      <div className="relative space-y-4">
+        {/* Timeline rail behind the time chips. */}
+        <div aria-hidden className="absolute bottom-6 left-[52px] top-6 hidden w-px bg-white/10 sm:block" />
+        {ordered.map((post, index) => (
+          <PostCard key={post.id} post={post} number={index + 1} early={early.has(post.id)} />
+        ))}
+      </div>
     </div>
   );
 }
 
-function PostCard({ post }: { post: XSuggestedPost }) {
+function PostCard({ post, number, early }: { post: XSuggestedPost; number: number; early: boolean }) {
   const { copiedId, copy } = useCopy();
   const text = post.threadsVariant;
   const overLimit = text.length > THREADS_LIMIT;
@@ -1428,10 +1446,14 @@ function PostCard({ post }: { post: XSuggestedPost }) {
       </div>
       <Card className="min-w-0 flex-1 space-y-3">
         <div className="flex flex-wrap items-center gap-2">
-          <span className="flex h-6 w-6 items-center justify-center rounded-full bg-white/8 text-xs font-semibold text-white">
-            {post.slot}
+          <span
+            title={`Post ${number} of the day (slot ${post.slot} in the pack)`}
+            className="flex h-6 w-6 items-center justify-center rounded-full bg-white/8 text-xs font-semibold text-white"
+          >
+            {number}
           </span>
           <span className="text-xs font-semibold text-white sm:hidden">{formatTime(post.time)}</span>
+          {early ? <Badge>Early morning</Badge> : null}
           <span
             className={cn(
               "rounded-full border px-2.5 py-0.5 text-[11px] font-medium capitalize",
