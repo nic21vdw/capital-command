@@ -42,10 +42,11 @@ import {
   type MasterCalendarResponse
 } from "@/lib/master-calendar/types";
 import { useColateralSurface } from "@/lib/colateral/useSurface";
-import { useYoutubeStats, type StatsTarget } from "@/lib/publisher/useYoutubeStats";
+import { refreshYoutubeStats, useYoutubeStats, type StatsTarget } from "@/lib/publisher/useYoutubeStats";
 import {
   compactCount,
   newestFetchedAt,
+  refreshOutcome,
   studioAnalyticsUrl,
   totalViews,
   type YoutubeStat
@@ -458,7 +459,7 @@ function YoutubeDayStrip({
     <Card className={box}>
       <p className="text-xs text-[var(--muted-foreground)]">{label}</p>
       <p className="mt-1 text-sm text-white">
-        <span className="text-lg font-semibold">{compactCount(totals.views)}</span> {totals.views === 1 ? "view" : "views"} ·{" "}
+        <span className="text-2xl font-semibold tabular-nums">{compactCount(totals.views)}</span> {totals.views === 1 ? "view" : "views"} ·{" "}
         {compactCount(totals.likes)} {totals.likes === 1 ? "like" : "likes"}
         {missing ? <span className="text-[var(--muted-foreground)]"> (some videos have no numbers yet)</span> : null}
       </p>
@@ -563,8 +564,10 @@ function DaySummaryBody({
   useEffect(() => {
     if (!todayKey) return;
     const controller = new AbortController();
-    const start = shiftDayKey(todayKey, -(WEEK_DAYS - 1));
-    void fetch(`/api/master-calendar?start=${start}&days=${WEEK_DAYS}`, { cache: "no-store", signal: controller.signal })
+    // Fourteen days: the last seven, and the seven before them for the
+    // "vs previous 7 days" comparison. buildWeekSummary windows them itself.
+    const start = shiftDayKey(todayKey, -(WEEK_DAYS * 2 - 1));
+    void fetch(`/api/master-calendar?start=${start}&days=${WEEK_DAYS * 2}`, { cache: "no-store", signal: controller.signal })
       .then((res) => res.json())
       .then((json: MasterCalendarResponse) => setWeek({ state: "ready", response: json }))
       .catch((error) => {
@@ -584,6 +587,9 @@ function DaySummaryBody({
     [week.response]
   );
   const youtube = useYoutubeStats(useMemo(() => [...youtubeTargets, ...weekTargets], [youtubeTargets, weekTargets]));
+  // The Refresh button's answer is said once it has been pressed, not on load.
+  const [refreshPressed, setRefreshPressed] = useState(false);
+  const refreshNote = refreshPressed && !youtube.refreshing ? refreshOutcome(youtube.status) : null;
   // What the server had cached when it sent the events, under whatever the live
   // read has brought since: numbers are on screen with the cards, not after them.
   const cachedStats = useMemo<Record<string, YoutubeStat>>(
@@ -767,7 +773,18 @@ function DaySummaryBody({
         </div>
       </Card>
 
-      <WeekSummaryCard summary={weekSummary} state={week.state} statsStatus={youtube.status} now={new Date()} />
+      <WeekSummaryCard
+        summary={weekSummary}
+        state={week.state}
+        statsStatus={youtube.status}
+        now={new Date()}
+        refreshing={youtube.refreshing}
+        refreshNote={refreshNote}
+        onRefresh={() => {
+          setRefreshPressed(true);
+          void refreshYoutubeStats();
+        }}
+      />
 
       <Card className="mb-4">
         <div className="flex flex-wrap items-end justify-between gap-6">

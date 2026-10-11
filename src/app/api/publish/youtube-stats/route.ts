@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { primaryAccountId } from "@/lib/publisher/accounts";
 import { publishQueue } from "@/lib/publisher/queue";
 import { liveStatsDeps, resolveYoutubeStats, type StatsRequest } from "@/lib/publisher/youtubeStats";
-import { isVideoId, type YoutubeStatsResponse } from "@/lib/publisher/youtubeStatsShared";
+import { STATS_REFRESH_MIN_MS, isVideoId, type YoutubeStatsResponse } from "@/lib/publisher/youtubeStatsShared";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -18,7 +18,7 @@ function list(value: string | null): string[] {
 }
 
 /**
- * GET /api/publish/youtube-stats?ids=a,b&items=<queue item ids>[&account=<id>]
+ * GET /api/publish/youtube-stats?ids=a,b&items=<queue item ids>[&account=<id>][&refresh=1]
  * - views, likes and comments for videos this app posted to YouTube.
  *
  * Read-only: it never publishes and never changes the queue. Numbers are served
@@ -27,9 +27,14 @@ function list(value: string | null): string[] {
  * stale or error - and whatever numbers are cached, so a screen can show them
  * (with how old they are) instead of an error. `items` is resolved through the
  * running app's own queue, which also tells it which channel each video is on.
+ *
+ * `refresh=1` is the Refresh button: it shortens the 30-minute wait to one
+ * minute per video and nothing else - a failed account is still left alone for
+ * its back-off, and with no sign-in the answer is the same cached numbers.
  */
 export async function GET(request: NextRequest) {
   const params = request.nextUrl.searchParams;
+  const deps = params.get("refresh") === "1" ? { ...liveStatsDeps, ttlMs: STATS_REFRESH_MIN_MS } : liveStatsDeps;
   const defaultAccount = params.get("account") || primaryAccountId("youtube");
   const requests: StatsRequest[] = [];
   const items: Record<string, string> = {};
@@ -49,7 +54,7 @@ export async function GET(request: NextRequest) {
     for (const id of list(params.get("ids")).slice(0, MAX_IDS)) {
       if (isVideoId(id)) requests.push({ videoId: id, accountId: defaultAccount });
     }
-    const result = await resolveYoutubeStats(requests, liveStatsDeps);
+    const result = await resolveYoutubeStats(requests, deps);
     return NextResponse.json({ ...result, items });
   } catch {
     // Fail open: a broken stats read must never look like a broken app.

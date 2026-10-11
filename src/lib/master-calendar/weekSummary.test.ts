@@ -279,3 +279,46 @@ describe("the latest-post link", () => {
     expect(latestPostLinkLabel("/somewhere-else")).toBe("Open in the app");
   });
 });
+
+describe("the comparison with the 7 days before", () => {
+  const yt = (id: string, dateKey: string, videoId: string) =>
+    event({ id, dateKey, legs: [{ platform: "YouTube", status: "published" }], youtube: { itemId: id, videoId } });
+  const events = [
+    yt("a", "2026-10-10", "vidaaaaaa1"),
+    yt("b", "2026-10-02", "vidbbbbbb1"),
+    yt("c", "2026-10-01", "vidcccccc1")
+  ];
+
+  it("compares this week's videos with the videos posted the 7 days before", () => {
+    const summary = buildWeekSummary({
+      endKey: "2026-10-11",
+      events,
+      stats: { vidaaaaaa1: stat(1500), vidbbbbbb1: stat(600), vidcccccc1: stat(400) }
+    });
+    expect(summary.trend).toEqual({ previousViews: 1000, previousVideos: 2, change: 500, percent: 50 });
+    // The earlier videos stay out of this week's own totals.
+    expect(summary.youtube.views).toBe(1500);
+    expect(summary.youtube.videos).toBe(1);
+  });
+
+  it("reports a drop as a negative change", () => {
+    const summary = buildWeekSummary({
+      endKey: "2026-10-11",
+      events,
+      stats: { vidaaaaaa1: stat(500), vidbbbbbb1: stat(600), vidcccccc1: stat(400) }
+    });
+    expect(summary.trend).toMatchObject({ change: -500, percent: -50 });
+  });
+
+  it("shows nothing when a video on either side has no numbers", () => {
+    expect(buildWeekSummary({ endKey: "2026-10-11", events, stats: { vidaaaaaa1: stat(1500), vidbbbbbb1: stat(600) } }).trend).toBeNull();
+    expect(buildWeekSummary({ endKey: "2026-10-11", events, stats: { vidbbbbbb1: stat(600), vidcccccc1: stat(400) } }).trend).toBeNull();
+  });
+
+  it("shows nothing when nothing was posted before, or the earlier videos have no views to compare with", () => {
+    expect(buildWeekSummary({ endKey: "2026-10-11", events: [events[0]], stats: { vidaaaaaa1: stat(1500) } }).trend).toBeNull();
+    expect(
+      buildWeekSummary({ endKey: "2026-10-11", events, stats: { vidaaaaaa1: stat(10), vidbbbbbb1: stat(0), vidcccccc1: stat(0) } }).trend
+    ).toBeNull();
+  });
+});

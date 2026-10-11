@@ -16,7 +16,16 @@ import {
   rememberConnectFailure,
   type ConnectFailures
 } from "@/lib/publisher/connectErrors";
-import { buildGetStarted, connectionStatus, redirectUriNote, requiredFields, type GetStartedItem } from "@/lib/publisher/getStarted";
+import {
+  buildGetStarted,
+  connectionProgress,
+  connectionStatus,
+  redirectUriNote,
+  requiredFields,
+  youtubeChecklist,
+  type ConnectionProgress,
+  type YoutubeChecklist
+} from "@/lib/publisher/getStarted";
 
 type ConnectionState = {
   present: Record<string, boolean>;
@@ -83,41 +92,76 @@ function RedirectUri({ connection, uri }: { connection: Connection; uri: string 
   );
 }
 
-/** The recommended first step and where every platform stands, in one strip. */
-function GetStartedStrip({ items, headline, setUp, onOpen }: {
-  items: GetStartedItem[];
+/**
+ * How far along setup is: "N of M connected" across the rows below, and the
+ * four YouTube steps inline until YouTube is signed in. The rows below already
+ * carry each platform's own status, so this strip does not repeat them.
+ */
+function GetStartedStrip({ checklist, progress, headline, setUp, known, onOpen }: {
+  checklist: YoutubeChecklist;
+  progress: ConnectionProgress;
   headline: string;
   setUp: boolean;
+  /** What is saved has been read; until then there is no progress to show. */
+  known: boolean;
   onOpen: (id: string) => void;
 }) {
   return (
     <section aria-labelledby="get-started-title" className="mt-5 rounded-xl border border-[var(--border)] bg-white/[0.03] p-4">
-      <div className="flex items-start gap-2">
-        {setUp ? <Check className="mt-0.5 h-4 w-4 shrink-0 text-emerald-300" aria-hidden="true" /> : null}
-        <div>
-          <h3 id="get-started-title" className="text-sm font-semibold text-white">{setUp ? "You're set up" : "Get started"}</h3>
-          <p className="mt-0.5 text-sm text-[var(--muted-foreground)]">{headline}</p>
-        </div>
+      <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
+        <h3 id="get-started-title" className="flex items-center gap-2 text-sm font-semibold text-white">
+          {setUp ? <Check className="h-4 w-4 shrink-0 text-emerald-300" aria-hidden="true" /> : null}
+          {setUp ? "You're set up" : "Get started"}
+        </h3>
+        <p className="text-sm font-medium text-white" aria-live="polite">{progress.line}</p>
       </div>
-      <ul className="mt-3 grid gap-2 sm:grid-cols-2">
-        {items.map((item) => (
-          <li key={item.id}>
-            <button
-              type="button"
-              onClick={() => onOpen(item.id)}
-              className={`flex w-full flex-col gap-0.5 rounded-lg border px-3 py-2 text-left transition hover:bg-white/5 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent)] ${item.recommended ? "border-[var(--accent)]/60 bg-[var(--accent)]/10" : "border-[var(--border)]"}`}
-            >
-              <span className="flex items-center gap-2 text-sm font-semibold text-white">
-                <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${item.connected ? "bg-emerald-400" : item.status === "Not set up" ? "bg-white/25" : "bg-amber-400"}`} aria-hidden="true" />
-                {item.label}
-                <span className={`ml-auto shrink-0 text-xs font-medium ${item.connected ? "text-emerald-200" : "text-[var(--muted-foreground)]"}`}>{item.status}</span>
-              </span>
-              <span className="text-xs text-[var(--muted-foreground)]">{item.step}</span>
-              {item.recommended ? <span className="text-xs font-medium text-[var(--accent)]">Recommended first</span> : null}
-            </button>
-          </li>
-        ))}
-      </ul>
+      <div
+        role="progressbar"
+        aria-label="Accounts connected"
+        aria-valuemin={0}
+        aria-valuemax={progress.total}
+        aria-valuenow={progress.connected}
+        className="mt-2 h-1.5 overflow-hidden rounded-full bg-white/10"
+      >
+        <div className="h-full rounded-full bg-emerald-400" style={{ width: `${(progress.connected / progress.total) * 100}%` }} />
+      </div>
+      <p className="mt-2 text-sm text-[var(--muted-foreground)]">{headline}</p>
+
+      {checklist.complete || !known ? null : (
+        <div className="mt-4 border-t border-[var(--border)] pt-3">
+          <p className="text-xs font-semibold uppercase tracking-[0.12em] text-[var(--muted-foreground)]">
+            YouTube setup - {checklist.done} of {checklist.total} done
+          </p>
+          <ol className="mt-2 space-y-2">
+            {checklist.steps.map((step, index) => (
+              <li key={step.id} className="flex items-start gap-3">
+                <span
+                  className={`mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full border text-[11px] font-semibold ${
+                    step.done
+                      ? "border-emerald-400/60 bg-emerald-400/15 text-emerald-200"
+                      : step.current
+                        ? "border-[var(--accent)] bg-[var(--accent)]/15 text-[var(--accent)]"
+                        : "border-[var(--border)] text-[var(--muted-foreground)]"
+                  }`}
+                  aria-hidden="true"
+                >
+                  {step.done ? <Check className="h-3 w-3" /> : index + 1}
+                </span>
+                <div className="min-w-0 flex-1">
+                  <p className={`text-sm ${step.done ? "text-[var(--muted-foreground)] line-through decoration-white/30" : "font-medium text-white"}`}>
+                    {step.label}
+                    <span className="sr-only">{step.done ? " - done" : step.current ? " - next" : " - to do"}</span>
+                  </p>
+                  {step.current ? <p className="mt-0.5 text-xs text-[var(--muted-foreground)]">{step.detail}</p> : null}
+                </div>
+              </li>
+            ))}
+          </ol>
+          <Button className="mt-3" variant="secondary" onClick={() => onOpen("youtube")}>
+            Open YouTube setup
+          </Button>
+        </div>
+      )}
     </section>
   );
 }
@@ -316,7 +360,10 @@ export function ConnectionsSettings() {
     }
   };
 
-  const getStarted = buildGetStarted(state, { loaded, loadFailed });
+  const phase = { loaded, loadFailed };
+  const getStarted = buildGetStarted(state, phase);
+  const checklist = youtubeChecklist(state, phase);
+  const progress = connectionProgress(state, phase);
 
   return (
     <Card id="accounts" className="scroll-mt-6">
@@ -332,7 +379,7 @@ export function ConnectionsSettings() {
         </div>
       </div>
 
-      <GetStartedStrip items={getStarted.items} headline={getStarted.headline} setUp={getStarted.setUp} onOpen={openRow} />
+      <GetStartedStrip checklist={checklist} progress={progress} headline={getStarted.headline} setUp={getStarted.setUp} known={loaded && !loadFailed} onOpen={openRow} />
 
       <div className="mt-4 overflow-hidden rounded-xl border border-[var(--border)]">
         {CONNECTIONS.map((connection) => {

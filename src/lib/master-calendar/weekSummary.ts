@@ -82,6 +82,21 @@ export type WeekTopPost = {
   href: string;
 };
 
+/**
+ * This week's YouTube views against the videos posted in the 7 days before it.
+ * The app caches each video's lifetime count, not a history, so this compares
+ * two groups of videos by what each has earned SO FAR - the earlier group has
+ * had longer to earn it. It exists only when both groups are fully counted.
+ */
+export type WeekTrend = {
+  previousViews: number;
+  previousVideos: number;
+  /** views this week minus views for the previous 7 days. */
+  change: number;
+  /** Whole percent against the previous 7 days. */
+  percent: number;
+};
+
 export type WeekSummary = {
   startKey: string;
   endKey: string;
@@ -104,6 +119,8 @@ export type WeekSummary = {
     fetchedAt: string | null;
   };
   top: WeekTopPost | null;
+  /** Null when either group has a video with no numbers, or there is nothing before to compare with. */
+  trend: WeekTrend | null;
   /** The published YouTube videos of the week, for the stats request. */
   youtubeTargets: { itemId: string; videoId: string }[];
 };
@@ -250,6 +267,14 @@ export function buildWeekSummary(options: {
     else untracked.noVideoId += 1;
   }
 
+  const trend = weekTrend({
+    current: { videos, views, missing: [...uniqueIds].filter((id) => !stats[id] || stats[id].views === null).length },
+    previousIds: options.events
+      .filter((event) => event.dateKey >= shiftDayKey(startKey, -days) && event.dateKey < startKey)
+      .flatMap((event) => (event.youtube ? [event.youtube.videoId] : [])),
+    stats
+  });
+
   let top: WeekTopPost | null = null;
   for (const event of events) {
     if (!event.youtube) continue;
@@ -290,7 +315,29 @@ export function buildWeekSummary(options: {
       fetchedAt: newestFetchedAt(stats, [...uniqueIds])
     },
     top,
+    trend,
     youtubeTargets
+  };
+}
+
+/** The comparison with the 7 days before, or null when it would be a guess. */
+export function weekTrend(options: {
+  current: { videos: number; views: number; missing: number };
+  previousIds: string[];
+  stats: Record<string, YoutubeStat>;
+}): WeekTrend | null {
+  const { current, previousIds, stats } = options;
+  if (current.videos === 0 || current.missing > 0) return null;
+  const unique = [...new Set(previousIds)];
+  if (unique.length === 0 || unique.some((id) => !stats[id] || stats[id].views === null)) return null;
+  const previous = totalViews(stats, unique);
+  if (previous.views <= 0) return null;
+  const change = current.views - previous.views;
+  return {
+    previousViews: previous.views,
+    previousVideos: previous.videos,
+    change,
+    percent: Math.round((change / previous.views) * 100)
   };
 }
 

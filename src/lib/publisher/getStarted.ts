@@ -135,6 +135,91 @@ export function buildGetStarted(
 }
 
 /* ------------------------------------------------------------------ */
+/* The YouTube checklist and the progress line                         */
+/* ------------------------------------------------------------------ */
+
+export type ChecklistStep = {
+  id: "create-client" | "client-id" | "client-secret" | "sign-in";
+  label: string;
+  /** One line on how to do it. */
+  detail: string;
+  done: boolean;
+  /** The first step not done yet, so the strip can point at it. */
+  current: boolean;
+};
+
+export type YoutubeChecklist = {
+  steps: ChecklistStep[];
+  done: number;
+  total: number;
+  /** Every step is done: YouTube is signed in. */
+  complete: boolean;
+};
+
+/**
+ * The four things YouTube needs, in the order the README and the row walk
+ * through them, with what the app can actually see. It cannot see the Google
+ * console, so "create the client" is inferred: nobody has a client ID or secret
+ * to paste without having made one. The ID and the secret are the row's own
+ * required fields, so a renamed field renames its step. Signing in is the only
+ * step a provider confirms.
+ */
+export function youtubeChecklist(
+  state: ConnectionPresence,
+  phase: { loaded: boolean; loadFailed: boolean }
+): YoutubeChecklist {
+  const youtube = CONNECTIONS.find((connection) => connection.id === "youtube")!;
+  const [idField, secretField] = requiredFields(youtube);
+  const known = phase.loaded && !phase.loadFailed;
+  const hasId = known && Boolean(state.present[idField.name]);
+  const hasSecret = known && Boolean(state.present[secretField.name]);
+  const signedIn = known && hasId && hasSecret && Boolean(state.connected.youtube);
+  const raw: Omit<ChecklistStep, "current">[] = [
+    {
+      id: "create-client",
+      label: "Create a Google OAuth client",
+      detail: "In Google Cloud: enable YouTube Data API v3, then make a Web application client and register the redirect URI.",
+      done: hasId || hasSecret || signedIn
+    },
+    { id: "client-id", label: `Save the ${idField.label}`, detail: "Paste it into the YouTube row and press Save credentials.", done: hasId },
+    { id: "client-secret", label: `Save the ${secretField.label.toLowerCase()}`, detail: "Same place, same Save credentials press.", done: hasSecret },
+    { id: "sign-in", label: "Sign in with Google", detail: `Press ${youtube.oauth?.label ?? "Connect YouTube"} once both are saved and approve access.`, done: signedIn }
+  ];
+  const firstOpen = raw.findIndex((step) => !step.done);
+  const steps = raw.map((step, index) => ({ ...step, current: index === firstOpen }));
+  const done = steps.filter((step) => step.done).length;
+  return { steps, done, total: steps.length, complete: done === steps.length };
+}
+
+export type ConnectionProgress = {
+  connected: number;
+  /** Every row Settings lists. */
+  total: number;
+  /** Saved pasted tokens nothing has checked: not counted as connected. */
+  savedNotVerified: number;
+  /** "1 of 7 connected", plus "2 saved, not verified" when there are any. */
+  line: string;
+};
+
+/** "N of M connected" across the rows the page lists, by the same status word the rows show. */
+export function connectionProgress(
+  state: ConnectionPresence,
+  phase: { loaded: boolean; loadFailed: boolean }
+): ConnectionProgress {
+  const statuses = CONNECTIONS.map((connection) => connectionStatus(connection, state, phase));
+  const connected = statuses.filter((status) => status === "Connected").length;
+  const savedNotVerified = statuses.filter((status) => status === "Saved - not verified").length;
+  const total = CONNECTIONS.length;
+  const base = `${connected} of ${total} connected`;
+  return {
+    connected,
+    total,
+    savedNotVerified,
+    line: savedNotVerified > 0 ? `${base} - ${savedNotVerified} saved, not verified` : base
+  };
+}
+
+/* ------------------------------------------------------------------ */
 /* The redirect address                                                */
 /* ------------------------------------------------------------------ */
 
