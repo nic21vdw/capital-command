@@ -43,10 +43,6 @@ import { localDateKey } from "@/lib/x-strategy/analytics";
 import { cn } from "@/lib/utils";
 import type { FbPost, FbPostFormat, FbPlatform, FbThreadComment } from "@/types/domain";
 
-// Benchmark from the playbook: 78.2% of the 1.4B organic views came from
-// text-only posts.
-const TEXT_VIEW_BENCHMARK = 78.2;
-
 const FORMAT_META: Record<FbPostFormat, { label: string; icon: LucideIcon; chip: string }> = {
   text: { label: "Text-only", icon: Type, chip: "border-sky-400/30 bg-sky-400/10 text-sky-200" },
   imageText: { label: "Image + text", icon: ImageIcon, chip: "border-amber-400/30 bg-amber-400/10 text-amber-200" },
@@ -259,7 +255,7 @@ function DashboardTab({ posts }: { posts: FbPost[] }) {
         <StatCard
           label="Text-only view share"
           value={textShare === null ? "—" : `${textShare.toFixed(1)}%`}
-          detail={`For comparison: a 1.4B-view reference account got ${TEXT_VIEW_BENCHMARK}% of its views from text-only posts`}
+          detail="Share of your logged views from text-only posts"
           icon={<Type className="h-5 w-5" />}
         />
         <StatCard
@@ -273,7 +269,7 @@ function DashboardTab({ posts }: { posts: FbPost[] }) {
       <Card className="space-y-4">
         <div className="flex items-center justify-between gap-2">
           <h3 className="font-semibold text-white">Format mix</h3>
-          <Badge>Views logged per format vs. the 78.2% text-only benchmark</Badge>
+          <Badge>Views you&apos;ve logged, by post format</Badge>
         </div>
         <div className="space-y-3">
           {viewsByFormat.map(({ format, posts: count, logged, views }) => {
@@ -294,15 +290,13 @@ function DashboardTab({ posts }: { posts: FbPost[] }) {
                 <div className="h-2 w-full overflow-hidden rounded-full bg-white/10">
                   <div className="h-full rounded-full bg-[var(--accent)] transition-[width] duration-500 ease-out" style={{ width: `${Math.min(100, share)}%` }} />
                 </div>
-                {format === "text" ? (
-                  <p className="text-[11px] text-[var(--muted-foreground)]">
-                    Target: text-only should carry ~{TEXT_VIEW_BENCHMARK}% of views. If it&apos;s far below, ship more black-background hook posts.
-                  </p>
-                ) : null}
               </div>
             );
           })}
         </div>
+        <p className="text-[11px] text-[var(--muted-foreground)]">
+          Log each post&apos;s views after a day or two to see which formats work for you.
+        </p>
       </Card>
 
       <Card className="space-y-3">

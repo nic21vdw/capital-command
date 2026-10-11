@@ -76,7 +76,7 @@ export function nextStep(connection: Connection, status: ConnectionStatus, state
       return "Optional: paste your client ID and secret to check podcast episodes.";
     case "instagram":
     case "facebook":
-      return "Run npm run publish:instagram:connect, then paste the token. Needs Media hosting.";
+      return "Needs a one-time developer step - open for the steps.";
     case "threads":
       return "Paste a long-lived Threads access token.";
     case "media-hosting":

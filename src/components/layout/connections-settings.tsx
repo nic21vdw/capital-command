@@ -70,7 +70,7 @@ function RedirectUri({ connection, uri }: { connection: Connection; uri: string 
     <div className="mb-4 rounded-lg border border-[var(--border)] bg-black/20 p-3 text-xs text-[var(--muted-foreground)]">
       <p className="font-medium text-white/90">
         Register this redirect URI{connection.clientType ? <> on a <span className="text-white">{connection.clientType}</span> client</> : null}
-        {" "}in the {connection.label} console
+        {" "}in the {connection.id === "youtube" ? "Google Cloud" : connection.label} console
       </p>
       <div className="mt-2 flex flex-wrap items-center gap-2">
         <code className="break-all rounded bg-white/10 px-2 py-1 text-white">{uri}</code>
