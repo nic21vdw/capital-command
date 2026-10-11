@@ -1,3 +1,5 @@
+import { localCalendarParts } from "@/lib/publisher/time";
+import { formatSlotDateTime, formatSlotTime } from "@/lib/timeFormat";
 import type { ThreadsQueueItem } from "@/lib/threads/types";
 
 /**
@@ -11,13 +13,17 @@ import type { ThreadsQueueItem } from "@/lib/threads/types";
  *   includes hand-added and stream posts (origin "pipeline") - a post you can
  *   see in the queue is a post that is going out today.
  * - A POST is one idea. Two accounts each post their own version of it, so
- *   that is one post and two sends. Day Summary counts the same way (a pack
- *   slot is one event; a hand-added post is its own).
+ *   that is one post (two per-account rows in the queue). Day Summary counts the
+ *   same way (a pack slot is one event; a hand-added post is its own). The page
+ *   used to ALSO print the per-account row count ("13 sends") and the size of
+ *   the written pack ("6 posts") beside it; one screen with three numbers for
+ *   one day is why none of them could be trusted. Posts is the only count.
  * - SENT means published. A post counts as sent only when every account's
  *   version is out; one still waiting keeps it waiting, one that failed on any
  *   account is failed.
- * - NEXT is the earliest pending row by its OWN time, on any day. It is not
- *   the first slot of today's pack and not the first retry window.
+ * - NEXT is the earliest pending row by its OWN time, on any day, and the
+ *   account that will send it. It is not the first slot of today's pack and
+ *   not the first retry window.
  *
  * Pure and dependency-free (types only) so a client component can import it.
  */
@@ -29,16 +35,12 @@ export type ThreadsTodaySummary = {
   /** Distinct posts today: a pack slot across all accounts, or one hand-added post. */
   posts: number;
   sent: number;
+  /** Posts still scheduled: at least one account's version has not gone out yet. */
   waiting: number;
   failed: number;
   skipped: number;
-  /** The same day counted per account: what each account actually sends. */
-  sends: number;
-  sendsDone: number;
-  /** Accounts that have something queued today. */
-  accounts: number;
-  /** Earliest pending row in the whole queue by its own time. */
-  next: { at: string; topic: string } | null;
+  /** Earliest pending row in the whole queue by its own time, and the account that sends it. */
+  next: { at: string; topic: string; accountId: string } | null;
 };
 
 /** One post's state from its per-account rows. Same roll-up as the calendar's `threadsSlotStatus`. */
@@ -57,7 +59,7 @@ export function nextPending(items: Row[]): ThreadsTodaySummary["next"] {
   const pending = items
     .filter((item) => item.status === "pending" && Number.isFinite(Date.parse(item.publishAt)))
     .sort((a, b) => Date.parse(a.publishAt) - Date.parse(b.publishAt));
-  return pending[0] ? { at: new Date(pending[0].publishAt).toISOString(), topic: pending[0].topic } : null;
+  return pending[0] ? { at: new Date(pending[0].publishAt).toISOString(), topic: pending[0].topic, accountId: pending[0].accountId } : null;
 }
 
 export function summarizeThreadsToday(items: Row[] | undefined, dateKey: string): ThreadsTodaySummary {
@@ -75,39 +77,50 @@ export function summarizeThreadsToday(items: Row[] | undefined, dateKey: string)
     dateKey,
     posts: groups.size,
     ...tally,
-    sends: rows.length,
-    sendsDone: rows.filter((item) => item.status === "published").length,
-    accounts: new Set(rows.map((item) => item.accountId)).size,
     next: nextPending(all)
   };
 }
 
-/** "Oct 10, 8:00 PM" in the autopilot's own time zone - the same words the Automations page uses. */
+/** "Oct 10, 8:00 PM" in the autopilot's own time zone - the same words every other screen uses for a slot. */
 export function formatThreadsStamp(iso: string | null | undefined, timeZone: string): string {
   if (!iso || !Number.isFinite(Date.parse(iso))) return "Not yet";
-  return new Intl.DateTimeFormat(undefined, { timeZone, month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }).format(new Date(iso));
+  return formatSlotDateTime(iso, timeZone);
 }
 
 function plural(count: number, one: string, many = `${one}s`): string {
   return `${count} ${count === 1 ? one : many}`;
 }
 
-/** The headline: "3 of 7 posts sent today". */
-export function todayHeadline(summary: ThreadsTodaySummary): string {
-  if (summary.posts === 0) return "Nothing queued for today yet";
-  return `${summary.sent} of ${plural(summary.posts, "post")} sent today`;
-}
-
-/** Why a second number exists: per-account sends. Empty when there is nothing to explain. */
-export function todaySendsNote(summary: ThreadsTodaySummary): string {
-  if (summary.sends === summary.posts || summary.accounts < 2) return "";
-  return `That is ${summary.sendsDone} of ${summary.sends} sends across ${summary.accounts} accounts - each account posts its own version of every post.`;
+/**
+ * The card's headline: ONE number and ONE next step - "7 posts today - next at
+ * 2:30 PM on Account 2". The time drops the date when it is on the day being
+ * summarised and keeps it when the next post is on another day, and the account
+ * is named only when `accountLabel` is given (the page passes it when more than
+ * one account posts, since one account needs no telling apart).
+ */
+export function todayHeadline(
+  summary: ThreadsTodaySummary,
+  options: { timeZone: string; accountLabel?: (accountId: string) => string }
+): string {
+  const { next } = summary;
+  const nextStep = next
+    ? ` - next at ${
+        localCalendarParts(next.at, options.timeZone).dateKey === summary.dateKey ? formatSlotTime(next.at, options.timeZone) : formatSlotDateTime(next.at, options.timeZone)
+      }${options.accountLabel ? ` on ${options.accountLabel(next.accountId)}` : ""}`
+    : "";
+  if (summary.posts === 0) return `Nothing queued for today yet${nextStep}`;
+  const today = plural(summary.posts, "post") + " today";
+  if (next) return `${today}${nextStep}`;
+  return summary.failed > 0 ? `${today} - ${summary.failed} failed, retry below` : `${today} - all sent`;
 }
 
 /**
- * The page header: the REAL cadence (posts a day per account, link replies only
- * when they are on) and the size of the pack actually written, instead of the
- * pack generator's ideal that a short or older pack never matched.
+ * The page header: what the autopilot will do, and the state of the pack, with
+ * NO counts of today's posts. Those live in the card's headline
+ * (`todayHeadline`); the header used to repeat them from other sources - the
+ * pack's size, the configured posts per account per day - and so read "6 posts"
+ * above a card that said "7 posts today". The one number left is the configured
+ * cadence, and only while no account is connected, when there is no day to count.
  */
 export function autopilotHeader(input: {
   postsPerDay: number;
@@ -118,15 +131,15 @@ export function autopilotHeader(input: {
   /** False until the autopilot's status has loaded: nothing about its cadence is claimed before that. */
   known: boolean;
   /** The pack on screen, with what to call it ("Today's pack"); null when none is written. */
-  pack: { posts: number; replies: number; label: string } | null;
+  pack: { label: string } | null;
 }): string {
-  const perAccount = input.accounts > 1 ? ` on each of ${input.accounts} accounts` : "";
+  const who = input.accounts > 1 ? "each of your accounts" : "your account";
   const cadence =
     input.accounts === 0
       ? `Once a Threads account is connected it will post ${plural(input.postsPerDay, "time")} a day.`
-      : `The autopilot is set to post ${plural(input.postsPerDay, "time")} a day${perAccount}${input.linkReplies ? ", each followed by a link reply" : ""}.`;
+      : `The autopilot is set to post on ${who}${input.linkReplies ? ", each post followed by a link reply" : ""}.`;
   const pack = input.pack
-    ? `${input.pack.label} has ${plural(input.pack.posts, "post")} and ${plural(input.pack.replies, "reply", "replies")} to use by hand.`
+    ? `${input.pack.label} is written - copy anything from it to post by hand.`
     : "No pack is written yet - press Write today's posts to draft one from your positioning brief.";
   if (!input.known) return pack;
   const state = input.paused

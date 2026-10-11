@@ -83,7 +83,7 @@ import {
   type UploadSuccess,
 } from "@/components/uploading-center/use-uploading-center";
 import { buildAgenda } from "@/lib/publisher/agenda";
-import { dateTimeFormat } from "@/lib/publisher/intl";
+import { formatSlotDateTime } from "@/lib/timeFormat";
 import { publisherBannerLine } from "@/lib/publisher/publishOverview";
 import { EARLIEST_PUBLISH_DAY_OFFSET, addDaysToDateKey } from "@/lib/publisher/schedule";
 import { clearConnectFailure, rememberConnectFailure } from "@/lib/publisher/connectErrors";
@@ -1300,14 +1300,7 @@ function UploadSuccessDialog({
 }) {
   if (!success) return null;
   const scheduled = success.status === "scheduled";
-  const goLive = dateTimeFormat("en-US", {
-    ...(timezone ? { timeZone: timezone } : {}),
-    weekday: "short",
-    month: "short",
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-  }).format(new Date(success.publishAt));
+  const goLive = formatSlotDateTime(success.publishAt, timezone, { weekday: true });
   return (
     <Modal
       open
@@ -1615,15 +1608,7 @@ function FailedStrip({
   const hasConnectionFailures = plan.count > 0 || plan.needConnection.length > 0 || plan.tooOld > 0;
   const canRetry = postingOn && plan.count > 0;
   const help = retryConnectionHelp(plan);
-  const when = (leg: FailedLeg) =>
-    dateTimeFormat("en-US", {
-      timeZone: timezone,
-      weekday: "short",
-      month: "short",
-      day: "numeric",
-      hour: "numeric",
-      minute: "2-digit",
-    }).format(new Date(leg.item.publishAt));
+  const when = (leg: FailedLeg) => formatSlotDateTime(leg.item.publishAt, timezone, { weekday: true });
   return (
     <section
       aria-label="Failed posts"

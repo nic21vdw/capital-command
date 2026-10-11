@@ -42,8 +42,10 @@ import { browserTimeZone, fromZonedInput, placeName, threadsClock, toZonedInput,
 import { cadenceBadge, isEarlierPack, orderPackPosts, packOrderNote, packSizeNote, packTimeRange } from "@/lib/threads/packCadence";
 import { accountChipLabel, boardNeedsAccountChips, defaultBatchDate, numberBatchPosts } from "@/lib/threads/board";
 import { formatDayKey } from "@/lib/master-calendar/day-keys";
+import { formatClockTime, formatSlotDateTime } from "@/lib/timeFormat";
+import { statusTone, statusWord } from "@/lib/statusTone";
 import { rewriteDecision } from "@/lib/threads/rewrite";
-import { autopilotHeader, formatThreadsStamp, summarizeThreadsToday, todayHeadline, todaySendsNote } from "@/lib/threads/todaySummary";
+import { autopilotHeader, summarizeThreadsToday, todayHeadline } from "@/lib/threads/todaySummary";
 import type { ThreadsReplyCounts, ThreadsReplyPolicy, ThreadsReplyPreview, ThreadsReplySummary } from "@/lib/threads/reply-summary";
 import type { XDailyPack, XPostFormat, XSuggestedPost, XSuggestedReply } from "@/types/domain";
 
@@ -108,17 +110,14 @@ const FORMAT_STYLES: Record<XPostFormat, string> = {
 };
 
 function formatTime(time: string): string {
-  const [hours, minutes] = time.split(":").map(Number);
-  const meridiem = hours >= 12 ? "PM" : "AM";
-  const displayHours = hours % 12 === 0 ? 12 : hours % 12;
-  return `${displayHours}:${String(minutes).padStart(2, "0")} ${meridiem}`;
+  return formatClockTime(time);
 }
 
 /** Absolute stamp, e.g. "Jul 22, 2:34 PM", in the autopilot's zone (the browser's only until that is known). */
 function formatStamp(iso: string, timeZone?: string): string {
   const date = new Date(iso);
   if (Number.isNaN(date.getTime())) return "unknown";
-  return date.toLocaleString(undefined, { ...(timeZone ? { timeZone } : {}), month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+  return formatSlotDateTime(date, timeZone);
 }
 
 /** The zone every time on this page is shown in: the autopilot's own, else the browser's until the status loads. */
@@ -339,7 +338,7 @@ export function XPostsPage() {
       { label: "Posts in the written pack", value: String(activePack?.posts.length ?? 0) },
       { label: "Replies in the written pack", value: String(activePack?.replies.length ?? 0) },
       { label: "Sent today", value: todaySummary ? `${todaySummary.sent} of ${todaySummary.posts} posts` : "—" },
-      { label: "Waiting today", value: String(todaySummary?.waiting ?? 0) },
+      { label: "Scheduled today", value: String(todaySummary?.waiting ?? 0) },
       { label: "Autopilot", value: autopilotPaused ? "Paused" : autopilotArmed ? "Armed" : "Idle" }
     ],
     click: (id) => {
@@ -388,7 +387,7 @@ export function XPostsPage() {
             paused: autopilotPaused,
             armed: autopilotArmed,
             pack: activePack
-              ? { posts: activePack.posts.length, replies: activePack.replies.length, label: activePack.date === today ? "Today's pack" : `The pack for ${activePack.date}` }
+              ? { label: activePack.date === today ? "Today's pack" : `The pack for ${activePack.date}` }
               : null,
             known: autopilot.status !== null
           })}${zoneHint ? ` ${zoneHint}.` : ""}`
@@ -725,7 +724,6 @@ function AutopilotCard({ status }: { status: AutopilotProps["status"] }) {
   const { today, settings, blockedReason, scheduler } = status;
   const paused = status.paused === true;
   const summary = summarizeThreadsToday(status.items as Parameters<typeof summarizeThreadsToday>[0], today.date);
-  const sendsNote = todaySendsNote(summary);
   const noAccount = settings.accounts.length === 0;
   const minutesSince = scheduler?.minutesSince;
   const heartbeat =
@@ -741,14 +739,16 @@ function AutopilotCard({ status }: { status: AutopilotProps["status"] }) {
         <div>
           <p className="text-xs uppercase tracking-[0.28em] text-[var(--muted-foreground)]">Threads autopilot</p>
           <h2 className="mt-1 text-xl font-semibold text-white">
-            {todayHeadline(summary)}
+            {todayHeadline(summary, {
+              timeZone: settings.timezone,
+              accountLabel: settings.accounts.length > 1 ? (accountId) => accountChipLabel(accountId, settings.accounts) : undefined
+            })}
           </h2>
           <p className="mt-1 text-xs text-[var(--muted-foreground)]">
             The autopilot sends today&apos;s posts for you, one at each posting time.
-            {sendsNote ? ` ${sendsNote}` : ""}
           </p>
           <p className="mt-1 text-xs text-[var(--muted-foreground)]">
-            {settings.postsPerDay} posts a day per account in {settings.timezone} ·{" "}
+            Times in {settings.timezone} ·{" "}
             {settings.accounts.map((account) => `${account.label} (${versionLabel(account.posts)})`).join(", ") ||
               "Waiting for an account"}
           </p>
@@ -761,10 +761,8 @@ function AutopilotCard({ status }: { status: AutopilotProps["status"] }) {
           ) : (
             <Badge tone={blockedReason ? "warning" : "accent"}>{blockedReason ? "Idle" : "Armed"}</Badge>
           )}
-          {summary.waiting ? <Badge>{summary.waiting} waiting</Badge> : null}
           {summary.failed ? <Badge tone="danger">{summary.failed} failed</Badge> : null}
           {summary.skipped ? <Badge>{summary.skipped} skipped</Badge> : null}
-          {summary.next ? <Badge tone="accent">Next post {formatThreadsStamp(summary.next.at, settings.timezone)}</Badge> : null}
         </div>
       </div>
 
@@ -967,8 +965,8 @@ function AddPostCard({ status, busy, send }: AutopilotProps) {
     if (when === "time" && !instant) return;
     const json = await send({ action: "add", text: trimmed, ...(instant ? { at: instant.toISOString() } : {}) }, "add", (response) =>
       response.added
-        ? `Queued for ${clock(response.added.publishAt, zone)} on ${friendlyDate(response.added.batchDate, today).toLowerCase()}.${response.paused ? " The autopilot is paused, so it waits until you resume." : ""}`
-        : "Queued."
+        ? `Scheduled for ${clock(response.added.publishAt, zone)} on ${friendlyDate(response.added.batchDate, today).toLowerCase()}.${response.paused ? " The autopilot is paused, so it waits until you resume." : ""}`
+        : "Scheduled."
     );
     if (json) setText("");
   };
@@ -1052,6 +1050,8 @@ function AutopilotTab({
     [items, active]
   );
   const pending = useMemo(() => batch.filter((item) => item.status === "pending"), [batch]);
+  // Counted in POSTS, like the autopilot card's headline: the rows here are per account, so counting them said 13 under a headline of 7.
+  const scheduledPosts = useMemo(() => summarizeThreadsToday(batch as Parameters<typeof summarizeThreadsToday>[0], active).waiting, [batch, active]);
   // 1..N in sending order, once per post - not the pack slot, which repeats per account.
   const postNumbers = useMemo(() => numberBatchPosts(batch), [batch]);
   const repliesByItem = useMemo(() => new Map((status?.replies?.items ?? []).map((reply) => [reply.itemId, reply])), [status]);
@@ -1111,7 +1111,7 @@ function AutopilotTab({
             ))}
           </div>
           <p className="text-xs text-[var(--muted-foreground)]">
-            {pending.length} still to send
+            {scheduledPosts} {scheduledPosts === 1 ? "post" : "posts"} scheduled
             {pending.length > 0
               ? ` · ${clock(pending[0].publishAt, zone)} → ${clock(pending[pending.length - 1].publishAt, zone)}`
               : ""}
@@ -1179,19 +1179,7 @@ function AutopilotTab({
             ) : (
               <span className="text-sm font-semibold text-white">{clock(item.publishAt, zone)}</span>
             )}
-            <Badge
-              tone={
-                item.status === "published"
-                  ? "success"
-                  : item.status === "failed"
-                    ? "danger"
-                    : item.status === "skipped"
-                      ? "warning"
-                      : "neutral"
-              }
-            >
-              {item.status}
-            </Badge>
+            <Badge tone={statusTone(item.status)}>{statusWord(item.status)}</Badge>
             <Badge>{item.topic}</Badge>
             {showAccountChips ? (
               <Badge tone="accent" title="The account that posts this row">
@@ -1358,7 +1346,8 @@ function PackSummary({
         <div>
           <p className="text-xs uppercase tracking-[0.28em] text-[var(--muted-foreground)]">{isToday || today === null ? "Today's pack" : "Pack"} · {pack.date}</p>
           <h2 className="mt-1 text-xl font-semibold text-white">
-            {pack.posts.length} posts · {pack.replies.length} replies
+            {/* "Ideas", not "posts": today's count of posts is on the autopilot card below, and it also holds hand-added ones. */}
+            {pack.posts.length} post {pack.posts.length === 1 ? "idea" : "ideas"} · {pack.replies.length} {pack.replies.length === 1 ? "reply" : "replies"}
           </h2>
           <p className="mt-1 text-xs text-[var(--muted-foreground)]">
             A pack is one day&apos;s posts and replies, all written in a single run.

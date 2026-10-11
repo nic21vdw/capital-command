@@ -34,3 +34,11 @@ describe("awaiting-connection status", () => {
     ).toBe("Needs YouTube connection");
   });
 });
+
+describe("the word for a booked post that has not gone out", () => {
+  it("is Scheduled whether the source calls it queued or scheduled", () => {
+    expect(eventStatusLabel("queued")).toBe("Scheduled");
+    expect(eventStatusLabel("Queued")).toBe("Scheduled");
+    expect(eventStatusLabel("published")).toBe("published");
+  });
+});

@@ -8,24 +8,26 @@ import {
   manualHint,
   manualLabel,
   pendingHint,
-  POST_BY_HAND_LABEL,
   pendingLabel,
   TIKTOK_INBOX_CHIP,
   TIKTOK_INBOX_HINT
 } from "@/lib/publisher/nativeScheduling";
 import { youtubeHoldsForReview } from "@/lib/publisher/reviewHold";
+import { SCHEDULED_WORD, statusTone, type StatusTone } from "@/lib/statusTone";
 import type { PlatformId, PlatformState, PlatformStatus, QueueItem } from "@/lib/publisher/types";
 
 /**
  * The Uploading Center's status colors, in the theme's own tones rather than a
- * fixed Tailwind palette: draft neutral, waiting/scheduled warning, a missed manual post danger,
- * uploaded info, published success, failed danger.
+ * fixed Tailwind palette, from the one mapping every screen uses (`statusTone`):
+ * draft neutral, queued/scheduled/uploaded info, a post that needs a look
+ * (overdue, should be live, needs a connection, post by hand) warning,
+ * published success, failed danger.
  *
  * "pending" is the queue's word for a post the runner has not delivered yet,
  * and it means two different things. On a platform that takes a post ahead of
  * time it is a few seconds of "uploading"; on Instagram, TikTok and Facebook
  * there is nothing to hand over early, so the post is delivered by this app at
- * its slot and "Queued" reads as if the booking never took. Given the
+ * its slot and a bare "Queued" would read as if the booking never took. Given the
  * platform, the chip says which one it is.
  *
  * A TikTok post delivered to the inbox is recorded as "scheduled" too, but it
@@ -35,15 +37,15 @@ import type { PlatformId, PlatformState, PlatformStatus, QueueItem } from "@/lib
 
 export type ChipStatus = PlatformStatus | "draft";
 
-const CHIPS: Record<ChipStatus, { label: string; tone: "neutral" | "warning" | "info" | "success" | "danger" }> = {
-  draft: { label: "Draft", tone: "neutral" },
-  pending: { label: "Queued", tone: "warning" },
-  uploaded: { label: "Uploaded", tone: "info" },
-  scheduled: { label: "Scheduled", tone: "warning" },
-  published: { label: "Published", tone: "success" },
-  failed: { label: "Failed", tone: "danger" },
+const CHIPS: Record<ChipStatus, { label: string; tone: StatusTone }> = {
+  draft: { label: "Draft", tone: statusTone("draft") },
+  pending: { label: SCHEDULED_WORD, tone: statusTone("pending") },
+  uploaded: { label: "Uploaded", tone: statusTone("uploaded") },
+  scheduled: { label: SCHEDULED_WORD, tone: statusTone("scheduled") },
+  published: { label: "Published", tone: statusTone("published") },
+  failed: { label: "Failed", tone: statusTone("failed") },
   // Never shown as is: a manual leg's words depend on the slot and the connection (manualLabel).
-  manual: { label: "Needs connection", tone: "warning" }
+  manual: { label: "Needs connection", tone: statusTone("needs connection") }
 };
 
 export function StatusChip({
@@ -96,7 +98,7 @@ export function StatusChip({
       : null;
   if (marker) {
     const href = marker.href ?? (platform ? remoteUrlFor(platform, leg?.postId) : null);
-    const classes = cn("chip", marker.kind === "overdue" ? "tone-danger" : "tone-warning", className);
+    const classes = cn("chip", `tone-${statusTone(marker.label)}`, className);
     const external = marker.href === null;
     return href ? (
       external ? (
@@ -124,8 +126,9 @@ export function StatusChip({
         : inboxDraft
           ? TIKTOK_INBOX_CHIP
           : chip.label;
-  // A manual leg whose slot has passed is a miss, not a wait.
-  const tone = heldPrivate ? CHIPS.scheduled.tone : label === POST_BY_HAND_LABEL ? "danger" : chip.tone;
+  // The tone follows the words on the chip, so "Post by hand" or "Needs Instagram
+  // connection" is amber whatever status the leg is stored under.
+  const tone = heldPrivate ? CHIPS.scheduled.tone : status === "pending" || status === "manual" ? statusTone(label) : chip.tone;
   return (
     <span
       title={

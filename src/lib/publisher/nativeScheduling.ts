@@ -206,9 +206,10 @@ type PendingItem = Pick<QueueItem, "mediaKind" | "publishAt"> & Partial<Pick<Que
 const QUOTA_WAIT_LABEL = "Waiting for quota";
 
 /**
- * What "pending" means on the board. "Queued" reads as nothing has happened
- * yet, which is true for a platform this app has to post to itself and
- * misleading for one that is about to be handed the file.
+ * What "pending" means on the board. A bare "Scheduled" (the fallback when no
+ * platform is known) reads as nothing has happened yet, which is true for a
+ * platform this app has to post to itself and misleading for one that is about
+ * to be handed the file, so with a platform the chip says which it is.
  *
  * `now` is a parameter for the same reason it is one on `preSchedulesItem`:
  * with an item, the answer depends on how far off the slot is, and a function
@@ -222,7 +223,7 @@ export function pendingLabel(
   now: Date = new Date(),
   context: PendingContext = {}
 ): string {
-  if (!platform) return "Queued";
+  if (!platform) return "Scheduled";
   if (context.connected === false) return waitingForConnectionLabel(platform);
   if (platform === "youtube" && context.youtubeQuotaFull) return QUOTA_WAIT_LABEL;
   if (item && !context.inFlight && slotOverdue(item.publishAt, now)) return OVERDUE_LABEL;

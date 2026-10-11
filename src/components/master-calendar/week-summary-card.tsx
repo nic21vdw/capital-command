@@ -72,7 +72,7 @@ function Counts({ row, className }: { row: Pick<WeekPlatformRow, "published" | "
       {row.scheduled > 0 ? (
         <Badge tone="info" className="gap-1">
           <Send className="h-3 w-3" />
-          {row.scheduled} still to go
+          {row.scheduled} scheduled
         </Badge>
       ) : null}
       {none ? <span className="text-xs text-[var(--muted-foreground)]">Nothing this week</span> : null}

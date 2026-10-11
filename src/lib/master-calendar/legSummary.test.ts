@@ -41,7 +41,7 @@ describe("a post whose legs agree", () => {
     expect(summary.mixed).toBe(false);
     expect(summary.label).toBe("Needs YouTube connection");
     expect(summary.label).toBe(waitingForConnectionLabel("youtube"));
-    expect(summary.lines[0].text).toBe("Connect YouTube before 15:00 to post automatically, or post it by hand.");
+    expect(summary.lines[0].text).toBe("Connect YouTube before 3:00 PM to post automatically, or post it by hand.");
     // It is not late, and must not say it was missed.
     expect(summary.lines[0].text).not.toMatch(/passed|missed|could be sent/);
     expect(summary.lines[0].action).toBe("connect");
@@ -114,5 +114,13 @@ describe("a post whose legs differ", () => {
     expect(summary.mixed).toBe(false);
     expect(summary.label).toBe("Needs connection");
     expect(summary.lines).toEqual([]);
+  });
+});
+
+describe("a booked leg that has not gone out", () => {
+  it("is called scheduled, not queued, and its slot is written as a 12-hour clock", () => {
+    const lines = legLines(event("queued", [{ platform: "Instagram", status: "pending" }, { platform: "YouTube", status: "pending", awaitingConnection: true }]));
+    expect(lines.find((line) => line.kind === "queued")?.text).toBe("Instagram is scheduled.");
+    expect(lines.find((line) => line.kind === "needsConnection")?.text).toContain("before 3:00 PM");
   });
 });

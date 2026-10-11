@@ -1,5 +1,6 @@
 import type { Carousel, CarouselSchedule } from "@/types/domain";
 import { publishZoneLabel } from "@/lib/carousels/booked";
+import { formatClockTime } from "@/lib/timeFormat";
 
 /** The four networks a carousel can be scheduled to, in display order. */
 export const CAROUSEL_PLATFORMS = [
@@ -176,9 +177,9 @@ export function bookingMessage(
 const WEEKDAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
 export function recurrenceLabel(schedule: CarouselSchedule): string {
-  if (schedule.recurrence === "daily") return `Every day · ${schedule.time}`;
-  if (schedule.recurrence === "weekly") return `Every ${WEEKDAY_LABELS[schedule.weekday ?? 0]} · ${schedule.time}`;
-  return `${schedule.date} · ${schedule.time}`;
+  if (schedule.recurrence === "daily") return `Every day · ${formatClockTime(schedule.time)}`;
+  if (schedule.recurrence === "weekly") return `Every ${WEEKDAY_LABELS[schedule.weekday ?? 0]} · ${formatClockTime(schedule.time)}`;
+  return `${schedule.date} · ${formatClockTime(schedule.time)}`;
 }
 
 export type ScheduleOccurrence = {

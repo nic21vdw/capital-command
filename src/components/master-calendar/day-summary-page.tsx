@@ -53,6 +53,8 @@ import {
 } from "@/lib/publisher/youtubeStatsShared";
 import { platformCheckUrl } from "@/lib/automations/links";
 import { OVERDUE_HREF, OVERDUE_LINK_LABEL } from "@/lib/publisher/nativeScheduling";
+import { formatClockTime } from "@/lib/timeFormat";
+import { statusTone } from "@/lib/statusTone";
 import { cn } from "@/lib/utils";
 
 /**
@@ -75,16 +77,10 @@ const STATE_LABELS: Record<SummaryState, string> = {
   failed: "Failed"
 };
 
-const STATE_TONES: Record<SummaryState, BadgeTone> = {
-  published: "success",
-  scheduled: "info",
-  shouldBeLive: "warning",
-  overdue: "warning",
-  needsConnection: "warning",
-  pending: "warning",
-  skipped: "neutral",
-  failed: "danger"
-};
+// The tone follows the state's own word, from the one mapping every screen uses.
+const STATE_TONES = Object.fromEntries(
+  (Object.keys(STATE_LABELS) as SummaryState[]).map((state) => [state, statusTone(STATE_LABELS[state])])
+) as Record<SummaryState, BadgeTone>;
 
 const STATE_ICONS: Record<SummaryState, typeof CheckCircle2> = {
   published: CheckCircle2,
@@ -210,7 +206,7 @@ function PieceCard({ event, cachedStat }: { event: MasterCalendarEvent; cachedSt
           </span>
         )}
         <span className="absolute inset-x-0 bottom-0 bg-black/70 px-1 py-0.5 text-center text-[10px] font-semibold text-white">
-          {event.time ?? "All day"}
+          {event.time ? formatClockTime(event.time) : "All day"}
         </span>
       </div>
       <div className="min-w-0 flex-1">
@@ -326,7 +322,7 @@ function ByHandTodos({ todos }: { todos: DaySummary["todos"] }) {
             <span className="min-w-0 flex-1">
               <span className="font-medium text-white">
                 Post by hand on {todo.platform}
-                {todo.time ? ` at ${todo.time}` : ""}
+                {todo.time ? ` at ${formatClockTime(todo.time)}` : ""}
               </span>
               <span className="block truncate text-xs text-[var(--muted-foreground)]">{todo.title}</span>
             </span>
@@ -620,8 +616,8 @@ function DaySummaryBody({
   const window =
     summary.firstTime && summary.lastTime
       ? summary.firstTime === summary.lastTime
-        ? `All at ${summary.firstTime}`
-        : `${summary.firstTime} – ${summary.lastTime}`
+        ? `All at ${formatClockTime(summary.firstTime)}`
+        : `${formatClockTime(summary.firstTime)} – ${formatClockTime(summary.lastTime)}`
       : "No fixed times";
 
   // "N published/scheduled/pending/failed", non-zero states only — the same
@@ -656,7 +652,7 @@ function DaySummaryBody({
       { label: "Failed", value: String(summary.states.failed) },
       {
         label: "To post by hand",
-        value: summary.todos.map((todo) => `${todo.platform}${todo.time ? ` at ${todo.time}` : ""}: ${todo.title}`).join("; ") || "None"
+        value: summary.todos.map((todo) => `${todo.platform}${todo.time ? ` at ${formatClockTime(todo.time)}` : ""}: ${todo.title}`).join("; ") || "None"
       },
       { label: "Networks", value: networksSummary },
       { label: "Last 7 days", value: weekReading }

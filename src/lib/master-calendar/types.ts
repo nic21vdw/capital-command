@@ -8,6 +8,7 @@
 
 import { OVERDUE_LABEL, SHOULD_BE_LIVE_LABEL } from "@/lib/publisher/nativeScheduling";
 import type { YoutubeStat } from "@/lib/publisher/youtubeStatsShared";
+import { SCHEDULED_WORD } from "@/lib/statusTone";
 
 export type CalendarSourceId = "shorts" | "carousels" | "queued-carousels" | "x" | "fb" | "content";
 
@@ -271,5 +272,6 @@ export function eventStatusLabel(status: string, event?: Pick<MasterCalendarEven
   }
   if (isShouldBeLiveEventStatus(status)) return SHOULD_BE_LIVE_LABEL;
   if (isOverdueEventStatus(status)) return OVERDUE_LABEL;
-  return status;
+  // A booked post that has not gone out yet is "scheduled" to the person, whatever the source calls it.
+  return status.toLowerCase() === "queued" ? SCHEDULED_WORD : status;
 }

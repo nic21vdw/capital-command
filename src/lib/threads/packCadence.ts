@@ -51,14 +51,14 @@ export function cadenceBadge(input: { postsPerDay: number | null | undefined; ac
 
 /**
  * Says plainly when the pack on screen is not the size of the configured day:
- * "Today: 6 posts in the pack; the autopilot posts up to 24 a day." Null when
+ * "Today: 6 ideas in the pack; the autopilot posts up to 24 a day." Null when
  * they agree or either number is unknown.
  */
 export function packSizeNote(input: { packPosts: number; postsPerDay: number | null | undefined; label: string }): string | null {
   const { packPosts, postsPerDay } = input;
   if (postsPerDay === null || postsPerDay === undefined || !Number.isFinite(postsPerDay) || postsPerDay < 1) return null;
   if (packPosts === postsPerDay) return null;
-  return `${input.label}: ${plural(packPosts, "post")} in the pack; the autopilot posts up to ${postsPerDay} a day.`;
+  return `${input.label}: ${plural(packPosts, "idea")} in the pack; the autopilot posts up to ${postsPerDay} a day.`;
 }
 
 /**
