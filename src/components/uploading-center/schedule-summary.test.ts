@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { bookedResult, refusedResult, summarizeAutoAssign, summarizeSchedule } from "@/components/uploading-center/schedule-summary";
+import { bookedDaysLabel, bookedResult, refusedResult, summarizeAutoAssign, summarizeSchedule, zoneTimeLabel } from "@/components/uploading-center/schedule-summary";
 
 describe("one summary for a multi-platform booking", () => {
   it("counts Instagram as Instagram and Facebook, and says so", () => {
@@ -53,41 +53,104 @@ describe("one summary for a multi-platform booking", () => {
   it("counts booked and manual separately in the summary title", () => {
     const manual = bookedResult("tiktok", { platforms: { tiktok: { status: "manual", attempts: 0 } } }, undefined);
     expect(manual.manual).toBe(true);
-    expect(manual.detail).toBe("saved as a manual reminder - connect it in Settings to post automatically.");
+    expect(manual.detail).toBe("saved as a reminder - not connected. Connect it to post automatically.");
     const summary = summarizeSchedule([bookedResult("youtube", undefined, undefined), manual]);
-    expect(summary.title).toBe("Scheduled on 1 platform, 1 saved as a manual reminder");
+    expect(summary.title).toBe("Scheduled on 1 platform, 1 saved as a reminder");
     expect(summary.level).toBe("warning");
     const only = summarizeSchedule([manual]);
-    expect(only.title).toBe("Saved as a manual reminder on 1 platform");
+    expect(only.title).toBe("Saved as a reminder on 1 platform");
   });
 });
 
 describe("Auto Assign summary", () => {
   const base = { scheduled: 3, manual: 0, total: 3, manualPlatforms: [], firstError: null, held: "" };
+  const zone = "America/Toronto";
+  // Mon Oct 12 .. Thu Oct 15 2026 at 7:30 Toronto time (EDT, UTC-4).
+  const monThu = ["2026-10-12T11:30:00.000Z", "2026-10-13T11:30:00.000Z", "2026-10-14T11:30:00.000Z", "2026-10-15T11:30:00.000Z"];
 
-  it("stays green only when every post will actually go out", () => {
-    expect(summarizeAutoAssign(base)).toEqual({
+  it("stays green only when every post will actually go out, and names the days", () => {
+    expect(summarizeAutoAssign({ ...base, scheduled: 4, total: 4, bookedSlots: monThu, timeZone: zone })).toEqual({
       level: "success",
-      message: "Auto-assigned 3 posts to the next open slots."
+      message: "4 booked: Mon-Thu"
     });
   });
 
-  it("is amber and separates manual reminders from booked posts", () => {
-    const summary = summarizeAutoAssign({ ...base, manual: 1, manualPlatforms: ["TikTok"] });
+  it("says the days in the publish zone, not UTC", () => {
+    // 01:00 UTC on the 13th is still the evening of Monday the 12th in Toronto.
+    expect(bookedDaysLabel(["2026-10-13T01:00:00.000Z"], zone)).toBe("Mon");
+    expect(bookedDaysLabel(["2026-10-13T01:00:00.000Z"], "UTC")).toBe("Tue");
+  });
+
+  it("falls back to dates beyond a week, and to no days at all when it does not know them", () => {
+    expect(bookedDaysLabel(["2026-10-12T11:30:00.000Z", "2026-10-20T11:30:00.000Z"], zone)).toBe("Oct 12-Oct 20");
+    expect(summarizeAutoAssign(base).message).toBe("3 booked");
+  });
+
+  it("is amber and says reminders, not bookings, when nothing is connected", () => {
+    const summary = summarizeAutoAssign({
+      ...base,
+      scheduled: 4,
+      manual: 4,
+      total: 4,
+      manualPlatforms: ["YouTube", "YouTube", "YouTube", "YouTube"]
+    });
+    expect(summary).toEqual({
+      level: "warning",
+      message: "4 saved as reminders - YouTube isn't connected. Connect it to post automatically."
+    });
+  });
+
+  it("shows both halves of a mixed batch", () => {
+    const summary = summarizeAutoAssign({
+      ...base,
+      scheduled: 4,
+      manual: 1,
+      total: 4,
+      manualPlatforms: ["TikTok"],
+      bookedSlots: monThu.slice(0, 3),
+      timeZone: zone
+    });
     expect(summary.level).toBe("warning");
     expect(summary.message).toBe(
-      "Auto-assigned 2 posts to the next open slots. 1 post saved as a manual reminder for TikTok - connect it in Settings to post automatically."
+      "3 booked: Mon-Wed. 1 saved as a reminder - TikTok isn't connected. Connect it to post automatically."
     );
   });
 
-  it("never says Auto-assigned when everything booked is a reminder", () => {
-    const summary = summarizeAutoAssign({ ...base, manual: 3, manualPlatforms: ["TikTok", "TikTok", "TikTok"] });
+  it("names every unconnected platform and agrees the verb", () => {
+    const summary = summarizeAutoAssign({ ...base, manual: 3, manualPlatforms: ["YouTube", "TikTok"] });
+    expect(summary.message).toBe(
+      "3 saved as reminders - YouTube and TikTok aren't connected. Connect them to post automatically."
+    );
+  });
+
+  it("never says Auto-assigned or Manual", () => {
+    for (const manual of [0, 1, 3]) {
+      const message = summarizeAutoAssign({ ...base, manual, manualPlatforms: ["TikTok"] }).message;
+      expect(message).not.toMatch(/Auto-assigned|manual/i);
+    }
+  });
+
+  it("reports what was not booked beside what was", () => {
+    const summary = summarizeAutoAssign({ ...base, scheduled: 2, total: 3, firstError: "Slot taken." });
     expect(summary.level).toBe("warning");
-    expect(summary.message).toMatch(/^Saved 3 posts as manual reminders for TikTok - connect it in Settings/);
-    expect(summary.message).not.toMatch(/Auto-assigned/);
+    expect(summary.message).toBe("2 booked. 1 not booked - Slot taken.");
   });
 
   it("is red when nothing was booked", () => {
     expect(summarizeAutoAssign({ ...base, scheduled: 0, firstError: "Slot taken." }).level).toBe("error");
+  });
+
+  it("keeps the clips it left out in the amber summary", () => {
+    const summary = summarizeAutoAssign({ ...base, held: " 1 clip left unscheduled." });
+    expect(summary.level).toBe("warning");
+    expect(summary.message).toBe("3 booked. 1 clip left unscheduled.");
+  });
+});
+
+describe("zoneTimeLabel", () => {
+  it("names the city, never the IANA id", () => {
+    expect(zoneTimeLabel("America/Toronto")).toBe("Toronto time");
+    expect(zoneTimeLabel("America/Port_of_Spain")).toBe("Port of Spain time");
+    expect(zoneTimeLabel("UTC")).toBe("UTC");
   });
 });

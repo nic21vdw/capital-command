@@ -10,7 +10,7 @@ import type { PlatformId, QueueItem } from "@/lib/publisher/types";
  * two platforms.
  */
 
-const MANUAL_DETAIL = "saved as a manual reminder - connect it in Settings to post automatically.";
+const MANUAL_DETAIL = "saved as a reminder - not connected. Connect it to post automatically.";
 
 /** Whether the booked post's leg for this platform is only a reminder to post by hand. */
 export function isManualLeg(item: Pick<QueueItem, "platforms"> | undefined, platform: PlatformId): boolean {
@@ -105,8 +105,8 @@ export function summarizeSchedule(results: PlatformResult[]): {
     if (automatic > 0) parts.push(`Scheduled on ${automatic} platform${automatic === 1 ? "" : "s"}`);
     parts.push(
       automatic > 0
-        ? `${manual} saved as ${manual === 1 ? "a manual reminder" : "manual reminders"}`
-        : `Saved as ${manual === 1 ? "a manual reminder" : "manual reminders"} on ${manual} platform${manual === 1 ? "" : "s"}`
+        ? `${manual} saved as ${manual === 1 ? "a reminder" : "reminders"}`
+        : `Saved as ${manual === 1 ? "a reminder" : "reminders"} on ${manual} platform${manual === 1 ? "" : "s"}`
     );
     if (booked < total) parts.push(`${total - booked} not booked`);
     return {
@@ -129,57 +129,91 @@ export function summarizeSchedule(results: PlatformResult[]): {
   return { level: "warning", title: `Scheduled on ${booked} of ${total} platforms${pairNote}`, lines };
 }
 
+/** "America/Toronto" as a person says it: "Toronto time". UTC stays "UTC". */
+export function zoneTimeLabel(timeZone: string): string {
+  if (!timeZone.includes("/")) return timeZone;
+  return `${(timeZone.split("/").pop() ?? timeZone).replace(/_/g, " ")} time`;
+}
+
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+/**
+ * The days a batch landed on, as short as reads: "Mon", "Mon-Thu" within a week,
+ * "Oct 12-Oct 20" beyond it. Days are the publish zone's, never the browser's.
+ */
+export function bookedDaysLabel(slotsUtc: string[], timeZone: string): string {
+  const make = (zone: string) =>
+    new Intl.DateTimeFormat("en-US", { timeZone: zone, weekday: "short", month: "short", day: "numeric", year: "numeric" });
+  let format: Intl.DateTimeFormat;
+  try {
+    format = make(timeZone);
+  } catch {
+    format = make("UTC");
+  }
+  const days = slotsUtc
+    .map((utc) => new Date(utc))
+    .filter((at) => !Number.isNaN(at.getTime()))
+    .sort((a, b) => a.getTime() - b.getTime())
+    .map((at) => {
+      const pick = Object.fromEntries(format.formatToParts(at).map((part) => [part.type, part.value]));
+      return { weekday: pick.weekday, month: pick.month, day: pick.day, ordinal: Date.UTC(Number(pick.year), MONTHS.indexOf(pick.month), Number(pick.day)) };
+    });
+  if (days.length === 0) return "";
+  const first = days[0];
+  const last = days[days.length - 1];
+  if (first.ordinal === last.ordinal) return first.weekday;
+  if ((last.ordinal - first.ordinal) / 86_400_000 < 7) return `${first.weekday}-${last.weekday}`;
+  return `${first.month} ${first.day}-${last.month} ${last.day}`;
+}
+
 /**
  * What Auto Assign says when it is done. Booked and "will actually post" are
  * different counts: a post for a platform with no connected account is saved
- * as a manual reminder, and a green "Auto-assigned 3 posts" over three of
- * those is how nobody found out until the slot passed.
+ * as a reminder, and a green "Auto-assigned 3 posts" over three of those is how
+ * nobody found out until the slot passed. So the two are said apart: "4 booked:
+ * Mon-Thu" for what will post, "4 saved as reminders - YouTube isn't connected.
+ * Connect it to post automatically." for what will not, amber, and both when
+ * a batch is mixed.
  */
 export function summarizeAutoAssign(input: {
-  /** Requests accepted by the queue (manual reminders included). */
+  /** Requests accepted by the queue (reminders included). */
   scheduled: number;
-  /** Of those, how many are only manual reminders. */
+  /** Of those, how many are only reminders. */
   manual: number;
   /** Requests attempted. */
   total: number;
-  /** Platforms the manual reminders are for, e.g. ["TikTok"]. */
+  /** Platforms the reminders are for, e.g. ["TikTok"]. */
   manualPlatforms: string[];
   firstError: string | null;
   /** Already-worded note about clips deliberately left out; starts with a space. */
   held: string;
+  /** The slots (UTC) of the posts that WILL post, for "Mon-Thu". */
+  bookedSlots?: string[];
+  timeZone?: string;
 }): { level: "success" | "warning" | "error"; message: string } {
-  const { scheduled, manual, total, manualPlatforms, firstError, held } = input;
-  const posts = (count: number) => `${count} post${count === 1 ? "" : "s"}`;
+  const { scheduled, manual, total, manualPlatforms, firstError, held, bookedSlots = [], timeZone = "UTC" } = input;
   const automatic = scheduled - manual;
-  const names = [...new Set(manualPlatforms)].join(" and ") || "an unconnected platform";
-  const manualNote =
-    manual > 0
-      ? automatic > 0
-        ? ` ${posts(manual)} saved as ${manual === 1 ? "a manual reminder" : "manual reminders"} for ${names} - connect it in Settings to post automatically.`
-        : ""
-      : "";
+  const names = [...new Set(manualPlatforms)];
+  const nameList = names.length === 0 ? "an unconnected platform" : names.length === 1 ? names[0] : `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`;
+  const days = bookedDaysLabel(bookedSlots, timeZone);
+  const booked = `${automatic} booked${days ? `: ${days}` : ""}`;
+  const reminders = `${manual} saved as ${manual === 1 ? "a reminder" : "reminders"} - ${nameList} ${
+    names.length > 1 ? "aren't" : "isn't"
+  } connected. Connect ${names.length > 1 ? "them" : "it"} to post automatically.`;
   if (scheduled === 0) {
     return { level: "error", message: `${firstError ?? "Auto assign failed."}${held}` };
   }
+  const tail = scheduled < total ? ` ${total - scheduled} not booked${firstError ? ` - ${firstError.replace(/[.\s]+$/, "")}` : ""}.` : "";
   if (automatic === 0) {
     // Everything that was booked is a reminder.
-    const tail = scheduled < total ? ` ${total - scheduled} not booked${firstError ? ` - ${firstError}` : "."}` : "";
-    return {
-      level: "warning",
-      message: `Saved ${posts(manual)} as ${manual === 1 ? "a manual reminder" : "manual reminders"} for ${names} - connect it in Settings to post automatically.${tail}${held}`
-    };
+    return { level: "warning", message: `${reminders}${tail}${held}` };
+  }
+  if (manual > 0) {
+    return { level: "warning", message: `${booked}. ${reminders}${tail}${held}` };
   }
   if (scheduled < total) {
-    return {
-      level: "warning",
-      message: `Auto-assigned ${automatic} of ${total} posts${firstError ? ` - ${firstError}` : "."}${manualNote}${held}`
-    };
+    return { level: "warning", message: `${booked}.${tail}${held}` };
   }
-  if (manual > 0 || held) {
-    return {
-      level: "warning",
-      message: `Auto-assigned ${posts(automatic)} to the next open slots.${manualNote}${held}`
-    };
-  }
-  return { level: "success", message: `Auto-assigned ${posts(automatic)} to the next open slots.` };
+  if (held) return { level: "warning", message: `${booked}.${held}` };
+  return { level: "success", message: booked };
 }

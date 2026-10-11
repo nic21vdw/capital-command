@@ -99,7 +99,13 @@ export type PendingContext = {
    * the board does not know, and the platform's own wording stands.
    */
   connected?: boolean;
+  /** Writes the slot for the hint ("Tue, Oct 14, 3:00 PM"); absent, the hint says "its slot". */
+  formatSlot?: (publishAt: string) => string;
 };
+
+function formatSlot(publishAt: string, context: PendingContext): string | undefined {
+  return context.formatSlot?.(publishAt);
+}
 
 type PendingItem = Pick<QueueItem, "mediaKind" | "publishAt"> & Partial<Pick<QueueItem, "tiktok">>;
 
@@ -137,14 +143,53 @@ const PLATFORM_NAMES: Record<PlatformId, string> = {
   facebook: "Facebook"
 };
 
-/** The chip for a pending leg whose account is not connected: it cannot go anywhere yet. */
+/**
+ * The chip for a leg whose account is not connected. ONE phrase for every way of
+ * getting there - a pending leg and a manual reminder before its slot - so the
+ * same situation never reads "Waiting for ..." on one card and "Manual" on the
+ * next. The sentence under the chip says what to do about it.
+ */
 export function waitingForConnectionLabel(platform: PlatformId): string {
-  return `Waiting for ${PLATFORM_NAMES[platform]} connection`;
+  return `Needs ${PLATFORM_NAMES[platform]} connection`;
 }
 
-/** The line that explains it, and the way out. */
-export function waitingForConnectionHint(platform: PlatformId): string {
-  return `Connect ${PLATFORM_NAMES[platform]} in Settings to post this automatically, or it becomes a reminder to post by hand.`;
+/**
+ * The line that explains it, and the way out. `when` is the slot as the screen
+ * writes it ("Tue, Oct 14, 3:00 PM"); left out, the line says "its slot".
+ */
+export function waitingForConnectionHint(platform: PlatformId, when?: string): string {
+  return `Waiting for ${PLATFORM_NAMES[platform]} - connect to post automatically, or post by hand at ${when ?? "its slot"}.`;
+}
+
+/** After the slot a leg that never went out is a miss, not a wait. */
+export const POST_BY_HAND_LABEL = "Post by hand";
+
+/**
+ * What a "manual" leg - one set aside because nothing was connected when it was
+ * booked - is called on a chip. Before its slot it is simply waiting for the
+ * connection, exactly like a pending leg; after it the post has been missed and
+ * the only thing left is to do it yourself. If an account has been connected
+ * since, nothing is missing any more and Retry is the way back in.
+ */
+export function manualLabel(
+  platform: PlatformId | undefined,
+  publishAt: string | undefined,
+  now: Date = new Date(),
+  connected?: boolean
+): string {
+  const slotMs = publishAt ? new Date(publishAt).getTime() : Number.NaN;
+  const upcoming = Number.isFinite(slotMs) && slotMs > now.getTime();
+  if (connected === true) return "Retry to post";
+  if (!upcoming && Number.isFinite(slotMs)) return POST_BY_HAND_LABEL;
+  return platform ? waitingForConnectionLabel(platform) : "Needs connection";
+}
+
+/** The tooltip for a manual leg's chip, given the label `manualLabel` chose. */
+export function manualHint(platform: PlatformId, label: string, when?: string): string {
+  const name = PLATFORM_NAMES[platform];
+  if (label === POST_BY_HAND_LABEL) return `${name} wasn't connected at this slot, so nothing was posted. Post it by hand, or connect ${name} and retry.`;
+  if (label === "Retry to post") return `${name} is connected now. Retry puts this post back in the queue.`;
+  return waitingForConnectionHint(platform, when);
 }
 
 /**
@@ -175,7 +220,7 @@ export function pendingHint(
 ): string {
   if (!platform) return "Waiting for the publish runner.";
   const name = PLATFORM_NAMES[platform];
-  if (context.connected === false) return waitingForConnectionHint(platform);
+  if (context.connected === false) return waitingForConnectionHint(platform, item ? formatSlot(item.publishAt, context) : undefined);
   if (platform === "youtube" && context.youtubeQuotaFull) {
     return "YouTube's upload limit for today is used up, so this waits and goes up after the quota resets (midnight Pacific). Nothing is lost.";
   }

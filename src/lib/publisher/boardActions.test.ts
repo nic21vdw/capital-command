@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   blockedLegControls,
+  connectLinkLabel,
   hasFreshClaim,
   legAccountId,
   publishNowSkipped,
@@ -243,5 +244,22 @@ describe("which controls a blocked leg offers", () => {
         needsConnection: false
       });
     }
+  });
+});
+
+describe("connectLinkLabel", () => {
+  it("says what the connection is for beside Rename on a duplicate-title card", () => {
+    const controls = { connect: "Connect" as const, needsConnection: true };
+    expect(connectLinkLabel(controls, { kind: "duplicate-title" }, "YouTube")).toBe("Connect YouTube to retry");
+  });
+
+  it("stays plain where the connection is the whole fix", () => {
+    const controls = { connect: "Reconnect" as const, needsConnection: true };
+    expect(connectLinkLabel(controls, { kind: "connection-lapsed" }, "TikTok")).toBe("Reconnect TikTok");
+    expect(connectLinkLabel({ connect: "Connect", needsConnection: true }, null, "YouTube")).toBe("Connect YouTube");
+  });
+
+  it("offers nothing when no connection is missing", () => {
+    expect(connectLinkLabel({ connect: null, needsConnection: false }, { kind: "retryable" }, "YouTube")).toBeNull();
   });
 });

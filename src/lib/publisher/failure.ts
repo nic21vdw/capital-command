@@ -1,3 +1,4 @@
+import { waitingForConnectionHint } from "@/lib/publisher/nativeScheduling";
 import type { PlatformId, PlatformState } from "@/lib/publisher/types";
 
 /**
@@ -142,7 +143,8 @@ export function describeFailure(state: PlatformState, platform: PlatformId, cont
     }
     if (upcoming) {
       return {
-        headline: `Not connected - post this by hand at ${context?.when ?? "its slot"}, or connect ${label} in Settings.`,
+        // The same sentence the pending chip's hint says: one situation, one wording.
+        headline: waitingForConnectionHint(platform, context?.when),
         action: "reconnect",
         kind: "not-connected",
         viaSettings,
@@ -150,8 +152,10 @@ export function describeFailure(state: PlatformState, platform: PlatformId, cont
       };
     }
     return {
-      headline: `No ${label} account was connected when this was scheduled, so it never went out. ${
-        platform === "youtube" ? "Connect one and this post goes out on its own." : "Connect it in Settings, then press Retry."
+      headline: `Post by hand - no ${label} account was connected by the slot${
+        context?.when ? ` (${context.when})` : ""
+      }, so this never went out. Post it yourself, or ${
+        platform === "youtube" ? "connect YouTube and it goes out on its own." : "connect it in Settings, then press Retry."
       }`,
       action: "reconnect",
       kind: "not-connected",

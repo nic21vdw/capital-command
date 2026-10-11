@@ -1,14 +1,14 @@
 "use client";
 
 import Link from "next/link";
-import { Film, Loader2, RotateCcw, Sparkles, TriangleAlert, Wand2 } from "lucide-react";
+import { CheckCircle2, Film, Loader2, RotateCcw, Sparkles, TriangleAlert, Wand2, X } from "lucide-react";
 import { AdvancedOptions } from "@/components/ui/advanced-options";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Select } from "@/components/ui/select";
 import { bulkBookingLabel, bulkBookingParts, planAutoAssign, type ShortsCap } from "@/components/uploading-center/bulk";
 import { ClipCard, SUGGESTED_HASHTAGS } from "@/components/uploading-center/clip-card";
-import type { RunDefaults } from "@/components/uploading-center/run-defaults";
+import { hashtagSummary, runHashtags, type RunDefaults } from "@/components/uploading-center/run-defaults";
 import {
   PLATFORM_TARGET_LABELS,
   type ClipDraft,
@@ -46,6 +46,8 @@ export function ClipQueue({
   onEditClip,
   onTailorCaption,
   onAutoAssign,
+  bookingSummary,
+  onDismissBookingSummary,
   runDefaults,
   onRunDefaultsChange,
   onCaptionsForAll,
@@ -81,6 +83,9 @@ export function ClipQueue({
   /** Tailor the clip's caption to its selected platform with the free AI provider. */
   onTailorCaption: (clip: ReadyClip) => void;
   onAutoAssign: () => void;
+  /** What the last bulk booking did; stays until dismissed, because its toast does not. */
+  bookingSummary?: { level: "success" | "warning" | "error"; message: string } | null;
+  onDismissBookingSummary?: () => void;
   /** Platform + hashtags every new draft in this run starts with. */
   runDefaults: RunDefaults;
   onRunDefaultsChange: (defaults: RunDefaults) => void;
@@ -140,17 +145,16 @@ export function ClipQueue({
       ? "Every clip here is scheduled"
       : (bulkParts?.primary ?? "Schedule at the next free slots");
   const bulkSecondary = readOnlyReason || unscheduled === 0 ? null : bulkSubline;
-  const shownHashtags = runDefaults.hashtags.slice(0, 3);
-  const extraHashtags = runDefaults.hashtags.length - shownHashtags.length;
-  const hashtagSummary =
-    shownHashtags.length > 0
-      ? `${shownHashtags.join(" ")}${extraHashtags > 0 ? ` +${extraHashtags}` : ""}`
-      : "no hashtags";
+  // Read from what the cards will really post: the AI writes hashtags into each
+  // caption's last line, so the run defaults alone said "no hashtags" over cards
+  // showing ten.
+  const unscheduledDrafts = clips.filter((clip) => itemsForClip(clip).length === 0).map(draftFor);
+  const hashtagText = hashtagSummary(runHashtags(unscheduledDrafts));
   const captionSummary =
     captionsMissing > 0
       ? `AI writes ${captionsMissing} caption${captionsMissing === 1 ? "" : "s"}`
       : "all captioned";
-  const optionsSummary = `${captionSummary} · ${hashtagSummary}`;
+  const optionsSummary = unscheduled === 0 ? "all scheduled" : `${captionSummary} · ${hashtagText}`;
   return (
     <Card className="min-w-0 space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -214,6 +218,41 @@ export function ClipQueue({
               </span>
             </Button>
           </div>
+          {bookingSummary ? (
+            <div
+              role="status"
+              className={cn(
+                "tone-soft tone-edge flex items-start gap-2 rounded-lg border px-2.5 py-2",
+                bookingSummary.level === "success" ? "tone-success" : bookingSummary.level === "error" ? "tone-danger" : "tone-warning"
+              )}
+            >
+              {bookingSummary.level === "success" ? (
+                <CheckCircle2 className="tone-success tone-text mt-0.5 h-3.5 w-3.5 shrink-0" />
+              ) : (
+                <TriangleAlert
+                  className={cn("mt-0.5 h-3.5 w-3.5 shrink-0 tone-text", bookingSummary.level === "error" ? "tone-danger" : "tone-warning")}
+                />
+              )}
+              <span
+                className={cn(
+                  "tone-text min-w-0 flex-1 text-[11px] leading-snug",
+                  bookingSummary.level === "success" ? "tone-success" : bookingSummary.level === "error" ? "tone-danger" : "tone-warning"
+                )}
+              >
+                {bookingSummary.message}
+              </span>
+              {onDismissBookingSummary ? (
+                <button
+                  type="button"
+                  onClick={onDismissBookingSummary}
+                  aria-label="Dismiss booking summary"
+                  className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded text-[var(--muted-foreground)] transition hover:bg-white/10 hover:text-white"
+                >
+                  <X className="h-3 w-3" aria-hidden />
+                </button>
+              ) : null}
+            </div>
+          ) : null}
           {plan.capBlocked > 0 && shortsCap ? (
             <p className="text-[11px] text-[var(--muted-foreground)]">
               {plan.capBlocked} clip{plan.capBlocked === 1 ? "" : "s"} won&apos;t fit in this window: every open day

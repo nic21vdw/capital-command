@@ -1,7 +1,10 @@
 import { cn } from "@/lib/utils";
 import {
   isTiktokInboxDraft,
+  manualHint,
+  manualLabel,
   pendingHint,
+  POST_BY_HAND_LABEL,
   pendingLabel,
   TIKTOK_INBOX_CHIP,
   TIKTOK_INBOX_HINT
@@ -11,7 +14,7 @@ import type { PlatformId, PlatformStatus, QueueItem } from "@/lib/publisher/type
 
 /**
  * The Uploading Center's status colors, in the theme's own tones rather than a
- * fixed Tailwind palette: draft neutral, waiting/scheduled/manual warning,
+ * fixed Tailwind palette: draft neutral, waiting/scheduled warning, a missed manual post danger,
  * uploaded info, published success, failed danger.
  *
  * "pending" is the queue's word for a post the runner has not delivered yet,
@@ -35,7 +38,8 @@ const CHIPS: Record<ChipStatus, { label: string; tone: "neutral" | "warning" | "
   scheduled: { label: "Scheduled", tone: "warning" },
   published: { label: "Published", tone: "success" },
   failed: { label: "Failed", tone: "danger" },
-  manual: { label: "Manual", tone: "warning" }
+  // Never shown as is: a manual leg's words depend on the slot and the connection (manualLabel).
+  manual: { label: "Needs connection", tone: "warning" }
 };
 
 export function StatusChip({
@@ -44,6 +48,7 @@ export function StatusChip({
   item,
   youtubeQuotaFull,
   connected,
+  slotLabel,
   className
 }: {
   status: ChipStatus;
@@ -56,6 +61,8 @@ export function StatusChip({
   youtubeQuotaFull?: boolean;
   /** False when the post's account for this platform has no connection (see PendingContext). */
   connected?: boolean;
+  /** The slot as the screen writes it, for the sentence under the chip ("Tue, Oct 14, 3:00 PM"). */
+  slotLabel?: string;
   className?: string;
 }) {
   const chip = CHIPS[status];
@@ -65,15 +72,20 @@ export function StatusChip({
     item != null &&
     youtubeHoldsForReview(item);
   const inboxDraft = isTiktokInboxDraft(platform, status, item);
-  const context = { youtubeQuotaFull, connected };
+  const context = { youtubeQuotaFull, connected, formatSlot: slotLabel ? () => slotLabel : undefined };
+  const now = new Date();
   const label =
     status === "pending"
-      ? pendingLabel(platform, item, new Date(), context)
-      : heldPrivate
+      ? pendingLabel(platform, item, now, context)
+      : status === "manual"
+        ? manualLabel(platform, item?.publishAt, now, connected)
+        : heldPrivate
         ? "Private"
         : inboxDraft
           ? TIKTOK_INBOX_CHIP
           : chip.label;
+  // A manual leg whose slot has passed is a miss, not a wait.
+  const tone = heldPrivate ? CHIPS.scheduled.tone : label === POST_BY_HAND_LABEL ? "danger" : chip.tone;
   return (
     <span
       title={
@@ -82,10 +94,12 @@ export function StatusChip({
           : inboxDraft
             ? TIKTOK_INBOX_HINT
             : status === "pending"
-              ? pendingHint(platform, item, new Date(), context)
-              : undefined
+              ? pendingHint(platform, item, now, context)
+              : status === "manual" && platform
+                ? manualHint(platform, label, slotLabel)
+                : undefined
       }
-      className={cn("chip", `tone-${heldPrivate ? CHIPS.scheduled.tone : chip.tone}`, className)}
+      className={cn("chip", `tone-${tone}`, className)}
     >
       {label}
     </span>

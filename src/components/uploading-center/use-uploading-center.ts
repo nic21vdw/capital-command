@@ -414,6 +414,8 @@ export function useUploadingCenter(clipProjects: ClipProject[] = []) {
   const [uploadSuccess, setUploadSuccess] = useState<UploadSuccess | null>(null);
   /** How far a bulk caption pass has got, or null when none is running. */
   const [captionProgress, setCaptionProgress] = useState<{ done: number; total: number } | null>(null);
+  /** What the last bulk booking did, kept on screen after its toast is gone. */
+  const [bookingSummary, setBookingSummary] = useState<{ level: "success" | "warning" | "error"; message: string } | null>(null);
   /**
    * Clips whose AI caption failed, by clip key, with the reason. This is what
    * stops a failure being invisible: the card is marked, the run offers a retry,
@@ -1234,7 +1236,10 @@ export function useUploadingCenter(clipProjects: ClipProject[] = []) {
       let scheduled = 0;
       let manual = 0;
       const manualPlatforms: string[] = [];
+      // The slots of the posts that will really go out, for "4 booked: Mon-Thu".
+      const bookedSlots: string[] = [];
       let firstError: string | null = null;
+      setBookingSummary(null);
       try {
         for (const { clip, draft } of assignments) {
           let file = clip.file;
@@ -1280,6 +1285,8 @@ export function useUploadingCenter(clipProjects: ClipProject[] = []) {
               if (isManualLeg(booked?.item, platform)) {
                 manual += 1;
                 manualPlatforms.push(PLATFORM_LABELS[platform]);
+              } else {
+                bookedSlots.push(draft.slotUtc);
               }
             } catch {
               firstError ??= "Network error while scheduling.";
@@ -1291,14 +1298,33 @@ export function useUploadingCenter(clipProjects: ClipProject[] = []) {
               heldBack.map((clip) => clip.headline)
             )}.`
           : "";
-        const summary = summarizeAutoAssign({ scheduled, manual, total, manualPlatforms, firstError, held });
-        toast[summary.level](summary.message, summary.level === "success" ? undefined : { duration: 12000 });
+        const summary = summarizeAutoAssign({
+          scheduled,
+          manual,
+          total,
+          manualPlatforms,
+          firstError,
+          held,
+          bookedSlots,
+          timeZone: timezone
+        });
+        // Said twice on purpose: the toast for the moment, and a line that stays
+        // in the run's card until it is dismissed or the next booking. The button
+        // flips to "Every clip here is scheduled" the instant the bookings land,
+        // so a toast that was missed - or scrolled away from - left nothing at
+        // all saying what had just happened. A stable id replaces the last
+        // summary instead of stacking a second one.
+        setBookingSummary(summary);
+        toast[summary.level](summary.message, {
+          id: "auto-assign-summary",
+          duration: summary.level === "success" ? 8000 : 15000
+        });
         await refresh();
       } finally {
         setBusy(null);
       }
     },
-    [activeAccountIds, projectForClip, refresh]
+    [activeAccountIds, projectForClip, refresh, timezone]
   );
 
   /** Shows each run outcome as the toast its tone calls for. */
@@ -1666,6 +1692,8 @@ export function useUploadingCenter(clipProjects: ClipProject[] = []) {
     busy,
     uploadSuccess,
     dismissUploadSuccess: () => setUploadSuccess(null),
+    bookingSummary,
+    dismissBookingSummary: () => setBookingSummary(null),
     renameClip,
     renameQueueItem,
     tailorCaption,

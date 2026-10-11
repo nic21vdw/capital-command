@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import Link from "next/link";
 import { Check, ChevronUp, Clapperboard, ExternalLink, Images, Image as ImageIcon, Loader2, Pencil, Plug, RotateCcw, Send, Trash2, Upload, X } from "lucide-react";
@@ -24,6 +24,7 @@ import {
   UPLOADING_NOW_MESSAGE,
   YOUTUBE_MAY_EXIST_MESSAGE,
   blockedLegControls,
+  connectLinkLabel,
   legAccountId,
   publishNowSkipped,
   publishNowTargets,
@@ -85,7 +86,8 @@ export function ScheduleBoard({
   readOnly = false,
   collapseEarlier = false,
   focusDateKey = null,
-  onShowEarlier
+  onShowEarlier,
+  timeZone
 }: {
   platform: PlatformId;
   /** Days before today stay behind a "Show earlier days" row until this is false. */
@@ -93,6 +95,8 @@ export function ScheduleBoard({
   /** A day something asked to be shown: kept even when it is empty and earlier. */
   focusDateKey?: string | null;
   onShowEarlier?: () => void;
+  /** The publish zone, so a slot reads the same in a sentence as on the board. */
+  timeZone?: string;
   /** The visible window, one entry per day, already placed and sorted. */
   days: AgendaDay[];
   thumbnailForItem: (item: QueueItem) => string | null;
@@ -198,6 +202,7 @@ export function ScheduleBoard({
           nowMs={nowMs}
           busy={busy}
           highlightedItemId={highlightedItemId}
+          timeZone={timeZone}
           shortsPerDay={shortsPerDay}
         />
       ))}
@@ -227,6 +232,7 @@ function DayBand({
   nowMs,
   busy,
   highlightedItemId,
+  timeZone,
   shortsPerDay
 }: {
   platform: PlatformId;
@@ -248,6 +254,7 @@ function DayBand({
   nowMs: number;
   busy: string | null;
   highlightedItemId?: string | null;
+  timeZone?: string;
   shortsPerDay?: number;
 }) {
   const { today, past, entries, openSlots, shortsFull } = day;
@@ -294,6 +301,7 @@ function DayBand({
               nowMs={nowMs}
               busy={busy}
               highlighted={highlightedItemId === entry.item.id}
+              timeZone={timeZone}
             />
           ) : (
             <ChannelEntryCard key={`c:${entry.video.videoId}`} time={entry.time} entry={entry} today={today} />
@@ -317,7 +325,7 @@ function DayBand({
         {shortsFull ? (
           <div
             className="flex min-h-14 flex-col justify-center rounded-lg border border-dashed border-[var(--border)] px-3 text-[11px] text-[var(--muted-foreground)]"
-            title="Each day takes a limited number of short videos (PUBLISH_SHORTS_PER_DAY). Pick another day."
+            title="Each day takes a limited number of short videos. Pick another day."
           >
             <span className="font-medium text-white">
               Day full{shortsPerDay ? ` (${shortsPerDay} shorts)` : ""}
@@ -358,7 +366,8 @@ function QueueEntryCard({
   isConnected,
   nowMs,
   busy,
-  highlighted
+  highlighted,
+  timeZone
 }: {
   platform: PlatformId;
   time: string;
@@ -375,8 +384,10 @@ function QueueEntryCard({
   nowMs: number;
   busy: string | null;
   highlighted?: boolean;
+  timeZone?: string;
 }) {
   const state = item.platforms[platform] as PlatformState;
+  const slotLabel = formatGoLive(item.publishAt, timeZone);
   // Whether the account this post uses on each platform has a connection. A
   // pending leg on one that does not is not "uploading": nothing can go until
   // it is connected.
@@ -390,7 +401,7 @@ function QueueEntryCard({
   const advice = blocked
     ? describeFailure(state, platform, {
         publishAt: item.publishAt,
-        when: formatGoLive(item.publishAt),
+        when: slotLabel,
         now: new Date(nowMs),
         connected
       })
@@ -402,10 +413,10 @@ function QueueEntryCard({
   const inboxDraft = isTiktokInboxDraft(platform, state.status, item);
   const awaitingConnection = state.status === "pending" && !connected;
   const waitingLine = awaitingConnection
-    ? waitingForConnectionHint(platform)
+    ? waitingForConnectionHint(platform, slotLabel)
     : waiting
     ? state.nextAttemptAt
-      ? `Retrying at ${formatGoLive(state.nextAttemptAt)} - ${waiting.headline}`
+      ? `Retrying at ${formatGoLive(state.nextAttemptAt, timeZone)} - ${waiting.headline}`
       : `Will retry - ${waiting.headline}`
     : quotaWait
       ? "YouTube's upload limit for today is used up. This goes up after the quota resets, nothing is lost."
@@ -448,6 +459,10 @@ function QueueEntryCard({
   // lapsed. A leg whose account has been connected since needs no link at all
   // unless the credentials themselves are stale.
   const connectVerb = controls?.connect ?? "Connect";
+  // Beside Rename on a refused title the link says it is only there for Retry.
+  const connectText =
+    (controls ? connectLinkLabel(controls, advice, PLATFORM_LABELS[platform]) : null) ??
+    `${connectVerb} ${PLATFORM_LABELS[platform]}`;
   const showConnect = controls ? controls.connect !== null : awaitingConnection;
   const everyLegPublished = Object.values(item.platforms).every((leg) => leg?.status === "published");
   const youtubeVideoId = item.platforms.youtube?.postId;
@@ -503,14 +518,18 @@ function QueueEntryCard({
         />
       ) : null}
       <div className="min-w-0 flex-1">
-        <div className="flex items-baseline gap-1.5">
+        {/* While renaming, the editor takes the whole row and the time steps aside:
+            beside the time it left about twenty of the fifty characters visible. */}
+        <div className={cn("flex gap-1.5", renaming ? "flex-wrap" : "items-baseline")}>
           <EditableTitle
             title={item.title}
             editing={renaming}
             onEditingChange={setRenaming}
             onRename={(title) => onRename(item, title)}
           />
-          <span className="ml-auto shrink-0 text-[10px] font-medium text-[var(--muted-foreground)]">{time}</span>
+          {renaming ? null : (
+            <span className="ml-auto shrink-0 text-[10px] font-medium text-[var(--muted-foreground)]">{time}</span>
+          )}
         </div>
         {platform === "youtube" && state.status === "published" && state.postId ? (
           <YoutubeCardStats itemId={item.id} videoId={state.postId} />
@@ -521,12 +540,13 @@ function QueueEntryCard({
             platform={platform}
             item={item}
             youtubeQuotaFull={quotaWait}
-            connected={state.status === "pending" ? connected : undefined}
+            connected={state.status === "pending" || state.status === "manual" ? connected : undefined}
+            slotLabel={slotLabel}
             className="shrink-0"
           />
           {state.mirroredFrom ? (
             <span
-              title={`Added automatically: ${PLATFORM_LABELS[state.mirroredFrom]}'s schedule is copied onto this platform (PUBLISH_MIRROR).`}
+              title={`Added automatically: ${PLATFORM_LABELS[state.mirroredFrom]}'s schedule is copied onto this platform.`}
               className="shrink-0 rounded-full bg-white/10 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-[var(--muted-foreground)]"
             >
               Mirrored from {PLATFORM_LABELS[state.mirroredFrom]}
@@ -721,12 +741,12 @@ function QueueEntryCard({
                   href={`/api/auth/google?account=${encodeURIComponent(item.accountId ?? primaryAccountIdFor("youtube"))}`}
                   className={INLINE_ACTION}
                 >
-                  <Plug className="h-3 w-3" /> {connectVerb} YouTube
+                  <Plug className="h-3 w-3" /> {connectText}
                 </a>
               ) : null}
               {showConnect && platform !== "youtube" ? (
                 <Link href="/settings#accounts" className={INLINE_ACTION}>
-                  <Plug className="h-3 w-3" /> {connectVerb} {PLATFORM_LABELS[platform]}
+                  <Plug className="h-3 w-3" /> {connectText}
                 </Link>
               ) : null}
               {detailRaw ? (
@@ -1082,9 +1102,18 @@ function EditableTitle({
  */
 function TitleInput({ title, onDone, onRename }: { title: string; onDone: () => void; onRename: (title: string) => void }) {
   const [draft, setDraft] = useState(title);
+  const fieldRef = useRef<HTMLTextAreaElement>(null);
+  // Grows with what is typed, so the whole title is always in view; Enter still
+  // saves, so it never holds a line break.
+  useLayoutEffect(() => {
+    const field = fieldRef.current;
+    if (!field) return;
+    field.style.height = "auto";
+    field.style.height = `${field.scrollHeight}px`;
+  }, [draft]);
   const commit = () => {
     onDone();
-    const trimmed = draft.trim();
+    const trimmed = draft.replace(/\s+/g, " ").trim();
     if (trimmed && trimmed !== title) onRename(trimmed);
   };
   const cancel = () => {
@@ -1092,26 +1121,31 @@ function TitleInput({ title, onDone, onRename }: { title: string; onDone: () => 
     onDone();
   };
   return (
-    <div className="min-w-0 flex-1">
-      <div className="flex items-center gap-1">
-        <input
-          autoFocus
-          value={draft}
-          maxLength={100}
-          onChange={(event) => setDraft(event.target.value)}
-          onFocus={(event) => event.target.select()}
-          onBlur={commit}
-          onKeyDown={(event) => {
-            if (event.key === "Enter") {
-              event.preventDefault();
-              commit();
-            } else if (event.key === "Escape") {
-              cancel();
-            }
-          }}
-          aria-label="Video title"
-          className="w-full min-w-0 flex-1 rounded border border-[var(--accent)]/50 bg-[var(--well-deep)] px-1 py-0.5 text-xs font-medium text-white outline-none"
-        />
+    <div className="min-w-0 basis-full">
+      <textarea
+        ref={fieldRef}
+        autoFocus
+        rows={2}
+        value={draft}
+        maxLength={100}
+        onChange={(event) => setDraft(event.target.value.replace(/\r?\n/g, " "))}
+        onFocus={(event) => event.target.select()}
+        onBlur={commit}
+        onKeyDown={(event) => {
+          if (event.key === "Enter") {
+            event.preventDefault();
+            commit();
+          } else if (event.key === "Escape") {
+            cancel();
+          }
+        }}
+        aria-label="Video title"
+        className="block w-full min-w-0 resize-none rounded border border-[var(--accent)]/50 bg-[var(--well-deep)] px-1.5 py-1 text-xs font-medium leading-snug text-white outline-none"
+      />
+      <div className="mt-0.5 flex items-center gap-1">
+        <p className="min-w-0 flex-1 text-[10px] leading-snug text-[var(--muted-foreground)]">
+          Enter to save · Esc to cancel
+        </p>
         <button
           type="button"
           onMouseDown={(event) => event.preventDefault()}
@@ -1133,7 +1167,6 @@ function TitleInput({ title, onDone, onRename }: { title: string; onDone: () => 
           <X className="h-3.5 w-3.5" aria-hidden />
         </button>
       </div>
-      <p className="mt-0.5 text-[10px] leading-snug text-[var(--muted-foreground)]">Enter to save · Esc to cancel</p>
     </div>
   );
 }

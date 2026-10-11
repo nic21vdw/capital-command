@@ -17,7 +17,15 @@ import { Textarea } from "@/components/ui/textarea";
 import { ClipPreview } from "@/components/uploading-center/clip-preview";
 import { StatusChip } from "@/components/uploading-center/status-chip";
 import { describeFailure } from "@/lib/publisher/failure";
-import { isTiktokInboxDraft, pendingHint, pendingLabel, TIKTOK_INBOX_ACTION, TIKTOK_INBOX_HINT } from "@/lib/publisher/nativeScheduling";
+import {
+  isTiktokInboxDraft,
+  pendingHint,
+  pendingLabel,
+  POST_BY_HAND_LABEL,
+  TIKTOK_INBOX_ACTION,
+  TIKTOK_INBOX_HINT,
+  waitingForConnectionHint
+} from "@/lib/publisher/nativeScheduling";
 import { youtubeHoldsForReview } from "@/lib/publisher/reviewHold";
 import {
   PLATFORM_LABELS,
@@ -114,7 +122,8 @@ export function summarizePlatformState(
   platform: PlatformId,
   state: PlatformState,
   item: Pick<QueueItem, "publishAt" | "createdAt" | "mediaKind" | "tiktok"> & { format?: "short" | "long"; clipPath?: string },
-  timeZone: string
+  timeZone: string,
+  now: Date = new Date()
 ): PlatformSummary {
   const goLive = formatStamp(item.publishAt, timeZone);
   const uploadIso = state.uploadedAt ?? (state.postId ? item.createdAt : null);
@@ -149,7 +158,15 @@ export function summarizePlatformState(
         detail: pendingHint(platform, item)
       };
     case "manual":
-      return { uploaded: null, note: `Manual reminder for ${goLive}` };
+      // Before the slot it is waiting for a connection (the chip's words); after
+      // it, it was missed and is left to be posted by hand.
+      return {
+        uploaded: null,
+        note:
+          new Date(item.publishAt).getTime() > now.getTime()
+            ? waitingForConnectionHint(platform, goLive).replace(/\.$/, "")
+            : `${POST_BY_HAND_LABEL} - the ${goLive} slot passed without a connection`
+      };
     case "failed": {
       if (!state.error) return { uploaded: null, note: "Upload failed" };
       const advice = describeFailure(state, platform);
@@ -395,7 +412,7 @@ export function ClipCard({
           {everywhere ? (
             <p className="pl-6 text-[11px] text-[var(--muted-foreground)]">
               One post per platform at the same slot, each on that platform&apos;s selected account. A platform that
-              isn&apos;t connected saves as a manual reminder.
+              isn&apos;t connected saves as a reminder.
             </p>
           ) : null}
           {needsRerender ? (

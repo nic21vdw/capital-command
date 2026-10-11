@@ -26,7 +26,7 @@ const LABELS: Record<PlatformId, string> = {
  * said in amber and in those words, never as "Scheduled".
  */
 export function manualReminderCopy(platform: PlatformId): string {
-  return `Saved as a manual reminder for ${LABELS[platform] ?? platform} - connect it in Settings to post automatically.`;
+  return `Saved as a reminder - ${LABELS[platform] ?? platform} isn't connected. Connect it to post automatically.`;
 }
 
 export type RunOutcomeLike = { platform: string; outcome: string; detail: string };

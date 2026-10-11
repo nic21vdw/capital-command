@@ -35,6 +35,7 @@ import { WorkflowLoadNotice } from "@/components/marketing/workflow-load-notice"
 import { Tabs } from "@/components/ui/tabs";
 import { AccountSwitcher } from "@/components/uploading-center/account-switcher";
 import { ClipQueue } from "@/components/uploading-center/clip-queue";
+import { zoneTimeLabel } from "@/components/uploading-center/schedule-summary";
 import { clipsNeedingCaption, nameClips, planAutoAssign, type ShortsCap } from "@/components/uploading-center/bulk";
 import {
   collectFailedLegs,
@@ -151,6 +152,8 @@ export function UploadingCenterPage() {
     schedule,
     uploadToSlot,
     autoAssign,
+    bookingSummary,
+    dismissBookingSummary,
     publishNow,
     retryQueueItem,
     editQueueCaption,
@@ -938,6 +941,7 @@ export function UploadingCenterPage() {
             collapseEarlier={!showEarlierDays && !focusIsEarlier}
             focusDateKey={focusDateKey}
             onShowEarlier={() => setShowEarlierDays(true)}
+            timeZone={overview?.timezone}
           />
           ) : null}
           {id === "youtube" && (channelError || channel?.error) ? (
@@ -1162,6 +1166,8 @@ export function UploadingCenterPage() {
                 onEditClip={editClip}
                 onTailorCaption={(clip) => void onTailorCaption(clip)}
                 onAutoAssign={() => void handleAutoAssign()}
+                bookingSummary={bookingSummary}
+                onDismissBookingSummary={dismissBookingSummary}
                 runDefaults={runDefaults}
                 onRunDefaultsChange={onRunDefaultsChange}
                 onCaptionsForAll={handleCaptionsForAll}
@@ -1189,15 +1195,16 @@ export function UploadingCenterPage() {
                   <p className="mt-3 text-xs text-[var(--muted-foreground)]">
                     Every scheduled post and channel video shows on its day above.
                     Suggested slots: weekdays {listTimes(overview.slotTimes ?? DEFAULT_SLOT_TIMES)}; weekends{" "}
-                    {listTimes(overview.weekendSlotTimes ?? DEFAULT_WEEKEND_SLOT_TIMES)} ({overview.timezone});
-                    stored in UTC.
+                    {listTimes(overview.weekendSlotTimes ?? DEFAULT_WEEKEND_SLOT_TIMES)}. Times shown in{" "}
+                    {zoneTimeLabel(overview.timezone)}.
                     {shortsPerDay ? (
                       <>
                         {" "}
-                        <span className="font-medium text-white">
-                          {shortsPerDay} short{shortsPerDay === 1 ? "" : "s"} a day
-                        </span>{" "}
-                        at most (PUBLISH_SHORTS_PER_DAY); a full day shows no open slots.
+                        Up to {shortsPerDay} short{shortsPerDay === 1 ? "" : "s"} a day - change this on{" "}
+                        <Link href="/automations#cadence" className="text-[var(--accent)]! underline! underline-offset-2">
+                          Automations
+                        </Link>
+                        .
                       </>
                     ) : null}{" "}
                     <Link href="/automations#cadence" className="text-[var(--accent)] hover:underline">Change the cadence</Link>
@@ -1401,8 +1408,8 @@ function ConnectTiktokNotice({
       <p className="tone-warning tone-text flex items-center gap-2 text-xs">
         <AlertTriangle className="h-4 w-4 shrink-0" />
         {primary
-          ? "TikTok needs setup in Settings. Assignments stay as manual reminders until the account is connected."
-          : "This TikTok account needs its own sign-in. Assignments stay as manual reminders until then."}
+          ? "TikTok needs setup in Settings. Bookings are saved as reminders until the account is connected."
+          : "This TikTok account needs its own sign-in. Bookings are saved as reminders until then."}
       </p>
       {primary ? <SettingsConnectionLink /> : (
         <Button variant="secondary" className="h-8 px-3 text-xs" onClick={() => (window.location.href = tiktokConnectUrl(accountId))}>
@@ -1438,8 +1445,8 @@ function ConnectYoutubeNotice({ accountId, primary }: { accountId?: string; prim
       <p className="tone-warning tone-text flex items-center gap-2 text-xs">
         <AlertTriangle className="h-4 w-4 shrink-0" />
         {primary
-          ? "YouTube needs setup in Settings. Assignments stay as manual reminders until the account is connected."
-          : "This YouTube account needs its own sign-in. Assignments stay as manual reminders until then."}
+          ? "YouTube needs setup in Settings. Bookings are saved as reminders until the account is connected."
+          : "This YouTube account needs its own sign-in. Bookings are saved as reminders until then."}
       </p>
       {primary ? <SettingsConnectionLink /> : (
         <Button variant="secondary" className="h-8 px-3 text-xs" onClick={() => (window.location.href = connectUrl(accountId))}>
@@ -1627,3 +1634,4 @@ function FailedStrip({
     </section>
   );
 }
+

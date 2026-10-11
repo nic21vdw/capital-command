@@ -60,6 +60,15 @@ describe("summarizePlatformState", () => {
     expect(summarizePlatformState("tiktok", state({ status: "manual" }), item, zone).uploaded).toBeNull();
   });
 
+  it("reads a manual reminder as waiting for a connection before its slot, and as missed after it", () => {
+    const before = summarizePlatformState("youtube", state({ status: "manual" }), item, zone, new Date("2026-07-14T12:00:00.000Z"));
+    expect(before.note).toMatch(/^Waiting for YouTube - connect to post automatically, or post by hand at /);
+    expect(before.note).not.toMatch(/manual/i);
+    const after = summarizePlatformState("youtube", state({ status: "manual" }), item, zone, new Date("2026-07-16T12:00:00.000Z"));
+    expect(after.note).toMatch(/^Post by hand - the .* slot passed without a connection$/);
+    expect(after.note).not.toMatch(/manual/i);
+  });
+
   it("surfaces the failure in words instead of an upload day, keeping the platform's own text for the tooltip", () => {
     const summary = summarizePlatformState("youtube", state({ status: "failed", error: "quota exceeded" }), item, zone);
     expect(summary.uploaded).toBeNull();
