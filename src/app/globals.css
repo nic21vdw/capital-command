@@ -928,12 +928,15 @@ input[type="datetime-local"],
   right: var(--marketing-shell-inset);
 }
 
+/* --command-bar-h is measured from the bar itself (command-bar.tsx): how far
+   its top edge is from the bottom of the viewport. The 7rem is the fallback
+   before it has been measured. */
 .marketing-command-clearance {
-  height: calc(7rem + env(safe-area-inset-bottom));
+  height: calc(var(--command-bar-h, 7rem) + 1rem);
 }
 
 .marketing-shell :where(a, button, input, select, textarea, [tabindex]) {
-  scroll-margin-bottom: 8rem;
+  scroll-margin-bottom: calc(var(--command-bar-h, 7rem) + 1rem);
 }
 
 @media (min-width: 640px) {
@@ -996,7 +999,7 @@ input[type="datetime-local"],
     min-height: 0;
     flex: 1 1 0%;
     overflow-y: auto;
-    padding-bottom: 7rem;
+    padding-bottom: calc(var(--command-bar-h, 7rem) + 1rem);
   }
 
   .app-frame-hide {

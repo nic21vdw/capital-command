@@ -56,12 +56,14 @@ export function ScheduleCalendar({
 
   return (
     <Card className="space-y-4">
-      <div className="flex items-center gap-2">
-        <CalendarDays className="h-4 w-4 text-[var(--accent)]" />
-        <h3 className="font-semibold text-white">Reminders</h3>
-        <span className="text-xs text-[var(--muted-foreground)]">
-          dated: next 4 weeks; weekly: until removed - nothing here posts automatically. Booked Instagram and Facebook posts are in the Uploading Center.
-        </span>
+      <div>
+        <div className="flex items-center gap-2">
+          <CalendarDays className="h-4 w-4 shrink-0 text-[var(--accent)]" />
+          <h3 className="font-semibold text-white">Reminders</h3>
+        </div>
+        <p className="mt-1 text-xs text-[var(--muted-foreground)]">
+          Dated reminders show the next 4 weeks, weekly ones stay until removed. Nothing here posts on its own - booked posts are in the Uploading Center.
+        </p>
       </div>
 
       <div className="space-y-3">
@@ -92,7 +94,7 @@ export function ScheduleCalendar({
                     }}
                     aria-label="Prepare for posting"
                     title="Render the slides now — ready to post"
-                    className="shrink-0 text-[var(--muted-foreground)] transition hover:text-[var(--accent)] disabled:opacity-50"
+                    className="flex shrink-0 items-center justify-center text-[var(--muted-foreground)] transition hover:text-[var(--accent)] disabled:opacity-50 max-sm:h-10 max-sm:w-10"
                   >
                     {preparing === row.carouselId ? (
                       <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -105,7 +107,7 @@ export function ScheduleCalendar({
                     onClick={() => onUnschedule(row.carouselId, row.scheduleIds)}
                     aria-label="Remove reminder"
                     title="Remove this weekly reminder"
-                    className="shrink-0 text-[var(--muted-foreground)] transition hover:text-[var(--danger)]"
+                    className="flex shrink-0 items-center justify-center text-[var(--muted-foreground)] transition hover:text-[var(--danger)] max-sm:h-10 max-sm:w-10"
                   >
                     <Trash2 className="h-3.5 w-3.5" />
                   </button>

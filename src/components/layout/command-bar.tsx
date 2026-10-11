@@ -87,6 +87,7 @@ export function CommandBar() {
   const transcriptId = useId();
 
   const inputRef = useRef<HTMLInputElement | null>(null);
+  const rowRef = useRef<HTMLDivElement | null>(null);
   const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
   const abortRef = useRef<AbortController | null>(null);
   const historyRef = useRef<TranscriptMessage[]>(restored.history);
@@ -135,6 +136,29 @@ export function CommandBar() {
     );
     return () => window.clearTimeout(timer);
   }, [grant.armed, grant.expiresAt]);
+
+  // Publish how much of the viewport the bar covers so the page can pad its
+  // scroll area by exactly that much (--command-bar-h, read in globals.css and
+  // by the toast region). The transcript floats above the row and is left out
+  // on purpose: it is an overlay he opened, not part of the bar's footprint.
+  useEffect(() => {
+    const row = rowRef.current;
+    if (!row) return;
+    const root = document.documentElement;
+    const publish = () => {
+      const covered = Math.ceil(window.innerHeight - row.getBoundingClientRect().top);
+      if (covered > 0) root.style.setProperty("--command-bar-h", `${covered}px`);
+    };
+    publish();
+    const observer = new ResizeObserver(publish);
+    observer.observe(row);
+    window.addEventListener("resize", publish);
+    return () => {
+      observer.disconnect();
+      window.removeEventListener("resize", publish);
+      root.style.removeProperty("--command-bar-h");
+    };
+  }, []);
 
   useEffect(() => {
     try {
@@ -382,6 +406,7 @@ export function CommandBar() {
         ) : null}
 
         <div
+          ref={rowRef}
           className={cn(
             "glass-popover flex items-center gap-1.5 rounded-2xl border px-2 py-2 transition sm:gap-2 sm:px-3",
             listening && "border-red-400/60"

@@ -81,7 +81,7 @@ export function SettingsPage() {
       />
       <nav aria-label="Settings sections" className="flex flex-wrap gap-2 pb-1">
         {SECTIONS.map(({ href, label, icon: Icon }) => (
-          <a key={href} href={href} className="inline-flex items-center gap-2 rounded-full border border-[var(--border)] bg-[var(--surface-2)] px-3.5 py-2 text-sm font-medium text-white/90 transition hover:border-[var(--accent)] hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--accent)]">
+          <a key={href} href={href} className="inline-flex min-h-10 items-center gap-2 rounded-full border border-[var(--border)] bg-[var(--surface-2)] px-3.5 py-2 text-sm font-medium text-white/90 transition hover:border-[var(--accent)] hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--accent)]">
             <Icon className="h-4 w-4 text-[var(--accent)]" aria-hidden="true" />
             {label}
           </a>
@@ -172,7 +172,7 @@ export function SettingsPage() {
         </div>
         <div className="mt-5 space-y-3">
           <details className="rounded-xl border border-[var(--border)] p-4">
-            <summary className="flex cursor-pointer items-center gap-2 font-medium text-white">
+            <summary className="flex cursor-pointer items-center gap-2 font-medium text-white max-sm:min-h-10">
               <Palette className="h-4 w-4 text-[var(--accent)]" aria-hidden="true" /> Appearance
             </summary>
             <div className="mt-4">
@@ -184,7 +184,7 @@ export function SettingsPage() {
             </div>
           </details>
           <details className="rounded-xl border border-[var(--border)] p-4">
-            <summary className="cursor-pointer font-medium text-white">Personal finance screens</summary>
+            <summary className="cursor-pointer font-medium text-white max-sm:py-3">Personal finance screens</summary>
             <label className="mt-4 flex cursor-pointer items-start justify-between gap-4 text-sm text-white">
               <span>
                 Show finance in the sidebar
@@ -203,7 +203,7 @@ export function SettingsPage() {
             </label>
           </details>
           <details className="rounded-xl border border-[var(--border)] p-4">
-            <summary className="flex cursor-pointer items-center gap-2 font-medium text-white">
+            <summary className="flex cursor-pointer items-center gap-2 font-medium text-white max-sm:min-h-10">
               <Download className="h-4 w-4 text-[var(--accent)]" aria-hidden="true" /> Data tools
             </summary>
             <p className="mt-4 text-sm text-[var(--muted-foreground)]">Download a copy of your app data.</p>
@@ -244,7 +244,7 @@ function CarouselThemeCard() {
   const current = data.settings.carouselTheme ?? "black";
   return (
     <details className="mt-4 rounded-xl border border-[var(--border)] p-4">
-      <summary className="cursor-pointer font-medium text-white">Carousel look</summary>
+      <summary className="cursor-pointer font-medium text-white max-sm:py-3">Carousel look</summary>
       <p className="mt-3 text-sm text-[var(--muted-foreground)]">
         The background every carousel slide is painted on. Decks already rendered repaint in the new look.
       </p>
@@ -277,7 +277,7 @@ function ClipDescriptionCard() {
 
   return (
     <details className="mt-4 rounded-xl border border-[var(--border)] p-4">
-      <summary className="cursor-pointer font-medium text-white">Description added to every clip</summary>
+      <summary className="cursor-pointer font-medium text-white max-sm:py-3">Description added to every clip</summary>
       <p className="mt-3 text-sm text-[var(--muted-foreground)]">
         Add your links and handles below each clip upload. Leave it empty to add nothing.
       </p>

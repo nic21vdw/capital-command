@@ -357,6 +357,7 @@ function TodaySection({
                         onClick={() => (filled ? onUndo(task.goal.id, key) : onLog(task.goal.id, today))}
                         className={cn(
                           "h-6 w-6 rounded-lg border transition",
+                          interactive && "max-sm:h-10 max-sm:w-10",
                           filled
                             ? "border-[var(--accent)] bg-[var(--accent)]"
                             : "border-white/15 bg-transparent hover:border-[var(--accent)]/60",

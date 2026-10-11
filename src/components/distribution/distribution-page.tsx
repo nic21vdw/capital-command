@@ -624,7 +624,7 @@ export function DistributionPage() {
       {overview.publish.failed > 0 ? (
         <Link
           href="/uploading-center"
-          className="mb-4 inline-flex items-center gap-1.5 rounded-full border border-red-400/40 bg-red-500/10 px-3 py-1 text-xs font-medium text-red-300 transition hover:bg-red-500/20"
+          className="mb-4 inline-flex items-center gap-1.5 rounded-full border border-red-400/40 bg-red-500/10 px-3 py-1 max-sm:min-h-10 text-xs font-medium text-red-300 transition hover:bg-red-500/20"
         >
           <AlertTriangle className="h-3.5 w-3.5" />
           {overview.publish.failed} failed - see why in the Uploading Center
@@ -926,7 +926,7 @@ function OutputCard({
               <Link
                 href={need.href}
                 title={`${need.reason} - fix it in ${need.hrefLabel}`}
-                className="text-[11px] font-medium text-amber-300 underline decoration-dotted underline-offset-2 hover:text-amber-200"
+                className="text-[11px] font-medium text-amber-300 underline decoration-dotted underline-offset-2 hover:text-amber-200 max-sm:inline-flex max-sm:min-h-10 max-sm:items-center"
               >
                 (needs setup)
               </Link>
