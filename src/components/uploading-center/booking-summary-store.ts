@@ -9,7 +9,12 @@
  * windows, previews, tests), and the summary is a convenience, never a gate.
  */
 
-export type BookingSummary = { level: "success" | "warning" | "error"; message: string };
+export type BookingSummary = {
+  level: "success" | "warning" | "error";
+  message: string;
+  /** The queue items the booking made, so "View N bookings" can find them again after a reload. */
+  itemIds?: string[];
+};
 
 const KEY_PREFIX = "capital-command:uploading-center-booking-summary:";
 /** A summary this old describes a week nobody is looking at any more. */
@@ -59,7 +64,14 @@ export function loadBookingSummary(
       storage.removeItem(bookingSummaryKey(jobId));
       return null;
     }
-    return { level: value.level as BookingSummary["level"], message: value.message };
+    const itemIds = Array.isArray(value.itemIds)
+      ? value.itemIds.filter((id): id is string => typeof id === "string" && id.length > 0)
+      : [];
+    return {
+      level: value.level as BookingSummary["level"],
+      message: value.message,
+      ...(itemIds.length > 0 ? { itemIds } : {})
+    };
   } catch {
     return null;
   }

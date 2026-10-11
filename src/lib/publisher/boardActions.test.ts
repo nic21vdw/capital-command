@@ -7,9 +7,10 @@ import {
   publishNowSkipped,
   publishNowTargets,
   publishedRemovalNote,
-  removalImpact
+  removalImpact,
+  removalUndoRequest
 } from "@/lib/publisher/boardActions";
-import type { PlatformState } from "@/lib/publisher/types";
+import type { PlatformState, QueueItem } from "@/lib/publisher/types";
 
 const leg = (over: Partial<PlatformState>): PlatformState => ({ status: "pending", attempts: 0, ...over });
 
@@ -261,5 +262,77 @@ describe("connectLinkLabel", () => {
 
   it("offers nothing when no connection is missing", () => {
     expect(connectLinkLabel({ connect: null, needsConnection: false }, { kind: "retryable" }, "YouTube")).toBeNull();
+  });
+});
+
+describe("putting a removed post back (Undo)", () => {
+  const TZ = "America/Toronto";
+  // Noon on Oct 11 in Toronto; the earliest bookable day is Oct 12.
+  const now = new Date("2026-10-11T16:00:00Z");
+  const item = (over: Partial<QueueItem> = {}): QueueItem => ({
+    id: "abc12345",
+    clipPath: "data/clips/outputs/job1/clip.mp4",
+    title: "A title",
+    caption: "A caption",
+    hashtags: ["#AI"],
+    publishAt: "2026-10-13T14:30:00.000Z",
+    visibility: "public",
+    createdAt: "2026-10-11T15:00:00.000Z",
+    platforms: { tiktok: leg({ status: "manual" }), instagram: leg({}) },
+    jobId: "job1",
+    accountId: "tiktok-primary",
+    ...over
+  });
+
+  it("rebuilds the booking from the removed post", () => {
+    expect(removalUndoRequest(item(), { now, timeZone: TZ })).toEqual({
+      clipPath: "data/clips/outputs/job1/clip.mp4",
+      publishAt: "2026-10-13T14:30:00.000Z",
+      title: "A title",
+      caption: "A caption",
+      hashtags: ["#AI"],
+      platforms: ["instagram", "tiktok"],
+      visibility: "public",
+      jobId: "job1",
+      accountId: "tiktok-primary"
+    });
+  });
+
+  it("books the master again when the post carried a vertical re-render of it", () => {
+    const request = removalUndoRequest(item({ sourceClipPath: "data/clips/outputs/job1/master.mp4" }), {
+      now,
+      timeZone: TZ
+    });
+    expect(request?.clipPath).toBe("data/clips/outputs/job1/master.mp4");
+  });
+
+  it("carries the format and the TikTok consent", () => {
+    const tiktok = { delivery: "inbox" as const };
+    const request = removalUndoRequest(item({ format: "long", tiktok }), { now, timeZone: TZ });
+    expect(request).toMatchObject({ format: "long", tiktok });
+  });
+
+  it("is not offered for a slot that is today, which a new booking would refuse", () => {
+    expect(removalUndoRequest(item({ publishAt: "2026-10-11T22:00:00.000Z" }), { now, timeZone: TZ })).toBeNull();
+    expect(removalUndoRequest(item({ publishAt: "2026-10-09T22:00:00.000Z" }), { now, timeZone: TZ })).toBeNull();
+  });
+
+  it("is not offered once anything has reached a platform", () => {
+    const sent = (over: Partial<PlatformState>) => item({ platforms: { youtube: leg(over) } });
+    expect(removalUndoRequest(sent({ status: "scheduled", postId: "vid1" }), { now, timeZone: TZ })).toBeNull();
+    expect(removalUndoRequest(sent({ containerId: "c1" }), { now, timeZone: TZ })).toBeNull();
+    expect(removalUndoRequest(sent({ claimedAt: "2026-10-11T15:59:00.000Z" }), { now, timeZone: TZ })).toBeNull();
+    expect(removalUndoRequest(sent({ attempts: 1 }), { now, timeZone: TZ })).toBeNull();
+    expect(removalUndoRequest(sent({ status: "published", postId: "vid1" }), { now, timeZone: TZ })).toBeNull();
+    expect(removalUndoRequest(sent({ status: "failed" }), { now, timeZone: TZ })).toBeNull();
+  });
+
+  it("is not offered for posts a plain booking cannot recreate", () => {
+    expect(removalUndoRequest(item({ mediaKind: "image" }), { now, timeZone: TZ })).toBeNull();
+    expect(removalUndoRequest(item({ runId: "run1" }), { now, timeZone: TZ })).toBeNull();
+    expect(
+      removalUndoRequest(item({ platforms: { facebook: leg({ mirroredFrom: "instagram" }) } }), { now, timeZone: TZ })
+    ).toBeNull();
+    expect(removalUndoRequest(item({ platforms: {} }), { now, timeZone: TZ })).toBeNull();
   });
 });

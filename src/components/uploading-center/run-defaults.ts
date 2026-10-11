@@ -110,6 +110,21 @@ export function captionSummary(missing: number, aiAvailable: boolean | undefined
   return `AI writes ${missing} caption${missing === 1 ? "" : "s"}`;
 }
 
+/**
+ * The one line a clip card's closed Customise row reads, built from the same
+ * wording as the bulk panel's: the caption half is `captionSummary` for a card
+ * with nothing typed (so it says "Captions: the clip titles (no AI key set)"
+ * where no AI can write one) and "Caption written" once there is copy, and the
+ * hashtag half is `hashtagSummary` of what the draft really carries. Pure.
+ */
+export function cardOptionsSummary(
+  draft: Pick<ClipDraft, "title" | "caption">,
+  aiAvailable: boolean | undefined
+): string {
+  const caption = draft.caption.trim() ? "Caption written" : captionSummary(1, aiAvailable);
+  return `${caption} · ${hashtagSummary(draftHashtags(draft))}`;
+}
+
 /** The draft a clip starts with under the current run defaults. Pure. */
 export function draftWithDefaults(clip: ReadyClip, defaults: RunDefaults): ClipDraft {
   return {

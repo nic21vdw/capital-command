@@ -88,6 +88,7 @@ export function ScheduleBoard({
   isConnected,
   busy,
   highlightedItemId,
+  highlightedItemIds,
   shortsPerDay,
   readOnly = false,
   collapseEarlier = false,
@@ -132,6 +133,8 @@ export function ScheduleBoard({
   isConnected?: (platform: PlatformId, accountId: string) => boolean;
   busy: string | null;
   highlightedItemId?: string | null;
+  /** More posts to ring at once (the ones a bulk booking just made, while "View bookings" shows them). */
+  highlightedItemIds?: string[];
   /** The daily short-form limit, named on days that have reached it. */
   shortsPerDay?: number;
   /** Posting is switched off: the schedule stays visible, but nothing on it can be acted on. */
@@ -208,6 +211,7 @@ export function ScheduleBoard({
           nowMs={nowMs}
           busy={busy}
           highlightedItemId={highlightedItemId}
+          highlightedItemIds={highlightedItemIds}
           timeZone={timeZone}
           shortsPerDay={shortsPerDay}
         />
@@ -238,6 +242,7 @@ function DayBand({
   nowMs,
   busy,
   highlightedItemId,
+  highlightedItemIds,
   timeZone,
   shortsPerDay
 }: {
@@ -260,6 +265,7 @@ function DayBand({
   nowMs: number;
   busy: string | null;
   highlightedItemId?: string | null;
+  highlightedItemIds?: string[];
   timeZone?: string;
   shortsPerDay?: number;
 }) {
@@ -306,7 +312,7 @@ function DayBand({
               isConnected={isConnected}
               nowMs={nowMs}
               busy={busy}
-              highlighted={highlightedItemId === entry.item.id}
+              highlighted={highlightedItemId === entry.item.id || Boolean(highlightedItemIds?.includes(entry.item.id))}
               timeZone={timeZone}
             />
           ) : (
@@ -462,6 +468,24 @@ function QueueEntryCard({
   const [editingCaption, setEditingCaption] = useState(false);
   const [renaming, setRenaming] = useState(false);
   const [captionDraft, setCaptionDraft] = useState(item.caption ?? "");
+  const captionRef = useRef<HTMLTextAreaElement>(null);
+  const captionButtonRef = useRef<HTMLButtonElement>(null);
+  // Opening the editor puts the cursor at the end of the caption, ready to type:
+  // the box used to appear below the buttons with focus still on the button.
+  useEffect(() => {
+    if (!editingCaption) return;
+    const box = captionRef.current;
+    if (!box) return;
+    box.focus();
+    box.setSelectionRange(box.value.length, box.value.length);
+  }, [editingCaption]);
+  const canSaveCaption = captionDraft.trim() !== "" && captionDraft.trim() !== (item.caption ?? "").trim();
+  // Closing hands focus back to the button that opened the editor, so a
+  // keyboard user is not dropped at the top of the page.
+  const closeCaptionEditor = () => {
+    setEditingCaption(false);
+    captionButtonRef.current?.focus();
+  };
   const slotPassed = new Date(item.publishAt).getTime() <= nowMs;
   const retryLabel = slotPassed ? "Retry now" : "Retry at slot";
   const retryHint = slotPassed
@@ -606,6 +630,7 @@ function QueueEntryCard({
             <>
               {!everyLegPublished ? (
                 <button
+                  ref={captionButtonRef}
                   type="button"
                   onClick={() => {
                     setCaptionDraft(item.caption ?? "");
@@ -657,8 +682,21 @@ function QueueEntryCard({
         {editingCaption ? (
           <div className="mt-1.5 space-y-1">
             <Textarea
+              ref={captionRef}
               value={captionDraft}
               onChange={(event) => setCaptionDraft(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Escape") {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  closeCaptionEditor();
+                } else if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
+                  event.preventDefault();
+                  if (!canSaveCaption) return;
+                  onEditCaption(item, captionDraft);
+                  closeCaptionEditor();
+                }
+              }}
               aria-label="Caption"
               rows={3}
               className="min-h-16 px-2 py-1.5 text-xs"
@@ -686,15 +724,16 @@ function QueueEntryCard({
             <div className="flex items-center gap-1.5">
               <Button
                 className="h-7 px-2.5 text-[11px]"
-                disabled={!captionDraft.trim() || captionDraft.trim() === (item.caption ?? "").trim()}
+                disabled={!canSaveCaption}
+                title="Save (Ctrl or Cmd + Enter)"
                 onClick={() => {
                   onEditCaption(item, captionDraft);
-                  setEditingCaption(false);
+                  closeCaptionEditor();
                 }}
               >
                 Save caption
               </Button>
-              <Button variant="ghost" className="h-7 px-2.5 text-[11px]" onClick={() => setEditingCaption(false)}>
+              <Button variant="ghost" className="h-7 px-2.5 text-[11px]" title="Cancel (Esc)" onClick={closeCaptionEditor}>
                 Cancel
               </Button>
             </div>
@@ -735,6 +774,22 @@ function QueueEntryCard({
                 : (advice ? headline : waitingLine)}
             </p>
             <div className="flex flex-wrap items-center gap-2">
+              {/* The fix comes first: when a post needs a connection AND a new title,
+                  connecting is what unblocks it, and Rename is only the thing to do
+                  while there. Rename is the quieter button then; on its own it IS the fix. */}
+              {showConnect && platform === "youtube" ? (
+                <a
+                  href={`/api/auth/google?account=${encodeURIComponent(item.accountId ?? primaryAccountIdFor("youtube"))}`}
+                  className={INLINE_ACTION_PRIMARY}
+                >
+                  <Plug className="h-3 w-3" /> {connectText}
+                </a>
+              ) : null}
+              {showConnect && platform !== "youtube" ? (
+                <Link href="/settings#accounts" className={INLINE_ACTION_PRIMARY}>
+                  <Plug className="h-3 w-3" /> {connectText}
+                </Link>
+              ) : null}
               {needsRename ? (
                 <button
                   type="button"
@@ -744,7 +799,7 @@ function QueueEntryCard({
                       ? "Give the post a new title. It can be retried once the account is connected"
                       : "Give the post a new title, then retry it"
                   }
-                  className={INLINE_ACTION}
+                  className={showConnect ? INLINE_ACTION_SECONDARY : INLINE_ACTION}
                 >
                   <Pencil className="h-3 w-3" /> {controls?.needsConnection ? "Rename" : "Rename and retry"}
                 </button>
@@ -763,19 +818,6 @@ function QueueEntryCard({
                 >
                   <ExternalLink className="h-3 w-3" /> {pastSlot.linkLabel}
                 </a>
-              ) : null}
-              {showConnect && platform === "youtube" ? (
-                <a
-                  href={`/api/auth/google?account=${encodeURIComponent(item.accountId ?? primaryAccountIdFor("youtube"))}`}
-                  className={INLINE_ACTION}
-                >
-                  <Plug className="h-3 w-3" /> {connectText}
-                </a>
-              ) : null}
-              {showConnect && platform !== "youtube" ? (
-                <Link href="/settings#accounts" className={INLINE_ACTION}>
-                  <Plug className="h-3 w-3" /> {connectText}
-                </Link>
               ) : null}
               {detailRaw ? (
                 <button
@@ -891,6 +933,14 @@ function QueueEntryCard({
 const INLINE_ACTION =
   "inline-flex items-center gap-1 rounded-md border border-[var(--accent)]/50 px-1.5 py-0.5 text-[10px] font-medium text-[var(--accent)] transition hover:bg-[var(--accent)]/10 max-sm:min-h-10 max-sm:px-3";
 
+/** The one action that unblocks a card (Connect YouTube to retry): filled, so it reads first. */
+const INLINE_ACTION_PRIMARY =
+  "inline-flex items-center gap-1 rounded-md border border-[var(--accent)] bg-[var(--accent)] px-1.5 py-0.5 text-[10px] font-medium text-[var(--accent-contrast)] transition hover:bg-[var(--accent-strong)]";
+
+/** The quieter action beside the primary fix (Rename next to Connect): same shape, no accent. */
+const INLINE_ACTION_SECONDARY =
+  "inline-flex items-center gap-1 rounded-md border border-[var(--border-strong)] px-1.5 py-0.5 text-[10px] font-medium text-[var(--muted-foreground)] transition hover:bg-white/8 hover:text-white";
+
 /** The text-labelled action buttons on a post card. */
 const ACTION_BUTTON =
   "inline-flex shrink-0 items-center gap-1 rounded-md px-1 py-0.5 text-[10px] font-medium text-[var(--muted-foreground)] transition hover:bg-white/8 hover:text-white max-sm:min-h-10 max-sm:px-2.5";
@@ -922,10 +972,12 @@ function ConfirmDialog({
     <Modal open title={title} description={description} onClose={onCancel}>
       <div className="space-y-2 text-sm text-[var(--muted-foreground)]">{children}</div>
       <div className="mt-5 flex justify-end gap-2">
-        <Button variant="ghost" onClick={onCancel}>
+        {/* A destructive question opens on its safe answer: Enter on a dialog that
+            just appeared should never be the one that removes the post. */}
+        <Button variant="ghost" onClick={onCancel} autoFocus={danger}>
           Cancel
         </Button>
-        <Button variant={danger ? "danger" : "primary"} onClick={onConfirm} autoFocus>
+        <Button variant={danger ? "danger" : "primary"} onClick={onConfirm} autoFocus={!danger}>
           {confirmLabel}
         </Button>
       </div>
