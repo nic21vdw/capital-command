@@ -1175,6 +1175,7 @@ export function UploadingCenterPage() {
                 tomorrowKey={tomorrowKey}
                 isSlotUnavailable={isSlotUnavailable}
                 readOnlyReason={publishingOn ? undefined : "Posting is off - turn it on in Settings to book clips."}
+                timeZone={timezone}
               />
               <div className="min-w-0">
                 {/* Said once above the board, not only on the empty day it used

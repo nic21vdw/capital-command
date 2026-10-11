@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { plannerConfigured } from "@/lib/x-posts/generator";
 import { ensureDailyPack } from "@/lib/x-posts/daily";
+import { threadsConfig } from "@/lib/threads/config";
+import { zonedDateKey } from "@/lib/threads/zone";
 
 /**
  * Returns today's X/Threads pack, generating it on first request of the day
@@ -21,6 +23,8 @@ export async function POST(request: NextRequest) {
     // Empty/invalid body is fine — defaults apply.
   }
 
-  const { pack, cached, reason } = await ensureDailyPack({ focus, force, requestedAt });
+  // The pack is dated in the autopilot's zone, as the Threads autopilot dates its own:
+  // the server's clock zone can be a different day at 8 PM in Toronto.
+  const { pack, cached, reason } = await ensureDailyPack({ focus, force, requestedAt, date: zonedDateKey(threadsConfig().timezone) });
   return NextResponse.json({ pack, cached, reason, configured: plannerConfigured() });
 }

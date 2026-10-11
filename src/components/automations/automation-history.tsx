@@ -11,11 +11,11 @@ import { cn } from "@/lib/utils";
 const names: Record<AutomationId, string> = { pipeline: "Stream pipeline", ingest: "Channel ingest", publisher: "Publisher", threads: "Threads", podcast: "Podcast / Spotify" };
 const labels: Record<AutomationEventKind, string> = { completed: "Check completed", failed: "Failed", retrying: "Retry scheduled", delivered: "Delivered", scheduled: "Accepted / scheduled", blocked: "Blocked", paused: "Paused", resumed: "Resumed" };
 
-function at(value: string): string {
-  return new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit", second: "2-digit" }).format(new Date(value));
+function at(value: string, timeZone: string): string {
+  return new Intl.DateTimeFormat(undefined, { timeZone, month: "short", day: "numeric", hour: "numeric", minute: "2-digit", second: "2-digit" }).format(new Date(value));
 }
 
-export function AutomationHistoryPanel() {
+export function AutomationHistoryPanel({ timezone }: { timezone: string }) {
   const [automationId, setAutomationId] = useState("all");
   const [kind, setKind] = useState("activity");
   const [page, setPage] = useState(1);
@@ -26,6 +26,8 @@ export function AutomationHistoryPanel() {
   const key = `${automationId}:${kind}:${page}`;
   const data = snapshot?.key === key ? snapshot.data : null;
   const error = failure?.key === key ? failure.detail : null;
+  // The publish zone, as the API states it; the page's own until the first read lands.
+  const zone = data?.timezone ?? timezone;
 
   useEffect(() => {
     let active = true;
@@ -75,13 +77,13 @@ export function AutomationHistoryPanel() {
         <div className="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-4">
           {[{ label: "Successful deliveries", value: data.counts.delivered }, { label: "Retries scheduled", value: data.counts.retrying }, { label: "Delivery failures", value: data.counts.failed }, { label: "Runner problems", value: data.counts.workerIssues }].map(({ label, value }) => <div key={label} className="rounded-xl bg-white/5 p-3"><p className="text-2xl font-semibold tabular-nums text-white">{value}</p><p className="mt-1 text-xs text-[var(--muted-foreground)]">{label}</p></div>)}
         </div>
-        <p className="mt-3 text-xs text-[var(--muted-foreground)]">Counts cover {automationId === "all" ? "all automations" : names[automationId as AutomationId]} from {at(data.from)} to {at(data.to)} in your local timezone. Repeated checks and scheduling handoffs do not count as successful deliveries. Podcast delivery means RSS publication; Spotify pickup is not confirmed.</p>
+        <p className="mt-3 text-xs text-[var(--muted-foreground)]">Counts cover {automationId === "all" ? "all automations" : names[automationId as AutomationId]} from {at(data.from, zone)} to {at(data.to, zone)} in {zone}. Repeated checks and scheduling handoffs do not count as successful deliveries. Podcast delivery means RSS publication; Spotify pickup is not confirmed.</p>
         {data.warnings.map((warning) => <p key={warning} role="status" className="mt-3 rounded-lg bg-amber-500/5 p-3 text-sm text-amber-200">{warning}</p>)}
         {!data.total ? <p className="mt-5 rounded-xl border border-dashed border-[var(--border)] p-5 text-sm text-[var(--muted-foreground)]">No matching events recorded in the last seven days. New activity appears automatically; earlier activity is not reconstructed.</p> : <ol className="mt-5 divide-y divide-[var(--border)]">
           {data.events.map((event) => <li key={event.id} className="py-4">
-            <div className="flex flex-wrap items-center gap-x-3 gap-y-1"><span className={cn("rounded-full px-2 py-1 text-xs font-medium", event.kind === "failed" || event.kind === "blocked" ? "bg-amber-500/10 text-amber-300" : event.kind === "delivered" ? "bg-emerald-500/10 text-emerald-300" : "bg-white/10 text-[var(--muted-foreground)]")}>{event.kind === "delivered" && event.destination === "RSS feed" ? "In feed" : labels[event.kind]}</span><span className="text-sm font-medium text-white">{names[event.automationId]}</span>{event.destination && <span className="text-xs text-[var(--muted-foreground)]">{event.destination}</span>}<time dateTime={event.at} className="ml-auto text-xs tabular-nums text-[var(--muted-foreground)]">{at(event.at)}</time></div>
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1"><span className={cn("rounded-full px-2 py-1 text-xs font-medium", event.kind === "failed" || event.kind === "blocked" ? "bg-amber-500/10 text-amber-300" : event.kind === "delivered" ? "bg-emerald-500/10 text-emerald-300" : "bg-white/10 text-[var(--muted-foreground)]")}>{event.kind === "delivered" && event.destination === "RSS feed" ? "In feed" : labels[event.kind]}</span><span className="text-sm font-medium text-white">{names[event.automationId]}</span>{event.destination && <span className="text-xs text-[var(--muted-foreground)]">{event.destination}</span>}<time dateTime={event.at} className="ml-auto text-xs tabular-nums text-[var(--muted-foreground)]">{at(event.at, zone)}</time></div>
             <p className="mt-2 break-words text-sm text-[var(--muted-foreground)]">{event.detail}{historyItemHref(event.automationId, event.itemId) && <Link href={historyItemHref(event.automationId, event.itemId)!} className="ml-2 inline-flex items-center gap-0.5 whitespace-nowrap font-medium text-[var(--accent)]">Open post<ArrowUpRight className="h-3 w-3" /></Link>}</p>
-            {event.nextAttemptAt && <p className="mt-1 text-xs text-amber-200">Next attempt {at(event.nextAttemptAt)}</p>}
+            {event.nextAttemptAt && <p className="mt-1 text-xs text-amber-200">Next attempt {at(event.nextAttemptAt, zone)}</p>}
           </li>)}
         </ol>}
         <div className="mt-4 flex items-center justify-between border-t border-[var(--border)] pt-4"><p className="text-xs text-[var(--muted-foreground)]">{data.total} matching events · Page {data.page} of {data.pages}</p><div className="flex gap-2"><Button variant="secondary" disabled={refreshing || Boolean(error) || data.page <= 1} onClick={() => setPage(data.page - 1)} aria-label="Previous history page"><ChevronLeft className="h-4 w-4" /></Button><Button variant="secondary" disabled={refreshing || Boolean(error) || data.page >= data.pages} onClick={() => setPage(data.page + 1)} aria-label="Next history page"><ChevronRight className="h-4 w-4" /></Button></div></div>

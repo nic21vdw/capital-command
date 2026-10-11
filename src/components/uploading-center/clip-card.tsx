@@ -62,9 +62,10 @@ export function hasHashtag(title: string, hashtag: string): boolean {
   return title.toLowerCase().includes(hashtag.toLowerCase());
 }
 
-/** Short, friendly local timestamp like "Mon, Jul 14, 7:30 PM". */
-export function formatStamp(iso: string): string {
+/** Short, friendly timestamp like "Mon, Jul 14, 7:30 PM", on the wall clock of the publish zone. */
+export function formatStamp(iso: string, timeZone: string): string {
   return new Date(iso).toLocaleString(undefined, {
+    timeZone,
     weekday: "short",
     month: "short",
     day: "numeric",
@@ -73,9 +74,10 @@ export function formatStamp(iso: string): string {
   });
 }
 
-/** Just the day part, like "Mon, Jul 14" — used for the "Uploaded …" confirmation. */
-export function formatDay(iso: string): string {
+/** Just the day part, like "Mon, Jul 14" (in the publish zone) — used for the "Uploaded …" confirmation. */
+export function formatDay(iso: string, timeZone: string): string {
   return new Date(iso).toLocaleDateString(undefined, {
+    timeZone,
     weekday: "short",
     month: "short",
     day: "numeric"
@@ -104,15 +106,19 @@ export type PlatformSummary = {
  * `uploadedAt` is stamped by the runner on the first successful upload; older
  * items that predate that stamp fall back to when the post was created (a
  * YouTube post with a video id has definitely been uploaded).
+ *
+ * Every time is the wall clock of `timeZone` (the publish zone), never the
+ * browser's, so the card agrees with the board whatever the browser is set to.
  */
 export function summarizePlatformState(
   platform: PlatformId,
   state: PlatformState,
-  item: Pick<QueueItem, "publishAt" | "createdAt" | "mediaKind" | "tiktok"> & { format?: "short" | "long"; clipPath?: string }
+  item: Pick<QueueItem, "publishAt" | "createdAt" | "mediaKind" | "tiktok"> & { format?: "short" | "long"; clipPath?: string },
+  timeZone: string
 ): PlatformSummary {
-  const goLive = formatStamp(item.publishAt);
+  const goLive = formatStamp(item.publishAt, timeZone);
   const uploadIso = state.uploadedAt ?? (state.postId ? item.createdAt : null);
-  const uploaded = uploadIso ? `Uploaded ${formatDay(uploadIso)}` : null;
+  const uploaded = uploadIso ? `Uploaded ${formatDay(uploadIso, timeZone)}` : null;
   const heldPrivate = platform === "youtube" && youtubeHoldsForReview(item);
   switch (state.status) {
     case "scheduled":
@@ -127,10 +133,10 @@ export function summarizePlatformState(
       };
     case "published":
       return {
-        uploaded: uploaded ?? `Uploaded ${formatDay(state.publishedAt ?? item.publishAt)}`,
+        uploaded: uploaded ?? `Uploaded ${formatDay(state.publishedAt ?? item.publishAt, timeZone)}`,
         note: heldPrivate
           ? "Private on YouTube - make it public after you review it"
-          : `Live since ${formatStamp(state.publishedAt ?? item.publishAt)}`
+          : `Live since ${formatStamp(state.publishedAt ?? item.publishAt, timeZone)}`
       };
     case "uploaded":
       return { uploaded, note: `Processing · goes live ${goLive}` };
@@ -177,7 +183,8 @@ export function ClipCard({
   tailoring = false,
   captionError,
   targetLabels = PLATFORM_TARGET_LABELS,
-  scheduleDisabledReason
+  scheduleDisabledReason,
+  timeZone
 }: {
   clip: ReadyClip;
   draft: ClipDraft;
@@ -206,6 +213,8 @@ export function ClipCard({
   targetLabels?: Record<PlatformTarget, string>;
   /** Set while posting is switched off: Schedule is disabled and this says why. */
   scheduleDisabledReason?: string;
+  /** The publish zone (overview.timezone): every time on the card is shown on its wall clock. */
+  timeZone: string;
 }) {
   const titleRef = useRef<HTMLTextAreaElement>(null);
   // `bookable` excludes today as well as the past: nothing is scheduled for the
@@ -411,7 +420,7 @@ export function ClipCard({
                 (Object.entries(item.platforms) as [PlatformId, NonNullable<QueueItem["platforms"][PlatformId]>][]).map(
                   ([platform, state]) => {
                     const url = remoteUrlFor(platform, state.postId);
-                    const summary = summarizePlatformState(platform, state, item);
+                    const summary = summarizePlatformState(platform, state, item, timeZone);
                     return (
                       <div key={`${item.id}:${platform}`} className="space-y-0.5 text-xs">
                         <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[var(--muted-foreground)]">

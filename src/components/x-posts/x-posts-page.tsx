@@ -161,12 +161,17 @@ function useCopy() {
 
 export function XPostsPage() {
   const { data, loading, refresh } = useAppData();
-  const today = localDateKey();
+  const autopilot = useAutopilot();
+  // "Today" is the autopilot's own day, in its own zone, as the status states it:
+  // a browser in another zone would pick tomorrow's pack at 8 PM Toronto. Only
+  // when the status could not be read at all does the browser's date stand in;
+  // while it is still loading, today is unknown rather than guessed.
+  const today = autopilot.status?.today.date ?? (autopilot.settled ? localDateKey() : null);
   const dateParam = useSearchParams().get("date");
   const wantedDate = dateParam && /^\d{4}-\d{2}-\d{2}$/.test(dateParam) ? dateParam : today;
 
   const storedPack = useMemo(
-    () => data.xPlanner?.packs.find((pack) => pack.date === wantedDate) ?? null,
+    () => (wantedDate ? (data.xPlanner?.packs.find((pack) => pack.date === wantedDate) ?? null) : null),
     [data.xPlanner, wantedDate]
   );
 
@@ -177,7 +182,6 @@ export function XPostsPage() {
   const autoRequested = useRef(false);
 
   const activePack = pack ?? storedPack;
-  const autopilot = useAutopilot();
   // Until the status has loaded, claim nothing: an unarmed autopilot briefly
   // promising to post is the wrong way round to be wrong.
   const autopilotPaused = autopilot.status?.paused === true;
@@ -224,10 +228,10 @@ export function XPostsPage() {
   // First visit of the day: kick off generation automatically so the pack is
   // simply there, matching the "every day it suggests" behaviour.
   useEffect(() => {
-    if (loading || storedPack || autoRequested.current) return;
+    if (loading || !wantedDate || storedPack || autoRequested.current) return;
     autoRequested.current = true;
     void generate(false);
-  }, [loading, storedPack, generate]);
+  }, [loading, wantedDate, storedPack, generate]);
 
   const router = useRouter();
   const pathname = usePathname();
@@ -488,6 +492,8 @@ function useAutopilot() {
   const [busy, setBusy] = useState<string | null>(null);
   // Lives here, not in the tab, so the "tomorrow is ready" banner can pick the pill.
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
+  // True once the first read has finished, whichever way it went.
+  const [settled, setSettled] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -496,6 +502,8 @@ function useAutopilot() {
       setStatus((await response.json()) as AutopilotStatus);
     } catch {
       setStatus(null);
+    } finally {
+      setSettled(true);
     }
   }, []);
 
@@ -546,7 +554,7 @@ function useAutopilot() {
     [send, status]
   );
 
-  return { status, busy, reload: load, send, scheduleNow, selectedDate, setSelectedDate };
+  return { status, settled, busy, reload: load, send, scheduleNow, selectedDate, setSelectedDate };
 }
 
 function describePlan(plan: AutopilotActionResponse["plan"], timeZone: string): string {

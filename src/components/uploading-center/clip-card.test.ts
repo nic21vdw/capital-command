@@ -35,6 +35,7 @@ describe("appendHashtag", () => {
 });
 
 describe("summarizePlatformState", () => {
+  const zone = "America/Toronto";
   const item = { publishAt: "2026-07-15T19:30:00.000Z", createdAt: "2026-07-14T10:00:00.000Z" };
   const state = (over: Partial<PlatformState>): PlatformState => ({ status: "pending", attempts: 0, ...over });
 
@@ -42,24 +43,25 @@ describe("summarizePlatformState", () => {
     const summary = summarizePlatformState(
       "youtube",
       state({ status: "scheduled", postId: "vid123", uploadedAt: "2026-07-14T10:00:05.000Z" }),
-      item
+      item,
+      zone
     );
     expect(summary.uploaded).toMatch(/^Uploaded /);
     expect(summary.note).toMatch(/^Goes live /);
   });
 
   it("falls back to createdAt when an uploaded post predates the uploadedAt stamp", () => {
-    const summary = summarizePlatformState("youtube", state({ status: "scheduled", postId: "vid123" }), item);
+    const summary = summarizePlatformState("youtube", state({ status: "scheduled", postId: "vid123" }), item, zone);
     expect(summary.uploaded).toMatch(/^Uploaded /);
   });
 
   it("shows no upload confirmation before anything is sent", () => {
-    expect(summarizePlatformState("youtube", state({ status: "pending" }), item).uploaded).toBeNull();
-    expect(summarizePlatformState("tiktok", state({ status: "manual" }), item).uploaded).toBeNull();
+    expect(summarizePlatformState("youtube", state({ status: "pending" }), item, zone).uploaded).toBeNull();
+    expect(summarizePlatformState("tiktok", state({ status: "manual" }), item, zone).uploaded).toBeNull();
   });
 
   it("surfaces the failure in words instead of an upload day, keeping the platform's own text for the tooltip", () => {
-    const summary = summarizePlatformState("youtube", state({ status: "failed", error: "quota exceeded" }), item);
+    const summary = summarizePlatformState("youtube", state({ status: "failed", error: "quota exceeded" }), item, zone);
     expect(summary.uploaded).toBeNull();
     expect(summary.note).toBe("Upload failed - YouTube couldn't take it just then — worth another go.");
     expect(summary.detail).toBe("quota exceeded");
@@ -69,22 +71,23 @@ describe("summarizePlatformState", () => {
     const summary = summarizePlatformState(
       "youtube",
       state({ status: "failed", error: '"My clip" is already on the channel (https://x) — this upload was stopped rather than posting it a second time.' }),
-      item
+      item,
+      zone
     );
     expect(summary.note).toContain("Retitle");
   });
 
   it("uses the board's wording for a post that has not gone up: only YouTube is 'Uploading'", () => {
-    expect(summarizePlatformState("youtube", state({ status: "pending" }), item).note).toMatch(/^Uploading · slot /);
-    const instagram = summarizePlatformState("instagram", state({ status: "pending" }), item);
+    expect(summarizePlatformState("youtube", state({ status: "pending" }), item, zone).note).toMatch(/^Uploading · slot /);
+    const instagram = summarizePlatformState("instagram", state({ status: "pending" }), item, zone);
     expect(instagram.note).toMatch(/^Posts at slot · slot /);
     expect(instagram.detail).toContain("no scheduling API");
   });
 
   it("does not call a TikTok inbox draft 'live' or 'nothing else needed'", () => {
-    const summary = summarizePlatformState("tiktok", state({ status: "scheduled", postId: "p1" }), item);
+    const summary = summarizePlatformState("tiktok", state({ status: "scheduled", postId: "p1" }), item, zone);
     expect(summary.note).toBe("In your TikTok inbox - Finish it in the TikTok app");
-    const direct = summarizePlatformState("tiktok", state({ status: "scheduled" }), { ...item, tiktok: { delivery: "direct" } });
+    const direct = summarizePlatformState("tiktok", state({ status: "scheduled" }), { ...item, tiktok: { delivery: "direct" } }, zone);
     expect(direct.note).toMatch(/^Goes live /);
   });
 
@@ -92,7 +95,8 @@ describe("summarizePlatformState", () => {
     const summary = summarizePlatformState(
       "youtube",
       state({ status: "published", postId: "vid123", uploadedAt: "2026-07-14T10:00:05.000Z", publishedAt: "2026-07-15T19:30:00.000Z" }),
-      { ...item, format: "long" }
+      { ...item, format: "long" },
+      zone
     );
     expect(summary.note).toBe("Private on YouTube - make it public after you review it");
   });
@@ -101,9 +105,24 @@ describe("summarizePlatformState", () => {
     const summary = summarizePlatformState(
       "youtube",
       state({ status: "published", postId: "vid123", uploadedAt: "2026-07-14T10:00:05.000Z", publishedAt: "2026-07-15T19:30:00.000Z" }),
-      item
+      item,
+      zone
     );
     expect(summary.uploaded).toMatch(/^Uploaded /);
     expect(summary.note).toMatch(/^Live since /);
+  });
+
+  it("states every time on the publish zone's wall clock, whatever zone the browser is in", () => {
+    // 02:30 UTC on Jul 16 is still the evening of Jul 15 in Toronto.
+    const late = { publishAt: "2026-07-16T02:30:00.000Z", createdAt: "2026-07-16T01:00:00.000Z" };
+    const scheduled = state({ status: "scheduled", postId: "v1", uploadedAt: "2026-07-16T01:00:05.000Z" });
+    const toronto = summarizePlatformState("youtube", scheduled, late, "America/Toronto");
+    expect(toronto.note).toContain("Wed, Jul 15");
+    expect(toronto.note).toContain("10:30");
+    expect(toronto.uploaded).toBe("Uploaded Wed, Jul 15");
+    const utc = summarizePlatformState("youtube", scheduled, late, "UTC");
+    expect(utc.note).toContain("Thu, Jul 16");
+    expect(utc.note).toContain("2:30");
+    expect(utc.uploaded).toBe("Uploaded Thu, Jul 16");
   });
 });

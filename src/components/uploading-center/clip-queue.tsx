@@ -58,7 +58,8 @@ export function ClipQueue({
   shortsCap,
   tomorrowKey,
   isSlotUnavailable,
-  readOnlyReason
+  readOnlyReason,
+  timeZone
 }: {
   jobs: ClipJob[];
   activeJob: ClipJob | null;
@@ -102,6 +103,8 @@ export function ClipQueue({
   isSlotUnavailable?: (target: PlatformTarget, slotUtc: string) => boolean;
   /** Set while posting is switched off: nothing can be booked, and this says why. */
   readOnlyReason?: string;
+  /** The publish zone, for the times on each card. */
+  timeZone: string;
 }) {
   const autoAssigning = busy === "auto-assign";
   const writingCaptions = busy === "captions-all";
@@ -317,6 +320,7 @@ export function ClipQueue({
               isSlotTaken={isSlotUnavailable ?? isSlotTaken}
               targetLabels={targetLabels}
               scheduleDisabledReason={readOnlyReason}
+              timeZone={timeZone}
               scheduledItems={itemsForClip(clip)}
               scheduling={busy === `schedule:${clip.key}`}
               highlighted={clip.key === highlightedKey}

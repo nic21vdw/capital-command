@@ -22,6 +22,8 @@ export type AutomationHistory = {
   pages: number;
   counts: { delivered: number; retrying: number; failed: number; workerIssues: number; scheduled: number };
   warnings: string[];
+  /** The publish zone the page should speak in (the API adds it; not part of the journal read). */
+  timezone?: string;
   /** Present when the caller asked for a time zone: delivery outcomes since local midnight. */
   today?: { delivered: number; failed: number };
 };

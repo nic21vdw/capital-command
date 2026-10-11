@@ -255,6 +255,8 @@ export function AutomationsPage() {
   const blocked = overview?.cards.filter((card) => card.state === "blocked" || card.state === "attention").length ?? 0;
   const paused = overview?.cards.filter((card) => card.paused).length ?? 0;
   const posting = overview?.cards.filter((card) => POSTING_IDS.includes(card.id)) ?? [];
+  // One zone for every stamp on the page: the publisher's, never the browser's (which is only the fallback).
+  const publishZone = overview?.cards.find((card) => card.id === "publisher")?.timezone ?? Intl.DateTimeFormat().resolvedOptions().timeZone;
   const anyPostingRunning = posting.some((card) => !card.paused);
   const anyPostingPaused = posting.some((card) => card.paused);
 
@@ -283,7 +285,7 @@ export function AutomationsPage() {
           <span className="inline-flex items-center gap-2 text-white"><Activity className="h-4 w-4 text-[var(--accent)]" />{overview.cards.length} automations</span>
           <span className="text-[var(--muted-foreground)]">{paused} paused</span>
           <span className={blocked ? "text-amber-300" : "text-[var(--muted-foreground)]"}>{blocked} need attention</span>
-          <span className="ml-auto inline-flex items-center gap-2 text-xs text-[var(--muted-foreground)]"><Clock3 className="h-3.5 w-3.5" />Checked {at(overview.checkedAt, Intl.DateTimeFormat().resolvedOptions().timeZone)}</span>
+          <span className="ml-auto inline-flex items-center gap-2 text-xs text-[var(--muted-foreground)]"><Clock3 className="h-3.5 w-3.5" />Checked {at(overview.checkedAt, publishZone)}</span>
         </div>
         <section className="mb-5 flex flex-wrap items-center justify-between gap-4 rounded-xl border border-[var(--border)] bg-[var(--card)] p-4">
           <div><h2 className="font-semibold text-white">Pause all posting</h2><p className="mt-1 max-w-2xl text-sm text-[var(--muted-foreground)]">Pauses the publisher, the Threads autopilot and the podcast in one go. Stream Pipeline and Channel ingest keep running. Posts a platform already holds still go live (listed below).</p></div>
@@ -292,7 +294,7 @@ export function AutomationsPage() {
             {anyPostingPaused && <Button variant="secondary" disabled={busy !== null || refreshing || Boolean(error)} onClick={() => void setAllPosting(false)}>{busy === "all" ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Play className="mr-2 h-4 w-4" />}Resume all</Button>}
           </div>
         </section>
-        <HeldPanel held={overview.held} total={overview.heldTotal} timezone={posting.find((card) => card.id === "publisher")?.timezone ?? Intl.DateTimeFormat().resolvedOptions().timeZone} />
+        <HeldPanel held={overview.held} total={overview.heldTotal} timezone={publishZone} />
         <section className="mb-5 flex flex-wrap items-center justify-between gap-4 rounded-xl border border-[var(--border)] bg-[var(--card)] p-4">
           <div><h2 className="font-semibold text-white">Auto-book overnight streams</h2><p className="mt-1 max-w-2xl text-sm text-[var(--muted-foreground)]">{overview.autoScheduleOvernight ? "New overnight streams may book their finished outputs into future video and Threads slots." : "New overnight streams stop at ready to schedule."} Existing standing instructions stay with their streams. Pausing Stream Pipeline below stops all stream processing, not only this booking.</p></div>
           <Button variant="secondary" disabled={busy !== null || refreshing || Boolean(error)} onClick={() => void change("overnight", { action: "overnight-scheduling", enabled: !overview.autoScheduleOvernight })}>{busy === "overnight" ? "Saving..." : overview.autoScheduleOvernight ? "Turn off" : "Turn on"}</Button>
@@ -301,7 +303,7 @@ export function AutomationsPage() {
         <div className="grid gap-5 lg:grid-cols-2">{overview.cards.map((card) => <AutomationPanel key={card.id} card={card} stale={Boolean(error)} busy={busy !== null || refreshing} onPause={(selected) => void change(selected.id, { action: "pause", id: selected.id, paused: !selected.paused })} />)}</div>
         <CadencePanel rows={overview.cadence} />
       </>}
-      <AutomationHistoryPanel />
+      <AutomationHistoryPanel timezone={publishZone} />
     </div>
   );
 }
