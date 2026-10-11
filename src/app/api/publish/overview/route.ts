@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { isAutomationPaused } from "@/lib/automations/store";
 import { readAutomationTasks } from "@/lib/automations/tasks";
+import { platformCopyConfigured } from "@/lib/publisher/ai-copy";
 import { publisherConfig } from "@/lib/publisher/config";
 import type { PublisherAutomationOverview } from "@/lib/publisher/publishOverview";
 import { shortsLimit } from "@/lib/publisher/shortsCap";
@@ -92,6 +93,10 @@ export async function GET(request: NextRequest) {
     // The YouTube lead's copy onto Instagram and Facebook, which is on by default.
     mirror: { enabled: config.mirror.enabled, lead: config.mirror.lead, targets: config.mirror.targets },
     automation: await publisherAutomation(),
+    // Whether a model can write captions here, as a boolean only (never a key
+    // or a provider name), so the bulk panel can say what "Schedule" will do
+    // about captions instead of promising an AI that is not there.
+    aiCopyAvailable: platformCopyConfigured(),
     quota: youtubeQuota(items, now, config)
   });
 }

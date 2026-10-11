@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef } from "react";
+import { useRef, useState } from "react";
 import {
   CalendarClock,
   Check,
@@ -17,6 +17,7 @@ import { Button } from "@/components/ui/button";
 import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { ClipPreview } from "@/components/uploading-center/clip-preview";
+import { bookedClip } from "@/components/uploading-center/booked-clip";
 import { StatusChip } from "@/components/uploading-center/status-chip";
 import { describeFailure } from "@/lib/publisher/failure";
 import {
@@ -264,7 +265,8 @@ export function ClipCard({
   captionError,
   targetLabels = PLATFORM_TARGET_LABELS,
   scheduleDisabledReason,
-  timeZone
+  timeZone,
+  onShowOnBoard
 }: {
   clip: ReadyClip;
   draft: ClipDraft;
@@ -295,8 +297,15 @@ export function ClipCard({
   scheduleDisabledReason?: string;
   /** The publish zone (overview.timezone): every time on the card is shown on its wall clock. */
   timeZone: string;
+  /** Bring this clip's booking into view on the board (switches tab and day as needed). */
+  onShowOnBoard?: (item: QueueItem) => void;
 }) {
   const titleRef = useRef<HTMLTextAreaElement>(null);
+  // A booked clip is a one-line row until someone asks to book it again; the
+  // draft (title, caption, platform) is kept either way, only hidden.
+  const [editing, setEditing] = useState(false);
+  const booked = bookedClip(scheduledItems, (iso) => formatStamp(iso, timeZone));
+  const collapsed = booked !== null && !editing && !highlighted;
   // `bookable` excludes today as well as the past: nothing is scheduled for the
   // day it is booked (see src/lib/publisher/schedule.ts).
   const openSlots = slots.filter((slot) => slot.bookable && !isSlotTaken(draft.platform, slot.utc));
@@ -315,6 +324,65 @@ export function ClipCard({
   // or retried, the clip is no longer the one that quietly went out uncaptioned.
   const captionFailed = Boolean(captionError) && !draft.caption.trim();
 
+  if (booked && collapsed) {
+    return (
+      <div
+        draggable
+        onDragStart={(event) => {
+          event.dataTransfer.setData(CLIP_DRAG_TYPE, clip.key);
+          event.dataTransfer.effectAllowed = "copy";
+        }}
+        className="@container min-w-0 rounded-xl border border-[var(--border)] bg-[var(--surface-2)] p-2.5 transition hover:border-[var(--border-strong)]"
+      >
+        <div className="flex items-center gap-3">
+          <div className="w-12 shrink-0 self-start">
+            <ClipPreview
+              thumbnailUrl={clip.thumbnailUrl}
+              previewUrl={clip.previewUrl}
+              headline={clip.headline}
+              durationSec={clip.durationSec}
+              startSec={clip.startSec}
+            />
+          </div>
+          <div className="min-w-0 flex-1 space-y-1">
+            <p className="line-clamp-2 break-words text-sm font-medium text-white" title={booked.title}>
+              {booked.title}
+            </p>
+            <p className="flex items-start gap-1.5 text-xs text-[var(--muted-foreground)]">
+              <CheckCircle2 className="tone-success tone-text mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden />
+              <span className="min-w-0 break-words">{booked.label}</span>
+            </p>
+            {booked.failedLegs > 0 ? (
+              <p className="tone-danger tone-text text-[11px]">
+                {booked.failedLegs} post{booked.failedLegs === 1 ? "" : "s"} failed - see the board
+              </p>
+            ) : null}
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px]">
+              {onShowOnBoard ? (
+                <button
+                  type="button"
+                  onClick={() => onShowOnBoard(booked.item)}
+                  className="font-medium text-[var(--accent)] underline-offset-2 hover:underline"
+                >
+                  Show on the board
+                </button>
+              ) : null}
+              <button
+                type="button"
+                onClick={() => setEditing(true)}
+                aria-expanded={false}
+                title="Open the draft title, caption and slot controls to book this clip again. Posts already scheduled do not change."
+                className="font-medium text-[var(--muted-foreground)] underline-offset-2 hover:text-white hover:underline"
+              >
+                Edit for a new booking
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div
       draggable
@@ -328,6 +396,19 @@ export function ClipCard({
         highlighted && "border-[var(--accent)] ring-1 ring-[var(--accent)]/50"
       )}
     >
+      {booked ? (
+        <div className="mb-2 flex flex-wrap items-center justify-between gap-x-3 gap-y-1 border-b border-[var(--border)] pb-2 text-xs">
+          <span className="min-w-0 break-words text-[var(--muted-foreground)]">{booked.label}</span>
+          <button
+            type="button"
+            onClick={() => setEditing(false)}
+            aria-expanded={true}
+            className="shrink-0 font-medium text-[var(--accent)] underline-offset-2 hover:underline"
+          >
+            Hide the draft controls
+          </button>
+        </div>
+      ) : null}
       <div className="flex flex-col gap-3 @min-[360px]:flex-row">
         <div className="w-20 shrink-0 self-start @min-[360px]:w-24">
           <ClipPreview
@@ -501,9 +582,15 @@ export function ClipCard({
                     const summary = summarizePlatformState(platform, state, item, timeZone);
                     return (
                       <div key={`${item.id}:${platform}`} className="space-y-0.5 text-xs">
-                        <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[var(--muted-foreground)]">
-                          <StatusChip status={state.status} platform={platform} item={item} leg={state} />
-                          <span className="truncate font-medium text-white">{PLATFORM_LABELS[platform]}</span>
+                        <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5 text-[var(--muted-foreground)]">
+                          <StatusChip
+                            status={state.status}
+                            platform={platform}
+                            item={item}
+                            leg={state}
+                            className="max-w-full whitespace-normal!"
+                          />
+                          <span className="whitespace-nowrap font-medium text-white">{PLATFORM_LABELS[platform]}</span>
                           {summary.uploaded ? (
                             <span className="tone-success tone-text inline-flex items-center gap-1 whitespace-nowrap">
                               <CheckCircle2 className="h-3 w-3" /> {summary.uploaded}

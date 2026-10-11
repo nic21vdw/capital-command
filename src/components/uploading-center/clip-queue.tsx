@@ -8,7 +8,7 @@ import { Card } from "@/components/ui/card";
 import { Select } from "@/components/ui/select";
 import { bulkBookingLabel, bulkBookingParts, planAutoAssign, type ShortsCap } from "@/components/uploading-center/bulk";
 import { ClipCard, HashtagChip, SUGGESTED_HASHTAGS } from "@/components/uploading-center/clip-card";
-import { hashtagSummary, runHashtags, type RunDefaults } from "@/components/uploading-center/run-defaults";
+import { captionSummary, hashtagSummary, runHashtags, type RunDefaults } from "@/components/uploading-center/run-defaults";
 import {
   PLATFORM_TARGET_LABELS,
   type ClipDraft,
@@ -61,7 +61,9 @@ export function ClipQueue({
   tomorrowKey,
   isSlotUnavailable,
   readOnlyReason,
-  timeZone
+  timeZone,
+  aiCopyAvailable,
+  onShowOnBoard
 }: {
   jobs: ClipJob[];
   activeJob: ClipJob | null;
@@ -110,6 +112,10 @@ export function ClipQueue({
   readOnlyReason?: string;
   /** The publish zone, for the times on each card. */
   timeZone: string;
+  /** Whether a model can write captions (overview.aiCopyAvailable); undefined until known. */
+  aiCopyAvailable?: boolean;
+  /** Bring a booked clip's post into view on the board. */
+  onShowOnBoard?: (item: QueueItem) => void;
 }) {
   const autoAssigning = busy === "auto-assign";
   const writingCaptions = busy === "captions-all";
@@ -150,11 +156,8 @@ export function ClipQueue({
   // showing ten.
   const unscheduledDrafts = clips.filter((clip) => itemsForClip(clip).length === 0).map(draftFor);
   const hashtagText = hashtagSummary(runHashtags(unscheduledDrafts));
-  const captionSummary =
-    captionsMissing > 0
-      ? `AI writes ${captionsMissing} caption${captionsMissing === 1 ? "" : "s"}`
-      : "all captioned";
-  const optionsSummary = unscheduled === 0 ? "all scheduled" : `${captionSummary} · ${hashtagText}`;
+  const captionText = captionSummary(captionsMissing, aiCopyAvailable);
+  const optionsSummary = unscheduled === 0 ? "all scheduled" : `${captionText} · ${hashtagText}`;
   return (
     <Card className="min-w-0 space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -260,7 +263,7 @@ export function ClipQueue({
               book {plan.capBlocked === 1 ? "it" : "them"} later.
             </p>
           ) : null}
-          <AdvancedOptions id="uploading-center-run" summary={optionsSummary}>
+          <AdvancedOptions id="uploading-center-run" summary={optionsSummary} wrapSummary>
             <div className="flex flex-wrap items-center gap-2">
               <span className="flex-1" />
               <Button
@@ -268,7 +271,11 @@ export function ClipQueue({
                 className="h-9 px-3 text-xs"
                 onClick={onCaptionsForAll}
                 disabled={bulkBusy}
-                title="Write an AI caption for every unscheduled clip in this run that hasn't got one"
+                title={
+                  aiCopyAvailable === false
+                    ? "No AI key is set, so each caption becomes the clip's title"
+                    : "Write an AI caption for every unscheduled clip in this run that hasn't got one"
+                }
               >
                 {writingCaptions ? (
                   <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
@@ -353,6 +360,7 @@ export function ClipQueue({
               targetLabels={targetLabels}
               scheduleDisabledReason={readOnlyReason}
               timeZone={timeZone}
+              onShowOnBoard={onShowOnBoard}
               scheduledItems={itemsForClip(clip)}
               scheduling={busy === `schedule:${clip.key}`}
               highlighted={clip.key === highlightedKey}

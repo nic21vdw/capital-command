@@ -545,7 +545,7 @@ function QueueEntryCard({
         {platform === "youtube" && state.status === "published" && state.postId ? (
           <YoutubeCardStats itemId={item.id} videoId={state.postId} />
         ) : null}
-        <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+        <div className="mt-1.5 flex flex-wrap items-center gap-x-1.5 gap-y-2">
           <StatusChip
             status={state.status}
             platform={platform}
@@ -554,7 +554,7 @@ function QueueEntryCard({
             connected={state.status === "pending" || state.status === "manual" ? connected : undefined}
             slotLabel={slotLabel}
             leg={state}
-            className="shrink-0"
+            className="max-w-full shrink-0 whitespace-normal!"
           />
           {state.mirroredFrom ? (
             <span

@@ -95,7 +95,7 @@ import {
   type ScheduleSlot
 } from "@/lib/publisher/slots";
 import { localCalendarParts } from "@/lib/publisher/time";
-import type { PlatformId, QueueItem } from "@/lib/publisher/types";
+import { ALL_PLATFORMS, type PlatformId, type QueueItem } from "@/lib/publisher/types";
 
 const PLATFORM_TABS: Array<{ id: PlatformId; icon: typeof Youtube }> = [
   { id: "youtube", icon: Youtube },
@@ -151,6 +151,7 @@ export function UploadingCenterPage() {
     tailorCaptionsForAll,
     captionProgress,
     captionFailures,
+    aiCopyFellBack,
     schedule,
     uploadToSlot,
     autoAssign,
@@ -508,18 +509,22 @@ export function UploadingCenterPage() {
 
   // The Failed strip's Show button: switch to the failure's platform tab and
   // account, then bring the post into view through the ?item= route above.
-  const jumpToFailure = useCallback(
-    (leg: FailedLeg) => {
-      setActiveAccount(leg.platform, leg.accountId);
+  const showQueueItem = useCallback(
+    (item: QueueItem, platform: PlatformId, accountId: string) => {
+      setActiveAccount(platform, accountId);
       focusKeyRef.current = null;
       const params = new URLSearchParams(searchParams.toString());
-      params.set("platform", leg.platform);
-      params.set("item", leg.item.id);
+      params.set("platform", platform);
+      params.set("item", item.id);
       params.delete("day");
       router.replace(`/uploading-center?${params.toString()}`, { scroll: false });
       setFocusNonce((current) => current + 1);
     },
     [router, searchParams, setActiveAccount],
+  );
+  const jumpToFailure = useCallback(
+    (leg: FailedLeg) => showQueueItem(leg.item, leg.platform, leg.accountId),
+    [showQueueItem],
   );
   useEffect(() => {
     if (
@@ -856,6 +861,20 @@ export function UploadingCenterPage() {
   const platformParam = searchParams.get("platform");
   const activePlatform: PlatformId =
     PLATFORM_TABS.find(({ id }) => id === platformParam)?.id ?? PLATFORM_TABS[0]!.id;
+
+  // A booked clip's "Show on the board": the tab the board is already on when
+  // the post has a leg there, otherwise the first platform it is booked on.
+  const showBookedItem = useCallback(
+    (item: QueueItem) => {
+      const legs = ALL_PLATFORMS.filter((platform) => item.platforms[platform]);
+      const platform = legs.includes(activePlatform) ? activePlatform : (legs[0] ?? activePlatform);
+      // The post's accountId names ONE account; on a platform it does not
+      // belong to, that platform's primary account is the one that posts.
+      const own = accounts.some((account) => account.platform === platform && account.id === item.accountId);
+      showQueueItem(item, platform, own && item.accountId ? item.accountId : `${platform}-primary`);
+    },
+    [accounts, activePlatform, showQueueItem],
+  );
 
   const tabs = PLATFORM_TABS.map(({ id, icon }) => {
     const activeAccount = activeAccountFor(id);
@@ -1204,6 +1223,8 @@ export function UploadingCenterPage() {
                 isSlotUnavailable={isSlotUnavailable}
                 readOnlyReason={publishingOn ? undefined : "Posting is off - turn it on in Settings to book clips."}
                 timeZone={timezone}
+                aiCopyAvailable={aiCopyFellBack ? false : overview?.aiCopyAvailable}
+                onShowOnBoard={showBookedItem}
               />
               <div className="min-w-0">
                 {/* Said once above the board, not only on the empty day it used

@@ -5,7 +5,9 @@ import {
   applyHashtags,
   draftHashtags,
   draftWithDefaults,
+  captionSummary,
   hashtagSummary,
+  NO_HASHTAGS_SUMMARY,
   hydrateDraft,
   pruneDrafts,
   redraftWithDefaults,
@@ -198,12 +200,33 @@ describe("the hashtags a run is really going out with", () => {
     expect(hashtagSummary(runHashtags(drafts))).toBe("#AI #coding #a +3");
   });
 
+  it("says the channel defaults are added when none is chosen, because the booking adds them", () => {
+    expect(NO_HASHTAGS_SUMMARY).toBe("No hashtags chosen - channel defaults are added");
+  });
+
   it("says 'chosen', because the ten suggestion chips are not on any clip", () => {
-    expect(hashtagSummary([])).toBe("no hashtags chosen");
+    expect(hashtagSummary([])).toBe(NO_HASHTAGS_SUMMARY);
   });
 
   it("only says 'no hashtags' when there truly are none", () => {
-    expect(hashtagSummary(runHashtags([{ title: "Plain", caption: "Just words." }]))).toBe("no hashtags chosen");
+    expect(hashtagSummary(runHashtags([{ title: "Plain", caption: "Just words." }]))).toBe(NO_HASHTAGS_SUMMARY);
     expect(hashtagSummary(["#a", "#b"])).toBe("#a #b");
+  });
+});
+
+describe("what the bulk panel says about captions", () => {
+  it("says the AI writes them when a model is available, or when that is not known yet", () => {
+    expect(captionSummary(4, true)).toBe("AI writes 4 captions");
+    expect(captionSummary(1, true)).toBe("AI writes 1 caption");
+    expect(captionSummary(4, undefined)).toBe("AI writes 4 captions");
+  });
+
+  it("owns up to the clip titles when no AI key is set", () => {
+    expect(captionSummary(4, false)).toBe("Captions: the clip titles (no AI key set)");
+  });
+
+  it("says all captioned once nothing is missing, whatever the AI", () => {
+    expect(captionSummary(0, true)).toBe("all captioned");
+    expect(captionSummary(0, false)).toBe("all captioned");
   });
 });

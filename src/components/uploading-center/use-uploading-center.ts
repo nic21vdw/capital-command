@@ -93,6 +93,11 @@ export type Overview = {
   mirror?: PublishMirrorOverview;
   /** Whether the publisher is paused, and whether its runner is installed and running. */
   automation?: PublisherAutomationOverview;
+  /**
+   * Whether a model can write captions (never says which, or with what key).
+   * Absent on an older server, which is read as "yes": that is the default.
+   */
+  aiCopyAvailable?: boolean;
   quota: YoutubeQuota;
 };
 
@@ -439,6 +444,9 @@ export function useUploadingCenter(clipProjects: ClipProject[] = []) {
    * and Auto Assign refuses to schedule them behind a green toast.
    */
   const [captionFailures, setCaptionFailures] = useState<Record<string, string>>({});
+  // What the last caption request really returned: "fallback" means no model
+  // answered and the clip's title stood in, whatever the config promised.
+  const [aiCopyFellBack, setAiCopyFellBack] = useState(false);
   const remindedRef = useRef(new Set<string>());
   const refreshInFlightRef = useRef(false);
   /**
@@ -994,6 +1002,7 @@ export function useUploadingCenter(clipProjects: ClipProject[] = []) {
           source?: "ai" | "fallback";
         };
         const caption = copy.hashtags.length ? `${copy.caption}\n\n${copy.hashtags.join(" ")}` : copy.caption;
+        setAiCopyFellBack(source === "fallback");
         return { ok: true, caption, bestTime: copy.bestTime, note: copy.note, source: source ?? "ai" };
       } catch {
         return { ok: false, error: "Couldn't tailor the caption — try again." };
@@ -1765,6 +1774,8 @@ export function useUploadingCenter(clipProjects: ClipProject[] = []) {
     captionProgress,
     /** Clip key → why its AI caption failed, for the cards and the retry. */
     captionFailures,
+    /** The last caption request came back as the clip title: no model answered. */
+    aiCopyFellBack,
     schedule,
     uploadToSlot,
     autoAssign,

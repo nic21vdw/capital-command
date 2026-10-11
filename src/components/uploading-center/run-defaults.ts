@@ -77,17 +77,37 @@ export function runHashtags(drafts: Array<Pick<ClipDraft, "title" | "caption">>)
   return tags;
 }
 
+/** What the summary says when no hashtag is on any clip; see `hashtagSummary`. */
+export const NO_HASHTAGS_SUMMARY = "No hashtags chosen - channel defaults are added";
+
 /**
- * "#AI #vibecoding #coding +7", or "no hashtags chosen". Pure.
+ * "#AI #vibecoding #coding +7", or "No hashtags chosen - channel defaults are
+ * added". Pure.
  *
  * "Chosen" because the cards offer ten suggestion chips that read like ten
  * hashtags; none of them is on a clip until someone picks it (or a caption
- * brings its own line), and this counts only what is on.
+ * brings its own line), and this counts only what is on. The rest of the
+ * sentence is because "no hashtags" was not the whole truth: a booking with
+ * none still gets the channel's standing tags (`fallbackHashtags`), so the
+ * summary read as wrong over posts that carried four.
  */
 export function hashtagSummary(tags: string[], shown = 3): string {
-  if (tags.length === 0) return "no hashtags chosen";
+  if (tags.length === 0) return NO_HASHTAGS_SUMMARY;
   const head = tags.slice(0, shown).join(" ");
   return tags.length > shown ? `${head} +${tags.length - shown}` : head;
+}
+
+/**
+ * What the bulk panel says about captions. With a model available the
+ * unwritten ones are "AI writes N captions"; without one the booking falls back
+ * to the clip's own title (`fallback` in the ai-copy route), and saying "AI
+ * writes" over that is a promise nothing keeps. `aiAvailable` undefined (the
+ * overview has not answered yet) reads as available, the default. Pure.
+ */
+export function captionSummary(missing: number, aiAvailable: boolean | undefined): string {
+  if (missing <= 0) return "all captioned";
+  if (aiAvailable === false) return "Captions: the clip titles (no AI key set)";
+  return `AI writes ${missing} caption${missing === 1 ? "" : "s"}`;
 }
 
 /** The draft a clip starts with under the current run defaults. Pure. */
