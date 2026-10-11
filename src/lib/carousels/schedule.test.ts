@@ -10,6 +10,7 @@ import {
   IMAGE_CAPABLE_PLATFORMS,
   planCarouselSchedule,
   platformPostingMode,
+  PLATFORM_MODE_LABELS,
   anyPlatformPostsItself,
   bookingNeedsHands
 } from "@/lib/carousels/schedule";
@@ -22,6 +23,11 @@ describe("which carousel networks really post", () => {
     expect(platformPostingMode("instagram")).toBe("automatic");
     expect(platformPostingMode("tiktok")).toBe("manual");
     expect(platformPostingMode("youtube")).toBe("manual");
+  });
+
+  it("labels the manual tiles 'Reminder only', never 'Manual'", () => {
+    expect(PLATFORM_MODE_LABELS[platformPostingMode("tiktok")]).toBe("Reminder only");
+    expect(Object.values(PLATFORM_MODE_LABELS).join(" ")).not.toMatch(/manual/i);
   });
 });
 

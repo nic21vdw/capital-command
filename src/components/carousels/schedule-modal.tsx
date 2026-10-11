@@ -16,6 +16,7 @@ import {
   scheduleFooterMode,
   anyPlatformPostsItself,
   platformPostingMode,
+  PLATFORM_MODE_LABELS,
   WEEKDAY_LABELS,
   type PlatformConnectionMap,
   type CarouselPlatformId
@@ -165,11 +166,7 @@ export function ScheduleModal({
                         ? bookedHere && booking
                           ? bookedPlatformStatus(booking, zone)
                           : "Change it in the Uploading Center"
-                        : {
-                            automatic: "Automatic",
-                            reminder: "Not connected - saved as a reminder",
-                            manual: "Manual"
-                          }[platformPostingMode(platform.id, connected)]}
+                        : PLATFORM_MODE_LABELS[platformPostingMode(platform.id, connected)]}
                     </span>
                   </span>
                 </button>
@@ -254,7 +251,7 @@ export function ScheduleModal({
           <p className="tone-warning tone-edge tone-soft tone-text rounded-lg border p-2.5 text-[11px]">
             {recurrence !== "once"
               ? "A repeating schedule is a reminder only - nothing posts automatically. Choose Once to book Instagram and Facebook."
-              : `${label(plan.remind)} can't take picture posts from the app (manual - you post the slides yourself), so ${
+              : `${label(plan.remind)} can't take picture posts from the app (you post the slides yourself), so ${
                   plan.remind.length > 1 ? "those get" : "that gets"
                 } a reminder on the Reminders list instead.`}
           </p>

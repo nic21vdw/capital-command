@@ -25,7 +25,7 @@ export const POSTING_MODES: Record<PostingMode, { label: string; tone: BadgeTone
     meaning: "The app writes the text. You copy it and post it yourself."
   },
   manual: {
-    label: "Manual",
+    label: "Post by hand",
     tone: "neutral",
     meaning: "Nothing is sent or booked for you. You post it yourself."
   }

@@ -2,6 +2,12 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast, type ExternalToast } from "sonner";
+import {
+  clearBookingSummary,
+  loadBookingSummary,
+  saveBookingSummary,
+  type BookingSummary
+} from "@/components/uploading-center/booking-summary-store";
 import { loadWorkflowJson, workflowLoadMessage } from "@/lib/marketing/workflow-resource";
 import { nameClips } from "@/components/uploading-center/bulk";
 import { describeRearmResults, type RearmPlatformResult } from "@/components/uploading-center/failures";
@@ -369,11 +375,15 @@ export type TailoredCaption =
 export const NO_AI_CAPTION_NOTICE = "No AI key set - used the clip title as the caption. Edit it before booking.";
 export const NO_AI_CAPTION_NOTICE_PLURAL =
   "No AI key set - used the clip titles as the captions. Edit them before booking.";
+/** The same fact once the clips are already booked: the way back is each post's Caption button. */
+export const NO_AI_CAPTION_NOTICE_BOOKED =
+  "No AI key set - the clip titles were used as captions. Edit them from each post's Caption button.";
 
 /** One clip a bulk caption pass could not write copy for, and why. */
 export type CaptionFailure = { clip: ReadyClip; error: string };
 
-export type CaptionPassResult = { filled: number; failed: CaptionFailure[] };
+/** `usedTitle` counts captions that are just the clip title because no AI key answered. */
+export type CaptionPassResult = { filled: number; failed: CaptionFailure[]; usedTitle?: number };
 
 async function readError(response: Response): Promise<string> {
   try {
@@ -414,8 +424,17 @@ export function useUploadingCenter(clipProjects: ClipProject[] = []) {
   const [uploadSuccess, setUploadSuccess] = useState<UploadSuccess | null>(null);
   /** How far a bulk caption pass has got, or null when none is running. */
   const [captionProgress, setCaptionProgress] = useState<{ done: number; total: number } | null>(null);
-  /** What the last bulk booking did, kept on screen after its toast is gone. */
-  const [bookingSummary, setBookingSummary] = useState<{ level: "success" | "warning" | "error"; message: string } | null>(null);
+  /**
+   * What the last bulk booking did to each run, set this session. `null` is a dismissal and
+   * beats whatever the browser remembers; a run with no entry falls back to the stored line
+   * (booking-summary-store), which is how the summary survives a reload.
+   */
+  const [bookingSummaries, setBookingSummaries] = useState<Record<string, BookingSummary | null>>({});
+  const setBookingSummaryFor = useCallback((jobId: string, summary: BookingSummary | null) => {
+    setBookingSummaries((current) => ({ ...current, [jobId]: summary }));
+    if (summary) saveBookingSummary(jobId, summary);
+    else clearBookingSummary(jobId);
+  }, []);
   /**
    * Clips whose AI caption failed, by clip key, with the reason. This is what
    * stops a failure being invisible: the card is marked, the run offers a retry,
@@ -602,6 +621,12 @@ export function useUploadingCenter(clipProjects: ClipProject[] = []) {
     () => jobsWithClips.find((job) => job.id === activeJobId) ?? jobsWithClips[0] ?? null,
     [activeJobId, jobsWithClips]
   );
+  // Only the run on screen shows its summary: another run's line would describe clips that are not here.
+  const bookingSummary = useMemo(() => {
+    if (!activeJob) return null;
+    const session = bookingSummaries[activeJob.id];
+    return session !== undefined ? session : loadBookingSummary(activeJob.id);
+  }, [activeJob, bookingSummaries]);
 
   // The job list carries no transcripts — only the tab actually on screen
   // needs one, so it is fetched per active job rather than for all fifty.
@@ -1018,7 +1043,12 @@ export function useUploadingCenter(clipProjects: ClipProject[] = []) {
   const tailorCaptionsForAll = useCallback(
     async (
       targets: Array<{ clip: ReadyClip; platform: PlatformId; title: string }>,
-      onCaption: (clip: ReadyClip, caption: string) => void
+      onCaption: (clip: ReadyClip, caption: string) => void,
+      /**
+       * Booking follows this pass straight away (Auto Assign), so the caller says the
+       * no-AI-key notice itself, in the tense that is true by then.
+       */
+      options: { deferFallbackNotice?: boolean } = {}
     ): Promise<CaptionPassResult> => {
       if (targets.length === 0) return { filled: 0, failed: [] };
       setBusy("captions-all");
@@ -1047,7 +1077,7 @@ export function useUploadingCenter(clipProjects: ClipProject[] = []) {
         const names = nameClips(failed.map((failure) => failure.clip.headline));
         if (failed.length === 0 && usedTitle > 0) {
           // No model answered: the "captions" are the clip titles. Say so.
-          toast.warning(NO_AI_CAPTION_NOTICE_PLURAL, { id: "caption-fallback" });
+          if (!options.deferFallbackNotice) toast.warning(NO_AI_CAPTION_NOTICE_PLURAL, { id: "caption-fallback" });
         } else if (failed.length === 0) {
           toast.success(`Wrote ${filled} caption${filled === 1 ? "" : "s"}.`);
         } else if (filled > 0) {
@@ -1057,7 +1087,7 @@ export function useUploadingCenter(clipProjects: ClipProject[] = []) {
         } else {
           errorToast(`Couldn't write a caption for ${names} — ${failed[0].error}`);
         }
-        return { filled, failed };
+        return { filled, failed, usedTitle };
       } finally {
         setCaptionProgress(null);
         setBusy(null);
@@ -1239,7 +1269,8 @@ export function useUploadingCenter(clipProjects: ClipProject[] = []) {
       // The slots of the posts that will really go out, for "4 booked: Mon-Thu".
       const bookedSlots: string[] = [];
       let firstError: string | null = null;
-      setBookingSummary(null);
+      const summaryJobId = assignments[0].clip.jobId;
+      setBookingSummaryFor(summaryJobId, null);
       try {
         for (const { clip, draft } of assignments) {
           let file = clip.file;
@@ -1314,7 +1345,7 @@ export function useUploadingCenter(clipProjects: ClipProject[] = []) {
         // so a toast that was missed - or scrolled away from - left nothing at
         // all saying what had just happened. A stable id replaces the last
         // summary instead of stacking a second one.
-        setBookingSummary(summary);
+        setBookingSummaryFor(summaryJobId, summary);
         toast[summary.level](summary.message, {
           id: "auto-assign-summary",
           duration: summary.level === "success" ? 8000 : 15000
@@ -1324,7 +1355,7 @@ export function useUploadingCenter(clipProjects: ClipProject[] = []) {
         setBusy(null);
       }
     },
-    [activeAccountIds, projectForClip, refresh, timezone]
+    [activeAccountIds, projectForClip, refresh, setBookingSummaryFor, timezone]
   );
 
   /** Shows each run outcome as the toast its tone calls for. */
@@ -1693,7 +1724,9 @@ export function useUploadingCenter(clipProjects: ClipProject[] = []) {
     uploadSuccess,
     dismissUploadSuccess: () => setUploadSuccess(null),
     bookingSummary,
-    dismissBookingSummary: () => setBookingSummary(null),
+    dismissBookingSummary: () => {
+      if (activeJob) setBookingSummaryFor(activeJob.id, null);
+    },
     renameClip,
     renameQueueItem,
     tailorCaption,

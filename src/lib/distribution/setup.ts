@@ -31,6 +31,10 @@ const LABELS: Record<string, string> = { youtube: "YouTube", instagram: "Instagr
 /** The page can't see the Windows task from a sandbox or another checkout: that is not the owner's to fix. */
 const ENVIRONMENT_BLOCKER = /can't read the Windows task|different checkout/i;
 
+/** What the Automations card says when it cannot see the scheduled task: that is a status, not a runner to name. */
+const CANNOT_CHECK_RUNNER = /can't check the background runner/i;
+const RUNNER_SUBJECT: Record<string, string> = { threads: "The Threads autopilot", podcast: "The podcast publisher" };
+
 const SETTINGS = { href: "/settings", hrefLabel: "Settings" } as const;
 const AUTOMATIONS = { href: "/automations", hrefLabel: "Automations" } as const;
 /** Credentials and Media hosting live on the Accounts tab of Settings. */
@@ -54,6 +58,11 @@ function blockedCard(id: AutomationCard["id"], inputs: SetupInputs): SetupNeed |
   const real = card.blockers.filter((blocker) => !ENVIRONMENT_BLOCKER.test(blocker));
   if (real.length === 0) return null;
   const text = real[0].replace(/\s+/g, " ");
+  // "Background runner" is the Automations page's word for a Windows task; here it reads as
+  // jargon, so say what Nic cares about (is it running?) and link to where he can find out.
+  if (CANNOT_CHECK_RUNNER.test(text)) {
+    return { reason: `${RUNNER_SUBJECT[id] ?? "This automation"} isn't confirmed running`, ...AUTOMATIONS };
+  }
   // A blocker that names Settings > Accounts as the fix (the Threads token, the podcast's Media
   // hosting) must LINK there: the line used to say "Settings > Accounts" and offer "Open Automations".
   // The problem is what comes before the dash; the link is the fix.
