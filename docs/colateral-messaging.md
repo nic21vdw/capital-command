@@ -1,198 +1,143 @@
-# CoLateral — Messaging & Reveal Playbook
+# CoLateral: Messaging & Reveal Playbook
 
 How to talk about CoLateral, and which intro reveal to put in front of which
-video. Everything here is grounded in what the product actually is today
-(`nic21vdw/CoLateral-AI`) — the hero copy, the 57-tool manifest, the Project
-Canvas, and Beamy. Nothing below promises something the app doesn't do.
+video. Everything here matches the live site and what the app does today.
+Nothing below promises something the app doesn't do.
 
 ---
 
-## 1. The elevator pitch
+## 1. The pitch
 
 ### The one-liner (use this everywhere)
 
-> **CoLateral is the all-in-one engineering workspace — every calculation your
-> structural team runs, on one canvas, with every number traceable back to its
-> source.**
+> **CoLateral is the all-in-one agentic workspace: one desktop canvas where your
+> Claude Code, Codex and Gemini agents work side by side, inside your real files.**
 
-### The 30-second version (demo intro, intro calls, DMs)
+### The 30-second version (demo intro, DMs)
 
-> Structural teams run a job across a dozen disconnected spreadsheets, PDFs and
-> one-off calculators. Then a reviewer asks "where did this number come from?"
-> — and somebody spends an afternoon reconstructing it.
+> Running AI agents today means a terminal per agent, a chat window per model,
+> and copying results back into the files you actually care about. Nothing sits
+> together, and you pay another AI fee for every tool that wraps a model.
 >
-> CoLateral puts the whole job on one canvas. Nearly fifty design checkers and
-> reference-data tools, live calculation cards, sketches and notes — all linked,
-> so every result stays tied to the input it came from. It's built for qualified
-> structural and building engineers, and the engineer stays in control of every
-> decision.
->
-> The point isn't speed for its own sake. It's that the work is **reviewable by
-> design**, instead of reconstructed after the fact.
+> CoLateral puts it all on one canvas. Agent cards for Claude Code, Codex and
+> Gemini run side by side, and they work inside your real slides, sheets and
+> documents instead of a chat. You bring the AI subscriptions you already have,
+> so there's no AI fee, and you pay once for a one-time licence.
 
-### The 60-second version (conference, podcast, investor)
+### Positioning statement (internal, don't read this aloud)
 
-Open with the 30-second version, then add:
-
-> Most engineering software makes you choose. General-purpose tools like Excel
-> are flexible but leave you with no traceability — the load path lives in
-> someone's head. Dedicated analysis packages are rigorous but siloed, so
-> connecting a foundation check to the beam above it means retyping numbers
-> across three programs.
->
-> CoLateral's bet is that the *workspace* is the product. Lay the project out in
-> space, spawn the tool you need where you need it, and let the links between
-> cards carry the load path. When the review comes, the trail is already there.
->
-> And it's deliberately scoped: it's for qualified engineers. It doesn't stamp
-> drawings, it doesn't approve its own work, and it doesn't replace judgement.
-> It makes the judgement you already apply visible and checkable.
-
-### Positioning statement (internal — don't read this aloud)
-
-> **For** qualified structural and building engineers
-> **who** lose hours reconciling calculations scattered across tools,
-> **CoLateral is** an all-in-one engineering workspace
-> **that** keeps every calculation source-tied and reviewable on a single project canvas.
-> **Unlike** general-purpose spreadsheets or single-purpose design packages,
-> **CoLateral** connects the whole load path in one place and keeps the engineer —
-> not a black box — in professional control.
+> **For** developers first, and creators second,
+> **who** juggle several AI agents across terminals, chats and files,
+> **CoLateral is** the all-in-one agentic workspace
+> **that** lays agents and real files out together on one desktop canvas.
+> **Unlike** single-agent chat apps or per-seat AI tools,
+> **CoLateral** runs the agents you already pay for, side by side, for a one-time licence.
 
 ---
 
-## 2. The three pillars
+## 2. The pillars
 
 Every piece of CoLateral copy should ladder up to one of these. If a sentence
 doesn't serve one, cut it.
 
 | Pillar | The claim | Proof to show on screen |
 |---|---|---|
-| **All-in-one** | One workspace instead of tool sprawl | The tool library — 49 live tools, spawned onto the canvas without leaving the page |
-| **Source-tied** | Every number traces to its input | Click a result → the card shows what fed it; change an input → the linked card updates |
-| **Under professional control** | The engineer decides, not the software | Review state on a card; the "for qualified engineers" framing; nothing auto-approves |
+| **All-in-one canvas** | Agents, files and notes in one place | Lay out a project: agent cards beside the files they're working on |
+| **Agents side by side** | Claude Code, Codex and Gemini at once | Three agent cards running different jobs on the same canvas |
+| **Your real files** | Agents edit the actual slides, sheets and documents | An agent changes a sheet; open the file and the change is there |
+| **Bring your own AI, pay once** | No AI fee, one-time licence | Sign in with existing subscriptions; no usage meter |
 
-**The order matters.** Lead with *all-in-one* (it's the fastest to understand),
-prove with *source-tied* (it's the actual differentiator), and close with
-*professional control* (it's what makes a licensed engineer trust it).
+**The order matters.** Lead with *all-in-one* (fastest to understand), prove
+with *agents side by side* and *your real files* (the actual differentiators),
+and close with *bring your own AI, pay once* (what makes it an easy yes).
 
 ---
 
 ## 3. Vocabulary
 
-**Use these words.** They're the product's own language — they came off the
-front page and the codebase, so the video and the app agree:
+**Use these words:**
 
-- reviewable · source-tied · traceable · load path · project canvas
-- calculation card · design checker · reference data · workspace
-- "for qualified structural & building engineers"
+- agentic workspace · canvas · agent cards · side by side
+- your real files · slides, sheets and documents
+- bring your own AI subscriptions · no AI fee · pay once · one-time licence
 
-**Avoid these.** Some are off-brand; the ones marked ⚠️ are a professional
-liability problem in a regulated field:
+**Audience:** developers first, creators second. Engineers are welcome as users
+of the general workspace, the same as anyone else.
 
-- ⚠️ "certified", "stamped", "code-approved", "guarantees compliance" — CoLateral
-  produces calculations; a licensed engineer takes responsibility. Never imply
-  the software carries it.
-- ⚠️ "AI does your engineering", "fully automated design" — undercuts the
-  professional-control pillar and frightens exactly the audience you want.
-- "Replaces your engineer" / "no engineering knowledge needed" — the opposite of
-  the positioning. The product is explicitly gated to qualified engineers.
-- "Simple" / "easy" as the lead benefit — structural engineers don't buy easy,
-  they buy defensible.
+**Products you may name:** **CoLateral** and **CoLateral Marketing** (the
+social-media pack).
 
-**On the tool count:** say **49**, or "nearly fifty". `src/data/toolManifest.json`
-holds 57 records, but 8 are `status: "deprecated"` (superseded or merged into
-other tools) — quoting 57 won't survive anyone who opens the manifest. The live
-49 break down as 34 design checkers, 5 visual analyzers, 4 ingestion, 3 suites,
-2 project-admin and 1 reference-data. Re-count before quoting it; the number
-moves as tools ship.
+**Nic's own story is fine:** an engineer by day job who builds software and
+builds CoLateral in public. That is his background, not a product claim.
 
-**On the name:** it's **CoLateral** — one word, capital C, capital L. The "Co"
-is near-white, "Lateral" is the brand purple (`#bd93f9`). The pun is
-*collateral* / *lateral load* — worth landing once, in a light aside, and never
-explaining twice.
+**On the name:** it's **CoLateral**: one word, capital C, capital L. The "Co"
+is near-white, "Lateral" is the brand purple (`#bd93f9`).
 
-**On Beamy:** he's the canvas buddy — a pixel-art I-beam in a hard hat. He's
+**On Beamy:** he's the canvas buddy, a pixel-art mascot in a hard hat. He's
 charm, not a feature. Let him show up in the reveal and around the edges of the
-product; don't build a segment of the demo around him and don't have him explain
-engineering. His own voice lines set the tone: *"Looks supported."* · *"Check the
-load path."* · *"Tiny beam. Big opinions."*
+product; don't build a segment of the demo around him. His voice lines set the
+tone: *"Looks supported."* · *"Tiny beam. Big opinions."*
+
+### Never say
+
+- **"CoLateral Engineering"**, or anything that markets the structural pack.
+- Any claim that CoLateral is engineering, structural or design software:
+  design checkers, load paths, calculations, beams, tool counts, "for qualified
+  structural engineers".
+- Any licence, stamp, approval or compliance claim ("certified", "stamped",
+  "code-approved", "guarantees compliance").
 
 ---
 
 ## 4. Demo video script template
 
-A structure that works for a 3–5 minute product demo. Times are a guide.
+A structure that works for a 3 to 5 minute product demo. Times are a guide.
 
 | Time | Beat | What you say |
 |---|---|---|
-| 0:00–0:08 | **Cold open — reveal card** | Nothing. Let the reveal play. Don't talk over the name landing. |
-| 0:08–0:30 | **The problem, from experience** | One concrete story: a review comment, a number nobody could trace, an afternoon lost. Speak as the engineer who lived it — that's your credibility. |
-| 0:30–0:45 | **The turn** | "That's the problem CoLateral is built around." Then the one-liner, verbatim. |
-| 0:45–2:45 | **Show, don't tell** | Open the canvas. Spawn a real tool. Fill a real member. Link it to the card above. Keep narrating what a *reviewer* would ask at each step. |
-| 2:45–3:20 | **The proof** | The traceability moment: change one input, show what updates and what it's tied to. This is the shot the whole video exists for. |
-| 3:20–3:40 | **Scope + who it's for** | "For qualified structural and building engineers." Say plainly what it doesn't do — that's what makes the rest believable. |
-| 3:40–4:00 | **Close + CTA** | Where to go, what to try first (Project Canvas). Optional: end on a second reveal card. |
+| 0:00-0:08 | **Cold open: reveal card** | Nothing. Let the reveal play. Don't talk over the name landing. |
+| 0:08-0:30 | **The problem, from experience** | One concrete moment: three terminals, a chat window, and a result you had to paste into a file by hand. |
+| 0:30-0:45 | **The turn** | "That's the problem CoLateral is built around." Then the one-liner, verbatim. |
+| 0:45-2:45 | **Show, don't tell** | Open the canvas. Start a Claude Code card and a Codex card on different jobs. Point one at a real sheet or deck. |
+| 2:45-3:20 | **The proof** | Open the file the agent worked on and show the change is really there. |
+| 3:20-3:40 | **Who it's for and what it costs** | Developers and creators. Bring your own subscriptions, pay once. |
+| 3:40-4:00 | **Close + CTA** | colateralai.com. Optional: end on a second reveal card. |
 
 **Three rules for the recording:**
 
-1. **Never talk over the name reveal.** The card is 6 seconds and it's doing a
-   job — the pause reads as confidence.
-2. **Lead every feature with the reviewer's question,** not the feature name.
-   "How do I know this is still right after the load changed?" beats "here's the
-   linking feature."
-3. **Say the one-liner exactly once, word for word.** Repeating it in different
-   phrasings is what makes a pitch sound unrehearsed.
+1. **Never talk over the name reveal.** The pause reads as confidence.
+2. **Lead every feature with the job,** not the feature name.
+3. **Say the one-liner exactly once, word for word.**
 
 ---
 
 ## 5. Which reveal to use when
 
-Five cards, all 1920×1080 @ 30fps, ~6s, on the product's real dark stage. Pick
-per video — or use two in one video (cold open + outro).
+Cards in `video/colateral-intro`, all 1920x1080 @ 30fps, about 6s.
 
-| # | Reveal | Feels like | Use it for | Don't use it for |
-|---|---|---|---|---|
-| 1 | **Drafting Table** | Calm, premium, assembled | Product walkthroughs, feature videos, webinars, tutorial series intros | Anything needing a hook in the first 2 seconds |
-| 2 | **Load Path** | Structural, credible, signature | The brand film. Conference talks, engineer audiences, anywhere the room is technical. **This is the one that says "we're engineers."** | Non-technical audiences who'll miss the moment diagram |
-| 3 | **Beamy's Entrance** | Playful, warm, human | Social/short-form, changelogs, community updates, YouTube where personality retains | Investor decks, first impressions, enterprise buyers |
-| 4 | **Canvas Spawn** | Product-led, explanatory | Top-of-funnel where nobody knows what CoLateral is — landing page loop, paid ads, cold outreach. It explains the product *before* the name lands. | Videos where you're about to demo the canvas anyway (redundant) |
-| 5 | **Typeset** | Minimal, corporate, safest | **The default.** Client-facing demos, investor calls, sales. It's the live hero animated, so cutting from it into a screen recording of the real site is seamless. | Videos that need energy up front |
+| Reveal | Feels like | Use it for |
+|---|---|---|
+| **Typeset** | Minimal, safest | **The default.** Matches the live hero, so the cut into a screen recording is seamless. |
+| **Canvas Spawn** | Product-led | Top-of-funnel where nobody knows what CoLateral is. |
+| **Drafting Table** | Calm, assembled | Walkthroughs and tutorial intros. |
+| **Beamy's Entrance** | Playful, warm | Social, short-form, changelogs. A good outro. |
+| **Load Path** | Structural | **Don't use publicly.** It is a structural-engineering pitch. |
 
-### For *this* demo recording
-
-- **Cold open: `RevealTypeset`.** It's the most professional of the five and it
-  matches the site frame-for-frame, so the cut into your screen recording is
-  invisible.
-- **Outro: `RevealBeamyEntrance`.** End warm. By then you've earned the
-  personality, and it's the card people remember.
-- Keep `RevealLoadPath` for the brand film you make after this one — it's too
-  good to spend on a walkthrough.
-
-### Rendering them
-
-```bash
-cd video/colateral-intro
-npm install
-npm run preview      # Remotion Studio — scrub all five
-npm run render:all   # → out/*.mp4
-```
-
-They're also in the in-app Segment Deck at `/presentation` → **CoLateral Intro**,
-where you can preview and export without touching the CLI.
+Render with `cd video/colateral-intro && npm install && npm run render:all`, or
+preview and export from the in-app Segment Deck at `/presentation` under
+**CoLateral Intro**.
 
 ---
 
 ## 6. Reusable copy blocks
 
-Lifted straight from the live hero so the video, the site and the deck never
-contradict each other.
+Matched to the live site so the video, the site and the deck never contradict
+each other.
 
-- **Eyebrow:** The All-in-One Engineering Workspace
+- **Eyebrow:** The all-in-one agentic workspace
 - **Wordmark:** CoLateral
-- **Tagline:** One reviewable, source-tied workspace for structural engineering teams.
-- **Trustline:** For qualified structural & building engineers
-- **Canvas CTA:** Lay out your project in space — spawn tools, notes, rough calcs, and linked calculation cards on an infinite canvas.
-- **About CTA:** Learn how CoLateral keeps engineering work reviewable, traceable, and under professional control.
+- **Tagline:** The canvas where you lay out your work and agents work beside you.
+- **Trustline:** For developers, creators and engineers alike
 
 **Brand colours:** stage `#070c12` · brand purple `#bd93f9` · indigo `#b580ff` ·
 wordmark ink `#f7fbff` · tagline `#c6d7e7` · Beamy body `#8a5cc9`, hat `#ece6d8`.

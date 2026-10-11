@@ -14,6 +14,7 @@ already shipped.
 
 ## Unreleased
 
+- Threads and X posts now plug CoLateral as the all-in-one agentic workspace (agents side by side in your real files, bring your own AI, pay once) instead of engineering tools, and never mention CoLateral Engineering. Your saved X reply brief in Settings may still carry the old wording.
 - Marketing stops refreshing the pipeline screen and stream list while its window is hidden, refreshes as soon as you return, and recovers from a stalled server read without requiring a reload. Background automation and taskbar alerts keep running.
 
 ## 2026-10-04

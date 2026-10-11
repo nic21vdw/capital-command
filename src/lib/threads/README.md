@@ -206,7 +206,8 @@ Eight of the pack's 24 posts are about CoLateral and name it
 (`COLATERAL_POSTS_PER_PACK` in `generator.ts`). Generated daily posts keep the
 link in the follow-up. Every nonempty post from the daily pack or a stream now gets one short,
 contextual follow-up from the same account. The invitation connects its topic
-to the workspace, custom tools, agents, engineering, marketing, Arcade, or
+to the workspace, custom tools, agents, Nic's day job (a workspace plug,
+never an engineering-tool one), marketing, Arcade, or
 building in public, without claiming the parent describes a completed feature.
 The reply is previewed in X / Threads Posts before delivery.
 
