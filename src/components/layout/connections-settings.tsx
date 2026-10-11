@@ -470,6 +470,8 @@ export function ConnectionsSettings() {
           // platform with no sign-in never turns green on save.
           const status = connectionStatus(connection, state, { loaded, loadFailed });
           const redirectUri = connection.oauth ? state.redirectUris?.[connection.id] : undefined;
+          // One pill on every width: a phone used to get blue text that read as a link.
+          const statusPill = connected ? "bg-emerald-400/10 text-emerald-200" : "bg-white/5 text-[var(--muted-foreground)]";
 
           return (
             <div key={connection.id} id={`connection-row-${connection.id}`} className="scroll-mt-6 border-b border-[var(--border)] last:border-b-0">
@@ -484,9 +486,9 @@ export function ConnectionsSettings() {
                 <span className="min-w-0 flex-1">
                   <span className="block text-sm font-semibold text-white">{connection.label}</span>
                   <span className="block text-xs text-[var(--muted-foreground)]">{connection.purpose}</span>
-                  <span className="mt-1 block text-xs text-[var(--accent)] sm:hidden">{status}</span>
+                  <span className={`mt-1 inline-flex rounded-full px-2.5 py-1 text-xs font-medium sm:hidden ${statusPill}`}>{status}</span>
                 </span>
-                <span className={`hidden shrink-0 rounded-full px-2.5 py-1 text-xs font-medium sm:inline-flex ${connected ? "bg-emerald-400/10 text-emerald-200" : "bg-white/5 text-[var(--muted-foreground)]"}`}>
+                <span className={`hidden shrink-0 rounded-full px-2.5 py-1 text-xs font-medium sm:inline-flex ${statusPill}`}>
                   {status}
                 </span>
                 <ChevronDown className={`h-4 w-4 shrink-0 text-[var(--muted-foreground)] transition-transform ${open ? "rotate-180" : ""}`} aria-hidden="true" />

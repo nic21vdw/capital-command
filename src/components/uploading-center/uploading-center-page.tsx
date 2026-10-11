@@ -82,6 +82,8 @@ import {
   type ReadyClip,
   type UploadSuccess,
 } from "@/components/uploading-center/use-uploading-center";
+import { noAccountConnected } from "@/lib/publisher/boardActions";
+import { ACCOUNTS_SETTINGS_HREF } from "@/lib/publisher/failure";
 import { buildAgenda } from "@/lib/publisher/agenda";
 import { formatClockTime, formatSlotDateTime } from "@/lib/timeFormat";
 import { publisherBannerLine } from "@/lib/publisher/publishOverview";
@@ -1309,8 +1311,17 @@ export function UploadingCenterPage() {
                 {/* Said once above the board, not only on the empty day it used
                     to appear on: this is why no slot is ever offered for today. */}
                 <p className="mb-3 text-xs text-[var(--muted-foreground)]">
-                  Bookings start tomorrow so a batch never trips YouTube&apos;s daily limit. Use Publish now on a post
-                  to send it today.
+                  Bookings start tomorrow so a batch never trips YouTube&apos;s daily limit.{" "}
+                  {noAccountConnected(accounts) ? (
+                    <>
+                      <Link href={ACCOUNTS_SETTINGS_HREF} className="text-[var(--accent)]! underline! underline-offset-2">
+                        Connect an account in Settings
+                      </Link>{" "}
+                      to enable Publish now.
+                    </>
+                  ) : (
+                    "Use Publish now on a post to send it today."
+                  )}
                 </p>
                 <Tabs tabs={tabs} paramKey="platform" />
                 {overview ? (

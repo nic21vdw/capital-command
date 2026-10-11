@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { Toaster } from "sonner";
+import { AppToaster } from "@/components/providers/app-toaster";
 import { AppProvider } from "@/components/providers/app-provider";
 import { ColateralBridgeProvider } from "@/components/providers/colateral-bridge-provider";
 import { ThemePresetProvider, ThemePresetScript } from "@/components/providers/theme-preset-provider";
@@ -36,14 +36,7 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
             <AppProvider>
               {children}
               {/* Bottom right, clear of the voice bar: at the top right a toast sat on the quota meters. */}
-              <Toaster
-                richColors
-                position="bottom-right"
-                visibleToasts={3}
-                expand
-                offset={{ bottom: "calc(var(--command-bar-h, 5rem) + 0.75rem)", right: "1rem" }}
-                mobileOffset={{ bottom: "calc(var(--command-bar-h, 5rem) + 0.5rem)", left: "0.5rem", right: "0.5rem" }}
-              />
+              <AppToaster />
             </AppProvider>
           </ColateralBridgeProvider>
         </ThemePresetProvider>

@@ -204,7 +204,7 @@ function EventCard({ event }: { event: MasterCalendarEvent }) {
       )}
       style={reminder ? undefined : { borderLeftColor: source.color }}
     >
-      <span className="w-[4.5rem] shrink-0 whitespace-nowrap text-sm font-semibold text-[var(--accent)]">{event.time ? formatClockTime(event.time) : "—"}</span>
+      <span className="w-[4.5rem] shrink-0 whitespace-nowrap text-sm font-semibold text-[var(--foreground)]">{event.time ? formatClockTime(event.time) : "—"}</span>
       <SourceIcon source={event.source} className="h-4 w-4" />
       <span className="min-w-0 flex-1">
         <span className="block truncate text-sm font-medium text-white">{event.title}</span>

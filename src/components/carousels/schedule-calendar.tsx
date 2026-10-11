@@ -76,9 +76,9 @@ export function ScheduleCalendar({
                   key={row.key}
                   className="flex items-center gap-2 rounded-lg border border-[var(--border)] bg-white/5 px-3 py-2"
                 >
-                  <Repeat className="h-3 w-3 shrink-0 text-[var(--accent)]" aria-hidden />
+                  <Repeat className="h-3 w-3 shrink-0 text-[var(--info)]" aria-hidden />
                   <span className="min-w-0 flex-1">
-                    <span className="block text-sm font-semibold text-[var(--accent)]">{row.label}</span>
+                    <span className="block text-sm font-semibold text-[var(--foreground)]">{row.label}</span>
                     <span className="block truncate text-xs text-[var(--muted-foreground)]">{row.carouselTitle}</span>
                   </span>
                   <button
@@ -125,7 +125,7 @@ export function ScheduleCalendar({
                   key={`${occurrence.scheduleId}-${occurrence.dateKey}`}
                   className="flex items-center gap-2 rounded-lg border border-[var(--border)] bg-white/5 px-3 py-2"
                 >
-                  <span className="w-[4.25rem] shrink-0 whitespace-nowrap text-xs font-semibold text-[var(--accent)]">{formatClockTime(occurrence.time)}</span>
+                  <span className="w-[4.25rem] shrink-0 whitespace-nowrap text-xs font-semibold text-[var(--foreground)]">{formatClockTime(occurrence.time)}</span>
                   <span className="min-w-0 flex-1 truncate text-sm text-white">{occurrence.carouselTitle}</span>
                   {occurrence.recurrence !== "once" ? (
                     <Repeat className="h-3 w-3 shrink-0 text-[var(--muted-foreground)]" aria-label={occurrence.recurrence} />

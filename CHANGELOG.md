@@ -14,6 +14,11 @@ already shipped.
 
 ## Unreleased
 
+- **Notices match the app's theme and keep their message readable.** Error and success toasts use the dark or light surface instead of a pastel pink panel, and a toast with two buttons (Open Settings, Remove anyway) puts them on their own row instead of squeezing the message to one word per line.
+- **The footer is there from the first paint.** It no longer pops in after a second and a half; pages start one screen tall so it waits below the fold without moving anything.
+- **Blue means a link or a status, nothing else.** The Carousels weekly reminder, reminder and event times, and the Distribution counts ("14 clips ready", "3 made") are plain text, and the "Not set up" status on a phone's Settings > Accounts is the same grey pill as on desktop.
+- **The Uploading Center no longer points at a Publish now button that is not there.** With no account connected it says "Connect an account in Settings to enable Publish now" with a link.
+- **The Threads pack note is true for any time of day.** It no longer says "early morning" about afternoon posts, and once an account is disconnected the rewrite button no longer says today's posts "have started going out" beside "No Threads account is connected".
 - **The YouTube setup says why it needs a Google key and walks the first step.** Settings > Accounts opens step 1 with one plain sentence on why, four bullets for the Google Cloud console, a "Copy redirect URI" button that copies the exact address the app sends (with a "Copied" confirmation) and an "Open Google Cloud console" link.
 - **A failed card's filled button is the one that fixes the failure.** A post YouTube refused for a duplicate title now leads with Rename (Connect is the quieter button beside it); Connect is the filled one only when the connection is what broke.
 - **A booked clip says what the board says.** A clip waiting on a YouTube connection reads "Needs YouTube connection" in amber instead of a green "Booked", and a healthy one says "Scheduled", the app's word for booked and not yet posted.

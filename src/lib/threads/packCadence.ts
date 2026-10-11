@@ -151,5 +151,7 @@ export function packOrderNote(input: {
     .map(windowClock);
   const zone = input.zoneName ? ` in ${input.zoneName} time` : "";
   const who = times.length === 1 ? `One post is timed for ${times[0]}` : `${times.length} posts are timed for ${times.join(", ")}`;
-  return `${who} - the early morning of ${input.dayLabel} itself${zone}, not after midnight - so ${times.length === 1 ? "it sits" : "they sit"} before the daytime posts. Posts are listed in clock order.`;
+  // True for any time of day: the point is the date (the pack's own day, never
+  // the night after), not that the post is in the morning.
+  return `${who} - on ${input.dayLabel} itself${zone}, not carried past midnight - so ${times.length === 1 ? "it is" : "they are"} listed ahead of the posts the pack numbers before ${times.length === 1 ? "it" : "them"}. Posts are listed in clock order.`;
 }

@@ -33,6 +33,13 @@ export function hasStarted(item: Pick<ThreadsQueueItem, "status" | "postId" | "c
 }
 
 export const REWRITE_STARTED_REASON = "Today's posts have started going out - edit or skip individual posts instead.";
+/**
+ * Said instead when no Threads account is connected. The rows say a post went
+ * out (a post id), but nothing can post right now, and the page is already
+ * saying "No Threads account is connected" - "have started going out" beside it
+ * claimed both at once. This keeps the pack and says why, without the claim.
+ */
+export const REWRITE_STARTED_NO_ACCOUNT_REASON = "Today's pack is kept because some of its posts were already sent earlier. Edit or skip individual posts instead.";
 export const REWRITE_FAILED_REASON = "A post failed to send today - retry or remove it on Scheduled & sent before rewriting the pack.";
 
 export type RewriteCounts = {
@@ -70,7 +77,7 @@ export function rewriteDecision(input: {
   items: Row[] | undefined;
   date: string;
   /** The autopilot's state: whether it can plan a new batch onto the queue. */
-  autopilot?: { paused?: boolean; blockedReason?: string | null };
+  autopilot?: { paused?: boolean; blockedReason?: string | null; noAccount?: boolean };
   pack?: { posts: number; replies: number } | null;
 }): RewriteDecision {
   const rows = (input.items ?? []).filter((item) => item.batchDate === input.date);
@@ -95,7 +102,7 @@ export function rewriteDecision(input: {
   const mode = input.packExists ? "rewrite" : "write";
 
   let reason: string | null = null;
-  if (started.length > 0) reason = REWRITE_STARTED_REASON;
+  if (started.length > 0) reason = input.autopilot?.noAccount ? REWRITE_STARTED_NO_ACCOUNT_REASON : REWRITE_STARTED_REASON;
   else if (failed.length > 0) reason = REWRITE_FAILED_REASON;
   else if (replaces > 0 && input.autopilot?.paused) {
     reason = "The autopilot is paused, so the posts already queued for today could not be swapped for the new pack. Resume it on Automations first.";
