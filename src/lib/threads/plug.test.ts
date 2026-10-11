@@ -20,7 +20,7 @@ const CONTEXT_CASES = [
   { text: "The IDE should fit the way you think.", angle: "workspace", subject: /workspace/i },
   { text: "A tiny workflow script saved a lot of clicking.", angle: "custom-tools", subject: /tools?/i },
   { text: "I gave the agents smaller tasks and clearer checks.", angle: "agents", subject: /agents?/i },
-  { text: "Checking the Revit beam layout before the next review.", angle: "engineering", subject: /engineer/i },
+  { text: "Checking the Revit beam layout before the next review.", angle: "day-job", subject: /day job|day-job|workspace/i },
   { text: "My YouTube thumbnails needed a simpler story.", angle: "marketing", subject: /content|marketing/i },
   { text: "The multiplayer game finally has a smoother lobby.", angle: "games", subject: /arcade|games?/i },
   { text: "Building in public means showing the awkward prototypes too.", angle: "build-in-public", subject: /build|project/i },
@@ -49,7 +49,16 @@ describe("contextual CoLateral self-replies", () => {
 
   it("chooses the specific subject when a post also mentions agents or the brand", () => {
     const reply = plugReplyFor("CoLateral agents reviewing a structural beam layout", "post-1", config());
-    expect(replyUrl(reply!).searchParams.get("utm_content")).toBe("autopilot-engineering");
+    expect(replyUrl(reply!).searchParams.get("utm_content")).toBe("autopilot-day-job");
+  });
+
+  it("never pitches CoLateral as engineering, design or structural software", () => {
+    for (const text of ["Checking the Revit beam layout before the next review.", "Long day of structural calcs at work.", "Engineering review"]) {
+      for (let index = 0; index < 80; index += 1) {
+        const reply = plugReplyFor(text, `post-${index}`, config())!;
+        expect(reply).not.toMatch(/CoLateral Engineering|engineering|structural|design tool|load path|beam|calculation/i);
+      }
+    }
   });
 
   it("keeps an explicit agent workspace ahead of broad tool and agent keywords", () => {
@@ -102,12 +111,12 @@ describe("contextual CoLateral self-replies", () => {
     const settings = config({ plugUrl: destination });
     for (const origin of ["autopilot", "pipeline"] as const) {
       const reply = plugReplyFor("Engineering review", "post-1", settings, origin)!;
-      expect(reply.endsWith(threadsReplyUrl(destination, { angle: "engineering", origin })!)).toBe(true);
+      expect(reply.endsWith(threadsReplyUrl(destination, { angle: "day-job", origin })!)).toBe(true);
       const url = replyUrl(reply);
       expect(url.pathname).toBe("/modules");
       expect(url.searchParams.get("view")).toBe("engineering");
       expect(url.hash).toBe("#details");
-      expect(url.searchParams.get("utm_content")).toBe(`${origin}-engineering`);
+      expect(url.searchParams.get("utm_content")).toBe(`${origin}-day-job`);
     }
   });
 

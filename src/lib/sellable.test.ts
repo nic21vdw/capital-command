@@ -81,6 +81,8 @@ describe("the X reply brief a new install starts from", () => {
     expect(DEFAULT_X_BRIEF).not.toContain("Vandewetering");
     expect(DEFAULT_X_BRIEF).not.toContain("nic21vdw");
     expect(DEFAULT_X_BRIEF).toContain("REPLACE THIS");
+    expect(DEFAULT_X_BRIEF).toContain("Do NOT claim to be a licensed professional engineer");
+    expect(DEFAULT_X_BRIEF).toContain("Do NOT present your product as engineering, structural or design software");
   });
 });
 

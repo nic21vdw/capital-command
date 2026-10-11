@@ -52,10 +52,13 @@ describe("Threads editorial contract", () => {
     expect(prompt).toContain(input.recentTopics[0]);
     expect(prompt).toContain("Each parent must be useful on its own");
     expect(prompt).toContain("a small tool idea for a familiar annoying job");
-    expect(prompt).toContain("developers seeing how agents and project files fit together");
+    expect(prompt).toContain("developers first, seeing Claude Code, Codex and Gemini agents run side by side");
     expect(prompt).toContain("creators keeping ideas beside the work");
-    expect(prompt).toContain("engineers inspecting inputs and assumptions");
-    expect(prompt).toContain("Games, modules, CoLateral Engineering and CoLateral Marketing");
+    expect(prompt).toContain("agents working inside real files");
+    expect(prompt).toContain("one-time licence");
+    expect(prompt).toContain("Games, modules and CoLateral Marketing");
+    expect(prompt).toContain("never present CoLateral as engineering, structural or design software");
+    expect(prompt).not.toMatch(/names are CoLateral, CoLateral Engineering|engineers inspecting/);
     expect(prompt).toContain("The brief and optional focus provide topics, not automatic proof");
     expect(prompt).toContain('never convert them to "you can now"');
     expect(prompt).toContain("Never invent personal anecdotes");
