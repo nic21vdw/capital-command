@@ -14,6 +14,7 @@ already shipped.
 
 ## Unreleased
 
+- **Toast buttons are 40px on phones.** "Open Settings" and "Remove anyway" on an error toast were 24px tall, the one tap target the page sweep could not see because it only exists while the toast is up.
 - **Day Summary shows the week platform by platform, and the "vs previous 7 days" change no longer hides.** "This week by platform" sits under the Last 7 days headline (still visible on a phone with the card closed, with Refresh beside the numbers): posted, scheduled and failed per platform, each failed count linking to the card that fixes it, plus an Analytics link where the platform has a stable page (YouTube Studio, TikTok Studio, Meta Business Suite). The change against the previous 7 days now uses the videos that have numbers and says "based on 5 of 6 videos" when some are missing.
 - **The Uploading Center board is far shorter on a phone.** A day with two or more open slots folds them into one line ("4 open slots - 7:30 AM, 12:30 PM, 5:30 PM +1 more") that opens to the individual slots; on a touch screen an open slot offers "Upload clip" instead of "Drop a clip or video", and the "Show all" link on the Failed strip is a full-size tap target.
 - **A draft's platform picker reads in full.** It is full width on a phone and names what it books: "YouTube + Instagram + Facebook (mirrored)", "Instagram + Facebook", "TikTok" or "Facebook", with a line under it saying what the choice posts to.

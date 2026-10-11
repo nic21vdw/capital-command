@@ -1883,6 +1883,13 @@ html[data-host-backdrop="clear"]:not([data-surface="classic"]):not([data-glass="
 .app-toaster [data-sonner-toast] [data-cancel] + [data-button] {
   margin-left: 0;
 }
+@media (max-width: 639px) {
+  .app-toaster [data-sonner-toast] [data-button],
+  .app-toaster [data-sonner-toast] [data-cancel] {
+    min-height: 40px;
+    padding-inline: 14px;
+  }
+}
 
 /*
  * The Remotion player draws its own control bar (not a native <video controls>),
