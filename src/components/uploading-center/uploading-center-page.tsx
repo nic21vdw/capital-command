@@ -1206,8 +1206,15 @@ export function UploadingCenterPage() {
                         </Link>
                         .
                       </>
-                    ) : null}{" "}
-                    <Link href="/automations#cadence" className="text-[var(--accent)] hover:underline">Change the cadence</Link>
+                    ) : (
+                      <>
+                        {" "}
+                        <Link href="/automations#cadence" className="text-[var(--accent)]! underline! underline-offset-2">
+                          Change the cadence
+                        </Link>
+                        .
+                      </>
+                    )}
                   </p>
                 ) : null}
               </div>
