@@ -71,3 +71,23 @@ export function isEarlierPack(packDate: string, todayKey: string | null | undefi
   if (!todayKey || !shape.test(packDate) || !shape.test(todayKey)) return false;
   return packDate < todayKey;
 }
+
+/**
+ * The span of the pack's own times, earliest to latest, as "8:10 AM to 9:20 PM".
+ * Sorted by the clock rather than read first-to-last: a pack written under a
+ * different window can run 9:05 AM, then 11:10 PM, then 2:20 AM, and the header
+ * used to print its first and last post as a range ("9:05 AM -> 2:20 AM") that
+ * ran backwards. Null for an empty pack or times that are not "HH:MM".
+ */
+export function packTimeRange(posts: Array<{ time: string }>): string | null {
+  const minutes = posts
+    .map((post) => /^(\d{1,2}):(\d{2})$/.exec(post.time))
+    .filter((match): match is RegExpExecArray => match !== null)
+    .map((match) => Number(match[1]) * 60 + Number(match[2]))
+    .filter((value) => value >= 0 && value < 1440)
+    .sort((a, b) => a - b);
+  if (minutes.length === 0) return null;
+  const first = windowClock(minutes[0]);
+  const last = windowClock(minutes[minutes.length - 1]);
+  return first === last ? first : `${first} to ${last}`;
+}

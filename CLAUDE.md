@@ -411,6 +411,15 @@ both. Two accounts posting the same wording would read as mirrored spam.
   positioning brief supplies subject matter only, and its wording is the jargon
   to avoid. Prompt and lengths in `src/lib/x-posts/generator.ts`; the fallback
   `library.ts` and its test hold the same shape.
+- REWRITING TODAY'S PACK (`rewrite.ts`, `POST /api/x-posts/generate` with `force`)
+  MUST KEEP THE QUEUE AND THE PACK THE SAME. The queue holds its own copy of every
+  post, so a rewrite that only replaced the pack put one set on screen and sent
+  another. `rewriteDecision` is the one answer for the button, its confirmation
+  and the route: once any autopilot row for the day has started (published,
+  `postId`, `containerId` or `claimedAt`) or failed it is refused (409), and
+  otherwise `planTodaysBatch({ replacePending })` swaps the waiting and skipped
+  rows for the new pack's. `keepWritten` stops a rewrite that could only reach the
+  idea library from replacing a model-written pack.
 - See `src/lib/threads/README.md`.
 
 ## Launch Pad (`src/lib/launch`)

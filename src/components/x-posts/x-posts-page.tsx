@@ -16,6 +16,7 @@ import {
   RefreshCw,
   PenLine,
   RotateCcw,
+  Trash2,
   ShieldCheck,
   Sparkles
 } from "lucide-react";
@@ -27,6 +28,7 @@ import { Badge, type BadgeTone } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { Modal } from "@/components/ui/modal";
 import { Textarea } from "@/components/ui/textarea";
 import { PageHeader } from "@/components/ui/page-header";
 import { Tabs } from "@/components/ui/tabs";
@@ -36,7 +38,9 @@ import { cn } from "@/lib/utils";
 import { tomorrowReady } from "@/lib/threads/tomorrow";
 import type { ThreadsBatchSummary, ThreadsOutcome } from "@/lib/threads/types";
 import { browserTimeZone, fromZonedInput, threadsClock, toZonedInput, zoneNote, zonedDateKey } from "@/lib/threads/zone";
-import { cadenceBadge, isEarlierPack, packSizeNote } from "@/lib/threads/packCadence";
+import { cadenceBadge, isEarlierPack, packSizeNote, packTimeRange } from "@/lib/threads/packCadence";
+import { defaultBatchDate, numberBatchPosts } from "@/lib/threads/board";
+import { rewriteDecision } from "@/lib/threads/rewrite";
 import { autopilotHeader, formatThreadsStamp, summarizeThreadsToday, todayHeadline, todaySendsNote } from "@/lib/threads/todaySummary";
 import type { ThreadsReplyCounts, ThreadsReplyPolicy, ThreadsReplyPreview, ThreadsReplySummary } from "@/lib/threads/reply-summary";
 import type { XDailyPack, XPostFormat, XSuggestedPost, XSuggestedReply } from "@/types/domain";
@@ -46,6 +50,9 @@ interface GenerateResponse {
   cached: boolean;
   reason: string | null;
   configured: boolean;
+  /** A forced rewrite also swaps the posts still waiting on the queue. */
+  queue?: { replaced: number; plan?: { created: number; skipped?: string }; error?: string };
+  error?: string;
 }
 
 interface AutopilotStatus {
@@ -85,6 +92,9 @@ const ACCOUNTS_HREF = "/settings#accounts";
 
 /** Threads' own limit — the only one that matters here. */
 const THREADS_LIMIT = 500;
+
+/** Remove is destructive: the danger tint, with an outline so it reads as a button beside Skip. */
+const REMOVE_BUTTON_CLASS = "border border-[color-mix(in_srgb,var(--tone)_55%,transparent)] bg-transparent";
 
 const FORMAT_STYLES: Record<XPostFormat, string> = {
   insight: "border-sky-400/30 bg-sky-400/10 text-sky-200",
@@ -194,6 +204,28 @@ export function XPostsPage() {
     [autopilot.status]
   );
 
+  // May today's pack be written again? One answer for the button, its
+  // confirmation and (server-side) the route: once a post has gone out the pack
+  // is frozen, and a rewrite swaps whatever is still queued so the pack on screen
+  // is the one that sends.
+  const todaysPack = pack?.date === today ? pack : (today ? (data.xPlanner?.packs.find((entry) => entry.date === today) ?? null) : null);
+  const rewrite = useMemo(
+    () =>
+      rewriteDecision({
+        packExists: todaysPack !== null,
+        items: (autopilot.status?.items ?? []) as Parameters<typeof rewriteDecision>[0]["items"],
+        date: today ?? "",
+        autopilot: { paused: autopilotPaused, blockedReason: autopilot.status?.blockedReason ?? null },
+        pack: todaysPack ? { posts: todaysPack.posts.length, replies: todaysPack.replies.length } : null
+      }),
+    [todaysPack, autopilot.status, today, autopilotPaused]
+  );
+  const [confirmingRewrite, setConfirmingRewrite] = useState(false);
+  const rewriteMode = rewrite.mode === "rewrite";
+  // Until the autopilot's status has been read, a rewrite cannot know what is queued.
+  const rewriteUnknown = today === null || (autopilot.status === null && !autopilot.settled);
+  const generateDisabled = generating || autopilot.busy !== null || rewriteUnknown || !rewrite.allowed;
+
   // Keep the "generated Xm ago" freshness read-out live so a stale, cached pack
   // is visibly old — the whole point is not to copy something from before.
   useEffect(() => {
@@ -201,6 +233,7 @@ export function XPostsPage() {
     return () => window.clearInterval(id);
   }, []);
 
+  const reloadAutopilot = autopilot.reload;
   const generate = useCallback(
     async (force: boolean) => {
       setGenerating(true);
@@ -210,22 +243,41 @@ export function XPostsPage() {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ force, requestedAt: new Date().toISOString() })
         });
-        if (!response.ok) throw new Error("request failed");
-        const json = (await response.json()) as GenerateResponse;
+        const json = (await response.json().catch(() => ({}))) as Partial<GenerateResponse>;
+        // The server refuses a rewrite once posts have gone out (409) and says why.
+        if (!response.ok || !json.pack) throw new Error(json.error ?? "request failed");
         setPack(json.pack);
-        setReason(json.reason);
+        setReason(json.reason ?? null);
         if (!json.cached) {
-          toast.success(force ? "Fresh pack generated." : "Today's pack is ready.");
+          toast.success(
+            !force
+              ? "Today's pack is ready."
+              : json.queue?.error
+                ? `Fresh pack written, but the queue was not updated: ${json.queue.error}`
+                : json.queue && json.queue.replaced > 0
+                  ? `Fresh pack written. ${json.queue.plan?.created ?? 0} queued sends were laid out again from it.`
+                  : "Fresh pack written."
+          );
           void refresh();
+          // The queue may have changed underneath the board.
+          if (force) void reloadAutopilot();
+        } else if (force && json.reason) {
+          // A rewrite that could not improve on the pack changes nothing, and says why.
+          toast.message("Today's pack was kept.", { description: json.reason });
         }
-      } catch {
-        toast.error("Could not generate today's pack.");
+      } catch (error) {
+        toast.error(error instanceof Error && error.message !== "request failed" ? error.message : "Could not generate today's pack.");
       } finally {
         setGenerating(false);
       }
     },
-    [refresh]
+    [refresh, reloadAutopilot]
   );
+
+  const requestGenerate = useCallback(() => {
+    if (rewriteMode) setConfirmingRewrite(true);
+    else void generate(true);
+  }, [rewriteMode, generate]);
 
   // First visit of the day: kick off generation automatically so the pack is
   // simply there, matching the "every day it suggests" behaviour.
@@ -260,9 +312,11 @@ export function XPostsPage() {
     controls: [
       {
         id: "generate",
-        label: "Write today's posts",
+        label: rewriteMode ? "Rewrite today's pack" : "Write today's posts",
         group: "Compose",
-        disabled: generating || autopilot.busy !== null
+        // Replaces the written pack (and the queued posts built from it).
+        destructive: rewriteMode,
+        disabled: generateDisabled
       },
       {
         id: "check-accounts",
@@ -288,8 +342,9 @@ export function XPostsPage() {
     ],
     click: (id) => {
       if (id === "generate") {
-        if (generating || autopilot.busy !== null) return false;
-        void generate(true);
+        if (generateDisabled) return false;
+        // A rewrite waits for the person's confirmation in the dialog.
+        requestGenerate();
         return true;
       }
       if (id === "check-accounts") {
@@ -337,12 +392,53 @@ export function XPostsPage() {
           })}${zoneHint ? ` ${zoneHint}.` : ""}`
         }
         actions={
-          <Button onClick={() => generate(true)} disabled={generating || autopilot.busy !== null} className="shrink-0">
-            <RefreshCw className={cn("mr-2 h-4 w-4", generating && "animate-spin")} />
-            {generating ? "Writing…" : "Write today's posts"}
-          </Button>
+          <span title={rewrite.reason ?? undefined} className="shrink-0">
+            <Button
+              variant={rewriteMode ? "secondary" : "primary"}
+              onClick={requestGenerate}
+              disabled={generateDisabled}
+              className="shrink-0"
+            >
+              <RefreshCw className={cn("mr-2 h-4 w-4", generating && "animate-spin")} />
+              {generating ? "Writing…" : rewriteMode ? "Rewrite today's pack" : "Write today's posts"}
+            </Button>
+          </span>
         }
       />
+
+      {rewrite.reason ? (
+        <p role="status" data-testid="rewrite-blocked" className="-mt-2 mb-6 text-xs text-[var(--muted-foreground)]">
+          {rewrite.reason}
+        </p>
+      ) : null}
+
+      <Modal
+        open={confirmingRewrite}
+        title="Rewrite today's pack?"
+        description="The posts are written again from your positioning brief."
+        onClose={() => setConfirmingRewrite(false)}
+      >
+        <ul className="list-disc space-y-2 pl-5 text-sm text-[var(--foreground)]">
+          {rewrite.confirm.map((line) => (
+            <li key={line}>{line}</li>
+          ))}
+        </ul>
+        <div className="mt-6 flex flex-wrap justify-end gap-2">
+          <Button variant="secondary" onClick={() => setConfirmingRewrite(false)}>
+            Keep today&apos;s pack
+          </Button>
+          <Button
+            variant="danger"
+            className="border border-[color-mix(in_srgb,var(--tone)_45%,transparent)]"
+            onClick={() => {
+              setConfirmingRewrite(false);
+              void generate(true);
+            }}
+          >
+            Rewrite the pack
+          </Button>
+        </div>
+      </Modal>
 
       {reason ? (
         <div className="mb-6 rounded-2xl border p-3 text-xs tone-warning tone-soft tone-edge tone-text">{reason}</div>
@@ -424,7 +520,7 @@ export function XPostsPage() {
                 id: "autopilot",
                 label: "Scheduled & sent",
                 icon: CalendarClock,
-                content: <AutopilotTab {...autopilot} />
+                content: <AutopilotTab {...autopilot} requestedDate={dateParam} />
               },
               {
                 id: "replies",
@@ -930,7 +1026,14 @@ function AddPostCard({ status, busy, send }: AutopilotProps) {
 }
 
 /** The batch board: what is going out, when, and every knob to change it. */
-function AutopilotTab({ status, busy, send, selectedDate: selected, setSelectedDate: setSelected }: AutopilotProps) {
+function AutopilotTab({
+  status,
+  busy,
+  send,
+  selectedDate: selected,
+  setSelectedDate: setSelected,
+  requestedDate
+}: AutopilotProps & { requestedDate?: string | null }) {
   const [editing, setEditing] = useState<string | null>(null);
   const [draft, setDraft] = useState("");
   const zone = pageZone(status);
@@ -938,12 +1041,16 @@ function AutopilotTab({ status, busy, send, selectedDate: selected, setSelectedD
 
   const items = useMemo(() => (status?.items ?? []) as QueueItemView[], [status]);
   const dates = useMemo(() => [...new Set(items.map((item) => item.batchDate))].sort().reverse(), [items]);
-  const active = selected && dates.includes(selected) ? selected : (dates[0] ?? today);
+  // Opens on today (or ?date=), not on the newest batch - that is tomorrow's
+  // whenever the evening tick has already written it.
+  const active = defaultBatchDate({ dates, today, picked: selected, requested: requestedDate });
   const batch = useMemo(
     () => items.filter((item) => item.batchDate === active).sort((a, b) => a.publishAt.localeCompare(b.publishAt)),
     [items, active]
   );
   const pending = useMemo(() => batch.filter((item) => item.status === "pending"), [batch]);
+  // 1..N in sending order, once per post - not the pack slot, which repeats per account.
+  const postNumbers = useMemo(() => numberBatchPosts(batch), [batch]);
   const repliesByItem = useMemo(() => new Map((status?.replies?.items ?? []).map((reply) => [reply.itemId, reply])), [status]);
   const replyCounts = useMemo(() => {
     const counts: ThreadsReplyCounts = { total: 0, delivered: 0, pending: 0, retrying: 0, dropped: 0, disabled: 0 };
@@ -963,6 +1070,14 @@ function AutopilotTab({ status, busy, send, selectedDate: selected, setSelectedD
   }
 
   const handle = status.settings.accounts[0]?.label ?? "";
+
+  // Deleting a queued post cannot be undone, and it sits beside Skip, which can
+  // (via Retry now) - so it asks first and says how the two differ.
+  const removePost = (item: QueueItemView) => {
+    const preview = item.text.length > 90 ? `${item.text.slice(0, 90).trimEnd()}…` : item.text;
+    if (!window.confirm(`Remove this post from the queue?\n\n"${preview}"\n\nIt will not be sent and cannot be brought back. Skip keeps it on the list instead.`)) return;
+    void send({ action: "remove", id: item.id }, `remove-${item.id}`, () => "Removed.");
+  };
 
   return (
     <div className="space-y-4">
@@ -1009,6 +1124,8 @@ function AutopilotTab({ status, busy, send, selectedDate: selected, setSelectedD
           {[-60, -15, 15, 60].map((minutes) => (
             <Button
               key={minutes}
+              variant="secondary"
+              className="px-3 py-1.5 text-xs"
               onClick={() =>
                 send(
                   { action: "shift", date: active, minutes },
@@ -1034,8 +1151,11 @@ function AutopilotTab({ status, busy, send, selectedDate: selected, setSelectedD
       {batch.map((item) => (
         <Card key={item.id} className="space-y-3">
           <div className="flex flex-wrap items-center gap-3">
-            <span className="flex h-6 w-6 items-center justify-center rounded-full bg-white/8 text-xs font-semibold text-white">
-              {item.slot}
+            <span
+              title={`Post ${postNumbers.get(item.id) ?? item.slot} of the day`}
+              className="flex h-6 min-w-6 items-center justify-center rounded-full bg-white/8 px-1 text-xs font-semibold text-white"
+            >
+              {postNumbers.get(item.id) ?? item.slot}
             </span>
             {item.status === "pending" ? (
               <Input
@@ -1067,6 +1187,11 @@ function AutopilotTab({ status, busy, send, selectedDate: selected, setSelectedD
               {item.status}
             </Badge>
             <Badge>{item.topic}</Badge>
+            {status.settings.accounts.length > 1 ? (
+              <Badge tone="accent">
+                {status.settings.accounts.find((account) => account.id === item.accountId)?.label ?? item.accountId}
+              </Badge>
+            ) : null}
             {item.postId && handle ? (
               <a
                 href={`https://www.threads.com/@${handle}`}
@@ -1099,7 +1224,7 @@ function AutopilotTab({ status, busy, send, selectedDate: selected, setSelectedD
                   <Check className="mr-2 h-4 w-4" />
                   Save
                 </Button>
-                <Button onClick={() => setEditing(null)} disabled={busy !== null}>
+                <Button variant="secondary" onClick={() => setEditing(null)} disabled={busy !== null}>
                   Cancel
                 </Button>
                 <span className="text-xs text-[var(--muted-foreground)]">{draft.length}/500</span>
@@ -1141,6 +1266,7 @@ function AutopilotTab({ status, busy, send, selectedDate: selected, setSelectedD
                 Retry now
               </Button>
               <Button
+                variant="secondary"
                 onClick={() => {
                   setEditing(item.id);
                   setDraft(item.text);
@@ -1151,9 +1277,12 @@ function AutopilotTab({ status, busy, send, selectedDate: selected, setSelectedD
                 Edit copy
               </Button>
               <Button
-                onClick={() => send({ action: "remove", id: item.id }, `remove-${item.id}`, () => "Removed.")}
+                variant="danger"
+                className={REMOVE_BUTTON_CLASS}
+                onClick={() => removePost(item)}
                 disabled={busy !== null}
               >
+                <Trash2 className="mr-2 h-4 w-4" />
                 Remove
               </Button>
             </div>
@@ -1162,6 +1291,7 @@ function AutopilotTab({ status, busy, send, selectedDate: selected, setSelectedD
           {item.status === "pending" && editing !== item.id ? (
             <div className="flex flex-wrap gap-2">
               <Button
+                variant="secondary"
                 onClick={() => {
                   setEditing(item.id);
                   setDraft(item.text);
@@ -1172,15 +1302,19 @@ function AutopilotTab({ status, busy, send, selectedDate: selected, setSelectedD
                 Edit copy
               </Button>
               <Button
+                variant="secondary"
                 onClick={() => send({ action: "skip", id: item.id }, `skip-${item.id}`, () => "Skipped.")}
                 disabled={busy !== null}
               >
                 Skip
               </Button>
               <Button
-                onClick={() => send({ action: "remove", id: item.id }, `remove-${item.id}`, () => "Removed.")}
+                variant="danger"
+                className={REMOVE_BUTTON_CLASS}
+                onClick={() => removePost(item)}
                 disabled={busy !== null}
               >
+                <Trash2 className="mr-2 h-4 w-4" />
                 Remove
               </Button>
             </div>
@@ -1204,8 +1338,7 @@ function PackSummary({
   today: string | null;
   settings: AutopilotStatus["settings"] | null;
 }) {
-  const first = pack.posts[0];
-  const last = pack.posts[pack.posts.length - 1];
+  const timeRange = packTimeRange(pack.posts);
   // An earlier batch is one from a day that has ended in the autopilot's zone -
   // by its DATE, not its age: a pack written at 6 AM is still today's at 3 PM.
   const stale = isEarlierPack(pack.date, today);
@@ -1228,12 +1361,16 @@ function PackSummary({
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
-          {first && last ? (
-            <Badge>
-              {formatTime(first.time)} → {formatTime(last.time)}
-            </Badge>
+          {timeRange ? (
+            <span title="When the posts in this pack are timed to go out">
+              <Badge>Pack times: {timeRange}</Badge>
+            </span>
           ) : null}
-          {cadence ? <Badge>{cadence}</Badge> : null}
+          {cadence ? (
+            <span title="The autopilot's configured posting window, which a pack is timed against">
+              <Badge>Autopilot window: {cadence}</Badge>
+            </span>
+          ) : null}
           {pack.focus ? <Badge tone="accent">Focus: {pack.focus}</Badge> : null}
           <Badge tone={pack.source === "ai" ? "accent" : "neutral"}>
             {pack.source === "ai" ? "Claude-written" : "Idea library"}
@@ -1257,7 +1394,7 @@ function PackSummary({
           {took !== null ? ` · took ${took}s` : ""}
         </span>
         {stale ? (
-          <span className="font-medium">This is an earlier batch — press Write today&apos;s posts for a fresh day.</span>
+          <span className="font-medium">This is an earlier batch, not today&apos;s pack.</span>
         ) : null}
       </div>
     </Card>
