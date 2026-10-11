@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import {
+  CalendarCheck,
   CalendarClock,
   ChevronDown,
   Download,
@@ -16,6 +17,7 @@ import {
   Trash2,
   X
 } from "lucide-react";
+import Link from "next/link";
 import { toast } from "sonner";
 import { useAppData } from "@/components/providers/app-provider";
 import { useColateralSurface } from "@/lib/colateral/useSurface";
@@ -48,6 +50,7 @@ import {
   planCarouselSchedule,
   type CarouselPlatformId
 } from "@/lib/carousels/schedule";
+import { bookedChipText, type CarouselBooking } from "@/lib/carousels/booked";
 import { usePlatformConnections } from "@/lib/publisher/usePlatformConnections";
 import {
   ASPECT_RATIO_LIST,
@@ -163,6 +166,26 @@ export function CarouselsPage() {
     summaryParts.push(`${images.length} photo${images.length === 1 ? "" : "s"}`);
     summaryParts.push(imageNotes.trim() ? "described" : "no description");
   }
+
+  // Which carousels already have a post in the publish queue, so a booked card says so.
+  const [bookings, setBookings] = useState<{ timeZone: string; byCarousel: Record<string, CarouselBooking> }>({
+    timeZone: "UTC",
+    byCarousel: {}
+  });
+  const refreshBookings = useCallback(
+    () =>
+      fetch("/api/studio/carousels/booked", { cache: "no-store" })
+        .then((response) => (response.ok ? response.json() : null))
+        .then((json: { timeZone?: string; bookings?: Record<string, CarouselBooking> } | null) => {
+          if (json) setBookings({ timeZone: json.timeZone ?? "UTC", byCarousel: json.bookings ?? {} });
+        })
+        // The chip is a convenience; the page works without it.
+        .catch(() => undefined),
+    []
+  );
+  useEffect(() => {
+    void refreshBookings();
+  }, [refreshBookings]);
 
   const refreshSources = useCallback(async () => {
     if (sourceRequestInFlight.current) return;
@@ -583,6 +606,9 @@ export function CarouselsPage() {
               key={carousel.id}
               carousel={carousel}
               refresh={refresh}
+              booking={bookings.byCarousel[carousel.id]}
+              timeZone={bookings.timeZone}
+              onBooked={refreshBookings}
               highlighted={openCarouselId === carousel.id}
             />
           ))}
@@ -718,10 +744,16 @@ function ImageBatch({
 function CarouselCard({
   carousel,
   refresh,
+  booking,
+  timeZone,
+  onBooked,
   highlighted = false
 }: {
   carousel: Carousel;
   refresh: () => Promise<void> | void;
+  booking?: CarouselBooking;
+  timeZone: string;
+  onBooked: () => Promise<void> | void;
   highlighted?: boolean;
 }) {
   const [ratio, setRatio] = useState<CarouselAspectRatio>(carousel.aspectRatio ?? DEFAULT_ASPECT_RATIO);
@@ -835,9 +867,11 @@ function CarouselCard({
         };
         if (!response.ok || !result.item) {
           toast.error(result.error ?? "Could not book the post.");
+          if (response.status === 409) void onBooked();
           return;
         }
         booked = bookingMessage(result.item.platforms, result.item.publishAt, result.timeZone ?? "UTC");
+        void onBooked();
         allAutomatic = !bookingNeedsHands(result.item.platforms);
         // It is in the queue now; the modal's job is done even if the reminder
         // for the other networks below fails to save.
@@ -906,6 +940,15 @@ function CarouselCard({
                 Batch {carousel.batch.index}/{carousel.batch.total}
                 {carousel.batch.angle ? ` · ${carousel.batch.angle}` : ""}
               </Badge>
+            ) : null}
+            {booking ? (
+              <Link
+                href={`/uploading-center?item=${encodeURIComponent(booking.itemId)}`}
+                title="Open this post in the Uploading Center"
+                className="tone-success tone-edge tone-soft tone-text inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-medium hover:brightness-125"
+              >
+                <CalendarCheck className="h-3 w-3" /> {bookedChipText(booking, timeZone)}
+              </Link>
             ) : null}
           </div>
           <p className="text-xs text-[var(--muted-foreground)]">
@@ -982,7 +1025,7 @@ function CarouselCard({
             title="A one-off post to Instagram and Facebook is booked and posts itself. TikTok, YouTube and repeating schedules are reminders only."
           >
             <CalendarClock className="h-3.5 w-3.5" /> Schedule
-            <span className="text-[10px] font-normal opacity-70">{scheduleTag}</span>
+            <span className="text-[10px] font-normal opacity-70">{booking ? "Already booked" : scheduleTag}</span>
           </Button>
           <Button variant="danger" className="px-3 py-1.5 text-xs" onClick={() => void remove()} aria-label="Delete carousel">
             <Trash2 className="h-3.5 w-3.5" />
@@ -1051,6 +1094,8 @@ function CarouselCard({
         open={scheduleOpen}
         carouselTitle={carousel.title}
         saving={saving}
+        booking={booking}
+        timeZone={timeZone}
         onClose={() => setScheduleOpen(false)}
         onCreate={createSchedule}
       />

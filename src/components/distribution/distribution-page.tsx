@@ -90,6 +90,8 @@ type Overview = {
     }>;
   };
   xPack: { posts: number; replies: number; date: string } | null;
+  /** Threads posts on today's calendar: the same count the Day Summary shows. */
+  threadsToday?: number;
   publish: {
     enabled: boolean;
     /** The publish time zone every slot is read in (PUBLISH_TIMEZONE). */
@@ -478,6 +480,9 @@ const TRANSCRIPT = {
 const MEDIA_CHILDREN: OutputKey[] = ["longform", "shorts", "audio"];
 const TEXT_CHILDREN: OutputKey[] = ["text", "x", "threads", "carousel"];
 const SPOKEN_SOURCES: SourceKey[] = ["video", "audio"];
+// Four 224px columns (900px) is what the page can hold on a rail at laptop widths;
+// a fifth made the tree 1.5x wider than the page and cropped its right-hand side.
+const MAX_ON_ONE_RAIL = 4;
 
 // Live counts surfaced on the matching ready card, so the transform board also
 // shows what's already been produced.
@@ -495,10 +500,12 @@ function statFor(key: OutputKey, overview: Overview): string | undefined {
       return overview.carousels.total > 0
         ? `${overview.carousels.total} made`
         : undefined;
-    case "x":
-      return overview.xPack
-        ? `${overview.xPack.posts} posts queued today`
-        : undefined;
+    case "x": {
+      // The Day Summary's count of Threads posts today (autopilot slots and hand-added
+      // posts alike), not the X pack's own tally, so the two screens agree.
+      const today = overview.threadsToday ?? overview.xPack?.posts ?? 0;
+      return today > 0 ? `${today} Threads post${today === 1 ? "" : "s"} today` : undefined;
+    }
     default:
       return undefined;
   }
@@ -599,8 +606,11 @@ export function DistributionPage() {
   // Text/social formats. For spoken sources they route through the Transcript
   // node; otherwise they fan directly off the master alongside the media nodes.
   const textNodes = TEXT_CHILDREN.filter((key) => caps[key]);
-  const directNodes = spoken ? mediaNodes : [...mediaNodes, ...textNodes];
   const showTranscript = spoken && textNodes.length > 0;
+  // Spoken sources: the media formats plus the Transcript hang off the master, and the
+  // text formats hang off the Transcript. Others fan everything straight off the master.
+  const firstTier = spoken ? mediaNodes : [...mediaNodes, ...textNodes];
+  const fitsOneRail = firstTier.length + (showTranscript ? 1 : 0) <= MAX_ON_ONE_RAIL;
   const RootIcon = pipeline.root.icon;
 
   return (
@@ -617,7 +627,7 @@ export function DistributionPage() {
           className="mb-4 inline-flex items-center gap-1.5 rounded-full border border-red-400/40 bg-red-500/10 px-3 py-1 text-xs font-medium text-red-300 transition hover:bg-red-500/20"
         >
           <AlertTriangle className="h-3.5 w-3.5" />
-          {overview.publish.failed} failed - open the Uploading Center to retry
+          {overview.publish.failed} failed - see why in the Uploading Center
         </Link>
       ) : null}
       {/* The key to the one-word tags on every format below. */}
@@ -675,9 +685,11 @@ export function DistributionPage() {
       </div>
 
       {/* The pipeline, drawn as a top-down tree: root → clean master → fan-out.
-          Horizontally scrollable on narrow screens, centered on wide ones. */}
-      <div className="mt-8 overflow-x-auto pb-4">
-        <div className="mx-auto flex min-w-max flex-col items-center">
+          It never scrolls sideways (that cropped the Transcript branch with no cue):
+          up to four nodes sit on one rail, more go into a wrapping panel, and the
+          Transcript's text formats get their own panel underneath it. */}
+      <div className="mt-8 pb-4">
+        <div className="mx-auto flex w-full flex-col items-center">
           {/* Root — the raw material, with the jump into where you load it. */}
           <StageCard
             tone="root"
@@ -704,43 +716,59 @@ export function DistributionPage() {
 
           <PipeDrop />
 
-          {/* Fan-out — media nodes off the master; text nodes off the transcript. */}
-          <div className="pipe-branch">
-            {directNodes.map((key) => (
-              <div key={key} className="pipe-col">
+          {/* Fan-out — media nodes off the master, with the Transcript beside them. */}
+          {fitsOneRail ? (
+            <div className="pipe-branch">
+              {firstTier.map((key) => (
+                <div key={key} className="pipe-col">
+                  <OutputCard
+                    outputKey={key}
+                    cap={caps[key]!}
+                    stat={statFor(key, overview)}
+                    inputs={setupInputs}
+                  />
+                </div>
+              ))}
+              {showTranscript ? (
+                <div className="pipe-col self-stretch">
+                  <StageCard
+                    tone="process"
+                    icon={FileText}
+                    label={TRANSCRIPT.label}
+                    note={TRANSCRIPT.note}
+                  />
+                  {/* Runs on down to the panel of text formats below. */}
+                  <PipeDrop grow />
+                </div>
+              ) : null}
+            </div>
+          ) : (
+            <FanPanel label={`What ${pipeline.root.label.toLowerCase()} can become`}>
+              {firstTier.map((key) => (
                 <OutputCard
+                  key={key}
                   outputKey={key}
                   cap={caps[key]!}
                   stat={statFor(key, overview)}
                   inputs={setupInputs}
                 />
-              </div>
-            ))}
+              ))}
+            </FanPanel>
+          )}
 
-            {showTranscript ? (
-              <div className="pipe-col">
-                <StageCard
-                  tone="process"
-                  icon={FileText}
-                  label={TRANSCRIPT.label}
-                  note={TRANSCRIPT.note}
+          {showTranscript ? (
+            <FanPanel label="Written from the transcript">
+              {textNodes.map((key) => (
+                <OutputCard
+                  key={key}
+                  outputKey={key}
+                  cap={caps[key]!}
+                  stat={statFor(key, overview)}
+                  inputs={setupInputs}
                 />
-                <PipeDrop />
-                <div className="pipe-branch">
-                  {textNodes.map((key) => (
-                    <div key={key} className="pipe-col">
-                      <OutputCard
-                        outputKey={key}
-                        cap={caps[key]!}
-                        stat={statFor(key, overview)}
-                        inputs={setupInputs}
-                      />
-                    </div>
-                  ))}
-                </div>
-              </div>
-            ) : null}
-          </div>
+              ))}
+            </FanPanel>
+          ) : null}
         </div>
       </div>
 
@@ -813,11 +841,26 @@ function StageCard({
 }
 
 // The vertical connector between stacked stages in the tree.
-function PipeDrop() {
+function PipeDrop({ grow = false }: { grow?: boolean }) {
   return (
-    <div className="flex h-7 justify-center" aria-hidden>
+    <div className={cn("flex h-7 justify-center", grow && "min-h-7 flex-1")} aria-hidden>
       <span className="w-[2px] bg-[var(--border-strong)]" />
     </div>
+  );
+}
+
+// A bordered group of format cards that wraps to the width it is given.
+function FanPanel({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <section
+      aria-label={label}
+      className="w-full max-w-[940px] rounded-2xl border border-dashed border-[var(--border-strong)] bg-[var(--surface)]/40 p-4"
+    >
+      <p className="mb-3 text-center text-[11px] font-medium uppercase tracking-wider text-[var(--muted-foreground)]">
+        {label}
+      </p>
+      <div className="flex flex-wrap items-stretch justify-center gap-3">{children}</div>
+    </section>
   );
 }
 

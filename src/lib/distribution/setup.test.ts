@@ -24,10 +24,24 @@ describe("setupNeed", () => {
   });
 
   it("reads podcast and Threads from their Automations card, ignoring what a sandbox cannot see", () => {
-    const cards = [card("podcast", ["The storage bucket is not connected yet."]), card("threads", ["This page can't read the Windows task, so it can't tell whether the runner is installed."])];
-    expect(setupNeed("audio", { ...ready, cards })).toMatchObject({ href: "/automations" });
+    const cards = [card("podcast", ["The storage bucket is not connected yet. Add the endpoint, bucket and access keys under Media hosting in Settings > Accounts."]), card("threads", ["This page can't read the Windows task, so it can't tell whether the runner is installed."])];
+    expect(setupNeed("audio", { ...ready, cards: [card("podcast", ["The show needs a valid email address  -  Spotify sends the ownership verification there."])] })).toMatchObject({ href: "/automations" });
     expect(setupNeed("text", { ...ready, cards })).toBeNull();
     expect(setupNeed("text", { ...ready, cards: [card("threads", ["No Threads account is connected."], true)] })).toBeNull();
+  });
+
+  it("links to Settings > Accounts when that is where the fix is, so text and link agree", () => {
+    const threads = setupNeed("text", {
+      ...ready,
+      cards: [card("threads", ["No Threads account is connected  -  add the access token in Settings > Accounts."])]
+    });
+    expect(threads).toEqual({ reason: "No Threads account is connected", href: "/settings#accounts", hrefLabel: "Settings > Accounts" });
+    const podcast = setupNeed("audio", {
+      ...ready,
+      cards: [card("podcast", ["The storage bucket is not connected yet. Add the endpoint, bucket and access keys under Media hosting in Settings > Accounts."])]
+    });
+    expect(podcast).toMatchObject({ href: "/settings#accounts", hrefLabel: "Settings > Accounts" });
+    expect(podcast?.reason).toBe("The storage bucket is not connected yet");
   });
 
   it("never calls a format blocked on a guess", () => {

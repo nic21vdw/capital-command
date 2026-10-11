@@ -3,8 +3,11 @@ import { listJobs } from "@/lib/clipping/jobs";
 import { listProjects } from "@/lib/longform/store";
 import { configuredPlatforms, publisherConfig } from "@/lib/publisher/config";
 import { publishQueue } from "@/lib/publisher/queue";
+import { buildMasterCalendarEvents, todayKeyIn } from "@/lib/master-calendar/aggregate";
 import { readAppData } from "@/lib/storage/store";
 import { defaultVideoStudio } from "@/lib/storage/schemas";
+import { readQueue as readThreadsQueue } from "@/lib/threads/queue";
+import { threadsConfig } from "@/lib/threads/config";
 import { localDateKey } from "@/lib/x-strategy/analytics";
 
 export const runtime = "nodejs";
@@ -38,6 +41,11 @@ export async function GET() {
   const nextDue = queueItems
     .filter((item) => item.publishAt >= now)
     .sort((a, b) => a.publishAt.localeCompare(b.publishAt))[0];
+
+  // "Threads posts today" is the Day Summary's own count: every Threads post the
+  // calendar shows for today, the autopilot's slots and hand-added ones alike,
+  // read from the same aggregation rather than from the X pack alone.
+  const threadsToday = await countThreadsToday(data, queueItems, config.timezone);
 
   const todayPack = data.xPlanner?.packs.find((pack) => pack.date === localDateKey()) ?? null;
 
@@ -88,6 +96,7 @@ export async function GET() {
         createdAt: carousel.createdAt
       }))
     },
+    threadsToday,
     xPack: todayPack ? { posts: todayPack.posts.length, replies: todayPack.replies.length, date: todayPack.date } : null,
     publish: {
       enabled: config.enabled,
@@ -101,4 +110,26 @@ export async function GET() {
       nextDue: nextDue ? { title: nextDue.title, publishAt: nextDue.publishAt } : null
     }
   });
+}
+
+async function countThreadsToday(
+  data: Awaited<ReturnType<typeof readAppData>>,
+  queueItems: unknown[],
+  timeZone: string
+): Promise<number> {
+  try {
+    const threadsItems = await readThreadsQueue().catch(() => []);
+    const dateKey = todayKeyIn(timeZone);
+    return buildMasterCalendarEvents({
+      data,
+      queueItems: queueItems as Parameters<typeof buildMasterCalendarEvents>[0]["queueItems"],
+      threadsItems,
+      threadsTimeZone: threadsConfig().timezone,
+      timeZone,
+      startKey: dateKey,
+      days: 1
+    }).filter((event) => event.source === "x" && event.dateKey === dateKey).length;
+  } catch {
+    return 0;
+  }
 }
