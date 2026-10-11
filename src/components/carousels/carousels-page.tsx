@@ -243,10 +243,11 @@ export function CarouselsPage() {
   );
 
   const unschedule = useCallback(
-    async (carouselId: string, scheduleId: string) => {
+    async (carouselId: string, scheduleIds: string[]) => {
       const carousel = carousels.find((entry) => entry.id === carouselId);
       if (!carousel) return;
-      const next = (carousel.schedules ?? []).filter((entry) => entry.id !== scheduleId);
+      // One PATCH for every schedule a row stands for: two requests from the same stale list would undo each other.
+      const next = (carousel.schedules ?? []).filter((entry) => !scheduleIds.includes(entry.id));
       const response = await fetch(`/api/studio/carousels/${carouselId}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },

@@ -13,6 +13,7 @@ import { MAX_SHORTS_PER_DAY, MAX_SLOT_TIMES, MAX_THREADS_POSTS_PER_DAY, MIN_SHOR
 import { overnightConsequence } from "@/lib/automations/overnight";
 import { describeTaskResult } from "@/lib/automations/format";
 import { orderWarnings } from "@/lib/automations/warnings";
+import { isNotSetUp } from "@/lib/automations/setup";
 import { useColateralSurface } from "@/lib/colateral/useSurface";
 import type { AutomationCard, AutomationId, AutomationOverview, CadenceRow, HeldPost } from "@/lib/automations/types";
 import { cn } from "@/lib/utils";
@@ -314,7 +315,7 @@ function CadencePanel({ rows, values, disabled, onSaved }: { rows: CadenceRow[];
           </div>
         ))}
       </dl>
-      <p className="mt-4 text-xs text-[var(--muted-foreground)]">Read-only here: time zone, booking reach and the Threads window, time zone and late grace, because they reshape batches already laid out.</p>
+      <p className="mt-4 text-xs text-[var(--muted-foreground)]">These need a restart to change - see Advanced.</p>
       <details className="mt-2 text-xs text-[var(--muted-foreground)]">
         <summary className="cursor-pointer font-medium hover:text-white">Advanced: set in .env</summary>
         <p className="mt-2">Edit these in the <code className="rounded bg-black/30 px-1">.env</code> file, then restart the app.</p>
@@ -443,6 +444,10 @@ export function AutomationsPage() {
     ]
   });
 
+  const renderPanel = (card: AutomationCard) => (
+    <AutomationPanel key={card.id} card={card} stale={Boolean(error)} busy={busy !== null || refreshing} onPause={(selected) => void change(selected.id, { action: "pause", id: selected.id, paused: !selected.paused })} />
+  );
+
   return (
     <div className="mx-auto max-w-6xl p-4 sm:p-6">
       <PageHeader eyebrow="CoLateral Marketing" title="Automations" description="See what runs in the background, when it runs, what happened last and what needs fixing. Pause switches are saved, and each background job checks them before it acts." actions={<Button variant="secondary" onClick={() => void load()} disabled={refreshing || busy !== null}><RefreshCw className={cn("mr-2 h-4 w-4", refreshing && "animate-spin")} />Refresh</Button>} />
@@ -470,7 +475,14 @@ export function AutomationsPage() {
         </section>
         <OvernightConfirmDialog open={confirmOvernight} busy={busy !== null} onCancel={() => setConfirmOvernight(false)} onConfirm={() => { setConfirmOvernight(false); void change("overnight", { action: "overnight-scheduling", enabled: true }); }} />
         <p className="mb-5 text-xs text-[var(--muted-foreground)]">Resume allows the existing configured schedule to continue. Missing tasks, disconnected accounts and switched-off publishing still block work. A current action may finish before the next pause check.</p>
-        <div className="grid gap-5 lg:grid-cols-2">{overview.cards.map((card) => <AutomationPanel key={card.id} card={card} stale={Boolean(error)} busy={busy !== null || refreshing} onPause={(selected) => void change(selected.id, { action: "pause", id: selected.id, paused: !selected.paused })} />)}</div>
+        {/* Cards still waiting on setup sit behind a closed disclosure, so the ones that are running or need a look come first. */}
+        <div className="grid gap-5 lg:grid-cols-2">{overview.cards.filter((card) => !isNotSetUp(card)).map(renderPanel)}</div>
+        {overview.cards.some(isNotSetUp) && (
+          <details className="group mt-5 rounded-xl border border-[var(--border)] bg-[var(--card)] p-4">
+            <summary className="cursor-pointer text-sm font-medium text-[var(--muted-foreground)] hover:text-white">{overview.cards.filter(isNotSetUp).length} more not set up</summary>
+            <div className="mt-5 grid gap-5 lg:grid-cols-2">{overview.cards.filter(isNotSetUp).map(renderPanel)}</div>
+          </details>
+        )}
         <CadencePanel rows={overview.cadence} values={overview.cadenceValues} disabled={busy !== null || refreshing || Boolean(error)} onSaved={reloadAfterSave} />
       </>}
       <AutomationHistoryPanel timezone={publishZone} />

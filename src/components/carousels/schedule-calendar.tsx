@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import { CalendarDays, Download, Loader2, Repeat, Trash2 } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { CAROUSEL_PLATFORMS, expandOccurrences } from "@/lib/carousels/schedule";
+import { weeklyReminderRows } from "@/lib/carousels/reminderRows";
 import type { Carousel } from "@/types/domain";
 
 function labelForDate(dateKey: string, todayKey: string): string {
@@ -21,8 +22,8 @@ function labelForDate(dateKey: string, todayKey: string): string {
 
 /**
  * Reminders: every saved carousel reminder for the next four weeks, grouped by
- * day. A real booking lives in the publish queue instead. Recurring reminders
- * (e.g. daily at 12:00) fan out into one row per day.
+ * day. A real booking lives in the publish queue instead. Daily reminders fan
+ * out into one row per day; weekly ones are one row each (see weeklyReminderRows).
  */
 export function ScheduleCalendar({
   carousels,
@@ -30,7 +31,7 @@ export function ScheduleCalendar({
   onPrepare
 }: {
   carousels: Carousel[];
-  onUnschedule: (carouselId: string, scheduleId: string) => void;
+  onUnschedule: (carouselId: string, scheduleIds: string[]) => void;
   /** Render + hand off the carousel's slides so it's ready to post. */
   onPrepare: (carouselId: string) => Promise<void> | void;
 }) {
@@ -38,8 +39,10 @@ export function ScheduleCalendar({
   const now = useMemo(() => new Date(), []);
   const todayKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
 
+  const weekly = useMemo(() => weeklyReminderRows(carousels), [carousels]);
+
   const grouped = useMemo(() => {
-    const occurrences = expandOccurrences(carousels, now, 28);
+    const occurrences = expandOccurrences(carousels, now, 28).filter((occurrence) => occurrence.recurrence !== "weekly");
     const byDay = new Map<string, typeof occurrences>();
     for (const occurrence of occurrences) {
       if (!byDay.has(occurrence.dateKey)) byDay.set(occurrence.dateKey, []);
@@ -48,7 +51,7 @@ export function ScheduleCalendar({
     return [...byDay.entries()];
   }, [carousels, now]);
 
-  if (grouped.length === 0) return null;
+  if (grouped.length === 0 && weekly.length === 0) return null;
 
   return (
     <Card className="space-y-4">
@@ -56,11 +59,60 @@ export function ScheduleCalendar({
         <CalendarDays className="h-4 w-4 text-[var(--accent)]" />
         <h3 className="font-semibold text-white">Reminders</h3>
         <span className="text-xs text-[var(--muted-foreground)]">
-          next 4 weeks - nothing here posts automatically. Booked Instagram and Facebook posts are in the Uploading Center.
+          dated: next 4 weeks; weekly: until removed - nothing here posts automatically. Booked Instagram and Facebook posts are in the Uploading Center.
         </span>
       </div>
 
       <div className="space-y-3">
+        {weekly.length > 0 ? (
+          <div className="grid grid-cols-[minmax(0,1fr)] gap-2 sm:grid-cols-[7rem_minmax(0,1fr)]">
+            <div className="pt-1 text-xs font-medium text-white">Weekly</div>
+            <div className="min-w-0 space-y-1.5">
+              {weekly.map((row) => (
+                <div
+                  key={row.key}
+                  className="flex items-center gap-2 rounded-lg border border-[var(--border)] bg-white/5 px-3 py-2"
+                >
+                  <Repeat className="h-3 w-3 shrink-0 text-[var(--accent)]" aria-hidden />
+                  <span className="min-w-0 flex-1">
+                    <span className="block text-sm font-semibold text-[var(--accent)]">{row.label}</span>
+                    <span className="block truncate text-xs text-[var(--muted-foreground)]">{row.carouselTitle}</span>
+                  </span>
+                  <button
+                    type="button"
+                    disabled={preparing !== null}
+                    onClick={async () => {
+                      setPreparing(row.carouselId);
+                      try {
+                        await onPrepare(row.carouselId);
+                      } finally {
+                        setPreparing(null);
+                      }
+                    }}
+                    aria-label="Prepare for posting"
+                    title="Render the slides now — ready to post"
+                    className="shrink-0 text-[var(--muted-foreground)] transition hover:text-[var(--accent)] disabled:opacity-50"
+                  >
+                    {preparing === row.carouselId ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <Download className="h-3.5 w-3.5" />
+                    )}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => onUnschedule(row.carouselId, row.scheduleIds)}
+                    aria-label="Remove reminder"
+                    title="Remove this weekly reminder"
+                    className="shrink-0 text-[var(--muted-foreground)] transition hover:text-[var(--danger)]"
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+        ) : null}
         {grouped.map(([dateKey, occurrences]) => (
           <div key={dateKey} className="grid grid-cols-[minmax(0,1fr)] gap-2 sm:grid-cols-[7rem_minmax(0,1fr)]">
             <div className="pt-1 text-xs font-medium text-white">{labelForDate(dateKey, todayKey)}</div>
@@ -113,7 +165,7 @@ export function ScheduleCalendar({
                   </button>
                   <button
                     type="button"
-                    onClick={() => onUnschedule(occurrence.carouselId, occurrence.scheduleId)}
+                    onClick={() => onUnschedule(occurrence.carouselId, [occurrence.scheduleId])}
                     aria-label="Remove reminder"
                     title="Remove this reminder"
                     className="shrink-0 text-[var(--muted-foreground)] transition hover:text-[var(--danger)]"

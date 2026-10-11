@@ -1288,30 +1288,31 @@ function ClipCard({
             Finalizing the HD render
           </div>
         ) : (
-          <div className="mt-auto flex gap-1.5 pt-1.5">
-            <Button className="flex-1 px-2 py-1.5 text-xs" onClick={onEdit}>
+          <div className="mt-auto flex flex-wrap gap-1.5 pt-1.5">
+            {/* Wraps rather than squeezing: three labels side by side overflowed a 210px card. */}
+            <Button className="flex-auto whitespace-nowrap px-2 py-1.5 text-xs" onClick={onEdit}>
               <SquarePlay className="mr-1.5 h-3.5 w-3.5" />
               Edit
             </Button>
-            {/* Clips lead on to the next step: the Uploading Center opens on this run. */}
-            <Link
-              href={`/uploading-center?job=${encodeURIComponent(jobId)}`}
-              className="inline-flex flex-1 items-center justify-center rounded-lg border border-[var(--border)] px-2 py-1.5 text-xs font-medium text-[var(--muted-foreground)] transition hover:border-[var(--border-strong)] hover:text-white"
-              title="Book this run's clips on the posting schedule"
-            >
-              <CalendarClock className="mr-1.5 h-3.5 w-3.5" />
-              Schedule
-            </Link>
             {downloadName && (
               <a
                 href={fileUrl(jobId, downloadName, true)}
                 download={`${safeFilename(clipHeadline(clip, index))}.${downloadName.split(".").pop() || "mp4"}`}
-                className="inline-flex flex-1 items-center justify-center rounded-lg border border-[var(--border)] px-2 py-1.5 text-xs font-medium text-[var(--muted-foreground)] transition hover:border-[var(--border-strong)] hover:text-white"
+                className="inline-flex flex-auto items-center justify-center whitespace-nowrap rounded-lg border border-[var(--border)] px-2 py-1.5 text-xs font-medium text-[var(--muted-foreground)] transition hover:border-[var(--border-strong)] hover:text-white"
               >
                 <Download className="mr-1.5 h-3.5 w-3.5" />
                 Download
               </a>
             )}
+            {/* Deep-links this clip into the Uploading Center's placement mode (scheduleJob + scheduleClip, read there). */}
+            <Link
+              href={`/uploading-center?${new URLSearchParams({ scheduleJob: jobId, scheduleClip: downloadName ?? "" }).toString()}`}
+              className="inline-flex basis-full items-center justify-center rounded-lg border border-[var(--border)] px-2 py-1.5 text-center text-xs font-medium leading-tight text-[var(--muted-foreground)] transition hover:border-[var(--border-strong)] hover:text-white"
+              title="Pick a posting slot for this clip in the Uploading Center"
+            >
+              <CalendarClock className="mr-1.5 h-3.5 w-3.5 shrink-0" />
+              Schedule in Uploading Center
+            </Link>
           </div>
         )}
       </div>
