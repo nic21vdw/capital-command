@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { AlertTriangle, ArrowUpRight, Bell, CalendarDays, ChevronLeft, ChevronRight, LayoutList, Loader2, Lock, Repeat, Sparkles } from "lucide-react";
 import { Badge, type BadgeTone } from "@/components/ui/badge";
@@ -234,16 +234,54 @@ function SourceGroupCard({ source, events }: { source: CalendarSource; events: M
   );
 }
 
+/**
+ * "Today" is the publish time zone's today, which only the server knows (the
+ * calendar API answers with it); a browser in UTC is a day ahead of Toronto for
+ * hours every evening. The first read is the week view's own window (no `start`
+ * means today, 7 days), so it decides the day AND is the first screenful of
+ * events. The browser's clock is only the last resort when that read fails.
+ */
 export function MasterCalendarPage() {
-  const todayKey = useMemo(() => localTodayKey(), []);
+  const [seed, setSeed] = useState<{ today: string; response: MasterCalendarResponse | null } | null>(null);
+  useEffect(() => {
+    const controller = new AbortController();
+    void loadWorkflowJson<MasterCalendarResponse>("/api/master-calendar?days=7", "events", controller.signal)
+      .then((json) => {
+        if (!controller.signal.aborted) setSeed({ today: json.today ?? json.start, response: json });
+      })
+      .catch(() => {
+        if (!controller.signal.aborted) setSeed({ today: localTodayKey(), response: null });
+      });
+    return () => controller.abort();
+  }, []);
+
+  if (!seed) {
+    return (
+      <div aria-busy="true">
+        <PageHeader
+          eyebrow="Step 4 · Calendar"
+          title="Master Calendar"
+          description="Every distribution calendar in one place: scheduled shorts uploads, carousel schedules, Threads packs, FB/IG thread posts and dated long-form content — what goes out where, and when."
+        />
+        <Card className="h-[58px] animate-pulse bg-white/[0.03]" />
+      </div>
+    );
+  }
+  return <MasterCalendarBody todayKey={seed.today} seed={seed.response} />;
+}
+
+function MasterCalendarBody({ todayKey, seed }: { todayKey: string; seed: MasterCalendarResponse | null }) {
   const [view, setView] = useState<ViewMode>("week");
   const [anchor, setAnchor] = useState(todayKey);
   const [hidden, setHidden] = useState<Set<CalendarSourceId>>(new Set());
-  const [response, setResponse] = useState<MasterCalendarResponse | null>(null);
+  const [response, setResponse] = useState<MasterCalendarResponse | null>(seed);
   // The range the latest settled fetch was for; while it trails the visible
   // range the calendar is loading (previous events stay up to avoid flicker).
-  const [fetchedRange, setFetchedRange] = useState<string | null>(null);
-  const [responseRange, setResponseRange] = useState<string | null>(null);
+  // The week that opened the page arrived with the seed.
+  const seedRange = seed ? `${seed.start}:${seed.days}` : null;
+  const [fetchedRange, setFetchedRange] = useState<string | null>(seedRange ? `${seedRange}:0` : null);
+  const [responseRange, setResponseRange] = useState<string | null>(seedRange);
+  const seededRequest = useRef(seedRange ? `${seedRange}:0` : null);
   const [loadFailure, setLoadFailure] = useState<{ range: string; message: string } | null>(null);
   const [reload, setReload] = useState(0);
   // AI planner: gap-fill suggestions for the visible window, fetched on demand.
@@ -286,6 +324,8 @@ export function MasterCalendarPage() {
   const loadError = loadFailure?.range === rangeId ? loadFailure.message : null;
 
   useEffect(() => {
+    if (seededRequest.current === requestId) return;
+    seededRequest.current = null;
     const controller = new AbortController();
     void loadWorkflowJson<MasterCalendarResponse>(`/api/master-calendar?start=${range.start}&days=${range.days}`, "events", controller.signal)
       .then((json) => {
