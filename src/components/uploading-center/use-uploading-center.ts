@@ -29,7 +29,7 @@ import { indexProjectsBySource, newestProjectFor, type ClipProjectIndex } from "
 import type { ClipCandidate, ClipJob } from "@/lib/clipping/types";
 import type { CaptionSegment, ClipProject } from "@/types/domain";
 import { placeChannelVideos, type ChannelPlacement } from "@/lib/publisher/channelPlacement";
-import { describeFailure } from "@/lib/publisher/failure";
+import { ACCOUNTS_SETTINGS_HREF, describeFailure, plainError } from "@/lib/publisher/failure";
 import { describeRunOutcome, formatGoLive, manualReminderCopy, type OutcomeLine, type RunOutcomeLike } from "@/lib/publisher/outcomeCopy";
 import {
   FACEBOOK_SCHEDULED_POSTS_URL,
@@ -364,7 +364,12 @@ export function studioVideoUrl(videoId: string): string {
  * identical red toasts ended up overlapping.
  */
 export function errorToast(message: string, options?: ExternalToast) {
-  return toast.error(message, { id: `error:${message}`, ...options });
+  // A not-connected adapter error names environment variables; say what to do
+  // instead, and offer Settings (beside any action the caller already set).
+  const plain = plainError(message);
+  const settings = { label: "Open Settings", onClick: () => window.location.assign(ACCOUNTS_SETTINGS_HREF) };
+  const link = plain.notConnected ? (options?.action ? { cancel: settings } : { action: settings }) : {};
+  return toast.error(plain.text, { id: `error:${plain.text}`, ...link, ...options });
 }
 
 export type UploadSuccess = {
@@ -861,7 +866,7 @@ export function useUploadingCenter(clipProjects: ClipProject[] = []) {
         if (youtube === "updated") {
           toast.success("Title updated on YouTube.");
         } else if (youtube === "error") {
-          toast.warning(`Title saved here, but YouTube didn't take it: ${youtubeError ?? "unknown error"}`);
+          toast.warning(`Title saved here, but YouTube didn't take it: ${plainError(youtubeError ?? "unknown error").text}`);
         } else {
           // Not on YouTube yet: the new title is simply what it uploads with.
           toast.success("Title saved. It uploads with this title.");

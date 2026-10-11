@@ -447,6 +447,44 @@ export function UploadingCenterPage() {
     };
   }, [dayParam, itemParam, itemsByPlatform, overview?.timezone]);
 
+  // The scroll above lands once, but the page keeps reflowing after it: the
+  // active run switches (the left column changes height) and thumbnails load.
+  // On a phone the board sits under that column, so a post found at one height
+  // ended up screens away from where the page settled. Keep the target in view
+  // while the layout moves, for a moment, and stop the instant a person scrolls
+  // or touches the page. Held in a ref, not the effect's cleanup: that effect
+  // re-runs whenever the queue refreshes, which must not cancel the watch.
+  const settleRef = useRef<(() => void) | null>(null);
+  const keepInView = useCallback((targetId: string) => {
+    settleRef.current?.();
+    if (typeof ResizeObserver === "undefined") return;
+    let userMoved = false;
+    const moved = () => {
+      userMoved = true;
+      stop();
+    };
+    const events = ["wheel", "touchstart", "pointerdown", "keydown"] as const;
+    const recentre = () => {
+      if (userMoved) return;
+      const target = Array.from(document.querySelectorAll<HTMLElement>(`[id="${targetId}"]`)).find(
+        (candidate) => candidate.offsetParent !== null,
+      );
+      target?.scrollIntoView({ behavior: "auto", block: "center" });
+    };
+    const observer = new ResizeObserver(recentre);
+    observer.observe(document.body);
+    const timer = setTimeout(() => stop(), 1500);
+    function stop() {
+      observer.disconnect();
+      clearTimeout(timer);
+      for (const name of events) window.removeEventListener(name, moved);
+      if (settleRef.current === stop) settleRef.current = null;
+    }
+    for (const name of events) window.addEventListener(name, moved, { passive: true });
+    settleRef.current = stop;
+  }, []);
+  useEffect(() => () => settleRef.current?.(), []);
+
   useEffect(() => {
     if (!loaded) return;
     const focusKey = `${itemParam ?? ""}:${dayParam ?? ""}`;
@@ -484,6 +522,7 @@ export function UploadingCenterPage() {
       if (target) {
         focusKeyRef.current = focusKey;
         target.scrollIntoView({ behavior: "auto", block: "center" });
+        keepInView(targetId);
       } else if ((tries += 1) < 40) {
         frame = requestAnimationFrame(attempt);
       }
@@ -497,6 +536,7 @@ export function UploadingCenterPage() {
     itemsByPlatform,
     loaded,
     overview?.timezone,
+    keepInView,
     setActiveJobId,
     setSlotOffsetDays,
     slotOffsetDays
@@ -1201,6 +1241,14 @@ export function UploadingCenterPage() {
           </Card>
         ) : (
           <>
+            {/* On a phone the board sits under the whole clip queue, screens down. */}
+            <button
+              type="button"
+              onClick={() => document.getElementById("schedule-board")?.scrollIntoView({ behavior: "smooth", block: "start" })}
+              className="mb-3 inline-flex min-h-10 items-center gap-1.5 text-sm font-medium text-[var(--accent)] underline-offset-2 hover:underline xl:hidden"
+            >
+              <CalendarClock className="h-4 w-4" aria-hidden /> Jump to schedule
+            </button>
             {!publishingOn ? <PostingOffBanner /> : null}
             {publisherLine ? <PublisherStatusLine line={publisherLine} /> : null}
             {failedLegs.length > 0 ? (
@@ -1255,8 +1303,9 @@ export function UploadingCenterPage() {
                 timeZone={timezone}
                 aiCopyAvailable={aiCopyFellBack ? false : overview?.aiCopyAvailable}
                 onShowOnBoard={showBookedItem}
+                isConnected={isAccountConnected}
               />
-              <div className="min-w-0">
+              <div id="schedule-board" className="min-w-0 scroll-mt-4">
                 {/* Said once above the board, not only on the empty day it used
                     to appear on: this is why no slot is ever offered for today. */}
                 <p className="mb-3 text-xs text-[var(--muted-foreground)]">

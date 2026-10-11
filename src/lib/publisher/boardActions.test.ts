@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   blockedLegControls,
+  primaryInlineAction,
   connectLinkLabel,
   hasFreshClaim,
   legAccountId,
@@ -334,5 +335,30 @@ describe("putting a removed post back (Undo)", () => {
       removalUndoRequest(item({ platforms: { facebook: leg({ mirroredFrom: "instagram" }) } }), { now, timeZone: TZ })
     ).toBeNull();
     expect(removalUndoRequest(item({ platforms: {} }), { now, timeZone: TZ })).toBeNull();
+  });
+});
+
+describe("primaryInlineAction", () => {
+  const duplicate = { action: "none", kind: "duplicate-title" } as const;
+  const neverSetUp = { action: "reconnect", kind: "not-connected" } as const;
+  const lapsed = { action: "reconnect", kind: "connection-lapsed" } as const;
+  const rejected = { action: "retry", kind: "retryable" } as const;
+
+  it("makes Connect the filled action when the error is a connection error", () => {
+    expect(primaryInlineAction(blockedLegControls(neverSetUp, { connected: false, retitled: false }))).toBe("connect");
+    expect(primaryInlineAction(blockedLegControls(lapsed, { connected: true, retitled: false }))).toBe("connect");
+  });
+
+  it("makes Rename the filled action for a duplicate title, connected or not", () => {
+    expect(primaryInlineAction(blockedLegControls(duplicate, { connected: true, retitled: false }))).toBe("rename");
+    expect(primaryInlineAction(blockedLegControls(duplicate, { connected: false, retitled: false }))).toBe("rename");
+  });
+
+  it("falls back to Connect once the title has been changed and only the connection is left", () => {
+    expect(primaryInlineAction(blockedLegControls(duplicate, { connected: false, retitled: true }))).toBe("connect");
+  });
+
+  it("is null when neither control is offered", () => {
+    expect(primaryInlineAction(blockedLegControls(rejected, { connected: true, retitled: false }))).toBeNull();
   });
 });

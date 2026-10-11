@@ -14,6 +14,11 @@ already shipped.
 
 ## Unreleased
 
+- **A failed card's filled button is the one that fixes the failure.** A post YouTube refused for a duplicate title now leads with Rename (Connect is the quieter button beside it); Connect is the filled one only when the connection is what broke.
+- **A booked clip says what the board says.** A clip waiting on a YouTube connection reads "Needs YouTube connection" in amber instead of a green "Booked", and a healthy one says "Scheduled", the app's word for booked and not yet posted.
+- **A link to a post on a phone stays on that post.** The page used to scroll once and then the layout moved under it, landing screens away; it now holds the post in view until the page settles (or you scroll), and a "Jump to schedule" link at the top reaches the board on a phone.
+- **Removing a post while YouTube is not connected tells you what to do.** The toast says "YouTube isn't connected - connect it in Settings, then try again." with an Open Settings button, instead of naming environment variables; the same goes for Instagram, Facebook and TikTok.
+- **Card buttons are easier to read and tap.** The action buttons on the Uploading Center cards are 11px instead of 10px, the clip description box in Settings has a label, and "Show on the board" and "Edit for a new booking" are 40px tap targets on a phone.
 - **A clip's Download button fits its card, and Schedule says where it goes.** The three buttons overflowed a clip card on Short Clips; the row now wraps, and "Schedule" is "Schedule in Uploading Center", which opens that clip already picked for a slot.
 - **Automations leads with what is running.** Cards that are blocked by missing setup or have never run fold into a closed "N more not set up" disclosure, and the Cadence note now says these settings need a restart to change - see Advanced.
 - **Carousel reminders repeat as one row.** A weekly reminder shows as "Every Tue 18:00 · TikTok, YouTube" instead of a row for every Tuesday, and Remove clears all of its schedules at once.

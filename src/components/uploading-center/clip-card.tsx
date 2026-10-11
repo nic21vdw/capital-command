@@ -23,6 +23,7 @@ import { cardOptionsSummary } from "@/components/uploading-center/run-defaults";
 import { StatusChip } from "@/components/uploading-center/status-chip";
 import { formatClockTime, formatSlotDateTime } from "@/lib/timeFormat";
 import { describeFailure } from "@/lib/publisher/failure";
+import type { StatusTone } from "@/lib/statusTone";
 import {
   isTiktokInboxDraft,
   legInFlight,
@@ -246,6 +247,14 @@ export function summarizePlatformState(
  * Drag the card onto an empty slot in the schedule board, or pick a slot here
  * and hit Schedule.
  */
+/** The booked row's icon follows the same tone as its words (see bookedClip). */
+function BookedIcon({ tone }: { tone: StatusTone }) {
+  const className = `tone-${tone} tone-text mt-0.5 h-3.5 w-3.5 shrink-0`;
+  if (tone === "warning" || tone === "danger") return <TriangleAlert className={className} aria-hidden />;
+  if (tone === "info") return <CalendarClock className={className} aria-hidden />;
+  return <CheckCircle2 className={className} aria-hidden />;
+}
+
 export function ClipCard({
   clip,
   draft,
@@ -266,7 +275,8 @@ export function ClipCard({
   scheduleDisabledReason,
   timeZone,
   aiCopyAvailable,
-  onShowOnBoard
+  onShowOnBoard,
+  isConnected
 }: {
   clip: ReadyClip;
   draft: ClipDraft;
@@ -301,6 +311,8 @@ export function ClipCard({
   aiCopyAvailable?: boolean;
   /** Bring this clip's booking into view on the board (switches tab and day as needed). */
   onShowOnBoard?: (item: QueueItem) => void;
+  /** Whether the account a post uses on a platform has a connection - the booked row says what the board's chip says. */
+  isConnected?: (platform: PlatformId, accountId: string) => boolean;
 }) {
   const titleRef = useRef<HTMLTextAreaElement>(null);
   // The hashtag chips and the caption box are closed behind Customise: a draft
@@ -311,7 +323,7 @@ export function ClipCard({
   // A booked clip is a one-line row until someone asks to book it again; the
   // draft (title, caption, platform) is kept either way, only hidden.
   const [editing, setEditing] = useState(false);
-  const booked = bookedClip(scheduledItems, (iso) => formatStamp(iso, timeZone));
+  const booked = bookedClip(scheduledItems, (iso) => formatStamp(iso, timeZone), { isConnected });
   const collapsed = booked !== null && !editing && !highlighted;
   // `bookable` excludes today as well as the past: nothing is scheduled for the
   // day it is booked (see src/lib/publisher/schedule.ts).
@@ -357,7 +369,7 @@ export function ClipCard({
               {booked.title}
             </p>
             <p className="flex items-start gap-1.5 text-xs text-[var(--muted-foreground)]">
-              <CheckCircle2 className="tone-success tone-text mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden />
+              <BookedIcon tone={booked.tone} />
               <span className="min-w-0 break-words">{booked.label}</span>
             </p>
             {booked.failedLegs > 0 ? (
@@ -370,7 +382,7 @@ export function ClipCard({
                 <button
                   type="button"
                   onClick={() => onShowOnBoard(booked.item)}
-                  className="font-medium text-[var(--accent)] underline-offset-2 hover:underline"
+                  className="font-medium text-[var(--accent)] underline-offset-2 hover:underline max-sm:inline-flex max-sm:min-h-10 max-sm:items-center"
                 >
                   Show on the board
                 </button>
@@ -380,7 +392,7 @@ export function ClipCard({
                 onClick={() => setEditing(true)}
                 aria-expanded={false}
                 title="Open the draft title, caption and slot controls to book this clip again. Posts already scheduled do not change."
-                className="font-medium text-[var(--muted-foreground)] underline-offset-2 hover:text-white hover:underline"
+                className="font-medium text-[var(--muted-foreground)] underline-offset-2 hover:text-white hover:underline max-sm:inline-flex max-sm:min-h-10 max-sm:items-center"
               >
                 Edit for a new booking
               </button>

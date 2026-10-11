@@ -255,6 +255,21 @@ export function blockedLegControls(
 }
 
 /**
+ * Which inline action on a failed card is the FILLED one: the control that fixes
+ * THIS failure. A refused title is fixed by renaming - Connect is only there so
+ * the retry afterwards can work - so Rename leads whenever it is offered. Connect
+ * leads when the connection is what is missing (including a title already
+ * renamed, which leaves only the connection). Null when neither is offered.
+ */
+export function primaryInlineAction(
+  controls: Pick<BlockedLegControls, "connect" | "rename">
+): "rename" | "connect" | null {
+  if (controls.rename) return "rename";
+  if (controls.connect) return "connect";
+  return null;
+}
+
+/**
  * The words on the Connect / Reconnect link. A title the channel refused is
  * fixed by renaming, and Retry is only waiting on the connection - so beside
  * Rename the link says what it is FOR ("Connect YouTube to retry"), or a card

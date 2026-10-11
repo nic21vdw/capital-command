@@ -258,3 +258,37 @@ export function describeWaiting(state: PlatformState, platform: PlatformId): { h
   }
   return { headline: `${label} couldn't take it just then`, raw };
 }
+
+/**
+ * An adapter's "this account has no credentials" error, wherever it turns up in
+ * a longer message ("Not removed: ... could not be kept private (This YouTube
+ * account is not connected. Set YOUTUBE_CLIENT_ID ...)"). The adapters write
+ * these for logs: they name environment variables, which is not something a
+ * toast should ever ask a person to read.
+ */
+const NOT_CONNECTED_ERROR =
+  /\b(youtube|tiktok|instagram|facebook)(?: account)? (?:is )?not (?:connected|configured)|\b(youtube|tiktok|instagram|facebook) credentials are not configured/i;
+
+/** Where a not-connected message sends people: Settings, Accounts. */
+export const ACCOUNTS_SETTINGS_HREF = "/settings#accounts";
+
+export type PlainError = {
+  /** What to show. Unchanged when the message was not a not-connected error. */
+  text: string;
+  /** The platform that is not connected, when it was; the toast offers Settings then. */
+  notConnected?: PlatformId;
+};
+
+/**
+ * Turns a not-connected adapter error into the sentence a person can act on,
+ * and leaves every other message alone. Applied where a message becomes user
+ * visible (the Uploading Center's toasts); the long technical text stays in the
+ * server's errors and logs. Pure and client-safe.
+ */
+export function plainError(message: string): PlainError {
+  const match = NOT_CONNECTED_ERROR.exec(message);
+  const name = (match?.[1] ?? match?.[2])?.toLowerCase() as PlatformId | undefined;
+  if (!name) return { text: message };
+  const label = PLATFORM_LABELS[name];
+  return { text: `${label} isn't connected - connect it in Settings, then try again.`, notConnected: name };
+}
