@@ -35,6 +35,7 @@ import { exportBaseName, toThreadsCsv, toThreadsJson } from "@/lib/x-posts/expor
 import { cn } from "@/lib/utils";
 import { tomorrowReady } from "@/lib/threads/tomorrow";
 import type { ThreadsBatchSummary, ThreadsOutcome } from "@/lib/threads/types";
+import { browserTimeZone, fromZonedInput, threadsClock, toZonedInput, zoneNote, zonedDateKey } from "@/lib/threads/zone";
 import { autopilotHeader, formatThreadsStamp, summarizeThreadsToday, todayHeadline, todaySendsNote } from "@/lib/threads/todaySummary";
 import type { ThreadsReplyCounts, ThreadsReplyPolicy, ThreadsReplyPreview, ThreadsReplySummary } from "@/lib/threads/reply-summary";
 import type { XDailyPack, XPostFormat, XSuggestedPost, XSuggestedReply } from "@/types/domain";
@@ -99,11 +100,16 @@ function formatTime(time: string): string {
   return `${displayHours}:${String(minutes).padStart(2, "0")} ${meridiem}`;
 }
 
-/** Absolute local stamp, e.g. "Jul 22, 2:34 PM", for showing when a pack was written. */
-function formatStamp(iso: string): string {
+/** Absolute stamp, e.g. "Jul 22, 2:34 PM", in the autopilot's zone (the browser's only until that is known). */
+function formatStamp(iso: string, timeZone?: string): string {
   const date = new Date(iso);
   if (Number.isNaN(date.getTime())) return "unknown";
-  return date.toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+  return date.toLocaleString(undefined, { ...(timeZone ? { timeZone } : {}), month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+}
+
+/** The zone every time on this page is shown in: the autopilot's own, else the browser's until the status loads. */
+function pageZone(status: { settings: { timezone: string } } | null | undefined): string {
+  return status?.settings.timezone ?? browserTimeZone() ?? "UTC";
 }
 
 /** Human "how long ago" against a live `now`, so the batch's freshness is obvious at a glance. */
@@ -299,6 +305,10 @@ export function XPostsPage() {
     }
   });
 
+  // Every time below is the autopilot's clock. Say so once, but only when the
+  // browser's own clock would have read differently.
+  const zoneHint = autopilot.status ? zoneNote(autopilot.status.settings.timezone, browserTimeZone()) : null;
+
   return (
     <div>
       <PageHeader
@@ -308,7 +318,7 @@ export function XPostsPage() {
           // Promising that they post themselves is only true when autopilot is
           // actually armed, and the numbers are the configured cadence and the
           // pack actually written - not the generator's ideal of a full pack.
-          autopilotHeader({
+          `${autopilotHeader({
             postsPerDay: autopilot.status?.settings.postsPerDay ?? 0,
             accounts: autopilot.status?.settings.accounts.length ?? 0,
             linkReplies: autopilot.status?.settings.replyPolicy?.enabled === true,
@@ -318,7 +328,7 @@ export function XPostsPage() {
               ? { posts: activePack.posts.length, replies: activePack.replies.length, label: activePack.date === today ? "Today's pack" : `The pack for ${activePack.date}` }
               : null,
             known: autopilot.status !== null
-          })
+          })}${zoneHint ? ` ${zoneHint}.` : ""}`
         }
         actions={
           <Button onClick={() => generate(true)} disabled={generating || autopilot.busy !== null} className="shrink-0">
@@ -336,7 +346,7 @@ export function XPostsPage() {
 
       <TomorrowBanner status={autopilot.status} onReview={reviewTomorrow} />
 
-      {activePack ? <PackSummary pack={activePack} now={now} /> : null}
+      {activePack ? <PackSummary pack={activePack} now={now} timeZone={pageZone(autopilot.status)} /> : null}
 
       <div className="mt-6">
         <AdvancedOptions
@@ -461,20 +471,13 @@ type QueueItemView = {
   note?: string;
 };
 
-/** "7:10 AM" in the viewer's own clock. */
-function clock(iso: string): string {
-  return new Date(iso).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+/** "7:10 PM" on the autopilot's clock, whatever zone the browser is in. */
+function clock(iso: string, timeZone: string): string {
+  return threadsClock(iso, timeZone);
 }
 
-/** The value shape a datetime-local input wants: local wall clock, no zone. */
-function toLocalInput(iso: string): string {
-  const date = new Date(iso);
-  const pad = (value: number) => String(value).padStart(2, "0");
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
-}
-
-function friendlyDate(dateKey: string): string {
-  if (dateKey === localDateKey()) return "Today";
+function friendlyDate(dateKey: string, today: string): string {
+  if (dateKey === today) return "Today";
   const [y, m, d] = dateKey.split("-").map(Number);
   return new Date(y, (m ?? 1) - 1, d ?? 1).toLocaleDateString([], { weekday: "long", month: "short", day: "numeric" });
 }
@@ -539,17 +542,17 @@ function useAutopilot() {
    * starting right now, replacing whatever was still waiting to go out.
    */
   const scheduleNow = useCallback(
-    () => send({ action: "schedule-now" }, "schedule-now", (json) => describePlan(json.plan)),
-    [send]
+    () => send({ action: "schedule-now" }, "schedule-now", (json) => describePlan(json.plan, pageZone(status))),
+    [send, status]
   );
 
   return { status, busy, reload: load, send, scheduleNow, selectedDate, setSelectedDate };
 }
 
-function describePlan(plan: AutopilotActionResponse["plan"]): string {
+function describePlan(plan: AutopilotActionResponse["plan"], timeZone: string): string {
   if (!plan) return "Nothing to schedule.";
   if (plan.skipped) return plan.skipped;
-  const from = plan.startedAt ? ` from ${clock(plan.startedAt)}` : "";
+  const from = plan.startedAt ? ` from ${clock(plan.startedAt, timeZone)}` : "";
   const gap = plan.gapMinutes ? `, one every ${plan.gapMinutes} min` : "";
   const dropped = plan.droppedPastSlots
     ? ` ${plan.droppedPastSlots} didn't fit before midnight and were left out.`
@@ -578,7 +581,7 @@ function ReplyCounts({ counts }: { counts: ThreadsReplyCounts }) {
   );
 }
 
-function FollowUpReply({ reply, editing }: { reply: ThreadsReplyPreview; editing: boolean }) {
+function FollowUpReply({ reply, editing, timeZone }: { reply: ThreadsReplyPreview; editing: boolean; timeZone: string }) {
   return (
     <section aria-label="Follow-up reply" className="min-w-0 rounded-xl border border-[var(--border)] bg-[var(--panel)] p-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -593,8 +596,8 @@ function FollowUpReply({ reply, editing }: { reply: ThreadsReplyPreview; editing
       {reply.error && reply.error !== reply.detail ? <p className="mt-1 break-words text-xs tone-danger tone-text">{reply.error}</p> : null}
       {reply.nextAttemptAt && (reply.status === "pending" || reply.status === "retrying") ? (
         <p className="mt-1 text-xs text-[var(--muted-foreground)]">
-          Earliest {formatStamp(reply.nextAttemptAt)} · sent on the autopilot&apos;s next run
-          {reply.expiresAt ? ` · window ends ${formatStamp(reply.expiresAt)}` : ""}
+          Earliest {formatStamp(reply.nextAttemptAt, timeZone)} · sent on the autopilot&apos;s next run
+          {reply.expiresAt ? ` · window ends ${formatStamp(reply.expiresAt, timeZone)}` : ""}
         </p>
       ) : null}
       {editing ? <p className="mt-2 text-xs text-[var(--muted-foreground)]">Save your edit to refresh this reply preview.</p> : null}
@@ -775,6 +778,8 @@ function TomorrowBanner({ status, onReview }: { status: AutopilotProps["status"]
  * paused autopilot can still be inspected before it is resumed.
  */
 function NextRunPreview({ status, busy, send }: AutopilotProps) {
+  const zone = pageZone(status);
+  const today = status?.today.date ?? zonedDateKey(zone);
   const [result, setResult] = useState<{ outcomes: ThreadsOutcome[]; note?: string } | null>(null);
   const upcoming = useMemo(
     () => ((status?.items ?? []) as QueueItemView[]).filter((item) => item.status === "pending").sort((a, b) => a.publishAt.localeCompare(b.publishAt)).slice(0, 3),
@@ -819,8 +824,8 @@ function NextRunPreview({ status, busy, send }: AutopilotProps) {
           <ul className="space-y-1.5">
             {upcoming.map((item) => (
               <li key={item.id} className="text-xs text-[var(--muted-foreground)]">
-                <span className="tabular-nums text-white">{clock(item.publishAt)}</span>
-                {item.batchDate !== localDateKey() ? ` (${friendlyDate(item.batchDate)})` : ""} · {item.text.length > 140 ? `${item.text.slice(0, 140)}…` : item.text}
+                <span className="tabular-nums text-white">{clock(item.publishAt, zone)}</span>
+                {item.batchDate !== today ? ` (${friendlyDate(item.batchDate, today)})` : ""} · {item.text.length > 140 ? `${item.text.slice(0, 140)}…` : item.text}
               </li>
             ))}
           </ul>
@@ -832,6 +837,8 @@ function NextRunPreview({ status, busy, send }: AutopilotProps) {
 
 /** Write one Threads post by hand and put it on the same queue the autopilot drains. */
 function AddPostCard({ status, busy, send }: AutopilotProps) {
+  const zone = pageZone(status);
+  const today = status?.today.date ?? zonedDateKey(zone);
   const [text, setText] = useState("");
   const [when, setWhen] = useState<"soon" | "time">("soon");
   const [at, setAt] = useState("");
@@ -840,11 +847,12 @@ function AddPostCard({ status, busy, send }: AutopilotProps) {
   const needsTime = when === "time" && !at;
   const blocked = status?.blockedReason ?? null;
   const submit = async () => {
-    const instant = when === "time" ? new Date(at) : null;
-    if (instant && Number.isNaN(instant.getTime())) return;
+    // The time typed here is the autopilot's wall clock, not the browser's.
+    const instant = when === "time" ? fromZonedInput(at, zone) : null;
+    if (when === "time" && !instant) return;
     const json = await send({ action: "add", text: trimmed, ...(instant ? { at: instant.toISOString() } : {}) }, "add", (response) =>
       response.added
-        ? `Queued for ${clock(response.added.publishAt)} on ${friendlyDate(response.added.batchDate).toLowerCase()}.${response.paused ? " The autopilot is paused, so it waits until you resume." : ""}`
+        ? `Queued for ${clock(response.added.publishAt, zone)} on ${friendlyDate(response.added.batchDate, today).toLowerCase()}.${response.paused ? " The autopilot is paused, so it waits until you resume." : ""}`
         : "Queued."
     );
     if (json) setText("");
@@ -895,10 +903,12 @@ function AddPostCard({ status, busy, send }: AutopilotProps) {
 function AutopilotTab({ status, busy, send, selectedDate: selected, setSelectedDate: setSelected }: AutopilotProps) {
   const [editing, setEditing] = useState<string | null>(null);
   const [draft, setDraft] = useState("");
+  const zone = pageZone(status);
+  const today = status?.today.date ?? "";
 
   const items = useMemo(() => (status?.items ?? []) as QueueItemView[], [status]);
   const dates = useMemo(() => [...new Set(items.map((item) => item.batchDate))].sort().reverse(), [items]);
-  const active = selected && dates.includes(selected) ? selected : (dates[0] ?? localDateKey());
+  const active = selected && dates.includes(selected) ? selected : (dates[0] ?? today);
   const batch = useMemo(
     () => items.filter((item) => item.batchDate === active).sort((a, b) => a.publishAt.localeCompare(b.publishAt)),
     [items, active]
@@ -945,14 +955,14 @@ function AutopilotTab({ status, busy, send, selectedDate: selected, setSelectedD
                     : "border-[var(--border)] text-[var(--muted-foreground)] hover:text-white"
                 )}
               >
-                {friendlyDate(date)}
+                {friendlyDate(date, today)}
               </button>
             ))}
           </div>
           <p className="text-xs text-[var(--muted-foreground)]">
             {pending.length} still to send
             {pending.length > 0
-              ? ` · ${clock(pending[0].publishAt)} → ${clock(pending[pending.length - 1].publishAt)}`
+              ? ` · ${clock(pending[0].publishAt, zone)} → ${clock(pending[pending.length - 1].publishAt, zone)}`
               : ""}
           </p>
         </div>
@@ -1000,18 +1010,18 @@ function AutopilotTab({ status, busy, send, selectedDate: selected, setSelectedD
             {item.status === "pending" ? (
               <Input
                 type="datetime-local"
-                defaultValue={toLocalInput(item.publishAt)}
+                defaultValue={toZonedInput(item.publishAt, zone)}
                 onBlur={(event) => {
-                  const next = new Date(event.target.value);
-                  if (Number.isNaN(next.getTime()) || next.toISOString() === item.publishAt) return;
+                  const next = fromZonedInput(event.target.value, zone);
+                  if (!next || next.toISOString() === item.publishAt) return;
                   void send({ action: "reschedule", id: item.id, at: next.toISOString() }, `time-${item.id}`, () =>
-                    `Moved to ${clock(next.toISOString())}.`
+                    `Moved to ${clock(next.toISOString(), zone)}.`
                   );
                 }}
                 className="w-52"
               />
             ) : (
-              <span className="text-sm font-semibold text-white">{clock(item.publishAt)}</span>
+              <span className="text-sm font-semibold text-white">{clock(item.publishAt, zone)}</span>
             )}
             <Badge
               tone={
@@ -1079,7 +1089,7 @@ function AutopilotTab({ status, busy, send, selectedDate: selected, setSelectedD
             <p className="text-xs text-[var(--muted-foreground)]">{item.note}</p>
           ) : null}
 
-          {repliesByItem.has(item.id) ? <FollowUpReply reply={repliesByItem.get(item.id)!} editing={editing === item.id} /> : null}
+          {repliesByItem.has(item.id) ? <FollowUpReply reply={repliesByItem.get(item.id)!} editing={editing === item.id} timeZone={zone} /> : null}
 
           {(item.status === "failed" || item.status === "skipped") && editing !== item.id ? (
             // The copy was already written and approved; recovering it should
@@ -1151,7 +1161,7 @@ function AutopilotTab({ status, busy, send, selectedDate: selected, setSelectedD
   );
 }
 
-function PackSummary({ pack, now }: { pack: XDailyPack; now: number }) {
+function PackSummary({ pack, now, timeZone }: { pack: XDailyPack; now: number; timeZone: string }) {
   const first = pack.posts[0];
   const last = pack.posts[pack.posts.length - 1];
   const ageMs = now - new Date(pack.createdAt).getTime();
@@ -1197,8 +1207,8 @@ function PackSummary({ pack, now }: { pack: XDailyPack; now: number }) {
           Generated {relative}
         </span>
         <span className="text-[var(--muted-foreground)]">
-          Done {formatStamp(pack.createdAt)}
-          {pack.requestedAt ? ` · clicked ${formatStamp(pack.requestedAt)}` : ""}
+          Done {formatStamp(pack.createdAt, timeZone)}
+          {pack.requestedAt ? ` · clicked ${formatStamp(pack.requestedAt, timeZone)}` : ""}
           {took !== null ? ` · took ${took}s` : ""}
         </span>
         {stale ? (
