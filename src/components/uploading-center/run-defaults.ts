@@ -77,9 +77,15 @@ export function runHashtags(drafts: Array<Pick<ClipDraft, "title" | "caption">>)
   return tags;
 }
 
-/** "#AI #vibecoding #coding +7", or "no hashtags". Pure. */
+/**
+ * "#AI #vibecoding #coding +7", or "no hashtags chosen". Pure.
+ *
+ * "Chosen" because the cards offer ten suggestion chips that read like ten
+ * hashtags; none of them is on a clip until someone picks it (or a caption
+ * brings its own line), and this counts only what is on.
+ */
 export function hashtagSummary(tags: string[], shown = 3): string {
-  if (tags.length === 0) return "no hashtags";
+  if (tags.length === 0) return "no hashtags chosen";
   const head = tags.slice(0, shown).join(" ");
   return tags.length > shown ? `${head} +${tags.length - shown}` : head;
 }

@@ -74,6 +74,22 @@ describe("POST /api/publish format", () => {
   });
 });
 
+describe("POST /api/publish blank caption", () => {
+  beforeEach(() => {
+    enqueue.mockReset();
+    enqueue.mockResolvedValue({ id: "queued" });
+  });
+
+  it("hands a blank caption to enqueue, which writes one, instead of refusing the booking", async () => {
+    for (const caption of ["", "   "]) {
+      const response = await post({ ...base, caption });
+
+      expect(response.status).toBe(201);
+      expect(enqueue).toHaveBeenLastCalledWith(expect.objectContaining({ caption }));
+    }
+  });
+});
+
 const getBoard = async (query = "") => {
   const { GET } = await import("@/app/api/publish/route");
   return GET(new NextRequest(`http://localhost:3000/api/publish${query}`));

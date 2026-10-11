@@ -3,10 +3,12 @@
 import { useRef } from "react";
 import {
   CalendarClock,
+  Check,
   CheckCircle2,
   ExternalLink,
   GripVertical,
   Loader2,
+  Plus,
   Scissors,
   Sparkles,
   TriangleAlert
@@ -60,6 +62,62 @@ export const SUGGESTED_HASHTAGS = [
   "#automation",
   "#entrepreneur"
 ];
+
+/** What the empty caption box promises, and what really happens (see `schedule`). */
+export const CAPTION_EMPTY_PLACEHOLDER =
+  "Caption — left empty, one is written when you schedule (the clip title if no AI key is set)";
+
+/**
+ * How a hashtag chip says whether it is on. Every chip used to be the same
+ * outline, so ten suggestions read as ten hashtags the clip already carried
+ * (and a summary saying "no hashtags" read as wrong). Now ON is a filled chip
+ * with a tick, and OFF is an outline with a plus: the mark says what a click
+ * does as well as what is true now. Pure.
+ */
+export function hashtagChipStyle(selected: boolean): { className: string; mark: "check" | "plus" } {
+  return selected
+    ? {
+        mark: "check",
+        className:
+          "border-[var(--accent)] bg-[var(--accent)] font-medium text-[var(--accent-contrast)] hover:bg-[var(--accent-strong)]"
+      }
+    : {
+        mark: "plus",
+        className:
+          "border-[var(--border)] bg-transparent text-[var(--muted-foreground)] hover:border-[var(--accent)] hover:text-[var(--accent)]"
+      };
+}
+
+/** One hashtag chip: filled with a tick when on, outlined with a plus when off. */
+export function HashtagChip({
+  hashtag,
+  selected,
+  onClick,
+  toggles = false
+}: {
+  hashtag: string;
+  selected: boolean;
+  onClick: () => void;
+  /** A chip that can also be switched off (Customise); the card's only ever adds. */
+  toggles?: boolean;
+}) {
+  const { className, mark } = hashtagChipStyle(selected);
+  const Mark = mark === "check" ? Check : Plus;
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      {...(toggles ? { "aria-pressed": selected } : { "aria-label": `Add ${hashtag} to the title` })}
+      className={cn(
+        "inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] transition",
+        className
+      )}
+    >
+      <Mark className="h-3 w-3" aria-hidden />
+      {hashtag}
+    </button>
+  );
+}
 
 /** Append a hashtag to the title, keeping within the max title length. */
 export function appendHashtag(title: string, hashtag: string): string {
@@ -135,7 +193,7 @@ export function summarizePlatformState(
   switch (state.status) {
     case "scheduled":
       // Past its slot on a platform that publishes by itself: it should be live by now.
-      if (marker?.kind === "should-be-live") return { uploaded, note: `${marker.hint} (slot ${goLive})` };
+      if (marker?.kind === "should-be-live") return { uploaded, note: `${marker.hint} Slot was ${goLive}.` };
       // A TikTok inbox delivery is recorded as "scheduled" but is a draft the
       // creator still has to finish in the app; "Goes live" would be a lie.
       if (isTiktokInboxDraft(platform, state.status, item)) {
@@ -307,17 +365,15 @@ export function ClipCard({
               (hashtag) =>
                 !hasHashtag(draft.title, hashtag) && appendHashtag(draft.title, hashtag) !== draft.title
             ).map((hashtag) => (
-              <button
+              <HashtagChip
                 key={hashtag}
-                type="button"
+                hashtag={hashtag}
+                selected={false}
                 onClick={() => {
                   onDraftChange({ ...draft, title: appendHashtag(draft.title, hashtag) });
                   titleRef.current?.focus();
                 }}
-                className="inline-flex items-center rounded-full border border-[var(--border)] bg-[var(--surface)] px-2 py-0.5 text-[11px] text-[var(--muted-foreground)] transition hover:border-[var(--accent)] hover:text-[var(--accent)]"
-              >
-                {hashtag}
-              </button>
+              />
             ))}
           </div>
           <div className="flex items-center justify-between gap-2 pl-6">
@@ -350,7 +406,7 @@ export function ClipCard({
             placeholder={
               scheduledItems.length > 0
                 ? "Draft for new bookings - this does not change posts already scheduled"
-                : "Caption — leave empty to auto-generate on schedule"
+                : CAPTION_EMPTY_PLACEHOLDER
             }
             className={cn("min-h-16 py-2", captionFailed && "tone-warning tone-edge")}
           />

@@ -255,14 +255,17 @@ describe("a post whose slot has passed without going out", () => {
 
   it("says a scheduled YouTube post should be live, never Overdue", () => {
     const marker = pastSlotMarker("youtube", { status: "scheduled", postId: "abc123" }, behind, now);
-    expect(marker).toMatchObject({ kind: "should-be-live", label: "Should be live", hint: "Should be live - check YouTube" });
-    expect(shouldBeLiveHint("youtube")).toBe("Should be live - check YouTube");
+    expect(marker).toMatchObject({ kind: "should-be-live", label: "Should be live", hint: "Its slot passed - YouTube should have published it by now." });
+    expect(shouldBeLiveHint("youtube")).toBe("Its slot passed - YouTube should have published it by now.");
+    // The chip says "Should be live" and the button says "Check YouTube": the line repeats neither.
+    expect(marker?.hint).not.toContain(marker?.label);
+    expect(marker?.hint).not.toContain(marker?.linkLabel);
     expect(marker?.label).not.toBe(OVERDUE_LABEL);
   });
 
   it("says the same of a Facebook post Facebook is holding", () => {
     expect(pastSlotMarker("facebook", { status: "scheduled", postId: "123" }, behind, now)?.hint).toBe(
-      "Should be live - check Facebook"
+      "Its slot passed - Facebook should have published it by now."
     );
   });
 

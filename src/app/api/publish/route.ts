@@ -84,7 +84,8 @@ const enqueueSchema = z.object({
   clipPath: z.string().min(1).optional(),
   publishAt: z.string().min(1),
   title: z.string().min(1).optional(),
-  caption: z.string().min(1).optional(),
+  // Blank is allowed on purpose: enqueue treats it as "not given" and writes one (completePostMetadata).
+  caption: z.string().optional(),
   hashtags: z.array(z.string()).optional(),
   platforms: z.array(z.enum(["youtube", "instagram", "tiktok", "facebook"])).optional(),
   visibility: z.enum(["public", "private", "unlisted"]).optional(),

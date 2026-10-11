@@ -567,8 +567,16 @@ export function UploadingCenterPage() {
 
   const handleSchedule = useCallback(
     (clip: ReadyClip, override?: Partial<ClipDraft>) =>
-      schedule(clip, { ...draftFor(clip), ...override }),
-    [draftFor, schedule],
+      schedule(
+        clip,
+        { ...draftFor(clip), ...override },
+        {
+          // A caption written for an empty box lands in the box, so the card
+          // shows what was booked instead of staying blank.
+          onCaption: (caption) => putDraft(clip, { ...(draftBook.read()[clip.key] ?? draftFor(clip)), caption }),
+        },
+      ),
+    [draftBook, draftFor, putDraft, schedule],
   );
 
   // "Edit clip" → open this clip in the Clip Editor (the mirror of the editor's

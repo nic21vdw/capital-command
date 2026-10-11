@@ -190,8 +190,20 @@ describe("the hashtags a run is really going out with", () => {
     expect(draftHashtags({ title: "Plain", caption: "I love #coding so much" })).toEqual([]);
   });
 
+  it("counts the hashtags in a title and the ones a caption brings, together", () => {
+    const drafts = [
+      { title: "One #AI #coding", caption: "" },
+      { title: "Two", caption: `Words.\n\n${"#a #b #c #d"}` }
+    ];
+    expect(hashtagSummary(runHashtags(drafts))).toBe("#AI #coding #a +3");
+  });
+
+  it("says 'chosen', because the ten suggestion chips are not on any clip", () => {
+    expect(hashtagSummary([])).toBe("no hashtags chosen");
+  });
+
   it("only says 'no hashtags' when there truly are none", () => {
-    expect(hashtagSummary(runHashtags([{ title: "Plain", caption: "Just words." }]))).toBe("no hashtags");
+    expect(hashtagSummary(runHashtags([{ title: "Plain", caption: "Just words." }]))).toBe("no hashtags chosen");
     expect(hashtagSummary(["#a", "#b"])).toBe("#a #b");
   });
 });

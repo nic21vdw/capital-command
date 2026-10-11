@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Select } from "@/components/ui/select";
 import { bulkBookingLabel, bulkBookingParts, planAutoAssign, type ShortsCap } from "@/components/uploading-center/bulk";
-import { ClipCard, SUGGESTED_HASHTAGS } from "@/components/uploading-center/clip-card";
+import { ClipCard, HashtagChip, SUGGESTED_HASHTAGS } from "@/components/uploading-center/clip-card";
 import { hashtagSummary, runHashtags, type RunDefaults } from "@/components/uploading-center/run-defaults";
 import {
   PLATFORM_TARGET_LABELS,
@@ -284,20 +284,13 @@ export function ClipQueue({
               {SUGGESTED_HASHTAGS.map((hashtag) => {
                 const on = runDefaults.hashtags.includes(hashtag);
                 return (
-                  <button
+                  <HashtagChip
                     key={hashtag}
-                    type="button"
-                    aria-pressed={on}
+                    hashtag={hashtag}
+                    selected={on}
+                    toggles
                     onClick={() => toggleHashtag(hashtag)}
-                    className={cn(
-                      "inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] transition",
-                      on
-                        ? "border-[var(--accent)] bg-[var(--accent)]/15 text-[var(--accent)]"
-                        : "border-[var(--border)] bg-[var(--surface)] text-[var(--muted-foreground)] hover:border-[var(--accent)] hover:text-[var(--accent)]"
-                    )}
-                  >
-                    {hashtag}
-                  </button>
+                  />
                 );
               })}
             </div>

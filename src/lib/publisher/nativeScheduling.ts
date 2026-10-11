@@ -126,8 +126,13 @@ export const OVERDUE_HREF = "/automations";
 /** A scheduled YouTube/Facebook post whose slot has passed: the platform should have published it. */
 export const SHOULD_BE_LIVE_LABEL = "Should be live";
 
+/**
+ * The line under the chip. The chip already says "Should be live" and the
+ * button beside it says "Check <platform>", so the line adds the one thing
+ * neither does: why the board thinks so.
+ */
 export function shouldBeLiveHint(platform: PlatformId): string {
-  return `Should be live - check ${PLATFORM_NAMES[platform]}`;
+  return `Its slot passed - ${PLATFORM_NAMES[platform]} should have published it by now.`;
 }
 
 /** Whether a slot is far enough behind for a post that never went out to be called overdue. */

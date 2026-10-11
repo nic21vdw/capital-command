@@ -12,6 +12,7 @@ import { loadWorkflowJson, workflowLoadMessage } from "@/lib/marketing/workflow-
 import { nameClips } from "@/components/uploading-center/bulk";
 import { describeRearmResults, type RearmPlatformResult } from "@/components/uploading-center/failures";
 import {
+  NO_AI_CAPTION_SUMMARY_NOTE,
   bookedResult,
   isManualLeg,
   refusedResult,
@@ -1094,13 +1095,35 @@ export function useUploadingCenter(clipProjects: ClipProject[] = []) {
   );
 
   const schedule = useCallback(
-    async (clip: ReadyClip, draft: ClipDraft) => {
+    async (
+      clip: ReadyClip,
+      draft: ClipDraft,
+      options: {
+        /** Told the caption written for an empty box, so the card shows what was posted. */
+        onCaption?: (caption: string) => void;
+      } = {}
+    ) => {
       if (!draft.slotUtc) {
         errorToast("Pick a schedule slot first.");
         return false;
       }
       setBusy(`schedule:${clip.key}`);
       try {
+        // An empty caption box means "write one when I schedule", which is what
+        // its placeholder promises. Without this the post went out with no
+        // caption at all when no AI key was set. With no key the words are the
+        // clip's title (the same fallback the bulk button uses) and the toast
+        // below says so. A failed write is not fatal: enqueue writes one too.
+        let caption = draft.caption;
+        let usedTitle = false;
+        if (!caption.trim()) {
+          const written = await fetchTailoredCaption(clip, copyPlatformFor(draft.platform), draft.title);
+          if (written.ok && written.caption.trim()) {
+            caption = written.caption;
+            usedTitle = written.source === "fallback";
+            options.onCaption?.(caption);
+          }
+        }
         // If the trim/edits aren't baked into the current render, render them
         // now and post the fresh cut — so the upload is always the edited clip,
         // no round-trip through the editor required.
@@ -1142,7 +1165,7 @@ export function useUploadingCenter(clipProjects: ClipProject[] = []) {
                 title: draft.title.trim() || undefined,
                 // The AI caption's hashtag line travels as `hashtags`; left inside the
                 // caption, enqueue generated a second set on top of it.
-                ...captionRequestFields(draft.caption),
+                ...captionRequestFields(caption),
                 platforms: [platform],
                 // "public" is what makes YouTube honor publishAt: the video is
                 // uploaded private and YouTube flips it live at the slot time.
@@ -1180,12 +1203,17 @@ export function useUploadingCenter(clipProjects: ClipProject[] = []) {
           // One toast, a line per platform: "scheduled everywhere" used to hide
           // which platform refused and why.
           const summary = summarizeSchedule(results);
-          toast[summary.level](summary.title, {
-            description: summary.lines.join("\n"),
-            duration: summary.level === "success" ? 8000 : 15000,
+          const noKeyNote = usedTitle && booked.length > 0;
+          toast[noKeyNote && summary.level === "success" ? "warning" : summary.level](summary.title, {
+            description: [...summary.lines, ...(noKeyNote ? [NO_AI_CAPTION_SUMMARY_NOTE] : [])].join("\n"),
+            duration: summary.level === "success" && !noKeyNote ? 8000 : 15000,
             style: { whiteSpace: "pre-line" }
           });
           if (booked.length === 0) return false;
+        } else if (usedTitle) {
+          // Said beside the booking's own toast, not instead of it: the post is
+          // booked, and its caption is only the title.
+          toast.warning(NO_AI_CAPTION_SUMMARY_NOTE, { id: "caption-fallback", duration: 15000 });
         }
         await refresh({ channelRefresh: platforms.includes("youtube") });
         return true;
@@ -1193,7 +1221,7 @@ export function useUploadingCenter(clipProjects: ClipProject[] = []) {
         setBusy(null);
       }
     },
-    [activeAccountIds, announceScheduleOutcome, projectForClip, refresh]
+    [activeAccountIds, announceScheduleOutcome, fetchTailoredCaption, projectForClip, refresh]
   );
 
   /**

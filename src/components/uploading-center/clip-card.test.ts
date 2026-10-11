@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
   appendHashtag,
+  CAPTION_EMPTY_PLACEHOLDER,
+  hashtagChipStyle,
   summarizePlatformState,
   SUGGESTED_HASHTAGS,
   TITLE_MAX_LENGTH
@@ -105,8 +107,10 @@ describe("summarizePlatformState", () => {
 
   it("says a scheduled YouTube post past its slot should be live, not that it is overdue", () => {
     const youtube = summarizePlatformState("youtube", state({ status: "scheduled", postId: "vid123" }), item, zone, late);
-    expect(youtube.note).toMatch(/^Should be live - check YouTube \(slot /);
+    expect(youtube.note).toMatch(/^Its slot passed - YouTube should have published it by now\. Slot was /);
     expect(youtube.note).not.toMatch(/Overdue/);
+    // The chip beside the line already says "Should be live".
+    expect(youtube.note).not.toMatch(/Should be live/i);
   });
 
   it("does not call a TikTok inbox draft 'live' or 'nothing else needed'", () => {
@@ -149,5 +153,34 @@ describe("summarizePlatformState", () => {
     expect(utc.note).toContain("Thu, Jul 16");
     expect(utc.note).toContain("2:30");
     expect(utc.uploaded).toBe("Uploaded Thu, Jul 16");
+  });
+});
+
+describe("hashtag chips say whether they are on", () => {
+  it("fills a selected chip and ticks it", () => {
+    const on = hashtagChipStyle(true);
+    expect(on.mark).toBe("check");
+    expect(on.className).toContain("bg-[var(--accent)]");
+    expect(on.className).not.toContain("bg-transparent");
+  });
+
+  it("outlines an unselected chip and marks it with a plus", () => {
+    const off = hashtagChipStyle(false);
+    expect(off.mark).toBe("plus");
+    expect(off.className).toContain("bg-transparent");
+    expect(off.className).not.toContain("bg-[var(--accent)]");
+  });
+
+  it("never lets the two look alike", () => {
+    expect(hashtagChipStyle(true).className).not.toBe(hashtagChipStyle(false).className);
+    expect(hashtagChipStyle(true).mark).not.toBe(hashtagChipStyle(false).mark);
+  });
+});
+
+describe("the empty caption box", () => {
+  it("says what scheduling really does, including the no-AI-key case", () => {
+    expect(CAPTION_EMPTY_PLACEHOLDER).toMatch(/written when you schedule/);
+    expect(CAPTION_EMPTY_PLACEHOLDER).toMatch(/clip title if no AI key/);
+    expect(CAPTION_EMPTY_PLACEHOLDER).not.toMatch(/auto-generate/);
   });
 });

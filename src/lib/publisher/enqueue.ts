@@ -17,7 +17,7 @@ import {
   findDuplicateInQueue,
   type DuplicateCandidate
 } from "@/lib/publisher/duplicates";
-import { generateClipMetadata } from "@/lib/publisher/metadata";
+import { completePostMetadata } from "@/lib/publisher/postMetadata";
 import { withFacebookAlongsideInstagram } from "@/lib/publisher/metaPairing";
 import type { QueueWriter } from "@/lib/publisher/audit";
 import { newPlatformState, publishQueue, type PublishQueue } from "@/lib/publisher/queue";
@@ -294,13 +294,11 @@ export async function enqueue(options: EnqueueOptions): Promise<QueueItem> {
     allowDuplicate: options.allowDuplicate
   });
 
-  let { title, caption, hashtags } = options;
-  if (!title || !caption || !hashtags?.length) {
-    const generated = await generateClipMetadata(options.metadataSource ?? { streamTitle: path.basename(absolute) });
-    title ??= generated.title;
-    caption ??= generated.description;
-    hashtags = hashtags?.length ? hashtags : generated.hashtags;
-  }
+  // Whatever the request left blank is filled here, for every route in.
+  const { title: baseTitle, caption, hashtags } = await completePostMetadata(
+    options,
+    options.metadataSource ?? { streamTitle: path.basename(absolute) }
+  );
 
   const id = crypto.randomUUID().slice(0, 8);
 
@@ -309,12 +307,12 @@ export async function enqueue(options: EnqueueOptions): Promise<QueueItem> {
   // pipelines run the same finalizeTitle step, so emoji behaviour stays
   // consistent. With emoji disabled this returns the title unchanged.
   const finalized = await finalizeTitle({
-    baseTitle: title,
+    baseTitle,
     category: options.metadataSource?.topic,
     pipelineType: format,
     videoId: id
   });
-  title = finalized.title;
+  const title = finalized.title;
   const item: QueueItem = {
     id,
     clipPath: path.relative(process.cwd(), prepared.path),
@@ -448,15 +446,10 @@ export async function enqueueImagePost(options: EnqueueImageOptions): Promise<Qu
     allowDuplicate: options.allowDuplicate
   });
 
-  let { title, caption, hashtags } = options;
-  if (!title || !caption || !hashtags?.length) {
-    const generated = await generateClipMetadata(
-      options.metadataSource ?? { streamTitle: path.basename(absolutePaths[0]) }
-    );
-    title ??= generated.title;
-    caption ??= generated.description;
-    hashtags = hashtags?.length ? hashtags : generated.hashtags;
-  }
+  const { title, caption, hashtags } = await completePostMetadata(
+    options,
+    options.metadataSource ?? { streamTitle: path.basename(absolutePaths[0]) }
+  );
 
   const id = crypto.randomUUID().slice(0, 8);
   const relativePaths = absolutePaths.map((absolute) => path.relative(process.cwd(), absolute));
