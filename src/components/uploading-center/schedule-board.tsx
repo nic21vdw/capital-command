@@ -25,6 +25,7 @@ import {
   UPLOADING_NOW_MESSAGE,
   YOUTUBE_MAY_EXIST_MESSAGE,
   blockedLegControls,
+  primaryInlineAction,
   connectLinkLabel,
   legAccountId,
   publishNowSkipped,
@@ -500,6 +501,9 @@ function QueueEntryCard({
     (controls ? connectLinkLabel(controls, advice, PLATFORM_LABELS[platform]) : null) ??
     `${connectVerb} ${PLATFORM_LABELS[platform]}`;
   const showConnect = controls ? controls.connect !== null : awaitingConnection;
+  // The filled button is the one that fixes THIS failure (see primaryInlineAction).
+  const primaryAction = controls ? primaryInlineAction(controls) : showConnect ? "connect" : null;
+  const connectClass = primaryAction === "connect" ? INLINE_ACTION_PRIMARY : INLINE_ACTION_SECONDARY;
   const everyLegPublished = Object.values(item.platforms).every((leg) => leg?.status === "published");
   const youtubeVideoId = item.platforms.youtube?.postId;
 
@@ -774,19 +778,19 @@ function QueueEntryCard({
                 : (advice ? headline : waitingLine)}
             </p>
             <div className="flex flex-wrap items-center gap-2">
-              {/* The fix comes first: when a post needs a connection AND a new title,
-                  connecting is what unblocks it, and Rename is only the thing to do
-                  while there. Rename is the quieter button then; on its own it IS the fix. */}
+              {/* The filled button is the one that fixes THIS failure: Rename for a refused
+                  title (Connect is only there so the retry can work), Connect when the
+                  connection is what is missing. */}
               {showConnect && platform === "youtube" ? (
                 <a
                   href={`/api/auth/google?account=${encodeURIComponent(item.accountId ?? primaryAccountIdFor("youtube"))}`}
-                  className={INLINE_ACTION_PRIMARY}
+                  className={connectClass}
                 >
                   <Plug className="h-3 w-3" /> {connectText}
                 </a>
               ) : null}
               {showConnect && platform !== "youtube" ? (
-                <Link href="/settings#accounts" className={INLINE_ACTION_PRIMARY}>
+                <Link href="/settings#accounts" className={connectClass}>
                   <Plug className="h-3 w-3" /> {connectText}
                 </Link>
               ) : null}
@@ -799,7 +803,10 @@ function QueueEntryCard({
                       ? "Give the post a new title. It can be retried once the account is connected"
                       : "Give the post a new title, then retry it"
                   }
-                  className={showConnect ? INLINE_ACTION_SECONDARY : INLINE_ACTION}
+                  className={cn(
+                    primaryAction === "rename" ? INLINE_ACTION_PRIMARY : showConnect ? INLINE_ACTION_SECONDARY : INLINE_ACTION,
+                    primaryAction === "rename" && "order-first"
+                  )}
                 >
                   <Pencil className="h-3 w-3" /> {controls?.needsConnection ? "Rename" : "Rename and retry"}
                 </button>
@@ -823,7 +830,7 @@ function QueueEntryCard({
                 <button
                   type="button"
                   onClick={() => setShowRaw((shown) => !shown)}
-                  className="text-[10px] font-medium text-[var(--muted-foreground)] underline-offset-2 transition hover:text-white hover:underline max-sm:min-h-10 max-sm:px-2"
+                  className="text-[11px] font-medium text-[var(--muted-foreground)] underline-offset-2 transition hover:text-white hover:underline max-sm:min-h-10 max-sm:px-2"
                 >
                   {showRaw ? "Hide details" : "Details"}
                 </button>
@@ -931,19 +938,19 @@ function QueueEntryCard({
 
 /** The accent-outlined action under a card's failure line (Rename and retry, Connect TikTok, ...). */
 const INLINE_ACTION =
-  "inline-flex items-center gap-1 rounded-md border border-[var(--accent)]/50 px-1.5 py-0.5 text-[10px] font-medium text-[var(--accent)] transition hover:bg-[var(--accent)]/10 max-sm:min-h-10 max-sm:px-3";
+  "inline-flex items-center gap-1 rounded-md border border-[var(--accent)]/50 px-1.5 py-0.5 text-[11px] font-medium text-[var(--accent)] transition hover:bg-[var(--accent)]/10 max-sm:min-h-10 max-sm:px-3";
 
 /** The one action that unblocks a card (Connect YouTube to retry): filled, so it reads first. */
 const INLINE_ACTION_PRIMARY =
-  "inline-flex items-center gap-1 rounded-md border border-[var(--accent)] bg-[var(--accent)] px-1.5 py-0.5 text-[10px] font-medium text-[var(--accent-contrast)] transition hover:bg-[var(--accent-strong)] max-sm:min-h-10 max-sm:px-3";
+  "inline-flex items-center gap-1 rounded-md border border-[var(--accent)] bg-[var(--accent)] px-1.5 py-0.5 text-[11px] font-medium text-[var(--accent-contrast)] transition hover:bg-[var(--accent-strong)] max-sm:min-h-10 max-sm:px-3";
 
 /** The quieter action beside the primary fix (Rename next to Connect): same shape, no accent. */
 const INLINE_ACTION_SECONDARY =
-  "inline-flex items-center gap-1 rounded-md border border-[var(--border-strong)] px-1.5 py-0.5 text-[10px] font-medium text-[var(--muted-foreground)] transition hover:bg-white/8 hover:text-white max-sm:min-h-10 max-sm:px-3";
+  "inline-flex items-center gap-1 rounded-md border border-[var(--border-strong)] px-1.5 py-0.5 text-[11px] font-medium text-[var(--muted-foreground)] transition hover:bg-white/8 hover:text-white max-sm:min-h-10 max-sm:px-3";
 
 /** The text-labelled action buttons on a post card. */
 const ACTION_BUTTON =
-  "inline-flex shrink-0 items-center gap-1 rounded-md px-1 py-0.5 text-[10px] font-medium text-[var(--muted-foreground)] transition hover:bg-white/8 hover:text-white max-sm:min-h-10 max-sm:px-2.5";
+  "inline-flex shrink-0 items-center gap-1 rounded-md px-1 py-0.5 text-[11px] font-medium text-[var(--muted-foreground)] transition hover:bg-white/8 hover:text-white max-sm:min-h-10 max-sm:px-2.5";
 
 /**
  * A confirmation for an action that cannot be taken back from the board. It is

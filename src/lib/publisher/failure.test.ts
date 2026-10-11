@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { describeFailure, describeWaiting, duplicateTitleCleared, isConnectionFailure } from "@/lib/publisher/failure";
+import { describeFailure, describeWaiting, duplicateTitleCleared, isConnectionFailure, plainError } from "@/lib/publisher/failure";
 import { channelDuplicateMessage } from "@/lib/publisher/duplicateGuard";
 import { YOUTUBE_RECONNECT_FOR_SCOPE, YOUTUBE_RECONNECT_REQUIRED } from "@/lib/publisher/googleAuth";
 
@@ -248,5 +248,39 @@ describe("a manual reminder once the account is connected", () => {
     expect(advice.headline).toContain("Tue, Oct 13, 2:00 PM");
     const late = describeFailure(manual, "tiktok", { ...context, now: new Date("2026-10-14T00:00:00.000Z"), connected: true });
     expect(late.headline).toMatch(/Retry now/);
+  });
+});
+
+describe("plainError", () => {
+  it("replaces the YouTube adapter's env-var text", () => {
+    const raw =
+      "This YouTube account is not connected. Set YOUTUBE_CLIENT_ID and YOUTUBE_CLIENT_SECRET, then use Connect YouTube in the Uploading Center (or set YOUTUBE_REFRESH_TOKEN for the primary account).";
+    expect(plainError(raw)).toEqual({ text: "YouTube isn't connected - connect it in Settings, then try again.", notConnected: "youtube" });
+  });
+
+  it("finds it inside the removal route's longer message", () => {
+    const raw = `Not removed: YouTube already has this video and it could not be kept private (${"This YouTube account is not connected. Set YOUTUBE_CLIENT_ID and YOUTUBE_CLIENT_SECRET."}). It would still go live at its slot.`;
+    const plain = plainError(raw);
+    expect(plain.notConnected).toBe("youtube");
+    expect(plain.text).not.toMatch(/YOUTUBE_|Set /);
+  });
+
+  it("covers the other adapters' not-connected messages", () => {
+    expect(plainError("Instagram is not configured. Set IG_USER_ID and IG_ACCESS_TOKEN.")).toMatchObject({
+      text: "Instagram isn't connected - connect it in Settings, then try again.",
+      notConnected: "instagram"
+    });
+    expect(plainError("Facebook is not configured. Set FB_PAGE_ID and FB_PAGE_ACCESS_TOKEN.").notConnected).toBe("facebook");
+    expect(plainError("TikTok is not configured. Set TIKTOK_CLIENT_KEY, TIKTOK_CLIENT_SECRET and TIKTOK_REFRESH_TOKEN.").notConnected).toBe(
+      "tiktok"
+    );
+    expect(plainError("This TikTok account is not connected — open the Uploading Center and connect it.").notConnected).toBe("tiktok");
+    expect(plainError("tiktok credentials are not configured for this account.").notConnected).toBe("tiktok");
+  });
+
+  it("leaves every other message exactly as it was", () => {
+    for (const message of ["Could not remove that post.", "Video is too long for a Short.", "HTTP 500 from YouTube"]) {
+      expect(plainError(message)).toEqual({ text: message });
+    }
   });
 });

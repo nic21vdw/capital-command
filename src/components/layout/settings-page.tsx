@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect, useId, useState } from "react";
 import { AtSign, Download, Palette, Send, SlidersHorizontal, UserRound } from "lucide-react";
 import { OvernightConfirmDialog } from "@/components/automations/overnight-confirm";
 import { overnightConsequence } from "@/lib/automations/overnight";
@@ -267,6 +267,7 @@ function CarouselThemeCard() {
 function ClipDescriptionCard() {
   const { data, mutate } = useAppData();
   const saved = data.settings.clipDescription ?? "";
+  const headingId = useId();
   const [draft, setDraft] = useState(saved);
   const [lastSaved, setLastSaved] = useState(saved);
 
@@ -277,11 +278,12 @@ function ClipDescriptionCard() {
 
   return (
     <details className="mt-4 rounded-xl border border-[var(--border)] p-4">
-      <summary className="cursor-pointer font-medium text-white">Description added to every clip</summary>
+      <summary id={headingId} className="cursor-pointer font-medium text-white">Description added to every clip</summary>
       <p className="mt-3 text-sm text-[var(--muted-foreground)]">
         Add your links and handles below each clip upload. Leave it empty to add nothing.
       </p>
       <Textarea
+        aria-labelledby={headingId}
         className="mt-4 min-h-32"
         value={draft}
         spellCheck={false}

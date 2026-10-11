@@ -17,7 +17,7 @@ import {
 } from "@/components/uploading-center/use-uploading-center";
 import type { ClipJob } from "@/lib/clipping/types";
 import type { ScheduleSlot } from "@/lib/publisher/slots";
-import type { QueueItem } from "@/lib/publisher/types";
+import type { PlatformId, QueueItem } from "@/lib/publisher/types";
 import { cn } from "@/lib/utils";
 
 /**
@@ -65,7 +65,8 @@ export function ClipQueue({
   readOnlyReason,
   timeZone,
   aiCopyAvailable,
-  onShowOnBoard
+  onShowOnBoard,
+  isConnected
 }: {
   jobs: ClipJob[];
   activeJob: ClipJob | null;
@@ -122,6 +123,8 @@ export function ClipQueue({
   aiCopyAvailable?: boolean;
   /** Bring a booked clip's post into view on the board. */
   onShowOnBoard?: (item: QueueItem) => void;
+  /** Whether a post's account on a platform is connected (the booked row's status words). */
+  isConnected?: (platform: PlatformId, accountId: string) => boolean;
 }) {
   const autoAssigning = busy === "auto-assign";
   const writingCaptions = busy === "captions-all";
@@ -389,6 +392,7 @@ export function ClipQueue({
               timeZone={timeZone}
               aiCopyAvailable={aiCopyAvailable}
               onShowOnBoard={onShowOnBoard}
+              isConnected={isConnected}
               scheduledItems={itemsForClip(clip)}
               scheduling={busy === `schedule:${clip.key}`}
               highlighted={clip.key === highlightedKey}
