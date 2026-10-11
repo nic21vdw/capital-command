@@ -38,13 +38,17 @@ describe("summarizePlatformState", () => {
   const zone = "America/Toronto";
   const item = { publishAt: "2026-07-15T19:30:00.000Z", createdAt: "2026-07-14T10:00:00.000Z" };
   const state = (over: Partial<PlatformState>): PlatformState => ({ status: "pending", attempts: 0, ...over });
+  // Before the slot above, so these read as they would the day they were booked.
+  const early = new Date("2026-07-15T12:00:00.000Z");
+  const late = new Date("2026-07-16T12:00:00.000Z");
 
   it("confirms the upload day for a scheduled YouTube post", () => {
     const summary = summarizePlatformState(
       "youtube",
       state({ status: "scheduled", postId: "vid123", uploadedAt: "2026-07-14T10:00:05.000Z" }),
       item,
-      zone
+      zone,
+      early
     );
     expect(summary.uploaded).toMatch(/^Uploaded /);
     expect(summary.note).toMatch(/^Goes live /);
@@ -87,10 +91,22 @@ describe("summarizePlatformState", () => {
   });
 
   it("uses the board's wording for a post that has not gone up: only YouTube is 'Uploading'", () => {
-    expect(summarizePlatformState("youtube", state({ status: "pending" }), item, zone).note).toMatch(/^Uploading · slot /);
-    const instagram = summarizePlatformState("instagram", state({ status: "pending" }), item, zone);
+    expect(summarizePlatformState("youtube", state({ status: "pending" }), item, zone, early).note).toMatch(/^Uploading · slot /);
+    const instagram = summarizePlatformState("instagram", state({ status: "pending" }), item, zone, early);
     expect(instagram.note).toMatch(/^Posts at slot · slot /);
     expect(instagram.detail).toContain("no scheduling API");
+  });
+
+  it("calls a pending post whose slot passed Overdue, and points at Automations", () => {
+    const instagram = summarizePlatformState("instagram", state({ status: "pending" }), item, zone, late);
+    expect(instagram.note).toMatch(/^Overdue · slot /);
+    expect(instagram.detail).toBe("Its slot passed and the publisher hasn't sent it yet - check Automations");
+  });
+
+  it("says a scheduled YouTube post past its slot should be live, not that it is overdue", () => {
+    const youtube = summarizePlatformState("youtube", state({ status: "scheduled", postId: "vid123" }), item, zone, late);
+    expect(youtube.note).toMatch(/^Should be live - check YouTube \(slot /);
+    expect(youtube.note).not.toMatch(/Overdue/);
   });
 
   it("does not call a TikTok inbox draft 'live' or 'nothing else needed'", () => {

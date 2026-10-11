@@ -6,6 +6,7 @@ import {
   loadBookingSummary,
   saveBookingSummary
 } from "@/components/uploading-center/booking-summary-store";
+import { NO_AI_CAPTION_SUMMARY_NOTE } from "@/components/uploading-center/schedule-summary";
 
 function memoryStorage(initial: Record<string, string> = {}) {
   const data = new Map(Object.entries(initial));
@@ -24,6 +25,18 @@ describe("booking summary storage", () => {
     const storage = memoryStorage();
     saveBookingSummary("job-1", summary, 1000, storage);
     expect(loadBookingSummary("job-1", 2000, storage)).toEqual(summary);
+  });
+
+  it("keeps the no-AI-key sentence with the summary until it is dismissed", () => {
+    const storage = memoryStorage();
+    const withNote = {
+      level: "warning" as const,
+      message: `4 booked: Mon-Thu. ${NO_AI_CAPTION_SUMMARY_NOTE}`
+    };
+    saveBookingSummary("job-1", withNote, 1000, storage);
+    expect(loadBookingSummary("job-1", 2000, storage)?.message).toContain(NO_AI_CAPTION_SUMMARY_NOTE);
+    clearBookingSummary("job-1", storage);
+    expect(loadBookingSummary("job-1", 3000, storage)).toBeNull();
   });
 
   it("keeps each run's summary to itself", () => {

@@ -1,5 +1,6 @@
 import { usesTiktokInbox } from "@/lib/publisher/tiktokInbox";
-import type { PlatformId, QueueItem } from "@/lib/publisher/types";
+import { youtubeHoldsForReview } from "@/lib/publisher/reviewHold";
+import type { PlatformId, PlatformState, QueueItem } from "@/lib/publisher/types";
 
 /**
  * Which platforms take a post BEFORE its time and publish it themselves.
@@ -99,9 +100,97 @@ export type PendingContext = {
    * the board does not know, and the platform's own wording stands.
    */
   connected?: boolean;
+  /**
+   * The runner has this leg claimed right now (a fresh `claimedAt`): it is being
+   * sent, so a slot that has just passed is not "overdue" - it is in the middle
+   * of going out.
+   */
+  inFlight?: boolean;
   /** Writes the slot for the hint ("Tue, Oct 14, 3:00 PM"); absent, the hint says "its slot". */
   formatSlot?: (publishAt: string) => string;
 };
+
+/**
+ * How long after its slot a post may still be pending before the board calls it
+ * overdue. The publisher runs every few minutes and an upload takes a while, so
+ * a post a minute past its slot is on its way, not missed.
+ */
+export const OVERDUE_GRACE_MS = 10 * 60_000;
+
+/** A pending post whose slot is gone and which the publisher has not delivered. */
+export const OVERDUE_LABEL = "Overdue";
+export const OVERDUE_HINT = "Its slot passed and the publisher hasn't sent it yet - check Automations";
+export const OVERDUE_LINK_LABEL = "Check Automations";
+export const OVERDUE_HREF = "/automations";
+
+/** A scheduled YouTube/Facebook post whose slot has passed: the platform should have published it. */
+export const SHOULD_BE_LIVE_LABEL = "Should be live";
+
+export function shouldBeLiveHint(platform: PlatformId): string {
+  return `Should be live - check ${PLATFORM_NAMES[platform]}`;
+}
+
+/** Whether a slot is far enough behind for a post that never went out to be called overdue. */
+export function slotOverdue(publishAt: string, now: Date): boolean {
+  const slotMs = new Date(publishAt).getTime();
+  return Number.isFinite(slotMs) && now.getTime() - slotMs > OVERDUE_GRACE_MS;
+}
+
+/** True when the runner claimed this leg recently enough that it is still being worked on. */
+export function legInFlight(leg: Pick<PlatformState, "claimedAt"> | undefined, now: Date): boolean {
+  if (!leg?.claimedAt) return false;
+  const claimedMs = new Date(leg.claimedAt).getTime();
+  return Number.isFinite(claimedMs) && now.getTime() - claimedMs <= OVERDUE_GRACE_MS;
+}
+
+export type PastSlotMarker =
+  | { kind: "overdue"; label: string; hint: string; linkLabel: string; href: string }
+  | { kind: "should-be-live"; label: string; hint: string; linkLabel: string; href: null };
+
+/**
+ * The marker for a leg whose slot has passed without the board's usual ending.
+ *
+ * Two different truths, said differently:
+ *  - PENDING past its slot: nothing has been delivered. On every platform the
+ *    app is the one that sends it (YouTube's upload and an Instagram/TikTok/
+ *    Facebook post are all the runner's job), so the publisher has not run or
+ *    is blocked - "Overdue", and Automations is where to look.
+ *  - SCHEDULED past its slot on a platform that publishes by itself (YouTube,
+ *    Facebook): the platform holds it and should have gone live; the runner
+ *    flips it to published on its next pass. Not the app's fault and not an
+ *    overdue post - "Should be live", check the platform. A long-form YouTube
+ *    upload held private for review never goes live by itself, and a TikTok
+ *    inbox draft is finished in the app, so neither is marked.
+ *
+ * Quiet while the leg is waiting on something that explains it better: no
+ * connection, YouTube's quota, a claim in progress.
+ */
+export function pastSlotMarker(
+  platform: PlatformId,
+  leg: Pick<PlatformState, "status" | "postId" | "claimedAt">,
+  item: Pick<QueueItem, "publishAt" | "format"> & { clipPath?: string },
+  now: Date = new Date(),
+  context: PendingContext = {}
+): PastSlotMarker | null {
+  if (!slotOverdue(item.publishAt, now)) return null;
+  if (leg.status === "pending") {
+    if (context.connected === false) return null;
+    if (platform === "youtube" && context.youtubeQuotaFull) return null;
+    if (context.inFlight || legInFlight(leg, now)) return null;
+    return { kind: "overdue", label: OVERDUE_LABEL, hint: OVERDUE_HINT, linkLabel: OVERDUE_LINK_LABEL, href: OVERDUE_HREF };
+  }
+  if (leg.status === "scheduled" && PRE_SCHEDULES[platform] && leg.postId) {
+    if (platform === "youtube" && youtubeHoldsForReview(item)) return null;
+    return {
+      kind: "should-be-live",
+      label: SHOULD_BE_LIVE_LABEL,
+      hint: shouldBeLiveHint(platform),
+      linkLabel: `Check ${PLATFORM_NAMES[platform]}`,
+      href: null
+    };
+  }
+  return null;
+}
 
 function formatSlot(publishAt: string, context: PendingContext): string | undefined {
   return context.formatSlot?.(publishAt);
@@ -131,6 +220,7 @@ export function pendingLabel(
   if (!platform) return "Queued";
   if (context.connected === false) return waitingForConnectionLabel(platform);
   if (platform === "youtube" && context.youtubeQuotaFull) return QUOTA_WAIT_LABEL;
+  if (item && !context.inFlight && slotOverdue(item.publishAt, now)) return OVERDUE_LABEL;
   if (platform === "tiktok" && item && usesTiktokInbox(item)) return "To inbox at slot";
   if (item) return preSchedulesItem(platform, item, now) ? "Uploading" : "Posts at slot";
   return preSchedules(platform) ? "Uploading" : "Posts at slot";
@@ -224,6 +314,7 @@ export function pendingHint(
   if (platform === "youtube" && context.youtubeQuotaFull) {
     return "YouTube's upload limit for today is used up, so this waits and goes up after the quota resets (midnight Pacific). Nothing is lost.";
   }
+  if (item && !context.inFlight && slotOverdue(item.publishAt, now)) return OVERDUE_HINT;
   // Only a slot BEYOND the window gets the "further out than Facebook will
   // hold it" wording. One that is inside a quarter of an hour, or already past,
   // is also not pre-scheduled - and telling someone their overdue post is too

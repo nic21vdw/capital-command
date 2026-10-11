@@ -8,6 +8,10 @@ import {
   preSchedulesItem,
   TIKTOK_INBOX_CHIP,
   manualLabel,
+  OVERDUE_HINT,
+  OVERDUE_LABEL,
+  pastSlotMarker,
+  shouldBeLiveHint,
   waitingForConnectionHint,
   waitingForConnectionLabel
 } from "@/lib/publisher/nativeScheduling";
@@ -205,5 +209,75 @@ describe("a manual reminder on a chip", () => {
     ]) {
       expect(label).not.toMatch(/manual/i);
     }
+  });
+});
+
+describe("a post whose slot has passed without going out", () => {
+  const now = new Date("2026-10-11T12:00:00.000Z");
+  const behind = { publishAt: "2026-10-10T11:30:00.000Z", format: "short" as const };
+  const justPassed = { publishAt: "2026-10-11T11:55:00.000Z", format: "short" as const };
+  const ahead = { publishAt: "2026-10-14T11:30:00.000Z", format: "short" as const };
+
+  it("is Overdue, pointing at Automations, when a post the app sends itself is still pending", () => {
+    for (const platform of ["instagram", "tiktok", "facebook"] as const) {
+      expect(pendingLabel(platform, behind, now)).toBe(OVERDUE_LABEL);
+      expect(pendingHint(platform, behind, now)).toBe(OVERDUE_HINT);
+    }
+    expect(OVERDUE_HINT).toBe("Its slot passed and the publisher hasn't sent it yet - check Automations");
+    const marker = pastSlotMarker("instagram", { status: "pending" }, behind, now);
+    expect(marker).toMatchObject({ kind: "overdue", label: "Overdue", href: "/automations" });
+  });
+
+  it("is Overdue for a YouTube upload that never happened, too: nothing is on YouTube to publish it", () => {
+    expect(pendingLabel("youtube", behind, now)).toBe(OVERDUE_LABEL);
+    expect(pastSlotMarker("youtube", { status: "pending" }, behind, now)?.kind).toBe("overdue");
+  });
+
+  it("leaves a slot still to come, or one that only just passed, as it was", () => {
+    expect(pendingLabel("instagram", ahead, now)).toBe("Posts at slot");
+    expect(pendingLabel("instagram", justPassed, now)).toBe("Posts at slot");
+    expect(pastSlotMarker("instagram", { status: "pending" }, ahead, now)).toBeNull();
+    expect(pastSlotMarker("instagram", { status: "pending" }, justPassed, now)).toBeNull();
+  });
+
+  it("stays quiet while something else explains the wait: no connection, the quota, a claim in progress", () => {
+    expect(pendingLabel("instagram", behind, now, { connected: false })).toBe("Needs Instagram connection");
+    expect(pendingLabel("youtube", behind, now, { youtubeQuotaFull: true })).toBe("Waiting for quota");
+    expect(pastSlotMarker("instagram", { status: "pending" }, behind, now, { connected: false })).toBeNull();
+    expect(pastSlotMarker("youtube", { status: "pending" }, behind, now, { youtubeQuotaFull: true })).toBeNull();
+    const claimed = { status: "pending" as const, claimedAt: "2026-10-11T11:58:00.000Z" };
+    expect(pastSlotMarker("instagram", claimed, behind, now)).toBeNull();
+    expect(pendingLabel("instagram", behind, now, { inFlight: true })).toBe("Posts at slot");
+    // A claim that was never released (a crashed runner) does not hide the problem.
+    const stale = { status: "pending" as const, claimedAt: "2026-10-11T09:00:00.000Z" };
+    expect(pastSlotMarker("instagram", stale, behind, now)?.kind).toBe("overdue");
+  });
+
+  it("says a scheduled YouTube post should be live, never Overdue", () => {
+    const marker = pastSlotMarker("youtube", { status: "scheduled", postId: "abc123" }, behind, now);
+    expect(marker).toMatchObject({ kind: "should-be-live", label: "Should be live", hint: "Should be live - check YouTube" });
+    expect(shouldBeLiveHint("youtube")).toBe("Should be live - check YouTube");
+    expect(marker?.label).not.toBe(OVERDUE_LABEL);
+  });
+
+  it("says the same of a Facebook post Facebook is holding", () => {
+    expect(pastSlotMarker("facebook", { status: "scheduled", postId: "123" }, behind, now)?.hint).toBe(
+      "Should be live - check Facebook"
+    );
+  });
+
+  it("marks nothing that is not waiting on the platform or the publisher", () => {
+    // Not yet at the slot.
+    expect(pastSlotMarker("youtube", { status: "scheduled", postId: "abc" }, ahead, now)).toBeNull();
+    // No video id: there is nothing to check.
+    expect(pastSlotMarker("youtube", { status: "scheduled" }, behind, now)).toBeNull();
+    // A long-form upload is held private for review on purpose.
+    expect(pastSlotMarker("youtube", { status: "scheduled", postId: "abc" }, { ...behind, format: "long" }, now)).toBeNull();
+    // The other statuses already say what they are.
+    for (const status of ["published", "failed", "manual", "uploaded"] as const) {
+      expect(pastSlotMarker("youtube", { status, postId: "abc" }, behind, now)).toBeNull();
+    }
+    // Instagram/TikTok "scheduled" (an inbox draft) is finished in the app, not overdue.
+    expect(pastSlotMarker("tiktok", { status: "scheduled", postId: "p" }, behind, now)).toBeNull();
   });
 });

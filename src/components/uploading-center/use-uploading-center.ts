@@ -375,9 +375,6 @@ export type TailoredCaption =
 export const NO_AI_CAPTION_NOTICE = "No AI key set - used the clip title as the caption. Edit it before booking.";
 export const NO_AI_CAPTION_NOTICE_PLURAL =
   "No AI key set - used the clip titles as the captions. Edit them before booking.";
-/** The same fact once the clips are already booked: the way back is each post's Caption button. */
-export const NO_AI_CAPTION_NOTICE_BOOKED =
-  "No AI key set - the clip titles were used as captions. Edit them from each post's Caption button.";
 
 /** One clip a bulk caption pass could not write copy for, and why. */
 export type CaptionFailure = { clip: ReadyClip; error: string };
@@ -1257,7 +1254,12 @@ export function useUploadingCenter(clipProjects: ClipProject[] = []) {
    * fallback copy and nobody knew.
    */
   const autoAssign = useCallback(
-    async (assignments: Array<{ clip: ReadyClip; draft: ClipDraft }>, heldBack: ReadyClip[] = []) => {
+    async (
+      assignments: Array<{ clip: ReadyClip; draft: ClipDraft }>,
+      heldBack: ReadyClip[] = [],
+      /** A sentence to keep in the persisted summary (e.g. NO_AI_CAPTION_SUMMARY_NOTE). */
+      note?: string
+    ) => {
       if (assignments.length === 0) return;
       setBusy("auto-assign");
       // Counted in requests, not clips: a clip aimed at "All platforms" is
@@ -1337,7 +1339,8 @@ export function useUploadingCenter(clipProjects: ClipProject[] = []) {
           firstError,
           held,
           bookedSlots,
-          timeZone: timezone
+          timeZone: timezone,
+          note
         });
         // Said twice on purpose: the toast for the moment, and a line that stays
         // in the run's card until it is dismissed or the next booking. The button

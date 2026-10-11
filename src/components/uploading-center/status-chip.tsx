@@ -1,6 +1,10 @@
+import Link from "next/link";
 import { cn } from "@/lib/utils";
+import { remoteUrlFor } from "@/lib/publisher/remoteUrl";
 import {
   isTiktokInboxDraft,
+  legInFlight,
+  pastSlotMarker,
   manualHint,
   manualLabel,
   pendingHint,
@@ -10,7 +14,7 @@ import {
   TIKTOK_INBOX_HINT
 } from "@/lib/publisher/nativeScheduling";
 import { youtubeHoldsForReview } from "@/lib/publisher/reviewHold";
-import type { PlatformId, PlatformStatus, QueueItem } from "@/lib/publisher/types";
+import type { PlatformId, PlatformState, PlatformStatus, QueueItem } from "@/lib/publisher/types";
 
 /**
  * The Uploading Center's status colors, in the theme's own tones rather than a
@@ -49,6 +53,7 @@ export function StatusChip({
   youtubeQuotaFull,
   connected,
   slotLabel,
+  leg,
   className
 }: {
   status: ChipStatus;
@@ -63,6 +68,12 @@ export function StatusChip({
   connected?: boolean;
   /** The slot as the screen writes it, for the sentence under the chip ("Tue, Oct 14, 3:00 PM"). */
   slotLabel?: string;
+  /**
+   * The leg itself, when the chip is for one. With it a pending post whose slot
+   * passed reads "Overdue" (linked to Automations) and a scheduled YouTube or
+   * Facebook post past its slot reads "Should be live" (see pastSlotMarker).
+   */
+  leg?: Pick<PlatformState, "postId" | "claimedAt">;
   className?: string;
 }) {
   const chip = CHIPS[status];
@@ -72,8 +83,37 @@ export function StatusChip({
     item != null &&
     youtubeHoldsForReview(item);
   const inboxDraft = isTiktokInboxDraft(platform, status, item);
-  const context = { youtubeQuotaFull, connected, formatSlot: slotLabel ? () => slotLabel : undefined };
   const now = new Date();
+  const context = {
+    youtubeQuotaFull,
+    connected,
+    inFlight: legInFlight(leg, now),
+    formatSlot: slotLabel ? () => slotLabel : undefined
+  };
+  const marker =
+    platform && item && leg && (status === "pending" || status === "scheduled")
+      ? pastSlotMarker(platform, { status, postId: leg.postId, claimedAt: leg.claimedAt }, item, now, context)
+      : null;
+  if (marker) {
+    const href = marker.href ?? (platform ? remoteUrlFor(platform, leg?.postId) : null);
+    const classes = cn("chip", marker.kind === "overdue" ? "tone-danger" : "tone-warning", className);
+    const external = marker.href === null;
+    return href ? (
+      external ? (
+        <a href={href} target="_blank" rel="noreferrer" title={marker.hint} className={cn(classes, "underline-offset-2 hover:underline")}>
+          {marker.label}
+        </a>
+      ) : (
+        <Link href={href} title={marker.hint} className={cn(classes, "underline-offset-2 hover:underline")}>
+          {marker.label}
+        </Link>
+      )
+    ) : (
+      <span title={marker.hint} className={classes}>
+        {marker.label}
+      </span>
+    );
+  }
   const label =
     status === "pending"
       ? pendingLabel(platform, item, now, context)

@@ -35,8 +35,9 @@ import { WorkflowLoadNotice } from "@/components/marketing/workflow-load-notice"
 import { Tabs } from "@/components/ui/tabs";
 import { AccountSwitcher } from "@/components/uploading-center/account-switcher";
 import { ClipQueue } from "@/components/uploading-center/clip-queue";
-import { zoneTimeLabel } from "@/components/uploading-center/schedule-summary";
+import { NO_AI_CAPTION_SUMMARY_NOTE, zoneTimeLabel } from "@/components/uploading-center/schedule-summary";
 import { clipsNeedingCaption, nameClips, planAutoAssign, type ShortsCap } from "@/components/uploading-center/bulk";
+import { createDraftBook, type DraftMap } from "@/components/uploading-center/draft-book";
 import {
   collectFailedLegs,
   failureCounts,
@@ -65,7 +66,6 @@ import {
   DEFAULT_SLOT_OFFSET_DAYS,
   NO_AI_CAPTION_NOTICE,
   NO_AI_CAPTION_NOTICE_PLURAL,
-  NO_AI_CAPTION_NOTICE_BOOKED,
   PLATFORM_LABELS,
   PLATFORM_TARGET_LABELS,
   REARM_MAX_SLOT_AGE_HOURS,
@@ -214,19 +214,19 @@ export function UploadingCenterPage() {
   // itself is persisted to the backend clip on commit (blur/Enter); the caption
   // and target are saved in the browser, because losing an AI-written caption
   // to a reload or a job switch was the whole cost of this screen.
-  const [drafts, setDrafts] = useState<Record<string, ClipDraft>>({});
-  const draftsRef = useRef(drafts);
-  useEffect(() => {
-    draftsRef.current = drafts;
-  }, [drafts]);
+  const [drafts, setDrafts] = useState<DraftMap>({});
+  // Every write goes through the book, which is current the instant it is made;
+  // `drafts` is only what the cards render. A bulk action reads the book right
+  // after its last write, with no render in between (see draft-book.ts).
+  const [draftBook] = useState(() => createDraftBook(setDrafts));
   const draftFor = useCallback(
     (clip: ReadyClip): ClipDraft => drafts[clip.key] ?? draftWithDefaults(clip, runDefaults),
     [drafts, runDefaults],
   );
   const putDraft = useCallback((clip: ReadyClip, draft: ClipDraft) => {
-    setDrafts((current) => ({ ...current, [clip.key]: draft }));
+    draftBook.put(clip.key, draft);
     writeClipDraft(clip.key, draft, clip.headline);
-  }, []);
+  }, [draftBook]);
 
   // Restore saved drafts for whichever run is on screen. Clips with nothing
   // saved are left out of the map on purpose, so they keep following the run
@@ -235,7 +235,7 @@ export function UploadingCenterPage() {
     if (readyClips.length === 0) return;
     queueMicrotask(() => {
       const stored = readClipDrafts();
-      setDrafts((current) => {
+      draftBook.update((current) => {
         let next = current;
         for (const clip of readyClips) {
           if (next[clip.key] || !stored[clip.key]) continue;
@@ -249,7 +249,7 @@ export function UploadingCenterPage() {
         return next;
       });
     });
-  }, [readyClips, runDefaults]);
+  }, [draftBook, readyClips, runDefaults]);
 
   // Changing the run defaults re-aims the cards already on screen, not just the
   // ones drawn next — dropped hashtags leave every title, new ones join it.
@@ -258,16 +258,17 @@ export function UploadingCenterPage() {
       setRunDefaults(next);
       writeRunDefaults(next);
       const updated: Record<string, ClipDraft> = {};
+      const latest = draftBook.read();
       for (const clip of readyClips) {
-        const existing = drafts[clip.key];
+        const existing = latest[clip.key];
         if (!existing) continue;
         const redrafted = redraftWithDefaults(existing, runDefaults, next);
         updated[clip.key] = redrafted;
         writeClipDraft(clip.key, redrafted, clip.headline);
       }
-      setDrafts((current) => ({ ...current, ...updated }));
+      draftBook.update((current) => ({ ...current, ...updated }));
     },
-    [drafts, readyClips, runDefaults],
+    [draftBook, readyClips, runDefaults],
   );
 
   const onDraftChange = useCallback(
@@ -292,7 +293,7 @@ export function UploadingCenterPage() {
       const draft = draftFor(clip);
       const result = await tailorCaption(clip, copyPlatformFor(draft.platform), draft.title);
       if (!result) return;
-      putDraft(clip, { ...(draftsRef.current[clip.key] ?? draft), caption: result.caption });
+      putDraft(clip, { ...(draftBook.read()[clip.key] ?? draft), caption: result.caption });
       const label = copyTargetLabel(draft.platform);
       if (result.source === "fallback") {
         // No model answered; the caption is the clip title. Never call that "tailored".
@@ -307,7 +308,7 @@ export function UploadingCenterPage() {
         toast.success(`Caption tailored for ${label}.`);
       }
     },
-    [draftFor, putDraft, tailorCaption],
+    [draftBook, draftFor, putDraft, tailorCaption],
   );
 
   // Surface the OAuth redirect result: an inline banner plus a toast raised
@@ -651,8 +652,8 @@ export function UploadingCenterPage() {
   // Read through the ref, not through `drafts`: the bulk actions below await
   // between clips, and each one has to see the captions the previous ones wrote.
   const latestDraftFor = useCallback(
-    (clip: ReadyClip): ClipDraft => draftsRef.current[clip.key] ?? draftWithDefaults(clip, runDefaults),
-    [runDefaults],
+    (clip: ReadyClip): ClipDraft => draftBook.read()[clip.key] ?? draftWithDefaults(clip, runDefaults),
+    [draftBook, runDefaults],
   );
   const isScheduled = useCallback(
     (clip: ReadyClip) => itemsForClip(clip).length > 0,
@@ -722,10 +723,10 @@ export function UploadingCenterPage() {
     // before booking it asks for an edit, after booking it points at each post's Caption button.
     const pass = missing.length > 0 ? await fillCaptions(missing, { deferFallbackNotice: true }) : null;
     const usedTitles = (pass?.usedTitle ?? 0) > 0 && (pass?.failed.length ?? 0) === 0;
-    const sayNoAiKey = (booked: boolean) => {
-      if (usedTitles) {
-        toast.warning(booked ? NO_AI_CAPTION_NOTICE_BOOKED : NO_AI_CAPTION_NOTICE_PLURAL, { id: "caption-fallback" });
-      }
+    // Nothing booked: the toast is all there is, and it asks for an edit before booking.
+    // Booked: the sentence rides in the booking summary, which stays until dismissed.
+    const sayNoAiKey = () => {
+      if (usedTitles) toast.warning(NO_AI_CAPTION_NOTICE_PLURAL, { id: "caption-fallback" });
     };
     // A clip whose caption failed is NOT scheduled. Posting it anyway would send
     // fallback copy under a success toast, which is indistinguishable from a
@@ -746,7 +747,7 @@ export function UploadingCenterPage() {
       ? `Every open day in this window already holds ${shortsCap.limit} short${shortsCap.limit === 1 ? "" : "s"} - page the calendar forward to book later.`
       : "";
     if (assignments.length === 0) {
-      sayNoAiKey(false);
+      sayNoAiKey();
       if (heldBack.length > 0) {
         toast.error(
           `Nothing scheduled — no AI caption for ${nameClips(heldBack.map((clip) => clip.headline))}. Retry the captions, or write them yourself.`,
@@ -769,8 +770,7 @@ export function UploadingCenterPage() {
           : `${unslotted} clip${unslotted === 1 ? "" : "s"} left unassigned — the schedule ran out of open slots.`,
       );
     }
-    await autoAssign(assignments, heldBack);
-    sayNoAiKey(true);
+    await autoAssign(assignments, heldBack, usedTitles ? NO_AI_CAPTION_SUMMARY_NOTE : undefined);
   }, [
     autoAssign,
     fillCaptions,
