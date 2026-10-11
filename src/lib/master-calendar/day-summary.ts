@@ -1,6 +1,7 @@
 import {
   CALENDAR_SOURCES,
   type CalendarSource,
+  isAwaitingConnectionEventStatus,
   isNeedsConnectionEventStatus,
   isOverdueEventStatus,
   isShouldBeLiveEventStatus,
@@ -19,6 +20,8 @@ import {
  * What a source-native status means once it is only about "is this done".
  * `shouldBeLive`, `overdue` and `needsConnection` are posts whose slot has passed: they
  * are not "still to go" (the day's count of what remains) and not failures.
+ * `needsConnection` also holds a post still AHEAD of its slot whose account is
+ * not connected: it is still to go, but it is flagged instead of reading as queued.
  */
 export type SummaryState = "published" | "scheduled" | "shouldBeLive" | "overdue" | "needsConnection" | "failed" | "skipped" | "pending";
 
@@ -76,7 +79,8 @@ export function summaryState(status: string): SummaryState {
   if (FAILED.has(value)) return "failed";
   if (isShouldBeLiveEventStatus(value)) return "shouldBeLive";
   if (isOverdueEventStatus(value)) return "overdue";
-  if (isNeedsConnectionEventStatus(value)) return "needsConnection";
+  // Before its slot or after it, a leg that cannot go out for want of a connection is flagged the same way.
+  if (isNeedsConnectionEventStatus(value) || isAwaitingConnectionEventStatus(value)) return "needsConnection";
   if (SKIPPED.has(value)) return "skipped";
   if (SCHEDULED.has(value)) return "scheduled";
   return "pending";

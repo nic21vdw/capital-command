@@ -77,6 +77,12 @@ describe("a post past its slot", () => {
     expect(summaryState("Needs connection")).toBe("needsConnection");
   });
 
+  it("flags a post still ahead of its slot on an unconnected account the same way, not as scheduled", () => {
+    expect(summaryState("awaiting connection")).toBe("needsConnection");
+    const summary = buildDaySummary("2026-08-22", [event({ id: "a", status: "awaiting connection" }), event({ id: "b", status: "queued" })]);
+    expect(summary.states).toMatchObject({ needsConnection: 1, scheduled: 1, overdue: 0 });
+  });
+
   it("reads the stored status case-insensitively", () => {
     expect(summaryState("Should be live")).toBe("shouldBeLive");
     expect(summaryState("overdue")).toBe("overdue");

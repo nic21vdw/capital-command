@@ -13,7 +13,7 @@ import {
   CALENDAR_SOURCES,
   CALENDAR_SOURCE_BY_ID,
   eventHref,
-  eventStatusLabel,
+  isAwaitingConnectionEventStatus,
   isFailedEventStatus,
   isLateEventStatus,
   isNeedsConnectionEventStatus,
@@ -24,6 +24,7 @@ import {
   type MasterCalendarEvent,
   type MasterCalendarResponse
 } from "@/lib/master-calendar/types";
+import { summarizeEventStatus } from "@/lib/master-calendar/legSummary";
 import type { CalendarPlan } from "@/lib/master-calendar/planner";
 import { sourceHrefForDay } from "@/lib/master-calendar/aggregate";
 import { formatDayKey, localTodayKey, shiftDayKey, weekdayOfDayKey } from "@/lib/master-calendar/day-keys";
@@ -74,15 +75,29 @@ function statusTone(status: string): BadgeTone {
   if (status === "published" || status === "posted") return "success";
   if (isFailedEventStatus(status)) return "danger";
   if (status === "scheduled") return "info";
-  if (isLateEventStatus(status)) return "warning";
+  if (isLateEventStatus(status) || isAwaitingConnectionEventStatus(status)) return "warning";
   return "neutral";
 }
 
 const HELD_NOTE = "Stays private - publish by hand after review";
 
-/** Why a post past its slot is flagged, in the Uploading Center's words. */
+/** The slot as a tooltip writes it: "Oct 14, 15:00" (the month view's day is not on screen). */
+function slotLabel(event: MasterCalendarEvent): string {
+  return `${formatDayKey(event.dateKey, { month: "short", day: "numeric" })}${event.time ? `, ${event.time}` : ""}`;
+}
+
+/**
+ * Why a post past its slot, or waiting on a connection, is flagged, in the
+ * Uploading Center's words. A post whose platforms differ says so platform by
+ * platform instead of putting one chip's wording over all of them.
+ */
 function lateNote(event: MasterCalendarEvent): string {
-  if (isNeedsConnectionEventStatus(event.status)) return `${eventStatusLabel(event.status, event)} - its slot passed and nothing could be sent; connect it in Settings > Accounts`;
+  const summary = summarizeEventStatus(event, { when: slotLabel(event) });
+  if (summary.mixed) return summary.headline;
+  if (isAwaitingConnectionEventStatus(event.status)) {
+    return `${summary.label} - connect it in Settings > Accounts before ${slotLabel(event)} to post automatically, or post it by hand`;
+  }
+  if (isNeedsConnectionEventStatus(event.status)) return `${summary.label} - its slot passed and nothing could be sent; connect it in Settings > Accounts`;
   if (!isShouldBeLiveEventStatus(event.status)) return "Overdue - its slot passed and the publisher has not sent it; check Automations";
   const platforms = (event.legs ?? []).filter((leg) => leg.late === "should-be-live").map((leg) => leg.platform);
   return `Should be live - its slot passed; check ${platforms.join(" / ") || "the platform"}`;
@@ -93,7 +108,7 @@ function eventNote(event: MasterCalendarEvent): string {
   const notes: string[] = [];
   if (isReminderEventStatus(event.status)) notes.push("Reminder - post it by hand, the app does not publish this");
   if (event.failedPlatforms?.length) notes.push(`${event.status} on ${event.failedPlatforms.join(", ")}`);
-  if (isLateEventStatus(event.status)) notes.push(lateNote(event));
+  if (isLateEventStatus(event.status) || isAwaitingConnectionEventStatus(event.status)) notes.push(lateNote(event));
   if (event.heldForReview) notes.push(HELD_NOTE);
   return notes.length ? ` (${notes.join("; ")})` : "";
 }
@@ -117,6 +132,7 @@ function EventChip({ event }: { event: MasterCalendarEvent }) {
       <span className={cn("min-w-0 truncate", reminder ? "text-[var(--muted-foreground)]" : "text-white")}>{event.title}</span>
       {isFailedEventStatus(event.status) ? <AlertTriangle className="h-2.5 w-2.5 shrink-0 text-red-300" aria-label={event.status} /> : null}
       {isLateEventStatus(event.status) ? <Clock className="h-2.5 w-2.5 shrink-0 text-amber-300" aria-label={lateNote(event)} /> : null}
+      {isAwaitingConnectionEventStatus(event.status) ? <AlertTriangle className="h-2.5 w-2.5 shrink-0 text-amber-300" aria-label={lateNote(event)} /> : null}
       {event.heldForReview ? <Lock className="h-2.5 w-2.5 shrink-0 text-amber-300" aria-label={HELD_NOTE} /> : null}
       {event.recurring ? <Repeat className="h-2.5 w-2.5 shrink-0 text-[var(--muted-foreground)]" /> : null}
     </Link>
@@ -173,11 +189,17 @@ function SourceGroupChip({ source, events }: { source: CalendarSource; events: M
 function EventCard({ event }: { event: MasterCalendarEvent }) {
   const source = CALENDAR_SOURCE_BY_ID[event.source];
   const reminder = isReminderEventStatus(event.status);
+  const summary = summarizeEventStatus(event, { when: slotLabel(event) });
+  const statusLine = summary.mixed
+    ? summary.headline
+    : isAwaitingConnectionEventStatus(event.status)
+      ? summary.lines.find((line) => line.kind === "needsConnection")?.text
+      : undefined;
   return (
     <Link
       href={eventHref(event)}
       className={cn(
-        "group flex items-center gap-3 rounded-lg border px-3 py-2.5 transition hover:border-[var(--border-strong)] hover:bg-white/10",
+        "group flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg border px-3 py-2.5 transition hover:border-[var(--border-strong)] hover:bg-white/10",
         reminder ? "border-dashed border-[var(--border-strong)] bg-transparent opacity-85" : "border-[var(--border)] border-l-2 bg-white/5"
       )}
       style={reminder ? undefined : { borderLeftColor: source.color }}
@@ -197,8 +219,10 @@ function EventCard({ event }: { event: MasterCalendarEvent }) {
         {event.heldForReview ? <span className="mt-0.5 block text-xs text-amber-300">{HELD_NOTE}</span> : null}
       </span>
       {event.recurring ? <Repeat className="h-3.5 w-3.5 shrink-0 text-[var(--muted-foreground)]" /> : null}
-      <Badge tone={statusTone(event.status)} className={cn("shrink-0", !isLateEventStatus(event.status) && "capitalize", reminder && "border-dashed")}>{eventStatusLabel(event.status, event)}</Badge>
+      <Badge tone={statusTone(event.status)} className={cn("shrink-0", summary.label === event.status && "capitalize", reminder && "border-dashed")}>{summary.label}</Badge>
       <ArrowUpRight className="h-3.5 w-3.5 shrink-0 text-[var(--muted-foreground)] opacity-0 transition group-hover:opacity-100" />
+      {/* Its own full-width line: squeezed between the time and the chip it wrapped to four words a line at phone width. */}
+      {statusLine ? <span className="basis-full text-xs text-amber-300">{statusLine}</span> : null}
     </Link>
   );
 }

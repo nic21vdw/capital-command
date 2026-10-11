@@ -96,6 +96,24 @@ describe("per-platform outcomes", () => {
     expect(summary.totals).toMatchObject({ scheduled: 1, shouldBeLive: 1, overdue: 1, needsConnection: 1 });
   });
 
+  it("flags a leg still ahead of its slot on an unconnected account without also counting it as 'still to go'", () => {
+    const summary = buildWeekSummary({
+      endKey: "2026-10-11",
+      events: [
+        event({
+          platforms: ["YouTube", "Instagram"],
+          status: "awaiting connection",
+          legs: [
+            { platform: "YouTube", status: "scheduled" },
+            { platform: "Instagram", status: "pending", awaitingConnection: true }
+          ]
+        })
+      ]
+    });
+    expect(row(summary, "instagram")).toMatchObject({ needsConnection: 1, scheduled: 0 });
+    expect(row(summary, "youtube")).toMatchObject({ scheduled: 1, needsConnection: 0 });
+  });
+
   it("reads Threads and Facebook library posts from the event's own status", () => {
     const summary = buildWeekSummary({
       endKey: "2026-10-11",

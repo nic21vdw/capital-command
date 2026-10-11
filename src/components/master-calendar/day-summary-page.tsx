@@ -31,13 +31,12 @@ import { buildWeekSummary, WEEK_DAYS } from "@/lib/master-calendar/weekSummary";
 import { dayViewsLabel, sameAsWeek } from "@/lib/master-calendar/viewsCopy";
 import { YoutubeAge } from "@/components/publisher/youtube-age";
 import { YoutubeStatsLine } from "@/components/publisher/youtube-stats-line";
+import { summarizeEventStatus, type LegGroupLine } from "@/lib/master-calendar/legSummary";
 import { WeekSummaryCard } from "@/components/master-calendar/week-summary-card";
 import { PlatformIcon, type PlatformIconKey } from "@/components/ui/platform-icon";
 import {
   CONNECT_HREF,
   eventHref,
-  eventStatusLabel,
-  isLateEventStatus,
   isReminderEventStatus,
   type MasterCalendarEvent,
   type MasterCalendarResponse
@@ -126,9 +125,60 @@ function StateChips({ states, className }: { states: Record<SummaryState, number
   );
 }
 
+/**
+ * What each platform of a post that needs a look is doing, one line per state.
+ * A post whose platforms agree only lists the lines that need action (the chip
+ * already says the rest); a mixed one lists them all, so "Mixed" is never left
+ * unexplained. Failures and by-hand posts have their own lists on the card.
+ */
+function LegStatusLines({ lines, mixed }: { lines: LegGroupLine[]; mixed: boolean }) {
+  const shown = lines.filter((line) =>
+    mixed ? line.kind !== "failed" : line.kind === "needsConnection" || line.kind === "overdue" || line.kind === "shouldBeLive"
+  );
+  if (shown.length === 0) return null;
+  const link = "inline-flex items-center gap-0.5 whitespace-nowrap font-medium text-[var(--accent)] hover:underline";
+  return (
+    <ul className="relative z-10 mt-1.5 space-y-1">
+      {shown.map((line) => {
+        const Icon = line.attention ? Clock : CheckCircle2;
+        return (
+          <li key={line.kind} className={cn("flex items-start gap-1 text-xs", line.attention ? "text-amber-300" : "text-[var(--muted-foreground)]")}>
+            <Icon className="mt-0.5 h-3 w-3 shrink-0" />
+            <span className="min-w-0">
+              {line.text}{" "}
+              {line.action === "connect" ? (
+                <Link href={CONNECT_HREF} className={link}>
+                  {line.platforms.length === 1 ? `Connect ${line.platforms[0]}` : "Connect accounts"}
+                  <ArrowUpRight className="h-3 w-3" />
+                </Link>
+              ) : line.action === "check" ? (
+                line.platforms.map((platform) => {
+                  const checkUrl = platformCheckUrl(platform);
+                  return checkUrl ? (
+                    <a key={platform} href={checkUrl} target="_blank" rel="noreferrer" className={cn(link, "mr-2")}>
+                      Check {platform}
+                      <ExternalLink className="h-3 w-3" />
+                    </a>
+                  ) : null;
+                })
+              ) : line.action === "automations" ? (
+                <Link href={OVERDUE_HREF} className={link}>
+                  {OVERDUE_LINK_LABEL}
+                  <ArrowUpRight className="h-3 w-3" />
+                </Link>
+              ) : null}
+            </span>
+          </li>
+        );
+      })}
+    </ul>
+  );
+}
+
 /** One scheduled piece: its frame, when it goes, where, and a way in. */
 function PieceCard({ event, cachedStat }: { event: MasterCalendarEvent; cachedStat?: YoutubeStat }) {
   const state = summaryState(event.status);
+  const status = summarizeEventStatus(event);
   // A clip that is no longer on this machine 404s its frame, and a broken
   // image reads as "this piece is broken" when only the file has moved.
   const [frameMissing, setFrameMissing] = useState(false);
@@ -172,8 +222,8 @@ function PieceCard({ event, cachedStat }: { event: MasterCalendarEvent; cachedSt
           <ArrowUpRight className="mt-0.5 h-3.5 w-3.5 shrink-0 text-[var(--muted-foreground)] opacity-0 transition group-hover:opacity-100" />
         </div>
         <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
-          <Badge tone={STATE_TONES[state]} className={cn(!isLateEventStatus(event.status) && "capitalize", isReminderEventStatus(event.status) && "border-dashed")}>
-            {eventStatusLabel(event.status, event)}
+          <Badge tone={STATE_TONES[state]} className={cn(status.label === event.status && "capitalize", isReminderEventStatus(event.status) && "border-dashed")}>
+            {status.label}
           </Badge>
           {event.recurring ? (
             <Badge className="gap-1 border-white/10 bg-white/5 text-[var(--muted-foreground)]">
@@ -208,41 +258,7 @@ function PieceCard({ event, cachedStat }: { event: MasterCalendarEvent; cachedSt
             Failed on {event.failedPlatforms.join(", ")}
           </p>
         ) : null}
-        {(event.legs ?? []).some((leg) => leg.late) ? (
-          <ul className="relative z-10 mt-1.5 space-y-1">
-            {(event.legs ?? []).filter((leg) => leg.late).map((leg) => {
-              const checkUrl = leg.late === "should-be-live" ? platformCheckUrl(leg.platform) : null;
-              return (
-                <li key={leg.platform} className="flex items-start gap-1 text-xs text-amber-300">
-                  <Clock className="mt-0.5 h-3 w-3 shrink-0" />
-                  <span className="min-w-0">
-                    {leg.late === "should-be-live"
-                      ? `${leg.platform}: its slot passed, so it should be live.`
-                      : leg.late === "needs-connection"
-                        ? `${leg.platform}: its slot passed and ${leg.platform} is not connected, so nothing could be sent.`
-                        : `${leg.platform}: its slot passed and the publisher has not sent it.`}{" "}
-                    {leg.late === "needs-connection" ? (
-                      <Link href={CONNECT_HREF} className="inline-flex items-center gap-0.5 whitespace-nowrap font-medium text-[var(--accent)] hover:underline">
-                        Connect {leg.platform}
-                        <ArrowUpRight className="h-3 w-3" />
-                      </Link>
-                    ) : checkUrl ? (
-                      <a href={checkUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-0.5 whitespace-nowrap font-medium text-[var(--accent)] hover:underline">
-                        Check {leg.platform}
-                        <ExternalLink className="h-3 w-3" />
-                      </a>
-                    ) : leg.late === "overdue" ? (
-                      <Link href={OVERDUE_HREF} className="inline-flex items-center gap-0.5 whitespace-nowrap font-medium text-[var(--accent)] hover:underline">
-                        {OVERDUE_LINK_LABEL}
-                        <ArrowUpRight className="h-3 w-3" />
-                      </Link>
-                    ) : null}
-                  </span>
-                </li>
-              );
-            })}
-          </ul>
-        ) : null}
+        <LegStatusLines lines={status.lines} mixed={status.mixed} />
         {event.heldForReview ? (
           <p className="mt-1.5 flex items-start gap-1 text-xs text-amber-300">
             <Lock className="mt-0.5 h-3 w-3 shrink-0" />
