@@ -5,7 +5,8 @@ const mocks = vi.hoisted(() => ({
   enabled: true,
   readAppData: vi.fn(),
   renderCarouselDeck: vi.fn(),
-  enqueueImagePost: vi.fn()
+  enqueueImagePost: vi.fn(),
+  queueGet: vi.fn()
 }));
 
 vi.mock("@/lib/publisher/config", () => ({
@@ -13,6 +14,7 @@ vi.mock("@/lib/publisher/config", () => ({
 }));
 vi.mock("@/lib/storage/store", () => ({ readAppData: mocks.readAppData }));
 vi.mock("@/lib/carousels/renderDeck", () => ({ renderCarouselDeck: mocks.renderCarouselDeck }));
+vi.mock("@/lib/publisher/queue", () => ({ publishQueue: () => ({ get: mocks.queueGet }) }));
 vi.mock("@/lib/publisher/enqueue", () => ({ enqueueImagePost: mocks.enqueueImagePost }));
 
 import { POST } from "@/app/api/studio/carousels/[carouselId]/book/route";
@@ -114,9 +116,27 @@ describe("POST /api/studio/carousels/:id/book", () => {
     expect((await response.json()).error).toContain("earliest slot");
   });
 
-  it("answers 409 for a deck that is already booked", async () => {
-    mocks.enqueueImagePost.mockRejectedValue(new DuplicatePostError("That exact file is already scheduled.", "x1"));
+  it("answers 409 for a deck that is already booked, naming the slot in the publish time zone", async () => {
+    mocks.enqueueImagePost.mockRejectedValue(
+      new DuplicatePostError("That exact file is already scheduled for 2026-10-13T16:30:00.000Z (post fxa10a28).", "fxa10a28")
+    );
+    mocks.queueGet.mockResolvedValue({ id: "fxa10a28", publishAt: "2026-10-13T16:30:00.000Z" });
 
-    expect((await book(valid)).status).toBe(409);
+    const response = await book(valid);
+
+    expect(response.status).toBe(409);
+    const body = await response.json();
+    expect(body.error).toBe("This carousel is already booked for Tue, Oct 13 at 12:30 PM.");
+    expect(body.itemId).toBe("fxa10a28");
+  });
+
+  it("still answers 409 in plain words when the existing post cannot be read", async () => {
+    mocks.enqueueImagePost.mockRejectedValue(new DuplicatePostError("raw", "x1"));
+    mocks.queueGet.mockRejectedValue(new Error("unreadable"));
+
+    const response = await book(valid);
+
+    expect(response.status).toBe(409);
+    expect((await response.json()).error).toBe("This carousel is already booked.");
   });
 });

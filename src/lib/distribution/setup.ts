@@ -33,6 +33,9 @@ const ENVIRONMENT_BLOCKER = /can't read the Windows task|different checkout/i;
 
 const SETTINGS = { href: "/settings", hrefLabel: "Settings" } as const;
 const AUTOMATIONS = { href: "/automations", hrefLabel: "Automations" } as const;
+/** Credentials and Media hosting live on the Accounts tab of Settings. */
+const ACCOUNTS = { href: "/settings#accounts", hrefLabel: "Settings > Accounts" } as const;
+const SAYS_ACCOUNTS = /Settings\s*(?:>|&gt;|→)\s*Accounts/i;
 
 function names(ids: string[]): string {
   const labels = ids.map((id) => LABELS[id] ?? id);
@@ -50,10 +53,18 @@ function blockedCard(id: AutomationCard["id"], inputs: SetupInputs): SetupNeed |
   if (!card || card.paused) return null;
   const real = card.blockers.filter((blocker) => !ENVIRONMENT_BLOCKER.test(blocker));
   if (real.length === 0) return null;
+  const text = real[0].replace(/\s+/g, " ");
+  // A blocker that names Settings > Accounts as the fix (the Threads token, the podcast's Media
+  // hosting) must LINK there: the line used to say "Settings > Accounts" and offer "Open Automations".
+  // The problem is what comes before the dash; the link is the fix.
+  if (SAYS_ACCOUNTS.test(text)) {
+    const problem = text.split(/\s+[-\u2013\u2014]+\s+/)[0] ?? text;
+    const fixless = SAYS_ACCOUNTS.test(problem) ? problem.replace(/\s*(?:Add|Put)[^.]*Settings[^.]*\.?$/i, "") : problem;
+    return { reason: truncateAtWord(fixless.replace(/[.\s]+$/, ""), 110), ...ACCOUNTS };
+  }
   // The first sentence is the problem; the rest is the fix, which the Automations card spells out.
-  const first = (real[0].replace(/\s+/g, " ").split(/(?<=\.)\s/)[0] ?? real[0]).replace(/[.\s]+$/, "");
-  const clause = truncateAtWord(first, 110);
-  return { reason: clause, ...AUTOMATIONS };
+  const first = (text.split(/(?<=\.)\s/)[0] ?? text).replace(/[.\s]+$/, "");
+  return { reason: truncateAtWord(first, 110), ...AUTOMATIONS };
 }
 
 /** Null when the format's automatic posting has what it needs (or nothing is known to be missing). */

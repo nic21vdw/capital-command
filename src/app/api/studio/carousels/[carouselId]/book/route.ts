@@ -1,12 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { deckIsPostable, deckRatio } from "@/lib/carousels/deckFiles";
+import { alreadyBookedMessage } from "@/lib/carousels/booked";
 import { renderCarouselDeck } from "@/lib/carousels/renderDeck";
 import { publisherConfig } from "@/lib/publisher/config";
 import { PUBLISHING_OFF_MESSAGE } from "@/lib/publisher/enabledMessage";
 import { DuplicatePostError } from "@/lib/publisher/duplicates";
 import { enqueueImagePost } from "@/lib/publisher/enqueue";
 import { MAX_IMAGES_PER_POST } from "@/lib/publisher/images";
+import { publishQueue } from "@/lib/publisher/queue";
 import { defaultVideoStudio } from "@/lib/storage/schemas";
 import { readAppData } from "@/lib/storage/store";
 
@@ -93,7 +95,14 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       { status: 201 }
     );
   } catch (error) {
-    const status = error instanceof DuplicatePostError ? 409 : 400;
-    return NextResponse.json({ error: error instanceof Error ? error.message : String(error) }, { status });
+    if (error instanceof DuplicatePostError) {
+      // The queue's own wording carries a raw UTC stamp and a post id; say when, in the publish time zone.
+      const existing = await publishQueue(config).get(error.existingItemId).catch(() => undefined);
+      return NextResponse.json(
+        { error: alreadyBookedMessage(existing?.publishAt, config.timezone), itemId: error.existingItemId },
+        { status: 409 }
+      );
+    }
+    return NextResponse.json({ error: error instanceof Error ? error.message : String(error) }, { status: 400 });
   }
 }

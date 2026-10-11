@@ -1,7 +1,8 @@
 "use client";
 
 import { useState } from "react";
-import { CalendarClock, Loader2 } from "lucide-react";
+import Link from "next/link";
+import { CalendarClock, ExternalLink, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { Modal } from "@/components/ui/modal";
 import { Button } from "@/components/ui/button";
@@ -16,6 +17,7 @@ import {
   type PlatformConnectionMap,
   type CarouselPlatformId
 } from "@/lib/carousels/schedule";
+import { bookedChipText, bookedWhenInSentence, type CarouselBooking } from "@/lib/carousels/booked";
 import { usePlatformConnections } from "@/lib/publisher/usePlatformConnections";
 import { cn } from "@/lib/utils";
 import type { CarouselSchedule, ScheduleRecurrence } from "@/types/domain";
@@ -44,10 +46,16 @@ export function ScheduleModal({
   carouselTitle,
   onClose,
   onCreate,
-  saving
+  saving,
+  booking,
+  timeZone
 }: {
   open: boolean;
   carouselTitle: string;
+  /** The post already in the publish queue for this carousel, if any. */
+  booking?: CarouselBooking;
+  /** The publish time zone the booking's time is read in. */
+  timeZone?: string;
   onClose: () => void;
   onCreate: (schedule: CarouselSchedule) => void | Promise<void>;
   saving: boolean;
@@ -84,6 +92,9 @@ export function ScheduleModal({
   };
 
   const plan = planCarouselSchedule(platforms, recurrence);
+  // A deck already in the queue cannot be booked a second time; reminders for other networks still can.
+  const blockedByBooking = Boolean(booking) && plan.book.length > 0;
+  const zone = timeZone ?? "UTC";
   const bookable = plan.book.filter((id) => platformPostingMode(id, connected) === "automatic");
   const unlinked = plan.book.filter((id) => platformPostingMode(id, connected) === "reminder");
   // The route still books a disconnected network (as a manual reminder in the queue), but
@@ -100,6 +111,20 @@ export function ScheduleModal({
       onClose={onClose}
     >
       <div className="space-y-4">
+        {booking ? (
+          <div
+            role="status"
+            className="tone-info tone-edge tone-soft tone-text space-y-2 rounded-lg border p-3 text-xs"
+          >
+            <p className="font-medium">
+              {booking.posted ? "This carousel has already posted." : `This carousel is already booked for ${bookedWhenInSentence(booking.publishAt, zone)}.`}
+            </p>
+            <p>
+              {bookedChipText(booking, zone)}. It can only be booked once: change its time or remove it in the Uploading
+              Center, or pick TikTok or YouTube below to save a reminder instead.
+            </p>
+          </div>
+        ) : null}
         <div>
           <p className="mb-2 text-xs font-medium uppercase tracking-wider text-[var(--muted-foreground)]">Platforms</p>
           <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
@@ -189,13 +214,13 @@ export function ScheduleModal({
           />
         </label>
 
-        {books ? (
+        {books && !blockedByBooking ? (
           <p className="tone-info tone-edge tone-soft tone-text rounded-lg border p-2.5 text-[11px]">
             {label(bookable)} will be booked in the publish queue and post by themselves at that time. Nothing can be
             booked for today - the earliest is tomorrow.
           </p>
         ) : null}
-        {unlinked.length > 0 ? (
+        {unlinked.length > 0 && !blockedByBooking ? (
           <p className="tone-warning tone-edge tone-soft tone-text rounded-lg border p-2.5 text-[11px]">
             {sentence(unlinked)} {unlinked.length > 1 ? "aren't" : "isn't"} connected, so {unlinked.length > 1 ? "they are" : "it is"}{" "}
             saved as a reminder and you post the slides by hand. Connect {unlinked.length > 1 ? "them" : "it"} in Settings to
@@ -216,9 +241,23 @@ export function ScheduleModal({
           <Button variant="secondary" onClick={onClose} disabled={saving}>
             Cancel
           </Button>
-          <Button onClick={() => void create()} disabled={saving} className="gap-1.5">
+          {booking ? (
+            <Link
+              href={`/uploading-center?item=${encodeURIComponent(booking.itemId)}`}
+              className="inline-flex h-11 items-center gap-1.5 rounded-lg bg-[var(--accent)] px-4 text-sm font-medium text-[var(--accent-contrast)] transition hover:opacity-90"
+            >
+              Open in Uploading Center <ExternalLink className="h-4 w-4" />
+            </Link>
+          ) : null}
+          <Button
+            variant={booking ? "secondary" : undefined}
+            onClick={() => void create()}
+            disabled={saving || blockedByBooking}
+            className="gap-1.5"
+            title={blockedByBooking ? "Already booked - open it in the Uploading Center to change it." : undefined}
+          >
             {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <CalendarClock className="h-4 w-4" />}
-            {books ? "Book post" : "Save reminder"}
+            {blockedByBooking ? "Already booked" : books ? "Book post" : "Save reminder"}
           </Button>
         </div>
       </div>
