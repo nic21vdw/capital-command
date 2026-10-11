@@ -7,6 +7,7 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { PageHeader } from "@/components/ui/page-header";
 import { AutomationHistoryPanel } from "@/components/automations/automation-history";
+import { MAX_SHORTS_PER_DAY, MAX_SLOT_TIMES, MIN_SHORTS_PER_DAY, checkCadenceInput, type CadenceValues } from "@/lib/automations/cadenceInput";
 import { describeTaskResult } from "@/lib/automations/format";
 import { orderWarnings } from "@/lib/automations/warnings";
 import { useColateralSurface } from "@/lib/colateral/useSurface";
@@ -157,20 +158,110 @@ function HeldPanel({ held, total, timezone }: { held: HeldPost[]; total: number;
   );
 }
 
-function CadencePanel({ rows }: { rows: CadenceRow[] }) {
+type CadenceDraft = { shortsPerDay: number; slotTimes: string[]; weekendSlotTimes: string[] };
+
+/** A time not already in the list, so "Add time" never makes a duplicate the server would fold away. */
+function nextFreeTime(taken: string[]): string {
+  for (const candidate of ["09:00", "12:00", "15:00", "18:00", "21:00", "07:00", "10:30", "13:30"]) if (!taken.includes(candidate)) return candidate;
+  return "";
+}
+
+function TimeListEditor({ label, times, onChange, disabled }: { label: string; times: string[]; onChange: (next: string[]) => void; disabled: boolean }) {
   return (
-    <section className="mt-5 rounded-xl border border-[var(--border)] bg-[var(--card)] p-4" aria-labelledby="cadence-title">
-      <h2 id="cadence-title" className="font-semibold text-white">Cadence</h2>
-      <p className="mt-1 max-w-3xl text-sm text-[var(--muted-foreground)]">When and how often things post. Read-only here: these come from settings in the app&apos;s <code className="rounded bg-black/30 px-1">.env</code> file (advanced). To change one, edit the setting named beside it, then restart the app.</p>
+    <fieldset className="min-w-0">
+      <legend className="text-xs text-[var(--muted-foreground)]">{label}</legend>
+      <ul className="mt-1 flex flex-wrap items-center gap-2">
+        {times.map((time, index) => (
+          <li key={index} className="inline-flex items-center gap-1">
+            <input
+              type="time"
+              aria-label={`${label} ${index + 1}`}
+              value={time}
+              disabled={disabled}
+              onChange={(event) => onChange(times.map((current, at) => (at === index ? event.target.value : current)))}
+              className="rounded-md border border-[var(--border)] bg-black/30 px-2 py-1 text-sm text-white"
+            />
+            <button type="button" aria-label={`Remove ${label} ${index + 1}`} disabled={disabled || times.length <= 1} onClick={() => onChange(times.filter((_, at) => at !== index))} className="rounded-md px-1.5 py-1 text-xs text-[var(--muted-foreground)] hover:bg-white/10 disabled:opacity-40">Remove</button>
+          </li>
+        ))}
+        <li><button type="button" disabled={disabled || times.length >= MAX_SLOT_TIMES} onClick={() => onChange([...times, nextFreeTime(times)])} className="rounded-md px-2 py-1 text-xs font-medium text-[var(--accent)] hover:bg-white/10 disabled:opacity-40">Add time</button></li>
+      </ul>
+    </fieldset>
+  );
+}
+
+function CadencePanel({ rows, values, disabled, onSaved }: { rows: CadenceRow[]; values: CadenceValues; disabled: boolean; onSaved: () => Promise<void> }) {
+  const [draft, setDraft] = useState<CadenceDraft | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [problem, setProblem] = useState<string | null>(null);
+  const editing = draft !== null;
+
+  async function save() {
+    if (!draft) return;
+    const check = checkCadenceInput(draft);
+    if (!check.ok) { setProblem(check.problem); return; }
+    setSaving(true);
+    setProblem(null);
+    try {
+      const response = await fetch("/api/automations/cadence", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(check.value) });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(payload.error ?? "The cadence could not be saved.");
+      toast.success("Cadence saved. New bookings use it now.");
+      setDraft(null);
+      await onSaved();
+    } catch (failure) {
+      setProblem(failure instanceof Error ? failure.message : "The cadence could not be saved.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <section id="cadence" className="mt-5 scroll-mt-4 rounded-xl border border-[var(--border)] bg-[var(--card)] p-4" aria-labelledby="cadence-title">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h2 id="cadence-title" className="font-semibold text-white">Cadence</h2>
+          <p className="mt-1 max-w-3xl text-sm text-[var(--muted-foreground)]">When and how often things post. Shorts per day and the posting times can be changed here. Changes apply to new bookings; already-booked posts keep their times.</p>
+        </div>
+        {!editing && <Button variant="secondary" disabled={disabled} onClick={() => { setProblem(null); setDraft({ shortsPerDay: values.shortsPerDay, slotTimes: [...values.slotTimes], weekendSlotTimes: [...values.weekendSlotTimes] }); }}>Edit</Button>}
+        {editing && <div className="flex gap-2">
+          <Button variant="secondary" disabled={saving} onClick={() => { setDraft(null); setProblem(null); }}>Cancel</Button>
+          <Button disabled={saving} onClick={() => void save()}>{saving ? "Saving..." : "Save"}</Button>
+        </div>}
+      </div>
+      {problem && <p role="alert" className="mt-3 rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-amber-200">{problem}</p>}
       <dl className="mt-3 grid gap-x-6 gap-y-3 sm:grid-cols-2">
         {rows.map((row) => (
           <div key={row.env}>
-            <dt className="text-xs text-[var(--muted-foreground)]">{row.label}</dt>
-            <dd className="mt-0.5 text-sm text-white">{row.value} <code className="ml-1 rounded bg-black/30 px-1.5 py-0.5 text-[10px] text-[var(--muted-foreground)]">{row.env}</code></dd>
-            {row.note && <dd className="text-xs text-[var(--muted-foreground)]">{row.note}</dd>}
+            {editing && draft && row.editable ? (
+              <>
+                {row.env === "PUBLISH_SHORTS_PER_DAY" ? (
+                  <>
+                    <dt className="text-xs text-[var(--muted-foreground)]"><label htmlFor="cadence-shorts">{row.label}</label></dt>
+                    <dd className="mt-0.5">
+                      <select id="cadence-shorts" value={draft.shortsPerDay} disabled={saving} onChange={(event) => setDraft({ ...draft, shortsPerDay: Number(event.target.value) })} className="rounded-md border border-[var(--border)] bg-black/30 px-2 py-1 text-sm text-white">
+                        {Array.from({ length: MAX_SHORTS_PER_DAY - MIN_SHORTS_PER_DAY + 1 }, (_, index) => MIN_SHORTS_PER_DAY + index).map((count) => <option key={count} value={count}>{count}</option>)}
+                      </select>
+                    </dd>
+                  </>
+                ) : (
+                  <dd>
+                    <TimeListEditor label={row.label} times={row.env === "PUBLISH_SLOT_TIMES" ? draft.slotTimes : draft.weekendSlotTimes} disabled={saving} onChange={(next) => setDraft(row.env === "PUBLISH_SLOT_TIMES" ? { ...draft, slotTimes: next } : { ...draft, weekendSlotTimes: next })} />
+                  </dd>
+                )}
+                {row.note && <dd className="text-xs text-[var(--muted-foreground)]">{row.note}</dd>}
+              </>
+            ) : (
+              <>
+                <dt className="text-xs text-[var(--muted-foreground)]">{row.label}</dt>
+                <dd className="mt-0.5 text-sm text-white">{row.value} {!row.editable && <code className="ml-1 rounded bg-black/30 px-1.5 py-0.5 text-[10px] text-[var(--muted-foreground)]">{row.env}</code>}</dd>
+                {row.note && <dd className="text-xs text-[var(--muted-foreground)]">{row.note}</dd>}
+              </>
+            )}
           </div>
         ))}
       </dl>
+      <p className="mt-4 text-xs text-[var(--muted-foreground)]">Read-only here: time zone, booking reach and the Threads settings, because they reshape batches already laid out. Change them in <code className="rounded bg-black/30 px-1">.env</code> (advanced), then restart the app.</p>
     </section>
   );
 }
@@ -235,6 +326,12 @@ export function AutomationsPage() {
     }
   }
 
+  /** A poll already in flight started before the save, so wait it out and read again. */
+  async function reloadAfterSave() {
+    for (let waited = 0; inflight.current && waited < 100; waited += 1) await new Promise((resolve) => setTimeout(resolve, 100));
+    await load();
+  }
+
   /** Pause or resume the three automations that post publicly, one existing PATCH each. */
   async function setAllPosting(paused: boolean) {
     if (changing.current || inflight.current || !overview) return;
@@ -251,6 +348,17 @@ export function AutomationsPage() {
     changing.current = false;
     try { await load(); } finally { setBusy(null); }
   }
+
+  // /automations#cadence: the card only exists once the overview has loaded, so the browser's own
+  // anchor jump finds nothing. Scroll once, the first time it is there.
+  const scrolledToHash = useRef(false);
+  const loaded = overview !== null;
+  useEffect(() => {
+    if (!loaded || scrolledToHash.current) return;
+    scrolledToHash.current = true;
+    const id = window.location.hash.slice(1);
+    if (id) document.getElementById(id)?.scrollIntoView({ block: "start" });
+  }, [loaded]);
 
   const blocked = overview?.cards.filter((card) => card.state === "blocked" || card.state === "attention").length ?? 0;
   const paused = overview?.cards.filter((card) => card.paused).length ?? 0;
@@ -301,7 +409,7 @@ export function AutomationsPage() {
         </section>
         <p className="mb-5 text-xs text-[var(--muted-foreground)]">Resume allows the existing configured schedule to continue. Missing tasks, disconnected accounts and switched-off publishing still block work. A current action may finish before the next pause check.</p>
         <div className="grid gap-5 lg:grid-cols-2">{overview.cards.map((card) => <AutomationPanel key={card.id} card={card} stale={Boolean(error)} busy={busy !== null || refreshing} onPause={(selected) => void change(selected.id, { action: "pause", id: selected.id, paused: !selected.paused })} />)}</div>
-        <CadencePanel rows={overview.cadence} />
+        <CadencePanel rows={overview.cadence} values={overview.cadenceValues} disabled={busy !== null || refreshing || Boolean(error)} onSaved={reloadAfterSave} />
       </>}
       <AutomationHistoryPanel timezone={publishZone} />
     </div>

@@ -13,16 +13,16 @@ function times(list: string[]): string {
 
 /**
  * The posting rhythm, read from the same config the schedulers use, with the
- * .env name that changes each value. Read-only on purpose: the settings are
- * file-based, and showing them is what lets Nic check the rhythm without
- * opening .env.
+ * .env name behind each value. The three marked `editable` (shorts per day and
+ * the two slot lists) can be changed from the card; the rest stay in .env
+ * because they reshape batches that are already laid out.
  */
 export function buildCadence(publisher: PublisherConfig, threads: ThreadsConfig, window: { start: number; span: number }): CadenceRow[] {
   const accounts = threads.accounts.length;
   return [
-    { label: "Weekday slots", value: times(publisher.slotTimes), env: "PUBLISH_SLOT_TIMES", note: "Monday to Friday, local time." },
-    { label: "Weekend slots", value: times(publisher.weekendSlotTimes), env: "PUBLISH_WEEKEND_SLOT_TIMES", note: "Saturday and Sunday, local time." },
-    { label: "Shorts per day", value: String(publisher.shortsPerDay), env: "PUBLISH_SHORTS_PER_DAY", note: "The most a new booking may put on one day." },
+    { label: "Weekday slots", value: times(publisher.slotTimes), env: "PUBLISH_SLOT_TIMES", editable: true, note: "Monday to Friday, local time." },
+    { label: "Weekend slots", value: times(publisher.weekendSlotTimes), env: "PUBLISH_WEEKEND_SLOT_TIMES", editable: true, note: "Saturday and Sunday, local time." },
+    { label: "Shorts per day", value: String(publisher.shortsPerDay), env: "PUBLISH_SHORTS_PER_DAY", editable: true, note: "The most a new booking may put on one day." },
     { label: "Time zone", value: publisher.timezone, env: "PUBLISH_TIMEZONE", note: "Slot times and \"today\" for bookings." },
     { label: "Booking reach", value: `${publisher.bookingHorizonDays} days ahead`, env: "PUBLISH_BOOKING_HORIZON_DAYS" },
     { label: "Threads posts per day", value: `${threads.postsPerDay}${accounts > 1 ? ` per account (${accounts} accounts)` : ""}`, env: "THREADS_POSTS_PER_DAY" },

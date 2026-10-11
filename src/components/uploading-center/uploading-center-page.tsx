@@ -1199,7 +1199,8 @@ export function UploadingCenterPage() {
                         </span>{" "}
                         at most (PUBLISH_SHORTS_PER_DAY); a full day shows no open slots.
                       </>
-                    ) : null}
+                    ) : null}{" "}
+                    <Link href="/automations#cadence" className="text-[var(--accent)] hover:underline">Change the cadence</Link>
                   </p>
                 ) : null}
               </div>

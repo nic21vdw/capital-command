@@ -73,8 +73,8 @@ export type AutomationCard = {
   itemHref?: string;
 };
 
-/** One read-only line of the Cadence block: a value, and the .env name that sets it. */
-export type CadenceRow = { label: string; value: string; env: string; note?: string };
+/** One line of the Cadence block: a value, and the .env name that sets it. `editable` rows can be changed from the card. */
+export type CadenceRow = { label: string; value: string; env: string; note?: string; editable?: boolean };
 
 /**
  * A post a platform already holds. Pausing the publisher does not stop these:
@@ -98,6 +98,8 @@ export type AutomationOverview = {
   cards: AutomationCard[];
   autoScheduleOvernight: boolean;
   cadence: CadenceRow[];
+  /** The raw values behind the editable cadence rows, for the Edit form. */
+  cadenceValues: { shortsPerDay: number; slotTimes: string[]; weekendSlotTimes: string[] };
   /** Soonest first, capped; `heldTotal` is the full count. */
   held: HeldPost[];
   heldTotal: number;
