@@ -16,6 +16,9 @@ describe("past-slot statuses", () => {
     expect(eventStatusLabel("overdue")).toBe("Overdue");
     expect(isLateEventStatus("should be live")).toBe(true);
     expect(isLateEventStatus("Overdue")).toBe(true);
+    expect(isLateEventStatus("needs connection")).toBe(true);
+    expect(eventStatusLabel("needs connection")).toBe("Needs connection");
+    expect(eventStatusLabel("needs connection", { legs: [{ platform: "YouTube", status: "pending", late: "needs-connection" }] })).toBe("Needs YouTube connection");
     expect(isLateEventStatus("scheduled")).toBe(false);
     expect(isLateEventStatus("failed")).toBe(false);
   });

@@ -28,7 +28,7 @@ export type MasterCalendarEvent = {
    * the Threads queue's own outcome (queued/published/failed/skipped) for
    * Threads, the content tracker's pipeline stages, and "scheduled" for
    * carousel occurrences. A queue post past its slot reads "should be live"
-   * (a platform holds it) or "overdue" (the publisher has not sent it).
+   * (a platform holds it), "overdue" (the publisher has not sent it) or "needs connection" (the account has no connection).
    */
   status: string;
   /** True for occurrences expanded from a repeating carousel schedule. */
@@ -96,12 +96,20 @@ export type MasterCalendarEvent = {
   }[];
 };
 
-/** Why a leg or a post is past its slot: the platform should have published it, or the publisher has not sent it. */
-export type LateKind = "should-be-live" | "overdue";
+/**
+ * Why a leg or a post is past its slot: the platform should have published it,
+ * the publisher has not sent it, or it never could because the account it posts
+ * to has no connection (the Uploading Center's "Needs <Platform> connection").
+ */
+export type LateKind = "should-be-live" | "overdue" | "needs-connection";
 
 /** The roll-up statuses for a queue post that is past its slot (additive: every other status is unchanged). */
 export const SHOULD_BE_LIVE_STATUS = "should be live";
 export const OVERDUE_STATUS = "overdue";
+export const NEEDS_CONNECTION_STATUS = "needs connection";
+
+/** Where a missing connection is fixed. */
+export const CONNECT_HREF = "/settings#accounts";
 
 export function isShouldBeLiveEventStatus(status: string): boolean {
   return status.toLowerCase() === SHOULD_BE_LIVE_STATUS;
@@ -111,9 +119,13 @@ export function isOverdueEventStatus(status: string): boolean {
   return status.toLowerCase() === OVERDUE_STATUS;
 }
 
+export function isNeedsConnectionEventStatus(status: string): boolean {
+  return status.toLowerCase() === NEEDS_CONNECTION_STATUS;
+}
+
 /** A post whose slot passed and which is not out: not "scheduled", not a failure, and it needs a look. */
 export function isLateEventStatus(status: string): boolean {
-  return isShouldBeLiveEventStatus(status) || isOverdueEventStatus(status);
+  return isShouldBeLiveEventStatus(status) || isOverdueEventStatus(status) || isNeedsConnectionEventStatus(status);
 }
 
 /** The Day Summary and the calendar chips treat these as failures. */
@@ -225,8 +237,13 @@ export function isReminderEventStatus(status: string): boolean {
 }
 
 /** What a status reads as on screen: reminder and the past-slot statuses are capitalised, the rest as stored. */
-export function eventStatusLabel(status: string): string {
+export function eventStatusLabel(status: string, event?: Pick<MasterCalendarEvent, "legs">): string {
   if (isReminderEventStatus(status)) return "Reminder";
+  if (isNeedsConnectionEventStatus(status)) {
+    // The Uploading Center's own words: "Needs YouTube connection", or the plain form when several platforms wait.
+    const platforms = [...new Set((event?.legs ?? []).filter((leg) => leg.late === "needs-connection").map((leg) => leg.platform))];
+    return platforms.length === 1 ? `Needs ${platforms[0]} connection` : "Needs connection";
+  }
   if (isShouldBeLiveEventStatus(status)) return SHOULD_BE_LIVE_LABEL;
   if (isOverdueEventStatus(status)) return OVERDUE_LABEL;
   return status;

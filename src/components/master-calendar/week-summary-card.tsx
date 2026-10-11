@@ -29,8 +29,8 @@ const ICONS: Partial<Record<WeekPlatformRow["id"], PlatformIconKey>> = {
   tiktok: "tiktok"
 };
 
-function Counts({ row, className }: { row: Pick<WeekPlatformRow, "published" | "failed" | "byHand" | "scheduled" | "shouldBeLive" | "overdue">; className?: string }) {
-  const none = row.published + row.failed + row.byHand + row.scheduled + row.shouldBeLive + row.overdue === 0;
+function Counts({ row, className }: { row: Pick<WeekPlatformRow, "published" | "failed" | "byHand" | "scheduled" | "shouldBeLive" | "overdue" | "needsConnection">; className?: string }) {
+  const none = row.published + row.failed + row.byHand + row.scheduled + row.shouldBeLive + row.overdue + row.needsConnection === 0;
   return (
     <div className={cn("flex flex-wrap items-center gap-1.5", className)}>
       {row.published > 0 ? (
@@ -49,6 +49,12 @@ function Counts({ row, className }: { row: Pick<WeekPlatformRow, "published" | "
         <Badge tone="warning" className="gap-1">
           <HandHelping className="h-3 w-3" />
           {row.byHand} to post by hand
+        </Badge>
+      ) : null}
+      {row.needsConnection > 0 ? (
+        <Badge tone="warning" className="gap-1">
+          <AlertTriangle className="h-3 w-3" />
+          {row.needsConnection} need connection
         </Badge>
       ) : null}
       {row.overdue > 0 ? (

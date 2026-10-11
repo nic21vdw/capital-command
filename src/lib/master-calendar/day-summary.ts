@@ -1,6 +1,7 @@
 import {
   CALENDAR_SOURCES,
   type CalendarSource,
+  isNeedsConnectionEventStatus,
   isOverdueEventStatus,
   isShouldBeLiveEventStatus,
   type CalendarSourceId,
@@ -16,10 +17,10 @@ import {
 
 /**
  * What a source-native status means once it is only about "is this done".
- * `shouldBeLive` and `overdue` are scheduled posts whose slot has passed: they
+ * `shouldBeLive`, `overdue` and `needsConnection` are posts whose slot has passed: they
  * are not "still to go" (the day's count of what remains) and not failures.
  */
-export type SummaryState = "published" | "scheduled" | "shouldBeLive" | "overdue" | "failed" | "skipped" | "pending";
+export type SummaryState = "published" | "scheduled" | "shouldBeLive" | "overdue" | "needsConnection" | "failed" | "skipped" | "pending";
 
 export type DaySummarySection = {
   source: CalendarSource;
@@ -75,13 +76,14 @@ export function summaryState(status: string): SummaryState {
   if (FAILED.has(value)) return "failed";
   if (isShouldBeLiveEventStatus(value)) return "shouldBeLive";
   if (isOverdueEventStatus(value)) return "overdue";
+  if (isNeedsConnectionEventStatus(value)) return "needsConnection";
   if (SKIPPED.has(value)) return "skipped";
   if (SCHEDULED.has(value)) return "scheduled";
   return "pending";
 }
 
 function emptyStates(): Record<SummaryState, number> {
-  return { published: 0, scheduled: 0, shouldBeLive: 0, overdue: 0, failed: 0, skipped: 0, pending: 0 };
+  return { published: 0, scheduled: 0, shouldBeLive: 0, overdue: 0, needsConnection: 0, failed: 0, skipped: 0, pending: 0 };
 }
 
 /** Timed pieces in clock order, then day-level ones — how the day plays out. */

@@ -16,7 +16,8 @@ import {
   eventStatusLabel,
   isFailedEventStatus,
   isLateEventStatus,
-  isOverdueEventStatus,
+  isNeedsConnectionEventStatus,
+  isShouldBeLiveEventStatus,
   isReminderEventStatus,
   type CalendarSource,
   type CalendarSourceId,
@@ -81,7 +82,8 @@ const HELD_NOTE = "Stays private - publish by hand after review";
 
 /** Why a post past its slot is flagged, in the Uploading Center's words. */
 function lateNote(event: MasterCalendarEvent): string {
-  if (isOverdueEventStatus(event.status)) return "Overdue - its slot passed and the publisher has not sent it; check Automations";
+  if (isNeedsConnectionEventStatus(event.status)) return `${eventStatusLabel(event.status, event)} - its slot passed and nothing could be sent; connect it in Settings > Accounts`;
+  if (!isShouldBeLiveEventStatus(event.status)) return "Overdue - its slot passed and the publisher has not sent it; check Automations";
   const platforms = (event.legs ?? []).filter((leg) => leg.late === "should-be-live").map((leg) => leg.platform);
   return `Should be live - its slot passed; check ${platforms.join(" / ") || "the platform"}`;
 }
@@ -195,7 +197,7 @@ function EventCard({ event }: { event: MasterCalendarEvent }) {
         {event.heldForReview ? <span className="mt-0.5 block text-xs text-amber-300">{HELD_NOTE}</span> : null}
       </span>
       {event.recurring ? <Repeat className="h-3.5 w-3.5 shrink-0 text-[var(--muted-foreground)]" /> : null}
-      <Badge tone={statusTone(event.status)} className={cn("shrink-0 capitalize", reminder && "border-dashed")}>{eventStatusLabel(event.status)}</Badge>
+      <Badge tone={statusTone(event.status)} className={cn("shrink-0", !isLateEventStatus(event.status) && "capitalize", reminder && "border-dashed")}>{eventStatusLabel(event.status, event)}</Badge>
       <ArrowUpRight className="h-3.5 w-3.5 shrink-0 text-[var(--muted-foreground)] opacity-0 transition group-hover:opacity-100" />
     </Link>
   );
@@ -455,7 +457,7 @@ function MasterCalendarBody({ todayKey, seed }: { todayKey: string; seed: Master
   }, [events, todayKey]);
   const lateCount = useMemo(() => events.filter((event) => isLateEventStatus(event.status)).length, [events]);
   const lateLabel = useMemo(
-    () => (events.some((event) => isOverdueEventStatus(event.status)) ? "past slot" : "should be live"),
+    () => (events.some((event) => isLateEventStatus(event.status) && !isShouldBeLiveEventStatus(event.status)) ? "past slot" : "should be live"),
     [events]
   );
   const failedCount = useMemo(() => events.filter((event) => isFailedEventStatus(event.status)).length, [events]);

@@ -34,7 +34,7 @@ export const WEEK_PLATFORMS: { id: WeekPlatformId; label: string }[] = [
   { id: "threads", label: "Threads" }
 ];
 
-type Outcome = "published" | "failed" | "byHand" | "scheduled" | "shouldBeLive" | "overdue";
+type Outcome = "published" | "failed" | "byHand" | "scheduled" | "shouldBeLive" | "overdue" | "needsConnection";
 
 export type WeekLatestPost = {
   title: string;
@@ -58,6 +58,8 @@ export type WeekPlatformRow = {
   shouldBeLive: number;
   /** Past its slot and the publisher has not sent it. */
   overdue: number;
+  /** Past its slot on an account with no connection: it could never go. */
+  needsConnection: number;
   /** Where this platform's numbers live. */
   numbersNote: string;
   /** The most recent published post, for a one-click way to its numbers. */
@@ -81,7 +83,7 @@ export type WeekSummary = {
   startKey: string;
   endKey: string;
   rows: WeekPlatformRow[];
-  totals: { published: number; failed: number; byHand: number; scheduled: number; shouldBeLive: number; overdue: number };
+  totals: { published: number; failed: number; byHand: number; scheduled: number; shouldBeLive: number; overdue: number; needsConnection: number };
   youtube: {
     /** Videos with numbers behind the totals. */
     videos: number;
@@ -130,7 +132,13 @@ function legsOf(event: MasterCalendarEvent): Leg[] {
       const platform = platformIdOf(leg.platform);
       // A leg past its slot is its own outcome, not one more "still to go".
       const outcome: Outcome | undefined =
-        leg.late === "should-be-live" ? "shouldBeLive" : leg.late === "overdue" ? "overdue" : LEG_OUTCOMES[leg.status];
+        leg.late === "should-be-live"
+          ? "shouldBeLive"
+          : leg.late === "overdue"
+            ? "overdue"
+            : leg.late === "needs-connection"
+              ? "needsConnection"
+              : LEG_OUTCOMES[leg.status];
       if (platform && outcome) {
         out.push({ platform, outcome, ...(leg.url ? { url: leg.url } : {}), ...(leg.href ? { href: leg.href } : {}) });
       }
@@ -149,6 +157,7 @@ function legsOf(event: MasterCalendarEvent): Leg[] {
     else if (state === "published") outcome = "published";
     else if (state === "shouldBeLive") outcome = "shouldBeLive";
     else if (state === "overdue") outcome = "overdue";
+    else if (state === "needsConnection") outcome = "needsConnection";
     else if (event.source === "fb" && event.status === "draft") outcome = "byHand";
     else if (state === "scheduled") outcome = "scheduled";
     const url = event.liveLinks?.find((link) => platformIdOf(link.platform) === platform)?.url;
@@ -187,6 +196,7 @@ export function buildWeekSummary(options: {
     scheduled: 0,
     shouldBeLive: 0,
     overdue: 0,
+    needsConnection: 0,
     numbersNote: numbersNote(platform.label, platform.id)
   }));
   const rowOf = new Map(rows.map((row) => [row.id, row]));
@@ -211,7 +221,7 @@ export function buildWeekSummary(options: {
     }
   }
 
-  const totals = { published: 0, failed: 0, byHand: 0, scheduled: 0, shouldBeLive: 0, overdue: 0 };
+  const totals = { published: 0, failed: 0, byHand: 0, scheduled: 0, shouldBeLive: 0, overdue: 0, needsConnection: 0 };
   for (const row of rows) {
     totals.published += row.published;
     totals.failed += row.failed;
@@ -219,6 +229,7 @@ export function buildWeekSummary(options: {
     totals.scheduled += row.scheduled;
     totals.shouldBeLive += row.shouldBeLive;
     totals.overdue += row.overdue;
+    totals.needsConnection += row.needsConnection;
   }
 
   const youtubeTargets = events.flatMap((event) => (event.youtube ? [event.youtube] : []));

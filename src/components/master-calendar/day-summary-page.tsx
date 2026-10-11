@@ -34,8 +34,10 @@ import { YoutubeStatsLine } from "@/components/publisher/youtube-stats-line";
 import { WeekSummaryCard } from "@/components/master-calendar/week-summary-card";
 import { PlatformIcon, type PlatformIconKey } from "@/components/ui/platform-icon";
 import {
+  CONNECT_HREF,
   eventHref,
   eventStatusLabel,
+  isLateEventStatus,
   isReminderEventStatus,
   type MasterCalendarEvent,
   type MasterCalendarResponse
@@ -67,6 +69,7 @@ const STATE_LABELS: Record<SummaryState, string> = {
   scheduled: "Scheduled",
   shouldBeLive: "Should be live",
   overdue: "Overdue",
+  needsConnection: "Needs connection",
   pending: "In progress",
   skipped: "Skipped",
   failed: "Failed"
@@ -77,6 +80,7 @@ const STATE_TONES: Record<SummaryState, BadgeTone> = {
   scheduled: "info",
   shouldBeLive: "warning",
   overdue: "warning",
+  needsConnection: "warning",
   pending: "warning",
   skipped: "neutral",
   failed: "danger"
@@ -87,13 +91,14 @@ const STATE_ICONS: Record<SummaryState, typeof CheckCircle2> = {
   scheduled: Send,
   shouldBeLive: Clock,
   overdue: AlertTriangle,
+  needsConnection: AlertTriangle,
   pending: PencilLine,
   skipped: SkipForward,
   failed: AlertTriangle
 };
 
 /** Failed first, then the day's progress; the order every roll-up reads in. */
-const STATE_ORDER: SummaryState[] = ["failed", "overdue", "shouldBeLive", "published", "scheduled", "pending", "skipped"];
+const STATE_ORDER: SummaryState[] = ["failed", "needsConnection", "overdue", "shouldBeLive", "published", "scheduled", "pending", "skipped"];
 
 const PLATFORM_ICON_KEYS: Record<string, PlatformIconKey> = {
   YouTube: "youtube",
@@ -167,8 +172,8 @@ function PieceCard({ event, cachedStat }: { event: MasterCalendarEvent; cachedSt
           <ArrowUpRight className="mt-0.5 h-3.5 w-3.5 shrink-0 text-[var(--muted-foreground)] opacity-0 transition group-hover:opacity-100" />
         </div>
         <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
-          <Badge tone={STATE_TONES[state]} className={cn("capitalize", isReminderEventStatus(event.status) && "border-dashed")}>
-            {eventStatusLabel(event.status)}
+          <Badge tone={STATE_TONES[state]} className={cn(!isLateEventStatus(event.status) && "capitalize", isReminderEventStatus(event.status) && "border-dashed")}>
+            {eventStatusLabel(event.status, event)}
           </Badge>
           {event.recurring ? (
             <Badge className="gap-1 border-white/10 bg-white/5 text-[var(--muted-foreground)]">
@@ -211,8 +216,17 @@ function PieceCard({ event, cachedStat }: { event: MasterCalendarEvent; cachedSt
                 <li key={leg.platform} className="flex items-start gap-1 text-xs text-amber-300">
                   <Clock className="mt-0.5 h-3 w-3 shrink-0" />
                   <span className="min-w-0">
-                    {leg.late === "should-be-live" ? `${leg.platform}: its slot passed, so it should be live.` : `${leg.platform}: its slot passed and the publisher has not sent it.`}{" "}
-                    {checkUrl ? (
+                    {leg.late === "should-be-live"
+                      ? `${leg.platform}: its slot passed, so it should be live.`
+                      : leg.late === "needs-connection"
+                        ? `${leg.platform}: its slot passed and ${leg.platform} is not connected, so nothing could be sent.`
+                        : `${leg.platform}: its slot passed and the publisher has not sent it.`}{" "}
+                    {leg.late === "needs-connection" ? (
+                      <Link href={CONNECT_HREF} className="inline-flex items-center gap-0.5 whitespace-nowrap font-medium text-[var(--accent)] hover:underline">
+                        Connect {leg.platform}
+                        <ArrowUpRight className="h-3 w-3" />
+                      </Link>
+                    ) : checkUrl ? (
                       <a href={checkUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-0.5 whitespace-nowrap font-medium text-[var(--accent)] hover:underline">
                         Check {leg.platform}
                         <ExternalLink className="h-3 w-3" />

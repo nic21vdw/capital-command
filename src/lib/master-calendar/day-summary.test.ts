@@ -56,7 +56,7 @@ describe("what a day adds up to", () => {
       event({ id: "c", status: "queued" }),
       event({ id: "d", source: "fb", status: "draft", time: undefined })
     ]);
-    expect(summary.states).toEqual({ failed: 1, published: 1, scheduled: 1, shouldBeLive: 0, overdue: 0, skipped: 0, pending: 1 });
+    expect(summary.states).toEqual({ failed: 1, published: 1, scheduled: 1, shouldBeLive: 0, overdue: 0, needsConnection: 0, skipped: 0, pending: 1 });
   });
 });
 
@@ -69,6 +69,12 @@ describe("a post past its slot", () => {
     ]);
     expect(summary.states).toMatchObject({ scheduled: 1, shouldBeLive: 1, overdue: 1, failed: 0 });
     expect(summary.sections[0].states).toMatchObject({ scheduled: 1, shouldBeLive: 1, overdue: 1 });
+  });
+
+  it("counts a post waiting on a connection on its own, not as overdue", () => {
+    const summary = buildDaySummary("2026-08-22", [event({ id: "a", status: "needs connection" }), event({ id: "b", status: "overdue" })]);
+    expect(summary.states).toMatchObject({ needsConnection: 1, overdue: 1, scheduled: 0 });
+    expect(summaryState("Needs connection")).toBe("needsConnection");
   });
 
   it("reads the stored status case-insensitively", () => {

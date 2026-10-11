@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { buildMasterCalendarEvents } from "@/lib/master-calendar/aggregate";
-import type { QueueItem } from "@/lib/publisher/types";
+import { eventStatusLabel } from "@/lib/master-calendar/types";
+import type { PlatformId, QueueItem } from "@/lib/publisher/types";
 import type { ThreadsQueueItem } from "@/lib/threads/types";
 import type { AppData } from "@/types/domain";
 
@@ -24,8 +25,9 @@ const item = (over: Partial<QueueItem>): QueueItem =>
 // ahead of its slot (so "scheduled" stays scheduled whatever day the suite runs);
 // the past-slot specs below pass a later clock.
 const before = new Date("2026-08-07T12:00:00.000Z");
-const events = (queueItems: QueueItem[], now: Date = before) =>
+const events = (queueItems: QueueItem[], now: Date = before, isConnected?: (platform: PlatformId, accountId: string) => boolean) =>
   buildMasterCalendarEvents({
+    isConnected,
     data: emptyData,
     queueItems,
     timeZone: "America/Toronto",
@@ -126,6 +128,54 @@ describe("a post whose slot has passed", () => {
       }
     });
     expect(events([withFailure], after)[0].status).toBe("partly failed");
+  });
+
+  describe("when the account behind a pending leg is not connected", () => {
+    const connectedExcept = (...missing: PlatformId[]) => (platform: PlatformId) => !missing.includes(platform);
+    const pending = item({ platforms: { instagram: { status: "pending", attempts: 0 } } });
+
+    it("reads 'needs connection', the board's wording, instead of 'overdue'", () => {
+      const [event] = events([pending], after, connectedExcept("instagram"));
+      expect(event.status).toBe("needs connection");
+      expect(event.legs![0]).toMatchObject({ platform: "Instagram", status: "pending", late: "needs-connection" });
+      expect(eventStatusLabel(event.status, event)).toBe("Needs Instagram connection");
+    });
+
+    it("only a CONNECTED platform's pending leg is overdue", () => {
+      expect(events([pending], after, connectedExcept("youtube"))[0].status).toBe("overdue");
+      expect(events([pending], after)[0].status).toBe("overdue");
+    });
+
+    it("asks about the post's own account, falling back to the platform's primary", () => {
+      const asked: string[] = [];
+      events([item({ accountId: "instagram-second", platforms: { instagram: { status: "pending", attempts: 0 } } })], after, (platform, accountId) => {
+        asked.push(`${platform}:${accountId}`);
+        return true;
+      });
+      expect(asked).toContain("instagram:instagram-second");
+      const legacy: string[] = [];
+      events([pending], after, (platform, accountId) => (legacy.push(`${platform}:${accountId}`), true));
+      expect(legacy).toContain("instagram:instagram-primary");
+    });
+
+    it("ranks above overdue and should-be-live, below a failure, and stays quiet before the slot", () => {
+      const mixed = item({
+        platforms: {
+          youtube: { status: "scheduled", postId: "abcdefghijk", attempts: 1 },
+          instagram: { status: "pending", attempts: 0 },
+          tiktok: { status: "pending", attempts: 0 }
+        }
+      });
+      const noTiktok = connectedExcept("tiktok");
+      const [event] = events([mixed], after, noTiktok);
+      expect(event.status).toBe("needs connection");
+      expect(event.legs!.map((leg) => leg.late)).toEqual(["should-be-live", "overdue", "needs-connection"]);
+      expect(eventStatusLabel(event.status, event)).toBe("Needs TikTok connection");
+      const failed = item({ platforms: { instagram: { status: "pending", attempts: 0 }, facebook: { status: "failed", attempts: 3 } } });
+      expect(events([failed], after, connectedExcept("instagram"))[0].status).toBe("partly failed");
+      expect(events([pending], before, connectedExcept("instagram"))[0].status).toBe("queued");
+      expect(events([pending], justAfter, connectedExcept("instagram"))[0].status).toBe("queued");
+    });
   });
 
   it("leaves a published post, a hand-post reminder and a long-form held for review alone", () => {
