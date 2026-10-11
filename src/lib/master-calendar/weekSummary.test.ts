@@ -70,7 +70,28 @@ describe("per-platform outcomes", () => {
     expect(row(summary, "instagram")).toMatchObject({ published: 1, scheduled: 1 });
     expect(row(summary, "tiktok")).toMatchObject({ failed: 1, published: 0 });
     expect(row(summary, "facebook")).toMatchObject({ byHand: 1 });
-    expect(summary.totals).toEqual({ published: 2, failed: 1, byHand: 1, scheduled: 2 });
+    expect(summary.totals).toEqual({ published: 2, failed: 1, byHand: 1, scheduled: 2, shouldBeLive: 0, overdue: 0 });
+  });
+
+  it("keeps a leg past its slot out of 'still to go'", () => {
+    const summary = buildWeekSummary({
+      endKey: "2026-10-11",
+      events: [
+        event({
+          platforms: ["YouTube", "Instagram", "Facebook"],
+          status: "overdue",
+          legs: [
+            { platform: "YouTube", status: "scheduled", late: "should-be-live" },
+            { platform: "Instagram", status: "pending", late: "overdue" },
+            { platform: "Facebook", status: "scheduled" }
+          ]
+        })
+      ]
+    });
+    expect(row(summary, "youtube")).toMatchObject({ shouldBeLive: 1, scheduled: 0 });
+    expect(row(summary, "instagram")).toMatchObject({ overdue: 1, scheduled: 0 });
+    expect(row(summary, "facebook")).toMatchObject({ scheduled: 1 });
+    expect(summary.totals).toMatchObject({ scheduled: 1, shouldBeLive: 1, overdue: 1 });
   });
 
   it("reads Threads and Facebook library posts from the event's own status", () => {
@@ -94,7 +115,7 @@ describe("per-platform outcomes", () => {
       endKey: "2026-10-11",
       events: [event({ id: "carousel:s:1", source: "carousels", platforms: ["TikTok"], status: "reminder", recurring: true })]
     });
-    expect(summary.totals).toEqual({ published: 0, failed: 0, byHand: 0, scheduled: 0 });
+    expect(summary.totals).toEqual({ published: 0, failed: 0, byHand: 0, scheduled: 0, shouldBeLive: 0, overdue: 0 });
   });
 
   it("keeps the most recent published post for a one-click way to its numbers", () => {
@@ -227,5 +248,14 @@ describe("Open latest post goes to the row's own platform", () => {
       events: [event({ platforms: ["Instagram"], legs: [{ platform: "Instagram", status: "published" }], href: "/uploading-center?item=q1&platform=instagram" })]
     });
     expect(row(summary, "instagram").latest?.href).toBe("/uploading-center?item=q1&platform=instagram");
+  });
+});
+
+describe("the latest-post link", () => {
+  it("names the in-app screen it opens", async () => {
+    const { latestPostLinkLabel } = await import("@/lib/master-calendar/weekSummary");
+    expect(latestPostLinkLabel("/uploading-center?item=q1&platform=instagram")).toBe("Open in Uploading Center");
+    expect(latestPostLinkLabel("/x-posts?date=2026-10-11")).toBe("Open in Threads Autopilot");
+    expect(latestPostLinkLabel("/somewhere-else")).toBe("Open in the app");
   });
 });

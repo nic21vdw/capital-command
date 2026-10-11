@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import { AlertTriangle, ArrowUpRight, Bell, CalendarDays, ChevronLeft, ChevronRight, LayoutList, Loader2, Lock, Repeat, Sparkles } from "lucide-react";
+import { AlertTriangle, ArrowUpRight, Bell, CalendarDays, ChevronLeft, ChevronRight, LayoutList, Clock, Loader2, Lock, Repeat, Sparkles } from "lucide-react";
 import { Badge, type BadgeTone } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -15,6 +15,8 @@ import {
   eventHref,
   eventStatusLabel,
   isFailedEventStatus,
+  isLateEventStatus,
+  isOverdueEventStatus,
   isReminderEventStatus,
   type CalendarSource,
   type CalendarSourceId,
@@ -71,16 +73,25 @@ function statusTone(status: string): BadgeTone {
   if (status === "published" || status === "posted") return "success";
   if (isFailedEventStatus(status)) return "danger";
   if (status === "scheduled") return "info";
+  if (isLateEventStatus(status)) return "warning";
   return "neutral";
 }
 
 const HELD_NOTE = "Stays private - publish by hand after review";
+
+/** Why a post past its slot is flagged, in the Uploading Center's words. */
+function lateNote(event: MasterCalendarEvent): string {
+  if (isOverdueEventStatus(event.status)) return "Overdue - its slot passed and the publisher has not sent it; check Automations";
+  const platforms = (event.legs ?? []).filter((leg) => leg.late === "should-be-live").map((leg) => leg.platform);
+  return `Should be live - its slot passed; check ${platforms.join(" / ") || "the platform"}`;
+}
 
 /** What a tooltip adds about an event beyond its title: a lost leg, a hold. */
 function eventNote(event: MasterCalendarEvent): string {
   const notes: string[] = [];
   if (isReminderEventStatus(event.status)) notes.push("Reminder - post it by hand, the app does not publish this");
   if (event.failedPlatforms?.length) notes.push(`${event.status} on ${event.failedPlatforms.join(", ")}`);
+  if (isLateEventStatus(event.status)) notes.push(lateNote(event));
   if (event.heldForReview) notes.push(HELD_NOTE);
   return notes.length ? ` (${notes.join("; ")})` : "";
 }
@@ -103,6 +114,7 @@ function EventChip({ event }: { event: MasterCalendarEvent }) {
       {event.time ? <span className="shrink-0 font-semibold text-[var(--muted-foreground)]">{event.time}</span> : null}
       <span className={cn("min-w-0 truncate", reminder ? "text-[var(--muted-foreground)]" : "text-white")}>{event.title}</span>
       {isFailedEventStatus(event.status) ? <AlertTriangle className="h-2.5 w-2.5 shrink-0 text-red-300" aria-label={event.status} /> : null}
+      {isLateEventStatus(event.status) ? <Clock className="h-2.5 w-2.5 shrink-0 text-amber-300" aria-label={lateNote(event)} /> : null}
       {event.heldForReview ? <Lock className="h-2.5 w-2.5 shrink-0 text-amber-300" aria-label={HELD_NOTE} /> : null}
       {event.recurring ? <Repeat className="h-2.5 w-2.5 shrink-0 text-[var(--muted-foreground)]" /> : null}
     </Link>
@@ -441,6 +453,11 @@ function MasterCalendarBody({ todayKey, seed }: { todayKey: string; seed: Master
         return 0;
       })[0];
   }, [events, todayKey]);
+  const lateCount = useMemo(() => events.filter((event) => isLateEventStatus(event.status)).length, [events]);
+  const lateLabel = useMemo(
+    () => (events.some((event) => isOverdueEventStatus(event.status)) ? "past slot" : "should be live"),
+    [events]
+  );
   const failedCount = useMemo(() => events.filter((event) => isFailedEventStatus(event.status)).length, [events]);
   // Where the failures are fixed: Threads posts retry on their own page, every
   // other leg on the Uploading Center.
@@ -482,7 +499,8 @@ function MasterCalendarBody({ todayKey, seed }: { todayKey: string; seed: Master
       { label: "Scheduled in view", value: String(events.length) },
       { label: "Hidden by filters", value: String(events.length - visibleEvents.length) },
       { label: "Next post", value: nextPostReading },
-      { label: "Failed", value: String(failedCount) }
+      { label: "Failed", value: String(failedCount) },
+      { label: "Past their slot (should be live or overdue)", value: String(lateCount) }
     ],
     setField: (id, value) => {
       if (id === "date") {
@@ -689,6 +707,16 @@ function MasterCalendarBody({ todayKey, seed }: { todayKey: string; seed: Master
               {visibleEvents.length > 0 ? (
                 <Badge className="border-white/10 bg-white/5 text-[10px] text-[var(--muted-foreground)]">
                   {visibleEvents.length} scheduled
+                </Badge>
+              ) : null}
+              {lateCount > 0 ? (
+                <Badge
+                  tone="warning"
+                  className="gap-1 text-[10px]"
+                  title={`${lateCount} ${lateCount === 1 ? "post is" : "posts are"} past ${lateCount === 1 ? "its" : "their"} slot and not confirmed out in this view: check the platform, or Automations if the publisher has not sent ${lateCount === 1 ? "it" : "them"}`}
+                >
+                  <Clock className="h-3 w-3" />
+                  {lateCount} {lateLabel}
                 </Badge>
               ) : null}
               {failedCount > 0 ? (

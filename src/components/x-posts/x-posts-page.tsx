@@ -32,6 +32,7 @@ import { Modal } from "@/components/ui/modal";
 import { Textarea } from "@/components/ui/textarea";
 import { PageHeader } from "@/components/ui/page-header";
 import { Tabs } from "@/components/ui/tabs";
+import { PlainFailure } from "@/components/x-posts/plain-failure";
 import { localDateKey } from "@/lib/x-strategy/analytics";
 import { exportBaseName, toThreadsCsv, toThreadsJson } from "@/lib/x-posts/export";
 import { cn } from "@/lib/utils";
@@ -706,7 +707,7 @@ function FollowUpReply({ reply, editing, timeZone }: { reply: ThreadsReplyPrevie
       </div>
       <p className="mt-2 whitespace-pre-wrap break-words text-sm text-[var(--foreground)]">{reply.text}</p>
       <p className="mt-2 break-words text-xs text-[var(--muted-foreground)]">{reply.detail}</p>
-      {reply.error && reply.error !== reply.detail ? <p className="mt-1 break-words text-xs tone-danger tone-text">{reply.error}</p> : null}
+      {reply.error && reply.error !== reply.detail ? <div className="mt-1 break-words text-xs tone-danger tone-text"><PlainFailure raw={reply.error} /></div> : null}
       {reply.nextAttemptAt && (reply.status === "pending" || reply.status === "retrying") ? (
         <p className="mt-1 text-xs text-[var(--muted-foreground)]">
           Earliest {formatStamp(reply.nextAttemptAt, timeZone)} · sent on the autopilot&apos;s next run
@@ -922,7 +923,8 @@ function NextRunPreview({ status, busy, send }: AutopilotProps) {
             <ul className="space-y-1.5">
               {result.outcomes.map((outcome) => (
                 <li key={`${outcome.itemId}-${outcome.outcome}`} className="break-words text-white/90">
-                  <span className="font-semibold">Slot {outcome.slot}:</span> {outcome.detail}
+                  <span className="font-semibold">Slot {outcome.slot}:</span>{" "}
+                  {outcome.outcome === "failed" || outcome.outcome === "retrying" ? <PlainFailure raw={outcome.detail} className="inline" /> : outcome.detail}
                 </li>
               ))}
             </ul>
@@ -1239,10 +1241,9 @@ function AutopilotTab({
           )}
 
           {item.error ? (
-            <p className="text-xs tone-danger tone-text">
-              {item.status === "failed" ? "Didn't post — " : null}
-              {item.error}
-            </p>
+            <div className="text-xs tone-danger tone-text">
+              <PlainFailure raw={item.error} prefix={item.status === "failed" ? "Didn't post — " : undefined} />
+            </div>
           ) : null}
           {item.note && item.status !== "pending" ? (
             <p className="text-xs text-[var(--muted-foreground)]">{item.note}</p>

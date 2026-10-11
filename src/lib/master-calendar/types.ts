@@ -6,6 +6,7 @@
  * side by side and link back to the calendar that owns each item.
  */
 
+import { OVERDUE_LABEL, SHOULD_BE_LIVE_LABEL } from "@/lib/publisher/nativeScheduling";
 import type { YoutubeStat } from "@/lib/publisher/youtubeStatsShared";
 
 export type CalendarSourceId = "shorts" | "carousels" | "queued-carousels" | "x" | "fb" | "content";
@@ -26,7 +27,8 @@ export type MasterCalendarEvent = {
    * "partly failed" for shorts, draft/posted for FB/IG, planned (pack only) or
    * the Threads queue's own outcome (queued/published/failed/skipped) for
    * Threads, the content tracker's pipeline stages, and "scheduled" for
-   * carousel occurrences.
+   * carousel occurrences. A queue post past its slot reads "should be live"
+   * (a platform holds it) or "overdue" (the publisher has not sent it).
    */
   status: string;
   /** True for occurrences expanded from a repeating carousel schedule. */
@@ -80,8 +82,39 @@ export type MasterCalendarEvent = {
    * `href` is that platform's own card in the app, so a row for Instagram never
    * opens the TikTok tab.
    */
-  legs?: { platform: string; status: string; url?: string; href?: string }[];
+  legs?: {
+    platform: string;
+    status: string;
+    url?: string;
+    href?: string;
+    /**
+     * Set when this leg's slot has passed without the usual ending (see
+     * pastSlotMarker): a platform-held post that should be live by now, or a
+     * pending one the publisher has not sent. `status` stays as stored.
+     */
+    late?: LateKind;
+  }[];
 };
+
+/** Why a leg or a post is past its slot: the platform should have published it, or the publisher has not sent it. */
+export type LateKind = "should-be-live" | "overdue";
+
+/** The roll-up statuses for a queue post that is past its slot (additive: every other status is unchanged). */
+export const SHOULD_BE_LIVE_STATUS = "should be live";
+export const OVERDUE_STATUS = "overdue";
+
+export function isShouldBeLiveEventStatus(status: string): boolean {
+  return status.toLowerCase() === SHOULD_BE_LIVE_STATUS;
+}
+
+export function isOverdueEventStatus(status: string): boolean {
+  return status.toLowerCase() === OVERDUE_STATUS;
+}
+
+/** A post whose slot passed and which is not out: not "scheduled", not a failure, and it needs a look. */
+export function isLateEventStatus(status: string): boolean {
+  return isShouldBeLiveEventStatus(status) || isOverdueEventStatus(status);
+}
 
 /** The Day Summary and the calendar chips treat these as failures. */
 export function isFailedEventStatus(status: string): boolean {
@@ -191,7 +224,10 @@ export function isReminderEventStatus(status: string): boolean {
   return status.toLowerCase() === "reminder";
 }
 
-/** What a status reads as on screen: "reminder" is capitalised, the rest as stored. */
+/** What a status reads as on screen: reminder and the past-slot statuses are capitalised, the rest as stored. */
 export function eventStatusLabel(status: string): string {
-  return isReminderEventStatus(status) ? "Reminder" : status;
+  if (isReminderEventStatus(status)) return "Reminder";
+  if (isShouldBeLiveEventStatus(status)) return SHOULD_BE_LIVE_LABEL;
+  if (isOverdueEventStatus(status)) return OVERDUE_LABEL;
+  return status;
 }

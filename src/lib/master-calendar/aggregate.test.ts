@@ -20,13 +20,18 @@ const item = (over: Partial<QueueItem>): QueueItem =>
     ...over
   }) as QueueItem;
 
-const events = (queueItems: QueueItem[]) =>
+// The default item's slot is 2026-08-08T15:30Z. `before` keeps every fixture
+// ahead of its slot (so "scheduled" stays scheduled whatever day the suite runs);
+// the past-slot specs below pass a later clock.
+const before = new Date("2026-08-07T12:00:00.000Z");
+const events = (queueItems: QueueItem[], now: Date = before) =>
   buildMasterCalendarEvents({
     data: emptyData,
     queueItems,
     timeZone: "America/Toronto",
     startKey: "2026-08-08",
-    days: 2
+    days: 2,
+    now
   });
 
 describe("what a booked queue item reads as on the calendar", () => {
@@ -77,6 +82,57 @@ describe("what a booked queue item reads as on the calendar", () => {
   it("still names the short when it came from a clip job", () => {
     const [event] = events([item({ jobId: "job-9" })]);
     expect(event.href).toBe("/uploading-center?item=q1&platform=youtube");
+  });
+});
+
+describe("a post whose slot has passed", () => {
+  const after = new Date("2026-08-08T16:30:00.000Z"); // an hour past the 15:30Z slot
+  const justAfter = new Date("2026-08-08T15:35:00.000Z"); // inside the publisher's grace
+
+  it("reads 'should be live' when YouTube holds it past its time, and marks that leg", () => {
+    const [event] = events([item({ platforms: { youtube: { status: "scheduled", postId: "abcdefghijk", attempts: 1 } } })], after);
+    expect(event.status).toBe("should be live");
+    expect(event.legs).toEqual([
+      expect.objectContaining({ platform: "YouTube", status: "scheduled", late: "should-be-live" })
+    ]);
+  });
+
+  it("stays 'scheduled' before the slot and inside the grace window", () => {
+    const youtube = item({ platforms: { youtube: { status: "scheduled", postId: "abcdefghijk", attempts: 1 } } });
+    expect(events([youtube])[0].status).toBe("scheduled");
+    expect(events([youtube], justAfter)[0].status).toBe("scheduled");
+    expect(events([youtube], justAfter)[0].legs![0].late).toBeUndefined();
+  });
+
+  it("reads 'overdue' when the publisher never sent a pending leg, unless the runner has it claimed", () => {
+    const pending = item({ platforms: { instagram: { status: "pending", attempts: 0 } } });
+    expect(events([pending], after)[0].status).toBe("overdue");
+    const claimed = item({ platforms: { instagram: { status: "pending", attempts: 0, claimedAt: "2026-08-08T16:28:00.000Z" } } });
+    expect(events([claimed], after)[0].status).toBe("queued");
+  });
+
+  it("ranks overdue above should-be-live, and a lost leg above both", () => {
+    const mixed = item({
+      platforms: {
+        youtube: { status: "scheduled", postId: "abcdefghijk", attempts: 1 },
+        instagram: { status: "pending", attempts: 0 }
+      }
+    });
+    expect(events([mixed], after)[0].status).toBe("overdue");
+    const withFailure = item({
+      platforms: {
+        youtube: { status: "scheduled", postId: "abcdefghijk", attempts: 1 },
+        instagram: { status: "failed", attempts: 3 }
+      }
+    });
+    expect(events([withFailure], after)[0].status).toBe("partly failed");
+  });
+
+  it("leaves a published post, a hand-post reminder and a long-form held for review alone", () => {
+    expect(events([item({ platforms: { youtube: { status: "published", postId: "abcdefghijk", attempts: 1 } } })], after)[0].status).toBe("published");
+    expect(events([item({ platforms: { tiktok: { status: "manual", attempts: 0 } } })], after)[0].status).toBe("queued");
+    const held = item({ format: "long", platforms: { youtube: { status: "scheduled", postId: "abcdefghijk", attempts: 1 } } });
+    expect(events([held], after)[0].status).toBe("scheduled");
   });
 });
 

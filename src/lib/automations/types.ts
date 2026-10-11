@@ -86,6 +86,12 @@ export type HeldPost = {
   platform: "YouTube" | "Facebook" | "Buffer";
   status: "uploaded" | "scheduled";
   goesLiveAt: string;
+  /**
+   * Set when the slot has passed and the platform should have published it
+   * already, so "goes live <time>" would be false. `hint` is the line that says
+   * what to do ("Should be live - check YouTube"); `linkLabel` names the link.
+   */
+  shouldBeLive?: { hint: string; linkLabel: string; platform: "YouTube" | "Facebook" | "Buffer" };
   /** The item in the Uploading Center. */
   href: string;
   /** Where to cancel it on the platform, when a link is known. */
@@ -100,9 +106,12 @@ export type AutomationOverview = {
   cadence: CadenceRow[];
   /** The raw values behind the editable cadence rows, for the Edit form. */
   cadenceValues: { shortsPerDay: number; threadsPostsPerDay: number; slotTimes: string[]; weekendSlotTimes: string[] };
-  /** Soonest first, capped; `heldTotal` is the full count. */
+  /** Still to go live (slot ahead): soonest first, capped; `heldTotal` is the full count. */
   held: HeldPost[];
   heldTotal: number;
+  /** Held posts whose slot passed (they should be live): soonest first, capped; the full count follows. */
+  shouldBeLive: HeldPost[];
+  shouldBeLiveTotal: number;
   /** Delivery outcomes recorded since local midnight. */
   today: { delivered: number; failed: number };
 };

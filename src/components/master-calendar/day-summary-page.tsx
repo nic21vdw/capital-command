@@ -49,6 +49,8 @@ import {
   totalViews,
   type YoutubeStat
 } from "@/lib/publisher/youtubeStatsShared";
+import { platformCheckUrl } from "@/lib/automations/links";
+import { OVERDUE_HREF, OVERDUE_LINK_LABEL } from "@/lib/publisher/nativeScheduling";
 import { cn } from "@/lib/utils";
 
 /**
@@ -63,6 +65,8 @@ const DATE_KEY_RE = /^\d{4}-\d{2}-\d{2}$/;
 const STATE_LABELS: Record<SummaryState, string> = {
   published: "Published",
   scheduled: "Scheduled",
+  shouldBeLive: "Should be live",
+  overdue: "Overdue",
   pending: "In progress",
   skipped: "Skipped",
   failed: "Failed"
@@ -71,6 +75,8 @@ const STATE_LABELS: Record<SummaryState, string> = {
 const STATE_TONES: Record<SummaryState, BadgeTone> = {
   published: "success",
   scheduled: "info",
+  shouldBeLive: "warning",
+  overdue: "warning",
   pending: "warning",
   skipped: "neutral",
   failed: "danger"
@@ -79,13 +85,15 @@ const STATE_TONES: Record<SummaryState, BadgeTone> = {
 const STATE_ICONS: Record<SummaryState, typeof CheckCircle2> = {
   published: CheckCircle2,
   scheduled: Send,
+  shouldBeLive: Clock,
+  overdue: AlertTriangle,
   pending: PencilLine,
   skipped: SkipForward,
   failed: AlertTriangle
 };
 
 /** Failed first, then the day's progress; the order every roll-up reads in. */
-const STATE_ORDER: SummaryState[] = ["failed", "published", "scheduled", "pending", "skipped"];
+const STATE_ORDER: SummaryState[] = ["failed", "overdue", "shouldBeLive", "published", "scheduled", "pending", "skipped"];
 
 const PLATFORM_ICON_KEYS: Record<string, PlatformIconKey> = {
   YouTube: "youtube",
@@ -194,6 +202,32 @@ function PieceCard({ event, cachedStat }: { event: MasterCalendarEvent; cachedSt
             <AlertTriangle className="mt-0.5 h-3 w-3 shrink-0" />
             Failed on {event.failedPlatforms.join(", ")}
           </p>
+        ) : null}
+        {(event.legs ?? []).some((leg) => leg.late) ? (
+          <ul className="relative z-10 mt-1.5 space-y-1">
+            {(event.legs ?? []).filter((leg) => leg.late).map((leg) => {
+              const checkUrl = leg.late === "should-be-live" ? platformCheckUrl(leg.platform) : null;
+              return (
+                <li key={leg.platform} className="flex items-start gap-1 text-xs text-amber-300">
+                  <Clock className="mt-0.5 h-3 w-3 shrink-0" />
+                  <span className="min-w-0">
+                    {leg.late === "should-be-live" ? `${leg.platform}: its slot passed, so it should be live.` : `${leg.platform}: its slot passed and the publisher has not sent it.`}{" "}
+                    {checkUrl ? (
+                      <a href={checkUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-0.5 whitespace-nowrap font-medium text-[var(--accent)] hover:underline">
+                        Check {leg.platform}
+                        <ExternalLink className="h-3 w-3" />
+                      </a>
+                    ) : leg.late === "overdue" ? (
+                      <Link href={OVERDUE_HREF} className="inline-flex items-center gap-0.5 whitespace-nowrap font-medium text-[var(--accent)] hover:underline">
+                        {OVERDUE_LINK_LABEL}
+                        <ArrowUpRight className="h-3 w-3" />
+                      </Link>
+                    ) : null}
+                  </span>
+                </li>
+              );
+            })}
+          </ul>
         ) : null}
         {event.heldForReview ? (
           <p className="mt-1.5 flex items-start gap-1 text-xs text-amber-300">
