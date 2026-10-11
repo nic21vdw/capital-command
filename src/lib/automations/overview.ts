@@ -28,6 +28,7 @@ import { HELD_LIMIT, heldPosts } from "@/lib/automations/held";
 import { readAutomationHistory } from "@/lib/automations/history";
 import { uploadingCenterHref } from "@/lib/automations/links";
 import { scheduleWindow } from "@/lib/x-posts/generator";
+import { formatClockTime } from "@/lib/timeFormat";
 import { AUTOMATION_IDS, type AutomationCard, type AutomationControl, type AutomationId, type AutomationOutcome, type AutomationOverview, type AutomationTask } from "@/lib/automations/types";
 
 type PodcastSnapshot = {
@@ -193,7 +194,7 @@ export function buildAutomationOverview(input: AutomationInputs, now = new Date(
   const podcast = card("podcast", {
     title: "Podcast / Spotify", description: "Publish scheduled audio to the public feed for Spotify to collect.", href: "/podcast",
     blockers: [...input.podcastBlockers, ...(!input.podcast.automation.enabled ? ["Automatic podcast scheduling is switched off on Podcast / Spotify."] : []), ...(!input.spotifyShowLinked ? ["The Spotify show has not been linked and its delivery cannot be verified."] : [])],
-    schedule: `Daily at ${input.podcast.automation.time}`, timezone: input.podcast.automation.timeZone,
+    schedule: `Daily at ${formatClockTime(input.podcast.automation.time)}`, timezone: input.podcast.automation.timeZone,
     nextRunAt: input.podcast.nextDueAt, nextItemAt: input.podcast.nextDueAt,
     lastRunAt: lastPodcast?.lastAttemptAt ?? null,
     lastOutcome: lastPodcast ? `${lastPodcast.title}: ${lastPodcast.status}` : null,

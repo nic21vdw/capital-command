@@ -83,7 +83,7 @@ import {
   type UploadSuccess,
 } from "@/components/uploading-center/use-uploading-center";
 import { buildAgenda } from "@/lib/publisher/agenda";
-import { formatSlotDateTime } from "@/lib/timeFormat";
+import { formatClockTime, formatSlotDateTime } from "@/lib/timeFormat";
 import { publisherBannerLine } from "@/lib/publisher/publishOverview";
 import { EARLIEST_PUBLISH_DAY_OFFSET, addDaysToDateKey } from "@/lib/publisher/schedule";
 import { clearConnectFailure, rememberConnectFailure } from "@/lib/publisher/connectErrors";
@@ -303,7 +303,7 @@ export function UploadingCenterPage() {
       }
       if (result.bestTime) {
         toast.success(
-          `Tailored for ${label}. Best time to post${draft.platform === "all" ? " on TikTok" : ""}: ~${result.bestTime}.`
+          `Tailored for ${label}. Best time to post${draft.platform === "all" ? " on TikTok" : ""}: ~${formatClockTime(result.bestTime)}.`
         );
       } else {
         toast.success(`Caption tailored for ${label}.`);
@@ -1360,7 +1360,8 @@ export function UploadingCenterPage() {
  * finished uploading to YouTube: a link straight to the video and a big
  * button into the channel's Content page in YouTube Studio.
  */
-function listTimes(times: string[]): string {
+function listTimes(slotTimes: string[]): string {
+  const times = slotTimes.map(formatClockTime);
   if (times.length < 2) return times.join("");
   return `${times.slice(0, -1).join(", ")} and ${times[times.length - 1]}`;
 }

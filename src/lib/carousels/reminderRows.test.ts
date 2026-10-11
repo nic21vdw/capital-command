@@ -24,7 +24,7 @@ describe("weeklyReminderRows", () => {
     const rows = weeklyReminderRows([carousel("c1", "How I ship", [schedule("s1", {})])]);
     expect(rows).toHaveLength(1);
     expect(rows[0]).toMatchObject({ carouselId: "c1", weekday: 2, time: "18:00", scheduleIds: ["s1"] });
-    expect(rows[0].label).toBe("Every Tue 18:00 · TikTok, YouTube");
+    expect(rows[0].label).toBe("Every Tue 6:00 PM · TikTok, YouTube");
   });
 
   it("lists networks in the platform order, once each, across schedules on the same slot", () => {
@@ -36,7 +36,7 @@ describe("weeklyReminderRows", () => {
     ]);
     expect(rows).toHaveLength(1);
     expect(rows[0].platforms).toEqual(["instagram", "tiktok", "youtube"]);
-    expect(rows[0].label).toBe("Every Tue 18:00 · Instagram, TikTok, YouTube");
+    expect(rows[0].label).toBe("Every Tue 6:00 PM · Instagram, TikTok, YouTube");
     expect(rows[0].scheduleIds).toEqual(["s1", "s2"]);
   });
 
@@ -67,10 +67,10 @@ describe("weeklyReminderRows", () => {
       carousel("c1", "A", [schedule("sun", { weekday: 0 }), schedule("tue-late", { time: "20:00" }), schedule("mon", { weekday: 1 }), schedule("tue", {})])
     ]);
     expect(rows.map((row) => row.label)).toEqual([
-      "Every Mon 18:00 · TikTok, YouTube",
-      "Every Tue 18:00 · TikTok, YouTube",
-      "Every Tue 20:00 · TikTok, YouTube",
-      "Every Sun 18:00 · TikTok, YouTube"
+      "Every Mon 6:00 PM · TikTok, YouTube",
+      "Every Tue 6:00 PM · TikTok, YouTube",
+      "Every Tue 8:00 PM · TikTok, YouTube",
+      "Every Sun 6:00 PM · TikTok, YouTube"
     ]);
   });
 });
