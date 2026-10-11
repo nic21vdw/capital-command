@@ -14,6 +14,8 @@ already shipped.
 
 ## Unreleased
 
+- Marketing stops refreshing the pipeline screen and stream list while its window is hidden, refreshes as soon as you return, and recovers from a stalled server read without requiring a reload. Background automation and taskbar alerts keep running.
+
 ## 2026-10-04
 
 - Update history saves how long each step took, separates compilation, retries and startup, and highlights the slowest step so future delays are easy to spot.
@@ -1635,3 +1637,4 @@ The evening that started with "none of the buttons are clicking".
 - **`npm test` runs the whole suite.** It used to compile one file and print
   "portfolio calculation tests passed", which is how a green `npm test` sat
   next to a dozen failures.
+

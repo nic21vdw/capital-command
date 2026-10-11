@@ -18,7 +18,12 @@ export function readPipelineSummary(): Promise<PipelineSummary | null> {
   if (inFlight) return inFlight;
   inFlight = (async () => {
     try {
-      const response = await fetch("/api/pipeline?summary=1", { cache: "no-store" });
+      // A hung local server must not keep the shared promise alive forever:
+      // every later stream/count poll would inherit that same stalled read.
+      const response = await fetch("/api/pipeline?summary=1", {
+        cache: "no-store",
+        signal: AbortSignal.timeout(20_000)
+      });
       return response.ok ? ((await response.json()) as PipelineSummary) : null;
     } catch {
       return null;
@@ -28,3 +33,4 @@ export function readPipelineSummary(): Promise<PipelineSummary | null> {
   })();
   return inFlight;
 }
+
