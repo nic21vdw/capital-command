@@ -106,8 +106,8 @@ export const CONNECTIONS: Connection[] = [
       }
     ],
     manualNote:
-      "Instagram needs a one-time setup by someone comfortable with a terminal. Send them these steps: " +
-      "Instagram has no in-app sign-in yet. The path that works is the command npm run publish:instagram:connect " +
+      "Instagram has no in-app sign-in yet, so it needs a one-time setup by someone comfortable with a terminal. " +
+      "Send them these steps: run npm run publish:instagram:connect " +
       "(steps in docs/INSTAGRAM_SETUP.md), which trades a short-lived token for a long-lived one and saves it to .env. " +
       "A token copied straight from Meta's Graph Explorer expires in about an hour: it will look saved here, " +
       "then posts stop.",
@@ -130,8 +130,8 @@ export const CONNECTIONS: Connection[] = [
       }
     ],
     manualNote:
-      "Facebook needs the same one-time setup by someone comfortable with a terminal. Send them these steps: " +
-      "Facebook has no in-app sign-in yet. npm run publish:instagram:connect (steps in docs/INSTAGRAM_SETUP.md) " +
+      "Facebook has no in-app sign-in yet, so it needs the same one-time setup by someone comfortable with a terminal. " +
+      "Send them these steps: run npm run publish:instagram:connect (steps in docs/INSTAGRAM_SETUP.md), which " +
       "saves a Page token that does not expire. A token copied from Meta's Graph Explorer expires in about an hour.",
     notes: [
       "Facebook video posts also need Media hosting (the last row below): the S3 fields have to be filled in " +
