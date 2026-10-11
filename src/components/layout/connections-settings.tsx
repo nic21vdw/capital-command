@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { AlertTriangle, ArrowRight, AtSign, Check, ChevronDown, Copy, Database, ExternalLink, Music2, X } from "lucide-react";
 import { toast } from "sonner";
@@ -11,7 +11,6 @@ import { PlatformIcon, type PlatformIconKey } from "@/components/ui/platform-ico
 import { CONNECTIONS, type Connection, type ConnectionField } from "@/lib/publisher/connections";
 import {
   clearConnectFailure,
-  connectErrorMessage,
   explainConnectError,
   readConnectFailures,
   rememberConnectFailure,
@@ -232,7 +231,8 @@ export function ConnectionsSettings() {
         if (!failure) return;
         const platform = params.get("connect");
         const known = platform && CONNECTIONS.some((connection) => connection.id === platform) ? platform : null;
-        toast.error(connectErrorMessage(failure, known), { duration: 12000 });
+        // The message itself is the page's inline banner and toast
+        // (useOAuthLanding in SettingsPage); this keeps the row and the address.
         if (known) {
           setExpanded(known);
           setFailures(rememberConnectFailure(known, failure));
@@ -245,6 +245,31 @@ export function ConnectionsSettings() {
     }, 0);
     return () => window.clearTimeout(timer);
   }, []);
+
+  // Arriving on #accounts (the sidebar's Connect accounts, a toast action, a
+  // link from another screen) means "set something up", so open the first
+  // platform that has nothing yet - YouTube, when nothing is - rather than
+  // leaving a column of closed rows to choose from. A row named by ?connect=
+  // already opened itself above and wins.
+  const autoOpened = useRef(false);
+  useEffect(() => {
+    if (!loaded || loadFailed) return;
+    const openFirstUnset = () => {
+      if (window.location.hash !== "#accounts") return;
+      const first = CONNECTIONS.find((connection) => connectionStatus(connection, state, { loaded, loadFailed }) === "Not set up");
+      if (first) setExpanded((current) => current ?? first.id);
+    };
+    const timer = window.setTimeout(() => {
+      if (autoOpened.current) return;
+      autoOpened.current = true;
+      openFirstUnset();
+    }, 0);
+    window.addEventListener("hashchange", openFirstUnset);
+    return () => {
+      window.clearTimeout(timer);
+      window.removeEventListener("hashchange", openFirstUnset);
+    };
+  }, [loaded, loadFailed, state]);
 
   const dismissFailure = (id: string) => setFailures(clearConnectFailure(id));
 

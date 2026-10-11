@@ -1,9 +1,10 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { AtSign, Download, Palette, Send, SlidersHorizontal, UserRound } from "lucide-react";
 import { ConnectionsSettings } from "@/components/layout/connections-settings";
+import { OAuthLandingBanner, useOAuthLanding } from "@/components/layout/oauth-landing";
 import { ProfileSettings } from "@/components/layout/profile-settings";
 import { ThemePicker } from "@/components/finance/theme-picker";
 import { useAppData } from "@/components/providers/app-provider";
@@ -20,9 +21,53 @@ const SECTIONS = [
   { href: "#more", label: "More", icon: SlidersHorizontal }
 ];
 
+/**
+ * Scroll to the section the address names, once it exists.
+ *
+ * The browser's own jump runs before the sections have rendered (the page is
+ * client-rendered and the account rows load after it), so `/settings#accounts`
+ * opened at the top. This waits a few frames for the element, then nudges again
+ * as the rows above it settle. It also follows later hash changes, which is a
+ * link to Accounts clicked while already on Settings.
+ */
+function useScrollToHash() {
+  useEffect(() => {
+    const timers: number[] = [];
+    let frame = 0;
+    const jump = () => {
+      const id = decodeURIComponent(window.location.hash.slice(1));
+      if (!id) return;
+      let tries = 0;
+      const attempt = () => {
+        const element = document.getElementById(id);
+        if (element) {
+          element.scrollIntoView({ block: "start" });
+          return;
+        }
+        if (tries++ < 30) frame = window.requestAnimationFrame(attempt);
+      };
+      attempt();
+      // Content above the target can still grow after the first scroll.
+      for (const delay of [400, 1200]) {
+        timers.push(window.setTimeout(() => document.getElementById(id)?.scrollIntoView({ block: "start" }), delay));
+      }
+    };
+    jump();
+    window.addEventListener("hashchange", jump);
+    return () => {
+      window.cancelAnimationFrame(frame);
+      timers.forEach((timer) => window.clearTimeout(timer));
+      window.removeEventListener("hashchange", jump);
+    };
+  }, []);
+}
+
 export function SettingsPage() {
   const { data, apiStatus, mutate } = useAppData();
   const { hosted } = useThemePreset();
+  useScrollToHash();
+  // ConnectionsSettings tidies the address itself, so leave it alone here.
+  const { landing, dismiss } = useOAuthLanding({ strip: false });
 
   return (
     <div className="mx-auto max-w-5xl space-y-5">
@@ -40,6 +85,7 @@ export function SettingsPage() {
         ))}
       </nav>
 
+      <OAuthLandingBanner landing={landing} onDismiss={dismiss} settingsLink={false} />
       <ProfileSettings />
       <ConnectionsSettings />
 
