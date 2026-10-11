@@ -81,6 +81,49 @@ export function agoLabel(fetchedAt: string, now: Date): string {
   return `${Math.floor(hours / 24)} days ago`;
 }
 
+/**
+ * How old a set of numbers is, worded for what the person can do about it.
+ * "Updated 12 min ago" only when they were read recently; otherwise "Numbers
+ * from 2 days ago", with the reason they were not refreshed - not connected
+ * (the one thing the person can fix) or a read that failed just now.
+ */
+export function statsAgeText(status: YoutubeStatsStatus | "loading", fetchedAt: string, now: Date): string {
+  const { text, connect } = statsAgeParts(status, fetchedAt, now);
+  return connect ? `${text} - ${CONNECT_TO_REFRESH}` : text;
+}
+
+/** The action half of "Numbers from 2 days ago - connect YouTube to refresh". */
+export const CONNECT_TO_REFRESH = "connect YouTube to refresh";
+
+/** statsAgeText in two parts, so a screen can turn the "connect YouTube" half into a link. */
+export function statsAgeParts(
+  status: YoutubeStatsStatus | "loading",
+  fetchedAt: string,
+  now: Date
+): { text: string; connect: boolean } {
+  const age = agoLabel(fetchedAt, now);
+  const ageMs = now.getTime() - new Date(fetchedAt).getTime();
+  // The server re-reads at most every 30 minutes, so anything younger than
+  // that (plus a little slack) is as fresh as the numbers get.
+  const recent = Number.isFinite(ageMs) && ageMs < STATS_TTL_MS + 5 * 60_000;
+  if ((status === "ok" || status === "loading") && recent) return { text: `Updated ${age}`, connect: false };
+  if (status === "not-connected") return { text: `Numbers from ${age}`, connect: true };
+  if (status === "stale" || status === "error") {
+    return { text: `Numbers from ${age} - YouTube could not be reached to refresh`, connect: false };
+  }
+  return { text: `Numbers from ${age}`, connect: false };
+}
+
+/** The newest `fetchedAt` among these videos' numbers, or null when none have any. */
+export function newestFetchedAt(stats: Record<string, YoutubeStat>, videoIds: string[]): string | null {
+  let newest: string | null = null;
+  for (const id of new Set(videoIds)) {
+    const at = stats[id]?.fetchedAt;
+    if (at && (newest === null || at > newest)) newest = at;
+  }
+  return newest;
+}
+
 /** The video's analytics tab in YouTube Studio. */
 export function studioAnalyticsUrl(videoId: string): string {
   return `https://studio.youtube.com/video/${encodeURIComponent(videoId)}/analytics/tab-overview/period-default`;

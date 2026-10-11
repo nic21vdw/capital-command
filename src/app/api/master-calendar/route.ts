@@ -5,6 +5,8 @@ import { publishQueue } from "@/lib/publisher/queue";
 import { readAppData } from "@/lib/storage/store";
 import { threadsConfig } from "@/lib/threads/config";
 import { readQueue as readThreadsQueue } from "@/lib/threads/queue";
+import { liveStatsDeps } from "@/lib/publisher/youtubeStats";
+import type { YoutubeStat } from "@/lib/publisher/youtubeStatsShared";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -17,6 +19,25 @@ function validDateKey(value: string): boolean {
   if (!DATE_KEY_RE.test(value)) return false;
   const date = new Date(`${value}T12:00:00Z`);
   return Number.isFinite(date.getTime()) && date.toISOString().slice(0, 10) === value;
+}
+
+/**
+ * The last YouTube numbers on disk for the published videos in these events.
+ * Cache only - no call to YouTube - so the page can show numbers with its
+ * events and let the live read refresh them afterwards. A cache that cannot
+ * be read is just no numbers.
+ */
+async function cachedYoutubeStats(events: { youtube?: { videoId: string } }[]): Promise<Record<string, YoutubeStat>> {
+  const ids = new Set(events.flatMap((event) => (event.youtube ? [event.youtube.videoId] : [])));
+  if (ids.size === 0) return {};
+  try {
+    const cache = await liveStatsDeps.readCache();
+    const out: Record<string, YoutubeStat> = {};
+    for (const id of ids) if (cache[id]) out[id] = cache[id];
+    return out;
+  } catch {
+    return {};
+  }
 }
 
 /**
@@ -57,6 +78,7 @@ export async function GET(request: NextRequest) {
     publishEnabled: config.enabled,
     start: startKey,
     days,
-    events
+    events,
+    youtubeStats: await cachedYoutubeStats(events)
   });
 }

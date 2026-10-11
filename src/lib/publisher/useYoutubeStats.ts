@@ -17,20 +17,29 @@ type Snapshot = {
   stats: Record<string, YoutubeStat>;
   status: YoutubeStatsStatus | "loading";
   message: string | null;
+  /** A request for numbers is queued or on its way; a screen shows a loading state rather than "no numbers". */
+  pending: boolean;
 };
 
 const REASK_AFTER_MS = 5 * 60 * 1000;
 const BATCH_DELAY_MS = 60;
 
-let snapshot: Snapshot = { stats: {}, status: "loading", message: null };
+let snapshot: Snapshot = { stats: {}, status: "loading", message: null, pending: false };
+let inFlight = 0;
 const listeners = new Set<() => void>();
 const asked = new Map<string, number>();
 const queued = new Map<string, string>();
 let timer: ReturnType<typeof setTimeout> | null = null;
 
-function publish(next: Snapshot) {
-  snapshot = next;
+function publish(next: Omit<Snapshot, "pending">) {
+  snapshot = { ...next, pending: queued.size > 0 || inFlight > 0 };
   for (const listener of listeners) listener();
+}
+
+/** Re-publish only when "is a request outstanding" actually changed. */
+function publishPending() {
+  const pending = queued.size > 0 || inFlight > 0;
+  if (pending !== snapshot.pending) publish(snapshot);
 }
 
 async function flush() {
@@ -38,12 +47,15 @@ async function flush() {
   const batch = [...queued];
   queued.clear();
   if (batch.length === 0) return;
+  inFlight += 1;
   try {
     const url = `/api/publish/youtube-stats?items=${batch.map(([itemId]) => encodeURIComponent(itemId)).join(",")}`;
     const response = await fetch(url, { cache: "no-store" });
     const body = (await response.json()) as YoutubeStatsResponse;
+    inFlight -= 1;
     publish({ stats: { ...snapshot.stats, ...body.stats }, status: body.status, message: body.message });
   } catch {
+    inFlight -= 1;
     // Offline or the route is down: keep whatever is already on screen.
     for (const [itemId] of batch) asked.delete(itemId);
     publish({ ...snapshot, status: Object.keys(snapshot.stats).length > 0 ? "stale" : "error" });
@@ -61,6 +73,7 @@ function request(targets: StatsTarget[]) {
     added = true;
   }
   if (added && !timer) timer = setTimeout(() => void flush(), BATCH_DELAY_MS);
+  if (added) publishPending();
 }
 
 function subscribe(listener: () => void) {
@@ -70,7 +83,7 @@ function subscribe(listener: () => void) {
   };
 }
 
-const SERVER_SNAPSHOT: Snapshot = { stats: {}, status: "loading", message: null };
+const SERVER_SNAPSHOT: Snapshot = { stats: {}, status: "loading", message: null, pending: false };
 
 /** The numbers for these published YouTube posts, requested together with every other caller on the page. */
 export function useYoutubeStats(targets: StatsTarget[]): Snapshot {
@@ -88,7 +101,8 @@ export function useYoutubeStats(targets: StatsTarget[]): Snapshot {
 
 /** Test seam: forget everything. */
 export function resetYoutubeStatsStore() {
-  snapshot = { stats: {}, status: "loading", message: null };
+  snapshot = { stats: {}, status: "loading", message: null, pending: false };
+  inFlight = 0;
   asked.clear();
   queued.clear();
   if (timer) clearTimeout(timer);

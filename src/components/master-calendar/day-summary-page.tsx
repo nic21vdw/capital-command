@@ -27,7 +27,10 @@ import { SourceIcon } from "@/components/master-calendar/source-icon";
 import { sourceHrefForDay } from "@/lib/master-calendar/aggregate";
 import { formatDayKey, localTodayKey, relativeDayLabel, shiftDayKey } from "@/lib/master-calendar/day-keys";
 import { buildDaySummary, summaryState, type DaySummary, type SummaryState } from "@/lib/master-calendar/day-summary";
+import { buildWeekSummary, WEEK_DAYS } from "@/lib/master-calendar/weekSummary";
+import { YoutubeAge } from "@/components/publisher/youtube-age";
 import { YoutubeStatsLine } from "@/components/publisher/youtube-stats-line";
+import { WeekSummaryCard } from "@/components/master-calendar/week-summary-card";
 import { PlatformIcon, type PlatformIconKey } from "@/components/ui/platform-icon";
 import {
   eventHref,
@@ -38,7 +41,13 @@ import {
 } from "@/lib/master-calendar/types";
 import { useColateralSurface } from "@/lib/colateral/useSurface";
 import { useYoutubeStats, type StatsTarget } from "@/lib/publisher/useYoutubeStats";
-import { compactCount, studioAnalyticsUrl, totalViews } from "@/lib/publisher/youtubeStatsShared";
+import {
+  compactCount,
+  newestFetchedAt,
+  studioAnalyticsUrl,
+  totalViews,
+  type YoutubeStat
+} from "@/lib/publisher/youtubeStatsShared";
 import { cn } from "@/lib/utils";
 
 /**
@@ -104,7 +113,7 @@ function StateChips({ states, className }: { states: Record<SummaryState, number
 }
 
 /** One scheduled piece: its frame, when it goes, where, and a way in. */
-function PieceCard({ event }: { event: MasterCalendarEvent }) {
+function PieceCard({ event, cachedStat }: { event: MasterCalendarEvent; cachedStat?: YoutubeStat }) {
   const state = summaryState(event.status);
   // A clip that is no longer on this machine 404s its frame, and a broken
   // image reads as "this piece is broken" when only the file has moved.
@@ -113,7 +122,9 @@ function PieceCard({ event }: { event: MasterCalendarEvent }) {
   // and shared (see useYoutubeStats).
   const youtube = event.youtube;
   const { stats: youtubeStats, status: youtubeStatus } = useYoutubeStats(youtube ? [youtube] : []);
-  const youtubeStat = youtube ? youtubeStats[youtube.videoId] : undefined;
+  // The numbers that rode in with the day's events show at once; the live
+  // read replaces them when it lands.
+  const youtubeStat = youtube ? (youtubeStats[youtube.videoId] ?? cachedStat) : undefined;
   return (
     // The card is a stretched link (the title's ::before covers it), so the
     // "Open on <platform>" links can sit on top of it without nesting anchors.
@@ -258,10 +269,12 @@ function ByHandTodos({ todos }: { todos: DaySummary["todos"] }) {
 /** Everything one surface puts out that day, with a way into that screen. */
 function SourceSection({
   section,
-  dateKey
+  dateKey,
+  cachedStats
 }: {
   section: DaySummary["sections"][number];
   dateKey: string;
+  cachedStats: Record<string, YoutubeStat>;
 }) {
   const { source, events, states } = section;
   return (
@@ -287,9 +300,89 @@ function SourceSection({
       </div>
       <div className="grid gap-2 p-3 sm:grid-cols-2 xl:grid-cols-3">
         {events.map((event) => (
-          <PieceCard key={event.id} event={event} />
+          <PieceCard key={event.id} event={event} cachedStat={event.youtube ? cachedStats[event.youtube.videoId] : undefined} />
         ))}
       </div>
+    </Card>
+  );
+}
+
+/**
+ * The day's YouTube numbers. Its space is held from the first paint (a
+ * skeleton, then the numbers in the same box) so the cards below never jump
+ * when the read lands - it used to pop in above the day after a couple of
+ * seconds and push everything down.
+ */
+function YoutubeDayStrip({
+  label,
+  dayLoading,
+  videoCount,
+  totals,
+  missing,
+  freshness,
+  status,
+  pending
+}: {
+  label: string;
+  dayLoading: boolean;
+  videoCount: number;
+  totals: { views: number; likes: number; videos: number };
+  missing: boolean;
+  freshness: string | null;
+  status: ReturnType<typeof useYoutubeStats>["status"];
+  pending: boolean;
+}) {
+  // Nothing went to YouTube that day: nothing to hold space for.
+  if (!dayLoading && videoCount === 0) return null;
+  const waiting = dayLoading || (totals.videos === 0 && pending);
+  const box = "mb-4 min-h-[112px] py-3 sm:min-h-[92px]";
+  if (waiting) {
+    return (
+      <Card className={box} aria-busy="true">
+        <p className="text-xs uppercase tracking-wider text-[var(--muted-foreground)]">{dayLoading ? "YouTube" : label}</p>
+        <p className="mt-2 flex items-center gap-2 text-sm text-[var(--muted-foreground)]">
+          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+          Loading YouTube numbers...
+        </p>
+        <span className="mt-3 block h-3 w-2/3 animate-pulse rounded bg-white/10" />
+      </Card>
+    );
+  }
+  if (totals.videos === 0) {
+    return (
+      <Card className={box}>
+        <p className="text-xs uppercase tracking-wider text-[var(--muted-foreground)]">{label}</p>
+        <p className="mt-1 text-sm text-[var(--muted-foreground)]">
+          No numbers yet for {videoCount === 1 ? "this day's video" : `this day's ${videoCount} videos`}.
+          {status === "not-connected" ? (
+            <>
+              {" "}
+              <Link href="/settings#accounts" className="text-[var(--accent)] hover:underline">
+                Connect YouTube to see views here
+              </Link>
+            </>
+          ) : null}
+        </p>
+      </Card>
+    );
+  }
+  return (
+    <Card className={box}>
+      <p className="text-xs uppercase tracking-wider text-[var(--muted-foreground)]">{label}</p>
+      <p className="mt-1 text-sm text-white">
+        <span className="text-lg font-semibold">{compactCount(totals.views)}</span> {totals.views === 1 ? "view" : "views"} ·{" "}
+        {compactCount(totals.likes)} {totals.likes === 1 ? "like" : "likes"}
+        <span className="text-[var(--muted-foreground)]">
+          {" "}
+          across {totals.videos} {totals.videos === 1 ? "video" : "videos"} posted that day
+          {missing ? " (some have no numbers yet)" : ""}
+        </span>
+      </p>
+      {freshness ? (
+        <p className="mt-1 text-xs text-[var(--muted-foreground)]">
+          <YoutubeAge status={status} fetchedAt={freshness} />
+        </p>
+      ) : null}
     </Card>
   );
 }
@@ -323,19 +416,61 @@ export function DaySummaryPage({ initialDate }: { initialDate?: string }) {
     [dateKey, fetchedDate, response]
   );
 
+  // The last seven days, fetched alongside the day so both paint together.
+  const [week, setWeek] = useState<{ state: "loading" | "ready" | "error"; response: MasterCalendarResponse | null }>({
+    state: "loading",
+    response: null
+  });
+  useEffect(() => {
+    const controller = new AbortController();
+    const start = shiftDayKey(todayKey, -(WEEK_DAYS - 1));
+    void fetch(`/api/master-calendar?start=${start}&days=${WEEK_DAYS}`, { cache: "no-store", signal: controller.signal })
+      .then((res) => res.json())
+      .then((json: MasterCalendarResponse) => setWeek({ state: "ready", response: json }))
+      .catch((error) => {
+        if (!(error instanceof DOMException && error.name === "AbortError")) setWeek({ state: "error", response: null });
+      });
+    return () => controller.abort();
+  }, [todayKey]);
+
   // The day's published YouTube videos. PieceCard asks for its own too; the store
   // batches both into one request, and this is what the yesterday strip adds up.
   const youtubeTargets = useMemo<StatsTarget[]>(
     () => summary.sections.flatMap((section) => section.events.flatMap((event) => (event.youtube ? [event.youtube] : []))),
     [summary]
   );
-  const youtube = useYoutubeStats(youtubeTargets);
+  const weekTargets = useMemo<StatsTarget[]>(
+    () => (week.response?.events ?? []).flatMap((event) => (event.youtube ? [event.youtube] : [])),
+    [week.response]
+  );
+  const youtube = useYoutubeStats(useMemo(() => [...youtubeTargets, ...weekTargets], [youtubeTargets, weekTargets]));
+  // What the server had cached when it sent the events, under whatever the live
+  // read has brought since: numbers are on screen with the cards, not after them.
+  const cachedStats = useMemo<Record<string, YoutubeStat>>(
+    () => ({ ...week.response?.youtubeStats, ...response?.youtubeStats }),
+    [week.response, response]
+  );
+  const allStats = useMemo(() => ({ ...cachedStats, ...youtube.stats }), [cachedStats, youtube.stats]);
   const youtubeIds = youtubeTargets.map((target) => target.videoId);
-  const youtubeTotals = totalViews(youtube.stats, youtubeIds);
-  const youtubeMissing = youtubeIds.some((id) => !youtube.stats[id]);
+  const youtubeTotals = totalViews(allStats, youtubeIds);
+  const youtubeMissing = youtubeIds.some((id) => !allStats[id]);
+  const weekSummary = useMemo(
+    () =>
+      week.state === "ready" && week.response
+        ? buildWeekSummary({ events: week.response.events, endKey: todayKey, stats: allStats })
+        : null,
+    [week, todayKey, allStats]
+  );
 
   const relative = relativeDayLabel(dateKey, todayKey);
-  const dayLabel = formatDayKey(dateKey, { weekday: "long", month: "long", day: "numeric" });
+  // "Friday  Friday, October 9" said the weekday twice; a weekday name already says it.
+  const dayLabel = formatDayKey(
+    dateKey,
+    ["Today", "Tomorrow", "Yesterday"].includes(relative)
+      ? { weekday: "long", month: "long", day: "numeric" }
+      : { month: "long", day: "numeric" }
+  );
+  const fullDayLabel = ["Today", "Tomorrow", "Yesterday"].includes(relative) ? dayLabel : `${relative}, ${dayLabel}`;
   const window =
     summary.firstTime && summary.lastTime
       ? summary.firstTime === summary.lastTime
@@ -351,6 +486,10 @@ export function DaySummaryPage({ initialDate }: { initialDate?: string }) {
       .join(" · ") || "Nothing scheduled";
   const networksSummary =
     summary.platforms.map((platform) => `${platform.label} (${platform.count})`).join(", ") || "None";
+
+  const weekReading = weekSummary
+    ? `${weekSummary.totals.published} published, ${weekSummary.totals.failed} failed, ${weekSummary.totals.byHand} to post by hand; YouTube ${weekSummary.youtube.views} views, ${weekSummary.youtube.likes} likes${weekSummary.top ? `; top post "${weekSummary.top.title}" with ${weekSummary.top.views} views` : ""}`
+    : "Loading";
 
   useColateralSurface({
     route: "/day-summary",
@@ -373,7 +512,8 @@ export function DaySummaryPage({ initialDate }: { initialDate?: string }) {
         label: "To post by hand",
         value: summary.todos.map((todo) => `${todo.platform}${todo.time ? ` at ${todo.time}` : ""}: ${todo.title}`).join("; ") || "None"
       },
-      { label: "Networks", value: networksSummary }
+      { label: "Networks", value: networksSummary },
+      { label: "Last 7 days", value: weekReading }
     ],
     setField: (id, value) => {
       if (id !== "date") return false;
@@ -425,14 +565,6 @@ export function DaySummaryPage({ initialDate }: { initialDate?: string }) {
       />
       <p className="-mt-2 mb-4 text-xs text-[var(--muted-foreground)]">
         Shows YouTube views and likes; other platforms show posting status - use the Open on links for their numbers.
-        {youtubeTargets.length > 0 && youtube.status === "not-connected" && youtubeMissing ? (
-          <>
-            {" "}
-            <Link href="/settings#accounts" className="text-[var(--accent)] hover:underline">
-              Connect YouTube to see views here
-            </Link>
-          </>
-        ) : null}
       </p>
 
       <Card className="mb-4 p-0">
@@ -495,24 +627,7 @@ export function DaySummaryPage({ initialDate }: { initialDate?: string }) {
         </div>
       </Card>
 
-      {dateKey < todayKey && youtubeTotals.videos > 0 ? (
-        <Card className="mb-4 py-3">
-          <p className="text-xs uppercase tracking-wider text-[var(--muted-foreground)]">
-            {relative === "Yesterday" ? "Yesterday on YouTube" : `${dayLabel} on YouTube`}
-          </p>
-          <p className="mt-1 text-sm text-white">
-            <span className="text-lg font-semibold">{compactCount(youtubeTotals.views)}</span>{" "}
-            {youtubeTotals.views === 1 ? "view" : "views"} · {compactCount(youtubeTotals.likes)}{" "}
-            {youtubeTotals.likes === 1 ? "like" : "likes"}
-            <span className="text-[var(--muted-foreground)]">
-              {" "}
-              across {youtubeTotals.videos} {youtubeTotals.videos === 1 ? "video" : "videos"} posted that day
-              {youtubeMissing ? " (some have no numbers yet)" : ""}
-              {youtube.status !== "ok" && youtube.status !== "loading" ? " - not refreshed, see each video's date" : ""}
-            </span>
-          </p>
-        </Card>
-      ) : null}
+      <WeekSummaryCard summary={weekSummary} state={week.state} statsStatus={youtube.status} now={new Date()} />
 
       <Card className="mb-4">
         <div className="flex flex-wrap items-end justify-between gap-6">
@@ -520,7 +635,7 @@ export function DaySummaryPage({ initialDate }: { initialDate?: string }) {
             <p className="text-sm text-[var(--muted-foreground)]">
               {relative === "Today" || relative === "Tomorrow" || relative === "Yesterday"
                 ? `Going out ${relative.toLowerCase()}`
-                : `Going out on ${dayLabel}`}
+                : `Going out on ${fullDayLabel}`}
             </p>
             <p className="mt-1 text-4xl font-bold tracking-tight text-white">
               {summary.total} <span className="text-2xl font-semibold">{summary.total === 1 ? "piece" : "pieces"}</span>
@@ -566,11 +681,24 @@ export function DaySummaryPage({ initialDate }: { initialDate?: string }) {
         </div>
       </Card>
 
+      {dateKey <= todayKey ? (
+        <YoutubeDayStrip
+          label={relative === "Today" || relative === "Yesterday" ? `${relative} on YouTube` : `${fullDayLabel} on YouTube`}
+          dayLoading={loading}
+          videoCount={youtubeIds.length}
+          totals={youtubeTotals}
+          missing={youtubeMissing}
+          freshness={newestFetchedAt(allStats, youtubeIds)}
+          status={youtube.status}
+          pending={youtube.pending}
+        />
+      ) : null}
+
       <ByHandTodos todos={summary.todos} />
 
       <div className="space-y-4">
         {summary.sections.map((section) => (
-          <SourceSection key={section.source.id} section={section} dateKey={dateKey} />
+          <SourceSection key={section.source.id} section={section} dateKey={dateKey} cachedStats={cachedStats} />
         ))}
       </div>
 

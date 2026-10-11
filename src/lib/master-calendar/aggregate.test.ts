@@ -46,6 +46,23 @@ describe("what a booked queue item reads as on the calendar", () => {
     expect(event.href).toBe("/carousels?open=deck-1");
   });
 
+  it("carries what happened on each platform, for per-platform roll-ups", () => {
+    const [event] = events([
+      item({
+        platforms: {
+          youtube: { status: "published", postId: "abcdefghijk", attempts: 1 },
+          instagram: { status: "published", postId: "17900000000000001", attempts: 1 },
+          tiktok: { status: "manual", attempts: 0 }
+        }
+      })
+    ]);
+    expect(event.legs).toEqual([
+      { platform: "YouTube", status: "published", url: "https://www.youtube.com/watch?v=abcdefghijk" },
+      { platform: "Instagram", status: "published" },
+      { platform: "TikTok", status: "manual" }
+    ]);
+  });
+
   it("opens that queued short, not a job dropdown", () => {
     const [event] = events([item({})]);
     expect(event.source).toBe("shorts");
