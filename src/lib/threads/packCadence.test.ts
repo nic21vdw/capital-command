@@ -132,8 +132,8 @@ describe("packOrderNote", () => {
       { id: "f", time: "02:55" }
     ];
     const note = packOrderNote({ posts, early: new Set(["e", "f"]), dayLabel: "Saturday, Oct 10", zoneName: "Toronto" });
-    expect(note).toContain("2 posts are timed for 1:20 AM, 2:55 AM");
-    expect(note).toContain("on Saturday, Oct 10 itself in Toronto time, not carried past midnight");
+    expect(note).toContain("the 2 posts timed for 1:20 AM and 2:55 AM");
+    expect(note).toContain("on Saturday, Oct 10 (Toronto time) come ahead of the pack's numbering");
     expect(note).not.toContain("morning");
     expect(note).toContain("clock order");
   });
@@ -146,14 +146,14 @@ describe("packOrderNote", () => {
       { id: "r", time: "15:25" }
     ];
     const note = packOrderNote({ posts, early: new Set(["p", "q", "r"]), dayLabel: "Sunday, Oct 11" });
-    expect(note).toContain("3 posts are timed for 12:15 PM, 1:50 PM, 3:25 PM - on Sunday, Oct 11 itself");
+    expect(note).toContain("the 3 posts timed for 12:15 PM, 1:50 PM and 3:25 PM on Sunday, Oct 11");
     expect(note).not.toMatch(/morning|early/);
   });
 
   it("reads right for a single post and an unknown zone", () => {
     const note = packOrderNote({ posts: [{ id: "e", time: "01:20" }], early: new Set(["e"]), dayLabel: "Saturday, Oct 10" });
-    expect(note).toContain("One post is timed for 1:20 AM");
-    expect(note).toContain("it is listed ahead of the posts the pack numbers before it");
-    expect(note).not.toContain(" time,");
+    expect(note).toContain("the post timed for 1:20 AM");
+    expect(note).toContain("on Saturday, Oct 10 comes ahead of the pack's numbering");
+    expect(note).not.toContain("time)");
   });
 });
