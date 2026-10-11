@@ -444,13 +444,17 @@ export function AutomationsPage() {
     ]
   });
 
+  // A lone card spans the row instead of sitting at half width beside nothing.
+  const activeCards = overview ? overview.cards.filter((card) => !isNotSetUp(card)) : [];
+  const idleCards = overview ? overview.cards.filter(isNotSetUp) : [];
+
   const renderPanel = (card: AutomationCard) => (
     <AutomationPanel key={card.id} card={card} stale={Boolean(error)} busy={busy !== null || refreshing} onPause={(selected) => void change(selected.id, { action: "pause", id: selected.id, paused: !selected.paused })} />
   );
 
   return (
-    <div className="mx-auto max-w-6xl p-4 sm:p-6">
-      <PageHeader eyebrow="CoLateral Marketing" title="Automations" description="See what runs in the background, when it runs, what happened last and what needs fixing. Pause switches are saved, and each background job checks them before it acts." actions={<Button variant="secondary" onClick={() => void load()} disabled={refreshing || busy !== null}><RefreshCw className={cn("mr-2 h-4 w-4", refreshing && "animate-spin")} />Refresh</Button>} />
+    <div>
+      <PageHeader eyebrow="Step 3 · Schedule" title="Automations" description="See what runs in the background, when it runs, what happened last and what needs fixing. Pause switches are saved, and each background job checks them before it acts." actions={<Button variant="secondary" onClick={() => void load()} disabled={refreshing || busy !== null}><RefreshCw className={cn("mr-2 h-4 w-4", refreshing && "animate-spin")} />Refresh</Button>} />
       {error && <div role="alert" className="mb-5 rounded-xl border border-amber-500/30 bg-amber-500/10 p-4 text-sm text-amber-200">Status is unavailable: {error} {overview ? "The last snapshot is shown below; controls are disabled until status returns." : "Nothing is assumed about what is running."}</div>}
       {!overview && !error && <p className="flex items-center gap-2 py-10 text-sm text-[var(--muted-foreground)]"><Loader2 className="h-4 w-4 animate-spin" />Loading saved switches and recent activity...</p>}
       {overview && <>
@@ -476,16 +480,17 @@ export function AutomationsPage() {
         <OvernightConfirmDialog open={confirmOvernight} busy={busy !== null} onCancel={() => setConfirmOvernight(false)} onConfirm={() => { setConfirmOvernight(false); void change("overnight", { action: "overnight-scheduling", enabled: true }); }} />
         <p className="mb-5 text-xs text-[var(--muted-foreground)]">Resume allows the existing configured schedule to continue. Missing tasks, disconnected accounts and switched-off publishing still block work. A current action may finish before the next pause check.</p>
         {/* Cards still waiting on setup sit behind a closed disclosure, so the ones that are running or need a look come first. */}
-        <div className="grid gap-5 lg:grid-cols-2">{overview.cards.filter((card) => !isNotSetUp(card)).map(renderPanel)}</div>
-        {overview.cards.some(isNotSetUp) && (
+        <div className={cn("grid gap-5", activeCards.length > 1 && "lg:grid-cols-2")}>{activeCards.map(renderPanel)}</div>
+        {idleCards.length > 0 && (
           <details className="group mt-5 rounded-xl border border-[var(--border)] bg-[var(--card)] p-4">
-            <summary className="cursor-pointer text-sm font-medium text-[var(--muted-foreground)] hover:text-white">{overview.cards.filter(isNotSetUp).length} more not set up</summary>
-            <div className="mt-5 grid gap-5 lg:grid-cols-2">{overview.cards.filter(isNotSetUp).map(renderPanel)}</div>
+            <summary className="cursor-pointer text-sm font-medium text-[var(--muted-foreground)] hover:text-white max-sm:py-3">{idleCards.length} more not set up</summary>
+            <div className={cn("mt-5 grid gap-5", idleCards.length > 1 && "lg:grid-cols-2")}>{idleCards.map(renderPanel)}</div>
           </details>
         )}
         <CadencePanel rows={overview.cadence} values={overview.cadenceValues} disabled={busy !== null || refreshing || Boolean(error)} onSaved={reloadAfterSave} />
       </>}
-      <AutomationHistoryPanel timezone={publishZone} />
+      {/* Mounted once the overview has landed: above it, the panel sat in view while the cards above pushed it off the screen. */}
+      {overview || error ? <AutomationHistoryPanel timezone={publishZone} /> : null}
     </div>
   );
 }

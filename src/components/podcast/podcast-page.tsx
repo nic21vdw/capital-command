@@ -472,7 +472,7 @@ export function PodcastPage() {
                 type="file"
                 accept="image/png,image/jpeg"
                 disabled={!state.configured || busy !== null}
-                className="mt-1.5 block w-full text-sm text-[var(--muted-foreground)] file:mr-3 file:rounded-lg file:border file:border-[var(--border)] file:bg-white/5 file:px-3 file:py-2 file:text-sm file:text-white hover:file:bg-white/10 disabled:opacity-50"
+                className="mt-1.5 block w-full text-sm text-[var(--muted-foreground)] file:mr-3 file:rounded-lg file:border file:border-[var(--border)] file:bg-white/5 file:px-3 file:py-2 max-sm:file:min-h-10 file:text-sm file:text-white hover:file:bg-white/10 disabled:opacity-50"
                 onChange={(event) => {
                   const file = event.target.files?.[0];
                   event.target.value = "";
@@ -483,7 +483,7 @@ export function PodcastPage() {
                 {busy === "artwork" ? "Uploading…" : "Checked for square and size before it goes anywhere."}
               </p>
             </div>
-            <label className="flex items-center gap-2 text-sm text-white">
+            <label className="flex items-center gap-2 text-sm text-white max-sm:min-h-10">
               <input
                 type="checkbox"
                 checked={draft.explicit}

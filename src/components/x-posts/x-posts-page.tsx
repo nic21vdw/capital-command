@@ -781,7 +781,7 @@ function AutopilotCard({ status }: { status: AutopilotProps["status"] }) {
             {(noAccount ? "Waiting for an account" : settings.replyPolicy.disabledReason) ?? `A contextual link reply follows each eligible post after ${settings.replyPolicy.delayMinutes} min, within a ${settings.replyPolicy.windowMinutes} min window.`}
           </p>
           {settings.replyPolicy.url ? (
-            <a href={settings.replyPolicy.url} target="_blank" rel="noreferrer" className="block break-all text-xs text-[var(--accent)] underline">
+            <a href={settings.replyPolicy.url} target="_blank" rel="noreferrer" className="block break-all text-xs text-[var(--accent)] underline max-sm:py-3">
               {settings.replyPolicy.url}
             </a>
           ) : null}
@@ -991,11 +991,11 @@ function AddPostCard({ status, busy, send }: AutopilotProps) {
         disabled={Boolean(blocked)}
       />
       <div className="flex flex-wrap items-center gap-3">
-        <label className="flex items-center gap-1.5 text-xs text-[var(--muted-foreground)]">
+        <label className="flex items-center gap-1.5 text-xs text-[var(--muted-foreground)] max-sm:min-h-10">
           <input type="radio" name="add-when" checked={when === "soon"} onChange={() => setWhen("soon")} className="accent-[var(--accent)]" />
           In about 2 hours
         </label>
-        <label className="flex items-center gap-1.5 text-xs text-[var(--muted-foreground)]">
+        <label className="flex items-center gap-1.5 text-xs text-[var(--muted-foreground)] max-sm:min-h-10">
           <input type="radio" name="add-when" checked={when === "time"} onChange={() => setWhen("time")} className="accent-[var(--accent)]" />
           At a time
         </label>

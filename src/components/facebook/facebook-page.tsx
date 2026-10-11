@@ -507,7 +507,7 @@ function PostForm({
                 type="button"
                 aria-label={`Remove step ${index + 1}`}
                 onClick={() => setComments((current) => current.filter((item) => item.id !== comment.id))}
-                className="mt-3 shrink-0 rounded-lg p-1.5 text-[var(--muted-foreground)] transition-colors hover:bg-[var(--danger)]/15 hover:text-[var(--danger)]"
+                className="mt-3 shrink-0 rounded-lg p-1.5 max-sm:flex max-sm:min-h-10 max-sm:min-w-10 max-sm:items-center max-sm:justify-center text-[var(--muted-foreground)] transition-colors hover:bg-[var(--danger)]/15 hover:text-[var(--danger)]"
               >
                 <Trash2 className="h-4 w-4" />
               </button>

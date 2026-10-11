@@ -117,14 +117,19 @@ function EventChip({ event }: { event: MasterCalendarEvent }) {
       href={eventHref(event)}
       title={`${event.time ? `${formatClockTime(event.time)} · ` : ""}${event.title}${eventNote(event)} — open ${source.hrefLabel}`}
       className={cn(
-        "flex items-center gap-1.5 rounded-md px-1.5 py-1 text-[11px] leading-tight transition hover:translate-x-0.5 hover:bg-white/10",
+        "flex items-start gap-1.5 rounded-md px-1.5 py-1 text-[11px] leading-tight transition hover:translate-x-0.5 hover:bg-white/10",
         reminder ? "border border-dashed border-[var(--border-strong)] bg-transparent opacity-80" : "border-l-2 bg-white/5"
       )}
       style={reminder ? undefined : { borderLeftColor: source.color }}
     >
-      {reminder ? <Bell className="h-3 w-3 shrink-0 text-[var(--muted-foreground)]" aria-label="Reminder" /> : <SourceIcon source={event.source} className="h-3 w-3" />}
-      {event.time ? <span className="shrink-0 whitespace-nowrap font-semibold text-[var(--muted-foreground)]">{formatClockTime(event.time)}</span> : null}
-      <span className={cn("min-w-0 truncate", reminder ? "text-[var(--muted-foreground)]" : "text-white")}>{event.title}</span>
+      <span className="flex h-[1.1em] shrink-0 items-center">
+        {reminder ? <Bell className="h-3 w-3 shrink-0 text-[var(--muted-foreground)]" aria-label="Reminder" /> : <SourceIcon source={event.source} className="h-3 w-3" />}
+      </span>
+      {/* The time sits on its own line so the title keeps the width; beside it, a week-view chip was left with one letter. */}
+      <span className="min-w-0 flex-1">
+        {event.time ? <span className="block whitespace-nowrap text-[10px] font-semibold text-[var(--muted-foreground)]">{formatClockTime(event.time)}</span> : null}
+        <span className={cn("line-clamp-2 break-words", reminder ? "text-[var(--muted-foreground)]" : "text-white")}>{event.title}</span>
+      </span>
       {isFailedEventStatus(event.status) ? <AlertTriangle className="h-2.5 w-2.5 shrink-0 text-red-300" aria-label={event.status} /> : null}
       {isLateEventStatus(event.status) ? <Clock className="h-2.5 w-2.5 shrink-0 text-amber-300" aria-label={lateNote(event)} /> : null}
       {isAwaitingConnectionEventStatus(event.status) ? <AlertTriangle className="h-2.5 w-2.5 shrink-0 text-amber-300" aria-label={lateNote(event)} /> : null}

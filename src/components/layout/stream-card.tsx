@@ -15,9 +15,11 @@ import { cn } from "@/lib/utils";
  * switching here re-points the whole flow at the other recording.
  */
 export function StreamCard({ collapsed = false }: { collapsed?: boolean }) {
-  const { streams, stream, loaded, select } = useStream();
+  const { streams, stream, select } = useStream();
 
-  if (loaded && streams.length === 0) return null;
+  // Nothing until the list is known: a placeholder picker that vanishes for an
+  // empty list shifted the whole nav up 41px a moment after every first load.
+  if (streams.length === 0) return null;
 
   if (collapsed) {
     return (

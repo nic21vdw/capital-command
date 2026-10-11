@@ -183,7 +183,7 @@ function StreamSearchBar({
 }
 
 const SELECT_CLASS =
-  "h-8 cursor-pointer appearance-none rounded-full border border-[var(--border)] bg-[var(--surface-2)] pl-3 pr-7 text-xs text-white outline-none transition hover:border-[var(--border-strong)] focus:border-[var(--accent)] disabled:opacity-50";
+  "h-8 max-sm:h-10 cursor-pointer appearance-none rounded-full border border-[var(--border)] bg-[var(--surface-2)] pl-3 pr-7 text-xs text-white outline-none transition hover:border-[var(--border-strong)] focus:border-[var(--accent)] disabled:opacity-50";
 
 /**
  * The only two settings the pipeline asks for. They live under the search bar,

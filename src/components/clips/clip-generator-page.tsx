@@ -670,7 +670,7 @@ export function ClipGeneratorPage() {
                         disabled={busy}
                         onClick={() => setClipLength(id)}
                         className={cn(
-                          "flex flex-col items-center rounded-full px-1 py-1 leading-tight transition",
+                          "flex flex-col items-center justify-center rounded-full px-1 py-1 leading-tight transition max-sm:min-h-10",
                           selected
                             ? "bg-[var(--accent)] text-[var(--accent-contrast)]"
                             : "text-[var(--muted-foreground)] hover:bg-white/5 hover:text-white"
@@ -800,7 +800,7 @@ export function ClipGeneratorPage() {
                           aria-pressed={activeJob?.id === job.id}
                           aria-label={`Open stream ${job.fileName}`}
                           title={job.fileName}
-                          className="block w-full overflow-x-auto whitespace-nowrap text-left text-sm font-medium text-white [scrollbar-width:thin] [&::-webkit-scrollbar]:h-1"
+                          className="block w-full overflow-x-auto whitespace-nowrap text-left text-sm font-medium text-white [scrollbar-width:thin] [&::-webkit-scrollbar]:h-1 max-sm:py-2.5"
                         >
                           {job.fileName}
                         </button>
@@ -834,7 +834,7 @@ export function ClipGeneratorPage() {
                               event.stopPropagation();
                               void removeJob(job);
                             }}
-                            className="flex h-6 w-6 items-center justify-center rounded-md text-[var(--muted-foreground)] transition hover:bg-[color-mix(in_srgb,var(--danger)_14%,transparent)] hover:text-[var(--danger)]"
+                            className="flex h-6 w-6 items-center justify-center rounded-md max-sm:h-10 max-sm:w-10 text-[var(--muted-foreground)] transition hover:bg-[color-mix(in_srgb,var(--danger)_14%,transparent)] hover:text-[var(--danger)]"
                           >
                             <Trash2 className="h-3.5 w-3.5" />
                           </button>
@@ -1246,7 +1246,7 @@ function ClipCard({
               onClick={onEdit}
               aria-label="Open in editor"
               title="Open in editor"
-              className="flex h-8 w-8 items-center justify-center rounded-full bg-black/60 text-white ring-1 ring-white/20 backdrop-blur-md transition hover:bg-[var(--accent)] hover:text-[var(--accent-contrast)]"
+              className="flex h-8 w-8 items-center justify-center rounded-full max-sm:h-10 max-sm:w-10 bg-black/60 text-white ring-1 ring-white/20 backdrop-blur-md transition hover:bg-[var(--accent)] hover:text-[var(--accent-contrast)]"
             >
               <SquarePlay className="h-4 w-4" />
             </button>
@@ -1256,7 +1256,7 @@ function ClipCard({
                 download={`${safeFilename(clipHeadline(clip, index))}.${downloadName.split(".").pop() || "mp4"}`}
                 aria-label="Download clip"
                 title="Download clip"
-                className="flex h-8 w-8 items-center justify-center rounded-full bg-black/60 text-white ring-1 ring-white/20 backdrop-blur-md transition hover:bg-white hover:text-black"
+                className="flex h-8 w-8 items-center justify-center rounded-full max-sm:h-10 max-sm:w-10 bg-black/60 text-white ring-1 ring-white/20 backdrop-blur-md transition hover:bg-white hover:text-black"
               >
                 <Download className="h-4 w-4" />
               </a>
@@ -1298,7 +1298,7 @@ function ClipCard({
               <a
                 href={fileUrl(jobId, downloadName, true)}
                 download={`${safeFilename(clipHeadline(clip, index))}.${downloadName.split(".").pop() || "mp4"}`}
-                className="inline-flex flex-auto items-center justify-center whitespace-nowrap rounded-lg border border-[var(--border)] px-2 py-1.5 text-xs font-medium text-[var(--muted-foreground)] transition hover:border-[var(--border-strong)] hover:text-white"
+                className="inline-flex flex-auto items-center justify-center whitespace-nowrap rounded-lg border border-[var(--border)] px-2 py-1.5 max-sm:min-h-10 text-xs font-medium text-[var(--muted-foreground)] transition hover:border-[var(--border-strong)] hover:text-white"
               >
                 <Download className="mr-1.5 h-3.5 w-3.5" />
                 Download
@@ -1307,7 +1307,7 @@ function ClipCard({
             {/* Deep-links this clip into the Uploading Center's placement mode (scheduleJob + scheduleClip, read there). */}
             <Link
               href={`/uploading-center?${new URLSearchParams({ scheduleJob: jobId, scheduleClip: downloadName ?? "" }).toString()}`}
-              className="inline-flex basis-full items-center justify-center rounded-lg border border-[var(--border)] px-2 py-1.5 text-center text-xs font-medium leading-tight text-[var(--muted-foreground)] transition hover:border-[var(--border-strong)] hover:text-white"
+              className="inline-flex basis-full items-center justify-center rounded-lg border border-[var(--border)] px-2 py-1.5 max-sm:min-h-10 text-center text-xs font-medium leading-tight text-[var(--muted-foreground)] transition hover:border-[var(--border-strong)] hover:text-white"
               title="Pick a posting slot for this clip in the Uploading Center"
             >
               <CalendarClock className="mr-1.5 h-3.5 w-3.5 shrink-0" />
@@ -1343,7 +1343,7 @@ function Segmented<T extends string | number>({
             aria-checked={selected}
             onClick={() => onChange(option.value)}
             className={cn(
-              "rounded-full px-2.5 py-1 text-xs font-medium transition",
+              "rounded-full px-2.5 py-1 text-xs font-medium transition max-sm:min-h-10 max-sm:min-w-10",
               selected ? "bg-white/12 text-white shadow-sm" : "text-[var(--muted-foreground)] hover:text-white"
             )}
           >

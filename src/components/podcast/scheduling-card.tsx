@@ -138,12 +138,12 @@ export function PodcastSchedulingCard({
             closed. Spotify chooses when to ingest them.
           </p>
         </div>
-        <a className="text-sm text-white underline" href="/automations">
+        <a className="inline-flex items-center text-sm text-white underline max-sm:min-h-10" href="/automations">
           Manage all automations
         </a>
       </div>
       <div className="mt-4 flex flex-wrap items-end gap-3">
-        <label className="flex items-center gap-2 py-2 text-sm text-white">
+        <label className="flex items-center gap-2 py-2 text-sm text-white max-sm:min-h-10">
           <input
             type="checkbox"
             checked={draft.enabled}

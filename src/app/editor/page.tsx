@@ -18,7 +18,7 @@ export default async function Page({ searchParams }: { searchParams: Promise<{ m
   return (
     <AppShell>
       <div className="mb-3 flex justify-end">
-        <Link href="/editor?mode=story" className="text-sm text-[var(--muted-foreground)] hover:text-white">
+        <Link href="/editor?mode=story" className="inline-flex items-center text-sm text-[var(--muted-foreground)] hover:text-white max-sm:min-h-10">
           Story edits (long-form)
         </Link>
       </div>
