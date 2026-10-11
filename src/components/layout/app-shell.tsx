@@ -20,6 +20,7 @@ import {
   Megaphone,
   Mic,
   Music4,
+  Plus,
   Podcast,
   Presentation,
   Radar,
@@ -472,7 +473,9 @@ function ChannelCard({ collapsed = false }: { collapsed?: boolean }) {
 
   const channel = state.channel;
   return (
-    <div className="space-y-2">
+    // On a short screen the account chips sit beside the channel instead of
+    // under it: the row is worth more as height for the nav.
+    <div className={cn("space-y-2", !collapsed && "[@media(max-height:960px)]:flex [@media(max-height:960px)]:items-center [@media(max-height:960px)]:gap-1.5 [@media(max-height:960px)]:space-y-0")}>
       {channel ? (
         <Link
           href={channel.reconnect ? "/api/auth/google" : "/uploading-center"}
@@ -483,14 +486,14 @@ function ChannelCard({ collapsed = false }: { collapsed?: boolean }) {
               : collapsed ? `${channel.title} — YouTube` : "Manage channel accounts in the Uploading Center"
           }
           className={cn(
-            "group flex items-center gap-3 rounded-xl border border-[var(--border)] bg-gradient-to-br from-white/[0.06] to-transparent px-3 py-2.5 transition hover:border-[var(--border-strong)] hover:from-white/[0.09]",
+            "group flex items-center gap-3 rounded-xl border border-[var(--border)] bg-gradient-to-br from-white/[0.06] to-transparent px-3 py-2.5 transition hover:border-[var(--border-strong)] hover:from-white/[0.09] [@media(max-height:960px)]:min-w-0 [@media(max-height:960px)]:flex-1 [@media(max-height:960px)]:py-1.5",
             collapsed && "justify-center px-2"
           )}
         >
-          <ChannelAvatar channel={channel} className="h-9 w-9" />
+          <ChannelAvatar channel={channel} className="h-9 w-9 [@media(max-height:960px)]:h-7 [@media(max-height:960px)]:w-7" />
           <span className={cn("flex min-w-0 flex-1 flex-col leading-tight", collapsed && "hidden")}>
             <span className="truncate text-sm font-semibold text-white">{channel.title}</span>
-            <span className="flex items-center gap-1.5 text-xs text-[var(--muted-foreground)]">
+            <span className={cn("flex items-center gap-1.5 text-xs text-[var(--muted-foreground)]", !channel.reconnect && "[@media(max-height:960px)]:hidden")}>
               <span className={cn("h-1.5 w-1.5 shrink-0 rounded-full", channel.reconnect ? "bg-amber-400" : "bg-emerald-400")} />
               <span className="truncate">{channel.reconnect ? "Reconnect YouTube" : handleLabel(channel, "YouTube")}</span>
               {channel.extraConnected > 0 ? <span className="shrink-0">+{channel.extraConnected}</span> : null}
@@ -500,19 +503,17 @@ function ChannelCard({ collapsed = false }: { collapsed?: boolean }) {
       ) : nothingConnected(state) ? (
         <Link
           href="/settings#accounts"
-          title={collapsed ? "Connect accounts" : undefined}
+          title="Connect accounts: pick where posts go. Start with YouTube."
           className={cn(
-            "group flex items-center gap-3 rounded-xl border border-dashed border-[var(--border-strong)] px-3 py-2.5 transition hover:border-[var(--accent)]/60 hover:bg-white/[0.04]",
+            "group flex items-center gap-2.5 rounded-lg border border-dashed border-[var(--border-strong)] px-2.5 py-1.5 transition hover:border-[var(--accent)]/60 hover:bg-white/[0.04] [@media(max-height:960px)]:min-w-0 [@media(max-height:960px)]:flex-1",
             collapsed && "justify-center px-2"
           )}
         >
-          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[var(--accent)]/15 text-[var(--accent)] transition group-hover:bg-[var(--accent)]/25">
-            <Link2 className="h-4 w-4" aria-hidden="true" />
+          <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-[var(--accent)]/15 text-[var(--accent)] transition group-hover:bg-[var(--accent)]/25">
+            <Link2 className="h-3.5 w-3.5" aria-hidden="true" />
           </span>
-          <span className={cn("flex min-w-0 flex-1 flex-col leading-tight", collapsed && "hidden")}>
-            <span className="text-sm font-semibold text-white">Connect accounts</span>
-            <span className="text-xs text-[var(--muted-foreground)]">Pick where posts go. Start with YouTube.</span>
-          </span>
+          <span className={cn("min-w-0 flex-1 truncate text-sm font-medium text-white", collapsed && "hidden")}>Connect accounts</span>
+          <ChevronRight className={cn("h-3.5 w-3.5 shrink-0 text-[var(--muted-foreground)]", collapsed && "hidden")} aria-hidden="true" />
         </Link>
       ) : null}
       <ConnectionRows state={state} collapsed={collapsed} />
@@ -548,9 +549,16 @@ function chipHref(row: PlatformConnection): string {
  * as a failed upload hours later; grey is not connected at all.
  */
 function ConnectionRows({ state, collapsed }: { state: Connections; collapsed: boolean }) {
+  // Only platforms that are signed in (or held up) earn a chip. A "not
+  // connected" row per platform used to stack three dashed boxes above the nav
+  // and push half of it below the fold; the single Connect entry (nothing
+  // connected) or the "+" chip (some connected) already leads to Accounts.
+  const shown = state.others.filter((row) => row.connected > 0 || row.reconnectAccountId);
+  if (shown.length === 0) return null;
+  const hasUnconnected = state.others.some((row) => row.connected === 0 && !row.reconnectAccountId);
   return (
-    <div className={cn("flex gap-1.5", collapsed ? "flex-col items-center" : "flex-col")}>
-      {state.others.map((row) => {
+    <div className={cn("flex gap-1.5", collapsed ? "flex-col items-center" : "flex-row flex-wrap items-center px-0.5 [@media(max-height:960px)]:shrink-0 [@media(max-height:960px)]:flex-nowrap [@media(max-height:960px)]:px-0")}>
+      {shown.map((row) => {
         const style = PLATFORM_STYLE[row.platform];
         const connected = row.connected > 0;
         const held = connected && Boolean(row.blocker);
@@ -562,52 +570,49 @@ function ConnectionRows({ state, collapsed }: { state: Connections; collapsed: b
           : connected
             ? unverified ? `${style.label} · saved, not verified` : handleLabel(row.profile, style.label)
             : `${style.label} · not connected`;
-        const dot = held ? "bg-amber-400" : unverified ? "bg-white/30" : connected ? "bg-emerald-400" : "bg-white/20";
+        const needsAttention = held || unverified || Boolean(row.reconnectAccountId);
+        const dot = held || row.reconnectAccountId ? "bg-amber-400" : unverified ? "bg-white/30" : connected ? "bg-emerald-400" : "bg-white/20";
         return (
           <Link
             key={row.platform}
             href={chipHref(row)}
             prefetch={row.reconnectAccountId ? false : undefined}
             title={row.blocker ? `${style.label} — ${row.blocker}` : unverified ? detail : `${style.label} — ${detail}`}
-            aria-label={collapsed || unverified ? detail : undefined}
+            aria-label={detail}
             className={cn(
-              "flex items-center gap-2.5 rounded-lg border px-2.5 py-1.5 transition hover:border-[var(--border-strong)] hover:bg-white/[0.04]",
-              connected && !unverified ? "border-[var(--border)]" : "border-dashed border-[var(--border)]",
-              collapsed && "justify-center px-2"
+              "relative flex h-7 w-7 shrink-0 items-center justify-center rounded-full border transition hover:border-[var(--border-strong)]",
+              needsAttention ? "border-dashed border-amber-400/50" : "border-[var(--border)]"
             )}
           >
-            <span className={cn("relative h-6 w-6 shrink-0", (!connected || unverified) && "opacity-50")}>
-              <span
-                className={cn(
-                  "flex h-full w-full items-center justify-center overflow-hidden rounded-full",
-                  style.background,
-                  style.tint
-                )}
-              >
-                {row.profile?.thumbnail ? (
-                  // eslint-disable-next-line @next/next/no-img-element -- remote avatar host isn't in next.config images
-                  <img src={row.profile.thumbnail} alt="" className="h-full w-full object-cover" />
-                ) : (
-                  <PlatformIcon platform={row.platform} className="h-3.5 w-3.5" />
-                )}
-              </span>
-              {row.profile?.thumbnail && <PlatformBadge platform={row.platform} className="h-3.5 w-3.5" />}
-              {collapsed && connected && (
-                <span
-                  className={cn(
-                    "absolute -right-0.5 -top-0.5 h-2 w-2 rounded-full border border-[var(--panel)]",
-                    held ? "bg-amber-400" : unverified ? "bg-white/30" : "bg-emerald-400"
-                  )}
-                />
+            <span
+              className={cn(
+                "flex h-full w-full items-center justify-center overflow-hidden rounded-full",
+                style.background,
+                style.tint,
+                unverified && "opacity-60"
+              )}
+            >
+              {row.profile?.thumbnail ? (
+                // eslint-disable-next-line @next/next/no-img-element -- remote avatar host isn't in next.config images
+                <img src={row.profile.thumbnail} alt="" className="h-full w-full object-cover" />
+              ) : (
+                <PlatformIcon platform={row.platform} className="h-3.5 w-3.5" />
               )}
             </span>
-            <span className={cn("flex min-w-0 flex-1 items-center gap-1.5 leading-tight", collapsed && "hidden")}>
-              <span className={cn("h-1.5 w-1.5 shrink-0 rounded-full", dot)} />
-              <span className="truncate text-xs text-[var(--muted-foreground)]">{detail}</span>
-            </span>
+            <span className={cn("absolute -right-0.5 -top-0.5 h-2 w-2 rounded-full border border-[var(--panel)]", dot)} />
           </Link>
         );
       })}
+      {hasUnconnected && (
+        <Link
+          href="/settings#accounts"
+          title="Connect another account"
+          aria-label="Connect another account"
+          className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-dashed border-[var(--border-strong)] text-[var(--muted-foreground)] transition hover:border-[var(--accent)]/60 hover:text-white"
+        >
+          <Plus className="h-3.5 w-3.5" aria-hidden="true" />
+        </Link>
+      )}
     </div>
   );
 }
@@ -640,7 +645,7 @@ function NavLink({ item, active, collapsed = false }: { item: NavItem; active: b
             : undefined
       }
       className={cn(
-        "flex items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-sm transition",
+        "flex items-center gap-2.5 rounded-lg px-2.5 py-1 text-sm transition [@media(max-height:960px)]:py-0.5",
         collapsed && "justify-center px-2 py-2",
         active
           ? "bg-white/8 font-medium text-white"
@@ -660,6 +665,63 @@ function NavLink({ item, active, collapsed = false }: { item: NavItem; active: b
         </span>
       )}
     </Link>
+  );
+}
+
+/**
+ * The scrolling part of the sidebar. At laptop heights the header and footer
+ * leave the nav a few hundred pixels, so two things keep the rest findable:
+ * the active page is scrolled into view when the page opens, and a fade along
+ * the bottom edge says there is more below while there is.
+ */
+function SidebarScroll({ pathname, children }: { pathname: string; children: React.ReactNode }) {
+  const ref = useRef<HTMLElement>(null);
+  const [moreBelow, setMoreBelow] = useState(false);
+
+  useEffect(() => {
+    const nav = ref.current;
+    if (!nav) return;
+    const measure = () => setMoreBelow(nav.scrollHeight - nav.scrollTop - nav.clientHeight > 4);
+    measure();
+    nav.addEventListener("scroll", measure, { passive: true });
+    const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(measure);
+    observer?.observe(nav);
+    if (nav.firstElementChild) observer?.observe(nav.firstElementChild);
+    return () => {
+      nav.removeEventListener("scroll", measure);
+      observer?.disconnect();
+    };
+  }, []);
+
+  // Same as scrollIntoView({ block: "nearest" }) but only ever moves the nav,
+  // never the page behind it.
+  useEffect(() => {
+    const frame = requestAnimationFrame(() => {
+      const nav = ref.current;
+      const link = nav?.querySelector<HTMLElement>('a[aria-current="page"]');
+      if (!nav || !link) return;
+      const navBox = nav.getBoundingClientRect();
+      const linkBox = link.getBoundingClientRect();
+      const margin = 24;
+      if (linkBox.bottom > navBox.bottom - margin) nav.scrollTop += linkBox.bottom - navBox.bottom + margin;
+      else if (linkBox.top < navBox.top + margin) nav.scrollTop -= navBox.top + margin - linkBox.top;
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [pathname]);
+
+  return (
+    <div className="relative flex min-h-0 flex-1 flex-col">
+      <nav ref={ref} aria-label="Marketing navigation" className="min-h-0 flex-1 overflow-y-auto pr-0.5">
+        <div className="space-y-4 [@media(max-height:820px)]:space-y-2">{children}</div>
+      </nav>
+      <div
+        aria-hidden="true"
+        className={cn(
+          "pointer-events-none absolute inset-x-0 bottom-0 h-8 bg-gradient-to-t from-[var(--panel)] to-transparent transition-opacity duration-200",
+          moreBelow ? "opacity-100" : "opacity-0"
+        )}
+      />
+    </div>
   );
 }
 
@@ -734,7 +796,7 @@ function StudioSection({
 
   const showItems = open || onStudioPage;
   return (
-    <div className="border-t border-[var(--border)] pt-4">
+    <div className="border-t border-[var(--border)] pt-3">
       <button
         type="button"
         onClick={toggle}
@@ -775,7 +837,7 @@ function StageGroup({
           <span className={cn("w-px flex-1", stageActive ? "bg-[var(--accent)]/50" : "bg-[var(--border-strong)]")} />
         )}
       </div>
-      <div className={cn("min-w-0 flex-1", !last && "pb-4")}>
+      <div className={cn("min-w-0 flex-1", !last && "pb-3 [@media(max-height:960px)]:pb-2 [@media(max-height:820px)]:pb-1")}>
         <p
           className={cn(
             "px-2.5 pt-0.5 text-[11px] font-semibold uppercase tracking-wider",
@@ -784,7 +846,7 @@ function StageGroup({
         >
           {stage.label}
         </p>
-        <div className="mt-1 space-y-0.5">
+        <div className="mt-1 space-y-0.5 [@media(max-height:820px)]:space-y-0">
           {stage.items.map((item) => (
             <NavLink key={item.href} item={item} active={isActivePath(pathname, item.href)} />
           ))}
@@ -967,6 +1029,11 @@ function ProfileFooter({ collapsed = false }: { collapsed?: boolean }) {
   const avatar = profile?.avatar;
   const initials = displayName ? initialsFrom(displayName) : "";
 
+  // The brand block at the top already shows this name and photo, so repeating
+  // it here cost a row of nav height for nothing. Expanded, this row only
+  // appears to ask for the name; the collapsed rail keeps the avatar.
+  if (!collapsed && displayName) return null;
+
   return (
     <Link
       href="/settings"
@@ -1109,7 +1176,7 @@ function AppChrome({ children, frame }: { children: React.ReactNode; frame: bool
         <div className="marketing-sidebar glass glass-panel sticky top-4 flex h-[calc(100dvh-2rem)] flex-col rounded-xl border p-4">
           {/* When collapsed the rail is too narrow for the brand and the toggle
               side by side, so stack them instead of letting them overflow. */}
-          <div className={cn("flex pb-3", sidebarCollapsed ? "flex-col items-center gap-2" : "items-center justify-between gap-2 px-1")}>
+          <div className={cn("flex pb-3 [@media(max-height:820px)]:pb-2", sidebarCollapsed ? "flex-col items-center gap-2" : "items-center justify-between gap-2 px-1")}>
             <ColateralMarketingMark collapsed={sidebarCollapsed} />
             <button
               type="button"
@@ -1122,25 +1189,25 @@ function AppChrome({ children, frame }: { children: React.ReactNode; frame: bool
             </button>
           </div>
 
-          <div className={cn("pb-3", !sidebarCollapsed && "px-1")}>
+          <div className={cn("pb-3 [@media(max-height:820px)]:hidden", !sidebarCollapsed && "px-1")}>
             <Brand collapsed={sidebarCollapsed} />
           </div>
 
           {/* Who this pipeline publishes as — front and centre. */}
-          <div className="pb-3">
+          <div className="pb-3 [@media(max-height:820px)]:pb-2">
             <ChannelCard collapsed={sidebarCollapsed} />
           </div>
 
           {/* …and WHICH recording the whole flow below is about. */}
-          <div className="pb-4">
+          <div className="pb-3 [@media(max-height:960px)]:pb-2">
             <StreamCard collapsed={sidebarCollapsed} />
           </div>
 
-          <nav aria-label="Marketing navigation" className="min-h-0 flex-1 space-y-5 overflow-y-auto pr-0.5">
+          <SidebarScroll pathname={pathname}>
             <div>
               <p
                 className={cn(
-                  "px-1 pb-2 text-[11px] font-medium uppercase tracking-[0.14em] text-[var(--muted-foreground)]",
+                  "px-1 pb-2 text-[11px] font-medium uppercase tracking-[0.14em] text-[var(--muted-foreground)] [@media(max-height:820px)]:sr-only",
                   sidebarCollapsed && "sr-only"
                 )}
               >
@@ -1163,9 +1230,9 @@ function AppChrome({ children, frame }: { children: React.ReactNode; frame: bool
             </div>
 
             <StudioSection items={studioItems} pathname={pathname} collapsed={sidebarCollapsed} />
-          </nav>
+          </SidebarScroll>
 
-          <div className="mt-4 space-y-3 border-t border-[var(--border)] pt-4">
+          <div className="mt-3 space-y-1.5 border-t border-[var(--border)] pt-3">
             <UpdateCheckButton collapsed={sidebarCollapsed} />
             <NavLink
               item={SETTINGS_ITEM}
@@ -1215,6 +1282,7 @@ function MobileChannelChip() {
           prefetch={state.channel.reconnect ? false : undefined}
           aria-label={state.channel.reconnect ? reconnectBlocker("YouTube") : `${state.channel.title} — YouTube`}
           title={state.channel.reconnect ? "Reconnect YouTube" : handleLabel(state.channel, "YouTube")}
+          className="flex shrink-0"
         >
           <ChannelAvatar channel={state.channel} className="h-7 w-7" />
         </Link>

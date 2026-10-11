@@ -30,6 +30,7 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Modal } from "@/components/ui/modal";
 import { PageHeader } from "@/components/ui/page-header";
+import { OAuthLandingBanner, useOAuthLanding } from "@/components/layout/oauth-landing";
 import { WorkflowLoadNotice } from "@/components/marketing/workflow-load-notice";
 import { Tabs } from "@/components/ui/tabs";
 import { AccountSwitcher } from "@/components/uploading-center/account-switcher";
@@ -82,7 +83,7 @@ import { buildAgenda } from "@/lib/publisher/agenda";
 import { dateTimeFormat } from "@/lib/publisher/intl";
 import { publisherBannerLine } from "@/lib/publisher/publishOverview";
 import { EARLIEST_PUBLISH_DAY_OFFSET, addDaysToDateKey } from "@/lib/publisher/schedule";
-import { clearConnectFailure, connectErrorMessage, rememberConnectFailure } from "@/lib/publisher/connectErrors";
+import { clearConnectFailure, rememberConnectFailure } from "@/lib/publisher/connectErrors";
 import { shortsByDay } from "@/lib/publisher/shortsCap";
 import { slotOffsetForDateKey } from "@/lib/publisher/slotWindow";
 import {
@@ -304,46 +305,37 @@ export function UploadingCenterPage() {
     [draftFor, putDraft, tailorCaption],
   );
 
-  // Surface the OAuth redirect result exactly once.
+  // Surface the OAuth redirect result: an inline banner plus a toast raised
+  // after mount (the toaster is not listening yet while this page's first
+  // effects run), then the params leave the address. The effect below keeps
+  // only what the landing changes in the page itself.
   const searchParams = useSearchParams();
   const router = useRouter();
-  const oauthToastShown = useRef(false);
+  const { landing: oauthLanding, dismiss: dismissOauthLanding } = useOAuthLanding({
+    action: { label: "Open Settings", href: "/settings#accounts" },
+  });
+  const oauthHandled = useRef(false);
   useEffect(() => {
-    if (oauthToastShown.current) return;
+    if (oauthHandled.current) return;
     const connected = searchParams.get("connected");
     const connectError = searchParams.get("connect_error");
     if (connected === "tiktok" || connected === "youtube") clearConnectFailure(connected);
     if (connected === "tiktok") {
-      oauthToastShown.current = true;
-      toast.success(
-        searchParams.get("audited") === "1"
-          ? "TikTok connected — scheduled posts will publish automatically."
-          : "TikTok connected — clips land in your TikTok inbox to finish in the app.",
-      );
+      oauthHandled.current = true;
     } else if (connected === "youtube") {
-      oauthToastShown.current = true;
+      oauthHandled.current = true;
       // A non-primary connection carries its account id — switch the YouTube
       // tab to that account so the fresh connection is what's on screen.
       const accountParam = searchParams.get("account");
       if (accountParam) setActiveAccount("youtube", accountParam);
-      const recovered = Number(searchParams.get("recovered") ?? 0);
-      toast.success(
-        recovered > 0
-          ? `YouTube reconnected — ${recovered} blocked upload${recovered === 1 ? "" : "s"} retried automatically.`
-          : "YouTube connected — scheduled posts will upload automatically.",
-      );
     } else if (connectError) {
-      oauthToastShown.current = true;
-      // Plain words and the fix, and the same message waits in the platform's
-      // row in Settings > Accounts after this toast is gone.
+      oauthHandled.current = true;
+      // The same message waits in the platform's row in Settings > Accounts
+      // after the banner and toast are gone.
       const platform = searchParams.get("connect");
       if (platform) rememberConnectFailure(platform, connectError);
-      toast.error(connectErrorMessage(connectError, platform), {
-        duration: 12000,
-        action: { label: "Open Settings", onClick: () => router.push("/settings#accounts") },
-      });
     }
-  }, [searchParams, setActiveAccount, router]);
+  }, [searchParams, setActiveAccount]);
 
   // Auto Assign avoids double-booking a slot: it's taken by a queue item or —
   // on YouTube — by a video already scheduled/published on the channel itself
@@ -1090,6 +1082,7 @@ export function UploadingCenterPage() {
         description="Book your finished clips onto the posting schedule — one button fills the next free slots, or drag a clip onto any slot yourself."
         actions={overview ? <div className="w-full max-w-sm"><QuotaMeter quota={overview.quota} /></div> : undefined}
       />
+      <OAuthLandingBanner landing={oauthLanding} onDismiss={dismissOauthLanding} />
       {loadError ? <div className="mb-4"><WorkflowLoadNotice title="Your clips and posting schedule could not be refreshed" message={loadError} retained={loaded} retrying={refreshing} onRetry={() => void refresh()} /></div> : null}
       {accountsError ? <div className="mb-4"><WorkflowLoadNotice title="Your social accounts could not be refreshed" message={accountsError} retained={loaded} retrying={accountsRefreshing} onRetry={() => void refreshAccounts()} /></div> : null}
 
