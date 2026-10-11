@@ -34,7 +34,7 @@ export const WEEK_PLATFORMS: { id: WeekPlatformId; label: string }[] = [
   { id: "threads", label: "Threads" }
 ];
 
-type Outcome = "published" | "failed" | "byHand" | "scheduled";
+type Outcome = "published" | "failed" | "byHand" | "scheduled" | "shouldBeLive" | "overdue" | "needsConnection";
 
 export type WeekLatestPost = {
   title: string;
@@ -52,8 +52,14 @@ export type WeekPlatformRow = {
   failed: number;
   /** Legs nobody can post for the app: waiting for a hand-post. */
   byHand: number;
-  /** Booked or queued and not out yet. */
+  /** Booked or queued and not out yet (a post past its slot is counted below, not here). */
   scheduled: number;
+  /** Held by the platform and past its slot: it should be live by now, so it is not "still to go". */
+  shouldBeLive: number;
+  /** Past its slot and the publisher has not sent it. */
+  overdue: number;
+  /** Past its slot on an account with no connection: it could never go. */
+  needsConnection: number;
   /** Where this platform's numbers live. */
   numbersNote: string;
   /** The most recent published post, for a one-click way to its numbers. */
@@ -77,7 +83,7 @@ export type WeekSummary = {
   startKey: string;
   endKey: string;
   rows: WeekPlatformRow[];
-  totals: { published: number; failed: number; byHand: number; scheduled: number };
+  totals: { published: number; failed: number; byHand: number; scheduled: number; shouldBeLive: number; overdue: number; needsConnection: number };
   youtube: {
     /** Videos with numbers behind the totals. */
     videos: number;
@@ -124,7 +130,15 @@ function legsOf(event: MasterCalendarEvent): Leg[] {
   if (event.legs) {
     for (const leg of event.legs) {
       const platform = platformIdOf(leg.platform);
-      const outcome = LEG_OUTCOMES[leg.status];
+      // A leg past its slot is its own outcome, not one more "still to go".
+      const outcome: Outcome | undefined =
+        leg.late === "should-be-live"
+          ? "shouldBeLive"
+          : leg.late === "overdue"
+            ? "overdue"
+            : leg.late === "needs-connection"
+              ? "needsConnection"
+              : LEG_OUTCOMES[leg.status];
       if (platform && outcome) {
         out.push({ platform, outcome, ...(leg.url ? { url: leg.url } : {}), ...(leg.href ? { href: leg.href } : {}) });
       }
@@ -141,6 +155,9 @@ function legsOf(event: MasterCalendarEvent): Leg[] {
     let outcome: Outcome | null = null;
     if (failedLabels.has(label.toLowerCase()) || state === "failed") outcome = "failed";
     else if (state === "published") outcome = "published";
+    else if (state === "shouldBeLive") outcome = "shouldBeLive";
+    else if (state === "overdue") outcome = "overdue";
+    else if (state === "needsConnection") outcome = "needsConnection";
     else if (event.source === "fb" && event.status === "draft") outcome = "byHand";
     else if (state === "scheduled") outcome = "scheduled";
     const url = event.liveLinks?.find((link) => platformIdOf(link.platform) === platform)?.url;
@@ -177,6 +194,9 @@ export function buildWeekSummary(options: {
     failed: 0,
     byHand: 0,
     scheduled: 0,
+    shouldBeLive: 0,
+    overdue: 0,
+    needsConnection: 0,
     numbersNote: numbersNote(platform.label, platform.id)
   }));
   const rowOf = new Map(rows.map((row) => [row.id, row]));
@@ -201,12 +221,15 @@ export function buildWeekSummary(options: {
     }
   }
 
-  const totals = { published: 0, failed: 0, byHand: 0, scheduled: 0 };
+  const totals = { published: 0, failed: 0, byHand: 0, scheduled: 0, shouldBeLive: 0, overdue: 0, needsConnection: 0 };
   for (const row of rows) {
     totals.published += row.published;
     totals.failed += row.failed;
     totals.byHand += row.byHand;
     totals.scheduled += row.scheduled;
+    totals.shouldBeLive += row.shouldBeLive;
+    totals.overdue += row.overdue;
+    totals.needsConnection += row.needsConnection;
   }
 
   const youtubeTargets = events.flatMap((event) => (event.youtube ? [event.youtube] : []));
@@ -290,4 +313,17 @@ export function youtubeNoNumbersNote(youtube: WeekSummary["youtube"], connected 
   if (total === 0) return null;
   const detail = total === 1 ? reasons[0].one : reasons.map((reason) => `${reason.count} ${reason.many}`).join(", ");
   return `${total} ${total === 1 ? "video has" : "videos have"} no numbers yet (${detail})`;
+}
+
+/**
+ * What the "latest post" link says when it stays inside the app: the screen it
+ * opens, named. An external-link icon and "Open latest post" promised the
+ * platform itself, and Instagram and Threads rows lead into the app.
+ */
+export function latestPostLinkLabel(href: string): string {
+  if (href.startsWith("/x-posts")) return "Open in Threads Autopilot";
+  if (href.startsWith("/uploading-center")) return "Open in Uploading Center";
+  if (href.startsWith("/carousels")) return "Open in Carousels";
+  if (href.startsWith("/facebook")) return "Open in FB / IG Post Library";
+  return "Open in the app";
 }

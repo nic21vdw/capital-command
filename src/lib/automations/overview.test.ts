@@ -191,6 +191,30 @@ describe("automation dashboard evidence", () => {
     expect(overview.held[1]).toMatchObject({ externalUrl: "https://studio.youtube.com/video/abc123/edit", href: "/uploading-center?item=yt&platform=youtube" });
   });
 
+  it("moves a held post whose slot has passed out of 'still going live' into 'should be live'", () => {
+    const input = inputs();
+    const gone = testItem({ id: "gone", title: "Past its slot", platformIds: ["youtube"], publishAt: "2026-10-01T02:30:00Z" });
+    gone.platforms.youtube = { status: "scheduled", attempts: 1, postId: "abc123" };
+    const noId = testItem({ id: "noid", title: "Uploaded, no id", platformIds: ["facebook"], publishAt: "2026-10-01T03:00:00Z" });
+    noId.platforms.facebook = { status: "uploaded", attempts: 1 };
+    const grace = testItem({ id: "grace", title: "Just now", platformIds: ["youtube"], publishAt: "2026-10-01T14:55:00Z" });
+    grace.platforms.youtube = { status: "scheduled", attempts: 1, postId: "def456" };
+    const review = testItem({ id: "review", title: "Long-form held private", platformIds: ["youtube"], publishAt: "2026-10-01T02:00:00Z", format: "long" });
+    review.platforms.youtube = { status: "scheduled", attempts: 1, postId: "ghi789" };
+    const ahead = testItem({ id: "ahead", title: "Tomorrow", platformIds: ["youtube"], publishAt: "2026-10-02T15:00:00Z" });
+    ahead.platforms.youtube = { status: "scheduled", attempts: 1, postId: "jkl012" };
+    input.queue = [gone, noId, grace, review, ahead];
+    const overview = buildAutomationOverview(input, now);
+    expect(overview.shouldBeLive.map((post) => post.id)).toEqual(["gone:youtube", "noid:facebook"]);
+    expect(overview.shouldBeLiveTotal).toBe(2);
+    expect(overview.shouldBeLive[0].shouldBeLive).toMatchObject({ hint: "Should be live - check YouTube", linkLabel: "Check YouTube" });
+    expect(overview.shouldBeLive[0].externalUrl).toBe("https://studio.youtube.com/video/abc123/edit");
+    expect(overview.shouldBeLive[1].shouldBeLive).toMatchObject({ platform: "Facebook", linkLabel: "Check Facebook" });
+    // Inside the grace window, held for review (never goes live by itself) and still ahead stay where they were.
+    expect(overview.held.map((post) => post.id)).toEqual(["review:youtube", "grace:youtube", "ahead:youtube"]);
+    expect(overview.heldTotal).toBe(3);
+  });
+
   it("reports the cadence with the .env name of each value", () => {
     const rows = buildAutomationOverview(inputs(), now).cadence;
     const byEnv = Object.fromEntries(rows.map((row) => [row.env, row.value]));

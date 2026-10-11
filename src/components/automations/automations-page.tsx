@@ -139,12 +139,35 @@ function AutomationPanel({ card, busy, stale, onPause }: {
   );
 }
 
-function HeldPanel({ held, total, timezone }: { held: HeldPost[]; total: number; timezone: string }) {
+/** Held posts whose time has gone: the platform should have published them, so the job is to go and look. */
+function ShouldBeLivePanel({ posts, total, timezone }: { posts: HeldPost[]; total: number; timezone: string }) {
+  if (!posts.length) return null;
+  const platforms = [...new Set(posts.map((post) => post.platform))].join("/");
+  return (
+    <section className="mb-5 rounded-xl border border-amber-500/30 bg-amber-500/10 p-4" aria-labelledby="should-be-live-title">
+      <h2 id="should-be-live-title" className="font-semibold text-amber-100">Should be live now - check {platforms}</h2>
+      <p className="mt-1 max-w-3xl text-sm text-amber-100/80">Their time has passed and the platform should have published them. The publisher marks them live on its next pass; if they are not up, open the platform and see why.</p>
+      <ul className="mt-3 divide-y divide-amber-500/20">
+        {posts.map((post) => (
+          <li key={post.id} className="flex flex-wrap items-center gap-x-3 gap-y-1 py-2 text-sm">
+            <span className="rounded-full bg-white/10 px-2 py-0.5 text-[11px] font-medium text-white">{post.platform}</span>
+            <Link href={post.href} className="min-w-0 flex-1 truncate text-white hover:text-[var(--accent)]">{post.title}</Link>
+            <time dateTime={post.goesLiveAt} className="text-xs tabular-nums text-amber-100/80">Was due {at(post.goesLiveAt, timezone)}</time>
+            {post.externalUrl && <a href={post.externalUrl} target="_blank" rel="noreferrer" title={post.shouldBeLive?.hint} className="inline-flex items-center gap-1 text-xs font-medium text-[var(--accent)]">{post.shouldBeLive?.linkLabel ?? post.externalLabel ?? "Open"}<ExternalLink className="h-3 w-3" /></a>}
+          </li>
+        ))}
+      </ul>
+      {total > posts.length && <p className="mt-2 text-xs text-amber-100/80">Showing the first {posts.length} of {total}.</p>}
+    </section>
+  );
+}
+
+function HeldPanel({ held, total, timezone, pastTotal }: { held: HeldPost[]; total: number; timezone: string; pastTotal: number }) {
   return (
     <section className="mb-5 rounded-xl border border-[var(--border)] bg-[var(--card)] p-4" aria-labelledby="held-title">
       <h2 id="held-title" className="font-semibold text-white">Still going live - cancel these on the platform</h2>
       <p className="mt-1 max-w-3xl text-sm text-[var(--muted-foreground)]">YouTube, Facebook and Buffer already hold these and publish them at their time by themselves. Pausing here cannot stop them; cancel or edit them on the platform.</p>
-      {!held.length ? <p className="mt-3 text-sm text-[var(--muted-foreground)]">Nothing is waiting on a platform. Once the publisher is paused, nothing else will go live from the queue.</p> : <>
+      {!held.length ? <p className="mt-3 text-sm text-[var(--muted-foreground)]">{pastTotal ? "Nothing else is waiting on a platform." : "Nothing is waiting on a platform."} Once the publisher is paused, nothing else will go live from the queue.</p> : <>
         <ul className="mt-3 divide-y divide-[var(--border)]">
           {held.map((post) => (
             <li key={post.id} className="flex flex-wrap items-center gap-x-3 gap-y-1 py-2 text-sm">
@@ -415,7 +438,8 @@ export function AutomationsPage() {
       { label: "Failed today", value: overview ? String(overview.today.failed) : "-" },
       { label: "Posted today", value: overview ? String(overview.today.delivered) : "-" },
       { label: "Need attention", value: overview ? String(blocked) : "-" },
-      { label: "Held by platforms", value: overview ? String(overview.heldTotal) : "-" }
+      { label: "Held by platforms", value: overview ? String(overview.heldTotal + overview.shouldBeLiveTotal) : "-" },
+      { label: "Should be live now", value: overview ? String(overview.shouldBeLiveTotal) : "-" }
     ]
   });
 
@@ -438,7 +462,8 @@ export function AutomationsPage() {
             {anyPostingPaused && <Button variant="secondary" disabled={busy !== null || refreshing || Boolean(error)} onClick={() => void setAllPosting(false)}>{busy === "all" ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Play className="mr-2 h-4 w-4" />}Resume all</Button>}
           </div>
         </section>
-        <HeldPanel held={overview.held} total={overview.heldTotal} timezone={publishZone} />
+        <ShouldBeLivePanel posts={overview.shouldBeLive} total={overview.shouldBeLiveTotal} timezone={publishZone} />
+        <HeldPanel held={overview.held} total={overview.heldTotal} timezone={publishZone} pastTotal={overview.shouldBeLiveTotal} />
         <section className="mb-5 flex flex-wrap items-center justify-between gap-4 rounded-xl border border-[var(--border)] bg-[var(--card)] p-4">
           <div><h2 className="font-semibold text-white">Auto-book overnight streams</h2><p className={cn("mt-1 max-w-2xl text-sm", overview.autoScheduleOvernight ? "text-amber-200" : "text-[var(--muted-foreground)]")}>{overnightConsequence(overview.autoScheduleOvernight)}</p><p className="mt-1 max-w-2xl text-sm text-[var(--muted-foreground)]">Existing standing instructions stay with their streams. Pausing Stream Pipeline below stops all stream processing, not only this booking.</p></div>
           <Button variant="secondary" disabled={busy !== null || refreshing || Boolean(error)} onClick={() => { if (overview.autoScheduleOvernight) void change("overnight", { action: "overnight-scheduling", enabled: false }); else setConfirmOvernight(true); }}>{busy === "overnight" ? "Saving..." : overview.autoScheduleOvernight ? "Turn off" : "Turn on"}</Button>

@@ -201,12 +201,15 @@ export function buildAutomationOverview(input: AutomationInputs, now = new Date(
     issues: [...(!input.episodes ? ["Publish the first episode before claiming the feed in Spotify. A scheduled first delivery can create it."] : []), ...(!input.spotifyConnected ? ["No Spotify account connection is stored in this app. Feed delivery still uses the linked show."] : []), ...input.podcast.deliveries.filter((entry) => entry.lastError).map((entry) => issueLine(entry.title, entry.lastError as string, "podcast")).slice(0, 5)],
     running: input.podcast.deliveries.some((entry) => entry.status === "publishing")
   });
-  const held = heldPosts(input.queue);
+  const allHeld = heldPosts(input.queue, now);
+  const held = allHeld.filter((post) => !post.shouldBeLive);
+  const shouldBeLive = allHeld.filter((post) => post.shouldBeLive);
   return {
     checkedAt: now.toISOString(), cards: [pipeline, ingest, publisher, threads, podcast], autoScheduleOvernight: input.autoScheduleOvernight,
     cadence: buildCadence(input.publisher, input.threads, scheduleWindow()),
     cadenceValues: { shortsPerDay: input.publisher.shortsPerDay, threadsPostsPerDay: input.threads.postsPerDay, slotTimes: input.publisher.slotTimes, weekendSlotTimes: input.publisher.weekendSlotTimes },
     held: held.slice(0, HELD_LIMIT), heldTotal: held.length,
+    shouldBeLive: shouldBeLive.slice(0, HELD_LIMIT), shouldBeLiveTotal: shouldBeLive.length,
     today: input.today ?? { delivered: 0, failed: 0 }
   };
 }

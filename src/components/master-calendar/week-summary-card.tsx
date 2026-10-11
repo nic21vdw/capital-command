@@ -2,14 +2,14 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { AlertTriangle, ArrowUpRight, CheckCircle2, ChevronDown, ExternalLink, HandHelping, Send } from "lucide-react";
+import { AlertTriangle, ArrowRight, CheckCircle2, ChevronDown, Clock, ExternalLink, HandHelping, Send } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { PlatformIcon, type PlatformIconKey } from "@/components/ui/platform-icon";
 import { SourceIcon } from "@/components/master-calendar/source-icon";
 import { formatDayKey } from "@/lib/master-calendar/day-keys";
 import { WEEK_VIEWS_LABEL } from "@/lib/master-calendar/viewsCopy";
-import { WEEK_PLATFORMS, youtubeNoNumbersNote, type WeekPlatformRow, type WeekSummary } from "@/lib/master-calendar/weekSummary";
+import { WEEK_PLATFORMS, latestPostLinkLabel, youtubeNoNumbersNote, type WeekPlatformRow, type WeekSummary } from "@/lib/master-calendar/weekSummary";
 import { YoutubeAge } from "@/components/publisher/youtube-age";
 import { compactCount, type YoutubeStatsStatus } from "@/lib/publisher/youtubeStatsShared";
 import { cn } from "@/lib/utils";
@@ -29,8 +29,8 @@ const ICONS: Partial<Record<WeekPlatformRow["id"], PlatformIconKey>> = {
   tiktok: "tiktok"
 };
 
-function Counts({ row, className }: { row: Pick<WeekPlatformRow, "published" | "failed" | "byHand" | "scheduled">; className?: string }) {
-  const none = row.published + row.failed + row.byHand + row.scheduled === 0;
+function Counts({ row, className }: { row: Pick<WeekPlatformRow, "published" | "failed" | "byHand" | "scheduled" | "shouldBeLive" | "overdue" | "needsConnection">; className?: string }) {
+  const none = row.published + row.failed + row.byHand + row.scheduled + row.shouldBeLive + row.overdue + row.needsConnection === 0;
   return (
     <div className={cn("flex flex-wrap items-center gap-1.5", className)}>
       {row.published > 0 ? (
@@ -51,6 +51,24 @@ function Counts({ row, className }: { row: Pick<WeekPlatformRow, "published" | "
           {row.byHand} to post by hand
         </Badge>
       ) : null}
+      {row.needsConnection > 0 ? (
+        <Badge tone="warning" className="gap-1">
+          <AlertTriangle className="h-3 w-3" />
+          {row.needsConnection} need connection
+        </Badge>
+      ) : null}
+      {row.overdue > 0 ? (
+        <Badge tone="warning" className="gap-1">
+          <AlertTriangle className="h-3 w-3" />
+          {row.overdue} overdue
+        </Badge>
+      ) : null}
+      {row.shouldBeLive > 0 ? (
+        <Badge tone="warning" className="gap-1">
+          <Clock className="h-3 w-3" />
+          {row.shouldBeLive} should be live
+        </Badge>
+      ) : null}
       {row.scheduled > 0 ? (
         <Badge tone="info" className="gap-1">
           <Send className="h-3 w-3" />
@@ -66,6 +84,7 @@ function PlatformRow({ row }: { row: WeekPlatformRow }) {
   const icon = ICONS[row.id];
   const link = row.latest ? (row.latest.url ?? row.latest.href) : null;
   const external = Boolean(row.latest?.url);
+  const internalLabel = link && !external ? latestPostLinkLabel(link) : null;
   return (
     <li className="py-2.5">
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
@@ -83,12 +102,12 @@ function PlatformRow({ row }: { row: WeekPlatformRow }) {
             {external ? (
               <a href={link} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-[var(--accent)] hover:underline">
                 Open latest post
-                <ExternalLink className="h-3 w-3" />
+                <ExternalLink className="h-3 w-3" aria-hidden />
               </a>
             ) : (
               <Link href={link} className="inline-flex items-center gap-1 text-[var(--accent)] hover:underline">
-                Open latest post
-                <ArrowUpRight className="h-3 w-3" />
+                {internalLabel}
+                <ArrowRight className="h-3 w-3" aria-hidden />
               </Link>
             )}
           </>

@@ -6,9 +6,18 @@ import { isConnectionProblem, plainReason } from "@/lib/automations/plain";
 import { remoteUrlFor } from "@/lib/publisher/remoteUrl";
 import { youtubeHoldsForReview } from "@/lib/publisher/reviewHold";
 import { isVideoId } from "@/lib/publisher/youtubeStatsShared";
+import type { LegConnected } from "@/lib/publisher/legConnection";
+import { pastSlotMarker, slotOverdue } from "@/lib/publisher/nativeScheduling";
 import type { PlatformId, QueueItem } from "@/lib/publisher/types";
 import type { ThreadsQueueItem } from "@/lib/threads/types";
-import type { CalendarSourceId, MasterCalendarEvent } from "@/lib/master-calendar/types";
+import {
+  NEEDS_CONNECTION_STATUS,
+  OVERDUE_STATUS,
+  SHOULD_BE_LIVE_STATUS,
+  type CalendarSourceId,
+  type LateKind,
+  type MasterCalendarEvent
+} from "@/lib/master-calendar/types";
 
 /**
  * Flattens every distribution surface into MasterCalendarEvents for a
@@ -109,17 +118,40 @@ export function sourceHrefForDay(source: CalendarSourceId, dateKey: string): str
 }
 
 /**
+ * Whether one leg is past its slot without the usual ending, by the SAME rule
+ * the Uploading Center's chip uses (`pastSlotMarker`): a scheduled YouTube or
+ * Facebook leg the platform should have published, or a pending leg the
+ * publisher has not sent. A pending leg on an account with no connection could
+ * never be sent: it is "needs-connection" (the board's "Needs <Platform>
+ * connection"), not overdue. `isConnected` is the server's answer to "does this
+ * account publish"; absent, everything counts as connected.
+ */
+function lateKind(item: QueueItem, platform: PlatformId, now: Date, isConnected?: LegConnected): LateKind | null {
+  const leg = item.platforms[platform];
+  if (!leg) return null;
+  const connected = isConnected ? isConnected(platform, item.accountId ?? `${platform}-primary`) : true;
+  if (leg.status === "pending" && !connected) return slotOverdue(item.publishAt, now) ? "needs-connection" : null;
+  return pastSlotMarker(platform, leg, item, now, { connected })?.kind ?? null;
+}
+
+/**
  * One overall status for a queue item across its per-platform states:
  * everything landed → published, everything dead → failed, some dead →
- * "partly failed" (it must not read as scheduled while one leg is lost),
+ * "partly failed" (it must not read as scheduled while one leg is lost), then
+ * a slot that passed without the post going out ("overdue" when the publisher
+ * never sent a leg, "should be live" when a platform holds it past its time),
  * anything already uploaded/natively scheduled → scheduled, otherwise still
- * queued.
+ * queued. `now` is what "past its slot" is measured against.
  */
-export function queueItemStatus(item: QueueItem): string {
+export function queueItemStatus(item: QueueItem, now: Date = new Date(), isConnected?: LegConnected): string {
   const states = Object.values(item.platforms);
   if (states.length > 0 && states.every((state) => state?.status === "published")) return "published";
   if (states.length > 0 && states.every((state) => state?.status === "failed")) return "failed";
   if (states.some((state) => state?.status === "failed")) return "partly failed";
+  const late = PLATFORM_ORDER.map((id) => lateKind(item, id, now, isConnected));
+  if (late.includes("needs-connection")) return NEEDS_CONNECTION_STATUS;
+  if (late.includes("overdue")) return OVERDUE_STATUS;
+  if (late.includes("should-be-live")) return SHOULD_BE_LIVE_STATUS;
   if (states.some((state) => state?.status === "scheduled" || state?.status === "uploaded")) return "scheduled";
   return "queued";
 }
@@ -142,13 +174,15 @@ function liveLinksFor(item: QueueItem): { platform: string; url: string }[] {
 }
 
 /** Every platform the queue item targets with where it stands, for per-platform roll-ups. */
-function legsFor(item: QueueItem): { platform: string; status: string; url?: string; href: string }[] {
+function legsFor(item: QueueItem, now: Date, isConnected?: LegConnected): NonNullable<MasterCalendarEvent["legs"]> {
   return PLATFORM_ORDER.filter((id) => item.platforms[id]).map((id) => {
     const state = item.platforms[id]!;
     const url = state.status === "published" ? remoteUrlFor(id, state.postId, state.status) : null;
+    const late = lateKind(item, id, now, isConnected);
     return {
       platform: PLATFORM_LABELS[id],
       status: state.status,
+      ...(late ? { late } : {}),
       ...(url ? { url } : {}),
       // Each leg opens ITS platform's tab. The event's own href points at the
       // platform that needs a look (a failed or hand-post leg), which is the
@@ -162,7 +196,9 @@ function shortsEvents(
   items: QueueItem[],
   timeZone: string,
   startKey: string,
-  endKey: string
+  endKey: string,
+  now: Date,
+  isConnected?: LegConnected
 ): MasterCalendarEvent[] {
   const events: MasterCalendarEvent[] = [];
   for (const item of items) {
@@ -192,7 +228,7 @@ function shortsEvents(
         item.title || item.clipPath.split("/").pop() || (picture ? "Scheduled carousel" : "Scheduled short")
       ),
       platforms: (Object.keys(item.platforms) as PlatformId[]).map((platform) => PLATFORM_LABELS[platform]),
-      status: queueItemStatus(item),
+      status: queueItemStatus(item, now, isConnected),
       // A frame of the file itself, served by the same routes the uploading
       // board uses: the clip's poster frame, or slide one of a picture post.
       thumbnailUrl: picture ? `/api/publish/${item.id}/images/0` : `/api/publish/${item.id}/thumbnail`,
@@ -228,7 +264,7 @@ function shortsEvents(
           }
         : {}),
       ...(liveLinks.length > 0 ? { liveLinks } : {}),
-      legs: legsFor(item),
+      legs: legsFor(item, now, isConnected),
       ...(youtubeVideo ? { youtube: { itemId: item.id, videoId: youtubeVideo } } : {})
     });
   }
@@ -468,12 +504,16 @@ export function buildMasterCalendarEvents(options: {
   timeZone: string;
   startKey: string;
   days: number;
+  /** The clock "past its slot" is read against; tests pass one, the routes use the real one. */
+  now?: Date;
+  /** Whether the account behind a queue leg is connected; absent, every account counts as connected. */
+  isConnected?: LegConnected;
 }): MasterCalendarEvent[] {
-  const { data, queueItems, threadsItems = [], threadsTimeZone, timeZone, startKey, days } = options;
+  const { data, queueItems, threadsItems = [], threadsTimeZone, timeZone, startKey, days, now = new Date(), isConnected } = options;
   const endKey = addDaysToKey(startKey, days);
 
   const events = [
-    ...shortsEvents(queueItems, timeZone, startKey, endKey),
+    ...shortsEvents(queueItems, timeZone, startKey, endKey, now, isConnected),
     ...carouselEvents(data.videoStudio?.carousels ?? [], startKey, endKey, days),
     ...xEvents(data.xPlanner?.packs ?? [], threadsItems, threadsTimeZone ?? timeZone, startKey, endKey),
     ...fbEvents(data.fbStrategy?.posts ?? [], startKey, endKey),

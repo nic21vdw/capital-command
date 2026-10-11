@@ -1,6 +1,9 @@
 import {
   CALENDAR_SOURCES,
   type CalendarSource,
+  isNeedsConnectionEventStatus,
+  isOverdueEventStatus,
+  isShouldBeLiveEventStatus,
   type CalendarSourceId,
   type MasterCalendarEvent
 } from "@/lib/master-calendar/types";
@@ -12,8 +15,12 @@ import {
  * events grouped into the sections the page renders.
  */
 
-/** What a source-native status means once it is only about "is this done". */
-export type SummaryState = "published" | "scheduled" | "failed" | "skipped" | "pending";
+/**
+ * What a source-native status means once it is only about "is this done".
+ * `shouldBeLive`, `overdue` and `needsConnection` are posts whose slot has passed: they
+ * are not "still to go" (the day's count of what remains) and not failures.
+ */
+export type SummaryState = "published" | "scheduled" | "shouldBeLive" | "overdue" | "needsConnection" | "failed" | "skipped" | "pending";
 
 export type DaySummarySection = {
   source: CalendarSource;
@@ -58,7 +65,7 @@ const SKIPPED = new Set(["skipped"]);
 const SCHEDULED = new Set(["scheduled", "queued", "uploaded", "processing"]);
 
 /**
- * A source-native status as one of five states. Anything the app has not
+ * A source-native status as one of the summary states. Anything the app has not
  * committed to a time yet — a draft FB post, a suggested Threads pack, a
  * tracker stage like "editing" — is pending: real work for the day, but not
  * something the publisher will fire on its own.
@@ -67,13 +74,16 @@ export function summaryState(status: string): SummaryState {
   const value = status.toLowerCase();
   if (PUBLISHED.has(value)) return "published";
   if (FAILED.has(value)) return "failed";
+  if (isShouldBeLiveEventStatus(value)) return "shouldBeLive";
+  if (isOverdueEventStatus(value)) return "overdue";
+  if (isNeedsConnectionEventStatus(value)) return "needsConnection";
   if (SKIPPED.has(value)) return "skipped";
   if (SCHEDULED.has(value)) return "scheduled";
   return "pending";
 }
 
 function emptyStates(): Record<SummaryState, number> {
-  return { published: 0, scheduled: 0, failed: 0, skipped: 0, pending: 0 };
+  return { published: 0, scheduled: 0, shouldBeLive: 0, overdue: 0, needsConnection: 0, failed: 0, skipped: 0, pending: 0 };
 }
 
 /** Timed pieces in clock order, then day-level ones — how the day plays out. */
