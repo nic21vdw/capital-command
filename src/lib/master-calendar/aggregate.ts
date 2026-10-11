@@ -1,6 +1,7 @@
 import { dateTimeFormat } from "@/lib/publisher/intl";
 import type { AppData, Carousel, ContentItem, FbPost, XDailyPack } from "@/types/domain";
 import { isImagePost } from "@/lib/publisher/images";
+import { describeFailure } from "@/lib/publisher/failure";
 import { remoteUrlFor } from "@/lib/publisher/remoteUrl";
 import { youtubeHoldsForReview } from "@/lib/publisher/reviewHold";
 import { isVideoId } from "@/lib/publisher/youtubeStatsShared";
@@ -192,6 +193,17 @@ function shortsEvents(
           : "/carousels"
         : uploadingCenterHref(item),
       ...(failed.length > 0 ? { failedPlatforms: failed.map((id) => PLATFORM_LABELS[id]) } : {}),
+      ...(failed.length > 0
+        ? {
+            failures: failed.map((id) => ({
+              platform: PLATFORM_LABELS[id],
+              // The sentence the Uploading Center card leads with, never the
+              // provider's own payload.
+              reason: describeFailure(item.platforms[id]!, id, { publishAt: item.publishAt }).headline,
+              href: uploadingCenterHref(item, id)
+            }))
+          }
+        : {}),
       // A long-form upload goes up private and stays private until it is made
       // public by hand. Only the YouTube leg is held: nothing else carries one.
       ...(item.platforms.youtube && youtubeHoldsForReview(item) ? { heldForReview: true } : {}),

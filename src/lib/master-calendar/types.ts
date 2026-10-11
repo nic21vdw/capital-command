@@ -42,6 +42,12 @@ export type MasterCalendarEvent = {
   /** Display labels of the platforms whose leg failed. Absent when nothing failed. */
   failedPlatforms?: string[];
   /**
+   * Why each failed leg failed, in one plain sentence, and the Uploading Center
+   * card on that platform's tab where it is fixed. Parallel to `failedPlatforms`
+   * (same order); absent for sources that carry no per-leg error.
+   */
+  failures?: { platform: string; reason: string; href: string }[];
+  /**
    * A long-form upload that goes up private and stays private until it is made
    * public by hand after review. Without this it reads like any other booked post.
    */

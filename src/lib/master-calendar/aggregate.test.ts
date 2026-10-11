@@ -119,6 +119,30 @@ describe("a post with one lost leg", () => {
     expect(event.failedPlatforms).toEqual(["YouTube", "TikTok"]);
   });
 
+  it("says why each lost leg failed, with a link to that platform's card", () => {
+    const [event] = events([
+      item({
+        platforms: {
+          youtube: { status: "failed", error: "invalid_grant: Token has been expired or revoked.", attempts: 3 },
+          tiktok: { status: "failed", error: "boom", attempts: 3 }
+        }
+      })
+    ]);
+    expect(event.failures).toEqual([
+      {
+        platform: "YouTube",
+        reason: "The YouTube connection expired or was revoked. Reconnect and this post goes out on its own.",
+        href: "/uploading-center?item=q1&platform=youtube"
+      },
+      { platform: "TikTok", reason: "TikTok rejected this upload.", href: "/uploading-center?item=q1&platform=tiktok" }
+    ]);
+    expect(JSON.stringify(event.failures)).not.toContain("boom");
+  });
+
+  it("has no failures on a healthy post", () => {
+    expect(events([item({ platforms: { youtube: { status: "published", postId: "abc123", attempts: 1 } } })])[0].failures).toBeUndefined();
+  });
+
   it("sends a failed picture post to its Uploading Center card, where Retry is", () => {
     const [event] = events([
       item({

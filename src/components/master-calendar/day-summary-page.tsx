@@ -28,6 +28,7 @@ import { sourceHrefForDay } from "@/lib/master-calendar/aggregate";
 import { formatDayKey, localTodayKey, relativeDayLabel, shiftDayKey } from "@/lib/master-calendar/day-keys";
 import { buildDaySummary, summaryState, type DaySummary, type SummaryState } from "@/lib/master-calendar/day-summary";
 import { buildWeekSummary, WEEK_DAYS } from "@/lib/master-calendar/weekSummary";
+import { dayViewsLabel, sameAsWeek } from "@/lib/master-calendar/viewsCopy";
 import { YoutubeAge } from "@/components/publisher/youtube-age";
 import { YoutubeStatsLine } from "@/components/publisher/youtube-stats-line";
 import { WeekSummaryCard } from "@/components/master-calendar/week-summary-card";
@@ -168,7 +169,22 @@ function PieceCard({ event, cachedStat }: { event: MasterCalendarEvent; cachedSt
             </Badge>
           ) : null}
         </div>
-        {event.failedPlatforms && event.failedPlatforms.length > 0 ? (
+        {event.failures && event.failures.length > 0 ? (
+          <ul className="relative z-10 mt-1.5 space-y-1.5">
+            {event.failures.map((failure) => (
+              <li key={failure.platform} className="flex items-start gap-1 text-xs text-red-300">
+                <AlertTriangle className="mt-0.5 h-3 w-3 shrink-0" />
+                <span className="min-w-0">
+                  <span className="font-medium">{failure.platform}:</span> {failure.reason}{" "}
+                  <Link href={failure.href} className="inline-flex items-center gap-0.5 whitespace-nowrap font-medium text-[var(--accent)] hover:underline">
+                    {event.failures!.length > 1 ? `Fix ${failure.platform} in Uploading Center` : "Fix in Uploading Center"}
+                    <ArrowUpRight className="h-3 w-3" />
+                  </Link>
+                </span>
+              </li>
+            ))}
+          </ul>
+        ) : event.failedPlatforms && event.failedPlatforms.length > 0 ? (
           <p className="mt-1.5 flex items-start gap-1 text-xs text-red-300">
             <AlertTriangle className="mt-0.5 h-3 w-3 shrink-0" />
             Failed on {event.failedPlatforms.join(", ")}
@@ -321,7 +337,8 @@ function YoutubeDayStrip({
   missing,
   freshness,
   status,
-  pending
+  pending,
+  sameAsWeekCard
 }: {
   label: string;
   dayLoading: boolean;
@@ -331,6 +348,8 @@ function YoutubeDayStrip({
   freshness: string | null;
   status: ReturnType<typeof useYoutubeStats>["status"];
   pending: boolean;
+  /** The day's numbers are the Last 7 days card's own: say so instead of repeating them silently. */
+  sameAsWeekCard: boolean;
 }) {
   // Nothing went to YouTube that day: nothing to hold space for.
   if (!dayLoading && videoCount === 0) return null;
@@ -339,7 +358,7 @@ function YoutubeDayStrip({
   if (waiting) {
     return (
       <Card className={box} aria-busy="true">
-        <p className="text-xs uppercase tracking-wider text-[var(--muted-foreground)]">{dayLoading ? "YouTube" : label}</p>
+        <p className="text-xs text-[var(--muted-foreground)]">{dayLoading ? "YouTube" : label}</p>
         <p className="mt-2 flex items-center gap-2 text-sm text-[var(--muted-foreground)]">
           <Loader2 className="h-3.5 w-3.5 animate-spin" />
           Loading YouTube numbers...
@@ -351,7 +370,7 @@ function YoutubeDayStrip({
   if (totals.videos === 0) {
     return (
       <Card className={box}>
-        <p className="text-xs uppercase tracking-wider text-[var(--muted-foreground)]">{label}</p>
+        <p className="text-xs text-[var(--muted-foreground)]">{label}</p>
         <p className="mt-1 text-sm text-[var(--muted-foreground)]">
           No numbers yet for {videoCount === 1 ? "this day's video" : `this day's ${videoCount} videos`}.
           {status === "not-connected" ? (
@@ -368,16 +387,17 @@ function YoutubeDayStrip({
   }
   return (
     <Card className={box}>
-      <p className="text-xs uppercase tracking-wider text-[var(--muted-foreground)]">{label}</p>
+      <p className="text-xs text-[var(--muted-foreground)]">{label}</p>
       <p className="mt-1 text-sm text-white">
         <span className="text-lg font-semibold">{compactCount(totals.views)}</span> {totals.views === 1 ? "view" : "views"} ·{" "}
         {compactCount(totals.likes)} {totals.likes === 1 ? "like" : "likes"}
-        <span className="text-[var(--muted-foreground)]">
-          {" "}
-          across {totals.videos} {totals.videos === 1 ? "video" : "videos"} posted that day
-          {missing ? " (some have no numbers yet)" : ""}
-        </span>
+        {missing ? <span className="text-[var(--muted-foreground)]"> (some videos have no numbers yet)</span> : null}
       </p>
+      {sameAsWeekCard ? (
+        <p className="mt-0.5 text-xs text-[var(--muted-foreground)]">
+          The same videos and numbers as Last 7 days above - nothing else went out on YouTube this week.
+        </p>
+      ) : null}
       {freshness ? (
         <p className="mt-1 text-xs text-[var(--muted-foreground)]">
           <YoutubeAge status={status} fetchedAt={freshness} />
@@ -683,7 +703,7 @@ export function DaySummaryPage({ initialDate }: { initialDate?: string }) {
 
       {dateKey <= todayKey ? (
         <YoutubeDayStrip
-          label={relative === "Today" || relative === "Yesterday" ? `${relative} on YouTube` : `${fullDayLabel} on YouTube`}
+          label={dayViewsLabel(youtubeIds.length, relative, fullDayLabel)}
           dayLoading={loading}
           videoCount={youtubeIds.length}
           totals={youtubeTotals}
@@ -691,6 +711,7 @@ export function DaySummaryPage({ initialDate }: { initialDate?: string }) {
           freshness={newestFetchedAt(allStats, youtubeIds)}
           status={youtube.status}
           pending={youtube.pending}
+          sameAsWeekCard={Boolean(weekSummary) && dateKey >= weekSummary!.startKey && sameAsWeek(youtubeTotals, weekSummary!.youtube)}
         />
       ) : null}
 

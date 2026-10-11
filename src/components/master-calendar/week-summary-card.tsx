@@ -8,6 +8,7 @@ import { Card } from "@/components/ui/card";
 import { PlatformIcon, type PlatformIconKey } from "@/components/ui/platform-icon";
 import { SourceIcon } from "@/components/master-calendar/source-icon";
 import { formatDayKey } from "@/lib/master-calendar/day-keys";
+import { WEEK_VIEWS_LABEL } from "@/lib/master-calendar/viewsCopy";
 import { WEEK_PLATFORMS, youtubeNoNumbersNote, type WeekPlatformRow, type WeekSummary } from "@/lib/master-calendar/weekSummary";
 import { YoutubeAge } from "@/components/publisher/youtube-age";
 import { compactCount, type YoutubeStatsStatus } from "@/lib/publisher/youtubeStatsShared";
@@ -157,7 +158,7 @@ export function WeekSummaryCard({
             <Counts row={{ ...summary.totals }} />
             {yt && yt.videos > 0 ? (
               <span className="text-sm text-white">
-                <span className="font-semibold">{compactCount(yt.views)}</span> YouTube {yt.views === 1 ? "view" : "views"}
+                <span className="font-semibold">{compactCount(yt.views)}</span> YouTube {yt.views === 1 ? "view" : "views"} so far
                 <span className="text-[var(--muted-foreground)]">
                   {" "}
                   · {compactCount(yt.likes)} {yt.likes === 1 ? "like" : "likes"}
@@ -180,7 +181,7 @@ export function WeekSummaryCard({
         {state === "ready" && summary ? (
           <>
             <div className="rounded-lg border border-[var(--border)] bg-white/[0.03] px-3 py-2.5">
-              <p className="text-xs uppercase tracking-wider text-[var(--muted-foreground)]">On YouTube</p>
+              <p className="text-xs text-[var(--muted-foreground)]">{WEEK_VIEWS_LABEL}</p>
               {yt && yt.videos > 0 ? (
                 <p className="mt-1 text-sm text-white">
                   <span className="text-lg font-semibold">{compactCount(yt.views)}</span> {yt.views === 1 ? "view" : "views"} ·{" "}
