@@ -18,6 +18,7 @@ import { runDue } from "@/lib/threads/runner";
 import { readThreadsState, tickHealth } from "@/lib/threads/state";
 import { localCalendarParts } from "@/lib/publisher/time";
 import { isAutomationPaused } from "@/lib/automations/store";
+import { scheduleWindow } from "@/lib/x-posts/generator";
 import { safeThreadsDetail, summarizeThreadsReplies, threadsReplyPolicy } from "@/lib/threads/reply-summary";
 
 export const runtime = "nodejs";
@@ -34,6 +35,11 @@ export const maxDuration = 300;
  *
  * GET is read-only: it reports, it never posts. All the acting is POST.
  */
+
+function postingWindow(): { start: number; end: number } {
+  const { start, span } = scheduleWindow();
+  return { start, end: start + span };
+}
 
 /** GET /api/threads — autopilot status, today's tally and the queue. */
 export async function GET() {
@@ -53,6 +59,8 @@ export async function GET() {
     settings: {
       timezone: config.timezone,
       postsPerDay: config.postsPerDay,
+      /** The window the day's slots are spread across, in minutes past midnight. */
+      postingWindow: postingWindow(),
       lateGraceMinutes: config.lateGraceMinutes,
       replyPolicy: threadsReplyPolicy(config, paused),
       // Credentials never leave the server — only what the dashboard shows.
