@@ -4,6 +4,7 @@ import path from "node:path";
 import { NextRequest } from "next/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { publisherConfig } from "@/lib/publisher/config";
+import { threadsConfig } from "@/lib/threads/config";
 import { PATCH } from "@/app/api/automations/cadence/route";
 
 // Only the FILE is redirected, so the test can never write a real .env.
@@ -16,6 +17,7 @@ vi.mock("@/lib/podcast/publicUrl", async (importOriginal) => ({
 beforeEach(async () => {
   fixture.file = path.join(await mkdtemp(path.join(tmpdir(), "cc-cadence-route-")), ".env");
   vi.stubEnv("PUBLISH_SHORTS_PER_DAY", "");
+  vi.stubEnv("THREADS_POSTS_PER_DAY", "");
   vi.stubEnv("PUBLISH_SLOT_TIMES", "");
   vi.stubEnv("PUBLISH_WEEKEND_SLOT_TIMES", "");
 });
@@ -39,6 +41,20 @@ describe("PATCH /api/automations/cadence", () => {
     const file = await readFile(fixture.file, "utf8");
     expect(file).toContain("PUBLISH_SHORTS_PER_DAY=3");
     expect(file).toContain("PUBLISH_SLOT_TIMES=09:00,18:00");
+  });
+
+  it("saves Threads posts per day and threadsConfig() sees it on the next call", async () => {
+    const response = await PATCH(request({ threadsPostsPerDay: 12 }));
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ threadsPostsPerDay: 12 });
+    expect(threadsConfig().postsPerDay).toBe(12);
+    expect(await readFile(fixture.file, "utf8")).toContain("THREADS_POSTS_PER_DAY=12");
+  });
+
+  it.each([0, 49, 2.5])("rejects Threads posts per day %j and writes nothing", async (value) => {
+    const response = await PATCH(request({ threadsPostsPerDay: value }));
+    expect(response.status).toBe(400);
+    expect(await readFile(fixture.file, "utf8").catch(() => null)).toBeNull();
   });
 
   it("rejects bad values with a plain message and writes nothing", async () => {

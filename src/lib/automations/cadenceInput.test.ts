@@ -10,6 +10,14 @@ describe("checkCadenceInput", () => {
     expect(checkCadenceInput({ shortsPerDay }).ok).toBe(false);
   });
 
+  it("accepts Threads posts per day from 1 to 48, the same clamp threadsConfig() applies", () => {
+    for (const count of [1, 24, 48]) expect(checkCadenceInput({ threadsPostsPerDay: count })).toEqual({ ok: true, value: { threadsPostsPerDay: count } });
+  });
+
+  it.each([0, 49, 2.5, -1, "24", null, Number.NaN])("rejects Threads posts per day %j", (threadsPostsPerDay) => {
+    expect(checkCadenceInput({ threadsPostsPerDay }).ok).toBe(false);
+  });
+
   it("sorts and de-duplicates slot times", () => {
     expect(checkCadenceInput({ slotTimes: ["15:00", "09:30", "15:00", " 07:05 "] })).toEqual({ ok: true, value: { slotTimes: ["07:05", "09:30", "15:00"] } });
   });

@@ -205,7 +205,7 @@ export function buildAutomationOverview(input: AutomationInputs, now = new Date(
   return {
     checkedAt: now.toISOString(), cards: [pipeline, ingest, publisher, threads, podcast], autoScheduleOvernight: input.autoScheduleOvernight,
     cadence: buildCadence(input.publisher, input.threads, scheduleWindow()),
-    cadenceValues: { shortsPerDay: input.publisher.shortsPerDay, slotTimes: input.publisher.slotTimes, weekendSlotTimes: input.publisher.weekendSlotTimes },
+    cadenceValues: { shortsPerDay: input.publisher.shortsPerDay, threadsPostsPerDay: input.threads.postsPerDay, slotTimes: input.publisher.slotTimes, weekendSlotTimes: input.publisher.weekendSlotTimes },
     held: held.slice(0, HELD_LIMIT), heldTotal: held.length,
     today: input.today ?? { delivered: 0, failed: 0 }
   };

@@ -197,8 +197,8 @@ describe("automation dashboard evidence", () => {
     expect(byEnv.PUBLISH_SLOT_TIMES).toBe("07:30, 10:00, 12:30, 15:00, 17:30, 20:00");
     expect(byEnv.PUBLISH_SHORTS_PER_DAY).toBe("2");
     expect(byEnv.PUBLISH_TIMEZONE).toBe("America/Toronto");
-    expect(rows.filter((row) => row.editable).map((row) => row.env).sort()).toEqual(["PUBLISH_SHORTS_PER_DAY", "PUBLISH_SLOT_TIMES", "PUBLISH_WEEKEND_SLOT_TIMES"]);
-    expect(buildAutomationOverview(inputs(), now).cadenceValues).toMatchObject({ shortsPerDay: 2 });
+    expect(rows.filter((row) => row.editable).map((row) => row.env).sort()).toEqual(["PUBLISH_SHORTS_PER_DAY", "PUBLISH_SLOT_TIMES", "PUBLISH_WEEKEND_SLOT_TIMES", "THREADS_POSTS_PER_DAY"]);
+    expect(buildAutomationOverview(inputs(), now).cadenceValues).toMatchObject({ shortsPerDay: 2, threadsPostsPerDay: 24 });
     expect(byEnv.THREADS_POSTS_PER_DAY).toBe("24");
     expect(byEnv["THREADS_DAY_START / THREADS_DAY_END"]).toBe("00:20 to 23:20");
   });
