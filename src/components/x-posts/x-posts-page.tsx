@@ -216,7 +216,11 @@ export function XPostsPage() {
         packExists: todaysPack !== null,
         items: (autopilot.status?.items ?? []) as Parameters<typeof rewriteDecision>[0]["items"],
         date: today ?? "",
-        autopilot: { paused: autopilotPaused, blockedReason: autopilot.status?.blockedReason ?? null },
+        autopilot: {
+          paused: autopilotPaused,
+          blockedReason: autopilot.status?.blockedReason ?? null,
+          noAccount: autopilot.status?.settings.accounts.length === 0
+        },
         pack: todaysPack ? { posts: todaysPack.posts.length, replies: todaysPack.replies.length } : null
       }),
     [todaysPack, autopilot.status, today, autopilotPaused]

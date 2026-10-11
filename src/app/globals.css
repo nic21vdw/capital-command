@@ -1859,3 +1859,27 @@ html[data-host-backdrop="clear"]:not([data-surface="classic"]):not([data-glass="
     opacity: 0.6;
   }
 }
+
+/*
+  Toasts (AppToaster). Sonner lays icon, text and buttons on one row, so a toast
+  with two buttons ("Open Settings" + "Remove anyway") squeezed its message to a
+  word per line. The row now wraps: the message keeps a readable width and any
+  buttons that do not fit drop to their own row underneath, right-aligned.
+*/
+.app-toaster [data-sonner-toast] {
+  flex-wrap: wrap;
+  row-gap: 0.5rem;
+}
+.app-toaster [data-sonner-toast] [data-content] {
+  flex: 1 1 14rem;
+  min-width: 0;
+}
+.app-toaster [data-sonner-toast] [data-button] {
+  margin-left: auto;
+}
+.app-toaster [data-sonner-toast] [data-cancel] {
+  margin-left: auto;
+}
+.app-toaster [data-sonner-toast] [data-cancel] + [data-button] {
+  margin-left: 0;
+}

@@ -190,6 +190,16 @@ export function publishNowTargets(
   });
 }
 
+/**
+ * True only once the account list has loaded and not one account is connected.
+ * Publish now is drawn per post and needs a connected account, so the board's
+ * standing hint about it must not point at a button that cannot appear. Until
+ * the list loads nothing is known, and nothing is claimed.
+ */
+export function noAccountConnected(accounts: ReadonlyArray<{ connected: boolean }>): boolean {
+  return accounts.length > 0 && accounts.every((account) => !account.connected);
+}
+
 /** Whether the account a post uses on one platform has a connection. */
 export type PlatformConnected = (platform: PlatformId) => boolean;
 

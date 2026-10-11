@@ -46,7 +46,7 @@ export async function POST(request: NextRequest) {
       packExists: true,
       items: await readQueue(),
       date,
-      autopilot: { paused: await isAutomationPaused("threads"), blockedReason: threadsBlockedReason(config) }
+      autopilot: { paused: await isAutomationPaused("threads"), blockedReason: threadsBlockedReason(config), noAccount: config.accounts.length === 0 }
     });
     if (!decision.allowed) {
       return NextResponse.json({ error: decision.reason, blocked: true, counts: decision.counts }, { status: 409 });

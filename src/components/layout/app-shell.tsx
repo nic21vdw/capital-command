@@ -1271,7 +1271,7 @@ function AppChrome({ children, frame }: { children: React.ReactNode; frame: bool
         {/* Keyed on the route so each navigation pushes the new page in with an
             iOS-style transition. Query-param changes (e.g. tab switches) keep
             the same key and don't re-animate. */}
-        <div key={pathname} className={cn("page-enter", frame && "app-frame-pane")}>
+        <div key={pathname} className={cn("page-enter", frame && "app-frame-pane", !hostedBare && !frame && "min-h-dvh")}>
           {/* Which recording this screen is showing, on every screen that can
               show one. Without it a Formats page is an undated pile of work. */}
           <StreamBanner />

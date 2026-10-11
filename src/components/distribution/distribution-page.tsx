@@ -947,7 +947,7 @@ function OutputCard({
         </div>
       ) : null}
       {stat ? (
-        <p className="text-xs font-medium text-[var(--accent)]">{stat}</p>
+        <p className="text-xs font-medium text-[var(--foreground)]">{stat}</p>
       ) : null}
       {href ? (
         <Link href={href} className="mt-auto pt-1">

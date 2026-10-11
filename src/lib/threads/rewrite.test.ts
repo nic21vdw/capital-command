@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { hasStarted, REWRITE_FAILED_REASON, REWRITE_STARTED_REASON, rewriteDecision } from "@/lib/threads/rewrite";
+import { hasStarted, REWRITE_FAILED_REASON, REWRITE_STARTED_NO_ACCOUNT_REASON, REWRITE_STARTED_REASON, rewriteDecision } from "@/lib/threads/rewrite";
 import type { ThreadsQueueItem } from "@/lib/threads/types";
 
 const DATE = "2026-10-11";
@@ -35,6 +35,16 @@ describe("rewriteDecision", () => {
     expect(decision.reason).toBe(REWRITE_STARTED_REASON);
     expect(decision.counts).toMatchObject({ sent: 1, queued: 2 });
     expect(decision.confirm).toEqual([]);
+  });
+
+  it("does not claim posts are going out when no account is connected", () => {
+    const items = [row(1, "published", { postId: "t1" }), row(2, "pending")];
+    const withAccount = rewriteDecision({ packExists: true, items, date: DATE, autopilot: { noAccount: false } });
+    const without = rewriteDecision({ packExists: true, items, date: DATE, autopilot: { noAccount: true } });
+    expect(withAccount.reason).toBe(REWRITE_STARTED_REASON);
+    expect(without.allowed).toBe(false);
+    expect(without.reason).toBe(REWRITE_STARTED_NO_ACCOUNT_REASON);
+    expect(without.reason).not.toContain("going out");
   });
 
   it.each([

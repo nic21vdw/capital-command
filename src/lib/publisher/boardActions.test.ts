@@ -5,6 +5,7 @@ import {
   connectLinkLabel,
   hasFreshClaim,
   legAccountId,
+  noAccountConnected,
   publishNowSkipped,
   publishNowTargets,
   publishedRemovalNote,
@@ -360,5 +361,16 @@ describe("primaryInlineAction", () => {
 
   it("is null when neither control is offered", () => {
     expect(primaryInlineAction(blockedLegControls(rejected, { connected: true, retitled: false }))).toBeNull();
+  });
+});
+
+describe("noAccountConnected", () => {
+  it("claims nothing until the account list has loaded", () => {
+    expect(noAccountConnected([])).toBe(false);
+  });
+
+  it("is true only when every account is unconnected", () => {
+    expect(noAccountConnected([{ connected: false }, { connected: false }])).toBe(true);
+    expect(noAccountConnected([{ connected: false }, { connected: true }])).toBe(false);
   });
 });
