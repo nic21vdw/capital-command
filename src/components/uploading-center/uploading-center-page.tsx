@@ -1135,6 +1135,7 @@ export function UploadingCenterPage() {
     // The header is a frozen pane and everything under it scrolls: the calendar
     // runs to months of days, and losing the channel and the quota meter on the
     // way down is how you end up scrolling back to check which one you are on.
+    // Phones scroll the whole page instead (see `.app-frame` in globals.css).
     <div className="app-frame-pane">
       <PageHeader
         eyebrow="Step 3 · Schedule"
@@ -1440,7 +1441,7 @@ function tiktokConnectUrl(accountId?: string) {
 
 function SettingsConnectionLink() {
   return (
-    <Link href="/settings#accounts" className="inline-flex h-8 shrink-0 items-center rounded-lg border border-[var(--border)] bg-white/5 px-3 text-xs font-medium text-white hover:bg-white/10">
+    <Link href="/settings#accounts" className="inline-flex h-8 shrink-0 items-center rounded-lg border border-[var(--border)] bg-white/5 px-3 text-xs font-medium max-sm:h-10 text-white hover:bg-white/10">
       Account settings
     </Link>
   );
@@ -1540,7 +1541,7 @@ function PostingOffBanner() {
       </p>
       <Link
         href="/settings#publishing"
-        className="inline-flex h-8 shrink-0 items-center rounded-lg border border-[var(--border)] bg-white/5 px-3 text-xs font-medium text-white hover:bg-white/10"
+        className="inline-flex h-8 shrink-0 items-center rounded-lg border border-[var(--border)] bg-white/5 px-3 text-xs font-medium max-sm:h-10 text-white hover:bg-white/10"
       >
         Turn posting on in Settings
       </Link>
@@ -1659,7 +1660,7 @@ function FailedStrip({
         <p className="flex flex-wrap items-center gap-x-2 text-[11px] text-[var(--muted-foreground)]">
           <span>{help}</span>
           {plan.needConnection.length > 0 ? (
-            <Link href="/settings#accounts" className="font-medium text-[var(--accent)] underline-offset-2 hover:underline">
+            <Link href="/settings#accounts" className="font-medium text-[var(--accent)] underline-offset-2 hover:underline max-sm:inline-flex max-sm:min-h-10 max-sm:items-center">
               Open Settings &rarr; Accounts
             </Link>
           ) : null}
@@ -1677,7 +1678,7 @@ function FailedStrip({
             <button
               type="button"
               onClick={() => onShow(leg)}
-              className="shrink-0 font-medium text-[var(--accent)] underline-offset-2 hover:underline"
+              className="shrink-0 font-medium text-[var(--accent)] underline-offset-2 hover:underline max-sm:min-h-10"
             >
               {leg.platform === activePlatform ? "Show on the board" : `Show on the ${PLATFORM_LABELS[leg.platform]} tab`}
             </button>

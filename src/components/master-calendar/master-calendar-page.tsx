@@ -27,6 +27,7 @@ import {
 import { summarizeEventStatus } from "@/lib/master-calendar/legSummary";
 import type { CalendarPlan } from "@/lib/master-calendar/planner";
 import { sourceHrefForDay } from "@/lib/master-calendar/aggregate";
+import { defaultCalendarView, viewportIsNarrow } from "@/lib/master-calendar/default-view";
 import { formatDayKey, localTodayKey, shiftDayKey, weekdayOfDayKey } from "@/lib/master-calendar/day-keys";
 import { SourceIcon } from "@/components/master-calendar/source-icon";
 import { useColateralSurface } from "@/lib/colateral/useSurface";
@@ -256,7 +257,7 @@ function SourceGroupCard({ source, events }: { source: CalendarSource; events: M
           aria-expanded={open}
           aria-label={open ? `Collapse ${source.label}` : `Show all ${events.length} ${source.label}`}
           title={open ? `Collapse ${source.label}` : `Show all ${events.length}`}
-          className="shrink-0 px-3 py-2.5 text-[var(--muted-foreground)] transition hover:text-white"
+          className="shrink-0 px-3 py-2.5 text-[var(--muted-foreground)] transition hover:text-white max-sm:min-h-10"
         >
           <ChevronRight className={cn("h-4 w-4 transition", open && "rotate-90")} />
         </button>
@@ -309,7 +310,12 @@ export function MasterCalendarPage() {
 }
 
 function MasterCalendarBody({ todayKey, seed }: { todayKey: string; seed: MasterCalendarResponse | null }) {
-  const [view, setView] = useState<ViewMode>("week");
+  // A phone opens on the day (a week is seven columns of sideways scrolling
+  // there). Reading the viewport in the initializer is hydration-safe because
+  // this body only mounts after the seed fetch in `MasterCalendarPage`, so it is
+  // never part of the server HTML. Whatever the person picks afterwards sticks:
+  // nothing re-derives the view from the width.
+  const [view, setView] = useState<ViewMode>(() => defaultCalendarView(viewportIsNarrow()));
   const [anchor, setAnchor] = useState(todayKey);
   const [hidden, setHidden] = useState<Set<CalendarSourceId>>(new Set());
   const [response, setResponse] = useState<MasterCalendarResponse | null>(seed);
@@ -614,7 +620,7 @@ function MasterCalendarBody({ todayKey, seed }: { todayKey: string; seed: Master
                 onClick={() => toggleSource(source.id)}
                 aria-pressed={!isHidden}
                 title={isHidden ? `Show ${source.label}` : `Hide ${source.label}`}
-                className="flex items-center gap-1.5 py-1.5 pl-2.5 pr-1.5 transition hover:bg-white/10"
+                className="flex items-center gap-1.5 py-1.5 pl-2.5 pr-1.5 transition hover:bg-white/10 max-sm:min-h-10"
               >
                 <SourceIcon source={source.id} className="h-3.5 w-3.5" />
                 <span className={cn("font-medium text-white", isHidden && "line-through")}>{source.shortLabel}</span>
@@ -624,7 +630,7 @@ function MasterCalendarBody({ todayKey, seed }: { todayKey: string; seed: Master
                 href={source.href}
                 aria-label={`Open ${source.hrefLabel}`}
                 title={`Open ${source.hrefLabel}`}
-                className="border-l border-[var(--border)] px-1.5 py-1.5 text-[var(--muted-foreground)] transition hover:bg-white/10 hover:text-white"
+                className="flex items-center justify-center self-stretch border-l border-[var(--border)] px-1.5 py-1.5 text-[var(--muted-foreground)] transition hover:bg-white/10 hover:text-white max-sm:min-w-10"
               >
                 <ArrowUpRight className="h-3 w-3" />
               </Link>
@@ -707,14 +713,14 @@ function MasterCalendarBody({ todayKey, seed }: { todayKey: string; seed: Master
                 type="button"
                 onClick={() => shift(-1)}
                 aria-label="Previous period"
-                className="flex h-8 w-8 items-center justify-center text-[var(--muted-foreground)] transition hover:bg-white/10 hover:text-white"
+                className="flex h-8 w-8 items-center justify-center text-[var(--muted-foreground)] transition hover:bg-white/10 hover:text-white max-sm:h-10 max-sm:w-10"
               >
                 <ChevronLeft className="h-4 w-4" />
               </button>
               <button
                 type="button"
                 onClick={() => setAnchor(todayKey)}
-                className="border-x border-[var(--border)] px-3 text-xs font-medium leading-8 text-[var(--muted-foreground)] transition hover:bg-white/10 hover:text-white"
+                className="border-x border-[var(--border)] px-3 text-xs font-medium leading-8 text-[var(--muted-foreground)] max-sm:leading-10 transition hover:bg-white/10 hover:text-white"
               >
                 Today
               </button>
@@ -722,7 +728,7 @@ function MasterCalendarBody({ todayKey, seed }: { todayKey: string; seed: Master
                 type="button"
                 onClick={() => shift(1)}
                 aria-label="Next period"
-                className="flex h-8 w-8 items-center justify-center text-[var(--muted-foreground)] transition hover:bg-white/10 hover:text-white"
+                className="flex h-8 w-8 items-center justify-center text-[var(--muted-foreground)] transition hover:bg-white/10 hover:text-white max-sm:h-10 max-sm:w-10"
               >
                 <ChevronRight className="h-4 w-4" />
               </button>
@@ -768,7 +774,7 @@ function MasterCalendarBody({ todayKey, seed }: { todayKey: string; seed: Master
                 onClick={() => setView(mode)}
                 aria-pressed={view === mode}
                 className={cn(
-                  "rounded-full px-3.5 py-1.5 text-xs font-medium capitalize transition-all",
+                  "rounded-full px-3.5 py-1.5 text-xs font-medium capitalize transition-all max-sm:min-h-10",
                   view === mode
                     ? "bg-[var(--accent)] text-[var(--accent-contrast)] shadow-[0_1px_6px_color-mix(in_srgb,var(--accent)_45%,transparent)]"
                     : "text-[var(--muted-foreground)] hover:text-white"

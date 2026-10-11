@@ -73,7 +73,7 @@ export function AdvancedOptions({
         onClick={toggle}
         aria-expanded={open}
         className={cn(
-          "flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-[var(--muted-foreground)] transition hover:text-white",
+          "flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-[var(--muted-foreground)] transition hover:text-white max-sm:min-h-10",
           wrapSummary && "flex-wrap gap-y-0.5"
         )}
       >
