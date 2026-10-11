@@ -94,7 +94,11 @@ export function publisherBannerLine(
     : { tone: "muted", text };
 }
 
-/** "YouTube (also mirrored to Instagram and Facebook)", or null when nothing mirrors. */
+/**
+ * "YouTube + Instagram + Facebook (mirrored)", or null when nothing mirrors.
+ * Every platform is named in full: the old "(also mirrored to Instagram and
+ * Facebook)" ran past the width of a phone and the picker cut it off mid-word.
+ */
 export function mirroredNote(
   mirror: PublishMirrorOverview | undefined,
   names: Record<PlatformId, string>
@@ -102,7 +106,29 @@ export function mirroredNote(
   if (!mirror?.enabled) return null;
   const targets = mirror.targets.filter((platform) => platform !== mirror.lead);
   if (targets.length === 0) return null;
-  const list = targets.map((platform) => names[platform]);
-  const joined = list.length > 1 ? `${list.slice(0, -1).join(", ")} and ${list[list.length - 1]}` : list[0];
-  return `${names[mirror.lead]} (also mirrored to ${joined})`;
+  return `${[mirror.lead, ...targets].map((platform) => names[platform]).join(" + ")} (mirrored)`;
+}
+
+/**
+ * One line under the platform picker saying what the chosen option books. It
+ * follows `schedulePlatforms`: "all" books YouTube, TikTok and Instagram (the
+ * Instagram post carries the Facebook Page), Instagram carries Facebook, and a
+ * mirrored lead is copied onto the mirror's other platforms by the publisher.
+ */
+export function platformTargetHint(
+  target: string,
+  mirror: PublishMirrorOverview | undefined,
+  names: Record<PlatformId, string>
+): string {
+  if (target === "all") return `Books ${names.youtube}, ${names.tiktok}, ${names.instagram} and ${names.facebook} at this slot.`;
+  if (target === "instagram") return `Books ${names.instagram}; the post goes to the ${names.facebook} Page too.`;
+  if (target === "facebook") return `Books the ${names.facebook} Page only.`;
+  if (mirror?.enabled && target === mirror.lead) {
+    const others = mirror.targets.filter((platform) => platform !== mirror.lead).map((platform) => names[platform]);
+    if (others.length > 0) {
+      const joined = others.length > 1 ? `${others.slice(0, -1).join(", ")} and ${others[others.length - 1]}` : others[0];
+      return `Books ${names[mirror.lead]}; the publisher copies that schedule to ${joined}.`;
+    }
+  }
+  return `Books ${names[target as PlatformId] ?? target} only.`;
 }

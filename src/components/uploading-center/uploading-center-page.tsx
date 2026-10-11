@@ -72,6 +72,7 @@ import {
   SLOT_WINDOW_DAYS,
   copyPlatformFor,
   copyTargetLabel,
+  platformTargetHints,
   platformTargetLabels,
   studioContentUrl,
   studioVideoUrl,
@@ -402,6 +403,7 @@ export function UploadingCenterPage() {
     [isTargetSlotTaken, shortsCap, slotDayKey],
   );
   const targetLabels = useMemo(() => platformTargetLabels(overview?.mirror), [overview?.mirror]);
+  const targetHints = useMemo(() => platformTargetHints(overview?.mirror), [overview?.mirror]);
 
   // Placement mode: the editor's Schedule Short button lands here with
   // ?scheduleJob=…&scheduleClip=…; that clip is pre-selected and every open
@@ -1296,6 +1298,7 @@ export function UploadingCenterPage() {
                 failedCaptionCount={failedCaptionClips.length}
                 onRetryCaptions={handleRetryCaptions}
                 targetLabels={targetLabels}
+                targetHints={targetHints}
                 shortsCap={shortsCap}
                 tomorrowKey={tomorrowKey}
                 isSlotUnavailable={isSlotUnavailable}
@@ -1753,7 +1756,7 @@ function FailedStrip({
         <button
           type="button"
           onClick={() => setExpanded((open) => !open)}
-          className="text-[11px] font-medium text-[var(--muted-foreground)] underline-offset-2 hover:text-white hover:underline"
+          className="text-[11px] font-medium text-[var(--muted-foreground)] underline-offset-2 hover:text-white hover:underline max-sm:inline-flex max-sm:min-h-10 max-sm:items-center"
         >
           {expanded ? "Show fewer" : `Show all ${legs.length}`}
         </button>

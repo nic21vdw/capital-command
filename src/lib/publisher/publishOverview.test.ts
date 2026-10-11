@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   agoLabel,
   mirroredNote,
+  platformTargetHint,
   publisherBannerLine,
   type PublisherAutomationOverview
 } from "@/lib/publisher/publishOverview";
@@ -72,7 +73,7 @@ describe("mirroredNote", () => {
 
   it("names where the lead is copied to", () => {
     expect(mirroredNote({ enabled: true, lead: "youtube", targets: ["instagram", "facebook"] }, names)).toBe(
-      "YouTube (also mirrored to Instagram and Facebook)"
+      "YouTube + Instagram + Facebook (mirrored)"
     );
   });
 
@@ -80,5 +81,27 @@ describe("mirroredNote", () => {
     expect(mirroredNote({ enabled: false, lead: "youtube", targets: ["instagram"] }, names)).toBeNull();
     expect(mirroredNote({ enabled: true, lead: "youtube", targets: ["youtube"] }, names)).toBeNull();
     expect(mirroredNote(undefined, names)).toBeNull();
+  });
+});
+
+describe("platformTargetHint", () => {
+  const names = { youtube: "YouTube", instagram: "Instagram", tiktok: "TikTok", facebook: "Facebook" } as const;
+  const mirror = { enabled: true, lead: "youtube", targets: ["instagram", "facebook"] } as const;
+
+  it("says what the mirror adds to the lead", () => {
+    expect(platformTargetHint("youtube", { ...mirror, targets: [...mirror.targets] }, names)).toBe(
+      "Books YouTube; the publisher copies that schedule to Instagram and Facebook."
+    );
+  });
+
+  it("names one platform alone when nothing mirrors", () => {
+    expect(platformTargetHint("youtube", undefined, names)).toBe("Books YouTube only.");
+    expect(platformTargetHint("tiktok", { ...mirror, targets: [...mirror.targets] }, names)).toBe("Books TikTok only.");
+  });
+
+  it("says Instagram carries the Facebook Page, and what all books", () => {
+    expect(platformTargetHint("instagram", undefined, names)).toContain("Facebook Page too");
+    expect(platformTargetHint("facebook", undefined, names)).toBe("Books the Facebook Page only.");
+    expect(platformTargetHint("all", undefined, names)).toContain("YouTube, TikTok, Instagram and Facebook");
   });
 });

@@ -14,6 +14,9 @@ already shipped.
 
 ## Unreleased
 
+- **The Uploading Center board is far shorter on a phone.** A day with two or more open slots folds them into one line ("4 open slots - 7:30 AM, 12:30 PM, 5:30 PM +1 more") that opens to the individual slots; on a touch screen an open slot offers "Upload clip" instead of "Drop a clip or video", and the "Show all" link on the Failed strip is a full-size tap target.
+- **A draft's platform picker reads in full.** It is full width on a phone and names what it books: "YouTube + Instagram + Facebook (mirrored)", "Instagram + Facebook", "TikTok" or "Facebook", with a line under it saying what the choice posts to.
+- **The YouTube redirect address shows once in Settings > Accounts.** It stays in the step-1 walkthrough while that step is next and moves into the YouTube card afterwards; the console steps are a numbered list, with each step's detail behind "Show details" on a phone.
 - **The YouTube setup says why it needs a Google key and walks the first step.** Settings > Accounts opens step 1 with one plain sentence on why, four bullets for the Google Cloud console, a "Copy redirect URI" button that copies the exact address the app sends (with a "Copied" confirmation) and an "Open Google Cloud console" link.
 - **A failed card's filled button is the one that fixes the failure.** A post YouTube refused for a duplicate title now leads with Rename (Connect is the quieter button beside it); Connect is the filled one only when the connection is what broke.
 - **A booked clip says what the board says.** A clip waiting on a YouTube connection reads "Needs YouTube connection" in amber instead of a green "Booked", and a healthy one says "Scheduled", the app's word for booked and not yet posted.

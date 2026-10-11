@@ -42,6 +42,7 @@ import { captionRequestFields } from "@/lib/publisher/captionTags";
 import { indexQueueByClip } from "@/lib/publisher/clipQueueIndex";
 import {
   mirroredNote,
+  platformTargetHint,
   type PublishMirrorOverview,
   type PublisherAutomationOverview
 } from "@/lib/publisher/publishOverview";
@@ -283,6 +284,15 @@ export const PLATFORM_TARGET_LABELS: Record<PlatformTarget, string> = {
 export function platformTargetLabels(mirror?: PublishMirrorOverview): Record<PlatformTarget, string> {
   const note = mirroredNote(mirror, PLATFORM_LABELS);
   return mirror && note ? { ...PLATFORM_TARGET_LABELS, [mirror.lead]: note } : PLATFORM_TARGET_LABELS;
+}
+
+/** What each picker option books, for the line under the draft's platform select. */
+export function platformTargetHints(mirror?: PublishMirrorOverview): Record<PlatformTarget, string> {
+  const hints = {} as Record<PlatformTarget, string>;
+  for (const target of Object.keys(PLATFORM_TARGET_LABELS) as PlatformTarget[]) {
+    hints[target] = platformTargetHint(target, mirror, PLATFORM_LABELS);
+  }
+  return hints;
 }
 
 /**
